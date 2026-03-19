@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added a command-palette card-filter popover with an active-filter summary row, so global card search can now narrow results by status, priority, tags, assignee, and project using the same compact filter language as the View-stage toolbar, and those filter selections now persist across reopen.
 
 ### Changed
 - Shared sort controls can now place empty `priority` / `estimate` values either first or last, so derived Kanban, List, and Toggle List views no longer force empty values to the end.

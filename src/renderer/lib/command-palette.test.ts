@@ -1,5 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { filterCommandPaletteItems, type CommandPaletteCard, type CommandPaletteCommand } from "./command-palette";
+import {
+  areCommandPaletteCardFiltersEqual,
+  filterCommandPaletteItems,
+  getDefaultCommandPaletteCardFilters,
+  readCommandPaletteCardFilters,
+  summarizeCommandPaletteCardFilters,
+  type CommandPaletteCard,
+  type CommandPaletteCommand,
+  writeCommandPaletteCardFilters,
+} from "./command-palette";
 import { createCommandPaletteCardSearchIndex } from "./command-palette-card-search";
 import type { Card } from "./types";
 
@@ -62,6 +71,35 @@ function makePaletteCard(overrides: Partial<CommandPaletteCard> = {}): CommandPa
     recentIndex: overrides.recentIndex ?? null,
     boardIndex: overrides.boardIndex ?? 0,
   };
+}
+
+const storageMap = new Map<string, string>();
+
+const mockStorage = {
+  getItem(key: string): string | null {
+    return storageMap.has(key) ? storageMap.get(key) ?? null : null;
+  },
+  setItem(key: string, value: string): void {
+    storageMap.set(key, value);
+  },
+  clear(): void {
+    storageMap.clear();
+  },
+};
+
+function withMockLocalStorage(run: () => void): void {
+  const storageGlobal = globalThis as { localStorage?: typeof mockStorage };
+  const previousLocalStorage = storageGlobal.localStorage;
+  storageGlobal.localStorage = mockStorage;
+  try {
+    run();
+  } finally {
+    if (previousLocalStorage) {
+      storageGlobal.localStorage = previousLocalStorage;
+      return;
+    }
+    delete storageGlobal.localStorage;
+  }
 }
 
 describe("filterCommandPaletteItems", () => {
@@ -162,6 +200,146 @@ describe("filterCommandPaletteItems", () => {
 
     expect(result.commands.length).toBe(0);
     expect(result.cards[0]?.card.id).toBe("beta");
+  });
+
+  test("filters cards by explicit tag and status filters", () => {
+    const doneSearchCard = makePaletteCard({
+      card: makeCard({
+        id: "done-search",
+        title: "Search polish",
+        status: "done",
+        tags: ["search", "palette"],
+      }),
+      columnName: "Done",
+    });
+    const backlogSearchCard = makePaletteCard({
+      card: makeCard({
+        id: "backlog-search",
+        title: "Search polish",
+        status: "backlog",
+        tags: ["search"],
+      }),
+      columnName: "Backlog",
+    });
+    const doneOtherTagCard = makePaletteCard({
+      card: makeCard({
+        id: "done-other",
+        title: "Other task",
+        status: "done",
+        tags: ["infra"],
+      }),
+      columnName: "Done",
+    });
+
+    const result = filterCommandPaletteItems({
+      query: "",
+      commands: [],
+      cards: [backlogSearchCard, doneOtherTagCard, doneSearchCard],
+      cardFilters: {
+        ...getDefaultCommandPaletteCardFilters(),
+        statuses: ["done"],
+        tags: ["search"],
+      },
+      cardSearchIndex: createCommandPaletteCardSearchIndex([
+        backlogSearchCard,
+        doneOtherTagCard,
+        doneSearchCard,
+      ]),
+    });
+
+    expect(result.cards.length).toBe(1);
+    expect(result.cards[0]?.card.id).toBe("done-search");
+  });
+
+  test("combines project and assignee filters with free-text search", () => {
+    const targetCard = makePaletteCard({
+      projectId: "ops",
+      projectName: "Ops Console",
+      card: makeCard({
+        id: "ops-card",
+        title: "Executor queue",
+        assignee: "Alex",
+        description: "Refresh palette results after queue updates.",
+      }),
+    });
+    const wrongProjectCard = makePaletteCard({
+      projectId: "design",
+      projectName: "Design System",
+      card: makeCard({
+        id: "design-card",
+        title: "Executor queue",
+        assignee: "Alex",
+        description: "Refresh palette results after queue updates.",
+      }),
+    });
+    const wrongAssigneeCard = makePaletteCard({
+      projectId: "ops",
+      projectName: "Ops Console",
+      card: makeCard({
+        id: "other-assignee",
+        title: "Executor queue",
+        assignee: "Sam",
+        description: "Refresh palette results after queue updates.",
+      }),
+    });
+
+    const result = filterCommandPaletteItems({
+      query: "queue",
+      commands: [],
+      cards: [wrongProjectCard, wrongAssigneeCard, targetCard],
+      cardFilters: {
+        ...getDefaultCommandPaletteCardFilters(),
+        assignees: ["Alex"],
+        projectIds: ["ops"],
+      },
+      cardSearchIndex: createCommandPaletteCardSearchIndex([
+        wrongProjectCard,
+        wrongAssigneeCard,
+        targetCard,
+      ]),
+    });
+
+    expect(result.cards.length).toBe(1);
+    expect(result.cards[0]?.card.id).toBe("ops-card");
+  });
+
+  test("summarizes active palette filters in the same compact language as the view toolbar", () => {
+    const summaries = summarizeCommandPaletteCardFilters(
+      {
+        ...getDefaultCommandPaletteCardFilters(),
+        statuses: ["backlog", "in_progress"],
+        priorities: ["p0-critical"],
+        includeEmptyPriority: true,
+        tags: ["search"],
+        assignees: ["Alex"],
+        projectIds: ["ops"],
+      },
+      new Map([["ops", "Ops Console"]]),
+    );
+
+    expect(summaries.length).toBe(5);
+    expect(summaries[0]?.label).toBe("Status");
+    expect(summaries[0]?.value).toBe("Backlog, In Progress");
+    expect(summaries[1]?.value).toBe("P0, -");
+    expect(summaries[2]?.label).toBe("Tags (any)");
+    expect(summaries[4]?.value).toBe("Ops Console");
+  });
+
+  test("reads and writes persisted palette filters through localStorage", () => {
+    withMockLocalStorage(() => {
+      mockStorage.clear();
+
+      const written = writeCommandPaletteCardFilters({
+        ...getDefaultCommandPaletteCardFilters(),
+        projectIds: ["ops"],
+        assignees: ["Alex"],
+      });
+      const read = readCommandPaletteCardFilters();
+
+      expect(areCommandPaletteCardFiltersEqual(read, written)).toBeTrue();
+      expect(read.projectIds[0]).toBe("ops");
+      expect(read.assignees[0]).toBe("Alex");
+    });
   });
 
   test("does not search commands without the > prefix", () => {

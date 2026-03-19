@@ -12,10 +12,26 @@ import {
   SquareKanban,
   Table2,
 } from "lucide-react";
-import { filterCommandPaletteItems, type CommandPaletteCard, type CommandPaletteCommand } from "../../lib/command-palette";
+import {
+  areCommandPaletteCardFiltersEqual,
+  cloneCommandPaletteCardFilters,
+  filterCommandPaletteItems,
+  hasActiveCommandPaletteCardFilters,
+  normalizeCommandPaletteCardFilters,
+  readCommandPaletteCardFilters,
+  type CommandPaletteCard,
+  type CommandPaletteCardFilters,
+  type CommandPaletteCommand,
+  writeCommandPaletteCardFilters,
+} from "../../lib/command-palette";
 import type { CommandPaletteCardSearchIndex } from "../../lib/command-palette-card-search";
 import { cn } from "../../lib/utils";
 import { CardIcon } from "./card-icon";
+import {
+  CommandPaletteCardFilterButton,
+  CommandPaletteCardFilterPopover,
+  CommandPaletteCardFiltersSummaryRow,
+} from "./command-palette-filters";
 import { ThreadsIcon } from "./threads-icon";
 import { ToggleListIcon } from "./toggle-list-icon";
 
@@ -229,28 +245,63 @@ export function CommandPaletteSurface({
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
   const [query, setQuery] = useState("");
+  const [cardFilters, setCardFilters] = useState<CommandPaletteCardFilters>(() => readCommandPaletteCardFilters());
+  const [filterOpen, setFilterOpen] = useState(false);
   const deferredQuery = useDeferredValue(query);
+  const availableTags = useMemo(
+    () => Array.from(new Set(cards.flatMap((item) => item.card.tags))).sort((left, right) => left.localeCompare(right)),
+    [cards],
+  );
+  const availableAssignees = useMemo(
+    () => Array.from(new Set(
+      cards
+        .map((item) => item.card.assignee?.trim() ?? "")
+        .filter((value) => value.length > 0),
+    )).sort((left, right) => left.localeCompare(right)),
+    [cards],
+  );
+  const availableProjects = useMemo(
+    () => Array.from(new Map(
+      cards.map((item) => [item.projectId, { id: item.projectId, label: item.projectName }] as const),
+    ).values()).sort((left, right) => left.label.localeCompare(right.label)),
+    [cards],
+  );
+  const projectNameById = useMemo(
+    () => new Map(availableProjects.map((project) => [project.id, project.label] as const)),
+    [availableProjects],
+  );
   const results = useMemo(
     () => filterCommandPaletteItems({
       query: deferredQuery,
       commands,
       cards,
+      cardFilters,
       cardSearchIndex,
     }),
-    [cardSearchIndex, cards, commands, deferredQuery],
+    [cardFilters, cardSearchIndex, cards, commands, deferredQuery],
   );
   const flatItems = useMemo(
     () => [...results.commands, ...results.cards],
     [results.cards, results.commands],
   );
+  const filterActive = hasActiveCommandPaletteCardFilters(cardFilters);
   const showSubtitle = results.query.length > 0;
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const normalizedCardFilters = useMemo(
+    () => normalizeCommandPaletteCardFilters(cardFilters, {
+      allowedTags: availableTags,
+      allowedAssignees: availableAssignees,
+      allowedProjectIds: availableProjects.map((project) => project.id),
+    }),
+    [availableAssignees, availableProjects, availableTags, cardFilters],
+  );
 
   useEffect(() => {
     if (!open) return;
 
     const nextQuery = initialQuery ?? "";
     setQuery(nextQuery);
+    setFilterOpen(false);
 
     const rafId = window.requestAnimationFrame(() => {
       const input = inputRef.current;
@@ -282,6 +333,27 @@ export function CommandPaletteSurface({
     if (!open) return;
     setSelectedIndex(0);
   }, [open, results.commandMode, results.query]);
+
+  useEffect(() => {
+    if (!results.commandMode) return;
+    setFilterOpen(false);
+  }, [results.commandMode]);
+
+  useEffect(() => {
+    if (areCommandPaletteCardFiltersEqual(cardFilters, normalizedCardFilters)) {
+      return;
+    }
+
+    setCardFilters(normalizedCardFilters);
+  }, [cardFilters, normalizedCardFilters]);
+
+  useEffect(() => {
+    writeCommandPaletteCardFilters(
+      areCommandPaletteCardFiltersEqual(cardFilters, normalizedCardFilters)
+        ? cardFilters
+        : normalizedCardFilters,
+    );
+  }, [cardFilters, normalizedCardFilters]);
 
   useEffect(() => {
     if (flatItems.length === 0) {
@@ -380,25 +452,50 @@ export function CommandPaletteSurface({
       >
         Command menu
       </label>
-      <input
-        ref={inputRef}
-        cmdk-input=""
-        autoComplete="off"
-        autoCorrect="off"
-        spellCheck={false}
-        aria-autocomplete="list"
-        role="combobox"
-        aria-expanded="true"
-        aria-controls={listId}
-        aria-labelledby={labelId}
-        id={inputId}
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder="Search cards or type > for commands"
-        aria-label="Command palette search"
-        className="w-full border-none bg-transparent px-[calc(var(--spacing)*2.75)] py-[calc(var(--spacing)*1.75)] text-base text-token-foreground outline-none placeholder:text-token-description-foreground"
-      />
+      <div className="flex items-center gap-1.5 px-[calc(var(--spacing)*2.2)]">
+        <input
+          ref={inputRef}
+          cmdk-input=""
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
+          aria-autocomplete="list"
+          role="combobox"
+          aria-expanded="true"
+          aria-controls={listId}
+          aria-labelledby={labelId}
+          id={inputId}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Search cards or type > for commands"
+          aria-label="Command palette search"
+          className="w-full border-none bg-transparent px-[calc(var(--spacing)*0.55)] py-[calc(var(--spacing)*1.75)] text-base text-token-foreground outline-none placeholder:text-token-description-foreground"
+        />
+
+        <CommandPaletteCardFilterPopover
+          open={filterOpen}
+          onOpenChange={setFilterOpen}
+          filters={cardFilters}
+          availableTags={availableTags}
+          availableAssignees={availableAssignees}
+          availableProjects={availableProjects}
+          disabled={results.commandMode}
+          onChange={(update) => setCardFilters((prev) => update(cloneCommandPaletteCardFilters(prev)))}
+        >
+          <CommandPaletteCardFilterButton active={filterActive} disabled={results.commandMode} />
+        </CommandPaletteCardFilterPopover>
+      </div>
+
+      {!results.commandMode && filterActive ? (
+        <div className="px-[calc(var(--spacing)*2.75)] pb-[calc(var(--spacing)*0.5)]">
+          <CommandPaletteCardFiltersSummaryRow
+            filters={cardFilters}
+            projectNameById={projectNameById}
+            onOpenFilter={() => setFilterOpen(true)}
+          />
+        </div>
+      ) : null}
 
       <div
         ref={scrollViewportRef}

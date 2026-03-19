@@ -28,6 +28,10 @@ Card mode is the default.
 - Any query that does not start with `>` searches cards only.
 - Commands are hidden entirely in card mode.
 - Empty query shows default card suggestions rather than commands.
+- Card mode keeps a trailing `Filter` button on the search-input row.
+- Clicking `Filter` opens a transient popover with property filters for status, priority, tags, assignee, and project.
+- When any palette filters are active, the palette shows a compact summary row directly under the input, using the same compact pill language as the View-stage toolbar.
+- Palette card filters persist across palette reopen and app reload, but the free-text query still clears on close.
 
 ### Command Mode
 Command mode is entered with a leading `>`.
@@ -74,6 +78,9 @@ Query semantics:
   - length `<= 3`: `0`
   - length `4-5`: `0.1`
   - length `> 5`: `0.2`
+- free-text search stays separate from palette filters; filters narrow the final card result set after search ranking
+- status, priority, assignee, and project filters are multi-select unions
+- tag filters support `Any`, `All`, and `None` matching modes
 
 ### Ordering
 For non-empty queries, card results sort by:
@@ -176,9 +183,9 @@ Supported actions currently include:
 ## Non-Goals
 - full query DSL in card mode
 - quoted phrase operators
-- explicit include/exclude filters
+- inline search qualifiers or advanced query syntax
 - persistent search history
 - multi-snippet previews per card
 - syntax-colored rich-text previews
 
-The palette is intentionally biased toward immediate navigation rather than becoming a full search product.
+The palette is intentionally biased toward immediate navigation rather than becoming a full search product. Filtering should feel like a lightweight extension of the existing workbench toolbar language, not a separate advanced-search feature.

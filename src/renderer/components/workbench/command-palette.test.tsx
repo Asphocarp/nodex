@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 import { createElement } from "react";
 import { fireEvent } from "@testing-library/react";
 import type { CommandPaletteCard, CommandPaletteCommand } from "@/lib/command-palette";
+import { getDefaultCommandPaletteCardFilters } from "@/lib/command-palette";
 import type { Card } from "@/lib/types";
 import { createCommandPaletteCardSearchIndex } from "../../lib/command-palette-card-search";
 import { render, textContent } from "../../test/dom";
@@ -154,5 +155,89 @@ describe("CommandPaletteSurface", () => {
     expect(container.querySelectorAll("kbd").length).toBe(0);
     expect(resultButtons.length).toBe(1);
     expect(textContent(container).includes("Misc task")).toBeFalse();
+  });
+
+  test("renders the filter button on the search-input row", async () => {
+    const { CommandPaletteSurface } = await import("./command-palette-surface");
+    const cards = [
+      makePaletteCard({
+        projectId: "ops",
+        projectName: "Ops",
+        card: makeCard({
+          id: "ops-card",
+          title: "Queue cleanup",
+          description: "Executor queue polish.",
+          assignee: "Alex",
+        }),
+      }),
+      makePaletteCard({
+        projectId: "design",
+        projectName: "Design",
+        card: makeCard({
+          id: "design-card",
+          title: "Queue cleanup",
+          description: "Executor queue polish.",
+          assignee: "Alex",
+        }),
+      }),
+    ];
+
+    const { container, getByLabelText } = render(
+      <CommandPaletteSurface
+        open
+        openTriggerTick={3}
+        initialQuery="queue"
+        commands={[]}
+        cards={cards}
+        cardSearchIndex={createCommandPaletteCardSearchIndex(cards)}
+        loading={false}
+        onRequestClose={() => undefined}
+        onExecute={() => undefined}
+      />,
+    );
+
+    await Promise.resolve();
+
+    const filterButton = getByLabelText("Filter cards");
+    expect(filterButton.getAttribute("aria-label")).toBe("Filter cards");
+    expect(textContent(container).includes("Queue cleanup")).toBeTrue();
+  });
+
+  test("renders summary chips for active palette filters", async () => {
+    const { CommandPaletteCardFiltersSummaryRow } = await import("./command-palette-filters");
+    const filters = {
+      ...getDefaultCommandPaletteCardFilters(),
+      projectIds: ["ops"],
+      assignees: ["Alex"],
+    };
+
+    const { container } = render(
+      <CommandPaletteCardFiltersSummaryRow
+        filters={filters}
+        projectNameById={new Map([["ops", "Ops"]])}
+        onOpenFilter={() => undefined}
+      />,
+    );
+
+    expect(textContent(container).includes("Project:")).toBeTrue();
+    expect(textContent(container).includes("Ops")).toBeTrue();
+    expect(textContent(container).includes("Assignee:")).toBeTrue();
+    expect(textContent(container).includes("Alex")).toBeTrue();
+  });
+
+  test("forwards trigger events through the custom filter button", async () => {
+    const { CommandPaletteCardFilterButton } = await import("./command-palette-filters");
+    let clicks = 0;
+
+    const { getByLabelText } = render(
+      <CommandPaletteCardFilterButton active={false} onClick={() => {
+        clicks += 1;
+      }}
+      />,
+    );
+
+    fireEvent.click(getByLabelText("Filter cards"));
+
+    expect(clicks).toBe(1);
   });
 });
