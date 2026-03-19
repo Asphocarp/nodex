@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - Fixed sorted Kanban same-column drag/drop when `priority` or `estimate` sorting is active, so dragging a card downward now uses the same post-removal slot math as the visible insertion indicator instead of anchoring against the source ghost.
+- Fixed Kanban empty-column drop targets so dragging blocks into an auto-collapsed lane now highlights the collapsed lane instead of hiding the only valid drop surface.
 
 ## [0.1.7] - 2026-03-19
 

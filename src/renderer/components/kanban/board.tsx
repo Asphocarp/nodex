@@ -80,6 +80,7 @@ import {
 } from "./kanban-card-drop-strategy";
 import { resolveKanbanDropCapabilities } from "./kanban-drop-capabilities";
 import { resolveKanbanImportInference } from "./kanban-import-inference";
+import { resolveKanbanDropFeedback } from "./drop-feedback";
 
 function hasSameCardSelection(
   left: CardSelectionState,
@@ -542,24 +543,39 @@ export function KanbanBoard({
           return;
         }
 
+        if (!nextIndicator) {
+          setActiveDropColumnId((current) => current ? null : current);
+          setDropIndicator((current) => current ? null : current);
+          return;
+        }
+
+        const nextLabel = nextDropIntent.kind === "reorder-with-patch"
+          ? nextDropIntent.previewLabel
+          : undefined;
+        const feedback = resolveKanbanDropFeedback({
+          visibleBoard: filteredBoard,
+          columnId: nextIndicator.columnId,
+          visibleIndex: nextIndicator.index,
+          showSlotIndicator: true,
+          ...(nextLabel ? { label: nextLabel } : {}),
+        });
+
+        setActiveDropColumnId((current) =>
+          current === feedback.activeDropColumnId ? current : feedback.activeDropColumnId,
+        );
         setDropIndicator((current) => {
-          if (!nextIndicator) {
+          const nextDropIndicator = feedback.dropIndicator;
+          if (!nextDropIndicator) {
             return current ? null : current;
           }
-          const nextLabel = nextDropIntent.kind === "reorder-with-patch"
-            ? nextDropIntent.previewLabel
-            : undefined;
           if (
-            current?.columnId === nextIndicator.columnId
-            && current.index === nextIndicator.index
-            && current.label === nextLabel
+            current?.columnId === nextDropIndicator.columnId
+            && current.index === nextDropIndicator.index
+            && current.label === nextDropIndicator.label
           ) {
             return current;
           }
-          return {
-            ...nextIndicator,
-            ...(nextLabel ? { label: nextLabel } : {}),
-          };
+          return nextDropIndicator;
         });
       },
       onDrop: async ({ source, location }) => {
@@ -654,15 +670,20 @@ export function KanbanBoard({
         cards,
         hasSearchFilter,
       });
-
-      if (inference.mode === "slot") {
+      if (inference.mode === "blocked") {
+        setDropIndicator(null);
         setActiveDropColumnId(null);
-        setDropIndicator({ columnId, index: targetVisibleIndex });
         return;
       }
 
-      setDropIndicator(null);
-      setActiveDropColumnId(inference.mode === "column" ? columnId : null);
+      const feedback = resolveKanbanDropFeedback({
+        visibleBoard: filteredBoard,
+        columnId: columnId as CardType["status"],
+        visibleIndex: targetVisibleIndex,
+        showSlotIndicator: inference.mode === "slot",
+      });
+      setDropIndicator(feedback.dropIndicator);
+      setActiveDropColumnId(feedback.activeDropColumnId);
     },
     [board, filteredBoard, hasSearchFilter, isKanbanCardDragActive, viewPrefs.rules],
   );

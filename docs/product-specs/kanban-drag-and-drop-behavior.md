@@ -2,7 +2,7 @@
 
 ## Status
 - Active
-- Last updated: 2026-03-17
+- Last updated: 2026-03-19
 
 ## Scope
 This spec is the detailed source of truth for drag-and-drop behavior across the Kanban board and its directly connected editor surfaces.
@@ -113,7 +113,9 @@ This post-removal contract must stay identical across:
 - Native block drag from visible NFM editors into Kanban creates card(s) using move semantics.
 - Source blocks are removed after a successful grouped import.
 - Pointer position determines the Kanban insert slot when block-drop import is allowed.
-- The board shows a drop indicator for this import path.
+- The board shows truthful drag feedback for this import path.
+- Empty target columns use whole-column drop feedback instead of a floating insertion line, because there is no sibling list for a truthful gap preview.
+- Auto-collapsed empty columns stay collapsed and express the target with the existing column-surface highlight.
 
 ### Kanban card -> NFM editor
 - Dragging a Kanban card into a visible NFM editor creates a standalone `cardToggle` snapshot block.
@@ -133,6 +135,7 @@ This post-removal contract must stay identical across:
 - `derived-move-only` same-column drags must not show a misleading insertion line.
 - `derived-move-only` same-column drags must show an explicit blocked-sort message on the destination column.
 - Sorted cross-column drags should highlight the destination column on the actual column header/body surfaces, not only on the outer wrapper edges.
+- Empty-column drops should highlight the column surface instead of rendering a detached insertion line at index `0`.
 - Editor-targeted card drags show an editor insertion line, not just board-column feedback.
 - Bare column hits still derive a real insertion slot from pointer position when manual ranking is active.
 

@@ -77,4 +77,30 @@ describe("Column", () => {
 
     expect(container.textContent?.includes("Sorted by title; switch to Board Order to manually rank.")).toBeTrue();
   });
+
+  test("keeps an empty column collapsed while it is the active drop target", () => {
+    const { container } = render(createElement(Column, {
+      projectId: "default",
+      projectName: "Default",
+      column: {
+        id: "backlog",
+        name: "Backlog",
+        cards: [],
+      },
+      layout: {
+        width: 320,
+        collapsed: false,
+      },
+      onAddCard: async () => {},
+      onEditCard: () => {},
+      onUpdateCardProperty: async () => {},
+      onCollapsedChange: () => {},
+      onWidthChange: () => {},
+      isDropTargetActive: true,
+    }));
+
+    const columnRoot = container.querySelector("[data-kanban-column-id='backlog']");
+    expect(columnRoot?.getAttribute("data-kanban-column-collapsed")).toBe("true");
+    expect(container.textContent?.includes("New task")).toBeFalse();
+  });
 });
