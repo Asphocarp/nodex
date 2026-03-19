@@ -1,4 +1,5 @@
 import type { Card, CardStatus, Priority } from "../types";
+import type { SortEmptyPlacement } from "../sort-empty-placement";
 import {
   CARD_STATUS_LABELS,
   CARD_STATUS_ORDER,
@@ -40,6 +41,7 @@ export type ToggleListRuleMode = "basic" | "advanced";
 export interface ToggleListSortKey {
   field: ToggleListRankField;
   direction: ToggleListRankDirection;
+  emptyPlacement?: SortEmptyPlacement;
 }
 
 export const TOGGLE_LIST_RANK_FIELD_LABELS: Record<ToggleListRankField, string> = {

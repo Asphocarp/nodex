@@ -13,6 +13,7 @@ import {
   TOGGLE_LIST_RANK_FIELDS,
   TOGGLE_LIST_STATUS_ORDER,
 } from "./types";
+import { buildSortKeyWithEmptyPlacement } from "../sort-empty-placement";
 
 const JSONLOGIC_SCHEMA = "nodex.toggle-list-rules-v2.jsonlogic/v1";
 
@@ -321,7 +322,11 @@ function parseSortArray(value: unknown): ToggleListSortKey[] {
       if (!isRecord(entry)) return null;
       if (!isRankField(entry.field)) return null;
       if (!isRankDirection(entry.direction)) return null;
-      return { field: entry.field, direction: entry.direction };
+      return buildSortKeyWithEmptyPlacement({
+        field: entry.field,
+        direction: entry.direction,
+        emptyPlacement: entry.emptyPlacement,
+      });
     })
     .filter((entry): entry is ToggleListSortKey => entry !== null);
   return dedupeSort(parsed);

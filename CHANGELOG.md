@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 ### Changed
+- Shared sort controls can now place empty `priority` / `estimate` values either first or last, so derived Kanban, List, and Toggle List views no longer force empty values to the end.
 
 ### Fixed
 
@@ -279,4 +280,3 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - Fixed SSE controller shutdown handling, optimistic card updates, toggle drag/drop stability, editor newline and empty-line persistence, inline creator dropdowns, tag and estimate edge cases, and a long run of early UI fit-and-finish issues.
-

@@ -26,7 +26,7 @@ describe("toggle-list rules v2 jsonlogic interop", () => {
       },
       sort: [
         { field: "status", direction: "asc" },
-        { field: "priority", direction: "asc" },
+        { field: "priority", direction: "asc", emptyPlacement: "first" },
         { field: "created", direction: "asc" },
         { field: "board-order", direction: "asc" },
       ],

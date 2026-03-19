@@ -199,6 +199,38 @@ describe("db view prefs", () => {
     expect(sorted.map((card) => card.id).join(",")).toBe("a,b,c");
   });
 
+  test("sortDbViewCards can place empty priorities first", () => {
+    const prefs = getDefaultDbViewPrefs("kanban");
+    prefs.rules.sort = [{ field: "priority", direction: "asc", emptyPlacement: "first" }];
+
+    const sorted = sortDbViewCards(
+      [
+        makeCard({ id: "filled-low", priority: "p2-medium", boardIndex: 2 }),
+        makeCard({ id: "empty", priority: undefined, boardIndex: 1 }),
+        makeCard({ id: "filled-high", priority: "p1-high", boardIndex: 0 }),
+      ],
+      prefs.rules,
+    );
+
+    expect(sorted.map((card) => card.id).join(",")).toBe("empty,filled-high,filled-low");
+  });
+
+  test("sortDbViewCards keeps empty estimates first even on descending sorts", () => {
+    const prefs = getDefaultDbViewPrefs("list");
+    prefs.rules.sort = [{ field: "estimate", direction: "desc", emptyPlacement: "first" }];
+
+    const sorted = sortDbViewCards(
+      [
+        makeCard({ id: "small", estimate: "s", boardIndex: 2 }),
+        makeCard({ id: "empty", estimate: undefined, boardIndex: 1 }),
+        makeCard({ id: "large", estimate: "xl", boardIndex: 0 }),
+      ],
+      prefs.rules,
+    );
+
+    expect(sorted.map((card) => card.id).join(",")).toBe("empty,large,small");
+  });
+
   test("hasActiveDbViewRules respects per-view defaults", () => {
     const kanbanPrefs = getDefaultDbViewPrefs("kanban");
     const listPrefs = getDefaultDbViewPrefs("list");

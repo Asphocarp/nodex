@@ -4,7 +4,6 @@ import type {
   ToggleListClause,
   ToggleListFilterGroup,
   ToggleListFilterSpec,
-  ToggleListRankField,
   ToggleListSettings,
   ToggleListSortKey,
   ToggleListTagFilterMode,
@@ -14,6 +13,7 @@ import {
   TOGGLE_LIST_STATUS_ORDER,
 } from "./types";
 import { priorityClauseIncludesEmpty } from "./priority-clause";
+import { compareNullableRanks } from "../sort-empty-placement";
 
 const priorityRank = new Map(TOGGLE_LIST_PRIORITY_ORDER.map((priority, index) => [priority, index]));
 const statusRank = new Map(TOGGLE_LIST_STATUS_ORDER.map((status, index) => [status, index]));
@@ -108,39 +108,43 @@ export function rankCards(
 
   return [...cards].sort((left, right) => {
     for (const key of sortKeys) {
-      const result = compareByField(left, right, key.field, key.direction);
+      const result = compareBySortKey(left, right, key);
       if (result !== 0) return result;
     }
 
-    const fallback = compareByField(left, right, "board-order", "asc");
+    const fallback = compareBySortKey(left, right, { field: "board-order", direction: "asc" });
     if (fallback !== 0) return fallback;
 
     return left.id.localeCompare(right.id);
   });
 }
 
-function compareByField(
+function compareBySortKey(
   left: ToggleListCard,
   right: ToggleListCard,
-  field: ToggleListRankField,
-  direction: "asc" | "desc",
+  sortKey: ToggleListSortKey,
 ): number {
-  const sign = direction === "asc" ? 1 : -1;
+  const sign = sortKey.direction === "asc" ? 1 : -1;
 
-  switch (field) {
+  switch (sortKey.field) {
     case "board-order":
       return (left.boardIndex - right.boardIndex) * sign;
     case "status":
       return ((statusRank.get(left.columnId) ?? 0) - (statusRank.get(right.columnId) ?? 0)) * sign;
     case "priority":
-      if (!left.priority && !right.priority) return 0;
-      if (!left.priority) return 1;
-      if (!right.priority) return -1;
-      return ((priorityRank.get(left.priority) ?? 0) - (priorityRank.get(right.priority) ?? 0)) * sign;
+      return compareNullableRanks({
+        leftRank: left.priority ? (priorityRank.get(left.priority) ?? null) : null,
+        rightRank: right.priority ? (priorityRank.get(right.priority) ?? null) : null,
+        direction: sortKey.direction,
+        emptyPlacement: sortKey.emptyPlacement,
+      });
     case "estimate": {
-      const leftRank = estimateRank.get(left.estimate ?? "") ?? Number.POSITIVE_INFINITY;
-      const rightRank = estimateRank.get(right.estimate ?? "") ?? Number.POSITIVE_INFINITY;
-      return (leftRank - rightRank) * sign;
+      return compareNullableRanks({
+        leftRank: left.estimate ? (estimateRank.get(left.estimate) ?? null) : null,
+        rightRank: right.estimate ? (estimateRank.get(right.estimate) ?? null) : null,
+        direction: sortKey.direction,
+        emptyPlacement: sortKey.emptyPlacement,
+      });
     }
     case "created":
       return (new Date(left.created).getTime() - new Date(right.created).getTime()) * sign;

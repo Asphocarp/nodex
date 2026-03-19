@@ -11,6 +11,13 @@ import {
   normalizePriorityClauseIncludeEmpty,
   priorityClauseIncludesEmpty,
 } from "./toggle-list/priority-clause";
+import {
+  buildSortKeyWithEmptyPlacement,
+  compareNullableRanks,
+  resolveSortEmptyPlacement,
+  supportsSortEmptyPlacementField,
+  type SortEmptyPlacement,
+} from "./sort-empty-placement";
 
 type WorkbenchView = "kanban" | "list" | "toggle-list" | "canvas" | "calendar";
 
@@ -35,6 +42,7 @@ export type DbViewSortDirection = "asc" | "desc";
 export interface DbViewSortKey {
   field: DbViewSortField;
   direction: DbViewSortDirection;
+  emptyPlacement?: SortEmptyPlacement;
 }
 
 export const DB_VIEW_SORT_FIELD_LABELS: Record<DbViewSortField, string> = {
@@ -349,10 +357,11 @@ function normalizeSortKey(value: unknown): DbViewSortKey | null {
   if (!DB_VIEW_SORT_FIELDS.includes(value.field as DbViewSortField)) return null;
   if (value.direction !== "asc" && value.direction !== "desc") return null;
 
-  return {
+  return buildSortKeyWithEmptyPlacement({
     field: value.field as DbViewSortField,
     direction: value.direction,
-  };
+    emptyPlacement: value.emptyPlacement,
+  });
 }
 
 export function cloneDbViewPrefs(prefs: DbViewPrefs): DbViewPrefs {
@@ -445,38 +454,47 @@ export function sortDbViewCards(
 
   return [...cards].sort((left, right) => {
     for (const key of sortKeys) {
-      const result = compareByField(left, right, key.field, key.direction);
+      const result = compareBySortKey(left, right, key);
       if (result !== 0) return result;
     }
 
-    const fallback = compareByField(left, right, "board-order", "asc");
+    const fallback = compareBySortKey(left, right, { field: "board-order", direction: "asc" });
     if (fallback !== 0) return fallback;
     return left.id.localeCompare(right.id);
   });
 }
 
-function compareByField(
+function compareBySortKey(
   left: DbViewCardRecord,
   right: DbViewCardRecord,
-  field: DbViewSortField,
-  direction: DbViewSortDirection,
+  sortKey: DbViewSortKey,
 ): number {
-  const sign = direction === "asc" ? 1 : -1;
+  const sign = sortKey.direction === "asc" ? 1 : -1;
 
-  switch (field) {
+  switch (sortKey.field) {
     case "board-order":
       return (left.boardIndex - right.boardIndex) * sign;
     case "status":
       return compareCardStatuses(left.columnId, right.columnId) * sign;
-    case "priority":
-      if (!left.priority && !right.priority) return 0;
-      if (!left.priority) return 1;
-      if (!right.priority) return -1;
-      return ((priorityRank.get(left.priority) ?? 0) - (priorityRank.get(right.priority) ?? 0)) * sign;
+    case "priority": {
+      const leftRank = left.priority ? (priorityRank.get(left.priority) ?? null) : null;
+      const rightRank = right.priority ? (priorityRank.get(right.priority) ?? null) : null;
+      return compareNullableRanks({
+        leftRank,
+        rightRank,
+        direction: sortKey.direction,
+        emptyPlacement: sortKey.emptyPlacement,
+      });
+    }
     case "estimate": {
-      const leftRank = left.estimate ? (estimateRank.get(left.estimate) ?? Number.POSITIVE_INFINITY) : Number.POSITIVE_INFINITY;
-      const rightRank = right.estimate ? (estimateRank.get(right.estimate) ?? Number.POSITIVE_INFINITY) : Number.POSITIVE_INFINITY;
-      return (leftRank - rightRank) * sign;
+      const leftRank = left.estimate ? (estimateRank.get(left.estimate) ?? null) : null;
+      const rightRank = right.estimate ? (estimateRank.get(right.estimate) ?? null) : null;
+      return compareNullableRanks({
+        leftRank,
+        rightRank,
+        direction: sortKey.direction,
+        emptyPlacement: sortKey.emptyPlacement,
+      });
     }
     case "created":
       return (new Date(left.created).getTime() - new Date(right.created).getTime()) * sign;
@@ -555,8 +573,13 @@ export function summarizeFilterClauses(rules: DbViewRules): Array<{ key: string;
 export function summarizeSorts(rules: DbViewRules): Array<{ key: string; label: string; value: string }> {
   return rules.sort.map((entry, index) => ({
     key: `${entry.field}:${index}`,
-    label: TOGGLE_LIST_RANK_FIELD_LABELS[entry.field as keyof typeof TOGGLE_LIST_RANK_FIELD_LABELS]
+    label: [
+      TOGGLE_LIST_RANK_FIELD_LABELS[entry.field as keyof typeof TOGGLE_LIST_RANK_FIELD_LABELS]
       ?? DB_VIEW_SORT_FIELD_LABELS[entry.field],
+      supportsSortEmptyPlacementField(entry.field) && resolveSortEmptyPlacement(entry.field, entry.emptyPlacement) === "first"
+        ? "Empty First"
+        : null,
+    ].filter((value): value is string => Boolean(value)).join(" · "),
     value: entry.direction === "asc" ? "Ascending" : "Descending",
   }));
 }

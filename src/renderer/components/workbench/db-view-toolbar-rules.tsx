@@ -24,10 +24,16 @@ import {
   type DbViewFilterClause,
   type DbViewFilterGroup,
   type DbViewPrefs,
+  type DbViewSortKey,
   type DbViewSortDirection,
   type DbViewSortField,
   type SupportedDbView,
 } from "../../lib/db-view-prefs";
+import {
+  buildSortKeyWithEmptyPlacement,
+  resolveSortEmptyPlacement,
+  supportsSortEmptyPlacementField,
+} from "../../lib/sort-empty-placement";
 import {
   TOGGLE_LIST_EMPTY_PRIORITY_LABEL,
   TOGGLE_LIST_PRIORITY_CHIP_LABELS,
@@ -386,6 +392,20 @@ export function DbViewSortPopover({
     () => availableSortFields.filter((field) => !prefs.rules.sort.some((entry) => entry.field === field)),
     [availableSortFields, prefs.rules.sort],
   );
+  const updateSortEntry = (index: number, update: (entry: DbViewSortKey) => DbViewSortKey) =>
+    onChange((prev) => {
+      const currentEntry = prev.rules.sort[index];
+      if (!currentEntry) return prev;
+      const nextSort = [...prev.rules.sort];
+      nextSort[index] = update(currentEntry);
+      return {
+        ...prev,
+        rules: {
+          ...prev.rules,
+          sort: nextSort,
+        },
+      };
+    });
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={onOpenChange}>
@@ -402,10 +422,10 @@ export function DbViewSortPopover({
                 ...prev.rules,
                 sort: [
                   ...prev.rules.sort,
-                  {
+                  buildSortKeyWithEmptyPlacement({
                     field: unusedSortFields[0] ?? availableSortFields[0] ?? DB_VIEW_SORT_FIELDS[0],
                     direction: "asc",
-                  },
+                  }),
                 ],
               },
             }))}
@@ -420,17 +440,11 @@ export function DbViewSortPopover({
               <Select
                 value={entry.field}
                 onValueChange={(value) =>
-                  onChange((prev) => {
-                    const nextSort = [...prev.rules.sort];
-                    nextSort[index] = { ...nextSort[index], field: value as DbViewSortField };
-                    return {
-                      ...prev,
-                      rules: {
-                        ...prev.rules,
-                        sort: nextSort,
-                      },
-                    };
-                  })}
+                  updateSortEntry(index, (currentEntry) => buildSortKeyWithEmptyPlacement({
+                    field: value as DbViewSortField,
+                    direction: currentEntry.direction,
+                    emptyPlacement: currentEntry.emptyPlacement,
+                  }))}
               >
                 <SelectTrigger className={cn(SELECT_TRIGGER, "min-w-28 max-w-36")}>
                   {DB_VIEW_SORT_FIELD_LABELS[entry.field]}
@@ -446,17 +460,11 @@ export function DbViewSortPopover({
               <Select
                 value={entry.direction}
                 onValueChange={(value) =>
-                  onChange((prev) => {
-                    const nextSort = [...prev.rules.sort];
-                    nextSort[index] = { ...nextSort[index], direction: value as DbViewSortDirection };
-                    return {
-                      ...prev,
-                      rules: {
-                        ...prev.rules,
-                        sort: nextSort,
-                      },
-                    };
-                  })}
+                  updateSortEntry(index, (currentEntry) => buildSortKeyWithEmptyPlacement({
+                    field: currentEntry.field,
+                    direction: value as DbViewSortDirection,
+                    emptyPlacement: currentEntry.emptyPlacement,
+                  }))}
               >
                 <SelectTrigger className={cn(SELECT_TRIGGER, "w-18")}>
                   {entry.direction === "asc" ? "Asc" : "Desc"}
@@ -466,6 +474,25 @@ export function DbViewSortPopover({
                   <SelectItem value="desc">Descending</SelectItem>
                 </SelectContent>
               </Select>
+              {supportsSortEmptyPlacementField(entry.field) ? (
+                <Select
+                  value={resolveSortEmptyPlacement(entry.field, entry.emptyPlacement)}
+                  onValueChange={(value) =>
+                    updateSortEntry(index, (currentEntry) => buildSortKeyWithEmptyPlacement({
+                      field: currentEntry.field,
+                      direction: currentEntry.direction,
+                      emptyPlacement: value,
+                    }))}
+                >
+                  <SelectTrigger className={cn(SELECT_TRIGGER, "w-24")}>
+                    {resolveSortEmptyPlacement(entry.field, entry.emptyPlacement) === "first" ? "Empty first" : "Empty last"}
+                  </SelectTrigger>
+                  <SelectContent sideOffset={4}>
+                    <SelectItem value="first">Empty first</SelectItem>
+                    <SelectItem value="last">Empty last</SelectItem>
+                  </SelectContent>
+                </Select>
+              ) : null}
               <div className="ml-auto flex items-center gap-0.5">
                 <button
                   type="button"

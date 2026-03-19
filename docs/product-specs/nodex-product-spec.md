@@ -144,7 +144,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - View-toolbar filter/sort controls:
   - `kanban`, `list`, and top-level `toggle-list` share one view-local filter model with grouped logic (`OR` across groups, `AND` within group) and status/priority/tag clauses
   - Priority clauses can explicitly include or exclude empty priority values via the `-` filter chip instead of treating empties as an implicit side effect of selecting all concrete priorities
-  - Each supported view has its own persisted sort stack; list-header sort clicks write through to the same shared toolbar sort state
+  - Each supported view has its own persisted sort stack; list-header sort clicks write through to the same shared toolbar sort state, and nullable `priority` / `estimate` sorts can place empty values either first or last (default: last)
   - When active, filter/sort rules surface as compact pills in a collapsible bottom band inside the toolbar; the sort side uses one leading chip (`Field` with direction for a single sort, `n sorts` for multiple) separated from filter chips by a thin divider
 - View-stage display controls move into the toolbar `Display` popover:
   - `kanban`: reorder + hide/show board-card properties for `priority`, `estimate`, `tags`, `assignee`

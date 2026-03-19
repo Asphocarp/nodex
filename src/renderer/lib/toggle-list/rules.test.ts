@@ -120,6 +120,26 @@ describe("toggle-list rules", () => {
     expect(ranked.map((card) => card.id).join(",")).toBe("beta,gamma,alpha");
   });
 
+  test("rankCards can place empty priorities first", () => {
+    const ranked = rankCards([
+      makeCard({ id: "filled-low", priority: "p2-medium", boardIndex: 2 }),
+      makeCard({ id: "empty", priority: undefined, boardIndex: 1 }),
+      makeCard({ id: "filled-high", priority: "p1-high", boardIndex: 0 }),
+    ], makeSettings({
+      mode: "advanced",
+      includeHostCard: false,
+      filter: {
+        any: [{ all: [] }],
+      },
+      sort: [
+        { field: "priority", direction: "asc", emptyPlacement: "first" },
+        { field: "created", direction: "desc" },
+      ],
+    }));
+
+    expect(ranked.map((card) => card.id).join(",")).toBe("empty,filled-high,filled-low");
+  });
+
   test("rankCards uses board-order and id as stable tiebreakers", () => {
     const cards = [
       makeCard({

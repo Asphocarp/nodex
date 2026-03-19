@@ -12,6 +12,7 @@ import { estimateStyles } from "@/lib/types";
 import type { Card } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { buildCardSearchText, matchesSearchTokens, tokenizeSearchQuery } from "@/lib/card-search";
+import { buildSortKeyWithEmptyPlacement } from "@/lib/sort-empty-placement";
 import {
   ChevronUp,
   ChevronDown,
@@ -164,6 +165,7 @@ export function ListView({
     if (!onUpdateDbViewPrefs) return;
     onUpdateDbViewPrefs((prev) => {
       const primarySort = prev.rules.sort[0];
+      const existingSort = prev.rules.sort.find((entry) => entry.field === field);
       const nextDirection: SortDirection =
         primarySort?.field === field && primarySort.direction === "asc" ? "desc" : "asc";
       const remainingSorts = prev.rules.sort.filter((entry) => entry.field !== field);
@@ -172,7 +174,14 @@ export function ListView({
         summaryExpanded: true,
         rules: {
           ...prev.rules,
-          sort: [{ field, direction: nextDirection }, ...remainingSorts],
+          sort: [
+            buildSortKeyWithEmptyPlacement({
+              field,
+              direction: nextDirection,
+              emptyPlacement: existingSort?.emptyPlacement,
+            }),
+            ...remainingSorts,
+          ],
         },
       };
     });

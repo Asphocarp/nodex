@@ -41,6 +41,11 @@ import {
   type ToggleListStatusId,
   type ToggleListTagFilterMode,
 } from "@/lib/toggle-list/types";
+import {
+  buildSortKeyWithEmptyPlacement,
+  resolveSortEmptyPlacement,
+  supportsSortEmptyPlacementField,
+} from "@/lib/sort-empty-placement";
 import { cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ */
@@ -400,7 +405,16 @@ function SortSection({
     updateRulesV2((prev) => {
       const used = new Set(prev.sort.map((entry) => entry.field));
       const nextField = TOGGLE_LIST_RANK_FIELDS.find((field) => !used.has(field)) ?? "board-order";
-      return { ...prev, sort: [...prev.sort, { field: nextField, direction: "asc" }] };
+      return {
+        ...prev,
+        sort: [
+          ...prev.sort,
+          buildSortKeyWithEmptyPlacement({
+            field: nextField,
+            direction: "asc",
+          }),
+        ],
+      };
     });
   };
 
@@ -445,7 +459,11 @@ function SortSection({
           <div key={`${entry.field}:${index}`} className="flex items-center gap-1.5">
             <Select
               value={entry.field}
-              onValueChange={(value) => updateSort(index, { ...entry, field: value as ToggleListRankField })}
+              onValueChange={(value) => updateSort(index, buildSortKeyWithEmptyPlacement({
+                field: value as ToggleListRankField,
+                direction: entry.direction,
+                emptyPlacement: entry.emptyPlacement,
+              }))}
             >
               <SelectTrigger className={cn(SELECT_TRIGGER, "max-w-32.5 min-w-25 rounded-md border-transparent bg-(--background-secondary) text-xs")}>
                 {TOGGLE_LIST_RANK_FIELD_LABELS[entry.field]}
@@ -461,7 +479,11 @@ function SortSection({
 
             <Select
               value={entry.direction}
-              onValueChange={(value) => updateSort(index, { ...entry, direction: value as ToggleListRankDirection })}
+              onValueChange={(value) => updateSort(index, buildSortKeyWithEmptyPlacement({
+                field: entry.field,
+                direction: value as ToggleListRankDirection,
+                emptyPlacement: entry.emptyPlacement,
+              }))}
             >
               <SelectTrigger className={cn(SELECT_TRIGGER, "w-16 rounded-md border-transparent bg-(--background-secondary) text-xs")}>
                 {entry.direction === "asc" ? "Asc" : "Desc"}
@@ -471,6 +493,24 @@ function SortSection({
                 <SelectItem value="desc">Descending</SelectItem>
               </SelectContent>
             </Select>
+            {supportsSortEmptyPlacementField(entry.field) ? (
+              <Select
+                value={resolveSortEmptyPlacement(entry.field, entry.emptyPlacement)}
+                onValueChange={(value) => updateSort(index, buildSortKeyWithEmptyPlacement({
+                  field: entry.field,
+                  direction: entry.direction,
+                  emptyPlacement: value,
+                }))}
+              >
+                <SelectTrigger className={cn(SELECT_TRIGGER, "w-23 rounded-md border-transparent bg-(--background-secondary) text-xs")}>
+                  {resolveSortEmptyPlacement(entry.field, entry.emptyPlacement) === "first" ? "Empty first" : "Empty last"}
+                </SelectTrigger>
+                <SelectContent sideOffset={4}>
+                  <SelectItem value="first">Empty first</SelectItem>
+                  <SelectItem value="last">Empty last</SelectItem>
+                </SelectContent>
+              </Select>
+            ) : null}
 
             <div className="ml-auto flex items-center gap-0.5">
               <button

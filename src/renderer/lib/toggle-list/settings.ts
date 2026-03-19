@@ -23,6 +23,7 @@ import {
   normalizePriorityClauseIncludeEmpty,
   priorityClauseIncludesEmpty,
 } from "./priority-clause";
+import { buildSortKeyWithEmptyPlacement } from "../sort-empty-placement";
 
 const DEFAULT_FILTER_RULE: ToggleListFilterRule = {
   statuses: [...TOGGLE_LIST_STATUS_ORDER],
@@ -361,7 +362,11 @@ function normalizeSortKeys(
       if (!isRecord(item)) return null;
       if (!isRankField(item.field)) return null;
       if (!isRankDirection(item.direction)) return null;
-      return { field: item.field, direction: item.direction };
+      return buildSortKeyWithEmptyPlacement({
+        field: item.field,
+        direction: item.direction,
+        emptyPlacement: item.emptyPlacement,
+      });
     })
     .filter((item): item is ToggleListSortKey => item !== null);
   const deduped = dedupeSortKeys(parsed);

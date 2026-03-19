@@ -174,6 +174,26 @@ describe("DbViewToolbar", () => {
     expect(textContent(container).includes("Descending")).toBeFalse();
   });
 
+  test("shows empty-first sort placement in the single-sort summary label", async () => {
+    const { DbViewToolbar } = await import("./db-view-toolbar");
+    const { getDefaultDbViewPrefs } = await import("../../lib/db-view-prefs");
+    const prefs = getDefaultDbViewPrefs("toggle-list");
+    prefs.rules.sort = [{ field: "priority", direction: "asc", emptyPlacement: "first" }];
+
+    const { container } = render(
+      <DbViewToolbar
+        {...BASE_PROPS}
+        activeSearchQuery=""
+        taskSearchOpen={false}
+        rulesView="toggle-list"
+        dbViewPrefs={prefs}
+        onUpdateDbViewPrefs={() => undefined}
+      />,
+    );
+
+    expect(textContent(container).includes("Priority · Empty First")).toBeTrue();
+  });
+
   test("renders empty priority in the summary row when selected explicitly", async () => {
     const { DbViewToolbar } = await import("./db-view-toolbar");
     const { getDefaultDbViewPrefs } = await import("../../lib/db-view-prefs");
