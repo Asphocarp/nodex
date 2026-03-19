@@ -76,37 +76,6 @@ function buildPreviewLabel(field: MoveFieldPatchField, value: Card["priority"] |
   return `Estimate: ${label}`;
 }
 
-function resolveAnchorInsertIndex(args: {
-  board: Board;
-  targetColumnId: CardStatus;
-  draggedCardIds: readonly string[];
-  beforeCardId?: string;
-  afterCardId?: string;
-}): number {
-  const targetColumn = args.board.columns.find((column) => column.id === args.targetColumnId);
-  if (!targetColumn) {
-    return 0;
-  }
-
-  const draggedCardIdSet = new Set(args.draggedCardIds);
-  const remainingCards = targetColumn.cards.filter((card) => !draggedCardIdSet.has(card.id));
-  if (args.afterCardId) {
-    const afterIndex = remainingCards.findIndex((card) => card.id === args.afterCardId);
-    if (afterIndex >= 0) {
-      return afterIndex;
-    }
-  }
-
-  if (args.beforeCardId) {
-    const beforeIndex = remainingCards.findIndex((card) => card.id === args.beforeCardId);
-    if (beforeIndex >= 0) {
-      return beforeIndex + 1;
-    }
-  }
-
-  return remainingCards.length;
-}
-
 export function resolveKanbanCardDragMode(args: {
   rules: DbViewRules;
 }): KanbanCardDragMode {
@@ -204,12 +173,12 @@ export function resolveKanbanCardDropIntent(args: {
       ? afterValue
       : beforeValue;
 
-  const newOrder = resolveAnchorInsertIndex({
+  const newOrder = resolveFilteredDropOrder({
     board: args.board,
-    targetColumnId: args.destinationColumnId,
+    visibleBoard: args.visibleBoard,
     draggedCardIds,
-    ...(afterCard ? { afterCardId: afterCard.id } : {}),
-    ...(beforeCard && !afterCard ? { beforeCardId: beforeCard.id } : {}),
+    targetColumnId: args.destinationColumnId,
+    targetVisibleIndex: visibleIndex,
   });
 
   const needsPatch = args.dragItems.some(

@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 - Shared sort controls can now place empty `priority` / `estimate` values either first or last, so derived Kanban, List, and Toggle List views no longer force empty values to the end.
 
 ### Fixed
+- Fixed sorted Kanban same-column drag/drop when `priority` or `estimate` sorting is active, so dragging a card downward now uses the same post-removal slot math as the visible insertion indicator instead of anchoring against the source ghost.
 
 ## [0.1.7] - 2026-03-19
 

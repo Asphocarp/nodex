@@ -158,6 +158,36 @@ describe("kanban card drop strategy", () => {
     expect(intent.kind).toBe("reorder");
   });
 
+  test("maps same-column downward priority drops from the remaining visible slot space", () => {
+    const board = makeBoard({
+      in_progress: [
+        makeCard("p1-a", "in_progress", 0, { priority: "p1-high" }),
+        makeCard("p1-b", "in_progress", 1, { priority: "p1-high" }),
+        makeCard("p2-a", "in_progress", 2, { priority: "p2-medium" }),
+      ],
+    });
+
+    const intent = resolveKanbanCardDropIntent({
+      board,
+      visibleBoard: board,
+      rules: makeRules([{ field: "priority", direction: "asc" }]),
+      destinationColumnId: "in_progress",
+      destinationIndex: 1,
+      dragItems: [
+        {
+          columnId: "in_progress",
+          card: board.columns[2]!.cards[0]!,
+        },
+      ],
+    });
+
+    expect(intent.kind).toBe("reorder");
+    if (intent.kind !== "reorder") {
+      throw new Error("Expected reorder intent");
+    }
+    expect(intent.newOrder).toBe(1);
+  });
+
   test("blocks same-column ranking when title owns the sort", () => {
     const board = makeBoard({
       in_progress: [
