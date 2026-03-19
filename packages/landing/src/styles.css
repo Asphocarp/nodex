@@ -197,15 +197,23 @@
   }
 
   .landing-release-note {
-    @apply mt-2 inline-flex items-center justify-center gap-2 text-[13px] text-[#636366];
+    @apply mt-2 inline-flex flex-wrap items-center justify-center gap-2 text-[13px] text-[#636366];
   }
 
   .landing-release-copy {
     @apply text-[#636366];
   }
 
+  .landing-release-divider {
+    @apply text-[#48484a];
+  }
+
   .landing-meta-pill {
-    @apply inline-block rounded-full bg-white/[0.06] px-[7px] py-[2px] text-[9px] font-medium tracking-[0.06em] text-[#8e8e93] uppercase align-middle;
+    @apply inline-flex items-center rounded-full bg-white/[0.06] px-2.5 py-1 text-[10px] font-medium tracking-[0.08em] text-[#8e8e93] uppercase;
+  }
+
+  .landing-version-label {
+    @apply font-(family-name:--font-mono) text-[12px] tracking-[0.08em] text-[#a1a1a6];
   }
 
   .landing-footer {

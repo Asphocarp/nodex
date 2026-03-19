@@ -35,6 +35,7 @@ bun run preview:landing
 
 The site is a static multi-page build. It does not use React Router or any client-side routing fallback.
 The homepage keeps the primary macOS CTA no-JS-safe by pointing at the stable arm64 GitHub Release alias first, then downgrades to the x64 alias only when browser signals positively identify Intel.
+The homepage release stamp is also build-time data: it reads the root app version from the repository `package.json`, so the published site shows the same semver that release automation cuts.
 
 ## Publishing Topology
 
