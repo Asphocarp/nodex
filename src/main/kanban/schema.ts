@@ -15,7 +15,6 @@ const RESETTABLE_TABLES = [
   "reminder_receipts",
   "recurrence_exceptions",
   "history",
-  "codex_thread_snapshots",
   "codex_card_threads",
   "description_revisions",
   "description_blocks",
@@ -133,13 +132,6 @@ function createLatestSchema(db: Database.Database): void {
       ON codex_card_threads(project_id, card_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_codex_card_threads_project_updated
       ON codex_card_threads(project_id, updated_at DESC);
-
-    CREATE TABLE IF NOT EXISTS codex_thread_snapshots (
-      thread_id TEXT PRIMARY KEY REFERENCES codex_card_threads(thread_id) ON DELETE CASCADE,
-      turns_json TEXT NOT NULL DEFAULT '[]',
-      items_json TEXT NOT NULL DEFAULT '[]',
-      updated_at INTEGER NOT NULL
-    );
 
     CREATE TABLE IF NOT EXISTS history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -280,6 +272,7 @@ export function ensureDatabase(options: EnsureDatabaseOptions = {}): void {
       );
     }
 
+    db.exec("DROP TABLE IF EXISTS codex_thread_snapshots");
     seedDefaultProjectIfMissing(db);
   } finally {
     db.close();

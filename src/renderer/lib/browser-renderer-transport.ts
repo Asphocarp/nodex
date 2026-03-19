@@ -511,6 +511,13 @@ function subscribeCodexEvents(callback: (event: CodexEvent) => void): () => void
   return () => { };
 }
 
+function subscribeCodexHostMessages(
+  callback: (message: import("./types").CodexHostMessage) => void,
+): () => void {
+  void callback;
+  return () => { };
+}
+
 function subscribeGitBranchChanges(callback: (event: { cwd: string }) => void): () => void {
   void callback;
   return () => { };
@@ -526,6 +533,7 @@ export const browserRendererTransport = {
   invoke,
   subscribeBoardChanges,
   subscribeCodexEvents,
+  subscribeCodexHostMessages,
   subscribeGitBranchChanges,
   subscribeAppUpdateStatus,
 };

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type {
-  CodexItemView,
+  CodexTranscriptEntry,
   CodexThreadDetail,
   CodexThreadSummary,
   CodexThreadTokenUsage,
@@ -9,6 +9,11 @@ import type {
   CodexToolCallSubtype,
   CodexTurnSummary,
 } from "../../shared/types";
+import {
+  buildTranscriptFromBootstrapEvents,
+  resolveThreadPreviewFromTranscript,
+} from "./codex-transcript-projection";
+import { projectCodexReasoningSummary } from "./codex-reasoning-projection";
 
 interface SessionIndexEntry {
   id: string;
@@ -251,20 +256,12 @@ function normalizeText(value: string): string {
   return value.replace(/\r\n/g, "\n").trim();
 }
 
-function extractMessageText(content: unknown): string | null {
-  if (!Array.isArray(content)) return null;
-
-  const parts = content.reduce<string[]>((acc, part) => {
-    const candidate = asRecord(part);
-    if (!candidate) return acc;
-    if (typeof candidate.text === "string" && candidate.text.trim().length > 0) {
-      acc.push(candidate.text);
-    }
-    return acc;
-  }, []);
-
-  if (parts.length === 0) return null;
-  return normalizeText(parts.join("\n\n"));
+function buildReplayItemId(
+  threadId: string,
+  kind: "user" | "msg" | "reasoning" | "tool" | "tool-output",
+  index: number,
+): string {
+  return `replay:${kind}:${threadId}:${index}`;
 }
 
 function resolveToolSubtype(toolName: string): CodexToolCallSubtype {
@@ -306,6 +303,50 @@ function addItemToTurn(turn: MutableTurnRecord, itemId: string, timestamp: numbe
   turn.updatedAt = Math.max(turn.updatedAt, timestamp);
 }
 
+function appendReplayReasoningSummary(
+  transcript: CodexTranscriptEntry[],
+  turn: MutableTurnRecord,
+  threadId: string,
+  lineIndex: number,
+  timestamp: number,
+  summaryText: string,
+  rawItem: unknown,
+): void {
+  const normalizedSummary = normalizeText(summaryText);
+  if (normalizedSummary.length === 0) return;
+
+  const previous = transcript[transcript.length - 1];
+  if (previous?.kind === "reasoning" && previous.turnId === turn.turnId) {
+    const nextSummaryParts = [previous.markdownText ?? "", normalizedSummary]
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0);
+    previous.markdownText = nextSummaryParts.join("\n\n");
+    previous.updatedAt = timestamp;
+    previous.rawItem = rawItem;
+    addItemToTurn(turn, previous.itemId, timestamp);
+    return;
+  }
+
+  const itemId = buildReplayItemId(threadId, "reasoning", lineIndex);
+  addItemToTurn(turn, itemId, timestamp);
+  transcript.push({
+    threadId,
+    turnId: turn.turnId,
+    entryId: itemId,
+    itemId,
+    type: "reasoning",
+    kind: "reasoning",
+    semanticKind: "reasoning",
+    source: "replay",
+    sequence: transcript.length,
+    markdownText: normalizedSummary,
+    status: "completed",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    rawItem,
+  });
+}
+
 function sortTurns(turnsById: Map<string, MutableTurnRecord>): CodexTurnSummary[] {
   return [...turnsById.values()]
     .sort((a, b) => a.createdAt - b.createdAt || a.updatedAt - b.updatedAt || a.turnId.localeCompare(b.turnId))
@@ -317,17 +358,6 @@ function sortTurns(turnsById: Map<string, MutableTurnRecord>): CodexTurnSummary[
       itemIds: turn.itemIds,
       tokenUsage: turn.tokenUsage,
     }));
-}
-
-function finalizeThreadPreview(items: CodexItemView[], fallback: string): string {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index];
-    if (!item) continue;
-    const candidate = normalizeText(item.markdownText ?? "");
-    if (!candidate) continue;
-    return candidate;
-  }
-  return fallback;
 }
 
 function parseSessionJsonl(
@@ -343,7 +373,7 @@ function parseSessionJsonl(
   if (lines.length === 0) return null;
 
   const turnsById = new Map<string, MutableTurnRecord>();
-  const items: CodexItemView[] = [];
+  const transcript: CodexTranscriptEntry[] = [];
   const toolIndexByCallId = new Map<string, number>();
   const sessionIndexEntry = readSessionIndexEntry(input.threadId);
 
@@ -405,23 +435,67 @@ function parseSessionJsonl(
         continue;
       }
 
-      if (eventType === "agent_message" && typeof payload?.message === "string" && payload.message.trim().length > 0) {
+      if (eventType === "user_message" && typeof payload?.message === "string" && payload.message.trim().length > 0) {
         const turn = ensureTurn(turnsById, input.threadId, currentTurnId, timestamp);
-        const itemId = `msg-${input.threadId}-${lineIndex}`;
+        const itemId = buildReplayItemId(input.threadId, "user", lineIndex);
         addItemToTurn(turn, itemId, timestamp);
-        items.push({
+        transcript.push({
           threadId: input.threadId,
           turnId: turn.turnId,
+          entryId: itemId,
           itemId,
-          type: "agentMessage",
-          normalizedKind: "assistantMessage",
-          role: "assistant",
+          type: "userMessage",
+          kind: "userMessage",
+          semanticKind: "userMessage",
+          role: "user",
+          source: "replay",
+          sequence: transcript.length,
           markdownText: normalizeText(payload.message),
           status: "completed",
           createdAt: timestamp,
           updatedAt: timestamp,
           rawItem: payload,
         });
+        continue;
+      }
+
+      if (eventType === "agent_message" && typeof payload?.message === "string" && payload.message.trim().length > 0) {
+        const assistantPhase = typeof payload.phase === "string" ? payload.phase : null;
+        const turn = ensureTurn(turnsById, input.threadId, currentTurnId, timestamp);
+        const itemId = buildReplayItemId(input.threadId, "msg", lineIndex);
+        addItemToTurn(turn, itemId, timestamp);
+        transcript.push({
+          threadId: input.threadId,
+          turnId: turn.turnId,
+          entryId: itemId,
+          itemId,
+          type: "agentMessage",
+          kind: "assistantMessage",
+          semanticKind: "assistantMessage",
+          assistantPhase: assistantPhase ?? undefined,
+          role: "assistant",
+          source: "replay",
+          sequence: transcript.length,
+          markdownText: normalizeText(payload.message),
+          status: "completed",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          rawItem: payload,
+        });
+        continue;
+      }
+
+      if (eventType === "agent_reasoning" && typeof payload?.text === "string" && payload.text.trim().length > 0) {
+        const turn = ensureTurn(turnsById, input.threadId, currentTurnId, timestamp);
+        appendReplayReasoningSummary(
+          transcript,
+          turn,
+          input.threadId,
+          lineIndex,
+          timestamp,
+          payload.text,
+          payload,
+        );
       }
       continue;
     }
@@ -431,51 +505,18 @@ function parseSessionJsonl(
     const responseType = payload.type;
     const turn = ensureTurn(turnsById, input.threadId, currentTurnId, timestamp);
 
-    if (responseType === "message") {
-      const role = payload.role === "user" || payload.role === "assistant" ? payload.role : null;
-      if (!role) continue;
-      const text = extractMessageText(payload.content);
-      if (!text) continue;
-      const itemId = `msg-${input.threadId}-${lineIndex}`;
-      addItemToTurn(turn, itemId, timestamp);
-      items.push({
-        threadId: input.threadId,
-        turnId: turn.turnId,
-        itemId,
-        type: role === "user" ? "userMessage" : "agentMessage",
-        normalizedKind: role === "user" ? "userMessage" : "assistantMessage",
-        role,
-        markdownText: text,
-        status: "completed",
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        rawItem: payload,
-      });
-      if (turn.status === "inProgress") {
-        turn.status = "completed";
-      }
-      continue;
-    }
+    if (responseType === "message") continue;
 
     if (responseType === "reasoning") {
-      const summary = Array.isArray(payload.summary)
-        ? payload.summary.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
-        : [];
-      if (summary.length === 0) continue;
-      const itemId = `reasoning-${input.threadId}-${lineIndex}`;
-      addItemToTurn(turn, itemId, timestamp);
-      items.push({
-        threadId: input.threadId,
-        turnId: turn.turnId,
-        itemId,
-        type: "reasoning",
-        normalizedKind: "reasoning",
-        markdownText: summary.join("\n"),
-        status: "completed",
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        rawItem: payload,
-      });
+      appendReplayReasoningSummary(
+        transcript,
+        turn,
+        input.threadId,
+        lineIndex,
+        timestamp,
+        projectCodexReasoningSummary(payload.summary),
+        payload,
+      );
       if (turn.status === "inProgress") {
         turn.status = "completed";
       }
@@ -490,14 +531,18 @@ function parseSessionJsonl(
           : "tool";
       const itemId = typeof payload.call_id === "string" && payload.call_id.trim().length > 0
         ? payload.call_id
-        : `tool-${input.threadId}-${lineIndex}`;
-      const item: CodexItemView = {
+        : buildReplayItemId(input.threadId, "tool", lineIndex);
+      const item: CodexTranscriptEntry = {
         threadId: input.threadId,
         turnId: turn.turnId,
+        entryId: itemId,
         itemId,
         type: responseType,
-        normalizedKind: responseType === "web_search_call" ? "toolCall" : "toolCall",
+        kind: "toolCall",
+        semanticKind: responseType === "web_search_call" ? "webSearch" : "toolCall",
         status: "inProgress",
+        source: "replay",
+        sequence: transcript.length,
         toolCall: {
           subtype: responseType === "web_search_call" ? "webSearch" : resolveToolSubtype(toolName),
           toolName,
@@ -508,20 +553,20 @@ function parseSessionJsonl(
         rawItem: payload,
       };
       addItemToTurn(turn, itemId, timestamp);
-      toolIndexByCallId.set(itemId, items.length);
-      items.push(item);
+      toolIndexByCallId.set(itemId, transcript.length);
+      transcript.push(item);
       continue;
     }
 
     if (responseType === "function_call_output") {
       const callId = typeof payload.call_id === "string" && payload.call_id.trim().length > 0
         ? payload.call_id
-        : `tool-output-${input.threadId}-${lineIndex}`;
+        : buildReplayItemId(input.threadId, "tool-output", lineIndex);
       const existingIndex = toolIndexByCallId.get(callId);
       if (existingIndex !== undefined) {
-        const existing = items[existingIndex];
+        const existing = transcript[existingIndex];
         if (existing) {
-          items[existingIndex] = {
+          transcript[existingIndex] = {
             ...existing,
             status: "completed",
             updatedAt: timestamp,
@@ -542,13 +587,17 @@ function parseSessionJsonl(
 
       const itemId = callId;
       addItemToTurn(turn, itemId, timestamp);
-      items.push({
+      transcript.push({
         threadId: input.threadId,
         turnId: turn.turnId,
+        entryId: itemId,
         itemId,
         type: "function_call_output",
-        normalizedKind: "toolCall",
+        kind: "toolCall",
+        semanticKind: "toolCall",
         status: "completed",
+        source: "replay",
+        sequence: transcript.length,
         toolCall: {
           subtype: "generic",
           toolName: "tool",
@@ -566,83 +615,23 @@ function parseSessionJsonl(
 
   const turns = sortTurns(turnsById);
   if (turns.length === 0) return null;
+  const orderedTranscript = buildTranscriptFromBootstrapEvents({
+    transcript,
+    source: "replay",
+  });
 
   const updatedAt = sessionIndexEntry?.updatedAt ?? lastUpdatedAt;
   return {
     ...input.link,
     threadName: sessionIndexEntry?.threadName ?? input.link.threadName,
-    threadPreview: finalizeThreadPreview(items, input.link.threadPreview),
+    threadPreview: resolveThreadPreviewFromTranscript(orderedTranscript, input.link.threadPreview),
     cwd: sessionCwd,
     archived: input.link.archived || fileMatch.archived,
     createdAt: input.link.createdAt || sessionTimestamp,
     updatedAt: updatedAt ?? input.link.updatedAt,
     turns,
-    items,
+    transcript: orderedTranscript,
   };
-}
-
-function parseLegacySessionJson(
-  raw: string,
-  input: SessionThreadMaterializationInput,
-  fileMatch: SessionFileMatch,
-): CodexThreadDetail | null {
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    const root = asRecord(parsed);
-    if (!root) return null;
-
-    const session = asRecord(root.session);
-    const sessionTimestamp = parseIsoTimestamp(session?.timestamp) ?? input.link.updatedAt ?? Date.now();
-    const turnId = `turn-${input.threadId}`;
-    const items: CodexItemView[] = [];
-    const itemIds: string[] = [];
-
-    const rawItems = Array.isArray(root.items) ? root.items : [];
-    rawItems.forEach((entry, index) => {
-      const item = asRecord(entry);
-      if (!item) return;
-      const role = item.role === "user" || item.role === "assistant" ? item.role : null;
-      if (!role) return;
-      const text = extractMessageText(item.content);
-      if (!text) return;
-      const itemId = `msg-${input.threadId}-${index}`;
-      itemIds.push(itemId);
-      items.push({
-        threadId: input.threadId,
-        turnId,
-        itemId,
-        type: role === "user" ? "userMessage" : "agentMessage",
-        normalizedKind: role === "user" ? "userMessage" : "assistantMessage",
-        role,
-        markdownText: text,
-        status: "completed",
-        createdAt: sessionTimestamp + index,
-        updatedAt: sessionTimestamp + index,
-        rawItem: item,
-      });
-    });
-
-    if (items.length === 0) return null;
-
-    const sessionIndexEntry = readSessionIndexEntry(input.threadId);
-    return {
-      ...input.link,
-      threadName: sessionIndexEntry?.threadName ?? input.link.threadName,
-      threadPreview: finalizeThreadPreview(items, input.link.threadPreview),
-      archived: input.link.archived || fileMatch.archived,
-      createdAt: input.link.createdAt || sessionTimestamp,
-      updatedAt: sessionIndexEntry?.updatedAt ?? items[items.length - 1]?.updatedAt ?? sessionTimestamp,
-      turns: [{
-        threadId: input.threadId,
-        turnId,
-        status: "completed",
-        itemIds,
-      }],
-      items,
-    };
-  } catch {
-    return null;
-  }
 }
 
 export function readCodexSessionThreadDetail(
@@ -658,8 +647,7 @@ export function readCodexSessionThreadDetail(
     if (match.filePath.endsWith(".jsonl")) {
       return parseSessionJsonl(raw, input, match);
     }
-
-    return parseLegacySessionJson(raw, input, match);
+    return null;
   } catch {
     return null;
   }

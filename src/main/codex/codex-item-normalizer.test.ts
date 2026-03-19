@@ -59,6 +59,7 @@ describe("codex-item-normalizer", () => {
 
     expect(item).not.toBeNull();
     expect(item?.normalizedKind).toBe("fileChange");
+    expect(item?.semanticKind).toBe("patch");
     expect(item?.status).toBe("completed");
     expect(item?.toolCall?.subtype).toBe("fileChange");
     expect(item?.toolCall?.toolName).toBe("file_change");
@@ -92,13 +93,13 @@ describe("codex-item-normalizer", () => {
     expect(((item?.toolCall?.result as { content?: unknown[] } | undefined)?.content?.length ?? 0) > 0).toBeTrue();
   });
 
-  test("normalizes reasoning items and preserves status when provided", () => {
+  test("normalizes reasoning items from summary only and preserves status when provided", () => {
     const item = normalizeThreadItem(
       {
         id: "item-thinking",
         type: "reasoning",
         status: "in_progress",
-        summary: ["Checking thread state"],
+        summary: ["Checking thread state", "Comparing item lifecycle with turn status"],
         content: ["Comparing item lifecycle with turn status"],
       },
       "thread-1",
@@ -108,8 +109,7 @@ describe("codex-item-normalizer", () => {
     expect(item).not.toBeNull();
     expect(item?.normalizedKind).toBe("reasoning");
     expect(item?.status).toBe("inProgress");
-    expect(item?.markdownText?.includes("Checking thread state")).toBeTrue();
-    expect(item?.markdownText?.includes("Comparing item lifecycle with turn status")).toBeTrue();
+    expect(item?.markdownText).toBe("**Checking thread state**\n\nComparing item lifecycle with turn status");
   });
 
   test("keeps empty transcript items blank instead of showing internal type labels", () => {

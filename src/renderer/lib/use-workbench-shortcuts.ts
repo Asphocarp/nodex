@@ -14,6 +14,7 @@ export interface WorkbenchShortcutActions {
   onRequestCommandPalette?: (initialQuery?: string) => void;
   onRequestProjectPicker?: () => void;
   onRequestTaskSearch?: (projectId: string) => void;
+  onRequestThreadSearch?: (projectId: string) => void;
   onRequestSettingsToggle?: () => void;
   navigateBack?: () => void;
   navigateForward?: () => void;
@@ -121,8 +122,13 @@ export function handleWorkbenchShortcut(
     return true;
   }
 
-  if (!e.altKey && !e.shiftKey && (e.key === "F" || e.key === "f") && actions.onRequestTaskSearch) {
-    if (targetIsEditable) return false;
+  if (!e.altKey && !e.shiftKey && (e.key === "F" || e.key === "f")) {
+    if (actions.focusedStage === "threads" && actions.onRequestThreadSearch) {
+      actions.onRequestThreadSearch(actions.dbProjectId);
+      return true;
+    }
+
+    if (!actions.onRequestTaskSearch || targetIsEditable) return false;
     actions.onRequestTaskSearch(actions.dbProjectId);
     return true;
   }

@@ -88,9 +88,25 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Terminal panel open/closed state and panel height persist globally in shell state
 - `Cmd/Ctrl + J` toggles the global terminal panel from anywhere in the app
 - Thread stage is a live Codex workspace in Electron (auth, linked threads, streaming events, approvals)
-- Answered `request_user_input` prompts remain visible in the transcript as a compact `Asked N question(s)` disclosure row that stays collapsed by default and expands to show the question/answer pairs
-- When a completed turn's latest plan item is non-empty, the composer swaps into an `Implement this plan?` request surface with `Yes, implement this plan` plus an inline `No, and tell Codex what to do differently` freeform path; accepting sends a follow-up prompt prefixed with `PLEASE IMPLEMENT THIS PLAN:` and resets collaboration mode to `Default` for that follow-up turn
-- Follow-up prompts sent to an already-running turn appear in the transcript immediately on submit, before `turn/steer` returns; if steering fails the temporary row is rolled back, and if steering succeeds the later authoritative user-message item deduplicates the temporary row instead of rendering twice
+- Detailed visible transcript behavior for Threads lives in [Codex Thread Transcript Behavior](./codex-thread-transcript-behavior.md), including answered `request_user_input` rows, plan-implementation follow-up flow, optimistic prompt dedupe, tool/reasoning rendering, and restart recovery rules.
+- User-message transcript actions follow the Codex Electron model:
+  - `Copy message` is available from user bubbles.
+  - `Edit message` is shown only on the last user message of the latest completed editable turn; activating it swaps that bubble for an inline edit prompt in place, and the actual rollback-plus-resend happens only after the user clicks `Send`.
+  - `Fork from here` is shown on eligible completed user-message blocks; latest-turn forks execute immediately, while older-turn forks open a confirmation dialog unless the user has opted out of that confirmation.
+  - Forking opens a new thread tab backed by the forked conversation snapshot and prefills the composer in the new thread.
+- Mounted thread turn rendering follows the Codex Electron turn pipeline:
+  - each visible turn is projected from an ordered item stream into semantic render buckets, then rendered in a fixed order instead of category-priority reshuffling
+  - visible order is `model changed -> user -> model reroute -> agent/exploration body -> system event -> assistant -> post-assistant artifacts -> MCP elicitation -> proposed plan / todo -> in-progress placeholder -> unified diff -> provenance markers`
+  - the mounted renderer preserves the canonical per-turn item sequence from the conversation snapshot instead of re-sorting turn items by timestamp or id inside the renderer
+  - pre-final assistant commentary stays in the agent-work body ahead of the final assistant anchor; only the final assistant message becomes the dedicated assistant block for the turn
+  - when an expanded collapsible agent-work section has no worked-for timing label, the renderer inserts the same Codex-style `Final message` divider immediately before the final assistant block
+  - when the latest visible turn has qualifying prior work and usable timing data, the renderer injects a Codex-style `Worked for …` divider immediately before the final assistant message
+  - collapsed agent-work sections collapse to the summary row only; their body exits the DOM once collapsed, while collapsed command-tool bodies keep the hidden measured body in the DOM with `height: 0`, `opacity: 0`, and pointer events disabled
+  - the mounted thread body uses a flat Codex-style section layout: no extra turn-level tool card wraps, and tool / exploration / system rows render as direct sections instead of being nested inside additional app-owned shell cards
+  - approvals, request-user-input, and implement-plan prompts stay in the footer request surface above the composer rather than being rendered as normal inline timeline blocks
+  - blocking active requests and background approvals replace the normal composer until the request surface is cleared
+  - reopening an existing thread tab first enters a resume shell state; the mounted transcript and composer stay hidden until the active conversation reaches `resumeState = resumed`
+  - reopening a completed thread after app restart now resumes through the main-process conversation manager only, without session bootstrap, rereads, or transcript re-merges
 - Thread stage project context is stage-local (`threadsProjectId`) and remains stable when DB datasource changes
 - By default, desktop notifications fire when a Codex thread finishes; the notification title uses the thread title and the body uses the latest turn message. Settings can disable this.
 - Packaged macOS builds can check for stable app updates on launch in the background, download them automatically when found, expose a manual `Check now` action in Settings -> Workspace -> `App updates`, expose `Check for Updates…` in the macOS app menu, and require an explicit `Restart to Update` action before installation.
@@ -375,37 +391,20 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Global worktree creation mode is configurable in Settings -> `Worktrees`: `Auto branch` (creates `<prefix><thread-slug>`; default prefix is `nodex/`, and thread slug is derived from the thread title by lowercasing, keeping the first 5 words, stripping non-`[a-z0-9]`, then joining with `-`) or `Detached HEAD` (default).
 - `Cloud` run target is explicitly blocked in both renderer preflight and backend thread-start validation in this release.
 - Sending from `New thread` creates the thread and switches focus to the newly created thread tab.
-- As soon as a turn starts, the transcript shows the submitted user prompt optimistically and keeps that bubble visible above the pending `Waiting for response…` state until live response items arrive; when the live user-message item later arrives, it is deduped instead of rendering twice.
 - Threads can navigate back to the owning card (`Open card`) from the Thread stage.
 - Running threads keep syncing in the background when users switch to another thread tab; returning to the running tab preserves live state (including stop affordance and existing tool-call logs).
 - Thread tabs show a running indicator for actively executing threads.
 - Sidebar thread entries (and the Threads group icon) switch to a running indicator while execution is active.
-- In-app account UX supports account read, ChatGPT/API-key login, login cancel, logout, and a `Connected` tooltip that refreshes on reveal and shows the remaining primary/secondary rate-limit windows when available.
+- In-app account UX supports account read, ChatGPT/API-key login, login cancel, logout, and a `Connected` tooltip that appears only for authenticated accounts, refreshes on reveal, and shows the remaining primary/secondary rate-limit windows when available.
 - Approval policy is per-project: `auto` by default, with optional `manual` mode in Thread stage.
 - Thread stage composer exposes real Codex model and reasoning-effort selectors; selections persist globally in local storage and are applied to the first turn of new threads and subsequent turns.
 - Thread stage composer exposes collaboration mode presets (`Default`, `Plan`) sourced from app-server `collaborationMode/list` with a client fallback to `Default` + `Plan` when unavailable.
 - Collaboration mode selection is persisted locally per thread context (`thread:<threadId>`) and per new-thread draft context (`draft:<projectId>:<cardId>`), with draft selection migrated to the created thread after first-turn creation.
 - Thread and turn start requests include `collaborationMode` when selected; `Plan` mode enables clarifying-question flows through `item/tool/requestUserInput`.
-- Multi-question `request_user_input` cards preserve keyboard continuity: using `Left` / `Right` to move between questions keeps focus on the next question's equivalent answer control instead of dropping focus out of the card, and option questions let `ArrowDown` move from the last preset choice into the free-form row while `ArrowUp` at the start of that free-form field returns to the preset choices.
 - Thread stage composer also shows the real Git branch for the effective thread `cwd` (falling back to the project workspace path), and that branch chip auto-refreshes when the current worktree switches branches outside the app.
 - Threads composer uses one round icon button: it sends when idle, shows a spinner immediately while the prompt send is pending, and switches to a stop icon while Codex is running so users can interrupt immediately.
 - Threads composer send shortcut defaults to `Enter` (with `Shift+Enter` for newline) and is user-configurable in Settings -> Editor -> `Thread send shortcut` (`Enter` or `Cmd/Ctrl+Enter`).
-- Absolute local file links rendered anywhere in the app (for example `/workspace/project/file.ts#L71`) open in the configured desktop app instead of falling through as raw browser/file URLs, and the original click is consumed so editor widgets do not also open the same href in a browser tab/window. In Codex thread markdown, hovering those links shows an immediate tooltip with the full local path and resolved line/column when present.
-- `item/commandExecution/requestApproval` and `item/fileChange/requestApproval` auto-accept in `auto` mode.
-- `item/tool/requestUserInput` always requires explicit user input in UI.
-- `item/plan/delta` streams incremental plan content; both `text` and `markdownText` stay in sync during reducer updates for markdown-first rendering.
-- `serverRequest/resolved` clears stale pending approval and user-input queue entries by request id.
-- Codex thread items are normalized into structured renderer data (`normalizedKind`, optional `toolCall`, optional `markdownText`, optional `rawItem`, optional lifecycle `status`). Top-level duplicate fields such as `text`, `command`, `cwd`, and `aggregatedOutput` are not part of the normalized shape.
-- Assistant, plan, and reasoning content render through Streamdown with official code, Mermaid, math, and CJK plugins, plus streaming-safe parsing for in-progress turns and Nodex-specific local-file link handling.
-- Reasoning (`Thinking`) items stay visible while in progress and are hidden after completion by default; users can keep completed reasoning visible by disabling Settings -> Editor -> `Hide thinking when done`.
-- Tool activity renders as structured expandable cards instead of plain text dumps: specialized cards for command execution, file changes, MCP, and web search, plus a generic fallback card that always exposes args/result/error/raw payloads for unknown future tool types.
-- Tool-call header labels use a two-tone hierarchy for scanability: the leading action phrase (for example, `Explored`, `Searched web`, `Ran`) is emphasized over trailing detail text.
-- Command execution cards consume parsed `commandActions` metadata (`read`, `listFiles`, `search`) to show exploration summaries (for example, `Explored 4 files, 1 search`) and per-action transcript rows (`Read`, `Listed`, `Searched`).
-- Consecutive exploration-only command execution items in the same turn are coalesced into one transcript card before render so exploration activity is summarized as a single grouped entry.
-- While the current turn is still active, the trailing coalesced exploration section remains visually `in progress` (`Exploring` shimmer) until a non-exploration item appears in that same turn or the turn stops.
-- Exploration sections are expanded by default only while they are `in progress`; once exploration settles, they collapse by default.
-- Command execution headers show `in <cwd>` only when the command ran outside the active project's workspace path.
-- Tool-call transcript state is recovered from persisted Codex session history when available, with a SQLite snapshot fallback while a rollout has not materialized yet, so existing tool logs survive thread tab switches and app restarts without Nodex owning a second durable transcript copy.
+- Visible transcript semantics are defined in [Codex Thread Transcript Behavior](./codex-thread-transcript-behavior.md), including optimistic prompt rows, request-user-input cards, plan follow-up flow, local file links in transcript markdown, reasoning/tool rendering, exploration coalescing, queue cleanup, and restart recovery consistency.
 - Browser/HTTP transport returns explicit unsupported errors for `codex:*` methods in this release.
 
 ### Statuses

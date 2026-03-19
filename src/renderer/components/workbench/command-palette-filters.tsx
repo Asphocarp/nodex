@@ -29,7 +29,7 @@ import {
 } from "../ui/select";
 import {
   SELECTOR_MENU_CONTENT_CLASS_NAME,
-} from "./stage-threads/selector-popover-primitives";
+} from "@/features/local-conversation/view/shared/selector-popover-primitives";
 
 const PANEL_CLASS_NAME = "min-w-96 max-w-[min(36rem,calc(100vw-2rem))] outline-none";
 const SECTION_LABEL =

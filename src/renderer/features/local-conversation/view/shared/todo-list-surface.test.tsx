@@ -1,0 +1,67 @@
+import { describe, expect, test } from "bun:test";
+import { fireEvent } from "@testing-library/react";
+import { render, textContent } from "../../../../test/dom";
+import { parseTodoSteps, TodoListSurface } from "./todo-list-surface";
+
+describe("parseTodoSteps", () => {
+  test("prefers structured raw plan steps when available", () => {
+    const steps = parseTodoSteps({
+      markdownText: "1. Ignored markdown fallback",
+      status: "completed",
+      rawItem: {
+        plan: [
+          { step: "Review failing stories", status: "completed" },
+          { step: "Patch MCP renderer", status: "in_progress" },
+        ],
+      },
+    });
+
+    expect(steps.length).toBe(2);
+    expect(steps[0]?.status).toBe("completed");
+    expect(steps[1]?.status).toBe("in_progress");
+  });
+
+  test("marks the first pending markdown step as in progress while the turn is still running", () => {
+    const steps = parseTodoSteps({
+      markdownText: [
+        "- [x] Audit the bundle",
+        "- [ ] Port the todo shell",
+        "- [ ] Update stories",
+      ].join("\n"),
+      status: "inProgress",
+      rawItem: undefined,
+    });
+
+    expect(steps[0]?.status).toBe("completed");
+    expect(steps[1]?.status).toBe("in_progress");
+    expect(steps[2]?.status).toBe("pending");
+  });
+});
+
+describe("TodoListSurface", () => {
+  test("renders the Codex-style completion summary and expandable step list", () => {
+    const { container, getByRole } = render(
+      <TodoListSurface
+        item={{
+          markdownText: [
+            "- [x] Audit the bundle",
+            "- [ ] Port the todo shell",
+            "- [ ] Update stories",
+          ].join("\n"),
+          status: "inProgress",
+          rawItem: undefined,
+        }}
+      />,
+    );
+
+    const toggle = getByRole("button", { name: "Collapse todo list" });
+    expect(Boolean(textContent(container).includes("1 out of 3 tasks completed"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Port the todo shell"))).toBeTrue();
+    expect(toggle.getAttribute("aria-label")).toBe("Collapse todo list");
+    expect(container.querySelector('[data-thread-find-skip="true"]')).toBe(null);
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-label")).toBe("Expand todo list");
+    expect(container.querySelector('[data-thread-find-skip="true"]')).not.toBeNull();
+  });
+});

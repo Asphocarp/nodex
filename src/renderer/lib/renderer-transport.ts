@@ -6,6 +6,7 @@ export interface RendererTransport {
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
   subscribeBoardChanges: (projectId: string, callback: () => void) => () => void;
   subscribeCodexEvents: (callback: (event: import("./types").CodexEvent) => void) => () => void;
+  subscribeCodexHostMessages: (callback: (message: import("./types").CodexHostMessage) => void) => () => void;
   subscribeGitBranchChanges: (callback: (event: { cwd: string }) => void) => () => void;
   subscribeAppUpdateStatus: (callback: (status: import("./types").AppUpdateStatus) => void) => () => void;
 }

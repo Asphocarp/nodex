@@ -7,9 +7,12 @@ import type {
   Board,
   CodexAccountSnapshot,
   CodexApprovalDecision,
+  CodexThreadActionResult,
+  CodexConversationSnapshot,
   CodexConnectionState,
   CodexCollaborationModePreset,
   CodexEvent,
+  CodexHostMessage,
   CodexModelOption,
   CodexPermissionMode,
   CodexThreadStartForCardInput,
@@ -366,13 +369,13 @@ export interface IpcApi {
   "worktrees:list": { args: []; result: ManagedWorktreeRecord[] };
   "worktrees:environments:list": { args: [projectId: string]; result: WorktreeEnvironmentOption[] };
   "worktrees:delete": { args: [threadId: string]; result: boolean };
-  "codex:thread:read": {
-    args: [threadId: string, includeTurns?: boolean];
-    result: CodexThreadDetail | null;
-  };
-  "codex:thread:resume": {
+  "codex:thread:snapshot:request": {
     args: [threadId: string];
-    result: CodexThreadDetail | null;
+    result: CodexConversationSnapshot | null;
+  };
+  "codex:thread:resume:request": {
+    args: [threadId: string];
+    result: CodexConversationSnapshot | null;
   };
   "codex:thread:name:set": {
     args: [threadId: string, name: string];
@@ -384,8 +387,20 @@ export interface IpcApi {
     args: [threadId: string, prompt: string, opts?: CodexTurnStartOptions];
     result: CodexTurnSummary | null;
   };
+  "codex:thread:follow-up:enqueue": {
+    args: [threadId: string, prompt: string, opts?: CodexTurnStartOptions];
+    result: void;
+  };
+  "codex:thread:edit-last-user-turn": {
+    args: [threadId: string, turnId: string, message: string];
+    result: CodexThreadActionResult;
+  };
+  "codex:thread:fork-from-turn": {
+    args: [threadId: string, turnId: string, message: string];
+    result: CodexThreadActionResult;
+  };
   "codex:turn:steer": {
-    args: [threadId: string, expectedTurnId: string, prompt: string, optimisticItemId?: string];
+    args: [threadId: string, expectedTurnId: string, prompt: string];
     result: { turnId: string } | null;
   };
   "codex:turn:interrupt": {
@@ -398,6 +413,10 @@ export interface IpcApi {
   };
   "codex:user-input:respond": {
     args: [requestId: string, answers: Record<string, string[]>];
+    result: boolean;
+  };
+  "codex:mcp-elicitation:respond": {
+    args: [requestId: string, action: "accept" | "decline" | "cancel"];
     result: boolean;
   };
   "codex:permission:mode:set": {
@@ -420,4 +439,5 @@ export interface IpcEvents {
   "pty:data": { sessionId: string; data: string };
   "pty:exit": { sessionId: string; exitCode: number };
   "codex:event": CodexEvent;
+  "codex:host-message": CodexHostMessage;
 }

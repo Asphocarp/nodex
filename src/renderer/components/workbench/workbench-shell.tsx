@@ -31,8 +31,6 @@ import {
 import { StageMinimap } from "./stage-minimap";
 import { StageRail, type StageRailStage } from "./stage-rail";
 import { StageTabStrip } from "./workbench-stage-tab-strip";
-import { StageThreads } from "./stage-threads";
-import { resolveThreadCardStatus } from "./stage-threads/thread-card-fetch";
 import { StageFilesPlaceholder } from "./stage-files-placeholder";
 import { HistoryPanel } from "./workbench-history-panel";
 import { CardStage } from "./workbench-card-stage";
@@ -50,17 +48,25 @@ import {
   writeNextPanelPeekPx,
 } from "@/lib/stage-rail-peek";
 import {
-  readThreadPanelHideThinkingWhenDone,
-  writeThreadPanelHideThinkingWhenDone,
-} from "@/lib/thread-panel-thinking-visibility";
-import {
   readThreadPromptSubmitShortcut,
   writeThreadPromptSubmitShortcut,
 } from "@/lib/thread-panel-prompt-submit-shortcut";
 import {
+  readThreadQueueFollowUpsEnabled,
+  writeThreadQueueFollowUpsEnabled,
+} from "@/lib/thread-composer-follow-up-mode";
+import {
   readWorktreeStartMode,
   writeWorktreeStartMode,
 } from "@/lib/worktree-start-mode";
+import {
+  StageThreads,
+  useLocalConversation,
+  useThreadStageModel,
+  type ThreadStageActions,
+  type ThreadStageModelInput,
+} from "@/features/local-conversation";
+import { resolveThreadCardStatus } from "@/features/local-conversation/view/shared/thread-card-fetch";
 import {
   readWorktreeAutoBranchPrefix,
   writeWorktreeAutoBranchPrefix,
@@ -79,7 +85,9 @@ import {
   writeStripSmartPrefixFromTitleEnabled,
 } from "@/lib/smart-prefix-parsing";
 import type { StageRailLayoutMode } from "@/lib/stage-rail-layout-mode";
-import { useCodex } from "@/lib/use-codex";
+import { useCodexAccountActions } from "@/lib/use-codex-account-actions";
+import { useCodexControl } from "@/lib/use-codex-control";
+import { useCodexThreadFollowerClient } from "@/lib/use-codex-thread-follower-client";
 import { useKanban } from "@/lib/use-kanban";
 import { KANBAN_STATUS_LABELS } from "@/lib/kanban-options";
 import { StatusIcon as SharedStatusIcon } from "@/lib/status-chip";
@@ -211,6 +219,7 @@ interface WorkbenchShellProps {
   onRequestProjectPickerOpen: () => void;
   projectPickerOpenTick: number;
   taskSearchOpenTick: number;
+  threadSearchOpenTick: number;
   commandPaletteOpenTick: number;
   commandPaletteInitialQuery: string;
   settingsToggleTick: number;
@@ -366,6 +375,7 @@ export function WorkbenchShell({
   onRequestProjectPickerOpen,
   projectPickerOpenTick,
   taskSearchOpenTick,
+  threadSearchOpenTick,
   commandPaletteOpenTick,
   commandPaletteInitialQuery,
   settingsToggleTick,
@@ -395,9 +405,6 @@ export function WorkbenchShell({
   const hoverSidebarOpenTimeoutRef = useRef<number | null>(null);
   const hoverSidebarCloseTimeoutRef = useRef<number | null>(null);
   const [nextPanelPeekPx, setNextPanelPeekPxState] = useState<number>(() => readNextPanelPeekPx());
-  const [hideThinkingWhenDone, setHideThinkingWhenDoneState] = useState<boolean>(() =>
-    readThreadPanelHideThinkingWhenDone(),
-  );
   const [smartPrefixParsingEnabled, setSmartPrefixParsingEnabledState] = useState<boolean>(() =>
     readSmartPrefixParsingEnabled(),
   );
@@ -406,6 +413,9 @@ export function WorkbenchShell({
   );
   const [threadPromptSubmitShortcut, setThreadPromptSubmitShortcutState] = useState(() =>
     readThreadPromptSubmitShortcut(),
+  );
+  const [threadQueueFollowUpsEnabled, setThreadQueueFollowUpsEnabledState] = useState(() =>
+    readThreadQueueFollowUpsEnabled(),
   );
   const [worktreeStartMode, setWorktreeStartModeState] = useState(() =>
     readWorktreeStartMode(),
@@ -432,29 +442,39 @@ export function WorkbenchShell({
     threadSettings,
     reasoningEffortOptions,
     permissionMode,
-    approvalQueue,
-    userInputQueue,
-    planImplementationQueue,
     loadThreads: loadCodexThreads,
     listCollaborationModes,
-    readThread: readCodexThread,
     startThreadForCard,
     startTurn,
-    sendPromptToThread,
     steerTurn,
-    interruptTurn,
     respondApproval,
     respondUserInput,
-    resolvePlanImplementation,
+    respondMcpElicitation,
+    setPermissionMode,
+    setThreadModel,
+    setThreadReasoningEffort,
+  } = useCodexControl(threadsProjectId);
+  const {
     refreshAccount,
     startChatGptLogin,
     startApiKeyLogin,
     cancelLogin,
     logout,
-    setPermissionMode,
-    setThreadModel,
-    setThreadReasoningEffort,
-  } = useCodex(threadsProjectId);
+  } = useCodexAccountActions();
+  const {
+    state: localConversationState,
+    requestConversationSnapshot,
+    requestConversationResume,
+    resolvePlanImplementation: resolveLocalConversationPlanImplementation,
+    setComposerIntent,
+    consumeComposerIntent,
+  } = useLocalConversation(threadsProjectId);
+  const threadFollowerClient = useCodexThreadFollowerClient({
+    projectId: threadsProjectId,
+    permissionMode,
+    model: threadSettings.model,
+    reasoningEffort: threadSettings.reasoningEffort,
+  });
   const cardStageProjectId = cardStageState.projectId || dbProjectId;
   const {
     board: cardStageBoard,
@@ -493,11 +513,6 @@ export function WorkbenchShell({
     const normalized = writeNextPanelPeekPx(value);
     setNextPanelPeekPxState(normalized);
   }, []);
-
-  const setHideThinkingWhenDone = useCallback((value: boolean) => {
-    const normalized = writeThreadPanelHideThinkingWhenDone(value);
-    setHideThinkingWhenDoneState(normalized);
-  }, []);
   const setSmartPrefixParsingEnabled = useCallback((value: boolean) => {
     const normalized = writeSmartPrefixParsingEnabled(value);
     setSmartPrefixParsingEnabledState(normalized);
@@ -509,6 +524,10 @@ export function WorkbenchShell({
   const setThreadPromptSubmitShortcut = useCallback((value: "enter" | "mod-enter") => {
     const normalized = writeThreadPromptSubmitShortcut(value);
     setThreadPromptSubmitShortcutState(normalized);
+  }, []);
+  const setThreadQueueFollowUpsEnabled = useCallback((value: boolean) => {
+    const normalized = writeThreadQueueFollowUpsEnabled(value);
+    setThreadQueueFollowUpsEnabledState(normalized);
   }, []);
   const setWorktreeStartMode = useCallback((value: "autoBranch" | "detachedHead") => {
     const normalized = writeWorktreeStartMode(value);
@@ -912,6 +931,13 @@ export function WorkbenchShell({
   }, [threadsProjectId, codexThreadTabs, setThreadsTabs]);
 
   const resolvedThreadsTabs = codexThreadTabs.length > 0 ? codexThreadTabs : threadsTabs;
+  const resolvedConversationThreadSummaries = useMemo(
+    () => {
+      const summaries = localConversationState.threadSummariesByProject[threadsProjectId] ?? [];
+      return summaries.length > 0 ? summaries : codexThreads;
+    },
+    [codexThreads, localConversationState.threadSummariesByProject, threadsProjectId],
+  );
   const resolvedActiveThreadsTabId = useMemo(() => {
     if (resolvedThreadsTabs.some((tab) => tab.id === activeThreadsTabId)) return activeThreadsTabId;
     return resolvedThreadsTabs[0]?.id ?? "";
@@ -931,36 +957,42 @@ export function WorkbenchShell({
 
   const runningThreadIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const thread of codexThreads) {
-      const detail = codexState.threadDetailsById[thread.threadId];
-      const hasInProgressTurn = detail?.turns.some((turn) => turn.status === "inProgress") ?? false;
+    for (const thread of resolvedConversationThreadSummaries) {
+      const conversation = localConversationState.conversationsById[thread.threadId];
+      const hasInProgressTurn = conversation?.turns.some((turn) => turn.status === "inProgress") ?? false;
       if (thread.statusType === "active" || hasInProgressTurn) ids.add(thread.threadId);
     }
     return ids;
-  }, [codexState.threadDetailsById, codexThreads]);
+  }, [localConversationState.conversationsById, resolvedConversationThreadSummaries]);
 
-  const activeThreadDetail = useMemo(() => {
+  const activeThreadConversation = useMemo(() => {
     if (!activeThreadTab || activeThreadTab.id === NEW_THREAD_STAGE_TAB_ID) return null;
-    const detail = codexState.threadDetailsById[activeThreadTab.id];
-    if (!detail) return null;
+    const conversation = localConversationState.conversationsById[activeThreadTab.id];
+    if (!conversation) return null;
 
-    const summary = codexThreads.find((thread) => thread.threadId === activeThreadTab.id);
-    if (!summary) return detail;
+    const summary = resolvedConversationThreadSummaries.find((thread) => thread.threadId === activeThreadTab.id);
+    if (!summary) return conversation;
 
     return {
-      ...detail,
+      ...conversation,
       statusType: summary.statusType,
       statusActiveFlags: summary.statusActiveFlags,
-      updatedAt: Math.max(detail.updatedAt, summary.updatedAt),
+      updatedAt: Math.max(conversation.updatedAt, summary.updatedAt),
     };
-  }, [activeThreadTab, codexState.threadDetailsById, codexThreads]);
+  }, [activeThreadTab, localConversationState.conversationsById, resolvedConversationThreadSummaries]);
+
+  const activeThreadSummary = useMemo(() => {
+    if (!activeThreadTab || activeThreadTab.id === NEW_THREAD_STAGE_TAB_ID) return null;
+    return resolvedConversationThreadSummaries.find((thread) => thread.threadId === activeThreadTab.id) ?? null;
+  }, [activeThreadTab, resolvedConversationThreadSummaries]);
 
   useEffect(() => {
     if (!activeThreadTab) return;
     if (activeThreadTab.id === NEW_THREAD_STAGE_TAB_ID) return;
-    if (codexState.threadDetailsById[activeThreadTab.id]) return;
-    void readCodexThread(activeThreadTab.id, true).catch(() => { });
-  }, [activeThreadTab, codexState.threadDetailsById, readCodexThread]);
+    const resumeState = activeThreadConversation?.resumeState ?? "needs_resume";
+    if (resumeState === "resuming" || resumeState === "resumed") return;
+    void requestConversationResume(activeThreadTab.id).catch(() => { });
+  }, [activeThreadConversation?.resumeState, activeThreadTab, requestConversationResume]);
 
   const activeCardStageCardId = cardStageState.open ? cardStageState.cardId : null;
   const activeCardStageCard = useMemo(
@@ -1069,8 +1101,8 @@ export function WorkbenchShell({
   ]);
 
   const threadSummaryById = useMemo(
-    () => new Map(codexThreads.map((thread) => [thread.threadId, thread])),
-    [codexThreads],
+    () => new Map(resolvedConversationThreadSummaries.map((thread) => [thread.threadId, thread])),
+    [resolvedConversationThreadSummaries],
   );
 
   const threadsSidebarItems: StageSidebarItem[] = resolvedThreadsTabs.map((tab) => {
@@ -1217,7 +1249,7 @@ export function WorkbenchShell({
 
   const linkedThreadsForCardStageCard = useMemo(() => {
     if (!activeCardStageCardId) return [];
-    return codexThreads
+    return resolvedConversationThreadSummaries
       .filter((thread) => thread.cardId === activeCardStageCardId)
       .map((thread) => ({
         threadId: thread.threadId,
@@ -1228,7 +1260,7 @@ export function WorkbenchShell({
         archived: thread.archived,
         updatedAt: thread.updatedAt,
       }));
-  }, [activeCardStageCardId, codexThreads]);
+  }, [activeCardStageCardId, resolvedConversationThreadSummaries]);
 
   const activeThreadsProject = useMemo(
     () => projects.find((project) => project.id === threadsProjectId) ?? null,
@@ -1315,8 +1347,8 @@ export function WorkbenchShell({
   }, [cardStageProjectId, skipOccurrenceForCardStage]);
 
   useEffect(() => {
-    const activeThreadCardId = activeThreadDetail?.cardId;
-    const activeThreadProjectId = activeThreadDetail?.projectId ?? threadsProjectId;
+    const activeThreadCardId = activeThreadConversation?.cardId;
+    const activeThreadProjectId = activeThreadConversation?.projectId ?? threadsProjectId;
     if (!activeThreadCardId) {
       setActiveThreadCardColumnId(null);
       return;
@@ -1336,12 +1368,208 @@ export function WorkbenchShell({
     return () => {
       cancelled = true;
     };
-  }, [activeThreadDetail?.cardId, activeThreadDetail?.projectId, threadsProjectId]);
+  }, [activeThreadConversation?.cardId, activeThreadConversation?.projectId, threadsProjectId]);
 
   const handleOpenCardFromThread = useCallback(async (cardId: string) => {
-    const projectId = activeThreadDetail?.projectId ?? threadsProjectId;
+    const projectId = activeThreadConversation?.projectId ?? threadsProjectId;
     await openCardStage(projectId, cardId);
-  }, [activeThreadDetail?.projectId, openCardStage, threadsProjectId]);
+  }, [activeThreadConversation?.projectId, openCardStage, threadsProjectId]);
+
+  const threadStageInput = useMemo<ThreadStageModelInput>(() => ({
+    projectId: threadsProjectId,
+    projectWorkspacePath: activeThreadsProject?.workspacePath ?? null,
+    isNewThreadTab,
+    newThreadTarget,
+    activeThreadCardColumnId,
+    threadStartProgress: newThreadStartProgress,
+    activeThreadId: activeThreadTab?.id ?? null,
+    activeThreadSummary,
+    conversation: activeThreadConversation,
+    knownConversationsById: localConversationState.conversationsById,
+    dismissedPlanImplementationTurnIdByThread: localConversationState.dismissedPlanImplementationTurnIdByThread,
+    connection: localConversationState.connection,
+    account: localConversationState.account,
+    availableModels,
+    collaborationModes: availableCollaborationModes,
+    selectedCollaborationMode,
+    selectedModel: threadSettings.model,
+    selectedReasoningEffort: threadSettings.reasoningEffort,
+    reasoningEffortOptions,
+    permissionMode,
+    isQueueingEnabled: threadQueueFollowUpsEnabled,
+    promptSubmitShortcut: threadPromptSubmitShortcut,
+    searchOpenTick: threadSearchOpenTick,
+    composerIntent: activeThreadTab ? localConversationState.composerIntentsByThread?.[activeThreadTab.id] ?? null : null,
+  }), [
+    activeThreadTab,
+    activeThreadCardColumnId,
+    activeThreadConversation,
+    activeThreadSummary,
+    activeThreadTab,
+    activeThreadsProject?.workspacePath,
+    availableCollaborationModes,
+    availableModels,
+    isNewThreadTab,
+    localConversationState.account,
+    localConversationState.composerIntentsByThread,
+    localConversationState.connection,
+    localConversationState.conversationsById,
+    newThreadStartProgress,
+    newThreadTarget,
+    permissionMode,
+    threadQueueFollowUpsEnabled,
+    reasoningEffortOptions,
+    selectedCollaborationMode,
+    threadSearchOpenTick,
+    threadPromptSubmitShortcut,
+    threadSettings.model,
+    threadSettings.reasoningEffort,
+    threadsProjectId,
+  ]);
+
+  const threadStageActions = useMemo<ThreadStageActions>(() => ({
+    onCollaborationModeChange: handleCollaborationModeChange,
+    onModelChange: setThreadModel,
+    onReasoningEffortChange: setThreadReasoningEffort,
+    onPermissionModeChange: (mode) => {
+      void setPermissionMode(threadsProjectId, mode);
+    },
+    onQueueingEnabledChange: (enabled) => {
+      setThreadQueueFollowUpsEnabled(enabled);
+    },
+    onRefreshAccount: refreshAccount,
+    onStartChatGptLogin: startChatGptLogin,
+    onStartApiKeyLogin: startApiKeyLogin,
+    onCancelLogin: async (loginId) => {
+      await cancelLogin(loginId);
+    },
+    onLogout: async () => {
+      await logout();
+    },
+    onStartThreadForCard: async (input) => {
+      const detail = await startThreadForCard({
+        projectId: input.projectId,
+        cardId: input.cardId,
+        prompt: input.prompt,
+        collaborationMode: selectedCollaborationMode,
+        worktreeStartMode,
+        worktreeBranchPrefix: worktreeAutoBranchPrefix,
+      });
+      const nextMode = writeCollaborationModeForContextKey(
+        getThreadCollaborationModeStorageKey(detail.threadId),
+        selectedCollaborationMode,
+      );
+      setSelectedCollaborationMode(nextMode);
+      await loadCodexThreads(input.projectId);
+      navigateToThreadTab(input.projectId, detail.threadId);
+    },
+    onSendPrompt: async (prompt, opts) => {
+      if (!activeThreadTab || activeThreadTab.id === NEW_THREAD_STAGE_TAB_ID) return;
+      await threadFollowerClient.startTurn(
+        activeThreadTab.id,
+        prompt,
+        { collaborationMode: opts?.collaborationMode ?? selectedCollaborationMode },
+      );
+    },
+    onSteerPrompt: async (turnId, prompt) => {
+      if (!activeThreadTab || activeThreadTab.id === NEW_THREAD_STAGE_TAB_ID) return;
+      await threadFollowerClient.steerTurn(activeThreadTab.id, turnId, prompt);
+    },
+    onInterruptTurn: async (turnId) => {
+      if (!activeThreadTab || activeThreadTab.id === NEW_THREAD_STAGE_TAB_ID) return;
+      await threadFollowerClient.interruptTurn(activeThreadTab.id, turnId);
+    },
+    onRespondApproval: async (requestId, decision) => {
+      await respondApproval(requestId, decision);
+    },
+    onRespondUserInput: async (requestId, answers) => {
+      await respondUserInput(requestId, answers);
+    },
+    onRespondMcpElicitation: async (requestId, action) => {
+      await respondMcpElicitation(requestId, action);
+    },
+    onResolvePlanImplementationRequest: (threadId, turnId) => {
+      resolveLocalConversationPlanImplementation(threadId, turnId);
+    },
+    onEnqueueQueuedFollowUp: async (threadId, prompt, opts) => {
+      await threadFollowerClient.enqueueQueuedFollowUp(threadId, prompt, {
+        collaborationMode: opts?.collaborationMode ?? null,
+      });
+    },
+    onRemoveQueuedFollowUp: async (threadId, followUpId) => {
+      await threadFollowerClient.removeQueuedFollowUp(threadId, followUpId);
+    },
+    onReorderQueuedFollowUps: async (threadId, orderedFollowUpIds) => {
+      await threadFollowerClient.reorderQueuedFollowUps(threadId, orderedFollowUpIds);
+    },
+    onSendQueuedFollowUpNow: async (threadId, followUpId) => {
+      await threadFollowerClient.sendQueuedFollowUpNow(threadId, followUpId);
+    },
+    onEditQueuedFollowUp: async ({ threadId, followUpId, prompt }) => {
+      await threadFollowerClient.removeQueuedFollowUp(threadId, followUpId);
+      setComposerIntent(threadId, {
+        prompt,
+        focusNonce: Date.now(),
+      });
+    },
+    onEditLastUserTurn: async (input) => {
+      await threadFollowerClient.editLastUserTurn(input.threadId, input.turnId, input.message);
+      await requestConversationSnapshot(input.threadId);
+    },
+    onForkFromTurn: async (input) => {
+      const result = await threadFollowerClient.forkConversationFromTurn(input.threadId, input.turnId, input.message);
+      const forkedConversation = await requestConversationSnapshot(result.threadId);
+      setComposerIntent(result.threadId, result.composerIntent);
+      writeCollaborationModeForContextKey(
+        getThreadCollaborationModeStorageKey(result.threadId),
+        selectedCollaborationMode,
+      );
+      const projectId = forkedConversation?.projectId ?? activeThreadConversation?.projectId ?? threadsProjectId;
+      await loadCodexThreads(projectId);
+      navigateToThreadTab(projectId, result.threadId);
+    },
+    onConsumeComposerIntent: (threadId, focusNonce) => {
+      consumeComposerIntent(threadId, focusNonce);
+    },
+    onOpenCard: (cardId) => {
+      void handleOpenCardFromThread(cardId);
+    },
+  }), [
+    activeThreadConversation?.projectId,
+    activeThreadTab,
+    cancelLogin,
+    consumeComposerIntent,
+    handleCollaborationModeChange,
+    handleOpenCardFromThread,
+    loadCodexThreads,
+    localConversationState.conversationsById,
+    logout,
+    navigateToThreadTab,
+    refreshAccount,
+    requestConversationSnapshot,
+    resolveLocalConversationPlanImplementation,
+    respondApproval,
+    respondMcpElicitation,
+    respondUserInput,
+    selectedCollaborationMode,
+    setComposerIntent,
+    setPermissionMode,
+    setThreadQueueFollowUpsEnabled,
+    setThreadModel,
+    setThreadReasoningEffort,
+    startApiKeyLogin,
+    startChatGptLogin,
+    startThreadForCard,
+    threadFollowerClient,
+    threadsProjectId,
+    worktreeAutoBranchPrefix,
+    worktreeStartMode,
+  ]);
+
+  const { model: threadStageModel, actions: boundThreadStageActions } = useThreadStageModel(
+    threadStageInput,
+    threadStageActions,
+  );
 
   const stages: StageRailStage[] = [
     {
@@ -1441,10 +1669,18 @@ export function WorkbenchShell({
                 return { threadId: detail.threadId };
               }}
               onSendThreadSectionPrompt={async ({ projectId, threadId, prompt }) => {
-                await sendPromptToThread(threadId, prompt, {
-                  projectId,
-                  collaborationMode: selectedCollaborationMode,
-                });
+                const conversation = localConversationState.conversationsById[threadId] ?? null;
+                const activeTurn = conversation
+                  ? [...conversation.turns].reverse().find((turn) => turn.status === "inProgress") ?? null
+                  : null;
+                if (activeTurn) {
+                  await steerTurn(threadId, activeTurn.turnId, prompt);
+                } else {
+                  await startTurn(threadId, prompt, {
+                    projectId,
+                    collaborationMode: selectedCollaborationMode,
+                  });
+                }
                 await loadCodexThreads(projectId);
               }}
               terminalPanelActive={
@@ -1491,94 +1727,8 @@ export function WorkbenchShell({
       hideHeader: true,
       content: (
         <StageThreads
-          projectId={threadsProjectId}
-          projectWorkspacePath={activeThreadsProject?.workspacePath ?? null}
-          isNewThreadTab={isNewThreadTab}
-          newThreadTarget={newThreadTarget}
-          activeThreadCardColumnId={activeThreadCardColumnId}
-          threadStartProgress={newThreadStartProgress}
-          thread={activeThreadDetail}
-          connection={codexState.connection}
-          account={codexState.account}
-          availableModels={availableModels}
-          collaborationModes={availableCollaborationModes}
-          selectedCollaborationMode={selectedCollaborationMode}
-          selectedModel={threadSettings.model}
-          selectedReasoningEffort={threadSettings.reasoningEffort}
-          reasoningEffortOptions={reasoningEffortOptions}
-          permissionMode={permissionMode}
-          hideThinkingWhenDone={hideThinkingWhenDone}
-          promptSubmitShortcut={threadPromptSubmitShortcut}
-          approvalQueue={approvalQueue}
-          userInputQueue={userInputQueue}
-          planImplementationQueue={planImplementationQueue}
-          onModelChange={(model) => {
-            setThreadModel(model);
-          }}
-          onCollaborationModeChange={handleCollaborationModeChange}
-          onReasoningEffortChange={(reasoningEffort) => {
-            setThreadReasoningEffort(reasoningEffort);
-          }}
-          onPermissionModeChange={(mode) => {
-            void setPermissionMode(threadsProjectId, mode);
-          }}
-          onRefreshAccount={refreshAccount}
-          onStartChatGptLogin={startChatGptLogin}
-          onStartApiKeyLogin={startApiKeyLogin}
-          onCancelLogin={async (loginId) => {
-            await cancelLogin(loginId);
-          }}
-          onLogout={async () => {
-            await logout();
-          }}
-          onStartThreadForCard={async (input) => {
-            const detail = await startThreadForCard({
-              projectId: input.projectId,
-              cardId: input.cardId,
-              prompt: input.prompt,
-              collaborationMode: selectedCollaborationMode,
-              worktreeStartMode,
-              worktreeBranchPrefix: worktreeAutoBranchPrefix,
-            });
-            const nextMode = writeCollaborationModeForContextKey(
-              getThreadCollaborationModeStorageKey(detail.threadId),
-              selectedCollaborationMode,
-            );
-            setSelectedCollaborationMode(nextMode);
-            await loadCodexThreads(input.projectId);
-            navigateToThreadTab(input.projectId, detail.threadId);
-          }}
-          onSendPrompt={async (prompt, opts) => {
-            if (!activeThreadTab || activeThreadTab.id === NEW_THREAD_STAGE_TAB_ID) return;
-            await startTurn(
-              activeThreadTab.id,
-              prompt,
-              {
-                projectId: activeThreadDetail?.projectId ?? threadsProjectId,
-                collaborationMode: opts?.collaborationMode ?? selectedCollaborationMode,
-              },
-            );
-          }}
-          onSteerPrompt={async (turnId, prompt) => {
-            if (!activeThreadTab || activeThreadTab.id === NEW_THREAD_STAGE_TAB_ID) return;
-            await steerTurn(activeThreadTab.id, turnId, prompt);
-          }}
-          onInterruptTurn={async (turnId) => {
-            if (!activeThreadTab || activeThreadTab.id === NEW_THREAD_STAGE_TAB_ID) return;
-            await interruptTurn(activeThreadTab.id, turnId);
-          }}
-          onRespondApproval={async (requestId, decision) => {
-            await respondApproval(requestId, decision);
-          }}
-          onRespondUserInput={async (requestId, answers) => {
-            await respondUserInput(requestId, answers);
-          }}
-          onResolvePlanImplementationRequest={(threadId, turnId) => {
-            resolvePlanImplementation(threadId, turnId);
-          }}
-          onOpenCard={(cardId) => {
-            void handleOpenCardFromThread(cardId);
-          }}
+          model={threadStageModel}
+          actions={boundThreadStageActions}
         />
       ),
     },
@@ -1927,8 +2077,8 @@ export function WorkbenchShell({
         onStageRailLayoutModeChange={onStageRailLayoutModeChange}
         nextPanelPeekPx={nextPanelPeekPx}
         onNextPanelPeekPxChange={setNextPanelPeekPx}
-        hideThinkingWhenDone={hideThinkingWhenDone}
-        onHideThinkingWhenDoneChange={setHideThinkingWhenDone}
+        threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
+        onThreadQueueFollowUpsEnabledChange={setThreadQueueFollowUpsEnabled}
         threadPromptSubmitShortcut={threadPromptSubmitShortcut}
         onThreadPromptSubmitShortcutChange={setThreadPromptSubmitShortcut}
         worktreeStartMode={worktreeStartMode}

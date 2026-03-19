@@ -1,4 +1,4 @@
-import type { AppUpdateStatus, CodexEvent } from "./types";
+import type { AppUpdateStatus, CodexEvent, CodexHostMessage } from "./types";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 
 export type ElectronRendererBridge = NonNullable<Window["api"]>;
@@ -19,6 +19,13 @@ export function createElectronRendererTransport(bridge: ElectronRendererBridge) 
     subscribeCodexEvents(callback: (event: CodexEvent) => void) {
       return bridge.on("codex:event", (...args: unknown[]) => {
         const payload = args[0] as CodexEvent | undefined;
+        if (!payload) return;
+        callback(payload);
+      });
+    },
+    subscribeCodexHostMessages(callback: (message: CodexHostMessage) => void) {
+      return bridge.on("codex:host-message", (...args: unknown[]) => {
+        const payload = args[0] as CodexHostMessage | undefined;
         if (!payload) return;
         callback(payload);
       });

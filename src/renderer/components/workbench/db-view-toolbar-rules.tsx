@@ -11,7 +11,7 @@ import {
   SELECTOR_MENU_CONTENT_CLASS_NAME,
   SELECTOR_MENU_DIVIDER_CLASS_NAME,
   SELECTOR_MENU_DIVIDER_WRAPPER_CLASS_NAME,
-} from "./stage-threads/selector-popover-primitives";
+} from "@/features/local-conversation/view/shared/selector-popover-primitives";
 import {
   DB_VIEW_DISPLAY_PROPERTY_LABELS,
   DB_VIEW_SORT_FIELD_LABELS,

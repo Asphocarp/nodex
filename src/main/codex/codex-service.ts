@@ -15,9 +15,15 @@ import type { LoginAccountResponse } from "@nodex/codex-app-server-protocol/v2/L
 import type { CancelLoginAccountResponse } from "@nodex/codex-app-server-protocol/v2/CancelLoginAccountResponse";
 import type { FileChangeRequestApprovalParams } from "@nodex/codex-app-server-protocol/v2/FileChangeRequestApprovalParams";
 import type { FileChangeRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/FileChangeRequestApprovalResponse";
+import type { McpServerElicitationRequestParams } from "@nodex/codex-app-server-protocol/v2/McpServerElicitationRequestParams";
+import type { McpServerElicitationRequestResponse } from "@nodex/codex-app-server-protocol/v2/McpServerElicitationRequestResponse";
 import type { ModelListResponse } from "@nodex/codex-app-server-protocol/v2/ModelListResponse";
 import type { ThreadReadResponse } from "@nodex/codex-app-server-protocol/v2/ThreadReadResponse";
+import type { ThreadForkParams } from "@nodex/codex-app-server-protocol/v2/ThreadForkParams";
+import type { ThreadForkResponse } from "@nodex/codex-app-server-protocol/v2/ThreadForkResponse";
+import type { ThreadRollbackResponse } from "@nodex/codex-app-server-protocol/v2/ThreadRollbackResponse";
 import type { ThreadResumeParams } from "@nodex/codex-app-server-protocol/v2/ThreadResumeParams";
+import type { ThreadResumeResponse } from "@nodex/codex-app-server-protocol/v2/ThreadResumeResponse";
 import type { ThreadStartParams } from "@nodex/codex-app-server-protocol/v2/ThreadStartParams";
 import type { ThreadStartResponse } from "@nodex/codex-app-server-protocol/v2/ThreadStartResponse";
 import type { ThreadUnarchiveResponse } from "@nodex/codex-app-server-protocol/v2/ThreadUnarchiveResponse";
@@ -33,16 +39,33 @@ import type {
   CodexAccountSnapshot,
   CodexApprovalDecision,
   CodexApprovalRequest,
+  CodexBackgroundTerminalRow,
+  CodexComposerIntent,
+  CodexConversationChildMembership,
+  CodexConversationCapabilityFlags,
+  CodexConversationItem,
+  CodexConversationResumeState,
+  CodexConversationServerRequest,
+  CodexConversationSnapshot,
   CodexCollaborationModeKind,
   CodexCollaborationModePreset,
+  CodexConnectionState,
   CodexEvent,
+  CodexHostMessage,
   CodexItemView,
+  CodexMcpServerElicitationAction,
+  CodexMcpServerElicitationRequest,
   CodexModelOption,
+  CodexPendingSteer,
   CodexPermissionMode,
+  CodexQueuedFollowUp,
   CodexRateLimitsSnapshot,
   CodexReasoningEffort,
   CodexReasoningEffortOption,
+  CodexTranscriptEntry,
+  CodexTranscriptEntrySource,
   CodexThreadActiveFlag,
+  CodexThreadActionResult,
   CodexThreadDetail,
   CodexThreadStatusType,
   CodexThreadSummary,
@@ -59,19 +82,16 @@ import type {
   WorktreeEnvironmentOption,
   WorktreeStartMode,
 } from "../../shared/types";
+import { selectPrimaryConversationRequest } from "../../shared/codex-conversation-request";
 import {
   canMergeSyntheticTextDuplicate,
-  isSyntheticCodexItemId,
   mergeCodexItemView,
   resolveCodexItemPrimaryIdentityKey,
-  resolveCodexItemTextIdentityKey,
 } from "../../shared/codex-item-identity";
 import * as dbService from "../kanban/db-service";
 import { getKanbanDir } from "../kanban/config";
 import {
-  deleteCodexThreadSnapshot,
   getCodexCardThreadLink,
-  getCodexThreadSnapshot,
   listCodexThreadLinks,
   listCodexProjectThreads,
   unlinkCodexThread,
@@ -79,7 +99,6 @@ import {
   updateCodexThreadName,
   updateCodexThreadStatus,
   upsertCodexCardThreadLink,
-  upsertCodexThreadSnapshot,
 } from "./codex-link-repository";
 import {
   CodexAppServerClient,
@@ -87,9 +106,23 @@ import {
   type CodexServerRequest,
   type CodexServerNotification,
 } from "./codex-app-server-client";
-import { hasCodexSessionMaterialized, readCodexSessionThreadDetail } from "./codex-session-store";
+import { readCodexSessionThreadDetail } from "./codex-session-store";
 import { createManagedWorktree, removeManagedWorktree } from "./git-worktree-service";
 import { normalizeThreadItem } from "./codex-item-normalizer";
+import {
+  parseCodexReasoningBuffers,
+  projectCodexReasoningSummary,
+} from "./codex-reasoning-projection";
+import {
+  applyLiveTranscriptMutation,
+  applyOptimisticUserPrompt,
+  buildTranscriptFromBootstrapEvents,
+  finalizeTurnTranscriptState,
+  projectItemToLiveTranscriptEntry,
+  reconcileCommittedUserPrompt,
+  resolveThreadPreviewFromTranscript,
+} from "./codex-transcript-projection";
+import { buildCodexConversationSnapshot } from "./codex-conversation-snapshot";
 import { resolveCodexRuntime, type ResolvedCodexRuntime } from "./codex-runtime";
 import {
   listWorktreeEnvironmentOptions,
@@ -115,6 +148,12 @@ interface PendingApproval {
 interface PendingUserInput {
   request: CodexUserInputRequest;
   resolve: (value: { answers: Record<string, { answers: string[] }> }) => void;
+  reject: (reason?: unknown) => void;
+}
+
+interface PendingMcpServerElicitation {
+  request: CodexMcpServerElicitationRequest;
+  resolve: (value: McpServerElicitationRequestResponse) => void;
   reject: (reason?: unknown) => void;
 }
 
@@ -204,6 +243,161 @@ interface GenerateThreadTitleAdapterInput {
 type CodexServiceOptions = {
   runtime?: ResolvedCodexRuntime;
 };
+
+type CodexConversationStreamRole = "owner" | "follower" | null;
+
+interface CodexConversationRecord {
+  detail: CodexThreadDetail | null;
+  itemsByTurn: Map<string, Map<string, CodexItemView>>;
+  queuedFollowUps: CodexQueuedFollowUp[];
+  pendingSteers: CodexPendingSteer[];
+  resumeState: CodexConversationResumeState;
+  streamRole: CodexConversationStreamRole;
+  isStreaming: boolean;
+}
+
+type FrameTextDeltaTarget =
+  | { type: "agentMessage" | "plan" }
+  | { type: "reasoningSummary"; summaryIndex: number }
+  | { type: "reasoningContent"; contentIndex: number };
+
+interface FrameTextDeltaUpdate {
+  threadId: string;
+  turnId: string;
+  itemId: string;
+  target: FrameTextDeltaTarget;
+  delta: string;
+}
+
+interface OutputDeltaUpdate {
+  threadId: string;
+  turnId: string;
+  itemId: string;
+  delta: string;
+}
+
+const FRAME_TEXT_DELTA_FLUSH_MS = 16;
+const OUTPUT_DELTA_FLUSH_MS = 50;
+
+class FrameTextDeltaQueue {
+  private readonly buffers = new Map<string, FrameTextDeltaUpdate>();
+  private flushHandle: ReturnType<typeof setTimeout> | null = null;
+
+  constructor(
+    private readonly onFlush: (updates: FrameTextDeltaUpdate[]) => void,
+    private readonly flushIntervalMs = FRAME_TEXT_DELTA_FLUSH_MS,
+  ) {}
+
+  enqueue(update: FrameTextDeltaUpdate): void {
+    const key = this.buildKey(update);
+    const existing = this.buffers.get(key);
+    this.buffers.set(key, {
+      ...update,
+      delta: `${existing?.delta ?? ""}${update.delta}`,
+    });
+    this.scheduleFlush();
+  }
+
+  flushNow(): void {
+    this.cancelScheduledFlush();
+    if (this.buffers.size === 0) return;
+    const updates = Array.from(this.buffers.values());
+    this.buffers.clear();
+    this.onFlush(updates);
+  }
+
+  cancel(): void {
+    this.cancelScheduledFlush();
+    this.buffers.clear();
+  }
+
+  private scheduleFlush(): void {
+    if (this.flushHandle !== null) return;
+    this.flushHandle = setTimeout(() => {
+      this.flushHandle = null;
+      this.flushNow();
+    }, this.flushIntervalMs);
+  }
+
+  private cancelScheduledFlush(): void {
+    if (this.flushHandle === null) return;
+    clearTimeout(this.flushHandle);
+    this.flushHandle = null;
+  }
+
+  private buildKey(update: FrameTextDeltaUpdate): string {
+    switch (update.target.type) {
+      case "agentMessage":
+      case "plan":
+        return `${update.threadId}:${update.turnId}:${update.itemId}:${update.target.type}`;
+      case "reasoningSummary":
+        return `${update.threadId}:${update.turnId}:${update.itemId}:reasoningSummary:${update.target.summaryIndex}`;
+      case "reasoningContent":
+        return `${update.threadId}:${update.turnId}:${update.itemId}:reasoningContent:${update.target.contentIndex}`;
+    }
+  }
+}
+
+class OutputDeltaQueue {
+  private readonly buffers = new Map<string, OutputDeltaUpdate>();
+  private flushHandle: ReturnType<typeof setTimeout> | null = null;
+
+  constructor(
+    private readonly onFlush: (updates: OutputDeltaUpdate[]) => void,
+    private readonly flushIntervalMs = OUTPUT_DELTA_FLUSH_MS,
+  ) {}
+
+  enqueue(update: OutputDeltaUpdate): void {
+    const key = `${update.threadId}:${update.turnId}:${update.itemId}`;
+    const existing = this.buffers.get(key);
+    this.buffers.set(key, {
+      ...update,
+      delta: `${existing?.delta ?? ""}${update.delta}`,
+    });
+    this.scheduleFlush();
+  }
+
+  flushNow(): void {
+    this.cancelScheduledFlush();
+    if (this.buffers.size === 0) return;
+    const updates = Array.from(this.buffers.values());
+    this.buffers.clear();
+    this.onFlush(updates);
+  }
+
+  cancel(): void {
+    this.cancelScheduledFlush();
+    this.buffers.clear();
+  }
+
+  private scheduleFlush(): void {
+    if (this.flushHandle !== null) return;
+    this.flushHandle = setTimeout(() => {
+      this.flushHandle = null;
+      this.flushNow();
+    }, this.flushIntervalMs);
+  }
+
+  private cancelScheduledFlush(): void {
+    if (this.flushHandle === null) return;
+    clearTimeout(this.flushHandle);
+    this.flushHandle = null;
+  }
+}
+
+function isUnavailableSqliteBindingError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("better-sqlite3") && message.includes("not yet supported");
+}
+
+function resolveThreadIdFromCodexEvent(event: CodexEvent): string | null {
+  if (event.type === "threadStatus") return event.threadId;
+  if (event.type === "threadArchivedState") return event.threadId;
+  if (event.type === "turn") return event.turn.threadId;
+  if (event.type === "approvalRequested") return event.request.threadId;
+  if (event.type === "userInputRequested") return event.request.threadId;
+  return null;
+}
 
 type DefaultCodexRuntimeOptions = {
   isPackaged: boolean;
@@ -332,6 +526,14 @@ function parseThreadTokenUsage(value: unknown): CodexThreadTokenUsage | undefine
   };
 }
 
+function parseTurnDiff(value: unknown): string | undefined {
+  const candidate = asRecord(value);
+  if (!candidate) return undefined;
+
+  const diff = candidate.diff;
+  return typeof diff === "string" && diff.length > 0 ? diff : undefined;
+}
+
 function resolveHomeDir(): string {
   const envHome = process.env.HOME?.trim();
   if (envHome) return envHome;
@@ -457,6 +659,29 @@ function createTextUserInput(text: string): TurnStartParams["input"][number] {
     text,
     text_elements: [],
   };
+}
+
+function normalizeTypeName(type: string | undefined): string {
+  if (!type) return "";
+  return type.replace(/[_\-\s]/g, "").toLowerCase();
+}
+
+function extractReceiverThreadIds(item: CodexConversationItem): string[] {
+  const args = item.toolCall?.args;
+  if (!args || typeof args !== "object") return [];
+
+  const candidate = args as { receivers?: unknown };
+  if (!Array.isArray(candidate.receivers)) return [];
+
+  return candidate.receivers.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
+}
+
+function isChildThreadSourceItem(item: CodexConversationItem): boolean {
+  const normalizedType = normalizeTypeName(item.type);
+  if (normalizedType.includes("collabagenttoolcall")) return true;
+
+  const normalizedTool = normalizeTypeName(item.toolCall?.toolName);
+  return normalizedTool === "spawnagent" || normalizedTool === "spawn_agent";
 }
 
 function resolveDefaultCodexRuntime(): ResolvedCodexRuntime {
@@ -660,125 +885,6 @@ function resolveNotificationTurnStatus(method: string): CodexTurnStatus | null {
 function asTerminalTurnStatus(status: CodexTurnStatus): Exclude<CodexTurnStatus, "inProgress"> | null {
   if (status === "inProgress") return null;
   return status;
-}
-
-function mergeTurnSummaries(
-  incomingTurns: CodexTurnSummary[],
-  cachedTurns: CodexTurnSummary[],
-): CodexTurnSummary[] {
-  if (cachedTurns.length === 0) return incomingTurns;
-  if (incomingTurns.length === 0) return cachedTurns;
-
-  const cachedByTurnId = new Map(cachedTurns.map((turn) => [turn.turnId, turn]));
-  const seen = new Set<string>();
-
-  const merged = incomingTurns.map((turn) => {
-    seen.add(turn.turnId);
-    const cached = cachedByTurnId.get(turn.turnId);
-    if (!cached) return turn;
-
-    const mergedItemIds = Array.from(new Set([...turn.itemIds, ...cached.itemIds]));
-    return {
-      ...cached,
-      ...turn,
-      errorMessage: turn.errorMessage ?? cached.errorMessage,
-      itemIds: mergedItemIds,
-      tokenUsage: turn.tokenUsage ?? cached.tokenUsage,
-    };
-  });
-
-  for (const cached of cachedTurns) {
-    if (seen.has(cached.turnId)) continue;
-    merged.push(cached);
-  }
-
-  return merged;
-}
-
-function mergeItemViews(
-  incomingItems: CodexItemView[],
-  cachedItems: CodexItemView[],
-): CodexItemView[] {
-  return dedupeItemViews([...cachedItems, ...incomingItems]).sort(
-    (a, b) => a.createdAt - b.createdAt || a.updatedAt - b.updatedAt,
-  );
-}
-
-function dedupeItemViews(items: CodexItemView[]): CodexItemView[] {
-  if (items.length < 2) return items;
-
-  const dedupedByPrimaryKey = new Map<string, CodexItemView>();
-  const nonSyntheticByTextKey = new Map<string, string>();
-  const syntheticByTextKey = new Map<string, string>();
-
-  const remapTextIndexes = (fromPrimaryKey: string, toPrimaryKey: string): void => {
-    for (const [textKey, primaryKey] of nonSyntheticByTextKey.entries()) {
-      if (primaryKey !== fromPrimaryKey) continue;
-      nonSyntheticByTextKey.set(textKey, toPrimaryKey);
-    }
-    for (const [textKey, primaryKey] of syntheticByTextKey.entries()) {
-      if (primaryKey !== fromPrimaryKey) continue;
-      syntheticByTextKey.set(textKey, toPrimaryKey);
-    }
-  };
-
-  const registerTextKey = (item: CodexItemView, primaryKey: string): void => {
-    const textKey = resolveCodexItemTextIdentityKey(item);
-    if (!textKey) return;
-    if (isSyntheticCodexItemId(item.itemId)) {
-      if (!syntheticByTextKey.has(textKey)) syntheticByTextKey.set(textKey, primaryKey);
-      return;
-    }
-    nonSyntheticByTextKey.set(textKey, primaryKey);
-  };
-
-  for (const item of items) {
-    const primaryKey = resolveCodexItemPrimaryIdentityKey(item);
-    const existingPrimary = dedupedByPrimaryKey.get(primaryKey);
-    if (existingPrimary) {
-      dedupedByPrimaryKey.set(primaryKey, mergeCodexItemView(existingPrimary, item));
-      registerTextKey(item, primaryKey);
-      continue;
-    }
-
-    const textKey = resolveCodexItemTextIdentityKey(item);
-    const fallbackPrimaryKey = textKey
-      ? (
-          isSyntheticCodexItemId(item.itemId)
-            ? nonSyntheticByTextKey.get(textKey)
-            : syntheticByTextKey.get(textKey)
-        )
-      : undefined;
-
-    if (!fallbackPrimaryKey) {
-      dedupedByPrimaryKey.set(primaryKey, item);
-      registerTextKey(item, primaryKey);
-      continue;
-    }
-
-    const fallback = dedupedByPrimaryKey.get(fallbackPrimaryKey);
-    if (!fallback || !canMergeSyntheticTextDuplicate(fallback, item)) {
-      dedupedByPrimaryKey.set(primaryKey, item);
-      registerTextKey(item, primaryKey);
-      continue;
-    }
-
-    const merged = mergeCodexItemView(fallback, item);
-    const fallbackIsSynthetic = isSyntheticCodexItemId(fallback.itemId);
-    const incomingIsSynthetic = isSyntheticCodexItemId(item.itemId);
-    const keepPrimaryKey = fallbackIsSynthetic && !incomingIsSynthetic ? primaryKey : fallbackPrimaryKey;
-
-    if (keepPrimaryKey !== fallbackPrimaryKey) {
-      dedupedByPrimaryKey.delete(fallbackPrimaryKey);
-    }
-    dedupedByPrimaryKey.set(keepPrimaryKey, merged);
-    if (keepPrimaryKey !== fallbackPrimaryKey) {
-      remapTextIndexes(fallbackPrimaryKey, keepPrimaryKey);
-    }
-    registerTextKey(merged, keepPrimaryKey);
-  }
-
-  return Array.from(dedupedByPrimaryKey.values());
 }
 
 function emptyAccountSnapshot(): CodexAccountSnapshot {
@@ -988,12 +1094,20 @@ export class CodexService extends EventEmitter {
   private readonly collaborationModePresets = new Map<CodexCollaborationModeKind, CodexCollaborationModePreset>();
   private readonly pendingApprovals = new Map<string, PendingApproval>();
   private readonly pendingUserInputs = new Map<string, PendingUserInput>();
-  private readonly turnByThread = new Map<string, Map<string, CodexTurnSummary>>();
-  private readonly itemByThreadTurn = new Map<string, Map<string, CodexItemView>>();
+  private readonly pendingMcpElicitations = new Map<string, PendingMcpServerElicitation>();
+  private readonly conversationRecords = new Map<string, CodexConversationRecord>();
+  private readonly queuedFollowUpDrainInFlight = new Set<string>();
+  private readonly frameTextDeltaQueue = new FrameTextDeltaQueue((updates) => {
+    this.applyFrameTextDeltas(updates);
+  });
+  private readonly outputDeltaQueue = new OutputDeltaQueue((updates) => {
+    this.applyOutputDeltas(updates);
+  });
 
   private accountSnapshot: CodexAccountSnapshot = emptyAccountSnapshot();
   private threadTitlePromptTemplate: string | null | undefined = undefined;
   private syntheticItemIdCounter = 0;
+  private lastConnectionStatus: CodexConnectionState["status"] = "disconnected";
 
   constructor(options?: CodexServiceOptions) {
     super();
@@ -1014,7 +1128,12 @@ export class CodexService extends EventEmitter {
     this.client.setServerRequestHandler(async (request) => this.handleServerRequest(request));
 
     this.client.on("connection", (connection) => {
+      const wasConnected = this.lastConnectionStatus === "connected";
+      this.lastConnectionStatus = connection.status;
       this.emitEvent({ type: "connection", connection });
+      if (connection.status === "connected" && connection.retries > 0 && !wasConnected) {
+        this.markConversationsNeedResumeAfterReconnect();
+      }
     });
 
     this.client.on("notification", ({ method, params }: CodexServerNotification) => {
@@ -1035,6 +1154,412 @@ export class CodexService extends EventEmitter {
 
   private emitEvent(event: CodexEvent): void {
     this.emit("event", event);
+    this.emitHostMessagesForEvent(event);
+  }
+
+  private emitHostMessage(message: CodexHostMessage): void {
+    this.emit("hostMessage", message);
+  }
+
+  private emitConversationSnapshotFromRecord(threadId: string): void {
+    try {
+      const conversation = this.serializeConversationSnapshot(threadId);
+      if (!conversation) return;
+      this.emitHostMessage({
+        type: "conversationSnapshot",
+        conversation,
+      });
+    } catch (error) {
+      this.logger.warn("Could not serialize conversation snapshot for host message", {
+        threadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private emitConversationSnapshot(threadId: string): void {
+    this.emitConversationSnapshotFromRecord(threadId);
+  }
+
+  private emitHostMessagesForEvent(event: CodexEvent): void {
+    if (event.type === "connection" || event.type === "account" || event.type === "rateLimits") {
+      this.emitHostMessage(event);
+      return;
+    }
+
+    if (event.type === "error") {
+      this.emitHostMessage(event);
+      return;
+    }
+
+    if (event.type === "threadSummary") {
+      this.emitHostMessage(event);
+      this.emitConversationSnapshot(event.thread.threadId);
+      return;
+    }
+
+    const threadId = resolveThreadIdFromCodexEvent(event);
+    if (!threadId) return;
+    this.emitConversationSnapshot(threadId);
+  }
+
+  private emitConversationSnapshots(threadIds?: string[]): void {
+    const nextThreadIds = (threadIds ?? listCodexThreadLinks({ includeArchived: true }).map((thread) => thread.threadId))
+      .filter((threadId, index, values) => threadId.length > 0 && values.indexOf(threadId) === index);
+    for (const threadId of nextThreadIds) {
+      this.emitConversationSnapshotFromRecord(threadId);
+    }
+  }
+
+  private createConversationRecord(): CodexConversationRecord {
+    return {
+      detail: null,
+      itemsByTurn: new Map<string, Map<string, CodexItemView>>(),
+      queuedFollowUps: [],
+      pendingSteers: [],
+      resumeState: "resumed",
+      streamRole: null,
+      isStreaming: false,
+    };
+  }
+
+  private getMaybeConversationRecord(threadId: string): CodexConversationRecord | null {
+    return this.conversationRecords.get(threadId) ?? null;
+  }
+
+  private ensureConversationRecord(threadId: string): CodexConversationRecord {
+    const existing = this.getMaybeConversationRecord(threadId);
+    if (existing) return existing;
+    const created = this.createConversationRecord();
+    this.conversationRecords.set(threadId, created);
+    return created;
+  }
+
+  private getConversationRecord(threadId: string): CodexConversationRecord {
+    return this.ensureConversationRecord(threadId);
+  }
+
+  private getThreadLinkSafely(threadId: string) {
+    try {
+      return getCodexCardThreadLink(threadId);
+    } catch (error) {
+      if (isUnavailableSqliteBindingError(error)) return null;
+      throw error;
+    }
+  }
+
+  private ensureConversationDetail(threadId: string): CodexThreadDetail | null {
+    const record = this.ensureConversationRecord(threadId);
+    if (record.detail) return record.detail;
+
+    const link = this.getThreadLinkSafely(threadId);
+    record.detail = link
+      ? {
+          ...link,
+          threadName: link.threadName,
+          threadPreview: link.threadPreview,
+          cwd: link.cwd,
+          turns: [],
+          transcript: [],
+        }
+      : {
+          threadId,
+          projectId: "",
+          cardId: "",
+          threadName: null,
+          threadPreview: "",
+          modelProvider: "",
+          cwd: null,
+          statusType: "idle",
+          statusActiveFlags: [],
+          archived: false,
+          createdAt: 0,
+          updatedAt: 0,
+          linkedAt: new Date(0).toISOString(),
+          turns: [],
+          transcript: [],
+        };
+    return record.detail;
+  }
+
+  private setConversationResumeState(threadId: string, resumeState: CodexConversationResumeState): void {
+    const record = this.getConversationRecord(threadId);
+    record.resumeState = resumeState;
+  }
+
+  private resolveConversationResumeState(threadId: string): CodexConversationResumeState {
+    return this.getMaybeConversationRecord(threadId)?.resumeState ?? "resumed";
+  }
+
+  private markAllConversationRecordsNeedResumeAfterReconnect(): void {
+    const knownThreadIds = new Set<string>([
+      ...listCodexThreadLinks({ includeArchived: true }).map((thread) => thread.threadId),
+      ...this.conversationRecords.keys(),
+    ]);
+
+    for (const threadId of knownThreadIds) {
+      if (!threadId) continue;
+      const record = this.ensureConversationRecord(threadId);
+      record.resumeState = "needs_resume";
+      record.streamRole = null;
+      record.isStreaming = false;
+    }
+
+    this.emitConversationSnapshots(Array.from(knownThreadIds));
+  }
+
+  private markConversationsNeedResumeAfterReconnect(): void {
+    this.markAllConversationRecordsNeedResumeAfterReconnect();
+  }
+
+  private buildComposerIntent(prompt: string): CodexComposerIntent {
+    return {
+      prompt,
+      focusNonce: Date.now(),
+    };
+  }
+
+  private pruneThreadTransientState(threadId: string, retainedTurnIds: ReadonlySet<string>): void {
+    const record = this.getMaybeConversationRecord(threadId);
+    if (!record) return;
+    record.queuedFollowUps = [];
+
+    const nextSteers = this.listPendingSteers(threadId).filter((steer) => retainedTurnIds.has(steer.turnId));
+    record.pendingSteers = nextSteers;
+  }
+
+  private clearThreadPendingRequestsForRemovedTurns(threadId: string, retainedTurnIds: ReadonlySet<string>): void {
+    for (const [requestId, pending] of [...this.pendingApprovals.entries()]) {
+      if (pending.request.threadId !== threadId) continue;
+      if (retainedTurnIds.has(pending.request.turnId)) continue;
+      pending.reject(new Error("Approval request cleared after thread history changed"));
+      this.pendingApprovals.delete(requestId);
+    }
+
+    for (const [requestId, pending] of [...this.pendingUserInputs.entries()]) {
+      if (pending.request.threadId !== threadId) continue;
+      if (retainedTurnIds.has(pending.request.turnId)) continue;
+      pending.reject(new Error("User input request cleared after thread history changed"));
+      this.pendingUserInputs.delete(requestId);
+    }
+
+    for (const [requestId, pending] of [...this.pendingMcpElicitations.entries()]) {
+      if (pending.request.threadId !== threadId) continue;
+      if (retainedTurnIds.has(pending.request.turnId)) continue;
+      pending.reject(new Error("MCP elicitation cleared after thread history changed"));
+      this.pendingMcpElicitations.delete(requestId);
+    }
+  }
+
+  private listQueuedFollowUps(threadId: string): CodexQueuedFollowUp[] {
+    return [...(this.getMaybeConversationRecord(threadId)?.queuedFollowUps ?? [])]
+      .sort((left, right) => left.createdAt - right.createdAt);
+  }
+
+  private listPendingSteers(threadId: string): CodexPendingSteer[] {
+    return [...(this.getMaybeConversationRecord(threadId)?.pendingSteers ?? [])]
+      .sort((left, right) => left.createdAt - right.createdAt);
+  }
+
+  private clearPausedQueuedFollowUps(threadId: string): void {
+    const existing = this.listQueuedFollowUps(threadId);
+    if (existing.length === 0) return;
+
+    let changed = false;
+    const nextEntries = existing.map((followUp) => {
+      if (!followUp.pausedReason) return followUp;
+      changed = true;
+      return {
+        ...followUp,
+        pausedReason: null,
+      };
+    });
+
+    if (!changed) return;
+    this.ensureConversationRecord(threadId).queuedFollowUps = nextEntries;
+    this.emitConversationSnapshot(threadId);
+  }
+
+  private enqueueQueuedFollowUp(
+    threadId: string,
+    prompt: string,
+    collaborationMode?: CodexCollaborationModeKind | null,
+  ): string {
+    const followUpId = `follow-up:${threadId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+    const nextEntries = [
+      ...this.listQueuedFollowUps(threadId),
+      {
+        followUpId,
+        threadId,
+        prompt,
+        createdAt: Date.now(),
+        collaborationMode: collaborationMode ?? null,
+        pausedReason: null,
+      },
+    ];
+    this.ensureConversationRecord(threadId).queuedFollowUps = nextEntries;
+    this.emitConversationSnapshot(threadId);
+    return followUpId;
+  }
+
+  private dequeueQueuedFollowUp(threadId: string, followUpId: string): void {
+    const nextEntries = this.listQueuedFollowUps(threadId).filter((followUp) => followUp.followUpId !== followUpId);
+    if (nextEntries.length === 0) {
+      this.ensureConversationRecord(threadId).queuedFollowUps = [];
+    } else {
+      this.ensureConversationRecord(threadId).queuedFollowUps = nextEntries;
+    }
+    this.emitConversationSnapshot(threadId);
+  }
+
+  private getQueuedFollowUp(threadId: string, followUpId: string): CodexQueuedFollowUp | null {
+    return this.listQueuedFollowUps(threadId).find((followUp) => followUp.followUpId === followUpId) ?? null;
+  }
+
+  private restoreQueuedFollowUp(
+    threadId: string,
+    followUp: CodexQueuedFollowUp,
+    reason?: string | null,
+  ): void {
+    const existing = this.listQueuedFollowUps(threadId).filter((entry) => entry.followUpId !== followUp.followUpId);
+    this.ensureConversationRecord(threadId).queuedFollowUps = [
+      {
+        ...followUp,
+        pausedReason: reason ?? null,
+      },
+      ...existing,
+    ];
+    this.emitConversationSnapshot(threadId);
+  }
+
+  removeQueuedFollowUp(threadId: string, followUpId: string): void {
+    if (!this.getQueuedFollowUp(threadId, followUpId)) return;
+    this.dequeueQueuedFollowUp(threadId, followUpId);
+  }
+
+  reorderQueuedFollowUps(threadId: string, orderedFollowUpIds: string[]): void {
+    const existing = this.listQueuedFollowUps(threadId);
+    if (existing.length <= 1) return;
+
+    const byId = new Map(existing.map((followUp) => [followUp.followUpId, followUp]));
+    const ordered = orderedFollowUpIds
+      .map((followUpId) => byId.get(followUpId) ?? null)
+      .filter((followUp): followUp is CodexQueuedFollowUp => followUp !== null);
+    const seen = new Set(ordered.map((followUp) => followUp.followUpId));
+    const nextEntries = [...ordered, ...existing.filter((followUp) => !seen.has(followUp.followUpId))];
+
+    this.ensureConversationRecord(threadId).queuedFollowUps = nextEntries;
+    this.emitConversationSnapshot(threadId);
+  }
+
+  async enqueueQueuedFollowUpPrompt(
+    threadId: string,
+    prompt: string,
+    overrides?: StartTurnOverrides,
+  ): Promise<void> {
+    const promptText = prompt.trim();
+    if (!promptText) {
+      throw new Error("Queued follow-up requires a non-empty prompt");
+    }
+
+    this.enqueueQueuedFollowUp(threadId, promptText, overrides?.collaborationMode);
+    this.scheduleQueuedFollowUpDrain(threadId);
+  }
+
+  private recordPendingSteer(threadId: string, turnId: string, prompt: string): string {
+    const steerId = `steer:${threadId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+    const nextEntries = [
+      ...this.listPendingSteers(threadId),
+      {
+        steerId,
+        threadId,
+        turnId,
+        prompt,
+        createdAt: Date.now(),
+      },
+    ];
+    this.ensureConversationRecord(threadId).pendingSteers = nextEntries;
+    this.emitConversationSnapshot(threadId);
+    return steerId;
+  }
+
+  private clearPendingSteer(threadId: string, steerId: string): void {
+    const nextEntries = this.listPendingSteers(threadId).filter((steer) => steer.steerId !== steerId);
+    if (nextEntries.length === 0) {
+      this.ensureConversationRecord(threadId).pendingSteers = [];
+    } else {
+      this.ensureConversationRecord(threadId).pendingSteers = nextEntries;
+    }
+    this.emitConversationSnapshot(threadId);
+  }
+
+  private clearPendingSteerForConsumedPrompt(threadId: string, turnId: string, prompt: string): void {
+    const normalizedPrompt = prompt.trim();
+    if (!normalizedPrompt) return;
+
+    const nextEntries = this.listPendingSteers(threadId);
+    const matchIndex = nextEntries.findIndex((steer) =>
+      steer.turnId === turnId && steer.prompt.trim() === normalizedPrompt
+    );
+    if (matchIndex < 0) return;
+
+    nextEntries.splice(matchIndex, 1);
+    this.ensureConversationRecord(threadId).pendingSteers = nextEntries;
+    this.emitConversationSnapshot(threadId);
+  }
+
+  private clearPendingSteersForTurn(threadId: string, turnId: string): void {
+    const nextEntries = this.listPendingSteers(threadId).filter((steer) => steer.turnId !== turnId);
+    if (nextEntries.length === this.listPendingSteers(threadId).length) return;
+    this.ensureConversationRecord(threadId).pendingSteers = nextEntries;
+    this.emitConversationSnapshot(threadId);
+  }
+
+  private scheduleQueuedFollowUpDrain(threadId: string): void {
+    if (this.queuedFollowUpDrainInFlight.has(threadId)) return;
+    this.queuedFollowUpDrainInFlight.add(threadId);
+    queueMicrotask(() => {
+      void this.drainQueuedFollowUps(threadId).finally(() => {
+        this.queuedFollowUpDrainInFlight.delete(threadId);
+        const nextPending = this.listQueuedFollowUps(threadId)[0] ?? null;
+        if (nextPending && !nextPending.pausedReason) {
+          this.scheduleQueuedFollowUpDrain(threadId);
+        }
+      });
+    });
+  }
+
+  private async drainQueuedFollowUps(threadId: string): Promise<void> {
+    const followUp = this.listQueuedFollowUps(threadId)[0] ?? null;
+    if (!followUp || followUp.pausedReason) return;
+    this.dequeueQueuedFollowUp(threadId, followUp.followUpId);
+    await this.submitQueuedFollowUp(threadId, followUp);
+  }
+
+  private async submitQueuedFollowUp(threadId: string, followUp: CodexQueuedFollowUp): Promise<void> {
+    const knownTurns = this.listKnownTurns(threadId);
+    let activeTurnId: string | null = null;
+    for (let index = knownTurns.length - 1; index >= 0; index -= 1) {
+      const turn = knownTurns[index];
+      if (turn?.status !== "inProgress") continue;
+      activeTurnId = turn.turnId;
+      break;
+    }
+
+    try {
+      if (activeTurnId) {
+        await this.steerTurn(threadId, activeTurnId, followUp.prompt);
+        return;
+      }
+
+      await this.startTurn(threadId, followUp.prompt, {
+        collaborationMode: followUp.collaborationMode ?? undefined,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.restoreQueuedFollowUp(threadId, followUp, message);
+      throw error;
+    }
   }
 
   private emitThreadStartProgress(input: {
@@ -1222,7 +1747,10 @@ export class CodexService extends EventEmitter {
     this.logger.info("Shutting down Codex service", {
       pendingApprovals: this.pendingApprovals.size,
       pendingUserInputs: this.pendingUserInputs.size,
+      pendingMcpElicitations: this.pendingMcpElicitations.size,
     });
+    this.frameTextDeltaQueue.cancel();
+    this.outputDeltaQueue.cancel();
     for (const pending of this.pendingApprovals.values()) {
       pending.reject(new Error("Codex service shutting down"));
     }
@@ -1232,6 +1760,11 @@ export class CodexService extends EventEmitter {
       pending.reject(new Error("Codex service shutting down"));
     }
     this.pendingUserInputs.clear();
+
+    for (const pending of this.pendingMcpElicitations.values()) {
+      pending.reject(new Error("Codex service shutting down"));
+    }
+    this.pendingMcpElicitations.clear();
 
     await this.client.stop();
   }
@@ -1391,7 +1924,7 @@ export class CodexService extends EventEmitter {
   /** Remove a managed worktree directory. Returns true if deletion was performed. */
   async deleteManagedWorktree(threadId: string): Promise<boolean> {
     const managedRoot = path.resolve(getKanbanDir(), "worktrees");
-    const link = getCodexCardThreadLink(threadId);
+    const link = this.getThreadLinkSafely(threadId);
     if (!link) return false;
 
     const cwd = link.cwd?.trim();
@@ -1473,7 +2006,7 @@ export class CodexService extends EventEmitter {
   }
 
   private parseThreadRef(threadId: string): ThreadRef | null {
-    const link = getCodexCardThreadLink(threadId);
+    const link = this.getThreadLinkSafely(threadId);
     if (!link) return null;
     return {
       projectId: link.projectId,
@@ -1666,41 +2199,138 @@ export class CodexService extends EventEmitter {
       turnId: candidate.id,
       status: makeTurnStatus(candidate.status),
       errorMessage,
+      diff: parseTurnDiff(candidate),
       itemIds,
       tokenUsage,
     };
   }
 
   private mergeTurn(threadId: string, turn: CodexTurnSummary): void {
-    const byTurn = this.turnByThread.get(threadId) ?? new Map<string, CodexTurnSummary>();
-    const existing = byTurn.get(turn.turnId);
+    const detail = this.ensureConversationDetail(threadId);
+    if (!detail) return;
+
+    const existing = detail.turns.find((candidate) => candidate.turnId === turn.turnId);
     if (!existing) {
-      byTurn.set(turn.turnId, turn);
-      this.turnByThread.set(threadId, byTurn);
+      detail.turns = [...detail.turns, turn];
       return;
     }
 
     const mergedItemIds = Array.from(new Set([...existing.itemIds, ...turn.itemIds]));
-    byTurn.set(turn.turnId, {
-      ...existing,
-      ...turn,
-      errorMessage: turn.errorMessage ?? existing.errorMessage,
-      itemIds: mergedItemIds,
-      tokenUsage: turn.tokenUsage ?? existing.tokenUsage,
-    });
-    this.turnByThread.set(threadId, byTurn);
+    detail.turns = detail.turns.map((candidate) => candidate.turnId !== turn.turnId
+      ? candidate
+      : {
+          ...existing,
+          ...turn,
+          errorMessage: turn.errorMessage ?? existing.errorMessage,
+          itemIds: mergedItemIds,
+          tokenUsage: turn.tokenUsage ?? existing.tokenUsage,
+        });
   }
 
   private listKnownTurns(threadId: string): CodexTurnSummary[] {
-    const byTurn = this.turnByThread.get(threadId);
-    if (!byTurn) return [];
-    return Array.from(byTurn.values());
+    return [...(this.getMaybeConversationRecord(threadId)?.detail?.turns ?? [])];
+  }
+
+  private getRecordedItem(threadId: string, turnId: string, itemId: string): CodexItemView | null {
+    const byItem = this.getMaybeConversationRecord(threadId)?.itemsByTurn.get(turnId);
+    if (!byItem) return null;
+
+    const itemKey = resolveCodexItemPrimaryIdentityKey({ turnId, itemId });
+    return byItem.get(itemKey) ?? null;
+  }
+
+  private buildTurnDiffItemId(turnId: string): string {
+    return `turn-diff:${turnId}`;
+  }
+
+  private buildTurnDiffItemView(input: {
+    threadId: string;
+    turnId: string;
+    diff: string;
+    status?: CodexTurnStatus;
+  }): CodexItemView {
+    const existing = this.getRecordedItem(input.threadId, input.turnId, this.buildTurnDiffItemId(input.turnId));
+    const now = Date.now();
+    const itemId = this.buildTurnDiffItemId(input.turnId);
+    const status =
+      input.status === "inProgress"
+        ? "inProgress"
+        : input.status === "failed"
+          ? "failed"
+          : input.status === "interrupted"
+            ? "interrupted"
+            : "completed";
+
+    return {
+      threadId: input.threadId,
+      turnId: input.turnId,
+      itemId,
+      type: "turn_diff",
+      normalizedKind: "systemEvent",
+      semanticKind: "diff",
+      status,
+      rawItem: {
+        id: itemId,
+        type: "turn-diff",
+        unifiedDiff: input.diff,
+      },
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+  }
+
+  private removeTranscriptEntry(threadId: string, entryId: string): void {
+    const nextTranscript = this.getThreadTranscript(threadId).filter((entry) => (entry.entryId ?? entry.itemId) !== entryId);
+    this.setThreadTranscript(
+      threadId,
+      buildTranscriptFromBootstrapEvents({
+        transcript: nextTranscript,
+        source: "live",
+      }),
+    );
+  }
+
+  private syncTurnDiffItem(
+    threadId: string,
+    turnId: string,
+    diff: string | undefined,
+    status?: CodexTurnStatus,
+    source: CodexTranscriptEntrySource = "live",
+  ): void {
+    const record = this.ensureConversationRecord(threadId);
+    const itemId = this.buildTurnDiffItemId(turnId);
+    const itemKey = resolveCodexItemPrimaryIdentityKey({ turnId, itemId });
+    const byItem = record.itemsByTurn.get(turnId) ?? new Map<string, CodexItemView>();
+
+    if (!diff) {
+      if (byItem.has(itemKey)) {
+        byItem.delete(itemKey);
+        if (byItem.size === 0) {
+          record.itemsByTurn.delete(turnId);
+        } else {
+          record.itemsByTurn.set(turnId, byItem);
+        }
+      }
+      this.removeTranscriptEntry(threadId, itemId);
+      return;
+    }
+
+    const item = this.buildTurnDiffItemView({ threadId, turnId, diff, status });
+    byItem.set(itemKey, item);
+    record.itemsByTurn.set(turnId, byItem);
+
+    const entry = projectItemToLiveTranscriptEntry(item, source, this.getThreadTranscript(threadId));
+    this.setThreadTranscript(
+      threadId,
+      applyLiveTranscriptMutation(this.getThreadTranscript(threadId), {
+        type: "upsert",
+        entry,
+      }),
+    );
   }
 
   private getKnownTurn(threadId: string, turnId: string): CodexTurnSummary | null {
-    const byTurn = this.turnByThread.get(threadId);
-    if (!byTurn) return null;
-    return byTurn.get(turnId) ?? null;
+    return this.getMaybeConversationRecord(threadId)?.detail?.turns.find((turn) => turn.turnId === turnId) ?? null;
   }
 
   private getInterruptTargetTurnId(threadId: string): string | null {
@@ -1733,7 +2363,7 @@ export class CodexService extends EventEmitter {
     turnId: string,
     promptText: string,
     itemId?: string,
-  ): CodexItemView {
+  ): CodexTranscriptEntry {
     const createdAt = Date.now();
     const item: CodexItemView = {
       threadId,
@@ -1741,6 +2371,7 @@ export class CodexService extends EventEmitter {
       itemId: itemId ?? `item-${++this.syntheticItemIdCounter}`,
       type: "userMessage",
       normalizedKind: "userMessage",
+      semanticKind: "userMessage",
       status: "completed",
       role: "user",
       markdownText: promptText,
@@ -1756,8 +2387,24 @@ export class CodexService extends EventEmitter {
       });
     }
 
-    this.mergeItem(item);
-    return item;
+    this.mergeItem(item, "optimistic");
+    return this.getThreadTranscript(threadId).find((entry) => entry.entryId === item.itemId)
+      ?? {
+        threadId,
+        turnId,
+        entryId: item.itemId,
+        itemId: item.itemId,
+        type: item.type,
+        kind: item.normalizedKind,
+        semanticKind: item.semanticKind,
+        status: item.status,
+        role: item.role,
+        source: "optimistic",
+        sequence: 0,
+        markdownText: item.markdownText,
+        createdAt,
+        updatedAt: createdAt,
+      };
   }
 
   private syncThreadStatusFromKnownTurns(threadId: string): void {
@@ -1789,13 +2436,16 @@ export class CodexService extends EventEmitter {
     threadId: string,
     turnId: string,
     turnStatus: CodexTurnStatus,
-  ): CodexItemView[] {
+  ): CodexTranscriptEntry[] {
     const terminalStatus = asTerminalTurnStatus(turnStatus);
     if (!terminalStatus) return [];
 
-    const key = `${threadId}:${turnId}`;
-    const byItem = this.itemByThreadTurn.get(key);
-    if (!byItem || byItem.size === 0) return [];
+    const record = this.ensureConversationRecord(threadId);
+    const byItem = record.itemsByTurn.get(turnId);
+    if (!byItem || byItem.size === 0) {
+      this.setThreadTranscript(threadId, finalizeTurnTranscriptState(this.getThreadTranscript(threadId), turnId, turnStatus));
+      return [];
+    }
 
     const now = Date.now();
     const updatedItems: CodexItemView[] = [];
@@ -1811,46 +2461,93 @@ export class CodexService extends EventEmitter {
       updatedItems.push(nextItem);
     }
 
-    if (updatedItems.length === 0) return [];
-    this.itemByThreadTurn.set(key, byItem);
-    return updatedItems;
+    if (updatedItems.length === 0) {
+      this.setThreadTranscript(threadId, finalizeTurnTranscriptState(this.getThreadTranscript(threadId), turnId, turnStatus));
+      return [];
+    }
+    record.itemsByTurn.set(turnId, byItem);
+    const nextTranscript = finalizeTurnTranscriptState(this.getThreadTranscript(threadId), turnId, turnStatus);
+    this.setThreadTranscript(threadId, nextTranscript);
+    return nextTranscript.filter((entry) =>
+      entry.turnId === turnId && updatedItems.some((item) => item.itemId === entry.itemId)
+    );
   }
 
-  private reconcileDetailItemsToTerminalTurnStatus(detail: CodexThreadDetail): CodexThreadDetail {
-    if (detail.items.length === 0 || detail.turns.length === 0) return detail;
+  private reconcileDetailTranscriptToTerminalTurnStatus(detail: CodexThreadDetail): CodexThreadDetail {
+    if (detail.transcript.length === 0 || detail.turns.length === 0) return detail;
 
-    const terminalTurnStatuses = new Map<string, Exclude<CodexTurnStatus, "inProgress">>();
+    let transcript = detail.transcript;
     for (const turn of detail.turns) {
-      const terminalStatus = asTerminalTurnStatus(turn.status);
-      if (!terminalStatus) continue;
-      terminalTurnStatuses.set(turn.turnId, terminalStatus);
+      transcript = finalizeTurnTranscriptState(transcript, turn.turnId, turn.status);
     }
-    if (terminalTurnStatuses.size === 0) return detail;
 
-    let changed = false;
-    const now = Date.now();
-    const nextItems = detail.items.map((item) => {
-      if (item.status !== "inProgress") return item;
-      const terminalStatus = terminalTurnStatuses.get(item.turnId);
-      if (!terminalStatus) return item;
-      changed = true;
-      return {
-        ...item,
-        status: terminalStatus,
-        updatedAt: Math.max(item.updatedAt, now),
-      };
-    });
-
-    if (!changed) return detail;
     return {
       ...detail,
-      items: nextItems,
+      transcript,
     };
   }
 
-  private mergeItem(item: CodexItemView): void {
-    const key = `${item.threadId}:${item.turnId}`;
-    const byItem = this.itemByThreadTurn.get(key) ?? new Map<string, CodexItemView>();
+  private getThreadTranscript(threadId: string): CodexTranscriptEntry[] {
+    return [...(this.getMaybeConversationRecord(threadId)?.detail?.transcript ?? [])];
+  }
+
+  private setThreadTranscript(threadId: string, transcript: CodexTranscriptEntry[]): void {
+    const detail = this.ensureConversationDetail(threadId);
+    if (!detail) return;
+    detail.transcript = transcript;
+  }
+
+  private hasKnownThreadDetail(threadId: string): boolean {
+    const detail = this.getMaybeConversationRecord(threadId)?.detail;
+    if (!detail) return false;
+    return detail.turns.length > 0 || detail.transcript.length > 0;
+  }
+
+  private bootstrapConversationRecordFromSession(threadId: string): CodexThreadDetail | null {
+    if (this.hasKnownThreadDetail(threadId)) {
+      return this.serializeThreadDetail(threadId);
+    }
+
+    const link = this.getThreadLinkSafely(threadId);
+    if (!link) return null;
+
+    const sessionDetail = readCodexSessionThreadDetail({
+      threadId,
+      link,
+    });
+    if (!sessionDetail) return null;
+
+    const reconciledDetail = this.reconcileDetailTranscriptToTerminalTurnStatus(sessionDetail);
+    upsertCodexCardThreadLink({
+      projectId: link.projectId,
+      cardId: link.cardId,
+      threadId,
+      threadName: reconciledDetail.threadName ?? link.threadName,
+      threadPreview: reconciledDetail.threadPreview || link.threadPreview,
+      cwd: reconciledDetail.cwd ?? link.cwd,
+      statusType: link.statusType,
+      statusActiveFlags: link.statusActiveFlags,
+      archived: link.archived,
+      createdAt: reconciledDetail.createdAt || link.createdAt,
+      updatedAt: Math.max(link.updatedAt, reconciledDetail.updatedAt),
+      linkedAt: link.linkedAt,
+    });
+    this.setConversationRecordDetail(reconciledDetail);
+    const record = this.ensureConversationRecord(threadId);
+    if (record.streamRole === null && !record.isStreaming) {
+      record.resumeState = "needs_resume";
+    }
+    return reconciledDetail;
+  }
+
+  private parseReasoningBuffers(item: CodexItemView): { summary: string[]; content: string[] } {
+    return parseCodexReasoningBuffers(item.rawItem);
+  }
+
+  private mergeItem(item: CodexItemView, source: CodexTranscriptEntrySource = "live"): CodexTranscriptEntry {
+    this.ensureConversationDetail(item.threadId);
+    const record = this.ensureConversationRecord(item.threadId);
+    const byItem = record.itemsByTurn.get(item.turnId) ?? new Map<string, CodexItemView>();
     const primaryKey = resolveCodexItemPrimaryIdentityKey(item);
 
     let existingKey: string | null = null;
@@ -1880,87 +2577,44 @@ export class CodexService extends EventEmitter {
       primaryKey,
       mergedItem,
     );
-    this.itemByThreadTurn.set(key, byItem);
+    record.itemsByTurn.set(item.turnId, byItem);
+
+    const currentTranscript = this.getThreadTranscript(item.threadId);
+    const nextEntry = projectItemToLiveTranscriptEntry(mergedItem, source, currentTranscript);
+    const nextTranscript = source === "optimistic" && nextEntry.kind === "userMessage"
+      ? applyOptimisticUserPrompt({
+          transcript: currentTranscript,
+          threadId: nextEntry.threadId,
+          turnId: nextEntry.turnId,
+          entryId: nextEntry.entryId ?? nextEntry.itemId,
+          promptText: nextEntry.markdownText ?? "",
+          createdAt: nextEntry.createdAt,
+        })
+      : nextEntry.kind === "userMessage"
+        ? reconcileCommittedUserPrompt(currentTranscript, nextEntry)
+        : applyLiveTranscriptMutation(currentTranscript, { type: "upsert", entry: nextEntry });
+    this.setThreadTranscript(item.threadId, nextTranscript);
+    if (source !== "optimistic" && nextEntry.kind === "userMessage" && nextEntry.markdownText) {
+      this.clearPendingSteerForConsumedPrompt(item.threadId, item.turnId, nextEntry.markdownText);
+    }
+    return nextEntry;
+  }
+
+  private setConversationRecordDetail(detail: CodexThreadDetail): void {
+    const record = this.ensureConversationRecord(detail.threadId);
+    const retainedTurnIds = new Set(detail.turns.map((turn) => turn.turnId));
+    this.clearThreadPendingRequestsForRemovedTurns(detail.threadId, retainedTurnIds);
+    this.pruneThreadTransientState(detail.threadId, retainedTurnIds);
+    record.detail = {
+      ...detail,
+      turns: [...detail.turns],
+      transcript: [...detail.transcript],
+    };
+    record.itemsByTurn = new Map<string, Map<string, CodexItemView>>();
   }
 
   private hydrateThreadDetail(detail: CodexThreadDetail): void {
-    for (const turn of detail.turns) {
-      this.mergeTurn(detail.threadId, turn);
-    }
-
-    for (const item of detail.items) {
-      this.mergeItem(item);
-    }
-  }
-
-  private mergeWithPersistedSnapshot(
-    threadId: string,
-    liveDetail: CodexThreadDetail | null,
-  ): CodexThreadDetail | null {
-    const link = getCodexCardThreadLink(threadId);
-    const baseDetail = liveDetail ?? (link
-      ? {
-          ...link,
-          turns: [] as CodexTurnSummary[],
-          items: [] as CodexItemView[],
-        }
-      : null);
-
-    if (!baseDetail) return null;
-
-    const sessionDetail = link
-      ? readCodexSessionThreadDetail({
-          threadId,
-          link,
-        })
-      : null;
-
-    const withSessionRecovery = sessionDetail
-      ? {
-          ...baseDetail,
-          threadName: sessionDetail.threadName ?? baseDetail.threadName,
-          threadPreview: sessionDetail.threadPreview || baseDetail.threadPreview,
-          cwd: sessionDetail.cwd ?? baseDetail.cwd,
-          updatedAt: Math.max(baseDetail.updatedAt, sessionDetail.updatedAt),
-          turns: mergeTurnSummaries(baseDetail.turns, sessionDetail.turns),
-          items: mergeItemViews(baseDetail.items, sessionDetail.items),
-        }
-      : baseDetail;
-
-    const snapshot = sessionDetail ? null : getCodexThreadSnapshot(threadId);
-    if (!snapshot) return withSessionRecovery;
-
-    return {
-      ...withSessionRecovery,
-      updatedAt: Math.max(withSessionRecovery.updatedAt, snapshot.updatedAt),
-      turns: mergeTurnSummaries(withSessionRecovery.turns, snapshot.turns),
-      items: mergeItemViews(withSessionRecovery.items, snapshot.items),
-    };
-  }
-
-  private persistThreadSnapshot(threadId: string): void {
-    if (hasCodexSessionMaterialized(threadId)) {
-      deleteCodexThreadSnapshot(threadId);
-      return;
-    }
-
-    const detail = this.serializeThreadDetail(threadId);
-    if (!detail) return;
-
-    try {
-      upsertCodexThreadSnapshot({
-        threadId,
-        turns: detail.turns,
-        items: detail.items,
-        updatedAt: Date.now(),
-      });
-    } catch (error) {
-      this.emitEvent({
-        type: "error",
-        message: `Could not persist thread snapshot for ${threadId}`,
-        detail: error instanceof Error ? error.message : String(error),
-      });
-    }
+    this.setConversationRecordDetail(detail);
   }
 
   private buildThreadDetailFromRead(thread: unknown): CodexThreadDetail | null {
@@ -1970,7 +2624,7 @@ export class CodexService extends EventEmitter {
     if (typeof candidate.id !== "string") return null;
     const threadId = candidate.id;
 
-    const link = getCodexCardThreadLink(threadId);
+    const link = this.getThreadLinkSafely(threadId);
     if (!link) return null;
 
     const turns = Array.isArray(candidate.turns) ? candidate.turns : [];
@@ -1981,22 +2635,34 @@ export class CodexService extends EventEmitter {
       const turnSummary = this.asTurnSummary(threadId, turn);
       if (!turnSummary) continue;
       turnSummaries.push(turnSummary);
-      this.mergeTurn(threadId, turnSummary);
 
       const turnRecord = turn as Record<string, unknown>;
       const items = Array.isArray(turnRecord.items) ? turnRecord.items : [];
       for (const item of items) {
         const itemView = normalizeThreadItem(item, threadId, turnSummary.turnId);
         if (!itemView) continue;
-        this.mergeItem(itemView);
         itemViews.push(itemView);
       }
+
+      if (turnSummary.diff) {
+        itemViews.push(this.buildTurnDiffItemView({
+          threadId,
+          turnId: turnSummary.turnId,
+          diff: turnSummary.diff,
+          status: turnSummary.status,
+        }));
+      }
     }
+
+    const transcript = buildTranscriptFromBootstrapEvents({
+      items: itemViews,
+      source: "live",
+    });
 
     return {
       ...link,
       turns: turnSummaries,
-      items: itemViews,
+      transcript,
     };
   }
 
@@ -2009,7 +2675,7 @@ export class CodexService extends EventEmitter {
     const candidate = thread as Record<string, unknown>;
     if (typeof candidate.id !== "string") return null;
 
-    const existing = getCodexCardThreadLink(candidate.id);
+    const existing = this.getThreadLinkSafely(candidate.id);
     const ref = fallbackRef ??
       (existing
         ? {
@@ -2358,14 +3024,14 @@ export class CodexService extends EventEmitter {
     if (!firstPrompt) return;
 
     void (async () => {
-      const initialLink = getCodexCardThreadLink(input.threadId);
+      const initialLink = this.getThreadLinkSafely(input.threadId);
       if (!initialLink) return;
       if (initialLink.threadName?.trim()) return;
 
       const generatedTitle = await this.generateThreadTitleForPrompt(firstPrompt, input.cwd);
       if (!generatedTitle) return;
 
-      const latestLink = getCodexCardThreadLink(input.threadId);
+      const latestLink = this.getThreadLinkSafely(input.threadId);
       if (!latestLink) return;
       if (latestLink.threadName?.trim()) return;
 
@@ -2385,31 +3051,6 @@ export class CodexService extends EventEmitter {
         detail: error instanceof Error ? error.message : String(error),
       });
     });
-  }
-
-  private async readThreadAfterStart(threadId: string): Promise<CodexThreadDetail | null> {
-    let startReadError: unknown;
-
-    try {
-      return await this.readThread(threadId, true);
-    } catch (error) {
-      if (!isRolloutMaterializationError(error)) throw error;
-      startReadError = error;
-    }
-
-    try {
-      const fallback = await this.readThread(threadId, false);
-      if (fallback) return fallback;
-    } catch (fallbackError) {
-      if (!isRolloutMaterializationError(fallbackError)) throw fallbackError;
-    }
-
-    const serialized = this.serializeThreadDetail(threadId);
-    if (serialized) return serialized;
-
-    throw startReadError instanceof Error
-      ? startReadError
-      : new Error("Thread was created but could not be loaded");
   }
 
   async startThreadForCard(input: CodexThreadStartForCardInput): Promise<CodexThreadDetail> {
@@ -2529,9 +3170,7 @@ export class CodexService extends EventEmitter {
       const startedTurn = this.asTurnSummary(link.threadId, turnStart.turn);
       if (startedTurn) {
         this.mergeTurn(link.threadId, startedTurn);
-        const optimisticUserItem = this.seedTurnWithOptimisticUserMessage(link.threadId, startedTurn.turnId, prompt);
-        this.persistThreadSnapshot(link.threadId);
-        this.emitEvent({ type: "itemUpsert", item: optimisticUserItem });
+        this.seedTurnWithOptimisticUserMessage(link.threadId, startedTurn.turnId, prompt);
         this.logger.info("Started first Codex turn", {
           threadId: link.threadId,
           turnId: startedTurn.turnId,
@@ -2540,7 +3179,7 @@ export class CodexService extends EventEmitter {
       }
       this.markThreadAsActive(link.threadId);
 
-      const detail = await this.readThreadAfterStart(link.threadId);
+      const detail = this.serializeThreadDetail(link.threadId);
       if (!detail) {
         throw new Error("Thread was created but could not be loaded");
       }
@@ -2603,6 +3242,16 @@ export class CodexService extends EventEmitter {
     }
   }
 
+  async requestConversationSnapshot(threadId: string): Promise<CodexConversationSnapshot | null> {
+    const existingConversation = this.serializeConversationSnapshot(threadId);
+    if (existingConversation) {
+      this.emitConversationSnapshotFromRecord(threadId);
+      return existingConversation;
+    }
+
+    return null;
+  }
+
   private async readThreadWithTurnsFlag(
     threadId: string,
     includeTurns: boolean,
@@ -2614,26 +3263,224 @@ export class CodexService extends EventEmitter {
 
     this.upsertLinkFromThread(result.thread);
     const liveDetail = this.buildThreadDetailFromRead(result.thread);
-    const mergedDetail = this.mergeWithPersistedSnapshot(threadId, liveDetail);
-    if (!mergedDetail) return null;
-    const reconciledDetail = this.reconcileDetailItemsToTerminalTurnStatus(mergedDetail);
+    if (!liveDetail) return null;
 
-    this.hydrateThreadDetail(reconciledDetail);
-    this.persistThreadSnapshot(threadId);
+    const reconciledDetail = this.reconcileDetailTranscriptToTerminalTurnStatus(liveDetail);
+    this.setConversationRecordDetail(reconciledDetail);
     return reconciledDetail;
   }
 
-  async resumeThread(threadId: string): Promise<CodexThreadDetail | null> {
+  private async resumeConversationRecord(threadId: string): Promise<CodexThreadDetail | null> {
     await this.ensureClientReady();
     this.logger.info("Resuming Codex thread", { threadId });
+    const record = this.ensureConversationRecord(threadId);
+    if (record.streamRole === "follower") {
+      return this.serializeThreadDetail(threadId);
+    }
 
     const resumeParams: ThreadResumeParams = {
       threadId,
       persistExtendedHistory: THREAD_RESUME_PERSIST_EXTENDED_HISTORY,
     };
-    await this.client.request("thread/resume", resumeParams);
+    const result = await this.client.request<"thread/resume", ThreadResumeResponse>("thread/resume", resumeParams);
+    this.upsertLinkFromThread(result.thread);
+    const liveDetail = this.buildThreadDetailFromRead(result.thread);
+    if (!liveDetail) return null;
 
-    return this.readThread(threadId, true);
+    const detail = this.reconcileDetailTranscriptToTerminalTurnStatus(liveDetail);
+    this.setConversationRecordDetail(detail);
+
+    record.isStreaming = true;
+    record.streamRole = "owner";
+    return detail;
+  }
+
+  async resumeThread(threadId: string): Promise<CodexThreadDetail | null> {
+    return this.resumeConversationRecord(threadId);
+  }
+
+  async requestConversationResume(threadId: string): Promise<CodexConversationSnapshot | null> {
+    this.setConversationResumeState(threadId, "resuming");
+    this.ensureConversationDetail(threadId);
+    this.emitConversationSnapshotFromRecord(threadId);
+
+    try {
+      const detail = await this.resumeThread(threadId);
+      if (!detail) {
+        this.setConversationResumeState(threadId, "needs_resume");
+        this.emitConversationSnapshotFromRecord(threadId);
+        return null;
+      }
+
+      this.setConversationResumeState(threadId, "resumed");
+      this.emitConversationSnapshotFromRecord(threadId);
+      this.scheduleQueuedFollowUpDrain(threadId);
+      return this.serializeConversationSnapshot(threadId);
+    } catch (error) {
+      this.setConversationResumeState(threadId, "needs_resume");
+      const record = this.ensureConversationRecord(threadId);
+      record.streamRole = null;
+      record.isStreaming = false;
+      this.emitConversationSnapshotFromRecord(threadId);
+      throw error;
+    }
+  }
+
+  private resolveLatestEditableTurn(detail: CodexThreadDetail): CodexTurnSummary | null {
+    const latestTurn = detail.turns.at(-1) ?? null;
+    if (!latestTurn || latestTurn.status === "inProgress") return null;
+
+    const hasUserMessage = detail.transcript.some((entry) =>
+      entry.turnId === latestTurn.turnId &&
+      (entry.semanticKind === "userMessage" || entry.kind === "userMessage"));
+    if (!hasUserMessage) return null;
+
+    return latestTurn;
+  }
+
+  private materializeThreadDetailFromThreadPayload(
+    thread: unknown,
+    fallbackRef?: ThreadRef | null,
+    fallbackCwd?: string | null,
+  ): { detail: CodexThreadDetail; summary: CodexThreadSummary | null } {
+    const summary = this.upsertLinkFromThread(thread, fallbackRef ?? undefined, fallbackCwd);
+    const directDetail = this.buildThreadDetailFromRead(thread);
+    if (directDetail) {
+      return { detail: directDetail, summary };
+    }
+
+    const threadId =
+      typeof thread === "object" &&
+      thread !== null &&
+      typeof (thread as Record<string, unknown>).id === "string"
+        ? (thread as Record<string, unknown>).id as string
+        : null;
+    if (!threadId) {
+      throw new Error("Thread action did not return a valid thread id");
+    }
+
+    const fallbackDetail = this.serializeThreadDetail(threadId);
+    if (!fallbackDetail) {
+      throw new Error(`Thread action completed but canonical conversation '${threadId}' is unavailable`);
+    }
+    return { detail: fallbackDetail, summary };
+  }
+
+  async editLastUserTurn(
+    threadId: string,
+    turnId: string,
+    message: string,
+  ): Promise<CodexThreadActionResult> {
+    await this.ensureClientReady();
+
+    const currentDetail = this.serializeThreadDetail(threadId);
+    if (!currentDetail) {
+      throw new Error(`Thread '${threadId}' was not found`);
+    }
+
+    const latestEditableTurn = this.resolveLatestEditableTurn(currentDetail);
+    if (!latestEditableTurn || latestEditableTurn.turnId !== turnId) {
+      throw new Error("Only the latest completed user turn can be edited");
+    }
+
+    const rollbackResult = await this.client.request<"thread/rollback", ThreadRollbackResponse>("thread/rollback", {
+      threadId,
+      numTurns: 1,
+    });
+    const threadRef = this.parseThreadRef(threadId);
+    const { detail, summary } = this.materializeThreadDetailFromThreadPayload(
+      rollbackResult.thread,
+      threadRef,
+      currentDetail.cwd,
+    );
+    this.setConversationRecordDetail(detail);
+
+    try {
+      await this.startTurn(threadId, message);
+    } catch (error) {
+      if (summary) {
+        this.emitEvent({ type: "threadSummary", thread: summary });
+      } else {
+        this.emitConversationSnapshot(threadId);
+      }
+      throw error;
+    }
+
+    this.emitConversationSnapshot(threadId);
+
+    return {
+      threadId,
+      composerIntent: this.buildComposerIntent(message),
+    };
+  }
+
+  async forkConversationFromTurn(
+    threadId: string,
+    turnId: string,
+    message: string,
+  ): Promise<CodexThreadActionResult> {
+    await this.ensureClientReady();
+
+    const currentDetail = this.serializeThreadDetail(threadId);
+    if (!currentDetail) {
+      throw new Error(`Thread '${threadId}' was not found`);
+    }
+
+    const sourceTurnIndex = currentDetail.turns.findIndex((turn) => turn.turnId === turnId);
+    if (sourceTurnIndex < 0) {
+      throw new Error(`Turn '${turnId}' was not found in thread '${threadId}'`);
+    }
+
+    const sourceTurn = currentDetail.turns[sourceTurnIndex];
+    if (!sourceTurn || sourceTurn.status === "inProgress") {
+      throw new Error("Only completed turns can be forked");
+    }
+
+    const threadRef = this.parseThreadRef(threadId);
+    if (!threadRef) {
+      throw new Error(`Thread '${threadId}' is not linked to a project card`);
+    }
+
+    // Keep older-turn branching manager-owned. The visible Codex Electron bundle
+    // proves that renderer sends targetTurnId to the manager, but it does not
+    // prove a non-null path-based fork call in practice. For parity, fork the
+    // latest thread in main and trim the new branch back to the selected turn.
+    const forkParams: ThreadForkParams = {
+      threadId,
+      cwd: currentDetail.cwd,
+      persistExtendedHistory: true,
+    };
+    const forkResult = await this.client.request<"thread/fork", ThreadForkResponse>("thread/fork", forkParams);
+    const forkedThreadId = forkResult.thread.id;
+    if (typeof forkedThreadId !== "string" || forkedThreadId.length === 0) {
+      throw new Error("Thread fork did not return a valid thread id");
+    }
+
+    const turnsToDrop = currentDetail.turns.length - sourceTurnIndex - 1;
+    const finalThreadPayload = turnsToDrop > 0
+      ? (await this.client.request<"thread/rollback", ThreadRollbackResponse>("thread/rollback", {
+          threadId: forkedThreadId,
+          numTurns: turnsToDrop,
+        })).thread
+      : forkResult.thread;
+
+    const { detail, summary } = this.materializeThreadDetailFromThreadPayload(
+      finalThreadPayload,
+      threadRef,
+      currentDetail.cwd,
+    );
+    this.setConversationRecordDetail(detail);
+
+    if (summary) {
+      this.emitEvent({ type: "threadSummary", thread: summary });
+    } else {
+      this.emitConversationSnapshot(detail.threadId);
+    }
+
+    return {
+      threadId: detail.threadId,
+      composerIntent: this.buildComposerIntent(message),
+    };
   }
 
   async setThreadName(threadId: string, name: string): Promise<boolean> {
@@ -2644,7 +3491,7 @@ export class CodexService extends EventEmitter {
     });
 
     updateCodexThreadName(threadId, name);
-    const updated = getCodexCardThreadLink(threadId);
+    const updated = this.getThreadLinkSafely(threadId);
     if (updated) {
       this.emitEvent({ type: "threadSummary", thread: updated });
     }
@@ -2739,10 +3586,9 @@ export class CodexService extends EventEmitter {
     const startedTurn = this.asTurnSummary(threadId, turnStartResult.turn);
     if (startedTurn) {
       this.mergeTurn(threadId, startedTurn);
-      const optimisticUserItem = this.seedTurnWithOptimisticUserMessage(threadId, startedTurn.turnId, promptText);
-      this.persistThreadSnapshot(threadId);
+      this.seedTurnWithOptimisticUserMessage(threadId, startedTurn.turnId, promptText);
+      this.clearPausedQueuedFollowUps(threadId);
       this.markThreadAsActive(threadId);
-      this.emitEvent({ type: "itemUpsert", item: optimisticUserItem });
       this.logger.info("Started Codex turn", {
         threadId,
         turnId: startedTurn.turnId,
@@ -2752,20 +3598,36 @@ export class CodexService extends EventEmitter {
     }
 
     this.markThreadAsActive(threadId);
-    const detail = await this.readThread(threadId, true);
+    this.clearPausedQueuedFollowUps(threadId);
+    const detail = this.serializeThreadDetail(threadId);
     if (!detail || detail.turns.length === 0) return null;
-    this.logger.info("Started Codex turn via fallback thread read", {
+    this.logger.info("Started Codex turn from canonical conversation state", {
       threadId,
       durationMs: Date.now() - startedAt,
     });
     return detail.turns[detail.turns.length - 1];
   }
 
+  async sendQueuedFollowUpNow(threadId: string, followUpId: string): Promise<void> {
+    const followUp = this.getQueuedFollowUp(threadId, followUpId);
+    if (!followUp) return;
+    this.dequeueQueuedFollowUp(threadId, followUpId);
+    try {
+      await this.submitQueuedFollowUp(threadId, followUp);
+    } catch (error) {
+      this.restoreQueuedFollowUp(
+        threadId,
+        followUp,
+        error instanceof Error ? error.message : String(error),
+      );
+      throw error;
+    }
+  }
+
   async steerTurn(
     threadId: string,
     expectedTurnId: string,
     prompt: string,
-    optimisticItemId?: string,
   ): Promise<{ turnId: string } | null> {
     await this.ensureClientReady();
 
@@ -2779,7 +3641,6 @@ export class CodexService extends EventEmitter {
       expectedTurnId,
       promptLength: promptText.length,
       promptPreview: previewText(promptText),
-      optimisticItemId: optimisticItemId ?? null,
     });
 
     const steerParams: TurnSteerParams = {
@@ -2787,20 +3648,21 @@ export class CodexService extends EventEmitter {
       expectedTurnId,
       input: [createTextUserInput(promptText)],
     };
-    const result = await this.client.request<"turn/steer", TurnSteerResponse>("turn/steer", steerParams);
+    const steerId = this.recordPendingSteer(threadId, expectedTurnId, promptText);
+    let result: TurnSteerResponse;
+    try {
+      result = await this.client.request<"turn/steer", TurnSteerResponse>("turn/steer", steerParams);
+    } catch (error) {
+      this.clearPendingSteer(threadId, steerId);
+      throw error;
+    }
 
     if (typeof result.turnId !== "string") {
+      this.clearPendingSteer(threadId, steerId);
       this.logger.warn("Codex turn steer returned no turn id", { threadId, expectedTurnId });
       return null;
     }
-    const optimisticUserItem = this.seedTurnWithOptimisticUserMessage(
-      threadId,
-      result.turnId,
-      promptText,
-      optimisticItemId,
-    );
-    this.persistThreadSnapshot(threadId);
-    this.emitEvent({ type: "itemUpsert", item: optimisticUserItem });
+    this.clearPausedQueuedFollowUps(threadId);
     this.logger.info("Steered Codex turn", {
       threadId,
       expectedTurnId,
@@ -2839,12 +3701,8 @@ export class CodexService extends EventEmitter {
     };
     this.mergeTurn(threadId, interruptedTurn);
     this.syncThreadStatusFromKnownTurns(threadId);
-    const reconciledItems = this.reconcileTurnItemsToTerminalStatus(threadId, resolvedTurnId, "interrupted");
-    this.persistThreadSnapshot(threadId);
+    this.reconcileTurnItemsToTerminalStatus(threadId, resolvedTurnId, "interrupted");
     this.emitEvent({ type: "turn", turn: interruptedTurn });
-    for (const item of reconciledItems) {
-      this.emitEvent({ type: "itemUpsert", item });
-    }
     return true;
   }
 
@@ -2862,6 +3720,7 @@ export class CodexService extends EventEmitter {
     pending.resolve({ decision });
     this.pendingApprovals.delete(requestId);
     this.emitEvent({ type: "approvalResolved", requestId, decision });
+    this.emitConversationSnapshot(pending.request.threadId);
     return true;
   }
 
@@ -2899,21 +3758,44 @@ export class CodexService extends EventEmitter {
       questionCount: pending.request.questions.length,
       answeredQuestionCount: Object.keys(normalizedAnswers).length,
     });
-    const resolvedItem = this.upsertResolvedUserInputItem(pending.request, transcriptAnswers);
-    if (resolvedItem) {
-      this.persistThreadSnapshot(pending.request.threadId);
-      this.emitEvent({ type: "itemUpsert", item: resolvedItem });
-    }
+    const resolvedEntry = this.upsertResolvedUserInputItem(pending.request, transcriptAnswers);
+    void resolvedEntry;
     this.emitEvent({ type: "userInputResolved", requestId });
+    this.emitConversationSnapshot(pending.request.threadId);
+    return true;
+  }
+
+  async respondToMcpServerElicitation(
+    requestId: string,
+    action: CodexMcpServerElicitationAction,
+  ): Promise<boolean> {
+    const pending = this.pendingMcpElicitations.get(requestId);
+    if (!pending) return false;
+
+    this.logger.info("Resolving Codex MCP elicitation request", {
+      requestId,
+      action,
+      threadId: pending.request.threadId,
+      turnId: pending.request.turnId,
+    });
+
+    pending.resolve({
+      action,
+      content: null,
+      _meta: null,
+    });
+    this.pendingMcpElicitations.delete(requestId);
+    this.emitConversationSnapshot(pending.request.threadId);
     return true;
   }
 
   private upsertResolvedUserInputItem(
     request: CodexUserInputRequest,
     answers: Record<string, string[]>,
-  ): CodexItemView | null {
-    const key = `${request.threadId}:${request.turnId}`;
-    const byItem = this.itemByThreadTurn.get(key) ?? new Map<string, CodexItemView>();
+  ): CodexTranscriptEntry | null {
+    this.ensureConversationDetail(request.threadId);
+    const record = this.ensureConversationRecord(request.threadId);
+    const byItem = record.itemsByTurn.get(request.turnId) ?? new Map<string, CodexItemView>();
     const itemKey = resolveCodexItemPrimaryIdentityKey({
       turnId: request.turnId,
       itemId: request.itemId,
@@ -2928,6 +3810,7 @@ export class CodexService extends EventEmitter {
       itemId: request.itemId,
       type: existing?.type ?? "request_user_input",
       normalizedKind: "userInputRequest",
+      semanticKind: "answeredUserInput",
       status: "completed",
       markdownText: questionCount === 1 ? "Asked 1 question" : `Asked ${questionCount} questions`,
       userInputQuestions: request.questions,
@@ -2944,9 +3827,10 @@ export class CodexService extends EventEmitter {
       updatedAt: now,
     };
 
-    byItem.set(itemKey, existing ? mergeCodexItemView(existing, next) : next);
-    this.itemByThreadTurn.set(key, byItem);
-    return byItem.get(itemKey) ?? null;
+    const merged = existing ? mergeCodexItemView(existing, next) : next;
+    byItem.set(itemKey, merged);
+    record.itemsByTurn.set(request.turnId, byItem);
+    return this.mergeItem(merged);
   }
 
   private async handleServerRequest(request: CodexServerRequest): Promise<unknown> {
@@ -2975,6 +3859,13 @@ export class CodexService extends EventEmitter {
       return this.handleRequestUserInput(String(request.id), request.params as ToolRequestUserInputParams);
     }
 
+    if (request.method === "mcpServer/elicitation/request") {
+      return this.handleMcpServerElicitationRequest(
+        String(request.id),
+        request.params as McpServerElicitationRequestParams,
+      );
+    }
+
     if (request.method === "item/tool/call") {
       throw new Error("Dynamic tool calls are not supported in this Nodex release");
     }
@@ -2998,6 +3889,7 @@ export class CodexService extends EventEmitter {
     const ref = this.parseThreadRef(threadId);
 
     const payload: CodexApprovalRequest = {
+      type: "approval",
       requestId,
       kind,
       projectId: ref?.projectId ?? null,
@@ -3036,14 +3928,13 @@ export class CodexService extends EventEmitter {
       return { decision: "accept" };
     }
 
-    this.emitEvent({ type: "approvalRequested", request: payload });
-
     return await new Promise<CommandExecutionRequestApprovalResponse | FileChangeRequestApprovalResponse>((resolve, reject) => {
       this.pendingApprovals.set(requestId, {
         request: payload,
         resolve,
         reject,
       });
+      this.emitEvent({ type: "approvalRequested", request: payload });
     });
   }
 
@@ -3073,6 +3964,7 @@ export class CodexService extends EventEmitter {
     }));
 
     const payload: CodexUserInputRequest = {
+      type: "userInput",
       requestId,
       projectId: ref?.projectId ?? null,
       cardId: ref?.cardId ?? null,
@@ -3093,62 +3985,231 @@ export class CodexService extends EventEmitter {
       questionCount: questions.length,
       questionIds: questions.map((question) => question.id),
     });
-    this.emitEvent({ type: "userInputRequested", request: payload });
-
     return await new Promise<{ answers: Record<string, { answers: string[] }> }>((resolve, reject) => {
       this.pendingUserInputs.set(requestId, {
         request: payload,
         resolve,
         reject,
       });
+      this.emitEvent({ type: "userInputRequested", request: payload });
     });
   }
 
-  private upsertStreamingItemDelta(input: {
-    threadId: string;
-    turnId: string;
-    itemId: string;
-    delta: string;
-    type: "agentMessage" | "plan";
-  }): void {
-    const key = `${input.threadId}:${input.turnId}`;
-    const byItem = this.itemByThreadTurn.get(key) ?? new Map<string, CodexItemView>();
-    const itemKey = resolveCodexItemPrimaryIdentityKey({
-      turnId: input.turnId,
-      itemId: input.itemId,
-    });
-    const now = Date.now();
-    const existing = byItem.get(itemKey);
-    const nextText = `${existing?.markdownText ?? ""}${input.delta}`;
-    const next: CodexItemView = existing
-      ? {
-          ...existing,
-          markdownText: nextText,
-          updatedAt: now,
-        }
-      : {
-          threadId: input.threadId,
-          turnId: input.turnId,
-          itemId: input.itemId,
-          type: input.type,
-          role: "assistant",
-          normalizedKind: input.type === "plan" ? "plan" : "assistantMessage",
-          markdownText: input.delta,
-          createdAt: now,
-          updatedAt: now,
-        };
+  private async handleMcpServerElicitationRequest(
+    requestId: string,
+    params: McpServerElicitationRequestParams,
+  ): Promise<McpServerElicitationRequestResponse> {
+    const threadId = params.threadId;
+    if (!threadId) {
+      return { action: "cancel", content: null, _meta: null };
+    }
 
-    byItem.set(itemKey, next);
-    this.itemByThreadTurn.set(key, byItem);
-    this.persistThreadSnapshot(input.threadId);
-    this.emitEvent({ type: "itemUpsert", item: next });
-    this.emitEvent({
-      type: "itemDelta",
-      threadId: input.threadId,
-      turnId: input.turnId,
-      itemId: input.itemId,
-      delta: input.delta,
+    const ref = this.parseThreadRef(threadId);
+    const payload: CodexMcpServerElicitationRequest = {
+      type: "mcpServerElicitation",
+      requestId,
+      projectId: ref?.projectId ?? null,
+      cardId: ref?.cardId ?? null,
+      threadId,
+      turnId: params.turnId ?? requestId,
+      itemId: requestId,
+      kind: params.mode === "url" ? "toolSuggestion" : "generic",
+      title: params.serverName,
+      prompt: params.message,
+      createdAt: Date.now(),
+    };
+
+    this.logger.info("Received Codex MCP elicitation request", {
+      requestId,
+      projectId: payload.projectId,
+      cardId: payload.cardId,
+      threadId,
+      turnId: payload.turnId,
+      mode: params.mode,
+      serverName: params.serverName,
     });
+
+    return await new Promise<McpServerElicitationRequestResponse>((resolve, reject) => {
+      this.pendingMcpElicitations.set(requestId, {
+        request: payload,
+        resolve,
+        reject,
+      });
+      this.emitConversationSnapshot(threadId);
+    });
+  }
+
+  private applyFrameTextDeltas(updates: FrameTextDeltaUpdate[]): void {
+    if (updates.length === 0) return;
+
+    const touchedThreadIds = new Set<string>();
+    for (const update of updates) {
+      this.ensureConversationDetail(update.threadId);
+      const record = this.ensureConversationRecord(update.threadId);
+      const byItem = record.itemsByTurn.get(update.turnId) ?? new Map<string, CodexItemView>();
+      const itemKey = resolveCodexItemPrimaryIdentityKey({
+        turnId: update.turnId,
+        itemId: update.itemId,
+      });
+      const existing = byItem.get(itemKey);
+      const now = Date.now();
+
+      if (update.target.type === "agentMessage" || update.target.type === "plan") {
+        const nextText = `${existing?.markdownText ?? ""}${update.delta}`;
+        const next: CodexItemView = existing
+          ? {
+              ...existing,
+              markdownText: nextText,
+              updatedAt: now,
+            }
+          : {
+              threadId: update.threadId,
+              turnId: update.turnId,
+              itemId: update.itemId,
+              type: update.target.type,
+              role: "assistant",
+              normalizedKind: update.target.type === "plan" ? "plan" : "assistantMessage",
+              semanticKind: update.target.type === "plan" ? "todoList" : "assistantMessage",
+              markdownText: update.delta,
+              createdAt: now,
+              updatedAt: now,
+            };
+
+        byItem.set(itemKey, next);
+        record.itemsByTurn.set(update.turnId, byItem);
+        const entry = projectItemToLiveTranscriptEntry(next, "live", this.getThreadTranscript(update.threadId));
+        this.setThreadTranscript(
+          update.threadId,
+          applyLiveTranscriptMutation(this.getThreadTranscript(update.threadId), {
+            type: "upsert",
+            entry,
+          }),
+        );
+        touchedThreadIds.add(update.threadId);
+        continue;
+      }
+
+      const existingBuffers = existing ? this.parseReasoningBuffers(existing) : { summary: [], content: [] };
+      const nextSummary = [...existingBuffers.summary];
+      const nextContent = [...existingBuffers.content];
+      if (update.target.type === "reasoningSummary") {
+        while (nextSummary.length <= update.target.summaryIndex) nextSummary.push("");
+        nextSummary[update.target.summaryIndex] = `${nextSummary[update.target.summaryIndex] ?? ""}${update.delta}`;
+      } else if (update.target.type === "reasoningContent") {
+        while (nextContent.length <= update.target.contentIndex) nextContent.push("");
+        nextContent[update.target.contentIndex] = `${nextContent[update.target.contentIndex] ?? ""}${update.delta}`;
+      } else {
+        continue;
+      }
+
+      const next: CodexItemView = existing
+        ? {
+            ...existing,
+            markdownText: projectCodexReasoningSummary(nextSummary),
+            rawItem: {
+              ...(asRecord(existing.rawItem) ?? {}),
+              id: update.itemId,
+              type: "reasoning",
+              summary: nextSummary,
+              content: nextContent,
+            },
+            updatedAt: now,
+          }
+        : {
+            threadId: update.threadId,
+            turnId: update.turnId,
+            itemId: update.itemId,
+            type: "reasoning",
+            normalizedKind: "reasoning",
+            semanticKind: "reasoning",
+            status: "inProgress",
+            markdownText: projectCodexReasoningSummary(nextSummary),
+            rawItem: {
+              id: update.itemId,
+              type: "reasoning",
+              summary: nextSummary,
+              content: nextContent,
+            },
+            createdAt: now,
+            updatedAt: now,
+          };
+
+      byItem.set(itemKey, next);
+      record.itemsByTurn.set(update.turnId, byItem);
+      const entry = projectItemToLiveTranscriptEntry(next, "live", this.getThreadTranscript(update.threadId));
+      this.setThreadTranscript(
+        update.threadId,
+        applyLiveTranscriptMutation(this.getThreadTranscript(update.threadId), {
+          type: "upsert",
+          entry,
+        }),
+      );
+      touchedThreadIds.add(update.threadId);
+    }
+
+    if (touchedThreadIds.size === 0) return;
+    this.emitConversationSnapshots(Array.from(touchedThreadIds));
+  }
+
+  private applyOutputDeltas(updates: OutputDeltaUpdate[]): void {
+    if (updates.length === 0) return;
+
+    const touchedThreadIds = new Set<string>();
+    for (const update of updates) {
+      this.ensureConversationDetail(update.threadId);
+      const record = this.ensureConversationRecord(update.threadId);
+      const byItem = record.itemsByTurn.get(update.turnId) ?? new Map<string, CodexItemView>();
+      const itemKey = resolveCodexItemPrimaryIdentityKey({
+        turnId: update.turnId,
+        itemId: update.itemId,
+      });
+      const existing = byItem.get(itemKey);
+      const now = Date.now();
+      const currentOutput = typeof existing?.toolCall?.result === "string" ? existing.toolCall.result : "";
+      const nextOutput = `${currentOutput}${update.delta}`;
+      const next: CodexItemView = existing
+        ? {
+            ...existing,
+            toolCall: existing.toolCall
+              ? {
+                  ...existing.toolCall,
+                  result: nextOutput,
+                }
+              : existing.toolCall,
+            updatedAt: now,
+          }
+        : {
+            threadId: update.threadId,
+            turnId: update.turnId,
+            itemId: update.itemId,
+            type: "commandExecution",
+            normalizedKind: "commandExecution",
+            semanticKind: "exec",
+            status: "inProgress",
+            toolCall: {
+              subtype: "command",
+              toolName: "bash",
+              result: nextOutput,
+            },
+            createdAt: now,
+            updatedAt: now,
+          };
+
+      byItem.set(itemKey, next);
+      record.itemsByTurn.set(update.turnId, byItem);
+      const entry = projectItemToLiveTranscriptEntry(next, "live", this.getThreadTranscript(update.threadId));
+      this.setThreadTranscript(
+        update.threadId,
+        applyLiveTranscriptMutation(this.getThreadTranscript(update.threadId), {
+          type: "upsert",
+          entry,
+        }),
+      );
+      touchedThreadIds.add(update.threadId);
+    }
+
+    if (touchedThreadIds.size === 0) return;
+    this.emitConversationSnapshots(Array.from(touchedThreadIds));
   }
 
   private resolvePendingServerRequest(requestId: string): void {
@@ -3159,6 +4220,7 @@ export class CodexService extends EventEmitter {
       requestId,
       pendingApproval: this.pendingApprovals.has(requestId),
       pendingUserInput: this.pendingUserInputs.has(requestId),
+      pendingMcpElicitation: this.pendingMcpElicitations.has(requestId),
     });
 
     const pendingApproval = this.pendingApprovals.get(requestId);
@@ -3166,6 +4228,7 @@ export class CodexService extends EventEmitter {
       pendingApproval.resolve({ decision: "cancel" });
       this.pendingApprovals.delete(requestId);
       this.emitEvent({ type: "approvalResolved", requestId, decision: "cancel" });
+      this.emitConversationSnapshot(pendingApproval.request.threadId);
       emittedApprovalResolved = true;
     }
 
@@ -3174,7 +4237,15 @@ export class CodexService extends EventEmitter {
       pendingUserInput.resolve({ answers: {} });
       this.pendingUserInputs.delete(requestId);
       this.emitEvent({ type: "userInputResolved", requestId });
+      this.emitConversationSnapshot(pendingUserInput.request.threadId);
       emittedUserInputResolved = true;
+    }
+
+    const pendingMcpElicitation = this.pendingMcpElicitations.get(requestId);
+    if (pendingMcpElicitation) {
+      pendingMcpElicitation.resolve({ action: "cancel", content: null, _meta: null });
+      this.pendingMcpElicitations.delete(requestId);
+      this.emitConversationSnapshot(pendingMcpElicitation.request.threadId);
     }
 
     if (!emittedApprovalResolved) {
@@ -3183,6 +4254,20 @@ export class CodexService extends EventEmitter {
     if (!emittedUserInputResolved) {
       this.emitEvent({ type: "userInputResolved", requestId });
     }
+  }
+
+  private listPendingConversationRequests(threadId: string): CodexConversationServerRequest[] {
+    const approvals = Array.from(this.pendingApprovals.values())
+      .map((pending) => pending.request)
+      .filter((request) => request.threadId === threadId);
+    const userInputs = Array.from(this.pendingUserInputs.values())
+      .map((pending) => pending.request)
+      .filter((request) => request.threadId === threadId);
+    const mcpElicitations = Array.from(this.pendingMcpElicitations.values())
+      .map((pending) => pending.request)
+      .filter((request) => request.threadId === threadId);
+
+    return [...approvals, ...userInputs, ...mcpElicitations].sort((left, right) => left.createdAt - right.createdAt);
   }
 
   private async handleNotification(method: string, params: unknown): Promise<void> {
@@ -3284,7 +4369,6 @@ export class CodexService extends EventEmitter {
       };
 
       this.mergeTurn(payload.threadId, nextTurn);
-      this.persistThreadSnapshot(payload.threadId);
       this.emitEvent({ type: "turn", turn: nextTurn });
       return;
     }
@@ -3295,6 +4379,10 @@ export class CodexService extends EventEmitter {
       method === "turn/interrupted" ||
       method === "turn/failed"
     ) {
+      if (method !== "turn/started") {
+        this.frameTextDeltaQueue.flushNow();
+        this.outputDeltaQueue.flushNow();
+      }
       const payload =
         typeof params === "object" && params !== null
           ? params as Record<string, unknown>
@@ -3338,17 +4426,44 @@ export class CodexService extends EventEmitter {
         status: turn.status,
       });
       this.mergeTurn(threadId, turn);
-      this.syncThreadStatusFromKnownTurns(threadId);
-      const reconciledItems = this.reconcileTurnItemsToTerminalStatus(threadId, turn.turnId, turn.status);
-      this.persistThreadSnapshot(threadId);
-      this.emitEvent({ type: "turn", turn });
-      for (const item of reconciledItems) {
-        this.emitEvent({ type: "itemUpsert", item });
+      if (Object.prototype.hasOwnProperty.call(turnRecord, "diff")) {
+        this.syncTurnDiffItem(threadId, turn.turnId, turn.diff, turn.status);
       }
+      this.syncThreadStatusFromKnownTurns(threadId);
+      this.reconcileTurnItemsToTerminalStatus(threadId, turn.turnId, turn.status);
+      if (turn.status !== "inProgress") {
+        this.clearPendingSteersForTurn(threadId, turn.turnId);
+        this.scheduleQueuedFollowUpDrain(threadId);
+      }
+      this.emitEvent({ type: "turn", turn });
+      return;
+    }
+
+    if (method === "turn/diff/updated") {
+      const payload = asRecord(params);
+      if (!payload || typeof payload.threadId !== "string" || typeof payload.turnId !== "string") return;
+      const diff = typeof payload.diff === "string" && payload.diff.length > 0 ? payload.diff : undefined;
+      const existingTurn = this.getKnownTurn(payload.threadId, payload.turnId) ?? {
+        threadId: payload.threadId,
+        turnId: payload.turnId,
+        status: "inProgress" as const,
+        itemIds: [],
+      };
+      const nextTurn: CodexTurnSummary = {
+        ...existingTurn,
+        diff,
+      };
+
+      this.mergeTurn(payload.threadId, nextTurn);
+      this.syncTurnDiffItem(payload.threadId, payload.turnId, diff, nextTurn.status);
+      this.emitEvent({ type: "turn", turn: nextTurn });
+      this.emitConversationSnapshot(payload.threadId);
       return;
     }
 
     if (method === "item/started" || method === "item/completed") {
+      this.frameTextDeltaQueue.flushNow();
+      this.outputDeltaQueue.flushNow();
       const payload =
         typeof params === "object" && params !== null
           ? params as Record<string, unknown>
@@ -3360,18 +4475,22 @@ export class CodexService extends EventEmitter {
       const normalizedItem = normalizeThreadItem(payload.item, payload.threadId, payload.turnId);
       if (!normalizedItem) return;
       const item = normalizedItem.status
-        ? normalizedItem
-        : {
-            ...normalizedItem,
-            status: lifecycleStatus,
-          };
+          ? normalizedItem
+          : {
+              ...normalizedItem,
+              status: lifecycleStatus,
+            };
       this.mergeItem(item);
-      this.persistThreadSnapshot(payload.threadId);
-      this.emitEvent({ type: "itemUpsert", item });
+      this.emitConversationSnapshot(payload.threadId);
       return;
     }
 
-    if (method === "item/agentMessage/delta" || method === "item/plan/delta") {
+    if (
+      method === "item/agentMessage/delta"
+      || method === "item/plan/delta"
+      || method === "item/reasoning/summaryTextDelta"
+      || method === "item/reasoning/textDelta"
+    ) {
       const payload =
         typeof params === "object" && params !== null
           ? params as Record<string, unknown>
@@ -3385,12 +4504,67 @@ export class CodexService extends EventEmitter {
       ) {
         return;
       }
-      this.upsertStreamingItemDelta({
+      if (method === "item/agentMessage/delta" || method === "item/plan/delta") {
+        this.frameTextDeltaQueue.enqueue({
+          threadId: payload.threadId,
+          turnId: payload.turnId,
+          itemId: payload.itemId,
+          delta: payload.delta,
+          target: {
+            type: method === "item/plan/delta" ? "plan" : "agentMessage",
+          },
+        });
+        return;
+      }
+
+      if (method === "item/reasoning/summaryTextDelta") {
+        if (typeof payload.summaryIndex !== "number") return;
+        this.frameTextDeltaQueue.enqueue({
+          threadId: payload.threadId,
+          turnId: payload.turnId,
+          itemId: payload.itemId,
+          delta: payload.delta,
+          target: {
+            type: "reasoningSummary",
+            summaryIndex: payload.summaryIndex,
+          },
+        });
+        return;
+      }
+
+      if (typeof payload.contentIndex !== "number") return;
+      this.frameTextDeltaQueue.enqueue({
         threadId: payload.threadId,
         turnId: payload.turnId,
         itemId: payload.itemId,
         delta: payload.delta,
-        type: method === "item/plan/delta" ? "plan" : "agentMessage",
+        target: {
+          type: "reasoningContent",
+          contentIndex: payload.contentIndex,
+        },
+      });
+      return;
+    }
+
+    if (method === "item/commandExecution/outputDelta") {
+      const payload =
+        typeof params === "object" && params !== null
+          ? params as Record<string, unknown>
+          : null;
+      if (!payload) return;
+      if (
+        typeof payload.threadId !== "string"
+        || typeof payload.turnId !== "string"
+        || typeof payload.itemId !== "string"
+        || typeof payload.delta !== "string"
+      ) {
+        return;
+      }
+      this.outputDeltaQueue.enqueue({
+        threadId: payload.threadId,
+        turnId: payload.turnId,
+        itemId: payload.itemId,
+        delta: payload.delta,
       });
       return;
     }
@@ -3454,38 +4628,177 @@ export class CodexService extends EventEmitter {
   }
 
   serializeThreadDetail(threadId: string): CodexThreadDetail | null {
-    const link = getCodexCardThreadLink(threadId);
+    const link = this.getThreadLinkSafely(threadId);
     if (!link) return null;
-
-    const inMemoryTurns = Array.from(this.turnByThread.get(threadId)?.values() ?? []);
-
-    const inMemoryItems: CodexItemView[] = [];
-    for (const turn of inMemoryTurns) {
-      const key = `${threadId}:${turn.turnId}`;
-      const byItem = this.itemByThreadTurn.get(key);
-      if (!byItem) continue;
-      const ordered = Array.from(byItem.values()).sort((a, b) => a.createdAt - b.createdAt);
-      inMemoryItems.push(...ordered);
-    }
-
-    const sessionDetail = readCodexSessionThreadDetail({
-      threadId,
-      link,
-    });
-    const snapshot = sessionDetail ? null : getCodexThreadSnapshot(threadId);
-    const recoveredTurns = mergeTurnSummaries(sessionDetail?.turns ?? [], snapshot?.turns ?? []);
-    const recoveredItems = mergeItemViews(sessionDetail?.items ?? [], snapshot?.items ?? []);
-    const turns = mergeTurnSummaries(inMemoryTurns, recoveredTurns);
-    const items = mergeItemViews(inMemoryItems, recoveredItems);
+    const detail = this.getMaybeConversationRecord(threadId)?.detail;
+    const turns = [...(detail?.turns ?? [])];
+    const transcript = [...(detail?.transcript ?? [])];
+    const transcriptUpdatedAt = transcript.reduce((latest, entry) => Math.max(latest, entry.updatedAt), 0);
 
     return {
       ...link,
-      threadName: sessionDetail?.threadName ?? link.threadName,
-      threadPreview: sessionDetail?.threadPreview || link.threadPreview,
-      cwd: sessionDetail?.cwd ?? link.cwd,
-      updatedAt: Math.max(link.updatedAt, sessionDetail?.updatedAt ?? 0, snapshot?.updatedAt ?? 0),
+      threadName: link.threadName,
+      threadPreview: resolveThreadPreviewFromTranscript(
+        transcript,
+        link.threadPreview,
+      ),
+      cwd: link.cwd,
+      updatedAt: Math.max(link.updatedAt, transcriptUpdatedAt),
       turns,
-      items,
+      transcript,
+    };
+  }
+
+  private buildConversationCapabilityFlags(
+    detail: CodexThreadDetail,
+    requests: CodexConversationServerRequest[],
+  ): CodexConversationCapabilityFlags {
+    const latestTurn = detail.turns.at(-1) ?? null;
+    const isConversationActionable = !detail.archived && detail.statusType !== "systemError";
+    const latestTurnHasUserMessage = latestTurn !== null
+      && detail.transcript.some((entry) =>
+        entry.turnId === latestTurn.turnId &&
+        (entry.semanticKind === "userMessage" || entry.kind === "userMessage"));
+
+    return {
+      canEditLastUserTurn: Boolean(
+        isConversationActionable &&
+        latestTurn &&
+        latestTurn.status !== "inProgress" &&
+        latestTurnHasUserMessage &&
+        requests.every((request) => request.turnId !== latestTurn.turnId),
+      ),
+      canForkFromTurn: Boolean(isConversationActionable && detail.turns.length > 0),
+      canSearch: true,
+      canCollapseTurns: true,
+    };
+  }
+
+  private buildConversationBaseSnapshot(threadId: string): CodexConversationSnapshot | null {
+    const detail = this.hasKnownThreadDetail(threadId)
+      ? this.serializeThreadDetail(threadId)
+      : (this.bootstrapConversationRecordFromSession(threadId) ?? this.serializeThreadDetail(threadId));
+    if (!detail) return null;
+    const requests = this.listPendingConversationRequests(threadId);
+
+    return buildCodexConversationSnapshot({
+      detail,
+      resumeState: this.resolveConversationResumeState(threadId),
+      requests,
+      queuedFollowUps: this.listQueuedFollowUps(threadId),
+      pendingSteers: this.listPendingSteers(threadId),
+      capabilityFlags: this.buildConversationCapabilityFlags(detail, requests),
+    });
+  }
+
+  private extractConversationChildThreadIds(conversation: CodexConversationSnapshot): string[] {
+    const childThreadIds = new Set<string>();
+
+    for (const turn of conversation.turns) {
+      for (const item of turn.items) {
+        if (!isChildThreadSourceItem(item)) continue;
+        for (const receiverThreadId of extractReceiverThreadIds(item)) {
+          if (receiverThreadId === conversation.threadId) continue;
+          childThreadIds.add(receiverThreadId);
+        }
+      }
+    }
+
+    return Array.from(childThreadIds);
+  }
+
+  private formatConversationActorName(
+    conversation: CodexConversationSnapshot | null,
+    threadId: string,
+  ): string {
+    const threadName = conversation?.threadName?.trim();
+    if (threadName) return threadName;
+    const threadPreview = conversation?.threadPreview?.trim();
+    if (threadPreview) return threadPreview;
+    return threadId;
+  }
+
+  private deriveConversationChildMemberships(
+    conversation: CodexConversationSnapshot,
+    visitedThreadIds: Set<string>,
+  ): CodexConversationChildMembership[] {
+    return this.extractConversationChildThreadIds(conversation).map((childThreadId) => {
+      const childConversation = visitedThreadIds.has(childThreadId)
+        ? this.buildConversationBaseSnapshot(childThreadId)
+        : this.serializeConversationSnapshot(childThreadId, visitedThreadIds);
+      const primaryRequest = selectPrimaryConversationRequest(childConversation);
+      return {
+        threadId: childThreadId,
+        parentThreadId: conversation.threadId,
+        role: primaryRequest?.type === "approval" ? "childApproval" : "backgroundChild",
+        actorName: this.formatConversationActorName(childConversation, childThreadId),
+      };
+    });
+  }
+
+  private buildBackgroundTerminalRow(
+    parentThreadId: string,
+    membership: CodexConversationChildMembership,
+    visitedThreadIds: Set<string>,
+  ): CodexBackgroundTerminalRow | null {
+    const childConversation = visitedThreadIds.has(membership.threadId)
+      ? this.buildConversationBaseSnapshot(membership.threadId)
+      : this.serializeConversationSnapshot(membership.threadId, visitedThreadIds);
+    if (!childConversation) return null;
+
+    const pendingSteer = childConversation.pendingSteers.at(-1);
+    if (pendingSteer) {
+      return {
+        rowId: `${parentThreadId}:${membership.threadId}:steer`,
+        threadId: membership.threadId,
+        stream: "info",
+        text: `${membership.actorName ?? membership.threadId} has a pending steer`,
+        createdAt: pendingSteer.createdAt,
+      };
+    }
+
+    const queuedFollowUp = childConversation.queuedFollowUps.at(-1);
+    if (queuedFollowUp) {
+      return {
+        rowId: `${parentThreadId}:${membership.threadId}:follow-up`,
+        threadId: membership.threadId,
+        stream: "info",
+        text: `${membership.actorName ?? membership.threadId} has a queued follow-up`,
+        createdAt: queuedFollowUp.createdAt,
+      };
+    }
+
+    return null;
+  }
+
+  private deriveConversationBackgroundTerminalRows(
+    conversation: CodexConversationSnapshot,
+    memberships: CodexConversationChildMembership[],
+    visitedThreadIds: Set<string>,
+  ): CodexBackgroundTerminalRow[] {
+    return memberships
+      .map((membership) => this.buildBackgroundTerminalRow(conversation.threadId, membership, visitedThreadIds))
+      .filter((row): row is CodexBackgroundTerminalRow => row !== null)
+      .sort((left, right) => left.createdAt - right.createdAt);
+  }
+
+  serializeConversationSnapshot(threadId: string, visitedThreadIds = new Set<string>()): CodexConversationSnapshot | null {
+    const baseConversation = this.buildConversationBaseSnapshot(threadId);
+    if (!baseConversation) return null;
+    if (visitedThreadIds.has(threadId)) return baseConversation;
+
+    const nextVisitedThreadIds = new Set(visitedThreadIds);
+    nextVisitedThreadIds.add(threadId);
+    const childMemberships = this.deriveConversationChildMemberships(baseConversation, nextVisitedThreadIds);
+
+    return {
+      ...baseConversation,
+      childMemberships,
+      backgroundTerminalRows: this.deriveConversationBackgroundTerminalRows(
+        baseConversation,
+        childMemberships,
+        nextVisitedThreadIds,
+      ),
     };
   }
 }

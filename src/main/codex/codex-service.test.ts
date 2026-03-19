@@ -4,11 +4,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type {
+  CodexConversationSnapshot,
   CodexEvent,
   CodexItemView,
   CodexCollaborationModePreset,
   CodexPermissionMode,
+  CodexThreadActionResult,
   CodexThreadDetail,
+  CodexTranscriptEntry,
   CodexTurnSummary,
   ManagedWorktreeRecord,
 } from "../../shared/types";
@@ -23,18 +26,22 @@ import {
 import { CodexRpcError } from "./codex-app-server-client";
 import {
   getCodexCardThreadLink,
-  getCodexThreadSnapshot,
   upsertCodexCardThreadLink,
-  upsertCodexThreadSnapshot,
 } from "./codex-link-repository";
 import { resetCodexSessionStoreCaches } from "./codex-session-store";
 import { CodexService } from "./codex-service";
 
 interface TestableCodexService {
+  on: (event: "hostMessage", listener: (message: import("../../shared/types").CodexHostMessage) => void) => unknown;
   shutdown: () => Promise<void>;
-  readThreadAfterStart: (threadId: string) => Promise<CodexThreadDetail | null>;
   readThread: (threadId: string, includeTurns?: boolean) => Promise<CodexThreadDetail | null>;
+  requestConversationSnapshot: (threadId: string) => Promise<CodexConversationSnapshot | null>;
+  requestConversationResume: (threadId: string) => Promise<CodexConversationSnapshot | null>;
   serializeThreadDetail: (threadId: string) => CodexThreadDetail | null;
+  serializeConversationSnapshot: (threadId: string) => CodexConversationSnapshot | null;
+  resumeThread: (threadId: string) => Promise<CodexThreadDetail | null>;
+  editLastUserTurn: (threadId: string, turnId: string, message: string) => Promise<CodexThreadActionResult>;
+  forkConversationFromTurn: (threadId: string, turnId: string, message: string) => Promise<CodexThreadActionResult>;
   startTurn: (
     threadId: string,
     prompt: string,
@@ -49,8 +56,18 @@ interface TestableCodexService {
     threadId: string,
     expectedTurnId: string,
     prompt: string,
-    optimisticItemId?: string,
   ) => Promise<{ turnId: string } | null>;
+  enqueueQueuedFollowUpPrompt: (
+    threadId: string,
+    prompt: string,
+    opts?: {
+      model?: string;
+      reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+      permissionMode?: CodexPermissionMode;
+      collaborationMode?: "default" | "plan";
+    },
+  ) => Promise<void>;
+  sendQueuedFollowUpNow: (threadId: string, followUpId: string) => Promise<void>;
   startThreadForCard: (input: {
     projectId: string;
     cardId: string;
@@ -88,12 +105,31 @@ function makeThreadDetail(threadId: string): CodexThreadDetail {
     updatedAt: Date.now(),
     linkedAt: new Date().toISOString(),
     turns: [],
-    items: [],
+    transcript: [],
   };
 }
 
 function createService(): TestableCodexService {
   return new CodexService() as unknown as TestableCodexService;
+}
+
+function getRecordedItem(
+  service: unknown,
+  threadId: string,
+  turnId: string,
+  itemId: string,
+): CodexItemView | null {
+  const record = (service as {
+    getConversationRecord: (id: string) => {
+      itemsByTurn: Map<string, Map<string, CodexItemView>>;
+    };
+  }).getConversationRecord(threadId);
+  const items = record.itemsByTurn.get(turnId);
+  if (!items) return null;
+  for (const item of items.values()) {
+    if (item.itemId === itemId) return item;
+  }
+  return null;
 }
 
 function isUnsupportedSqliteError(error: unknown): boolean {
@@ -158,132 +194,6 @@ function initializeGitRepository(repoPath: string): void {
   execFileSync("git", ["add", "README.md"], { cwd: repoPath });
   execFileSync("git", ["commit", "-m", "initial"], { cwd: repoPath });
 }
-
-describe("codex-service thread start fallback", () => {
-  test("falls back to includeTurns=false when rollout is not materialized", async () => {
-    const service = createService();
-    const fallbackDetail = makeThreadDetail("thr-fallback");
-
-    try {
-      service.readThread = async (_threadId: string, includeTurns = true) => {
-        if (includeTurns) {
-          throw new CodexRpcError(
-            "failed to load rollout `/tmp/session.jsonl` for thread thr-fallback: empty session file",
-            -32603,
-          );
-        }
-        return fallbackDetail;
-      };
-
-      service.serializeThreadDetail = () => null;
-
-      const detail = await service.readThreadAfterStart("thr-fallback");
-      expect(detail).toBe(fallbackDetail);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("falls back to serialized thread detail when both reads are unavailable", async () => {
-    const service = createService();
-    const serializedDetail = makeThreadDetail("thr-serialized");
-
-    try {
-      service.readThread = async () => {
-        throw new CodexRpcError(
-          "failed to load rollout `/tmp/session.jsonl` for thread thr-serialized: empty session file",
-          -32603,
-        );
-      };
-
-      service.serializeThreadDetail = () => serializedDetail;
-
-      const detail = await service.readThreadAfterStart("thr-serialized");
-      expect(detail).toBe(serializedDetail);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("falls back for includeTurns pre-materialization error wording", async () => {
-    const service = createService();
-    const fallbackDetail = makeThreadDetail("thr-not-materialized");
-
-    try {
-      service.readThread = async (_threadId: string, includeTurns = true) => {
-        if (includeTurns) {
-          throw new CodexRpcError(
-            "thread 019c86c9-78f8-7c22-bbb8-ece0f52f8794 is not materialized yet; includeTurns is unavailable before first user message",
-            -32600,
-          );
-        }
-        return fallbackDetail;
-      };
-
-      service.serializeThreadDetail = () => null;
-
-      const detail = await service.readThreadAfterStart("thr-not-materialized");
-      expect(detail).toBe(fallbackDetail);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("falls back for rollout-is-empty wording", async () => {
-    const service = createService();
-    const fallbackDetail = makeThreadDetail("thr-rollout-empty");
-
-    try {
-      service.readThread = async (_threadId: string, includeTurns = true) => {
-        if (includeTurns) {
-          throw new CodexRpcError(
-            "failed to load rollout `/tmp/session.jsonl` for thread thr-rollout-empty: rollout at /tmp/session.jsonl is empty",
-            -32603,
-          );
-        }
-        return fallbackDetail;
-      };
-
-      service.serializeThreadDetail = () => null;
-
-      const detail = await service.readThreadAfterStart("thr-rollout-empty");
-      expect(detail).toBe(fallbackDetail);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("does not swallow non-rollout errors", async () => {
-    const service = createService();
-    let fallbackReadUsed = false;
-
-    try {
-      service.readThread = async (_threadId: string, includeTurns = true) => {
-        if (!includeTurns) {
-          fallbackReadUsed = true;
-        }
-        throw new CodexRpcError("permission denied", -32603);
-      };
-
-      service.serializeThreadDetail = () => null;
-
-      let failed = false;
-      let message = "";
-      try {
-        await service.readThreadAfterStart("thr-error");
-      } catch (error) {
-        failed = true;
-        message = error instanceof Error ? error.message : String(error);
-      }
-
-      expect(failed).toBeTrue();
-      expect(message.includes("permission denied")).toBeTrue();
-      expect(fallbackReadUsed).toBeFalse();
-    } finally {
-      await service.shutdown();
-    }
-  });
-});
 
 describe("codex-service readThread fallback", () => {
   test("retries with includeTurns=false for pre-materialization errors", async () => {
@@ -384,122 +294,65 @@ describe("codex-service readThread fallback", () => {
 
     if (!ran) expect(true).toBeTrue();
   });
-});
 
-describe("codex-service thread snapshot cache", () => {
-  test("serializeThreadDetail rehydrates from persisted snapshot when in-memory cache is empty", async () => {
+  test("materializes fileChange patch rows and turn-level unified diff as separate transcript items", async () => {
     const ran = await withTempDatabase(async () => {
-      const card = await createCard("codex", "in_progress", { title: "Thread snapshot fallback" });
+      const card = await createCard("codex", "in_progress", { title: "Read thread file change diff split" });
       upsertCodexCardThreadLink({
         projectId: "codex",
         cardId: card.id,
-        threadId: "thr_cached",
-      });
-
-      upsertCodexThreadSnapshot({
-        threadId: "thr_cached",
-        turns: [
-          {
-            threadId: "thr_cached",
-            turnId: "turn_cached",
-            status: "completed",
-            itemIds: ["item_cached"],
-          },
-        ],
-        items: [
-          {
-            threadId: "thr_cached",
-            turnId: "turn_cached",
-            itemId: "item_cached",
-            type: "mcpToolCall",
-            normalizedKind: "toolCall",
-            toolCall: {
-              subtype: "mcp",
-              toolName: "search",
-              server: "docs",
-            },
-            createdAt: 10,
-            updatedAt: 11,
-          },
-        ],
+        threadId: "thr_file_change_diff",
       });
 
       const service = createService();
-      try {
-        const detail = service.serializeThreadDetail("thr_cached");
-        expect(detail).not.toBeNull();
-        expect(detail?.turns.length).toBe(1);
-        expect(detail?.items.length).toBe(1);
-        expect(detail?.items[0]?.toolCall?.subtype).toBe("mcp");
-      } finally {
-        await service.shutdown();
-      }
-    });
-
-    if (!ran) expect(true).toBeTrue();
-  });
-
-  test("persists thread token usage updates in serialized snapshots", async () => {
-    const ran = await withTempDatabase(async () => {
-      const card = await createCard("codex", "in_progress", { title: "Thread token usage" });
-      upsertCodexCardThreadLink({
-        projectId: "codex",
-        cardId: card.id,
-        threadId: "thr_tokens",
-      });
-
-      const service = createService();
-      const serviceInternals = service as unknown as {
-        handleNotification: (method: string, params: unknown) => Promise<void>;
-        on: (eventName: "event", listener: (event: CodexEvent) => void) => void;
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<{ thread?: unknown }>;
       };
-      const events: CodexEvent[] = [];
 
-      serviceInternals.on("event", (event) => {
-        events.push(event);
-      });
+      const patchDiff = "--- a/src/example.ts\n+++ b/src/example.ts\n@@ -1 +1 @@\n-old\n+new";
+      const turnDiff = `${patchDiff}\n`;
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        if (method !== "thread/read") return {};
+        const request = params as { threadId?: string };
+        if (request.threadId !== "thr_file_change_diff") return {};
+
+        return {
+          thread: {
+            id: "thr_file_change_diff",
+            turns: [
+              {
+                id: "turn_file_change_diff",
+                status: "completed",
+                diff: turnDiff,
+                items: [
+                  {
+                    id: "patch_file_change_diff",
+                    type: "fileChange",
+                    status: "completed",
+                    changes: [
+                      {
+                        path: "src/example.ts",
+                        diff: patchDiff,
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        };
+      };
 
       try {
-        await serviceInternals.handleNotification("thread/tokenUsage/updated", {
-          threadId: "thr_tokens",
-          turnId: "turn_tokens",
-          tokenUsage: {
-            total: {
-              totalTokens: 209_000,
-              inputTokens: 180_000,
-              cachedInputTokens: 12_000,
-              outputTokens: 17_000,
-              reasoningOutputTokens: 3_000,
-            },
-            last: {
-              totalTokens: 209_000,
-              inputTokens: 180_000,
-              cachedInputTokens: 12_000,
-              outputTokens: 17_000,
-              reasoningOutputTokens: 3_000,
-            },
-            modelContextWindow: 258_000,
-          },
-        });
-
-        const turnEvent = events.find(
-          (event): event is Extract<CodexEvent, { type: "turn" }> => event.type === "turn",
-        );
-        expect(turnEvent?.turn.tokenUsage?.modelContextWindow).toBe(258_000);
-        expect(turnEvent?.turn.tokenUsage?.last.totalTokens).toBe(209_000);
-
-        const detail = service.serializeThreadDetail("thr_tokens");
-        expect(detail?.turns[0]?.tokenUsage?.modelContextWindow).toBe(258_000);
-        expect(detail?.turns[0]?.tokenUsage?.last.totalTokens).toBe(209_000);
-
-        const rebooted = createService();
-        try {
-          const rehydrated = rebooted.serializeThreadDetail("thr_tokens");
-          expect(rehydrated?.turns[0]?.tokenUsage?.modelContextWindow).toBe(258_000);
-          expect(rehydrated?.turns[0]?.tokenUsage?.last.totalTokens).toBe(209_000);
-        } finally {
-          await rebooted.shutdown();
-        }
+        const detail = await service.readThread("thr_file_change_diff", true);
+        expect(detail).not.toBeNull();
+        expect(detail?.turns[0]?.diff).toBe(turnDiff);
+        expect(detail?.transcript.length).toBe(2);
+        expect(`${detail?.transcript[0]?.kind}:${detail?.transcript[0]?.semanticKind}`).toBe("fileChange:patch");
+        expect(`${detail?.transcript[1]?.kind}:${detail?.transcript[1]?.semanticKind}`).toBe("systemEvent:diff");
       } finally {
         await service.shutdown();
       }
@@ -578,8 +431,8 @@ describe("codex-service session-backed transcript recovery", () => {
         expect(detail?.threadName).toBe("Recovered from session file");
         expect(detail?.cwd).toBe("/tmp/recovered");
         expect(detail?.turns.length).toBe(1);
-        expect(detail?.items.length).toBe(2);
-        expect(detail?.items[1]?.markdownText).toBe("Recovered response");
+        expect(detail?.transcript.length).toBe(2);
+        expect(detail?.transcript[1]?.markdownText).toBe("Recovered response");
       } finally {
         await service.shutdown();
       }
@@ -588,78 +441,1040 @@ describe("codex-service session-backed transcript recovery", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
-  test("skips snapshot persistence once a Codex session file is materialized", async () => {
+  test("dedupes replay-materialized and live-read items for the same recovered turn", async () => {
     const ran = await withTempDatabase(async () => {
       withTempCodexHome((codexHome) => {
-        fs.mkdirSync(path.join(codexHome, "sessions", "2026", "03", "17"), { recursive: true });
+        fs.mkdirSync(path.join(codexHome, "sessions", "2026", "03", "23"), { recursive: true });
         fs.writeFileSync(
-          path.join(codexHome, "sessions", "2026", "03", "17", "rollout-2026-03-17T10-00-00-thr_materialized.jsonl"),
+          path.join(codexHome, "session_index.jsonl"),
+          JSON.stringify({
+            id: "thr_replay_merge",
+            thread_name: "Recovered thread",
+            updated_at: "2026-03-23T09:00:03.000Z",
+          }) + "\n",
+        );
+        fs.writeFileSync(
+          path.join(codexHome, "sessions", "2026", "03", "23", "rollout-2026-03-23T09-00-00-thr_replay_merge.jsonl"),
           [
             JSON.stringify({
-              timestamp: "2026-03-17T10:00:00.000Z",
+              timestamp: "2026-03-23T09:00:00.000Z",
               type: "session_meta",
               payload: {
-                id: "thr_materialized",
-                timestamp: "2026-03-17T10:00:00.000Z",
-                cwd: "/tmp/materialized",
+                id: "thr_replay_merge",
+                timestamp: "2026-03-23T09:00:00.000Z",
+                cwd: "/tmp/replay-merge",
               },
             }),
             JSON.stringify({
-              timestamp: "2026-03-17T10:00:01.000Z",
+              timestamp: "2026-03-23T09:00:01.000Z",
               type: "event_msg",
               payload: {
                 type: "task_started",
-                turn_id: "turn_materialized",
+                turn_id: "turn_replay_merge",
               },
             }),
             JSON.stringify({
-              timestamp: "2026-03-17T10:00:02.000Z",
-              type: "response_item",
+              timestamp: "2026-03-23T09:00:02.000Z",
+              type: "event_msg",
               payload: {
-                type: "message",
-                role: "assistant",
-                content: [{ type: "output_text", text: "Ready" }],
+                type: "user_message",
+                message: "who are you",
+              },
+            }),
+            JSON.stringify({
+              timestamp: "2026-03-23T09:00:03.000Z",
+              type: "event_msg",
+              payload: {
+                type: "agent_message",
+                message: "Codex, your coding agent in this repo.",
               },
             }),
           ].join("\n"),
         );
       });
 
-      const card = await createCard("codex", "in_progress", { title: "Skip snapshot writes" });
+      const card = await createCard("codex", "in_progress", { title: "Replay merge dedupe" });
       upsertCodexCardThreadLink({
         projectId: "codex",
         cardId: card.id,
-        threadId: "thr_materialized",
+        threadId: "thr_replay_merge",
+      });
+
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<{ thread?: unknown }>;
+      };
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        if (method !== "thread/read") return {};
+        const request = params as { threadId?: string };
+        if (request.threadId !== "thr_replay_merge") return {};
+
+        return {
+          thread: {
+            id: "thr_replay_merge",
+            turns: [
+              {
+                id: "turn_replay_merge",
+                status: "completed",
+                items: [
+                  {
+                    id: "user_live_1",
+                    type: "userMessage",
+                    content: [{ type: "text", text: "who are you" }],
+                  },
+                  {
+                    id: "assistant_live_1",
+                    type: "agentMessage",
+                    text: "Codex, your coding agent in this repo.",
+                  },
+                ],
+              },
+            ],
+          },
+        };
+      };
+
+      try {
+        const detail = await service.readThread("thr_replay_merge", true);
+        const serialized = service.serializeThreadDetail("thr_replay_merge");
+
+        expect(detail).not.toBeNull();
+        expect(detail?.transcript.length).toBe(2);
+        expect(detail?.transcript[0]?.markdownText).toBe("who are you");
+        expect(detail?.transcript[1]?.markdownText).toBe("Codex, your coding agent in this repo.");
+        expect(serialized?.transcript.length).toBe(2);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("bootstraps reopened thread snapshots from session-backed canonical history without thread/read", async () => {
+    const ran = await withTempDatabase(async () => {
+      withTempCodexHome((codexHome) => {
+        fs.mkdirSync(path.join(codexHome, "sessions", "2026", "03", "23"), { recursive: true });
+        fs.writeFileSync(
+          path.join(codexHome, "session_index.jsonl"),
+          JSON.stringify({
+            id: "thr_old_open",
+            thread_name: "Old thread",
+            updated_at: "2026-03-23T10:00:05.000Z",
+          }) + "\n",
+        );
+        fs.writeFileSync(
+          path.join(codexHome, "sessions", "2026", "03", "23", "rollout-2026-03-23T10-00-00-thr_old_open.jsonl"),
+          [
+            JSON.stringify({
+              timestamp: "2026-03-23T10:00:00.000Z",
+              type: "session_meta",
+              payload: {
+                id: "thr_old_open",
+                timestamp: "2026-03-23T10:00:00.000Z",
+                cwd: "/tmp/old-open",
+              },
+            }),
+            JSON.stringify({
+              timestamp: "2026-03-23T10:00:01.000Z",
+              type: "event_msg",
+              payload: {
+                type: "task_started",
+                turn_id: "turn_old_open",
+              },
+            }),
+            JSON.stringify({
+              timestamp: "2026-03-23T10:00:02.000Z",
+              type: "event_msg",
+              payload: {
+                type: "user_message",
+                message: "who are you",
+              },
+            }),
+            JSON.stringify({
+              timestamp: "2026-03-23T10:00:03.000Z",
+              type: "response_item",
+              payload: {
+                type: "function_call",
+                call_id: "call_old_open",
+                name: "exec_command",
+                arguments: "{\"cmd\":\"pwd\"}",
+              },
+            }),
+            JSON.stringify({
+              timestamp: "2026-03-23T10:00:04.000Z",
+              type: "response_item",
+              payload: {
+                type: "function_call_output",
+                call_id: "call_old_open",
+                output: "{\"cwd\":\"/tmp/old-open\"}",
+              },
+            }),
+            JSON.stringify({
+              timestamp: "2026-03-23T10:00:05.000Z",
+              type: "event_msg",
+              payload: {
+                type: "agent_message",
+                message: "Codex, your coding agent in this repo.",
+              },
+            }),
+          ].join("\n"),
+        );
+      });
+
+      const card = await createCard("codex", "in_progress", { title: "Open old conversation" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_old_open",
+      });
+
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<{ thread?: unknown }>;
+      };
+
+      client.start = async () => undefined;
+      client.request = async (method: string) => {
+        throw new Error(`unexpected RPC during snapshot request: ${method}`);
+      };
+
+      try {
+        const conversation = await service.requestConversationSnapshot("thr_old_open");
+        expect(conversation).not.toBeNull();
+        expect(conversation?.threadId).toBe("thr_old_open");
+        expect(conversation?.resumeState).toBe("needs_resume");
+        expect(conversation?.turns.length).toBe(1);
+        expect(conversation?.turns[0]?.turnId).toBe("turn_old_open");
+        expect(conversation?.turns[0]?.items.length).toBe(2);
+        expect(conversation?.turns[0]?.items[0]?.kind).toBe("userMessage");
+        expect(conversation?.turns[0]?.items[0]?.markdownText).toBe("who are you");
+        expect(conversation?.turns[0]?.items[1]?.kind).toBe("assistantMessage");
+        expect(conversation?.turns[0]?.items[1]?.markdownText).toBe("Codex, your coding agent in this repo.");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("resume materializes completed reopened threads from the thread/resume payload", async () => {
+    const ran = await withTempDatabase(async () => {
+      withTempCodexHome((codexHome) => {
+        fs.mkdirSync(path.join(codexHome, "sessions", "2026", "03", "24"), { recursive: true });
+        fs.writeFileSync(
+          path.join(codexHome, "session_index.jsonl"),
+          JSON.stringify({
+            id: "thr_resume_no_duplicate",
+            thread_name: "Resume without duplicate",
+            updated_at: "2026-03-24T10:00:03.000Z",
+          }) + "\n",
+        );
+        fs.writeFileSync(
+          path.join(codexHome, "sessions", "2026", "03", "24", "rollout-2026-03-24T10-00-00-thr_resume_no_duplicate.jsonl"),
+          [
+            JSON.stringify({
+              timestamp: "2026-03-24T10:00:00.000Z",
+              type: "session_meta",
+              payload: {
+                id: "thr_resume_no_duplicate",
+                timestamp: "2026-03-24T10:00:00.000Z",
+                cwd: "/tmp/resume-no-duplicate",
+              },
+            }),
+            JSON.stringify({
+              timestamp: "2026-03-24T10:00:01.000Z",
+              type: "event_msg",
+              payload: {
+                type: "task_started",
+                turn_id: "turn_resume_no_duplicate",
+              },
+            }),
+            JSON.stringify({
+              timestamp: "2026-03-24T10:00:02.000Z",
+              type: "event_msg",
+              payload: {
+                type: "user_message",
+                message: "run bun test",
+              },
+            }),
+            JSON.stringify({
+              timestamp: "2026-03-24T10:00:03.000Z",
+              type: "response_item",
+              payload: {
+                type: "function_call",
+                call_id: "call_resume_no_duplicate",
+                name: "exec_command",
+                arguments: "{\"cmd\":\"bun test\"}",
+              },
+            }),
+            JSON.stringify({
+              timestamp: "2026-03-24T10:00:04.000Z",
+              type: "event_msg",
+              payload: {
+                type: "agent_message",
+                message: "`bun test` passed.",
+              },
+            }),
+          ].join("\n"),
+        );
+      });
+
+      const card = await createCard("codex", "in_progress", { title: "Resume duplicate regression" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_resume_no_duplicate",
+      });
+
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<{ thread?: unknown }>;
+      };
+
+      client.start = async () => undefined;
+      client.request = async (method: string) => {
+        if (method === "thread/resume") {
+          return {
+            thread: {
+              id: "thr_resume_no_duplicate",
+              preview: "run bun test",
+              ephemeral: false,
+              modelProvider: "openai",
+              createdAt: 1711274400,
+              updatedAt: 1711274404,
+              status: { type: "idle" },
+              path: "/tmp/resume-no-duplicate/rollout.jsonl",
+              cwd: "/tmp/resume-no-duplicate",
+              cliVersion: "0.0.0-test",
+              source: "app_server",
+              agentNickname: null,
+              agentRole: null,
+              gitInfo: null,
+              name: "Resume without duplicate",
+              turns: [
+                {
+                  id: "turn_resume_no_duplicate",
+                  status: "completed",
+                  items: [
+                    {
+                      id: "user_resume_no_duplicate",
+                      type: "userMessage",
+                      content: [{ type: "text", text: "run bun test" }],
+                    },
+                    {
+                      id: "tool_resume_no_duplicate",
+                      type: "commandExecution",
+                      status: "completed",
+                      command: "bun test",
+                      cwd: "/tmp/resume-no-duplicate",
+                      aggregatedOutput: "1340 pass\n0 fail\n",
+                    },
+                    {
+                      id: "assistant_resume_no_duplicate",
+                      type: "agentMessage",
+                      text: "`bun test` passed.",
+                    },
+                  ],
+                },
+              ],
+            },
+          };
+        }
+        if (method === "thread/read") {
+          throw new Error("thread/read should not run for a completed resume payload");
+        }
+        return {};
+      };
+
+      try {
+        const conversation = await service.requestConversationResume("thr_resume_no_duplicate");
+        expect(conversation).not.toBeNull();
+        expect(conversation?.turns.length).toBe(1);
+        expect(conversation?.turns[0]?.items.length).toBe(3);
+        expect(conversation?.turns[0]?.items[0]?.markdownText).toBe("run bun test");
+        expect(conversation?.turns[0]?.items[1]?.toolCall?.toolName).toBe("bash");
+        expect(conversation?.turns[0]?.items[2]?.markdownText).toBe("`bun test` passed.");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("resume materializes in-progress threads from the thread/resume payload without thread/read", async () => {
+    const ran = await withTempDatabase(async () => {
+      withTempCodexHome((codexHome) => {
+        fs.mkdirSync(path.join(codexHome, "sessions", "2026", "03", "24"), { recursive: true });
+        fs.writeFileSync(
+          path.join(codexHome, "session_index.jsonl"),
+          JSON.stringify({
+            id: "thr_resume_refresh",
+            thread_name: "Resume refresh",
+            updated_at: "2026-03-24T11:00:02.000Z",
+          }) + "\n",
+        );
+        fs.writeFileSync(
+          path.join(codexHome, "sessions", "2026", "03", "24", "rollout-2026-03-24T11-00-00-thr_resume_refresh.jsonl"),
+          [
+            JSON.stringify({
+              timestamp: "2026-03-24T11:00:00.000Z",
+              type: "session_meta",
+              payload: {
+                id: "thr_resume_refresh",
+                timestamp: "2026-03-24T11:00:00.000Z",
+                cwd: "/tmp/resume-refresh",
+              },
+            }),
+            JSON.stringify({
+              timestamp: "2026-03-24T11:00:01.000Z",
+              type: "event_msg",
+              payload: {
+                type: "task_started",
+                turn_id: "turn_resume_refresh",
+              },
+            }),
+            JSON.stringify({
+              timestamp: "2026-03-24T11:00:02.000Z",
+              type: "event_msg",
+              payload: {
+                type: "user_message",
+                message: "run bun test",
+              },
+            }),
+          ].join("\n"),
+        );
+      });
+
+      const card = await createCard("codex", "in_progress", { title: "Resume refresh regression" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_resume_refresh",
+      });
+
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<{ thread?: unknown }>;
+      };
+
+      client.start = async () => undefined;
+      client.request = async (method: string) => {
+        if (method === "thread/resume") {
+          return {
+            thread: {
+              id: "thr_resume_refresh",
+              preview: "run bun test",
+              ephemeral: false,
+              modelProvider: "openai",
+              createdAt: 1711278000,
+              updatedAt: 1711278002,
+              status: { type: "active", active_flags: ["streaming"] },
+              path: "/tmp/resume-refresh/rollout.jsonl",
+              cwd: "/tmp/resume-refresh",
+              cliVersion: "0.0.0-test",
+              source: "app_server",
+              agentNickname: null,
+              agentRole: null,
+              gitInfo: null,
+              name: "Resume refresh",
+              turns: [
+                {
+                  id: "turn_resume_refresh",
+                  status: "in_progress",
+                  items: [
+                    {
+                      id: "user_resume_refresh",
+                      type: "userMessage",
+                      content: [{ type: "text", text: "run bun test" }],
+                    },
+                  ],
+                },
+              ],
+            },
+          };
+        }
+        if (method === "thread/read") {
+          throw new Error("thread/read should not run during active resume");
+        }
+        return {};
+      };
+
+      try {
+        const conversation = await service.requestConversationResume("thr_resume_refresh");
+        expect(conversation).not.toBeNull();
+        expect(conversation?.turns[0]?.status).toBe("inProgress");
+        expect(conversation?.turns[0]?.items.length).toBe(1);
+        expect(conversation?.turns[0]?.items[0]?.markdownText).toBe("run bun test");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("serializes child-thread memberships and background activity from main-owned conversation state", async () => {
+    const ran = await withTempDatabase(async () => {
+      const parentCard = await createCard("codex", "in_progress", { title: "Parent conversation" });
+      const childCard = await createCard("codex", "in_progress", { title: "Child conversation" });
+
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: parentCard.id,
+        threadId: "thr_parent",
+        threadName: "Parent thread",
+      });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: childCard.id,
+        threadId: "thr_child",
+        threadName: "Child agent",
       });
 
       const service = createService();
       const serviceInternals = service as unknown as {
-        mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
-        persistThreadSnapshot: (threadId: string) => void;
+        turnByThread: Map<string, Map<string, CodexTurnSummary>>;
+        transcriptByThread: Map<string, CodexTranscriptEntry[]>;
+        queuedFollowUpsByThread: Map<string, Array<{
+          followUpId: string;
+          threadId: string;
+          prompt: string;
+          createdAt: number;
+          collaborationMode: null;
+        }>>;
       };
 
+      serviceInternals.turnByThread.set(
+        "thr_parent",
+        new Map<string, CodexTurnSummary>([
+          [
+            "turn_parent",
+            {
+              threadId: "thr_parent",
+              turnId: "turn_parent",
+              status: "completed",
+              itemIds: ["spawn_agent_1"],
+            },
+          ],
+        ]),
+      );
+      serviceInternals.transcriptByThread.set("thr_parent", [
+        {
+          threadId: "thr_parent",
+          turnId: "turn_parent",
+          itemId: "spawn_agent_1",
+          type: "tool_call",
+          kind: "toolCall",
+          semanticKind: "toolCall",
+          toolCall: {
+            toolName: "spawn_agent",
+            subtype: "generic",
+            args: {
+              receivers: ["thr_child"],
+            },
+          },
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ]);
+      serviceInternals.queuedFollowUpsByThread.set("thr_child", [
+        {
+          followUpId: "follow_up_1",
+          threadId: "thr_child",
+          prompt: "Continue with the plan",
+          createdAt: 2,
+          collaborationMode: null,
+        },
+      ]);
+
       try {
-        serviceInternals.mergeTurn("thr_materialized", {
-          threadId: "thr_materialized",
-          turnId: "turn_materialized",
-          status: "completed",
-          itemIds: [],
-        });
+        const conversation = service.serializeConversationSnapshot("thr_parent");
+        expect(conversation).not.toBeNull();
+        expect(conversation?.childMemberships.length).toBe(1);
+        expect(conversation?.childMemberships[0]?.threadId).toBe("thr_child");
+        expect(conversation?.childMemberships[0]?.actorName).toBe("Child agent");
+        expect(conversation?.backgroundTerminalRows.length).toBe(1);
+        expect(conversation?.backgroundTerminalRows[0]?.text).toBe("Child agent has a queued follow-up");
+      } finally {
+        await service.shutdown();
+      }
+    });
 
-        serviceInternals.persistThreadSnapshot("thr_materialized");
-        expect(getCodexThreadSnapshot("thr_materialized")).toBe(null);
+    if (!ran) expect(true).toBeTrue();
+  });
 
-        const snapshotless = service.serializeThreadDetail("thr_materialized");
-        expect(snapshotless?.turns.length).toBe(1);
+});
 
-        const rebooted = createService();
-        try {
-          const rehydrated = rebooted.serializeThreadDetail("thr_materialized");
-          expect(rehydrated?.items.length).toBe(1);
-          expect(rehydrated?.cwd).toBe("/tmp/materialized");
-        } finally {
-          await rebooted.shutdown();
+describe("codex-service edit-last-user-turn and fork-from-turn", () => {
+  test("rolls back the latest editable turn only on submit and starts a replacement turn", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Editable conversation" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_edit",
+        threadName: "Editable thread",
+        cwd: "/tmp/edit-thread",
+      });
+
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const serviceInternals = service as unknown as {
+        queuedFollowUpsByThread: Map<string, unknown[]>;
+        pendingSteersByThread: Map<string, Array<{ threadId: string; turnId: string; prompt: string; createdAt: number }>>;
+        pendingApprovals: Map<string, { request: { threadId: string; turnId: string }; reject: (error: Error) => void }>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+      let clearedApprovalMessage = "";
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "thread/rollback") {
+          return {
+            thread: {
+              id: "thr_edit",
+              modelProvider: "openai",
+              createdAt: 1,
+              updatedAt: 10,
+              turns: [
+                {
+                  id: "turn_older",
+                  status: "completed",
+                  items: [
+                    {
+                      id: "user_older",
+                      type: "userMessage",
+                      content: [{ type: "text", text: "Older prompt" }],
+                    },
+                    {
+                      id: "assistant_older",
+                      type: "agentMessage",
+                      text: "Older answer",
+                    },
+                  ],
+                },
+              ],
+            },
+          };
         }
+        if (method === "turn/start") {
+          return {
+            turn: {
+              id: "turn_edited",
+              status: "in_progress",
+              transcript: [],
+            },
+          };
+        }
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+
+      service.readThread = async () => ({
+        ...makeThreadDetail("thr_edit"),
+        projectId: "codex",
+        cardId: card.id,
+        threadName: "Editable thread",
+        cwd: "/tmp/edit-thread",
+        turns: [
+          {
+            threadId: "thr_edit",
+            turnId: "turn_older",
+            status: "completed",
+            itemIds: ["user_older", "assistant_older"],
+          },
+          {
+            threadId: "thr_edit",
+            turnId: "turn_latest",
+            status: "completed",
+            itemIds: ["user_latest", "assistant_latest"],
+          },
+        ],
+        transcript: [
+          {
+            threadId: "thr_edit",
+            turnId: "turn_older",
+            itemId: "user_older",
+            type: "user_message",
+            kind: "userMessage",
+            semanticKind: "userMessage",
+            role: "user",
+            sequence: 1,
+            markdownText: "Older prompt",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          {
+            threadId: "thr_edit",
+            turnId: "turn_older",
+            itemId: "assistant_older",
+            type: "assistant_message",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            role: "assistant",
+            sequence: 2,
+            markdownText: "Older answer",
+            createdAt: 2,
+            updatedAt: 2,
+          },
+          {
+            threadId: "thr_edit",
+            turnId: "turn_latest",
+            itemId: "user_latest",
+            type: "user_message",
+            kind: "userMessage",
+            semanticKind: "userMessage",
+            role: "user",
+            sequence: 3,
+            markdownText: "Latest prompt",
+            createdAt: 3,
+            updatedAt: 3,
+          },
+          {
+            threadId: "thr_edit",
+            turnId: "turn_latest",
+            itemId: "assistant_latest",
+            type: "assistant_message",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            role: "assistant",
+            sequence: 4,
+            markdownText: "Latest answer",
+            createdAt: 4,
+            updatedAt: 4,
+          },
+        ],
+      });
+
+      serviceInternals.queuedFollowUpsByThread.set("thr_edit", [{ followUpId: "followup_1" }]);
+      serviceInternals.pendingSteersByThread.set("thr_edit", [
+        { threadId: "thr_edit", turnId: "turn_latest", prompt: "Continue", createdAt: 5 },
+      ]);
+      serviceInternals.pendingApprovals.set("approval_1", {
+        request: {
+          threadId: "thr_edit",
+          turnId: "turn_latest",
+        },
+        reject: (error) => {
+          clearedApprovalMessage = error.message;
+        },
+      });
+
+      try {
+        const result = await service.editLastUserTurn("thr_edit", "turn_latest", "Rewrite the latest prompt");
+        const snapshot = service.serializeConversationSnapshot("thr_edit");
+        const detail = service.serializeThreadDetail("thr_edit");
+
+        expect(requests[0]?.method).toBe("thread/rollback");
+        expect((requests[0]?.params as { numTurns?: number } | undefined)?.numTurns).toBe(1);
+        expect(requests[1]?.method).toBe("turn/start");
+        expect(result.threadId).toBe("thr_edit");
+        expect(result.composerIntent.prompt).toBe("Rewrite the latest prompt");
+        expect(snapshot?.turns.length).toBe(2);
+        expect(snapshot?.turns[0]?.turnId).toBe("turn_older");
+        expect(snapshot?.turns[1]?.turnId).toBe("turn_edited");
+        expect(detail?.turns.length).toBe(2);
+        expect(detail?.turns[1]?.turnId).toBe("turn_edited");
+        expect(detail?.transcript[detail.transcript.length - 1]?.markdownText).toBe("Rewrite the latest prompt");
+        expect(Boolean(serviceInternals.queuedFollowUpsByThread.get("thr_edit"))).toBeFalse();
+        expect(Boolean(serviceInternals.pendingSteersByThread.get("thr_edit"))).toBeFalse();
+        expect(clearedApprovalMessage).toBe("Approval request cleared after thread history changed");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("forks from an older turn by rolling back the new thread to the selected branch point", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Forkable conversation" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_source",
+        threadName: "Source thread",
+        cwd: "/tmp/fork-thread",
+      });
+
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+      const events: CodexEvent[] = [];
+
+      (service as unknown as {
+        on: (eventName: "event", listener: (event: CodexEvent) => void) => void;
+      }).on("event", (event) => {
+        events.push(event);
+      });
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "thread/fork") {
+          return {
+            thread: {
+              id: "thr_forked",
+              modelProvider: "openai",
+              createdAt: 1,
+              updatedAt: 11,
+              turns: [
+                {
+                  id: "turn_1",
+                  status: "completed",
+                  items: [
+                    { id: "user_1", type: "userMessage", content: [{ type: "text", text: "Prompt 1" }] },
+                    { id: "assistant_1", type: "agentMessage", text: "Answer 1" },
+                  ],
+                },
+                {
+                  id: "turn_2",
+                  status: "completed",
+                  items: [
+                    { id: "user_2", type: "userMessage", content: [{ type: "text", text: "Prompt 2" }] },
+                    { id: "assistant_2", type: "agentMessage", text: "Answer 2" },
+                  ],
+                },
+                {
+                  id: "turn_3",
+                  status: "completed",
+                  items: [
+                    { id: "user_3", type: "userMessage", content: [{ type: "text", text: "Prompt 3" }] },
+                    { id: "assistant_3", type: "agentMessage", text: "Answer 3" },
+                  ],
+                },
+              ],
+            },
+          };
+        }
+        if (method === "thread/rollback") {
+          return {
+            thread: {
+              id: "thr_forked",
+              modelProvider: "openai",
+              createdAt: 1,
+              updatedAt: 12,
+              turns: [
+                {
+                  id: "turn_1",
+                  status: "completed",
+                  items: [
+                    { id: "user_1", type: "userMessage", content: [{ type: "text", text: "Prompt 1" }] },
+                    { id: "assistant_1", type: "agentMessage", text: "Answer 1" },
+                  ],
+                },
+                {
+                  id: "turn_2",
+                  status: "completed",
+                  items: [
+                    { id: "user_2", type: "userMessage", content: [{ type: "text", text: "Prompt 2" }] },
+                    { id: "assistant_2", type: "agentMessage", text: "Answer 2" },
+                  ],
+                },
+              ],
+            },
+          };
+        }
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+
+      service.readThread = async () => ({
+        ...makeThreadDetail("thr_source"),
+        projectId: "codex",
+        cardId: card.id,
+        threadName: "Source thread",
+        cwd: "/tmp/fork-thread",
+        turns: [
+          { threadId: "thr_source", turnId: "turn_1", status: "completed", itemIds: ["user_1", "assistant_1"] },
+          { threadId: "thr_source", turnId: "turn_2", status: "completed", itemIds: ["user_2", "assistant_2"] },
+          { threadId: "thr_source", turnId: "turn_3", status: "completed", itemIds: ["user_3", "assistant_3"] },
+        ],
+        transcript: [
+          {
+            threadId: "thr_source",
+            turnId: "turn_1",
+            itemId: "user_1",
+            type: "user_message",
+            kind: "userMessage",
+            semanticKind: "userMessage",
+            role: "user",
+            sequence: 1,
+            markdownText: "Prompt 1",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          {
+            threadId: "thr_source",
+            turnId: "turn_2",
+            itemId: "user_2",
+            type: "user_message",
+            kind: "userMessage",
+            semanticKind: "userMessage",
+            role: "user",
+            sequence: 2,
+            markdownText: "Prompt 2",
+            createdAt: 2,
+            updatedAt: 2,
+          },
+          {
+            threadId: "thr_source",
+            turnId: "turn_3",
+            itemId: "user_3",
+            type: "user_message",
+            kind: "userMessage",
+            semanticKind: "userMessage",
+            role: "user",
+            sequence: 3,
+            markdownText: "Prompt 3",
+            createdAt: 3,
+            updatedAt: 3,
+          },
+        ],
+      });
+
+      try {
+        const result = await service.forkConversationFromTurn("thr_source", "turn_2", "Continue from turn 2");
+        const snapshot = service.serializeConversationSnapshot("thr_forked");
+        const forkParams = requests[0]?.params as Record<string, unknown> | undefined;
+
+        expect(requests[0]?.method).toBe("thread/fork");
+        expect(forkParams?.persistExtendedHistory).toBeTrue();
+        expect("path" in (forkParams ?? {})).toBeFalse();
+        expect((requests[1]?.params as { threadId?: string; numTurns?: number } | undefined)?.threadId).toBe("thr_forked");
+        expect((requests[1]?.params as { numTurns?: number } | undefined)?.numTurns).toBe(1);
+        expect(result.threadId).toBe("thr_forked");
+        expect(result.composerIntent.prompt).toBe("Continue from turn 2");
+        expect(snapshot?.turns.length).toBe(2);
+        expect(snapshot?.turns[1]?.turnId).toBe("turn_2");
+        expect(events.some((event) => event.type === "threadSummary" && event.thread.threadId === "thr_forked")).toBeTrue();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("forks from the latest turn without issuing a rollback", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Latest-turn fork" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_latest_source",
+        threadName: "Latest source thread",
+        cwd: "/tmp/latest-fork-thread",
+      });
+
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "thread/fork") {
+          return {
+            thread: {
+              id: "thr_latest_forked",
+              modelProvider: "openai",
+              createdAt: 1,
+              updatedAt: 11,
+              turns: [
+                {
+                  id: "turn_1",
+                  status: "completed",
+                  items: [
+                    { id: "user_1", type: "userMessage", content: [{ type: "text", text: "Prompt 1" }] },
+                    { id: "assistant_1", type: "agentMessage", text: "Answer 1" },
+                  ],
+                },
+                {
+                  id: "turn_2",
+                  status: "completed",
+                  items: [
+                    { id: "user_2", type: "userMessage", content: [{ type: "text", text: "Prompt 2" }] },
+                    { id: "assistant_2", type: "agentMessage", text: "Answer 2" },
+                  ],
+                },
+              ],
+            },
+          };
+        }
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+
+      service.readThread = async () => ({
+        ...makeThreadDetail("thr_latest_source"),
+        projectId: "codex",
+        cardId: card.id,
+        threadName: "Latest source thread",
+        cwd: "/tmp/latest-fork-thread",
+        turns: [
+          { threadId: "thr_latest_source", turnId: "turn_1", status: "completed", itemIds: ["user_1", "assistant_1"] },
+          { threadId: "thr_latest_source", turnId: "turn_2", status: "completed", itemIds: ["user_2", "assistant_2"] },
+        ],
+        transcript: [
+          {
+            threadId: "thr_latest_source",
+            turnId: "turn_1",
+            itemId: "user_1",
+            type: "user_message",
+            kind: "userMessage",
+            semanticKind: "userMessage",
+            role: "user",
+            sequence: 1,
+            markdownText: "Prompt 1",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          {
+            threadId: "thr_latest_source",
+            turnId: "turn_2",
+            itemId: "user_2",
+            type: "user_message",
+            kind: "userMessage",
+            semanticKind: "userMessage",
+            role: "user",
+            sequence: 2,
+            markdownText: "Prompt 2",
+            createdAt: 2,
+            updatedAt: 2,
+          },
+        ],
+      });
+
+      try {
+        const result = await service.forkConversationFromTurn("thr_latest_source", "turn_2", "Continue latest");
+        const snapshot = service.serializeConversationSnapshot("thr_latest_forked");
+        const forkParams = requests[0]?.params as Record<string, unknown> | undefined;
+
+        expect(requests.length).toBe(1);
+        expect(requests[0]?.method).toBe("thread/fork");
+        expect(forkParams?.persistExtendedHistory).toBeTrue();
+        expect("path" in (forkParams ?? {})).toBeFalse();
+        expect(result.threadId).toBe("thr_latest_forked");
+        expect(snapshot?.turns.length).toBe(2);
+        expect(snapshot?.turns[1]?.turnId).toBe("turn_2");
       } finally {
         await service.shutdown();
       }
@@ -673,7 +1488,7 @@ describe("codex-service interrupt target resolution", () => {
   test("interrupts the latest in-progress turn when turnId is omitted", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
-      turnByThread: Map<string, Map<string, CodexTurnSummary>>;
+      mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
       syncThreadStatusFromKnownTurns: (threadId: string) => void;
       persistThreadSnapshot: (threadId: string) => void;
     };
@@ -691,29 +1506,18 @@ describe("codex-service interrupt target resolution", () => {
     serviceInternals.syncThreadStatusFromKnownTurns = () => {};
     serviceInternals.persistThreadSnapshot = () => {};
 
-    serviceInternals.turnByThread.set(
-      "thr_interrupt",
-      new Map<string, CodexTurnSummary>([
-        [
-          "turn_completed",
-          {
-            threadId: "thr_interrupt",
-            turnId: "turn_completed",
-            status: "completed",
-            itemIds: [],
-          },
-        ],
-        [
-          "turn_in_progress",
-          {
-            threadId: "thr_interrupt",
-            turnId: "turn_in_progress",
-            status: "inProgress",
-            itemIds: [],
-          },
-        ],
-      ]),
-    );
+    serviceInternals.mergeTurn("thr_interrupt", {
+      threadId: "thr_interrupt",
+      turnId: "turn_completed",
+      status: "completed",
+      itemIds: [],
+    });
+    serviceInternals.mergeTurn("thr_interrupt", {
+      threadId: "thr_interrupt",
+      turnId: "turn_in_progress",
+      status: "inProgress",
+      itemIds: [],
+    });
 
     try {
       const result = await service.interruptTurn("thr_interrupt");
@@ -730,7 +1534,7 @@ describe("codex-service interrupt target resolution", () => {
   test("prefers explicit turnId over inferred turn cache", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
-      turnByThread: Map<string, Map<string, CodexTurnSummary>>;
+      mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
       syncThreadStatusFromKnownTurns: (threadId: string) => void;
       persistThreadSnapshot: (threadId: string) => void;
     };
@@ -748,20 +1552,12 @@ describe("codex-service interrupt target resolution", () => {
     serviceInternals.syncThreadStatusFromKnownTurns = () => {};
     serviceInternals.persistThreadSnapshot = () => {};
 
-    serviceInternals.turnByThread.set(
-      "thr_explicit",
-      new Map<string, CodexTurnSummary>([
-        [
-          "turn_cached",
-          {
-            threadId: "thr_explicit",
-            turnId: "turn_cached",
-            status: "inProgress",
-            itemIds: [],
-          },
-        ],
-      ]),
-    );
+    serviceInternals.mergeTurn("thr_explicit", {
+      threadId: "thr_explicit",
+      turnId: "turn_cached",
+      status: "inProgress",
+      itemIds: [],
+    });
 
     try {
       const result = await service.interruptTurn("thr_explicit", "turn_explicit");
@@ -805,79 +1601,6 @@ describe("codex-service interrupt target resolution", () => {
 });
 
 describe("codex-service startTurn", () => {
-  test("resumes the thread and retries turn/start when thread is not loaded after app restart", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      parseThreadRef: (threadId: string) => { projectId: string; cardId: string; cwd: string | null } | null;
-      markThreadAsActive: (threadId: string) => void;
-      persistThreadSnapshot: (threadId: string) => void;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-    const markedActive: string[] = [];
-    const persistedSnapshots: string[] = [];
-    let turnStartAttempts = 0;
-
-    serviceInternals.parseThreadRef = () => null;
-    serviceInternals.markThreadAsActive = (threadId: string) => {
-      markedActive.push(threadId);
-    };
-    serviceInternals.persistThreadSnapshot = (threadId: string) => {
-      persistedSnapshots.push(threadId);
-    };
-
-    client.start = async () => undefined;
-    client.request = async (method: string, params: unknown) => {
-      requests.push({ method, params });
-
-      if (method === "turn/start") {
-        turnStartAttempts += 1;
-        if (turnStartAttempts === 1) {
-          throw new CodexRpcError("thread not found: thr_resume", -32600);
-        }
-
-        return {
-          turn: {
-            id: "turn_resumed",
-            status: "in_progress",
-            items: [],
-          },
-        };
-      }
-
-      if (method === "thread/resume") {
-        return {};
-      }
-
-      if (method === "thread/read") {
-        throw new Error("thread/read should not be called when turn/start returns a turn");
-      }
-
-      return {};
-    };
-
-    try {
-      const startedTurn = await service.startTurn("thr_resume", "Continue");
-      expect(startedTurn?.turnId).toBe("turn_resumed");
-      expect(startedTurn?.status).toBe("inProgress");
-      expect(turnStartAttempts).toBe(2);
-      expect(requests.length).toBe(3);
-      expect(requests[0]?.method).toBe("turn/start");
-      expect(requests[1]?.method).toBe("thread/resume");
-      expect((requests[1]?.params as { threadId?: string })?.threadId).toBe("thr_resume");
-      expect(requests[2]?.method).toBe("turn/start");
-      expect(markedActive.length).toBe(1);
-      expect(markedActive[0]).toBe("thr_resume");
-      expect(persistedSnapshots.length).toBe(1);
-      expect(persistedSnapshots[0]).toBe("thr_resume");
-    } finally {
-      await service.shutdown();
-    }
-  });
-
   test("returns the immediate started turn payload without waiting for thread/read", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
@@ -891,15 +1614,12 @@ describe("codex-service startTurn", () => {
     };
     const requests: Array<{ method: string; params: unknown }> = [];
     const markedActive: string[] = [];
-    const persistedSnapshots: string[] = [];
 
     serviceInternals.parseThreadRef = () => null;
     serviceInternals.markThreadAsActive = (threadId: string) => {
       markedActive.push(threadId);
     };
-    serviceInternals.persistThreadSnapshot = (threadId: string) => {
-      persistedSnapshots.push(threadId);
-    };
+    serviceInternals.persistThreadSnapshot = () => {};
 
     client.start = async () => undefined;
     client.request = async (method: string, params: unknown) => {
@@ -909,7 +1629,7 @@ describe("codex-service startTurn", () => {
           turn: {
             id: "turn_new",
             status: "in_progress",
-            items: [],
+            transcript: [],
           },
         };
       }
@@ -927,8 +1647,61 @@ describe("codex-service startTurn", () => {
       expect(requests[0]?.method).toBe("turn/start");
       expect(markedActive.length).toBe(1);
       expect(markedActive[0]).toBe("thr_start");
-      expect(persistedSnapshots.length).toBe(1);
-      expect(persistedSnapshots[0]).toBe("thr_start");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("retries turn/start once after resuming a cold persisted thread", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      parseThreadRef: (threadId: string) => { projectId: string; cardId: string; cwd: string | null } | null;
+      markThreadAsActive: (threadId: string) => void;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+    let turnStartAttempts = 0;
+
+    serviceInternals.parseThreadRef = () => null;
+    serviceInternals.markThreadAsActive = () => {};
+    client.start = async () => undefined;
+    client.request = async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      if (method === "turn/start") {
+        turnStartAttempts += 1;
+        if (turnStartAttempts === 1) {
+          throw new CodexRpcError("thread not found", -32600);
+        }
+
+        return {
+          turn: {
+            id: "turn_retry",
+            status: "in_progress",
+            transcript: [],
+          },
+        };
+      }
+
+      if (method === "thread/resume") {
+        return {
+          thread: {
+            id: "thr_start",
+            turns: [],
+          },
+        };
+      }
+
+      throw new Error(`Unexpected method: ${method}`);
+    };
+
+    try {
+      const startedTurn = await service.startTurn("thr_start", "Ship the fix");
+      expect(startedTurn?.turnId).toBe("turn_retry");
+      expect(requests.map((request) => request.method).join(",")).toBe("turn/start,thread/resume,turn/start");
+      expect(((requests[1]?.params as { threadId?: string }).threadId)).toBe("thr_start");
     } finally {
       await service.shutdown();
     }
@@ -944,19 +1717,10 @@ describe("codex-service startTurn", () => {
       });
 
       const service = createService();
-      const serviceInternals = service as unknown as {
-        on: (eventName: "event", listener: (event: CodexEvent) => void) => void;
-      };
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
         request: (method: string, params: unknown) => Promise<unknown>;
       };
-      const events: CodexEvent[] = [];
-
-      serviceInternals.on("event", (event) => {
-        events.push(event);
-      });
-
       client.start = async () => undefined;
       client.request = async (method: string) => {
         if (method === "turn/start") {
@@ -964,7 +1728,7 @@ describe("codex-service startTurn", () => {
             turn: {
               id: "turn_prompt",
               status: "in_progress",
-              items: [],
+              transcript: [],
             },
           };
         }
@@ -974,19 +1738,15 @@ describe("codex-service startTurn", () => {
       try {
         const startedTurn = await service.startTurn("thr_start_prompt", "Ship the fix");
         const detail = service.serializeThreadDetail("thr_start_prompt");
-        const promptItem = detail?.items[0];
-        const itemUpsertEvent = events.find((event) => event.type === "itemUpsert") as
-          | { type: "itemUpsert"; item: CodexItemView }
-          | undefined;
+        const promptItem = detail?.transcript[0];
 
         expect(startedTurn?.turnId).toBe("turn_prompt");
         expect(detail).not.toBeNull();
         expect(detail?.turns[0]?.itemIds.length).toBe(1);
-        expect(promptItem?.normalizedKind).toBe("userMessage");
+        expect(promptItem?.kind).toBe("userMessage");
         expect(promptItem?.role).toBe("user");
         expect(promptItem?.markdownText).toBe("Ship the fix");
         expect(Boolean(promptItem?.itemId.startsWith("item-"))).toBeTrue();
-        expect(itemUpsertEvent?.item.markdownText).toBe("Ship the fix");
       } finally {
         await service.shutdown();
       }
@@ -995,7 +1755,7 @@ describe("codex-service startTurn", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
-  test("seeds an optimistic user message as soon as turn/steer is accepted", async () => {
+  test("keeps steer prompts in pending-steer state until the authoritative user message arrives", async () => {
     const ran = await withTempDatabase(async () => {
       const card = await createCard("codex", "in_progress", { title: "Optimistic steering prompt" });
       upsertCodexCardThreadLink({
@@ -1003,34 +1763,21 @@ describe("codex-service startTurn", () => {
         cardId: card.id,
         threadId: "thr_steer_prompt",
       });
-      upsertCodexThreadSnapshot({
-        threadId: "thr_steer_prompt",
-        turns: [
-          {
-            threadId: "thr_steer_prompt",
-            turnId: "turn_steer_prompt",
-            status: "inProgress",
-            itemIds: [],
-          },
-        ],
-        items: [],
-        updatedAt: 2,
-      });
-
       const service = createService();
       const serviceInternals = service as unknown as {
-        on: (eventName: "event", listener: (event: CodexEvent) => void) => void;
+        mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
       };
+
+      serviceInternals.mergeTurn("thr_steer_prompt", {
+        threadId: "thr_steer_prompt",
+        turnId: "turn_steer_prompt",
+        status: "inProgress",
+        itemIds: [],
+      });
       const client = Reflect.get(service as object, "client") as {
         start: () => Promise<void>;
         request: (method: string, params: unknown) => Promise<unknown>;
       };
-      const events: CodexEvent[] = [];
-
-      serviceInternals.on("event", (event) => {
-        events.push(event);
-      });
-
       client.start = async () => undefined;
       client.request = async (method: string) => {
         if (method === "turn/steer") {
@@ -1044,22 +1791,129 @@ describe("codex-service startTurn", () => {
           "thr_steer_prompt",
           "turn_steer_prompt",
           "Tighten the layout.",
-          "item-4242",
         );
         const detail = service.serializeThreadDetail("thr_steer_prompt");
-        const promptItem = detail?.items[0];
-        const itemUpsertEvent = events.find((event) => event.type === "itemUpsert") as
-          | { type: "itemUpsert"; item: CodexItemView }
-          | undefined;
+        const snapshot = service.serializeConversationSnapshot("thr_steer_prompt");
 
         expect(steeredTurn?.turnId).toBe("turn_steer_prompt");
         expect(detail).not.toBeNull();
-        expect(detail?.turns[0]?.itemIds.length).toBe(1);
-        expect(promptItem?.normalizedKind).toBe("userMessage");
-        expect(promptItem?.role).toBe("user");
-        expect(promptItem?.itemId).toBe("item-4242");
-        expect(promptItem?.markdownText).toBe("Tighten the layout.");
-        expect(itemUpsertEvent?.item.markdownText).toBe("Tighten the layout.");
+        expect(detail?.turns[0]?.itemIds.length).toBe(0);
+        expect(detail?.transcript.length).toBe(0);
+        expect(snapshot?.pendingSteers.length).toBe(1);
+        expect(snapshot?.pendingSteers[0]?.prompt).toBe("Tighten the layout.");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("queueing a follow-up during an active turn drains through turn/steer instead of turn/start", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Queued steer prompt" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_queue_prompt",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
+      };
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+
+      serviceInternals.mergeTurn("thr_queue_prompt", {
+        threadId: "thr_queue_prompt",
+        turnId: "turn_queue_prompt",
+        status: "inProgress",
+        itemIds: [],
+      });
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "turn/steer") {
+          return { turnId: "turn_queue_prompt" };
+        }
+        throw new Error(`Unexpected method: ${method}`);
+      };
+
+      try {
+        await service.enqueueQueuedFollowUpPrompt("thr_queue_prompt", "Queue this without interrupting");
+        await Promise.resolve();
+        const snapshot = service.serializeConversationSnapshot("thr_queue_prompt");
+
+        expect(requests.length).toBe(1);
+        expect(requests[0]?.method).toBe("turn/steer");
+        expect(snapshot?.queuedFollowUps.length).toBe(0);
+        expect(snapshot?.pendingSteers.length).toBe(1);
+        expect(snapshot?.pendingSteers[0]?.prompt).toBe("Queue this without interrupting");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("clears a pending steer when the authoritative user message arrives", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Pending steer consumption" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_pending_clear",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+
+      serviceInternals.mergeTurn("thr_pending_clear", {
+        threadId: "thr_pending_clear",
+        turnId: "turn_pending_clear",
+        status: "inProgress",
+        itemIds: [],
+      });
+
+      client.start = async () => undefined;
+      client.request = async (method: string) => {
+        if (method === "turn/steer") {
+          return { turnId: "turn_pending_clear" };
+        }
+        throw new Error(`Unexpected method: ${method}`);
+      };
+
+      try {
+        await service.steerTurn("thr_pending_clear", "turn_pending_clear", "Tighten the spacing.");
+        let snapshot = service.serializeConversationSnapshot("thr_pending_clear");
+        expect(snapshot?.pendingSteers.length).toBe(1);
+
+        await serviceInternals.handleNotification("item/completed", {
+          threadId: "thr_pending_clear",
+          turnId: "turn_pending_clear",
+          item: {
+            id: "user_msg_1",
+            type: "user_message",
+            role: "user",
+            text: "Tighten the spacing.",
+          },
+        });
+
+        snapshot = service.serializeConversationSnapshot("thr_pending_clear");
+        expect(snapshot?.pendingSteers.length).toBe(0);
       } finally {
         await service.shutdown();
       }
@@ -1095,7 +1949,7 @@ describe("codex-service startTurn", () => {
           turn: {
             id: "turn_override",
             status: "in_progress",
-            items: [],
+            transcript: [],
           },
         };
       }
@@ -1166,7 +2020,7 @@ describe("codex-service startTurn", () => {
           turn: {
             id: "turn_plan_mode",
             status: "in_progress",
-            items: [],
+            transcript: [],
           },
         };
       }
@@ -1230,7 +2084,7 @@ describe("codex-service startTurn", () => {
           turn: {
             id: "turn_worktree",
             status: "in_progress",
-            items: [],
+            transcript: [],
           },
         };
       }
@@ -1274,7 +2128,7 @@ describe("codex-service startTurn", () => {
           turn: {
             id: "turn_full_access",
             status: "in_progress",
-            items: [],
+            transcript: [],
           },
         };
       }
@@ -1321,7 +2175,7 @@ describe("codex-service startTurn", () => {
           turn: {
             id: "turn_custom",
             status: "in_progress",
-            items: [],
+            transcript: [],
           },
         };
       }
@@ -1676,7 +2530,7 @@ describe("codex-service startThreadForCard", () => {
       };
       const requests: Array<{ method: string; params: unknown }> = [];
 
-      service.readThreadAfterStart = async () => ({
+      service.serializeThreadDetail = () => ({
         threadId: "thr_plan_mode",
         projectId: "codex",
         cardId: card.id,
@@ -1691,7 +2545,7 @@ describe("codex-service startThreadForCard", () => {
         updatedAt: Date.now(),
         linkedAt: new Date().toISOString(),
         turns: [],
-        items: [],
+        transcript: [],
       });
 
       client.start = async () => undefined;
@@ -1713,7 +2567,7 @@ describe("codex-service startThreadForCard", () => {
             turn: {
               id: "turn_plan_mode",
               status: "in_progress",
-              items: [],
+              transcript: [],
             },
           };
         }
@@ -1786,14 +2640,14 @@ describe("codex-service startThreadForCard", () => {
             turn: {
               id: "turn_auto_title",
               status: "in_progress",
-              items: [],
+              transcript: [],
             },
           };
         }
         return {};
       };
 
-      service.readThreadAfterStart = async () => ({
+      service.serializeThreadDetail = () => ({
         threadId: "thr_auto_title",
         projectId: "codex",
         cardId: card.id,
@@ -1808,7 +2662,7 @@ describe("codex-service startThreadForCard", () => {
         updatedAt: Date.now(),
         linkedAt: new Date().toISOString(),
         turns: [],
-        items: [],
+        transcript: [],
       });
 
       try {
@@ -1867,7 +2721,7 @@ describe("codex-service startThreadForCard", () => {
             turn: {
               id: "turn_explicit_name",
               status: "in_progress",
-              items: [],
+              transcript: [],
             },
           };
         }
@@ -1877,7 +2731,7 @@ describe("codex-service startThreadForCard", () => {
         return {};
       };
 
-      service.readThreadAfterStart = async () => ({
+      service.serializeThreadDetail = () => ({
         threadId: "thr_explicit_name",
         projectId: "codex",
         cardId: card.id,
@@ -1892,7 +2746,7 @@ describe("codex-service startThreadForCard", () => {
         updatedAt: Date.now(),
         linkedAt: new Date().toISOString(),
         turns: [],
-        items: [],
+        transcript: [],
       });
 
       try {
@@ -1938,7 +2792,7 @@ describe("codex-service startThreadForCard", () => {
         updatedAt: Date.now(),
         linkedAt: new Date().toISOString(),
         turns: [],
-        items: [],
+        transcript: [],
       };
 
       client.start = async () => undefined;
@@ -1960,14 +2814,14 @@ describe("codex-service startThreadForCard", () => {
             turn: {
               id: "turn_created",
               status: "in_progress",
-              items: [],
+              transcript: [],
             },
           };
         }
         return {};
       };
 
-      service.readThreadAfterStart = async () => expectedDetail;
+      service.serializeThreadDetail = () => expectedDetail;
 
       try {
         const detail = await service.startThreadForCard({
@@ -2013,8 +2867,6 @@ describe("codex-service startThreadForCard", () => {
       };
       const events: CodexEvent[] = [];
 
-      service.readThreadAfterStart = async (threadId: string) => service.serializeThreadDetail(threadId);
-
       serviceInternals.on("event", (event) => {
         events.push(event);
       });
@@ -2040,7 +2892,7 @@ describe("codex-service startThreadForCard", () => {
             turn: {
               id: "turn_created_prompt",
               status: "in_progress",
-              items: [],
+              transcript: [],
             },
           };
         }
@@ -2054,18 +2906,14 @@ describe("codex-service startThreadForCard", () => {
           prompt: "Build it",
           threadName: "Thread",
         });
-        const promptItem = detail.items[0];
-        const itemUpsertEvent = events.find((event) => event.type === "itemUpsert") as
-          | { type: "itemUpsert"; item: CodexItemView }
-          | undefined;
+        const promptItem = detail.transcript[0];
 
         expect(detail.threadId).toBe("thr_created_prompt");
         expect(detail.turns[0]?.turnId).toBe("turn_created_prompt");
         expect(detail.turns[0]?.itemIds.length).toBe(1);
-        expect(promptItem?.normalizedKind).toBe("userMessage");
+        expect(promptItem?.kind).toBe("userMessage");
         expect(promptItem?.markdownText).toBe("Build it");
         expect(Boolean(promptItem?.itemId.startsWith("item-"))).toBeTrue();
-        expect(itemUpsertEvent?.item.markdownText).toBe("Build it");
       } finally {
         await service.shutdown();
       }
@@ -2104,7 +2952,7 @@ describe("codex-service startThreadForCard", () => {
         updatedAt: Date.now(),
         linkedAt: new Date().toISOString(),
         turns: [],
-        items: [],
+        transcript: [],
       };
 
       client.start = async () => undefined;
@@ -2125,14 +2973,14 @@ describe("codex-service startThreadForCard", () => {
             turn: {
               id: "turn_local_override",
               status: "in_progress",
-              items: [],
+              transcript: [],
             },
           };
         }
         return {};
       };
 
-      service.readThreadAfterStart = async () => expectedDetail;
+      service.serializeThreadDetail = () => expectedDetail;
 
       try {
         const detail = await service.startThreadForCard({
@@ -2186,7 +3034,7 @@ describe("codex-service startThreadForCard", () => {
         updatedAt: Date.now(),
         linkedAt: new Date().toISOString(),
         turns: [],
-        items: [],
+        transcript: [],
       };
 
       client.start = async () => undefined;
@@ -2207,14 +3055,14 @@ describe("codex-service startThreadForCard", () => {
             turn: {
               id: "turn_reuse_worktree",
               status: "in_progress",
-              items: [],
+              transcript: [],
             },
           };
         }
         return {};
       };
 
-      service.readThreadAfterStart = async () => expectedDetail;
+      service.serializeThreadDetail = () => expectedDetail;
 
       try {
         const detail = await service.startThreadForCard({
@@ -2274,14 +3122,14 @@ describe("codex-service startThreadForCard", () => {
             turn: {
               id: `turn_recreate_worktree_${threadCount}`,
               status: "in_progress",
-              items: [],
+              transcript: [],
             },
           };
         }
         return {};
       };
 
-      service.readThreadAfterStart = async (threadId: string) => {
+      service.serializeThreadDetail = (threadId: string) => {
         const link = getCodexCardThreadLink(threadId);
         return {
           threadId,
@@ -2298,7 +3146,7 @@ describe("codex-service startThreadForCard", () => {
           updatedAt: Date.now(),
           linkedAt: new Date().toISOString(),
           turns: [],
-          items: [],
+          transcript: [],
         };
       };
 
@@ -2396,14 +3244,14 @@ describe("codex-service startThreadForCard", () => {
             turn: {
               id: "turn_env_setup_success",
               status: "in_progress",
-              items: [],
+              transcript: [],
             },
           };
         }
         return {};
       };
 
-      service.readThreadAfterStart = async (threadId: string) => {
+      service.serializeThreadDetail = (threadId: string) => {
         const link = getCodexCardThreadLink(threadId);
         return {
           threadId,
@@ -2420,7 +3268,7 @@ describe("codex-service startThreadForCard", () => {
           updatedAt: Date.now(),
           linkedAt: new Date().toISOString(),
           turns: [],
-          items: [],
+          transcript: [],
         };
       };
 
@@ -2518,14 +3366,14 @@ describe("codex-service startThreadForCard", () => {
             turn: {
               id: "turn_env_setup_large_output",
               status: "in_progress",
-              items: [],
+              transcript: [],
             },
           };
         }
         return {};
       };
 
-      service.readThreadAfterStart = async (threadId: string) => {
+      service.serializeThreadDetail = (threadId: string) => {
         const link = getCodexCardThreadLink(threadId);
         return {
           threadId,
@@ -2542,7 +3390,7 @@ describe("codex-service startThreadForCard", () => {
           updatedAt: Date.now(),
           linkedAt: new Date().toISOString(),
           turns: [],
-          items: [],
+          transcript: [],
         };
       };
 
@@ -2786,14 +3634,14 @@ describe("codex-service startThreadForCard", () => {
             turn: {
               id: "turn_reuse_env_setup",
               status: "in_progress",
-              items: [],
+              transcript: [],
             },
           };
         }
         return {};
       };
 
-      service.readThreadAfterStart = async () => ({
+      service.serializeThreadDetail = () => ({
         threadId: "thr_reuse_env_setup",
         projectId: "codex",
         cardId: card.id,
@@ -2808,7 +3656,7 @@ describe("codex-service startThreadForCard", () => {
         updatedAt: Date.now(),
         linkedAt: new Date().toISOString(),
         turns: [],
-        items: [],
+        transcript: [],
       });
 
       try {
@@ -3142,7 +3990,11 @@ describe("codex-service streaming notification parity", () => {
   test("builds plan items incrementally from item/plan/delta", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
+      getConversationRecord: (threadId: string) => {
+        itemsByTurn: Map<string, Map<string, CodexItemView>>;
+      };
       handleNotification: (method: string, params: unknown) => Promise<void>;
+      mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
       persistThreadSnapshot: (threadId: string) => void;
       on: (eventName: "event", listener: (event: CodexEvent) => void) => void;
     };
@@ -3154,6 +4006,12 @@ describe("codex-service streaming notification parity", () => {
     });
 
     try {
+      serviceInternals.mergeTurn("thr_plan_delta", {
+        threadId: "thr_plan_delta",
+        turnId: "turn_plan_delta",
+        status: "inProgress",
+        itemIds: ["plan_item"],
+      });
       await serviceInternals.handleNotification("item/plan/delta", {
         threadId: "thr_plan_delta",
         turnId: "turn_plan_delta",
@@ -3166,19 +4024,13 @@ describe("codex-service streaming notification parity", () => {
         itemId: "plan_item",
         delta: "\n2. Implement changes",
       });
+      await new Promise((resolve) => setTimeout(resolve, 30));
 
-      const upserts = events.filter(
-        (event): event is Extract<CodexEvent, { type: "itemUpsert" }> => event.type === "itemUpsert",
-      );
-      const deltas = events.filter(
-        (event): event is Extract<CodexEvent, { type: "itemDelta" }> => event.type === "itemDelta",
-      );
-      const lastUpsert = upserts[upserts.length - 1];
+      const planItem = getRecordedItem(serviceInternals, "thr_plan_delta", "turn_plan_delta", "plan_item");
 
-      expect(deltas.length).toBe(2);
-      expect(lastUpsert?.item.type).toBe("plan");
-      expect(lastUpsert?.item.normalizedKind).toBe("plan");
-      expect(lastUpsert?.item.markdownText).toBe("1. Clarify requirements\n2. Implement changes");
+      expect(planItem?.type).toBe("plan");
+      expect(planItem?.normalizedKind).toBe("plan");
+      expect(planItem?.markdownText).toBe("1. Clarify requirements\n2. Implement changes");
     } finally {
       await service.shutdown();
     }
@@ -3265,23 +4117,30 @@ describe("codex-service streaming notification parity", () => {
   test("respondToUserInput persists answered questions onto the transcript item", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
+      getConversationRecord: (threadId: string) => {
+        itemsByTurn: Map<string, Map<string, CodexItemView>>;
+      };
       parseThreadRef: (threadId: string) => { projectId: string; cardId: string; cwd: string | null } | null;
       handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
       persistThreadSnapshot: (threadId: string) => void;
       on: (eventName: "event", listener: (event: CodexEvent) => void) => void;
     };
     const events: CodexEvent[] = [];
-    const persistedThreadIds: string[] = [];
 
     serviceInternals.parseThreadRef = () => ({ projectId: "codex", cardId: "card-1", cwd: null });
-    serviceInternals.persistThreadSnapshot = (threadId: string) => {
-      persistedThreadIds.push(threadId);
-    };
+    serviceInternals.persistThreadSnapshot = () => {};
     serviceInternals.on("event", (event) => {
       events.push(event);
     });
 
     try {
+      serviceInternals.mergeTurn("thr_input", {
+        threadId: "thr_input",
+        turnId: "turn_input",
+        status: "inProgress",
+        itemIds: ["item_input"],
+      });
       const requestPromise = serviceInternals.handleServerRequest({
         id: "input_req",
         method: "item/tool/requestUserInput",
@@ -3313,17 +4172,14 @@ describe("codex-service streaming notification parity", () => {
         },
       }));
 
-      const itemUpserts = events.filter(
-        (event): event is Extract<CodexEvent, { type: "itemUpsert" }> => event.type === "itemUpsert",
-      );
-      const answeredItem = itemUpserts[itemUpserts.length - 1]?.item;
+      const answeredItem = getRecordedItem(serviceInternals, "thr_input", "turn_input", "item_input");
 
       expect(answeredItem?.normalizedKind).toBe("userInputRequest");
+      expect(answeredItem?.semanticKind).toBe("answeredUserInput");
       expect(answeredItem?.status).toBe("completed");
       expect(answeredItem?.userInputQuestions?.[0]?.question).toBe("What is 1 + 1?");
       expect(answeredItem?.userInputAnswers?.q1?.[0]).toBe("2");
       expect((answeredItem?.rawItem as { answers?: Record<string, string[]> } | undefined)?.answers?.q1?.[0]).toBe("2");
-      expect(persistedThreadIds.includes("thr_input")).toBeTrue();
     } finally {
       await service.shutdown();
     }
@@ -3456,8 +4312,8 @@ describe("codex-service item identity dedupe", () => {
   test("treats synthetic and live user-message ids as the same item within a turn", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
-      mergeItem: (item: CodexItemView) => void;
-      itemByThreadTurn: Map<string, Map<string, CodexItemView>>;
+      mergeItem: (entry: CodexItemView) => void;
+      conversationRecords: Map<string, { itemsByTurn: Map<string, Map<string, CodexItemView>> }>;
     };
 
     const baseItem: Omit<CodexItemView, "itemId" | "createdAt" | "updatedAt"> = {
@@ -3465,6 +4321,7 @@ describe("codex-service item identity dedupe", () => {
       turnId: "turn_dedupe",
       type: "userMessage",
       normalizedKind: "userMessage",
+      semanticKind: "userMessage",
       role: "user",
       markdownText: "say \"hi\"",
     };
@@ -3483,7 +4340,7 @@ describe("codex-service item identity dedupe", () => {
         updatedAt: 20,
       });
 
-      const byItem = serviceInternals.itemByThreadTurn.get("thr_dedupe:turn_dedupe");
+      const byItem = serviceInternals.conversationRecords.get("thr_dedupe")?.itemsByTurn.get("turn_dedupe");
       expect(byItem?.size).toBe(1);
       const merged = byItem ? Array.from(byItem.values())[0] : null;
       expect(merged?.markdownText).toBe("say \"hi\"");
@@ -3496,8 +4353,8 @@ describe("codex-service item identity dedupe", () => {
   test("treats synthetic and live assistant-message ids as the same item within a turn", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
-      mergeItem: (item: CodexItemView) => void;
-      itemByThreadTurn: Map<string, Map<string, CodexItemView>>;
+      mergeItem: (entry: CodexItemView) => void;
+      conversationRecords: Map<string, { itemsByTurn: Map<string, Map<string, CodexItemView>> }>;
     };
 
     const baseItem: Omit<CodexItemView, "itemId" | "createdAt" | "updatedAt"> = {
@@ -3505,6 +4362,7 @@ describe("codex-service item identity dedupe", () => {
       turnId: "turn_dedupe_assistant",
       type: "agentMessage",
       normalizedKind: "assistantMessage",
+      semanticKind: "assistantMessage",
       role: "assistant",
       markdownText: "I added the shared module. Next I’m rewiring project-switcher.tsx.",
     };
@@ -3523,7 +4381,9 @@ describe("codex-service item identity dedupe", () => {
         updatedAt: 20,
       });
 
-      const byItem = serviceInternals.itemByThreadTurn.get("thr_dedupe_assistant:turn_dedupe_assistant");
+      const byItem = serviceInternals.conversationRecords
+        .get("thr_dedupe_assistant")
+        ?.itemsByTurn.get("turn_dedupe_assistant");
       expect(byItem?.size).toBe(1);
       const merged = byItem ? Array.from(byItem.values())[0] : null;
       expect(merged?.normalizedKind).toBe("assistantMessage");
@@ -3537,8 +4397,8 @@ describe("codex-service item identity dedupe", () => {
   test("does not merge two live assistant-message ids that share the same text", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
-      mergeItem: (item: CodexItemView) => void;
-      itemByThreadTurn: Map<string, Map<string, CodexItemView>>;
+      mergeItem: (entry: CodexItemView) => void;
+      conversationRecords: Map<string, { itemsByTurn: Map<string, Map<string, CodexItemView>> }>;
     };
 
     const baseItem: Omit<CodexItemView, "itemId" | "createdAt" | "updatedAt"> = {
@@ -3546,6 +4406,7 @@ describe("codex-service item identity dedupe", () => {
       turnId: "turn_live_dupe_guard",
       type: "agentMessage",
       normalizedKind: "assistantMessage",
+      semanticKind: "assistantMessage",
       role: "assistant",
       markdownText: "Working...",
     };
@@ -3564,7 +4425,9 @@ describe("codex-service item identity dedupe", () => {
         updatedAt: 20,
       });
 
-      const byItem = serviceInternals.itemByThreadTurn.get("thr_live_dupe_guard:turn_live_dupe_guard");
+      const byItem = serviceInternals.conversationRecords
+        .get("thr_live_dupe_guard")
+        ?.itemsByTurn.get("turn_live_dupe_guard");
       expect(byItem?.size).toBe(2);
       expect(Array.from(byItem?.values() ?? []).map((item) => item.itemId).sort().join(",")).toBe(
         "msg_0001,msg_0002",
@@ -3576,10 +4439,77 @@ describe("codex-service item identity dedupe", () => {
 });
 
 describe("codex-service item lifecycle status fallback", () => {
-  test("derives reasoning item status from item lifecycle notifications", async () => {
+  test("projects live reasoning rows from summary text only", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       handleNotification: (method: string, params: unknown) => Promise<void>;
+      mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
+      persistThreadSnapshot: (threadId: string) => void;
+      getConversationRecord: (threadId: string) => {
+        itemsByTurn: Map<string, Map<string, CodexItemView>>;
+      };
+    };
+
+    serviceInternals.persistThreadSnapshot = () => {};
+
+    try {
+      serviceInternals.mergeTurn("thr_reasoning_projection", {
+        threadId: "thr_reasoning_projection",
+        turnId: "turn_reasoning_projection",
+        status: "inProgress",
+        itemIds: ["item_reasoning"],
+      });
+
+      await serviceInternals.handleNotification("item/started", {
+        threadId: "thr_reasoning_projection",
+        turnId: "turn_reasoning_projection",
+        item: {
+          id: "item_reasoning",
+          type: "reasoning",
+          summary: [],
+          content: ["Private reasoning body"],
+        },
+      });
+
+      let item = getRecordedItem(
+        serviceInternals,
+        "thr_reasoning_projection",
+        "turn_reasoning_projection",
+        "item_reasoning",
+      );
+      expect(item?.markdownText ?? "").toBe("");
+
+      await serviceInternals.handleNotification("item/completed", {
+        threadId: "thr_reasoning_projection",
+        turnId: "turn_reasoning_projection",
+        item: {
+          id: "item_reasoning",
+          type: "reasoning",
+          summary: ["Investigating", "Checking thread state"],
+          content: ["Private reasoning body"],
+        },
+      });
+
+      item = getRecordedItem(
+        serviceInternals,
+        "thr_reasoning_projection",
+        "turn_reasoning_projection",
+        "item_reasoning",
+      );
+      expect(item?.markdownText).toBe("**Investigating**\n\nChecking thread state");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("derives reasoning item status from item lifecycle notifications", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      getConversationRecord: (threadId: string) => {
+        itemsByTurn: Map<string, Map<string, CodexItemView>>;
+      };
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
       persistThreadSnapshot: (threadId: string) => void;
       on: (eventName: "event", listener: (event: CodexEvent) => void) => void;
     };
@@ -3592,6 +4522,12 @@ describe("codex-service item lifecycle status fallback", () => {
     });
 
     try {
+      serviceInternals.mergeTurn("thr_status", {
+        threadId: "thr_status",
+        turnId: "turn_status",
+        status: "inProgress",
+        itemIds: ["item_reasoning"],
+      });
       await serviceInternals.handleNotification("item/started", {
         threadId: "thr_status",
         turnId: "turn_status",
@@ -3614,13 +4550,9 @@ describe("codex-service item lifecycle status fallback", () => {
         },
       });
 
-      const upserts = events.filter(
-        (event): event is Extract<CodexEvent, { type: "itemUpsert" }> => event.type === "itemUpsert",
-      );
+      const item = getRecordedItem(serviceInternals, "thr_status", "turn_status", "item_reasoning");
 
-      expect(upserts.length).toBe(2);
-      expect(upserts[0]?.item.status).toBe("inProgress");
-      expect(upserts[1]?.item.status).toBe("completed");
+      expect(item?.status).toBe("completed");
     } finally {
       await service.shutdown();
     }
@@ -3631,9 +4563,12 @@ describe("codex-service terminal turn reconciliation", () => {
   test("falls back turn/completed status and terminalizes lingering in-progress items", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
+      getConversationRecord: (threadId: string) => {
+        itemsByTurn: Map<string, Map<string, CodexItemView>>;
+      };
       handleNotification: (method: string, params: unknown) => Promise<void>;
       mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
-      mergeItem: (item: CodexItemView) => void;
+      mergeItem: (entry: CodexItemView) => void;
       syncThreadStatusFromKnownTurns: (threadId: string) => void;
       persistThreadSnapshot: (threadId: string) => void;
       on: (eventName: "event", listener: (event: CodexEvent) => void) => void;
@@ -3659,6 +4594,7 @@ describe("codex-service terminal turn reconciliation", () => {
         itemId: "item_reasoning",
         type: "reasoning",
         normalizedKind: "reasoning",
+        semanticKind: "reasoning",
         status: "inProgress",
         markdownText: "Thinking...",
         createdAt: 10,
@@ -3673,14 +4609,10 @@ describe("codex-service terminal turn reconciliation", () => {
       const turnEvents = events.filter(
         (event): event is Extract<CodexEvent, { type: "turn" }> => event.type === "turn",
       );
-      const itemUpserts = events.filter(
-        (event): event is Extract<CodexEvent, { type: "itemUpsert" }> => event.type === "itemUpsert",
-      );
-
       expect(turnEvents.length).toBe(1);
       expect(turnEvents[0]?.turn.status).toBe("completed");
-      expect(itemUpserts.length).toBe(1);
-      expect(itemUpserts[0]?.item.status).toBe("completed");
+      const item = getRecordedItem(serviceInternals, "thr_terminal", "turn_terminal", "item_reasoning");
+      expect(item?.status).toBe("completed");
     } finally {
       await service.shutdown();
     }
@@ -3689,8 +4621,11 @@ describe("codex-service terminal turn reconciliation", () => {
   test("interruptTurn immediately marks known in-progress turn/items as interrupted", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
+      getConversationRecord: (threadId: string) => {
+        itemsByTurn: Map<string, Map<string, CodexItemView>>;
+      };
       mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
-      mergeItem: (item: CodexItemView) => void;
+      mergeItem: (entry: CodexItemView) => void;
       syncThreadStatusFromKnownTurns: (threadId: string) => void;
       persistThreadSnapshot: (threadId: string) => void;
       on: (eventName: "event", listener: (event: CodexEvent) => void) => void;
@@ -3723,6 +4658,7 @@ describe("codex-service terminal turn reconciliation", () => {
         itemId: "item_tool",
         type: "commandExecution",
         normalizedKind: "commandExecution",
+        semanticKind: "exec",
         status: "inProgress",
         toolCall: {
           subtype: "command",
@@ -3741,14 +4677,214 @@ describe("codex-service terminal turn reconciliation", () => {
       const turnEvents = events.filter(
         (event): event is Extract<CodexEvent, { type: "turn" }> => event.type === "turn",
       );
-      const itemUpserts = events.filter(
-        (event): event is Extract<CodexEvent, { type: "itemUpsert" }> => event.type === "itemUpsert",
-      );
-
       expect(turnEvents.some((event) => event.turn.status === "interrupted")).toBeTrue();
-      expect(itemUpserts.some((event) => event.item.status === "interrupted")).toBeTrue();
+      const item = getRecordedItem(serviceInternals, "thr_interrupt_terminal", "turn_interrupt_terminal", "item_tool");
+      expect(item?.status).toBe("interrupted");
     } finally {
       await service.shutdown();
     }
+  });
+
+  test("streams assistant deltas through queued conversation snapshots", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Streaming assistant delta" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_streaming_delta",
+        threadName: "Streaming delta",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const snapshots: CodexConversationSnapshot[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "conversationSnapshot") {
+          snapshots.push(message.conversation);
+        }
+      });
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_streaming_delta"),
+        turns: [
+          {
+            threadId: "thr_streaming_delta",
+            turnId: "turn_streaming_delta",
+            status: "inProgress",
+            itemIds: [],
+          },
+        ],
+        transcript: [],
+      });
+
+      try {
+        await serviceInternals.handleNotification("item/agentMessage/delta", {
+          threadId: "thr_streaming_delta",
+          turnId: "turn_streaming_delta",
+          itemId: "assistant_streaming_delta",
+          delta: "hello",
+        });
+        await new Promise((resolve) => setTimeout(resolve, 30));
+
+        const latest = snapshots.at(-1) ?? null;
+        expect(latest).not.toBeNull();
+        expect(latest?.turns.length).toBe(1);
+        expect(latest?.turns[0]?.items.length).toBe(1);
+        expect(latest?.turns[0]?.items[0]?.markdownText).toBe("hello");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("streams command output deltas through queued conversation snapshots", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Streaming command output" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_streaming_output",
+        threadName: "Streaming output",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const snapshots: CodexConversationSnapshot[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "conversationSnapshot") {
+          snapshots.push(message.conversation);
+        }
+      });
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_streaming_output"),
+        turns: [
+          {
+            threadId: "thr_streaming_output",
+            turnId: "turn_streaming_output",
+            status: "inProgress",
+            itemIds: ["exec_streaming_output"],
+          },
+        ],
+        transcript: [],
+      });
+
+      try {
+        await serviceInternals.handleNotification("item/started", {
+          threadId: "thr_streaming_output",
+          turnId: "turn_streaming_output",
+          item: {
+            id: "exec_streaming_output",
+            type: "commandExecution",
+            command: "bun test",
+            cwd: "/tmp",
+            status: "in_progress",
+          },
+        });
+        await serviceInternals.handleNotification("item/commandExecution/outputDelta", {
+          threadId: "thr_streaming_output",
+          turnId: "turn_streaming_output",
+          itemId: "exec_streaming_output",
+          delta: "1340 pass\n",
+        });
+        await new Promise((resolve) => setTimeout(resolve, 70));
+
+        const latest = snapshots.at(-1) ?? null;
+        expect(latest).not.toBeNull();
+        expect(latest?.turns.length).toBe(1);
+        expect(latest?.turns[0]?.items.length).toBe(1);
+        expect(typeof latest?.turns[0]?.items[0]?.toolCall?.result).toBe("string");
+        expect(latest?.turns[0]?.items[0]?.toolCall?.result).toBe("1340 pass\n");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("keeps file-edit patch rows while turn diff updates stream as a separate item", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Streaming turn diff split" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_turn_diff_stream",
+        threadName: "Turn diff stream",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const snapshots: CodexConversationSnapshot[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "conversationSnapshot") {
+          snapshots.push(message.conversation);
+        }
+      });
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_turn_diff_stream"),
+        turns: [
+          {
+            threadId: "thr_turn_diff_stream",
+            turnId: "turn_turn_diff_stream",
+            status: "inProgress",
+            itemIds: ["patch_turn_diff_stream"],
+          },
+        ],
+        transcript: [
+          {
+            threadId: "thr_turn_diff_stream",
+            turnId: "turn_turn_diff_stream",
+            itemId: "patch_turn_diff_stream",
+            type: "file_change",
+            kind: "fileChange",
+            semanticKind: "patch",
+            toolCall: {
+              subtype: "fileChange",
+              toolName: "file_change",
+              result: {
+                diff: "--- a/src/example.ts\n+++ b/src/example.ts\n@@ -1 +1 @@\n-old\n+new",
+              },
+            },
+            sequence: 0,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ],
+      });
+
+      try {
+        await serviceInternals.handleNotification("turn/diff/updated", {
+          threadId: "thr_turn_diff_stream",
+          turnId: "turn_turn_diff_stream",
+          diff: "--- a/src/example.ts\n+++ b/src/example.ts\n@@ -1 +1 @@\n-old\n+new\n",
+        });
+
+        const latest = snapshots.at(-1) ?? null;
+        expect(latest).not.toBeNull();
+        expect(latest?.turns[0]?.items.length).toBe(2);
+        expect(`${latest?.turns[0]?.items[0]?.kind}:${latest?.turns[0]?.items[0]?.semanticKind}`).toBe("fileChange:patch");
+        expect(`${latest?.turns[0]?.items[1]?.kind}:${latest?.turns[0]?.items[1]?.semanticKind}`).toBe("systemEvent:diff");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
   });
 });

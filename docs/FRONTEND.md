@@ -9,6 +9,7 @@
 ## Structure
 - App shell: `src/renderer/app.tsx`
 - Domain components: `src/renderer/components/kanban/`
+- Active local conversation renderer: `src/renderer/features/local-conversation/`
 - Editor subsystem: `src/renderer/components/kanban/editor/`
 - Shared hooks/helpers: `src/renderer/lib/`
 - NFM conversion/parsing: `src/renderer/lib/nfm/`
@@ -25,6 +26,8 @@
 - Live workbench navigation/session state is window-local (`sessionStorage`), while shared preferences remain in `localStorage`.
 - Restart resume is a separate Electron-only path: the main process stores one durable last-window snapshot under profile-scoped `userData`, and renderer bootstrap consumes it only when a window is created from zero open windows.
 - Terminal: `use-terminal.ts` manages ghostty-web lifecycle, fit/resize behavior, and PTY IPC.
+- Active conversation UI: reduce host messages and conversation snapshots in `features/local-conversation/`, enrich the mounted snapshot with local follow-up/steer/background-child overlays, then derive renderer-only projection data in `features/local-conversation/projection/*`. Do not mix turn bucketing, search-unit derivation, turn-request stitching, or pending-request ordering directly into JSX.
+- Keep active conversation UI ownership inside `features/local-conversation/view/*` and `features/local-conversation/view/shared/*`. Do not reintroduce a second workbench thread renderer path outside that feature.
 - Use `@tanstack/react-form` for submitted renderer forms instead of ad hoc `useState` form state; keep per-form submit/reset logic local and use `src/renderer/lib/forms.ts` for shared event/error helpers.
 
 ## Editor Patterns
@@ -39,12 +42,16 @@
 - Avoid duplicating visual rules across board and toggle-list surfaces.
 - Keep selector dropdown content on the shared tokenized menu chrome in `src/renderer/components/ui/selector-menu-chrome.ts`; let trigger styling stay local to each surface.
 - Theme `@pierre/diffs` instances through host `style` plus `options.unsafeCSS`; use the shared renderer helper in `src/renderer/lib/diff-presentation.ts` instead of per-surface shadow-DOM CSS or broad global selectors.
+- For Threads, keep the scroll body and composer separate: unresolved live request cards belong in the multiplexed pending-request surface above the composer, while the scroll body renders turn blocks plus hidden turn-scoped request semantics (`approval`, `userInput`, `implementPlan`) injected into the item stream before bucketization.
+- For thread search, project stable user/assistant search units in the view model and attach them to rendered blocks; do not implement `Find in thread` by scraping arbitrary DOM text from the whole turn.
 
 ## Frontend Testing
 - Run targeted tests while iterating: `bun test src/renderer/...`
 - Run isolated UI harness: `bun run dev:storybook`
 - Build the isolated UI harness before handoff when story code changes: `bun run build:storybook`
 - Keep Storybook scenes canvas-first: use story variants, `args`, and `argTypes` for presets and controls instead of rendering custom preset/control sidebars inside story pages.
+- Keep Storybook scenes production-backed: thread and card-stage stories should build state from the same projection/helpers used by shipped UI instead of hand-authoring parallel fake view models.
+- Current thread stories live under `src/renderer/features/local-conversation/view/` for composed stage scenarios and under `src/renderer/features/local-conversation/view/shared/` for focused tool/request leaf stories. Editor `threadSection` stories live beside the editor components in `src/renderer/components/kanban/editor/`.
 - Default renderer component tests to DOM-based coverage with Bun + `happy-dom` + `@testing-library/react`.
 - Assert user-visible structure, labels, and behavior through rendered DOM queries; keep `data-testid` and raw class checks as fallback tools, not the default.
 - Reserve HTML-string or server-render assertions for cases where serialized markup is the actual contract.

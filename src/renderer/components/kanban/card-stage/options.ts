@@ -1,5 +1,5 @@
 import type { Card, CardRunInTarget } from "@/lib/types";
-import type { BranchSelectorState } from "@/components/workbench/stage-threads/branch-selector-state";
+import type { BranchSelectorState } from "@/features/local-conversation/view/shared/branch-selector-state";
 
 export function normalizeRunInTarget(value: Card["runInTarget"]): CardRunInTarget {
   if (value === "newWorktree") return "newWorktree";

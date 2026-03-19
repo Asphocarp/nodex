@@ -21,7 +21,7 @@ All keyboard shortcuts in Nodex. Platform modifier: **⌘ (Cmd)** on Mac, **Ctrl
 | `⌘/Ctrl+,` | Toggle settings overlay | Opens/closes the full-page settings overlay |
 | `⌘/Ctrl+J` | Toggle bottom terminal panel | Global toggle, including when focus is in editor inputs |
 | `⌘/Ctrl+N` | Open new app window | Electron desktop only (`window:new` IPC); ignored in browser runtime |
-| `⌘/Ctrl+F` | Open floating task search | Focuses the Views-stage task search surface outside editable editors/inputs |
+| `⌘/Ctrl+F` | Open search for the focused stage | In Threads, opens `Find in thread`; otherwise opens the Views-stage floating task search. Thread search can open even when the composer textarea is focused |
 
 ### Workbench Panel Borders
 

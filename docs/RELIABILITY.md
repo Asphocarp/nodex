@@ -15,7 +15,8 @@
 - Card descriptions remain materialized on `cards.description`, while historical description changes are stored in `description_revisions` / `description_blocks` and referenced from history rows via revision ids.
 - Codex thread-card metadata persists in `codex_card_threads` (project/card/thread ownership, cached status, archive state).
 - Persisted Codex session files under `$CODEX_HOME` / `~/.codex` are the preferred recovery source for linked thread turns/items across tab switches and app restarts.
-- `codex_thread_snapshots` remains a transient/legacy fallback cache for threads whose session rollout has not materialized yet.
+- The main-process conversation manager now bootstraps canonical thread state directly from persisted Codex session files when needed; there is no separate app-owned transcript snapshot cache.
+- Active-thread runtime authority is conversation-centric inside the main process: each loaded thread keeps one canonical manager record with transcript/detail, `resumeState`, stream role, queued follow-ups, and pending steers, and renderer snapshots are always serialized from that record.
 - Project rename updates linked Codex rows transactionally with project metadata updates.
 
 ## Backup and Restore
@@ -56,6 +57,7 @@
 - Approval/user-input pending requests are rejected on Codex service shutdown to prevent hung renderer promises.
 - Codex thread start tolerates rollout materialization lag (`empty session file`) by degrading to summary-only thread reads until full turn history becomes available.
 - Codex follow-up turns tolerate app-server cold state after app restart: if `turn/start` reports `thread not found` for a persisted thread, the service issues `thread/resume` and retries once.
+- Snapshot requests never call `thread/read` or `thread/resume`; they rebroadcast the current canonical manager record and lazily bootstrap that manager record from persisted session artifacts when a linked thread has not been loaded yet.
 - Codex item hydration dedupes equivalent textual messages (`userMessage`, `assistantMessage`, `plan`, `reasoning`) across replay/live ID mismatches (for example synthetic `item-<n>` IDs from reads vs live `msg_*`/`rs_*` IDs) so follow-up text does not render twice.
 - Backend log serialization is bounded (string/object/array limits) so debugging stays available even when services encounter unexpectedly large payloads.
 

@@ -28,7 +28,7 @@ export function resolveCodexItemPrimaryIdentityKey(item: CodexItemPrimaryIdentit
 }
 
 export function isSyntheticCodexItemId(itemId: string): boolean {
-  return /^item-\d+$/.test(itemId);
+  return /^item-\d+$/.test(itemId) || itemId.startsWith("replay:");
 }
 
 export function resolveCodexItemTextIdentityKey(item: CodexItemTextIdentityInput): string | null {
@@ -66,6 +66,7 @@ export function mergeCodexItemView(existing: CodexItemView, incoming: CodexItemV
     ...existing,
     ...incoming,
     normalizedKind: incoming.normalizedKind,
+    semanticKind: incoming.semanticKind ?? existing.semanticKind,
     role: incoming.role ?? existing.role,
     toolCall: incoming.toolCall ?? existing.toolCall,
     markdownText: incoming.markdownText ?? existing.markdownText,

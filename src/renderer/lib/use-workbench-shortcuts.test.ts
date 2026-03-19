@@ -30,6 +30,7 @@ function makeActions(overrides: Partial<WorkbenchShortcutActions> = {}): Workben
     onRequestCommandPalette: () => {},
     onRequestProjectPicker: () => {},
     onRequestTaskSearch: () => {},
+    onRequestThreadSearch: () => {},
     onRequestSettingsToggle: () => {},
     ...overrides,
   };
@@ -245,6 +246,63 @@ describe("handleWorkbenchShortcut", () => {
 
     expect(handled).toBeTrue();
     expect(called).toBeTrue();
+  });
+
+  test("Cmd+F opens thread search when the Threads stage is focused", () => {
+    let threadSearchProjectId: string | null = null;
+    let taskSearchCalled = false;
+    const actions = makeActions({
+      focusedStage: "threads",
+      onRequestThreadSearch: (projectId) => {
+        threadSearchProjectId = projectId;
+      },
+      onRequestTaskSearch: () => {
+        taskSearchCalled = true;
+      },
+    });
+
+    const handled = handleWorkbenchShortcut(
+      {
+        key: "f",
+        ctrlKey: false,
+        metaKey: true,
+        shiftKey: false,
+        altKey: false,
+        target: makeInputTarget(),
+      },
+      actions,
+      true,
+    );
+
+    expect(handled).toBeTrue();
+    expect(threadSearchProjectId).toBe("a");
+    expect(taskSearchCalled).toBeFalse();
+  });
+
+  test("Cmd+F keeps task search blocked inside editable inputs outside the Threads stage", () => {
+    let taskSearchCalled = false;
+    const actions = makeActions({
+      focusedStage: "db",
+      onRequestTaskSearch: () => {
+        taskSearchCalled = true;
+      },
+    });
+
+    const handled = handleWorkbenchShortcut(
+      {
+        key: "f",
+        ctrlKey: false,
+        metaKey: true,
+        shiftKey: false,
+        altKey: false,
+        target: makeInputTarget(),
+      },
+      actions,
+      true,
+    );
+
+    expect(handled).toBeFalse();
+    expect(taskSearchCalled).toBeFalse();
   });
 
   test("Cmd+[ navigates back even inside inputs", () => {

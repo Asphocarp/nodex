@@ -30,10 +30,12 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `workbench-resume-state.ts`: profile-scoped persisted last-window snapshot store under Electron `userData`, plus restore-eligible window gating for app reopen.
 - `pty-manager.ts`: PTY process lifecycle management for per-card terminals (spawn, write, resize, kill).
 - `codex/codex-app-server-client.ts`: global JSON-RPC client for `codex app-server` stdio lifecycle, handshake, request correlation, reconnect/backoff, and wire-level typing against the committed `@nodex/codex-app-server-protocol` workspace package.
-- `codex/codex-service.ts`: domain facade for account/auth, thread/turn actions, approval + request-user-input handling, packaged-vs-dev Codex runtime resolution, and normalized `codex:event` emission.
-- `codex/codex-item-normalizer.ts`: maps heterogeneous app-server item payloads into stable renderer-oriented `CodexItemView` shapes (`normalizedKind`, optional `toolCall`, optional `markdownText`).
-- `codex/codex-link-repository.ts`: persistence adapter for card-thread links (`codex_card_threads`) plus a legacy/transient per-thread snapshot cache (`codex_thread_snapshots`) used only when Codex session history is not yet materialized.
-- `codex/codex-session-store.ts`: reads persisted Codex session artifacts from `$CODEX_HOME` / `~/.codex`, supports both legacy JSON and modern JSONL rollout layouts, and materializes thread detail for restart recovery/import.
+- `codex/codex-service.ts`: domain facade for account/auth, thread/turn actions, approval + request-user-input handling, packaged-vs-dev Codex runtime resolution, canonical per-thread conversation-manager state, and main-process transcript/snapshot projection + `codex:event` / host-message emission.
+- `codex/codex-item-normalizer.ts`: maps heterogeneous app-server item payloads into internal `CodexItemView` intermediates used by the transcript projector and tool metadata parsing.
+- `codex/codex-transcript-projection.ts`: canonical transcript reducer/projection helpers that unify bootstrap, live updates, optimistic prompts, and terminal turn reconciliation into ordered `CodexTranscriptEntry[]`.
+- `shared/codex-thread-detail-reducer.ts`: shared canonical merge/reduce helpers for thread detail snapshots, transcript deltas, and optimistic-entry reconciliation used by both main and renderer.
+- `codex/codex-link-repository.ts`: persistence adapter for card-thread links (`codex_card_threads`).
+- `codex/codex-session-store.ts`: reads persisted Codex session artifacts from `$CODEX_HOME` / `~/.codex`, supports both legacy JSON and modern JSONL rollout layouts, and rebuilds visible transcript state for restart recovery/import from replay-safe events instead of raw bootstrap messages.
 - `codex/git-worktree-service.ts`: managed Git worktree creation for card thread starts (`autoBranch` or `detachedHead`) with base-ref resolution, thread-title-driven auto-branch naming (`<prefix><thread-slug>`), and path allocation under `${serverDir}/worktrees`.
 - `codex/worktree-environment-service.ts`: lists and validates `.codex/environments/*.toml`, parses environment metadata (`name`, `[setup].script`), and enforces in-repo path boundaries.
 
@@ -42,8 +44,8 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 
 ### Renderer Application (`src/renderer`)
 - `app.tsx`: workbench orchestration, Electron startup-gating screen, reminder deep-link handling, and feature-flagged shell entry.
-- `components/workbench/*`: staged workbench shell (`left-sidebar`, `stage-rail`, `main-view-host`, `stage-threads`) and shell composition.
-- `components/workbench/stage-threads/*`: Codex transcript rendering modules (item dispatcher, markdown pipeline, tool-card registry/specializations).
+- `components/workbench/*`: staged workbench shell (`left-sidebar`, `stage-rail`, `main-view-host`) and shell composition.
+- `features/local-conversation/*`: Codex-parity renderer substrate and the public workbench boundary for active conversation stages. It owns the renderer-side host-message cache, stage-input adaptation, projection pipeline, stage shell, header/auth shell, footer/composer shell, shared thread controls, turn virtualization, and the thread-body search/scroll/collapse behavior used by the active workbench thread stage.
 - `components/kanban/*`: board UI, card-stage editor, history panel, toggle-list UI.
 - `components/kanban/editor/*`: BlockNote/NFM integration, custom blocks and inline attachment chips, keyboard behaviors, paste-resource prompting/materialization, single-editor projection helpers for `cardRef`/`toggleListInlineView` children, a shared per-editor projection sync controller (`projection-sync-controller.ts`) that owns one listener set and an owner registry, shared editor drag session coordination for editor->board drops, card-drag target registry for board->editor drops, bridged in-editor drop-indicator rendering for Pragmatic Drag and Drop card drags, and `cardToggle` snapshot/meta round-trip helpers.
 - `lib/api.ts`: transport facade over explicit Electron and browser transport adapters (IPC in Electron, HTTP+SSE in browser).
@@ -55,7 +57,8 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `lib/dock-layout.ts`: dock split-tree helpers for the current persisted shell layout model.
 - `lib/use-workbench-shortcuts.ts`: app-wide stage-first keyboard shortcut mapping.
 - `lib/use-terminal.ts`: ghostty-web terminal lifecycle hook with cached instances, fit/resize handling, IPC wiring, and theme sync.
-- `lib/use-codex.ts`, `lib/codex-store.ts`: Codex Threads state, event reduction, approval/user-input queues, and API actions.
+- `lib/use-codex-control.ts`, `lib/codex-control-store.ts`: control-only Codex thread shell state for thread summaries, thread-start progress, and per-project permission/settings persistence.
+- `lib/use-codex-account-actions.ts`: auth/account command wrappers (`read`, login start/cancel, logout). For the active thread renderer, auth state still flows from `features/local-conversation/*` host-message reduction, not from this action layer.
 - `lib/codex-collaboration-mode-settings.ts`: local per-context collaboration mode persistence (`thread:*`, `draft:*`) with draft->thread handoff after thread creation.
 - `lib/nfm/*`: renderer wrappers over the shared NFM core plus the BlockNote adapter and clipboard/read-only helpers.
 - `lib/toggle-list/*`: rule engine and mapping logic for toggle-list views.
@@ -70,14 +73,18 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 6. Reminder scheduler polls occurrences, dedupes delivery via receipts, and emits `reminder:open` to renderer on notification click.
 
 Codex Threads flow:
-1. Renderer sends `codex:*` IPC actions (`lib/api.ts` + `use-codex.ts`).
+1. Renderer sends `codex:*` IPC actions (`lib/api.ts` + `use-codex-control.ts`).
 2. Renderer loads `collaborationMode/list` via IPC and resolves active collaboration mode from local per-context persistence (`thread:*` or `draft:*`).
 3. `codex-service` resolves card run target (`localProject` / `newWorktree` / `cloud`), including sticky per-card managed-worktree reuse via `runInWorktreePath`; for freshly created worktrees, it optionally executes selected `.codex/environments/*.toml` `[setup].script` before thread start.
 4. For fresh worktree creation, `codex-service` emits `codex:event` `threadStartProgress` updates (`creatingWorktree` / `runningSetup` / `startingThread` / terminal `ready|failed`) with streamed stdout/stderr chunks so renderer can render real-time setup logs.
 5. `codex-service` persists thread cwd in `codex_card_threads` (payload cwd or resolved fallback) so follow-up turns keep the same execution location.
-6. `codex-link-repository` persists one-owner card-thread link metadata in SQLite, while `codex-session-store` rehydrates transcript history from persisted Codex session artifacts and falls back to SQLite snapshot cache only before session materialization.
-7. Runtime notifications/server requests are normalized into structured `CodexItemView` events (`normalizedKind` + optional `toolCall` + markdown-ready text), including plan streaming (`item/plan/delta`) and queue cleanup parity (`serverRequest/resolved`).
-8. Main process broadcasts `codex:event` to renderers; `codex-store` reduces deltas into thread state.
+6. `codex-link-repository` persists one-owner card-thread link metadata in SQLite, while `codex-session-store` provides bootstrap-only recovery input for the main-process conversation manager when persisted Codex session artifacts exist.
+7. Runtime notifications/server requests are first normalized into internal `CodexItemView` shapes, then projected in main into canonical `CodexConversationSnapshot` payloads and host-message broadcasts for the mounted thread route.
+8. Main still emits `codex:event` payloads for summary/status/progress updates and compatibility consumers. The control-only renderer store now ignores transcript authority and only reduces thread summaries plus thread-start progress.
+9. The active workbench thread stage is mounted entirely through `features/local-conversation`: `WorkbenchShell` passes raw `CodexConversationSnapshot` into the local-conversation stage hook, and the local-conversation feature owns the active projection pipeline, local type surface, and shell/body/footer runtime.
+10. Main exposes separate snapshot/resume request IPC plus a `codex:host-message` stream. Snapshot requests only rebroadcast the current manager-owned conversation snapshot; they never call `thread/read`, never call `thread/resume`, and never bootstrap transcript state on behalf of the active renderer route. Explicit resume requests still drive the active-thread `needs_resume -> resuming -> resumed` state machine and materialize the canonical conversation directly from `thread/resume` payloads without rereads or transcript merge fallbacks.
+11. The Codex service now stores active thread authority as a conversation-centric manager record (`detail + resumeState + stream role + queued follow-ups + pending steers + item cache`) instead of scattering transcript authority across independent per-thread maps. Running-thread `queue` submits mutate manager-owned queued-follow-up state first, then a manager-owned drain loop advances those entries through `turn/steer` or the next `turn/start` when the active run can accept them.
+12. `features/local-conversation` reduces those host messages into canonical conversation snapshots plus flat shell status, and the active workbench thread route only mounts the full thread body after the selected conversation reaches `resumeState = resumed`.
 
 Workbench reopen flow:
 1. Main process marks only windows created from zero-open-window state as restore-eligible.
@@ -87,7 +94,7 @@ Workbench reopen flow:
 5. Main process saves only the last-focused window snapshot, under the profile-scoped Electron `userData` path.
 
 ## Invariants
-- Persistent truth is split by ownership: Nodex-owned board/link metadata lives in SQLite, while Codex-owned transcript history is recovered from persisted Codex session artifacts; renderer state is a cache.
+- Persistent truth is split by ownership: Nodex-owned board/link metadata lives in SQLite, while Codex-owned thread history now lives in the main-process conversation manager plus explicit resume operations; the active renderer caches canonical conversation snapshots plus flat UI-only shell state rather than maintaining a second transcript-authority store, a second `resumeState` truth, or a second recovery layer.
 - All card writes must pass `card-input-validation` constraints.
 - Recurrence exceptions and reminder receipts are project-scoped and persisted in SQLite.
 - Completing an occurrence creates a `done` card with `archived = true`; archived cards stay out of board/sidebar/toggle-list flows but still surface in calendar occurrence queries.
@@ -99,6 +106,12 @@ Workbench reopen flow:
 - Codex links are one-owner: one card can own many threads; each thread belongs to exactly one card.
 - Codex thread creation is card-first and includes immediate first-turn submission for durable thread materialization.
 - Codex thread/turn cwd must use the linked thread cwd when present (not only project workspace fallback).
+- The active workbench conversation stage is now conversation-native: `features/local-conversation` consumes `CodexConversationSnapshot` turns/items directly, then derives an ordered per-turn item stream, semantic render buckets, blocked-turn state, search units, and collapse state in the renderer.
+- The active workbench conversation stage must stay local-conversation-owned end-to-end: active shell, composer, thread-body helpers, request cards, and thread-item renderers have no secondary workbench thread renderer path.
+- Turn-scoped live requests (`approval`, `userInput`, `implementPlan`) are stitched into the turn item stream before bucketization so blocked-turn state is derived from the same semantic item pipeline as transcript content.
+- The pending-request surface above the composer is a multiplexed lane, not a flat request list: the active-thread primary request renders first, then at most one background child approval, followed by manager-owned pending steers, manager-owned queued follow-ups, and background activity rows.
+- Running-thread composer follow-up semantics match Codex Electron: `queue` only mutates queued-follow-up state, `steer` submits an in-progress follow-up, empty drafts stay on `Stop`, and queued rows are drained by manager-owned follow-up submission instead of a renderer-local fake queue path.
+- Internal bootstrap/context content such as `AGENTS.md`, developer instructions, and other setup wrappers is not part of the visible chat transcript.
 - `cloud` run target is intentionally blocked at backend thread-start.
 - For `newWorktree`, card-level `runInWorktreePath` is reused when available; missing/invalid paths are recreated and overwritten on the card.
 - For `newWorktree`, optional `runInEnvironmentPath` stores a repo-relative `.codex/environments/*.toml` path. Its `[setup].script` runs only when creating a new managed worktree (not when reusing an existing persisted path).

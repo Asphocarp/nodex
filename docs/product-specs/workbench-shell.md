@@ -31,28 +31,19 @@ The sidebar `Projects` section controls the DB stage datasource, while Cards/Thr
 - View: existing board/list/toggle-list/canvas/calendar host with one shared sticky toolbar for view switching, task search, and supported view-local filter/sort controls.
 - Card: Card Stage editor session tabs; history opens as a card-specific overlay from Card Stage, and the sidebar mirrors card navigation with collapsible current DB-project status groups plus a `Recent` session subsection. Status groups start collapsed by default, and a collapsed status group may still keep its active card row visible under the header.
 - Thread: Codex app-server-backed thread workspace with account/auth controls, a permission mode selector, streaming turn/item feed, reverse navigation to owning card, and stage-local project context (`threadsProjectId`).
+- Thread stage uses a layered renderer model: `WorkbenchShell` passes a renderer-facing `ThreadStageModel` plus bound actions into the stage instead of raw transcript queues and shell state.
 - Diff: interactive mock placeholder for diff previews.
 - Terminal panel: mixed tabs (`project` and `card` bound), globally docked at bottom, with per-tab project routing.
 
 ## Threads Rendering Model
-- Item rendering is registry-driven: `stage-threads/thread-item-renderer.tsx` dispatches by structured `normalizedKind` and tool metadata instead of ad-hoc text heuristics.
-- Tool calls route through `stage-threads/tools/get-tool-component.tsx`:
-  - specialized cards: command, file-change, MCP, web-search
-  - generic fallback card for unknown tools, showing JSON args/result/error/raw payloads when expanded
-  - tool cards are collapsed by default across all tool types
+- Visible transcript rules, rendering contracts, optimistic prompt behavior, tool/reasoning rows, and restart recovery semantics are specified in [Codex Thread Transcript Behavior](./codex-thread-transcript-behavior.md).
 - Storybook is the supported renderer harness for isolated UI work. Run `bun run dev:storybook` from the repository root to inspect the Threads panel scenarios, Card Stage scenarios, and the general shared-UI gallery without booting the Electron shell.
-- Assistant-like text (`assistantMessage`, `plan`, `reasoning`) renders with `stage-threads/markdown/markdown-core.tsx` and `streamdown` in static or streaming mode.
-- User transcript bubbles expose hover/focus message actions under the bubble: `Copy message` and a mock-only `Edit message` control. Assistant copy only appears on the final assistant transcript message of a settled user/agent turn; running turns expose no assistant transcript message actions until that turn settles.
-- Running-thread status rows use verb-led summaries: contiguous exploration actions coalesce into `Exploring` / `Explored` groups (absorbing adjacent reasoning steps in the same turn), generic commands render as `Running command` while active and `Ran …` once settled, and MCP calls render as `Calling …` / `Called …`.
 - Threads use follow/read modes: if the viewport is near the bottom, new items auto-scroll into view; if the user scrolls up, auto-scroll pauses and a floating catch-up button appears above the composer to jump back to latest.
+- Threads render by turns, not flat transcript rows. The scroll body groups each turn into ordered blocks (`user messages -> activity -> system events -> assistant -> plan -> answered user input`) and virtualizes that turn list.
+- Unresolved live approvals, request-user-input cards, and implement-plan prompts render in a dedicated pending-request surface above the composer. Historical answered artifacts remain in the transcript.
 - Running thread tabs render a live indicator dot in the tab strip.
 - Sidebar thread items replace their default thread glyph with a live running indicator while active; the Thread stage group icon also reflects running state.
 - The composer footer’s bottom-right context ring uses live `thread/tokenUsage/updated` data from Codex. It shows the active thread’s current context-window fill level, and hovering the ring reveals percent-full plus `used / window` token details when available.
-- Markdown security and capability profile:
-  - `streamdown@2.4.0` with official plugins: `@streamdown/code`, `@streamdown/mermaid`, `@streamdown/math`, `@streamdown/cjk`
-  - Streamdown's default hardening/sanitization pipeline stays enabled; local file links still render through Nodex's `FileLinkAnchor`
-  - `remark-breaks` is applied only on transcript surfaces that explicitly preserve single line breaks
-  - Mermaid fences use Streamdown's diagram plugin with a safe Nodex-branded error fallback
 - Visual styling layers Streamdown's base styles under `.codex-markdown` and `codex-tool-*` token overrides in `src/renderer/globals.css`.
 
 ## Focus and Navigation

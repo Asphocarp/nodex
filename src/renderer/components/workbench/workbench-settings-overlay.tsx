@@ -1001,16 +1001,6 @@ function ManagedWorktreesSettingControl({ open }: { open: boolean }) {
   );
 }
 
-function ThreadThinkingSettingControl({
-  value,
-  onChange,
-}: {
-  value: boolean;
-  onChange: (value: boolean) => void;
-}) {
-  return <TogglePill value={value} onChange={onChange} />;
-}
-
 function SmartPrefixParsingSettingControl({
   value,
   onChange,
@@ -1057,6 +1047,16 @@ function ThreadPromptSubmitShortcutControl({
       ]}
     />
   );
+}
+
+function ThreadQueueFollowUpsSettingControl({
+  value,
+  onChange,
+}: {
+  value: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return <TogglePill value={value} onChange={onChange} />;
 }
 
 function StageRailPeekSettingControl({
@@ -1606,8 +1606,8 @@ interface SettingsOverlayProps {
   onStageRailLayoutModeChange: (value: StageRailLayoutMode) => void;
   nextPanelPeekPx: number;
   onNextPanelPeekPxChange: (value: number) => void;
-  hideThinkingWhenDone: boolean;
-  onHideThinkingWhenDoneChange: (value: boolean) => void;
+  threadQueueFollowUpsEnabled: boolean;
+  onThreadQueueFollowUpsEnabledChange: (value: boolean) => void;
   threadPromptSubmitShortcut: ThreadPromptSubmitShortcut;
   onThreadPromptSubmitShortcutChange: (value: ThreadPromptSubmitShortcut) => void;
   worktreeStartMode: WorktreeStartMode;
@@ -1630,8 +1630,8 @@ export function SettingsOverlay({
   onStageRailLayoutModeChange,
   nextPanelPeekPx,
   onNextPanelPeekPxChange,
-  hideThinkingWhenDone,
-  onHideThinkingWhenDoneChange,
+  threadQueueFollowUpsEnabled,
+  onThreadQueueFollowUpsEnabledChange,
   threadPromptSubmitShortcut,
   onThreadPromptSubmitShortcutChange,
   worktreeStartMode,
@@ -1940,15 +1940,6 @@ export function SettingsOverlay({
                     />
                   </SettingRow>
                   <SettingRow
-                    label="Hide thinking when done"
-                    description="Show in-progress thread thinking, then collapse it after completion."
-                  >
-                    <ThreadThinkingSettingControl
-                      value={hideThinkingWhenDone}
-                      onChange={onHideThinkingWhenDoneChange}
-                    />
-                  </SettingRow>
-                  <SettingRow
                     label="Confirm thread section send"
                     description="Show a preview dialog before sending a notebook section, with an option to stop asking later."
                   >
@@ -1961,6 +1952,15 @@ export function SettingsOverlay({
                     <ThreadPromptSubmitShortcutControl
                       value={threadPromptSubmitShortcut}
                       onChange={onThreadPromptSubmitShortcutChange}
+                    />
+                  </SettingRow>
+                  <SettingRow
+                    label="Queue follow-ups"
+                    description="While a thread is running, use queue as the default submit action instead of immediate steering."
+                  >
+                    <ThreadQueueFollowUpsSettingControl
+                      value={threadQueueFollowUpsEnabled}
+                      onChange={onThreadQueueFollowUpsEnabledChange}
                     />
                   </SettingRow>
                 </SectionBlock>

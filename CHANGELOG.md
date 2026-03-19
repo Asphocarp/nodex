@@ -10,10 +10,38 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - Shared sort controls can now place empty `priority` / `estimate` values either first or last, so derived Kanban, List, and Toggle List views no longer force empty values to the end.
 - In sliding-window stage-rail mode, `Cmd/Ctrl+H` and `Cmd/Ctrl+L` now shift the visible stage window left/right instead of always moving stage focus, keeping the current focused stage when it remains visible.
+- Rebuilt the Threads stage renderer around turn-based view models and a virtualized turn list, moved unresolved approvals, request-user-input prompts, implement-plan prompts, and background child-thread activity into a dedicated multiplexed pending-request surface above the composer, and now derive blocked-turn state from the same turn item pipeline used for transcript rendering.
+- The active Codex-style thread renderer now carries explicit semantic item families through live/replay/optimistic transcript projection, keeps informational/background request cards above the composer without always hiding the composer, lifts active streaming plan/todo/diff surfaces through an above-composer portal seam, and preserves scroll position more reliably while measured turn heights change.
+- The active Threads surface now follows a main-owned conversation-manager model: snapshot/resume requests broadcast canonical host snapshots, queued follow-ups and pending steers live in main instead of renderer overlays, and child-thread memberships/background rows are projected from the same main-process conversation authority.
+- The active Threads route now trusts only the main conversation manager's canonical snapshot and `resumeState`; renderer-side shadow resume state and active-thread reopen heuristics have been removed so reopened threads restore through one manager-owned path.
+- The active Threads surface now matches the Codex Electron mounted-thread fixtures more closely: previous-messages sections use the same collapse semantics, command tool rows follow the same summary/body expansion states, and expanded agent-work sections now use the same `Final message` / `Worked for …` divider behavior as Codex Electron.
+- The active Threads footer now splits above-composer content into Codex Electron-style lanes: in-progress todo/diff cards stay in the fixed portal above the composer, queued steers and queued follow-ups render in a separate queue lane, and live request cards stay inline with the composer instead of sharing one mixed surface.
+- The active Threads body now uses Codex Electron’s turn-bottom live-state model: pending turns show `Thinking` or `Exploring` inside the transcript body instead of Nodex’s old `Waiting for response…` / `Working` UI, completed reasoning stays visible without a user setting, and the legacy background `working` queue card is gone.
+- Running-thread Threads composer follow-ups now follow Codex Electron’s real `queue`/`steer` split: queueing only mutates queued-message state, queued rows no longer start a turn immediately, empty running drafts stay on `Stop`, and queued rows can be turned back into live follow-ups through the queue lane instead of a fake queue-start RPC.
 
 ### Fixed
+- Fixed Thread-stage file-edit rendering so Codex-style `Edited …` tool rows now stay visible even when the turn also has a unified diff; file-change tool calls and turn-level diff cards now render as separate surfaces instead of one swallowing the other.
+- Fixed Thread-stage `Edited …` patch rows so they now expand inline to show their own unified diff frame, and the filename in the patch header now opens the local file target instead of rendering as inert text.
 - Fixed sorted Kanban same-column drag/drop when `priority` or `estimate` sorting is active, so dragging a card downward now uses the same post-removal slot math as the visible insertion indicator instead of anchoring against the source ghost.
 - Fixed Kanban empty-column drop targets so dragging blocks into an auto-collapsed lane now highlights the collapsed lane instead of hiding the only valid drop surface.
+- Fixed the mounted Thread-stage composer button to follow Codex Electron’s running-thread state machine: an empty running draft now shows `Stop`, while any running draft switches the primary action to `Steer` or `Queue` with the same shortcut-driven alternate follow-up behavior and tooltip wording.
+- Fixed Thread-stage user-message actions so `Edit message` and `Fork from here` no longer appear under later steer bubbles in the same turn; those actions now only show on the rollback/fork-eligible leading user-message prefix, matching Codex Electron.
+- Fixed Thread-stage assistant message actions so `Copy message` now only appears on the turn’s final assistant response, not on earlier commentary rows or assistant bubbles displaced by later follow-up items in the same turn.
+- Fixed Thread-stage agent-body collapse parity so the newest completed turn no longer shows a `Worked for …` toggle by default; that toggle now appears on older turns, or on the newest turn only when an explicit persisted collapse state already exists.
+- Fixed Codex thread transcript parity for `reasoning`, `todo-list`, and answered `user-input-response` rows so the mounted thread now follows Codex Electron’s dedicated summary/expand patterns instead of rendering those items through generic app-owned toggles.
+- Fixed Thread-stage auth chrome so `Sign in` and `Connected` no longer appear at the same time; the header now waits for account hydration and only shows the connection badge for authenticated accounts.
+- Fixed resumed Codex conversations sending duplicate user/assistant bubbles after a new message; thread snapshots now come from a single in-memory conversation authority instead of re-merging session replay data on every snapshot broadcast.
+- Fixed reopened Codex threads with long-running tool turns so the mounted transcript now preserves the canonical turn item order from the conversation manager, keeps pre-final assistant commentary inside the agent-work section ahead of the final answer, and restores the Codex-style `Worked for …` timing divider before the final assistant message when timing data is available.
+- Fixed the mounted Thread-stage chrome so tool, exploration, and system rows no longer sit inside extra app-owned shell cards; the active thread body now uses the flatter Codex Electron section layout instead of nested container-on-container styling.
+- Fixed mounted Thread-stage expand/collapse jitter so ordinary rerenders no longer restart height animations; expanded thread sections now stay at natural height until the actual open/close state changes, matching Codex Electron more closely.
+- Fixed reopened thread tabs so the active local route no longer treats a cheap snapshot as a fully restored conversation; existing threads now enter an explicit resume state and only render the mounted transcript/composer after the manager broadcasts a resumed snapshot.
+- Fixed reopened Codex threads re-duplicating their transcript after app restart; explicit active-thread resume now reconnects from the manager's canonical conversation in place instead of rereading the thread.
+- Fixed mounted Thread-stage expand animations so revealing a command row no longer leaves the final assistant message behind for a frame; expanded sections now settle back to natural height instead of staying pinned to a stale measured pixel height.
+- Fixed `Edit message` in the Thread stage to follow Codex Electron’s inline flow: clicking `Edit` now opens an in-place edit prompt at the original user bubble, while rollback and resend only happen after clicking `Send`.
+- Fixed active Codex thread reopen/resume so the mounted thread now restores from the main-process conversation manager only, without session bootstrap, transcript compatibility events, or reread/merge fallbacks.
+- Fixed reopened Codex threads rendering as blank after restore; active resume now materializes the canonical conversation directly from the `thread/resume` payload instead of leaving the thread in a `resumed` but empty placeholder state.
+- Fixed active Codex thread streaming so assistant text, reasoning text, and command output now update incrementally during a running turn instead of appearing only in large delayed chunks.
+- Fixed mounted Thread-stage reasoning parity so completed `Thought` rows now follow Codex Electron's summary-first projection: empty-summary reasoning items no longer render, replayed reasoning events coalesce into one visible row per contiguous reasoning run, and private reasoning content is no longer expanded into extra transcript rows.
 
 ## [0.1.7] - 2026-03-19
 
@@ -179,7 +207,7 @@ All notable changes to this project will be documented in this file.
 - Added optimistic thread prompts, thread message copy/edit actions, copied-state feedback, and a general UI dev-story page.
 
 ### Changed
-- Made Codex steering prompts fully optimistic so follow-up direction appears immediately while the runtime catches up.
+- Fixed running-thread steer prompts so they now match Codex Electron's pending-steer flow: accepted steers stay in the queue lane until the authoritative user-message item arrives, instead of inserting an early optimistic user bubble at the wrong transcript position.
 
 ### Fixed
 - Fixed request-card keyboard flow, drag-preview cleanup, and pointer hit-testing around copied and draggable thread content.

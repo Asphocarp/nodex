@@ -63,6 +63,12 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       window.webContents.send("codex:event", event);
     }
   });
+  codexService.on("hostMessage", (message) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (window.isDestroyed()) continue;
+      window.webContents.send("codex:host-message", message);
+    }
+  });
 
   // Projects
   registerHandle("projects:list", () => dbService.listProjects());
@@ -475,12 +481,12 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     codexService.deleteManagedWorktree(threadId)
   );
 
-  registerHandle("codex:thread:read", (_, threadId: string, includeTurns?: boolean) =>
-    codexService.readThread(threadId, includeTurns ?? true)
+  registerHandle("codex:thread:snapshot:request", (_, threadId: string) =>
+    codexService.requestConversationSnapshot(threadId)
   );
 
-  registerHandle("codex:thread:resume", (_, threadId: string) =>
-    codexService.resumeThread(threadId)
+  registerHandle("codex:thread:resume:request", (_, threadId: string) =>
+    codexService.requestConversationResume(threadId)
   );
 
   registerHandle("codex:thread:name:set", (_, threadId: string, name: string) =>
@@ -512,14 +518,59 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   );
 
   registerHandle(
+    "codex:thread:follow-up:enqueue",
+    (
+      _,
+      threadId: string,
+      prompt: string,
+      opts?: {
+        model?: string;
+        reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+        permissionMode?: "sandbox" | "full-access" | "custom";
+        collaborationMode?: "default" | "plan";
+      },
+    ) =>
+      codexService.enqueueQueuedFollowUpPrompt(threadId, prompt, opts),
+  );
+
+  registerHandle(
+    "codex:thread:follow-up:remove",
+    (_, threadId: string, followUpId: string) =>
+      codexService.removeQueuedFollowUp(threadId, followUpId),
+  );
+
+  registerHandle(
+    "codex:thread:follow-up:reorder",
+    (_, threadId: string, orderedFollowUpIds: string[]) =>
+      codexService.reorderQueuedFollowUps(threadId, orderedFollowUpIds),
+  );
+
+  registerHandle(
+    "codex:thread:follow-up:send-now",
+    (_, threadId: string, followUpId: string) =>
+      codexService.sendQueuedFollowUpNow(threadId, followUpId),
+  );
+
+  registerHandle(
+    "codex:thread:edit-last-user-turn",
+    (_, threadId: string, turnId: string, message: string) =>
+      codexService.editLastUserTurn(threadId, turnId, message),
+  );
+
+  registerHandle(
+    "codex:thread:fork-from-turn",
+    (_, threadId: string, turnId: string, message: string) =>
+      codexService.forkConversationFromTurn(threadId, turnId, message),
+  );
+
+  registerHandle(
     "codex:turn:steer",
     (_,
       threadId: string,
       expectedTurnId: string,
       prompt: string,
-      optimisticItemId?: string,
     ) =>
-      codexService.steerTurn(threadId, expectedTurnId, prompt, optimisticItemId),
+      codexService.steerTurn(threadId, expectedTurnId, prompt),
   );
 
   registerHandle("codex:turn:interrupt", (_, threadId: string, turnId?: string) =>
@@ -532,6 +583,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   registerHandle("codex:user-input:respond", (_, requestId: string, answers) =>
     codexService.respondToUserInput(requestId, answers)
+  );
+
+  registerHandle("codex:mcp-elicitation:respond", (_, requestId: string, action: "accept" | "decline" | "cancel") =>
+    codexService.respondToMcpServerElicitation(requestId, action)
   );
 
   registerHandle("codex:permission:mode:set", (_, projectId: string, mode: "sandbox" | "full-access" | "custom") => {

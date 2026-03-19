@@ -1,5 +1,5 @@
-import { BranchSelectorPopover } from "@/components/workbench/stage-threads/branch-selector-popover";
-import { EnvironmentSelectorPopover } from "@/components/workbench/stage-threads/environment-selector-popover";
+import { BranchSelectorPopover } from "@/features/local-conversation/view/shared/branch-selector-popover";
+import { EnvironmentSelectorPopover } from "@/features/local-conversation/view/shared/environment-selector-popover";
 import { ThreadsIcon } from "@/components/workbench/threads-icon";
 import { Input } from "@/components/ui/input";
 import {

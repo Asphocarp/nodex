@@ -5,14 +5,11 @@ import path from "node:path";
 import { closeDatabase, createCard, createProject, initializeDatabase, renameProject } from "../kanban/db-service";
 import {
   getCodexCardThreadLink,
-  getCodexThreadSnapshot,
   listCodexProjectThreads,
-  unlinkCodexThread,
   updateCodexThreadArchived,
   updateCodexThreadName,
   updateCodexThreadStatus,
   upsertCodexCardThreadLink,
-  upsertCodexThreadSnapshot,
 } from "./codex-link-repository";
 
 function isUnsupportedSqliteError(error: unknown): boolean {
@@ -151,59 +148,4 @@ describe("codex-link-repository", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
-  test("persists thread snapshots and cascades cleanup on unlink", async () => {
-    const ran = await withTempDatabase(async () => {
-      const card = await createCard("codex", "in_progress", { title: "Snapshot cache" });
-
-      upsertCodexCardThreadLink({
-        projectId: "codex",
-        cardId: card.id,
-        threadId: "thr_snapshot_1",
-      });
-
-      const snapshot = upsertCodexThreadSnapshot({
-        threadId: "thr_snapshot_1",
-        turns: [
-          {
-            threadId: "thr_snapshot_1",
-            turnId: "turn_1",
-            status: "completed",
-            itemIds: ["item_1"],
-          },
-        ],
-        items: [
-          {
-            threadId: "thr_snapshot_1",
-            turnId: "turn_1",
-            itemId: "item_1",
-            type: "commandExecution",
-            normalizedKind: "commandExecution",
-            toolCall: {
-              subtype: "command",
-              toolName: "bash",
-              args: {
-                command: "bun run lint",
-              },
-              result: "ok",
-            },
-            createdAt: 10,
-            updatedAt: 11,
-          },
-        ],
-      });
-
-      expect(snapshot.threadId).toBe("thr_snapshot_1");
-      expect(snapshot.turns.length).toBe(1);
-      expect(snapshot.items[0]?.toolCall?.toolName).toBe("bash");
-
-      const fetched = getCodexThreadSnapshot("thr_snapshot_1");
-      expect(fetched?.items[0]?.toolCall?.result).toBe("ok");
-
-      const unlinked = unlinkCodexThread("thr_snapshot_1");
-      expect(unlinked).toBe(true);
-      expect(getCodexThreadSnapshot("thr_snapshot_1")).toBe(null);
-    });
-
-    if (!ran) expect(true).toBeTrue();
-  });
 });

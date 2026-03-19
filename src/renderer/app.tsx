@@ -125,6 +125,7 @@ function WorkbenchApp({ initialResumeSnapshot }: { initialResumeSnapshot: Workbe
   });
   const [projectPickerOpenTick, setProjectPickerOpenTick] = useState(0);
   const [taskSearchOpenTick, setTaskSearchOpenTick] = useState(0);
+  const [threadSearchOpenTick, setThreadSearchOpenTick] = useState(0);
   const [commandPaletteOpenTick, setCommandPaletteOpenTick] = useState(0);
   const [commandPaletteInitialQuery, setCommandPaletteInitialQuery] = useState("");
   const [settingsToggleTick, setSettingsToggleTick] = useState(0);
@@ -830,6 +831,11 @@ function WorkbenchApp({ initialResumeSnapshot }: { initialResumeSnapshot: Workbe
     focusStageWithNearestIntent(projectId, "db");
   }, [focusStageWithNearestIntent]);
 
+  const handleOpenThreadSearch = useCallback((projectId: string) => {
+    setThreadSearchOpenTick((tick) => tick + 1);
+    focusStageWithNearestIntent(projectId, "threads");
+  }, [focusStageWithNearestIntent]);
+
   const handleToggleSettings = useCallback(() => {
     setSettingsToggleTick((tick) => tick + 1);
   }, []);
@@ -854,6 +860,7 @@ function WorkbenchApp({ initialResumeSnapshot }: { initialResumeSnapshot: Workbe
     onRequestCommandPalette: handleOpenCommandPalette,
     onRequestProjectPicker: handleOpenProjectPicker,
     onRequestTaskSearch: handleOpenTaskSearch,
+    onRequestThreadSearch: handleOpenThreadSearch,
     onRequestSettingsToggle: handleToggleSettings,
     navigateBack: () => {
       void navigateBack();
@@ -953,6 +960,7 @@ function WorkbenchApp({ initialResumeSnapshot }: { initialResumeSnapshot: Workbe
       onRequestProjectPickerOpen={handleOpenProjectPicker}
       projectPickerOpenTick={projectPickerOpenTick}
       taskSearchOpenTick={taskSearchOpenTick}
+      threadSearchOpenTick={threadSearchOpenTick}
       commandPaletteOpenTick={commandPaletteOpenTick}
       commandPaletteInitialQuery={commandPaletteInitialQuery}
       settingsToggleTick={settingsToggleTick}

@@ -1,0 +1,326 @@
+import { describe, expect, test } from "bun:test";
+import type { ThreadTranscriptBlockModel } from "../thread-stage-types";
+import { bucketizeTurnItems } from "./bucketize-turn-items";
+import { buildTurnViewModel } from "./build-turn-view-model";
+
+function buildItem(overrides: Partial<ThreadTranscriptBlockModel>): ThreadTranscriptBlockModel {
+  return {
+    id: "item_1",
+    turnId: "turn_1",
+    createdAt: 1,
+    updatedAt: 1,
+    searchableText: "",
+    type: "assistantMessage",
+    entry: {
+      threadId: "thread_1",
+      turnId: "turn_1",
+      itemId: "item_1",
+      type: "assistant_message",
+      kind: "assistantMessage",
+      createdAt: 1,
+      updatedAt: 1,
+    },
+    ...overrides,
+  };
+}
+
+describe("bucketizeTurnItems", () => {
+  test("preserves Codex-style turn ordering across user, agent, assistant, and trailing artifacts", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({ id: "model", type: "modelChanged" }),
+        buildItem({ id: "user", type: "userMessage" }),
+        buildItem({ id: "exec", type: "exec" }),
+        buildItem({ id: "reasoning", type: "reasoning" }),
+        buildItem({ id: "assistant", type: "assistantMessage" }),
+        buildItem({ id: "plan", type: "proposedPlan" }),
+        buildItem({ id: "diff", type: "diff" }),
+        buildItem({ id: "marker", type: "forkedFromConversation" }),
+      ],
+    });
+
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: null,
+      buckets,
+      isLatestTurn: true,
+      isStreamingTurn: false,
+      isBlocked: false,
+    });
+
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe(
+      "modelChanged,userMessage,exec,reasoning,assistantMessage,proposedPlan,diff,forkedFromConversation",
+    );
+  });
+
+  test("keeps only the leading contiguous user prefix in userItems", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({ id: "user_1", type: "userMessage" }),
+        buildItem({ id: "exec", type: "exec" }),
+        buildItem({ id: "user_2", type: "userMessage" }),
+        buildItem({ id: "assistant", type: "assistantMessage" }),
+      ],
+      turnStatus: "completed",
+    });
+
+    expect(buckets.userItems.map((item) => item.id).join(",")).toBe("user_1");
+    expect(buckets.assistantItem?.id ?? "").toBe("assistant");
+    expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("exec,user_2");
+  });
+
+  test("keeps pre-final assistant commentary in agentItems and reserves postAssistant for trailing reviews", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({ id: "exec", type: "exec" }),
+        buildItem({
+          id: "commentary",
+          type: "assistantMessage",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "commentary",
+            type: "assistant_message",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            assistantPhase: "commentary",
+            createdAt: 2,
+            updatedAt: 2,
+            markdownText: "Running the test suite.",
+          },
+        }),
+        buildItem({
+          id: "final",
+          type: "assistantMessage",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "final",
+            type: "assistant_message",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            assistantPhase: "final_answer",
+            createdAt: 3,
+            updatedAt: 3,
+            markdownText: "`bun test` passed.",
+          },
+        }),
+      ],
+      turnStatus: "completed",
+    });
+
+    expect(buckets.assistantItem?.id ?? "").toBe("final");
+    expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("exec,commentary");
+    expect(buckets.postAssistantItems.length).toBe(0);
+  });
+
+  test("builds search units from user and assistant items only", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({ id: "user", type: "userMessage", searchableText: "Refactor the renderer" }),
+        buildItem({ id: "exec", type: "exec", searchableText: "bun test" }),
+        buildItem({ id: "assistant", type: "assistantMessage", searchableText: "I updated the renderer" }),
+      ],
+    });
+
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: null,
+      buckets,
+      isLatestTurn: false,
+      isStreamingTurn: false,
+      isBlocked: false,
+    });
+
+    expect(turn.searchUnits.map((unit) => `${unit.blockType}:${unit.key}`).join(",")).toBe(
+      "userMessage:turn_1:user:0,assistantMessage:turn_1:assistant",
+    );
+  });
+
+  test("only allows default collapse for older completed turns with grouped agent body content", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({ id: "exec", type: "exec", searchableText: "bun test" }),
+      ],
+    });
+
+    const completedTurn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: {
+        threadId: "thread_1",
+        turnId: "turn_1",
+        status: "completed",
+        itemIds: ["exec"],
+        items: [],
+      },
+      buckets,
+      isLatestTurn: false,
+      isStreamingTurn: false,
+      isBlocked: false,
+    });
+
+    const failedTurn = buildTurnViewModel({
+      turnId: "turn_2",
+      turn: {
+        threadId: "thread_1",
+        turnId: "turn_2",
+        status: "failed",
+        itemIds: ["exec"],
+        items: [],
+      },
+      buckets: {
+        ...buckets,
+        agentItems: buckets.agentItems.map((item) => ({ ...item, turnId: "turn_2" })),
+      },
+      isLatestTurn: false,
+      isStreamingTurn: false,
+      isBlocked: false,
+    });
+
+    expect(completedTurn.hasRenderableAgentBodyEntries).toBeTrue();
+    expect(completedTurn.defaultAgentBodyCollapsed).toBeTrue();
+    expect(failedTurn.hasRenderableAgentBodyEntries).toBeFalse();
+    expect(failedTurn.defaultAgentBodyCollapsed).toBeFalse();
+  });
+
+  test("groups exploration-only exec sequences without disturbing surrounding agent order", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({
+          id: "exec_1",
+          type: "exec",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "exec_1",
+            type: "command_execution",
+            kind: "commandExecution",
+            semanticKind: "exec",
+            createdAt: 1,
+            updatedAt: 1,
+            toolCall: {
+              subtype: "command",
+              toolName: "run_command",
+              args: { commandActions: [{ type: "read", name: "read", path: "src/app.ts" }] },
+            },
+          },
+        }),
+        buildItem({
+          id: "reasoning_1",
+          type: "reasoning",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "reasoning_1",
+            type: "reasoning",
+            kind: "reasoning",
+            semanticKind: "reasoning",
+            createdAt: 2,
+            updatedAt: 2,
+            markdownText: "Thinking",
+          },
+        }),
+        buildItem({ id: "tool_1", type: "toolCall" }),
+      ],
+    });
+
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: null,
+      buckets,
+      isLatestTurn: false,
+      isStreamingTurn: false,
+      isBlocked: false,
+    });
+
+    expect(turn.agentBodyEntries.map((entry) => entry.type).join(",")).toBe("explorationGroup");
+  });
+
+  test("groups settled multi-agent actions but leaves in-progress ones alone", () => {
+    const settledBuckets = bucketizeTurnItems({
+      items: [
+        buildItem({ id: "agent_1", type: "multiAgentAction", status: "completed" }),
+        buildItem({ id: "agent_2", type: "multiAgentAction", status: "completed" }),
+      ],
+    });
+    const settledTurn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: null,
+      buckets: settledBuckets,
+      isLatestTurn: false,
+      isStreamingTurn: false,
+      isBlocked: false,
+    });
+
+    const liveBuckets = bucketizeTurnItems({
+      items: [
+        buildItem({ id: "agent_live", type: "multiAgentAction", status: "inProgress" }),
+      ],
+    });
+    const liveTurn = buildTurnViewModel({
+      turnId: "turn_2",
+      turn: null,
+      buckets: liveBuckets,
+      isLatestTurn: false,
+      isStreamingTurn: false,
+      isBlocked: false,
+    });
+
+    expect(settledTurn.agentBodyEntries.map((entry) => entry.type).join(",")).toBe("multiAgentGroup");
+    expect(liveTurn.agentBodyEntries.map((entry) => entry.type).join(",")).toBe("multiAgentAction");
+  });
+
+  test("adds a thinking placeholder for an in-progress turn before assistant content starts", () => {
+    const buckets = bucketizeTurnItems({
+      items: [],
+      turnStatus: "inProgress",
+    });
+
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: {
+        threadId: "thread_1",
+        turnId: "turn_1",
+        status: "inProgress",
+        itemIds: [],
+        items: [],
+      },
+      buckets,
+      isLatestTurn: true,
+      isStreamingTurn: true,
+      isBlocked: false,
+    });
+
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe("thinkingPlaceholder");
+  });
+
+  test("suppresses the thinking placeholder while a proposed plan is still streaming", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({
+          id: "plan",
+          type: "proposedPlan",
+          status: "inProgress",
+        }),
+      ],
+      turnStatus: "inProgress",
+    });
+
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: {
+        threadId: "thread_1",
+        turnId: "turn_1",
+        status: "inProgress",
+        itemIds: ["plan"],
+        items: [],
+      },
+      buckets,
+      isLatestTurn: true,
+      isStreamingTurn: true,
+      isBlocked: false,
+    });
+
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe("proposedPlan");
+  });
+});

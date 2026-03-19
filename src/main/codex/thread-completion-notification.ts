@@ -26,20 +26,20 @@ function stringifyToolCallResult(value: unknown): string {
 function pickLastTurnMessage(detail: CodexThreadDetail | null, turnId: string): string {
   if (!detail) return "";
 
-  const turnItems = detail.items.filter((item) => item.turnId === turnId);
-  if (turnItems.length === 0) return "";
+  const turnEntries = detail.transcript.filter((entry) => entry.turnId === turnId);
+  if (turnEntries.length === 0) return "";
 
-  const assistantItems = turnItems.filter((item) =>
-    item.role === "assistant" || item.normalizedKind === "assistantMessage"
+  const assistantEntries = turnEntries.filter((entry) =>
+    entry.role === "assistant" || entry.kind === "assistantMessage"
   );
-  const candidates = assistantItems.length > 0 ? assistantItems : turnItems;
+  const candidates = assistantEntries.length > 0 ? assistantEntries : turnEntries;
 
   for (let index = candidates.length - 1; index >= 0; index -= 1) {
-    const item = candidates[index];
-    if (!item) continue;
+    const entry = candidates[index];
+    if (!entry) continue;
 
     const message = normalizeNotificationText(
-      item.markdownText ?? stringifyToolCallResult(item.toolCall?.result),
+      entry.markdownText ?? stringifyToolCallResult(entry.toolCall?.result),
     );
     if (!message) continue;
     return truncateNotificationBody(message);

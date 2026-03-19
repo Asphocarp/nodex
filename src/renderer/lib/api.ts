@@ -24,6 +24,12 @@ export function subscribeCodexEvents(callback: (event: import("./types").CodexEv
   return resolveRendererTransport().subscribeCodexEvents(callback);
 }
 
+export function subscribeCodexHostMessages(
+  callback: (message: import("./types").CodexHostMessage) => void,
+): () => void {
+  return resolveRendererTransport().subscribeCodexHostMessages(callback);
+}
+
 export function subscribeGitBranchChanges(
   callback: (event: { cwd: string }) => void,
 ): () => void {

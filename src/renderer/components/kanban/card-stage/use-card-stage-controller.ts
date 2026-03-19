@@ -3,7 +3,7 @@ import {
   EMPTY_BRANCH_SELECTOR_STATE,
   parseBranchSelectorState,
   type BranchSelectorState,
-} from "@/components/workbench/stage-threads/branch-selector-state";
+} from "@/features/local-conversation/view/shared/branch-selector-state";
 import { invoke } from "@/lib/api";
 import { formatCardStageCollapsedPropertyCountLabel } from "@/lib/card-stage-collapsed-properties";
 import {

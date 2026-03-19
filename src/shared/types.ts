@@ -454,6 +454,8 @@ export interface CodexThreadSummary {
   linkedAt: string;
 }
 
+export type CodexConversationResumeState = "needs_resume" | "resuming" | "resumed";
+
 export type CodexReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
 
 export type CodexCollaborationModeKind = "default" | "plan";
@@ -506,6 +508,16 @@ export interface CodexTurnStartOptions {
   collaborationMode?: CodexCollaborationModeKind;
 }
 
+export interface CodexComposerIntent {
+  prompt: string;
+  focusNonce: number;
+}
+
+export interface CodexThreadActionResult {
+  threadId: string;
+  composerIntent: CodexComposerIntent;
+}
+
 export type CodexPermissionMode = "sandbox" | "full-access" | "custom";
 
 export type CodexTurnStatus = "inProgress" | "completed" | "interrupted" | "failed";
@@ -529,6 +541,7 @@ export interface CodexTurnSummary {
   turnId: string;
   status: CodexTurnStatus;
   errorMessage?: string;
+  diff?: string;
   itemIds: string[];
   tokenUsage?: CodexThreadTokenUsage;
 }
@@ -544,8 +557,38 @@ export type CodexItemNormalizedKind =
   | "toolCall"
   | "systemEvent";
 
+export type CodexSemanticItemKind =
+  | "userMessage"
+  | "assistantMessage"
+  | "reasoning"
+  | "todoList"
+  | "proposedPlan"
+  | "exec"
+  | "patch"
+  | "diff"
+  | "toolCall"
+  | "mcpToolCall"
+  | "webSearch"
+  | "workedFor"
+  | "mcpServerElicitation"
+  | "streamError"
+  | "systemError"
+  | "remoteTaskCreated"
+  | "personalityChanged"
+  | "forkedFromConversation"
+  | "modelChanged"
+  | "modelRerouted"
+  | "contextCompaction"
+  | "automaticApprovalReview"
+  | "multiAgentAction"
+  | "answeredUserInput"
+  | "systemEvent";
+
 export type CodexToolCallSubtype = "mcp" | "webSearch" | "generic" | "command" | "fileChange";
 export type CodexItemStatus = "inProgress" | "completed" | "failed" | "declined" | "interrupted";
+export type CodexTranscriptEntryKind = CodexItemNormalizedKind;
+export type CodexTranscriptEntryStatus = CodexItemStatus;
+export type CodexTranscriptEntrySource = "live" | "bootstrap" | "replay" | "optimistic";
 
 export type CodexCommandAction =
   | { type: "read"; command: string; name: string; path: string }
@@ -568,6 +611,9 @@ export interface CodexItemView {
   itemId: string;
   type: string;
   normalizedKind: CodexItemNormalizedKind;
+  semanticKind?: CodexSemanticItemKind;
+  assistantPhase?: string;
+  timeLabel?: string;
   status?: CodexItemStatus;
   role?: "user" | "assistant";
   toolCall?: CodexToolCallView;
@@ -579,15 +625,47 @@ export interface CodexItemView {
   updatedAt: number;
 }
 
+export interface CodexTranscriptEntry {
+  threadId: string;
+  turnId: string;
+  entryId?: string;
+  itemId: string;
+  type: string;
+  kind: CodexTranscriptEntryKind;
+  semanticKind?: CodexSemanticItemKind;
+  assistantPhase?: string;
+  timeLabel?: string;
+  status?: CodexTranscriptEntryStatus;
+  role?: "user" | "assistant";
+  source?: CodexTranscriptEntrySource;
+  sequence?: number;
+  toolCall?: CodexToolCallView;
+  markdownText?: string;
+  userInputQuestions?: CodexUserInputQuestion[];
+  userInputAnswers?: Record<string, string[]>;
+  rawItem?: unknown;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface CodexThreadDetail extends CodexThreadSummary {
   turns: CodexTurnSummary[];
-  items: CodexItemView[];
+  transcript: CodexTranscriptEntry[];
+}
+
+export interface CodexConversationItem extends CodexTranscriptEntry {
+  requestId?: string;
+}
+
+export interface CodexConversationTurn extends CodexTurnSummary {
+  items: CodexConversationItem[];
 }
 
 export type CodexApprovalKind = "command" | "file";
 export type CodexApprovalDecision = "accept" | "acceptForSession" | "decline" | "cancel";
 
 export interface CodexApprovalRequest {
+  type: "approval";
   requestId: string;
   kind: CodexApprovalKind;
   projectId: string | null;
@@ -616,6 +694,7 @@ export interface CodexUserInputQuestion {
 }
 
 export interface CodexUserInputRequest {
+  type: "userInput";
   requestId: string;
   projectId: string | null;
   cardId: string | null;
@@ -627,6 +706,7 @@ export interface CodexUserInputRequest {
 }
 
 export interface CodexPlanImplementationRequest {
+  type: "implementPlan";
   requestId: string;
   projectId: string | null;
   cardId: string | null;
@@ -635,6 +715,89 @@ export interface CodexPlanImplementationRequest {
   itemId: string;
   planContent: string;
   createdAt: number;
+}
+
+export interface CodexMcpElicitationOption {
+  value: string;
+  label: string;
+  description?: string;
+}
+
+export interface CodexMcpServerElicitationRequest {
+  type: "mcpServerElicitation";
+  requestId: string;
+  projectId: string | null;
+  cardId: string | null;
+  threadId: string;
+  turnId: string;
+  itemId: string;
+  kind: "generic" | "mcpToolCall" | "toolSuggestion";
+  title?: string;
+  prompt?: string;
+  options?: CodexMcpElicitationOption[];
+  allowFreeform?: boolean;
+  createdAt: number;
+}
+
+export type CodexMcpServerElicitationAction = "accept" | "decline" | "cancel";
+
+export interface CodexPendingSteer {
+  steerId: string;
+  threadId: string;
+  turnId: string;
+  prompt: string;
+  createdAt: number;
+}
+
+export interface CodexQueuedFollowUp {
+  followUpId: string;
+  threadId: string;
+  prompt: string;
+  createdAt: number;
+  collaborationMode?: CodexCollaborationModeKind | null;
+  pausedReason?: string | null;
+}
+
+export interface CodexBackgroundTerminalRow {
+  rowId: string;
+  threadId: string;
+  stream: "info" | "stdout" | "stderr";
+  text: string;
+  createdAt: number;
+}
+
+export interface CodexConversationChildMembership {
+  threadId: string;
+  parentThreadId: string;
+  role: "childApproval" | "backgroundChild";
+  actorName?: string;
+}
+
+export interface CodexConversationCapabilityFlags {
+  canEditLastUserTurn: boolean;
+  canForkFromTurn: boolean;
+  canSearch: boolean;
+  canCollapseTurns: boolean;
+}
+
+export type CodexConversationServerRequest =
+  | CodexApprovalRequest
+  | CodexUserInputRequest
+  | CodexMcpServerElicitationRequest;
+
+export type CodexConversationLiveRequest =
+  | CodexConversationServerRequest
+  | CodexPlanImplementationRequest;
+
+export interface CodexConversationSnapshot extends CodexThreadSummary {
+  resumeState: CodexConversationResumeState;
+  turns: CodexConversationTurn[];
+  requests: CodexConversationServerRequest[];
+  queuedFollowUps: CodexQueuedFollowUp[];
+  pendingSteers: CodexPendingSteer[];
+  backgroundTerminalRows: CodexBackgroundTerminalRow[];
+  childMemberships: CodexConversationChildMembership[];
+  capabilityFlags: CodexConversationCapabilityFlags;
 }
 
 export type CodexThreadStartProgressPhase =
@@ -659,8 +822,6 @@ export type CodexEvent =
       statusActiveFlags: CodexThreadActiveFlag[];
     }
   | { type: "turn"; turn: CodexTurnSummary }
-  | { type: "itemUpsert"; item: CodexItemView }
-  | { type: "itemDelta"; threadId: string; turnId: string; itemId: string; delta: string }
   | { type: "approvalRequested"; request: CodexApprovalRequest }
   | { type: "approvalResolved"; requestId: string; decision: CodexApprovalDecision }
   | { type: "userInputRequested"; request: CodexUserInputRequest }
@@ -676,4 +837,17 @@ export type CodexEvent =
       clearOutput?: boolean;
       updatedAt: number;
     }
+  | { type: "error"; message: string; detail?: string };
+
+export type CodexPendingThreadRequest =
+  | CodexApprovalRequest
+  | CodexUserInputRequest
+  | CodexPlanImplementationRequest;
+
+export type CodexHostMessage =
+  | { type: "connection"; connection: CodexConnectionState }
+  | { type: "account"; account: CodexAccountSnapshot }
+  | { type: "rateLimits"; rateLimits: CodexRateLimitsSnapshot | null }
+  | { type: "threadSummary"; thread: CodexThreadSummary }
+  | { type: "conversationSnapshot"; conversation: CodexConversationSnapshot }
   | { type: "error"; message: string; detail?: string };

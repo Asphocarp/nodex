@@ -6,6 +6,7 @@ import type {
   CodexToolCallView,
   CodexUserInputQuestion,
 } from "../../shared/types";
+import { projectCodexReasoningSummary } from "./codex-reasoning-projection";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (typeof value !== "object" || value === null) return null;
@@ -144,6 +145,14 @@ function formatAskedQuestionLabel(count: number): string {
   return count === 1 ? "Asked 1 question" : `Asked ${count} questions`;
 }
 
+function isTodoListMarkdown(value: string | undefined): boolean {
+  const text = value?.trim() ?? "";
+  if (!text) return false;
+  const lines = text.split("\n").filter((line) => line.trim().length > 0);
+  if (lines.length === 0) return false;
+  return lines.every((line) => /^(- \[[ xX]\]|\d+\.)/.test(line.trim()));
+}
+
 function resolveToolCallError(candidate: Record<string, unknown>): string | undefined {
   const errorRecord = asRecord(candidate.error);
   return (
@@ -277,6 +286,7 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
     itemId,
     type: itemType,
     normalizedKind: "systemEvent",
+    semanticKind: "systemEvent",
     rawItem: candidate,
     createdAt: now,
     updatedAt: now,
@@ -285,6 +295,7 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
   if (isType(itemType, ["userMessage"])) {
     const text = parseUserMessageText(candidate);
     result.normalizedKind = "userMessage";
+    result.semanticKind = "userMessage";
     result.role = "user";
     result.markdownText = text;
     return applyFallbackContent(result, itemType);
@@ -293,6 +304,8 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
   if (isType(itemType, ["agentMessage"])) {
     const text = getString(candidate, ["text"]) ?? "";
     result.normalizedKind = "assistantMessage";
+    result.semanticKind = "assistantMessage";
+    result.assistantPhase = getString(candidate, ["phase"]) ?? undefined;
     result.role = "assistant";
     result.markdownText = text;
     return applyFallbackContent(result, itemType);
@@ -301,6 +314,7 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
   if (isType(itemType, ["plan"])) {
     const text = getString(candidate, ["text"]) ?? "";
     result.normalizedKind = "plan";
+    result.semanticKind = isTodoListMarkdown(text) ? "todoList" : "proposedPlan";
     result.role = "assistant";
     result.markdownText = text;
     return applyFallbackContent(result, itemType);
@@ -309,6 +323,7 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
   if (isType(itemType, ["requestUserInput", "request_user_input"])) {
     const questions = parseUserInputQuestions(candidate.questions);
     result.normalizedKind = "userInputRequest";
+    result.semanticKind = parseUserInputAnswers(candidate.answers) ? "answeredUserInput" : "systemEvent";
     result.status = normalizeItemStatus(getUnknown(candidate, ["status"]));
     result.markdownText = formatAskedQuestionLabel(questions.length);
     result.userInputQuestions = questions;
@@ -317,16 +332,10 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
   }
 
   if (isType(itemType, ["reasoning"])) {
-    const summary = Array.isArray(candidate.summary)
-      ? candidate.summary.filter((entry): entry is string => typeof entry === "string")
-      : [];
-    const content = Array.isArray(candidate.content)
-      ? candidate.content.filter((entry): entry is string => typeof entry === "string")
-      : [];
-    const text = [...summary, ...content].join("\n");
     result.normalizedKind = "reasoning";
+    result.semanticKind = "reasoning";
     result.status = normalizeItemStatus(getUnknown(candidate, ["status"]));
-    result.markdownText = text;
+    result.markdownText = projectCodexReasoningSummary(candidate.summary);
     return applyFallbackContent(result, itemType);
   }
 
@@ -337,6 +346,7 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
     const commandActions = parseCommandActions(candidate.commandActions ?? candidate.command_actions);
 
     result.normalizedKind = "commandExecution";
+    result.semanticKind = "exec";
     result.status = normalizeItemStatus(getUnknown(candidate, ["status"]));
     result.toolCall = buildToolCall("command", "bash", {
       args: {
@@ -353,6 +363,7 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
   if (isType(itemType, ["fileChange", "file_change"])) {
     const { label, diff, paths, parsedChanges } = extractFileChanges(candidate);
     result.normalizedKind = "fileChange";
+    result.semanticKind = "patch";
     result.status = normalizeItemStatus(getUnknown(candidate, ["status"]));
     result.toolCall = buildToolCall("fileChange", "file_change", {
       args: {
@@ -374,6 +385,7 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
     const error = resolveToolCallError(candidate);
 
     result.normalizedKind = "toolCall";
+    result.semanticKind = "mcpToolCall";
     result.status = normalizeItemStatus(getUnknown(candidate, ["status"]));
     result.toolCall = buildToolCall("mcp", tool, {
       server,
@@ -392,6 +404,7 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
       : [];
 
     result.normalizedKind = "toolCall";
+    result.semanticKind = "multiAgentAction";
     result.status = normalizeItemStatus(getUnknown(candidate, ["status"]));
     result.toolCall = buildToolCall("generic", tool, {
       args: {
@@ -408,6 +421,7 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
   if (isType(itemType, ["webSearch", "web_search"])) {
     const query = getString(candidate, ["query"]);
     result.normalizedKind = "toolCall";
+    result.semanticKind = "webSearch";
     result.toolCall = buildToolCall("webSearch", "web_search", {
       args: {
         query,
@@ -421,6 +435,7 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
   if (isType(itemType, ["imageView", "image_view"])) {
     const path = getString(candidate, ["path"]);
     result.normalizedKind = "systemEvent";
+    result.semanticKind = "systemEvent";
     result.markdownText = path ? `Viewed image: ${path}` : "Viewed image";
     return applyFallbackContent(result, itemType);
   }
@@ -428,6 +443,7 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
   if (isType(itemType, ["enteredReviewMode", "entered_review_mode"])) {
     const reviewId = getString(candidate, ["review"]);
     result.normalizedKind = "systemEvent";
+    result.semanticKind = "systemEvent";
     result.markdownText = reviewId ? `Entered review mode (${reviewId})` : "Entered review mode";
     return applyFallbackContent(result, itemType);
   }
@@ -435,12 +451,14 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
   if (isType(itemType, ["exitedReviewMode", "exited_review_mode"])) {
     const reviewId = getString(candidate, ["review"]);
     result.normalizedKind = "systemEvent";
+    result.semanticKind = "systemEvent";
     result.markdownText = reviewId ? `Exited review mode (${reviewId})` : "Exited review mode";
     return applyFallbackContent(result, itemType);
   }
 
   if (isType(itemType, ["contextCompaction", "context_compaction"])) {
     result.normalizedKind = "systemEvent";
+    result.semanticKind = "contextCompaction";
     result.markdownText = "Context compacted";
     return applyFallbackContent(result, itemType);
   }

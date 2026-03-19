@@ -47,13 +47,14 @@ function makeDetail(overrides?: Partial<CodexThreadDetail>): CodexThreadDetail {
     updatedAt: 1,
     linkedAt: "2026-03-04T00:00:00.000Z",
     turns: [],
-    items: [
+    transcript: [
       {
         threadId: "thread-1",
         turnId: "turn-1",
         itemId: "item-1",
         type: "agentMessage",
-        normalizedKind: "assistantMessage",
+        kind: "assistantMessage",
+        semanticKind: "assistantMessage",
         role: "assistant",
         markdownText: "Final answer ready.",
         createdAt: 1,
@@ -69,13 +70,14 @@ describe("resolveThreadCompletionNotificationContent", () => {
     const content = resolveThreadCompletionNotificationContent({
       thread: makeThread(),
       detail: makeDetail({
-        items: [
+        transcript: [
           {
             threadId: "thread-1",
             turnId: "turn-1",
             itemId: "user-1",
             type: "userMessage",
-            normalizedKind: "userMessage",
+            kind: "userMessage",
+            semanticKind: "userMessage",
             role: "user",
             markdownText: "Please add thread notifications",
             createdAt: 1,
@@ -86,7 +88,8 @@ describe("resolveThreadCompletionNotificationContent", () => {
             turnId: "turn-1",
             itemId: "assistant-1",
             type: "agentMessage",
-            normalizedKind: "assistantMessage",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
             role: "assistant",
             markdownText: "Implemented native notifications and a settings toggle.",
             createdAt: 2,
@@ -104,7 +107,7 @@ describe("resolveThreadCompletionNotificationContent", () => {
   test("falls back to the thread preview when the turn has no text items", () => {
     const content = resolveThreadCompletionNotificationContent({
       thread: makeThread({ threadPreview: "Preview from thread summary" }),
-      detail: makeDetail({ items: [] }),
+      detail: makeDetail({ transcript: [] }),
       turn: makeTurn(),
     });
 
@@ -115,7 +118,7 @@ describe("resolveThreadCompletionNotificationContent", () => {
   test("uses a status fallback for failed turns without text", () => {
     const content = resolveThreadCompletionNotificationContent({
       thread: makeThread({ threadPreview: "" }),
-      detail: makeDetail({ items: [] }),
+      detail: makeDetail({ transcript: [] }),
       turn: makeTurn({ status: "failed", errorMessage: "Process exited with code 1" }),
     });
 

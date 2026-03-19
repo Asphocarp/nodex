@@ -6,7 +6,6 @@ import * as SmartPrefixParsing from "@/lib/smart-prefix-parsing";
 import * as StageRailPeek from "@/lib/stage-rail-peek";
 import * as StatusChip from "@/lib/status-chip";
 import * as ThreadPanelPromptSubmitShortcut from "@/lib/thread-panel-prompt-submit-shortcut";
-import * as ThreadPanelThinkingVisibility from "@/lib/thread-panel-thinking-visibility";
 import * as WorkbenchState from "@/lib/use-workbench-state";
 import * as WorktreeBranchPrefix from "@/lib/worktree-branch-prefix";
 import * as WorktreeStartMode from "@/lib/worktree-start-mode";
@@ -98,13 +97,6 @@ mock.module("./left-sidebar", () => ({
   },
 }));
 
-mock.module("./stage-threads", () => ({
-  StageThreads: (props: Record<string, unknown>) => {
-    (globalThis as { __lastStageThreadsProps?: Record<string, unknown> }).__lastStageThreadsProps = props;
-    return createElement("div", { "data-stage-threads": "true" });
-  },
-}));
-
 mock.module("./stage-files-placeholder", () => ({
   StageFilesPlaceholder: () => createElement("div", { "data-diff-placeholder": "true" }),
 }));
@@ -159,12 +151,6 @@ mock.module("@/lib/stage-rail-peek", () => ({
   writeNextPanelPeekPx: (value: number) => value,
 }));
 
-mock.module("@/lib/thread-panel-thinking-visibility", () => ({
-  ...ThreadPanelThinkingVisibility,
-  readThreadPanelHideThinkingWhenDone: () => false,
-  writeThreadPanelHideThinkingWhenDone: (value: boolean) => value,
-}));
-
 mock.module("@/lib/thread-panel-prompt-submit-shortcut", () => ({
   ...ThreadPanelPromptSubmitShortcut,
   readThreadPromptSubmitShortcut: () => "enter" as const,
@@ -200,13 +186,11 @@ mock.module("@/lib/smart-prefix-parsing", () => ({
   writeStripSmartPrefixFromTitleEnabled: (value: boolean) => value,
 }));
 
-mock.module("@/lib/use-codex", () => ({
-  useCodex: () => ({
+mock.module("@/lib/use-codex-control", () => ({
+  useCodexControl: () => ({
     ...({
       state: {
-        connection: {},
-        account: null,
-        threadDetailsById: {},
+        threadStartProgressByTarget: {},
       },
       threads: ((globalThis as { __mockCodexThreads?: Array<Record<string, unknown>> }).__mockCodexThreads ?? []),
       availableModels: [],
@@ -216,28 +200,92 @@ mock.module("@/lib/use-codex", () => ({
       },
       reasoningEffortOptions: [],
       permissionMode: "sandbox" as const,
-      approvalQueue: [],
-      userInputQueue: [],
       loadThreads: async () => [],
       loadModels: async () => [],
       listCollaborationModes: async () => [],
-      readThread: async () => null,
       startThreadForCard: async () => ({ threadId: "t-1" }),
       startTurn: async () => null,
+      enqueueQueuedFollowUp: async () => undefined,
       steerTurn: async () => null,
       interruptTurn: async () => true,
       respondApproval: async () => true,
       respondUserInput: async () => true,
-      refreshAccount: async () => null,
-      startChatGptLogin: async () => ({ type: "apiKey" as const }),
-      startApiKeyLogin: async () => ({ type: "apiKey" as const }),
-      cancelLogin: async () => ({ status: "canceled" as const }),
-      logout: async () => true,
       setPermissionMode: async () => undefined,
       setThreadModel: () => undefined,
       setThreadReasoningEffort: () => undefined,
     }),
     ...((globalThis as { __mockUseCodexOverrides?: Record<string, unknown> }).__mockUseCodexOverrides ?? {}),
+  }),
+}));
+
+mock.module("@/lib/use-codex-thread-follower-client", () => ({
+  useCodexThreadFollowerClient: () => ({
+    startTurn: async () => null,
+    enqueueQueuedFollowUp: async () => undefined,
+    steerTurn: async () => null,
+    interruptTurn: async () => true,
+    editLastUserTurn: async () => ({
+      threadId: "thr-1",
+      composerIntent: {
+        prompt: "Edited prompt",
+        focusNonce: 1,
+      },
+    }),
+    forkConversationFromTurn: async () => ({
+      threadId: "thr-forked",
+      composerIntent: {
+        prompt: "Forked prompt",
+        focusNonce: 2,
+      },
+    }),
+    ...((globalThis as { __mockUseCodexThreadFollowerClientOverrides?: Record<string, unknown> }).__mockUseCodexThreadFollowerClientOverrides ?? {}),
+  }),
+}));
+
+mock.module("@/lib/use-codex-account-actions", () => ({
+  useCodexAccountActions: () => ({
+    refreshAccount: async () => null,
+    startChatGptLogin: async () => ({ type: "apiKey" as const }),
+    startApiKeyLogin: async () => ({ type: "apiKey" as const }),
+    cancelLogin: async () => ({ status: "canceled" as const }),
+    logout: async () => true,
+    ...((globalThis as { __mockUseCodexAccountActionOverrides?: Record<string, unknown> }).__mockUseCodexAccountActionOverrides ?? {}),
+  }),
+}));
+
+mock.module("@/features/local-conversation", () => ({
+  StageThreads: (props: Record<string, unknown>) => {
+    const model = (props.model as Record<string, unknown> | undefined) ?? {};
+    const actions = (props.actions as Record<string, unknown> | undefined) ?? {};
+    (globalThis as { __lastStageThreadsProps?: Record<string, unknown> }).__lastStageThreadsProps = {
+      ...props,
+      ...model,
+      ...actions,
+    };
+    return createElement("div", { "data-stage-threads": "true" });
+  },
+  useThreadStageModel: (model: unknown, actions: unknown) => ({ model, actions }),
+  useLocalConversation: () => ({
+    ...({
+      state: {
+        connection: {
+          status: "disconnected",
+          retries: 0,
+        },
+        account: null,
+        threadSummariesByProject: {},
+        conversationsById: {},
+        composerIntentsByThread: {},
+        dismissedPlanImplementationTurnIdByThread: {},
+        errorMessage: null,
+      },
+      threads: [],
+      requestConversationSnapshot: async () => null,
+      requestConversationResume: async () => null,
+      setComposerIntent: () => undefined,
+      consumeComposerIntent: () => undefined,
+    }),
+    ...((globalThis as { __mockUseLocalConversationOverrides?: Record<string, unknown> }).__mockUseLocalConversationOverrides ?? {}),
   }),
 }));
 
@@ -360,6 +408,8 @@ async function renderShell(
   invokeImpl: ((...args: unknown[]) => Promise<unknown>) | null = null,
   expandedStages: Array<"db" | "cards" | "threads" | "files"> = ["db", "cards"],
   useCodexOverrides?: Record<string, unknown>,
+  useLocalConversationOverrides?: Record<string, unknown>,
+  useCodexThreadFollowerOverrides?: Record<string, unknown>,
 ): Promise<ReturnType<typeof render>> {
   (globalThis as { __lastSettingsOverlayProps?: Record<string, unknown> }).__lastSettingsOverlayProps = undefined;
   (globalThis as { __lastCommandPaletteProps?: Record<string, unknown> }).__lastCommandPaletteProps = undefined;
@@ -372,6 +422,10 @@ async function renderShell(
   (globalThis as { __stageTabStripProps?: StageTabStripProps[] }).__stageTabStripProps = [];
   (globalThis as { __mockCodexThreads?: Array<Record<string, unknown>> }).__mockCodexThreads = mockCodexThreads;
   (globalThis as { __mockUseCodexOverrides?: Record<string, unknown> }).__mockUseCodexOverrides = useCodexOverrides;
+  (globalThis as { __mockUseCodexThreadFollowerClientOverrides?: Record<string, unknown> }).__mockUseCodexThreadFollowerClientOverrides =
+    useCodexThreadFollowerOverrides;
+  (globalThis as { __mockUseLocalConversationOverrides?: Record<string, unknown> }).__mockUseLocalConversationOverrides =
+    useLocalConversationOverrides;
   resolveExpandedStagesReturn = expandedStages;
   mockInvokeImpl = invokeImpl;
   invokeCalls = [];
@@ -465,6 +519,7 @@ async function renderShell(
     onRequestProjectPickerOpen: () => undefined,
     projectPickerOpenTick: 0,
     taskSearchOpenTick: 0,
+    threadSearchOpenTick: 0,
     commandPaletteOpenTick: 0,
     settingsToggleTick: 0,
     onCreateProject: async () => null,
@@ -709,30 +764,7 @@ describe("WorkbenchShell", () => {
 
   test("passes selected collaboration mode into startTurn callback", async () => {
     const startTurnCalls: Array<unknown[]> = [];
-    const useCodexOverrides: Record<string, unknown> = {
-      state: {
-        connection: {},
-        account: null,
-        threadDetailsById: {
-          "thr-1": {
-            threadId: "thr-1",
-            projectId: "default",
-            cardId: "card-1",
-            threadName: "Thread 1",
-            threadPreview: "Preview",
-            modelProvider: "openai",
-            cwd: "/tmp/project",
-            statusType: "idle",
-            statusActiveFlags: [],
-            archived: false,
-            createdAt: 1,
-            updatedAt: 2,
-            linkedAt: "2026-02-21T00:00:00.000Z",
-            turns: [],
-            items: [],
-          },
-        },
-      },
+    const threadFollowerOverrides: Record<string, unknown> = {
       startTurn: async (...args: unknown[]) => {
         startTurnCalls.push(args);
         return null;
@@ -757,7 +789,11 @@ describe("WorkbenchShell", () => {
         updatedAt: 2,
         linkedAt: "2026-02-21T00:00:00.000Z",
       },
-    ], null, ["db", "cards"], useCodexOverrides);
+    ], null, ["db", "cards"], {
+      state: {
+        threadStartProgressByTarget: {},
+      },
+    }, undefined, threadFollowerOverrides);
 
     const stageThreadsProps = (globalThis as { __lastStageThreadsProps?: Record<string, unknown> }).__lastStageThreadsProps;
     const onSendPrompt = stageThreadsProps?.onSendPrompt as ((prompt: string) => Promise<void>) | undefined;
@@ -772,30 +808,7 @@ describe("WorkbenchShell", () => {
 
   test("allows thread prompt callbacks to override collaboration mode for plan implementation follow-ups", async () => {
     const startTurnCalls: Array<unknown[]> = [];
-    const useCodexOverrides: Record<string, unknown> = {
-      state: {
-        connection: {},
-        account: null,
-        threadDetailsById: {
-          "thr-1": {
-            threadId: "thr-1",
-            projectId: "default",
-            cardId: "card-1",
-            threadName: "Thread 1",
-            threadPreview: "Preview",
-            modelProvider: "openai",
-            cwd: "/tmp/project",
-            statusType: "idle",
-            statusActiveFlags: [],
-            archived: false,
-            createdAt: 1,
-            updatedAt: 2,
-            linkedAt: "2026-02-21T00:00:00.000Z",
-            turns: [],
-            items: [],
-          },
-        },
-      },
+    const threadFollowerOverrides: Record<string, unknown> = {
       startTurn: async (...args: unknown[]) => {
         startTurnCalls.push(args);
         return null;
@@ -820,7 +833,11 @@ describe("WorkbenchShell", () => {
         updatedAt: 2,
         linkedAt: "2026-02-21T00:00:00.000Z",
       },
-    ], null, ["db", "cards"], useCodexOverrides);
+    ], null, ["db", "cards"], {
+      state: {
+        threadStartProgressByTarget: {},
+      },
+    }, undefined, threadFollowerOverrides);
 
     const stageThreadsProps = (globalThis as { __lastStageThreadsProps?: Record<string, unknown> }).__lastStageThreadsProps;
     const onSendPrompt = stageThreadsProps?.onSendPrompt as
@@ -833,6 +850,123 @@ describe("WorkbenchShell", () => {
     expect(startTurnCalls.length).toBe(1);
     const startTurnOptions = startTurnCalls[0]?.[2] as { collaborationMode?: string } | undefined;
     expect(startTurnOptions?.collaborationMode).toBe("default");
+  });
+
+  test("sources active thread stage data from local conversation snapshots instead of codex thread details", async () => {
+    await renderShell(
+      false,
+      "full-rail",
+      {
+        activeThreadsTabId: "thr-1",
+        threadsTabs: [{ id: "thr-1", title: "Thread 1", preview: "Preview" }],
+      },
+      [
+        {
+          threadId: "thr-1",
+          projectId: "default",
+          cardId: "card-1",
+          threadName: "Thread 1",
+          threadPreview: "Preview",
+          modelProvider: "openai",
+          statusType: "idle",
+          statusActiveFlags: [],
+          archived: false,
+          createdAt: 1,
+          updatedAt: 2,
+          linkedAt: "2026-02-21T00:00:00.000Z",
+        },
+      ],
+      null,
+      ["db", "cards"],
+      {
+        state: {
+          threadStartProgressByTarget: {},
+        },
+      },
+      {
+        state: {
+          connection: {
+            status: "connected",
+            retries: 0,
+          },
+          account: null,
+          threadSummariesByProject: {},
+          conversationsById: {
+            "thr-1": {
+              threadId: "thr-1",
+              projectId: "default",
+              cardId: "card-1",
+              threadName: "Thread 1",
+              threadPreview: "Preview",
+              modelProvider: "openai",
+              cwd: "/tmp/project",
+              statusType: "idle",
+              statusActiveFlags: [],
+              archived: false,
+              createdAt: 1,
+              updatedAt: 2,
+              linkedAt: "2026-02-21T00:00:00.000Z",
+              turns: [
+                {
+                  threadId: "thr-1",
+                  turnId: "turn-1",
+                  status: "completed",
+                  itemIds: ["user-1"],
+                  items: [
+                    {
+                      threadId: "thr-1",
+                      turnId: "turn-1",
+                      itemId: "user-1",
+                      type: "user_message",
+                      kind: "userMessage",
+                      role: "user",
+                      markdownText: "hello",
+                      createdAt: 1,
+                      updatedAt: 1,
+                    },
+                  ],
+                },
+              ],
+              requests: [
+                {
+                  type: "approval",
+                  requestId: "approval-1",
+                  kind: "command",
+                  projectId: "default",
+                  cardId: "card-1",
+                  threadId: "thr-1",
+                  turnId: "turn-1",
+                  itemId: "user-1",
+                  createdAt: 2,
+                },
+              ],
+              queuedFollowUps: [],
+              pendingSteers: [],
+              backgroundTerminalRows: [],
+              childMemberships: [],
+              capabilityFlags: {
+                canEditLastUserTurn: true,
+                canForkFromTurn: true,
+                canSearch: true,
+                canCollapseTurns: true,
+              },
+            },
+          },
+          errorMessage: null,
+        },
+      },
+    );
+
+    const stageThreadsProps = (globalThis as { __lastStageThreadsProps?: Record<string, unknown> }).__lastStageThreadsProps;
+    const conversation = stageThreadsProps?.conversation as {
+      threadId?: string;
+      turns?: Array<{ items?: Array<{ itemId?: string }> }>;
+      requests?: Array<{ requestId?: string }>;
+    } | undefined;
+
+    expect(conversation?.threadId).toBe("thr-1");
+    expect(conversation?.turns?.[0]?.items?.[0]?.itemId).toBe("user-1");
+    expect(conversation?.requests?.[0]?.requestId).toBe("approval-1");
   });
 
   test("terminal panel uses active terminal tab project", async () => {
@@ -1496,6 +1630,97 @@ describe("WorkbenchShell", () => {
     });
 
     expect(invokeCalls.some((call) => call[0] === "card:get")).toBeFalse();
+  });
+
+  test("submitting an inline message edit refreshes the thread snapshot without seeding a composer intent", async () => {
+    const requestConversationSnapshotCalls: Array<unknown[]> = [];
+    const setComposerIntentCalls: Array<unknown[]> = [];
+    const editLastUserTurnCalls: Array<unknown[]> = [];
+
+    await renderShell(false, "sliding-window", {
+      focusedStage: "threads",
+      activeThreadsTabId: "thr-1",
+      threadsTabs: [{ id: "thr-1", title: "Thread 1", preview: "Preview" }],
+    }, [
+      {
+        threadId: "thr-1",
+        threadName: "Thread 1",
+        threadPreview: "preview",
+        statusType: "idle",
+        cardId: "card-1",
+      },
+    ], null, ["threads", "files"], undefined, {
+      requestConversationSnapshot: async (...args: unknown[]) => {
+        requestConversationSnapshotCalls.push(args);
+        return null;
+      },
+      setComposerIntent: (...args: unknown[]) => {
+        setComposerIntentCalls.push(args);
+      },
+    }, {
+      editLastUserTurn: async (...args: unknown[]) => {
+        editLastUserTurnCalls.push(args);
+        return {
+          threadId: "thr-1",
+          composerIntent: {
+            prompt: "Edited prompt",
+            focusNonce: 1,
+          },
+        };
+      },
+    });
+
+    const stageThreadsProps = (globalThis as { __lastStageThreadsProps?: Record<string, unknown> }).__lastStageThreadsProps;
+    const onEditLastUserTurn = stageThreadsProps?.onEditLastUserTurn as ((input: {
+      threadId: string;
+      turnId: string;
+      message: string;
+    }) => Promise<void>) | undefined;
+    expect(Boolean(onEditLastUserTurn)).toBeTrue();
+    requestConversationSnapshotCalls.length = 0;
+
+    await onEditLastUserTurn?.({
+      threadId: "thr-1",
+      turnId: "turn-1",
+      message: "Rewrite the prompt",
+    });
+
+    expect(editLastUserTurnCalls.length).toBe(1);
+    expect(requestConversationSnapshotCalls.length).toBe(1);
+    expect(requestConversationSnapshotCalls[0]?.[0]).toBe("thr-1");
+    expect(setComposerIntentCalls.length).toBe(0);
+  });
+
+  test("opening an existing active thread tab resumes it instead of snapshot-hydrating it", async () => {
+    const requestConversationSnapshotCalls: Array<unknown[]> = [];
+    const requestConversationResumeCalls: Array<unknown[]> = [];
+
+    await renderShell(false, "sliding-window", {
+      focusedStage: "threads",
+      activeThreadsTabId: "thr-1",
+      threadsTabs: [{ id: "thr-1", title: "Thread 1", preview: "Preview" }],
+    }, [
+      {
+        threadId: "thr-1",
+        threadName: "Thread 1",
+        threadPreview: "preview",
+        statusType: "idle",
+        cardId: "card-1",
+      },
+    ], null, ["threads", "files"], undefined, {
+      requestConversationSnapshot: async (...args: unknown[]) => {
+        requestConversationSnapshotCalls.push(args);
+        return null;
+      },
+      requestConversationResume: async (...args: unknown[]) => {
+        requestConversationResumeCalls.push(args);
+        return null;
+      },
+    });
+
+    expect(requestConversationResumeCalls.length).toBe(1);
+    expect(requestConversationResumeCalls[0]?.[0]).toBe("thr-1");
+    expect(requestConversationSnapshotCalls.length).toBe(0);
   });
 
   test("focuses cards stage when opening a card from view and cards are not visible", async () => {

@@ -1,4 +1,4 @@
-import type { CodexThreadDetail } from "./types";
+import type { CodexConversationSnapshot } from "./types";
 
 export interface ContextWindowIndicatorState {
   status: "ready" | "usageOnly" | "unavailable";
@@ -17,8 +17,10 @@ function normalizeTokenCount(value: number): number {
   return Math.max(0, Math.round(value));
 }
 
-export function resolveContextWindowIndicatorState(thread: CodexThreadDetail | null): ContextWindowIndicatorState {
-  if (!thread || thread.turns.length === 0) {
+export function resolveContextWindowIndicatorState(
+  conversation: CodexConversationSnapshot | null,
+): ContextWindowIndicatorState {
+  if (!conversation || conversation.turns.length === 0) {
     return {
       status: "unavailable",
       percentFull: 0,
@@ -27,8 +29,8 @@ export function resolveContextWindowIndicatorState(thread: CodexThreadDetail | n
     };
   }
 
-  for (let index = thread.turns.length - 1; index >= 0; index -= 1) {
-    const turn = thread.turns[index];
+  for (let index = conversation.turns.length - 1; index >= 0; index -= 1) {
+    const turn = conversation.turns[index];
     const tokenUsage = turn?.tokenUsage;
     if (!tokenUsage) continue;
 

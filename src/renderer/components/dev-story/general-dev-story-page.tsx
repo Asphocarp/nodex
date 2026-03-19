@@ -21,8 +21,8 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip } from "@/components/ui/tooltip";
-import { PermissionModeDropdown } from "@/components/workbench/stage-threads/stage-threads-permission-mode-dropdown";
-import { ToolbarDropdownMenu } from "@/components/workbench/stage-threads/stage-threads-toolbar-dropdown-menu";
+import { PermissionModeDropdown } from "@/features/local-conversation/view/shared/permission-mode-dropdown";
+import { ToolbarDropdownMenu } from "@/features/local-conversation/view/shared/toolbar-dropdown-menu";
 import {
   cardStagePropertyEmptyValueInteractive,
   cardStagePropertyTextSize,
@@ -456,7 +456,7 @@ export function GeneralDevStoryPage({
             <ShowcaseCard
               title="Toolbar menus"
               description="Compact pill triggers used in thread and toolbar surfaces for branch, mode, and selector controls."
-              source="src/renderer/components/workbench/stage-threads/stage-threads-toolbar-dropdown-menu.tsx + stage-threads-permission-mode-dropdown.tsx"
+              source="src/renderer/features/local-conversation/view/shared/toolbar-dropdown-menu.tsx + permission-mode-dropdown.tsx"
             >
               <PreviewSurface className="flex flex-col justify-between gap-4">
                 <div className="flex flex-wrap gap-2">

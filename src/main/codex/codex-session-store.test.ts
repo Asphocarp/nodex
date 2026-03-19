@@ -84,11 +84,10 @@ describe("codex-session-store", () => {
           }),
           JSON.stringify({
             timestamp: "2026-03-17T10:00:02.000Z",
-            type: "response_item",
+            type: "event_msg",
             payload: {
-              type: "message",
-              role: "user",
-              content: [{ type: "input_text", text: "Implement it" }],
+              type: "user_message",
+              message: "Implement it",
             },
           }),
           JSON.stringify({
@@ -136,11 +135,10 @@ describe("codex-session-store", () => {
           }),
           JSON.stringify({
             timestamp: "2026-03-17T10:00:06.000Z",
-            type: "response_item",
+            type: "event_msg",
             payload: {
-              type: "message",
-              role: "assistant",
-              content: [{ type: "output_text", text: "Done." }],
+              type: "agent_message",
+              message: "Done.",
             },
           }),
         ].join("\n"),
@@ -157,60 +155,172 @@ describe("codex-session-store", () => {
       expect(detail?.turns.length).toBe(1);
       expect(detail?.turns[0]?.turnId).toBe("turn_1");
       expect(detail?.turns[0]?.tokenUsage?.modelContextWindow).toBe(200_000);
-      expect(detail?.items.length).toBe(3);
-      expect(detail?.items[1]?.toolCall?.subtype).toBe("command");
-      expect(detail?.items[1]?.toolCall?.result ? JSON.stringify(detail.items[1].toolCall?.result) : "").toBe(
+      expect(detail?.transcript.length).toBe(3);
+      expect(detail?.transcript[1]?.toolCall?.subtype).toBe("command");
+      expect(detail?.transcript[1]?.toolCall?.result ? JSON.stringify(detail.transcript[1].toolCall?.result) : "").toBe(
         JSON.stringify({ ok: true }),
       );
       expect(detail?.threadPreview).toBe("Done.");
     });
   });
 
-  test("materializes legacy json sessions into thread detail", () => {
+  test("keeps commentary and final-answer agent messages in modern jsonl sessions", () => {
     withTempCodexHome((codexHome) => {
-      fs.mkdirSync(path.join(codexHome, "sessions"), { recursive: true });
+      fs.mkdirSync(path.join(codexHome, "sessions", "2026", "03", "23"), { recursive: true });
       fs.writeFileSync(
         path.join(codexHome, "session_index.jsonl"),
         JSON.stringify({
-          id: "thr_legacy",
-          thread_name: "Legacy imported thread",
-          updated_at: "2025-10-27T01:55:12.523Z",
+          id: "thr_commentary",
+          thread_name: "Commentary thread",
+          updated_at: "2026-03-23T14:28:40.000Z",
         }) + "\n",
       );
       fs.writeFileSync(
-        path.join(codexHome, "sessions", "rollout-2025-10-27-thr_legacy.json"),
-        JSON.stringify({
-          session: {
-            timestamp: "2025-10-27T01:55:12.523Z",
-            id: "thr_legacy",
-            instructions: "",
-          },
-          items: [
-            {
-              role: "user",
-              type: "message",
-              content: [{ type: "input_text", text: "Hello" }],
+        path.join(codexHome, "sessions", "2026", "03", "23", "rollout-2026-03-23T14-28-12-thr_commentary.jsonl"),
+        [
+          JSON.stringify({
+            timestamp: "2026-03-23T14:28:12.000Z",
+            type: "session_meta",
+            payload: {
+              id: "thr_commentary",
+              timestamp: "2026-03-23T14:28:12.000Z",
+              cwd: "/tmp/project",
             },
-            {
-              role: "assistant",
-              type: "message",
-              content: [{ type: "output_text", text: "Hi there" }],
+          }),
+          JSON.stringify({
+            timestamp: "2026-03-23T14:28:13.000Z",
+            type: "event_msg",
+            payload: {
+              type: "task_started",
+              turn_id: "turn_1",
             },
-          ],
-        }),
+          }),
+          JSON.stringify({
+            timestamp: "2026-03-23T14:28:14.000Z",
+            type: "event_msg",
+            payload: {
+              type: "user_message",
+              message: "run bun test",
+            },
+          }),
+          JSON.stringify({
+            timestamp: "2026-03-23T14:28:15.000Z",
+            type: "event_msg",
+            payload: {
+              type: "agent_message",
+              phase: "commentary",
+              message: "Running the test suite in the repo root.",
+            },
+          }),
+          JSON.stringify({
+            timestamp: "2026-03-23T14:28:16.000Z",
+            type: "response_item",
+            payload: {
+              type: "function_call",
+              call_id: "call_1",
+              name: "exec_command",
+              arguments: "{\"cmd\":\"bun test\"}",
+            },
+          }),
+          JSON.stringify({
+            timestamp: "2026-03-23T14:28:17.000Z",
+            type: "event_msg",
+            payload: {
+              type: "agent_message",
+              phase: "final_answer",
+              message: "`bun test` passed.",
+            },
+          }),
+        ].join("\n"),
       );
 
       const detail = readCodexSessionThreadDetail({
-        threadId: "thr_legacy",
-        link: makeLink("thr_legacy"),
+        threadId: "thr_commentary",
+        link: makeLink("thr_commentary"),
       });
 
-      expect(detail?.threadName).toBe("Legacy imported thread");
-      expect(detail?.turns.length).toBe(1);
-      expect(detail?.items.length).toBe(2);
-      expect(detail?.items[0]?.markdownText).toBe("Hello");
-      expect(detail?.items[1]?.markdownText).toBe("Hi there");
-      expect(detail?.threadPreview).toBe("Hi there");
+      expect(detail?.transcript.length).toBe(4);
+      expect(detail?.transcript[0]?.kind).toBe("userMessage");
+      expect(detail?.transcript[1]?.kind).toBe("assistantMessage");
+      expect(detail?.transcript[1]?.assistantPhase).toBe("commentary");
+      expect(detail?.transcript[2]?.kind).toBe("toolCall");
+      expect(detail?.transcript[3]?.kind).toBe("assistantMessage");
+      expect(detail?.transcript[3]?.assistantPhase).toBe("final_answer");
+      expect(detail?.threadPreview).toBe("`bun test` passed.");
+    });
+  });
+
+  test("projects replay reasoning from summary-first content and coalesces consecutive reasoning rows", () => {
+    withTempCodexHome((codexHome) => {
+      fs.mkdirSync(path.join(codexHome, "sessions", "2026", "03", "25"), { recursive: true });
+      fs.writeFileSync(
+        path.join(codexHome, "session_index.jsonl"),
+        JSON.stringify({
+          id: "thr_reasoning",
+          thread_name: "Reasoning thread",
+          updated_at: "2026-03-25T10:00:06.000Z",
+        }) + "\n",
+      );
+      fs.writeFileSync(
+        path.join(codexHome, "sessions", "2026", "03", "25", "rollout-2026-03-25T10-00-00-thr_reasoning.jsonl"),
+        [
+          JSON.stringify({
+            timestamp: "2026-03-25T10:00:00.000Z",
+            type: "session_meta",
+            payload: {
+              id: "thr_reasoning",
+              timestamp: "2026-03-25T10:00:00.000Z",
+              cwd: "/tmp/project",
+            },
+          }),
+          JSON.stringify({
+            timestamp: "2026-03-25T10:00:01.000Z",
+            type: "event_msg",
+            payload: {
+              type: "task_started",
+              turn_id: "turn_1",
+            },
+          }),
+          JSON.stringify({
+            timestamp: "2026-03-25T10:00:02.000Z",
+            type: "response_item",
+            payload: {
+              type: "reasoning",
+              summary: ["Investigating", "Checking thread state"],
+              content: ["Private chain of thought body"],
+            },
+          }),
+          JSON.stringify({
+            timestamp: "2026-03-25T10:00:03.000Z",
+            type: "event_msg",
+            payload: {
+              type: "agent_reasoning",
+              text: "Confirming the repro path.",
+            },
+          }),
+          JSON.stringify({
+            timestamp: "2026-03-25T10:00:04.000Z",
+            type: "event_msg",
+            payload: {
+              type: "agent_message",
+              phase: "final_answer",
+              message: "Fixed.",
+            },
+          }),
+        ].join("\n"),
+      );
+
+      const detail = readCodexSessionThreadDetail({
+        threadId: "thr_reasoning",
+        link: makeLink("thr_reasoning"),
+      });
+
+      expect(detail?.transcript.length).toBe(2);
+      expect(detail?.transcript[0]?.kind).toBe("reasoning");
+      expect(detail?.transcript[0]?.markdownText).toBe(
+        "**Investigating**\n\nChecking thread state\n\nConfirming the repro path.",
+      );
+      expect(detail?.transcript[1]?.kind).toBe("assistantMessage");
     });
   });
 });
