@@ -46,6 +46,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
   - `Full rail`: renders all stages in one horizontal strip
 - Focus model is niri-inspired: focused stage is emphasized and auto-revealed in the active layout mode
 - `Shift + mouse wheel` inside the stage rail only performs native panel scrolling; it does not change focused stage.
+- In `Sliding window` mode, `Cmd/Ctrl+H` and `Cmd/Ctrl+L` shift the visible stage window one stage left/right without changing the focused stage when it remains visible; when the previous focus would leave the viewport, focus falls back to the entering edge stage. In `Full rail`, those shortcuts continue to act as previous/next stage focus.
 - Full-rail stage widths are user-resizable by dragging either left or right border of a stage panel
 - Resizing a full-rail stage panel updates only that panel width (adjacent panel widths stay unchanged)
 - Sliding-window mode supports 1-4 visible stage panes; requested pane count persists globally across projects

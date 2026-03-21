@@ -8,8 +8,8 @@ All keyboard shortcuts in Nodex. Platform modifier: **⌘ (Cmd)** on Mac, **Ctrl
 |----------|--------|-------|
 | `Ctrl+Tab` | Next stage | Cycles `DB -> Cards -> Threads -> Diff`, including while focus is inside the NFM editor |
 | `Ctrl+Shift+Tab` | Previous stage | Reverse cycle, including while focus is inside the NFM editor |
-| `⌘/Ctrl+L` | Next stage | Alias for next-stage navigation; same editable-target behavior as stage cycling shortcuts |
-| `⌘/Ctrl+H` | Previous stage | Alias for previous-stage navigation; same editable-target behavior as stage cycling shortcuts |
+| `⌘/Ctrl+L` | Shift sliding window right | In `Sliding window` mode, moves the visible stage window one stage right and keeps focus on the current stage when it stays visible; in `Full rail`, falls back to focusing the next stage |
+| `⌘/Ctrl+H` | Shift sliding window left | In `Sliding window` mode, moves the visible stage window one stage left and keeps focus on the current stage when it stays visible; in `Full rail`, falls back to focusing the previous stage |
 | `Shift+Wheel` | Scroll stage rail panels | Uses native horizontal wheel scrolling in the stage rail; does not change stage focus (Calendar view claims this gesture for day navigation and blocks stage-rail scrolling) |
 | `⌘/Ctrl+1`–`4` | Jump to stage by index | Stage index order in sidebar; works while focus is in the NFM editor |
 | `⌘/Ctrl+Alt+1`–`9` | Jump to space by index | First 9 spaces in sidebar order (disabled while focus is in NFM editor because `⌘/Ctrl+Alt+1`–`4` are editor heading shortcuts) |

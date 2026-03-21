@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Shared sort controls can now place empty `priority` / `estimate` values either first or last, so derived Kanban, List, and Toggle List views no longer force empty values to the end.
+- In sliding-window stage-rail mode, `Cmd/Ctrl+H` and `Cmd/Ctrl+L` now shift the visible stage window left/right instead of always moving stage focus, keeping the current focused stage when it remains visible.
 
 ### Fixed
 - Fixed sorted Kanban same-column drag/drop when `priority` or `estimate` sorting is active, so dragging a card downward now uses the same post-removal slot math as the visible insertion indicator instead of anchoring against the source ghost.

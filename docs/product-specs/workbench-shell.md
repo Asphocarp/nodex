@@ -58,6 +58,7 @@ The sidebar `Projects` section controls the DB stage datasource, while Cards/Thr
 ## Focus and Navigation
 - Focusing a stage scrolls only as needed so the focused stage is fully visible.
 - Sliding-window focus uses nearest-window behavior: changing focus shifts the visible window only as much as needed to include the target stage.
+- Sliding-window viewport shifts are distinct from focus changes: `Cmd/Ctrl+H` and `Cmd/Ctrl+L` move the visible contiguous stage window left/right by one stage, keeping the current focused stage when it remains inside the new window and only falling back to the entering edge stage when the old focus would move out of view.
 - The shell keeps a window-local back/forward history for durable workbench context: DB project, active DB view, focused stage/direction, open card + card tab selection, active thread tab/project, and active file tab.
 - Transient overlays do not enter navigation history: command palette, task search, settings, hover sidebar, terminal open/height, and raw search query text.
 - `Cmd/Ctrl+[` navigates back and `Cmd/Ctrl+]` navigates forward through that history, including when focus is inside editable surfaces.
@@ -93,6 +94,7 @@ The sidebar `Projects` section controls the DB stage datasource, while Cards/Thr
 
 ## Keyboard Model
 - `Ctrl+Tab` / `Ctrl+Shift+Tab`: next/previous stage.
+- `Cmd/Ctrl+H` / `Cmd/Ctrl+L`: shift the sliding-window viewport left/right by one stage; in full-rail mode, they alias previous/next stage focus.
 - `Cmd/Ctrl+[` / `Cmd/Ctrl+]`: back/forward durable workbench navigation.
 - `Cmd/Ctrl+1..4`: jump to stage index.
 - `Cmd/Ctrl+Alt+1..9`: jump to project index.

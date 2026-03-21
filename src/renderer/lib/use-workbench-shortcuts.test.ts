@@ -23,6 +23,7 @@ function makeActions(overrides: Partial<WorkbenchShortcutActions> = {}): Workben
     dbProjectId: "a",
     focusedStage: "db",
     focusAdjacentStage: () => {},
+    shiftSlidingWindow: () => {},
     switchToStageIndex: () => {},
     switchToProjectIndex: () => {},
     toggleTerminalPanel: () => {},
@@ -319,9 +320,9 @@ describe("handleWorkbenchShortcut", () => {
     expect(called).toBeTrue();
   });
 
-  test("Cmd+H focuses previous stage", () => {
+  test("Cmd+H shifts the sliding window left", () => {
     let direction: -1 | 1 | null = null;
-    const actions = makeActions({ focusAdjacentStage: (_, next) => (direction = next) });
+    const actions = makeActions({ shiftSlidingWindow: (_, next) => (direction = next) });
 
     const handled = handleWorkbenchShortcut(
       {
@@ -340,9 +341,9 @@ describe("handleWorkbenchShortcut", () => {
     expect(direction).toBe(-1);
   });
 
-  test("Cmd+L focuses next stage", () => {
+  test("Cmd+L shifts the sliding window right", () => {
     let direction: -1 | 1 | null = null;
-    const actions = makeActions({ focusAdjacentStage: (_, next) => (direction = next) });
+    const actions = makeActions({ shiftSlidingWindow: (_, next) => (direction = next) });
 
     const handled = handleWorkbenchShortcut(
       {
@@ -610,7 +611,7 @@ describe("handleWorkbenchShortcut", () => {
   test("Cmd+H remains blocked for plain input targets", () => {
     let direction: -1 | 1 | null = null;
     const target = makeInputTarget();
-    const actions = makeActions({ focusAdjacentStage: (_, next) => (direction = next) });
+    const actions = makeActions({ shiftSlidingWindow: (_, next) => (direction = next) });
 
     const handled = handleWorkbenchShortcut(
       {

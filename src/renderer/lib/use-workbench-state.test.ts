@@ -533,6 +533,81 @@ describe("use-workbench-state helpers", () => {
     expect(files.direction).toBe("left");
   });
 
+  test("resolveSlidingWindowShift keeps focus when the focused stage remains visible", () => {
+    const shifted = workbenchTestHelpers.resolveSlidingWindowShift(
+      "threads",
+      "left",
+      2,
+      1,
+    );
+
+    expect(shifted.focusedStage).toBe("threads");
+    expect(shifted.stageNavDirection).toBe("right");
+    expect(
+      JSON.stringify(
+        workbenchTestHelpers.resolveExpandedStages(
+          shifted.focusedStage,
+          shifted.stageNavDirection,
+          2,
+          false,
+        ),
+      ),
+    ).toBe(JSON.stringify(["threads", "files"]));
+  });
+
+  test("resolveSlidingWindowShift falls back to the entering edge when focus would leave the window", () => {
+    const shiftedRight = workbenchTestHelpers.resolveSlidingWindowShift(
+      "db",
+      "right",
+      2,
+      1,
+    );
+    const shiftedLeft = workbenchTestHelpers.resolveSlidingWindowShift(
+      "files",
+      "left",
+      2,
+      -1,
+    );
+
+    expect(shiftedRight.focusedStage).toBe("cards");
+    expect(shiftedRight.stageNavDirection).toBe("right");
+    expect(
+      JSON.stringify(
+        workbenchTestHelpers.resolveExpandedStages(
+          shiftedRight.focusedStage,
+          shiftedRight.stageNavDirection,
+          2,
+          false,
+        ),
+      ),
+    ).toBe(JSON.stringify(["cards", "threads"]));
+
+    expect(shiftedLeft.focusedStage).toBe("threads");
+    expect(shiftedLeft.stageNavDirection).toBe("left");
+    expect(
+      JSON.stringify(
+        workbenchTestHelpers.resolveExpandedStages(
+          shiftedLeft.focusedStage,
+          shiftedLeft.stageNavDirection,
+          2,
+          false,
+        ),
+      ),
+    ).toBe(JSON.stringify(["cards", "threads"]));
+  });
+
+  test("resolveSlidingWindowShift is a no-op when the window cannot move", () => {
+    const shifted = workbenchTestHelpers.resolveSlidingWindowShift(
+      "db",
+      "right",
+      2,
+      -1,
+    );
+
+    expect(shifted.focusedStage).toBe("db");
+    expect(shifted.stageNavDirection).toBe("right");
+  });
+
   test("resolveEffectiveSlidingWindowPaneCount caps panes by available width", () => {
     expect(workbenchTestHelpers.resolveEffectiveSlidingWindowPaneCount(4, 1200)).toBe(4);
     expect(workbenchTestHelpers.resolveEffectiveSlidingWindowPaneCount(4, 950)).toBe(3);

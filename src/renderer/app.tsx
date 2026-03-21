@@ -5,6 +5,7 @@ import {
   resolveCardsStageSelectionForCard,
   resolveSlidingWindowFocusIntent,
   resolveExpandedStages,
+  resolveSlidingWindowShift,
   STAGE_ORDER,
   useWorkbenchState,
   type StageId,
@@ -787,6 +788,38 @@ function WorkbenchApp({ initialResumeSnapshot }: { initialResumeSnapshot: Workbe
     navigateToStage(projectId, nextStage, direction > 0 ? "right" : "left");
   }, [focusedStage, navigateToStage, stageRailLayoutMode]);
 
+  const handleShortcutShiftSlidingWindow = useCallback((projectId: string, direction: -1 | 1) => {
+    if (stageRailLayoutMode !== "sliding-window") {
+      navigateToStage(projectId, STAGE_ORDER[(STAGE_ORDER.indexOf(focusedStage) + (direction > 0 ? 1 : STAGE_ORDER.length - 1)) % STAGE_ORDER.length] as StageId, direction > 0 ? "right" : "left");
+      return;
+    }
+
+    const nextWindowState = resolveSlidingWindowShift(
+      focusedStage,
+      stageNavDirection,
+      slidingWindowPaneCount,
+      direction,
+    );
+    recordNavigation({
+      ...currentNavigationSnapshotRef.current,
+      focusedStage: nextWindowState.focusedStage,
+      stageNavDirection: nextWindowState.stageNavDirection,
+    });
+    setFocusedStageState(
+      projectId,
+      nextWindowState.focusedStage,
+      nextWindowState.stageNavDirection,
+    );
+  }, [
+    focusedStage,
+    navigateToStage,
+    recordNavigation,
+    setFocusedStageState,
+    slidingWindowPaneCount,
+    stageNavDirection,
+    stageRailLayoutMode,
+  ]);
+
   const handleShortcutSwitchToStageIndex = useCallback((projectId: string, index: number) => {
     if (index < 0 || index >= STAGE_ORDER.length) return;
     navigateToStage(projectId, STAGE_ORDER[index] as StageId);
@@ -811,6 +844,7 @@ function WorkbenchApp({ initialResumeSnapshot }: { initialResumeSnapshot: Workbe
     dbProjectId: resolvedDbProjectId,
     focusedStage,
     focusAdjacentStage: handleShortcutFocusAdjacentStage,
+    shiftSlidingWindow: handleShortcutShiftSlidingWindow,
     switchToStageIndex: handleShortcutSwitchToStageIndex,
     switchToProjectIndex: navigateToProjectIndex,
     toggleTerminalPanel,

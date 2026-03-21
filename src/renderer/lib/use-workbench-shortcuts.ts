@@ -6,6 +6,7 @@ export interface WorkbenchShortcutActions {
   dbProjectId: string;
   focusedStage: StageId;
   focusAdjacentStage: (projectId: string, direction: -1 | 1) => void;
+  shiftSlidingWindow: (projectId: string, direction: -1 | 1) => void;
   switchToStageIndex: (projectId: string, index: number) => void;
   switchToProjectIndex: (index: number) => void;
   toggleTerminalPanel: (projectId: string) => void;
@@ -86,7 +87,7 @@ export function handleWorkbenchShortcut(
 
   if (modifier && !e.altKey && !e.shiftKey && (e.key === "h" || e.key === "H" || e.key === "l" || e.key === "L")) {
     if (targetIsEditable && !targetIsEditorSurface) return false;
-    actions.focusAdjacentStage(actions.dbProjectId, e.key === "h" || e.key === "H" ? -1 : 1);
+    actions.shiftSlidingWindow(actions.dbProjectId, e.key === "h" || e.key === "H" ? -1 : 1);
     return true;
   }
 

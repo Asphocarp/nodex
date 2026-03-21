@@ -908,6 +908,88 @@ function resolveSlidingWindowWindowState(
   };
 }
 
+function resolveSlidingWindowWindowDirection(
+  targetWindow: readonly StageId[],
+  paneCount: number,
+  focusedStage: StageId,
+  fallbackDirection: StageNavDirection,
+): StageNavDirection {
+  const directionCandidates = fallbackDirection === "right"
+    ? ["right", "left"] as const
+    : ["left", "right"] as const;
+
+  for (const candidateDirection of directionCandidates) {
+    const candidateWindow = resolveExpandedStages(
+      focusedStage,
+      candidateDirection,
+      paneCount,
+      false,
+    );
+    if (areStageWindowsEqual(candidateWindow, targetWindow)) {
+      return candidateDirection;
+    }
+  }
+
+  return fallbackDirection;
+}
+
+export function resolveSlidingWindowShift(
+  focusedStage: StageId,
+  stageNavDirection: StageNavDirection,
+  paneCount: number,
+  direction: -1 | 1,
+): { focusedStage: StageId; stageNavDirection: StageNavDirection } {
+  const normalizedPaneCount = clampSlidingWindowPaneCount(paneCount);
+  const currentWindow = resolveExpandedStages(
+    focusedStage,
+    stageNavDirection,
+    normalizedPaneCount,
+    false,
+  );
+
+  if (currentWindow.length <= 1) {
+    return {
+      focusedStage,
+      stageNavDirection,
+    };
+  }
+
+  const currentWindowStart = stageIndexOf(currentWindow[0]);
+  const maxWindowStart = STAGE_ORDER.length - currentWindow.length;
+  const targetWindowStart = clamp(
+    currentWindowStart + direction,
+    0,
+    maxWindowStart,
+  );
+
+  if (targetWindowStart === currentWindowStart) {
+    return {
+      focusedStage,
+      stageNavDirection,
+    };
+  }
+
+  const targetWindow = STAGE_ORDER.slice(
+    targetWindowStart,
+    targetWindowStart + currentWindow.length,
+  );
+  const nextFocusedStage = targetWindow.includes(focusedStage)
+    ? focusedStage
+    : direction > 0
+      ? targetWindow[0] ?? focusedStage
+      : targetWindow[targetWindow.length - 1] ?? focusedStage;
+
+  return {
+    focusedStage: nextFocusedStage,
+    stageNavDirection: resolveSlidingWindowWindowDirection(
+      targetWindow,
+      normalizedPaneCount,
+      nextFocusedStage,
+      direction > 0 ? "right" : "left",
+    ),
+  };
+}
+
 export function resolveSlidingWindowPaneCountChange(
   focusedStage: StageId,
   stageNavDirection: StageNavDirection,
@@ -2038,6 +2120,7 @@ export const workbenchTestHelpers = {
   resolveExpandedStages,
   resolveNearestSlidingWindowDirection,
   resolveSlidingWindowFocusIntent,
+  resolveSlidingWindowShift,
   resolveEffectiveSlidingWindowPaneCount,
   resolveSlidingWindowPaneCountChange,
 };
