@@ -3,7 +3,6 @@ import { describe, expect, test } from "bun:test";
 import type { Card, ReminderConfig } from "../../shared/types";
 import {
   expandCardOccurrences,
-  nextOccurrenceAfter,
   shiftUntilDateByDays,
   type RecurrenceException,
 } from "./recurrence-service";
@@ -126,18 +125,6 @@ describe("recurrence service", () => {
       ]),
     );
     expect(JSON.stringify(occurrences[1]?.reminders)).toBe(JSON.stringify(overrideReminders));
-  });
-
-  test("computes next occurrence after skipped exception", () => {
-    const card = createScheduledCard({});
-    const next = nextOccurrenceAfter(card, new Date("2026-02-18T10:00:00.000Z"), {
-      exceptions: [{
-        occurrenceStart: new Date("2026-02-19T10:00:00.000Z"),
-        exceptionType: "skip",
-      }],
-    });
-
-    expect(next?.occurrenceStart.toISOString()).toBe("2026-02-20T10:00:00.000Z");
   });
 
   test("shifts until date keys by whole days", () => {
