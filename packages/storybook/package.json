@@ -11,7 +11,7 @@
     "@storybook/addon-docs": "^10.2.13",
     "@storybook/addon-links": "^10.2.13",
     "@storybook/react-vite": "^10.2.13",
-    "@tailwindcss/vite": "^4.2.1",
+    "@tailwindcss/vite": "^4.2.2",
     "@types/node": "^25.3.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
