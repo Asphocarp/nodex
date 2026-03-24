@@ -1,0 +1,89 @@
+/*
+ * Nodex-local utility additions that are not part of the generated Codex
+ * Electron utility contract.
+ */
+
+@utility user-select-none {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+@utility duration-swift {
+  transition-duration: var(--transition-duration-swift, 0.12s);
+}
+
+@utility transition-filter {
+  transition-property: filter;
+  transition-timing-function: var(--default-transition-timing-function);
+  transition-duration: var(--default-transition-duration);
+}
+
+@utility transition-color-shadow {
+  transition-property: color, box-shadow;
+  transition-timing-function: var(--default-transition-timing-function);
+  transition-duration: var(--default-transition-duration);
+}
+
+@utility transition-background {
+  transition-property: background;
+  transition-timing-function: var(--default-transition-timing-function);
+  transition-duration: var(--default-transition-duration);
+}
+
+@utility transition-background-color {
+  transition-property: background-color, color;
+  transition-timing-function: var(--default-transition-timing-function);
+  transition-duration: var(--default-transition-duration);
+}
+
+@utility transition-fade-surface {
+  transition-property: opacity, background-color;
+  transition-timing-function: var(--default-transition-timing-function);
+  transition-duration: var(--default-transition-duration);
+}
+
+@utility transition-shadow-lift {
+  transition-property: box-shadow, transform, opacity;
+  transition-timing-function: var(--default-transition-timing-function);
+  transition-duration: var(--default-transition-duration);
+}
+
+@utility transition-chrome {
+  transition-property: box-shadow, border-color, color;
+  transition-timing-function: var(--default-transition-timing-function);
+  transition-duration: var(--default-transition-duration);
+}
+
+@utility transition-shell-resize {
+  transition-property: width, opacity, transform;
+  transition-timing-function: var(--default-transition-timing-function);
+  transition-duration: var(--default-transition-duration);
+}
+
+@utility transition-panel-resize {
+  transition-property: flex-basis, width, opacity;
+  transition-timing-function: var(--default-transition-timing-function);
+  transition-duration: var(--default-transition-duration);
+}
+
+@utility transition-stage-resize {
+  transition-property: flex-basis, box-shadow, transform, opacity;
+  transition-timing-function: var(--default-transition-timing-function);
+  transition-duration: var(--default-transition-duration);
+}
+
+@utility bg-foreground-2 {
+  background-color: color-mix(in oklab, var(--foreground) 2%, transparent);
+}
+
+@utility bg-foreground-5 {
+  background-color: color-mix(in srgb, var(--foreground) 5%, transparent);
+}
+
+@utility bg-foreground-10 {
+  background-color: color-mix(in srgb, var(--foreground) 10%, transparent);
+}
+
+@utility bg-red-10 {
+  background-color: color-mix(in srgb, var(--red-text) 10%, transparent);
+}

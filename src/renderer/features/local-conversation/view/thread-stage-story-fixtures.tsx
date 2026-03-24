@@ -83,15 +83,18 @@ interface StorybookElectronBridgeListenerMap {
 
 function initializeStorybookRendererDocument(): void {
   const root = document.documentElement;
-  const isElectronWindow = Boolean(window.api);
+  const shouldEmulateElectronWindow = true;
+  const shouldEmulateOpaqueElectronWindow = true;
 
-  root.dataset.codexWindowType = isElectronWindow ? "electron" : "browser";
+  root.dataset.codexWindowType = shouldEmulateElectronWindow ? "electron" : "browser";
   window.__NODEX_STORYBOOK__ = true;
 
-  if (!isElectronWindow) {
-    root.classList.remove("electron-dark", "electron-light");
+  if (!shouldEmulateElectronWindow) {
+    root.classList.remove("electron-dark", "electron-light", "electron-opaque");
     return;
   }
+
+  root.classList.toggle("electron-opaque", shouldEmulateOpaqueElectronWindow);
 
   const isDark = root.classList.contains("dark");
   root.classList.toggle("electron-dark", isDark);

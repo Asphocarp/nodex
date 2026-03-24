@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { applyCodexThemeVariant } from "./codex-theme-variant";
 
 type Theme = "light" | "dark" | "system";
 type Resolved = "light" | "dark";
@@ -31,6 +32,7 @@ function syncDocumentThemeClasses(resolved: Resolved): void {
   const isDark = resolved === "dark";
 
   root.classList.toggle("dark", isDark);
+  applyCodexThemeVariant(root, resolved);
 
   if (root.dataset.codexWindowType !== "electron") return;
 

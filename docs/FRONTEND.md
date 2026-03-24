@@ -38,12 +38,49 @@
 
 ## Styling Conventions
 - Global styles in `src/renderer/globals.css`.
-- Reuse semantic chip/badge patterns for priority/estimate/status.
-- Avoid duplicating visual rules across board and toggle-list surfaces.
+- Keep renderer CSS layered the same way Codex Electron does:
+  - `src/renderer/styles/theme-source.css` owns author-maintained theme tokens, Tailwind theme declarations, and the CSS-side `--vscode-*` contract.
+  - `src/renderer/styles/theme-codex-foundation.generated.css` owns the generated Codex Electron foundation layer for radius math, spacing, toolbar sizing, and window-scoped runtime overrides.
+  - `src/renderer/styles/theme-codex-utilities.generated.css` owns the generated Codex Electron utility contract for exact shipped utility selectors and Codex-specific arbitrary/container utility coverage.
+  - `src/renderer/styles/theme-codex-contract.generated.css` owns the generated canonical Codex Electron `--color-token-*` contract and `--vscode-*` window contract.
+  - `src/renderer/styles/theme-token-bridge.css` owns only Tailwind-facing authored aliases that are not part of the generated Codex contract or the generated Codex foundation layer.
+  - `src/renderer/styles/theme-codex-surface.generated.css` owns the generated Codex Electron component/global surface rules that are intentionally synced from the reference CSS.
+  - `src/renderer/styles/theme-utilities.css` owns authored Nodex-local utilities that are intentionally outside the generated Codex utility contract.
+  - `src/renderer/styles/theme-surface.css` owns authored surface rules and global renderer CSS.
+  - `src/renderer/lib/codex-theme-variant.ts` owns the runtime semantic theme bridge that injects derived foreground/control/border/panel/editor variables onto `document.documentElement`.
+  - Sync `src/renderer/styles/theme-codex-contract.generated.css` from the exact Codex Electron contract blocks only, not by scanning the whole reference CSS for matching prefixes.
+  - Sync `src/renderer/styles/theme-codex-foundation.generated.css`, `src/renderer/styles/theme-codex-utilities.generated.css`, and `src/renderer/styles/theme-codex-surface.generated.css` from exact Codex Electron foundation/utility/component blocks instead of hand-copying declarations into source files.
+  - Reuse semantic chip/badge patterns for priority/estimate/status.
+  - Avoid duplicating visual rules across board and toggle-list surfaces.
+- Follow Codex Electron's renderer composition order:
+  - normalize raw runtime data into stable renderer-facing item/view schemas first
+  - bucket/project semantic lanes before JSX
+  - render those lanes through shared shells and shared token classes
+  - only add local CSS when the visual contract cannot be expressed through existing tokens, utilities, or shared primitives
+- Prefer existing token families over new component-local values:
+  - use `text-token-*`, `bg-token-*`, `border-token-*`, `rounded-*`, `text-size-*`, `font-vscode-editor`, and window-width/padding vars before inventing new colors, spacing, or radii
+  - keep theme/color ownership in the generated Codex contract/foundation layers plus the runtime theme bridge, not in feature components
+- Prefer shared primitives over bespoke wrappers:
+  - if a surface looks like an existing row shell, accordion shell, summary header, fade-mask container, or compact card, reuse or extract a primitive instead of restyling a feature-local wrapper
+  - keep visual density aligned to the existing rhythm (`gap-*`, `px-panel`, `var(--conversation-tool-assistant-gap)`) rather than per-component spacing tweaks
+- Treat utilities as part of the design contract:
+  - if a class exists as an exact shipped Codex selector, keep it in the generated utility layer
+  - if a class is renderer-local and not recoverable from the shipped Codex CSS, keep it in `theme-utilities.css`
+  - do not re-create shipped utility selectors by hand in local feature CSS
 - Keep selector dropdown content on the shared tokenized menu chrome in `src/renderer/components/ui/selector-menu-chrome.ts`; let trigger styling stay local to each surface.
 - Theme `@pierre/diffs` instances through host `style` plus `options.unsafeCSS`; use the shared renderer helper in `src/renderer/lib/diff-presentation.ts` instead of per-surface shadow-DOM CSS or broad global selectors.
+  - Keep the Codex-style utility contract in the generated Codex utility layer so exact shipped selectors remain available even when Tailwind would not regenerate them from the local source graph alone.
+  - Reserve `theme-utilities.css` for Nodex-local additions, not for reconstructed copies of Codex Electron utility families.
+- Treat `--tw-*` property registrations as build-output contract: values such as `--tw-leading` or `--tw-contain-layout` come from Tailwind's compiled property layer, not from manual theme-token declarations.
 - For Threads, keep the scroll body and composer separate: unresolved live request cards belong in the multiplexed pending-request surface above the composer, while the scroll body renders turn blocks plus hidden turn-scoped request semantics (`approval`, `userInput`, `implementPlan`) injected into the item stream before bucketization.
 - For thread search, project stable user/assistant search units in the view model and attach them to rendered blocks; do not implement `Find in thread` by scraping arbitrary DOM text from the whole turn.
+
+## Component SOP
+- Start from existing semantics, not from JSX. New UI behavior should usually begin in a projector, bucketizer, normalizer, or other renderer-facing adapter before touching leaf components.
+- Keep leaf renderers dumb. Message/tool/request components should consume already-derived props such as lane membership, action eligibility, placeholder state, or copy text instead of recomputing those rules locally.
+- Keep one canonical lane per semantic role. Final assistant content, leading user prefix actions, exploration groups, pending-request lanes, and diff lanes should each be derived once and rendered once.
+- Prefer shipped behavior over source-looking class strings. If bundle behavior and an apparent source token disagree, treat the shipped CSS/renderer output as authoritative.
+- Keep component chrome subdued. Secondary actions should stay small, low-emphasis, and hover-revealed unless the upstream Codex surface makes them primary.
 
 ## Frontend Testing
 - Run targeted tests while iterating: `bun test src/renderer/...`

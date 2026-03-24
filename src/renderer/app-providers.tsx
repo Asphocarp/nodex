@@ -29,14 +29,19 @@ declare global {
 export function initializeRendererDocument(options?: RendererDocumentOptions): void {
   const root = document.documentElement;
   const isElectronWindow = Boolean(window.api);
+  const shouldEmulateElectronWindow = isElectronWindow || options?.storybook === true;
+  const shouldEmulateOpaqueElectronWindow =
+    options?.storybook === true || root.classList.contains("electron-opaque");
 
-  root.dataset.codexWindowType = isElectronWindow ? "electron" : "browser";
+  root.dataset.codexWindowType = shouldEmulateElectronWindow ? "electron" : "browser";
   window.__NODEX_STORYBOOK__ = options?.storybook === true;
 
-  if (!isElectronWindow) {
-    root.classList.remove("electron-dark", "electron-light");
+  if (!shouldEmulateElectronWindow) {
+    root.classList.remove("electron-dark", "electron-light", "electron-opaque");
     return;
   }
+
+  root.classList.toggle("electron-opaque", shouldEmulateOpaqueElectronWindow);
 
   const isDark = root.classList.contains("dark");
   root.classList.toggle("electron-dark", isDark);

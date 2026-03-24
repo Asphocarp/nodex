@@ -5,6 +5,7 @@ import { cn } from "../../../../lib/utils";
 import { writeTextToClipboard } from "../../../../lib/clipboard";
 
 const COPY_FEEDBACK_MS = 1600;
+const electronMessageActionSvgSizeClassName = `electron:[&>svg]:${"icon-sm"}`;
 
 export const threadMessageActionButtonClassName = `
   border-token-border user-select-none no-drag enabled:hover:bg-token-foreground/10
@@ -12,7 +13,7 @@ export const threadMessageActionButtonClassName = `
   disabled:cursor-not-allowed disabled:opacity-40 rounded-full
   electron:rounded-md text-token-description-foreground
   enabled:hover:bg-token-foreground/5 data-[state=open]:bg-token-foreground/5
-  border-transparent electron:p-1 electron:[&>svg]:icon-sm
+  border-transparent electron:p-1 ${electronMessageActionSvgSizeClassName}
   flex items-center justify-center p-0.5 transition-colors
 `;
 

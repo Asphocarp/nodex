@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 - Added a command-palette card-filter popover with an active-filter summary row, so global card search can now narrow results by status, priority, tags, assignee, and project using the same compact filter language as the View-stage toolbar, and those filter selections now persist across reopen.
 
 ### Changed
+- The renderer theme stack now matches Codex Electron more closely: authored CSS declares the `--vscode-*` contract, startup injects the same runtime semantic theme variables Codex Electron derives from the active light/dark variant, and Storybook now emulates the Electron window theme classes that those contracts expect.
 - Shared sort controls can now place empty `priority` / `estimate` values either first or last, so derived Kanban, List, and Toggle List views no longer force empty values to the end.
 - In sliding-window stage-rail mode, `Cmd/Ctrl+H` and `Cmd/Ctrl+L` now shift the visible stage window left/right instead of always moving stage focus, keeping the current focused stage when it remains visible.
 - Rebuilt the Threads stage renderer around turn-based view models and a virtualized turn list, moved unresolved approvals, request-user-input prompts, implement-plan prompts, and background child-thread activity into a dedicated multiplexed pending-request surface above the composer, and now derive blocked-turn state from the same turn item pipeline used for transcript rendering.
@@ -22,6 +23,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - Fixed Thread-stage file-edit rendering so Codex-style `Edited …` tool rows now stay visible even when the turn also has a unified diff; file-change tool calls and turn-level diff cards now render as separate surfaces instead of one swallowing the other.
 - Fixed Thread-stage `Edited …` patch rows so they now expand inline to show their own unified diff frame, and the filename in the patch header now opens the local file target instead of rendering as inert text.
+- Fixed Thread-stage message-action and MCP raw-output icon buttons in Electron so they now keep Codex Electron's compact `icon-2xs` shipped sizing instead of expanding child SVGs to `icon-sm`.
 - Fixed sorted Kanban same-column drag/drop when `priority` or `estimate` sorting is active, so dragging a card downward now uses the same post-removal slot math as the visible insertion indicator instead of anchoring against the source ghost.
 - Fixed Kanban empty-column drop targets so dragging blocks into an auto-collapsed lane now highlights the collapsed lane instead of hiding the only valid drop surface.
 - Fixed the mounted Thread-stage composer button to follow Codex Electron’s running-thread state machine: an empty running draft now shows `Stop`, while any running draft switches the primary action to `Steer` or `Queue` with the same shortcut-driven alternate follow-up behavior and tooltip wording.

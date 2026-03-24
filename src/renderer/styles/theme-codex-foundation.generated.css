@@ -1,0 +1,80 @@
+/*
+ * Synced from the Codex Electron reference CSS.
+ * Do not edit by hand. Update the reference file, then rerun:
+ *   bun run scripts/sync-codex-theme-foundation.ts
+ */
+
+@theme static {
+  --font-sans: var(--vscode-font-family, var(--font-sans-default));
+  --font-mono: var(--vscode-editor-font-family, var(--font-mono-default));
+  --radius-xs: calc(var(--radius-xs-base) * var(--corner-radius-scale));
+  --radius-sm: calc(var(--radius-sm-base) * var(--corner-radius-scale));
+  --radius-md: calc(var(--radius-md-base) * var(--corner-radius-scale));
+  --radius-lg: calc(var(--radius-lg-base) * var(--corner-radius-scale));
+  --radius-xl: calc(var(--radius-xl-base) * var(--corner-radius-scale));
+  --radius-2xl: calc(var(--radius-2xl-base) * var(--corner-radius-scale));
+  --radius-3xl: calc(var(--radius-3xl-base) * var(--corner-radius-scale));
+  --radius-4xl: calc(var(--radius-4xl-base) * var(--corner-radius-scale));
+  --text-heading-md: 20px;
+  --radius-2xs: calc(var(--radius-2xs-base) * var(--corner-radius-scale));
+  --padding-row-y: calc(var(--spacing) * 1);
+  --padding-row-x: calc(var(--spacing) * 2);
+  --padding-panel: var(--padding-panel-base);
+  --cursor-interaction: pointer;
+  --height-toolbar: 46px;
+  --height-toolbar-sm: 36px;
+  --inset-toolbar: var(--height-toolbar);
+  --inset-toolbar-sm: var(--height-toolbar-sm);
+  --spacing-token-sidebar: clamp( 240px, 300px, min(520px, calc(100vw - 320px)) );
+  --spacing-token-button-composer: calc(var(--spacing) * 7);
+  --spacing-token-button-composer-sm: calc(var(--spacing) * 5);
+  --spacing-token-button-composer-gap: var(--spacing);
+  --spacing-token-safe-header-left: 0px;
+  --spacing-token-safe-header-right: 0px;
+  --h-token-button-composer-gap: var(--spacing-token-button-composer-gap);
+  --thread-content-max-width: none;
+  --thread-composer-max-width: none;
+  --markdown-wide-block-max-width: 64rem;
+}
+
+:root {
+  --padding-row-y: calc(var(--spacing) * 1);
+  --padding-panel-base: calc(var(--spacing) * 3);
+  --padding-panel: var(--padding-panel-base);
+  --inset-toolbar: var(--height-toolbar);
+  --safe-area-left: 0px;
+  --safe-area-right: 0px;
+}
+
+[data-codex-window-type="electron"] body {
+  --padding-row-y: calc(var(--spacing) * 1.25);
+  --padding-panel-base: calc(var(--spacing) * 5);
+  --padding-panel: var(--padding-panel-base);
+  --thread-content-max-width: 48rem;
+  --thread-composer-max-width: calc(var(--thread-content-max-width) + 1rem);
+  --markdown-wide-block-max-width: 80rem;
+  --cursor-interaction: default;
+  --color-token-bg-fog: var(--color-background-elevated-secondary);
+  --vscode-editor-font-family: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --vscode-font-size: var(--text-base);
+  --vscode-editor-font-size: var(--text-sm);
+  --vscode-chat-font-size: var(--vscode-font-size);
+  --vscode-chat-editor-font-size: var(--vscode-editor-font-size);
+  --spacing-token-button-composer-sm: calc(var(--spacing) * 7);
+  --text-heading-md: 18px;
+}
+
+[data-codex-window-type="browser"] {
+  --height-toolbar: 56px;
+}
+
+:root[data-codex-window-type="extension"] {
+  --diffs-font-size: calc(var(--codex-chat-code-font-size) - 1px);
+  --text-heading-md: 16px;
+}
+
+@supports (corner-shape: superellipse(1.5)) {
+  :root {
+    --corner-radius-scale: 1.25;
+  }
+}

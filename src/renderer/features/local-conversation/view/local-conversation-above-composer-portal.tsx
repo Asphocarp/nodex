@@ -8,7 +8,7 @@ export const LOCAL_CONVERSATION_QUEUE_ABOVE_COMPOSER_PORTAL_ID = "above-composer
 
 export function LocalConversationAboveComposerPortalHost() {
   return (
-    <div className="px-panel z-10 mx-auto flex w-full max-w-[var(--thread-composer-max-width)] flex-col pb-2">
+    <div className="px-panel z-10 mx-auto flex w-full max-w-[var(--thread-composer-max-width)] flex-col">
       <div className="contents" data-thread-find-composer="true">
         <div className="relative h-0" />
         <div>

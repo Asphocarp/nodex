@@ -18,6 +18,8 @@ import {
   humanizeIdentifier,
 } from "./tool-call-utils";
 
+const electronToolIconSizeClassName = `electron:[&>svg]:${"icon-sm"}`;
+
 interface McpToolCallProps {
   item: CodexTranscriptEntry;
   expanded?: boolean;
@@ -410,7 +412,10 @@ function McpRawOutputDialog({
       >
         <button
           type="button"
-          className="border-token-border user-select-none no-drag cursor-interaction flex items-center gap-1 border focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-description-foreground enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent electron:p-1 electron:[&>svg]:icon-sm justify-center p-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100"
+          className={cn(
+            "border-token-border user-select-none no-drag cursor-interaction flex items-center gap-1 border focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-description-foreground enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent electron:p-1 justify-center p-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100",
+            electronToolIconSizeClassName,
+          )}
           aria-label="Show raw tool call output"
           aria-haspopup="dialog"
           aria-expanded={open}

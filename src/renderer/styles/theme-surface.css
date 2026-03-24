@@ -1,0 +1,158 @@
+:root[data-hide-header-divider="true"] .app-header-divider {
+  display: none;
+}
+
+@supports (color: color-mix(in lab, red, red)) {
+  :root,
+  :host {
+    --color-text-foreground-secondary: color-mix(
+      in oklab,
+      var(--gray-1000) 70%,
+      transparent
+    );
+    --color-text-foreground-tertiary: color-mix(
+      in oklab,
+      var(--gray-1000) 50%,
+      transparent
+    );
+    --color-icon-secondary: color-mix(
+      in oklab,
+      var(--gray-1000) 70%,
+      transparent
+    );
+    --color-icon-tertiary: color-mix(
+      in oklab,
+      var(--gray-1000) 50%,
+      transparent
+    );
+  }
+
+  :root.dark,
+  .dark {
+    --color-text-foreground-secondary: color-mix(
+      in oklab,
+      var(--gray-0) 70%,
+      transparent
+    );
+    --color-text-foreground-tertiary: color-mix(
+      in oklab,
+      var(--gray-0) 50%,
+      transparent
+    );
+    --color-icon-primary: color-mix(in oklab, var(--white) 90%, transparent);
+    --color-icon-secondary: color-mix(in oklab, var(--white) 70%, transparent);
+    --color-icon-tertiary: color-mix(in oklab, var(--white) 50%, transparent);
+  }
+}
+
+@supports (corner-shape: superellipse(1.5)) {
+  .rounded-sm,
+  .rounded-md,
+  .rounded-lg,
+  .rounded-xl,
+  .rounded-2xl,
+  .rounded-3xl,
+  .rounded-4xl {
+    corner-shape: superellipse(1.5);
+  }
+}
+
+.app-header-tint {
+  background-color: var(--codex-titlebar-tint, transparent);
+}
+
+mark.codex-thread-find-match {
+  background-color: var(--vscode-charts-yellow);
+  color: var(--color-token-foreground);
+  border-radius: var(--radius-2xs);
+  font: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  word-spacing: inherit;
+  vertical-align: baseline;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+mark.codex-thread-find-active {
+  background-color: var(--vscode-charts-orange);
+}
+
+#root {
+  height: 100vh;
+}
+
+.main-surface:where([data-codex-window-type="electron"] .main-surface) {
+  border-top-left-radius: var(--radius-lg);
+  border-bottom-left-radius: var(--radius-lg);
+  background-color: var(--color-token-side-bar-background);
+  --tw-shadow: 0px 2px 4px -1px var(--tw-shadow-color, #00000014);
+  box-shadow:
+    var(--tw-inset-shadow), var(--tw-inset-ring-shadow),
+    var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
+  overflow: hidden;
+}
+
+.main-surface:where([data-codex-window-type="browser"] .main-surface) {
+  background-color: var(--color-token-bg-primary);
+  overflow: hidden;
+}
+
+.electron\:bg-token-side-bar-background:where(
+  [data-codex-window-type="electron"] .electron\:bg-token-side-bar-background
+) {
+  background-color: var(--color-token-side-bar-background);
+}
+
+.electron\:dark\:bg-token-dropdown-background\/25:where(
+  [data-codex-window-type="electron"]
+    .electron\:dark\:bg-token-dropdown-background\/25
+) {
+  background-color: color-mix(
+    in oklab,
+    var(--color-token-dropdown-background) 25%,
+    transparent
+  );
+}
+
+.overflow-auto,
+.overflow-scroll,
+.overflow-x-auto,
+.overflow-y-auto,
+.overflow-x-scroll,
+.overflow-y-scroll {
+  scrollbar-color: var(--color-token-scrollbar-slider-background) transparent;
+}
+
+:is(
+  .overflow-auto,
+  .overflow-scroll,
+  .overflow-x-auto,
+  .overflow-y-auto,
+  .overflow-x-scroll,
+  .overflow-y-scroll
+):hover {
+  scrollbar-color: var(--color-token-scrollbar-slider-hover-background)
+    transparent;
+}
+
+:is(
+  .overflow-auto,
+  .overflow-scroll,
+  .overflow-x-auto,
+  .overflow-y-auto,
+  .overflow-x-scroll,
+  .overflow-y-scroll
+):active {
+  scrollbar-color: var(--color-token-scrollbar-slider-active-background)
+    transparent;
+}
+
+.docs-story {
+  background-color: var(--color-token-side-bar-background);
+}
+
+.automation-row {
+  container-type: inline-size;
+}
