@@ -70,7 +70,7 @@
   "devDependencies": {
     "@nodex/codex-app-server-protocol": "workspace:*",
     "@blocknote/code-block": "0.47.1",
-    "@blocknote/core": "0.47.1",
+    "@blocknote/core": "0.47.2",
     "@blocknote/react": "0.47.1",
     "@blocknote/shadcn": "0.47.1",
     "@atlaskit/pragmatic-drag-and-drop": "^1.7.9",
