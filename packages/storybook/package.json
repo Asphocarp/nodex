@@ -8,7 +8,7 @@
   },
   "devDependencies": {
     "@storybook/addon-a11y": "^10.2.13",
-    "@storybook/addon-docs": "^10.2.13",
+    "@storybook/addon-docs": "^10.3.3",
     "@storybook/addon-links": "^10.2.13",
     "@storybook/react-vite": "^10.2.13",
     "@tailwindcss/vite": "^4.2.1",
