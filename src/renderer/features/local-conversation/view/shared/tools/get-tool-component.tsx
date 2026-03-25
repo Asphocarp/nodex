@@ -4,7 +4,6 @@ import { CommandToolCall } from "./command-tool-call";
 import { FileChangeToolCall } from "./file-change-tool-call";
 import { GenericToolCall } from "./generic-tool-call";
 import { McpToolCall } from "./mcp-tool-call";
-import { TurnDiffToolCall } from "./turn-diff-tool-call";
 import { WebSearchToolCall } from "./web-search-tool-call";
 
 export interface ToolComponentProps {
@@ -28,10 +27,6 @@ export function getToolComponent(item: CodexTranscriptEntry): ToolComponent {
     || item.toolCall?.subtype === "fileChange"
   ) {
     return FileChangeToolCall;
-  }
-
-  if (item.semanticKind === "diff") {
-    return TurnDiffToolCall;
   }
 
   if (item.semanticKind === "webSearch" || item.toolCall?.subtype === "webSearch") {

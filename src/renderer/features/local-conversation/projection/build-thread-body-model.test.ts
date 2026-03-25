@@ -529,7 +529,7 @@ describe("buildThreadBodyModel", () => {
       pendingRequestSurface: null,
     });
 
-    expect(model.turns[0]?.aboveComposerBlocks?.map((block) => block.type).join(",")).toBe("todoList,diff");
+    expect(model.turns[0]?.aboveComposerBlocks?.map((block) => block.type).join(",")).toBe("todoList,turnDiff");
     expect(model.turns[0]?.blocks.map((block) => block.type).join(",")).toBe("patch,proposedPlan");
   });
 

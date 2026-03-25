@@ -7,6 +7,7 @@ import {
   ThreadReasoningBlock,
   ThreadThinkingPlaceholderBlock,
   ThreadSystemBannerBlock,
+  ThreadTurnDiffBlock,
   ThreadToolSurfaceBlock,
   ThreadUserBubbleBlock,
   ThreadWorkedForBlock,
@@ -72,7 +73,6 @@ export function ThreadBlockRenderer({
     block.type === "exec"
     || block.type === "patch"
     || block.type === "fileChange"
-    || block.type === "diff"
     || block.type === "toolCall"
     || block.type === "mcpToolCall"
     || block.type === "webSearch"
@@ -88,6 +88,18 @@ export function ThreadBlockRenderer({
         threadCwd={threadCwd}
         collapsedToolItemIds={collapsedToolItemIds}
         onToolCollapsedChange={onToolCollapsedChange}
+      />
+    );
+  }
+
+  if (block.type === "turnDiff") {
+    return (
+      <ThreadTurnDiffBlock
+        block={block}
+        isLatestTurn={isLatestTurn}
+        isStreamingTurn={isStreamingTurn}
+        projectWorkspacePath={projectWorkspacePath}
+        threadCwd={threadCwd}
       />
     );
   }

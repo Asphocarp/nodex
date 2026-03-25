@@ -123,7 +123,7 @@ export function bucketizeTurnItems(input: BucketizeTurnItemsInput): ThreadTurnRe
 
     leadingUserPrefixOpen = false;
 
-    if (item.type === "diff") {
+    if (item.type === "turnDiff") {
       buckets.unifiedDiffItem = item;
     }
 

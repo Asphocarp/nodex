@@ -83,7 +83,7 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
   - `modelChanged`
   - `userMessage`
   - selected `modelRerouted`
-  - activity blocks (`reasoning`, `commandExecution`, `patch`, `diff`, `toolCall`, `mcpToolCall`, `webSearch`, `multiAgentAction`, plus derived exploration groups)
+  - activity blocks (`reasoning`, `commandExecution`, `patch`, `turnDiff`, `toolCall`, `mcpToolCall`, `webSearch`, `multiAgentAction`, plus derived exploration groups)
   - `systemEvent`
   - `assistantMessage`
   - post-assistant artifacts such as answered `userInputRequest`
@@ -123,6 +123,8 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
 - `fileChange` and turn-level unified diff are separate surfaces, matching Codex Electron exactly:
   - raw `fileChange` items always stay visible as `patch` tool rows (`Edited …`)
   - turn-level aggregated `turn.diff` renders as a separate `turn-diff` surface
+  - active in-progress turn diffs surface as a compact above-composer `files changed` banner instead of a generic inline diff viewer
+  - completed turn diffs render as a dedicated files-changed card with per-file collapsed embedded diff rows
   - the unified diff card is never allowed to replace or swallow the underlying `Edited file` tool row
   - patch rows expand inline to reveal their own unified diff frame instead of delegating expansion to the separate turn-level diff card
   - patch headers split the status label and filename into separate elements; the filename is clickable and opens the local file target without toggling the row

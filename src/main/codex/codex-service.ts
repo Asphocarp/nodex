@@ -2250,6 +2250,7 @@ export class CodexService extends EventEmitter {
     status?: CodexTurnStatus;
   }): CodexItemView {
     const existing = this.getRecordedItem(input.threadId, input.turnId, this.buildTurnDiffItemId(input.turnId));
+    const cwd = this.getMaybeConversationRecord(input.threadId)?.detail?.cwd;
     const now = Date.now();
     const itemId = this.buildTurnDiffItemId(input.turnId);
     const status =
@@ -2273,6 +2274,7 @@ export class CodexService extends EventEmitter {
         id: itemId,
         type: "turn-diff",
         unifiedDiff: input.diff,
+        ...(typeof cwd === "string" && cwd.trim().length > 0 ? { cwd } : {}),
       },
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,

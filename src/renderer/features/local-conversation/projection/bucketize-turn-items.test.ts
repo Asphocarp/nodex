@@ -34,7 +34,7 @@ describe("bucketizeTurnItems", () => {
         buildItem({ id: "reasoning", type: "reasoning" }),
         buildItem({ id: "assistant", type: "assistantMessage" }),
         buildItem({ id: "plan", type: "proposedPlan" }),
-        buildItem({ id: "diff", type: "diff" }),
+        buildItem({ id: "diff", type: "turnDiff" }),
         buildItem({ id: "marker", type: "forkedFromConversation" }),
       ],
     });
@@ -49,7 +49,7 @@ describe("bucketizeTurnItems", () => {
     });
 
     expect(turn.blocks.map((block) => block.type).join(",")).toBe(
-      "modelChanged,userMessage,exec,reasoning,assistantMessage,proposedPlan,diff,forkedFromConversation",
+      "modelChanged,userMessage,exec,reasoning,assistantMessage,proposedPlan,turnDiff,forkedFromConversation",
     );
   });
 

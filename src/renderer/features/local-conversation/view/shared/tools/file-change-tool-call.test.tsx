@@ -26,7 +26,7 @@ function buildFileChangeEntry(overrides?: Partial<CodexTranscriptEntry>): CodexT
               "@@ -1,5 +1,7 @@",
               " import { useState } from \"react\";",
               "+import { StoryShell } from \"./thread-stage-dev-story\";",
-              "",
+              " ",
               " export function LocalConversationStageScreen() {",
               "+  return <StoryShell />;",
               " }",
@@ -41,7 +41,7 @@ function buildFileChangeEntry(overrides?: Partial<CodexTranscriptEntry>): CodexT
           "@@ -1,5 +1,7 @@",
           " import { useState } from \"react\";",
           "+import { StoryShell } from \"./thread-stage-dev-story\";",
-          "",
+          " ",
           " export function LocalConversationStageScreen() {",
           "+  return <StoryShell />;",
           " }",
@@ -117,5 +117,51 @@ describe("FileChangeToolCall", () => {
     await settleAsyncRender();
 
     expect(Boolean(container.querySelector('[role="button"][aria-expanded="true"]'))).toBeFalse();
+  });
+
+  test("derives parsed file diff stats from actual changed lines", () => {
+    const rows = fileChangeToolCallTestHelpers.buildFileChangeRows(
+      buildFileChangeEntry({
+        toolCall: {
+          subtype: "fileChange",
+          toolName: "file_change",
+          args: {},
+          result: {
+            diff: [
+              "--- a/src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
+              "+++ b/src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
+              "@@ -3,11 +3,12 @@",
+              " import { LocalConversationFooter } from \"./local-conversation-footer\";",
+              " import { ThreadStageHeader } from \"./local-conversation-stage-header\";",
+              " import { LocalConversationThreadBody } from \"./local-conversation-thread-body\";",
+              "+import { StoryShell } from \"./thread-stage-dev-story\";",
+              " ",
+              " export function LocalConversationStageScreen({ model, actions, initialUiState }: ThreadStageScreenProps) {",
+              "   const [errorMessage, setErrorMessage] = useState<string | null>(null);",
+              " ",
+              "   return (",
+              "-    <div className=\"flex h-full min-h-0 flex-col bg-(--background)\">",
+              "+    <StoryShell className=\"flex h-full min-h-0 flex-col bg-(--background)\">",
+              "       <ThreadStageHeader model={model} actions={actions} onErrorMessage={setErrorMessage} />",
+              "       <LocalConversationThreadBody",
+              "@@ -22,6 +23,6 @@",
+              "         errorMessage={errorMessage}",
+              "         onErrorMessage={setErrorMessage}",
+              "       />",
+              "-    </div>",
+              "+    </StoryShell>",
+              "   );",
+              " }",
+            ].join("\n"),
+          },
+        },
+      }),
+      "/tmp/project",
+      undefined,
+    );
+
+    expect(rows.length).toBe(1);
+    expect(rows[0]?.summary.additions ?? null).toBe(3);
+    expect(rows[0]?.summary.deletions ?? null).toBe(2);
   });
 });

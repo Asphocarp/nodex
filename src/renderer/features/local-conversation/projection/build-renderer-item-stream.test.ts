@@ -60,7 +60,7 @@ describe("buildRendererItemStream", () => {
       turnStatus: "completed",
     });
 
-    expect(items.map((item) => item.type).join(",")).toBe("todoList,diff,modelRerouted,webSearch");
+    expect(items.map((item) => item.type).join(",")).toBe("todoList,turnDiff,modelRerouted,webSearch");
   });
 
   test("omits unanswered user-input requests from inline renderer items", () => {

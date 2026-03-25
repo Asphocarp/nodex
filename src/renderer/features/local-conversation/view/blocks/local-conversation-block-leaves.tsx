@@ -11,6 +11,7 @@ import {
 import { MarkdownRenderer } from "../shared/markdown/markdown-renderer";
 import { PlanMessage } from "../shared/plan-message";
 import { ReasoningSurface } from "../shared/reasoning-surface";
+import { TurnDiffSurface } from "../shared/turn-diff-surface";
 import {
   CopyMessageActionButton,
   EditMessageIcon,
@@ -512,6 +513,20 @@ export function ThreadToolSurfaceBlock({
       threadCwd={threadCwd ?? undefined}
       expanded={isExplicitlyCollapsed ? false : undefined}
       onExpandedChange={(expanded) => onToolCollapsedChange?.(itemId, !expanded)}
+    />
+  );
+}
+
+export function ThreadTurnDiffBlock({
+  block,
+  projectWorkspacePath,
+  threadCwd,
+}: ThreadLeafBlockProps) {
+  return (
+    <TurnDiffSurface
+      item={block.entry}
+      projectWorkspacePath={projectWorkspacePath ?? undefined}
+      threadCwd={threadCwd ?? undefined}
     />
   );
 }

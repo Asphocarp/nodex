@@ -5,6 +5,7 @@ import {
   ThreadExplorationGroupBlock,
   ThreadMultiAgentGroupBlock,
 } from "../../blocks/local-conversation-block-leaves";
+import { TurnDiffSurface } from "../turn-diff-surface";
 import { getToolComponent } from "./get-tool-component";
 import { McpToolCall } from "./mcp-tool-call";
 import { THREAD_TOOL_CALL_STORY_ITEMS } from "../../thread-stage-story-fixtures";
@@ -113,7 +114,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Focused leaf-story coverage for every tool-call surface currently dispatched through get-tool-component.tsx, plus exploration and multi-agent grouping blocks.",
+          "Focused leaf-story coverage for the thread tool/activity surfaces used by mounted turns, plus exploration and multi-agent grouping blocks.",
       },
     },
   },
@@ -150,11 +151,16 @@ export const FileChange: Story = {
 
 export const TurnDiff: Story = {
   render: () => (
-    <ToolCallStory
-      item={THREAD_TOOL_CALL_STORY_ITEMS.turnDiff}
+    <StorySurface
       title="Turn Diff"
       description="Turn-level unified diff rendered separately from the file-edit tool call."
-    />
+    >
+      <TurnDiffSurface
+        item={THREAD_TOOL_CALL_STORY_ITEMS.turnDiff}
+        projectWorkspacePath="/workspace/nodex"
+        threadCwd="/workspace/nodex"
+      />
+    </StorySurface>
   ),
 };
 

@@ -62,7 +62,7 @@ function resolveRendererType(entry: CodexConversationItem): ThreadTranscriptBloc
     case "patch":
       return "patch";
     case "diff":
-      return "diff";
+      return "turnDiff";
     case "toolCall":
       return "toolCall";
     case "mcpToolCall":

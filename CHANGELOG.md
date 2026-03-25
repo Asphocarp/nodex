@@ -23,6 +23,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - Fixed Thread-stage file-edit rendering so Codex-style `Edited …` tool rows now stay visible even when the turn also has a unified diff; file-change tool calls and turn-level diff cards now render as separate surfaces instead of one swallowing the other.
 - Fixed Thread-stage `Edited …` patch rows so they now expand inline to show their own unified diff frame, and the filename in the patch header now opens the local file target instead of rendering as inert text.
+- Fixed Thread-stage `turn.diff` rendering so active turns now show Codex Electron’s compact `files changed` banner above the composer, while completed turns render a dedicated files-changed card with collapsed per-file embedded diff rows instead of a generic full-card diff viewer.
 - Fixed Thread-stage message-action and MCP raw-output icon buttons in Electron so they now keep Codex Electron's compact `icon-2xs` shipped sizing instead of expanding child SVGs to `icon-sm`.
 - Fixed sorted Kanban same-column drag/drop when `priority` or `estimate` sorting is active, so dragging a card downward now uses the same post-removal slot math as the visible insertion indicator instead of anchoring against the source ghost.
 - Fixed Kanban empty-column drop targets so dragging blocks into an auto-collapsed lane now highlights the collapsed lane instead of hiding the only valid drop surface.

@@ -4880,6 +4880,9 @@ describe("codex-service terminal turn reconciliation", () => {
         expect(latest?.turns[0]?.items.length).toBe(2);
         expect(`${latest?.turns[0]?.items[0]?.kind}:${latest?.turns[0]?.items[0]?.semanticKind}`).toBe("fileChange:patch");
         expect(`${latest?.turns[0]?.items[1]?.kind}:${latest?.turns[0]?.items[1]?.semanticKind}`).toBe("systemEvent:diff");
+        const turnDiffRawItem = latest?.turns[0]?.items[1]?.rawItem as { cwd?: unknown } | undefined;
+        expect(typeof turnDiffRawItem?.cwd).toBe("string");
+        expect(turnDiffRawItem?.cwd).toBe("/tmp");
       } finally {
         await service.shutdown();
       }
