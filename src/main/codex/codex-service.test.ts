@@ -4557,6 +4557,79 @@ describe("codex-service item lifecycle status fallback", () => {
       await service.shutdown();
     }
   });
+
+  test("projects automatic approval review notifications into the canonical conversation", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
+      persistThreadSnapshot: (threadId: string) => void;
+    };
+
+    serviceInternals.persistThreadSnapshot = () => {};
+
+    try {
+      serviceInternals.mergeTurn("thr_auto_review", {
+        threadId: "thr_auto_review",
+        turnId: "turn_auto_review",
+        status: "inProgress",
+        itemIds: ["item_command"],
+      });
+
+      await serviceInternals.handleNotification("item/autoApprovalReview/started", {
+        threadId: "thr_auto_review",
+        turnId: "turn_auto_review",
+        targetItemId: "item_command",
+        review: {
+          status: "inProgress",
+          riskScore: 0.52,
+          riskLevel: "medium",
+          rationale: null,
+        },
+        action: {
+          type: "commandExecution",
+          command: "bun test",
+        },
+      });
+
+      let item = getRecordedItem(
+        serviceInternals,
+        "thr_auto_review",
+        "turn_auto_review",
+        "item_command:automaticApprovalReview",
+      );
+      expect(item?.semanticKind).toBe("automaticApprovalReview");
+      expect(item?.status).toBe("inProgress");
+
+      await serviceInternals.handleNotification("item/autoApprovalReview/completed", {
+        threadId: "thr_auto_review",
+        turnId: "turn_auto_review",
+        targetItemId: "item_command",
+        review: {
+          status: "approved",
+          riskScore: 0.11,
+          riskLevel: "low",
+          rationale: "This only runs the local test suite.",
+        },
+        action: {
+          type: "commandExecution",
+          command: "bun test",
+        },
+      });
+
+      item = getRecordedItem(
+        serviceInternals,
+        "thr_auto_review",
+        "turn_auto_review",
+        "item_command:automaticApprovalReview",
+      );
+      expect(item?.status).toBe("completed");
+      expect((item?.rawItem as { review?: { status?: string } } | undefined)?.review?.status).toBe("approved");
+      expect(item?.markdownText).toBe("This only runs the local test suite.");
+    } finally {
+      await service.shutdown();
+    }
+  });
 });
 
 describe("codex-service terminal turn reconciliation", () => {

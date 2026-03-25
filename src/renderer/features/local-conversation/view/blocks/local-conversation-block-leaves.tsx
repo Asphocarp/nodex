@@ -11,6 +11,8 @@ import {
 } from "react";
 import { motion } from "motion/react";
 import { MarkdownRenderer } from "../shared/markdown/markdown-renderer";
+import { AutomaticApprovalReviewSurface } from "../shared/automatic-approval-review-surface";
+import { MultiAgentActionSurface } from "../shared/multi-agent-action-surface";
 import { PlanMessage } from "../shared/plan-message";
 import { ReasoningSurface } from "../shared/reasoning-surface";
 import { TurnDiffSurface } from "../shared/turn-diff-surface";
@@ -469,29 +471,10 @@ export function ThreadExplorationGroupBlock({
 
 export function ThreadMultiAgentGroupBlock({
   block,
-  projectWorkspacePath,
-  threadCwd,
 }: ThreadSpecialBlockProps) {
   if (block.type !== "multiAgentGroup") return null;
 
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="text-[11px] font-medium tracking-wide text-token-description-foreground uppercase">{block.summary}</div>
-      <div className="flex flex-col gap-2">
-        {block.entries.map((entry) => {
-          const ToolComponent = getToolComponent(entry);
-          return (
-            <ToolComponent
-              key={entry.entryId ?? entry.itemId}
-              item={entry}
-              projectWorkspacePath={projectWorkspacePath ?? undefined}
-              threadCwd={threadCwd ?? undefined}
-            />
-          );
-        })}
-      </div>
-    </div>
-  );
+  return <MultiAgentActionSurface items={block.entries} />;
 }
 
 export function ThreadThinkingPlaceholderBlock({ block }: ThreadSpecialBlockProps) {
@@ -515,6 +498,7 @@ export function ThreadToolSurfaceBlock({
 }: ThreadLeafBlockProps) {
   const item = block.entry;
   const ToolComponent = getToolComponent(item);
+  if (!ToolComponent) return null;
 
   return (
     <ToolComponent
@@ -537,6 +521,16 @@ export function ThreadTurnDiffBlock({
       threadCwd={threadCwd ?? undefined}
     />
   );
+}
+
+export function ThreadAutomaticApprovalReviewBlock({ block }: ThreadLeafBlockProps) {
+  if (block.type !== "automaticApprovalReview") return null;
+  return <AutomaticApprovalReviewSurface item={block.entry} />;
+}
+
+export function ThreadMultiAgentActionBlock({ block }: ThreadLeafBlockProps) {
+  if (block.type !== "multiAgentAction") return null;
+  return <MultiAgentActionSurface items={[block.entry]} />;
 }
 
 export function ThreadUserBubbleBlock({

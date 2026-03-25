@@ -6,6 +6,11 @@ import type {
   CodexToolCallView,
   CodexUserInputQuestion,
 } from "../../shared/types";
+import {
+  buildAutomaticApprovalReviewSummary,
+  normalizeAutomaticApprovalReviewPayload,
+  normalizeMultiAgentActionPayload,
+} from "../../shared/codex-transcript-special-items";
 import { projectCodexReasoningSummary } from "./codex-reasoning-projection";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -396,21 +401,46 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
     return applyFallbackContent(result, itemType);
   }
 
+  if (isType(itemType, ["automaticApprovalReview", "automatic_approval_review", "guardianApprovalReview"])) {
+    const review = normalizeAutomaticApprovalReviewPayload(candidate);
+    if (!review) return applyFallbackContent(result, itemType);
+
+    result.normalizedKind = "systemEvent";
+    result.semanticKind = "automaticApprovalReview";
+    result.status = review.status === "inProgress" ? "inProgress" : "completed";
+    result.markdownText = buildAutomaticApprovalReviewSummary(review);
+    result.rawItem = {
+      ...candidate,
+      targetItemId: review.targetItemId,
+      review: {
+        status: review.status,
+        riskScore: review.riskScore,
+        riskLevel: review.riskLevel,
+        rationale: review.rationale,
+      },
+      action: review.action,
+    };
+    return applyFallbackContent(result, itemType);
+  }
+
   if (isType(itemType, ["collabAgentToolCall", "collab_agent_tool_call"])) {
-    const tool = getString(candidate, ["tool"]) ?? "collab_tool";
-    const sender = getString(candidate, ["senderThreadId", "sender_thread_id"]);
-    const receiverIds = Array.isArray(candidate.receiverThreadIds)
-      ? candidate.receiverThreadIds.filter((entry): entry is string => typeof entry === "string")
-      : [];
+    const action = normalizeMultiAgentActionPayload(candidate);
+    const tool = action?.action ?? getString(candidate, ["tool"]) ?? "collab_tool";
+    const sender = action?.senderThreadId ?? getString(candidate, ["senderThreadId", "sender_thread_id"]);
+    const receiverIds = action?.receiverThreadIds ?? [];
 
     result.normalizedKind = "toolCall";
-    result.semanticKind = "multiAgentAction";
-    result.status = normalizeItemStatus(getUnknown(candidate, ["status"]));
+    result.semanticKind = action?.action === "wait" ? "toolCall" : "multiAgentAction";
+    result.status = action?.status ?? normalizeItemStatus(getUnknown(candidate, ["status"]));
     result.toolCall = buildToolCall("generic", tool, {
       args: {
         sender,
         receivers: receiverIds,
-        prompt: getString(candidate, ["prompt"]),
+        receiverThreads: action?.receiverThreads ?? [],
+        agentsStates: action?.agentsStates ?? {},
+        prompt: action?.prompt ?? getString(candidate, ["prompt"]),
+        model: action?.model ?? null,
+        reasoningEffort: action?.reasoningEffort ?? null,
       },
       result: candidate.result,
       error: resolveToolCallError(candidate),

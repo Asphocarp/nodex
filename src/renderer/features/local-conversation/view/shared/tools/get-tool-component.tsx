@@ -2,7 +2,6 @@ import type { ComponentType } from "react";
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
 import { CommandToolCall } from "./command-tool-call";
 import { FileChangeToolCall } from "./file-change-tool-call";
-import { GenericToolCall } from "./generic-tool-call";
 import { McpToolCall } from "./mcp-tool-call";
 import { WebSearchToolCall } from "./web-search-tool-call";
 
@@ -14,7 +13,7 @@ export interface ToolComponentProps {
 
 type ToolComponent = ComponentType<ToolComponentProps>;
 
-export function getToolComponent(item: CodexTranscriptEntry): ToolComponent {
+export function getToolComponent(item: CodexTranscriptEntry): ToolComponent | null {
   if (item.semanticKind === "exec" || item.kind === "commandExecution" || item.toolCall?.subtype === "command") {
     return CommandToolCall;
   }
@@ -35,5 +34,5 @@ export function getToolComponent(item: CodexTranscriptEntry): ToolComponent {
     return McpToolCall;
   }
 
-  return GenericToolCall;
+  return null;
 }

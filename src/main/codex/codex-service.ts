@@ -84,6 +84,10 @@ import type {
 } from "../../shared/types";
 import { selectPrimaryConversationRequest } from "../../shared/codex-conversation-request";
 import {
+  buildAutomaticApprovalReviewSummary,
+  normalizeAutomaticApprovalReviewPayload,
+} from "../../shared/codex-transcript-special-items";
+import {
   canMergeSyntheticTextDuplicate,
   mergeCodexItemView,
   resolveCodexItemPrimaryIdentityKey,
@@ -2546,6 +2550,46 @@ export class CodexService extends EventEmitter {
     return parseCodexReasoningBuffers(item.rawItem);
   }
 
+  private upsertAutomaticApprovalReviewItem(
+    payload: Record<string, unknown>,
+    fallbackStatus: "inProgress" | "completed",
+  ): CodexTranscriptEntry | null {
+    const threadId = typeof payload.threadId === "string" ? payload.threadId : null;
+    const turnId = typeof payload.turnId === "string" ? payload.turnId : null;
+    const targetItemId = typeof payload.targetItemId === "string" ? payload.targetItemId : null;
+    if (!threadId || !turnId || !targetItemId) return null;
+
+    const review = normalizeAutomaticApprovalReviewPayload(payload, targetItemId);
+    if (!review) return null;
+
+    const itemId = `${targetItemId}:automaticApprovalReview`;
+    const now = Date.now();
+    return this.mergeItem({
+      threadId,
+      turnId,
+      itemId,
+      type: "automaticApprovalReview",
+      normalizedKind: "systemEvent",
+      semanticKind: "automaticApprovalReview",
+      status: review.status === "inProgress" ? "inProgress" : fallbackStatus,
+      markdownText: buildAutomaticApprovalReviewSummary(review),
+      rawItem: {
+        id: itemId,
+        type: "automaticApprovalReview",
+        targetItemId,
+        review: {
+          status: review.status,
+          riskScore: review.riskScore,
+          riskLevel: review.riskLevel,
+          rationale: review.rationale,
+        },
+        action: review.action,
+      },
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
   private mergeItem(item: CodexItemView, source: CodexTranscriptEntrySource = "live"): CodexTranscriptEntry {
     this.ensureConversationDetail(item.threadId);
     const record = this.ensureConversationRecord(item.threadId);
@@ -4460,6 +4504,16 @@ export class CodexService extends EventEmitter {
       this.syncTurnDiffItem(payload.threadId, payload.turnId, diff, nextTurn.status);
       this.emitEvent({ type: "turn", turn: nextTurn });
       this.emitConversationSnapshot(payload.threadId);
+      return;
+    }
+
+    if (method === "item/autoApprovalReview/started" || method === "item/autoApprovalReview/completed") {
+      const payload = asRecord(params);
+      if (!payload) return;
+      const lifecycleStatus = method === "item/autoApprovalReview/started" ? "inProgress" as const : "completed" as const;
+      const entry = this.upsertAutomaticApprovalReviewItem(payload, lifecycleStatus);
+      if (!entry) return;
+      this.emitConversationSnapshot(entry.threadId);
       return;
     }
 

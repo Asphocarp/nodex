@@ -65,7 +65,7 @@
   - keep visual density aligned to the existing rhythm (`gap-*`, `px-panel`, `var(--conversation-tool-assistant-gap)`) rather than per-component spacing tweaks
 - Mirror Codex Electron's transcript animation split:
   - for Codex-native expandable transcript surfaces, reuse a shared measured-height hook and let each subtype own its own `motion.div` / `AnimatePresence` wrapper and state machine
-  - keep generic helpers like `MeasuredExpand` out of Codex-parity transcript surfaces; reserve them for local-only fallback UI that does not map to a Codex counterpart
+  - keep transcript expand/collapse subtype-owned; reuse the measured-height hook, but let each Codex-parity surface own its own Motion wrapper and state machine
 - Treat utilities as part of the design contract:
   - if a class exists as an exact shipped Codex selector, keep it in the generated utility layer
   - if a class is renderer-local and not recoverable from the shipped Codex CSS, keep it in `theme-utilities.css`
@@ -91,7 +91,8 @@
 - Build the isolated UI harness before handoff when story code changes: `bun run build:storybook`
 - Keep Storybook scenes canvas-first: use story variants, `args`, and `argTypes` for presets and controls instead of rendering custom preset/control sidebars inside story pages.
 - Keep Storybook scenes production-backed: thread and card-stage stories should build state from the same projection/helpers used by shipped UI instead of hand-authoring parallel fake view models.
-- Current thread stories live under `src/renderer/features/local-conversation/view/` for composed stage scenarios and under `src/renderer/features/local-conversation/view/shared/` for focused tool/request leaf stories. Editor `threadSection` stories live beside the editor components in `src/renderer/components/kanban/editor/`.
+- Current thread stories live under `src/renderer/features/local-conversation/view/` for composed stage scenarios and under `src/renderer/features/local-conversation/view/shared/` for focused transcript-special, tool, and request leaf stories. Keep Codex transcript-special surfaces such as reasoning, todo lists, automatic approval review, and multi-agent activity in the transcript-special stories instead of forcing them into tool-call stories.
+- Keep tool-call stories scoped to actual Codex tool families. Transcript-special surfaces that happen to originate from tool-like raw items still belong in transcript-special stories once the projector gives them their own semantic lane.
 - Default renderer component tests to DOM-based coverage with Bun + `happy-dom` + `@testing-library/react`.
 - Assert user-visible structure, labels, and behavior through rendered DOM queries; keep `data-testid` and raw class checks as fallback tools, not the default.
 - Reserve HTML-string or server-render assertions for cases where serialized markup is the actual contract.

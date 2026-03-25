@@ -133,7 +133,6 @@ export interface ThreadTranscriptBlockModel {
     | "patch"
     | "fileChange"
     | "turnDiff"
-    | "toolCall"
     | "mcpToolCall"
     | "webSearch"
     | "workedFor"

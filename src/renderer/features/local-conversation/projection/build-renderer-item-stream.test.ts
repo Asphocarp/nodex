@@ -113,7 +113,7 @@ describe("buildRendererItemStream", () => {
     expect(items.length).toBe(0);
   });
 
-  test("distinguishes patch and MCP tool call items from generic tool events", () => {
+  test("keeps Codex tool rows but omits generic tool fallback entries", () => {
     const items = buildRendererItemStream({
       entries: [
         buildEntry({
@@ -139,6 +139,18 @@ describe("buildRendererItemStream", () => {
             toolName: "search_docs",
             server: "docs",
             args: { query: "thread item schema" },
+          },
+        }),
+        buildEntry({
+          itemId: "generic_1",
+          type: "tool_call",
+          kind: "toolCall",
+          semanticKind: "toolCall",
+          toolCall: {
+            subtype: "generic",
+            toolName: "summarize_stage_shell",
+            args: { section: "footer" },
+            result: { summary: "legacy fallback" },
           },
         }),
       ],

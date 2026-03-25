@@ -220,7 +220,6 @@ describe("bucketizeTurnItems", () => {
             markdownText: "Thinking",
           },
         }),
-        buildItem({ id: "tool_1", type: "toolCall" }),
       ],
     });
 

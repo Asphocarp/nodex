@@ -93,6 +93,94 @@ describe("codex-item-normalizer", () => {
     expect(((item?.toolCall?.result as { content?: unknown[] } | undefined)?.content?.length ?? 0) > 0).toBeTrue();
   });
 
+  test("normalizes automatic approval review items into dedicated transcript events", () => {
+    const item = normalizeThreadItem(
+      {
+        id: "item-review",
+        type: "automaticApprovalReview",
+        targetItemId: "item-command",
+        review: {
+          status: "approved",
+          riskScore: 0.82,
+          riskLevel: "high",
+          rationale: "The command only runs the local test suite.",
+        },
+        action: {
+          type: "commandExecution",
+          command: "bun test",
+        },
+      },
+      "thread-1",
+      "turn-1",
+    );
+
+    expect(item).not.toBeNull();
+    expect(item?.normalizedKind).toBe("systemEvent");
+    expect(item?.semanticKind).toBe("automaticApprovalReview");
+    expect(item?.status).toBe("completed");
+    expect(item?.markdownText).toBe("The command only runs the local test suite.");
+  });
+
+  test("normalizes multi-agent actions with structured receiver metadata", () => {
+    const item = normalizeThreadItem(
+      {
+        id: "item-collab",
+        type: "collabAgentToolCall",
+        tool: "sendInput",
+        status: "completed",
+        senderThreadId: "thread-main",
+        receiverThreadIds: ["thread-agent-1"],
+        receiverThreads: [
+          {
+            threadId: "thread-agent-1",
+            thread: {
+              nickname: "@research",
+              model: "gpt-5.4-mini",
+              agentRole: "worker",
+            },
+          },
+        ],
+        prompt: "Gather the failing tests.",
+        model: "gpt-5.4-mini",
+        reasoningEffort: "medium",
+        agentsStates: {
+          "thread-agent-1": {
+            status: "running",
+            message: "Inspecting the renderer tests",
+          },
+        },
+      },
+      "thread-1",
+      "turn-1",
+    );
+
+    expect(item).not.toBeNull();
+    expect(item?.semanticKind).toBe("multiAgentAction");
+    expect(item?.status).toBe("completed");
+    expect((item?.toolCall?.args as { receiverThreads?: unknown[] } | undefined)?.receiverThreads?.length).toBe(1);
+    expect(((item?.toolCall?.args as { agentsStates?: Record<string, unknown> } | undefined)?.agentsStates?.["thread-agent-1"] as { status?: string } | undefined)?.status).toBe("running");
+  });
+
+  test("keeps collab wait items out of the dedicated multi-agent transcript lane", () => {
+    const item = normalizeThreadItem(
+      {
+        id: "item-collab-wait",
+        type: "collabAgentToolCall",
+        tool: "wait",
+        status: "completed",
+        senderThreadId: "thread-main",
+        receiverThreadIds: ["thread-agent-1"],
+        prompt: null,
+        agentsStates: {},
+      },
+      "thread-1",
+      "turn-1",
+    );
+
+    expect(item).not.toBeNull();
+    expect(item?.semanticKind).toBe("toolCall");
+  });
+
   test("normalizes reasoning items from summary only and preserves status when provided", () => {
     const item = normalizeThreadItem(
       {

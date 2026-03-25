@@ -1179,57 +1179,160 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
       },
     },
   }),
-  generic: buildToolItemBase({
-    itemId: "tool_story_generic",
-    type: "tool_call",
-    semanticKind: "toolCall",
-    toolCall: {
-      subtype: "generic",
-      server: "internal",
-      toolName: "summarize_stage_shell",
-      args: { section: "footer" },
-      result: { summary: "The composer hides behind blocking request surfaces." },
-    },
-  }),
-  genericRawOnly: buildToolItemBase({
-    itemId: "tool_story_generic_raw_only",
-    type: "tool_call",
-    semanticKind: "toolCall",
-    markdownText: "Unknown tool payload",
+};
+
+export const THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS = {
+  automaticApprovalReviewCompleted: buildToolItemBase({
+    itemId: "story_automatic_approval_review_completed",
+    entryId: "story_automatic_approval_review_completed",
+    type: "automaticApprovalReview",
+    kind: "systemEvent",
+    semanticKind: "automaticApprovalReview",
+    status: "completed",
     rawItem: {
-      type: "opaque_tool_call",
-      tool: "workspace.snapshot_shell",
-      payload: {
-        panel: "footer",
-        lines: 3,
+      targetItemId: "item-command",
+      review: {
+        status: "approved",
+        riskScore: 0.11,
+        riskLevel: "low",
+        rationale: "Only local Storybook and renderer tests are executed before packaging.",
+      },
+      action: {
+        type: "commandExecution",
+        command: "bun run build:storybook",
       },
     },
   }),
-  multiAgent: [
+  automaticApprovalReviewInProgress: buildToolItemBase({
+    itemId: "story_automatic_approval_review_in_progress",
+    entryId: "story_automatic_approval_review_in_progress",
+    type: "automaticApprovalReview",
+    kind: "systemEvent",
+    semanticKind: "automaticApprovalReview",
+    status: "inProgress",
+    rawItem: {
+      targetItemId: "item-command",
+      review: {
+        status: "inProgress",
+        riskScore: 0.45,
+        riskLevel: "medium",
+        rationale: null,
+      },
+      action: {
+        type: "commandExecution",
+        command: "bun run build:storybook",
+      },
+    },
+  }),
+  multiAgentSettled: [
     buildToolItemBase({
-      itemId: "tool_story_multi_agent_command",
-      type: "command_execution",
-      kind: "commandExecution",
-      semanticKind: "exec",
-      toolCall: {
-        subtype: "command",
-        toolName: "exec_command",
-        args: {
-          command: "bun test src/renderer/features/local-conversation/view/local-conversation-thread-body.test.tsx",
-          cwd: STORY_WORKSPACE_PATH,
+      itemId: "story_multi_agent_settled_spawn",
+      entryId: "story_multi_agent_settled_spawn",
+      type: "collabAgentToolCall",
+      kind: "toolCall",
+      semanticKind: "multiAgentAction",
+      status: "completed",
+      rawItem: {
+        id: "story_multi_agent_settled_spawn",
+        tool: "spawnAgent",
+        status: "completed",
+        senderThreadId: "thread-main",
+        receiverThreadIds: ["thread-agent-1"],
+        receiverThreads: [
+          {
+            threadId: "thread-agent-1",
+            thread: {
+              nickname: "@research",
+              model: "gpt-5.4-mini",
+              agentRole: "worker",
+            },
+          },
+        ],
+        prompt: "Audit the transcript renderer parity gaps.",
+        agentsStates: {
+          "thread-agent-1": {
+            status: "completed",
+            message: "Bundle walkthrough finished",
+          },
         },
-        result: "4 passed",
       },
     }),
     buildToolItemBase({
-      itemId: "tool_story_multi_agent_web",
-      type: "web_search",
-      semanticKind: "webSearch",
-      toolCall: {
-        subtype: "webSearch",
-        toolName: "web_search",
-        args: { query: "storybook canvas-first control-driven stories" },
-        result: { hitCount: 2 },
+      itemId: "story_multi_agent_settled_message",
+      entryId: "story_multi_agent_settled_message",
+      type: "collabAgentToolCall",
+      kind: "toolCall",
+      semanticKind: "multiAgentAction",
+      status: "completed",
+      rawItem: {
+        id: "story_multi_agent_settled_message",
+        tool: "sendInput",
+        status: "completed",
+        senderThreadId: "thread-main",
+        receiverThreadIds: ["thread-agent-1"],
+        receiverThreads: [
+          {
+            threadId: "thread-agent-1",
+            thread: {
+              nickname: "@research",
+              model: "gpt-5.4-mini",
+              agentRole: "worker",
+            },
+          },
+        ],
+        prompt: "Summarize the remaining UI parity gaps.",
+        agentsStates: {
+          "thread-agent-1": {
+            status: "running",
+            message: "Drafting the findings",
+          },
+        },
+      },
+    }),
+  ],
+  multiAgentInProgress: [
+    buildToolItemBase({
+      itemId: "story_multi_agent_in_progress",
+      entryId: "story_multi_agent_in_progress",
+      type: "collabAgentToolCall",
+      kind: "toolCall",
+      semanticKind: "multiAgentAction",
+      status: "inProgress",
+      rawItem: {
+        id: "story_multi_agent_in_progress",
+        tool: "spawnAgent",
+        status: "inProgress",
+        senderThreadId: "thread-main",
+        receiverThreadIds: ["thread-agent-1", "thread-agent-2"],
+        receiverThreads: [
+          {
+            threadId: "thread-agent-1",
+            thread: {
+              nickname: "@research",
+              model: "gpt-5.4-mini",
+              agentRole: "worker",
+            },
+          },
+          {
+            threadId: "thread-agent-2",
+            thread: {
+              nickname: "@ui",
+              model: "gpt-5.4-mini",
+              agentRole: "worker",
+            },
+          },
+        ],
+        prompt: "Investigate the Storybook visual mismatch.",
+        agentsStates: {
+          "thread-agent-1": {
+            status: "pendingInit",
+            message: null,
+          },
+          "thread-agent-2": {
+            status: "running",
+            message: "Reading the renderer stories",
+          },
+        },
       },
     }),
   ],

@@ -1,5 +1,7 @@
 import {
+  ThreadAutomaticApprovalReviewBlock,
   ThreadMultiAgentGroupBlock,
+  ThreadMultiAgentActionBlock,
   ThreadAnsweredUserInputCard,
   ThreadAssistantBodyBlock,
   ThreadExplorationGroupBlock,
@@ -69,11 +71,8 @@ export function ThreadBlockRenderer({
     block.type === "exec"
     || block.type === "patch"
     || block.type === "fileChange"
-    || block.type === "toolCall"
     || block.type === "mcpToolCall"
     || block.type === "webSearch"
-    || block.type === "automaticApprovalReview"
-    || block.type === "multiAgentAction"
   ) {
     return (
       <ThreadToolSurfaceBlock
@@ -84,6 +83,14 @@ export function ThreadBlockRenderer({
         threadCwd={threadCwd}
       />
     );
+  }
+
+  if (block.type === "automaticApprovalReview") {
+    return <ThreadAutomaticApprovalReviewBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
+  }
+
+  if (block.type === "multiAgentAction") {
+    return <ThreadMultiAgentActionBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
   }
 
   if (block.type === "turnDiff") {

@@ -83,7 +83,7 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
   - `modelChanged`
   - `userMessage`
   - selected `modelRerouted`
-  - activity blocks (`reasoning`, `commandExecution`, `patch`, `turnDiff`, `toolCall`, `mcpToolCall`, `webSearch`, `multiAgentAction`, plus derived exploration groups)
+  - activity blocks (`reasoning`, `commandExecution`, `patch`, `turnDiff`, `mcpToolCall`, `webSearch`, `multiAgentAction`, plus derived exploration groups)
   - `systemEvent`
   - `assistantMessage`
   - post-assistant artifacts such as answered `userInputRequest`
@@ -95,6 +95,7 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
 - If the active turn has no blocking pending request, the turn may append a `Thinking` placeholder after the proposed-plan block and before any completed inline diff.
 - Exploration groups take precedence over that placeholder, incomplete proposed plans suppress it, `workedFor` suppresses it, and unresolved approval / request-user-input / MCP elicitation state suppresses it.
 - Incomplete MCP elicitation blocks the same in-progress surfaces as approval and request-user-input state.
+- Unknown replay/app-server tool payloads do not render a generic transcript tool row. The mounted transcript only renders the Codex Electron tool families with dedicated surfaces (`exec`, `patch`, `mcpToolCall`, `webSearch`, `turnDiff`) and keeps any remaining raw tool metadata internal to the canonical conversation state.
 
 ## Collapse and Search
 - Agent-body collapse applies only to the activity section of older completed turns with renderable agent work. It does not hide the turn's user message or final assistant answer.
@@ -120,6 +121,8 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
 ## Tool and Activity Rendering
 - Tool activity renders as structured expandable cards instead of plain text dumps.
 - Specialized cards exist for command execution, file changes, MCP, and web search.
+- Automatic approval review items render as a dedicated compact status row with Codex Electron's title, status chip, optional risk label, and an expandable rationale/fallback summary.
+- Multi-agent action items render as a dedicated grouped activity surface instead of falling back to generic system banners. Running actions stay expanded, settled contiguous actions can coalesce into one grouped surface, and `wait`-only collab tool calls stay out of the mounted transcript.
 - Codex-parity transcript expanders use Motion and subtype-owned state, not a generic shared accordion:
   - measured transcript bodies (`commandExecution`, exploration groups, `patch`, MCP, reasoning, completed request-user-input answers, plan/todo disclosure, and other Codex-native expandable rows) animate through explicit `motion.div` height/opacity wrappers fed by a `ResizeObserver`-driven measured-height hook
   - agent-body collapse is a separate presence animation contract and does not reuse the measured-height transcript-body model
@@ -131,7 +134,6 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
   - the unified diff card is never allowed to replace or swallow the underlying `Edited file` tool row
   - patch rows expand inline to reveal their own unified diff frame instead of delegating expansion to the separate turn-level diff card
   - patch headers split the status label and filename into separate elements; the filename is clickable and opens the local file target without toggling the row
-- A generic fallback card must remain available for unknown tool types and expose args/result/error/raw payloads when expanded.
 - Tool-call expansion is subtype-owned local UI state; the mounted thread persists collapsed turns, not collapsed tool rows.
 - Tool-call header labels use a scan-friendly two-tone hierarchy where the leading action phrase is visually emphasized over trailing detail text.
 - Command execution cards consume parsed `commandActions` metadata (`read`, `listFiles`, `search`) to show exploration summaries and per-action transcript rows.

@@ -1,10 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useRef, type ReactNode } from "react";
 import type { CodexTranscriptEntry } from "@/lib/types";
-import {
-  ThreadExplorationGroupBlock,
-  ThreadMultiAgentGroupBlock,
-} from "../../blocks/local-conversation-block-leaves";
+import { ThreadExplorationGroupBlock } from "../../blocks/local-conversation-block-leaves";
 import { LOCAL_CONVERSATION_CONTENT_CLASS_NAME } from "../local-conversation-view-constants";
 import { TurnDiffSurface } from "../turn-diff-surface";
 import { getToolComponent } from "./get-tool-component";
@@ -51,6 +48,7 @@ function ToolCallStory({
   autoOpen?: boolean;
 }) {
   const ToolComponent = getToolComponent(item);
+  if (!ToolComponent) return null;
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -128,35 +126,6 @@ function ExplorationGroupStory() {
   );
 }
 
-function MultiAgentGroupStory() {
-  return (
-    <StorySurface
-      title="Multi-Agent Group"
-      description="Grouped background worker activity shown with the same leaf components used in mounted turns."
-    >
-      <ConversationStorySurface>
-        <ThreadMultiAgentGroupBlock
-          block={{
-            id: "multi-agent-story",
-            turnId: "turn_tool_story",
-            createdAt: 1,
-            updatedAt: 2,
-            searchableText: "Multi-agent work",
-            type: "multiAgentGroup",
-            entries: [...THREAD_TOOL_CALL_STORY_ITEMS.multiAgent],
-            summary: "2 background workers reported progress",
-            status: "completed",
-          }}
-          isLatestTurn={false}
-          isStreamingTurn={false}
-          projectWorkspacePath="/workspace/nodex"
-          threadCwd="/workspace/nodex"
-        />
-      </ConversationStorySurface>
-    </StorySurface>
-  );
-}
-
 const meta = {
   title: "Workbench/Threads/Tool Calls",
   component: ToolCallStory,
@@ -164,7 +133,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Focused leaf-story coverage for the thread tool/activity surfaces used by mounted turns, plus exploration and multi-agent grouping blocks.",
+          "Focused leaf-story coverage for the Codex tool and tool-group surfaces used by mounted turns.",
       },
     },
   },
@@ -291,32 +260,6 @@ export const McpRawOutputDialog: Story = {
   ),
 };
 
-export const GenericFallback: Story = {
-  render: () => (
-    <ToolCallStory
-      item={THREAD_TOOL_CALL_STORY_ITEMS.generic}
-      title="Generic Tool Call"
-      description="Compatibility fallback for tool payloads without a dedicated Codex Electron renderer, using the same summary/disclosure tone as Codex tool rows."
-      autoOpen
-    />
-  ),
-};
-
-export const GenericFallbackRawOnly: Story = {
-  render: () => (
-    <ToolCallStory
-      item={THREAD_TOOL_CALL_STORY_ITEMS.genericRawOnly}
-      title="Generic Fallback Raw Payload"
-      description="Unknown tool payloads can still be inspected through the fallback disclosure when only raw structured data is available."
-      autoOpen
-    />
-  ),
-};
-
 export const ExplorationGroup: Story = {
   render: () => <ExplorationGroupStory />,
-};
-
-export const MultiAgentGroup: Story = {
-  render: () => <MultiAgentGroupStory />,
 };
