@@ -1,15 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import {
-  extractAllDeclarations,
-  findMatches,
-  flattenCssNodes,
-  formatBlock,
-  formatNestedBlock,
-  mergeDeclarationMaps,
-  parseCssNodes,
-} from "./codex-css-extract";
+import { transform, type Rule, type Selector, type StyleSheet } from "lightningcss";
 
 const referencePath = resolve(
   process.cwd(),
@@ -75,63 +67,234 @@ const ROOT_SUPPORT_SELECTOR_BLOCKS = [
   ".\\[\\&_\\*\\]\\:text-token-foreground\\/50 *",
 ] as const;
 
-const UTILITY_SUPPORT_LAYER_PARENTS = [
-  "@layer utilities",
-  "@supports (color: color-mix(in lab, red, red))",
-] as const;
+type WindowVariant = "browser" | "electron" | "extension";
 
-const extractDeclarationsForSelector = (
-  matches: ReturnType<typeof flattenCssNodes>,
-  selector: string,
-  parents?: string[],
-): Map<string, string> => {
-  const selectedMatches =
-    parents == null
-      ? matches.filter(
-          (match) =>
-            match.prelude === selector &&
-            !match.parents.some((parent) => parent.startsWith("@supports ")),
-        )
-      : findMatches(matches, selector, parents);
-  if (selectedMatches.length === 0) {
-    throw new Error(
-      `Missing selector ${selector} in ${parents?.join(" > ") || "any parent"}`,
-    );
+const parseStylesheet = (css: string, filename: string): StyleSheet => {
+  let stylesheet: StyleSheet | null = null;
+
+  transform({
+    filename,
+    code: Buffer.from(css),
+    minify: false,
+    analyzeDependencies: false,
+    visitor: {
+      StyleSheet(sheet) {
+        stylesheet = sheet;
+        return sheet;
+      },
+    },
+  });
+
+  if (stylesheet == null) {
+    throw new Error(`Failed to parse stylesheet: ${filename}`);
   }
 
-  return mergeDeclarationMaps(
-    selectedMatches.map((match) => extractAllDeclarations(match.body)),
-  );
+  return stylesheet;
+};
+
+const selectorFingerprint = (selector: Selector): string => JSON.stringify(selector);
+
+const parseSelectorFingerprints = (selectorText: string): string[] => {
+  const stylesheet = parseStylesheet(`${selectorText} { color: red; }`, "selector.css");
+  const firstRule = stylesheet.rules[0];
+  if (firstRule == null || firstRule.type !== "style") {
+    throw new Error(`Unable to parse selector snippet: ${selectorText}`);
+  }
+
+  return firstRule.value.selectors.map(selectorFingerprint);
+};
+
+const collectSelectorFingerprintSet = (selectors: readonly string[]): Set<string> => {
+  const fingerprints = new Set<string>();
+
+  for (const selector of selectors) {
+    for (const fingerprint of parseSelectorFingerprints(selector)) {
+      fingerprints.add(fingerprint);
+    }
+  }
+
+  return fingerprints;
+};
+
+const ROOT_SELECTOR_FINGERPRINTS = collectSelectorFingerprintSet(ROOT_SELECTOR_BLOCKS);
+const ROOT_SUPPORT_SELECTOR_FINGERPRINTS = collectSelectorFingerprintSet(
+  ROOT_SUPPORT_SELECTOR_BLOCKS,
+);
+
+const readWindowVariantName = (className: string): WindowVariant | null => {
+  if (className.startsWith("browser:[")) {
+    return "browser";
+  }
+  if (className.startsWith("electron:[")) {
+    return "electron";
+  }
+  if (className.startsWith("extension:[")) {
+    return "extension";
+  }
+
+  return null;
+};
+
+const isWindowVariantArbitraryPropertySelector = (selector: Selector): boolean => {
+  if (selector.length !== 2) {
+    return false;
+  }
+
+  const [classNode, whereNode] = selector;
+  if (classNode?.type !== "class") {
+    return false;
+  }
+
+  const windowVariant = readWindowVariantName(classNode.name);
+  if (windowVariant == null) {
+    return false;
+  }
+
+  if (whereNode?.type !== "pseudo-class" || whereNode.kind !== "where") {
+    return false;
+  }
+
+  const nestedSelector = whereNode.selectors?.[0];
+  if (nestedSelector == null || nestedSelector.length !== 3) {
+    return false;
+  }
+
+  const [attributeNode, combinatorNode, nestedClassNode] = nestedSelector;
+  if (attributeNode?.type !== "attribute" || attributeNode.name !== "data-codex-window-type") {
+    return false;
+  }
+
+  if (attributeNode.operation?.value !== windowVariant) {
+    return false;
+  }
+
+  if (combinatorNode?.type !== "combinator" || combinatorNode.value !== "descendant") {
+    return false;
+  }
+
+  return nestedClassNode?.type === "class" && nestedClassNode.name === classNode.name;
+};
+
+const isAllowedUtilityStyleRule = (
+  rule: Extract<Rule, { type: "style" }>,
+  withinSupports: boolean,
+): boolean => {
+  const fingerprints = withinSupports
+    ? ROOT_SUPPORT_SELECTOR_FINGERPRINTS
+    : ROOT_SELECTOR_FINGERPRINTS;
+
+  return rule.value.selectors.some((selector) => {
+    if (isWindowVariantArbitraryPropertySelector(selector)) {
+      return true;
+    }
+
+    return fingerprints.has(selectorFingerprint(selector));
+  });
+};
+
+const isAllowedGeneratedUtilityStyleRule = (
+  rule: Extract<Rule, { type: "style" }>,
+  withinSupports: boolean,
+): boolean => isAllowedUtilityStyleRule(rule, withinSupports);
+
+const ALLOWED_GENERATED_LAYER_NAMES = new Set(["components", "utilities"]);
+
+const buildGeneratedUtilitiesCss = (referenceCss: string): string => {
+  const layerNameStack: string[] = [];
+  let supportsDepth = 0;
+
+  const result = transform({
+    filename: referencePath,
+    code: Buffer.from(referenceCss),
+    minify: false,
+    analyzeDependencies: false,
+    visitor: {
+      Rule(rule) {
+        if (rule.type === "layer-block") {
+          layerNameStack.push((rule.value.name ?? []).join("."));
+          return;
+        }
+
+        if (rule.type === "supports") {
+          supportsDepth += 1;
+          return;
+        }
+
+        if (
+          rule.type === "style" &&
+          !isAllowedGeneratedUtilityStyleRule(rule, supportsDepth > 0)
+        ) {
+          return [];
+        }
+      },
+      RuleExit(rule) {
+        if (rule.type === "supports") {
+          supportsDepth -= 1;
+
+          if (rule.value.rules.length === 0) {
+            return [];
+          }
+
+          return;
+        }
+
+        if (rule.type === "layer-block") {
+          const layerName = layerNameStack.pop() ?? "";
+          if (!ALLOWED_GENERATED_LAYER_NAMES.has(layerName) || rule.value.rules.length === 0) {
+            return [];
+          }
+        }
+      },
+    },
+  });
+
+  let generatedCss = Buffer.from(result.code).toString("utf8");
+
+  for (let iteration = 0; iteration < 5; iteration += 1) {
+    const strippedResult = transform({
+      filename: referencePath,
+      code: Buffer.from(generatedCss),
+      minify: false,
+      analyzeDependencies: false,
+      visitor: {
+        Rule(rule) {
+          if (
+            (rule.type === "layer-block" ||
+              rule.type === "supports" ||
+              rule.type === "media" ||
+              rule.type === "container") &&
+            rule.value.rules.length === 0
+          ) {
+            return [];
+          }
+        },
+      },
+    });
+
+    const nextCss = Buffer.from(strippedResult.code).toString("utf8");
+    if (nextCss === generatedCss) {
+      break;
+    }
+
+    generatedCss = nextCss;
+  }
+
+  generatedCss = generatedCss.trim();
+
+  return `/*
+ * Synced from the Codex Electron reference CSS.
+ * Do not edit by hand. Update the reference file, then rerun:
+ *   bun run scripts/sync-codex-theme-utilities.ts
+ */
+
+${generatedCss}
+`;
 };
 
 const run = (): void => {
-  const css = readFileSync(referencePath, "utf8");
-  const matches = flattenCssNodes(parseCssNodes(css));
-
-  const sections = [
-    "/*",
-    " * Synced from the Codex Electron reference CSS.",
-    " * Do not edit by hand. Update the reference file, then rerun:",
-    " *   bun run scripts/sync-codex-theme-utilities.ts",
-    " */",
-    "",
-    ...ROOT_SELECTOR_BLOCKS.flatMap((selector) => [
-      formatBlock(selector, extractDeclarationsForSelector(matches, selector)),
-      "",
-    ]),
-    ...ROOT_SUPPORT_SELECTOR_BLOCKS.flatMap((selector) => [
-      formatNestedBlock(
-        "@supports (color: color-mix(in lab, red, red))",
-        selector,
-        extractDeclarationsForSelector(matches, selector, [
-          ...UTILITY_SUPPORT_LAYER_PARENTS,
-        ]),
-      ),
-      "",
-    ]),
-  ];
-
-  writeFileSync(outputPath, sections.join("\n"));
+  const referenceCss = readFileSync(referencePath, "utf8");
+  const output = buildGeneratedUtilitiesCss(referenceCss);
+  writeFileSync(outputPath, output);
 
   console.log(`Synced Codex utility CSS to ${outputPath}`);
 };
@@ -140,4 +303,10 @@ if (import.meta.main) {
   run();
 }
 
-export { run };
+export {
+  buildGeneratedUtilitiesCss,
+  isWindowVariantArbitraryPropertySelector,
+  parseStylesheet,
+  run,
+  selectorFingerprint,
+};

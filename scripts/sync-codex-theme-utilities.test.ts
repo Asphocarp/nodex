@@ -1,92 +1,138 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  extractAllDeclarations,
-  findMatches,
-  flattenCssNodes,
-  mergeDeclarationMaps,
-  parseCssNodes,
-} from "./codex-css-extract";
+import { buildGeneratedUtilitiesCss } from "./sync-codex-theme-utilities";
 
 describe("sync-codex-theme-utilities", () => {
-  test("merges duplicate utility selectors and keeps nested support overrides separate", () => {
-    const css = `
-      .duration-relaxed {
-        --tw-duration: var(--transition-duration-relaxed);
-      }
-
-      .duration-relaxed {
-        transition-duration: var(--transition-duration-relaxed);
-      }
-
-      .\\[\\&_\\*\\]\\:text-token-foreground\\/50 * {
-        color: var(--color-token-foreground);
-      }
-
-      @supports (color: color-mix(in lab, red, red)) {
-        .\\[\\&_\\*\\]\\:text-token-foreground\\/50 * {
-          color: color-mix(in oklab, var(--color-token-foreground) 50%, transparent);
-        }
-      }
-    `;
-
-    const matches = flattenCssNodes(parseCssNodes(css));
-
-    const mergedDuration = mergeDeclarationMaps(
-      findMatches(matches, ".duration-relaxed").map((match) =>
-        extractAllDeclarations(match.body),
-      ),
-    );
-    const baseForeground = mergeDeclarationMaps(
-      findMatches(matches, ".\\[\\&_\\*\\]\\:text-token-foreground\\/50 *").map((match) =>
-        extractAllDeclarations(match.body),
-      ),
-    );
-    const supportedForeground = mergeDeclarationMaps(
-      findMatches(matches, ".\\[\\&_\\*\\]\\:text-token-foreground\\/50 *", [
-        "@supports (color: color-mix(in lab, red, red))",
-      ]).map((match) => extractAllDeclarations(match.body)),
-    );
-
-    expect(mergedDuration.get("--tw-duration")).toBe(
-      "var(--transition-duration-relaxed)",
-    );
-    expect(mergedDuration.get("transition-duration")).toBe(
-      "var(--transition-duration-relaxed)",
-    );
-    expect(baseForeground.get("color")).toBe("var(--color-token-foreground)");
-    expect(supportedForeground.get("color")).toBe(
-      "color-mix(in oklab, var(--color-token-foreground) 50%, transparent)",
-    );
-  });
-
-  test("finds codex-owned utility selectors that should not stay in local utilities", () => {
+  test("keeps allowlisted utility selectors and their support overrides", () => {
     const css = `
       @layer utilities {
-        .scrollbar-stable {
-          scrollbar-gutter: stable;
+        .duration-relaxed {
+          --tw-duration: var(--transition-duration-relaxed);
+          transition-duration: var(--transition-duration-relaxed);
         }
 
-        .disambiguated-digits {
-          font-feature-settings:
-            "cv01" on,
-            "cv02" on;
+        .\\[\\&_\\*\\]\\:text-token-foreground\\/50 * {
+          color: var(--color-token-foreground);
         }
 
-        .disambig-digits.slashed-zero {
-          font-feature-settings: "ss06" on;
+        .ignored-utility {
+          color: green;
+        }
+
+        @supports (color: color-mix(in lab, red, red)) {
+          .\\[\\&_\\*\\]\\:text-token-foreground\\/50 * {
+            color: color-mix(in oklab, var(--color-token-foreground) 50%, transparent);
+          }
+
+          .ignored-utility {
+            color: lime;
+          }
         }
       }
     `;
 
-    const matches = flattenCssNodes(parseCssNodes(css));
+    const generatedCss = buildGeneratedUtilitiesCss(css);
 
-    expect(findMatches(matches, ".scrollbar-stable", ["@layer utilities"]).length).toBe(1);
-    expect(findMatches(matches, ".disambiguated-digits", ["@layer utilities"]).length).toBe(
-      1,
-    );
+    expect(generatedCss.includes(".duration-relaxed")).toBeTrue();
+    expect(generatedCss.includes("--tw-duration: var(--transition-duration-relaxed);")).toBeTrue();
+    expect(generatedCss.includes(".\\[\\&_\\*\\]\\:text-token-foreground\\/50 *")).toBeTrue();
     expect(
-      findMatches(matches, ".disambig-digits.slashed-zero", ["@layer utilities"]).length,
-    ).toBe(1);
+      generatedCss.includes(
+        "color: color-mix(in oklab, var(--color-token-foreground) 50%, transparent);",
+      ),
+    ).toBeTrue();
+    expect(generatedCss.includes(".ignored-utility")).toBeFalse();
+    expect(generatedCss.includes("@supports (color: color-mix(in lab, red, red)) {\n    \n  }")).toBeFalse();
+  });
+
+  test("keeps allowlisted top-level utility selectors outside @layer blocks", () => {
+    const css = `
+      .icon-2xs {
+        width: 14px;
+        height: 14px;
+      }
+
+      .heading-dialog {
+        font-size: var(--text-heading-md);
+        letter-spacing: -0.36px;
+        font-weight: 500;
+        line-height: 28px;
+      }
+
+      .ignored-top-level {
+        color: red;
+      }
+    `;
+
+    const generatedCss = buildGeneratedUtilitiesCss(css);
+
+    expect(generatedCss.includes(".icon-2xs")).toBeTrue();
+    expect(generatedCss.includes("width: 14px;")).toBeTrue();
+    expect(generatedCss.includes(".heading-dialog")).toBeTrue();
+    expect(generatedCss.includes(".ignored-top-level")).toBeFalse();
+  });
+
+  test("keeps allowlisted selectors from the Codex components layer", () => {
+    const css = `
+      @layer components {
+        .icon-2xs {
+          width: 14px;
+          height: 14px;
+        }
+
+        .heading-dialog {
+          font-size: var(--text-heading-md);
+          letter-spacing: -0.36px;
+          font-weight: 500;
+          line-height: 28px;
+        }
+
+        .ignored-component-class {
+          color: red;
+        }
+      }
+    `;
+
+    const generatedCss = buildGeneratedUtilitiesCss(css);
+
+    expect(generatedCss.includes("@layer components")).toBeTrue();
+    expect(generatedCss.includes(".icon-2xs")).toBeTrue();
+    expect(generatedCss.includes(".heading-dialog")).toBeTrue();
+    expect(generatedCss.includes(".ignored-component-class")).toBeFalse();
+  });
+
+  test("keeps shipped window-variant arbitrary property utility selectors", () => {
+    const css = `
+      @layer utilities {
+        .electron\\:\\[--color-token-description-foreground\\:color-mix\\(in_srgb\\,var\\(--color-token-foreground\\)_70\\%\\,transparent\\)\\]:where([data-codex-window-type="electron"] .electron\\:\\[--color-token-description-foreground\\:color-mix\\(in_srgb\\,var\\(--color-token-foreground\\)_70\\%\\,transparent\\)\\]) {
+          --color-token-description-foreground: var(--color-token-foreground);
+        }
+
+        @supports (color: color-mix(in lab, red, red)) {
+          .electron\\:\\[--color-token-description-foreground\\:color-mix\\(in_srgb\\,var\\(--color-token-foreground\\)_70\\%\\,transparent\\)\\]:where([data-codex-window-type="electron"] .electron\\:\\[--color-token-description-foreground\\:color-mix\\(in_srgb\\,var\\(--color-token-foreground\\)_70\\%\\,transparent\\)\\]) {
+            --color-token-description-foreground: color-mix(in srgb, var(--color-token-foreground) 70%, transparent);
+          }
+        }
+
+        .browser\\:\\[--color-token-description-foreground\\:color-mix\\(in_srgb\\,var\\(--color-token-foreground\\)_90\\%\\,transparent\\)\\]:where([data-codex-window-type="browser"] .browser\\:\\[--color-token-description-foreground\\:color-mix\\(in_srgb\\,var\\(--color-token-foreground\\)_90\\%\\,transparent\\)\\]) {
+          --color-token-description-foreground: var(--color-token-foreground);
+        }
+
+        .ignored-arbitrary {
+          --some-token: red;
+        }
+      }
+    `;
+
+    const generatedCss = buildGeneratedUtilitiesCss(css);
+
+    expect(generatedCss.includes('[data-codex-window-type="electron"]')).toBeTrue();
+    expect(generatedCss.includes('[data-codex-window-type="browser"]')).toBeTrue();
+    expect(
+      generatedCss.includes(
+        "--color-token-description-foreground: color-mix(in srgb, var(--color-token-foreground) 70%, transparent);",
+      ),
+    ).toBeTrue();
+    expect(generatedCss.includes(".ignored-arbitrary")).toBeFalse();
   });
 });

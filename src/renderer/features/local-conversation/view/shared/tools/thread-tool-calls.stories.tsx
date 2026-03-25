@@ -5,6 +5,7 @@ import {
   ThreadExplorationGroupBlock,
   ThreadMultiAgentGroupBlock,
 } from "../../blocks/local-conversation-block-leaves";
+import { LOCAL_CONVERSATION_CONTENT_CLASS_NAME } from "../local-conversation-view-constants";
 import { TurnDiffSurface } from "../turn-diff-surface";
 import { getToolComponent } from "./get-tool-component";
 import { McpToolCall } from "./mcp-tool-call";
@@ -26,6 +27,14 @@ function StorySurface({
         <div className="mt-1 text-sm/relaxed text-(--foreground-secondary)">{description}</div>
       </div>
       <div className="max-w-3xl">{children}</div>
+    </div>
+  );
+}
+
+function ConversationStorySurface({ children }: { children: ReactNode }) {
+  return (
+    <div data-thread-find-target="conversation" className={LOCAL_CONVERSATION_CONTENT_CLASS_NAME}>
+      {children}
     </div>
   );
 }
@@ -53,13 +62,15 @@ function ToolCallStory({
 
   return (
     <StorySurface title={title} description={description}>
-      <div ref={containerRef}>
-        <ToolComponent
-          item={item}
-          projectWorkspacePath="/workspace/nodex"
-          threadCwd="/workspace/nodex"
-        />
-      </div>
+      <ConversationStorySurface>
+        <div ref={containerRef}>
+          <ToolComponent
+            item={item}
+            projectWorkspacePath="/workspace/nodex"
+            threadCwd="/workspace/nodex"
+          />
+        </div>
+      </ConversationStorySurface>
     </StorySurface>
   );
 }
@@ -80,9 +91,11 @@ function AutoOpenMcpToolCall({
   }, []);
 
   return (
-    <div ref={containerRef}>
-      <McpToolCall item={item} rawDialogOpen={rawDialogOpen} />
-    </div>
+    <ConversationStorySurface>
+      <div ref={containerRef}>
+        <McpToolCall item={item} rawDialogOpen={rawDialogOpen} />
+      </div>
+    </ConversationStorySurface>
   );
 }
 
@@ -92,23 +105,25 @@ function ExplorationGroupStory() {
       title="Exploration Group"
       description="Multiple read/list/search command actions coalesced into the renderer’s exploration summary block."
     >
-      <ThreadExplorationGroupBlock
-        block={{
-          id: "exploration-story",
-          turnId: "turn_tool_story",
-          createdAt: 1,
-          updatedAt: 2,
-          searchableText: "Exploration",
-          type: "explorationGroup",
-          entries: [THREAD_TOOL_CALL_STORY_ITEMS.command],
-          summary: "Explored renderer files",
-          status: "completed",
-        }}
-        isLatestTurn={false}
-        isStreamingTurn={false}
-        projectWorkspacePath="/workspace/nodex"
-        threadCwd="/workspace/nodex"
-      />
+      <ConversationStorySurface>
+        <ThreadExplorationGroupBlock
+          block={{
+            id: "exploration-story",
+            turnId: "turn_tool_story",
+            createdAt: 1,
+            updatedAt: 2,
+            searchableText: "Exploration",
+            type: "explorationGroup",
+            entries: [THREAD_TOOL_CALL_STORY_ITEMS.command],
+            summary: "Explored renderer files",
+            status: "completed",
+          }}
+          isLatestTurn={false}
+          isStreamingTurn={false}
+          projectWorkspacePath="/workspace/nodex"
+          threadCwd="/workspace/nodex"
+        />
+      </ConversationStorySurface>
     </StorySurface>
   );
 }
@@ -119,23 +134,25 @@ function MultiAgentGroupStory() {
       title="Multi-Agent Group"
       description="Grouped background worker activity shown with the same leaf components used in mounted turns."
     >
-      <ThreadMultiAgentGroupBlock
-        block={{
-          id: "multi-agent-story",
-          turnId: "turn_tool_story",
-          createdAt: 1,
-          updatedAt: 2,
-          searchableText: "Multi-agent work",
-          type: "multiAgentGroup",
-          entries: [...THREAD_TOOL_CALL_STORY_ITEMS.multiAgent],
-          summary: "2 background workers reported progress",
-          status: "completed",
-        }}
-        isLatestTurn={false}
-        isStreamingTurn={false}
-        projectWorkspacePath="/workspace/nodex"
-        threadCwd="/workspace/nodex"
-      />
+      <ConversationStorySurface>
+        <ThreadMultiAgentGroupBlock
+          block={{
+            id: "multi-agent-story",
+            turnId: "turn_tool_story",
+            createdAt: 1,
+            updatedAt: 2,
+            searchableText: "Multi-agent work",
+            type: "multiAgentGroup",
+            entries: [...THREAD_TOOL_CALL_STORY_ITEMS.multiAgent],
+            summary: "2 background workers reported progress",
+            status: "completed",
+          }}
+          isLatestTurn={false}
+          isStreamingTurn={false}
+          projectWorkspacePath="/workspace/nodex"
+          threadCwd="/workspace/nodex"
+        />
+      </ConversationStorySurface>
     </StorySurface>
   );
 }
@@ -190,11 +207,13 @@ export const TurnDiff: Story = {
       title="Turn Diff"
       description="Turn-level unified diff rendered separately from the file-edit tool call."
     >
-      <TurnDiffSurface
-        item={THREAD_TOOL_CALL_STORY_ITEMS.turnDiff}
-        projectWorkspacePath="/workspace/nodex"
-        threadCwd="/workspace/nodex"
-      />
+      <ConversationStorySurface>
+        <TurnDiffSurface
+          item={THREAD_TOOL_CALL_STORY_ITEMS.turnDiff}
+          projectWorkspacePath="/workspace/nodex"
+          threadCwd="/workspace/nodex"
+        />
+      </ConversationStorySurface>
     </StorySurface>
   ),
 };

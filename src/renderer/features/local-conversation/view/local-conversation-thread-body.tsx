@@ -8,6 +8,7 @@ import {
 } from "@/components/shared/icons";
 import { readSkipForkFromOlderTurnConfirm, writeSkipForkFromOlderTurnConfirm } from "@/lib/thread-fork-confirm-settings";
 import { shouldAutoScrollThread, shouldShowThreadCatchUpControl } from "./shared/thread-auto-scroll";
+import { LOCAL_CONVERSATION_CONTENT_CLASS_NAME } from "./shared/local-conversation-view-constants";
 import { cn } from "../../../lib/utils";
 import type { ThreadBodyUiStateOverrides, ThreadStageActions, ThreadStageModel } from "../thread-stage-types";
 import {
@@ -374,7 +375,7 @@ export function LocalConversationThreadBody({ model, actions, onErrorMessage, in
             </div>
           </div>
         ) : (
-          <div data-thread-find-target="conversation" className="relative flex flex-col gap-3 electron:[--color-token-description-foreground:color-mix(in_srgb,var(--color-token-foreground)_70%,transparent)] browser:[--color-token-description-foreground:color-mix(in_srgb,var(--color-token-foreground)_90%,transparent)]">
+          <div data-thread-find-target="conversation" className={LOCAL_CONVERSATION_CONTENT_CLASS_NAME}>
             {showThreadSearch ? (
               <div className="sticky top-0 z-10 -mt-1 mb-3 flex items-center gap-2 rounded-2xl border border-[color-mix(in_srgb,var(--border)_78%,transparent)] bg-token-input-background/80 px-3 py-2 backdrop-blur-sm">
                 <SearchIcon className="text-token-description-foreground" />
