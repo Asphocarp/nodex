@@ -1,6 +1,7 @@
 import { parsePatchFiles } from "@pierre/diffs";
 import { FileDiff, type FileDiffMetadata } from "@pierre/diffs/react";
-import { useCallback, useMemo, useState, type CSSProperties } from "react";
+import { motion } from "motion/react";
+import { useMemo, useState, type CSSProperties } from "react";
 import { invoke } from "../../../../lib/api";
 import {
   NODEX_DIFF_HOST_CLASS,
@@ -11,7 +12,7 @@ import { useFileLinkOpener } from "../../../../lib/use-file-link-opener";
 import { useTheme } from "../../../../lib/use-theme";
 import type { CodexTranscriptEntry } from "../../../../lib/types";
 import { cn } from "../../../../lib/utils";
-import { MeasuredExpand } from "./measured-expand";
+import { CODEX_MEASURED_TRANSITION, useMeasuredElementHeight } from "./use-measured-element-height";
 import {
   Chevron,
   DiffStats,
@@ -202,14 +203,15 @@ function TurnDiffEmbeddedRow({
   diffOptions: ReturnType<typeof getNodexDiffOptions>;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const { elementHeightPx, elementRef } = useMeasuredElementHeight();
 
-  const openFile = useCallback(() => {
+  function openFile() {
     if (!row.openPath) return;
     void invoke("shell:open-file-link", {
       path: row.openPath,
       ...(row.openLine ? { line: row.openLine } : {}),
     }, openerId);
-  }, [openerId, row.openLine, row.openPath]);
+  }
 
   return (
     <div
@@ -250,28 +252,42 @@ function TurnDiffEmbeddedRow({
           </div>
         </div>
       </div>
-      <MeasuredExpand open={isExpanded}>
-        <div className="bg-token-editor-background border-t border-token-border">
-          {row.isTooLarge ? (
-            <div className="text-token-description-foreground/80 flex items-center justify-center px-4 py-5 text-size-chat">
-              Too large to render inline
-            </div>
-          ) : row.fileDiff ? (
-            <div className="overflow-hidden">
-              <FileDiff
-                fileDiff={row.fileDiff}
-                className={cn(diffHostClassName, "max-h-[320px] overflow-y-auto")}
-                style={diffHostStyle}
-                options={diffOptions}
-              />
-            </div>
-          ) : (
-            <div className="text-token-description-foreground/80 flex items-center justify-center px-4 py-5 text-size-chat">
-              No diff preview available
-            </div>
-          )}
+      <motion.div
+        initial={false}
+        animate={{
+          height: isExpanded ? elementHeightPx : 0,
+          opacity: isExpanded ? 1 : 0,
+        }}
+        transition={CODEX_MEASURED_TRANSITION}
+        className={cn(isExpanded ? "overflow-visible" : "overflow-hidden")}
+        data-thread-find-skip={isExpanded ? undefined : true}
+        style={{
+          pointerEvents: isExpanded ? "auto" : "none",
+        }}
+      >
+        <div ref={elementRef}>
+          <div className="bg-token-editor-background border-t border-token-border">
+            {row.isTooLarge ? (
+              <div className="text-token-description-foreground/80 flex items-center justify-center px-4 py-5 text-size-chat">
+                Too large to render inline
+              </div>
+            ) : row.fileDiff ? (
+              <div className="overflow-hidden">
+                <FileDiff
+                  fileDiff={row.fileDiff}
+                  className={cn(diffHostClassName, "max-h-[320px] overflow-y-auto")}
+                  style={diffHostStyle}
+                  options={diffOptions}
+                />
+              </div>
+            ) : (
+              <div className="text-token-description-foreground/80 flex items-center justify-center px-4 py-5 text-size-chat">
+                No diff preview available
+              </div>
+            )}
+          </div>
         </div>
-      </MeasuredExpand>
+      </motion.div>
     </div>
   );
 }

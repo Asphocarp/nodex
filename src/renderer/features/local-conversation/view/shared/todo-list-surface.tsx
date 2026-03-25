@@ -1,7 +1,8 @@
+import { motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CodexTranscriptEntry } from "../../../../lib/types";
 import { cn } from "../../../../lib/utils";
-import { MeasuredExpand } from "./measured-expand";
+import { CODEX_MEASURED_TRANSITION, useMeasuredElementHeight } from "./use-measured-element-height";
 
 interface TodoListSurfaceProps {
   item: Pick<CodexTranscriptEntry, "markdownText" | "rawItem"> & { status?: CodexTranscriptEntry["status"] };
@@ -140,6 +141,7 @@ export function TodoListSurface({
   }, [completedCount, steps, totalCount]);
   const [expanded, setExpanded] = useState(true);
   const activeStepRef = useRef<HTMLDivElement | null>(null);
+  const { elementHeightPx, elementRef } = useMeasuredElementHeight();
 
   useEffect(() => {
     const activeElement = activeStepRef.current;
@@ -180,27 +182,41 @@ export function TodoListSurface({
           </button>
         </div>
 
-        <MeasuredExpand open={expanded} className="overflow-hidden">
-          <div className="flex flex-col gap-2 bg-token-input-background/70 p-2 backdrop-blur-sm">
-            <div className="vertical-scroll-fade-mask max-h-40 space-y-2 overflow-y-auto [--edge-fade-distance:2rem]">
-              {steps.map((step, index) => (
-                <div
-                  key={`${index}:${step.step}`}
-                  ref={index === activeStepIndex ? activeStepRef : null}
-                  className="flex items-start gap-2"
-                >
-                  <div className="flex flex-shrink-0 items-start gap-0.5">
-                    <TodoStatusIcon status={step.status} />
-                    <span className="text-size-chat leading-4">{index + 1}.</span>
+        <motion.div
+          initial={false}
+          animate={{
+            height: expanded ? elementHeightPx : 0,
+            opacity: expanded ? 1 : 0,
+          }}
+          transition={CODEX_MEASURED_TRANSITION}
+          className={cn(expanded ? "overflow-visible" : "overflow-hidden")}
+          data-thread-find-skip={expanded ? undefined : true}
+          style={{
+            pointerEvents: expanded ? "auto" : "none",
+          }}
+        >
+          <div ref={elementRef}>
+            <div className="flex flex-col gap-2 bg-token-input-background/70 p-2 backdrop-blur-sm">
+              <div className="vertical-scroll-fade-mask max-h-40 space-y-2 overflow-y-auto [--edge-fade-distance:2rem]">
+                {steps.map((step, index) => (
+                  <div
+                    key={`${index}:${step.step}`}
+                    ref={index === activeStepIndex ? activeStepRef : null}
+                    className="flex items-start gap-2"
+                  >
+                    <div className="flex flex-shrink-0 items-start gap-0.5">
+                      <TodoStatusIcon status={step.status} />
+                      <span className="text-size-chat leading-4">{index + 1}.</span>
+                    </div>
+                    <span className={cn("text-size-chat flex-1 leading-4", step.status === "completed" && "line-through")}>
+                      {step.step}
+                    </span>
                   </div>
-                  <span className={cn("text-size-chat flex-1 leading-4", step.status === "completed" && "line-through")}>
-                    {step.step}
-                  </span>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
-        </MeasuredExpand>
+        </motion.div>
       </div>
     </div>
   );

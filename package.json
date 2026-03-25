@@ -133,6 +133,7 @@
     "linkifyjs": "^4.3.2",
     "lucide-react": "^0.577.0",
     "minisearch": "^7.1.2",
+    "motion": "^12.38.0",
     "prosemirror-highlight": "^0.13.0",
     "prosemirror-view": "^1.41.4",
     "react": "19.2.4",

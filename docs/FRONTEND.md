@@ -63,6 +63,9 @@
 - Prefer shared primitives over bespoke wrappers:
   - if a surface looks like an existing row shell, accordion shell, summary header, fade-mask container, or compact card, reuse or extract a primitive instead of restyling a feature-local wrapper
   - keep visual density aligned to the existing rhythm (`gap-*`, `px-panel`, `var(--conversation-tool-assistant-gap)`) rather than per-component spacing tweaks
+- Mirror Codex Electron's transcript animation split:
+  - for Codex-native expandable transcript surfaces, reuse a shared measured-height hook and let each subtype own its own `motion.div` / `AnimatePresence` wrapper and state machine
+  - keep generic helpers like `MeasuredExpand` out of Codex-parity transcript surfaces; reserve them for local-only fallback UI that does not map to a Codex counterpart
 - Treat utilities as part of the design contract:
   - if a class exists as an exact shipped Codex selector, keep it in the generated utility layer
   - if a class is renderer-local and not recoverable from the shipped Codex CSS, keep it in `theme-utilities.css`

@@ -120,6 +120,9 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
 ## Tool and Activity Rendering
 - Tool activity renders as structured expandable cards instead of plain text dumps.
 - Specialized cards exist for command execution, file changes, MCP, and web search.
+- Codex-parity transcript expanders use Motion and subtype-owned state, not a generic shared accordion:
+  - measured transcript bodies (`commandExecution`, exploration groups, `patch`, MCP, reasoning, completed request-user-input answers, plan/todo disclosure, and other Codex-native expandable rows) animate through explicit `motion.div` height/opacity wrappers fed by a `ResizeObserver`-driven measured-height hook
+  - agent-body collapse is a separate presence animation contract and does not reuse the measured-height transcript-body model
 - `fileChange` and turn-level unified diff are separate surfaces, matching Codex Electron exactly:
   - raw `fileChange` items always stay visible as `patch` tool rows (`Edited …`)
   - turn-level aggregated `turn.diff` renders as a separate `turn-diff` surface
@@ -140,11 +143,13 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
   - `STEPS_EXECUTION` shows command cards and lets settled rows start expanded by default
 - Running command rows start collapsed, auto-expand after a short delay, and when they settle from an expanded state they briefly enter `preview` before collapsing again.
 - While the current turn is still active, the trailing coalesced exploration section remains visually `in progress` (`Exploring` shimmer) until a non-exploration item appears in that same turn or the turn stops.
+- Exploration groups keep one measured body and switch between `preview`, `expanded`, and `collapsed`; the preview state reveals the same measured content under a shorter height cap instead of mounting a separate preview tree.
+- Proposed-plan cards animate the body height directly between the collapsed cap and the full markdown body, while the collapsed gradient/`Expand plan` overlay remains part of the same animated card.
 - Exploration sections are expanded by default only while they are `in progress`; once exploration settles, they collapse by default.
 - Running-thread activity uses verb-led summaries: contiguous exploration actions coalesce into `Exploring` / `Explored` groups, generic commands render as `Running …` while active and `Ran …` once settled, and MCP calls render as `Calling …` / `Called …`.
 - Command execution headers show `in <cwd>` only when the command ran outside the active project workspace path.
 - Patch rows own their expand/collapse state per file row. MCP tool calls own a local completed-only toggle. Neither surface uses a conversation-level collapsed-tool map.
-- Patch-row expansion uses a per-file measured-height animation model. Expanded rows keep their body height on continuously measured pixel values instead of switching back to `height: auto`, so inline diff expansion does not hand layout authority back to the scroll container mid-transition.
+- Patch-row expansion uses a per-file Motion-based measured-height animation model. Expanded rows keep their body height on continuously measured pixel values instead of switching back to `height: auto`, so inline diff expansion does not hand layout authority back to the scroll container mid-transition.
 
 ## Pending Request Surface
 - The pending-request surface is owned outside the transcript scroll container and sits above the composer.

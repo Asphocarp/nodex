@@ -1,7 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
 import type { CodexConversationItem } from "../../../../lib/types";
-import { render, textContent } from "../../../../test/dom";
+import { render, settleAsyncRender, textContent } from "../../../../test/dom";
 import { ThreadExplorationGroupBlock } from "./local-conversation-block-leaves";
 
 function buildCommandEntry(
@@ -33,7 +33,40 @@ function buildCommandEntry(
 }
 
 describe("ThreadExplorationGroupBlock", () => {
-  test("renders Codex-style counts and deduplicates read files in the header", () => {
+  beforeEach(() => {
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        return 160;
+      },
+    });
+
+    globalThis.ResizeObserver = class ResizeObserver {
+      private readonly callback: ResizeObserverCallback;
+
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback;
+      }
+
+      observe(target: Element) {
+        this.callback([
+          {
+            target,
+            contentRect: target.getBoundingClientRect(),
+            borderBoxSize: [{ blockSize: 160, inlineSize: 320 }],
+            contentBoxSize: [{ blockSize: 160, inlineSize: 320 }],
+            devicePixelContentBoxSize: [{ blockSize: 160, inlineSize: 320 }],
+          } as unknown as ResizeObserverEntry,
+        ], this);
+      }
+
+      disconnect() {}
+
+      unobserve() {}
+    } as typeof ResizeObserver;
+  });
+
+  test("renders Codex-style counts and deduplicates read files in the header", async () => {
     const block = {
       id: "exploration-1",
       turnId: "turn-1",
@@ -74,18 +107,22 @@ describe("ThreadExplorationGroupBlock", () => {
     expect(summaryText.includes("1 list")).toBeTrue();
 
     const body = getByTestId("exploration-accordion-body");
-    expect(Boolean(body.getAttribute("style")?.includes("max-height: 0px"))).toBeTrue();
+    expect(Boolean(body.getAttribute("style")?.includes("height: 0px"))).toBeTrue();
 
     fireEvent.click(getByRole("button"));
+    await settleAsyncRender();
 
-    expect(Boolean(body.getAttribute("style")?.includes("max-height: 20rem"))).toBeTrue();
+    const scroller = container.querySelector(".vertical-scroll-fade-mask");
+    expect(Boolean(body.getAttribute("style")?.includes("pointer-events: auto"))).toBeTrue();
+    expect(Boolean(body.getAttribute("style")?.includes("max-height"))).toBeFalse();
+    expect(Boolean(scroller?.getAttribute("style")?.includes("max-height: 320px"))).toBeTrue();
     const content = textContent(container);
     expect(content.includes("Read src/a.ts")).toBeTrue();
     expect(content.includes("Searched for thing in src")).toBeTrue();
     expect(content.includes("Listed files in src")).toBeTrue();
   });
 
-  test("starts in preview mode while exploration is still running", () => {
+  test("starts in preview mode while exploration is still running", async () => {
     const block = {
       id: "exploration-2",
       turnId: "turn-1",
@@ -112,8 +149,13 @@ describe("ThreadExplorationGroupBlock", () => {
       />,
     );
 
+    await settleAsyncRender();
+
     const body = getByTestId("exploration-accordion-body");
-    expect(Boolean(body.getAttribute("style")?.includes("max-height: 7rem"))).toBeTrue();
+    const scroller = container.querySelector(".vertical-scroll-fade-mask");
+    expect(Boolean(body.getAttribute("style")?.includes("pointer-events: auto"))).toBeTrue();
+    expect(Boolean(body.getAttribute("style")?.includes("max-height"))).toBeFalse();
+    expect(Boolean(scroller?.getAttribute("style")?.includes("max-height: 112px"))).toBeTrue();
 
     const summaryText = textContent(getByRole("button"));
     expect(summaryText.includes("Exploring")).toBeTrue();

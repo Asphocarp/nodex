@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useId,
   useLayoutEffect,
   useMemo,
@@ -8,6 +9,7 @@ import {
   useState,
   type FormEvent,
 } from "react";
+import { motion } from "motion/react";
 import { MarkdownRenderer } from "../shared/markdown/markdown-renderer";
 import { PlanMessage } from "../shared/plan-message";
 import { ReasoningSurface } from "../shared/reasoning-surface";
@@ -23,6 +25,7 @@ import { TodoListSurface } from "../shared/todo-list-surface";
 import { getToolComponent } from "../shared/tools/get-tool-component";
 import { JsonBlock } from "../shared/tools/tool-primitives";
 import { extractCommandActions } from "../shared/tools/command-actions";
+import { CODEX_MEASURED_TRANSITION, useMeasuredElementHeight } from "../shared/use-measured-element-height";
 import { AnsweredUserInputBlock } from "../composer/request-cards/answered-user-input-block";
 import type { CodexCommandAction } from "../../../../lib/types";
 import type { CodexConversationItem } from "../../../../lib/types";
@@ -265,11 +268,8 @@ function ExplorationCountParts({
 
 type ExplorationViewState = "preview" | "expanded" | "collapsed";
 
-const EXPLORATION_MAX_HEIGHT_BY_STATE: Record<ExplorationViewState, string> = {
-  preview: "7rem",
-  expanded: "20rem",
-  collapsed: "0px",
-};
+const EXPLORATION_PREVIEW_MAX_HEIGHT_PX = 7 * 16;
+const EXPLORATION_EXPANDED_MAX_HEIGHT_PX = 20 * 16;
 
 function ThreadExplorationAccordion({ entries, status }: { entries: CodexConversationItem[]; status?: CodexConversationItem["status"] }) {
   const accordionId = useId();
@@ -279,12 +279,16 @@ function ThreadExplorationAccordion({ entries, status }: { entries: CodexConvers
   const isExploring = status === "inProgress";
   const model = useMemo(() => buildExplorationAccordionModel(entries), [entries]);
   const [viewState, setViewState] = useState<ExplorationViewState>(isExploring ? "preview" : "collapsed");
+  const { elementHeightPx, elementRef } = useMeasuredElementHeight();
+
+  const resetViewState = useEffectEvent(() => {
+    setViewState(isExploring ? "preview" : "collapsed");
+    if (isExploring) return;
+    hasAutoScrolledRef.current = false;
+  });
 
   useEffect(() => {
-    setViewState(isExploring ? "preview" : "collapsed");
-    if (!isExploring) {
-      hasAutoScrolledRef.current = false;
-    }
+    resetViewState();
   }, [isExploring]);
 
   useLayoutEffect(() => {
@@ -313,7 +317,12 @@ function ThreadExplorationAccordion({ entries, status }: { entries: CodexConvers
         />
       );
   const isExpanded = viewState !== "collapsed";
-  const bodyClassName = isExpanded ? "overflow-visible" : "overflow-hidden";
+  const maxVisibleHeightPx = viewState === "preview"
+    ? EXPLORATION_PREVIEW_MAX_HEIGHT_PX
+    : viewState === "expanded"
+      ? EXPLORATION_EXPANDED_MAX_HEIGHT_PX
+      : 0;
+  const measuredHeightPx = isExpanded ? Math.min(elementHeightPx, maxVisibleHeightPx) : 0;
 
   return (
     <div className="min-w-0 text-size-chat relative overflow-visible py-0">
@@ -359,24 +368,27 @@ function ThreadExplorationAccordion({ entries, status }: { entries: CodexConvers
                 <ExplorationChevron expanded={viewState === "expanded"} />
               </span>
             </button>
-            <div
+            <motion.div
               id={accordionId}
               data-testid="exploration-accordion-body"
-              className={bodyClassName}
-              style={{
-                maxHeight: EXPLORATION_MAX_HEIGHT_BY_STATE[viewState],
+              initial={false}
+              animate={{
+                height: measuredHeightPx,
                 opacity: isExpanded ? 1 : 0,
+              }}
+              transition={CODEX_MEASURED_TRANSITION}
+              className={cn(isExpanded ? "overflow-visible" : "overflow-hidden")}
+              style={{
                 pointerEvents: isExpanded ? "auto" : "none",
-                transition: "max-height 180ms cubic-bezier(0.2, 0, 0, 1), opacity 180ms cubic-bezier(0.2, 0, 0, 1)",
               }}
             >
-              <div className="pt-0 text-token-foreground/60 [&_*]:text-token-foreground/50">
+              <div ref={elementRef} className="pt-0 text-token-foreground/60 [&_*]:text-token-foreground/50">
                 <div className="-mx-2.5 mt-1">
                   <div
                     ref={scrollRef}
                     className="vertical-scroll-fade-mask [--edge-fade-distance:1.5rem] overflow-y-auto scroll-contain text-size-chat rounded-none border-0 px-2.5 font-sans text-token-description-foreground/80 [&_*]:text-token-description-foreground/80"
                     style={{
-                      maxHeight: EXPLORATION_MAX_HEIGHT_BY_STATE[viewState],
+                      maxHeight: `${maxVisibleHeightPx}px`,
                     }}
                   >
                     <div className={cn("flex flex-col gap-1", viewState === "preview" && "pb-1")}>
@@ -389,7 +401,7 @@ function ThreadExplorationAccordion({ entries, status }: { entries: CodexConvers
                   </div>
                 </div>
               </div>
-            </div>
+            </motion.div>
           </div>
         </div>
       </div>

@@ -1,8 +1,9 @@
+import { AnimatePresence, motion } from "motion/react";
 import { Fragment, type ReactNode } from "react";
 import { ChevronDownIcon } from "@/components/shared/icons";
 import { cn } from "../../../lib/utils";
 import type { ThreadAgentEntryModel, ThreadTurnModel } from "../thread-stage-types";
-import { MeasuredExpand } from "./shared/measured-expand";
+import { CODEX_MEASURED_TRANSITION } from "./shared/use-measured-element-height";
 import { ThreadBlockRenderer } from "./blocks/local-conversation-block-renderer";
 
 interface ThreadTurnProps {
@@ -159,20 +160,26 @@ export function ThreadTurn({
                   onToggle={() => onAgentBodyCollapsedChange(turn.turnId, !effectiveAgentBodyCollapsed)}
                 />
               ) : null}
-              {effectiveAgentBodyCollapsed ? null : (
-                <MeasuredExpand
-                  open
-                  className={shouldAllowAgentBodyCollapse ? undefined : "overflow-visible"}
-                  innerClassName={shouldAllowAgentBodyCollapse ? "pt-[var(--conversation-tool-assistant-gap,8px)]" : undefined}
-                >
-                  <div className="flex flex-col gap-0">
-                    {renderSpacedBlocks(
-                      turn.agentBodyEntries.filter((entry) => !("entry" in entry && entry.type === "workedFor")),
-                      renderAgentEntry,
-                    )}
-                  </div>
-                </MeasuredExpand>
-              )}
+              <AnimatePresence initial={false}>
+                {effectiveAgentBodyCollapsed ? null : (
+                  <motion.div
+                    key="agent-body"
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={CODEX_MEASURED_TRANSITION}
+                    style={{ overflow: "hidden" }}
+                  >
+                    {shouldAllowAgentBodyCollapse ? <ThreadGap /> : null}
+                    <div className="flex flex-col gap-0">
+                      {renderSpacedBlocks(
+                        turn.agentBodyEntries.filter((entry) => !("entry" in entry && entry.type === "workedFor")),
+                        renderAgentEntry,
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </>
         ) : null}

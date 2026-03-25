@@ -124,7 +124,9 @@ export function LocalConversationThreadBody({ model, actions, onErrorMessage, in
   const [searchQuery, setSearchQuery] = useState("");
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
-  const [collapsedAgentBodyByTurnId, setCollapsedAgentBodyByTurnId] = useState<Record<string, boolean>>(() => ({}));
+  const [collapsedAgentBodyByTurnId, setCollapsedAgentBodyByTurnId] = useState<Record<string, boolean>>(
+    () => initialUiState?.collapsedAgentBodyByTurnId ?? {},
+  );
   const [forkDialogState, setForkDialogState] = useState<{
     threadId: string;
     turnId: string;

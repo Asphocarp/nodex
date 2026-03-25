@@ -1,3 +1,4 @@
+import { motion } from "motion/react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Dialog,
@@ -8,7 +9,7 @@ import {
 import { Tooltip } from "../../../../../components/ui/tooltip";
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
 import { cn } from "../../../../../lib/utils";
-import { MeasuredExpand } from "../measured-expand";
+import { CODEX_MEASURED_TRANSITION, useMeasuredElementHeight } from "../use-measured-element-height";
 import { CopyMessageActionButton } from "../thread-message-actions";
 import { ToolErrorDetail } from "./tool-primitives";
 import {
@@ -551,6 +552,7 @@ export function McpToolCall({
   const payload = useMemo(() => normalizePayload(item), [item]);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isRawDialogOpen, setIsRawDialogOpen] = useControllableBoolean(rawDialogOpen, onRawDialogOpenChange);
+  const { elementHeightPx, elementRef } = useMeasuredElementHeight();
 
   const toolName = humanizeIdentifier(payload.invocation.tool);
   const serverName = formatServerName(payload.invocation.server);
@@ -590,16 +592,30 @@ export function McpToolCall({
           </span>
           {payload.completed ? <ChevronRightIcon expanded={isExpanded} /> : null}
         </button>
-        <MeasuredExpand open={isExpanded} className="overflow-hidden" innerClassName="flex flex-col gap-0.5 pt-1">
-          <div id={bodyId}>
-            <McpResultBody
-              payload={payload}
-              rawOutput={rawOutput}
-              rawDialogOpen={isRawDialogOpen}
-              onRawDialogOpenChange={setIsRawDialogOpen}
-            />
+        <motion.div
+          initial={false}
+          animate={{
+            height: isExpanded ? elementHeightPx : 0,
+            opacity: isExpanded ? 1 : 0,
+          }}
+          transition={CODEX_MEASURED_TRANSITION}
+          className={cn(isExpanded ? "overflow-visible" : "overflow-hidden")}
+          data-thread-find-skip={isExpanded ? undefined : true}
+          style={{
+            pointerEvents: isExpanded ? "auto" : "none",
+          }}
+        >
+          <div ref={elementRef} className="flex flex-col gap-0.5 pt-1">
+            <div id={bodyId}>
+              <McpResultBody
+                payload={payload}
+                rawOutput={rawOutput}
+                rawDialogOpen={isRawDialogOpen}
+                onRawDialogOpenChange={setIsRawDialogOpen}
+              />
+            </div>
           </div>
-        </MeasuredExpand>
+        </motion.div>
       </div>
     </div>
   );

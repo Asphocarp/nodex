@@ -1,8 +1,9 @@
+import { motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "../../../../lib/utils";
 import type { CodexTranscriptEntry } from "../../../../lib/types";
 import { MarkdownRenderer } from "./markdown/markdown-renderer";
-import { MeasuredExpand } from "./measured-expand";
+import { CODEX_MEASURED_TRANSITION, useMeasuredElementHeight } from "./use-measured-element-height";
 
 interface ReasoningSurfaceProps {
   item: Pick<CodexTranscriptEntry, "markdownText"> & { status?: CodexTranscriptEntry["status"] };
@@ -171,6 +172,7 @@ export function ReasoningSurface({
   const hasCompletedBody = !isInProgress && sections.body.trim().length > 0;
   const [expanded, setExpanded] = useState(isInProgress);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const { elementHeightPx, elementRef } = useMeasuredElementHeight();
 
   useEffect(() => {
     if (isInProgress) {
@@ -226,20 +228,34 @@ export function ReasoningSurface({
         ) : (
           header
         )}
-        <MeasuredExpand open={shouldRenderBody} className="overflow-hidden" innerClassName="pb-0">
-          <div
-            ref={scrollContainerRef}
-            className="vertical-scroll-fade-mask max-h-[8.75rem] overflow-y-auto [--edge-fade-distance:1rem]"
-          >
-            <MarkdownRenderer
-              content={renderedBody}
-              parseIncompleteMarkdown={parseIncompleteMarkdown}
-              className={cn(
-                "break-words text-size-chat text-token-foreground/60 [&_*]:text-size-chat [&_*]:text-token-foreground/50 [&_h1]:m-0 [&_h1]:mt-2 [&_h1]:font-semibold [&_h1+*]:mt-1 [&_h2]:m-0 [&_h2]:mt-2 [&_h2]:font-semibold [&_h2+*]:mt-1 [&_h3]:m-0 [&_h3]:mt-2 [&_h3]:font-semibold [&_h3+*]:mt-1 [&_li]:m-0 [&_ol]:my-0 [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:m-0 [&_p]:has-[.inline-markdown]:py-0.5 [&_p+p]:mt-1 [&_ul]:my-0 [&_ul]:list-disc [&_ul]:pl-4",
-              )}
-            />
+        <motion.div
+          initial={false}
+          animate={{
+            height: shouldRenderBody ? elementHeightPx : 0,
+            opacity: shouldRenderBody ? 1 : 0,
+          }}
+          transition={CODEX_MEASURED_TRANSITION}
+          className={cn(shouldRenderBody ? "overflow-visible" : "overflow-hidden")}
+          data-thread-find-skip={shouldRenderBody ? undefined : true}
+          style={{
+            pointerEvents: shouldRenderBody ? "auto" : "none",
+          }}
+        >
+          <div ref={elementRef} className="pb-0">
+            <div
+              ref={scrollContainerRef}
+              className="vertical-scroll-fade-mask max-h-[8.75rem] overflow-y-auto [--edge-fade-distance:1rem]"
+            >
+              <MarkdownRenderer
+                content={renderedBody}
+                parseIncompleteMarkdown={parseIncompleteMarkdown}
+                className={cn(
+                  "break-words text-size-chat text-token-foreground/60 [&_*]:text-size-chat [&_*]:text-token-foreground/50 [&_h1]:m-0 [&_h1]:mt-2 [&_h1]:font-semibold [&_h1+*]:mt-1 [&_h2]:m-0 [&_h2]:mt-2 [&_h2]:font-semibold [&_h2+*]:mt-1 [&_h3]:m-0 [&_h3]:mt-2 [&_h3]:font-semibold [&_h3+*]:mt-1 [&_li]:m-0 [&_ol]:my-0 [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:m-0 [&_p]:has-[.inline-markdown]:py-0.5 [&_p+p]:mt-1 [&_ul]:my-0 [&_ul]:list-disc [&_ul]:pl-4",
+                )}
+              />
+            </div>
           </div>
-        </MeasuredExpand>
+        </motion.div>
       </div>
     </div>
   );

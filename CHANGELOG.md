@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Threads settings now include Codex Electron’s thread-detail mode, so you can switch between `Steps`, `Steps with code commands`, and `Steps with code output` to control how much command activity appears in mounted threads.
+- Mounted Thread transcript expand/collapse behavior now uses the same Motion-style subtype-owned animation model as Codex Electron: command, exploration, patch, MCP, reasoning, todo, answered request-user-input, and plan-summary rows animate through subtype-owned Motion wrappers, while agent-work collapse uses a separate presence animation.
 - The renderer theme stack now matches Codex Electron more closely: authored CSS declares the `--vscode-*` contract, startup injects the same runtime semantic theme variables Codex Electron derives from the active light/dark variant, and Storybook now emulates the Electron window theme classes that those contracts expect.
 - Shared sort controls can now place empty `priority` / `estimate` values either first or last, so derived Kanban, List, and Toggle List views no longer force empty values to the end.
 - In sliding-window stage-rail mode, `Cmd/Ctrl+H` and `Cmd/Ctrl+L` now shift the visible stage window left/right instead of always moving stage focus, keeping the current focused stage when it remains visible.

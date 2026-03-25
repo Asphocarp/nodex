@@ -1,10 +1,12 @@
 import { useId, useMemo, useState } from "react";
+import { motion } from "motion/react";
 import { MarkdownRenderer } from "./markdown/markdown-renderer";
 import { cn } from "../../../../lib/utils";
 import {
   CopyMessageActionButton,
   ThreadActionIconButton,
 } from "./thread-message-actions";
+import { CODEX_MEASURED_TRANSITION } from "./use-measured-element-height";
 
 const COLLAPSED_PLAN_MAX_HEIGHT_PX = 320;
 
@@ -124,10 +126,12 @@ export function PlanMessage({
           </div>
         </div>
 
-        <div
+        <motion.div
           id={contentId}
           className="relative overflow-hidden"
-          style={{ maxHeight: expanded ? "none" : `${COLLAPSED_PLAN_MAX_HEIGHT_PX}px` }}
+          initial={false}
+          animate={{ height: expanded ? "auto" : COLLAPSED_PLAN_MAX_HEIGHT_PX }}
+          transition={CODEX_MEASURED_TRANSITION}
         >
           <div className="px-4 py-3">
             <MarkdownRenderer
@@ -153,7 +157,7 @@ export function PlanMessage({
               </div>
             </>
           )}
-        </div>
+        </motion.div>
       </div>
     </div>
   );

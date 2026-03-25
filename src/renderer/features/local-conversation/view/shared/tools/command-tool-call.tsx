@@ -1,10 +1,12 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { motion } from "motion/react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDownIcon } from "@/components/shared/icons";
 import type { CodexCommandAction, CodexTranscriptEntry } from "../../../../../lib/types";
 import { getDisplayCommand } from "../../../../../lib/command-display";
 import { resolveCodexThreadDetailLevel } from "../../../../../lib/codex-thread-settings";
 import { useCodexThreadSettings } from "../../../../../lib/use-codex-thread-settings";
 import { cn } from "../../../../../lib/utils";
+import { CODEX_MEASURED_TRANSITION, useMeasuredElementHeight } from "../use-measured-element-height";
 import { extractCommandActions, isExplorationAction } from "./command-actions";
 import { CopyMessageActionButton } from "../thread-message-actions";
 import { ToolErrorDetail } from "./tool-primitives";
@@ -31,8 +33,6 @@ export interface CommandElapsedSnapshot {
 const PREVIEW_TIMEOUT_MS = 200;
 const EXPAND_AFTER_START_MS = 2_000;
 const EXEC_PREVIEW_HEIGHT_REM = 8;
-const EXPAND_TRANSITION_STYLE = "height 180ms cubic-bezier(0.2, 0, 0, 1), opacity 180ms cubic-bezier(0.2, 0, 0, 1)";
-
 function detectExitCode(text: string | undefined): number | null {
   if (!text) return null;
   const match = text.match(/[Ee]xit\s+code\s+(\d+)/);
@@ -315,28 +315,7 @@ export function CommandToolCall({
   const previousInProgressRef = useRef(false);
   const previousThreadDetailLevelRef = useRef(threadDetailLevel);
   const viewStateRef = useRef<CommandViewState>(viewState);
-  const bodyRef = useRef<HTMLDivElement | null>(null);
-  const [bodyHeightPx, setBodyHeightPx] = useState(0);
-
-  useLayoutEffect(() => {
-    const element = bodyRef.current;
-    if (!element) return;
-
-    const measure = () => {
-      setBodyHeightPx(element.getBoundingClientRect().height);
-    };
-
-    measure();
-
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => {
-      measure();
-    });
-    observer.observe(element);
-    return () => {
-      observer.disconnect();
-    };
-  }, []);
+  const { elementHeightPx: bodyHeightPx, elementRef: bodyRef } = useMeasuredElementHeight();
 
   useEffect(() => {
     viewStateRef.current = viewState;
@@ -457,21 +436,24 @@ export function CommandToolCall({
       <div className="px-0">
         <div className="relative flex flex-col overflow-clip">
           {header}
-          <div
+          <motion.div
             className={cn(isMeasuredOpen ? "overflow-visible" : "overflow-hidden")}
             data-thread-find-skip={isMeasuredOpen ? undefined : true}
-            style={{
-              height: `${Math.max(measuredHeight, 0)}px`,
+            initial={false}
+            animate={{
+              height: Math.max(measuredHeight, 0),
               opacity: isMeasuredOpen ? 1 : 0,
+            }}
+            transition={CODEX_MEASURED_TRANSITION}
+            style={{
               overflow: isExpanded ? "visible" : "hidden",
               pointerEvents: isMeasuredOpen ? "auto" : "none",
-              transition: EXPAND_TRANSITION_STYLE,
             }}
           >
             <div ref={bodyRef}>
               {body}
             </div>
-          </div>
+          </motion.div>
         </div>
       </div>
     </div>

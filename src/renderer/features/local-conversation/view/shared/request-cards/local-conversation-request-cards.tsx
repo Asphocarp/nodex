@@ -11,6 +11,7 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
+import { motion } from "motion/react";
 import { Tooltip } from "../../../../../components/ui/tooltip";
 import { handleFormSubmit, resolveFormErrorMessage } from "../../../../../lib/forms";
 import { cn } from "../../../../../lib/utils";
@@ -21,8 +22,8 @@ import type {
   CodexTranscriptEntry,
   CodexUserInputRequest,
 } from "../../../../../lib/types";
-import { MeasuredExpand } from "../measured-expand";
 import { resolvePromptTextareaSize } from "../prompt-textarea-size";
+import { CODEX_MEASURED_TRANSITION, useMeasuredElementHeight } from "../use-measured-element-height";
 
 type CodexUserInputQuestion = CodexUserInputRequest["questions"][number];
 type RequestComposerQuestion = CodexUserInputQuestion & { otherPlaceholder?: string };
@@ -145,6 +146,7 @@ export function UserInputTranscriptView({
   const completed = item.status !== "inProgress";
   const canExpand = completed && questions.length > 0;
   const [expanded, setExpanded] = useState(false);
+  const { elementHeightPx, elementRef } = useMeasuredElementHeight();
 
   if (!completed) {
     return (
@@ -201,8 +203,20 @@ export function UserInputTranscriptView({
             {summary}
           </button>
         ) : summary}
-        <MeasuredExpand open={canExpand && expanded} className="overflow-hidden" innerClassName="flex flex-col gap-3 pt-1 pb-0.5">
-          <>
+        <motion.div
+          initial={false}
+          animate={{
+            height: canExpand && expanded ? elementHeightPx : 0,
+            opacity: canExpand && expanded ? 1 : 0,
+          }}
+          transition={CODEX_MEASURED_TRANSITION}
+          className={cn(canExpand && expanded ? "overflow-visible" : "overflow-hidden")}
+          data-thread-find-skip={canExpand && expanded ? undefined : true}
+          style={{
+            pointerEvents: canExpand && expanded ? "auto" : "none",
+          }}
+        >
+          <div ref={elementRef} className="flex flex-col gap-3 pt-1 pb-0.5">
             {questions.map((question) => {
               const answers = resolveTranscriptAnswers(question, answersByQuestion[question.id] ?? []);
               return (
@@ -214,8 +228,8 @@ export function UserInputTranscriptView({
                 </div>
               );
             })}
-          </>
-        </MeasuredExpand>
+          </div>
+        </motion.div>
       </div>
     </div>
   );
