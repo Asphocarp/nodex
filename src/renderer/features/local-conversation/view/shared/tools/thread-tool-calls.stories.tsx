@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import type { CodexTranscriptEntry } from "@/lib/types";
 import {
   ThreadExplorationGroupBlock,
@@ -34,22 +34,55 @@ function ToolCallStory({
   item,
   title,
   description,
+  autoOpen = false,
 }: {
   item: CodexTranscriptEntry;
   title: string;
   description: string;
+  autoOpen?: boolean;
 }) {
   const ToolComponent = getToolComponent(item);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!autoOpen) return;
+    const toggle = containerRef.current?.querySelector<HTMLElement>('button[aria-expanded="false"]');
+    if (!toggle) return;
+    toggle.click();
+  }, [autoOpen]);
 
   return (
     <StorySurface title={title} description={description}>
-      <ToolComponent
-        item={item}
-        projectWorkspacePath="/workspace/nodex"
-        threadCwd="/workspace/nodex"
-        expanded
-      />
+      <div ref={containerRef}>
+        <ToolComponent
+          item={item}
+          projectWorkspacePath="/workspace/nodex"
+          threadCwd="/workspace/nodex"
+        />
+      </div>
     </StorySurface>
+  );
+}
+
+function AutoOpenMcpToolCall({
+  item,
+  rawDialogOpen = false,
+}: {
+  item: CodexTranscriptEntry;
+  rawDialogOpen?: boolean;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const toggle = containerRef.current?.querySelector<HTMLElement>('button[aria-expanded="false"]');
+    if (!toggle) return;
+    toggle.click();
+  }, []);
+
+  return (
+    <div ref={containerRef}>
+      <McpToolCall item={item} rawDialogOpen={rawDialogOpen} />
+    </div>
   );
 }
 
@@ -135,6 +168,7 @@ export const CommandExecution: Story = {
       item={THREAD_TOOL_CALL_STORY_ITEMS.command}
       title="Command Execution"
       description="Structured command summary, output body, and metadata for a settled command run."
+      autoOpen
     />
   ),
 };
@@ -145,6 +179,7 @@ export const FileChange: Story = {
       item={THREAD_TOOL_CALL_STORY_ITEMS.fileChange}
       title="File Change / Diff"
       description="Codex Electron-style file-edit tool surface rendered from the patch item."
+      autoOpen
     />
   ),
 };
@@ -200,6 +235,7 @@ export const McpToolCallDefault: Story = {
       item={THREAD_TOOL_CALL_STORY_ITEMS.mcp}
       title="MCP Tool Call"
       description="Expanded Codex-style MCP disclosure with plaintext result content and the raw-output dialog trigger."
+      autoOpen
     />
   ),
 };
@@ -221,7 +257,7 @@ export const McpToolCallExpanded: Story = {
       title="MCP Tool Call Expanded"
       description="Expanded Codex Electron parity state for a completed MCP call with visible plaintext result content."
     >
-      <McpToolCall item={THREAD_TOOL_CALL_STORY_ITEMS.mcp} expanded />
+      <AutoOpenMcpToolCall item={THREAD_TOOL_CALL_STORY_ITEMS.mcp} />
     </StorySurface>
   ),
 };
@@ -232,11 +268,7 @@ export const McpRawOutputDialog: Story = {
       title="MCP Raw Output Dialog"
       description="The raw-output dialog opened from the Codex-style MCP call footer action."
     >
-      <McpToolCall
-        item={THREAD_TOOL_CALL_STORY_ITEMS.mcp}
-        expanded
-        rawDialogOpen
-      />
+      <AutoOpenMcpToolCall item={THREAD_TOOL_CALL_STORY_ITEMS.mcp} rawDialogOpen />
     </StorySurface>
   ),
 };
@@ -247,6 +279,7 @@ export const GenericFallback: Story = {
       item={THREAD_TOOL_CALL_STORY_ITEMS.generic}
       title="Generic Tool Call"
       description="Compatibility fallback for tool payloads without a dedicated Codex Electron renderer, using the same summary/disclosure tone as Codex tool rows."
+      autoOpen
     />
   ),
 };
@@ -257,6 +290,7 @@ export const GenericFallbackRawOnly: Story = {
       item={THREAD_TOOL_CALL_STORY_ITEMS.genericRawOnly}
       title="Generic Fallback Raw Payload"
       description="Unknown tool payloads can still be inspected through the fallback disclosure when only raw structured data is available."
+      autoOpen
     />
   ),
 };

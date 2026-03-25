@@ -12,9 +12,7 @@ interface ThreadTurnProps {
   isMatched: boolean;
   matchedSearchUnitKeys?: ReadonlySet<string>;
   activeSearchUnitKey?: string | null;
-  collapsedToolItemIds?: ReadonlySet<string>;
   onAgentBodyCollapsedChange: (turnId: string, collapsed: boolean) => void;
-  onToolCollapsedChange: (itemId: string, collapsed: boolean) => void;
   projectWorkspacePath?: string | null;
   threadCwd?: string | null;
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
@@ -98,9 +96,7 @@ export function ThreadTurn({
   isMatched,
   matchedSearchUnitKeys,
   activeSearchUnitKey,
-  collapsedToolItemIds,
   onAgentBodyCollapsedChange,
-  onToolCollapsedChange,
   projectWorkspacePath,
   threadCwd,
   onEditLastUserTurn,
@@ -126,8 +122,6 @@ export function ThreadTurn({
       isActiveSearchMatch={Boolean("searchUnitKey" in block && block.searchUnitKey && activeSearchUnitKey === block.searchUnitKey)}
       projectWorkspacePath={projectWorkspacePath}
       threadCwd={threadCwd}
-      collapsedToolItemIds={collapsedToolItemIds}
-      onToolCollapsedChange={onToolCollapsedChange}
       onEditLastUserTurn={onEditLastUserTurn}
       onForkFromTurn={onForkFromTurn}
     />
@@ -141,8 +135,6 @@ export function ThreadTurn({
       isStreamingTurn={turn.isStreamingTurn}
       projectWorkspacePath={projectWorkspacePath}
       threadCwd={threadCwd}
-      collapsedToolItemIds={collapsedToolItemIds}
-      onToolCollapsedChange={onToolCollapsedChange}
       onEditLastUserTurn={onEditLastUserTurn}
       onForkFromTurn={onForkFromTurn}
     />

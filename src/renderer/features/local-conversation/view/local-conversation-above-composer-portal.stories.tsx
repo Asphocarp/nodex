@@ -15,7 +15,6 @@ const STORY_CONTROLS: ThreadStageStoryControls = {
   authenticatedAccount: true,
   isQueueingEnabled: false,
   collapseAgentBody: false,
-  collapseToolCalls: false,
 };
 
 function buildActions(): ThreadStageActions {

@@ -22,8 +22,6 @@ const electronToolIconSizeClassName = `electron:[&>svg]:${"icon-sm"}`;
 
 interface McpToolCallProps {
   item: CodexTranscriptEntry;
-  expanded?: boolean;
-  onExpandedChange?: (expanded: boolean) => void;
   rawDialogOpen?: boolean;
   onRawDialogOpenChange?: (open: boolean) => void;
 }
@@ -546,14 +544,12 @@ function useControllableBoolean(
 
 export function McpToolCall({
   item,
-  expanded,
-  onExpandedChange,
   rawDialogOpen,
   onRawDialogOpenChange,
 }: McpToolCallProps) {
   const bodyId = useId();
   const payload = useMemo(() => normalizePayload(item), [item]);
-  const [isExpanded, setIsExpanded] = useControllableBoolean(expanded, onExpandedChange);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [isRawDialogOpen, setIsRawDialogOpen] = useControllableBoolean(rawDialogOpen, onRawDialogOpenChange);
 
   const toolName = humanizeIdentifier(payload.invocation.tool);

@@ -22,7 +22,6 @@ const meta = {
     authenticatedAccount: true,
     isQueueingEnabled: false,
     collapseAgentBody: true,
-    collapseToolCalls: false,
   },
   argTypes: {
     permissionMode: {
@@ -36,9 +35,6 @@ const meta = {
       control: "boolean",
     },
     collapseAgentBody: {
-      control: "boolean",
-    },
-    collapseToolCalls: {
       control: "boolean",
     },
     renderPreview: {

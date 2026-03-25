@@ -263,7 +263,6 @@ export function ThreadStageDevStoryPage({
   authenticatedAccount,
   isQueueingEnabled,
   collapseAgentBody,
-  collapseToolCalls,
   renderPreview = true,
 }: ThreadStageDevStoryPageProps) {
   const scenario = useMemo(() => buildThreadStageStoryScenario({
@@ -272,11 +271,9 @@ export function ThreadStageDevStoryPage({
     authenticatedAccount,
     isQueueingEnabled,
     collapseAgentBody,
-    collapseToolCalls,
   }), [
     authenticatedAccount,
     collapseAgentBody,
-    collapseToolCalls,
     isQueueingEnabled,
     permissionMode,
     preset,
@@ -296,12 +293,10 @@ export function ThreadStageDevStoryPage({
       authenticatedAccount,
       isQueueingEnabled,
       collapseAgentBody,
-      collapseToolCalls,
     }, runtime),
     [
       authenticatedAccount,
       collapseAgentBody,
-      collapseToolCalls,
       isQueueingEnabled,
       permissionMode,
       preset,

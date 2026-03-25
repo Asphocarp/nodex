@@ -10,8 +10,6 @@ export interface ToolComponentProps {
   item: CodexTranscriptEntry;
   projectWorkspacePath?: string;
   threadCwd?: string;
-  expanded?: boolean;
-  onExpandedChange?: (expanded: boolean) => void;
 }
 
 type ToolComponent = ComponentType<ToolComponentProps>;

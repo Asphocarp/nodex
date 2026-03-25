@@ -26,12 +26,10 @@ interface VirtualizedTurnListProps {
   viewportHeight: number;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
   collapsedAgentBodyByTurnId: Readonly<Record<string, boolean>>;
-  collapsedToolItemIds: ReadonlySet<string>;
   matchedTurnIds?: ReadonlySet<string>;
   matchedSearchUnitKeys?: ReadonlySet<string>;
   activeSearchUnitKey?: string | null;
   onAgentBodyCollapsedChange: (turnId: string, collapsed: boolean) => void;
-  onToolCollapsedChange: (itemId: string, collapsed: boolean) => void;
   projectWorkspacePath?: string | null;
   threadCwd?: string | null;
   className?: string;
@@ -46,8 +44,6 @@ function MeasuredTurn({
   agentBodyCollapsed,
   hasPersistedAgentBodyCollapsedState,
   onAgentBodyCollapsedChange,
-  collapsedToolItemIds,
-  onToolCollapsedChange,
   isMatched,
   matchedSearchUnitKeys,
   activeSearchUnitKey,
@@ -62,8 +58,6 @@ function MeasuredTurn({
   agentBodyCollapsed: boolean;
   hasPersistedAgentBodyCollapsedState: boolean;
   onAgentBodyCollapsedChange: (turnId: string, collapsed: boolean) => void;
-  collapsedToolItemIds: ReadonlySet<string>;
-  onToolCollapsedChange: (itemId: string, collapsed: boolean) => void;
   isMatched: boolean;
   matchedSearchUnitKeys?: ReadonlySet<string>;
   activeSearchUnitKey?: string | null;
@@ -105,9 +99,7 @@ function MeasuredTurn({
         isMatched={isMatched}
         matchedSearchUnitKeys={matchedSearchUnitKeys}
         activeSearchUnitKey={activeSearchUnitKey}
-        collapsedToolItemIds={collapsedToolItemIds}
         onAgentBodyCollapsedChange={onAgentBodyCollapsedChange}
-        onToolCollapsedChange={onToolCollapsedChange}
         projectWorkspacePath={projectWorkspacePath}
         threadCwd={threadCwd}
         onEditLastUserTurn={onEditLastUserTurn}
@@ -123,12 +115,10 @@ export const VirtualizedTurnList = forwardRef<VirtualizedTurnListHandle, Virtual
   viewportHeight,
   scrollContainerRef,
   collapsedAgentBodyByTurnId,
-  collapsedToolItemIds,
   matchedTurnIds,
   matchedSearchUnitKeys,
   activeSearchUnitKey,
   onAgentBodyCollapsedChange,
-  onToolCollapsedChange,
   projectWorkspacePath,
   threadCwd,
   className,
@@ -236,8 +226,6 @@ export const VirtualizedTurnList = forwardRef<VirtualizedTurnListHandle, Virtual
             agentBodyCollapsed={collapsedAgentBodyByTurnId[turn.turnId] ?? turn.defaultAgentBodyCollapsed}
             hasPersistedAgentBodyCollapsedState={Object.hasOwn(collapsedAgentBodyByTurnId, turn.turnId)}
             onAgentBodyCollapsedChange={onAgentBodyCollapsedChange}
-            collapsedToolItemIds={collapsedToolItemIds}
-            onToolCollapsedChange={onToolCollapsedChange}
             isMatched={matchedTurnIds?.has(turn.turnId) ?? false}
             matchedSearchUnitKeys={matchedSearchUnitKeys}
             activeSearchUnitKey={activeSearchUnitKey}

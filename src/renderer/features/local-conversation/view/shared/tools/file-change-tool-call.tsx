@@ -1,6 +1,6 @@
 import { parsePatchFiles } from "@pierre/diffs";
 import { FileDiff, PatchDiff, type FileDiffMetadata } from "@pierre/diffs/react";
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useMemo, useState, type CSSProperties } from "react";
 import { invoke } from "../../../../../lib/api";
 import {
   NODEX_DIFF_HOST_CLASS,
@@ -30,9 +30,6 @@ interface FileChangeToolCallProps {
   item: CodexTranscriptEntry;
   projectWorkspacePath?: string;
   threadCwd?: string;
-  defaultExpanded?: boolean;
-  expanded?: boolean;
-  onExpandedChange?: (expanded: boolean) => void;
 }
 
 interface ParsedChange {
@@ -332,26 +329,15 @@ function FileChangeRow({
   diffHostClassName,
   diffHostStyle,
   diffOptions,
-  controlledExpanded,
-  defaultExpanded,
-  onExpandedChange,
   openerId,
 }: {
   row: FileChangeRowModel;
   diffHostClassName: string;
   diffHostStyle: CSSProperties;
   diffOptions: ReturnType<typeof getNodexDiffOptions>;
-  controlledExpanded?: boolean;
-  defaultExpanded: boolean;
-  onExpandedChange?: (expanded: boolean) => void;
   openerId: string;
 }) {
-  const [isExpanded, setIsExpanded] = useState(controlledExpanded ?? defaultExpanded);
-
-  useEffect(() => {
-    if (controlledExpanded === undefined) return;
-    setIsExpanded(controlledExpanded);
-  }, [controlledExpanded]);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const openFile = useCallback(() => {
     if (!row.openPath) return;
@@ -363,8 +349,7 @@ function FileChangeRow({
 
   const handleExpandedChange = useCallback((nextValue: boolean) => {
     setIsExpanded(nextValue);
-    onExpandedChange?.(nextValue);
-  }, [onExpandedChange]);
+  }, []);
 
   const showSummaryFilename = !isExpanded && row.displayPath !== null;
   const showSummaryStats = !isExpanded;
@@ -422,9 +407,6 @@ export function FileChangeToolCall({
   item,
   projectWorkspacePath,
   threadCwd,
-  defaultExpanded = false,
-  expanded,
-  onExpandedChange,
 }: FileChangeToolCallProps) {
   const { resolved } = useTheme();
   const { opener } = useFileLinkOpener();
@@ -450,9 +432,6 @@ export function FileChangeToolCall({
             diffHostClassName={diffHostClassName}
             diffHostStyle={diffHostStyle}
             diffOptions={diffOptions}
-            controlledExpanded={expanded}
-            defaultExpanded={defaultExpanded}
-            onExpandedChange={onExpandedChange}
             openerId={opener}
           />
         ))}

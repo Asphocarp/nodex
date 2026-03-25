@@ -12,7 +12,6 @@ describe("thread stage story fixtures", () => {
       authenticatedAccount: true,
       isQueueingEnabled: false,
       collapseAgentBody: true,
-      collapseToolCalls: false,
     });
 
     const model = buildThreadStageStoryModel(scenario, {
@@ -21,7 +20,6 @@ describe("thread stage story fixtures", () => {
       authenticatedAccount: true,
       isQueueingEnabled: false,
       collapseAgentBody: true,
-      collapseToolCalls: false,
     }, scenario.runtime);
 
     expect(model.isNewThreadTab).toBeTrue();
@@ -35,7 +33,6 @@ describe("thread stage story fixtures", () => {
       authenticatedAccount: true,
       isQueueingEnabled: false,
       collapseAgentBody: true,
-      collapseToolCalls: false,
     });
 
     const model = buildThreadStageStoryModel(scenario, {
@@ -44,7 +41,6 @@ describe("thread stage story fixtures", () => {
       authenticatedAccount: true,
       isQueueingEnabled: false,
       collapseAgentBody: true,
-      collapseToolCalls: false,
     }, scenario.runtime);
 
     expect(model.pendingRequestSurface?.entries.length).toBe(1);
@@ -62,7 +58,6 @@ describe("thread stage story fixtures", () => {
       authenticatedAccount: true,
       isQueueingEnabled: false,
       collapseAgentBody: false,
-      collapseToolCalls: false,
     });
 
     const model = buildThreadStageStoryModel(scenario, {
@@ -71,7 +66,6 @@ describe("thread stage story fixtures", () => {
       authenticatedAccount: true,
       isQueueingEnabled: false,
       collapseAgentBody: false,
-      collapseToolCalls: false,
     }, scenario.runtime);
 
     expect(model.pendingRequestSurface?.backgroundRequestCount).toBe(1);

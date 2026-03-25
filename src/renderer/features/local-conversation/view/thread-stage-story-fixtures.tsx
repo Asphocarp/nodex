@@ -45,7 +45,6 @@ export interface ThreadStageStoryControls {
   authenticatedAccount: boolean;
   isQueueingEnabled: boolean;
   collapseAgentBody: boolean;
-  collapseToolCalls: boolean;
 }
 
 export interface ThreadStageStoryPreset {
@@ -865,8 +864,8 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
         "   - turn-level aggregated `turn.diff` renders as a separate `turn-diff` surface",
         "   - active in-progress turn diffs surface as a compact above-composer `files changed` banner instead of a generic inline diff viewer",
         "   - completed turn diffs render as a dedicated files-changed card with per-file collapsed embedded diff rows",
-        "+- completed turn-diff cards summarize multi-file changes before any embedded rows expand.",
-        "+- embedded turn-diff rows are collapsed by default and open files from the filename button when a workspace path is available.",
+        "+  - completed turn-diff cards summarize multi-file changes before any embedded rows expand.",
+        "+  - embedded turn-diff rows are collapsed by default and open files from the filename button when a workspace path is available.",
         "   - the unified diff card is never allowed to replace or swallow the underlying `Edited file` tool row",
         "   - patch rows expand inline to reveal their own unified diff frame instead of delegating expansion to the separate turn-level diff card",
         "   - patch headers split the status label and filename into separate elements; the filename is clickable and opens the local file target without toggling the row",
@@ -1299,7 +1298,6 @@ function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageSt
   const completedConversation = buildPrimaryCompletedConversation();
   const collapsedAgentBodyByTurnId: Record<string, boolean> =
     controls.collapseAgentBody ? { turn_story_latest: true } : {};
-  const collapsedToolItemIds = controls.collapseToolCalls ? ["exec_story_latest", "exec_story_streaming"] : [];
 
   const baseRuntime: ThreadStageStoryRuntimeState = {
     isNewThreadTab: false,
@@ -1382,10 +1380,7 @@ function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageSt
         conversation,
         knownConversationsById: { [conversation.threadId]: conversation },
       },
-      initialUiState: {
-        collapsedAgentBodyByTurnId,
-        collapsedToolItemIds,
-      },
+      initialUiState: { collapsedAgentBodyByTurnId },
       transportCard,
       permissionDescription,
     };
@@ -1401,10 +1396,7 @@ function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageSt
         conversation,
         knownConversationsById: { [conversation.threadId]: conversation },
       },
-      initialUiState: {
-        collapsedAgentBodyByTurnId,
-        collapsedToolItemIds,
-      },
+      initialUiState: { collapsedAgentBodyByTurnId },
       transportCard,
       permissionDescription,
     };
@@ -1420,10 +1412,7 @@ function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageSt
         conversation,
         knownConversationsById: { [conversation.threadId]: conversation },
       },
-      initialUiState: {
-        collapsedAgentBodyByTurnId,
-        collapsedToolItemIds,
-      },
+      initialUiState: { collapsedAgentBodyByTurnId },
       transportCard,
       permissionDescription,
     };
@@ -1454,10 +1443,7 @@ function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageSt
         conversation: background.conversation,
         knownConversationsById: background.knownConversationsById,
       },
-      initialUiState: {
-        collapsedAgentBodyByTurnId,
-        collapsedToolItemIds,
-      },
+      initialUiState: { collapsedAgentBodyByTurnId },
       transportCard,
       permissionDescription,
     };
@@ -1470,10 +1456,7 @@ function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageSt
         ...baseRuntime,
         searchOpenTick: 1,
       },
-      initialUiState: {
-        collapsedAgentBodyByTurnId,
-        collapsedToolItemIds,
-      },
+      initialUiState: { collapsedAgentBodyByTurnId },
       transportCard,
       permissionDescription,
     };
@@ -1483,10 +1466,7 @@ function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageSt
     return {
       preset,
       runtime: baseRuntime,
-      initialUiState: {
-        collapsedAgentBodyByTurnId,
-        collapsedToolItemIds,
-      },
+      initialUiState: { collapsedAgentBodyByTurnId },
       transportCard,
       permissionDescription,
       autoAction: "openEdit",
@@ -1497,10 +1477,7 @@ function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageSt
     return {
       preset,
       runtime: baseRuntime,
-      initialUiState: {
-        collapsedAgentBodyByTurnId,
-        collapsedToolItemIds,
-      },
+      initialUiState: { collapsedAgentBodyByTurnId },
       transportCard,
       permissionDescription,
       autoAction: "submitEditFailure",
@@ -1511,10 +1488,7 @@ function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageSt
     return {
       preset,
       runtime: baseRuntime,
-      initialUiState: {
-        collapsedAgentBodyByTurnId,
-        collapsedToolItemIds,
-      },
+      initialUiState: { collapsedAgentBodyByTurnId },
       transportCard,
       permissionDescription,
       autoAction: "triggerLatestFork",
@@ -1525,10 +1499,7 @@ function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageSt
     return {
       preset,
       runtime: baseRuntime,
-      initialUiState: {
-        collapsedAgentBodyByTurnId,
-        collapsedToolItemIds,
-      },
+      initialUiState: { collapsedAgentBodyByTurnId },
       transportCard,
       permissionDescription,
       autoAction: "openOlderFork",
@@ -1538,10 +1509,7 @@ function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageSt
   return {
     preset,
     runtime: baseRuntime,
-    initialUiState: {
-      collapsedAgentBodyByTurnId,
-      collapsedToolItemIds,
-    },
+    initialUiState: { collapsedAgentBodyByTurnId },
     transportCard,
     permissionDescription,
   };
@@ -1660,7 +1628,7 @@ function createStorybookElectronBridge(input: {
           );
         };
       }
-      return () => {};
+      return () => { };
     },
   } as StorybookBridge;
 }

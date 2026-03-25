@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
 import { TooltipProvider } from "../../../../../components/ui/tooltip";
-import { render, settleAsyncRender } from "../../../../../test/dom";
+import { render, settleAsyncRender, textContent } from "../../../../../test/dom";
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
 import { FileChangeToolCall, fileChangeToolCallTestHelpers } from "./file-change-tool-call";
 
@@ -163,5 +163,63 @@ describe("FileChangeToolCall", () => {
     expect(rows.length).toBe(1);
     expect(rows[0]?.summary.additions ?? null).toBe(3);
     expect(rows[0]?.summary.deletions ?? null).toBe(2);
+  });
+
+  test("toggles multi-file rows independently", async () => {
+    const multiFileEntry = buildFileChangeEntry({
+      toolCall: {
+        subtype: "fileChange",
+        toolName: "file_change",
+        args: {
+          changes: [
+            {
+              path: "src/one.ts",
+              diff: [
+                "@@ -1 +1 @@",
+                "-console.log('one');",
+                "+console.log('ONE');",
+              ].join("\n"),
+            },
+            {
+              path: "src/two.ts",
+              diff: [
+                "@@ -1 +1 @@",
+                "-console.log('two');",
+                "+console.log('TWO');",
+              ].join("\n"),
+            },
+          ],
+        },
+        result: {
+          diff: [
+            "--- a/src/one.ts",
+            "+++ b/src/one.ts",
+            "@@ -1 +1 @@",
+            "-console.log('one');",
+            "+console.log('ONE');",
+            "--- a/src/two.ts",
+            "+++ b/src/two.ts",
+            "@@ -1 +1 @@",
+            "-console.log('two');",
+            "+console.log('TWO');",
+          ].join("\n"),
+        },
+      },
+    });
+
+    const { container } = render(
+      <TooltipProvider>
+        <FileChangeToolCall item={multiFileEntry} threadCwd="/tmp/project" />
+      </TooltipProvider>,
+    );
+
+    const toggles = Array.from(container.querySelectorAll<HTMLElement>('[role="button"][aria-expanded="false"]'));
+    expect(toggles.length).toBe(2);
+
+    fireEvent.click(toggles[0]!);
+    await settleAsyncRender();
+
+    expect(container.querySelectorAll('[role="button"][aria-expanded="true"]').length).toBe(1);
+    expect(Boolean(textContent(container).includes("Edited file"))).toBeTrue();
   });
 });

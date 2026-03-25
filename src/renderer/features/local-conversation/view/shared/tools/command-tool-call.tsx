@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ChevronDownIcon } from "@/components/shared/icons";
 import type { CodexCommandAction, CodexTranscriptEntry } from "../../../../../lib/types";
 import { getDisplayCommand } from "../../../../../lib/command-display";
 import { cn } from "../../../../../lib/utils";
-import { MeasuredExpand } from "../measured-expand";
 import { extractCommandActions, isExplorationAction } from "./command-actions";
 import { CopyMessageActionButton } from "../thread-message-actions";
 import { ToolErrorDetail } from "./tool-primitives";
@@ -11,8 +10,6 @@ import { ToolErrorDetail } from "./tool-primitives";
 interface CommandToolCallProps {
   item: CodexTranscriptEntry;
   threadCwd?: string;
-  expanded?: boolean;
-  onExpandedChange?: (expanded: boolean) => void;
 }
 
 interface CommandToolArgs {
@@ -31,6 +28,8 @@ export interface CommandElapsedSnapshot {
 
 const PREVIEW_TIMEOUT_MS = 200;
 const EXPAND_AFTER_START_MS = 2_000;
+const EXEC_PREVIEW_HEIGHT_REM = 8;
+const EXPAND_TRANSITION_STYLE = "height 180ms cubic-bezier(0.2, 0, 0, 1), opacity 180ms cubic-bezier(0.2, 0, 0, 1)";
 
 function detectExitCode(text: string | undefined): number | null {
   if (!text) return null;
@@ -286,8 +285,6 @@ function CommandBody({
 export function CommandToolCall({
   item,
   threadCwd,
-  expanded,
-  onExpandedChange,
 }: CommandToolCallProps) {
   const toolArgs = (typeof item.toolCall?.args === "object" && item.toolCall.args !== null)
     ? item.toolCall.args as CommandToolArgs
@@ -303,22 +300,37 @@ export function CommandToolCall({
   const elapsedLabel = useElapsedLabel(effectiveStatus);
   const commandActions = extractCommandActions(item);
   const isExploration = commandActions.length > 0 && commandActions.every(isExplorationAction);
-
-  const initialState = useMemo<CommandViewState>(() => {
-    if (expanded !== undefined) return expanded ? "expanded" : "collapsed";
-    if (isInProgress) return "preview";
-    return "expanded";
-  }, [expanded, isInProgress]);
-  const [viewState, setViewState] = useState<CommandViewState>(initialState);
+  const prefersExpandedWhenSettled = true;
+  const [viewState, setViewState] = useState<CommandViewState>(() => (
+    prefersExpandedWhenSettled && !isInProgress ? "expanded" : "collapsed"
+  ));
   const previewTimeoutRef = useRef<number | null>(null);
   const expandTimeoutRef = useRef<number | null>(null);
+  const previousInProgressRef = useRef(isInProgress);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const [bodyHeightPx, setBodyHeightPx] = useState(0);
+
+  useLayoutEffect(() => {
+    const element = bodyRef.current;
+    if (!element) return;
+
+    const measure = () => {
+      setBodyHeightPx(element.getBoundingClientRect().height);
+    };
+
+    measure();
+
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      measure();
+    });
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
 
   useEffect(() => {
-    if (expanded !== undefined) {
-      setViewState(expanded ? "expanded" : "collapsed");
-      return;
-    }
-
     if (previewTimeoutRef.current !== null) {
       window.clearTimeout(previewTimeoutRef.current);
       previewTimeoutRef.current = null;
@@ -328,42 +340,52 @@ export function CommandToolCall({
       expandTimeoutRef.current = null;
     }
 
-    if (isInProgress) {
-      setViewState("preview");
-      previewTimeoutRef.current = window.setTimeout(() => {
-        setViewState("collapsed");
-        previewTimeoutRef.current = null;
-      }, PREVIEW_TIMEOUT_MS);
+    const wasInProgress = previousInProgressRef.current;
+
+    if (wasInProgress && !isInProgress) {
+      if (viewState === "expanded") {
+        setViewState("preview");
+        previewTimeoutRef.current = window.setTimeout(() => {
+          setViewState("collapsed");
+          previewTimeoutRef.current = null;
+        }, PREVIEW_TIMEOUT_MS);
+      }
+    }
+
+    if (!wasInProgress && isInProgress) {
       expandTimeoutRef.current = window.setTimeout(() => {
         setViewState("expanded");
         expandTimeoutRef.current = null;
       }, EXPAND_AFTER_START_MS);
-      return () => {
-        if (previewTimeoutRef.current !== null) {
-          window.clearTimeout(previewTimeoutRef.current);
-          previewTimeoutRef.current = null;
-        }
-        if (expandTimeoutRef.current !== null) {
-          window.clearTimeout(expandTimeoutRef.current);
-          expandTimeoutRef.current = null;
-        }
-      };
     }
 
+    previousInProgressRef.current = isInProgress;
+
+    return () => {
+      if (previewTimeoutRef.current !== null) {
+        window.clearTimeout(previewTimeoutRef.current);
+        previewTimeoutRef.current = null;
+      }
+      if (expandTimeoutRef.current !== null) {
+        window.clearTimeout(expandTimeoutRef.current);
+        expandTimeoutRef.current = null;
+      }
+    };
+  }, [isInProgress, viewState]);
+
+  useEffect(() => {
+    if (!prefersExpandedWhenSettled || isInProgress) return;
     setViewState("expanded");
-  }, [expanded, isInProgress]);
+  }, [isInProgress, prefersExpandedWhenSettled]);
 
   const isExpanded = viewState === "expanded";
-  const canToggle = true;
   const summaryLabel = isExploration
     ? formatExplorationSummary(commandActions, effectiveStatus)
     : resolveSummaryLabel(command, effectiveStatus, toolArgs.summaryLabel, item.markdownText);
 
   const handleToggle = () => {
-    if (!canToggle || isInProgress) return;
-    const nextExpanded = !isExpanded;
-    setViewState(nextExpanded ? "expanded" : "collapsed");
-    onExpandedChange?.(nextExpanded);
+    if (isInProgress && viewState === "expanded") return;
+    setViewState((currentState) => (currentState === "expanded" ? "collapsed" : "expanded"));
   };
 
   const header = (
@@ -406,20 +428,36 @@ export function CommandToolCall({
       effectiveStatus={effectiveStatus}
     />
   );
-
-  const measuredOpen = viewState === "expanded" || viewState === "preview";
+  const previewHeightPx = bodyHeightPx > 0
+    ? Math.min(bodyHeightPx, EXEC_PREVIEW_HEIGHT_REM * 16)
+    : EXEC_PREVIEW_HEIGHT_REM * 16;
+  const measuredHeight = viewState === "expanded"
+    ? bodyHeightPx
+    : viewState === "preview"
+      ? previewHeightPx
+      : 0;
+  const isMeasuredOpen = viewState !== "collapsed";
 
   return (
     <div className="min-w-0 text-size-chat relative overflow-visible py-0">
       <div className="px-0">
         <div className="relative flex flex-col overflow-clip">
           {header}
-          <MeasuredExpand
-            open={measuredOpen}
-            className={measuredOpen ? "overflow-visible" : "overflow-hidden"}
+          <div
+            className={cn(isMeasuredOpen ? "overflow-visible" : "overflow-hidden")}
+            data-thread-find-skip={isMeasuredOpen ? undefined : true}
+            style={{
+              height: `${Math.max(measuredHeight, 0)}px`,
+              opacity: isMeasuredOpen ? 1 : 0,
+              overflow: isExpanded ? "visible" : "hidden",
+              pointerEvents: isMeasuredOpen ? "auto" : "none",
+              transition: EXPAND_TRANSITION_STYLE,
+            }}
           >
-            {body}
-          </MeasuredExpand>
+            <div ref={bodyRef}>
+              {body}
+            </div>
+          </div>
         </div>
       </div>
     </div>

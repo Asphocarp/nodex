@@ -124,7 +124,6 @@ export function LocalConversationThreadBody({ model, actions, onErrorMessage, in
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
   const [collapsedAgentBodyByTurnId, setCollapsedAgentBodyByTurnId] = useState<Record<string, boolean>>(() => ({}));
-  const [collapsedToolItemIds, setCollapsedToolItemIds] = useState<Set<string>>(() => new Set());
   const [forkDialogState, setForkDialogState] = useState<{
     threadId: string;
     turnId: string;
@@ -159,10 +158,9 @@ export function LocalConversationThreadBody({ model, actions, onErrorMessage, in
     setSearchQuery("");
     setActiveMatchIndex(0);
     setCollapsedAgentBodyByTurnId(initialUiState?.collapsedAgentBodyByTurnId ?? {});
-    setCollapsedToolItemIds(new Set(initialUiState?.collapsedToolItemIds ?? []));
     setForkDialogState(null);
     setIsForkSubmitting(false);
-  }, [body.threadId, initialUiState?.collapsedAgentBodyByTurnId, initialUiState?.collapsedToolItemIds]);
+  }, [body.threadId, initialUiState?.collapsedAgentBodyByTurnId]);
 
   useEffect(() => {
     const shouldOpenSearch =
@@ -220,18 +218,6 @@ export function LocalConversationThreadBody({ model, actions, onErrorMessage, in
         ...current,
         [turnId]: collapsed,
       };
-    });
-  }, []);
-
-  const handleToolCollapsedChange = useCallback((itemId: string, collapsed: boolean) => {
-    setCollapsedToolItemIds((current) => {
-      const next = new Set(current);
-      if (collapsed) {
-        next.add(itemId);
-        return next;
-      }
-      next.delete(itemId);
-      return next;
     });
   }, []);
 
@@ -438,9 +424,7 @@ export function LocalConversationThreadBody({ model, actions, onErrorMessage, in
               viewportHeight={viewportHeight}
               scrollContainerRef={scrollRef}
               collapsedAgentBodyByTurnId={collapsedAgentBodyByTurnId}
-              collapsedToolItemIds={collapsedToolItemIds}
               onAgentBodyCollapsedChange={handleAgentBodyCollapsedChange}
-              onToolCollapsedChange={handleToolCollapsedChange}
               matchedTurnIds={matchedTurnIds}
               matchedSearchUnitKeys={matchedSearchUnitKeys}
               activeSearchUnitKey={activeSearchUnitKey}

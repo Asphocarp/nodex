@@ -20,7 +20,6 @@ function buildModel(args: ComposerSendButtonStoryProps): ThreadStageModel {
     authenticatedAccount: true,
     isQueueingEnabled: args.isQueueingEnabled,
     collapseAgentBody: false,
-    collapseToolCalls: false,
   };
   const scenario = buildThreadStageStoryScenario(controls);
   const runtime = {

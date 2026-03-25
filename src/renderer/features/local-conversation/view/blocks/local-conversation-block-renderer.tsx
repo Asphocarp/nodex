@@ -22,8 +22,6 @@ interface ThreadBlockRendererProps {
   isActiveSearchMatch?: boolean;
   projectWorkspacePath?: string | null;
   threadCwd?: string | null;
-  collapsedToolItemIds?: ReadonlySet<string>;
-  onToolCollapsedChange?: (itemId: string, collapsed: boolean) => void;
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
 }
@@ -36,8 +34,6 @@ export function ThreadBlockRenderer({
   isActiveSearchMatch = false,
   projectWorkspacePath,
   threadCwd,
-  collapsedToolItemIds,
-  onToolCollapsedChange,
   onEditLastUserTurn,
   onForkFromTurn,
 }: ThreadBlockRendererProps) {
@@ -86,8 +82,6 @@ export function ThreadBlockRenderer({
         isStreamingTurn={isStreamingTurn}
         projectWorkspacePath={projectWorkspacePath}
         threadCwd={threadCwd}
-        collapsedToolItemIds={collapsedToolItemIds}
-        onToolCollapsedChange={onToolCollapsedChange}
       />
     );
   }

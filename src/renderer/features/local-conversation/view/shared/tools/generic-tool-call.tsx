@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
 import { cn } from "../../../../../lib/utils";
 import { MeasuredExpand } from "../measured-expand";
@@ -7,8 +7,6 @@ import { humanizeIdentifier } from "./tool-call-utils";
 
 interface GenericToolCallProps {
   item: CodexTranscriptEntry;
-  expanded?: boolean;
-  onExpandedChange?: (expanded: boolean) => void;
 }
 
 function ChevronRightIcon({ expanded }: { expanded: boolean }) {
@@ -61,28 +59,18 @@ function hasFallbackBody(item: CodexTranscriptEntry): boolean {
 
 export function GenericToolCall({
   item,
-  expanded,
-  onExpandedChange,
 }: GenericToolCallProps) {
   const bodyId = useId();
   const hasBody = hasFallbackBody(item);
   const completed = item.status !== "inProgress";
   const isExpandable = completed && hasBody;
-  const [isExpanded, setIsExpanded] = useState(Boolean(expanded));
-
-  useEffect(() => {
-    if (expanded === undefined) return;
-    setIsExpanded(expanded);
-  }, [expanded]);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const summaryVerb = completed ? "Called" : "Calling";
   const summaryDetail = useMemo(() => formatGenericSummaryDetail(item), [item]);
 
   function updateExpanded(nextValue: boolean) {
-    if (expanded === undefined) {
-      setIsExpanded(nextValue);
-    }
-    onExpandedChange?.(nextValue);
+    setIsExpanded(nextValue);
   }
 
   return (

@@ -345,7 +345,6 @@ export interface ThreadStageScreenProps {
 
 export interface ThreadBodyUiStateOverrides {
   collapsedAgentBodyByTurnId?: Record<string, boolean>;
-  collapsedToolItemIds?: string[];
 }
 
 export interface ThreadOpenCardDataState {

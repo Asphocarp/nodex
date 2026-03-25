@@ -103,9 +103,12 @@ describe("McpToolCall", () => {
   test("renders plaintext content and opens the raw output dialog", async () => {
     const { container, getByRole, getByText } = render(
       <TooltipProvider>
-        <McpToolCall item={buildMcpEntry()} expanded />
+        <McpToolCall item={buildMcpEntry()} />
       </TooltipProvider>,
     );
+
+    fireEvent.click(getByRole("button", { name: /Called Resolve Library Id tool from Context 7 MCP/i }));
+    await settleAsyncRender();
 
     expect(Boolean(textContent(container).includes("Available Libraries:"))).toBeTrue();
     expect(Boolean(getByText("plaintext"))).toBeTrue();

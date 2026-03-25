@@ -38,8 +38,6 @@ export interface ThreadLeafBlockProps {
   isActiveSearchMatch?: boolean;
   projectWorkspacePath?: string | null;
   threadCwd?: string | null;
-  collapsedToolItemIds?: ReadonlySet<string>;
-  onToolCollapsedChange?: (itemId: string, collapsed: boolean) => void;
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
 }
@@ -498,21 +496,15 @@ export function ThreadToolSurfaceBlock({
   block,
   projectWorkspacePath,
   threadCwd,
-  collapsedToolItemIds,
-  onToolCollapsedChange,
 }: ThreadLeafBlockProps) {
   const item = block.entry;
   const ToolComponent = getToolComponent(item);
-  const itemId = item.entryId ?? item.itemId;
-  const isExplicitlyCollapsed = collapsedToolItemIds?.has(itemId) ?? false;
 
   return (
     <ToolComponent
       item={item}
       projectWorkspacePath={projectWorkspacePath ?? undefined}
       threadCwd={threadCwd ?? undefined}
-      expanded={isExplicitlyCollapsed ? false : undefined}
-      onExpandedChange={(expanded) => onToolCollapsedChange?.(itemId, !expanded)}
     />
   );
 }
