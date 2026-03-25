@@ -185,7 +185,6 @@ export const CommandExecution: Story = {
       item={THREAD_TOOL_CALL_STORY_ITEMS.command}
       title="Command Execution"
       description="Structured command summary, output body, and metadata for a settled command run."
-      autoOpen
     />
   ),
 };

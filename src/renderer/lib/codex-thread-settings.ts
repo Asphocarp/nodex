@@ -2,11 +2,13 @@ import type {
   CodexModelOption,
   CodexReasoningEffort,
   CodexReasoningEffortOption,
+  CodexThreadDetailLevel,
   CodexThreadSettings,
 } from "./types";
 
-const THREAD_SETTINGS_STORAGE_KEY = "nodex-codex-thread-settings-v1";
+export const THREAD_SETTINGS_STORAGE_KEY = "nodex-codex-thread-settings-v1";
 const FALLBACK_MODEL_ID = "gpt-5.3-codex";
+export const DEFAULT_CODEX_THREAD_DETAIL_LEVEL: CodexThreadDetailLevel = "STEPS_COMMANDS";
 
 const FALLBACK_REASONING_OPTIONS: CodexReasoningEffortOption[] = [
   { reasoningEffort: "minimal", description: "Use the lightest reasoning available." },
@@ -24,6 +26,12 @@ const REASONING_EFFORT_LABELS: Record<CodexReasoningEffort, string> = {
   xhigh: "Extra High",
 };
 
+const THREAD_DETAIL_LEVEL_LABELS: Record<CodexThreadDetailLevel, string> = {
+  STEPS_PROSE: "Steps",
+  STEPS_COMMANDS: "Steps with code commands",
+  STEPS_EXECUTION: "Steps with code output",
+};
+
 function isCodexReasoningEffort(value: unknown): value is CodexReasoningEffort {
   return (
     value === "minimal" ||
@@ -32,6 +40,10 @@ function isCodexReasoningEffort(value: unknown): value is CodexReasoningEffort {
     value === "high" ||
     value === "xhigh"
   );
+}
+
+export function isCodexThreadDetailLevel(value: unknown): value is CodexThreadDetailLevel {
+  return value === "STEPS_PROSE" || value === "STEPS_COMMANDS" || value === "STEPS_EXECUTION";
 }
 
 function sanitizeThreadSettingsValue(
@@ -50,7 +62,11 @@ function sanitizeThreadSettingsValue(
     next.reasoningEffort = candidate.reasoningEffort;
   }
 
-  return next.model || next.reasoningEffort ? next : null;
+  if (isCodexThreadDetailLevel(candidate.detailLevel)) {
+    next.detailLevel = candidate.detailLevel;
+  }
+
+  return next.model || next.reasoningEffort || next.detailLevel ? next : null;
 }
 
 export function readCodexThreadSettings(): CodexThreadSettings | null {
@@ -142,10 +158,14 @@ export function resolveCodexThreadSettings(
     stored?.reasoningEffort && supportedEfforts.has(stored.reasoningEffort)
       ? stored.reasoningEffort
       : defaultReasoningEffort;
+  const detailLevel = isCodexThreadDetailLevel(stored?.detailLevel)
+    ? stored.detailLevel
+    : DEFAULT_CODEX_THREAD_DETAIL_LEVEL;
 
   return {
     model,
     reasoningEffort,
+    detailLevel,
   };
 }
 
@@ -162,4 +182,16 @@ export function formatCodexModelLabel(modelId: string | undefined, models: Codex
 export function formatCodexReasoningEffortLabel(effort: CodexReasoningEffort | undefined): string {
   if (!effort) return "High";
   return REASONING_EFFORT_LABELS[effort];
+}
+
+export function resolveCodexThreadDetailLevel(
+  detailLevel: CodexThreadDetailLevel | null | undefined,
+): CodexThreadDetailLevel {
+  return isCodexThreadDetailLevel(detailLevel) ? detailLevel : DEFAULT_CODEX_THREAD_DETAIL_LEVEL;
+}
+
+export function formatCodexThreadDetailLevelLabel(
+  detailLevel: CodexThreadDetailLevel | null | undefined,
+): string {
+  return THREAD_DETAIL_LEVEL_LABELS[resolveCodexThreadDetailLevel(detailLevel)];
 }

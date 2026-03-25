@@ -26,6 +26,8 @@ import { extractCommandActions } from "../shared/tools/command-actions";
 import { AnsweredUserInputBlock } from "../composer/request-cards/answered-user-input-block";
 import type { CodexCommandAction } from "../../../../lib/types";
 import type { CodexConversationItem } from "../../../../lib/types";
+import { resolveCodexThreadDetailLevel } from "../../../../lib/codex-thread-settings";
+import { useCodexThreadSettings } from "../../../../lib/use-codex-thread-settings";
 import { cn } from "../../../../lib/utils";
 import type { ThreadBlockModel, ThreadTranscriptBlockModel } from "../../thread-stage-types";
 import { THREAD_VISUAL_TOKENS } from "./local-conversation-visual-tokens";
@@ -447,7 +449,9 @@ function resizeEditMessageTextarea(element: HTMLTextAreaElement): void {
 export function ThreadExplorationGroupBlock({
   block,
 }: ThreadSpecialBlockProps) {
+  const { settings } = useCodexThreadSettings();
   if (block.type !== "explorationGroup") return null;
+  if (resolveCodexThreadDetailLevel(settings.detailLevel) === "STEPS_PROSE") return null;
   return <ThreadExplorationAccordion entries={block.entries} status={block.status} />;
 }
 

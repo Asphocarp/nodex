@@ -133,12 +133,18 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
 - Tool-call header labels use a scan-friendly two-tone hierarchy where the leading action phrase is visually emphasized over trailing detail text.
 - Command execution cards consume parsed `commandActions` metadata (`read`, `listFiles`, `search`) to show exploration summaries and per-action transcript rows.
 - Consecutive exploration-only command execution items in the same turn are coalesced into one transcript card before render.
-- In Electron-style mounted threads, non-exploration command cards use a local `collapsed | preview | expanded` state machine. Settled command rows prefer the expanded shell-card body; running command rows start collapsed, auto-expand after a short delay, and can be opened while running without turning into a thread-level persisted collapse state.
+- In Electron-style mounted threads, non-exploration command cards use a local `collapsed | preview | expanded` state machine owned by the command card itself.
+- The global thread-detail setting controls command-card visibility and the settled default state:
+  - `STEPS_PROSE` suppresses command execution cards entirely
+  - `STEPS_COMMANDS` shows command cards but keeps settled rows collapsed by default
+  - `STEPS_EXECUTION` shows command cards and lets settled rows start expanded by default
+- Running command rows start collapsed, auto-expand after a short delay, and when they settle from an expanded state they briefly enter `preview` before collapsing again.
 - While the current turn is still active, the trailing coalesced exploration section remains visually `in progress` (`Exploring` shimmer) until a non-exploration item appears in that same turn or the turn stops.
 - Exploration sections are expanded by default only while they are `in progress`; once exploration settles, they collapse by default.
 - Running-thread activity uses verb-led summaries: contiguous exploration actions coalesce into `Exploring` / `Explored` groups, generic commands render as `Running …` while active and `Ran …` once settled, and MCP calls render as `Calling …` / `Called …`.
 - Command execution headers show `in <cwd>` only when the command ran outside the active project workspace path.
 - Patch rows own their expand/collapse state per file row. MCP tool calls own a local completed-only toggle. Neither surface uses a conversation-level collapsed-tool map.
+- Patch-row expansion uses a per-file measured-height animation model. Expanded rows keep their body height on continuously measured pixel values instead of switching back to `height: auto`, so inline diff expansion does not hand layout authority back to the scroll container mid-transition.
 
 ## Pending Request Surface
 - The pending-request surface is owned outside the transcript scroll container and sits above the composer.

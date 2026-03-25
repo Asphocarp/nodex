@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   formatCodexModelLabel,
   formatCodexReasoningEffortLabel,
+  formatCodexThreadDetailLevelLabel,
   resolveCodexReasoningEffortOptions,
+  resolveCodexThreadDetailLevel,
   resolveCodexThreadSettings,
 } from "./codex-thread-settings";
 import type { CodexModelOption } from "./types";
@@ -84,5 +86,24 @@ describe("codex-thread-settings", () => {
       ]),
     ).toBe("GPT-5.1-Codex-Max");
     expect(formatCodexReasoningEffortLabel("xhigh")).toBe("Extra High");
+    expect(formatCodexThreadDetailLevelLabel("STEPS_EXECUTION")).toBe("Steps with code output");
+    expect(resolveCodexThreadDetailLevel(undefined)).toBe("STEPS_COMMANDS");
+  });
+
+  test("defaults thread detail level to steps with code commands", () => {
+    const settings = resolveCodexThreadSettings(undefined, MODELS);
+
+    expect(settings.detailLevel).toBe("STEPS_COMMANDS");
+  });
+
+  test("preserves a stored thread detail level", () => {
+    const settings = resolveCodexThreadSettings(
+      {
+        detailLevel: "STEPS_EXECUTION",
+      },
+      MODELS,
+    );
+
+    expect(settings.detailLevel).toBe("STEPS_EXECUTION");
   });
 });

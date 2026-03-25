@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ChevronDownIcon } from "@/components/shared/icons";
 import type { CodexCommandAction, CodexTranscriptEntry } from "../../../../../lib/types";
 import { getDisplayCommand } from "../../../../../lib/command-display";
+import { resolveCodexThreadDetailLevel } from "../../../../../lib/codex-thread-settings";
+import { useCodexThreadSettings } from "../../../../../lib/use-codex-thread-settings";
 import { cn } from "../../../../../lib/utils";
 import { extractCommandActions, isExplorationAction } from "./command-actions";
 import { CopyMessageActionButton } from "../thread-message-actions";
@@ -286,6 +288,10 @@ export function CommandToolCall({
   item,
   threadCwd,
 }: CommandToolCallProps) {
+  const { settings } = useCodexThreadSettings();
+  const threadDetailLevel = resolveCodexThreadDetailLevel(settings.detailLevel);
+  if (threadDetailLevel === "STEPS_PROSE") return null;
+
   const toolArgs = (typeof item.toolCall?.args === "object" && item.toolCall.args !== null)
     ? item.toolCall.args as CommandToolArgs
     : {};
@@ -300,13 +306,15 @@ export function CommandToolCall({
   const elapsedLabel = useElapsedLabel(effectiveStatus);
   const commandActions = extractCommandActions(item);
   const isExploration = commandActions.length > 0 && commandActions.every(isExplorationAction);
-  const prefersExpandedWhenSettled = true;
+  const prefersExpandedWhenSettled = threadDetailLevel === "STEPS_EXECUTION";
   const [viewState, setViewState] = useState<CommandViewState>(() => (
     prefersExpandedWhenSettled && !isInProgress ? "expanded" : "collapsed"
   ));
   const previewTimeoutRef = useRef<number | null>(null);
   const expandTimeoutRef = useRef<number | null>(null);
-  const previousInProgressRef = useRef(isInProgress);
+  const previousInProgressRef = useRef(false);
+  const previousThreadDetailLevelRef = useRef(threadDetailLevel);
+  const viewStateRef = useRef<CommandViewState>(viewState);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const [bodyHeightPx, setBodyHeightPx] = useState(0);
 
@@ -331,6 +339,17 @@ export function CommandToolCall({
   }, []);
 
   useEffect(() => {
+    viewStateRef.current = viewState;
+  }, [viewState]);
+
+  useEffect(() => {
+    if (previousThreadDetailLevelRef.current === threadDetailLevel) return;
+    previousThreadDetailLevelRef.current = threadDetailLevel;
+    if (isInProgress) return;
+    setViewState(prefersExpandedWhenSettled ? "expanded" : "collapsed");
+  }, [isInProgress, prefersExpandedWhenSettled, threadDetailLevel]);
+
+  useEffect(() => {
     if (previewTimeoutRef.current !== null) {
       window.clearTimeout(previewTimeoutRef.current);
       previewTimeoutRef.current = null;
@@ -343,7 +362,7 @@ export function CommandToolCall({
     const wasInProgress = previousInProgressRef.current;
 
     if (wasInProgress && !isInProgress) {
-      if (viewState === "expanded") {
+      if (viewStateRef.current === "expanded") {
         setViewState("preview");
         previewTimeoutRef.current = window.setTimeout(() => {
           setViewState("collapsed");
@@ -371,12 +390,7 @@ export function CommandToolCall({
         expandTimeoutRef.current = null;
       }
     };
-  }, [isInProgress, viewState]);
-
-  useEffect(() => {
-    if (!prefersExpandedWhenSettled || isInProgress) return;
-    setViewState("expanded");
-  }, [isInProgress, prefersExpandedWhenSettled]);
+  }, [isInProgress]);
 
   const isExpanded = viewState === "expanded";
   const summaryLabel = isExploration

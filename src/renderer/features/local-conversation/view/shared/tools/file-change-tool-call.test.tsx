@@ -56,10 +56,41 @@ function buildFileChangeEntry(overrides?: Partial<CodexTranscriptEntry>): CodexT
 
 describe("FileChangeToolCall", () => {
   beforeEach(() => {
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        return 96;
+      },
+    });
+
     globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
       callback(0);
       return 1;
     }) as typeof globalThis.requestAnimationFrame;
+
+    globalThis.ResizeObserver = class ResizeObserver {
+      private readonly callback: ResizeObserverCallback;
+
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback;
+      }
+
+      observe(target: Element) {
+        this.callback([
+          {
+            target,
+            contentRect: target.getBoundingClientRect(),
+            borderBoxSize: [{ blockSize: 96, inlineSize: 320 }],
+            contentBoxSize: [{ blockSize: 96, inlineSize: 320 }],
+            devicePixelContentBoxSize: [{ blockSize: 96, inlineSize: 320 }],
+          } as unknown as ResizeObserverEntry,
+        ], this);
+      }
+
+      disconnect() {}
+
+      unobserve() {}
+    } as typeof ResizeObserver;
 
     (window as { api?: unknown }).api = {
       invoke: async () => true,
@@ -221,5 +252,26 @@ describe("FileChangeToolCall", () => {
 
     expect(container.querySelectorAll('[role="button"][aria-expanded="true"]').length).toBe(1);
     expect(Boolean(textContent(container).includes("Edited file"))).toBeTrue();
+  });
+
+  test("keeps the patch body on explicit pixel height instead of switching to auto", async () => {
+    const { container } = render(
+      <TooltipProvider>
+        <FileChangeToolCall
+          item={buildFileChangeEntry()}
+          threadCwd="/tmp/project"
+        />
+      </TooltipProvider>,
+    );
+
+    const summaryToggle = container.querySelector('[role="button"][aria-expanded="false"]');
+    expect(Boolean(summaryToggle)).toBeTrue();
+
+    fireEvent.click(summaryToggle as HTMLElement);
+    await settleAsyncRender();
+
+    const body = container.querySelector<HTMLElement>('[data-patch-row-body]');
+    expect(Boolean(body)).toBeTrue();
+    expect(body?.style.height === "auto").toBeFalse();
   });
 });

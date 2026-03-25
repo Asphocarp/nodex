@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import { invoke, subscribeCodexEvents } from "./api";
 import {
-  readCodexThreadSettings,
   resolveCodexReasoningEffortOptions,
   resolveCodexThreadSettings,
-  writeCodexThreadSettings,
 } from "./codex-thread-settings";
 import {
   codexControlStoreReducer,
@@ -23,6 +21,7 @@ import type {
   CodexTurnStartOptions,
   CodexTurnSummary,
 } from "./types";
+import { useCodexThreadSettings } from "./use-codex-thread-settings";
 
 const PERMISSION_MODE_STORAGE_KEY = "nodex-codex-permission-modes-v1";
 
@@ -62,7 +61,10 @@ function resolveProjectPermissionMode(
 export function useCodexControl(activeProjectId: string) {
   const [state, dispatch] = useReducer(codexControlStoreReducer, undefined, createInitialCodexControlState);
   const [availableModels, setAvailableModels] = useState<CodexModelOption[]>([]);
-  const [storedThreadSettings, setStoredThreadSettings] = useState<CodexThreadSettings>(() => readCodexThreadSettings() ?? {});
+  const {
+    settings: storedThreadSettings,
+    updateSettings: updateStoredThreadSettings,
+  } = useCodexThreadSettings();
 
   const loadModels = useCallback(async () => {
     const models = (await invoke("codex:model:list")) as CodexModelOption[];
@@ -221,20 +223,14 @@ export function useCodexControl(activeProjectId: string) {
   }, []);
 
   const setThreadModel = useCallback((model: string) => {
-    setStoredThreadSettings((current) => ({
-      ...current,
-      model,
-    }));
-  }, []);
+    updateStoredThreadSettings({ model });
+  }, [updateStoredThreadSettings]);
 
   const setThreadReasoningEffort = useCallback((reasoningEffort: CodexThreadSettings["reasoningEffort"]) => {
     if (!reasoningEffort) return;
 
-    setStoredThreadSettings((current) => ({
-      ...current,
-      reasoningEffort,
-    }));
-  }, []);
+    updateStoredThreadSettings({ reasoningEffort });
+  }, [updateStoredThreadSettings]);
 
   useEffect(() => {
     const stored = readPermissionModesFromStorage();
@@ -249,10 +245,6 @@ export function useCodexControl(activeProjectId: string) {
   useEffect(() => {
     writePermissionModesToStorage(state.permissionModeByProject);
   }, [state.permissionModeByProject]);
-
-  useEffect(() => {
-    writeCodexThreadSettings(storedThreadSettings);
-  }, [storedThreadSettings]);
 
   useEffect(() => {
     void loadModels().catch(() => {

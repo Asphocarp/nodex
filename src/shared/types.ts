@@ -457,6 +457,7 @@ export interface CodexThreadSummary {
 export type CodexConversationResumeState = "needs_resume" | "resuming" | "resumed";
 
 export type CodexReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
+export type CodexThreadDetailLevel = "STEPS_PROSE" | "STEPS_COMMANDS" | "STEPS_EXECUTION";
 
 export type CodexCollaborationModeKind = "default" | "plan";
 
@@ -486,6 +487,7 @@ export interface CodexModelOption {
 export interface CodexThreadSettings {
   model?: string;
   reasoningEffort?: CodexReasoningEffort;
+  detailLevel?: CodexThreadDetailLevel;
 }
 
 export interface CodexThreadStartForCardInput {

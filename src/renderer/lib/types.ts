@@ -41,6 +41,7 @@ export type {
   CodexRateLimitsSnapshot,
   CodexReasoningEffort,
   CodexReasoningEffortOption,
+  CodexThreadDetailLevel,
   CodexThreadSettings,
   CodexThreadStartForCardInput,
   CodexTurnStartOptions,

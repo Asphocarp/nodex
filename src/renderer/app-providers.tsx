@@ -9,6 +9,7 @@ import { CardStageCollapsedPropertiesProvider } from "./lib/use-card-stage-colla
 import { SansFontSizeProvider } from "./lib/use-sans-font-size";
 import { SpellcheckProvider } from "./lib/use-spellcheck";
 import { ThreadSectionSendSettingsProvider } from "./lib/use-thread-section-send-settings";
+import { CodexThreadSettingsProvider } from "./lib/use-codex-thread-settings";
 import { ThemeProvider } from "./lib/use-theme";
 import "./globals.css";
 
@@ -57,15 +58,17 @@ export function AppProviders({ children }: AppProvidersProps) {
             <NfmAutolinkSettingsProvider>
               <PasteResourceSettingsProvider>
                 <SpellcheckProvider>
-                  <ThreadSectionSendSettingsProvider>
-                    <CardStageCollapsedPropertiesProvider>
-                      <CardPropertyPositionProvider>
-                        <TooltipProvider>
-                          {children}
-                        </TooltipProvider>
-                      </CardPropertyPositionProvider>
-                    </CardStageCollapsedPropertiesProvider>
-                  </ThreadSectionSendSettingsProvider>
+                  <CodexThreadSettingsProvider>
+                    <ThreadSectionSendSettingsProvider>
+                      <CardStageCollapsedPropertiesProvider>
+                        <CardPropertyPositionProvider>
+                          <TooltipProvider>
+                            {children}
+                          </TooltipProvider>
+                        </CardPropertyPositionProvider>
+                      </CardStageCollapsedPropertiesProvider>
+                    </ThreadSectionSendSettingsProvider>
+                  </CodexThreadSettingsProvider>
                 </SpellcheckProvider>
               </PasteResourceSettingsProvider>
             </NfmAutolinkSettingsProvider>

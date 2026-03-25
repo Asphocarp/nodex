@@ -67,6 +67,8 @@ import { useSansFontSize } from "../../lib/use-sans-font-size";
 import type { ThreadPromptSubmitShortcut } from "../../lib/thread-panel-prompt-submit-shortcut";
 import { useSpellcheck } from "../../lib/use-spellcheck";
 import { useTheme } from "../../lib/use-theme";
+import { useCodexThreadSettings } from "../../lib/use-codex-thread-settings";
+import { formatCodexThreadDetailLevelLabel } from "../../lib/codex-thread-settings";
 import type {
   BackupRecord,
   BackupSettings,
@@ -74,6 +76,7 @@ import type {
   ManagedWorktreeRecord,
   ThreadNotificationSettings,
   WorktreeStartMode,
+  CodexThreadDetailLevel,
 } from "../../lib/types";
 import { cn } from "../../lib/utils";
 import {
@@ -562,6 +565,92 @@ function ThreadSectionSendConfirmationSettingControl() {
       value={settings.confirmBeforeSend}
       onChange={(value) => updateSettings({ confirmBeforeSend: value })}
     />
+  );
+}
+
+const THREAD_DETAIL_LEVEL_OPTIONS: Array<{
+  value: CodexThreadDetailLevel;
+  label: string;
+  description: string;
+}> = [
+    {
+      value: "STEPS_PROSE",
+      label: "Steps",
+      description: "Hide commands and outputs.",
+    },
+    {
+      value: "STEPS_COMMANDS",
+      label: "Steps with code commands",
+      description: "Show commands, collapse output.",
+    },
+    {
+      value: "STEPS_EXECUTION",
+      label: "Steps with code output",
+      description: "Show commands and expand output.",
+    },
+  ];
+
+function ThreadDetailLevelSettingControl() {
+  const { settings, setThreadDetailLevel } = useCodexThreadSettings();
+  const selectedValue = settings.detailLevel ?? "STEPS_COMMANDS";
+  const selectedOption = THREAD_DETAIL_LEVEL_OPTIONS.find((option) => option.value === selectedValue)
+    ?? THREAD_DETAIL_LEVEL_OPTIONS[1];
+
+  return (
+    <DropdownMenuPrimitive.Root>
+      <DropdownMenuPrimitive.Trigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "flex h-7 min-w-56 items-center justify-between gap-1 rounded-lg border border-transparent px-2 py-0 text-base/4.5",
+            "bg-foreground-5 text-(--foreground)",
+            "transition-colors hover:bg-foreground-10",
+            "outline-hidden focus-visible:ring-2 focus-visible:ring-(--accent-blue)/30",
+            "select-none disabled:cursor-not-allowed disabled:opacity-40",
+          )}
+          aria-label="Thread detail"
+        >
+          <span className="truncate">{formatCodexThreadDetailLevelLabel(selectedOption.value)}</span>
+        </button>
+      </DropdownMenuPrimitive.Trigger>
+      <DropdownMenuPrimitive.Portal>
+        <DropdownMenuPrimitive.Content
+          sideOffset={8}
+          align="end"
+          className={cn(
+            "z-50 w-[260px] max-w-xs rounded-lg p-1",
+            "bg-(--background) text-(--foreground)",
+            "border border-(--border)",
+            "shadow-overlay-xl",
+            "scrollbar-token max-h-[min(24rem,var(--radix-dropdown-menu-content-available-height,24rem))] overflow-y-auto",
+            "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-[0.985]",
+            "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-[0.985]",
+          )}
+        >
+          {THREAD_DETAIL_LEVEL_OPTIONS.map((option) => {
+            const isSelected = option.value === selectedValue;
+
+            return (
+              <DropdownMenuPrimitive.Item
+                key={option.value}
+                onSelect={() => setThreadDetailLevel(option.value)}
+                className={cn(
+                  "flex cursor-default rounded-lg px-2 py-1.5 text-sm transition-colors outline-none select-none",
+                  isSelected
+                    ? "bg-(--accent) text-(--foreground)"
+                    : "text-(--foreground) hover:bg-(--accent) focus:bg-(--accent)",
+                )}
+              >
+                <div className="flex min-w-0 flex-col items-start gap-0.5">
+                  <span className="text-sm">{option.label}</span>
+                  <span className="text-xs text-token-text-secondary">{option.description}</span>
+                </div>
+              </DropdownMenuPrimitive.Item>
+            );
+          })}
+        </DropdownMenuPrimitive.Content>
+      </DropdownMenuPrimitive.Portal>
+    </DropdownMenuPrimitive.Root>
   );
 }
 
@@ -1880,6 +1969,12 @@ export function SettingsOverlay({
                     description="Sets editor/code typography globally via --vscode-editor-font-size."
                   >
                     <CodeFontSizeSettingControl />
+                  </SettingRow>
+                  <SettingRow
+                    label="Thread detail"
+                    description="Choose how much command output to show in threads."
+                  >
+                    <ThreadDetailLevelSettingControl />
                   </SettingRow>
                   <SettingRow label="Spellcheck" description="Inline text correction for editable writing surfaces.">
                     <SpellcheckSettingControl />

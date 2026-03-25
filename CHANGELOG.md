@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 - Added a command-palette card-filter popover with an active-filter summary row, so global card search can now narrow results by status, priority, tags, assignee, and project using the same compact filter language as the View-stage toolbar, and those filter selections now persist across reopen.
 
 ### Changed
+- Threads settings now include Codex Electron’s thread-detail mode, so you can switch between `Steps`, `Steps with code commands`, and `Steps with code output` to control how much command activity appears in mounted threads.
 - The renderer theme stack now matches Codex Electron more closely: authored CSS declares the `--vscode-*` contract, startup injects the same runtime semantic theme variables Codex Electron derives from the active light/dark variant, and Storybook now emulates the Electron window theme classes that those contracts expect.
 - Shared sort controls can now place empty `priority` / `estimate` values either first or last, so derived Kanban, List, and Toggle List views no longer force empty values to the end.
 - In sliding-window stage-rail mode, `Cmd/Ctrl+H` and `Cmd/Ctrl+L` now shift the visible stage window left/right instead of always moving stage focus, keeping the current focused stage when it remains visible.
@@ -21,6 +22,8 @@ All notable changes to this project will be documented in this file.
 - Running-thread Threads composer follow-ups now follow Codex Electron’s real `queue`/`steer` split: queueing only mutates queued-message state, queued rows no longer start a turn immediately, empty running drafts stay on `Stop`, and queued rows can be turned back into live follow-ups through the queue lane instead of a fake queue-start RPC.
 
 ### Fixed
+- Fixed mounted Thread-stage command execution cards so they now follow Codex Electron’s electron-window state machine: the default mode keeps settled commands collapsed, `Steps with code output` is the only mode that starts settled commands expanded, and running commands no longer re-expand permanently after they finish.
+- Fixed mounted Thread-stage `Edited file` expansion so patch rows now animate from a continuously measured per-file height instead of switching back to `height: auto`, which stops inline diff toggles from kicking the thread viewport vertically while they open or close.
 - Fixed Thread-stage file-edit rendering so Codex-style `Edited …` tool rows now stay visible even when the turn also has a unified diff; file-change tool calls and turn-level diff cards now render as separate surfaces instead of one swallowing the other.
 - Fixed Thread-stage `Edited …` patch rows so they now expand inline to show their own unified diff frame, and the filename in the patch header now opens the local file target instead of rendering as inert text.
 - Fixed Thread-stage `turn.diff` rendering so active turns now show Codex Electron’s compact `files changed` banner above the composer, while completed turns render a dedicated files-changed card with collapsed per-file embedded diff rows instead of a generic full-card diff viewer.

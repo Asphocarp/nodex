@@ -1,8 +1,10 @@
-import { describe, expect, test } from "bun:test";
-import { fireEvent } from "@testing-library/react";
+import { beforeEach, describe, expect, test } from "bun:test";
+import { act, fireEvent } from "@testing-library/react";
 import { TooltipProvider } from "../../../../../components/ui/tooltip";
+import { THREAD_SETTINGS_STORAGE_KEY } from "../../../../../lib/codex-thread-settings";
 import { render, settleAsyncRender, textContent } from "../../../../../test/dom";
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
+import { CodexThreadSettingsProvider } from "../../../../../lib/use-codex-thread-settings";
 import { CommandToolCall } from "./command-tool-call";
 
 function buildCommandEntry(overrides?: Partial<CodexTranscriptEntry>): CodexTranscriptEntry {
@@ -31,23 +33,29 @@ function buildCommandEntry(overrides?: Partial<CodexTranscriptEntry>): CodexTran
 }
 
 describe("CommandToolCall render state", () => {
+  beforeEach(() => {
+    localStorage.removeItem(THREAD_SETTINGS_STORAGE_KEY);
+  });
+
   test("keeps in-progress commands collapsed on first mount", () => {
     const { container } = render(
       <TooltipProvider>
-        <CommandToolCall
-          item={buildCommandEntry({
-            status: "inProgress",
-            markdownText: "Running bun test",
-            toolCall: {
-              subtype: "command",
-              toolName: "bash",
-              args: {
-                command: "bun test",
+        <CodexThreadSettingsProvider>
+          <CommandToolCall
+            item={buildCommandEntry({
+              status: "inProgress",
+              markdownText: "Running bun test",
+              toolCall: {
+                subtype: "command",
+                toolName: "bash",
+                args: {
+                  command: "bun test",
+                },
+                result: "running...\n",
               },
-              result: "running...\n",
-            },
-          })}
-        />
+            })}
+          />
+        </CodexThreadSettingsProvider>
       </TooltipProvider>,
     );
 
@@ -57,33 +65,67 @@ describe("CommandToolCall render state", () => {
     expect((collapsedBody as HTMLElement | null)?.style.height === "0px").toBeTrue();
   });
 
-  test("keeps settled commands expanded on first mount", () => {
+  test("keeps settled commands collapsed on first mount in steps-with-commands mode", () => {
     const { container } = render(
       <TooltipProvider>
-        <CommandToolCall item={buildCommandEntry()} />
+        <CodexThreadSettingsProvider>
+          <CommandToolCall item={buildCommandEntry()} />
+        </CodexThreadSettingsProvider>
       </TooltipProvider>,
     );
+    const collapsedBody = container.querySelector('[data-thread-find-skip="true"]');
+    expect(Boolean(collapsedBody)).toBeTrue();
+    expect((collapsedBody as HTMLElement | null)?.style.height === "0px").toBeTrue();
+  });
+
+  test("keeps settled commands expanded on first mount in steps-with-output mode", () => {
+    localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_EXECUTION" }));
+
+    const { container } = render(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall item={buildCommandEntry()} />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(container.querySelector('[data-thread-find-skip="true"]'))).toBeFalse();
     expect(Boolean(textContent(container).includes("Shell"))).toBeTrue();
-    expect(Boolean(textContent(container).includes("Success"))).toBeTrue();
+  });
+
+  test("suppresses command cards entirely in steps mode", () => {
+    localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_PROSE" }));
+
+    const { container } = render(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall item={buildCommandEntry()} />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+
+    expect(textContent(container)).toBe("");
   });
 
   test("lets in-progress commands expand but not collapse back while still running", async () => {
     const { container, getByText } = render(
       <TooltipProvider>
-        <CommandToolCall
-          item={buildCommandEntry({
-            status: "inProgress",
-            markdownText: "Running bun test",
-            toolCall: {
-              subtype: "command",
-              toolName: "bash",
-              args: {
-                command: "bun test",
+        <CodexThreadSettingsProvider>
+          <CommandToolCall
+            item={buildCommandEntry({
+              status: "inProgress",
+              markdownText: "Running bun test",
+              toolCall: {
+                subtype: "command",
+                toolName: "bash",
+                args: {
+                  command: "bun test",
+                },
+                result: "running...\n",
               },
-              result: "running...\n",
-            },
-          })}
-        />
+            })}
+          />
+        </CodexThreadSettingsProvider>
       </TooltipProvider>,
     );
 
@@ -98,5 +140,50 @@ describe("CommandToolCall render state", () => {
     await settleAsyncRender();
 
     expect(Boolean(textContent(container).includes("Shell"))).toBeTrue();
+  });
+
+  test("collapses back after a running execution-detail command settles", async () => {
+    localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_EXECUTION" }));
+
+    const inProgressEntry = buildCommandEntry({
+      status: "inProgress",
+      markdownText: "Running bun test",
+      toolCall: {
+        subtype: "command",
+        toolName: "bash",
+        args: {
+          command: "bun test",
+        },
+        result: "running...\n",
+      },
+    });
+    const completedEntry = buildCommandEntry();
+
+    const { container, getByText, rerender } = render(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall item={inProgressEntry} />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+
+    fireEvent.click(getByText("Running bun test"));
+    await settleAsyncRender();
+
+    rerender(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall item={completedEntry} />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    });
+    await settleAsyncRender();
+
+    const collapsedBody = container.querySelector('[data-thread-find-skip="true"]');
+    expect(Boolean(collapsedBody)).toBeTrue();
   });
 });

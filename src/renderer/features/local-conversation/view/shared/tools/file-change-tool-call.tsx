@@ -1,6 +1,13 @@
 import { parsePatchFiles } from "@pierre/diffs";
 import { FileDiff, PatchDiff, type FileDiffMetadata } from "@pierre/diffs/react";
-import { useCallback, useMemo, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { invoke } from "../../../../../lib/api";
 import {
   NODEX_DIFF_HOST_CLASS,
@@ -11,7 +18,6 @@ import { useFileLinkOpener } from "../../../../../lib/use-file-link-opener";
 import { useTheme } from "../../../../../lib/use-theme";
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
 import { cn } from "../../../../../lib/utils";
-import { MeasuredExpand } from "../measured-expand";
 import { CopyMessageActionButton } from "../thread-message-actions";
 import { ToolErrorDetail } from "./tool-primitives";
 import {
@@ -48,6 +54,8 @@ interface FileChangeRowModel {
   fileDiff?: FileDiffMetadata;
   openLine?: number;
 }
+
+const PATCH_EXPAND_TRANSITION_STYLE = "height 180ms cubic-bezier(0.2, 0, 0, 1), opacity 180ms cubic-bezier(0.2, 0, 0, 1)";
 
 function extractDiffText(item: CodexTranscriptEntry): string | undefined {
   const toolResult = item.toolCall?.result;
@@ -256,6 +264,49 @@ function buildFileChangeRows(
   return [];
 }
 
+function useMeasuredElementHeight() {
+  const elementRef = useRef<HTMLDivElement | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const [elementHeightPx, setElementHeightPx] = useState(0);
+
+  const updateHeight = useCallback(() => {
+    const element = elementRef.current;
+    if (!element) return;
+    setElementHeightPx(element.scrollHeight);
+  }, []);
+
+  const measuredRef = useCallback((node: HTMLDivElement | null) => {
+    resizeObserverRef.current?.disconnect();
+    resizeObserverRef.current = null;
+    elementRef.current = node;
+
+    if (!node) {
+      setElementHeightPx(0);
+      return;
+    }
+
+    setElementHeightPx(node.scrollHeight);
+    if (typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(() => {
+      setElementHeightPx(node.scrollHeight);
+    });
+    observer.observe(node);
+    resizeObserverRef.current = observer;
+  }, []);
+
+  useLayoutEffect(() => () => {
+    resizeObserverRef.current?.disconnect();
+    resizeObserverRef.current = null;
+  }, []);
+
+  return {
+    elementHeightPx,
+    measuredRef,
+    updateHeight,
+  };
+}
+
 function PatchFrame({
   row,
   diffHostClassName,
@@ -338,6 +389,7 @@ function FileChangeRow({
   openerId: string;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const { elementHeightPx, measuredRef, updateHeight } = useMeasuredElementHeight();
 
   const openFile = useCallback(() => {
     if (!row.openPath) return;
@@ -348,8 +400,9 @@ function FileChangeRow({
   }, [openerId, row.openLine, row.openPath]);
 
   const handleExpandedChange = useCallback((nextValue: boolean) => {
+    if (nextValue) updateHeight();
     setIsExpanded(nextValue);
-  }, []);
+  }, [updateHeight]);
 
   const showSummaryFilename = !isExpanded && row.displayPath !== null;
   const showSummaryStats = !isExpanded;
@@ -388,16 +441,29 @@ function FileChangeRow({
           </div>
           <div className="ml-1 flex items-center gap-1 transition-opacity duration-200" />
         </div>
-        <MeasuredExpand open={isExpanded}>
-          <PatchFrame
-            row={row}
-            diffHostClassName={diffHostClassName}
-            diffHostStyle={diffHostStyle}
-            diffOptions={diffOptions}
-            onOpenFile={row.openPath ? openFile : null}
-            isShortView={row.label === "Editing" || row.label === "Creating" || row.label === "Deleting"}
-          />
-        </MeasuredExpand>
+        <div
+          data-patch-row-body=""
+          className={cn(isExpanded ? "overflow-visible" : "overflow-hidden")}
+          data-thread-find-skip={isExpanded ? undefined : true}
+          style={{
+            height: `${isExpanded ? elementHeightPx : 0}px`,
+            opacity: isExpanded ? 1 : 0,
+            overflow: isExpanded ? "visible" : "hidden",
+            pointerEvents: isExpanded ? "auto" : "none",
+            transition: PATCH_EXPAND_TRANSITION_STYLE,
+          }}
+        >
+          <div ref={measuredRef}>
+            <PatchFrame
+              row={row}
+              diffHostClassName={diffHostClassName}
+              diffHostStyle={diffHostStyle}
+              diffOptions={diffOptions}
+              onOpenFile={row.openPath ? openFile : null}
+              isShortView={row.label === "Editing" || row.label === "Creating" || row.label === "Deleting"}
+            />
+          </div>
+        </div>
       </div>
     </div>
   );
