@@ -1348,9 +1348,21 @@ export const THREAD_REQUEST_CARD_STORY_DATA = {
     threadId: STORY_THREAD_ID,
     turnId: "turn_story_request",
     itemId: "item_story_request_approval",
-    reason: "Approve the final Storybook build before packaging.",
-    command: "bun run build:storybook",
+    approvalReason: "Do you want to let me restage the thread Storybook files and verify the index state before committing?",
+    reason: "Do you want to let me restage the thread Storybook files and verify the index state before committing?",
+    command: [
+      "git add docs/FRONTEND.md",
+      "src/renderer/features/local-conversation/view/shared/request-cards/local-conversation-request-cards.stories.tsx",
+      "src/renderer/features/local-conversation/view/shared/tools/thread-tool-calls.stories.tsx",
+      "&& git status --short",
+    ].join("\n"),
     cwd: STORY_WORKSPACE_PATH,
+    cmd: [
+      "git",
+      "add",
+      "docs/FRONTEND.md",
+    ],
+    proposedExecpolicyAmendment: ["git", "add"],
     createdAt: 1,
   },
   userInput: {
@@ -1396,6 +1408,30 @@ export const THREAD_REQUEST_CARD_STORY_DATA = {
       "2. Add a composed stage story plus focused leaf stories.",
       "3. Validate with build:storybook, typecheck, lint, and targeted Bun tests.",
     ].join("\n"),
+  },
+  mcpServerElicitation: {
+    type: "mcpServerElicitation" as const,
+    requestId: "mcp_story_card",
+    projectId: STORY_PROJECT_ID,
+    cardId: STORY_CARD_ID,
+    threadId: STORY_THREAD_ID,
+    turnId: "turn_story_request",
+    itemId: "item_story_request_mcp",
+    kind: "generic" as const,
+    mode: "form" as const,
+    serverName: "Context7",
+    message: "Allow this MCP server call to continue?",
+    requestedSchema: {
+      project: {
+        type: "string",
+        description: "Repository or package name to inspect",
+      },
+      branch: {
+        type: "string",
+        description: "Optional branch override",
+      },
+    },
+    createdAt: 1,
   },
 };
 

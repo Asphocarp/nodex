@@ -96,7 +96,6 @@ describe("buildThreadBodyModel", () => {
       newThreadTarget: null,
       isCloudNewThreadTarget: false,
       threadStartProgress: null,
-      pendingRequestSurface: null,
     });
 
     expect(model.turns.length).toBe(1);
@@ -139,7 +138,6 @@ describe("buildThreadBodyModel", () => {
       newThreadTarget: null,
       isCloudNewThreadTarget: false,
       threadStartProgress: null,
-      pendingRequestSurface: null,
     });
 
     expect(model.turns.length).toBe(1);
@@ -183,7 +181,6 @@ describe("buildThreadBodyModel", () => {
       newThreadTarget: null,
       isCloudNewThreadTarget: false,
       threadStartProgress: null,
-      pendingRequestSurface: null,
     });
 
     expect(model.turns.length).toBe(1);
@@ -254,7 +251,6 @@ describe("buildThreadBodyModel", () => {
       newThreadTarget: null,
       isCloudNewThreadTarget: false,
       threadStartProgress: null,
-      pendingRequestSurface: null,
     });
 
     expect(model.turns[0]?.blocks.map((block) => block.type).join(",")).toBe(
@@ -315,7 +311,6 @@ describe("buildThreadBodyModel", () => {
       newThreadTarget: null,
       isCloudNewThreadTarget: false,
       threadStartProgress: null,
-      pendingRequestSurface: null,
     });
 
     const assistantBlocks = model.turns[0]?.blocks.filter(
@@ -372,7 +367,6 @@ describe("buildThreadBodyModel", () => {
       newThreadTarget: null,
       isCloudNewThreadTarget: false,
       threadStartProgress: null,
-      pendingRequestSurface: null,
     });
 
     const assistantBlock = model.turns[0]?.blocks.find(
@@ -454,7 +448,6 @@ describe("buildThreadBodyModel", () => {
       newThreadTarget: null,
       isCloudNewThreadTarget: false,
       threadStartProgress: null,
-      pendingRequestSurface: null,
     });
 
     const olderTurnUserBlock = model.turns[0]?.blocks.find((block): block is ThreadTranscriptBlockModel => block.type === "userMessage");
@@ -526,7 +519,6 @@ describe("buildThreadBodyModel", () => {
       newThreadTarget: null,
       isCloudNewThreadTarget: false,
       threadStartProgress: null,
-      pendingRequestSurface: null,
     });
 
     expect(model.turns[0]?.aboveComposerBlocks?.map((block) => block.type).join(",")).toBe("todoList,turnDiff");
@@ -589,7 +581,6 @@ describe("buildThreadBodyModel", () => {
       newThreadTarget: null,
       isCloudNewThreadTarget: false,
       threadStartProgress: null,
-      pendingRequestSurface: null,
     });
 
     const userBlocks = model.turns[0]?.blocks.filter(

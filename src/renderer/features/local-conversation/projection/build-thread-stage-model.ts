@@ -1,6 +1,5 @@
 import type { ThreadStageModel, ThreadStageModelInput } from "../thread-stage-types";
-import { buildAboveComposerQueueSurfaceModel } from "./build-above-composer-queue-surface-model";
-import { buildPendingRequestSurfaceModel } from "./build-pending-request-surface-model";
+import { buildComposerShellModel } from "./build-composer-shell-model";
 import { buildThreadBodyModel } from "./build-thread-body-model";
 
 export function buildThreadStageModel(input: ThreadStageModelInput): ThreadStageModel {
@@ -12,13 +11,10 @@ export function buildThreadStageModel(input: ThreadStageModelInput): ThreadStage
     input.conversation && (input.conversation.statusType === "active" || activeTurn !== null),
   );
   const isCloudNewThreadTarget = Boolean(input.isNewThreadTab && input.newThreadTarget?.runInTarget === "cloud");
-  const pendingRequestSurface = buildPendingRequestSurfaceModel({
+  const composerShell = buildComposerShellModel({
     conversation: input.conversation,
     knownConversationsById: input.knownConversationsById,
     dismissedPlanImplementationTurnIdByThread: input.dismissedPlanImplementationTurnIdByThread,
-  });
-  const aboveComposerQueueSurface = buildAboveComposerQueueSurfaceModel({
-    conversation: input.conversation,
   });
   const body = buildThreadBodyModel({
     activeThreadId: input.activeThreadId,
@@ -28,7 +24,6 @@ export function buildThreadStageModel(input: ThreadStageModelInput): ThreadStage
     newThreadTarget: input.newThreadTarget,
     isCloudNewThreadTarget,
     threadStartProgress: input.threadStartProgress,
-    pendingRequestSurface,
   });
 
   return {
@@ -88,7 +83,6 @@ export function buildThreadStageModel(input: ThreadStageModelInput): ThreadStage
         : null,
     activeThreadCardColumnId: input.activeThreadCardColumnId,
     body,
-    pendingRequestSurface,
-    aboveComposerQueueSurface,
+    composerShell,
   };
 }

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { CodexConversationSnapshot } from "../../../lib/types";
-import { buildPendingRequestSurfaceModel } from "./build-pending-request-surface-model";
+import { buildComposerShellModel } from "./build-composer-shell-model";
 
 function buildConversationSnapshot(
   overrides?: Partial<CodexConversationSnapshot>,
@@ -36,9 +36,9 @@ function buildConversationSnapshot(
   };
 }
 
-describe("buildPendingRequestSurfaceModel", () => {
-  test("keeps only inline request cards on the pending request surface", () => {
-    const model = buildPendingRequestSurfaceModel({
+describe("buildComposerShellModel", () => {
+  test("merges queue rows, background terminals, active request, and first child approval", () => {
+    const model = buildComposerShellModel({
       conversation: buildConversationSnapshot({
         requests: [
           {
@@ -106,24 +106,24 @@ describe("buildPendingRequestSurfaceModel", () => {
               createdAt: 5,
             },
           ],
+          statusActiveFlags: ["waitingOnApproval"],
         }),
       },
     });
 
-    expect(model?.entries.length).toBe(2);
-    expect(model?.entries.map((entry) => entry.kind).join(",")).toBe("request,request");
-
-    const requestEntries = model?.entries.filter((entry) => entry.kind === "request") ?? [];
-    expect(requestEntries.map((entry) => entry.request.requestId).join(",")).toBe(
-      "user_input_active,approval_background",
-    );
-    expect(model?.backgroundRequestCount).toBe(1);
-    expect(model?.activeRequestCount).toBe(1);
-    expect(model?.showComposer).toBeFalse();
+    expect(model.activeRequest?.request.requestId).toBe("user_input_active");
+    expect(model.backgroundRequest?.request.requestId).toBe("approval_background");
+    expect(model.pendingSteers.length).toBe(1);
+    expect(model.queuedFollowUps.length).toBe(1);
+    expect(model.backgroundTerminalRows.length).toBe(1);
+    expect(model.backgroundAgentRows.length).toBe(1);
+    expect(model.backgroundAgentRows[0]?.status).toBe("waiting");
+    expect(model.showRequestCards).toBeTrue();
+    expect(model.showComposer).toBeFalse();
   });
 
   test("keeps child approval selection in membership order", () => {
-    const model = buildPendingRequestSurfaceModel({
+    const model = buildComposerShellModel({
       conversation: buildConversationSnapshot({
         childMemberships: [
           {
@@ -176,13 +176,6 @@ describe("buildPendingRequestSurfaceModel", () => {
       },
     });
 
-    const backgroundRequest = model?.entries.find((entry) =>
-      entry.kind === "request" && entry.surface === "backgroundThread");
-
-    if (!backgroundRequest || backgroundRequest.kind !== "request") {
-      throw new Error("expected background request entry");
-    }
-
-    expect(backgroundRequest.request.requestId).toBe("approval_b");
+    expect(model.backgroundRequest?.request.requestId).toBe("approval_b");
   });
 });

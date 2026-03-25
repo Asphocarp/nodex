@@ -1,11 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ReactNode } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import {
-  ApprovalRequestView,
-  PlanImplementationComposerView,
   UserInputComposerView,
   UserInputTranscriptView,
 } from "./local-conversation-request-cards";
+import { CodexApprovalRequestCard } from "../../composer/request-cards/codex-approval-request-card";
+import { CodexImplementPlanRequestCard } from "../../composer/request-cards/codex-implement-plan-request-card";
+import { CodexMcpElicitationRequestCard } from "../../composer/request-cards/codex-mcp-elicitation-request-card";
 import { THREAD_REQUEST_CARD_STORY_DATA } from "../../thread-stage-story-fixtures";
 
 function RequestSurface({
@@ -23,7 +25,9 @@ function RequestSurface({
         <div className="text-sm font-semibold text-(--foreground)">{title}</div>
         <div className="mt-1 text-sm/relaxed text-(--foreground-secondary)">{description}</div>
       </div>
-      <div className="max-w-3xl">{children}</div>
+      <TooltipProvider>
+        <div className="max-w-3xl">{children}</div>
+      </TooltipProvider>
     </div>
   );
 }
@@ -54,11 +58,33 @@ export const Approval: Story = {
   render: () => (
     <RequestSurface
       title="Approval Request"
-      description="Foreground approval card with command and cwd details."
+      description="Codex-style ask-for-permission card with inline command preview, option list, freeform decline path, and footer actions."
     >
-      <ApprovalRequestView
+      <CodexApprovalRequestCard
         request={THREAD_REQUEST_CARD_STORY_DATA.approval}
         onRespond={async () => {}}
+        onSubmitLocalFollowup={async () => {}}
+      />
+    </RequestSurface>
+  ),
+};
+
+export const BackgroundApproval: Story = {
+  render: () => (
+    <RequestSurface
+      title="Background Approval Request"
+      description="Child-agent approval uses the same ask-for-permission card shell and renders the agent name inline in the prompt instead of as a separate header."
+    >
+      <CodexApprovalRequestCard
+        request={{
+          ...THREAD_REQUEST_CARD_STORY_DATA.approval,
+          approvalReason: undefined,
+          reason: undefined,
+        }}
+        actorName="Worker 1"
+        approvalQuestionActor={<span className="font-medium">Worker 1</span>}
+        onRespond={async () => {}}
+        onSubmitLocalFollowup={async () => {}}
       />
     </RequestSurface>
   ),
@@ -138,8 +164,22 @@ export const ImplementPlan: Story = {
       title="Implement Plan"
       description="Synthesized follow-up surface shown after a completed turn ends with a non-empty plan."
     >
-      <PlanImplementationComposerView
+      <CodexImplementPlanRequestCard
         request={THREAD_REQUEST_CARD_STORY_DATA.implementPlan}
+        onRespond={async () => {}}
+      />
+    </RequestSurface>
+  ),
+};
+
+export const McpServerElicitation: Story = {
+  render: () => (
+    <RequestSurface
+      title="MCP Elicitation"
+      description="Codex-style MCP approval card with header, message, expandable details, and footer actions."
+    >
+      <CodexMcpElicitationRequestCard
+        request={THREAD_REQUEST_CARD_STORY_DATA.mcpServerElicitation}
         onRespond={async () => {}}
       />
     </RequestSurface>

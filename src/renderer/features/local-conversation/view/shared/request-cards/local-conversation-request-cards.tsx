@@ -3,31 +3,25 @@ import {
   useStore,
 } from "@tanstack/react-form";
 import {
-  useCallback,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
+  type ReactNode,
 } from "react";
 import { motion } from "motion/react";
 import { Tooltip } from "../../../../../components/ui/tooltip";
 import { handleFormSubmit, resolveFormErrorMessage } from "../../../../../lib/forms";
 import { cn } from "../../../../../lib/utils";
-import type {
-  CodexApprovalDecision,
-  CodexApprovalRequest,
-  CodexPlanImplementationRequest,
-  CodexTranscriptEntry,
-  CodexUserInputRequest,
-} from "../../../../../lib/types";
+import type { CodexPlanImplementationRequest, CodexTranscriptEntry, CodexUserInputRequest } from "../../../../../lib/types";
 import { resolvePromptTextareaSize } from "../prompt-textarea-size";
 import { CODEX_MEASURED_TRANSITION, useMeasuredElementHeight } from "../use-measured-element-height";
 
 type CodexUserInputQuestion = CodexUserInputRequest["questions"][number];
-type RequestComposerQuestion = CodexUserInputQuestion & { otherPlaceholder?: string };
-type RequestComposerRequest = {
+export type RequestComposerQuestion = CodexUserInputQuestion & { otherPlaceholder?: string };
+export type RequestComposerRequest = {
   requestId: string;
   questions: RequestComposerQuestion[];
 };
@@ -36,56 +30,6 @@ const PLAN_IMPLEMENTATION_QUESTION_ID = "implement-plan";
 const PLAN_IMPLEMENTATION_PROMPT = "Implement this plan?";
 const PLAN_IMPLEMENTATION_OPTION_LABEL = "Yes, implement this plan";
 const PLAN_IMPLEMENTATION_OTHER_PLACEHOLDER = "No, and tell Codex what to do differently";
-
-export function ApprovalRequestView({
-  request,
-  onRespond,
-}: {
-  request: CodexApprovalRequest;
-  onRespond: (requestId: string, decision: CodexApprovalDecision) => Promise<void>;
-}) {
-  return (
-    <div className="px-2.5">
-      <div className="overflow-hidden rounded-lg border border-(--border) shadow-card-sm">
-        <div className="bg-(--background-secondary) px-3 py-2">
-          <div className="text-sm font-medium text-(--foreground)">{request.reason || "Approval required"}</div>
-          {request.command && (
-            <div className="mt-1.5 rounded-3xl border border-(--border) bg-(--background) px-2 py-1.5 font-mono text-xs text-(--foreground-secondary) inset-shadow-field">
-              <span className="text-(--foreground-tertiary) select-none">$ </span>
-              {request.command}
-            </div>
-          )}
-          {request.cwd && <div className="mt-1 text-xs text-(--foreground-tertiary)">in {request.cwd}</div>}
-        </div>
-        <div className="flex items-center gap-1.5 border-t border-(--border) px-3 py-2">
-          {(
-            [
-              { decision: "accept", label: "Accept", variant: "green" },
-              { decision: "acceptForSession", label: "Accept all", variant: "blue" },
-              { decision: "decline", label: "Decline", variant: "red" },
-              { decision: "cancel", label: "Cancel", variant: "neutral" },
-            ] as const
-          ).map(({ decision, label, variant }) => (
-            <button
-              key={decision}
-              type="button"
-              className={cn(
-                "h-6 rounded-3xl px-2.5 text-xs font-medium hover:opacity-80",
-                variant === "green" && "bg-(--green-bg) text-(--green-text) shadow-[0_0_0_1px_var(--green-bg)]",
-                variant === "blue" && "bg-(--blue-bg) text-(--blue-text) shadow-[0_0_0_1px_var(--blue-bg)]",
-                variant === "red" && "bg-(--red-bg) text-(--red-text) shadow-[0_0_0_1px_var(--red-bg)]",
-                variant === "neutral" && "bg-(--background-tertiary) text-(--foreground-secondary) shadow-[0_0_0_1px_var(--border)]",
-              )}
-              onClick={() => void onRespond(request.requestId, decision)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 type UserInputComposerMode = "option" | "other";
 
@@ -377,12 +321,12 @@ function AutoSizingTextarea({
 }: React.ComponentProps<"textarea"> & { textareaRef?: (element: HTMLTextAreaElement | null) => void }) {
   const innerTextareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const setTextareaRef = useCallback((element: HTMLTextAreaElement | null) => {
+  const setTextareaRef = (element: HTMLTextAreaElement | null) => {
     innerTextareaRef.current = element;
     textareaRef?.(element);
-  }, [textareaRef]);
+  };
 
-  const resizeTextarea = useCallback(() => {
+  const resizeTextarea = useEffectEvent(() => {
     const textarea = innerTextareaRef.current;
     if (!textarea) return;
 
@@ -401,7 +345,7 @@ function AutoSizingTextarea({
 
     textarea.style.height = `${heightPx}px`;
     textarea.style.overflowY = hasOverflow ? "auto" : "hidden";
-  }, []);
+  });
 
   useLayoutEffect(() => {
     resizeTextarea();
@@ -444,6 +388,7 @@ function UserInputQuestionSection({
   onKeyDown,
   onNavigateQuestion,
   actionButtons,
+  showInlineOtherComposer,
 }: {
   question: RequestComposerQuestion;
   state: UserInputComposerState;
@@ -457,13 +402,14 @@ function UserInputQuestionSection({
   onKeyDown: (event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
   onNavigateQuestion?: (direction: "prev" | "next") => void;
   actionButtons: React.ReactNode;
+  showInlineOtherComposer: boolean;
 }) {
   const selectedOption = state.selectedOptions[question.id] ?? question.options?.[0]?.label ?? "";
   const mode = state.modes[question.id] ?? (question.options?.length ? "option" : "other");
   const otherLabel = resolveOtherPromptLabel(question);
-  const canMoveIntoOtherAnswer = Boolean(question.options?.length);
+  const canMoveIntoOtherAnswer = showInlineOtherComposer;
 
-  const handleRadioGroupKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
+  const handleRadioGroupKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
       event.preventDefault();
       onNavigateQuestion?.(event.key === "ArrowLeft" ? "prev" : "next");
@@ -486,13 +432,13 @@ function UserInputQuestionSection({
       return;
     }
 
-    if (event.key === "ArrowDown") {
+    if (event.key === "ArrowDown" && showInlineOtherComposer) {
       onOtherFocus(question.id);
       otherTextareaRef.current?.focus({ preventScroll: true });
     }
-  }, [question.id, question.options, mode, selectedOption, onOptionSelect, onOtherFocus, onNavigateQuestion, otherTextareaRef]);
+  };
 
-  const handleOtherTextareaKeyDown = useCallback((event: KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleOtherTextareaKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (
       event.key === "ArrowUp"
       && canMoveUserInputFocusToOptionsFromOtherField(event.currentTarget.selectionStart, event.currentTarget.selectionEnd)
@@ -506,7 +452,7 @@ function UserInputQuestionSection({
     }
 
     onKeyDown(event);
-  }, [onKeyDown, onOptionSelect, optionsRef, question.id, question.options, selectedOption]);
+  };
 
   return (
     <div className="flex flex-col gap-3 py-1">
@@ -584,36 +530,34 @@ function UserInputQuestionSection({
               })}
             </div>
 
-            <div className="-mt-1 flex items-end justify-between gap-2">
-              <div
-                className={cn(
-                  "group flex min-w-0 flex-1 items-start gap-2 rounded-xl px-2 py-1 text-sm focus-within:outline-none",
-                )}
-              >
-                <span className="min-w-[1.5ch] pt-0.5 text-left text-(--foreground-tertiary)/60 group-focus-within:text-(--foreground-tertiary)/70">
-                  {question.options.length + 1}.
-                </span>
-                <span className="relative min-w-0 flex-1 py-0.5">
-                  {!state.drafts[question.id] && (
-                    <span className="pointer-events-none absolute inset-x-0 top-0.5 truncate text-sm/5 text-(--foreground-tertiary)">
-                      {otherLabel}
-                    </span>
-                  )}
-                  <AutoSizingTextarea
-                    textareaRef={(element) => {
-                      otherTextareaRef.current = element;
-                    }}
-                    value={state.drafts[question.id] ?? ""}
-                    disabled={busy}
-                    onFocus={() => onOtherFocus(question.id)}
-                    onChange={(event) => onDraftChange(question.id, event.target.value)}
-                    onKeyDown={handleOtherTextareaKeyDown}
-                    placeholder={otherLabel}
-                    data-user-input-focus-target="other"
-                    className="w-full min-w-0 flex-1 resize-none overflow-hidden bg-transparent text-sm/5 text-(--foreground) shadow-none outline-none placeholder:text-transparent"
-                  />
-                </span>
-              </div>
+            <div className={cn("flex items-end gap-2", showInlineOtherComposer ? "justify-between -mt-1" : "justify-end")}>
+              {showInlineOtherComposer ? (
+                <div className="group flex min-w-0 flex-1 items-start gap-2 rounded-xl px-2 py-1 text-sm focus-within:outline-none">
+                  <span className="min-w-[1.5ch] pt-0.5 text-left text-(--foreground-tertiary)/60 group-focus-within:text-(--foreground-tertiary)/70">
+                    {question.options.length + 1}.
+                  </span>
+                  <span className="relative min-w-0 flex-1 py-0.5">
+                    {!state.drafts[question.id] ? (
+                      <span className="pointer-events-none absolute inset-x-0 top-0.5 truncate text-sm/5 text-(--foreground-tertiary)">
+                        {otherLabel}
+                      </span>
+                    ) : null}
+                    <AutoSizingTextarea
+                      textareaRef={(element) => {
+                        otherTextareaRef.current = element;
+                      }}
+                      value={state.drafts[question.id] ?? ""}
+                      disabled={busy}
+                      onFocus={() => onOtherFocus(question.id)}
+                      onChange={(event) => onDraftChange(question.id, event.target.value)}
+                      onKeyDown={handleOtherTextareaKeyDown}
+                      placeholder={otherLabel}
+                      data-user-input-focus-target="other"
+                      className="request-input-panel__inline-freeform w-full min-w-0 flex-1 resize-none overflow-hidden bg-transparent text-sm leading-4 text-(--foreground) shadow-none outline-none placeholder:text-transparent"
+                    />
+                  </span>
+                </div>
+              ) : null}
               <div className="flex shrink-0 items-center gap-2 place-self-end py-1">
                 {actionButtons}
               </div>
@@ -667,20 +611,34 @@ function ChevronIcon({ direction, className }: { direction: "prev" | "next"; cla
   );
 }
 
-function RequestComposerView({
+export function RequestComposerView({
+  className,
+  header,
+  body,
+  showQuestionBodyWhenHeader = true,
   request,
   onSubmit,
-  onDismiss,
+  onSkip,
+  onEscapeDismiss,
   submitErrorMessage,
+  skipErrorMessage,
   dismissErrorMessage,
+  isPlanMode = false,
 }: {
+  className?: string;
+  header?: ReactNode;
+  body?: ReactNode;
+  showQuestionBodyWhenHeader?: boolean;
   request: RequestComposerRequest;
   onSubmit: (request: RequestComposerRequest, state: UserInputComposerState) => Promise<void>;
-  onDismiss: (request: RequestComposerRequest) => Promise<void>;
+  onSkip?: (request: RequestComposerRequest) => Promise<void>;
+  onEscapeDismiss?: (request: RequestComposerRequest) => Promise<void>;
   submitErrorMessage: string;
-  dismissErrorMessage: string;
+  skipErrorMessage?: string;
+  dismissErrorMessage?: string;
+  isPlanMode?: boolean;
 }) {
-  const [busyAction, setBusyAction] = useState<"dismiss" | "submit" | null>(null);
+  const [busyAction, setBusyAction] = useState<"dismiss" | "skip" | "submit" | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const optionsRef = useRef<HTMLDivElement>(null);
@@ -707,15 +665,11 @@ function RequestComposerView({
 
   const isMultiQuestion = request.questions.length > 1;
   const question = request.questions[currentIndex]!;
+  const hasDismissAction = typeof onEscapeDismiss === "function";
+  const hasSkipAction = typeof onSkip === "function";
+  const showInlineOtherComposer = question.isOther && Boolean(question.options?.length);
 
-  useEffect(() => {
-    form.reset(createInitialUserInputComposerState(request));
-    setBusyAction(null);
-    setErrorMessage(null);
-    setCurrentIndex(0);
-  }, [form, request]);
-
-  useLayoutEffect(() => {
+  const focusPendingTarget = useEffectEvent(() => {
     const pendingFocusTarget = pendingFocusTargetRef.current;
     if (pendingFocusTarget === null) return;
 
@@ -732,9 +686,20 @@ function RequestComposerView({
     if (!nextElement) return;
 
     nextElement.focus({ preventScroll: true });
-  }, [currentIndex, question]);
+  });
 
-  const navigateQuestion = useCallback((
+  useEffect(() => {
+    form.reset(createInitialUserInputComposerState(request));
+    setBusyAction(null);
+    setErrorMessage(null);
+    setCurrentIndex(0);
+  }, [form, request]);
+
+  useLayoutEffect(() => {
+    focusPendingTarget();
+  }, [currentIndex, focusPendingTarget, question]);
+
+  const navigateQuestion = (
     nextIndex: number,
     options?: { preserveInputFocus?: boolean },
   ) => {
@@ -745,78 +710,114 @@ function RequestComposerView({
       ? resolveUserInputFocusTargetFromElement(typeof document === "undefined" ? null : document.activeElement)
       : null;
     setCurrentIndex(boundedIndex);
-  }, [currentIndex, request.questions.length]);
+  };
 
-  const updateDraft = useCallback((questionId: string, value: string) => {
+  const updateDraft = (questionId: string, value: string) => {
     form.setFieldValue(`drafts.${questionId}` as never, value as never);
     form.setFieldValue(`modes.${questionId}` as never, "other" as never);
-  }, [form]);
+  };
 
-  const selectOption = useCallback((questionId: string, optionLabel: string) => {
+  const selectOption = (questionId: string, optionLabel: string) => {
     form.setFieldValue(`modes.${questionId}` as never, "option" as never);
     form.setFieldValue(`selectedOptions.${questionId}` as never, optionLabel as never);
-  }, [form]);
+  };
 
-  const activateOther = useCallback((questionId: string) => {
+  const activateOther = (questionId: string) => {
     form.setFieldValue(`modes.${questionId}` as never, "other" as never);
-  }, [form]);
+  };
 
   const canSubmit = isUserInputComposerSubmittable(request, state);
   const isBusy = busyAction !== null;
 
-  const handleDismiss = useCallback(async () => {
+  const handleEscapeDismiss = async () => {
+    if (!onEscapeDismiss) return;
     setBusyAction("dismiss");
     setErrorMessage(null);
     try {
-      await onDismiss(request);
+      await onEscapeDismiss(request);
     } catch (error) {
-      setErrorMessage(resolveFormErrorMessage(error) ?? dismissErrorMessage);
+      setErrorMessage(resolveFormErrorMessage(error) ?? dismissErrorMessage ?? "Could not dismiss request");
     } finally {
       setBusyAction(null);
     }
-  }, [dismissErrorMessage, onDismiss, request]);
+  };
+
+  const handleSkip = async () => {
+    if (!onSkip) return;
+    setBusyAction("skip");
+    setErrorMessage(null);
+    try {
+      await onSkip(request);
+    } catch (error) {
+      setErrorMessage(resolveFormErrorMessage(error) ?? skipErrorMessage ?? "Could not skip request");
+    } finally {
+      setBusyAction(null);
+    }
+  };
 
   const isLastQuestion = !isMultiQuestion || currentIndex === request.questions.length - 1;
 
-  const handlePrimaryAction = useCallback(() => {
+  const handlePrimaryAction = () => {
     if (isLastQuestion) {
       void form.handleSubmit();
       return;
     }
 
     navigateQuestion(currentIndex + 1, { preserveInputFocus: true });
-  }, [currentIndex, form, isLastQuestion, navigateQuestion]);
+  };
 
-  const handleKeyDown = useCallback((event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    if (event.key === "Escape") {
+  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    if (event.key === "Escape" && hasDismissAction) {
       event.preventDefault();
-      void handleDismiss();
+      void handleEscapeDismiss();
       return;
     }
 
     if (event.key !== "Enter" || event.shiftKey) return;
     event.preventDefault();
     handlePrimaryAction();
-  }, [handleDismiss, handlePrimaryAction]);
+  };
 
   const primaryLabel = busyAction === "submit" ? "Submitting" : isLastQuestion ? "Submit" : "Continue";
 
   const actionButtons = (
     <>
-      <button
-        type="button"
-        className="group inline-flex shrink-0 items-center gap-1 rounded-full border border-transparent px-2 py-0.5 text-sm/4.5 text-token-description-foreground hover:bg-token-foreground/5 focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
-        onClick={() => void handleDismiss()}
-        disabled={isBusy}
-      >
-        <span className="text-sm text-token-description-foreground">Dismiss</span>
-        <span className="inline-flex items-center rounded-sm bg-token-foreground/10 px-2 py-1 text-[10px] leading-none text-token-foreground group-hover:bg-token-foreground/15">
-          <span className="font-mono">ESC</span>
-        </span>
-      </button>
+      {hasDismissAction ? (
+        <button
+          type="button"
+          className="group inline-flex shrink-0 items-center gap-1 rounded-full border border-transparent px-2 py-0.5 text-sm/4.5 text-token-description-foreground hover:bg-token-list-hover-background focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
+          onClick={() => void handleEscapeDismiss()}
+          disabled={isBusy}
+        >
+          <span className="text-sm text-token-description-foreground">Dismiss</span>
+          <span className="inline-flex items-center rounded-sm bg-token-foreground/10 px-2 py-1 text-[10px] leading-none text-token-foreground group-hover:bg-token-foreground/15">
+            <span className="font-mono">ESC</span>
+          </span>
+        </button>
+      ) : null}
+      {hasSkipAction ? (
+        <button
+          type="button"
+          className="inline-flex shrink-0 items-center gap-1 rounded-full border border-transparent px-2 py-0.5 text-sm/4.5 text-token-description-foreground hover:bg-token-list-hover-background focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
+          onClick={() => void handleSkip()}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.stopPropagation();
+            }
+          }}
+          disabled={isBusy}
+        >
+          <span className="text-sm text-token-description-foreground">Skip</span>
+        </button>
+      ) : null}
       <button
         type={isLastQuestion ? "submit" : "button"}
-        className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-transparent bg-token-text-link-foreground px-2 py-0 text-sm/4.5 text-token-dropdown-background hover:bg-token-text-link-foreground/90 focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
+        className={cn(
+          "inline-flex h-token-button-composer shrink-0 items-center gap-1 rounded-full border border-transparent px-2 py-0 text-sm/4.5 text-token-dropdown-background focus:outline-none disabled:cursor-not-allowed disabled:opacity-40",
+          isPlanMode
+            ? "bg-token-text-link-foreground hover:bg-token-text-link-foreground/90"
+            : "bg-token-foreground hover:bg-token-foreground/80",
+        )}
         onClick={isLastQuestion ? undefined : () => void handlePrimaryAction()}
         disabled={isLastQuestion ? (!canSubmit || isBusy) : false}
       >
@@ -830,14 +831,14 @@ function RequestComposerView({
 
   return (
     <form
-      className="flex flex-col gap-3"
+      className={cn("flex flex-col gap-3", className)}
       onSubmit={(event) => handleFormSubmit(event, form.handleSubmit)}
     >
-      <div className="flex flex-col overflow-hidden rounded-3xl border border-[color-mix(in_srgb,var(--border)_85%,transparent)] bg-token-input-background shadow-sm">
-        {(question.header || question.question) && (
-          <div className="flex items-center justify-between pt-4 pr-3 pb-2 pl-4">
+      <div className="border-token-border bg-token-input-background text-token-foreground flex flex-col overflow-hidden rounded-3xl border shadow-sm focus:outline-none">
+        {(header || question.header || question.question) && (
+          <div className="flex items-center justify-between border-token-border/70 pt-4 pr-3 pb-2 pl-4">
             <div className="text-base font-medium text-(--foreground)">
-              {question.question || question.header}
+              {header ?? question.question ?? question.header}
             </div>
             {isMultiQuestion && (
               <div className="flex shrink-0 items-center gap-1 text-xs text-(--foreground-tertiary)">
@@ -864,6 +865,16 @@ function RequestComposerView({
             )}
           </div>
         )}
+        {body ? (
+          <div className="flex flex-col">
+            {body}
+          </div>
+        ) : null}
+        {header && showQuestionBodyWhenHeader ? (
+          <div className="px-4 text-sm font-medium">
+            {question.question}
+          </div>
+        ) : null}
         <UserInputQuestionSection
           question={question}
           state={state}
@@ -882,6 +893,7 @@ function RequestComposerView({
             );
           } : undefined}
           actionButtons={actionButtons}
+          showInlineOtherComposer={showInlineOtherComposer}
         />
 
         {errorMessage && (
@@ -905,7 +917,7 @@ export function UserInputComposerView({
       onSubmit={async (nextRequest, state) => {
         await onRespond(nextRequest.requestId, buildUserInputAnswers(nextRequest, state));
       }}
-      onDismiss={async (nextRequest) => {
+      onEscapeDismiss={async (nextRequest) => {
         await onRespond(nextRequest.requestId, {});
       }}
       submitErrorMessage="Could not submit input request"
@@ -950,14 +962,12 @@ export function PlanImplementationComposerView({
   request: CodexPlanImplementationRequest;
   onRespond: (response: PlanImplementationComposerResponse) => Promise<void>;
 }) {
-  const composerRequest = useMemo(
-    () => buildPlanImplementationComposerRequest(request),
-    [request.requestId],
-  );
+  const composerRequest = buildPlanImplementationComposerRequest(request);
 
   return (
     <RequestComposerView
       request={composerRequest}
+      isPlanMode
       onSubmit={async (nextRequest, state) => {
         const answer = buildUserInputAnswers(nextRequest, state)[PLAN_IMPLEMENTATION_QUESTION_ID]?.[0]?.trim() ?? "";
         if (!answer) return;
@@ -967,7 +977,7 @@ export function PlanImplementationComposerView({
         }
         await onRespond({ type: "followUp", prompt: answer });
       }}
-      onDismiss={async () => {
+      onEscapeDismiss={async () => {
         await onRespond({ type: "dismiss" });
       }}
       submitErrorMessage="Could not submit plan implementation request"

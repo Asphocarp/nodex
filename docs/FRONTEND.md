@@ -26,7 +26,7 @@
 - Live workbench navigation/session state is window-local (`sessionStorage`), while shared preferences remain in `localStorage`.
 - Restart resume is a separate Electron-only path: the main process stores one durable last-window snapshot under profile-scoped `userData`, and renderer bootstrap consumes it only when a window is created from zero open windows.
 - Terminal: `use-terminal.ts` manages ghostty-web lifecycle, fit/resize behavior, and PTY IPC.
-- Active conversation UI: reduce host messages and conversation snapshots in `features/local-conversation/`, enrich the mounted snapshot with local follow-up/steer/background-child overlays, then derive renderer-only projection data in `features/local-conversation/projection/*`. Do not mix turn bucketing, search-unit derivation, turn-request stitching, or pending-request ordering directly into JSX.
+- Active conversation UI: reduce host messages and conversation snapshots in `features/local-conversation/`, then derive renderer-only projection data in `features/local-conversation/projection/*`. Keep transcript projection, composer-shell aggregation, search-unit derivation, turn-request stitching, and background-activity ordering upstream of JSX.
 - Keep active conversation UI ownership inside `features/local-conversation/view/*` and `features/local-conversation/view/shared/*`. Do not reintroduce a second workbench thread renderer path outside that feature.
 - Use `@tanstack/react-form` for submitted renderer forms instead of ad hoc `useState` form state; keep per-form submit/reset logic local and use `src/renderer/lib/forms.ts` for shared event/error helpers.
 
@@ -75,7 +75,13 @@
   - Keep the Codex-style utility contract in the generated Codex utility layer so exact shipped selectors remain available even when Tailwind would not regenerate them from the local source graph alone.
   - Reserve `theme-utilities.css` for Nodex-local additions, not for reconstructed copies of Codex Electron utility families.
 - Treat `--tw-*` property registrations as build-output contract: values such as `--tw-leading` or `--tw-contain-layout` come from Tailwind's compiled property layer, not from manual theme-token declarations.
-- For Threads, keep the scroll body and composer separate: unresolved live request cards belong in the multiplexed pending-request surface above the composer, while the scroll body renders turn blocks plus hidden turn-scoped request semantics (`approval`, `userInput`, `implementPlan`) injected into the item stream before bucketization.
+- For Threads, keep the scroll body and composer separate: unresolved live request cards belong to the composer shell, not the scroll body. The composer shell also owns queued follow-ups, pending steers, background terminal rows, and background child-agent rows; the scroll body only renders turn blocks plus hidden turn-scoped request semantics (`approval`, `userInput`, `implementPlan`) injected into the item stream before bucketization.
+- Keep composer request cards in the Codex Electron family shape:
+  - dispatch by request type through one shell-owned renderer (`approval`, `userInput`, `implementPlan`, `mcpServerElicitation`)
+  - use one shared questionnaire shell for approval, user-input, and implement-plan cards instead of nesting a second local card inside those request surfaces
+  - approval cards own their body preview (`command`, `network`, or `patch`) and pass that preview into the shared questionnaire shell
+  - background-child approvals do not get a separate worker-name header; inject that child identity inline into the approval prompt only when the Codex approval prompt branch calls for it
+  - request-card stories should exercise the dedicated Codex request-card components directly, not older wrapper aliases
 - For thread search, project stable user/assistant search units in the view model and attach them to rendered blocks; do not implement `Find in thread` by scraping arbitrary DOM text from the whole turn.
 
 ## Component SOP

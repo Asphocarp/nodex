@@ -217,7 +217,7 @@ function buildRowModelFromFileDiff(
   };
 }
 
-function buildFileChangeRows(
+export function buildFileChangeRows(
   item: CodexTranscriptEntry,
   threadCwd: string | undefined,
   projectWorkspacePath: string | undefined,
