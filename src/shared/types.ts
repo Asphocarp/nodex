@@ -664,7 +664,31 @@ export interface CodexConversationTurn extends CodexTurnSummary {
 }
 
 export type CodexApprovalKind = "command" | "file";
-export type CodexApprovalDecision = "accept" | "acceptForSession" | "decline" | "cancel";
+export interface CodexNetworkApprovalContext {
+  host: string;
+  protocol?: string | null;
+}
+
+export interface CodexNetworkPolicyAmendment {
+  host: string;
+  action: "allow" | "deny";
+}
+
+export type CodexApprovalDecision =
+  | "accept"
+  | "acceptForSession"
+  | "decline"
+  | "cancel"
+  | {
+      acceptWithExecpolicyAmendment: {
+        execpolicy_amendment: string[];
+      };
+    }
+  | {
+      applyNetworkPolicyAmendment: {
+        network_policy_amendment: CodexNetworkPolicyAmendment;
+      };
+    };
 
 export interface CodexApprovalRequest {
   type: "approval";
@@ -675,9 +699,20 @@ export interface CodexApprovalRequest {
   threadId: string;
   turnId: string;
   itemId: string;
+  approvalId?: string | null;
+  approvalRequestId?: string | null;
+  callId?: string | null;
   reason?: string;
   command?: string;
   cwd?: string;
+  approvalReason?: string;
+  cmd?: string[];
+  networkApprovalContext?: CodexNetworkApprovalContext | null;
+  proposedExecpolicyAmendment?: string[] | null;
+  proposedNetworkPolicyAmendments?: CodexNetworkPolicyAmendment[] | null;
+  availableDecisions?: string[] | null;
+  grantRoot?: string | null;
+  commandActions?: CodexCommandAction[] | null;
   createdAt: number;
 }
 
@@ -734,10 +769,13 @@ export interface CodexMcpServerElicitationRequest {
   turnId: string;
   itemId: string;
   kind: "generic" | "mcpToolCall" | "toolSuggestion";
-  title?: string;
-  prompt?: string;
-  options?: CodexMcpElicitationOption[];
-  allowFreeform?: boolean;
+  mode: "form" | "url";
+  serverName: string;
+  message: string;
+  url?: string;
+  elicitationId?: string;
+  requestedSchema?: unknown;
+  meta?: unknown;
   createdAt: number;
 }
 

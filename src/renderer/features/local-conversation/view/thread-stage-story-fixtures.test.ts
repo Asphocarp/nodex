@@ -43,9 +43,8 @@ describe("thread stage story fixtures", () => {
       collapseAgentBody: true,
     }, scenario.runtime);
 
-    expect(model.pendingRequestSurface?.entries.length).toBe(1);
-    const requestEntry = model.pendingRequestSurface?.entries[0];
-    if (!requestEntry || requestEntry.kind !== "request") {
+    const requestEntry = model.composerShell.activeRequest;
+    if (!requestEntry) {
       throw new Error("expected implement-plan request entry");
     }
     expect(requestEntry.request.type).toBe("implementPlan");
@@ -68,7 +67,7 @@ describe("thread stage story fixtures", () => {
       collapseAgentBody: false,
     }, scenario.runtime);
 
-    expect(model.pendingRequestSurface?.backgroundRequestCount).toBe(1);
-    expect(model.pendingRequestSurface?.showComposer).toBeFalse();
+    expect(model.composerShell.backgroundRequest?.request.type).toBe("approval");
+    expect(model.composerShell.showComposer).toBeFalse();
   });
 });

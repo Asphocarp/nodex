@@ -11,7 +11,7 @@ This spec covers:
 - canonical transcript projection and entry ordering
 - optimistic prompt behavior
 - visible item kinds and transcript rendering rules
-- turn bucketing and pending-request surface rules
+- turn bucketing and composer-shell request rules
 - transcript-only UI behaviors such as request-user-input rows, plan follow-up prompts, exploration coalescing, searchable content units, and agent-body collapse
 - persistence and restart recovery rules
 - internal bootstrap/context visibility rules
@@ -66,7 +66,7 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
 
 ## Request User Input
 - `item/tool/requestUserInput` always requires explicit user input in UI.
-- While unanswered, `request_user_input` does not render inline in the scroll body. It appears in the pending-request surface above the composer.
+- While unanswered, `request_user_input` does not render inline in the scroll body. It appears in the composer shell above the input editor.
 - After resolution, answered `request_user_input` remains visible as a compact `Asked N question(s)` disclosure row.
 - That answered row stays collapsed by default and expands to reveal the question/answer pairs.
 - Multi-question `request_user_input` cards preserve keyboard continuity: using `Left` / `Right` moves focus to the next question’s equivalent answer control, `ArrowDown` from the last preset option can enter the free-form row, and `ArrowUp` from the start of that free-form field returns to the preset options.
@@ -153,13 +153,19 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
 - Patch rows own their expand/collapse state per file row. MCP tool calls own a local completed-only toggle. Neither surface uses a conversation-level collapsed-tool map.
 - Patch-row expansion uses a per-file Motion-based measured-height animation model. Expanded rows keep their body height on continuously measured pixel values instead of switching back to `height: auto`, so inline diff expansion does not hand layout authority back to the scroll container mid-transition.
 
-## Pending Request Surface
-- The pending-request surface is owned outside the transcript scroll container and sits above the composer.
-- It contains unresolved `approval`, `userInput`, and synthesized `implementPlan` requests, including background-thread requests when they are surfaced into the current composer stack.
-- Background-thread requests sort ahead of active-thread requests in the composer stack.
-- Within the same surface, requests are ordered by `createdAt ASC`, then by request type precedence: `approval`, `userInput`, `implementPlan`.
-- While the pending-request surface is non-empty, the normal freeform composer is hidden.
-- Live `approval` and unanswered `userInput` requests do not render inline in the transcript scroll area.
+## Composer Shell
+- The composer shell is owned outside the transcript scroll container and sits above the input editor.
+- It owns queued follow-ups, pending steers, background terminal rows, background child-agent rows, and unresolved live request cards.
+- Background terminal rows and queued/pending-follow-up rows remain visible as stacked shell sections above the request/editor branch.
+- Background child-agent rows are shown only when the shell is not in approval mode.
+- When a background child approval exists, its request card renders before the active-thread request card.
+- Background child approvals do not add a separate worker-name header above the card; when the approval prompt needs an actor, that child identity is injected inline into the approval prompt itself.
+- While request cards are present, the normal freeform composer editor is hidden.
+- Request cards use one Codex-style dispatcher family:
+  - `approval` uses the ask-for-permission shell with inline command/network/patch preview, option rows, freeform decline guidance, `Skip`, and `Submit`
+  - `userInput` and `implementPlan` use the same shared questionnaire shell with `Dismiss` and keyboard-first multi-question navigation
+  - `mcpServerElicitation` uses the dedicated MCP approval card family instead of the questionnaire shell
+- Live `approval`, unanswered `userInput`, synthesized `implementPlan`, and live MCP elicitation requests do not render inline in the transcript scroll area.
 
 ## Persistence and Recovery
 - Snapshot requests only rebroadcast that current manager-owned canonical conversation; they do not invoke `thread/read` or `thread/resume`.

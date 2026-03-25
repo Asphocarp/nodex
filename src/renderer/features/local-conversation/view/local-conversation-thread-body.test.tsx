@@ -87,8 +87,17 @@ function buildModel(overrides?: Partial<ThreadStageModel>): ThreadStageModel {
       emptyState: { type: "none" },
       showThreadStartProgressPanel: false,
     },
-    pendingRequestSurface: null,
-    aboveComposerQueueSurface: null,
+    composerShell: {
+      activeRequest: null,
+      backgroundRequest: null,
+      pendingSteers: [],
+      queuedFollowUps: [],
+      backgroundAgentRows: [],
+      backgroundTerminalRows: [],
+      showRequestCards: false,
+      showComposer: true,
+      showApprovalMode: false,
+    },
     ...overrides,
   };
 }
@@ -126,6 +135,8 @@ function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActio
     onEditLastUserTurn: async () => {},
     onForkFromTurn: async () => {},
     onConsumeComposerIntent: () => {},
+    onOpenThread: () => {},
+    onStopBackgroundTerminals: async () => {},
     onOpenCard: () => {},
     ...overrides,
   };

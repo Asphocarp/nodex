@@ -1,14 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import type { ThreadStageActions } from "../thread-stage-types";
-import { render, settleAsyncRender, textContent } from "../../../test/dom";
-import { LocalConversationAboveComposerPortalHost } from "./local-conversation-above-composer-portal";
-import { LocalConversationAboveComposerQueuePortal } from "./local-conversation-above-composer-queue-portal";
+import type { ThreadStageActions } from "../../thread-stage-types";
+import { render, settleAsyncRender, textContent } from "../../../../test/dom";
 import {
   buildThreadStageStoryModel,
   buildThreadStageStoryScenario,
   type ThreadStageStoryControls,
-} from "./thread-stage-story-fixtures";
+} from "../thread-stage-story-fixtures";
+import { LocalConversationComposerShell } from "./local-conversation-composer-shell";
 
 const STORY_CONTROLS: ThreadStageStoryControls = {
   preset: "background-activity",
@@ -18,7 +17,7 @@ const STORY_CONTROLS: ThreadStageStoryControls = {
   collapseAgentBody: false,
 };
 
-function buildQueuePortalModel() {
+function buildComposerShellModel() {
   const scenario = buildThreadStageStoryScenario(STORY_CONTROLS);
   return buildThreadStageStoryModel(scenario, STORY_CONTROLS, scenario.runtime);
 }
@@ -53,18 +52,24 @@ function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActio
     onEditLastUserTurn: async () => {},
     onForkFromTurn: async () => {},
     onConsumeComposerIntent: () => {},
+    onOpenThread: () => {},
+    onStopBackgroundTerminals: async () => {},
     onOpenCard: () => {},
     ...overrides,
   };
 }
 
-describe("LocalConversationAboveComposerQueuePortal", () => {
-  test("renders queued follow-ups without the legacy background working card", async () => {
-    const model = buildQueuePortalModel();
+describe("LocalConversationComposerShell", () => {
+  test("renders queue rows, background terminals, and request cards in one shell", async () => {
+    const model = buildComposerShellModel();
     render(
       <TooltipProvider>
-        <LocalConversationAboveComposerPortalHost />
-        <LocalConversationAboveComposerQueuePortal model={model} actions={buildActions()} />
+        <LocalConversationComposerShell
+          model={model}
+          actions={buildActions()}
+          errorMessage={null}
+          onErrorMessage={() => {}}
+        />
       </TooltipProvider>,
     );
     await settleAsyncRender();
@@ -72,26 +77,8 @@ describe("LocalConversationAboveComposerQueuePortal", () => {
     const renderedText = textContent(document.body);
     expect(Boolean(renderedText.includes("Keep the stage stories on the real projection path."))).toBeTrue();
     expect(Boolean(renderedText.includes("Run final validation once the stories are in place."))).toBeTrue();
-    expect(Boolean(renderedText.includes("Running 1 terminal"))).toBeFalse();
-    expect(Boolean(renderedText.includes("worker is still comparing leaf-story density"))).toBeFalse();
-  });
-
-  test("keeps edit out of the inline action bar and shows the Codex-style overflow trigger", async () => {
-    const model = buildQueuePortalModel();
-    const { getByRole, queryByRole } = render(
-      <TooltipProvider>
-        <LocalConversationAboveComposerPortalHost />
-        <LocalConversationAboveComposerQueuePortal
-          model={model}
-          actions={buildActions()}
-        />
-      </TooltipProvider>,
-    );
-    await settleAsyncRender();
-
-    expect(getByRole("button", { name: "Steer" })).not.toBeNull();
-    expect(getByRole("button", { name: "Delete queued message" })).not.toBeNull();
-    expect(getByRole("button", { name: "Queued message actions" })).not.toBeNull();
-    expect(queryByRole("button", { name: "Edit queued message" })).toBe(null);
+    expect(Boolean(renderedText.includes("Running 1 terminal"))).toBeTrue();
+    expect(Boolean(renderedText.includes("1 active requests"))).toBeFalse();
+    expect(Boolean(renderedText.includes("Worker 1"))).toBeFalse();
   });
 });

@@ -113,7 +113,7 @@ describe("local-conversation request cards", () => {
     );
   });
 
-  test("keeps the final freeform row for option questions even when isOther is false", async () => {
+  test("does not render the final freeform row for option questions when isOther is false", async () => {
     const { buildUserInputAnswers, UserInputComposerView } = await import("./local-conversation-request-cards");
     const state = {
       drafts: { q_1: "Choose none of the above and revise the plan." },
@@ -132,7 +132,7 @@ describe("local-conversation request cards", () => {
       />,
     );
 
-    expect(textContent(container).includes("Tell Codex what to do differently")).toBeTrue();
+    expect(textContent(container).includes("Tell Codex what to do differently")).toBeFalse();
   });
 
   test("requires text for freeform-only questions before submit is enabled", async () => {

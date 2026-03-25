@@ -1531,6 +1531,14 @@ export function WorkbenchShell({
     onConsumeComposerIntent: (threadId, focusNonce) => {
       consumeComposerIntent(threadId, focusNonce);
     },
+    onOpenThread: (threadId) => {
+      navigateToThreadTab(threadsProjectId, threadId);
+    },
+    onStopBackgroundTerminals: async (threadIds) => {
+      for (const threadId of threadIds) {
+        await threadFollowerClient.interruptTurn(threadId);
+      }
+    },
     onOpenCard: (cardId) => {
       void handleOpenCardFromThread(cardId);
     },

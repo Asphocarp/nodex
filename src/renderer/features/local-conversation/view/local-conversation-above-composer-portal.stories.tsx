@@ -1,8 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { ThreadStageActions } from "../thread-stage-types";
+import { LocalConversationComposerShell } from "./composer/local-conversation-composer-shell";
 import { LocalConversationAboveComposerPortalHost } from "./local-conversation-above-composer-portal";
-import { LocalConversationAboveComposerQueuePortal } from "./local-conversation-above-composer-queue-portal";
 import {
   buildThreadStageStoryModel,
   buildThreadStageStoryScenario,
@@ -47,6 +47,8 @@ function buildActions(): ThreadStageActions {
     onEditLastUserTurn: async () => {},
     onForkFromTurn: async () => {},
     onConsumeComposerIntent: () => {},
+    onOpenThread: () => {},
+    onStopBackgroundTerminals: async () => {},
     onOpenCard: () => {},
   };
 }
@@ -58,14 +60,19 @@ function AboveComposerQueueLaneStory() {
   return (
     <div className="min-h-[320px] rounded-[24px] border border-(--border) bg-(--background) p-5 shadow-[0_18px_48px_rgba(0,0,0,0.16)]">
       <div className="mb-4 max-w-2xl">
-        <div className="text-sm font-semibold text-(--foreground)">Above-Composer Queue Lane</div>
+        <div className="text-sm font-semibold text-(--foreground)">Composer Shell</div>
         <div className="mt-1 text-sm/relaxed text-(--foreground-secondary)">
-          The queue lane above the composer now follows the Codex Electron split: queued steers and queued follow-ups in one card, background activity in a separate stacked card.
+          Focused parity story for the unified Codex-style composer shell: queued steers, queued follow-ups, background terminals, background agents, and request cards are rendered by one shell instead of split footer surfaces.
         </div>
       </div>
       <TooltipProvider>
         <LocalConversationAboveComposerPortalHost />
-        <LocalConversationAboveComposerQueuePortal model={model} actions={buildActions()} />
+        <LocalConversationComposerShell
+          model={model}
+          actions={buildActions()}
+          errorMessage={null}
+          onErrorMessage={() => {}}
+        />
       </TooltipProvider>
     </div>
   );
@@ -78,7 +85,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Focused parity story for the Codex-style above-composer queue lane. The scene is built from the real thread-stage projection model and uses the actual portal host split.",
+          "Focused parity story for the Codex-style composer shell. The scene is built from the real thread-stage projection model and uses the same shell that renders queue rows, background activity, and live request cards in production.",
       },
     },
   },

@@ -3,6 +3,7 @@ import type {
   CardRunInTarget,
   CodexAccountSnapshot,
   CodexApprovalDecision,
+  CodexBackgroundTerminalRow,
   CodexCollaborationModeKind,
   CodexComposerIntent,
   CodexCollaborationModePreset,
@@ -94,6 +95,8 @@ export interface ThreadStageActions {
   onEditLastUserTurn: (input: { threadId: string; turnId: string; message: string }) => Promise<void>;
   onForkFromTurn: (input: { threadId: string; turnId: string; message: string }) => Promise<void>;
   onConsumeComposerIntent: (threadId: string, focusNonce: number) => void;
+  onOpenThread: (threadId: string) => void;
+  onStopBackgroundTerminals: (threadIds: string[]) => Promise<void>;
   onOpenCard: (cardId: string) => void;
 }
 
@@ -269,39 +272,32 @@ export interface ThreadBodyModel {
   showThreadStartProgressPanel: boolean;
 }
 
-export interface PendingRequestSurfaceModel {
-  entries: PendingRequestSurfaceRequestModel[];
-  blockedTurnIds: string[];
-  activeRequestCount: number;
-  backgroundRequestCount: number;
-  showComposer?: boolean;
-  hasBlockingActiveRequest?: boolean;
-}
-
-export interface PendingRequestSurfaceRequestModel {
-  kind: "request";
+export interface ThreadComposerShellPendingRequestModel {
   request: CodexConversationLiveRequest;
+  conversationId: string;
   surface: "activeThread" | "backgroundThread";
-  blocksActiveTurn: boolean;
   actorName?: string | null;
+  requestItem?: CodexConversationItem | null;
 }
 
-export interface AboveComposerQueueSurfaceQueuedFollowUpModel {
-  kind: "queuedFollowUp";
-  followUp: CodexQueuedFollowUp;
+export interface ThreadComposerShellBackgroundAgentRowModel {
+  conversationId: string;
+  displayName: string;
+  actorName: string;
+  status: "active" | "waiting" | "done";
+  role: "childApproval" | "backgroundChild";
 }
 
-export interface AboveComposerQueueSurfacePendingSteerModel {
-  kind: "pendingSteer";
-  steer: CodexPendingSteer;
-}
-
-export type AboveComposerQueueSurfaceEntryModel =
-  | AboveComposerQueueSurfaceQueuedFollowUpModel
-  | AboveComposerQueueSurfacePendingSteerModel;
-
-export interface AboveComposerQueueSurfaceModel {
-  entries: AboveComposerQueueSurfaceEntryModel[];
+export interface ThreadComposerShellModel {
+  activeRequest: ThreadComposerShellPendingRequestModel | null;
+  backgroundRequest: ThreadComposerShellPendingRequestModel | null;
+  pendingSteers: CodexPendingSteer[];
+  queuedFollowUps: CodexQueuedFollowUp[];
+  backgroundAgentRows: ThreadComposerShellBackgroundAgentRowModel[];
+  backgroundTerminalRows: CodexBackgroundTerminalRow[];
+  showRequestCards: boolean;
+  showComposer: boolean;
+  showApprovalMode: boolean;
 }
 
 export interface ThreadStageModel {
@@ -332,8 +328,7 @@ export interface ThreadStageModel {
   openCardTarget: ThreadOpenCardTarget | null;
   activeThreadCardColumnId: string | null;
   body: ThreadBodyModel;
-  pendingRequestSurface: PendingRequestSurfaceModel | null;
-  aboveComposerQueueSurface: AboveComposerQueueSurfaceModel | null;
+  composerShell: ThreadComposerShellModel;
 }
 
 export interface ThreadStageScreenProps {

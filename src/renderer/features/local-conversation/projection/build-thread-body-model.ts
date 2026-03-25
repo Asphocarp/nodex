@@ -3,7 +3,7 @@ import { buildRendererItemStream } from "./build-renderer-item-stream";
 import { bucketizeTurnItems } from "./bucketize-turn-items";
 import { buildTurnViewModel } from "./build-turn-view-model";
 import { selectConversationTurnRequestsByTurnId } from "../conversation-request-helpers";
-import type { PendingRequestSurfaceModel, ThreadBodyModel, ThreadTurnModel } from "../thread-stage-types";
+import type { ThreadBodyModel, ThreadTurnModel } from "../thread-stage-types";
 
 interface BuildThreadBodyModelInput {
   activeThreadId: string | null;
@@ -25,7 +25,6 @@ interface BuildThreadBodyModelInput {
     outputText: string;
     updatedAt: number;
   } | null;
-  pendingRequestSurface: PendingRequestSurfaceModel | null;
 }
 
 function buildVisibleItemsByTurnId(

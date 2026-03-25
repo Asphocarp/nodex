@@ -64,6 +64,8 @@ function buildActions(): ThreadStageActions {
     onEditLastUserTurn: async () => {},
     onForkFromTurn: async () => {},
     onConsumeComposerIntent: () => {},
+    onOpenThread: () => {},
+    onStopBackgroundTerminals: async () => {},
     onOpenCard: () => {},
   };
 }

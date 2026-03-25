@@ -3943,9 +3943,40 @@ export class CodexService extends EventEmitter {
       threadId,
       turnId,
       itemId,
+      approvalId: "approvalId" in params ? params.approvalId ?? null : null,
+      approvalRequestId: requestId,
+      callId: itemId,
       reason: params.reason ?? undefined,
       command: "command" in params ? params.command ?? undefined : undefined,
       cwd: "cwd" in params ? params.cwd ?? undefined : undefined,
+      approvalReason: params.reason ?? undefined,
+      cmd: "command" in params && typeof params.command === "string"
+        ? params.command.split(" ").filter((segment) => segment.trim().length > 0)
+        : undefined,
+      networkApprovalContext: "networkApprovalContext" in params
+        ? params.networkApprovalContext
+          ? {
+              host: params.networkApprovalContext.host,
+              protocol: params.networkApprovalContext.protocol,
+            }
+          : null
+        : null,
+      proposedExecpolicyAmendment: "proposedExecpolicyAmendment" in params
+        ? params.proposedExecpolicyAmendment ?? null
+        : null,
+      proposedNetworkPolicyAmendments: "proposedNetworkPolicyAmendments" in params
+        ? params.proposedNetworkPolicyAmendments?.map((amendment) => ({
+            host: amendment.host,
+            action: amendment.action,
+          })) ?? null
+        : null,
+      availableDecisions: "availableDecisions" in params
+        ? params.availableDecisions?.map((decision) =>
+            typeof decision === "string" ? decision : Object.keys(decision)[0] ?? ""
+          ).filter((decision) => decision.length > 0) ?? null
+        : null,
+      grantRoot: "grantRoot" in params ? params.grantRoot ?? null : null,
+      commandActions: "commandActions" in params ? params.commandActions ?? null : null,
       createdAt: Date.now(),
     };
 
@@ -4060,8 +4091,13 @@ export class CodexService extends EventEmitter {
       turnId: params.turnId ?? requestId,
       itemId: requestId,
       kind: params.mode === "url" ? "toolSuggestion" : "generic",
-      title: params.serverName,
-      prompt: params.message,
+      mode: params.mode,
+      serverName: params.serverName,
+      message: params.message,
+      url: params.mode === "url" ? params.url : undefined,
+      elicitationId: params.mode === "url" ? params.elicitationId : undefined,
+      requestedSchema: params.mode === "form" ? params.requestedSchema : undefined,
+      meta: params._meta,
       createdAt: Date.now(),
     };
 
