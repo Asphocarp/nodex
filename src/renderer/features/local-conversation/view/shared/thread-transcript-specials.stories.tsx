@@ -39,6 +39,14 @@ function ConversationStorySurface({ children }: { children: ReactNode }) {
   );
 }
 
+function ElectronDarkThreadStorySurface({ children }: { children: ReactNode }) {
+  return (
+    <div data-codex-window-type="electron" className="dark electron-dark">
+      <ConversationStorySurface>{children}</ConversationStorySurface>
+    </div>
+  );
+}
+
 function buildSpecialTranscriptBlock(entry: CodexConversationItem): ThreadTranscriptBlockModel {
   const block = buildRendererItemStream({
     entries: [entry],
@@ -204,6 +212,23 @@ export const ContextCompactionInProgress: Story = {
           isStreamingTurn
         />
       </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const ContextCompactionInProgressElectronDark: Story = {
+  render: () => (
+    <StorySurface
+      title="Context Compaction In Progress Electron Dark"
+      description="Electron dark-mode thread shimmer keeps the Codex-style white highlight instead of switching to the dark override."
+    >
+      <ElectronDarkThreadStorySurface>
+        <ThreadContextCompactionBlock
+          block={buildSpecialTranscriptBlock(THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.contextCompactionInProgress)}
+          isLatestTurn
+          isStreamingTurn
+        />
+      </ElectronDarkThreadStorySurface>
     </StorySurface>
   ),
 };
