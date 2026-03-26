@@ -20,7 +20,11 @@ import {
 } from "lucide-react";
 import { Input } from "../ui/input";
 import { invoke } from "../../lib/api";
-import { handleFormSubmit, resolveFormErrorMessage } from "../../lib/forms";
+import {
+  handleFormSubmit,
+  resolveFormErrorMessage,
+  resolveZodErrorMessage,
+} from "../../lib/forms";
 import type { CardPropertyPosition } from "../../lib/card-property-position";
 import { FILE_LINK_OPENER_ICON_URLS } from "../../lib/file-link-opener-icons";
 import {
@@ -88,6 +92,14 @@ import {
   type SidebarTopLevelSectionId,
   type SidebarTopLevelSectionsPrefs,
 } from "../../lib/sidebar-section-prefs";
+import {
+  BACKUP_SCHEDULE_FORM_DEFAULTS,
+  BackupScheduleFormSchema,
+  HISTORY_RETENTION_FORM_DEFAULTS,
+  HistoryRetentionFormSchema,
+  MANUAL_SNAPSHOT_FORM_DEFAULTS,
+  ManualSnapshotFormSchema,
+} from "./workbench-settings-form-schemas";
 
 type SettingsSectionId = "workspace" | "editor" | "card" | "worktrees" | "backups";
 
@@ -1265,44 +1277,31 @@ function BackupSettingsControl({ open }: { open: boolean }) {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const scheduleForm = useForm({
-    defaultValues: {
-      autoEnabled: false,
-      intervalHours: "6",
-      retentionCount: "28",
+    defaultValues: BACKUP_SCHEDULE_FORM_DEFAULTS,
+    validators: {
+      onSubmit: BackupScheduleFormSchema,
+    },
+    onSubmitInvalid: ({ value }) => {
+      const parsed = BackupScheduleFormSchema.safeParse(value);
+      setError(resolveZodErrorMessage(parsed.error) ?? "Could not save backup schedule.");
+      setStatus(null);
     },
     onSubmit: async ({ value }) => {
       if (!settings) return;
-
-      const parsedInterval = Number.parseInt(value.intervalHours.trim(), 10);
-      if (
-        !settings.envOverrides.intervalHours &&
-        (!Number.isInteger(parsedInterval) || parsedInterval < 1)
-      ) {
-        setError("Frequency must be an integer >= 1 hour.");
-        return;
-      }
-
-      const parsedRetention = Number.parseInt(value.retentionCount.trim(), 10);
-      if (
-        !settings.envOverrides.retentionCount &&
-        (!Number.isInteger(parsedRetention) || parsedRetention < 0)
-      ) {
-        setError("Retention must be an integer >= 0.");
-        return;
-      }
+      const parsed = BackupScheduleFormSchema.parse(value);
 
       setBusyAction("save");
       setError(null);
       setStatus(null);
 
       try {
-        const updated = (await invoke("settings:backup:update", {
-          autoEnabled: settings.envOverrides.autoEnabled ? settings.autoEnabled : value.autoEnabled,
-          intervalHours: settings.envOverrides.intervalHours ? settings.intervalHours : parsedInterval,
+        const updated = await invoke("settings:backup:update", {
+          autoEnabled: settings.envOverrides.autoEnabled ? settings.autoEnabled : parsed.autoEnabled,
+          intervalHours: settings.envOverrides.intervalHours ? settings.intervalHours : parsed.intervalHours,
           retentionCount: settings.envOverrides.retentionCount
             ? settings.retentionCount
-            : parsedRetention,
-        })) as BackupSettings;
+            : parsed.retentionCount,
+        }) as BackupSettings;
         setSettings(updated);
         scheduleForm.reset({
           autoEnabled: updated.autoEnabled,
@@ -1318,31 +1317,29 @@ function BackupSettingsControl({ open }: { open: boolean }) {
     },
   });
   const historyForm = useForm({
-    defaultValues: {
-      retentionCount: "1000",
+    defaultValues: HISTORY_RETENTION_FORM_DEFAULTS,
+    validators: {
+      onSubmit: HistoryRetentionFormSchema,
+    },
+    onSubmitInvalid: ({ value }) => {
+      const parsed = HistoryRetentionFormSchema.safeParse(value);
+      setError(resolveZodErrorMessage(parsed.error) ?? "Could not save history retention.");
+      setStatus(null);
     },
     onSubmit: async ({ value }) => {
       if (!historySettings) return;
-
-      const parsedRetention = Number.parseInt(value.retentionCount.trim(), 10);
-      if (
-        !historySettings.envOverrides.retentionCount &&
-        (!Number.isInteger(parsedRetention) || parsedRetention < 0)
-      ) {
-        setError("History retention must be an integer >= 0.");
-        return;
-      }
+      const parsed = HistoryRetentionFormSchema.parse(value);
 
       setBusyAction("save");
       setError(null);
       setStatus(null);
 
       try {
-        const updated = (await invoke("settings:history:update", {
+        const updated = await invoke("settings:history:update", {
           retentionCount: historySettings.envOverrides.retentionCount
             ? historySettings.retentionCount
-            : parsedRetention,
-        })) as HistorySettings;
+            : parsed.retentionCount,
+        }) as HistorySettings;
         setHistorySettings(updated);
         historyForm.reset({
           retentionCount: String(updated.retentionCount),
@@ -1356,17 +1353,18 @@ function BackupSettingsControl({ open }: { open: boolean }) {
     },
   });
   const snapshotForm = useForm({
-    defaultValues: {
-      label: "",
+    defaultValues: MANUAL_SNAPSHOT_FORM_DEFAULTS,
+    validators: {
+      onSubmit: ManualSnapshotFormSchema,
     },
     onSubmit: async ({ value, formApi }) => {
+      const parsed = ManualSnapshotFormSchema.parse(value);
       setBusyAction("create");
       setError(null);
       setStatus(null);
 
       try {
-        const label = value.label.trim();
-        await invoke("backup:create", label ? { label } : {});
+        await invoke("backup:create", parsed.label ? { label: parsed.label } : {});
         await loadBackups();
         formApi.reset();
         setStatus("Manual backup created.");
@@ -1382,7 +1380,7 @@ function BackupSettingsControl({ open }: { open: boolean }) {
   const snapshotValues = useStore(snapshotForm.store, (state) => state.values);
 
   const loadBackupSettings = useCallback(async () => {
-    const data = (await invoke("settings:backup:get")) as BackupSettings;
+    const data = await invoke("settings:backup:get") as BackupSettings;
     setSettings(data);
     scheduleForm.reset({
       autoEnabled: data.autoEnabled,
@@ -1392,12 +1390,12 @@ function BackupSettingsControl({ open }: { open: boolean }) {
   }, [scheduleForm]);
 
   const loadBackups = useCallback(async () => {
-    const list = (await invoke("backup:list")) as BackupRecord[];
+    const list = await invoke("backup:list") as BackupRecord[];
     setBackups(list);
   }, []);
 
   const loadHistorySettings = useCallback(async () => {
-    const data = (await invoke("settings:history:get")) as HistorySettings;
+    const data = await invoke("settings:history:get") as HistorySettings;
     setHistorySettings(data);
     historyForm.reset({
       retentionCount: String(data.retentionCount),

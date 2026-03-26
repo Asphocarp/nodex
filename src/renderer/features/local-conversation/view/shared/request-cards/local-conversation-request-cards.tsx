@@ -13,59 +13,46 @@ import {
 } from "react";
 import { motion } from "motion/react";
 import { Tooltip } from "../../../../../components/ui/tooltip";
-import { handleFormSubmit, resolveFormErrorMessage } from "../../../../../lib/forms";
+import {
+  handleFormSubmit,
+  resolveFormErrorMessage,
+  resolveZodErrorMessage,
+} from "../../../../../lib/forms";
 import { cn } from "../../../../../lib/utils";
 import type { CodexPlanImplementationRequest, CodexTranscriptEntry, CodexUserInputRequest } from "../../../../../lib/types";
 import { resolvePromptTextareaSize } from "../prompt-textarea-size";
 import { CODEX_MEASURED_TRANSITION, useMeasuredElementHeight } from "../use-measured-element-height";
+import {
+  buildUserInputAnswers,
+  createInitialUserInputComposerState,
+  createUserInputComposerStateSchema,
+  isUserInputComposerSubmittable,
+  type RequestComposerQuestion,
+  type RequestComposerRequest,
+  type UserInputComposerState,
+} from "./request-card-form-schemas";
 
 type CodexUserInputQuestion = CodexUserInputRequest["questions"][number];
-export type RequestComposerQuestion = CodexUserInputQuestion & { otherPlaceholder?: string };
-export type RequestComposerRequest = {
-  requestId: string;
-  questions: RequestComposerQuestion[];
-};
 const USER_INPUT_TEXTAREA_MAX_HEIGHT_PX = 160;
 const PLAN_IMPLEMENTATION_QUESTION_ID = "implement-plan";
 const PLAN_IMPLEMENTATION_PROMPT = "Implement this plan?";
 const PLAN_IMPLEMENTATION_OPTION_LABEL = "Yes, implement this plan";
 const PLAN_IMPLEMENTATION_OTHER_PLACEHOLDER = "No, and tell Codex what to do differently";
 
-type UserInputComposerMode = "option" | "other";
-
-interface UserInputComposerState {
-  drafts: Record<string, string>;
-  modes: Record<string, UserInputComposerMode>;
-  selectedOptions: Record<string, string>;
-}
-
 type UserInputFocusTarget = "options" | "other" | "answer";
 
 const USER_INPUT_FOCUS_TARGET_ATTRIBUTE = "data-user-input-focus-target";
 
-function createInitialUserInputComposerState(
-  request: RequestComposerRequest,
-): UserInputComposerState {
-  return request.questions.reduce<UserInputComposerState>(
-    (acc, question) => {
-      const firstOption = question.options?.[0]?.label ?? "";
-      acc.drafts[question.id] = "";
-      acc.modes[question.id] = question.options?.length ? "option" : "other";
-      acc.selectedOptions[question.id] = firstOption;
-      return acc;
-    },
-    {
-      drafts: {},
-      modes: {},
-      selectedOptions: {},
-    },
-  );
-}
-
-function normalizeFreeformAnswer(value: string): string[] {
-  const trimmed = value.trim();
-  return trimmed ? [trimmed] : [];
-}
+export {
+  buildUserInputAnswers,
+  createInitialUserInputComposerState,
+  isUserInputComposerSubmittable,
+} from "./request-card-form-schemas";
+export type {
+  RequestComposerQuestion,
+  RequestComposerRequest,
+  UserInputComposerState,
+} from "./request-card-form-schemas";
 
 function resolveTranscriptAnswers(question: CodexUserInputQuestion, values: string[]): string[] {
   const normalizedValues = values
@@ -177,43 +164,6 @@ export function UserInputTranscriptView({
       </div>
     </div>
   );
-}
-
-export function buildUserInputAnswers(
-  request: RequestComposerRequest,
-  state: UserInputComposerState,
-): Record<string, string[]> {
-  return request.questions.reduce<Record<string, string[]>>((acc, question) => {
-    const draft = state.drafts[question.id] ?? "";
-    const selectedOption = state.selectedOptions[question.id] ?? question.options?.[0]?.label ?? "";
-    const mode = state.modes[question.id] ?? (question.options?.length ? "option" : "other");
-
-    if (!question.options?.length) {
-      acc[question.id] = normalizeFreeformAnswer(draft);
-      return acc;
-    }
-
-    if (mode === "other") {
-      acc[question.id] = normalizeFreeformAnswer(draft);
-      return acc;
-    }
-
-    acc[question.id] = selectedOption ? [selectedOption] : [];
-    return acc;
-  }, {});
-}
-
-export function isUserInputComposerSubmittable(
-  request: RequestComposerRequest,
-  state: UserInputComposerState,
-): boolean {
-  return request.questions.every((question) => {
-    const answers = buildUserInputAnswers(
-      { ...request, questions: [question] },
-      state,
-    )[question.id] ?? [];
-    return answers.length > 0;
-  });
 }
 
 function InfoIcon({ className }: { className?: string }) {
@@ -645,11 +595,17 @@ export function RequestComposerView({
   const otherTextareaRef = useRef<HTMLTextAreaElement>(null);
   const answerInputRef = useRef<HTMLInputElement>(null);
   const pendingFocusTargetRef = useRef<UserInputFocusTarget | null>(null);
+  const composerStateSchema = createUserInputComposerStateSchema(request);
   const form = useForm({
     defaultValues: createInitialUserInputComposerState(request),
+    validators: {
+      onSubmit: composerStateSchema,
+    },
+    onSubmitInvalid: ({ value }) => {
+      const parsed = composerStateSchema.safeParse(value);
+      setErrorMessage(resolveZodErrorMessage(parsed.error) ?? submitErrorMessage);
+    },
     onSubmit: async ({ value }) => {
-      if (!isUserInputComposerSubmittable(request, value)) return;
-
       setBusyAction("submit");
       setErrorMessage(null);
       try {

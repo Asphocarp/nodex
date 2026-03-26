@@ -167,6 +167,43 @@ describe("local-conversation request cards", () => {
     ).toBeTrue();
   });
 
+  test("shows a validation error when a freeform question is submitted blank", async () => {
+    const { UserInputComposerView } = await import("./local-conversation-request-cards");
+    let respondCount = 0;
+    const onRespond = async () => {
+      respondCount += 1;
+    };
+    const freeformRequest: CodexUserInputRequest = {
+      ...optionRequest,
+      requestId: "input_blank",
+      questions: [
+        {
+          id: "q_freeform",
+          header: "Input required",
+          question: "Tell Codex what to do differently",
+          isOther: false,
+          isSecret: false,
+          options: undefined,
+        },
+      ],
+    };
+
+    const { container } = render(
+      <UserInputComposerView
+        request={freeformRequest}
+        onRespond={onRespond}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+      await settleAsyncRender();
+    });
+
+    expect(Boolean(textContent(container).includes("Enter a response before submitting."))).toBeTrue();
+    expect(respondCount).toBe(0);
+  });
+
   test("maps preserved focus targets onto the next question shape", async () => {
     const { resolveUserInputQuestionFocusTarget } = await import("./local-conversation-request-cards");
 
