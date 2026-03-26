@@ -57,7 +57,7 @@ function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActio
     onForkFromTurn: async () => {},
     onConsumeComposerIntent: () => {},
     onOpenThread: () => {},
-    onStopBackgroundTerminals: async () => {},
+    onCleanBackgroundTerminals: async () => {},
     onOpenCard: () => {},
     ...overrides,
   };

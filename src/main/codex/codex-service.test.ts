@@ -82,6 +82,7 @@ interface TestableCodexService {
   }) => Promise<CodexThreadDetail>;
   listCollaborationModes: () => Promise<CodexCollaborationModePreset[]>;
   interruptTurn: (threadId: string, turnId?: string) => Promise<boolean>;
+  cleanBackgroundTerminals: (threadId: string) => Promise<boolean>;
   respondToUserInput: (requestId: string, answers: Record<string, string[]>) => Promise<boolean>;
   setProjectPermissionMode: (projectId: string, mode: CodexPermissionMode) => void;
   getCustomPermissionModeDescription: (projectId: string) => string;
@@ -1033,7 +1034,7 @@ describe("codex-service session-backed transcript recovery", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
-  test("serializes child-thread memberships and background activity from main-owned conversation state", async () => {
+  test("serializes child-thread memberships from main-owned conversation state", async () => {
     const ran = await withTempDatabase(async () => {
       const parentCard = await createCard("codex", "in_progress", { title: "Parent conversation" });
       const childCard = await createCard("codex", "in_progress", { title: "Child conversation" });
@@ -1113,8 +1114,250 @@ describe("codex-service session-backed transcript recovery", () => {
         expect(conversation?.childMemberships.length).toBe(1);
         expect(conversation?.childMemberships[0]?.threadId).toBe("thr_child");
         expect(conversation?.childMemberships[0]?.actorName).toBe("Child agent");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("derives background terminal rows from older running command executions", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Background terminals" });
+
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_background_terminals",
+        threadName: "Background terminals",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      };
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_background_terminals"),
+        projectId: "codex",
+        cardId: card.id,
+        threadName: "Background terminals",
+        turns: [
+          {
+            threadId: "thr_background_terminals",
+            turnId: "turn_old",
+            status: "completed",
+            itemIds: ["exec_old", "exec_interrupted"],
+          },
+          {
+            threadId: "thr_background_terminals",
+            turnId: "turn_latest",
+            status: "inProgress",
+            itemIds: ["exec_latest"],
+          },
+        ],
+        transcript: [
+          {
+            threadId: "thr_background_terminals",
+            turnId: "turn_old",
+            itemId: "exec_old",
+            type: "commandExecution",
+            kind: "commandExecution",
+            semanticKind: "exec",
+            status: "inProgress",
+            toolCall: {
+              toolName: "bash",
+              subtype: "command",
+              args: {
+                command: "bun test src/renderer/features/local-conversation/view/composer/local-conversation-composer-shell.test.tsx",
+                cwd: "/tmp/project",
+              },
+              result: "1400 pass\n1418 pass\n",
+            },
+            rawItem: {
+              processId: 4172,
+            },
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          {
+            threadId: "thr_background_terminals",
+            turnId: "turn_old",
+            itemId: "exec_interrupted",
+            type: "commandExecution",
+            kind: "commandExecution",
+            semanticKind: "exec",
+            status: "interrupted",
+            toolCall: {
+              toolName: "bash",
+              subtype: "command",
+              args: {
+                command: "bun run lint",
+                cwd: "/tmp/project",
+              },
+              result: "stopped",
+            },
+            createdAt: 2,
+            updatedAt: 2,
+          },
+          {
+            threadId: "thr_background_terminals",
+            turnId: "turn_latest",
+            itemId: "exec_latest",
+            type: "commandExecution",
+            kind: "commandExecution",
+            semanticKind: "exec",
+            status: "inProgress",
+            toolCall: {
+              toolName: "bash",
+              subtype: "command",
+              args: {
+                command: "bun run dev",
+                cwd: "/tmp/project",
+              },
+              result: "dev server starting",
+            },
+            createdAt: 3,
+            updatedAt: 3,
+          },
+        ],
+      });
+
+      try {
+        const conversation = service.serializeConversationSnapshot("thr_background_terminals");
+        expect(conversation).not.toBeNull();
         expect(conversation?.backgroundTerminalRows.length).toBe(1);
-        expect(conversation?.backgroundTerminalRows[0]?.text).toBe("Child agent has a queued follow-up");
+        expect(conversation?.backgroundTerminalRows[0]?.id).toBe("exec_old");
+        expect(conversation?.backgroundTerminalRows[0]?.command).toBe("bun test src/renderer/features/local-conversation/view/composer/local-conversation-composer-shell.test.tsx");
+        expect(conversation?.backgroundTerminalRows[0]?.cwd).toBe("/tmp/project");
+        expect(conversation?.backgroundTerminalRows[0]?.previewLine).toBe("1418 pass");
+        expect(conversation?.backgroundTerminalRows[0]?.processId).toBe(4172);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("cleanBackgroundTerminals interrupts older running command turns for one conversation", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Clean background terminals" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_clean_background_terminals",
+        threadName: "Clean background terminals",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      };
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        return {};
+      };
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_clean_background_terminals"),
+        projectId: "codex",
+        cardId: card.id,
+        threadName: "Clean background terminals",
+        turns: [
+          {
+            threadId: "thr_clean_background_terminals",
+            turnId: "turn_background_one",
+            status: "completed",
+            itemIds: ["exec_background_one"],
+          },
+          {
+            threadId: "thr_clean_background_terminals",
+            turnId: "turn_background_two",
+            status: "completed",
+            itemIds: ["exec_background_two"],
+          },
+          {
+            threadId: "thr_clean_background_terminals",
+            turnId: "turn_latest",
+            status: "inProgress",
+            itemIds: ["exec_latest"],
+          },
+        ],
+        transcript: [
+          {
+            threadId: "thr_clean_background_terminals",
+            turnId: "turn_background_one",
+            itemId: "exec_background_one",
+            type: "commandExecution",
+            kind: "commandExecution",
+            semanticKind: "exec",
+            status: "inProgress",
+            toolCall: {
+              toolName: "bash",
+              subtype: "command",
+              args: {
+                command: "bun run lint",
+              },
+            },
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          {
+            threadId: "thr_clean_background_terminals",
+            turnId: "turn_background_two",
+            itemId: "exec_background_two",
+            type: "commandExecution",
+            kind: "commandExecution",
+            semanticKind: "exec",
+            status: "inProgress",
+            toolCall: {
+              toolName: "bash",
+              subtype: "command",
+              args: {
+                command: "bun test",
+              },
+            },
+            createdAt: 2,
+            updatedAt: 2,
+          },
+          {
+            threadId: "thr_clean_background_terminals",
+            turnId: "turn_latest",
+            itemId: "exec_latest",
+            type: "commandExecution",
+            kind: "commandExecution",
+            semanticKind: "exec",
+            status: "inProgress",
+            toolCall: {
+              toolName: "bash",
+              subtype: "command",
+              args: {
+                command: "bun run dev",
+              },
+            },
+            createdAt: 3,
+            updatedAt: 3,
+          },
+        ],
+      });
+
+      try {
+        const cleaned = await service.cleanBackgroundTerminals("thr_clean_background_terminals");
+        expect(cleaned).toBeTrue();
+
+        const interruptRequests = requests.filter((request) => request.method === "turn/interrupt");
+        expect(interruptRequests.length).toBe(2);
+        expect((interruptRequests[0]?.params as { turnId?: string })?.turnId).toBe("turn_background_two");
+        expect((interruptRequests[1]?.params as { turnId?: string })?.turnId).toBe("turn_background_one");
       } finally {
         await service.shutdown();
       }

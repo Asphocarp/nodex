@@ -83,6 +83,7 @@
   - Reserve `theme-utilities.css` for Nodex-local additions, not for reconstructed copies of Codex Electron utility families.
 - Treat `--tw-*` property registrations as build-output contract: values such as `--tw-leading` or `--tw-contain-layout` come from Tailwind's compiled property layer, not from manual theme-token declarations.
 - For Threads, keep the scroll body and composer separate: unresolved live request cards belong to the composer shell, not the scroll body. The composer shell also owns queued follow-ups, pending steers, background terminal rows, and background child-agent rows; the scroll body only renders turn blocks plus hidden turn-scoped request semantics (`approval`, `userInput`, `implementPlan`) injected into the item stream before bucketization.
+- Codex-style background terminals are not child-thread metadata. Derive them from the current conversation's older still-running `commandExecution` items, skip the newest in-progress turn, and render them as tooltip-backed mono rows (`command` plus optional `previewLine`) inside the composer shell's running-terminals panel.
 - Keep thread-footer width ownership outside the composer shell:
   - the footer/screen wrapper owns `max-w-[var(--thread-composer-max-width)]` and `px-panel`
   - the fixed above-composer block host (`above-composer-portal`) and the queue/background lane host (`above-composer-queue-portal`) both stay in that footer wrapper as siblings directly above `LocalConversationComposerShell`; do not move either host into the scroll body or a separate overlay layer

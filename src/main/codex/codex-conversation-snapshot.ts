@@ -55,7 +55,7 @@ export function buildCodexConversationSnapshot(input: {
     requests: [...input.requests].sort((left, right) => left.createdAt - right.createdAt),
     queuedFollowUps: [...(input.queuedFollowUps ?? [])].sort((left, right) => left.createdAt - right.createdAt),
     pendingSteers: [...(input.pendingSteers ?? [])].sort((left, right) => left.createdAt - right.createdAt),
-    backgroundTerminalRows: [...(input.backgroundTerminalRows ?? [])].sort((left, right) => left.createdAt - right.createdAt),
+    backgroundTerminalRows: [...(input.backgroundTerminalRows ?? [])],
     childMemberships: [...(input.childMemberships ?? [])],
     capabilityFlags: input.capabilityFlags,
   };

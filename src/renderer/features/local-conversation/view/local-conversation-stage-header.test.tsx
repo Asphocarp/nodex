@@ -98,7 +98,7 @@ function buildActions(): ThreadStageActions {
     onForkFromTurn: async () => {},
     onConsumeComposerIntent: () => {},
     onOpenThread: () => {},
-    onStopBackgroundTerminals: async () => {},
+    onCleanBackgroundTerminals: async () => {},
     onOpenCard: () => {},
   };
 }

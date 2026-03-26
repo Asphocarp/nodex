@@ -675,11 +675,11 @@ function buildBackgroundConversation(): {
     ],
     backgroundTerminalRows: [
       {
-        rowId: "background_row_story_1",
-        threadId: backgroundThreadId,
-        stream: "stdout",
-        text: "worker is still comparing leaf-story density",
-        createdAt: 29_000,
+        id: "background_terminal_story_1",
+        command: "bun test src/renderer/features/local-conversation/view/shared/request-cards/local-conversation-request-cards.test.tsx",
+        cwd: STORY_WORKSPACE_PATH,
+        previewLine: "1418 pass",
+        processId: 4172,
       },
     ],
   });
