@@ -21,7 +21,9 @@ import {
 import { ThreadsIcon } from "./threads-icon";
 import { ToggleListIcon } from "./toggle-list-icon";
 import { MainViewHost } from "./main-view-host";
-import { SettingsOverlay, type SettingsSectionId } from "./workbench-settings-overlay";
+import { SettingsOverlay } from "./workbench-settings-overlay";
+import type { SettingsSectionId } from "./workbench-settings-sections";
+import { buildSettingsPath } from "./workbench-settings-routes";
 import {
   LeftSidebar,
   type StageSidebarGroup,
@@ -396,7 +398,7 @@ export function WorkbenchShell({
   const isMac = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
   const canRequestNewWindow = typeof window !== "undefined" && Boolean(window.api);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionId>("workspace");
+  const [settingsPath, setSettingsPath] = useState(() => buildSettingsPath("general-settings"));
   const [settingsInitialLocalEnvironmentProjectId, setSettingsInitialLocalEnvironmentProjectId] = useState<string | null>(null);
   const [settingsInitialLocalEnvironmentConfigPath, setSettingsInitialLocalEnvironmentConfigPath] = useState<string | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -545,8 +547,8 @@ export function WorkbenchShell({
     localEnvironmentProjectId?: string | null;
     localEnvironmentConfigPath?: string | null;
   }) => {
-    const nextSection = options?.section ?? "workspace";
-    setSettingsInitialSection(nextSection);
+    const nextSection = options?.section ?? "general-settings";
+    setSettingsPath(buildSettingsPath(nextSection));
     setSettingsInitialLocalEnvironmentProjectId(options?.localEnvironmentProjectId ?? null);
     setSettingsInitialLocalEnvironmentConfigPath(options?.localEnvironmentConfigPath ?? null);
     setSettingsOpen(true);
@@ -2101,9 +2103,10 @@ export function WorkbenchShell({
       <SettingsOverlay
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
+        path={settingsPath}
+        onPathChange={setSettingsPath}
         projects={projects}
         activeProjectId={dbProjectId}
-        initialSection={settingsInitialSection}
         initialLocalEnvironmentProjectId={settingsInitialLocalEnvironmentProjectId}
         initialLocalEnvironmentConfigPath={settingsInitialLocalEnvironmentConfigPath}
         sidebarTopLevelSectionOrder={sidebar.topLevelSectionOrder}

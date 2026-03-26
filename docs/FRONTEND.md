@@ -104,6 +104,12 @@
   - the feature lives in the workbench settings overlay, not in card-stage popovers or OS file-manager escapes
   - card-stage environment pickers should stay thin choosers and route `Environment settings` into the shared settings page with project/config context
   - local-environments stories should use an injected service snapshot instead of browser IPC fallbacks so workspace-selection, summary, parse-error, and edit/save states stay reproducible
+- Keep workbench settings on the Codex-style section shell:
+  - settings navigation is tab/section based, not a scrollspy over one long document
+  - settings shell state is path/slug driven (`/settings/:section`) with redirect-to-default behavior for invalid section ids
+  - the settings rail should stay a settings-specific adapter that reuses sidebar chrome/tokens without importing project/sidebar semantics such as project management, group actions, or resize handles
+  - when adjusting the rail, prefer the exact Codex Electron rail class family (`window-fx-sidebar-surface`, `px-row-x`, `py-row-y`, `icon-xs`, `icon-sm`, `bg-token-list-hover-background`) over local approximations
+  - each settings section should render as its own page surface and own its own loading/empty/error state where needed
 - Keep renderer forms boundary-led: use TanStack Form with a colocated zod schema module when a form has structural validation, type coercion, or multi-field constraints. For simple single-field inputs, keep local state and a submit-time guard instead of introducing a separate schema module.
 - For thread search, project stable user/assistant search units in the view model and attach them to rendered blocks; do not implement `Find in thread` by scraping arbitrary DOM text from the whole turn.
 

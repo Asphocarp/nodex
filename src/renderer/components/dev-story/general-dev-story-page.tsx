@@ -483,7 +483,7 @@ export function GeneralDevStoryPage({
 
             <ShowcaseCard
               title="Dense settings rows"
-              description="Flat rows with internal dividers, matching the current settings overlay layout."
+              description="Flat rows with internal dividers, matching the current tab-based settings shell pages."
               source="src/renderer/components/workbench/workbench-settings-overlay.tsx"
             >
               <PreviewSurface className="p-0">

@@ -1146,6 +1146,13 @@ describe("WorkbenchShell", () => {
     expect(typeof settingsProps?.onSidebarTopLevelSectionVisibleChange).toBe("function");
   });
 
+  test("defaults settings shell to the general section", async () => {
+    await renderShell(false, "sliding-window");
+
+    const settingsProps = (globalThis as { __lastSettingsOverlayProps?: Record<string, unknown> }).__lastSettingsOverlayProps;
+    expect(settingsProps?.path).toBe("/settings/general-settings");
+  });
+
   test("opens current-project status cards through the existing card-stage flow", async () => {
     const openCardStageCalls: Array<unknown[]> = [];
     const openCardStage = (...args: unknown[]) => {
@@ -1382,7 +1389,7 @@ describe("WorkbenchShell", () => {
 
     const settingsProps = (globalThis as { __lastSettingsOverlayProps?: Record<string, unknown> }).__lastSettingsOverlayProps;
     expect(settingsProps?.open).toBeTrue();
-    expect(settingsProps?.initialSection).toBe("local-environments");
+    expect(settingsProps?.path).toBe("/settings/local-environments");
     expect(settingsProps?.initialLocalEnvironmentProjectId).toBe("default");
     expect(settingsProps?.initialLocalEnvironmentConfigPath).toBe(".codex/environments/environment.toml");
   });
