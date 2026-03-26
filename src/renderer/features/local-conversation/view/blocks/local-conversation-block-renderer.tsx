@@ -4,6 +4,7 @@ import {
   ThreadMultiAgentActionBlock,
   ThreadAnsweredUserInputCard,
   ThreadAssistantBodyBlock,
+  ThreadContextCompactionBlock,
   ThreadExplorationGroupBlock,
   ThreadPlanCardBlock,
   ThreadReasoningBlock,
@@ -165,6 +166,10 @@ export function ThreadBlockRenderer({
 
   if (block.type === "answeredUserInput") {
     return <ThreadAnsweredUserInputCard block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
+  }
+
+  if (block.type === "contextCompaction") {
+    return <ThreadContextCompactionBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
   }
 
   return (

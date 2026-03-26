@@ -63,7 +63,6 @@ function isCodexAgentItem(item: ThreadTranscriptBlockModel): boolean {
     case "multiAgentAction":
     case "streamError":
     case "systemError":
-    case "contextCompaction":
     case "reasoning":
     case "answeredUserInput":
     case "workedFor":
@@ -138,6 +137,11 @@ export function bucketizeTurnItems(input: BucketizeTurnItemsInput): ThreadTurnRe
 
     if (item.type === "proposedPlan") {
       buckets.proposedPlanItem = item;
+      continue;
+    }
+
+    if (item.type === "contextCompaction") {
+      buckets.postAssistantItems.push(item);
       continue;
     }
 

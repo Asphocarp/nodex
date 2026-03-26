@@ -1182,6 +1182,34 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
 };
 
 export const THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS = {
+  contextCompactionCompleted: buildToolItemBase({
+    itemId: "story_context_compaction_completed",
+    entryId: "story_context_compaction_completed",
+    type: "context_compaction",
+    kind: "systemEvent",
+    semanticKind: "contextCompaction",
+    status: "completed",
+    markdownText: "Context automatically compacted",
+    rawItem: {
+      id: "story_context_compaction_completed",
+      type: "context_compaction",
+      status: "completed",
+    },
+  }),
+  contextCompactionInProgress: buildToolItemBase({
+    itemId: "story_context_compaction_in_progress",
+    entryId: "story_context_compaction_in_progress",
+    type: "context_compaction",
+    kind: "systemEvent",
+    semanticKind: "contextCompaction",
+    status: "inProgress",
+    markdownText: "Automatically compacting context",
+    rawItem: {
+      id: "story_context_compaction_in_progress",
+      type: "context_compaction",
+      status: "in_progress",
+    },
+  }),
   automaticApprovalReviewCompleted: buildToolItemBase({
     itemId: "story_automatic_approval_review_completed",
     entryId: "story_automatic_approval_review_completed",

@@ -353,3 +353,7 @@ When a renderer utility consumes a semantic token like `bg-token-input-backgroun
 Codex Electron's shipped CSS is a compiled output, not a second hand-maintained renderer utility mirror. Keep `theme-source.css`, `theme-token-bridge.css`, and `theme-surface.css` as the authored renderer source, then let Tailwind compile the utility surface directly from those files plus the scanned renderer/story inputs. This keeps the utility layer aligned with the authored source of truth instead of drifting behind a parallel vendored dump.
 
 ---
+## Codex session replay compaction boundaries
+
+- Codex session JSONL replay can emit compaction as a standalone `type: "compacted"` line followed by `event_msg.type === "context_compacted"` and a fresh `turn_context`.
+- Replay/bootstrap materialization must treat that as a transcript `contextCompaction` row and must also advance `currentTurnId` from `turn_context`, otherwise post-compaction items get attached to the wrong turn on reopen.

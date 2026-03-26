@@ -200,6 +200,38 @@ describe("codex-item-normalizer", () => {
     expect(item?.markdownText).toBe("**Checking thread state**\n\nComparing item lifecycle with turn status");
   });
 
+  test("normalizes context compaction into Codex-style in-progress and completed labels", () => {
+    const inProgressItem = normalizeThreadItem(
+      {
+        id: "item-compact-running",
+        type: "contextCompaction",
+        status: "in_progress",
+      },
+      "thread-1",
+      "turn-1",
+    );
+
+    const completedItem = normalizeThreadItem(
+      {
+        id: "item-compact-done",
+        type: "context_compaction",
+        status: "completed",
+      },
+      "thread-1",
+      "turn-1",
+    );
+
+    expect(inProgressItem).not.toBeNull();
+    expect(inProgressItem?.semanticKind).toBe("contextCompaction");
+    expect(inProgressItem?.status).toBe("inProgress");
+    expect(inProgressItem?.markdownText).toBe("Automatically compacting context");
+
+    expect(completedItem).not.toBeNull();
+    expect(completedItem?.semanticKind).toBe("contextCompaction");
+    expect(completedItem?.status).toBe("completed");
+    expect(completedItem?.markdownText).toBe("Context automatically compacted");
+  });
+
   test("keeps empty transcript items blank instead of showing internal type labels", () => {
     const variants = [
       {

@@ -27,6 +27,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - Fixed mounted Thread transcripts so automatic approval reviews and multi-agent agent actions now render through their own Codex-style dedicated rows instead of falling back to generic system banners, and live guardian review notifications now enter the canonical conversation state.
+- Fixed mounted Thread transcripts so context compaction now renders as Codex’s compact divider/status row with the correct in-progress and completed labels instead of falling back to a generic system banner.
+- Fixed reopened session-backed Threads so context compaction boundaries now survive replay/bootstrap: compacted sessions keep the `Context automatically compacted` divider and continue subsequent transcript items in the correct post-compaction turn.
 - Fixed mounted Thread-stage command execution cards so they now follow Codex’s electron-window state machine: the default mode keeps settled commands collapsed, `Steps with code output` is the only mode that starts settled commands expanded, and running commands no longer re-expand permanently after they finish.
 - Fixed mounted Thread-stage `Edited file` expansion so patch rows now animate from a continuously measured per-file height instead of switching back to `height: auto`, which stops inline diff toggles from kicking the thread viewport vertically while they open or close.
 - Fixed Thread-stage file-edit rendering so Codex-style `Edited …` tool rows now stay visible even when the turn also has a unified diff; file-change tool calls and turn-level diff cards now render as separate surfaces instead of one swallowing the other.

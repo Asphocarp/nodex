@@ -1,11 +1,15 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ReactNode } from "react";
+import type { CodexConversationItem } from "@/lib/types";
 import { THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS } from "../thread-stage-story-fixtures";
 import { LOCAL_CONVERSATION_CONTENT_CLASS_NAME } from "./local-conversation-view-constants";
 import { AutomaticApprovalReviewSurface } from "./automatic-approval-review-surface";
 import { MultiAgentActionSurface } from "./multi-agent-action-surface";
 import { ReasoningSurface } from "./reasoning-surface";
 import { TodoListSurface } from "./todo-list-surface";
+import { ThreadContextCompactionBlock } from "../blocks/local-conversation-block-leaves";
+import { buildRendererItemStream } from "../../projection/build-renderer-item-stream";
+import type { ThreadTranscriptBlockModel } from "../../thread-stage-types";
 
 function StorySurface({
   title,
@@ -33,6 +37,19 @@ function ConversationStorySurface({ children }: { children: ReactNode }) {
       {children}
     </div>
   );
+}
+
+function buildSpecialTranscriptBlock(entry: CodexConversationItem): ThreadTranscriptBlockModel {
+  const block = buildRendererItemStream({
+    entries: [entry],
+    requests: [],
+  })[0];
+
+  if (!block || !("entry" in block)) {
+    throw new Error("Expected transcript-special story entry to project into a transcript block.");
+  }
+
+  return block;
 }
 
 const meta = {
@@ -151,6 +168,40 @@ export const AutomaticApprovalReviewCompleted: Story = {
       <ConversationStorySurface>
         <AutomaticApprovalReviewSurface
           item={THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.automaticApprovalReviewCompleted}
+        />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const ContextCompactionCompleted: Story = {
+  render: () => (
+    <StorySurface
+      title="Context Compaction Completed"
+      description="Completed context compaction renders as the Codex divider row instead of a generic system banner."
+    >
+      <ConversationStorySurface>
+        <ThreadContextCompactionBlock
+          block={buildSpecialTranscriptBlock(THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.contextCompactionCompleted)}
+          isLatestTurn
+          isStreamingTurn={false}
+        />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const ContextCompactionInProgress: Story = {
+  render: () => (
+    <StorySurface
+      title="Context Compaction In Progress"
+      description="The in-progress compacting row keeps the same divider shell and swaps to the shimmer label."
+    >
+      <ConversationStorySurface>
+        <ThreadContextCompactionBlock
+          block={buildSpecialTranscriptBlock(THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.contextCompactionInProgress)}
+          isLatestTurn
+          isStreamingTurn
         />
       </ConversationStorySurface>
     </StorySurface>
