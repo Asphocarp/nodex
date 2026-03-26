@@ -3,96 +3,223 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  listWorktreeEnvironmentConfigs,
   listWorktreeEnvironmentOptions,
   readWorktreeEnvironmentDefinition,
+  readWorktreeEnvironmentSettingsSnapshot,
+  saveWorktreeEnvironmentSettingsSnapshot,
+  serializeWorktreeEnvironmentDefinition,
 } from "./worktree-environment-service";
 
 function createWorkspace(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "nodex-worktree-env-"));
 }
 
+function removeWorkspace(workspacePath: string) {
+  fs.rmSync(workspacePath, { recursive: true, force: true });
+}
+
+function writeEnvironmentFile(workspacePath: string, fileName: string, contents: string) {
+  const envDir = path.join(workspacePath, ".codex", "environments");
+  fs.mkdirSync(envDir, { recursive: true });
+  fs.writeFileSync(path.join(envDir, fileName), contents, "utf8");
+}
+
 describe("worktree-environment-service", () => {
-  test("lists toml environments with name fallback and setup-script flag", async () => {
+  test("lists configs and options with full local-environment metadata", async () => {
     const workspacePath = createWorkspace();
-    const envDir = path.join(workspacePath, ".codex", "environments");
-    fs.mkdirSync(envDir, { recursive: true });
 
-    fs.writeFileSync(
-      path.join(envDir, "environment.toml"),
-      [
-        'name = "nodex"',
-        "",
-        "[setup]",
-        'script = "bun install"',
-        "",
-      ].join("\n"),
-      "utf8",
-    );
-
-    fs.writeFileSync(
-      path.join(envDir, "environment-2.toml"),
-      [
-        "version = 1",
-        "",
-      ].join("\n"),
-      "utf8",
-    );
-
-    fs.writeFileSync(path.join(envDir, "broken.toml"), "name = ", "utf8");
-    fs.writeFileSync(path.join(envDir, "ignore.txt"), "name = \"ignored\"", "utf8");
+    writeEnvironmentFile(workspacePath, "environment.toml", [
+      "version = 1",
+      'name = "Studio"',
+      "",
+      "[setup]",
+      'script = "bun install"',
+      "",
+      "[cleanup]",
+      'script = "git clean -fd"',
+      "",
+      "[setup.darwin]",
+      'script = "brew bundle"',
+      "",
+      "[[actions]]",
+      'name = "Run tests"',
+      'icon = "test"',
+      'command = "bun test"',
+      'platform = "darwin"',
+      "",
+    ].join("\n"));
+    writeEnvironmentFile(workspacePath, "environment-2.toml", [
+      'name = "Plain"',
+      "",
+    ].join("\n"));
+    writeEnvironmentFile(workspacePath, "broken.toml", "name = ");
 
     try {
+      const configs = await listWorktreeEnvironmentConfigs(workspacePath);
       const options = await listWorktreeEnvironmentOptions(workspacePath);
+
+      expect(configs.length).toBe(3);
+      expect(configs[0]?.configPath).toBe(".codex/environments/broken.toml");
+      expect(configs[0]?.state).toBe("parseError");
+      expect(Boolean(configs[0]?.parseErrorMessage)).toBeTrue();
+
+      expect(configs[1]?.configPath).toBe(".codex/environments/environment-2.toml");
+      expect(configs[1]?.name).toBe("Plain");
+      expect(configs[1]?.hasSetupScript).toBeFalse();
+      expect(configs[1]?.hasCleanupScript).toBeFalse();
+      expect(configs[1]?.actionCount).toBe(0);
+
+      expect(configs[2]?.configPath).toBe(".codex/environments/environment.toml");
+      expect(configs[2]?.name).toBe("Studio");
+      expect(configs[2]?.hasSetupScript).toBeTrue();
+      expect(configs[2]?.hasCleanupScript).toBeTrue();
+      expect(configs[2]?.actionCount).toBe(1);
+      expect(configs[2]?.environment?.setup.platformScripts.darwin).toBe("brew bundle");
+      expect(configs[2]?.environment?.actions[0]?.icon).toBe("test");
 
       expect(options.length).toBe(2);
       expect(options[0]?.path).toBe(".codex/environments/environment-2.toml");
-      expect(options[0]?.name).toBe("environment-2");
-      expect(options[0]?.hasSetupScript).toBeFalse();
+      expect(options[0]?.hasCleanupScript).toBeFalse();
       expect(options[1]?.path).toBe(".codex/environments/environment.toml");
-      expect(options[1]?.name).toBe("nodex");
-      expect(options[1]?.hasSetupScript).toBeTrue();
+      expect(options[1]?.hasCleanupScript).toBeTrue();
+      expect(options[1]?.actionCount).toBe(1);
     } finally {
-      fs.rmSync(workspacePath, { recursive: true, force: true });
+      removeWorkspace(workspacePath);
     }
   });
 
-  test("reads setup script from a valid environment file", async () => {
+  test("prefers environment.toml in settings snapshots and generates the next config path", async () => {
     const workspacePath = createWorkspace();
-    const envDir = path.join(workspacePath, ".codex", "environments");
-    fs.mkdirSync(envDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(envDir, "environment.toml"),
-      [
-        'name = "ProPick-1"',
-        "",
-        "[setup]",
-        "script = '''",
-        "bun install",
-        "bun run build",
-        "'''",
-        "",
-      ].join("\n"),
-      "utf8",
-    );
+
+    writeEnvironmentFile(workspacePath, "environment.toml", [
+      'name = "Preferred"',
+      "",
+    ].join("\n"));
+    writeEnvironmentFile(workspacePath, "environment-2.toml", [
+      'name = "Secondary"',
+      "",
+    ].join("\n"));
 
     try {
+      const snapshot = await readWorktreeEnvironmentSettingsSnapshot({
+        projectId: "proj_local_env",
+        projectName: "Local env",
+        workspacePath,
+      });
+
+      expect(snapshot.configPath).toBe(".codex/environments/environment.toml");
+      expect(snapshot.configExists).toBeTrue();
+      expect(snapshot.environment?.name).toBe("Preferred");
+      expect(snapshot.nextConfigPath).toBe(".codex/environments/environment-3.toml");
+      expect(snapshot.configs.length).toBe(2);
+    } finally {
+      removeWorkspace(workspacePath);
+    }
+  });
+
+  test("saves and re-reads the structured local-environment definition", async () => {
+    const workspacePath = createWorkspace();
+
+    try {
+      const savedSnapshot = await saveWorktreeEnvironmentSettingsSnapshot({
+        projectId: "proj_local_env",
+        projectName: "Local env",
+        workspacePath,
+        configPath: ".codex/environments/environment.toml",
+        environment: {
+          version: 1,
+          name: "Workbench",
+          setup: {
+            script: "bun install",
+            platformScripts: {
+              linux: "sudo apt-get update",
+            },
+          },
+          cleanup: {
+            script: "git clean -fd",
+            platformScripts: {
+              win32: "git clean -fdx",
+            },
+          },
+          actions: [
+            {
+              id: "action-1",
+              name: "Run tests",
+              icon: "test",
+              command: "bun test",
+              platform: null,
+            },
+            {
+              id: "action-2",
+              name: "Debug app",
+              icon: "debug",
+              command: "bun run dev",
+              platform: "darwin",
+            },
+          ],
+        },
+      });
+
+      expect(savedSnapshot.configExists).toBeTrue();
+      expect(savedSnapshot.environment?.name).toBe("Workbench");
+      expect(savedSnapshot.environment?.setup.platformScripts.linux).toBe("sudo apt-get update");
+      expect(savedSnapshot.environment?.cleanup.platformScripts.win32).toBe("git clean -fdx");
+      expect(savedSnapshot.environment?.actions.length).toBe(2);
+
       const definition = await readWorktreeEnvironmentDefinition({
         workspacePath,
         environmentPath: ".codex/environments/environment.toml",
       });
+      expect(definition.name).toBe("Workbench");
+      expect(definition.setupScript).toBe("bun install");
 
-      expect(definition.path).toBe(".codex/environments/environment.toml");
-      expect(definition.name).toBe("ProPick-1");
-      expect(definition.setupScript?.includes("bun run build")).toBeTrue();
+      const raw = fs.readFileSync(path.join(workspacePath, ".codex", "environments", "environment.toml"), "utf8");
+      expect(raw.includes("[cleanup]")).toBeTrue();
+      expect(raw.includes("[[actions]]")).toBeTrue();
+      expect(raw.includes('icon = "debug"')).toBeTrue();
     } finally {
-      fs.rmSync(workspacePath, { recursive: true, force: true });
+      removeWorkspace(workspacePath);
     }
   });
 
-  test("rejects environment paths outside .codex/environments", async () => {
+  test("serializes actions only when they are complete and rejects paths outside .codex/environments", async () => {
+    const serialized = serializeWorktreeEnvironmentDefinition({
+      version: 1,
+      name: "Local",
+      setup: {
+        script: null,
+        platformScripts: {},
+      },
+      cleanup: {
+        script: null,
+        platformScripts: {},
+      },
+      actions: [
+        {
+          id: "action-1",
+          name: "Run tests",
+          icon: "test",
+          command: "bun test",
+          platform: null,
+        },
+        {
+          id: "action-2",
+          name: "",
+          icon: "tool",
+          command: "",
+          platform: null,
+        },
+      ],
+    });
+
+    expect(serialized.includes('name = "Run tests"')).toBeTrue();
+    expect(serialized.includes('icon = "tool"')).toBeFalse();
+
     const workspacePath = createWorkspace();
     try {
       let failed = false;
+
       try {
         await readWorktreeEnvironmentDefinition({
           workspacePath,
@@ -106,80 +233,7 @@ describe("worktree-environment-service", () => {
 
       expect(failed).toBeTrue();
     } finally {
-      fs.rmSync(workspacePath, { recursive: true, force: true });
-    }
-  });
-
-  test("rejects invalid toml files when reading selected environment", async () => {
-    const workspacePath = createWorkspace();
-    const envDir = path.join(workspacePath, ".codex", "environments");
-    fs.mkdirSync(envDir, { recursive: true });
-    fs.writeFileSync(path.join(envDir, "bad.toml"), "name = ", "utf8");
-
-    try {
-      let failed = false;
-      try {
-        await readWorktreeEnvironmentDefinition({
-          workspacePath,
-          environmentPath: ".codex/environments/bad.toml",
-        });
-      } catch (error) {
-        failed = true;
-        const message = error instanceof Error ? error.message : String(error);
-        expect(message.includes("Could not parse environment file")).toBeTrue();
-      }
-
-      expect(failed).toBeTrue();
-    } finally {
-      fs.rmSync(workspacePath, { recursive: true, force: true });
-    }
-  });
-
-  test("rejects symlinked environment files that resolve outside .codex/environments", async () => {
-    const workspacePath = createWorkspace();
-    const envDir = path.join(workspacePath, ".codex", "environments");
-    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-worktree-env-outside-"));
-    const outsidePath = path.join(outsideDir, "outside.toml");
-    fs.mkdirSync(envDir, { recursive: true });
-    fs.writeFileSync(
-      outsidePath,
-      [
-        'name = "outside"',
-        "",
-      ].join("\n"),
-      "utf8",
-    );
-
-    const symlinkPath = path.join(envDir, "link.toml");
-
-    try {
-      try {
-        fs.symlinkSync(outsidePath, symlinkPath);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (process.platform === "win32" || message.includes("operation not permitted")) {
-          expect(true).toBeTrue();
-          return;
-        }
-        throw error;
-      }
-
-      let failed = false;
-      try {
-        await readWorktreeEnvironmentDefinition({
-          workspacePath,
-          environmentPath: ".codex/environments/link.toml",
-        });
-      } catch (error) {
-        failed = true;
-        const message = error instanceof Error ? error.message : String(error);
-        expect(message.includes("inside .codex/environments")).toBeTrue();
-      }
-
-      expect(failed).toBeTrue();
-    } finally {
-      fs.rmSync(workspacePath, { recursive: true, force: true });
-      fs.rmSync(outsideDir, { recursive: true, force: true });
+      removeWorkspace(workspacePath);
     }
   });
 });

@@ -175,6 +175,8 @@ function parseRunInEnvironmentOptions(value: unknown): WorktreeEnvironmentOption
       path: candidate.path,
       name: candidate.name,
       hasSetupScript: Boolean(candidate.hasSetupScript),
+      hasCleanupScript: Boolean(candidate.hasCleanupScript),
+      actionCount: typeof candidate.actionCount === "number" ? candidate.actionCount : 0,
     }];
   });
 }
@@ -226,6 +228,7 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
     linkedCodexThreads = [],
     onOpenCodexThread,
     onOpenNewCodexThread,
+    onOpenLocalEnvironmentSettings,
     historyPanelActive = false,
   } = props;
 
@@ -1025,14 +1028,12 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
   }, [saveProperty]);
 
   const handleOpenEnvironmentSettings = useCallback(async () => {
-    const workspacePath = projectWorkspacePath?.trim();
-    if (!workspacePath) return;
-
-    const separator = workspacePath.includes("\\") ? "\\" : "/";
-    const normalizedWorkspacePath = workspacePath.replace(/[\\/]+$/, "");
-    const environmentsPath = `${normalizedWorkspacePath}${separator}.codex${separator}environments`;
-    await invoke("shell:open-file-link", { path: environmentsPath }, "fileManager");
-  }, [projectWorkspacePath]);
+    if (!projectWorkspacePath?.trim()) return;
+    onOpenLocalEnvironmentSettings?.({
+      projectId,
+      configPath: runInEnvironmentPath.trim() || null,
+    });
+  }, [onOpenLocalEnvironmentSettings, projectId, projectWorkspacePath, runInEnvironmentPath]);
 
   const handlePriorityChange = useCallback((next: Priority | null) => {
     const nextPriority = next ?? undefined;

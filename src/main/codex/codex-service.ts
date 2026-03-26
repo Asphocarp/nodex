@@ -77,7 +77,10 @@ import type {
   CodexTurnSummary,
   CodexUserInputRequest,
   ManagedWorktreeRecord,
+  UpdateWorktreeEnvironmentConfigInput,
+  WorktreeEnvironmentConfigRecord,
   WorktreeEnvironmentOption,
+  WorktreeEnvironmentSettingsSnapshot,
   WorktreeStartMode,
 } from "../../shared/types";
 import { parseCodexThreadTokenUsage } from "../../shared/schemas/codex";
@@ -130,6 +133,9 @@ import { resolveCodexRuntime, type ResolvedCodexRuntime } from "./codex-runtime"
 import {
   listWorktreeEnvironmentOptions,
   readWorktreeEnvironmentDefinition,
+  listWorktreeEnvironmentConfigs as listWorktreeEnvironmentConfigRecords,
+  readWorktreeEnvironmentSettingsSnapshot as readWorktreeEnvironmentSettingsRecord,
+  saveWorktreeEnvironmentSettingsSnapshot as saveWorktreeEnvironmentSettingsRecord,
 } from "./worktree-environment-service";
 import { getLogger } from "../logging/logger";
 
@@ -1832,6 +1838,52 @@ export class CodexService extends EventEmitter {
     } catch {
       return [];
     }
+  }
+
+  async listWorktreeEnvironmentConfigs(projectId: string): Promise<WorktreeEnvironmentConfigRecord[]> {
+    const project = dbService.getProject(projectId);
+    const workspacePath = project?.workspacePath?.trim();
+    if (!workspacePath) return [];
+
+    try {
+      return await listWorktreeEnvironmentConfigRecords(workspacePath);
+    } catch {
+      return [];
+    }
+  }
+
+  async readWorktreeEnvironmentConfig(
+    projectId: string,
+    configPath?: string | null,
+  ): Promise<WorktreeEnvironmentSettingsSnapshot> {
+    const project = dbService.getProject(projectId);
+    const workspacePath = project?.workspacePath?.trim();
+    if (!project || !workspacePath) {
+      throw new Error("Project workspace path is required for local environments.");
+    }
+
+    return readWorktreeEnvironmentSettingsRecord({
+      projectId,
+      projectName: project.name,
+      workspacePath,
+      configPath,
+    });
+  }
+
+  async saveWorktreeEnvironmentConfig(
+    input: UpdateWorktreeEnvironmentConfigInput,
+  ): Promise<WorktreeEnvironmentSettingsSnapshot> {
+    const project = dbService.getProject(input.projectId);
+    const workspacePath = project?.workspacePath?.trim();
+    if (!project || !workspacePath) {
+      throw new Error("Project workspace path is required for local environments.");
+    }
+
+    return saveWorktreeEnvironmentSettingsRecord({
+      ...input,
+      projectName: project.name,
+      workspacePath,
+    });
   }
 
   async listManagedWorktrees(): Promise<ManagedWorktreeRecord[]> {

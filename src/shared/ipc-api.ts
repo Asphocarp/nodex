@@ -22,6 +22,9 @@ import type {
   CodexTurnSummary,
   ManagedWorktreeRecord,
   WorktreeEnvironmentOption,
+  WorktreeEnvironmentConfigRecord,
+  WorktreeEnvironmentSettingsSnapshot,
+  UpdateWorktreeEnvironmentConfigInput,
   BlockDropImportInput,
   BlockDropImportResult,
   CalendarOccurrence,
@@ -368,6 +371,15 @@ export interface IpcApi {
   };
   "worktrees:list": { args: []; result: ManagedWorktreeRecord[] };
   "worktrees:environments:list": { args: [projectId: string]; result: WorktreeEnvironmentOption[] };
+  "worktrees:environments:configs:list": { args: [projectId: string]; result: WorktreeEnvironmentConfigRecord[] };
+  "worktrees:environments:config:read": {
+    args: [projectId: string, configPath?: string | null];
+    result: WorktreeEnvironmentSettingsSnapshot;
+  };
+  "worktrees:environments:config:save": {
+    args: [input: UpdateWorktreeEnvironmentConfigInput];
+    result: WorktreeEnvironmentSettingsSnapshot;
+  };
   "worktrees:delete": { args: [threadId: string]; result: boolean };
   "codex:thread:snapshot:request": {
     args: [threadId: string];

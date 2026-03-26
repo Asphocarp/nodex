@@ -305,10 +305,72 @@ export interface ManagedWorktreeRecord {
   linkedAt: string;
 }
 
+export type WorktreeEnvironmentPlatform = "darwin" | "linux" | "win32";
+
+export type WorktreeEnvironmentActionIcon = "tool" | "run" | "debug" | "test";
+
 export interface WorktreeEnvironmentOption {
   path: string;
   name: string;
   hasSetupScript: boolean;
+  hasCleanupScript: boolean;
+  actionCount: number;
+}
+
+export interface WorktreeEnvironmentActionDefinition {
+  id: string;
+  name: string;
+  icon: WorktreeEnvironmentActionIcon;
+  command: string;
+  platform: WorktreeEnvironmentPlatform | null;
+}
+
+export interface WorktreeEnvironmentScriptDefinition {
+  script: string | null;
+  platformScripts: Partial<Record<WorktreeEnvironmentPlatform, string>>;
+}
+
+export interface WorktreeEnvironmentDefinition {
+  version: number;
+  name: string;
+  setup: WorktreeEnvironmentScriptDefinition;
+  cleanup: WorktreeEnvironmentScriptDefinition;
+  actions: WorktreeEnvironmentActionDefinition[];
+}
+
+export type WorktreeEnvironmentConfigState = "success" | "parseError" | "readError";
+
+export interface WorktreeEnvironmentConfigRecord {
+  configPath: string;
+  fileName: string;
+  state: WorktreeEnvironmentConfigState;
+  exists: boolean;
+  name: string;
+  hasSetupScript: boolean;
+  hasCleanupScript: boolean;
+  actionCount: number;
+  parseErrorMessage: string | null;
+  readErrorMessage: string | null;
+  environment: WorktreeEnvironmentDefinition | null;
+}
+
+export interface WorktreeEnvironmentSettingsSnapshot {
+  projectId: string;
+  projectName: string;
+  workspacePath: string;
+  configPath: string;
+  nextConfigPath: string;
+  configExists: boolean;
+  configs: WorktreeEnvironmentConfigRecord[];
+  environment: WorktreeEnvironmentDefinition | null;
+  parseErrorMessage: string | null;
+  readErrorMessage: string | null;
+}
+
+export interface UpdateWorktreeEnvironmentConfigInput {
+  projectId: string;
+  configPath: string;
+  environment: WorktreeEnvironmentDefinition;
 }
 
 export interface BackupSettings {

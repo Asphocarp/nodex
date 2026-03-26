@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Added a command-palette card-filter popover with an active-filter summary row, so global card search can now narrow results by status, priority, tags, assignee, and project using the same compact filter language as the View-stage toolbar, and those filter selections now persist across reopen.
+- Added a first-class `Local environments` settings page for workspace-backed projects, so `.codex/environments/*.toml` files can now be browsed, summarized, created, and edited in-app with structured setup/cleanup scripts, platform overrides, and reusable actions instead of only opening the folder in Finder.
 
 ### Changed
 - Threads settings now include Codex’s thread-detail mode, so you can switch between `Steps`, `Steps with code commands`, and `Steps with code output` to control how much command activity appears in mounted threads.

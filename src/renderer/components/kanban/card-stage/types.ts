@@ -54,6 +54,10 @@ export interface CardStageProps {
   linkedCodexThreads?: CardStageLinkedThread[];
   onOpenCodexThread?: (threadId: string) => Promise<void>;
   onOpenNewCodexThread?: () => void;
+  onOpenLocalEnvironmentSettings?: (input: {
+    projectId: string;
+    configPath?: string | null;
+  }) => void;
   onStartThreadSection?: (input: {
     projectId: string;
     cardId: string;

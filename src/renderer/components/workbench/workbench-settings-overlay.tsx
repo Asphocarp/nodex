@@ -10,6 +10,7 @@ import {
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import {
   ChevronLeft,
+  FolderCode,
   Monitor,
   Moon,
   Palette,
@@ -56,6 +57,7 @@ import {
 import { useCodeFontSize } from "../../lib/use-code-font-size";
 import { useNfmAutolinkSettings } from "../../lib/use-nfm-autolink-settings";
 import { AppUpdateSettingsControl } from "./app-update-settings-control";
+import { LocalEnvironmentsSettingsPage } from "./local-environments-settings-page";
 import {
   DEFAULT_DESCRIPTION_SOFT_LIMIT,
   DEFAULT_TEXT_PROMPT_CHAR_THRESHOLD,
@@ -78,6 +80,7 @@ import type {
   BackupSettings,
   HistorySettings,
   ManagedWorktreeRecord,
+  Project,
   ThreadNotificationSettings,
   WorktreeStartMode,
   CodexThreadDetailLevel,
@@ -101,7 +104,7 @@ import {
   ManualSnapshotFormSchema,
 } from "./workbench-settings-form-schemas";
 
-type SettingsSectionId = "workspace" | "editor" | "card" | "worktrees" | "backups";
+export type SettingsSectionId = "workspace" | "editor" | "card" | "worktrees" | "local-environments" | "backups";
 
 const SETTINGS_SECTIONS: Array<{
   id: SettingsSectionId;
@@ -112,6 +115,7 @@ const SETTINGS_SECTIONS: Array<{
     { id: "editor", label: "Editor", icon: Type },
     { id: "card", label: "Card", icon: Type },
     { id: "worktrees", label: "Worktrees", icon: Type },
+    { id: "local-environments", label: "Local environments", icon: FolderCode },
     { id: "backups", label: "Backups", icon: Shield },
   ];
 
@@ -1675,6 +1679,11 @@ function BackupSettingsControl({ open }: { open: boolean }) {
 interface SettingsOverlayProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  projects: Project[];
+  activeProjectId: string;
+  initialSection?: SettingsSectionId;
+  initialLocalEnvironmentProjectId?: string | null;
+  initialLocalEnvironmentConfigPath?: string | null;
   sidebarTopLevelSectionOrder: SidebarTopLevelSectionId[];
   sidebarTopLevelSections: SidebarTopLevelSectionsPrefs;
   onSidebarTopLevelSectionVisibleChange: (sectionId: SidebarTopLevelSectionId, visible: boolean) => void;
@@ -1699,6 +1708,11 @@ interface SettingsOverlayProps {
 export function SettingsOverlay({
   open,
   onOpenChange,
+  projects,
+  activeProjectId,
+  initialSection = "workspace",
+  initialLocalEnvironmentProjectId,
+  initialLocalEnvironmentConfigPath,
   sidebarTopLevelSectionOrder,
   sidebarTopLevelSections,
   onSidebarTopLevelSectionVisibleChange,
@@ -1728,6 +1742,7 @@ export function SettingsOverlay({
     editor: null,
     card: null,
     worktrees: null,
+    "local-environments": null,
     backups: null,
   });
 
@@ -1743,11 +1758,16 @@ export function SettingsOverlay({
 
   useEffect(() => {
     if (!open) return;
-    setActiveSection("workspace");
+    setActiveSection(initialSection);
     const scrollElement = scrollRef.current;
     if (scrollElement) scrollElement.scrollTop = 0;
+    if (initialSection !== "workspace") {
+      requestAnimationFrame(() => {
+        scrollToSection(initialSection);
+      });
+    }
     shellRef.current?.focus();
-  }, [open]);
+  }, [initialSection, open, scrollToSection]);
 
   useEffect(() => {
     if (!open) return;
@@ -2101,6 +2121,27 @@ export function SettingsOverlay({
                     <ManagedWorktreesSettingControl open={open} />
                   </div>
                 </SectionBlock>
+
+                <section
+                  ref={(element) => {
+                    sectionRefs.current["local-environments"] = element;
+                  }}
+                  className="flex flex-col gap-4"
+                >
+                  <div className="flex h-10 items-center">
+                    <div className="text-base font-medium text-(--foreground)">
+                      Local environments
+                    </div>
+                  </div>
+                  <LocalEnvironmentsSettingsPage
+                    open={open}
+                    active={activeSection === "local-environments"}
+                    projects={projects}
+                    activeProjectId={activeProjectId}
+                    initialProjectId={initialLocalEnvironmentProjectId}
+                    initialConfigPath={initialLocalEnvironmentConfigPath}
+                  />
+                </section>
 
                 <section
                   ref={(element) => {
