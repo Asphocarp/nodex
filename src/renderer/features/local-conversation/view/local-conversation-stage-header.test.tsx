@@ -52,8 +52,8 @@ function buildModel(overrides?: Partial<ThreadStageModel>): ThreadStageModel {
     composerShell: {
       activeRequest: null,
       backgroundRequest: null,
-      pendingSteers: [],
-      queuedFollowUps: [],
+      pendingSteerRows: [],
+      queuedFollowUpRows: [],
       backgroundAgentRows: [],
       backgroundTerminalRows: [],
       showRequestCards: false,

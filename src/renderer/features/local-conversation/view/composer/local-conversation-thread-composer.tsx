@@ -397,7 +397,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   });
 
   return (
-    <div className="mx-auto w-full max-w-[var(--thread-composer-max-width)] px-panel">
+    <>
       <form
         className="relative overflow-hidden rounded-3xl border border-token-border shadow-card-md"
         onSubmit={(event) => handleFormSubmit(event, promptForm.handleSubmit)}
@@ -574,7 +574,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
           <ContextWindowIndicator state={contextWindowIndicatorState} />
         </div>
       </div>
-    </div>
+    </>
   );
 }
 

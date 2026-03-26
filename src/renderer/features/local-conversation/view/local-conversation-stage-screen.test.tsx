@@ -90,8 +90,8 @@ function buildProps(overrides?: Partial<ThreadStageScreenProps["model"]>): Threa
       composerShell: {
         activeRequest: null,
         backgroundRequest: null,
-        pendingSteers: [],
-        queuedFollowUps: [],
+        pendingSteerRows: [],
+        queuedFollowUpRows: [],
         backgroundAgentRows: [],
         backgroundTerminalRows: [],
         showRequestCards: false,

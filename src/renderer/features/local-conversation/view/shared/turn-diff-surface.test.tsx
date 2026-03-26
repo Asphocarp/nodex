@@ -90,6 +90,7 @@ describe("TurnDiffSurface", () => {
       <TooltipProvider>
         <TurnDiffSurface
           item={buildTurnDiffEntry()}
+          isInProgress={false}
           threadCwd="/tmp/project"
         />
       </TooltipProvider>,
@@ -111,6 +112,7 @@ describe("TurnDiffSurface", () => {
       <TooltipProvider>
         <TurnDiffSurface
           item={buildTurnDiffEntry()}
+          isInProgress={false}
           threadCwd="/tmp/project"
         />
       </TooltipProvider>,
@@ -136,14 +138,16 @@ describe("TurnDiffSurface", () => {
     const { container } = render(
       <TooltipProvider>
         <TurnDiffSurface
-          item={buildTurnDiffEntry({ status: "inProgress" })}
+          item={buildTurnDiffEntry()}
+          isInProgress={true}
           threadCwd="/tmp/project"
         />
       </TooltipProvider>,
     );
 
     expect(Boolean(container.textContent?.includes("2 files changed"))).toBeTrue();
-    expect(container.querySelectorAll('[role="button"]').length).toBe(0);
+    expect(Boolean(container.textContent?.includes("Review"))).toBeTrue();
+    expect(container.querySelectorAll('[role="button"][aria-expanded]').length).toBe(0);
   });
 
   test("derives per-file stats from actual changed lines instead of hunk span counts", () => {
@@ -172,6 +176,7 @@ describe("TurnDiffSurface", () => {
               unifiedDiff: largeDiff,
             },
           })}
+          isInProgress={false}
           threadCwd="/tmp/project"
         />
       </TooltipProvider>,

@@ -171,18 +171,44 @@ function TurnDiffFilesChangedLabel({ fileCount }: { fileCount: number }) {
   );
 }
 
+function ReviewChangesIcon() {
+  return (
+    <svg viewBox="0 0 20 20" className="icon-2xs translate-y-[1px] text-token-input-placeholder-foreground transition-colors group-hover:text-token-foreground" fill="none" aria-hidden="true">
+      <path
+        d="M14.3349 13.3301V6.60645L5.47065 15.4707C5.21095 15.7304 4.78895 15.7304 4.52925 15.4707C4.26955 15.211 4.26955 14.789 4.52925 14.5293L13.3935 5.66504H6.66011C6.29284 5.66504 5.99507 5.36727 5.99507 5C5.99507 4.63273 6.29284 4.33496 6.66011 4.33496H14.9999L15.1337 4.34863C15.4369 4.41057 15.665 4.67857 15.665 5V13.3301C15.6649 13.6973 15.3672 13.9951 14.9999 13.9951C14.6327 13.9951 14.335 13.6973 14.3349 13.3301Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
 function TurnDiffBanner({ summary }: { summary: TurnDiffSummary }) {
   return (
-    <div className="mb-2 flex flex-col overflow-hidden rounded-xl bg-token-list-hover-background/60 text-base">
-      <div className="flex items-center gap-2">
-        <div className="flex w-full min-w-0 flex-nowrap items-center gap-1 pr-1 pl-3">
-          <TurnDiffFilesChangedLabel fileCount={summary.fileCount} />
-          <DiffStats
-            additions={summary.additions}
-            deletions={summary.deletions}
-            className="text-size-chat"
-          />
-          <div className="flex-1" />
+    <div className="bg-token-input-background/70 text-token-foreground border-token-border/80 relative overflow-clip border-x border-t backdrop-blur-sm transition-colors first:rounded-t-2xl">
+      <div className="flex flex-col">
+        <div className="flex w-full items-center justify-between gap-1.5 py-1.5 pr-2 pl-3 text-sm font-normal">
+          <div className="text-size-chat flex w-full items-center justify-between">
+            <div className="flex min-w-0 items-center gap-1">
+              <span className="block min-w-0 truncate text-token-input-placeholder-foreground">
+                {summary.fileCount <= 0
+                  ? "Files changed"
+                  : `${summary.fileCount} ${summary.fileCount === 1 ? "file" : "files"} changed`}
+              </span>
+              <span className="text-token-charts-green">+{summary.additions}</span>
+              <span className="text-token-charts-red">-{summary.deletions}</span>
+            </div>
+            <button
+              type="button"
+              className="group text-size-chat ml-auto flex cursor-pointer items-center gap-1 text-token-input-foreground focus-visible:outline-none"
+              aria-label="Review changes"
+            >
+              <span className="flex items-center gap-0.5">
+                Review
+                <span className="max-[480px]:hidden">changes</span>
+              </span>
+              <ReviewChangesIcon />
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -294,10 +320,12 @@ function TurnDiffEmbeddedRow({
 
 export function TurnDiffSurface({
   item,
+  isInProgress,
   projectWorkspacePath,
   threadCwd,
 }: {
   item: CodexTranscriptEntry;
+  isInProgress: boolean;
   projectWorkspacePath?: string;
   threadCwd?: string;
 }) {
@@ -314,7 +342,7 @@ export function TurnDiffSurface({
     return null;
   }
 
-  if (item.status === "inProgress") {
+  if (isInProgress) {
     return <TurnDiffBanner summary={summary} />;
   }
 

@@ -8,6 +8,12 @@ interface Rgb {
 
 interface BaseTheme {
   accent: string;
+  accentColors: {
+    green: string;
+    orange: string;
+    red: string;
+    yellow: string;
+  };
   contrast: number;
   fonts: {
     code: string | null;
@@ -79,6 +85,12 @@ const WHITE: Rgb = { blue: 255, green: 255, red: 255 };
 const DEFAULT_THEMES: Record<ThemeVariant, BaseTheme> = {
   dark: {
     accent: "#339cff",
+    accentColors: {
+      green: "#40c977",
+      orange: "#fb6a22",
+      red: "#ff6764",
+      yellow: "#ffd240",
+    },
     contrast: 60,
     fonts: { code: null, ui: null },
     ink: "#ffffff",
@@ -92,6 +104,12 @@ const DEFAULT_THEMES: Record<ThemeVariant, BaseTheme> = {
   },
   light: {
     accent: "#339cff",
+    accentColors: {
+      green: "#00a240",
+      orange: "#e25507",
+      red: "#e02e2a",
+      yellow: "#ffc300",
+    },
     contrast: 45,
     fonts: { code: null, ui: null },
     ink: "#0d0d0d",
@@ -142,7 +160,11 @@ export function getCodexThemeVariantStyle(
     "--codex-base-ink": prepared.theme.ink,
     "--codex-base-surface": prepared.theme.surface,
     "--color-accent-blue": prepared.theme.accent,
+    "--color-accent-green": prepared.theme.accentColors.green,
+    "--color-accent-orange": prepared.theme.accentColors.orange,
     "--color-accent-purple": prepared.theme.semanticColors.skill,
+    "--color-accent-red": prepared.theme.accentColors.red,
+    "--color-accent-yellow": prepared.theme.accentColors.yellow,
     "--color-background-accent": derived.accentBackground,
     "--color-background-accent-active": derived.accentBackgroundActive,
     "--color-background-accent-hover": derived.accentBackgroundHover,

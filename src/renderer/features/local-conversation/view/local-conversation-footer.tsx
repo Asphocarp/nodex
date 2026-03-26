@@ -1,6 +1,9 @@
 import type { ThreadStageActions, ThreadStageModel } from "../thread-stage-types";
 import { LocalConversationComposerShell } from "./composer/local-conversation-composer-shell";
-import { LocalConversationAboveComposerPortalHost } from "./local-conversation-above-composer-portal";
+import {
+  LocalConversationAboveComposerPortalHost,
+  LocalConversationAboveComposerQueuePortalHost,
+} from "./local-conversation-above-composer-portal";
 
 interface LocalConversationFooterProps {
   model: ThreadStageModel;
@@ -19,17 +22,17 @@ export function LocalConversationFooter({
 
   if (isResumingActiveThread) {
     return (
-      <div className="relative bg-(--background) pb-0">
-        <div className="pointer-events-none absolute inset-x-0 bottom-full h-4 bg-linear-to-t from-(--background) to-transparent" />
+      <div className="px-panel z-10 mx-auto flex w-full max-w-[var(--thread-composer-max-width)] flex-col pb-2">
         <LocalConversationAboveComposerPortalHost />
+        <LocalConversationAboveComposerQueuePortalHost />
       </div>
     );
   }
 
   return (
-    <div className="relative bg-(--background) pb-0">
-      <div className="pointer-events-none absolute inset-x-0 bottom-full h-4 bg-linear-to-t from-(--background) to-transparent" />
+    <div className="px-panel z-10 mx-auto flex w-full max-w-[var(--thread-composer-max-width)] flex-col pb-2">
       <LocalConversationAboveComposerPortalHost />
+      <LocalConversationAboveComposerQueuePortalHost />
       <LocalConversationComposerShell
         model={model}
         actions={actions}

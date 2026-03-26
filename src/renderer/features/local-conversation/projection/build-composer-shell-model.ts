@@ -4,6 +4,10 @@ import type {
   ThreadComposerShellModel,
   ThreadComposerShellPendingRequestModel,
 } from "../thread-stage-types";
+import {
+  buildComposerPendingSteerRows,
+  buildComposerQueuedFollowUpRows,
+} from "./build-composer-follow-up-lane-model";
 import { selectPrimaryConversationRequest } from "../conversation-request-helpers";
 
 interface BuildComposerShellModelInput {
@@ -100,8 +104,8 @@ export function buildComposerShellModel(
     return {
       activeRequest: null,
       backgroundRequest: null,
-      pendingSteers: [],
-      queuedFollowUps: [],
+      pendingSteerRows: [],
+      queuedFollowUpRows: [],
       backgroundAgentRows: [],
       backgroundTerminalRows: [],
       showRequestCards: false,
@@ -132,8 +136,8 @@ export function buildComposerShellModel(
         }
       : null,
     backgroundRequest,
-    pendingSteers: conversation.pendingSteers,
-    queuedFollowUps: conversation.queuedFollowUps,
+    pendingSteerRows: buildComposerPendingSteerRows(conversation.pendingSteers),
+    queuedFollowUpRows: buildComposerQueuedFollowUpRows(conversation.queuedFollowUps),
     backgroundAgentRows: buildBackgroundAgentRows(conversation, input.knownConversationsById),
     backgroundTerminalRows: conversation.backgroundTerminalRows,
     showRequestCards,

@@ -7,6 +7,10 @@ import {
   buildThreadStageStoryScenario,
   type ThreadStageStoryControls,
 } from "../thread-stage-story-fixtures";
+import {
+  LocalConversationAboveComposerPortalHost,
+  LocalConversationAboveComposerQueuePortalHost,
+} from "../local-conversation-above-composer-portal";
 import { LocalConversationComposerShell } from "./local-conversation-composer-shell";
 
 const STORY_CONTROLS: ThreadStageStoryControls = {
@@ -64,12 +68,16 @@ describe("LocalConversationComposerShell", () => {
     const model = buildComposerShellModel();
     render(
       <TooltipProvider>
-        <LocalConversationComposerShell
-          model={model}
-          actions={buildActions()}
-          errorMessage={null}
-          onErrorMessage={() => {}}
-        />
+        <div className="px-panel z-10 mx-auto flex w-full max-w-[var(--thread-composer-max-width)] flex-col pb-2">
+          <LocalConversationAboveComposerPortalHost />
+          <LocalConversationAboveComposerQueuePortalHost />
+          <LocalConversationComposerShell
+            model={model}
+            actions={buildActions()}
+            errorMessage={null}
+            onErrorMessage={() => {}}
+          />
+        </div>
       </TooltipProvider>,
     );
     await settleAsyncRender();

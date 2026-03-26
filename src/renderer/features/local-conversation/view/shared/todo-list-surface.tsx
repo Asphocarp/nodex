@@ -113,14 +113,13 @@ function TodoStatusIcon({
   );
 }
 
-function ExpandIcon({ expanded }: { expanded: boolean }) {
-  return expanded ? (
+function ExpandIcon() {
+  return (
     <svg viewBox="0 0 20 20" className="icon-2xs" fill="none" aria-hidden="true">
-      <path d="M5.25 11.25L10 6.5L14.75 11.25" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ) : (
-    <svg viewBox="0 0 20 20" className="icon-2xs" fill="none" aria-hidden="true">
-      <path d="M5.25 8.75L10 13.5L14.75 8.75" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M16.0299 3.0293C16.2896 2.76996 16.7107 2.76988 16.9703 3.0293C17.23 3.28899 17.23 3.711 16.9703 3.9707L13.2731 7.66797H16.9996L17.1344 7.68164C17.4372 7.74375 17.6645 8.01192 17.6647 8.33301C17.6647 8.65421 17.4372 8.92219 17.1344 8.98438L16.9996 8.99805H11.6666C11.2994 8.99801 11.0016 8.70026 11.0016 8.33301V3C11.0016 2.63275 11.2994 2.33499 11.6666 2.33496C12.0339 2.33496 12.3317 2.63273 12.3317 3V6.72754L16.0299 3.0293ZM8.99475 17C8.99475 17.3673 8.69698 17.665 8.32971 17.665C7.96258 17.6649 7.66467 17.3672 7.66467 17V13.2725L3.96741 16.9707C3.70771 17.2304 3.2857 17.2304 3.026 16.9707C2.7663 16.711 2.7663 16.289 3.026 16.0293L6.72424 12.332H2.9967C2.62955 12.332 2.33185 12.0341 2.33167 11.667C2.33167 11.2997 2.62943 11.002 2.9967 11.002H8.32971C8.69698 11.002 8.99475 11.2997 8.99475 11.667V17Z"
+        fill="currentColor"
+      />
     </svg>
   );
 }
@@ -155,31 +154,35 @@ export function TodoListSurface({
   const summaryLabel = `${completedCount} out of ${totalCount === 1 ? "1 task completed" : `${totalCount} tasks completed`}`;
 
   return (
-    <div className="min-w-0 text-size-chat relative overflow-visible py-0">
-      <div className="overflow-hidden rounded-lg bg-token-foreground/5">
-        <div className="flex items-center justify-between gap-2 px-2.5 py-2">
-          <div className="flex min-w-0 items-center">
-            <div className="text-size-chat flex min-w-0 items-center gap-1">
-              {item.status !== "completed" ? (
-                <div className="flex items-center justify-center text-token-input-placeholder-foreground opacity-60">
-                  <svg viewBox="0 0 16 16" className="icon-xs text-token-foreground" fill="none" aria-hidden="true">
-                    <path d="M8 2.5v3m0 5v3m5.5-5.5h-3m-5 0h-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-                  </svg>
-                </div>
-              ) : null}
-              <span className="min-w-0 truncate text-token-input-placeholder-foreground">{summaryLabel}</span>
+    <div className="bg-token-input-background/70 text-token-foreground border-token-border/80 relative overflow-clip border-x border-t backdrop-blur-sm transition-colors first:rounded-t-2xl cursor-interaction">
+      <div className="flex flex-col">
+        <div className="flex w-full items-center justify-between gap-1.5 py-1.5 pr-2 pl-3 text-sm font-normal">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            <div className="flex min-w-0 items-center">
+              <div className="text-size-chat flex min-w-0 items-center gap-1">
+                {item.status !== "completed" ? (
+                  <div className="flex items-center justify-center text-token-input-placeholder-foreground opacity-60">
+                    <svg viewBox="0 0 16 16" className="icon-xs text-token-foreground" fill="none" aria-hidden="true">
+                      <path d="M8 2.5v3m0 5v3m5.5-5.5h-3m-5 0h-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                    </svg>
+                  </div>
+                ) : null}
+                <span className="min-w-0 truncate text-token-input-placeholder-foreground">{summaryLabel}</span>
+              </div>
             </div>
           </div>
-          <button
-            type="button"
-            aria-label={expanded ? "Collapse todo list" : "Expand todo list"}
-            className="text-token-input-placeholder-foreground hover:bg-transparent hover:text-token-foreground focus-visible:outline-none"
-            onClick={() => {
-              setExpanded((current) => !current);
-            }}
-          >
-            <ExpandIcon expanded={expanded} />
-          </button>
+          <div className="flex min-w-fit shrink-0 items-center gap-1.5 select-none sm:ml-auto">
+            <button
+              type="button"
+              aria-label={expanded ? "Collapse todo list" : "Expand todo list"}
+              className="text-token-input-placeholder-foreground hover:bg-transparent hover:text-token-foreground focus-visible:outline-none"
+              onClick={() => {
+                setExpanded((current) => !current);
+              }}
+            >
+              <ExpandIcon />
+            </button>
+          </div>
         </div>
 
         <motion.div

@@ -135,6 +135,7 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
   - raw `fileChange` items always stay visible as `patch` tool rows (`Edited …`)
   - turn-level aggregated `turn.diff` renders as a separate `turn-diff` surface
   - active in-progress turn diffs surface as a compact above-composer `files changed` banner instead of a generic inline diff viewer
+  - the above-composer diff banner is caller-owned `in progress` UI, not an item-status heuristic: it renders as the summary-only `Review changes` banner with no embedded per-file rows
   - completed turn diffs render as a dedicated files-changed card with per-file collapsed embedded diff rows
   - the unified diff card is never allowed to replace or swallow the underlying `Edited file` tool row
   - patch rows expand inline to reveal their own unified diff frame instead of delegating expansion to the separate turn-level diff card

@@ -4,17 +4,22 @@ import { ThreadBlockRenderer } from "./blocks/local-conversation-block-renderer"
 import { usePortalHost } from "./use-portal-host";
 
 export const LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_PORTAL_ID = "above-composer-portal";
+export const LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ID = "above-composer-queue-portal";
 
 export function LocalConversationAboveComposerPortalHost() {
   return (
-    <div className="px-panel z-10 mx-auto flex w-full max-w-[var(--thread-composer-max-width)] flex-col">
-      <div className="contents" data-thread-find-composer="true">
-        <div className="relative h-0" />
-        <div>
-          <div id={LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_PORTAL_ID} className="relative px-3 empty:hidden" />
-        </div>
+    <div className="contents" data-thread-find-composer="true">
+      <div className="relative h-0" />
+      <div>
+        <div id={LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_PORTAL_ID} className="relative px-5 empty:hidden" />
       </div>
     </div>
+  );
+}
+
+export function LocalConversationAboveComposerQueuePortalHost() {
+  return (
+    <div id={LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ID} className="relative px-5 empty:hidden" />
   );
 }
 

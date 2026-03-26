@@ -501,12 +501,14 @@ export function ThreadToolSurfaceBlock({
 
 export function ThreadTurnDiffBlock({
   block,
+  isStreamingTurn,
   projectWorkspacePath,
   threadCwd,
 }: ThreadLeafBlockProps) {
   return (
     <TurnDiffSurface
       item={block.entry}
+      isInProgress={isStreamingTurn}
       projectWorkspacePath={projectWorkspacePath ?? undefined}
       threadCwd={threadCwd ?? undefined}
     />

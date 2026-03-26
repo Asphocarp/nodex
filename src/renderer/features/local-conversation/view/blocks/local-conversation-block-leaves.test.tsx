@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
 import type { CodexConversationItem } from "../../../../lib/types";
 import { render, settleAsyncRender, textContent } from "../../../../test/dom";
-import { ThreadContextCompactionBlock, ThreadExplorationGroupBlock } from "./local-conversation-block-leaves";
+import { ThreadContextCompactionBlock, ThreadExplorationGroupBlock, ThreadTurnDiffBlock } from "./local-conversation-block-leaves";
 
 function buildCommandEntry(
   itemId: string,
@@ -231,5 +231,57 @@ describe("ThreadContextCompactionBlock", () => {
     getByText("Automatically compacting context");
     expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeTrue();
     expect(Boolean(container.querySelector("svg"))).toBeFalse();
+  });
+});
+
+describe("ThreadTurnDiffBlock", () => {
+  test("renders the compact Codex above-composer banner while the turn is streaming", () => {
+    const { container, getByText } = render(
+      <ThreadTurnDiffBlock
+        block={{
+          id: "turn-diff-portal",
+          turnId: "turn-1",
+          createdAt: 1,
+          updatedAt: 1,
+          searchableText: "4 files changed",
+          type: "turnDiff",
+          entry: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "turn-diff-portal",
+            entryId: "turn-diff-portal",
+            type: "turn_diff",
+            kind: "systemEvent",
+            semanticKind: "diff",
+            status: "completed",
+            rawItem: {
+              type: "turn-diff",
+              cwd: "/tmp/project",
+              unifiedDiff: [
+                "--- a/src/one.ts",
+                "+++ b/src/one.ts",
+                "@@ -1 +1 @@",
+                "-old",
+                "+new",
+                "--- a/src/two.ts",
+                "+++ b/src/two.ts",
+                "@@ -1 +1 @@",
+                "-old2",
+                "+new2",
+              ].join("\n"),
+            },
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        }}
+        isLatestTurn={true}
+        isStreamingTurn={true}
+        threadCwd="/tmp/project"
+      />,
+    );
+
+    getByText("2 files changed");
+    expect(Boolean(container.textContent?.includes("Review"))).toBeTrue();
+    expect(container.querySelectorAll('[role="button"][aria-expanded="false"]').length).toBe(0);
   });
 });
