@@ -1,7 +1,7 @@
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { motion } from "motion/react";
 import { useState, type ReactNode } from "react";
-import { StopIcon } from "@/components/shared/icons";
+import { ChevronRightIcon, StopIcon } from "@/components/shared/icons";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type {
@@ -73,22 +73,6 @@ function EditIcon() {
   return (
     <svg viewBox="0 0 20 20" className="icon-2xs" fill="none" aria-hidden="true">
       <path d="M4.75 13.75 4 16l2.25-.75L14.5 7 13 5.5l-8.25 8.25Zm9-9L15.25 3.5a1.06 1.06 0 011.5 0l.75.75a1.06 1.06 0 010 1.5L16 7.25l-2.25-2.5Z" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function ChevronIcon({ expanded }: { expanded: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      className={cn("icon-2xs text-current transition-transform duration-300", expanded ? "rotate-90" : "-rotate-90")}
-      fill="none"
-      aria-hidden="true"
-    >
-      <path
-        d="M7.52925 3.7793C7.75652 3.55203 8.10803 3.52383 8.36616 3.69434L8.47065 3.7793L14.2207 9.5293C14.4804 9.789 14.4804 10.211 14.2207 10.4707L8.47065 16.2207C8.21095 16.4804 7.78895 16.4804 7.52925 16.2207C7.26955 15.961 7.26955 15.539 7.52925 15.2793L12.8085 10L7.52925 4.7207L7.44429 4.61621C7.27378 4.35808 7.30198 4.00657 7.52925 3.7793Z"
-        fill="currentColor"
-      />
     </svg>
   );
 }
@@ -382,7 +366,7 @@ function BackgroundTerminalPanel({
               setExpanded((current) => !current);
             }}
           >
-            <ChevronIcon expanded={expanded} />
+            <ChevronRightIcon className={cn("text-current transition-transform duration-300", expanded ? "rotate-90" : "-rotate-90")} />
           </QueueActionButton>
         </div>
       </div>
@@ -461,7 +445,7 @@ function BackgroundAgentPanel({
             setExpanded((current) => !current);
           }}
         >
-          <ChevronIcon expanded={expanded} />
+          <ChevronRightIcon className={cn("text-current transition-transform duration-300", expanded ? "rotate-90" : "-rotate-90")} />
         </QueueActionButton>
       </div>
       <motion.div

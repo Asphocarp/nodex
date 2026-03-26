@@ -12,6 +12,7 @@ import {
   type ReactNode,
 } from "react";
 import { motion } from "motion/react";
+import { ChevronDownIcon, ChevronRightIcon } from "@/components/shared/icons";
 import { Tooltip } from "../../../../../components/ui/tooltip";
 import {
   handleFormSubmit,
@@ -101,20 +102,12 @@ export function UserInputTranscriptView({
         </span>
       </span>
       {canExpand ? (
-        <svg
-          viewBox="0 0 20 20"
+        <ChevronRightIcon
           className={cn(
-            "text-token-input-placeholder-foreground icon-2xs flex-shrink-0 transition-all duration-300 opacity-0 group-hover:opacity-100",
+            "text-token-input-placeholder-foreground flex-shrink-0 transition-all duration-300 opacity-0 group-hover:opacity-100",
             expanded && "opacity-100 rotate-90",
           )}
-          fill="none"
-          aria-hidden="true"
-        >
-          <path
-            d="M7.52925 3.7793C7.75652 3.55203 8.10803 3.52383 8.36616 3.69434L8.47065 3.7793L14.2207 9.5293C14.4804 9.789 14.4804 10.211 14.2207 10.4707L8.47065 16.2207C8.21095 16.4804 7.78895 16.4804 7.52925 16.2207C7.26955 15.961 7.26955 15.539 7.52925 15.2793L12.8085 10L7.52925 4.7207L7.44429 4.61621C7.27378 4.35808 7.30198 4.00657 7.52925 3.7793Z"
-            fill="currentColor"
-          />
-        </svg>
+        />
       ) : null}
     </div>
   );
@@ -538,26 +531,13 @@ function UserInputQuestionSection({
 
 function ChevronIcon({ direction, className }: { direction: "prev" | "next"; className?: string }) {
   return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 20 21"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
+    <ChevronDownIcon
       className={cn(
         "size-4",
         direction === "prev" ? "rotate-90" : "-rotate-90",
         className,
       )}
-      aria-hidden
-    >
-      <path
-        d="M15.2793 7.71101C15.539 7.45131 15.961 7.45131 16.2207 7.71101C16.4804 7.97071 16.4804 8.39272 16.2207 8.65242L10.4707 14.4024C10.211 14.6621 9.78902 14.6621 9.52932 14.4024L3.77932 8.65242L3.69436 8.54792C3.52385 8.28979 3.55205 7.93828 3.77932 7.71101C4.00659 7.48374 4.3581 7.45554 4.61623 7.62605L4.72073 7.71101L10 12.9903L15.2793 7.71101Z"
-        fill="currentColor"
-        stroke="currentColor"
-        strokeWidth="0.6"
-      />
-    </svg>
+    />
   );
 }
 

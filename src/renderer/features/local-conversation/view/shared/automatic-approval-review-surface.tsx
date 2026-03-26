@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ChevronRightIcon } from "@/components/shared/icons";
 import { cn } from "../../../../lib/utils";
 import type { CodexConversationItem } from "../../../../lib/types";
 import {
@@ -67,21 +68,12 @@ export function AutomaticApprovalReviewSurface({ item }: { item: CodexConversati
         </span>
       ) : null}
       {hasDetails ? (
-        <svg
-          viewBox="0 0 20 20"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
+        <ChevronRightIcon
           className={cn(
-            "icon-2xs flex-shrink-0 text-token-input-placeholder-foreground transition-transform duration-200",
+            "flex-shrink-0 text-token-input-placeholder-foreground transition-transform duration-200",
             expanded && "rotate-90",
           )}
-          aria-hidden
-        >
-          <path
-            d="M7.52925 3.7793C7.75652 3.55203 8.10803 3.52383 8.36616 3.69434L8.47065 3.7793L14.2207 9.5293C14.4804 9.789 14.4804 10.211 14.2207 10.4707L8.47065 16.2207C8.21095 16.4804 7.78895 16.4804 7.52925 16.2207C7.26955 15.961 7.26955 15.539 7.52925 15.2793L12.8085 10L7.52925 4.7207L7.44429 4.61621C7.27378 4.35808 7.30198 4.00657 7.52925 3.7793Z"
-            fill="currentColor"
-          />
-        </svg>
+        />
       ) : null}
     </div>
   );

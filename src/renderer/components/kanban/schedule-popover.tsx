@@ -1,5 +1,6 @@
 import { useState } from "react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
+import { BellIcon, ClockIcon, GlobeIcon, RepeatIcon, SmallChevronDownIcon } from "@/components/shared/icons";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -19,52 +20,6 @@ import {
   formatRecurrenceSummary,
   formatRemindersSummary,
 } from "@/lib/use-schedule-state";
-
-// ── Icons ────────────────────────────────────────────────────────────────────
-
-function ClockIcon() {
-  return (
-    <svg width="17" height="17" viewBox="0 0 17 17" fill="none" className="shrink-0">
-      <path d="M8.4 2.1a6.3 6.3 0 1 1 0 12.6 6.3 6.3 0 0 1 0-12.6Zm0 1.575a4.725 4.725 0 1 0 0 9.45 4.725 4.725 0 0 0 0-9.45Zm.788.787v3.443l2.55 1.53-.81 1.352-3.315-1.99V4.462h1.575Z" fill="currentColor" />
-    </svg>
-  );
-}
-
-function ChevronIcon({ className }: { className?: string }) {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={cn("shrink-0 transition-transform duration-150", className)}>
-      <path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function RepeatIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="shrink-0">
-      <path d="M10.5 4.667H2.333v2.333M3.5 9.333h8.167V7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M8.75 2.917l1.75 1.75-1.75 1.75M5.25 11.083l-1.75-1.75 1.75-1.75" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function BellIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="shrink-0">
-      <path d="M7 12.25c.644 0 1.167-.523 1.167-1.167H5.833c0 .644.523 1.167 1.167 1.167Zm3.5-3.5V5.833a3.483 3.483 0 0 0-2.917-3.441V1.75a.583.583 0 1 0-1.166 0v.642A3.483 3.483 0 0 0 3.5 5.833v2.917L2.333 9.917v.583h9.334v-.583L10.5 8.75Z" fill="currentColor" />
-    </svg>
-  );
-}
-
-function GlobeIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="shrink-0">
-      <circle cx="7" cy="7" r="5.25" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M1.75 7h10.5M7 1.75c-1.5 1.5-2 3.25-2 5.25s.5 3.75 2 5.25c1.5-1.5 2-3.25 2-5.25s-.5-3.75-2-5.25Z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-// ── Component ────────────────────────────────────────────────────────────────
 
 interface SchedulePopoverProps {
   schedule: ScheduleState;
@@ -229,7 +184,7 @@ export function SchedulePopover({ schedule, card }: SchedulePopoverProps) {
                     <span className="text-xs text-(--foreground-tertiary)">
                       {recurrenceSummary}
                     </span>
-                    <ChevronIcon className={cn(repeatOpen && "rotate-180")} />
+                    <SmallChevronDownIcon className={cn("transition-transform duration-150", repeatOpen && "rotate-180")} />
                   </div>
                 </button>
 
@@ -386,7 +341,7 @@ export function SchedulePopover({ schedule, card }: SchedulePopoverProps) {
                     <span className="text-xs text-(--foreground-tertiary)">
                       {remindersSummary}
                     </span>
-                    <ChevronIcon className={cn(remindersOpen && "rotate-180")} />
+                    <SmallChevronDownIcon className={cn("transition-transform duration-150", remindersOpen && "rotate-180")} />
                   </div>
                 </button>
 
@@ -446,7 +401,7 @@ export function SchedulePopover({ schedule, card }: SchedulePopoverProps) {
                     <span className="max-w-30 truncate text-xs text-(--foreground-tertiary)">
                       {schedule.scheduleTimezone || "Local"}
                     </span>
-                    <ChevronIcon className={cn(timezoneOpen && "rotate-180")} />
+                    <SmallChevronDownIcon className={cn("transition-transform duration-150", timezoneOpen && "rotate-180")} />
                   </div>
                 </button>
 
