@@ -71,8 +71,6 @@ import type {
   CodexThreadSummary,
   CodexThreadStartProgressPhase,
   CodexThreadStartProgressStream,
-  CodexThreadTokenUsage,
-  CodexTokenUsageBreakdown,
   CodexTurnStartOptions,
   CodexTurnStatus,
   CodexThreadStartForCardInput,
@@ -82,6 +80,7 @@ import type {
   WorktreeEnvironmentOption,
   WorktreeStartMode,
 } from "../../shared/types";
+import { parseCodexThreadTokenUsage } from "../../shared/schemas/codex";
 import { selectPrimaryConversationRequest } from "../../shared/codex-conversation-request";
 import {
   buildAutomaticApprovalReviewSummary,
@@ -473,61 +472,9 @@ function normalizeTimestamp(value: unknown): number {
   return Math.floor(value * 1000);
 }
 
-function parseFiniteNumber(value: unknown): number | null {
-  if (typeof value !== "number" || !Number.isFinite(value)) return null;
-  return value;
-}
-
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (typeof value !== "object" || value === null) return null;
   return value as Record<string, unknown>;
-}
-
-function parseTokenUsageBreakdown(value: unknown): CodexTokenUsageBreakdown | null {
-  const candidate = asRecord(value);
-  if (!candidate) return null;
-
-  const totalTokens = parseFiniteNumber(candidate.totalTokens ?? candidate.total_tokens);
-  const inputTokens = parseFiniteNumber(candidate.inputTokens ?? candidate.input_tokens);
-  const cachedInputTokens = parseFiniteNumber(candidate.cachedInputTokens ?? candidate.cached_input_tokens);
-  const outputTokens = parseFiniteNumber(candidate.outputTokens ?? candidate.output_tokens);
-  const reasoningOutputTokens = parseFiniteNumber(
-    candidate.reasoningOutputTokens ?? candidate.reasoning_output_tokens,
-  );
-
-  if (
-    totalTokens === null ||
-    inputTokens === null ||
-    cachedInputTokens === null ||
-    outputTokens === null ||
-    reasoningOutputTokens === null
-  ) {
-    return null;
-  }
-
-  return {
-    totalTokens,
-    inputTokens,
-    cachedInputTokens,
-    outputTokens,
-    reasoningOutputTokens,
-  };
-}
-
-function parseThreadTokenUsage(value: unknown): CodexThreadTokenUsage | undefined {
-  const candidate = asRecord(value);
-  if (!candidate) return undefined;
-
-  const total = parseTokenUsageBreakdown(candidate.total);
-  const last = parseTokenUsageBreakdown(candidate.last);
-  if (!total || !last) return undefined;
-
-  const modelContextWindow = candidate.modelContextWindow ?? candidate.model_context_window;
-  return {
-    total,
-    last,
-    modelContextWindow: modelContextWindow === null ? null : parseFiniteNumber(modelContextWindow),
-  };
 }
 
 function parseTurnDiff(value: unknown): string | undefined {
@@ -2196,7 +2143,7 @@ export class CodexService extends EventEmitter {
           ? (candidate.error as Record<string, unknown>).message as string
           : undefined
         : undefined;
-    const tokenUsage = parseThreadTokenUsage(candidate.tokenUsage ?? candidate.token_usage);
+    const tokenUsage = parseCodexThreadTokenUsage(candidate.tokenUsage ?? candidate.token_usage);
 
     return {
       threadId,
@@ -4435,7 +4382,7 @@ export class CodexService extends EventEmitter {
       const payload = asRecord(params);
       if (!payload || typeof payload.threadId !== "string" || typeof payload.turnId !== "string") return;
 
-      const tokenUsage = parseThreadTokenUsage(payload.tokenUsage ?? payload.token_usage);
+      const tokenUsage = parseCodexThreadTokenUsage(payload.tokenUsage ?? payload.token_usage);
       if (!tokenUsage) return;
 
       const turn = this.getKnownTurn(payload.threadId, payload.turnId) ?? {

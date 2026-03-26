@@ -3,9 +3,11 @@ import {
   formatCodexModelLabel,
   formatCodexReasoningEffortLabel,
   formatCodexThreadDetailLevelLabel,
+  readCodexThreadSettings,
   resolveCodexReasoningEffortOptions,
   resolveCodexThreadDetailLevel,
   resolveCodexThreadSettings,
+  THREAD_SETTINGS_STORAGE_KEY,
 } from "./codex-thread-settings";
 import type { CodexModelOption } from "./types";
 
@@ -40,6 +42,47 @@ const MODELS: CodexModelOption[] = [
 ];
 
 describe("codex-thread-settings", () => {
+  test("drops invalid persisted thread settings fields", () => {
+    const storageGlobal = globalThis as unknown as {
+      localStorage?: {
+        getItem: (key: string) => string | null;
+        setItem: (key: string, value: string) => void;
+        removeItem: (key: string) => void;
+      };
+    };
+    const previousLocalStorage = storageGlobal.localStorage;
+    const store = new Map<string, string>();
+    storageGlobal.localStorage = {
+      getItem: (key) => store.get(key) ?? null,
+      setItem: (key, value) => {
+        store.set(key, value);
+      },
+      removeItem: (key) => {
+        store.delete(key);
+      },
+    };
+
+    try {
+      store.set(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({
+        model: " gpt-5.3-codex ",
+        reasoningEffort: "invalid",
+        detailLevel: "STEPS_EXECUTION",
+      }));
+
+      const settings = readCodexThreadSettings();
+
+      expect(settings?.model).toBe("gpt-5.3-codex");
+      expect(settings?.reasoningEffort).toBe(undefined);
+      expect(settings?.detailLevel).toBe("STEPS_EXECUTION");
+    } finally {
+      if (previousLocalStorage) {
+        storageGlobal.localStorage = previousLocalStorage;
+      } else {
+        delete storageGlobal.localStorage;
+      }
+    }
+  });
+
   test("defaults to the default model and its preferred reasoning effort", () => {
     const settings = resolveCodexThreadSettings(undefined, MODELS);
 

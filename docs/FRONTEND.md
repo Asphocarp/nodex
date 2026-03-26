@@ -29,6 +29,10 @@
 - Active conversation UI: reduce host messages and conversation snapshots in `features/local-conversation/`, then derive renderer-only projection data in `features/local-conversation/projection/*`. Keep transcript projection, composer-shell aggregation, search-unit derivation, turn-request stitching, and background-activity ordering upstream of JSX.
 - Keep active conversation UI ownership inside `features/local-conversation/view/*` and `features/local-conversation/view/shared/*`. Do not reintroduce a second workbench thread renderer path outside that feature.
 - Use `@tanstack/react-form` for submitted renderer forms instead of ad hoc `useState` form state; keep per-form submit/reset logic local and use `src/renderer/lib/forms.ts` for shared event/error helpers.
+- Keep runtime validation at boundaries:
+  - shared storage / transport / raw JSON schemas live under `src/shared/schemas/*`
+  - renderer-only persisted-state parsing lives in `src/renderer/lib/workbench-persisted-schemas.ts`
+  - once data is normalized into local reducers/view models, keep the rest of the renderer plain TypeScript instead of re-parsing inside components
 
 ## Editor Patterns
 - Keep custom editor behaviors in dedicated modules under `editor/`.

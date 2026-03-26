@@ -5,7 +5,6 @@ import type {
   WorkbenchResumeSnapshot,
 } from "./types";
 import {
-  createDefaultDockTree,
   type DockTreeNode,
 } from "./dock-layout";
 import {
@@ -29,6 +28,22 @@ import {
   type SupportedDbView,
   viewSupportsDbViewPrefs,
 } from "./db-view-prefs";
+import {
+  parseDockPrefs,
+  parseFilesStageTabs,
+  parseSidebarSectionStateByProject,
+  parseSidebarStageExpanded,
+  parseStageCollapsedState,
+  parseStageNavDirection,
+  parseStagePanelWidths,
+  parseTerminalStageTabs,
+  parseThreadsStageTabs,
+  parseWorkbenchRecentSessions,
+  parseWorkbenchSearchMap,
+  parseWorkbenchSpaceOrder,
+  parseWorkbenchStageMap,
+  parseWorkbenchViewMap,
+} from "./workbench-persisted-schemas";
 
 export type WorkbenchView = "kanban" | "list" | "toggle-list" | "canvas" | "calendar";
 export type StageId = "db" | "cards" | "threads" | "files";
@@ -217,23 +232,11 @@ function isStageDirection(value: unknown): value is StageNavDirection {
 }
 
 function normalizeViewMap(value: unknown): Record<string, WorkbenchView> {
-  if (typeof value !== "object" || value === null) return {};
-
-  return Object.entries(value).reduce<Record<string, WorkbenchView>>((acc, [projectId, view]) => {
-    if (!isWorkbenchView(view)) return acc;
-    acc[projectId] = view;
-    return acc;
-  }, {});
+  return parseWorkbenchViewMap(value);
 }
 
 function normalizeSearchMap(value: unknown): Record<string, string> {
-  if (typeof value !== "object" || value === null) return {};
-
-  return Object.entries(value).reduce<Record<string, string>>((acc, [projectId, search]) => {
-    if (typeof search !== "string") return acc;
-    acc[projectId] = search;
-    return acc;
-  }, {});
+  return parseWorkbenchSearchMap(value);
 }
 
 function normalizeDbViewPrefsMap(value: unknown): Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>> {
@@ -261,25 +264,11 @@ function normalizeDbViewPrefsMap(value: unknown): Record<string, Partial<Record<
 }
 
 function normalizeSpaceOrder(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((item): item is string => typeof item === "string" && item.length > 0);
+  return parseWorkbenchSpaceOrder(value);
 }
 
 function normalizeRecentSessions(value: unknown): RecentCardSession[] {
-  if (!Array.isArray(value)) return [];
-
-  return value
-    .filter(
-      (item): item is RecentCardSession =>
-        typeof item === "object" &&
-        item !== null &&
-        typeof (item as { id?: unknown }).id === "string" &&
-        typeof (item as { projectId?: unknown }).projectId === "string" &&
-        typeof (item as { cardId?: unknown }).cardId === "string" &&
-        typeof (item as { titleSnapshot?: unknown }).titleSnapshot === "string" &&
-        typeof (item as { lastOpenedAt?: unknown }).lastOpenedAt === "string",
-    )
-    .slice(0, MAX_RECENT_CARD_SESSIONS);
+  return parseWorkbenchRecentSessions(value, MAX_RECENT_CARD_SESSIONS);
 }
 
 function findRecentCardSession(
@@ -340,74 +329,23 @@ function recordRecentCardLeaveInList(
 }
 
 function normalizeStageMap(value: unknown): Record<string, StageId> {
-  if (typeof value !== "object" || value === null) return {};
-
-  return Object.entries(value).reduce<Record<string, StageId>>((acc, [projectId, stage]) => {
-    if (!isStageId(stage)) return acc;
-    acc[projectId] = stage;
-    return acc;
-  }, {});
-}
-
-function isSidebarGroupId(value: string): value is SidebarGroupId {
-  return SIDEBAR_GROUP_IDS.includes(value as SidebarGroupId);
+  return parseWorkbenchStageMap(value);
 }
 
 function normalizeSidebarStageExpanded(
   value: unknown,
 ): Record<string, Partial<Record<SidebarGroupId, boolean>>> {
-  if (typeof value !== "object" || value === null) return {};
-
-  return Object.entries(value).reduce<Record<string, Partial<Record<SidebarGroupId, boolean>>>>(
-    (acc, [projectId, stageMap]) => {
-      if (typeof stageMap !== "object" || stageMap === null) return acc;
-      const parsed = Object.entries(stageMap).reduce<Partial<Record<SidebarGroupId, boolean>>>(
-        (stageAcc, [stageId, expanded]) => {
-          if (!isSidebarGroupId(stageId)) return stageAcc;
-          if (typeof expanded !== "boolean") return stageAcc;
-          stageAcc[stageId] = expanded;
-          return stageAcc;
-        },
-        {},
-      );
-      acc[projectId] = parsed;
-      return acc;
-    },
-    {},
-  );
+  return parseSidebarStageExpanded(value);
 }
 
 function normalizeSidebarSectionStateByProject(
   value: unknown,
 ): Record<string, SidebarSectionState> {
-  if (typeof value !== "object" || value === null) return {};
-
-  return Object.entries(value).reduce<Record<string, SidebarSectionState>>((acc, [projectId, sectionMap]) => {
-    if (typeof sectionMap !== "object" || sectionMap === null) return acc;
-
-    const parsed = Object.entries(sectionMap).reduce<SidebarSectionState>((sectionAcc, [sectionId, enabled]) => {
-      if (typeof sectionId !== "string" || sectionId.length === 0) return sectionAcc;
-      if (typeof enabled !== "boolean") return sectionAcc;
-      sectionAcc[sectionId] = enabled;
-      return sectionAcc;
-    }, {});
-
-    acc[projectId] = parsed;
-    return acc;
-  }, {});
+  return parseSidebarSectionStateByProject(value);
 }
 
 function normalizeThreadsTabs(value: unknown): ThreadsStageTab[] {
-  if (!Array.isArray(value)) return [];
-  const parsed = value
-    .filter(
-      (tab): tab is ThreadsStageTab =>
-        typeof tab === "object" &&
-        tab !== null &&
-        typeof (tab as { id?: unknown }).id === "string" &&
-        typeof (tab as { title?: unknown }).title === "string" &&
-        typeof (tab as { preview?: unknown }).preview === "string",
-    )
+  const parsed = parseThreadsStageTabs(value)
     .filter((tab) => tab.id !== NEW_THREAD_STAGE_TAB_ID)
     .slice(0, 31);
   return ensureThreadsTabs(parsed);
@@ -417,66 +355,26 @@ function normalizeTerminalTabs(
   value: unknown,
   defaultProjectId: string,
 ): TerminalStageTab[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter(
-      (tab): tab is TerminalStageTab =>
-        typeof tab === "object" &&
-        tab !== null &&
-        typeof (tab as { id?: unknown }).id === "string" &&
-        ((tab as { kind?: unknown }).kind === "project" ||
-          (tab as { kind?: unknown }).kind === "card") &&
-        typeof (tab as { title?: unknown }).title === "string" &&
-        typeof (tab as { sessionId?: unknown }).sessionId === "string",
-    )
-    .map((tab) => ({
-      id: tab.id,
-      kind: tab.kind,
-      projectId:
-        typeof (tab as { projectId?: unknown }).projectId === "string"
-          ? (tab as { projectId: string }).projectId
-          : defaultProjectId,
-      title: tab.title,
-      sessionId: tab.sessionId,
-      cardId: tab.cardId,
-      sessionRefId: tab.sessionRefId,
-    }))
-    .slice(0, 32);
+  return parseTerminalStageTabs(value, defaultProjectId).slice(0, 32);
 }
 
 function normalizeFilesTabs(value: unknown): FilesStageTab[] {
-  if (!Array.isArray(value)) return [];
-  const hasCurrentTab = value.some(
-    (tab) =>
-      typeof tab === "object" &&
-      tab !== null &&
-      (tab as { id?: unknown }).id === "diff",
-  );
+  const hasCurrentTab = parseFilesStageTabs(value).some((tab) => tab.id === "diff");
   return hasCurrentTab ? [...DEFAULT_FILES_TABS] : [];
 }
 
 function normalizeStagePanelWidths(
   value: unknown,
 ): StagePanelWidths {
-  if (typeof value !== "object" || value === null) return {};
-
-  return Object.entries(value).reduce<StagePanelWidths>((acc, [stageId, width]) => {
+  return Object.entries(parseStagePanelWidths(value)).reduce<StagePanelWidths>((acc, [stageId, width]) => {
     if (!isStageId(stageId)) return acc;
-    if (typeof width !== "number" || !Number.isFinite(width)) return acc;
     acc[stageId] = clampStagePanelWidth(width, STAGE_PANEL_MIN_WIDTH, STAGE_PANEL_MAX_WIDTH);
     return acc;
   }, {});
 }
 
 function normalizeStageCollapsedState(value: unknown): StageCollapsedState {
-  if (typeof value !== "object" || value === null) return {};
-
-  return Object.entries(value).reduce<StageCollapsedState>((acc, [stageId, collapsed]) => {
-    if (!isStageId(stageId)) return acc;
-    if (typeof collapsed !== "boolean") return acc;
-    acc[stageId] = collapsed;
-    return acc;
-  }, {});
+  return parseStageCollapsedState(value);
 }
 
 function normalizeBoolean(value: unknown): boolean | null {
@@ -591,6 +489,7 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
   const persistedDock = readJson<Partial<DockPrefs>>(DOCK_STORAGE_KEY);
   const persistedRecent = readJson<unknown>(RECENT_STORAGE_KEY);
   const persistedDbViewPrefs = readJson<WorkbenchPrefs["dbViewPrefsByProject"]>(DB_VIEW_PREFS_STORAGE_KEY);
+  const parsedDockPrefs = parseDockPrefs(persistedDock);
   const resumeSnapshot = options.resumeSnapshot ?? null;
   const dbProjectId =
     resumeSnapshot?.dbProjectId ||
@@ -611,10 +510,8 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
     (isStageId(persistedWorkbench?.focusedStage) && persistedWorkbench.focusedStage) ||
     "db";
   const stageNavDirection =
-    (resumeSnapshot
-      && isStageDirection(resumeSnapshot.stageNavDirection)
-      && resumeSnapshot.stageNavDirection) ||
-    (isStageDirection(persistedWorkbench?.stageNavDirection) && persistedWorkbench.stageNavDirection) ||
+    parseStageNavDirection(resumeSnapshot?.stageNavDirection) ||
+    parseStageNavDirection(persistedWorkbench?.stageNavDirection) ||
     "right";
   const activeTerminalTabId =
     (typeof persistedWorkbench?.activeTerminalTabId === "string" && persistedWorkbench.activeTerminalTabId) ||
@@ -674,14 +571,11 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
     },
     dock: {
       width: clamp(
-        typeof persistedDock?.width === "number" ? persistedDock.width : DEFAULT_DOCK_WIDTH,
+        parsedDockPrefs.width ?? DEFAULT_DOCK_WIDTH,
         DOCK_MIN_WIDTH,
         DOCK_MAX_WIDTH,
       ),
-      tree:
-        typeof persistedDock?.tree === "object" && persistedDock.tree !== null
-          ? (persistedDock.tree as DockTreeNode)
-          : createDefaultDockTree(),
+      tree: parsedDockPrefs.tree,
     },
     recentCardSessions: resumeSnapshot
       ? normalizeRecentSessions(resumeSnapshot.recentCardSessions).slice(0, MAX_RECENT_CARD_SESSIONS)
