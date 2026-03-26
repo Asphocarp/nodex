@@ -85,6 +85,7 @@ Treat `CHANGELOG.md` as a required deliverable for any user-visible change:
 
 ## Testing Expectations
 - Prefer targeted tests while iterating: `bun test <path-to-test>`
+- For any new or changed user-visible UI, update or add Storybook coverage in the same change.
 - Run full checks before handoff:
   - `bun run typecheck`
   - `bun run lint`
