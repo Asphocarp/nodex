@@ -28,7 +28,7 @@
 - Terminal: `use-terminal.ts` manages ghostty-web lifecycle, fit/resize behavior, and PTY IPC.
 - Active conversation UI: reduce host messages and conversation snapshots in `features/local-conversation/`, then derive renderer-only projection data in `features/local-conversation/projection/*`. Keep transcript projection, composer-shell aggregation, search-unit derivation, turn-request stitching, and background-activity ordering upstream of JSX.
 - Keep active conversation UI ownership inside `features/local-conversation/view/*` and `features/local-conversation/view/shared/*`. Do not reintroduce a second workbench thread renderer path outside that feature.
-- Use `@tanstack/react-form` for submitted renderer forms instead of ad hoc `useState` form state; keep per-form submit/reset logic local and use `src/renderer/lib/forms.ts` for shared event/error helpers.
+- Use `@tanstack/react-form` for structured renderer forms with real validation or value coercion; keep simple one-field inputs on local state and use `src/renderer/lib/forms.ts` for shared submit/error helpers.
 - Keep runtime validation at boundaries:
   - shared storage / transport / raw JSON schemas live under `src/shared/schemas/*`
   - renderer-only persisted-state parsing lives in `src/renderer/lib/workbench-persisted-schemas.ts`
@@ -86,6 +86,7 @@
   - approval cards own their body preview (`command`, `network`, or `patch`) and pass that preview into the shared questionnaire shell
   - background-child approvals do not get a separate worker-name header; inject that child identity inline into the approval prompt only when the Codex approval prompt branch calls for it
   - request-card stories should exercise the dedicated Codex request-card components directly, not older wrapper aliases
+- Keep renderer forms boundary-led: use TanStack Form with a colocated zod schema module when a form has structural validation, type coercion, or multi-field constraints. For simple single-field inputs, keep local state and a submit-time guard instead of introducing a separate schema module.
 - For thread search, project stable user/assistant search units in the view model and attach them to rendered blocks; do not implement `Find in thread` by scraping arbitrary DOM text from the whole turn.
 
 ## Component SOP
