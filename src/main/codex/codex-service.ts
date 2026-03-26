@@ -111,7 +111,7 @@ import {
 } from "./codex-app-server-client";
 import { readCodexSessionThreadDetail } from "./codex-session-store";
 import { createManagedWorktree, removeManagedWorktree } from "./git-worktree-service";
-import { normalizeThreadItem } from "./codex-item-normalizer";
+import { normalizeThreadItem, resolveContextCompactionMarkdown } from "./codex-item-normalizer";
 import {
   parseCodexReasoningBuffers,
   projectCodexReasoningSummary,
@@ -4518,6 +4518,9 @@ export class CodexService extends EventEmitter {
           : {
               ...normalizedItem,
               status: lifecycleStatus,
+              markdownText: normalizedItem.semanticKind === "contextCompaction"
+                ? resolveContextCompactionMarkdown(lifecycleStatus)
+                : normalizedItem.markdownText,
             };
       this.mergeItem(item);
       this.emitConversationSnapshot(payload.threadId);

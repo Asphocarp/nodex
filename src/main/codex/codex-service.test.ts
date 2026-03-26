@@ -663,6 +663,117 @@ describe("codex-service session-backed transcript recovery", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("bootstraps session-backed snapshots with context compaction markers and post-compaction turns intact", async () => {
+    const ran = await withTempDatabase(async () => {
+      withTempCodexHome((codexHome) => {
+        fs.mkdirSync(path.join(codexHome, "sessions", "2026", "03", "26"), { recursive: true });
+        fs.writeFileSync(
+          path.join(codexHome, "session_index.jsonl"),
+          JSON.stringify({
+            id: "thr_old_compacted",
+            thread_name: "Old compacted thread",
+            updated_at: "2026-03-26T10:00:08.000Z",
+          }) + "\n",
+        );
+        fs.writeFileSync(
+          path.join(codexHome, "sessions", "2026", "03", "26", "rollout-2026-03-26T10-00-00-thr_old_compacted.jsonl"),
+          [
+            JSON.stringify({
+              timestamp: "2026-03-26T10:00:00.000Z",
+              type: "session_meta",
+              payload: {
+                id: "thr_old_compacted",
+                timestamp: "2026-03-26T10:00:00.000Z",
+                cwd: "/tmp/old-compacted",
+              },
+            }),
+            JSON.stringify({
+              timestamp: "2026-03-26T10:00:01.000Z",
+              type: "event_msg",
+              payload: {
+                type: "task_started",
+                turn_id: "turn_before_compaction",
+              },
+            }),
+            JSON.stringify({
+              timestamp: "2026-03-26T10:00:02.000Z",
+              type: "event_msg",
+              payload: {
+                type: "user_message",
+                message: "Summarize the repo",
+              },
+            }),
+            JSON.stringify({
+              timestamp: "2026-03-26T10:00:03.000Z",
+              type: "compacted",
+              payload: {
+                message: "",
+                replacement_history: [],
+              },
+            }),
+            JSON.stringify({
+              timestamp: "2026-03-26T10:00:04.000Z",
+              type: "turn_context",
+              payload: {
+                turn_id: "turn_after_compaction",
+                cwd: "/tmp/old-compacted",
+              },
+            }),
+            JSON.stringify({
+              timestamp: "2026-03-26T10:00:05.000Z",
+              type: "event_msg",
+              payload: {
+                type: "user_message",
+                message: "Keep going",
+              },
+            }),
+            JSON.stringify({
+              timestamp: "2026-03-26T10:00:06.000Z",
+              type: "event_msg",
+              payload: {
+                type: "agent_message",
+                message: "Continuing after compaction.",
+              },
+            }),
+          ].join("\n"),
+        );
+      });
+
+      const card = await createCard("codex", "in_progress", { title: "Open compacted conversation" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_old_compacted",
+      });
+
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<{ thread?: unknown }>;
+      };
+
+      client.start = async () => undefined;
+      client.request = async (method: string) => {
+        throw new Error(`unexpected RPC during compacted snapshot request: ${method}`);
+      };
+
+      try {
+        const conversation = await service.requestConversationSnapshot("thr_old_compacted");
+        expect(conversation).not.toBeNull();
+        expect(conversation?.turns.length).toBe(2);
+        expect(conversation?.turns[0]?.items.length).toBe(2);
+        expect(conversation?.turns[0]?.items[1]?.semanticKind).toBe("contextCompaction");
+        expect(conversation?.turns[0]?.items[1]?.markdownText).toBe("Context automatically compacted");
+        expect(conversation?.turns[1]?.turnId).toBe("turn_after_compaction");
+        expect(conversation?.turns[1]?.items[0]?.markdownText).toBe("Keep going");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("resume materializes completed reopened threads from the thread/resume payload", async () => {
     const ran = await withTempDatabase(async () => {
       withTempCodexHome((codexHome) => {
@@ -4553,6 +4664,68 @@ describe("codex-service item lifecycle status fallback", () => {
       const item = getRecordedItem(serviceInternals, "thr_status", "turn_status", "item_reasoning");
 
       expect(item?.status).toBe("completed");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("projects live context compaction lifecycle rows into the canonical conversation", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      getConversationRecord: (threadId: string) => {
+        itemsByTurn: Map<string, Map<string, CodexItemView>>;
+      };
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
+      persistThreadSnapshot: (threadId: string) => void;
+    };
+
+    serviceInternals.persistThreadSnapshot = () => {};
+
+    try {
+      serviceInternals.mergeTurn("thr_compaction_live", {
+        threadId: "thr_compaction_live",
+        turnId: "turn_compaction_live",
+        status: "inProgress",
+        itemIds: ["item_context_compaction"],
+      });
+
+      await serviceInternals.handleNotification("item/started", {
+        threadId: "thr_compaction_live",
+        turnId: "turn_compaction_live",
+        item: {
+          id: "item_context_compaction",
+          type: "context_compaction",
+        },
+      });
+
+      let item = getRecordedItem(
+        serviceInternals,
+        "thr_compaction_live",
+        "turn_compaction_live",
+        "item_context_compaction",
+      );
+      expect(item?.semanticKind).toBe("contextCompaction");
+      expect(item?.status).toBe("inProgress");
+      expect(item?.markdownText).toBe("Automatically compacting context");
+
+      await serviceInternals.handleNotification("item/completed", {
+        threadId: "thr_compaction_live",
+        turnId: "turn_compaction_live",
+        item: {
+          id: "item_context_compaction",
+          type: "context_compaction",
+        },
+      });
+
+      item = getRecordedItem(
+        serviceInternals,
+        "thr_compaction_live",
+        "turn_compaction_live",
+        "item_context_compaction",
+      );
+      expect(item?.status).toBe("completed");
+      expect(item?.markdownText).toBe("Context automatically compacted");
     } finally {
       await service.shutdown();
     }

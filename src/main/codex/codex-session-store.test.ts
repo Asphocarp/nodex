@@ -250,6 +250,114 @@ describe("codex-session-store", () => {
     });
   });
 
+  test("replays context compaction from compacted session lines and advances to the post-compaction turn context", () => {
+    withTempCodexHome((codexHome) => {
+      fs.mkdirSync(path.join(codexHome, "sessions", "2026", "03", "26"), { recursive: true });
+      fs.writeFileSync(
+        path.join(codexHome, "session_index.jsonl"),
+        JSON.stringify({
+          id: "thr_compaction_replay",
+          thread_name: "Compaction replay thread",
+          updated_at: "2026-03-26T09:00:08.000Z",
+        }) + "\n",
+      );
+      fs.writeFileSync(
+        path.join(codexHome, "sessions", "2026", "03", "26", "rollout-2026-03-26T09-00-00-thr_compaction_replay.jsonl"),
+        [
+          JSON.stringify({
+            timestamp: "2026-03-26T09:00:00.000Z",
+            type: "session_meta",
+            payload: {
+              id: "thr_compaction_replay",
+              timestamp: "2026-03-26T09:00:00.000Z",
+              cwd: "/tmp/pre-compact",
+            },
+          }),
+          JSON.stringify({
+            timestamp: "2026-03-26T09:00:01.000Z",
+            type: "event_msg",
+            payload: {
+              type: "task_started",
+              turn_id: "turn_before_compaction",
+            },
+          }),
+          JSON.stringify({
+            timestamp: "2026-03-26T09:00:02.000Z",
+            type: "event_msg",
+            payload: {
+              type: "user_message",
+              message: "Summarize the repo",
+            },
+          }),
+          JSON.stringify({
+            timestamp: "2026-03-26T09:00:03.000Z",
+            type: "event_msg",
+            payload: {
+              type: "agent_message",
+              message: "Working through the repo structure.",
+            },
+          }),
+          JSON.stringify({
+            timestamp: "2026-03-26T09:00:04.000Z",
+            type: "compacted",
+            payload: {
+              message: "",
+              replacement_history: [],
+            },
+          }),
+          JSON.stringify({
+            timestamp: "2026-03-26T09:00:04.100Z",
+            type: "event_msg",
+            payload: {
+              type: "context_compacted",
+            },
+          }),
+          JSON.stringify({
+            timestamp: "2026-03-26T09:00:05.000Z",
+            type: "turn_context",
+            payload: {
+              turn_id: "turn_after_compaction",
+              cwd: "/tmp/post-compact",
+            },
+          }),
+          JSON.stringify({
+            timestamp: "2026-03-26T09:00:06.000Z",
+            type: "event_msg",
+            payload: {
+              type: "user_message",
+              message: "Continue with the implementation",
+            },
+          }),
+          JSON.stringify({
+            timestamp: "2026-03-26T09:00:07.000Z",
+            type: "event_msg",
+            payload: {
+              type: "agent_message",
+              message: "Implementation resumed after compaction.",
+            },
+          }),
+        ].join("\n"),
+      );
+
+      const detail = readCodexSessionThreadDetail({
+        threadId: "thr_compaction_replay",
+        link: makeLink("thr_compaction_replay"),
+      });
+
+      expect(detail?.cwd).toBe("/tmp/post-compact");
+      expect(detail?.turns.length).toBe(2);
+      expect(detail?.turns[0]?.turnId).toBe("turn_before_compaction");
+      expect(detail?.turns[1]?.turnId).toBe("turn_after_compaction");
+      expect(detail?.transcript.length).toBe(5);
+      expect(detail?.transcript[2]?.semanticKind).toBe("contextCompaction");
+      expect(detail?.transcript[2]?.markdownText).toBe("Context automatically compacted");
+      expect(detail?.transcript[3]?.turnId).toBe("turn_after_compaction");
+      expect(detail?.transcript[3]?.markdownText).toBe("Continue with the implementation");
+      expect(detail?.transcript[4]?.turnId).toBe("turn_after_compaction");
+      expect(detail?.threadPreview).toBe("Implementation resumed after compaction.");
+    });
+  });
+
   test("projects replay reasoning from summary-first content and coalesces consecutive reasoning rows", () => {
     withTempCodexHome((codexHome) => {
       fs.mkdirSync(path.join(codexHome, "sessions", "2026", "03", "25"), { recursive: true });

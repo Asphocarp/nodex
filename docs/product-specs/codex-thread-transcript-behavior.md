@@ -123,6 +123,11 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
 - Specialized cards exist for command execution, file changes, MCP, and web search.
 - Automatic approval review items render as a dedicated compact status row with Codex Electron's title, status chip, optional risk label, and an expandable rationale/fallback summary.
 - Multi-agent action items render as a dedicated grouped activity surface instead of falling back to generic system banners. Running actions stay expanded, settled contiguous actions can coalesce into one grouped surface, and `wait`-only collab tool calls stay out of the mounted transcript.
+- Context compaction renders as Codex Electron's dedicated compact divider row instead of a generic system banner:
+  - in progress: `Automatically compacting context` with `loading-shimmer-pure-text`
+  - completed: `Context automatically compacted` with the compact completion icon
+- Session-backed reopen/bootstrap preserves the same context-compaction rows, including compaction boundaries that split replayed history across pre-compaction and post-compaction turns.
+  - the row stays in the post-assistant transcript lane rather than the grouped agent-body lane
 - Codex-parity transcript expanders use Motion and subtype-owned state, not a generic shared accordion:
   - measured transcript bodies (`commandExecution`, exploration groups, `patch`, MCP, reasoning, completed request-user-input answers, plan/todo disclosure, and other Codex-native expandable rows) animate through explicit `motion.div` height/opacity wrappers fed by a `ResizeObserver`-driven measured-height hook
   - agent-body collapse is a separate presence animation contract and does not reuse the measured-height transcript-body model

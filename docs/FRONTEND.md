@@ -93,6 +93,7 @@
 - Start from existing semantics, not from JSX. New UI behavior should usually begin in a projector, bucketizer, normalizer, or other renderer-facing adapter before touching leaf components.
 - Keep leaf renderers dumb. Message/tool/request components should consume already-derived props such as lane membership, action eligibility, placeholder state, or copy text instead of recomputing those rules locally.
 - Keep one canonical lane per semantic role. Final assistant content, leading user prefix actions, exploration groups, pending-request lanes, and diff lanes should each be derived once and rendered once.
+- Keep transcript-special rows dedicated. Items such as context compaction, automatic approval review, and multi-agent activity should render through their own Codex-style leaf components instead of falling back to generic system banners.
 - Prefer shipped behavior over source-looking class strings. If bundle behavior and an apparent source token disagree, treat the shipped CSS/renderer output as authoritative.
 - Keep component chrome subdued. Secondary actions should stay small, low-emphasis, and hover-revealed unless the upstream Codex surface makes them primary.
 

@@ -55,6 +55,12 @@ function normalizeItemStatus(value: unknown): CodexItemStatus | undefined {
   return undefined;
 }
 
+export function resolveContextCompactionMarkdown(status: CodexItemStatus | undefined): string {
+  return status === "inProgress"
+    ? "Automatically compacting context"
+    : "Context automatically compacted";
+}
+
 function humanizeType(type: string): string {
   const spaced = type
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
@@ -487,9 +493,11 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
   }
 
   if (isType(itemType, ["contextCompaction", "context_compaction"])) {
+    const status = normalizeItemStatus(getUnknown(candidate, ["status"]));
     result.normalizedKind = "systemEvent";
     result.semanticKind = "contextCompaction";
-    result.markdownText = "Context compacted";
+    result.status = status;
+    result.markdownText = resolveContextCompactionMarkdown(status);
     return applyFallbackContent(result, itemType);
   }
 

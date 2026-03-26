@@ -165,7 +165,7 @@ function normalizeText(value: string): string {
 
 function buildReplayItemId(
   threadId: string,
-  kind: "user" | "msg" | "reasoning" | "tool" | "tool-output",
+  kind: "user" | "msg" | "reasoning" | "tool" | "tool-output" | "system",
   index: number,
 ): string {
   return `replay:${kind}:${threadId}:${index}`;
@@ -254,6 +254,44 @@ function appendReplayReasoningSummary(
   });
 }
 
+function appendReplayContextCompaction(
+  transcript: CodexTranscriptEntry[],
+  turn: MutableTurnRecord,
+  threadId: string,
+  lineIndex: number,
+  timestamp: number,
+  rawItem: unknown,
+): void {
+  const previous = transcript[transcript.length - 1];
+  if (previous?.semanticKind === "contextCompaction" && previous.turnId === turn.turnId) {
+    previous.status = "completed";
+    previous.markdownText = "Context automatically compacted";
+    previous.updatedAt = timestamp;
+    previous.rawItem = rawItem;
+    addItemToTurn(turn, previous.itemId, timestamp);
+    return;
+  }
+
+  const itemId = buildReplayItemId(threadId, "system", lineIndex);
+  addItemToTurn(turn, itemId, timestamp);
+  transcript.push({
+    threadId,
+    turnId: turn.turnId,
+    entryId: itemId,
+    itemId,
+    type: "context_compaction",
+    kind: "systemEvent",
+    semanticKind: "contextCompaction",
+    source: "replay",
+    sequence: transcript.length,
+    markdownText: "Context automatically compacted",
+    status: "completed",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    rawItem,
+  });
+}
+
 function sortTurns(turnsById: Map<string, MutableTurnRecord>): CodexTurnSummary[] {
   return [...turnsById.values()]
     .sort((a, b) => a.createdAt - b.createdAt || a.updatedAt - b.updatedAt || a.turnId.localeCompare(b.turnId))
@@ -303,6 +341,32 @@ function parseSessionJsonl(
       }
       if (typeof payload?.cwd === "string" && payload.cwd.trim().length > 0) {
         sessionCwd = payload.cwd;
+      }
+      continue;
+    }
+
+    if (type === "turn_context") {
+      if (typeof payload?.turn_id === "string" && payload.turn_id.trim().length > 0) {
+        currentTurnId = payload.turn_id;
+      }
+      if (typeof payload?.cwd === "string" && payload.cwd.trim().length > 0) {
+        sessionCwd = payload.cwd;
+      }
+      continue;
+    }
+
+    if (type === "compacted") {
+      const turn = ensureTurn(turnsById, input.threadId, currentTurnId, timestamp);
+      appendReplayContextCompaction(
+        transcript,
+        turn,
+        input.threadId,
+        lineIndex,
+        timestamp,
+        payload,
+      );
+      if (turn.status === "inProgress") {
+        turn.status = "completed";
       }
       continue;
     }
@@ -391,6 +455,21 @@ function parseSessionJsonl(
           payload,
         );
       }
+
+      if (eventType === "context_compacted") {
+        const turn = ensureTurn(turnsById, input.threadId, currentTurnId, timestamp);
+        appendReplayContextCompaction(
+          transcript,
+          turn,
+          input.threadId,
+          lineIndex,
+          timestamp,
+          payload,
+        );
+        if (turn.status === "inProgress") {
+          turn.status = "completed";
+        }
+      }
       continue;
     }
 
@@ -409,6 +488,21 @@ function parseSessionJsonl(
         lineIndex,
         timestamp,
         projectCodexReasoningSummary(payload.summary),
+        payload,
+      );
+      if (turn.status === "inProgress") {
+        turn.status = "completed";
+      }
+      continue;
+    }
+
+    if (responseType === "compaction") {
+      appendReplayContextCompaction(
+        transcript,
+        turn,
+        input.threadId,
+        lineIndex,
+        timestamp,
         payload,
       );
       if (turn.status === "inProgress") {

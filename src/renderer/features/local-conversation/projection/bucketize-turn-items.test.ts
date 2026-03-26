@@ -322,4 +322,48 @@ describe("bucketizeTurnItems", () => {
 
     expect(turn.blocks.map((block) => block.type).join(",")).toBe("proposedPlan");
   });
+
+  test("routes context compaction markers into the post-assistant lane instead of agent body", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({ id: "exec", type: "exec" }),
+        buildItem({
+          id: "compact",
+          type: "contextCompaction",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "compact",
+            type: "context_compaction",
+            kind: "systemEvent",
+            semanticKind: "contextCompaction",
+            status: "completed",
+            markdownText: "Context automatically compacted",
+            createdAt: 2,
+            updatedAt: 2,
+          },
+        }),
+        buildItem({
+          id: "assistant",
+          type: "assistantMessage",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "assistant",
+            type: "assistant_message",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            assistantPhase: "final_answer",
+            markdownText: "Done",
+            createdAt: 3,
+            updatedAt: 3,
+          },
+        }),
+      ],
+      turnStatus: "completed",
+    });
+
+    expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("exec");
+    expect(buckets.postAssistantItems.map((item) => item.id).join(",")).toBe("compact");
+  });
 });

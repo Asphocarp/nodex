@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
 import type { CodexConversationItem } from "../../../../lib/types";
 import { render, settleAsyncRender, textContent } from "../../../../test/dom";
-import { ThreadExplorationGroupBlock } from "./local-conversation-block-leaves";
+import { ThreadContextCompactionBlock, ThreadExplorationGroupBlock } from "./local-conversation-block-leaves";
 
 function buildCommandEntry(
   itemId: string,
@@ -160,5 +160,76 @@ describe("ThreadExplorationGroupBlock", () => {
     const summaryText = textContent(getByRole("button"));
     expect(summaryText.includes("Exploring")).toBeTrue();
     expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeTrue();
+  });
+});
+
+describe("ThreadContextCompactionBlock", () => {
+  test("renders the completed Codex divider row", () => {
+    const { container, getByText } = render(
+      <ThreadContextCompactionBlock
+        block={{
+          id: "compact-1",
+          turnId: "turn-1",
+          createdAt: 1,
+          updatedAt: 1,
+          searchableText: "Context automatically compacted",
+          type: "contextCompaction",
+          status: "completed",
+          entry: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "compact-1",
+            type: "context_compaction",
+            kind: "systemEvent",
+            semanticKind: "contextCompaction",
+            status: "completed",
+            markdownText: "Context automatically compacted",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        }}
+        isLatestTurn={false}
+        isStreamingTurn={false}
+      />,
+    );
+
+    getByText("Context automatically compacted");
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
+    expect(container.querySelectorAll(".border-current\\/20").length).toBe(2);
+    expect(Boolean(container.querySelector("svg"))).toBeTrue();
+  });
+
+  test("renders the in-progress Codex shimmer row", () => {
+    const { container, getByText } = render(
+      <ThreadContextCompactionBlock
+        block={{
+          id: "compact-2",
+          turnId: "turn-1",
+          createdAt: 1,
+          updatedAt: 1,
+          searchableText: "Automatically compacting context",
+          type: "contextCompaction",
+          status: "inProgress",
+          entry: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "compact-2",
+            type: "context_compaction",
+            kind: "systemEvent",
+            semanticKind: "contextCompaction",
+            status: "inProgress",
+            markdownText: "Automatically compacting context",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        }}
+        isLatestTurn={true}
+        isStreamingTurn={true}
+      />,
+    );
+
+    getByText("Automatically compacting context");
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeTrue();
+    expect(Boolean(container.querySelector("svg"))).toBeFalse();
   });
 });
