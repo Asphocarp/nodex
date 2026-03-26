@@ -113,8 +113,10 @@ describe("buildComposerShellModel", () => {
 
     expect(model.activeRequest?.request.requestId).toBe("user_input_active");
     expect(model.backgroundRequest?.request.requestId).toBe("approval_background");
-    expect(model.pendingSteers.length).toBe(1);
-    expect(model.queuedFollowUps.length).toBe(1);
+    expect(model.pendingSteerRows.length).toBe(1);
+    expect(model.pendingSteerRows[0]?.displayText).toBe("Focus on the renderer.");
+    expect(model.queuedFollowUpRows.length).toBe(1);
+    expect(model.queuedFollowUpRows[0]?.displayText).toBe("Run validation next.");
     expect(model.backgroundTerminalRows.length).toBe(1);
     expect(model.backgroundAgentRows.length).toBe(1);
     expect(model.backgroundAgentRows[0]?.status).toBe("waiting");

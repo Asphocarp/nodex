@@ -15,9 +15,7 @@ import type {
   CodexConversationSnapshot,
   CodexConversationTurn,
   CodexModelOption,
-  CodexPendingSteer,
   CodexPermissionMode,
-  CodexQueuedFollowUp,
   CodexThreadSummary,
   CodexReasoningEffort,
   CodexReasoningEffortOption,
@@ -280,6 +278,23 @@ export interface ThreadComposerShellPendingRequestModel {
   requestItem?: CodexConversationItem | null;
 }
 
+export interface ThreadComposerShellPendingSteerRowModel {
+  steerId: string;
+  threadId: string;
+  turnId: string;
+  prompt: string;
+  displayText: string;
+}
+
+export interface ThreadComposerShellQueuedFollowUpRowModel {
+  followUpId: string;
+  threadId: string;
+  prompt: string;
+  displayText: string;
+  collaborationMode?: CodexCollaborationModeKind | null;
+  pausedReason?: string | null;
+}
+
 export interface ThreadComposerShellBackgroundAgentRowModel {
   conversationId: string;
   displayName: string;
@@ -291,8 +306,8 @@ export interface ThreadComposerShellBackgroundAgentRowModel {
 export interface ThreadComposerShellModel {
   activeRequest: ThreadComposerShellPendingRequestModel | null;
   backgroundRequest: ThreadComposerShellPendingRequestModel | null;
-  pendingSteers: CodexPendingSteer[];
-  queuedFollowUps: CodexQueuedFollowUp[];
+  pendingSteerRows: ThreadComposerShellPendingSteerRowModel[];
+  queuedFollowUpRows: ThreadComposerShellQueuedFollowUpRowModel[];
   backgroundAgentRows: ThreadComposerShellBackgroundAgentRowModel[];
   backgroundTerminalRows: CodexBackgroundTerminalRow[];
   showRequestCards: boolean;

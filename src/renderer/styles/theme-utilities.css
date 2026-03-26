@@ -87,3 +87,11 @@
 @utility bg-red-10 {
   background-color: color-mix(in srgb, var(--red-text) 10%, transparent);
 }
+
+@utility text-token-charts-green {
+  color: var(--color-token-charts-green);
+}
+
+@utility text-token-charts-red {
+  color: var(--color-token-charts-red);
+}

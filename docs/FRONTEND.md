@@ -83,6 +83,16 @@
   - Reserve `theme-utilities.css` for Nodex-local additions, not for reconstructed copies of Codex Electron utility families.
 - Treat `--tw-*` property registrations as build-output contract: values such as `--tw-leading` or `--tw-contain-layout` come from Tailwind's compiled property layer, not from manual theme-token declarations.
 - For Threads, keep the scroll body and composer separate: unresolved live request cards belong to the composer shell, not the scroll body. The composer shell also owns queued follow-ups, pending steers, background terminal rows, and background child-agent rows; the scroll body only renders turn blocks plus hidden turn-scoped request semantics (`approval`, `userInput`, `implementPlan`) injected into the item stream before bucketization.
+- Keep thread-footer width ownership outside the composer shell:
+  - the footer/screen wrapper owns `max-w-[var(--thread-composer-max-width)]` and `px-panel`
+  - the fixed above-composer block host (`above-composer-portal`) and the queue/background lane host (`above-composer-queue-portal`) both stay in that footer wrapper as siblings directly above `LocalConversationComposerShell`; do not move either host into the scroll body or a separate overlay layer
+  - `LocalConversationComposerShell` should stay a pure stack/layout switcher
+  - `ThreadComposer` should render the composer form itself, not re-wrap the whole footer width a second time
+- Keep the queue/pending-steer lane on the Codex Electron row family:
+  - project raw queued follow-ups and pending steers into dedicated row models before JSX
+  - render pending steers and queued follow-ups in one shared above-composer lane panel instead of separate cards or footer widgets
+  - keep queued follow-up reorder on the same sortable/dnd row contract as Codex Electron rather than native HTML drag/drop
+  - keep row copy/tooltips/actions source-derived and lane-owned instead of rebuilding those strings or affordances inside generic shell wrappers
 - Keep composer request cards in the Codex Electron family shape:
   - dispatch by request type through one shell-owned renderer (`approval`, `userInput`, `implementPlan`, `mcpServerElicitation`)
   - use one shared questionnaire shell for approval, user-input, and implement-plan cards instead of nesting a second local card inside those request surfaces

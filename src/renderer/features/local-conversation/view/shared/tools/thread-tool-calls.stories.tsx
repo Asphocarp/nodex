@@ -178,6 +178,7 @@ export const TurnDiff: Story = {
       <ConversationStorySurface>
         <TurnDiffSurface
           item={THREAD_TOOL_CALL_STORY_ITEMS.turnDiff}
+          isInProgress={false}
           projectWorkspacePath="/workspace/nodex"
           threadCwd="/workspace/nodex"
         />
