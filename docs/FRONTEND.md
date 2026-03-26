@@ -112,6 +112,10 @@
 - Keep leaf renderers dumb. Message/tool/request components should consume already-derived props such as lane membership, action eligibility, placeholder state, or copy text instead of recomputing those rules locally.
 - Keep one canonical lane per semantic role. Final assistant content, leading user prefix actions, exploration groups, pending-request lanes, and diff lanes should each be derived once and rendered once.
 - Keep transcript-special rows dedicated. Items such as context compaction, automatic approval review, and multi-agent activity should render through their own Codex-style leaf components instead of falling back to generic system banners.
+- Keep poor-network reconnect in the transcript, not in shell resume state:
+  - retryable transport/turn errors should materialize as `streamError` transcript items with expandable details
+  - non-retryable turn failures should materialize as `systemError` transcript items
+  - do not reuse `resumeState` placeholders or shell overlays for the `Reconnecting... 2/5` feature
 - Prefer shipped behavior over source-looking class strings. If bundle behavior and an apparent source token disagree, treat the shipped CSS/renderer output as authoritative.
 - Keep component chrome subdued. Secondary actions should stay small, low-emphasis, and hover-revealed unless the upstream Codex surface makes them primary.
 

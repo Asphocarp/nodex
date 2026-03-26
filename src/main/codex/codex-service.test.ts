@@ -1241,6 +1241,105 @@ describe("codex-service session-backed transcript recovery", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("materializes retryable transport errors as stream-error transcript rows", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Poor network reconnect" });
+
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_stream_error",
+        threadName: "Poor network reconnect",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_stream_error"),
+        projectId: "codex",
+        cardId: card.id,
+        threadName: "Poor network reconnect",
+        turns: [
+          {
+            threadId: "thr_stream_error",
+            turnId: "turn_stream_error",
+            status: "inProgress",
+            itemIds: [],
+          },
+        ],
+        transcript: [],
+      });
+
+      await serviceInternals.handleNotification("error", {
+        threadId: "thr_stream_error",
+        turnId: "turn_stream_error",
+        willRetry: true,
+        error: {
+          message: "Reconnecting... 2/5",
+          additionalDetails: "Network error: connection dropped while streaming.",
+        },
+      });
+
+      const detail = service.serializeThreadDetail("thr_stream_error");
+      const errorEntry = detail?.transcript.find((entry) => entry.semanticKind === "streamError") ?? null;
+
+      expect(detail).not.toBeNull();
+      expect(errorEntry?.markdownText).toBe("Reconnecting... 2/5");
+      expect(errorEntry?.additionalDetails).toBe("Network error: connection dropped while streaming.");
+      expect(errorEntry?.willRetry).toBeTrue();
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("materializes failed turn errors from thread/read into system-error transcript rows", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Failed reconnect replay" });
+
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_failed_reconnect",
+        threadName: "Failed reconnect replay",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        buildThreadDetailFromRead: (thread: unknown) => CodexThreadDetail | null;
+      };
+
+      const detail = serviceInternals.buildThreadDetailFromRead({
+        id: "thr_failed_reconnect",
+        turns: [
+          {
+            id: "turn_failed_reconnect",
+            status: "failed",
+            items: [],
+            error: {
+              message: "Failed to reconnect to the stream.",
+              additionalDetails: "The connection could not be re-established after repeated retry attempts.",
+            },
+          },
+        ],
+      });
+
+      const errorEntry = detail?.transcript.find((entry) => entry.semanticKind === "systemError") ?? null;
+
+      expect(detail).not.toBeNull();
+      expect(errorEntry?.markdownText).toBe("Failed to reconnect to the stream.");
+      expect(errorEntry?.additionalDetails).toBe(
+        "The connection could not be re-established after repeated retry attempts.",
+      );
+      expect(errorEntry?.willRetry).toBeFalse();
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("cleanBackgroundTerminals interrupts older running command turns for one conversation", async () => {
     const ran = await withTempDatabase(async () => {
       const card = await createCard("codex", "in_progress", { title: "Clean background terminals" });

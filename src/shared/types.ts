@@ -682,6 +682,8 @@ export interface CodexItemView {
   role?: "user" | "assistant";
   toolCall?: CodexToolCallView;
   markdownText?: string;
+  additionalDetails?: string | null;
+  willRetry?: boolean;
   userInputQuestions?: CodexUserInputQuestion[];
   userInputAnswers?: Record<string, string[]>;
   rawItem?: unknown;
@@ -705,6 +707,8 @@ export interface CodexTranscriptEntry {
   sequence?: number;
   toolCall?: CodexToolCallView;
   markdownText?: string;
+  additionalDetails?: string | null;
+  willRetry?: boolean;
   userInputQuestions?: CodexUserInputQuestion[];
   userInputAnswers?: Record<string, string[]>;
   rawItem?: unknown;

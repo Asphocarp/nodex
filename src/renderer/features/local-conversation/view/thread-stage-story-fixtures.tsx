@@ -1182,6 +1182,46 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
 };
 
 export const THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS = {
+  streamErrorReconnecting: buildToolItemBase({
+    itemId: "story_stream_error_reconnecting",
+    entryId: "story_stream_error_reconnecting",
+    type: "error",
+    kind: "systemEvent",
+    semanticKind: "streamError",
+    status: "inProgress",
+    markdownText: "Reconnecting... 2/5",
+    additionalDetails: "Network error: connection dropped while streaming. Retrying in 750ms.",
+    willRetry: true,
+    rawItem: {
+      id: "error:turn_tool_story",
+      type: "error",
+      willRetry: true,
+      error: {
+        message: "Reconnecting... 2/5",
+        additionalDetails: "Network error: connection dropped while streaming. Retrying in 750ms.",
+      },
+    },
+  }),
+  systemErrorFailed: buildToolItemBase({
+    itemId: "story_system_error_failed",
+    entryId: "story_system_error_failed",
+    type: "error",
+    kind: "systemEvent",
+    semanticKind: "systemError",
+    status: "failed",
+    markdownText: "Failed to reconnect to the stream.",
+    additionalDetails: "The connection could not be re-established after repeated retry attempts.",
+    willRetry: false,
+    rawItem: {
+      id: "error:turn_tool_story",
+      type: "error",
+      willRetry: false,
+      error: {
+        message: "Failed to reconnect to the stream.",
+        additionalDetails: "The connection could not be re-established after repeated retry attempts.",
+      },
+    },
+  }),
   contextCompactionCompleted: buildToolItemBase({
     itemId: "story_context_compaction_completed",
     entryId: "story_context_compaction_completed",

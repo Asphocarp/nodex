@@ -114,7 +114,11 @@ import {
 } from "./codex-app-server-client";
 import { readCodexSessionThreadDetail } from "./codex-session-store";
 import { createManagedWorktree, removeManagedWorktree } from "./git-worktree-service";
-import { normalizeThreadItem, resolveContextCompactionMarkdown } from "./codex-item-normalizer";
+import {
+  buildTurnErrorItemView,
+  normalizeThreadItem,
+  resolveContextCompactionMarkdown,
+} from "./codex-item-normalizer";
 import {
   parseCodexReasoningBuffers,
   projectCodexReasoningSummary,
@@ -2246,6 +2250,10 @@ export class CodexService extends EventEmitter {
     return `turn-diff:${turnId}`;
   }
 
+  private buildTurnErrorItemId(turnId: string): string {
+    return `error:${turnId}`;
+  }
+
   private buildTurnDiffItemView(input: {
     threadId: string;
     turnId: string;
@@ -2282,6 +2290,22 @@ export class CodexService extends EventEmitter {
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
+  }
+
+  private buildLiveTurnErrorItemView(input: {
+    threadId: string;
+    turnId: string;
+    message: string | null | undefined;
+    additionalDetails?: string | null;
+    willRetry: boolean;
+  }): CodexItemView {
+    const existing = this.getRecordedItem(input.threadId, input.turnId, this.buildTurnErrorItemId(input.turnId));
+    const now = Date.now();
+    return buildTurnErrorItemView({
+      ...input,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    });
   }
 
   private removeTranscriptEntry(threadId: string, entryId: string): void {
@@ -2332,6 +2356,36 @@ export class CodexService extends EventEmitter {
         entry,
       }),
     );
+  }
+
+  private syncTurnErrorItem(
+    input: {
+      threadId: string;
+      turnId: string;
+      message: string | null | undefined;
+      additionalDetails?: string | null;
+      willRetry: boolean;
+    },
+    source: CodexTranscriptEntrySource = "live",
+  ): CodexTranscriptEntry {
+    const item = this.buildLiveTurnErrorItemView(input);
+    const turn = this.getKnownTurn(input.threadId, input.turnId) ?? {
+      threadId: input.threadId,
+      turnId: input.turnId,
+      status: input.willRetry ? "inProgress" as const : "failed" as const,
+      errorMessage: item.markdownText,
+      itemIds: [item.itemId],
+    };
+
+    this.mergeTurn(input.threadId, {
+      ...turn,
+      status: input.willRetry ? turn.status : "failed",
+      errorMessage: item.markdownText,
+      itemIds: [item.itemId],
+    });
+    this.mergeItem(item, source);
+    return this.getThreadTranscript(input.threadId).find((entry) => (entry.entryId ?? entry.itemId) === item.itemId)
+      ?? projectItemToLiveTranscriptEntry(item, source, this.getThreadTranscript(input.threadId));
   }
 
   private getKnownTurn(threadId: string, turnId: string): CodexTurnSummary | null {
@@ -2687,6 +2741,25 @@ export class CodexService extends EventEmitter {
         const itemView = normalizeThreadItem(item, threadId, turnSummary.turnId);
         if (!itemView) continue;
         itemViews.push(itemView);
+      }
+
+      const turnError =
+        typeof turnRecord.error === "object" && turnRecord.error !== null
+          ? turnRecord.error as Record<string, unknown>
+          : null;
+      if (turnError) {
+        const message = typeof turnError.message === "string" ? turnError.message : turnSummary.errorMessage ?? null;
+        const additionalDetails =
+          typeof turnError.additionalDetails === "string"
+            ? turnError.additionalDetails
+            : null;
+        itemViews.push(buildTurnErrorItemView({
+          threadId,
+          turnId: turnSummary.turnId,
+          message,
+          additionalDetails,
+          willRetry: false,
+        }));
       }
 
       if (turnSummary.diff) {
@@ -4738,13 +4811,31 @@ export class CodexService extends EventEmitter {
         typeof params === "object" && params !== null
           ? params as Record<string, unknown>
           : null;
-      const message =
+      const threadId = typeof payload?.threadId === "string" ? payload.threadId : null;
+      const turnId = typeof payload?.turnId === "string" ? payload.turnId : null;
+      const errorRecord =
         typeof payload?.error === "object" && payload.error !== null
-          ? typeof (payload.error as Record<string, unknown>).message === "string"
-            ? (payload.error as Record<string, unknown>).message as string
-            : "Codex error"
-          : "Codex error";
-      this.emitEvent({ type: "error", message });
+          ? payload.error as Record<string, unknown>
+          : null;
+      const message = typeof errorRecord?.message === "string" ? errorRecord.message : "Codex error";
+      const additionalDetails =
+        typeof errorRecord?.additionalDetails === "string"
+          ? errorRecord.additionalDetails
+          : null;
+      const willRetry = Boolean(payload?.willRetry);
+
+      if (threadId && turnId) {
+        this.syncTurnErrorItem({
+          threadId,
+          turnId,
+          message,
+          additionalDetails,
+          willRetry,
+        });
+        this.emitConversationSnapshot(threadId);
+      }
+
+      this.emitEvent({ type: "error", message, detail: additionalDetails ?? undefined });
     }
   }
 

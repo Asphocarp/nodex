@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { normalizeThreadItem } from "./codex-item-normalizer";
+import { buildTurnErrorItemView, normalizeThreadItem } from "./codex-item-normalizer";
 
 describe("codex-item-normalizer", () => {
   test("normalizes commandExecution items with structured tool metadata", () => {
@@ -230,6 +230,24 @@ describe("codex-item-normalizer", () => {
     expect(completedItem?.semanticKind).toBe("contextCompaction");
     expect(completedItem?.status).toBe("completed");
     expect(completedItem?.markdownText).toBe("Context automatically compacted");
+  });
+
+  test("builds retryable turn errors into stream-error transcript items", () => {
+    const item = buildTurnErrorItemView({
+      threadId: "thread-1",
+      turnId: "turn-1",
+      message: "Reconnecting... 2/5",
+      additionalDetails: "Network error: connection dropped while streaming.",
+      willRetry: true,
+      createdAt: 1,
+      updatedAt: 2,
+    });
+
+    expect(item.semanticKind).toBe("streamError");
+    expect(item.status).toBe("inProgress");
+    expect(item.markdownText).toBe("Reconnecting... 2/5");
+    expect(item.additionalDetails).toBe("Network error: connection dropped while streaming.");
+    expect(item.willRetry).toBeTrue();
   });
 
   test("keeps empty transcript items blank instead of showing internal type labels", () => {
