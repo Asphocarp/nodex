@@ -805,7 +805,10 @@ export function LocalConversationComposerShell({
   ) : null;
 
   return (
-    <div className="relative flex w-full flex-col gap-2 pb-0">
+    <div
+      data-local-conversation-composer-shell="true"
+      className="relative flex w-full flex-col gap-2 pb-0"
+    >
       {queuePortalHost && auxiliaryLaneStack ? createPortal(auxiliaryLaneStack, queuePortalHost) : null}
       {model.composerShell.showRequestCards ? (
         <RequestCardStack model={model} actions={actions} />

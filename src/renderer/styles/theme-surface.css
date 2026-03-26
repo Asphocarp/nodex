@@ -153,6 +153,35 @@ mark.codex-thread-find-active {
   background-color: var(--color-token-side-bar-background);
 }
 
+[data-codex-window-type="electron"].electron-dark
+  :is(
+    [data-local-conversation-thread-body="true"],
+    [data-local-conversation-composer-shell="true"],
+    #above-composer-portal,
+    #above-composer-queue-portal
+  )
+  :is(.loading-shimmer-pure-text, .loading-shimmer) {
+  --shimmer-text-secondary: var(--text-secondary);
+  --shimmer-contrast: #ffffffbf;
+}
+
+@supports (color: color-mix(in lab, red, red)) {
+  [data-codex-window-type="electron"].electron-dark
+    :is(
+      [data-local-conversation-thread-body="true"],
+      [data-local-conversation-composer-shell="true"],
+      #above-composer-portal,
+      #above-composer-queue-portal
+    )
+    :is(.loading-shimmer-pure-text, .loading-shimmer) {
+    --shimmer-text-secondary: color-mix(
+      in srgb,
+      var(--text-primary) 55%,
+      transparent
+    );
+  }
+}
+
 .automation-row {
   container-type: inline-size;
 }
