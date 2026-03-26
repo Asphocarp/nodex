@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import { invoke, subscribeCodexEvents } from "./api";
 import {
+  readCodexPermissionModes,
+  writeCodexPermissionModes,
+} from "./codex-permission-mode-settings";
+import {
   resolveCodexReasoningEffortOptions,
   resolveCodexThreadSettings,
 } from "./codex-thread-settings";
@@ -22,34 +26,6 @@ import type {
   CodexTurnSummary,
 } from "./types";
 import { useCodexThreadSettings } from "./use-codex-thread-settings";
-
-const PERMISSION_MODE_STORAGE_KEY = "nodex-codex-permission-modes-v1";
-
-function readPermissionModesFromStorage(): Record<string, CodexPermissionMode> {
-  try {
-    const raw = localStorage.getItem(PERMISSION_MODE_STORAGE_KEY);
-    if (!raw) return {};
-
-    const parsed = JSON.parse(raw) as unknown;
-    if (typeof parsed !== "object" || parsed === null) return {};
-
-    return Object.entries(parsed).reduce<Record<string, CodexPermissionMode>>((acc, [projectId, mode]) => {
-      if (mode !== "sandbox" && mode !== "full-access" && mode !== "custom") return acc;
-      acc[projectId] = mode;
-      return acc;
-    }, {});
-  } catch {
-    return {};
-  }
-}
-
-function writePermissionModesToStorage(value: Record<string, CodexPermissionMode>): void {
-  try {
-    localStorage.setItem(PERMISSION_MODE_STORAGE_KEY, JSON.stringify(value));
-  } catch {
-    // ignore localStorage failures
-  }
-}
 
 function resolveProjectPermissionMode(
   permissionModeByProject: Record<string, CodexPermissionMode>,
@@ -233,7 +209,7 @@ export function useCodexControl(activeProjectId: string) {
   }, [updateStoredThreadSettings]);
 
   useEffect(() => {
-    const stored = readPermissionModesFromStorage();
+    const stored = readCodexPermissionModes();
     Object.entries(stored).forEach(([projectId, mode]) => {
       dispatch({ type: "setPermissionMode", projectId, mode });
       void invoke("codex:permission:mode:set", projectId, mode).catch(() => {
@@ -243,7 +219,7 @@ export function useCodexControl(activeProjectId: string) {
   }, []);
 
   useEffect(() => {
-    writePermissionModesToStorage(state.permissionModeByProject);
+    writeCodexPermissionModes(state.permissionModeByProject);
   }, [state.permissionModeByProject]);
 
   useEffect(() => {

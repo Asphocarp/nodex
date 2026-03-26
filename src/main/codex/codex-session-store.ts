@@ -5,21 +5,20 @@ import type {
   CodexThreadDetail,
   CodexThreadSummary,
   CodexThreadTokenUsage,
-  CodexTokenUsageBreakdown,
   CodexToolCallSubtype,
   CodexTurnSummary,
 } from "../../shared/types";
+import {
+  parseCodexSessionIndexEntryLine,
+  parseCodexSessionJsonlLine,
+  type CodexSessionIndexEntry,
+} from "../../shared/schemas/codex-session";
+import { parseCodexThreadTokenUsage } from "../../shared/schemas/codex";
 import {
   buildTranscriptFromBootstrapEvents,
   resolveThreadPreviewFromTranscript,
 } from "./codex-transcript-projection";
 import { projectCodexReasoningSummary } from "./codex-reasoning-projection";
-
-interface SessionIndexEntry {
-  id: string;
-  threadName: string | null;
-  updatedAt: number | null;
-}
 
 interface SessionFileMatch {
   filePath: string;
@@ -29,12 +28,6 @@ interface SessionFileMatch {
 interface SessionThreadMaterializationInput {
   threadId: string;
   link: CodexThreadSummary;
-}
-
-interface ParsedSessionLine {
-  timestamp: number;
-  type: string;
-  payload: Record<string, unknown> | null;
 }
 
 interface MutableTurnRecord {
@@ -49,24 +42,14 @@ interface MutableTurnRecord {
 }
 
 const sessionFileCache = new Map<string, SessionFileMatch | null>();
-const sessionIndexCache = new Map<string, SessionIndexEntry>();
+const sessionIndexCache = new Map<string, CodexSessionIndexEntry>();
 let sessionIndexLoadedFromPath: string | null = null;
 let sessionFileCacheHome: string | null = null;
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (typeof value !== "object" || value === null) return null;
-  return value as Record<string, unknown>;
-}
 
 function parseIsoTimestamp(value: unknown): number | null {
   if (typeof value !== "string") return null;
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-function parseFiniteNumber(value: unknown): number | null {
-  if (typeof value !== "number" || !Number.isFinite(value)) return null;
-  return value;
 }
 
 function resolveHomeDir(): string {
@@ -79,25 +62,6 @@ function resolveCodexHomeDir(): string {
   const envCodexHome = process.env.CODEX_HOME?.trim();
   if (envCodexHome) return envCodexHome;
   return path.join(resolveHomeDir(), ".codex");
-}
-
-function parseSessionIndexEntry(rawLine: string): SessionIndexEntry | null {
-  try {
-    const parsed = JSON.parse(rawLine) as unknown;
-    const candidate = asRecord(parsed);
-    if (!candidate || typeof candidate.id !== "string") return null;
-    return {
-      id: candidate.id,
-      threadName: typeof candidate.thread_name === "string"
-        ? candidate.thread_name
-        : typeof candidate.threadName === "string"
-          ? candidate.threadName
-          : null,
-      updatedAt: parseIsoTimestamp(candidate.updated_at ?? candidate.updatedAt),
-    };
-  } catch {
-    return null;
-  }
 }
 
 function loadSessionIndexIfNeeded(): void {
@@ -113,13 +77,13 @@ function loadSessionIndexIfNeeded(): void {
   for (const line of raw.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    const entry = parseSessionIndexEntry(trimmed);
+    const entry = parseCodexSessionIndexEntryLine(trimmed);
     if (!entry) continue;
     sessionIndexCache.set(entry.id, entry);
   }
 }
 
-function readSessionIndexEntry(threadId: string): SessionIndexEntry | null {
+function readSessionIndexEntry(threadId: string): CodexSessionIndexEntry | null {
   loadSessionIndexIfNeeded();
   return sessionIndexCache.get(threadId) ?? null;
 }
@@ -182,63 +146,6 @@ export function hasCodexSessionMaterialized(threadId: string): boolean {
     return fs.statSync(match.filePath).size > 0;
   } catch {
     return false;
-  }
-}
-
-function parseTokenUsageBreakdown(value: unknown): CodexTokenUsageBreakdown | null {
-  const candidate = asRecord(value);
-  if (!candidate) return null;
-
-  const totalTokens = parseFiniteNumber(candidate.totalTokens ?? candidate.total_tokens);
-  const inputTokens = parseFiniteNumber(candidate.inputTokens ?? candidate.input_tokens);
-  const cachedInputTokens = parseFiniteNumber(candidate.cachedInputTokens ?? candidate.cached_input_tokens);
-  const outputTokens = parseFiniteNumber(candidate.outputTokens ?? candidate.output_tokens);
-  const reasoningOutputTokens = parseFiniteNumber(
-    candidate.reasoningOutputTokens ?? candidate.reasoning_output_tokens,
-  );
-
-  if (
-    totalTokens === null ||
-    inputTokens === null ||
-    cachedInputTokens === null ||
-    outputTokens === null ||
-    reasoningOutputTokens === null
-  ) {
-    return null;
-  }
-
-  return {
-    totalTokens,
-    inputTokens,
-    cachedInputTokens,
-    outputTokens,
-    reasoningOutputTokens,
-  };
-}
-
-function parseTokenUsage(value: unknown): CodexThreadTokenUsage | undefined {
-  const candidate = asRecord(value);
-  if (!candidate) return undefined;
-
-  const total = parseTokenUsageBreakdown(candidate.total ?? candidate.total_token_usage);
-  const last = parseTokenUsageBreakdown(candidate.last ?? candidate.last_token_usage);
-  if (!total || !last) return undefined;
-
-  const modelContextWindow = candidate.modelContextWindow ?? candidate.model_context_window;
-  return {
-    total,
-    last,
-    modelContextWindow: modelContextWindow === null ? null : parseFiniteNumber(modelContextWindow),
-  };
-}
-
-function parseTimestampFromLine(rawLine: string, fallback: number): number {
-  try {
-    const parsed = JSON.parse(rawLine) as unknown;
-    const candidate = asRecord(parsed);
-    return parseIsoTimestamp(candidate?.timestamp) ?? fallback;
-  } catch {
-    return fallback;
   }
 }
 
@@ -384,21 +291,8 @@ function parseSessionJsonl(
 
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
     const rawLine = lines[lineIndex];
-    let parsedLine: ParsedSessionLine | null = null;
-    try {
-      const parsed = JSON.parse(rawLine) as unknown;
-      const candidate = asRecord(parsed);
-      if (!candidate || typeof candidate.type !== "string") continue;
-      const timestamp = parseIsoTimestamp(candidate.timestamp) ?? parseTimestampFromLine(rawLine, fallbackTimestamp);
-      parsedLine = {
-        timestamp,
-        type: candidate.type,
-        payload: asRecord(candidate.payload),
-      };
-    } catch {
-      continue;
-    }
-
+    const parsedLine = parseCodexSessionJsonlLine(rawLine, fallbackTimestamp);
+    if (!parsedLine) continue;
     const { timestamp, type, payload } = parsedLine;
     lastUpdatedAt = Math.max(lastUpdatedAt, timestamp);
 
@@ -425,7 +319,7 @@ function parseSessionJsonl(
 
       if (eventType === "token_count") {
         const turn = ensureTurn(turnsById, input.threadId, currentTurnId, timestamp);
-        const tokenUsage = parseTokenUsage(payload?.info);
+        const tokenUsage = parseCodexThreadTokenUsage(payload?.info);
         if (tokenUsage) {
           turn.tokenUsage = tokenUsage;
         }

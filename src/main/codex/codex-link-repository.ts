@@ -3,6 +3,11 @@ import type {
   CodexThreadStatusType,
   CodexThreadSummary,
 } from "../../shared/types";
+import {
+  CodexThreadActiveFlagSchema,
+  CodexThreadStatusTypeSchema,
+} from "../../shared/schemas/codex";
+import { parseJsonStringWithSchema } from "../../shared/schemas/storage";
 import { getDb } from "../kanban/db-service";
 
 interface DbCodexCardThread {
@@ -38,20 +43,11 @@ export interface UpsertCodexCardThreadInput {
 }
 
 function isStatusType(value: string): value is CodexThreadStatusType {
-  return value === "notLoaded" || value === "idle" || value === "systemError" || value === "active";
+  return CodexThreadStatusTypeSchema.safeParse(value).success;
 }
 
 function parseStatusActiveFlags(raw: string): CodexThreadActiveFlag[] {
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (value): value is CodexThreadActiveFlag =>
-        value === "waitingOnApproval" || value === "waitingOnUserInput",
-    );
-  } catch {
-    return [];
-  }
+  return parseJsonStringWithSchema(raw, CodexThreadActiveFlagSchema.array(), []);
 }
 
 function rowToSummary(row: DbCodexCardThread): CodexThreadSummary {

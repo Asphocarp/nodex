@@ -8,6 +8,7 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 ### Shared Contracts (`src/shared`)
 - `types.ts`: canonical domain model (`Card`, `Board`, `Project`, input payloads, block-drop import payloads).
 - `ipc-api.ts`: typed IPC channel surface between preload/renderer/main.
+- `schemas/*`: runtime boundary schemas for persisted renderer state, Codex settings, HTTP bodies, Codex session replay JSONL lines, and transcript special-item/raw JSON payload families.
 - `card-limits.ts`: centralized payload and field size constraints.
 - `assets.ts`: stable `nodex://assets/` URI helpers.
 - `nfm/*`: shared Notion-flavored Markdown parser/serializer core used by both main-process storage logic and renderer editor adapters.
@@ -60,6 +61,7 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `lib/kanban-store.ts`: shared per-project board store with one realtime subscription, deduped fetches, optimistic journal rebase (`baseBoard + pending/local ops`), LWW conflict superseding, typed conflict resolution (`updated|conflict|not_found`), and O(1) `cardIndex` lookup map.
 - `lib/use-kanban.ts`, `lib/use-history.ts`, `lib/use-projects.ts`: stateful hooks over API channels (`use-kanban` is store-backed via `useSyncExternalStore`).
 - `lib/use-workbench-state.ts`: persisted workbench shell state with explicit project-context slices: `dbProjectId` (DB stage datasource), `threadsProjectId` (Thread stage context), entity-driven card context, and terminal per-tab project identity; DB view/search remain keyed by `dbProjectId` while focus/panel/sliding-window-pane-count/terminal shell UI is global.
+- `lib/workbench-persisted-schemas.ts`: renderer-side persisted-state schema/parsing layer for workbench/session history maps, tabs, panel widths, and restart-friendly shell snapshots.
 - `lib/app-close-flush.ts`: renderer-side close-flush coordinator so all registered async flushers complete before one final Electron close ack is sent.
 - `lib/workbench-resume.ts`: renderer helpers for consuming/saving the durable last-window snapshot and building snapshot payloads from live shell state.
 - `lib/dock-layout.ts`: dock split-tree helpers for the current persisted shell layout model.
@@ -104,6 +106,7 @@ Workbench reopen flow:
 
 ## Invariants
 - Persistent truth is split by ownership: Nodex-owned board/link metadata lives in SQLite, while Codex-owned thread history now lives in the main-process conversation manager plus explicit resume operations; the active renderer caches canonical conversation snapshots plus flat UI-only shell state rather than maintaining a second transcript-authority store, a second `resumeState` truth, or a second recovery layer.
+- Runtime validation belongs at boundaries. Persisted storage, selected HTTP bodies, and raw JSON payload families should parse through `src/shared/schemas/*` or feature-local schema adapters; normalized in-memory reducers/view-models remain plain TypeScript once the boundary parse succeeds.
 - All card writes must pass `card-input-validation` constraints.
 - Recurrence exceptions and reminder receipts are project-scoped and persisted in SQLite.
 - Completing an occurrence creates a `done` card with `archived = true`; archived cards stay out of board/sidebar/toggle-list flows but still surface in calendar occurrence queries.

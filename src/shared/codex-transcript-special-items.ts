@@ -1,30 +1,48 @@
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (typeof value !== "object" || value === null) return null;
-  return value as Record<string, unknown>;
-}
+import { z } from "zod";
+import { CodexUnknownRecordSchema } from "./schemas/codex";
 
-function getString(record: Record<string, unknown> | null, key: string): string | null {
-  if (!record) return null;
-  const value = record[key];
-  return typeof value === "string" ? value : null;
-}
+const NullableStringSchema = z.string().nullable().optional().catch(null).transform((value) => value ?? null);
+const NullableFiniteNumberSchema = z.number().finite().nullable().optional().catch(null).transform((value) => value ?? null);
 
-function getNumber(record: Record<string, unknown> | null, key: string): number | null {
-  if (!record) return null;
-  const value = record[key];
-  return typeof value === "number" ? value : null;
-}
+const CodexAutomaticApprovalReviewStatusSchema = z.enum([
+  "approved",
+  "denied",
+  "aborted",
+  "inProgress",
+]);
 
-function normalizeExactString<T extends string>(
-  value: string | null | undefined,
-  allowed: readonly T[],
-): T | null {
-  if (!value) return null;
-  return allowed.includes(value as T) ? value as T : null;
-}
+const CodexAutomaticApprovalReviewRiskLevelSchema = z.enum([
+  "high",
+  "medium",
+  "low",
+]);
 
-export type CodexAutomaticApprovalReviewStatus = "approved" | "denied" | "aborted" | "inProgress";
-export type CodexAutomaticApprovalReviewRiskLevel = "high" | "medium" | "low";
+const CodexMultiAgentActionNameSchema = z.enum([
+  "spawnAgent",
+  "sendInput",
+  "resumeAgent",
+  "closeAgent",
+  "wait",
+]);
+
+const CodexMultiAgentActionStatusSchema = z.enum([
+  "inProgress",
+  "completed",
+  "failed",
+]);
+
+const CodexMultiAgentAgentStatusSchema = z.enum([
+  "pendingInit",
+  "running",
+  "interrupted",
+  "shutdown",
+  "completed",
+  "errored",
+  "notFound",
+]);
+
+export type CodexAutomaticApprovalReviewStatus = z.infer<typeof CodexAutomaticApprovalReviewStatusSchema>;
+export type CodexAutomaticApprovalReviewRiskLevel = z.infer<typeof CodexAutomaticApprovalReviewRiskLevelSchema>;
 
 export interface CodexAutomaticApprovalReviewPayload {
   targetItemId: string | null;
@@ -35,57 +53,9 @@ export interface CodexAutomaticApprovalReviewPayload {
   action: unknown;
 }
 
-export function normalizeAutomaticApprovalReviewPayload(
-  rawItem: unknown,
-  fallbackTargetItemId?: string | null,
-): CodexAutomaticApprovalReviewPayload | null {
-  const candidate = asRecord(rawItem);
-  if (!candidate) return null;
-
-  const reviewRecord = asRecord(candidate.review) ?? candidate;
-  const status = normalizeExactString(
-    getString(reviewRecord, "status"),
-    ["approved", "denied", "aborted", "inProgress"] as const,
-  );
-  if (!status) return null;
-
-  return {
-    targetItemId: getString(candidate, "targetItemId") ?? fallbackTargetItemId ?? null,
-    status,
-    riskScore: getNumber(reviewRecord, "riskScore"),
-    riskLevel: normalizeExactString(
-      getString(reviewRecord, "riskLevel"),
-      ["high", "medium", "low"] as const,
-    ),
-    rationale: getString(reviewRecord, "rationale"),
-    action: Object.prototype.hasOwnProperty.call(candidate, "action") ? candidate.action : null,
-  };
-}
-
-export function buildAutomaticApprovalReviewSummary(
-  review: Pick<CodexAutomaticApprovalReviewPayload, "status" | "rationale">,
-): string {
-  const trimmedRationale = review.rationale?.trim() ?? "";
-  if (trimmedRationale.length > 0) return trimmedRationale;
-  if (review.status === "inProgress") {
-    return "A carefully prompted reviewer agent is reviewing this request before Codex runs it.";
-  }
-  if (review.status === "aborted") {
-    return "A carefully prompted reviewer agent stopped reviewing this request before Codex ran it.";
-  }
-  return "A carefully prompted reviewer agent reviewed this request.";
-}
-
-export type CodexMultiAgentActionName = "spawnAgent" | "sendInput" | "resumeAgent" | "closeAgent" | "wait";
-export type CodexMultiAgentActionStatus = "inProgress" | "completed" | "failed";
-export type CodexMultiAgentAgentStatus =
-  | "pendingInit"
-  | "running"
-  | "interrupted"
-  | "shutdown"
-  | "completed"
-  | "errored"
-  | "notFound";
+export type CodexMultiAgentActionName = z.infer<typeof CodexMultiAgentActionNameSchema>;
+export type CodexMultiAgentActionStatus = z.infer<typeof CodexMultiAgentActionStatusSchema>;
+export type CodexMultiAgentAgentStatus = z.infer<typeof CodexMultiAgentAgentStatusSchema>;
 
 export interface CodexMultiAgentReceiverThread {
   threadId: string;
@@ -114,77 +84,150 @@ export interface CodexMultiAgentActionPayload {
   agentsStates: Record<string, CodexMultiAgentAgentState>;
 }
 
-function normalizeReceiverThreads(rawValue: unknown): CodexMultiAgentReceiverThread[] {
-  if (!Array.isArray(rawValue)) return [];
-
-  return rawValue.reduce<CodexMultiAgentReceiverThread[]>((acc, entry) => {
-    const candidate = asRecord(entry);
-    const threadId = getString(candidate, "threadId");
-    if (!threadId) return acc;
-
-    const rawThread = asRecord(candidate?.thread);
-    acc.push({
-      threadId,
-      thread: rawThread
-        ? {
-            nickname: getString(rawThread, "nickname"),
-            model: getString(rawThread, "model"),
-            agentRole: getString(rawThread, "agentRole"),
-          }
-        : null,
+const CodexAutomaticApprovalReviewRecordSchema = CodexUnknownRecordSchema.transform((value, ctx) => {
+  const status = CodexAutomaticApprovalReviewStatusSchema.safeParse(value.status);
+  if (!status.success) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Invalid automatic approval review status",
     });
+    return z.NEVER;
+  }
+
+  const riskLevel = CodexAutomaticApprovalReviewRiskLevelSchema.safeParse(value.riskLevel);
+
+  return {
+    status: status.data,
+    riskScore: NullableFiniteNumberSchema.parse(value.riskScore),
+    riskLevel: riskLevel.success ? riskLevel.data : null,
+    rationale: NullableStringSchema.parse(value.rationale),
+  };
+});
+
+const CodexReceiverThreadSchema = CodexUnknownRecordSchema.transform((value, ctx) => {
+  const threadId = z.string().safeParse(value.threadId);
+  if (!threadId.success || threadId.data.trim().length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Invalid receiver thread id",
+    });
+    return z.NEVER;
+  }
+
+  const thread = CodexUnknownRecordSchema.safeParse(value.thread);
+  return {
+    threadId: threadId.data,
+    thread: thread.success
+      ? {
+          nickname: NullableStringSchema.parse(thread.data.nickname),
+          model: NullableStringSchema.parse(thread.data.model),
+          agentRole: NullableStringSchema.parse(thread.data.agentRole),
+        }
+      : null,
+  } satisfies CodexMultiAgentReceiverThread;
+});
+
+const CodexReceiverThreadsSchema = z.array(z.unknown()).transform((value) =>
+  value.reduce<CodexMultiAgentReceiverThread[]>((acc, entry) => {
+    const parsed = CodexReceiverThreadSchema.safeParse(entry);
+    if (!parsed.success) return acc;
+    acc.push(parsed.data);
     return acc;
-  }, []);
-}
+  }, []),
+);
 
-function normalizeAgentsStates(rawValue: unknown): Record<string, CodexMultiAgentAgentState> {
-  const record = asRecord(rawValue);
-  if (!record) return {};
+const CodexAgentsStatesSchema = CodexUnknownRecordSchema.transform((value) =>
+  Object.entries(value).reduce<Record<string, CodexMultiAgentAgentState>>((acc, [threadId, rawState]) => {
+    const state = CodexUnknownRecordSchema.safeParse(rawState);
+    if (!state.success) return acc;
 
-  return Object.entries(record).reduce<Record<string, CodexMultiAgentAgentState>>((acc, [threadId, rawState]) => {
-    const stateRecord = asRecord(rawState);
-    const status = normalizeExactString(
-      getString(stateRecord, "status"),
-      ["pendingInit", "running", "interrupted", "shutdown", "completed", "errored", "notFound"] as const,
-    );
-    if (!status) return acc;
+    const status = CodexMultiAgentAgentStatusSchema.safeParse(state.data.status);
+    if (!status.success) return acc;
 
     acc[threadId] = {
-      status,
-      message: getString(stateRecord, "message"),
+      status: status.data,
+      message: NullableStringSchema.parse(state.data.message),
     };
     return acc;
-  }, {});
+  }, {}),
+);
+
+const CodexMultiAgentActionRecordSchema = CodexUnknownRecordSchema.transform((value, ctx) => {
+  const action = CodexMultiAgentActionNameSchema.safeParse(value.tool);
+  const status = CodexMultiAgentActionStatusSchema.safeParse(value.status);
+  if (!action.success || !status.success) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Invalid multi-agent action payload",
+    });
+    return z.NEVER;
+  }
+
+  const receiverThreadIds = Array.isArray(value.receiverThreadIds)
+    ? value.receiverThreadIds.reduce<string[]>((acc, entry) => {
+        const parsed = z.string().safeParse(entry);
+        if (!parsed.success) return acc;
+        acc.push(parsed.data);
+        return acc;
+      }, [])
+    : [];
+
+  const receiverThreads = CodexReceiverThreadsSchema.safeParse(value.receiverThreads);
+  const agentsStates = CodexAgentsStatesSchema.safeParse(value.agentsStates);
+
+  return {
+    id: NullableStringSchema.parse(value.id),
+    action: action.data,
+    status: status.data,
+    senderThreadId: NullableStringSchema.parse(value.senderThreadId),
+    receiverThreadIds,
+    receiverThreads: receiverThreads.success ? receiverThreads.data : [],
+    prompt: NullableStringSchema.parse(value.prompt),
+    model: NullableStringSchema.parse(value.model),
+    reasoningEffort: NullableStringSchema.parse(value.reasoningEffort),
+    agentsStates: agentsStates.success ? agentsStates.data : {},
+  } satisfies CodexMultiAgentActionPayload;
+});
+
+export function normalizeAutomaticApprovalReviewPayload(
+  rawItem: unknown,
+  fallbackTargetItemId?: string | null,
+): CodexAutomaticApprovalReviewPayload | null {
+  const candidate = CodexUnknownRecordSchema.safeParse(rawItem);
+  if (!candidate.success) return null;
+
+  const reviewRecord = CodexAutomaticApprovalReviewRecordSchema.safeParse(candidate.data.review);
+  let normalizedReview: z.infer<typeof CodexAutomaticApprovalReviewRecordSchema> | null = null;
+  if (reviewRecord.success) {
+    normalizedReview = reviewRecord.data;
+  } else {
+    const parsedFallback = CodexAutomaticApprovalReviewRecordSchema.safeParse(candidate.data);
+    normalizedReview = parsedFallback.success ? parsedFallback.data : null;
+  }
+  if (!normalizedReview) return null;
+
+  return {
+    targetItemId: NullableStringSchema.parse(candidate.data.targetItemId) ?? fallbackTargetItemId ?? null,
+    ...normalizedReview,
+    action: Object.prototype.hasOwnProperty.call(candidate.data, "action") ? candidate.data.action : null,
+  };
+}
+
+export function buildAutomaticApprovalReviewSummary(
+  review: Pick<CodexAutomaticApprovalReviewPayload, "status" | "rationale">,
+): string {
+  const trimmedRationale = review.rationale?.trim() ?? "";
+  if (trimmedRationale.length > 0) return trimmedRationale;
+  if (review.status === "inProgress") {
+    return "A carefully prompted reviewer agent is reviewing this request before Codex runs it.";
+  }
+  if (review.status === "aborted") {
+    return "A carefully prompted reviewer agent stopped reviewing this request before Codex ran it.";
+  }
+  return "A carefully prompted reviewer agent reviewed this request.";
 }
 
 export function normalizeMultiAgentActionPayload(rawItem: unknown): CodexMultiAgentActionPayload | null {
-  const candidate = asRecord(rawItem);
-  if (!candidate) return null;
-
-  const action = normalizeExactString(
-    getString(candidate, "tool"),
-    ["spawnAgent", "sendInput", "resumeAgent", "closeAgent", "wait"] as const,
-  );
-  const status = normalizeExactString(
-    getString(candidate, "status"),
-    ["inProgress", "completed", "failed"] as const,
-  );
-  if (!action || !status) return null;
-
-  const receiverThreadIds = Array.isArray(candidate.receiverThreadIds)
-    ? candidate.receiverThreadIds.filter((entry): entry is string => typeof entry === "string")
-    : [];
-
-  return {
-    id: getString(candidate, "id"),
-    action,
-    status,
-    senderThreadId: getString(candidate, "senderThreadId"),
-    receiverThreadIds,
-    receiverThreads: normalizeReceiverThreads(candidate.receiverThreads),
-    prompt: getString(candidate, "prompt"),
-    model: getString(candidate, "model"),
-    reasoningEffort: getString(candidate, "reasoningEffort"),
-    agentsStates: normalizeAgentsStates(candidate.agentsStates),
-  };
+  const parsed = CodexMultiAgentActionRecordSchema.safeParse(rawItem);
+  return parsed.success ? parsed.data : null;
 }

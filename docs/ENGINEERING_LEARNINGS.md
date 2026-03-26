@@ -4,6 +4,9 @@ Status: Verified
 
 This file captures high-signal implementation discoveries that have caused regressions or costly debugging in the past.
 
+### Codex-style zod usage belongs at boundaries, not inside internal renderer state machines
+Codex Electron's zod usage shows up at external boundaries such as imported settings blobs and other serialized inputs, not as a second validation layer inside already-normalized React state. In Nodex, the stable pattern is the same: parse persisted storage, selected HTTP payloads, Codex session replay JSONL lines, transcript special-item payloads, and other raw JSON families through `src/shared/schemas/*` or a feature-local schema adapter, then hand plain normalized values to reducers, projectors, and view models. Regressions came from the opposite extremes: ad hoc `JSON.parse(... as unknown)` plus hand-written field checks at every boundary, or the temptation to re-parse already-normalized view state deep inside renderer components.
+
 ### Codex-style renderer work should push semantics upstream and visuals into shared tokenized shells
 Codex Electron consistently separates renderer work into two stages: upstream projection decides semantic lanes and action eligibility, then shared shells and tokenized utility classes render that result. Regressions in Nodex happened when view components recomputed semantics locally or introduced feature-local CSS instead of leaning on existing `text-token-*`, `bg-token-*`, `border-token-*`, width vars, radius vars, and shared row/accordion shells. When matching Codex behavior, first ask whether the rule belongs in normalization/bucketization and whether the appearance can be expressed by an existing token family or shared primitive before adding JSX branching or new CSS.
 

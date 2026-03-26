@@ -5,6 +5,12 @@ import type {
   CodexThreadDetailLevel,
   CodexThreadSettings,
 } from "./types";
+import {
+  CodexReasoningEffortSchema,
+  CodexThreadDetailLevelSchema,
+  CodexThreadSettingsSchema,
+} from "../../shared/schemas/codex";
+import { parseJsonStringWithSchema } from "../../shared/schemas/storage";
 
 export const THREAD_SETTINGS_STORAGE_KEY = "nodex-codex-thread-settings-v1";
 const FALLBACK_MODEL_ID = "gpt-5.3-codex";
@@ -32,50 +38,15 @@ const THREAD_DETAIL_LEVEL_LABELS: Record<CodexThreadDetailLevel, string> = {
   STEPS_EXECUTION: "Steps with code output",
 };
 
-function isCodexReasoningEffort(value: unknown): value is CodexReasoningEffort {
-  return (
-    value === "minimal" ||
-    value === "low" ||
-    value === "medium" ||
-    value === "high" ||
-    value === "xhigh"
-  );
-}
-
 export function isCodexThreadDetailLevel(value: unknown): value is CodexThreadDetailLevel {
-  return value === "STEPS_PROSE" || value === "STEPS_COMMANDS" || value === "STEPS_EXECUTION";
-}
-
-function sanitizeThreadSettingsValue(
-  value: unknown,
-): CodexThreadSettings | null {
-  if (typeof value !== "object" || value === null) return null;
-
-  const candidate = value as Record<string, unknown>;
-  const next: CodexThreadSettings = {};
-
-  if (typeof candidate.model === "string" && candidate.model.trim()) {
-    next.model = candidate.model.trim();
-  }
-
-  if (isCodexReasoningEffort(candidate.reasoningEffort)) {
-    next.reasoningEffort = candidate.reasoningEffort;
-  }
-
-  if (isCodexThreadDetailLevel(candidate.detailLevel)) {
-    next.detailLevel = candidate.detailLevel;
-  }
-
-  return next.model || next.reasoningEffort || next.detailLevel ? next : null;
+  return CodexThreadDetailLevelSchema.safeParse(value).success;
 }
 
 export function readCodexThreadSettings(): CodexThreadSettings | null {
   try {
     const raw = localStorage.getItem(THREAD_SETTINGS_STORAGE_KEY);
-    if (!raw) return null;
-
-    const parsed = JSON.parse(raw) as unknown;
-    return sanitizeThreadSettingsValue(parsed);
+    const parsed = parseJsonStringWithSchema(raw, CodexThreadSettingsSchema, {});
+    return parsed.model || parsed.reasoningEffort || parsed.detailLevel ? parsed : null;
   } catch {
     return null;
   }
@@ -181,7 +152,8 @@ export function formatCodexModelLabel(modelId: string | undefined, models: Codex
 
 export function formatCodexReasoningEffortLabel(effort: CodexReasoningEffort | undefined): string {
   if (!effort) return "High";
-  return REASONING_EFFORT_LABELS[effort];
+  const parsedEffort = CodexReasoningEffortSchema.safeParse(effort);
+  return parsedEffort.success ? REASONING_EFFORT_LABELS[parsedEffort.data] : "High";
 }
 
 export function resolveCodexThreadDetailLevel(

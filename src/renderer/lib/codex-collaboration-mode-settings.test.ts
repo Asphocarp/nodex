@@ -45,6 +45,30 @@ describe("codex collaboration mode settings", () => {
     }
   });
 
+  test("reads legacy wrapped mode maps", () => {
+    const storageGlobal = globalThis as unknown as { localStorage?: typeof mockStorage };
+    const previousLocalStorage = storageGlobal.localStorage;
+    storageGlobal.localStorage = mockStorage;
+    mockStorage.clear();
+
+    try {
+      const threadKey = getThreadCollaborationModeStorageKey("thr-legacy");
+      mockStorage.setItem("nodex-codex-collaboration-mode-settings-v1", JSON.stringify({
+        modes: {
+          [threadKey]: "plan",
+        },
+      }));
+
+      expect(readCollaborationModeForContextKey(threadKey)).toBe("plan");
+    } finally {
+      if (previousLocalStorage) {
+        storageGlobal.localStorage = previousLocalStorage;
+      } else {
+        delete storageGlobal.localStorage;
+      }
+    }
+  });
+
   test("round-trips thread and draft context keys", () => {
     const storageGlobal = globalThis as unknown as { localStorage?: typeof mockStorage };
     const previousLocalStorage = storageGlobal.localStorage;

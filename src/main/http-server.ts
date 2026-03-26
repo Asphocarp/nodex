@@ -14,7 +14,6 @@ import {
   updateHistorySettings,
   updateThreadNotificationSettings,
 } from "./kanban/config";
-import { isCardStatus, type CardStatus } from "../shared/card-status";
 import { dbNotifier } from "./kanban/db-notifier";
 import {
   checkoutGitBranch,
@@ -43,6 +42,12 @@ import {
 } from "./kanban/asset-service";
 import { parseAssetSource } from "../shared/assets";
 import { getLogger } from "./logging/logger";
+import {
+  HttpBlockDropImportBodySchema,
+  HttpCardBodySchema,
+  HttpCardMoveDropBodySchema,
+  parseOptionalCardStatus,
+} from "../shared/schemas/http";
 
 /** SSE keep-alive ping interval (ms) */
 const SSE_PING_INTERVAL_MS = 30_000;
@@ -302,24 +307,6 @@ app.post("/api/git/branch/create", async (c) => {
   }
 });
 
-function parseDueDate(value: unknown): Date | null | undefined {
-  if (value === undefined) return undefined;
-  if (value === null || value === "") return null;
-  if (value instanceof Date) return value;
-  if (typeof value !== "string") throw new Error("Invalid dueDate value");
-
-  const candidate = /^\d{4}-\d{2}-\d{2}$/.test(value)
-    ? parseDateOnlyUtc("dueDate", value).toISOString()
-    : value;
-  assertValidIsoCalendarDate("dueDate", candidate);
-  const parsed = new Date(candidate);
-  if (Number.isNaN(parsed.getTime())) {
-    throw new Error(`Invalid dueDate "${value}"`);
-  }
-
-  return parsed;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -342,25 +329,6 @@ function assertValidIsoCalendarDate(fieldName: string, value: string): void {
   }
 }
 
-function parseDateOnlyUtc(fieldName: string, value: string): Date {
-  assertValidIsoCalendarDate(fieldName, value);
-  return new Date(`${value}T00:00:00.000Z`);
-}
-
-function parseScheduledDate(fieldName: string, value: unknown): Date | null | undefined {
-  if (value === undefined) return undefined;
-  if (value === null || value === "") return null;
-  if (value instanceof Date) return value;
-  if (typeof value !== "string") throw new Error(`Invalid ${fieldName} value`);
-
-  assertValidIsoCalendarDate(fieldName, value);
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    throw new Error(`Invalid ${fieldName} "${value}"`);
-  }
-  return parsed;
-}
-
 function parseRequiredDate(fieldName: string, value: unknown): Date {
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
   if (typeof value !== "string") throw new Error(`Invalid ${fieldName} value`);
@@ -372,73 +340,20 @@ function parseRequiredDate(fieldName: string, value: unknown): Date {
   return parsed;
 }
 
-function parseOptionalBoolean(fieldName: string, value: unknown): boolean | null | undefined {
-  if (value === undefined) return undefined;
-  if (value === null || value === "") return null;
-  if (typeof value === "boolean") return value;
-  throw new Error(`Invalid ${fieldName} value`);
-}
-
 function normalizeCardBody(body: Record<string, unknown>): Record<string, unknown> {
-  const result = { ...body };
-  if (Object.hasOwn(result, "dueDate")) {
-    result.dueDate = parseDueDate(result.dueDate);
-  }
-  if (Object.hasOwn(result, "scheduledStart")) {
-    result.scheduledStart = parseScheduledDate("scheduledStart", result.scheduledStart);
-  }
-  if (Object.hasOwn(result, "scheduledEnd")) {
-    result.scheduledEnd = parseScheduledDate("scheduledEnd", result.scheduledEnd);
-  }
-  if (Object.hasOwn(result, "isAllDay")) {
-    result.isAllDay = parseOptionalBoolean("isAllDay", result.isAllDay);
-  }
-  return result;
-}
-
-function parseOptionalStatus(value: unknown): CardStatus | undefined {
-  if (value === undefined || value === null || value === "") return undefined;
-  if (!isCardStatus(value)) {
-    throw new Error("Invalid status");
-  }
-  return value;
-}
-
-function normalizeCardInputValue(value: unknown): unknown {
-  if (!isRecord(value)) return value;
-  return normalizeCardBody(value);
-}
-
-function normalizeSourceUpdatesValue(value: unknown): unknown {
-  if (!Array.isArray(value)) return value;
-  return value.map((item) => {
-    if (!isRecord(item)) return item;
-    return {
-      ...item,
-      updates: normalizeCardInputValue(item.updates),
-    };
-  });
+  return HttpCardBodySchema.parse(body);
 }
 
 export function normalizeBlockDropImportBody(
   body: Record<string, unknown>,
 ): Record<string, unknown> {
-  return {
-    ...body,
-    cards: Array.isArray(body.cards)
-      ? body.cards.map((card) => normalizeCardInputValue(card))
-      : body.cards,
-    sourceUpdates: normalizeSourceUpdatesValue(body.sourceUpdates),
-  };
+  return HttpBlockDropImportBodySchema.parse(body);
 }
 
 export function normalizeCardMoveDropBody(
   body: Record<string, unknown>,
 ): Record<string, unknown> {
-  return {
-    ...body,
-    targetUpdates: normalizeSourceUpdatesValue(body.targetUpdates),
-  };
+  return HttpCardMoveDropBodySchema.parse(body);
 }
 
 // === Project routes ===
@@ -503,7 +418,7 @@ app.post("/api/projects/:projectId/board", cardWriteBodyLimit, async (c) => {
   const body = (await c.req.json()) as Record<string, unknown>;
   try {
     const { status, sessionId, placement, ...input } = normalizeCardBody(body);
-    const normalizedStatus = parseOptionalStatus(status);
+    const normalizedStatus = parseOptionalCardStatus(status);
     if (!normalizedStatus) {
       return c.json({ error: "Missing status" }, 400);
     }
@@ -635,7 +550,7 @@ app.get("/api/assets/:fileName", (c) => {
 
 app.get("/api/projects/:projectId/card", async (c) => {
   const projectId = c.req.param("projectId");
-  const status = parseOptionalStatus(c.req.query("status") || undefined);
+  const status = parseOptionalCardStatus(c.req.query("status") || undefined);
   const cardId = c.req.query("cardId");
   if (!cardId) return c.json({ error: "Missing cardId" }, 400);
   const result = await dbService.getCard(projectId, cardId, status);
@@ -657,7 +572,7 @@ app.put("/api/projects/:projectId/card", cardWriteBodyLimit, async (c) => {
     if (typeof cardId !== "string") {
       return c.json({ error: "Missing cardId" }, 400);
     }
-    const normalizedStatus = parseOptionalStatus(status);
+    const normalizedStatus = parseOptionalCardStatus(status);
     const normalizedSessionId = typeof sessionId === "string" ? sessionId : undefined;
     const normalizedExpectedRevision = typeof expectedRevision === "number"
       && Number.isInteger(expectedRevision)
@@ -685,7 +600,7 @@ app.put("/api/projects/:projectId/card", cardWriteBodyLimit, async (c) => {
 
 app.delete("/api/projects/:projectId/card", async (c) => {
   const projectId = c.req.param("projectId");
-  const status = parseOptionalStatus(c.req.query("status") || undefined);
+  const status = parseOptionalCardStatus(c.req.query("status") || undefined);
   const cardId = c.req.query("cardId");
   const sessionId = c.req.query("sessionId") || undefined;
   if (!cardId) return c.json({ error: "Missing cardId" }, 400);
@@ -790,7 +705,7 @@ app.put("/api/projects/:projectId/card-occurrence", cardWriteBodyLimit, async (c
 
 app.get("/api/projects/:projectId/column", async (c) => {
   const projectId = c.req.param("projectId");
-  const columnId = parseOptionalStatus(c.req.query("id"));
+  const columnId = parseOptionalCardStatus(c.req.query("id"));
   if (!columnId) return c.json({ error: "Missing id" }, 400);
   const column = await dbService.readColumn(projectId, columnId);
   return c.json(column);
@@ -836,9 +751,9 @@ app.post("/api/projects/:projectId/card-move-to-project", async (c) => {
     const input: MoveCardToProjectInput = {
       cardId: body.cardId,
       sourceProjectId,
-      sourceStatus: parseOptionalStatus(body.sourceStatus),
+      sourceStatus: parseOptionalCardStatus(body.sourceStatus),
       targetProjectId: body.targetProjectId,
-      targetStatus: parseOptionalStatus(body.targetStatus),
+      targetStatus: parseOptionalCardStatus(body.targetStatus),
     };
 
     const result = await dbService.moveCardToProject(input);
