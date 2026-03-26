@@ -1,5 +1,6 @@
 import { motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronRightIcon } from "@/components/shared/icons";
 import { cn } from "../../../../lib/utils";
 import type { CodexTranscriptEntry } from "../../../../lib/types";
 import { MarkdownRenderer } from "./markdown/markdown-renderer";
@@ -131,28 +132,6 @@ function useReasoningElapsedLabel(isInProgress: boolean): string | null {
   return formatElapsedDuration(Math.max(now - startedAt, 0));
 }
 
-function ChevronRightIcon({ expanded }: { expanded: boolean }) {
-  return (
-    <svg
-      width="20"
-      height="20"
-      viewBox="0 0 20 20"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={cn(
-        "text-token-input-placeholder-foreground icon-2xs flex-shrink-0 transition-all duration-300 opacity-0 group-hover:opacity-100",
-        expanded && "opacity-100 rotate-90",
-      )}
-      aria-hidden="true"
-    >
-      <path
-        d="M7.52925 3.7793C7.75652 3.55203 8.10803 3.52383 8.36616 3.69434L8.47065 3.7793L14.2207 9.5293C14.4804 9.789 14.4804 10.211 14.2207 10.4707L8.47065 16.2207C8.21095 16.4804 7.78895 16.4804 7.52925 16.2207C7.26955 15.961 7.26955 15.539 7.52925 15.2793L12.8085 10L7.52925 4.7207L7.44429 4.61621C7.27378 4.35808 7.30198 4.00657 7.52925 3.7793Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-}
-
 function resolveReasoningHeaderLabel(isInProgress: boolean, elapsedLabel: string | null): string {
   if (isInProgress) return "Thinking";
   if (elapsedLabel) return `Thought for ${elapsedLabel}`;
@@ -207,7 +186,14 @@ export function ReasoningSurface({
       >
         {summaryLabel}
       </span>
-      {canToggle ? <ChevronRightIcon expanded={expanded} /> : null}
+      {canToggle ? (
+        <ChevronRightIcon
+          className={cn(
+            "text-token-input-placeholder-foreground flex-shrink-0 transition-all duration-300 opacity-0 group-hover:opacity-100",
+            expanded && "opacity-100 rotate-90",
+          )}
+        />
+      ) : null}
     </div>
   );
 

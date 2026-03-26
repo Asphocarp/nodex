@@ -1,5 +1,6 @@
 import { motion } from "motion/react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { ChevronRightIcon, CodeBracketsIcon } from "@/components/shared/icons";
 import {
   Dialog,
   DialogContent,
@@ -175,47 +176,6 @@ function normalizePayload(item: CodexTranscriptEntry): McpPayload {
     result,
     completed,
   };
-}
-
-function ChevronRightIcon({ expanded }: { expanded: boolean }) {
-  return (
-    <svg
-      width="20"
-      height="20"
-      viewBox="0 0 20 20"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={cn(
-        "text-token-input-placeholder-foreground icon-2xs flex-shrink-0 transition-all duration-300 opacity-0 group-hover/summary:opacity-100",
-        expanded && "opacity-100 rotate-90",
-      )}
-      aria-hidden="true"
-    >
-      <path
-        d="M7.52925 3.7793C7.75652 3.55203 8.10803 3.52383 8.36616 3.69434L8.47065 3.7793L14.2207 9.5293C14.4804 9.789 14.4804 10.211 14.2207 10.4707L8.47065 16.2207C8.21095 16.4804 7.78895 16.4804 7.52925 16.2207C7.26955 15.961 7.26955 15.539 7.52925 15.2793L12.8085 10L7.52925 4.7207L7.44429 4.61621C7.27378 4.35808 7.30198 4.00657 7.52925 3.7793Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-}
-
-function CodeBracketsIcon() {
-  return (
-    <svg
-      width="21"
-      height="21"
-      viewBox="0 0 21 21"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className="icon-xxs"
-      aria-hidden="true"
-    >
-      <path
-        d="M11.9025 5.3302C12.0658 5.06755 12.3961 4.94629 12.6975 5.05774C13.0419 5.1853 13.2176 5.56881 13.09 5.91321L9.75703 14.9132L9.69745 15.0333C9.53415 15.296 9.20387 15.4172 8.90253 15.3058C8.55813 15.1782 8.3824 14.7947 8.50995 14.4503L11.843 5.45032L11.9025 5.3302ZM5.21894 5.35853C5.3974 5.03773 5.8023 4.92241 6.12324 5.10071C6.44404 5.27917 6.55935 5.68407 6.38105 6.00501L4.05976 10.1818L6.38105 14.3585L6.43476 14.4825C6.52764 14.7774 6.4039 15.1067 6.12324 15.2628C5.84224 15.4189 5.49646 15.3503 5.29511 15.1154L5.21894 15.005L2.71894 10.505C2.60736 10.3042 2.60736 10.0594 2.71894 9.85853L5.21894 5.35853ZM15.4768 5.10071C15.7578 4.9446 16.1035 5.01323 16.3049 5.24817L16.381 5.35853L18.881 9.85853C18.9926 10.0594 18.9926 10.3042 18.881 10.505L16.381 15.005C16.2026 15.3258 15.7977 15.4411 15.4768 15.2628C15.156 15.0844 15.0406 14.6795 15.2189 14.3585L17.5393 10.1818L15.2189 6.00501L15.1652 5.88099C15.0723 5.58611 15.1961 5.25684 15.4768 5.10071Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
 }
 
 function McpCodePanel({
@@ -590,7 +550,14 @@ export function McpToolCall({
               {summaryDetail}
             </span>
           </span>
-          {payload.completed ? <ChevronRightIcon expanded={isExpanded} /> : null}
+          {payload.completed ? (
+            <ChevronRightIcon
+              className={cn(
+                "text-token-input-placeholder-foreground flex-shrink-0 transition-all duration-300 opacity-0 group-hover/summary:opacity-100",
+                isExpanded && "opacity-100 rotate-90",
+              )}
+            />
+          ) : null}
         </button>
         <motion.div
           initial={false}

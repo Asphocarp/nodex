@@ -14,7 +14,7 @@ import {
   DescriptionIcon,
   PeopleIcon,
   TagIcon,
-} from "@/components/shared/property-icons";
+} from "@/components/shared/icons";
 import { cn } from "@/lib/utils";
 import type { CardRunInTarget } from "@/lib/types";
 import {

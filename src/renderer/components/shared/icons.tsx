@@ -1,7 +1,15 @@
 import { cn } from "@/lib/utils";
 import type { CodexReasoningEffort } from "@/lib/types";
 
-export function UpArrowIcon({ className }: { className?: string }) {
+type IconProps = {
+  className?: string;
+};
+
+const CHEVRON_DOWN_PATH = "M15.2793 7.71101C15.539 7.45131 15.961 7.45131 16.2207 7.71101C16.4804 7.97071 16.4804 8.39272 16.2207 8.65242L10.4707 14.4024C10.211 14.6621 9.78902 14.6621 9.52932 14.4024L3.77932 8.65242L3.69436 8.54792C3.52385 8.28979 3.55205 7.93828 3.77932 7.71101C4.00659 7.48374 4.3581 7.45554 4.61623 7.62605L4.72073 7.71101L10 12.9903L15.2793 7.71101Z";
+const CHEVRON_RIGHT_PATH = "M7.52925 3.7793C7.75652 3.55203 8.10803 3.52383 8.36616 3.69434L8.47065 3.7793L14.2207 9.5293C14.4804 9.789 14.4804 10.211 14.2207 10.4707L8.47065 16.2207C8.21095 16.4804 7.78895 16.4804 7.52925 16.2207C7.26955 15.961 7.26955 15.539 7.52925 15.2793L12.8085 10L7.52925 4.7207L7.44429 4.61621C7.27378 4.35808 7.30198 4.00657 7.52925 3.7793Z";
+const CODE_BRACKETS_PATH = "M11.9025 5.3302C12.0658 5.06755 12.3961 4.94629 12.6975 5.05774C13.0419 5.1853 13.2176 5.56881 13.09 5.91321L9.75703 14.9132L9.69745 15.0333C9.53415 15.296 9.20387 15.4172 8.90253 15.3058C8.55813 15.1782 8.3824 14.7947 8.50995 14.4503L11.843 5.45032L11.9025 5.3302ZM5.21894 5.35853C5.3974 5.03773 5.8023 4.92241 6.12324 5.10071C6.44404 5.27917 6.55935 5.68407 6.38105 6.00501L4.05976 10.1818L6.38105 14.3585L6.43476 14.4825C6.52764 14.7774 6.4039 15.1067 6.12324 15.2628C5.84224 15.4189 5.49646 15.3503 5.29511 15.1154L5.21894 15.005L2.71894 10.505C2.60736 10.3042 2.60736 10.0594 2.71894 9.85853L5.21894 5.35853ZM15.4768 5.10071C15.7578 4.9446 16.1035 5.01323 16.3049 5.24817L16.381 5.35853L18.881 9.85853C18.9926 10.0594 18.9926 10.3042 18.881 10.505L16.381 15.005C16.2026 15.3258 15.7977 15.4411 15.4768 15.2628C15.156 15.0844 15.0406 14.6795 15.2189 14.3585L17.5393 10.1818L15.2189 6.00501L15.1652 5.88099C15.0723 5.58611 15.1961 5.25684 15.4768 5.10071Z";
+
+export function UpArrowIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 20 20" className={cn("size-5", className)} fill="none" xmlns="http://www.w3.org/2000/svg">
       <path
@@ -12,7 +20,7 @@ export function UpArrowIcon({ className }: { className?: string }) {
   );
 }
 
-export function DownArrowIcon({ className }: { className?: string }) {
+export function DownArrowIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 20 20" className={cn("size-4", className)} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <line x1="10" y1="4" x2="10" y2="15.5" />
@@ -21,7 +29,7 @@ export function DownArrowIcon({ className }: { className?: string }) {
   );
 }
 
-export function SpinnerIcon({ className }: { className?: string }) {
+export function SpinnerIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 16 16" className={cn("size-4 animate-spin", className)} fill="none">
       <circle cx="8" cy="8" r="5.25" stroke="currentColor" strokeOpacity="0.28" strokeWidth="2" />
@@ -30,7 +38,7 @@ export function SpinnerIcon({ className }: { className?: string }) {
   );
 }
 
-export function StopIcon({ className }: { className?: string }) {
+export function StopIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 16 16" className={cn("size-3.5", className)} fill="currentColor">
       <rect x="3" y="3" width="10" height="10" rx="1.6" />
@@ -38,7 +46,7 @@ export function StopIcon({ className }: { className?: string }) {
   );
 }
 
-export function CheckmarkIcon({ className }: { className?: string }) {
+export function CheckmarkIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 17 17" className={cn("icon-2xs", className)} fill="none" xmlns="http://www.w3.org/2000/svg">
       <path
@@ -95,7 +103,7 @@ export function ReasoningEffortIcon({
   }
 }
 
-export function PlusIcon({ className }: { className?: string }) {
+export function PlusIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 20 20" className={cn("size-5", className)} fill="none" xmlns="http://www.w3.org/2000/svg">
       <path
@@ -106,7 +114,7 @@ export function PlusIcon({ className }: { className?: string }) {
   );
 }
 
-export function MicIcon({ className }: { className?: string }) {
+export function MicIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 20 20" className={cn("size-5", className)} fill="currentColor" xmlns="http://www.w3.org/2000/svg">
       <path d="M15.7806 10.1963C16.1326 10.3011 16.3336 10.6714 16.2288 11.0234L16.1487 11.2725C15.3429 13.6262 13.2236 15.3697 10.6644 15.6299L10.6653 16.835H12.0833L12.2171 16.8486C12.5202 16.9106 12.7484 17.1786 12.7484 17.5C12.7484 17.8214 12.5202 18.0894 12.2171 18.1514L12.0833 18.165H7.91632C7.5492 18.1649 7.25128 17.8672 7.25128 17.5C7.25128 17.1328 7.5492 16.8351 7.91632 16.835H9.33527L9.33429 15.6299C6.775 15.3697 4.6558 13.6262 3.84992 11.2725L3.76984 11.0234L3.74445 10.8906C3.71751 10.5825 3.91011 10.2879 4.21808 10.1963C4.52615 10.1047 4.84769 10.2466 4.99347 10.5195L5.04523 10.6436L5.10871 10.8418C5.8047 12.8745 7.73211 14.335 9.99933 14.335C12.3396 14.3349 14.3179 12.7789 14.9534 10.6436L15.0052 10.5195C15.151 10.2466 15.4725 10.1046 15.7806 10.1963ZM12.2513 5.41699C12.2513 4.17354 11.2437 3.16521 10.0003 3.16504C8.75675 3.16504 7.74835 4.17343 7.74835 5.41699V9.16699C7.74853 10.4104 8.75685 11.418 10.0003 11.418C11.2436 11.4178 12.2511 10.4103 12.2513 9.16699V5.41699ZM13.5814 9.16699C13.5812 11.1448 11.9781 12.7479 10.0003 12.748C8.02232 12.748 6.41845 11.1449 6.41828 9.16699V5.41699C6.41828 3.43889 8.02221 1.83496 10.0003 1.83496C11.9783 1.83514 13.5814 3.439 13.5814 5.41699V9.16699Z" />
@@ -114,11 +122,11 @@ export function MicIcon({ className }: { className?: string }) {
   );
 }
 
-export function ChevronDownIcon({ className }: { className?: string }) {
+export function ChevronDownIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 20 21" className={cn("icon-2xs", className)} fill="none" xmlns="http://www.w3.org/2000/svg">
       <path
-        d="M15.2793 7.71101C15.539 7.45131 15.961 7.45131 16.2207 7.71101C16.4804 7.97071 16.4804 8.39272 16.2207 8.65242L10.4707 14.4024C10.211 14.6621 9.78902 14.6621 9.52932 14.4024L3.77932 8.65242L3.69436 8.54792C3.52385 8.28979 3.55205 7.93828 3.77932 7.71101C4.00659 7.48374 4.3581 7.45554 4.61623 7.62605L4.72073 7.71101L10 12.9903L15.2793 7.71101Z"
+        d={CHEVRON_DOWN_PATH}
         fill="currentColor"
         stroke="currentColor"
         strokeWidth="0.6"
@@ -128,7 +136,7 @@ export function ChevronDownIcon({ className }: { className?: string }) {
 }
 
 
-export function LocalStatusIcon({ className }: { className?: string }) {
+export function LocalStatusIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 21 21" className={cn("size-3.5", className)} fill="none" xmlns="http://www.w3.org/2000/svg">
       <path d="M18.2682 14.3617H13.2565L12.5641 14.7084C12.4718 14.7545 12.3695 14.7787 12.2663 14.7787H8.93329C8.83005 14.7787 8.72778 14.7545 8.63544 14.7084L7.94305 14.3617H2.92841V14.9467C2.92841 15.4999 3.37715 15.9486 3.93036 15.9486H17.2663C17.8195 15.9486 18.2682 15.4999 18.2682 14.9467V14.3617ZM17.4352 6.78064C17.4352 6.30296 17.4347 5.98418 17.4147 5.73962C17.4002 5.56206 17.3766 5.45678 17.3513 5.38611L17.3259 5.32556C17.2538 5.18414 17.1494 5.06256 17.0222 4.97009L16.8884 4.88806C16.8195 4.85296 16.7101 4.81854 16.4733 4.79919C16.2288 4.77924 15.9107 4.77869 15.4333 4.77869H5.7663C5.2889 4.77869 4.97075 4.77924 4.72626 4.79919C4.54907 4.81367 4.44343 4.83642 4.37274 4.86169L4.31219 4.88806C4.17098 4.96002 4.04914 5.06385 3.95673 5.1908L3.87372 5.32556C3.83865 5.39444 3.80517 5.50312 3.78583 5.73962C3.76585 5.98418 3.76532 6.30296 3.76532 6.78064V13.0316H8.10028L8.17645 13.0365C8.25305 13.0454 8.32783 13.0673 8.39716 13.1019L9.08954 13.4486H12.11L12.8024 13.1019L12.8737 13.0717C12.946 13.0455 13.023 13.0316 13.1003 13.0316H17.4352V6.78064ZM18.7653 13.0316H18.9333C19.3004 13.0317 19.5982 13.3296 19.5983 13.6967V14.9467C19.5983 16.2344 18.554 17.2787 17.2663 17.2787H3.93036C2.64261 17.2787 1.59833 16.2344 1.59833 14.9467V13.6967L1.612 13.5629C1.67405 13.2599 1.94205 13.0316 2.26337 13.0316H2.43524V6.78064C2.43524 6.3249 2.43422 5.94251 2.45966 5.63123C2.48573 5.31234 2.54269 5.00955 2.68915 4.72205L2.77899 4.56091C3.003 4.19579 3.32393 3.89808 3.7077 3.70251L3.8161 3.65173C4.07126 3.54227 4.33858 3.49682 4.61786 3.474C4.92907 3.44858 5.31072 3.44861 5.7663 3.44861H15.4333C15.8889 3.44861 16.2705 3.44859 16.5817 3.474C16.9008 3.50007 17.2043 3.55596 17.4919 3.70251L17.652 3.79236C18.0175 4.0164 18.3148 4.33802 18.5104 4.72205L18.5612 4.83044C18.6706 5.08544 18.7171 5.35214 18.7399 5.63123C18.7654 5.94251 18.7653 6.3249 18.7653 6.78064V13.0316Z" fill="currentColor" />
@@ -136,7 +144,7 @@ export function LocalStatusIcon({ className }: { className?: string }) {
   );
 }
 
-export function ConfigStatusIcon({ className }: { className?: string }) {
+export function ConfigStatusIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 21 21" className={cn("size-4", className)} fill="none" xmlns="http://www.w3.org/2000/svg">
       <path d="M10.7228 2.53564C11.5515 2.53564 12.3183 2.97502 12.7374 3.68994L13.5587 5.09033L13.6124 5.15967C13.6736 5.22007 13.7566 5.2556 13.8448 5.25635L15.4601 5.26904L15.6144 5.27588C16.3826 5.33292 17.0775 5.76649 17.465 6.43994L17.7931 7.01123L17.8663 7.14697C18.1815 7.78943 18.1843 8.54208 17.8741 9.18701L17.8028 9.32275L17.0001 10.7446C16.9427 10.8467 16.9426 10.9717 17.0001 11.0737L17.8028 12.4946L17.8741 12.6313C18.1842 13.2763 18.1816 14.029 17.8663 14.6714L17.7931 14.8071L17.465 15.3784C17.0774 16.0517 16.3825 16.4855 15.6144 16.5425L15.4601 16.5483L13.8448 16.562C13.7565 16.5628 13.6736 16.5982 13.6124 16.6587L13.5587 16.7271L12.7374 18.1284C12.3183 18.8432 11.5514 19.2827 10.7228 19.2827H10.0763C9.29958 19.2826 8.57714 18.8964 8.14465 18.2593L8.06261 18.1284L7.24133 16.7271C7.1966 16.6509 7.12417 16.5966 7.04113 16.5737L6.95519 16.562L5.33996 16.5483C4.56297 16.542 3.84347 16.1503 3.41613 15.5093L3.33508 15.3784L3.00695 14.8071C2.59564 14.0921 2.59168 13.2129 2.99719 12.4946L3.79894 11.0737L3.83215 10.9937C3.84657 10.9383 3.84652 10.88 3.83215 10.8247L3.79894 10.7446L2.99719 9.32275C2.59184 8.60451 2.59571 7.72612 3.00695 7.01123L3.33508 6.43994L3.41613 6.30908C3.84345 5.66796 4.56288 5.27538 5.33996 5.26904L6.95519 5.25635L7.04113 5.24463C7.12427 5.22177 7.1966 5.16664 7.24133 5.09033L8.06261 3.68994L8.14465 3.55908C8.57712 2.92179 9.29949 2.5358 10.0763 2.53564H10.7228ZM10.0763 3.86572C9.76448 3.86587 9.47308 4.01039 9.28429 4.25244L9.21008 4.36279L8.38879 5.76318C8.12941 6.20571 7.68297 6.49995 7.18273 6.56982L6.96594 6.58643L5.3507 6.59912C5.03877 6.60167 4.74854 6.74903 4.56164 6.99268L4.48742 7.10303L4.15929 7.67432C3.98236 7.98202 3.98089 8.36033 4.15539 8.66943L4.95715 10.0903L5.05187 10.2856C5.21318 10.6851 5.21302 11.1323 5.05187 11.5317L4.95715 11.728L4.15539 13.1489C3.98092 13.4581 3.98228 13.8363 4.15929 14.144L4.48742 14.7144L4.56164 14.8247C4.74853 15.0686 5.03859 15.2157 5.3507 15.2183L6.96594 15.2319L7.18273 15.2476C7.68301 15.3174 8.12939 15.6126 8.38879 16.0552L9.21008 17.4556L9.28429 17.5649C9.47307 17.8072 9.76431 17.9525 10.0763 17.9526H10.7228C11.0794 17.9526 11.4096 17.7632 11.59 17.4556L12.4112 16.0552L12.5333 15.8745C12.8433 15.4758 13.3212 15.2361 13.8341 15.2319L15.4493 15.2183L15.5812 15.2085C15.8855 15.1657 16.1569 14.985 16.3126 14.7144L16.6407 14.144L16.6984 14.0259C16.7984 13.7835 16.8 13.5113 16.7023 13.2681L16.6446 13.1489L15.8419 11.728C15.5551 11.2201 15.5552 10.5983 15.8419 10.0903L16.6446 8.66943L16.7023 8.55029C16.8001 8.30708 16.7983 8.03486 16.6984 7.79248L16.6407 7.67432L16.3126 7.10303C16.1569 6.8324 15.8856 6.65166 15.5812 6.60889L15.4493 6.59912L13.8341 6.58643C13.3213 6.58224 12.8433 6.34243 12.5333 5.94385L12.4112 5.76318L11.59 4.36279C11.4096 4.05506 11.0795 3.86572 10.7228 3.86572H10.0763ZM11.9855 10.9087C11.9853 10.0336 11.2755 9.32399 10.4005 9.32373C9.52524 9.32373 8.81474 10.0335 8.81457 10.9087C8.81457 11.7841 9.52513 12.4937 10.4005 12.4937C11.2757 12.4934 11.9855 11.7839 11.9855 10.9087ZM13.3146 10.9087C13.3146 12.5184 12.0102 13.8235 10.4005 13.8237C8.7906 13.8237 7.48547 12.5186 7.48547 10.9087C7.48564 9.29893 8.7907 7.99365 10.4005 7.99365C12.0101 7.99391 13.3144 9.29909 13.3146 10.9087Z" fill="currentColor" />
@@ -144,7 +152,7 @@ export function ConfigStatusIcon({ className }: { className?: string }) {
   );
 }
 
-export function PermissionDefaultIcon({ className }: { className?: string }) {
+export function PermissionDefaultIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 20 20" className={cn("size-4", className)} fill="none" xmlns="http://www.w3.org/2000/svg">
       <path
@@ -165,7 +173,7 @@ export function PermissionDefaultIcon({ className }: { className?: string }) {
   );
 }
 
-export function PermissionFullAccessIcon({ className }: { className?: string }) {
+export function PermissionFullAccessIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 20 20" className={cn("size-4", className)} fill="none" xmlns="http://www.w3.org/2000/svg">
       <path
@@ -186,7 +194,7 @@ export function PermissionFullAccessIcon({ className }: { className?: string }) 
   );
 }
 
-export function BranchStatusIcon({ className }: { className?: string }) {
+export function BranchStatusIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 20 20" className={cn("size-3.5", className)} fill="none" xmlns="http://www.w3.org/2000/svg">
       <circle cx="5.4165" cy="5" r="1.875" stroke="currentColor" strokeWidth="1.33" />
@@ -198,7 +206,7 @@ export function BranchStatusIcon({ className }: { className?: string }) {
   );
 }
 
-export function SearchIcon({ className }: { className?: string }) {
+export function SearchIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 21 21" className={cn("icon-2xs", className)} fill="none" xmlns="http://www.w3.org/2000/svg">
       <path
@@ -209,7 +217,7 @@ export function SearchIcon({ className }: { className?: string }) {
   );
 }
 
-export function PlusSmallIcon({ className }: { className?: string }) {
+export function PlusSmallIcon({ className }: IconProps) {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={className}>
       <path
@@ -218,6 +226,121 @@ export function PlusSmallIcon({ className }: { className?: string }) {
         strokeWidth="1.5"
         strokeLinecap="round"
       />
+    </svg>
+  );
+}
+
+export function ChevronRightIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("icon-2xs", className)} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d={CHEVRON_RIGHT_PATH} fill="currentColor" />
+    </svg>
+  );
+}
+
+export function CodeBracketsIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 21 21" className={cn("icon-xxs", className)} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d={CODE_BRACKETS_PATH} fill="currentColor" />
+    </svg>
+  );
+}
+
+export function SmallChevronDownIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 12 12" className={cn("shrink-0", className)} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function ClockIcon({ className }: IconProps) {
+  return (
+    <svg width="17" height="17" viewBox="0 0 17 17" fill="none" className={cn("shrink-0", className)} aria-hidden="true">
+      <path d="M8.4 2.1a6.3 6.3 0 1 1 0 12.6 6.3 6.3 0 0 1 0-12.6Zm0 1.575a4.725 4.725 0 1 0 0 9.45 4.725 4.725 0 0 0 0-9.45Zm.788.787v3.443l2.55 1.53-.81 1.352-3.315-1.99V4.462h1.575Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function RepeatIcon({ className }: IconProps) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className={cn("shrink-0", className)} aria-hidden="true">
+      <path d="M10.5 4.667H2.333v2.333M3.5 9.333h8.167V7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M8.75 2.917l1.75 1.75-1.75 1.75M5.25 11.083l-1.75-1.75 1.75-1.75" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function BellIcon({ className }: IconProps) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className={cn("shrink-0", className)} aria-hidden="true">
+      <path d="M7 12.25c.644 0 1.167-.523 1.167-1.167H5.833c0 .644.523 1.167 1.167 1.167Zm3.5-3.5V5.833a3.483 3.483 0 0 0-2.917-3.441V1.75a.583.583 0 1 0-1.166 0v.642A3.483 3.483 0 0 0 3.5 5.833v2.917L2.333 9.917v.583h9.334v-.583L10.5 8.75Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function GlobeIcon({ className }: IconProps) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className={cn("shrink-0", className)} aria-hidden="true">
+      <circle cx="7" cy="7" r="5.25" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M1.75 7h10.5M7 1.75c-1.5 1.5-2 3.25-2 5.25s.5 3.75 2 5.25c1.5-1.5 2-3.25 2-5.25s-.5-3.75-2-5.25Z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function PriorityIcon({ className }: IconProps) {
+  return (
+    <svg width="17" height="17" viewBox="0 0 17 17" fill="none" className={cn("shrink-0", className)} aria-hidden="true">
+      <path d="M8.694 10.973H8.049L5.881 7.162c.059-.117.103-.19.147-.264a4.8 4.8 0 0 1 .147-.264h4.455c.059.118.103.19.147.264.044.074.088.147.147.265L8.694 10.973Z" fill="currentColor" />
+      <path d="M2.1 8.4a6.3 6.3 0 1 1 12.6 0 6.3 6.3 0 0 1-12.6 0Zm11.025 0a4.725 4.725 0 1 0-9.45 0 4.725 4.725 0 0 0 9.45 0Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function StatusIcon({ className }: IconProps) {
+  return (
+    <svg width="17" height="17" viewBox="0 0 17 17" fill="none" className={cn("shrink-0", className)} aria-hidden="true">
+      <path d="M9.188 5.025V2.362H7.612v2.663h1.576Zm2.156 1.546 1.882-1.883-1.114-1.114-1.882 1.883 1.114 1.114Zm3.094 2.617h-2.663v-1.576h2.663v1.576Zm-4.208 2.156 1.883 1.882 1.114-1.114-1.883-1.882-1.114 1.114ZM7.612 14.438v-2.663h1.576v2.663H7.612Zm-2.155-4.208-1.883 1.882 1.114 1.114 1.882-1.883-1.113-1.113Zm-3.094-2.618h2.663v1.576H2.363V7.613Zm4.208-2.156L4.688 3.574 3.575 4.687l1.882 1.882 1.114-1.113Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function CalendarIcon({ className }: IconProps) {
+  return (
+    <svg width="17" height="17" viewBox="0 0 17 17" fill="none" className={cn("shrink-0", className)} aria-hidden="true">
+      <path d="M12.6 3.15V1.575h-1.575V3.15H5.775V1.575H4.2V3.15H2.1v10.5h12.6V3.15H12.6Zm.525 9.188H3.675V7.35h9.45v4.988Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function TagIcon({ className }: IconProps) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" className={cn("shrink-0", className)} aria-hidden="true">
+      <path d="M10.2 3H3v7.2L10.2 17.4 17.4 10.2 10.2 3ZM6.3 7.2a.9.9 0 1 1 0-1.8.9.9 0 0 1 0 1.8Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function PeopleIcon({ className }: IconProps) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" className={cn("shrink-0", className)} aria-hidden="true">
+      <path d="M3.6 6a2.4 2.4 0 1 1 4.8 0 2.4 2.4 0 0 1-4.8 0Zm9.6 2.4a2.4 2.4 0 1 0 0-4.8 2.4 2.4 0 0 0 0 4.8ZM6 9.6c-2.961 0-4.8 1.839-4.8 4.8h9.6c0-2.961-1.84-4.8-4.8-4.8Zm7.2 0c-1.03 0-1.92.228-2.646.642A6.468 6.468 0 0 1 12 14.4h6c0-2.961-1.84-4.8-4.8-4.8Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function CheckboxSquareIcon({ className }: IconProps) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" className={cn("shrink-0", className)} aria-hidden="true">
+      <path d="M3 3v13.2h13.2V3H3Zm5.7 10.272L5.4 9.972l1.272-1.271 2.028 2.028 4.128-4.128 1.272 1.272-5.4 5.4Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function DescriptionIcon({ className }: IconProps) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" className={cn("shrink-0", className)} aria-hidden="true">
+      <path d="M16.8 3.9v1.8H2.4V3.9h14.4ZM2.4 10.5h14.4V8.7H2.4v1.8Zm0 4.8h7.56v-1.8H2.4v1.8Z" fill="currentColor" />
     </svg>
   );
 }

@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { estimateOptions, estimateStyles, type Estimate, type Priority } from "@/lib/types";
-import { CalendarIcon, PriorityIcon, StatusIcon } from "@/components/shared/property-icons";
+import { CalendarIcon, PriorityIcon, StatusIcon } from "@/components/shared/icons";
 import {
   EMPTY_PRIORITY_OPTION_VALUE,
   KANBAN_PRIORITY_SELECT_OPTIONS,
