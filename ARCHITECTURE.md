@@ -126,7 +126,7 @@ Workbench reopen flow:
 - Internal bootstrap/context content such as `AGENTS.md`, developer instructions, and other setup wrappers is not part of the visible chat transcript.
 - `cloud` run target is intentionally blocked at backend thread-start.
 - For `newWorktree`, card-level `runInWorktreePath` is reused when available; missing/invalid paths are recreated and overwritten on the card.
-- For `newWorktree`, optional `runInEnvironmentPath` stores a repo-relative `.codex/environments/*.toml` path. Its `[setup].script` runs only when creating a new managed worktree (not when reusing an existing persisted path).
+- For `newWorktree`, optional `runInEnvironmentPath` stores a repo-relative `.codex/environments/*.toml` path. The full local-environment definition (`name`, `setup`, `cleanup`, platform overrides, actions) is owned by the main-process worktree-environment service and surfaced through the workbench settings page; only the selected default `[setup].script` participates in managed-worktree creation today.
 - Environment setup failure aborts thread start, does not persist `runInWorktreePath`, and triggers best-effort cleanup of the newly created managed worktree.
 - Managed worktree inventory is derived from linked thread cwd values rooted under `${serverDir}/worktrees`, deduplicated by resolved worktree path.
 - Codex thread execution requires a project `workspacePath`; browser transport explicitly does not support Codex threads in this phase.

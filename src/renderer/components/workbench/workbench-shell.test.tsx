@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import { createElement } from "react";
+import { act } from "@testing-library/react";
 import * as CodexCollaborationModeSettings from "@/lib/codex-collaboration-mode-settings";
 import * as KanbanOptions from "@/lib/kanban-options";
 import * as SmartPrefixParsing from "@/lib/smart-prefix-parsing";
@@ -1343,6 +1344,47 @@ describe("WorkbenchShell", () => {
     expect(props?.stripSmartPrefixFromTitleEnabled).toBeTrue();
     expect(typeof props?.onSmartPrefixParsingEnabledChange).toBe("function");
     expect(typeof props?.onStripSmartPrefixFromTitleEnabledChange).toBe("function");
+  });
+
+  test("opens local-environments settings from card stage with project and config context", async () => {
+    await renderShell(false, "sliding-window", {
+      projects: [
+        {
+          id: "default",
+          name: "Default",
+          description: "",
+          workspacePath: "/tmp/default",
+          created: new Date("2026-02-25T00:00:00.000Z"),
+        },
+      ],
+      cardsTabs: [{ id: "session:s-1", kind: "session", title: "Card 1", sessionId: "s-1" }],
+      activeCardsTabId: "session:s-1",
+      cardStageState: {
+        open: true,
+        projectId: "default",
+        cardId: "card-1",
+      },
+    });
+
+    const cardStageProps = (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps;
+    const openLocalEnvironmentSettings = cardStageProps?.onOpenLocalEnvironmentSettings as
+      | ((input: { projectId: string; configPath?: string | null }) => void)
+      | undefined;
+
+    expect(Boolean(openLocalEnvironmentSettings)).toBeTrue();
+
+    await act(async () => {
+      openLocalEnvironmentSettings?.({
+        projectId: "default",
+        configPath: ".codex/environments/environment.toml",
+      });
+    });
+
+    const settingsProps = (globalThis as { __lastSettingsOverlayProps?: Record<string, unknown> }).__lastSettingsOverlayProps;
+    expect(settingsProps?.open).toBeTrue();
+    expect(settingsProps?.initialSection).toBe("local-environments");
+    expect(settingsProps?.initialLocalEnvironmentProjectId).toBe("default");
+    expect(settingsProps?.initialLocalEnvironmentConfigPath).toBe(".codex/environments/environment.toml");
   });
 
   test("uses nearest sliding-window focus intent when selecting thread from sidebar", async () => {

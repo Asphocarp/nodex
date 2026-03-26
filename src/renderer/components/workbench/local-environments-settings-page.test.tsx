@@ -1,0 +1,176 @@
+import { describe, expect, test } from "bun:test";
+import { fireEvent } from "@testing-library/react";
+import type {
+  Project,
+  UpdateWorktreeEnvironmentConfigInput,
+  WorktreeEnvironmentSettingsSnapshot,
+} from "@/lib/types";
+import { render, settleAsyncRender, textContent } from "../../test/dom";
+import { LocalEnvironmentsSettingsPage } from "./local-environments-settings-page";
+
+const PROJECTS: Project[] = [
+  {
+    id: "project-alpha",
+    name: "Alpha",
+    description: "",
+    workspacePath: "/tmp/alpha",
+    created: new Date("2026-03-01T00:00:00.000Z"),
+  },
+  {
+    id: "project-beta",
+    name: "Beta",
+    description: "",
+    workspacePath: "/tmp/beta",
+    created: new Date("2026-03-02T00:00:00.000Z"),
+  },
+];
+
+function buildSnapshot(projectId: string, overrides?: Partial<WorktreeEnvironmentSettingsSnapshot>): WorktreeEnvironmentSettingsSnapshot {
+  const project = PROJECTS.find((candidate) => candidate.id === projectId) ?? PROJECTS[0];
+
+  return {
+    projectId: project.id,
+    projectName: project.name,
+    workspacePath: project.workspacePath ?? "",
+    configPath: ".codex/environments/environment.toml",
+    nextConfigPath: ".codex/environments/environment-2.toml",
+    configExists: true,
+    configs: [
+      {
+        configPath: ".codex/environments/environment.toml",
+        fileName: "environment.toml",
+        state: "success",
+        exists: true,
+        name: `${project.name} env`,
+        hasSetupScript: true,
+        hasCleanupScript: false,
+        actionCount: 1,
+        parseErrorMessage: null,
+        readErrorMessage: null,
+        environment: {
+          version: 1,
+          name: `${project.name} env`,
+          setup: {
+            script: "bun install",
+            platformScripts: {},
+          },
+          cleanup: {
+            script: null,
+            platformScripts: {},
+          },
+          actions: [
+            {
+              id: "action-1",
+              name: "Run tests",
+              icon: "test",
+              command: "bun test",
+              platform: null,
+            },
+          ],
+        },
+      },
+    ],
+    environment: {
+      version: 1,
+      name: `${project.name} env`,
+      setup: {
+        script: "bun install",
+        platformScripts: {},
+      },
+      cleanup: {
+        script: null,
+        platformScripts: {},
+      },
+      actions: [
+        {
+          id: "action-1",
+          name: "Run tests",
+          icon: "test",
+          command: "bun test",
+          platform: null,
+        },
+      ],
+    },
+    parseErrorMessage: null,
+    readErrorMessage: null,
+    ...overrides,
+  };
+}
+
+describe("LocalEnvironmentsSettingsPage", () => {
+  test("switches workspaces and saves edits through the injected service", async () => {
+    const readCalls: Array<[string, string | null | undefined]> = [];
+    const saveCalls: UpdateWorktreeEnvironmentConfigInput[] = [];
+    const snapshots = new Map<string, WorktreeEnvironmentSettingsSnapshot>([
+      ["project-alpha", buildSnapshot("project-alpha")],
+      ["project-beta", buildSnapshot("project-beta")],
+    ]);
+
+    const view = render(
+      <LocalEnvironmentsSettingsPage
+        open={true}
+        active={true}
+        projects={PROJECTS}
+        activeProjectId="project-alpha"
+        service={{
+          readConfig: async (projectId, configPath) => {
+            readCalls.push([projectId, configPath]);
+            return snapshots.get(projectId) ?? buildSnapshot(projectId);
+          },
+          saveConfig: async (input) => {
+            saveCalls.push(input);
+            const nextSnapshot = buildSnapshot(input.projectId, {
+              environment: input.environment,
+              configs: [
+                {
+                  configPath: input.configPath,
+                  fileName: "environment.toml",
+                  state: "success",
+                  exists: true,
+                  name: input.environment.name,
+                  hasSetupScript: Boolean(input.environment.setup.script),
+                  hasCleanupScript: Boolean(input.environment.cleanup.script),
+                  actionCount: input.environment.actions.length,
+                  parseErrorMessage: null,
+                  readErrorMessage: null,
+                  environment: input.environment,
+                },
+              ],
+            });
+            snapshots.set(input.projectId, nextSnapshot);
+            return nextSnapshot;
+          },
+        }}
+      />,
+    );
+
+    await settleAsyncRender();
+
+    expect(textContent(view.container).includes("Alpha env")).toBeTrue();
+    expect(readCalls.length).toBe(1);
+    expect(readCalls[0]?.[0]).toBe("project-alpha");
+
+    fireEvent.click(view.getByLabelText("Choose a different workspace"));
+    expect(textContent(view.container).includes("Beta")).toBeTrue();
+
+    fireEvent.click(view.getByText("Beta"));
+    await settleAsyncRender();
+
+    expect(textContent(view.container).includes("Beta env")).toBeTrue();
+    expect(readCalls.length).toBe(2);
+    expect(readCalls[1]?.[0]).toBe("project-beta");
+
+    fireEvent.click(view.getByText("Edit local environment"));
+    fireEvent.click(view.getByText("Add action"));
+    await settleAsyncRender();
+    const saveButton = view.getByText("Save local environment") as HTMLButtonElement;
+    expect(saveButton.disabled).toBeFalse();
+    fireEvent.click(saveButton);
+    await settleAsyncRender();
+
+    expect(saveCalls.length).toBe(1);
+    expect(saveCalls[0]?.projectId).toBe("project-beta");
+    expect(saveCalls[0]?.environment.actions.length).toBe(2);
+    expect(textContent(view.container).includes("Action 2")).toBeFalse();
+  });
+});

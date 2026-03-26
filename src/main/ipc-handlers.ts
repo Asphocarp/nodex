@@ -477,6 +477,18 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     codexService.listWorktreeEnvironments(projectId)
   );
 
+  registerHandle("worktrees:environments:configs:list", (_, projectId: string) =>
+    codexService.listWorktreeEnvironmentConfigs(projectId)
+  );
+
+  registerHandle("worktrees:environments:config:read", (_, projectId: string, configPath?: string | null) =>
+    codexService.readWorktreeEnvironmentConfig(projectId, configPath)
+  );
+
+  registerHandle("worktrees:environments:config:save", (_, input) =>
+    codexService.saveWorktreeEnvironmentConfig(input)
+  );
+
   registerHandle("worktrees:delete", (_, threadId: string) =>
     codexService.deleteManagedWorktree(threadId)
   );

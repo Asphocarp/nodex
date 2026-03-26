@@ -472,6 +472,53 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     case "worktrees:environments:list": {
       return [];
     }
+    case "worktrees:environments:configs:list": {
+      return [];
+    }
+    case "worktrees:environments:config:read": {
+      const [projectId] = args as [string, string | null | undefined];
+      return {
+        projectId,
+        projectName: "Storybook workspace",
+        workspacePath: "/tmp/storybook",
+        configPath: ".codex/environments/environment.toml",
+        nextConfigPath: ".codex/environments/environment.toml",
+        configExists: false,
+        configs: [],
+        environment: null,
+        parseErrorMessage: null,
+        readErrorMessage: null,
+      };
+    }
+    case "worktrees:environments:config:save": {
+      const [input] = args as [import("../../shared/types").UpdateWorktreeEnvironmentConfigInput];
+      return {
+        projectId: input.projectId,
+        projectName: "Storybook workspace",
+        workspacePath: "/tmp/storybook",
+        configPath: input.configPath,
+        nextConfigPath: ".codex/environments/environment-2.toml",
+        configExists: true,
+        configs: [
+          {
+            configPath: input.configPath,
+            fileName: "environment.toml",
+            state: "success",
+            exists: true,
+            name: input.environment.name,
+            hasSetupScript: Boolean(input.environment.setup.script),
+            hasCleanupScript: Boolean(input.environment.cleanup.script),
+            actionCount: input.environment.actions.length,
+            parseErrorMessage: null,
+            readErrorMessage: null,
+            environment: input.environment,
+          },
+        ],
+        environment: input.environment,
+        parseErrorMessage: null,
+        readErrorMessage: null,
+      };
+    }
     case "codex:permission:custom-description:get": {
       if (isStorybookRuntime()) {
         return "Uses the permission policy defined in your local Codex config.";

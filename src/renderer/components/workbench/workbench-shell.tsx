@@ -21,7 +21,7 @@ import {
 import { ThreadsIcon } from "./threads-icon";
 import { ToggleListIcon } from "./toggle-list-icon";
 import { MainViewHost } from "./main-view-host";
-import { SettingsOverlay } from "./workbench-settings-overlay";
+import { SettingsOverlay, type SettingsSectionId } from "./workbench-settings-overlay";
 import {
   LeftSidebar,
   type StageSidebarGroup,
@@ -396,6 +396,9 @@ export function WorkbenchShell({
   const isMac = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
   const canRequestNewWindow = typeof window !== "undefined" && Boolean(window.api);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSectionId>("workspace");
+  const [settingsInitialLocalEnvironmentProjectId, setSettingsInitialLocalEnvironmentProjectId] = useState<string | null>(null);
+  const [settingsInitialLocalEnvironmentConfigPath, setSettingsInitialLocalEnvironmentConfigPath] = useState<string | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [appUpdateStatus, setAppUpdateStatus] = useState<AppUpdateStatus | null>(null);
   const [dismissedDownloadedUpdateVersion, setDismissedDownloadedUpdateVersion] = useState<string | null>(null);
@@ -536,6 +539,17 @@ export function WorkbenchShell({
   const setWorktreeAutoBranchPrefix = useCallback((value: string) => {
     const normalized = writeWorktreeAutoBranchPrefix(value);
     setWorktreeAutoBranchPrefixState(normalized);
+  }, []);
+  const openSettings = useCallback((options?: {
+    section?: SettingsSectionId;
+    localEnvironmentProjectId?: string | null;
+    localEnvironmentConfigPath?: string | null;
+  }) => {
+    const nextSection = options?.section ?? "workspace";
+    setSettingsInitialSection(nextSection);
+    setSettingsInitialLocalEnvironmentProjectId(options?.localEnvironmentProjectId ?? null);
+    setSettingsInitialLocalEnvironmentConfigPath(options?.localEnvironmentConfigPath ?? null);
+    setSettingsOpen(true);
   }, []);
 
   useEffect(() => {
@@ -679,8 +693,12 @@ export function WorkbenchShell({
   useEffect(() => {
     if (previousSettingsToggleTickRef.current === settingsToggleTick) return;
     previousSettingsToggleTickRef.current = settingsToggleTick;
-    setSettingsOpen((open) => !open);
-  }, [settingsToggleTick]);
+    if (settingsOpen) {
+      setSettingsOpen(false);
+      return;
+    }
+    openSettings();
+  }, [openSettings, settingsOpen, settingsToggleTick]);
 
   const slidingWindowVisibleStages = useMemo(
     () => resolveExpandedStages(focusedStage, stageNavDirection, slidingWindowPaneCount, false),
@@ -1662,6 +1680,13 @@ export function WorkbenchShell({
               onOpenNewCodexThread={() => {
                 navigateToThreadTab(cardStageState.projectId, NEW_THREAD_STAGE_TAB_ID);
               }}
+              onOpenLocalEnvironmentSettings={({ projectId, configPath }) => {
+                openSettings({
+                  section: "local-environments",
+                  localEnvironmentProjectId: projectId,
+                  localEnvironmentConfigPath: configPath,
+                });
+              }}
               onStartThreadSection={async ({ projectId, cardId, prompt }) => {
                 const detail = await startThreadForCard({
                   projectId,
@@ -1809,7 +1834,7 @@ export function WorkbenchShell({
         }}
         onToggleTerminal={handleCommandPaletteToggleTerminal}
         onOpenSettings={() => {
-          setSettingsOpen(true);
+          openSettings();
         }}
         onRequestNewWindow={canRequestNewWindow ? () => {
           void invoke("window:new");
@@ -1851,7 +1876,7 @@ export function WorkbenchShell({
             onSetSectionShowAll={(sectionId, showAll) =>
               setSidebarSectionShowAll(dbProjectId, sectionId, showAll)}
             onSelectSpace={setDbProject}
-            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenSettings={() => openSettings()}
             projectPickerOpenTick={projectPickerOpenTick}
             onCreateProject={onCreateProject}
             onDeleteProject={onDeleteProject}
@@ -1894,7 +1919,7 @@ export function WorkbenchShell({
               onSetSectionShowAll={(sectionId, showAll) =>
                 setSidebarSectionShowAll(dbProjectId, sectionId, showAll)}
               onSelectSpace={setDbProject}
-              onOpenSettings={() => setSettingsOpen(true)}
+              onOpenSettings={() => openSettings()}
               projectPickerOpenTick={projectPickerOpenTick}
               onCreateProject={onCreateProject}
               onDeleteProject={onDeleteProject}
@@ -2076,6 +2101,11 @@ export function WorkbenchShell({
       <SettingsOverlay
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
+        projects={projects}
+        activeProjectId={dbProjectId}
+        initialSection={settingsInitialSection}
+        initialLocalEnvironmentProjectId={settingsInitialLocalEnvironmentProjectId}
+        initialLocalEnvironmentConfigPath={settingsInitialLocalEnvironmentConfigPath}
         sidebarTopLevelSectionOrder={sidebar.topLevelSectionOrder}
         sidebarTopLevelSections={sidebar.topLevelSections}
         onSidebarTopLevelSectionVisibleChange={setSidebarTopLevelSectionVisible}

@@ -100,6 +100,10 @@
   - approval cards own their body preview (`command`, `network`, or `patch`) and pass that preview into the shared questionnaire shell
   - background-child approvals do not get a separate worker-name header; inject that child identity inline into the approval prompt only when the Codex approval prompt branch calls for it
   - request-card stories should exercise the dedicated Codex request-card components directly, not older wrapper aliases
+- Keep local-environments UI as a first-class settings feature:
+  - the feature lives in the workbench settings overlay, not in card-stage popovers or OS file-manager escapes
+  - card-stage environment pickers should stay thin choosers and route `Environment settings` into the shared settings page with project/config context
+  - local-environments stories should use an injected service snapshot instead of browser IPC fallbacks so workspace-selection, summary, parse-error, and edit/save states stay reproducible
 - Keep renderer forms boundary-led: use TanStack Form with a colocated zod schema module when a form has structural validation, type coercion, or multi-field constraints. For simple single-field inputs, keep local state and a submit-time guard instead of introducing a separate schema module.
 - For thread search, project stable user/assistant search units in the view model and attach them to rendered blocks; do not implement `Find in thread` by scraping arbitrary DOM text from the whole turn.
 
