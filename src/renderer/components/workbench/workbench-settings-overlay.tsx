@@ -1,23 +1,18 @@
 import { useForm, useStore } from "@tanstack/react-form";
 import {
+  startTransition,
   useCallback,
   useEffect,
   useRef,
   useState,
   type ComponentType,
-  type ReactNode,
 } from "react";
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import {
-  ChevronLeft,
-  FolderCode,
   Monitor,
   Moon,
-  Palette,
   RotateCcw,
-  Shield,
   Sun,
-  Type,
 } from "lucide-react";
 import { Input } from "../ui/input";
 import { invoke } from "../../lib/api";
@@ -103,33 +98,25 @@ import {
   MANUAL_SNAPSHOT_FORM_DEFAULTS,
   ManualSnapshotFormSchema,
 } from "./workbench-settings-form-schemas";
-
-export type SettingsSectionId = "workspace" | "editor" | "card" | "worktrees" | "local-environments" | "backups";
-
-const SETTINGS_SECTIONS: Array<{
-  id: SettingsSectionId;
-  label: string;
-  icon: ComponentType<{ className?: string }>;
-}> = [
-    { id: "workspace", label: "Workspace", icon: Palette },
-    { id: "editor", label: "Editor", icon: Type },
-    { id: "card", label: "Card", icon: Type },
-    { id: "worktrees", label: "Worktrees", icon: Type },
-    { id: "local-environments", label: "Local environments", icon: FolderCode },
-    { id: "backups", label: "Backups", icon: Shield },
-  ];
+import {
+  type SettingsSectionId,
+} from "./workbench-settings-sections";
+import {
+  SectionBlock,
+  SettingRow,
+  SettingsPageSurface,
+} from "./workbench-settings-primitives";
+import { SettingsSidebar } from "./workbench-settings-sidebar";
+import {
+  buildSettingsPath,
+  resolveSettingsShellState,
+} from "./workbench-settings-routes";
 
 const BACKUP_TRIGGER_LABELS: Record<BackupRecord["trigger"], string> = {
   manual: "Manual",
   auto: "Auto",
   "pre-restore": "Safety",
 };
-
-interface SettingRowProps {
-  label: string;
-  description?: string;
-  children: ReactNode;
-}
 
 interface SegmentedOption<T extends string> {
   value: T;
@@ -152,60 +139,6 @@ interface ToggleGroupProps<T extends string> {
   selectedValues: readonly T[];
   onToggle: (value: T) => void;
   options: ToggleGroupOption<T>[];
-}
-
-function SettingRow({
-  label,
-  description,
-  children,
-}: SettingRowProps) {
-  return (
-    <div className="flex items-center justify-between gap-6 p-3">
-      <div className="flex min-w-0 flex-col gap-1">
-        <div className="min-w-0 text-sm text-(--foreground)">
-          {label}
-        </div>
-        {description ? (
-          <div className="min-w-0 text-sm text-(--foreground-secondary)">
-            {description}
-          </div>
-        ) : null}
-      </div>
-      <div className="flex shrink-0 items-center gap-2">{children}</div>
-    </div>
-  );
-}
-
-function SectionBlock({
-  title,
-  children,
-  sectionRef,
-}: {
-  title: string;
-  badge?: string;
-  children: ReactNode;
-  sectionRef?: (element: HTMLElement | null) => void;
-}) {
-  return (
-    <section ref={sectionRef} className="flex flex-col">
-      <div className="flex h-10 items-center px-0 py-0">
-        <div className="text-base font-medium text-(--foreground)">
-          {title}
-        </div>
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <div
-          className={cn(
-            "flex flex-col rounded-lg border-[calc(var(--spacing)*0.125)]",
-            "border-(--border) bg-foreground-2",
-            "divide-y-[calc(var(--spacing)*0.125)] divide-(--border)",
-          )}
-        >
-          {children}
-        </div>
-      </div>
-    </section>
-  );
 }
 
 function SegmentedControl<T extends string>({
@@ -1679,9 +1612,10 @@ function BackupSettingsControl({ open }: { open: boolean }) {
 interface SettingsOverlayProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  path: string;
+  onPathChange: (path: string) => void;
   projects: Project[];
   activeProjectId: string;
-  initialSection?: SettingsSectionId;
   initialLocalEnvironmentProjectId?: string | null;
   initialLocalEnvironmentConfigPath?: string | null;
   sidebarTopLevelSectionOrder: SidebarTopLevelSectionId[];
@@ -1705,12 +1639,379 @@ interface SettingsOverlayProps {
   onStripSmartPrefixFromTitleEnabledChange: (value: boolean) => void;
 }
 
+interface SettingsSectionPageProps extends Pick<
+  SettingsOverlayProps,
+  | "activeProjectId"
+  | "composerEnterBehavior"
+  | "initialLocalEnvironmentConfigPath"
+  | "initialLocalEnvironmentProjectId"
+  | "nextPanelPeekPx"
+  | "onComposerEnterBehaviorChange"
+  | "onNextPanelPeekPxChange"
+  | "onSidebarTopLevelSectionVisibleChange"
+  | "onSmartPrefixParsingEnabledChange"
+  | "onStageRailLayoutModeChange"
+  | "onStripSmartPrefixFromTitleEnabledChange"
+  | "onThreadQueueFollowUpsEnabledChange"
+  | "onWorktreeAutoBranchPrefixChange"
+  | "onWorktreeStartModeChange"
+  | "projects"
+  | "sidebarTopLevelSectionOrder"
+  | "sidebarTopLevelSections"
+  | "smartPrefixParsingEnabled"
+  | "stageRailLayoutMode"
+  | "stripSmartPrefixFromTitleEnabled"
+  | "threadQueueFollowUpsEnabled"
+  | "worktreeAutoBranchPrefix"
+  | "worktreeStartMode"
+> {
+  isMacPlatform: boolean;
+  open: boolean;
+}
+
+function GeneralSettingsPage({
+  nextPanelPeekPx,
+  onNextPanelPeekPxChange,
+  onSidebarTopLevelSectionVisibleChange,
+  onStageRailLayoutModeChange,
+  open,
+  sidebarTopLevelSectionOrder,
+  sidebarTopLevelSections,
+  stageRailLayoutMode,
+}: SettingsSectionPageProps) {
+  return (
+    <SettingsPageSurface
+      title="General"
+      subtitle="Workspace-wide shell behavior and notifications."
+    >
+      <SectionBlock title="Workspace">
+        <SettingRow
+          label="Stage rail layout"
+          description="Sliding window focuses 1-4 stages. Full rail keeps the whole stage line visible."
+        >
+          <StageRailLayoutModeControl
+            value={stageRailLayoutMode}
+            onChange={onStageRailLayoutModeChange}
+          />
+        </SettingRow>
+        <SettingRow
+          label="Thread finished notifications"
+          description="Show a desktop notification when a Codex thread settles."
+        >
+          <ThreadNotificationSettingControl open={open} />
+        </SettingRow>
+        <SettingRow
+          label="App updates"
+          description="Packaged macOS builds can check, download, and install stable updates in the background."
+        >
+          <AppUpdateSettingsControl open={open} />
+        </SettingRow>
+        <SettingRow
+          label="Sidebar sections"
+          description="Choose which top-level sidebar sections stay visible. Hidden sections can be restored here."
+        >
+          <SidebarSectionVisibilitySettingControl
+            order={sidebarTopLevelSectionOrder}
+            sections={sidebarTopLevelSections}
+            onVisibleChange={onSidebarTopLevelSectionVisibleChange}
+          />
+        </SettingRow>
+        <SettingRow
+          label="Adjacent panel peek"
+          description={
+            stageRailLayoutMode === "sliding-window"
+              ? "Available only in Full rail. Sliding window hides this control."
+              : "Keep a thin sliver of the neighboring stage visible in Full rail."
+          }
+        >
+          <StageRailPeekSettingControl
+            value={nextPanelPeekPx}
+            onChange={onNextPanelPeekPxChange}
+            disabled={stageRailLayoutMode === "sliding-window"}
+          />
+        </SettingRow>
+      </SectionBlock>
+    </SettingsPageSurface>
+  );
+}
+
+function AppearanceSettingsPage() {
+  return (
+    <SettingsPageSurface
+      title="Appearance"
+      subtitle="Theme and typography tokens used across the app."
+    >
+      <SectionBlock title="Theme">
+        <SettingRow label="Theme" description="Match system mode or force a fixed theme.">
+          <ThemeSettingControl />
+        </SettingRow>
+        <SettingRow
+          label="Sans font size"
+          description="Scales shared sans typography tokens and chat body text across the app."
+        >
+          <SansFontSizeSettingControl />
+        </SettingRow>
+        <SettingRow
+          label="Code font size"
+          description="Sets editor/code typography globally via --vscode-editor-font-size."
+        >
+          <CodeFontSizeSettingControl />
+        </SettingRow>
+      </SectionBlock>
+    </SettingsPageSurface>
+  );
+}
+
+function EditorSettingsPage({
+  composerEnterBehavior,
+  isMacPlatform,
+  onComposerEnterBehaviorChange,
+  onSmartPrefixParsingEnabledChange,
+  onStripSmartPrefixFromTitleEnabledChange,
+  onThreadQueueFollowUpsEnabledChange,
+  smartPrefixParsingEnabled,
+  stripSmartPrefixFromTitleEnabled,
+  threadQueueFollowUpsEnabled,
+}: SettingsSectionPageProps) {
+  return (
+    <SettingsPageSurface
+      title="Editor"
+      subtitle="Thread detail, composer behavior, and editing defaults."
+    >
+      <SectionBlock title="Thread composer">
+        <SettingRow
+          label="Thread detail"
+          description="Choose how much command output to show in threads."
+        >
+          <ThreadDetailLevelSettingControl />
+        </SettingRow>
+        <SettingRow label="Spellcheck" description="Inline text correction for editable writing surfaces.">
+          <SpellcheckSettingControl />
+        </SettingRow>
+        <SettingRow
+          label="Auto-link while typing"
+          description="Turn typed URLs into links as you finish the token."
+        >
+          <NfmAutolinkTypingSettingControl />
+        </SettingRow>
+        <SettingRow
+          label="Auto-link on paste"
+          description="Recognize links in pasted text, including inline URL spans inside longer content."
+        >
+          <NfmAutolinkPasteSettingControl />
+        </SettingRow>
+        <SettingRow
+          label="Recognize bare domains"
+          description="Link plain domains like example.com. Leave off to avoid filename-like text such as .md paths."
+        >
+          <NfmAutolinkBareDomainsSettingControl />
+        </SettingRow>
+        <SettingRow
+          label="Large paste text threshold"
+          description="Prompt when pasted plain text reaches this many characters, so you can materialize it instead of inflating the note."
+        >
+          <PasteResourceTextThresholdSettingControl />
+        </SettingRow>
+        <SettingRow
+          label="Large paste description soft limit"
+          description="Prompt before pasted plain text pushes the note near its description size ceiling."
+        >
+          <PasteResourceDescriptionSoftLimitSettingControl />
+        </SettingRow>
+        <SettingRow
+          label="Markdown file links"
+          description="Choose which desktop app handles absolute local file links in rendered markdown."
+        >
+          <FileLinkOpenerSettingControl />
+        </SettingRow>
+        <SettingRow
+          label="Smart parse block prefixes"
+          description="Interpret shorthand like 1XL(tag) during block-to-card import."
+        >
+          <SmartPrefixParsingSettingControl
+            value={smartPrefixParsingEnabled}
+            onChange={onSmartPrefixParsingEnabledChange}
+          />
+        </SettingRow>
+        <SettingRow
+          label="Strip parsed prefix from title"
+          description="Remove matched shorthand from imported card titles after parsing."
+        >
+          <StripSmartPrefixFromTitleSettingControl
+            value={stripSmartPrefixFromTitleEnabled}
+            onChange={onStripSmartPrefixFromTitleEnabledChange}
+            disabled={!smartPrefixParsingEnabled}
+          />
+        </SettingRow>
+        <SettingRow
+          label="Confirm thread section send"
+          description="Show a preview dialog before sending a notebook section, with an option to stop asking later."
+        >
+          <ThreadSectionSendConfirmationSettingControl />
+        </SettingRow>
+        <SettingRow
+          label={`${isMacPlatform ? "Cmd" : "Ctrl"}+Enter to send long prompts`}
+          description="Single-line prompts still send on Enter. Multiline prompts switch to the modifier chord when this is enabled."
+        >
+          <ComposerEnterBehaviorControl
+            value={composerEnterBehavior}
+            onChange={onComposerEnterBehaviorChange}
+          />
+        </SettingRow>
+        <SettingRow
+          label="Queue follow-ups"
+          description="While a thread is running, use queue as the default submit action instead of immediate steering."
+        >
+          <ThreadQueueFollowUpsSettingControl
+            value={threadQueueFollowUpsEnabled}
+            onChange={onThreadQueueFollowUpsEnabledChange}
+          />
+        </SettingRow>
+      </SectionBlock>
+    </SettingsPageSurface>
+  );
+}
+
+function CardSettingsPage() {
+  return (
+    <SettingsPageSurface
+      title="Card"
+      subtitle="Kanban card and card-stage presentation."
+    >
+      <SectionBlock title="Cards">
+        <SettingRow
+          label="Kanban card properties"
+          description="Choose whether priority, estimate, tags, assignee, and run-in metadata render above the title, inline with it, or below the card body."
+        >
+          <CardPropertyPositionSettingControl />
+        </SettingRow>
+        <SettingRow
+          label="Card stage collapsed properties"
+          description="Choose which card-stage property rows start behind the more-properties toggle."
+        >
+          <CardStageCollapsedPropertiesSettingControl />
+        </SettingRow>
+      </SectionBlock>
+    </SettingsPageSurface>
+  );
+}
+
+function WorktreesSettingsPage({
+  onWorktreeAutoBranchPrefixChange,
+  onWorktreeStartModeChange,
+  open,
+  worktreeAutoBranchPrefix,
+  worktreeStartMode,
+}: SettingsSectionPageProps) {
+  return (
+    <SettingsPageSurface
+      title="Worktrees"
+      subtitle="Managed worktree creation, naming, and cleanup."
+    >
+      <SectionBlock title="Defaults">
+        <SettingRow
+          label="Worktree start mode"
+          description="Choose whether new worktree threads auto-create a branch or start detached."
+        >
+          <WorktreeStartModeSettingControl
+            value={worktreeStartMode}
+            onChange={onWorktreeStartModeChange}
+          />
+        </SettingRow>
+        <SettingRow
+          label="Auto branch prefix"
+          description="Prefix prepended to auto branch names before the thread slug."
+        >
+          <WorktreeAutoBranchPrefixSettingControl
+            value={worktreeAutoBranchPrefix}
+            onChange={onWorktreeAutoBranchPrefixChange}
+          />
+        </SettingRow>
+      </SectionBlock>
+      <SectionBlock title="Managed worktrees">
+        <div className="flex flex-col gap-1 p-3">
+          <div className="text-sm text-token-text-primary">
+            Managed worktrees
+          </div>
+          <div className="text-token-text-secondary text-sm">
+            Worktrees created by card threads. Hover a row to remove.
+          </div>
+          <ManagedWorktreesSettingControl open={open} />
+        </div>
+      </SectionBlock>
+    </SettingsPageSurface>
+  );
+}
+
+function LocalEnvironmentsSettingsSectionPage({
+  activeProjectId,
+  initialLocalEnvironmentConfigPath,
+  initialLocalEnvironmentProjectId,
+  open,
+  projects,
+}: SettingsSectionPageProps) {
+  return (
+    <SettingsPageSurface
+      title="Environments"
+      subtitle="Project-scoped local environment files and structured editing."
+      fullWidth
+    >
+      <LocalEnvironmentsSettingsPage
+        open={open}
+        active
+        projects={projects}
+        activeProjectId={activeProjectId}
+        initialProjectId={initialLocalEnvironmentProjectId}
+        initialConfigPath={initialLocalEnvironmentConfigPath}
+      />
+    </SettingsPageSurface>
+  );
+}
+
+function BackupsSettingsPage({ open }: SettingsSectionPageProps) {
+  return (
+    <SettingsPageSurface
+      title="Backups"
+      subtitle="Snapshot cadence, retention, and restore operations."
+    >
+      <BackupSettingsControl open={open} />
+    </SettingsPageSurface>
+  );
+}
+
+function SettingsPlaceholderPage({
+  label,
+  message,
+}: {
+  label: string;
+  message: string;
+}) {
+  return (
+    <SettingsPageSurface title={label} subtitle={message}>
+      <SectionBlock title={label}>
+        <div className="text-token-text-secondary p-3 text-sm">{message}</div>
+      </SectionBlock>
+    </SettingsPageSurface>
+  );
+}
+
+const SETTINGS_SECTION_COMPONENTS: Record<SettingsSectionId, ComponentType<SettingsSectionPageProps>> = {
+  "general-settings": GeneralSettingsPage,
+  appearance: AppearanceSettingsPage,
+  editor: EditorSettingsPage,
+  card: CardSettingsPage,
+  worktrees: WorktreesSettingsPage,
+  "local-environments": LocalEnvironmentsSettingsSectionPage,
+  backups: BackupsSettingsPage,
+};
+
 export function SettingsOverlay({
   open,
   onOpenChange,
+  path,
+  onPathChange,
   projects,
   activeProjectId,
-  initialSection = "workspace",
   initialLocalEnvironmentProjectId,
   initialLocalEnvironmentConfigPath,
   sidebarTopLevelSectionOrder,
@@ -1733,41 +2034,25 @@ export function SettingsOverlay({
   stripSmartPrefixFromTitleEnabled,
   onStripSmartPrefixFromTitleEnabledChange,
 }: SettingsOverlayProps) {
-  const [activeSection, setActiveSection] = useState<SettingsSectionId>("workspace");
   const isMacPlatform = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
   const shellRef = useRef<HTMLDivElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const sectionRefs = useRef<Record<SettingsSectionId, HTMLElement | null>>({
-    workspace: null,
-    editor: null,
-    card: null,
-    worktrees: null,
-    "local-environments": null,
-    backups: null,
-  });
+  const { activeSectionId, redirectPath, visibleSections } = resolveSettingsShellState(path);
+  const activeSection = visibleSections.find((section) => section.id === activeSectionId) ?? null;
 
-  const scrollToElement = useCallback((element: HTMLElement | null) => {
-    const scrollElement = scrollRef.current;
-    if (!scrollElement || !element) return;
-    scrollElement.scrollTo({ top: Math.max(0, element.offsetTop - 24), behavior: "smooth" });
-  }, []);
+  useEffect(() => {
+    if (!open || !redirectPath) {
+      return;
+    }
 
-  const scrollToSection = useCallback((id: SettingsSectionId) => {
-    scrollToElement(sectionRefs.current[id]);
-  }, [scrollToElement]);
+    startTransition(() => {
+      onPathChange(redirectPath);
+    });
+  }, [onPathChange, open, redirectPath]);
 
   useEffect(() => {
     if (!open) return;
-    setActiveSection(initialSection);
-    const scrollElement = scrollRef.current;
-    if (scrollElement) scrollElement.scrollTop = 0;
-    if (initialSection !== "workspace") {
-      requestAnimationFrame(() => {
-        scrollToSection(initialSection);
-      });
-    }
     shellRef.current?.focus();
-  }, [initialSection, open, scrollToSection]);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -1781,35 +2066,15 @@ export function SettingsOverlay({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onOpenChange, open]);
 
-  useEffect(() => {
-    if (!open) return;
-    const scrollElement = scrollRef.current;
-    if (!scrollElement) return;
-
-    const handleScroll = () => {
-      const threshold = scrollElement.scrollTop + 96;
-      let current: SettingsSectionId = "workspace";
-
-      for (const section of SETTINGS_SECTIONS) {
-        const element = sectionRefs.current[section.id];
-        if (!element) continue;
-        if (element.offsetTop <= threshold) current = section.id;
-      }
-
-      setActiveSection(current);
-    };
-
-    handleScroll();
-    scrollElement.addEventListener("scroll", handleScroll, { passive: true });
-    return () => scrollElement.removeEventListener("scroll", handleScroll);
-  }, [open]);
-
   if (!open) return null;
 
-  const desktopHeaderPaddingTopClass = isMacPlatform ? "pt-[calc(var(--spacing)*11)]" : "pt-5";
+  const ActiveSectionComponent = SETTINGS_SECTION_COMPONENTS[activeSectionId];
+  const shouldRenderPlaceholder = !ActiveSectionComponent
+    || activeSection?.placeholderKind === "unavailable"
+    || activeSection?.placeholderKind === "external";
 
   return (
-    <div className="fixed inset-0 z-50 bg-(--background) text-(--foreground)">
+    <div className="fixed inset-0 z-50 bg-token-bg-primary text-(--foreground) electron:bg-token-side-bar-background">
       <div
         ref={shellRef}
         role="dialog"
@@ -1818,349 +2083,56 @@ export function SettingsOverlay({
         tabIndex={-1}
         className="flex h-full min-h-0 outline-none"
       >
-        <aside
-          className={cn(
-            "hidden h-full min-h-0 shrink-0 font-sans text-base md:flex md:flex-col",
-            "relative overflow-hidden border-r",
-            "border-(--sidebar-border)",
+        <SettingsSidebar
+          activeSectionId={activeSectionId}
+          sections={visibleSections}
+          onBack={() => onOpenChange(false)}
+          onSelectSection={(sectionId) => {
+            startTransition(() => {
+              onPathChange(buildSettingsPath(sectionId));
+            });
+          }}
+        />
+
+        <div className="min-w-0 flex-1 overflow-visible">
+          {shouldRenderPlaceholder ? (
+            <SettingsPlaceholderPage
+              label={activeSection?.label ?? "Settings"}
+              message={
+                activeSection?.placeholderKind === "external"
+                  ? "This settings page opens outside the app."
+                  : "This settings page is not available yet."
+              }
+            />
+          ) : (
+            <ActiveSectionComponent
+              open={open}
+              isMacPlatform={isMacPlatform}
+              projects={projects}
+              activeProjectId={activeProjectId}
+              initialLocalEnvironmentProjectId={initialLocalEnvironmentProjectId}
+              initialLocalEnvironmentConfigPath={initialLocalEnvironmentConfigPath}
+              sidebarTopLevelSectionOrder={sidebarTopLevelSectionOrder}
+              sidebarTopLevelSections={sidebarTopLevelSections}
+              onSidebarTopLevelSectionVisibleChange={onSidebarTopLevelSectionVisibleChange}
+              stageRailLayoutMode={stageRailLayoutMode}
+              onStageRailLayoutModeChange={onStageRailLayoutModeChange}
+              nextPanelPeekPx={nextPanelPeekPx}
+              onNextPanelPeekPxChange={onNextPanelPeekPxChange}
+              threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
+              onThreadQueueFollowUpsEnabledChange={onThreadQueueFollowUpsEnabledChange}
+              composerEnterBehavior={composerEnterBehavior}
+              onComposerEnterBehaviorChange={onComposerEnterBehaviorChange}
+              worktreeStartMode={worktreeStartMode}
+              onWorktreeStartModeChange={onWorktreeStartModeChange}
+              worktreeAutoBranchPrefix={worktreeAutoBranchPrefix}
+              onWorktreeAutoBranchPrefixChange={onWorktreeAutoBranchPrefixChange}
+              smartPrefixParsingEnabled={smartPrefixParsingEnabled}
+              onSmartPrefixParsingEnabledChange={onSmartPrefixParsingEnabledChange}
+              stripSmartPrefixFromTitleEnabled={stripSmartPrefixFromTitleEnabled}
+              onStripSmartPrefixFromTitleEnabledChange={onStripSmartPrefixFromTitleEnabledChange}
+            />
           )}
-          style={{ width: 280 }}
-        >
-          <header
-            className={cn(
-              "relative shrink-0 px-(--sidebar-shell-padding-x) pb-3",
-              desktopHeaderPaddingTopClass,
-            )}
-          >
-            {isMacPlatform ? (
-              <div
-                className="absolute inset-x-0 top-0 h-9"
-                style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
-              />
-            ) : null}
-            <button
-              type="button"
-              onClick={() => onOpenChange(false)}
-              className={cn(
-                "mb-2 flex min-h-7.5 w-full items-center gap-2 rounded-lg px-(--sidebar-row-padding-x) py-(--sidebar-row-padding-tight-y)",
-                "text-base text-(--sidebar-foreground-secondary) transition-colors",
-                "hover:bg-(--sidebar-accent) hover:text-(--sidebar-foreground)",
-              )}
-            >
-              <ChevronLeft className="size-4 shrink-0" />
-              <span>Back to app</span>
-            </button>
-          </header>
-
-          <nav
-            className="flex scrollbar-token min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-(--sidebar-shell-padding-x) py-1"
-            aria-label="Settings sections"
-          >
-            {SETTINGS_SECTIONS.map((section) => {
-              const Icon = section.icon;
-              const isActive = activeSection === section.id;
-
-              return (
-                <button
-                  key={section.id}
-                  type="button"
-                  onClick={() => scrollToSection(section.id)}
-                  className={cn(
-                    "flex min-h-7.5 w-full items-center gap-2 rounded-lg px-(--sidebar-row-padding-x) py-(--sidebar-row-padding-tight-y) text-left transition-colors",
-                    isActive
-                      ? "bg-(--sidebar-accent) font-normal text-(--sidebar-foreground)"
-                      : cn(
-                        "text-(--sidebar-foreground-secondary)",
-                        "opacity-75 hover:bg-(--sidebar-accent) hover:opacity-100",
-                      ),
-                  )}
-                >
-                  <Icon className="size-4 shrink-0" />
-                  <span className="truncate text-base">
-                    {section.label}
-                  </span>
-                </button>
-              );
-            })}
-          </nav>
-        </aside>
-
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div
-            className={cn(
-              "flex h-10 items-center px-(--spacing-panel) draggable",
-              isMacPlatform ? "electron:h-11" : "",
-            )}
-          />
-
-          <div ref={scrollRef} className="scrollbar-token min-h-0 flex-1 overflow-y-auto p-(--spacing-panel)">
-            <div className="mx-auto flex w-full max-w-2xl flex-col">
-              <div className="flex items-center justify-between gap-3 pb-(--spacing-panel)">
-                <div className="flex min-w-0 flex-1 flex-col gap-1.5 pb-(--spacing-panel)">
-                  <div className="truncate text-lg font-semibold text-(--foreground)">
-                    Settings
-                  </div>
-                </div>
-              </div>
-              <div className="flex flex-col gap-(--spacing-panel)">
-                <SectionBlock
-                  title="Workspace"
-                  sectionRef={(element) => {
-                    sectionRefs.current.workspace = element;
-                  }}
-                >
-                  <SettingRow label="Theme" description="Match system mode or force a fixed theme.">
-                    <ThemeSettingControl />
-                  </SettingRow>
-                  <SettingRow
-                    label="Stage rail layout"
-                    description="Sliding window focuses 1-4 stages. Full rail keeps the whole stage line visible."
-                  >
-                    <StageRailLayoutModeControl
-                      value={stageRailLayoutMode}
-                      onChange={onStageRailLayoutModeChange}
-                    />
-                  </SettingRow>
-                  <SettingRow
-                    label="Thread finished notifications"
-                    description="Show a desktop notification when a Codex thread settles."
-                  >
-                    <ThreadNotificationSettingControl open={open} />
-                  </SettingRow>
-                  <SettingRow
-                    label="App updates"
-                    description="Packaged macOS builds can check, download, and install stable updates in the background."
-                  >
-                    <AppUpdateSettingsControl open={open} />
-                  </SettingRow>
-                  <SettingRow
-                    label="Sidebar sections"
-                    description="Choose which top-level sidebar sections stay visible. Hidden sections can be restored here."
-                  >
-                    <SidebarSectionVisibilitySettingControl
-                      order={sidebarTopLevelSectionOrder}
-                      sections={sidebarTopLevelSections}
-                      onVisibleChange={onSidebarTopLevelSectionVisibleChange}
-                    />
-                  </SettingRow>
-                  <SettingRow
-                    label="Adjacent panel peek"
-                    description={
-                      stageRailLayoutMode === "sliding-window"
-                        ? "Available only in Full rail. Sliding window hides this control."
-                        : "Keep a thin sliver of the neighboring stage visible in Full rail."
-                    }
-                  >
-                    <StageRailPeekSettingControl
-                      value={nextPanelPeekPx}
-                      onChange={onNextPanelPeekPxChange}
-                      disabled={stageRailLayoutMode === "sliding-window"}
-                    />
-                  </SettingRow>
-                </SectionBlock>
-
-                <SectionBlock
-                  title="Editor"
-                  sectionRef={(element) => {
-                    sectionRefs.current.editor = element;
-                  }}
-                >
-                  <SettingRow
-                    label="Sans font size"
-                    description="Scales shared sans typography tokens and chat body text across the app."
-                  >
-                    <SansFontSizeSettingControl />
-                  </SettingRow>
-                  <SettingRow
-                    label="Code font size"
-                    description="Sets editor/code typography globally via --vscode-editor-font-size."
-                  >
-                    <CodeFontSizeSettingControl />
-                  </SettingRow>
-                  <SettingRow
-                    label="Thread detail"
-                    description="Choose how much command output to show in threads."
-                  >
-                    <ThreadDetailLevelSettingControl />
-                  </SettingRow>
-                  <SettingRow label="Spellcheck" description="Inline text correction for editable writing surfaces.">
-                    <SpellcheckSettingControl />
-                  </SettingRow>
-                  <SettingRow
-                    label="Auto-link while typing"
-                    description="Turn typed URLs into links as you finish the token."
-                  >
-                    <NfmAutolinkTypingSettingControl />
-                  </SettingRow>
-                  <SettingRow
-                    label="Auto-link on paste"
-                    description="Recognize links in pasted text, including inline URL spans inside longer content."
-                  >
-                    <NfmAutolinkPasteSettingControl />
-                  </SettingRow>
-                  <SettingRow
-                    label="Recognize bare domains"
-                    description="Link plain domains like example.com. Leave off to avoid filename-like text such as .md paths."
-                  >
-                    <NfmAutolinkBareDomainsSettingControl />
-                  </SettingRow>
-                  <SettingRow
-                    label="Large paste text threshold"
-                    description="Prompt when pasted plain text reaches this many characters, so you can materialize it instead of inflating the note."
-                  >
-                    <PasteResourceTextThresholdSettingControl />
-                  </SettingRow>
-                  <SettingRow
-                    label="Large paste description soft limit"
-                    description="Prompt before pasted plain text pushes the note near its description size ceiling."
-                  >
-                    <PasteResourceDescriptionSoftLimitSettingControl />
-                  </SettingRow>
-                  <SettingRow
-                    label="Markdown file links"
-                    description="Choose which desktop app handles absolute local file links in rendered markdown."
-                  >
-                    <FileLinkOpenerSettingControl />
-                  </SettingRow>
-                  <SettingRow
-                    label="Smart parse block prefixes"
-                    description="Interpret shorthand like 1XL(tag) during block-to-card import."
-                  >
-                    <SmartPrefixParsingSettingControl
-                      value={smartPrefixParsingEnabled}
-                      onChange={onSmartPrefixParsingEnabledChange}
-                    />
-                  </SettingRow>
-                  <SettingRow
-                    label="Strip parsed prefix from title"
-                    description="Remove matched shorthand from imported card titles after parsing."
-                  >
-                    <StripSmartPrefixFromTitleSettingControl
-                      value={stripSmartPrefixFromTitleEnabled}
-                      onChange={onStripSmartPrefixFromTitleEnabledChange}
-                      disabled={!smartPrefixParsingEnabled}
-                    />
-                  </SettingRow>
-                  <SettingRow
-                    label="Confirm thread section send"
-                    description="Show a preview dialog before sending a notebook section, with an option to stop asking later."
-                  >
-                    <ThreadSectionSendConfirmationSettingControl />
-                  </SettingRow>
-                  <SettingRow
-                    label={`${isMacPlatform ? "Cmd" : "Ctrl"}+Enter to send long prompts`}
-                    description="Single-line prompts still send on Enter. Multiline prompts switch to the modifier chord when this is enabled."
-                  >
-                    <ComposerEnterBehaviorControl
-                      value={composerEnterBehavior}
-                      onChange={onComposerEnterBehaviorChange}
-                    />
-                  </SettingRow>
-                  <SettingRow
-                    label="Queue follow-ups"
-                    description="While a thread is running, use queue as the default submit action instead of immediate steering."
-                  >
-                    <ThreadQueueFollowUpsSettingControl
-                      value={threadQueueFollowUpsEnabled}
-                      onChange={onThreadQueueFollowUpsEnabledChange}
-                    />
-                  </SettingRow>
-                </SectionBlock>
-
-                <SectionBlock
-                  title="Card"
-                  sectionRef={(element) => {
-                    sectionRefs.current.card = element;
-                  }}
-                >
-                  <SettingRow
-                    label="Kanban card properties"
-                    description="Choose whether priority, estimate, tags, assignee, and run-in metadata render above the title, inline with it, or below the card body."
-                  >
-                    <CardPropertyPositionSettingControl />
-                  </SettingRow>
-                  <SettingRow
-                    label="Card stage collapsed properties"
-                    description="Choose which card-stage property rows start behind the more-properties toggle."
-                  >
-                    <CardStageCollapsedPropertiesSettingControl />
-                  </SettingRow>
-                </SectionBlock>
-
-                <SectionBlock
-                  title="Worktrees"
-                  sectionRef={(element) => {
-                    sectionRefs.current.worktrees = element;
-                  }}
-                >
-                  <SettingRow
-                    label="Worktree start mode"
-                    description="Choose whether new worktree threads auto-create a branch or start detached."
-                  >
-                    <WorktreeStartModeSettingControl
-                      value={worktreeStartMode}
-                      onChange={onWorktreeStartModeChange}
-                    />
-                  </SettingRow>
-                  <SettingRow
-                    label="Auto branch prefix"
-                    description="Prefix prepended to auto branch names before the thread slug."
-                  >
-                    <WorktreeAutoBranchPrefixSettingControl
-                      value={worktreeAutoBranchPrefix}
-                      onChange={onWorktreeAutoBranchPrefixChange}
-                    />
-                  </SettingRow>
-                  <div className="flex flex-col gap-1 p-3">
-                    <div className="text-sm text-(--foreground)">
-                      Managed worktrees
-                    </div>
-                    <div className="text-sm text-(--foreground-secondary)">
-                      Worktrees created by card threads. Hover a row to remove.
-                    </div>
-                    <ManagedWorktreesSettingControl open={open} />
-                  </div>
-                </SectionBlock>
-
-                <section
-                  ref={(element) => {
-                    sectionRefs.current["local-environments"] = element;
-                  }}
-                  className="flex flex-col gap-4"
-                >
-                  <div className="flex h-10 items-center">
-                    <div className="text-base font-medium text-(--foreground)">
-                      Local environments
-                    </div>
-                  </div>
-                  <LocalEnvironmentsSettingsPage
-                    open={open}
-                    active={activeSection === "local-environments"}
-                    projects={projects}
-                    activeProjectId={activeProjectId}
-                    initialProjectId={initialLocalEnvironmentProjectId}
-                    initialConfigPath={initialLocalEnvironmentConfigPath}
-                  />
-                </section>
-
-                <section
-                  ref={(element) => {
-                    sectionRefs.current.backups = element;
-                  }}
-                  className="flex flex-col"
-                >
-                  <div className="flex h-10 items-center">
-                    <div className="text-base font-medium text-(--foreground)">
-                      Backups
-                    </div>
-                  </div>
-                  <BackupSettingsControl open={open} />
-                </section>
-
-
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>
