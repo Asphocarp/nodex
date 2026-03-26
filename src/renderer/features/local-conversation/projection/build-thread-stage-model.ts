@@ -47,7 +47,7 @@ export function buildThreadStageModel(input: ThreadStageModelInput): ThreadStage
     reasoningEffortOptions: input.reasoningEffortOptions,
     permissionMode: input.permissionMode,
     isQueueingEnabled: input.isQueueingEnabled,
-    promptSubmitShortcut: input.promptSubmitShortcut,
+    composerEnterBehavior: input.composerEnterBehavior,
     searchOpenTick: input.searchOpenTick,
     composerIntent: input.composerIntent,
     title:

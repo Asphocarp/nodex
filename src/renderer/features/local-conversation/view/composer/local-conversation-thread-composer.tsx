@@ -5,7 +5,7 @@ import { formatCodexModelLabel, formatCodexReasoningEffortLabel } from "@/lib/co
 import { invoke, subscribeGitBranchChanges } from "@/lib/api";
 import { resolveContextWindowIndicatorState } from "@/lib/codex-context-window";
 import type { CodexReasoningEffort } from "@/lib/types";
-import { shouldSubmitThreadPromptFromKeyDown } from "@/lib/thread-panel-prompt-submit-shortcut";
+import { shouldSubmitComposerPromptFromKeyDown } from "@/lib/composer-enter-behavior";
 import {
   getThreadComposerAlternateShortcutLabel,
   getThreadComposerPrimaryShortcutLabel,
@@ -326,8 +326,10 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   }, [actions, model.activeTurn?.turnId, model.conversation, model.isThreadRunning, onErrorMessage]);
 
   const handleKeyDown = useCallback((event: KeyboardEvent<HTMLTextAreaElement>) => {
+    const hasMultilinePrompt = prompt.includes("\n");
+
     if (shouldInvertThreadInProgressFollowUpModeFromKeyDown({
-      shortcut: model.promptSubmitShortcut,
+      enterBehavior: model.composerEnterBehavior,
       key: event.key,
       ctrlKey: event.ctrlKey,
       metaKey: event.metaKey,
@@ -346,8 +348,9 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
       return;
     }
 
-    if (!shouldSubmitThreadPromptFromKeyDown({
-      shortcut: model.promptSubmitShortcut,
+    if (!shouldSubmitComposerPromptFromKeyDown({
+      enterBehavior: model.composerEnterBehavior,
+      hasMultilinePrompt,
       key: event.key,
       ctrlKey: event.ctrlKey,
       metaKey: event.metaKey,
@@ -360,7 +363,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
 
     event.preventDefault();
     void promptForm.handleSubmit();
-  }, [model.conversation, model.isThreadRunning, model.promptSubmitShortcut, prompt, promptForm, submitPrompt]);
+  }, [model.composerEnterBehavior, model.conversation, model.isThreadRunning, prompt, promptForm, submitPrompt]);
 
   const hasDraftContent = prompt.trim().length > 0;
   const hasMultilinePrompt = prompt.includes("\n");
@@ -379,10 +382,10 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     !model.isCloudNewThreadTarget,
   );
   const primaryShortcutLabel = getThreadComposerPrimaryShortcutLabel({
-    shortcut: model.promptSubmitShortcut,
+    enterBehavior: model.composerEnterBehavior,
     hasMultilinePrompt,
   });
-  const alternateShortcutLabel = getThreadComposerAlternateShortcutLabel(model.promptSubmitShortcut);
+  const alternateShortcutLabel = getThreadComposerAlternateShortcutLabel(model.composerEnterBehavior);
   const contextWindowIndicatorState = resolveContextWindowIndicatorState(model.conversation);
   const composerActionTooltip = renderComposerActionTooltipContent({
     action: composerActionState.action,

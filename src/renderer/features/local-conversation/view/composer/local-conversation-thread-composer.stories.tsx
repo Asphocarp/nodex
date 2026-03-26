@@ -10,6 +10,7 @@ import { ThreadComposer } from "./local-conversation-thread-composer";
 
 interface ComposerSendButtonStoryProps {
   isQueueingEnabled: boolean;
+  composerEnterBehavior: "enter" | "cmdIfMultiline";
   draftPrompt: string;
 }
 
@@ -31,7 +32,10 @@ function buildModel(args: ComposerSendButtonStoryProps): ThreadStageModel {
           focusNonce: 1,
         },
   };
-  return buildThreadStageStoryModel(scenario, controls, runtime);
+  return {
+    ...buildThreadStageStoryModel(scenario, controls, runtime),
+    composerEnterBehavior: args.composerEnterBehavior,
+  };
 }
 
 function buildActions(): ThreadStageActions {
@@ -96,11 +100,16 @@ const meta = {
   component: ComposerSendButtonStory,
   args: {
     isQueueingEnabled: false,
+    composerEnterBehavior: "enter",
     draftPrompt: "",
   },
   argTypes: {
     isQueueingEnabled: {
       control: "boolean",
+    },
+    composerEnterBehavior: {
+      control: "radio",
+      options: ["enter", "cmdIfMultiline"],
     },
     draftPrompt: {
       control: "text",
@@ -123,6 +132,7 @@ type Story = StoryObj<typeof meta>;
 export const RunningStop: Story = {
   args: {
     isQueueingEnabled: false,
+    composerEnterBehavior: "enter",
     draftPrompt: "",
   },
 };
@@ -130,6 +140,7 @@ export const RunningStop: Story = {
 export const RunningSteer: Story = {
   args: {
     isQueueingEnabled: false,
+    composerEnterBehavior: "enter",
     draftPrompt: "Steer the current run toward the MCP transcript cleanup.",
   },
 };
@@ -137,6 +148,31 @@ export const RunningSteer: Story = {
 export const RunningQueue: Story = {
   args: {
     isQueueingEnabled: true,
+    composerEnterBehavior: "enter",
     draftPrompt: "Queue this after the current tool-call batch finishes.",
+  },
+};
+
+export const RunningQueueMultilineCmdEnter: Story = {
+  args: {
+    isQueueingEnabled: true,
+    composerEnterBehavior: "cmdIfMultiline",
+    draftPrompt: "Queue this after the current tool-call batch finishes.\nInclude a compact reasoning summary.",
+  },
+};
+
+export const RunningQueueSingleLineCmdIfMultiline: Story = {
+  args: {
+    isQueueingEnabled: true,
+    composerEnterBehavior: "cmdIfMultiline",
+    draftPrompt: "Queue this after the current tool-call batch finishes.",
+  },
+};
+
+export const RunningSteerMultilineCmdEnter: Story = {
+  args: {
+    isQueueingEnabled: false,
+    composerEnterBehavior: "cmdIfMultiline",
+    draftPrompt: "Steer the current run toward the MCP transcript cleanup.\nPrefer deduping the approval rows.",
   },
 };

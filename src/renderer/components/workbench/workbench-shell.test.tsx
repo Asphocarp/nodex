@@ -5,7 +5,7 @@ import * as KanbanOptions from "@/lib/kanban-options";
 import * as SmartPrefixParsing from "@/lib/smart-prefix-parsing";
 import * as StageRailPeek from "@/lib/stage-rail-peek";
 import * as StatusChip from "@/lib/status-chip";
-import * as ThreadPanelPromptSubmitShortcut from "@/lib/thread-panel-prompt-submit-shortcut";
+import * as ComposerEnterBehavior from "@/lib/composer-enter-behavior";
 import * as WorkbenchState from "@/lib/use-workbench-state";
 import * as WorktreeBranchPrefix from "@/lib/worktree-branch-prefix";
 import * as WorktreeStartMode from "@/lib/worktree-start-mode";
@@ -151,10 +151,10 @@ mock.module("@/lib/stage-rail-peek", () => ({
   writeNextPanelPeekPx: (value: number) => value,
 }));
 
-mock.module("@/lib/thread-panel-prompt-submit-shortcut", () => ({
-  ...ThreadPanelPromptSubmitShortcut,
-  readThreadPromptSubmitShortcut: () => "enter" as const,
-  writeThreadPromptSubmitShortcut: (value: "enter" | "mod-enter") => value,
+mock.module("@/lib/composer-enter-behavior", () => ({
+  ...ComposerEnterBehavior,
+  readComposerEnterBehavior: () => "enter" as const,
+  writeComposerEnterBehavior: (value: "enter" | "cmdIfMultiline") => value,
 }));
 
 mock.module("@/lib/worktree-start-mode", () => ({

@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
-  DEFAULT_THREAD_PROMPT_SUBMIT_SHORTCUT,
-  THREAD_PROMPT_SUBMIT_SHORTCUT_STORAGE_KEY,
-  normalizeThreadPromptSubmitShortcut,
-  readThreadPromptSubmitShortcut,
-  shouldSubmitThreadPromptFromKeyDown,
-  writeThreadPromptSubmitShortcut,
-} from "./thread-panel-prompt-submit-shortcut";
+  COMPOSER_ENTER_BEHAVIOR_STORAGE_KEY,
+  DEFAULT_COMPOSER_ENTER_BEHAVIOR,
+  normalizeComposerEnterBehavior,
+  readComposerEnterBehavior,
+  shouldSubmitComposerPromptFromKeyDown,
+  writeComposerEnterBehavior,
+} from "./composer-enter-behavior";
 
 const storageMap = new Map<string, string>();
 
@@ -40,18 +40,22 @@ function withMockLocalStorage(run: () => void): void {
   }
 }
 
-describe("thread panel prompt submit shortcut", () => {
+describe("composer enter behavior", () => {
   test("defaults to enter and normalizes known values", () => {
     withMockLocalStorage(() => {
       mockStorage.clear();
-      expect(normalizeThreadPromptSubmitShortcut(undefined)).toBe(
-        DEFAULT_THREAD_PROMPT_SUBMIT_SHORTCUT,
+      expect(normalizeComposerEnterBehavior(undefined)).toBe(
+        DEFAULT_COMPOSER_ENTER_BEHAVIOR,
       );
-      expect(normalizeThreadPromptSubmitShortcut("enter")).toBe("enter");
-      expect(normalizeThreadPromptSubmitShortcut("mod-enter")).toBe("mod-enter");
-      expect(normalizeThreadPromptSubmitShortcut("cmd+enter")).toBe("mod-enter");
-      expect(normalizeThreadPromptSubmitShortcut("unexpected")).toBe(
-        DEFAULT_THREAD_PROMPT_SUBMIT_SHORTCUT,
+      expect(normalizeComposerEnterBehavior("enter")).toBe("enter");
+      expect(normalizeComposerEnterBehavior("cmdIfMultiline")).toBe(
+        "cmdIfMultiline",
+      );
+      expect(normalizeComposerEnterBehavior("cmd-if-multiline")).toBe(
+        "cmdIfMultiline",
+      );
+      expect(normalizeComposerEnterBehavior("unexpected")).toBe(
+        DEFAULT_COMPOSER_ENTER_BEHAVIOR,
       );
     });
   });
@@ -59,23 +63,24 @@ describe("thread panel prompt submit shortcut", () => {
   test("reads and writes persisted values", () => {
     withMockLocalStorage(() => {
       mockStorage.clear();
-      expect(readThreadPromptSubmitShortcut()).toBe(
-        DEFAULT_THREAD_PROMPT_SUBMIT_SHORTCUT,
+      expect(readComposerEnterBehavior()).toBe(
+        DEFAULT_COMPOSER_ENTER_BEHAVIOR,
       );
 
-      const modShortcut = writeThreadPromptSubmitShortcut("mod-enter");
-      expect(modShortcut).toBe("mod-enter");
+      const persisted = writeComposerEnterBehavior("cmdIfMultiline");
+      expect(persisted).toBe("cmdIfMultiline");
       expect(
-        mockStorage.getItem(THREAD_PROMPT_SUBMIT_SHORTCUT_STORAGE_KEY),
-      ).toBe("mod-enter");
-      expect(readThreadPromptSubmitShortcut()).toBe("mod-enter");
+        mockStorage.getItem(COMPOSER_ENTER_BEHAVIOR_STORAGE_KEY),
+      ).toBe("cmdIfMultiline");
+      expect(readComposerEnterBehavior()).toBe("cmdIfMultiline");
     });
   });
 
   test("submits on plain enter in enter mode", () => {
     expect(
-      shouldSubmitThreadPromptFromKeyDown({
-        shortcut: "enter",
+      shouldSubmitComposerPromptFromKeyDown({
+        enterBehavior: "enter",
+        hasMultilinePrompt: false,
         key: "Enter",
         ctrlKey: false,
         metaKey: false,
@@ -84,8 +89,9 @@ describe("thread panel prompt submit shortcut", () => {
       }),
     ).toBeTrue();
     expect(
-      shouldSubmitThreadPromptFromKeyDown({
-        shortcut: "enter",
+      shouldSubmitComposerPromptFromKeyDown({
+        enterBehavior: "enter",
+        hasMultilinePrompt: false,
         key: "Enter",
         ctrlKey: false,
         metaKey: false,
@@ -93,42 +99,13 @@ describe("thread panel prompt submit shortcut", () => {
         altKey: false,
       }),
     ).toBeFalse();
-    expect(
-      shouldSubmitThreadPromptFromKeyDown({
-        shortcut: "enter",
-        key: "Enter",
-        ctrlKey: false,
-        metaKey: true,
-        shiftKey: false,
-        altKey: false,
-      }),
-    ).toBeFalse();
   });
 
-  test("submits on cmd/ctrl+enter in modifier mode", () => {
+  test("uses cmd-enter as the primary submit for multiline cmdIfMultiline drafts", () => {
     expect(
-      shouldSubmitThreadPromptFromKeyDown({
-        shortcut: "mod-enter",
-        key: "Enter",
-        ctrlKey: false,
-        metaKey: true,
-        shiftKey: false,
-        altKey: false,
-      }),
-    ).toBeTrue();
-    expect(
-      shouldSubmitThreadPromptFromKeyDown({
-        shortcut: "mod-enter",
-        key: "Enter",
-        ctrlKey: true,
-        metaKey: false,
-        shiftKey: false,
-        altKey: false,
-      }),
-    ).toBeTrue();
-    expect(
-      shouldSubmitThreadPromptFromKeyDown({
-        shortcut: "mod-enter",
+      shouldSubmitComposerPromptFromKeyDown({
+        enterBehavior: "cmdIfMultiline",
+        hasMultilinePrompt: true,
         key: "Enter",
         ctrlKey: false,
         metaKey: false,
@@ -136,12 +113,38 @@ describe("thread panel prompt submit shortcut", () => {
         altKey: false,
       }),
     ).toBeFalse();
+    expect(
+      shouldSubmitComposerPromptFromKeyDown({
+        enterBehavior: "cmdIfMultiline",
+        hasMultilinePrompt: true,
+        key: "Enter",
+        ctrlKey: false,
+        metaKey: true,
+        shiftKey: false,
+        altKey: false,
+      }),
+    ).toBeTrue();
+  });
+
+  test("keeps enter as the primary submit for single-line cmdIfMultiline drafts", () => {
+    expect(
+      shouldSubmitComposerPromptFromKeyDown({
+        enterBehavior: "cmdIfMultiline",
+        hasMultilinePrompt: false,
+        key: "Enter",
+        ctrlKey: false,
+        metaKey: false,
+        shiftKey: false,
+        altKey: false,
+      }),
+    ).toBeTrue();
   });
 
   test("never submits while composing", () => {
     expect(
-      shouldSubmitThreadPromptFromKeyDown({
-        shortcut: "enter",
+      shouldSubmitComposerPromptFromKeyDown({
+        enterBehavior: "enter",
+        hasMultilinePrompt: false,
         key: "Enter",
         ctrlKey: false,
         metaKey: false,

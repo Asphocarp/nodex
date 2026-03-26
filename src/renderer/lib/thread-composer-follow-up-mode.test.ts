@@ -25,7 +25,7 @@ describe("thread composer follow-up mode", () => {
 
   test("matches Codex-style inverted shortcuts for both submit shortcut modes", () => {
     expect(shouldInvertThreadInProgressFollowUpModeFromKeyDown({
-      shortcut: "enter",
+      enterBehavior: "enter",
       key: "Enter",
       ctrlKey: true,
       metaKey: false,
@@ -34,7 +34,7 @@ describe("thread composer follow-up mode", () => {
     })).toBeTrue();
 
     expect(shouldInvertThreadInProgressFollowUpModeFromKeyDown({
-      shortcut: "mod-enter",
+      enterBehavior: "cmdIfMultiline",
       key: "Enter",
       ctrlKey: true,
       metaKey: false,
@@ -43,7 +43,7 @@ describe("thread composer follow-up mode", () => {
     })).toBeTrue();
 
     expect(shouldInvertThreadInProgressFollowUpModeFromKeyDown({
-      shortcut: "mod-enter",
+      enterBehavior: "cmdIfMultiline",
       key: "Enter",
       ctrlKey: true,
       metaKey: false,
@@ -54,14 +54,14 @@ describe("thread composer follow-up mode", () => {
 
   test("formats the primary and alternate shortcut labels like the Codex tooltip", () => {
     expect(getThreadComposerPrimaryShortcutLabel({
-      shortcut: "enter",
+      enterBehavior: "enter",
       hasMultilinePrompt: false,
     })).toBe("Enter");
     expect(getThreadComposerPrimaryShortcutLabel({
-      shortcut: "mod-enter",
+      enterBehavior: "cmdIfMultiline",
       hasMultilinePrompt: true,
     })).toBe("Cmd/Ctrl+Enter");
     expect(getThreadComposerAlternateShortcutLabel("enter")).toBe("Cmd/Ctrl+Enter");
-    expect(getThreadComposerAlternateShortcutLabel("mod-enter")).toBe("Cmd/Ctrl+Shift+Enter");
+    expect(getThreadComposerAlternateShortcutLabel("cmdIfMultiline")).toBe("Cmd/Ctrl+Shift+Enter");
   });
 });

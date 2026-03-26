@@ -68,7 +68,7 @@ import { usePasteResourceSettings } from "../../lib/use-paste-resource-settings"
 import { useThreadSectionSendSettings } from "../../lib/use-thread-section-send-settings";
 import type { StageRailLayoutMode } from "../../lib/stage-rail-layout-mode";
 import { useSansFontSize } from "../../lib/use-sans-font-size";
-import type { ThreadPromptSubmitShortcut } from "../../lib/thread-panel-prompt-submit-shortcut";
+import type { ComposerEnterBehavior } from "../../lib/composer-enter-behavior";
 import { useSpellcheck } from "../../lib/use-spellcheck";
 import { useTheme } from "../../lib/use-theme";
 import { useCodexThreadSettings } from "../../lib/use-codex-thread-settings";
@@ -1124,28 +1124,17 @@ function StripSmartPrefixFromTitleSettingControl({
   return <TogglePill value={value} onChange={onChange} disabled={disabled} />;
 }
 
-function ThreadPromptSubmitShortcutControl({
+function ComposerEnterBehaviorControl({
   value,
   onChange,
 }: {
-  value: ThreadPromptSubmitShortcut;
-  onChange: (value: ThreadPromptSubmitShortcut) => void;
+  value: ComposerEnterBehavior;
+  onChange: (value: ComposerEnterBehavior) => void;
 }) {
-  const modifierLabel = (
-    typeof navigator !== "undefined"
-    && navigator.platform.toLowerCase().includes("mac")
-  )
-    ? "Cmd+Enter"
-    : "Ctrl+Enter";
-
   return (
-    <SegmentedControl
-      value={value}
-      onChange={onChange}
-      options={[
-        { value: "enter", label: "Enter" },
-        { value: "mod-enter", label: modifierLabel },
-      ]}
+    <TogglePill
+      value={value === "cmdIfMultiline"}
+      onChange={(enabled) => onChange(enabled ? "cmdIfMultiline" : "enter")}
     />
   );
 }
@@ -1695,8 +1684,8 @@ interface SettingsOverlayProps {
   onNextPanelPeekPxChange: (value: number) => void;
   threadQueueFollowUpsEnabled: boolean;
   onThreadQueueFollowUpsEnabledChange: (value: boolean) => void;
-  threadPromptSubmitShortcut: ThreadPromptSubmitShortcut;
-  onThreadPromptSubmitShortcutChange: (value: ThreadPromptSubmitShortcut) => void;
+  composerEnterBehavior: ComposerEnterBehavior;
+  onComposerEnterBehaviorChange: (value: ComposerEnterBehavior) => void;
   worktreeStartMode: WorktreeStartMode;
   onWorktreeStartModeChange: (value: WorktreeStartMode) => void;
   worktreeAutoBranchPrefix: string;
@@ -1719,8 +1708,8 @@ export function SettingsOverlay({
   onNextPanelPeekPxChange,
   threadQueueFollowUpsEnabled,
   onThreadQueueFollowUpsEnabledChange,
-  threadPromptSubmitShortcut,
-  onThreadPromptSubmitShortcutChange,
+  composerEnterBehavior,
+  onComposerEnterBehaviorChange,
   worktreeStartMode,
   onWorktreeStartModeChange,
   worktreeAutoBranchPrefix,
@@ -2039,12 +2028,12 @@ export function SettingsOverlay({
                     <ThreadSectionSendConfirmationSettingControl />
                   </SettingRow>
                   <SettingRow
-                    label="Thread send shortcut"
-                    description="Use Enter for send, or require a modifier chord to reduce accidental submissions."
+                    label={`${isMacPlatform ? "Cmd" : "Ctrl"}+Enter to send long prompts`}
+                    description="Single-line prompts still send on Enter. Multiline prompts switch to the modifier chord when this is enabled."
                   >
-                    <ThreadPromptSubmitShortcutControl
-                      value={threadPromptSubmitShortcut}
-                      onChange={onThreadPromptSubmitShortcutChange}
+                    <ComposerEnterBehaviorControl
+                      value={composerEnterBehavior}
+                      onChange={onComposerEnterBehaviorChange}
                     />
                   </SettingRow>
                   <SettingRow

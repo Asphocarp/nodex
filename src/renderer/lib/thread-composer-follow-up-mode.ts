@@ -1,4 +1,4 @@
-import type { ThreadPromptSubmitShortcut } from "./thread-panel-prompt-submit-shortcut";
+import type { ComposerEnterBehavior } from "./composer-enter-behavior";
 
 export type ThreadInProgressFollowUpMode = "queue" | "steer";
 
@@ -11,7 +11,7 @@ interface ResolveThreadInProgressFollowUpModeInput {
 }
 
 interface ThreadComposerInvertedShortcutInput {
-  shortcut: ThreadPromptSubmitShortcut;
+  enterBehavior: ComposerEnterBehavior;
   key: string;
   ctrlKey: boolean;
   metaKey: boolean;
@@ -21,7 +21,7 @@ interface ThreadComposerInvertedShortcutInput {
 }
 
 interface ThreadComposerPrimaryShortcutLabelInput {
-  shortcut: ThreadPromptSubmitShortcut;
+  enterBehavior: ComposerEnterBehavior;
   hasMultilinePrompt: boolean;
 }
 
@@ -61,7 +61,7 @@ export function shouldInvertThreadInProgressFollowUpModeFromKeyDown(
   const hasModifier = input.ctrlKey || input.metaKey;
   if (!hasModifier || input.altKey) return false;
 
-  if (input.shortcut === "enter") {
+  if (input.enterBehavior === "enter") {
     return !input.shiftKey;
   }
 
@@ -71,7 +71,10 @@ export function shouldInvertThreadInProgressFollowUpModeFromKeyDown(
 export function getThreadComposerPrimaryShortcutLabel(
   input: ThreadComposerPrimaryShortcutLabelInput,
 ): string {
-  if (input.shortcut === "mod-enter" && input.hasMultilinePrompt) {
+  if (
+    input.enterBehavior === "cmdIfMultiline"
+    && input.hasMultilinePrompt
+  ) {
     return "Cmd/Ctrl+Enter";
   }
 
@@ -79,9 +82,9 @@ export function getThreadComposerPrimaryShortcutLabel(
 }
 
 export function getThreadComposerAlternateShortcutLabel(
-  shortcut: ThreadPromptSubmitShortcut,
+  enterBehavior: ComposerEnterBehavior,
 ): string {
-  return shortcut === "mod-enter"
+  return enterBehavior === "cmdIfMultiline"
     ? "Cmd/Ctrl+Shift+Enter"
     : "Cmd/Ctrl+Enter";
 }

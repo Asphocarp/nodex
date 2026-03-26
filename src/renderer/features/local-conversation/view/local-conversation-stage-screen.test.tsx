@@ -34,7 +34,7 @@ function buildProps(overrides?: Partial<ThreadStageScreenProps["model"]>): Threa
       reasoningEffortOptions: [],
       permissionMode: "sandbox",
       isQueueingEnabled: false,
-      promptSubmitShortcut: "enter",
+      composerEnterBehavior: "enter",
       searchOpenTick: 0,
       composerIntent: null,
       title: "New thread",

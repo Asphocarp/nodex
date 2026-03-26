@@ -48,9 +48,9 @@ import {
   writeNextPanelPeekPx,
 } from "@/lib/stage-rail-peek";
 import {
-  readThreadPromptSubmitShortcut,
-  writeThreadPromptSubmitShortcut,
-} from "@/lib/thread-panel-prompt-submit-shortcut";
+  readComposerEnterBehavior,
+  writeComposerEnterBehavior,
+} from "@/lib/composer-enter-behavior";
 import {
   readThreadQueueFollowUpsEnabled,
   writeThreadQueueFollowUpsEnabled,
@@ -411,8 +411,8 @@ export function WorkbenchShell({
   const [stripSmartPrefixFromTitleEnabled, setStripSmartPrefixFromTitleEnabledState] = useState<boolean>(() =>
     readStripSmartPrefixFromTitleEnabled(),
   );
-  const [threadPromptSubmitShortcut, setThreadPromptSubmitShortcutState] = useState(() =>
-    readThreadPromptSubmitShortcut(),
+  const [composerEnterBehavior, setComposerEnterBehaviorState] = useState(() =>
+    readComposerEnterBehavior(),
   );
   const [threadQueueFollowUpsEnabled, setThreadQueueFollowUpsEnabledState] = useState(() =>
     readThreadQueueFollowUpsEnabled(),
@@ -521,9 +521,9 @@ export function WorkbenchShell({
     const normalized = writeStripSmartPrefixFromTitleEnabled(value);
     setStripSmartPrefixFromTitleEnabledState(normalized);
   }, []);
-  const setThreadPromptSubmitShortcut = useCallback((value: "enter" | "mod-enter") => {
-    const normalized = writeThreadPromptSubmitShortcut(value);
-    setThreadPromptSubmitShortcutState(normalized);
+  const setComposerEnterBehavior = useCallback((value: "enter" | "cmdIfMultiline") => {
+    const normalized = writeComposerEnterBehavior(value);
+    setComposerEnterBehaviorState(normalized);
   }, []);
   const setThreadQueueFollowUpsEnabled = useCallback((value: boolean) => {
     const normalized = writeThreadQueueFollowUpsEnabled(value);
@@ -1397,7 +1397,7 @@ export function WorkbenchShell({
     reasoningEffortOptions,
     permissionMode,
     isQueueingEnabled: threadQueueFollowUpsEnabled,
-    promptSubmitShortcut: threadPromptSubmitShortcut,
+    composerEnterBehavior,
     searchOpenTick: threadSearchOpenTick,
     composerIntent: activeThreadTab ? localConversationState.composerIntentsByThread?.[activeThreadTab.id] ?? null : null,
   }), [
@@ -1421,7 +1421,7 @@ export function WorkbenchShell({
     reasoningEffortOptions,
     selectedCollaborationMode,
     threadSearchOpenTick,
-    threadPromptSubmitShortcut,
+    composerEnterBehavior,
     threadSettings.model,
     threadSettings.reasoningEffort,
     threadsProjectId,
@@ -2087,8 +2087,8 @@ export function WorkbenchShell({
         onNextPanelPeekPxChange={setNextPanelPeekPx}
         threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
         onThreadQueueFollowUpsEnabledChange={setThreadQueueFollowUpsEnabled}
-        threadPromptSubmitShortcut={threadPromptSubmitShortcut}
-        onThreadPromptSubmitShortcutChange={setThreadPromptSubmitShortcut}
+        composerEnterBehavior={composerEnterBehavior}
+        onComposerEnterBehaviorChange={setComposerEnterBehavior}
         worktreeStartMode={worktreeStartMode}
         onWorktreeStartModeChange={setWorktreeStartMode}
         worktreeAutoBranchPrefix={worktreeAutoBranchPrefix}
