@@ -40,6 +40,8 @@ function projectItemToTranscriptEntry(
     sequence,
     toolCall: item.toolCall,
     markdownText: item.markdownText,
+    additionalDetails: item.additionalDetails,
+    willRetry: item.willRetry,
     userInputQuestions: item.userInputQuestions,
     userInputAnswers: item.userInputAnswers,
     rawItem: item.rawItem,

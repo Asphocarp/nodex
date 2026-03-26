@@ -128,6 +128,11 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
   - completed: `Context automatically compacted` with the compact completion icon
 - Session-backed reopen/bootstrap preserves the same context-compaction rows, including compaction boundaries that split replayed history across pre-compaction and post-compaction turns.
   - the row stays in the post-assistant transcript lane rather than the grouped agent-body lane
+- Poor-network retry errors render inside the mounted transcript as Codex Electron-style error rows instead of replacing the whole thread shell:
+  - retryable transport errors materialize as `streamError` rows, for example `Reconnecting... 2/5`
+  - non-retryable turn errors materialize as `systemError` rows
+  - both rows may carry expandable `additionalDetails`
+  - this feature is distinct from explicit thread reopen/resume; `resumeState` does not own the poor-network reconnect row
 - Codex-parity transcript expanders use Motion and subtype-owned state, not a generic shared accordion:
   - measured transcript bodies (`commandExecution`, exploration groups, `patch`, MCP, reasoning, completed request-user-input answers, plan/todo disclosure, and other Codex-native expandable rows) animate through explicit `motion.div` height/opacity wrappers fed by a `ResizeObserver`-driven measured-height hook
   - agent-body collapse is a separate presence animation contract and does not reuse the measured-height transcript-body model

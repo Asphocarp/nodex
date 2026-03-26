@@ -2,7 +2,13 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
 import type { CodexConversationItem } from "../../../../lib/types";
 import { render, settleAsyncRender, textContent } from "../../../../test/dom";
-import { ThreadContextCompactionBlock, ThreadExplorationGroupBlock, ThreadTurnDiffBlock } from "./local-conversation-block-leaves";
+import {
+  ThreadContextCompactionBlock,
+  ThreadExplorationGroupBlock,
+  ThreadStreamErrorBlock,
+  ThreadSystemErrorBlock,
+  ThreadTurnDiffBlock,
+} from "./local-conversation-block-leaves";
 
 function buildCommandEntry(
   itemId: string,
@@ -231,6 +237,119 @@ describe("ThreadContextCompactionBlock", () => {
     getByText("Automatically compacting context");
     expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeTrue();
     expect(Boolean(container.querySelector("svg"))).toBeFalse();
+  });
+});
+
+describe("ThreadStreamErrorBlock", () => {
+  beforeEach(() => {
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        return 96;
+      },
+    });
+
+    globalThis.ResizeObserver = class ResizeObserver {
+      private readonly callback: ResizeObserverCallback;
+
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback;
+      }
+
+      observe(target: Element) {
+        this.callback([
+          {
+            target,
+            contentRect: target.getBoundingClientRect(),
+            borderBoxSize: [{ blockSize: 96, inlineSize: 320 }],
+            contentBoxSize: [{ blockSize: 96, inlineSize: 320 }],
+            devicePixelContentBoxSize: [{ blockSize: 96, inlineSize: 320 }],
+          } as unknown as ResizeObserverEntry,
+        ], this);
+      }
+
+      disconnect() {}
+
+      unobserve() {}
+    } as typeof ResizeObserver;
+  });
+
+  test("renders a Codex-style reconnect row inside the thread body and expands details on demand", async () => {
+    const { container, getByText } = render(
+      <ThreadStreamErrorBlock
+        block={{
+          id: "error:turn-1",
+          turnId: "turn-1",
+          createdAt: 1,
+          updatedAt: 1,
+          searchableText: "Reconnecting... 2/5",
+          type: "streamError",
+          status: "inProgress",
+          entry: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "error:turn-1",
+            entryId: "error:turn-1",
+            type: "error",
+            kind: "systemEvent",
+            semanticKind: "streamError",
+            status: "inProgress",
+            markdownText: "Reconnecting... 2/5",
+            additionalDetails: "Network error: connection dropped while streaming.",
+            willRetry: true,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        }}
+        isLatestTurn
+        isStreamingTurn
+      />,
+    );
+
+    getByText("Reconnecting... 2/5");
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
+    expect(Boolean(container.textContent?.includes("Network error: connection dropped while streaming."))).toBeFalse();
+
+    fireEvent.click(getByText("Reconnecting... 2/5"));
+    await settleAsyncRender();
+
+    expect(Boolean(container.textContent?.includes("Network error: connection dropped while streaming."))).toBeTrue();
+  });
+});
+
+describe("ThreadSystemErrorBlock", () => {
+  test("renders the Codex-style terminal system error row without generic banner chrome", () => {
+    const { container, getByText } = render(
+      <ThreadSystemErrorBlock
+        block={{
+          id: "error:turn-2",
+          turnId: "turn-2",
+          createdAt: 1,
+          updatedAt: 1,
+          searchableText: "Failed to reconnect to the stream.",
+          type: "systemError",
+          status: "failed",
+          entry: {
+            threadId: "thread-1",
+            turnId: "turn-2",
+            itemId: "error:turn-2",
+            entryId: "error:turn-2",
+            type: "error",
+            kind: "systemEvent",
+            semanticKind: "systemError",
+            status: "failed",
+            markdownText: "Failed to reconnect to the stream.",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        }}
+        isLatestTurn={false}
+        isStreamingTurn={false}
+      />,
+    );
+
+    getByText("Failed to reconnect to the stream.");
+    expect(Boolean(container.querySelector(".uppercase"))).toBeFalse();
   });
 });
 

@@ -26,6 +26,7 @@ function stringifyValue(value: unknown): string {
 function resolveSearchableText(entry: CodexConversationItem): string {
   const segments = [
     entry.markdownText ?? "",
+    entry.additionalDetails ?? "",
     entry.toolCall?.toolName ?? "",
     entry.toolCall?.server ?? "",
     stringifyValue(entry.toolCall?.args),

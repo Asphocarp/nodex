@@ -8,6 +8,8 @@ import {
   ThreadExplorationGroupBlock,
   ThreadPlanCardBlock,
   ThreadReasoningBlock,
+  ThreadStreamErrorBlock,
+  ThreadSystemErrorBlock,
   ThreadThinkingPlaceholderBlock,
   ThreadSystemBannerBlock,
   ThreadTurnDiffBlock,
@@ -170,6 +172,14 @@ export function ThreadBlockRenderer({
 
   if (block.type === "contextCompaction") {
     return <ThreadContextCompactionBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
+  }
+
+  if (block.type === "streamError") {
+    return <ThreadStreamErrorBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
+  }
+
+  if (block.type === "systemError") {
+    return <ThreadSystemErrorBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
   }
 
   return (

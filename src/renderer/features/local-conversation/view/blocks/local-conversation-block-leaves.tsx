@@ -821,6 +821,73 @@ export function ThreadContextCompactionBlock({ block }: ThreadLeafBlockProps) {
   );
 }
 
+export function ThreadStreamErrorBlock({ block }: ThreadLeafBlockProps) {
+  if (block.type !== "streamError") return null;
+
+  const [isExpanded, setIsExpanded] = useState(false);
+  const details = block.entry.additionalDetails?.trim() ?? "";
+  const hasDetails = details.length > 0;
+  const { elementHeightPx, elementRef } = useMeasuredElementHeight();
+  const isOpen = hasDetails && isExpanded;
+
+  return (
+    <div className="flex min-w-0 flex-col">
+      <div
+        className={cn(
+          "group flex min-w-0 items-start gap-1",
+          hasDetails ? "cursor-interaction" : "cursor-default",
+        )}
+        onClick={() => {
+          if (!hasDetails) return;
+          setIsExpanded((current) => !current);
+        }}
+      >
+        <div className="text-size-chat min-w-0 whitespace-pre-wrap text-token-description-foreground/80">
+          {block.entry.markdownText ?? "Reconnecting..."}
+        </div>
+        {hasDetails ? (
+          <ChevronRightIcon
+            className={cn(
+              "text-token-input-placeholder-foreground icon-2xs mt-0.5 shrink-0 transition-all duration-300 opacity-0 group-hover:opacity-100",
+              isOpen && "rotate-90 opacity-100",
+            )}
+          />
+        ) : null}
+      </div>
+      <motion.div
+        initial={false}
+        animate={{
+          height: isOpen ? elementHeightPx : 0,
+          opacity: isOpen ? 1 : 0,
+        }}
+        transition={CODEX_MEASURED_TRANSITION}
+        className={isOpen ? "overflow-visible" : "overflow-hidden"}
+        style={{ pointerEvents: isOpen ? "auto" : "none" }}
+      >
+        <div ref={elementRef}>
+          {isOpen ? (
+            <div className="mt-1 flex flex-col gap-1">
+              <div className="text-size-chat whitespace-pre-wrap text-token-description-foreground/80">
+                {details}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+export function ThreadSystemErrorBlock({ block }: ThreadLeafBlockProps) {
+  if (block.type !== "systemError") return null;
+
+  return (
+    <div className="text-size-chat flex w-full wrap-anywhere text-token-description-foreground/80">
+      {block.entry.markdownText ?? "Thread hit an error"}
+    </div>
+  );
+}
+
 export function ThreadSystemBannerBlock({ block }: ThreadLeafBlockProps) {
   const item = block.entry;
   const label = humanizeBlockType(block.type);

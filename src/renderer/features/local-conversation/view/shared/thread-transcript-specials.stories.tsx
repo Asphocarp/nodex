@@ -7,7 +7,11 @@ import { AutomaticApprovalReviewSurface } from "./automatic-approval-review-surf
 import { MultiAgentActionSurface } from "./multi-agent-action-surface";
 import { ReasoningSurface } from "./reasoning-surface";
 import { TodoListSurface } from "./todo-list-surface";
-import { ThreadContextCompactionBlock } from "../blocks/local-conversation-block-leaves";
+import {
+  ThreadContextCompactionBlock,
+  ThreadStreamErrorBlock,
+  ThreadSystemErrorBlock,
+} from "../blocks/local-conversation-block-leaves";
 import { buildRendererItemStream } from "../../projection/build-renderer-item-stream";
 import type { ThreadTranscriptBlockModel } from "../../thread-stage-types";
 
@@ -192,6 +196,40 @@ export const ContextCompactionCompleted: Story = {
         <ThreadContextCompactionBlock
           block={buildSpecialTranscriptBlock(THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.contextCompactionCompleted)}
           isLatestTurn
+          isStreamingTurn={false}
+        />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const StreamErrorReconnecting: Story = {
+  render: () => (
+    <StorySurface
+      title="Stream Error Reconnecting"
+      description="Poor-network retry is rendered as a dedicated thread-body stream error row instead of a shell reconnect overlay."
+    >
+      <ConversationStorySurface>
+        <ThreadStreamErrorBlock
+          block={buildSpecialTranscriptBlock(THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.streamErrorReconnecting)}
+          isLatestTurn
+          isStreamingTurn
+        />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const SystemErrorFailed: Story = {
+  render: () => (
+    <StorySurface
+      title="System Error Failed"
+      description="Terminal non-retryable turn errors render as the dedicated Codex body row without the generic system banner shell."
+    >
+      <ConversationStorySurface>
+        <ThreadSystemErrorBlock
+          block={buildSpecialTranscriptBlock(THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.systemErrorFailed)}
+          isLatestTurn={false}
           isStreamingTurn={false}
         />
       </ConversationStorySurface>
