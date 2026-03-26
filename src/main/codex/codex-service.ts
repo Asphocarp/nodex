@@ -3699,6 +3699,33 @@ export class CodexService extends EventEmitter {
     return true;
   }
 
+  async cleanBackgroundTerminals(threadId: string): Promise<boolean> {
+    await this.ensureClientReady();
+
+    const conversation = this.serializeConversationSnapshot(threadId);
+    if (!conversation) {
+      return false;
+    }
+
+    const backgroundTerminalTurnIds = [...new Set(
+      this.collectBackgroundTerminalRows(conversation).map(({ turnId }) => turnId),
+    )];
+    if (backgroundTerminalTurnIds.length === 0) {
+      return true;
+    }
+
+    this.logger.warn("Cleaning background terminals", {
+      threadId,
+      turnIds: backgroundTerminalTurnIds,
+    });
+
+    for (const backgroundTurnId of backgroundTerminalTurnIds) {
+      await this.interruptTurn(threadId, backgroundTurnId);
+    }
+
+    return true;
+  }
+
   async respondToApproval(requestId: string, decision: CodexApprovalDecision): Promise<boolean> {
     const pending = this.pendingApprovals.get(requestId);
     if (!pending) return false;
@@ -4778,50 +4805,130 @@ export class CodexService extends EventEmitter {
     });
   }
 
-  private buildBackgroundTerminalRow(
-    parentThreadId: string,
-    membership: CodexConversationChildMembership,
-    visitedThreadIds: Set<string>,
-  ): CodexBackgroundTerminalRow | null {
-    const childConversation = visitedThreadIds.has(membership.threadId)
-      ? this.buildConversationBaseSnapshot(membership.threadId)
-      : this.serializeConversationSnapshot(membership.threadId, visitedThreadIds);
-    if (!childConversation) return null;
-
-    const pendingSteer = childConversation.pendingSteers.at(-1);
-    if (pendingSteer) {
-      return {
-        rowId: `${parentThreadId}:${membership.threadId}:steer`,
-        threadId: membership.threadId,
-        stream: "info",
-        text: `${membership.actorName ?? membership.threadId} has a pending steer`,
-        createdAt: pendingSteer.createdAt,
-      };
+  private extractBackgroundTerminalCommand(item: CodexConversationItem): string {
+    const toolArgs = item.toolCall?.args;
+    if (toolArgs && typeof toolArgs === "object" && "command" in toolArgs) {
+      const command = (toolArgs as { command?: unknown }).command;
+      if (typeof command === "string") {
+        return command;
+      }
     }
 
-    const queuedFollowUp = childConversation.queuedFollowUps.at(-1);
-    if (queuedFollowUp) {
-      return {
-        rowId: `${parentThreadId}:${membership.threadId}:follow-up`,
-        threadId: membership.threadId,
-        stream: "info",
-        text: `${membership.actorName ?? membership.threadId} has a queued follow-up`,
-        createdAt: queuedFollowUp.createdAt,
-      };
+    const rawItem = item.rawItem;
+    if (rawItem && typeof rawItem === "object" && "command" in rawItem) {
+      const command = (rawItem as { command?: unknown }).command;
+      if (typeof command === "string") {
+        return command;
+      }
+    }
+
+    return "";
+  }
+
+  private extractBackgroundTerminalCwd(item: CodexConversationItem): string | null {
+    const toolArgs = item.toolCall?.args;
+    if (toolArgs && typeof toolArgs === "object" && "cwd" in toolArgs) {
+      const cwd = (toolArgs as { cwd?: unknown }).cwd;
+      if (typeof cwd === "string") {
+        return cwd;
+      }
+    }
+
+    const rawItem = item.rawItem;
+    if (rawItem && typeof rawItem === "object" && "cwd" in rawItem) {
+      const cwd = (rawItem as { cwd?: unknown }).cwd;
+      if (typeof cwd === "string") {
+        return cwd;
+      }
     }
 
     return null;
   }
 
+  private extractBackgroundTerminalProcessId(item: CodexConversationItem): number | string | null {
+    const rawItem = item.rawItem;
+    if (!rawItem || typeof rawItem !== "object") {
+      return null;
+    }
+
+    const directProcessId = (rawItem as { processId?: unknown }).processId;
+    if (typeof directProcessId === "number" || typeof directProcessId === "string") {
+      return directProcessId;
+    }
+
+    const snakeProcessId = (rawItem as { process_id?: unknown }).process_id;
+    if (typeof snakeProcessId === "number" || typeof snakeProcessId === "string") {
+      return snakeProcessId;
+    }
+
+    return null;
+  }
+
+  private extractBackgroundTerminalPreviewLine(item: CodexConversationItem): string | null {
+    const output = typeof item.toolCall?.result === "string"
+      ? item.toolCall.result
+      : item.rawItem && typeof item.rawItem === "object"
+        ? (
+          typeof (item.rawItem as { aggregatedOutput?: unknown }).aggregatedOutput === "string"
+            ? (item.rawItem as { aggregatedOutput: string }).aggregatedOutput
+            : typeof (item.rawItem as { aggregated_output?: unknown }).aggregated_output === "string"
+              ? (item.rawItem as { aggregated_output: string }).aggregated_output
+              : null
+        )
+        : null;
+    if (!output) return null;
+
+    const lines = output
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    return lines.length === 0 ? null : (lines.at(-1) ?? null);
+  }
+
+  private collectBackgroundTerminalRows(
+    conversation: CodexConversationSnapshot,
+  ): Array<{ row: CodexBackgroundTerminalRow; turnId: string }> {
+    if (conversation.turns.length === 0) {
+      return [];
+    }
+
+    const latestTurnIndex = conversation.turns.length - 1;
+    const rows: Array<{ row: CodexBackgroundTerminalRow; turnId: string }> = [];
+
+    for (let turnIndex = latestTurnIndex; turnIndex >= 0; turnIndex -= 1) {
+      const turn = conversation.turns[turnIndex];
+      if (!turn) {
+        continue;
+      }
+      if (turnIndex === latestTurnIndex && turn.status === "inProgress") {
+        continue;
+      }
+
+      for (const item of turn.items) {
+        if (!item || item.kind !== "commandExecution" || item.status !== "inProgress") {
+          continue;
+        }
+
+        rows.push({
+          turnId: turn.turnId,
+          row: {
+            id: item.itemId,
+            command: this.extractBackgroundTerminalCommand(item),
+            cwd: this.extractBackgroundTerminalCwd(item),
+            processId: this.extractBackgroundTerminalProcessId(item),
+            previewLine: this.extractBackgroundTerminalPreviewLine(item),
+          },
+        });
+      }
+    }
+
+    return rows;
+  }
+
   private deriveConversationBackgroundTerminalRows(
     conversation: CodexConversationSnapshot,
-    memberships: CodexConversationChildMembership[],
-    visitedThreadIds: Set<string>,
   ): CodexBackgroundTerminalRow[] {
-    return memberships
-      .map((membership) => this.buildBackgroundTerminalRow(conversation.threadId, membership, visitedThreadIds))
-      .filter((row): row is CodexBackgroundTerminalRow => row !== null)
-      .sort((left, right) => left.createdAt - right.createdAt);
+    return this.collectBackgroundTerminalRows(conversation).map(({ row }) => row);
   }
 
   serializeConversationSnapshot(threadId: string, visitedThreadIds = new Set<string>()): CodexConversationSnapshot | null {
@@ -4836,11 +4943,7 @@ export class CodexService extends EventEmitter {
     return {
       ...baseConversation,
       childMemberships,
-      backgroundTerminalRows: this.deriveConversationBackgroundTerminalRows(
-        baseConversation,
-        childMemberships,
-        nextVisitedThreadIds,
-      ),
+      backgroundTerminalRows: this.deriveConversationBackgroundTerminalRows(baseConversation),
     };
   }
 }

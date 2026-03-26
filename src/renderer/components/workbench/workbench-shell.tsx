@@ -1534,10 +1534,8 @@ export function WorkbenchShell({
     onOpenThread: (threadId) => {
       navigateToThreadTab(threadsProjectId, threadId);
     },
-    onStopBackgroundTerminals: async (threadIds) => {
-      for (const threadId of threadIds) {
-        await threadFollowerClient.interruptTurn(threadId);
-      }
+    onCleanBackgroundTerminals: async (threadId) => {
+      await threadFollowerClient.cleanBackgroundTerminals(threadId);
     },
     onOpenCard: (cardId) => {
       void handleOpenCardFromThread(cardId);

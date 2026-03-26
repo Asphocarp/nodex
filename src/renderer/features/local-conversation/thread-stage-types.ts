@@ -94,7 +94,7 @@ export interface ThreadStageActions {
   onForkFromTurn: (input: { threadId: string; turnId: string; message: string }) => Promise<void>;
   onConsumeComposerIntent: (threadId: string, focusNonce: number) => void;
   onOpenThread: (threadId: string) => void;
-  onStopBackgroundTerminals: (threadIds: string[]) => Promise<void>;
+  onCleanBackgroundTerminals: (threadId: string) => Promise<void>;
   onOpenCard: (cardId: string) => void;
 }
 

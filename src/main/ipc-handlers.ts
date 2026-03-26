@@ -577,6 +577,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     codexService.interruptTurn(threadId, turnId)
   );
 
+  registerHandle("codex:thread:background-terminals:clean", (_, threadId: string) =>
+    codexService.cleanBackgroundTerminals(threadId)
+  );
+
   registerHandle("codex:approval:respond", (_, requestId: string, decision) =>
     codexService.respondToApproval(requestId, decision)
   );

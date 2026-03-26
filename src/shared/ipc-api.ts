@@ -407,6 +407,10 @@ export interface IpcApi {
     args: [threadId: string, turnId?: string];
     result: boolean;
   };
+  "codex:thread:background-terminals:clean": {
+    args: [threadId: string];
+    result: boolean;
+  };
   "codex:approval:respond": {
     args: [requestId: string, decision: CodexApprovalDecision];
     result: boolean;

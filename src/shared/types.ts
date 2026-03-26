@@ -799,11 +799,11 @@ export interface CodexQueuedFollowUp {
 }
 
 export interface CodexBackgroundTerminalRow {
-  rowId: string;
-  threadId: string;
-  stream: "info" | "stdout" | "stderr";
-  text: string;
-  createdAt: number;
+  id: string;
+  command: string;
+  cwd: string | null;
+  processId?: number | string | null;
+  previewLine: string | null;
 }
 
 export interface CodexConversationChildMembership {

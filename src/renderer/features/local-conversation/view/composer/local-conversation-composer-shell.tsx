@@ -153,6 +153,27 @@ function QueueActionButton({
   );
 }
 
+function ComposerGhostIconButton({
+  ariaLabel,
+  onClick,
+  children,
+}: {
+  ariaLabel: string;
+  onClick?: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={ariaLabel}
+      className="electron:p-1 electron:[&>svg]:icon-sm inline-flex size-6 items-center justify-center rounded-full p-0.5 text-token-input-placeholder-foreground transition-colors hover:bg-token-foreground/5 hover:text-token-foreground focus-visible:outline-none [&>svg]:icon-2xs"
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
 function QueueSteerActionButton({
   ariaLabel,
   onClick,
@@ -493,11 +514,54 @@ function QueuePanel({
   );
 }
 
+function BackgroundTerminalRow({
+  terminal,
+}: {
+  terminal: ThreadStageModel["composerShell"]["backgroundTerminalRows"][number];
+}) {
+  const visibleRow = (
+    <div className="min-w-0">
+      <div className="truncate font-mono text-sm">
+        <span>{terminal.command}</span>
+        {terminal.previewLine ? (
+          <span className="ml-1 text-token-description-foreground">{terminal.previewLine}</span>
+        ) : null}
+      </div>
+    </div>
+  );
+
+  if (terminal.command.length === 0 && terminal.previewLine == null) {
+    return visibleRow;
+  }
+
+  return (
+    <Tooltip
+      content={(
+        <div className="max-h-40 max-w-[36rem] overflow-auto font-mono text-sm leading-5">
+          <div className="break-all whitespace-pre-wrap">{terminal.command}</div>
+          {terminal.previewLine ? (
+            <div className="mt-1 break-all whitespace-pre-wrap text-token-description-foreground">
+              {terminal.previewLine}
+            </div>
+          ) : null}
+        </div>
+      )}
+      side="top"
+      enableHoverableContent
+      contentClassName="max-w-none"
+    >
+      {visibleRow}
+    </Tooltip>
+  );
+}
+
 function BackgroundTerminalPanel({
+  threadId,
   rows,
   actions,
   showRoundedTop,
 }: {
+  threadId: string;
   rows: ThreadStageModel["composerShell"]["backgroundTerminalRows"];
   actions: ThreadStageActions;
   showRoundedTop: boolean;
@@ -507,38 +571,34 @@ function BackgroundTerminalPanel({
     return null;
   }
 
-  const uniqueThreadIds = [...new Set(rows.map((row) => row.threadId))];
-
   return (
     <ComposerShellCard showRoundedTop={showRoundedTop}>
-      <div className="group flex items-center justify-between gap-2 px-3 py-row-y">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
+      <div className="flex items-center justify-between gap-2 px-3 py-row-y">
+        <div className="flex min-w-0 items-center gap-2">
           <TerminalIcon />
           <span className="text-size-chat min-w-0 truncate leading-4 text-token-description-foreground">
             Running {rows.length === 1 ? "1 terminal" : `${rows.length} terminals`}
           </span>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex items-center gap-1">
           <Tooltip content="Stop background terminals">
-            <button
-              type="button"
-              className="inline-flex size-6 items-center justify-center rounded-full text-token-input-placeholder-foreground transition-colors hover:bg-transparent hover:text-token-foreground focus-visible:outline-none"
-              aria-label="Stop"
+            <ComposerGhostIconButton
+              ariaLabel="Stop"
               onClick={() => {
-                void actions.onStopBackgroundTerminals(uniqueThreadIds);
+                void actions.onCleanBackgroundTerminals(threadId);
               }}
             >
               <StopIcon className="icon-2xs" />
-            </button>
+            </ComposerGhostIconButton>
           </Tooltip>
-          <QueueActionButton
-            ariaLabel={expanded ? "Collapse background terminals" : "Expand background terminals"}
+          <ComposerGhostIconButton
+            ariaLabel={expanded ? "Collapse running terminals details" : "Expand running terminals details"}
             onClick={() => {
               setExpanded((current) => !current);
             }}
           >
-            <ChevronRightIcon className={cn("text-current transition-transform duration-300", expanded ? "rotate-90" : "-rotate-90")} />
-          </QueueActionButton>
+            <ChevronRightIcon className={cn("icon-2xs text-current transition-transform duration-300", expanded && "rotate-90")} />
+          </ComposerGhostIconButton>
         </div>
       </div>
       <motion.div
@@ -555,11 +615,7 @@ function BackgroundTerminalPanel({
       >
         <div className="flex flex-col gap-2 px-3 pt-0.5 pb-3">
           {rows.map((row) => (
-            <div key={row.rowId} className="max-h-40 max-w-[36rem] overflow-auto font-mono text-sm leading-5">
-              <div className="break-all whitespace-pre-wrap text-token-description-foreground">
-                {row.text}
-              </div>
-            </div>
+            <BackgroundTerminalRow key={row.id} terminal={row} />
           ))}
         </div>
       </motion.div>
@@ -708,7 +764,9 @@ export function LocalConversationComposerShell({
   const hasFixedPortalContent = (model.body.aboveComposerBlocks?.length ?? 0) > 0;
   const queuePortalHost = usePortalHost(LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ID);
   const showQueuePanel = model.composerShell.pendingSteerRows.length > 0 || model.composerShell.queuedFollowUpRows.length > 0;
-  const showBackgroundTerminals = model.composerShell.backgroundTerminalRows.length > 0;
+  const backgroundTerminalThreadId = model.conversation?.threadId ?? null;
+  const showBackgroundTerminals =
+    backgroundTerminalThreadId !== null && model.composerShell.backgroundTerminalRows.length > 0;
   const showBackgroundAgents = model.composerShell.backgroundAgentRows.length > 0 && !model.composerShell.showApprovalMode;
   const showAuxiliaryLaneStack = showQueuePanel || showBackgroundTerminals || showBackgroundAgents;
   let sectionIndex = hasFixedPortalContent ? 1 : 0;
@@ -730,6 +788,7 @@ export function LocalConversationComposerShell({
       ) : null}
       {showBackgroundTerminals ? (
         <BackgroundTerminalPanel
+          threadId={backgroundTerminalThreadId}
           rows={model.composerShell.backgroundTerminalRows}
           actions={actions}
           showRoundedTop={resolveRoundedTop()}

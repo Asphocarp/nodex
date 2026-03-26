@@ -529,7 +529,7 @@ export function ThreadStageDevStoryPage({
       });
     },
     onOpenThread: () => {},
-    onStopBackgroundTerminals: async () => {},
+    onCleanBackgroundTerminals: async () => {},
     onOpenCard: () => {},
   }), [authenticatedAccount, model.conversation?.threadId, scenario.autoAction]);
 

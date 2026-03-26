@@ -70,6 +70,10 @@ export function useCodexThreadFollowerClient(input: UseCodexThreadFollowerClient
     return (await invoke("codex:turn:interrupt", threadId, turnId)) as boolean;
   }, []);
 
+  const cleanBackgroundTerminals = useCallback(async (threadId: string) => {
+    return (await invoke("codex:thread:background-terminals:clean", threadId)) as boolean;
+  }, []);
+
   const editLastUserTurn = useCallback(async (threadId: string, turnId: string, message: string) => {
     return (await invoke("codex:thread:edit-last-user-turn", threadId, turnId, message)) as CodexThreadActionResult;
   }, []);
@@ -87,6 +91,7 @@ export function useCodexThreadFollowerClient(input: UseCodexThreadFollowerClient
     sendQueuedFollowUpNow,
     steerTurn,
     interruptTurn,
+    cleanBackgroundTerminals,
     editLastUserTurn,
     forkConversationFromTurn,
   };

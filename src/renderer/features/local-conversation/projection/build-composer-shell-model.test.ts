@@ -73,11 +73,11 @@ describe("buildComposerShellModel", () => {
         ],
         backgroundTerminalRows: [
           {
-            rowId: "row_1",
-            threadId: "thread_2",
-            stream: "stdout",
-            text: "child agent still running",
-            createdAt: 40,
+            id: "row_1",
+            command: "bun test src/renderer/features/local-conversation/view/composer/local-conversation-composer-shell.test.tsx",
+            cwd: "/tmp/project",
+            previewLine: "1418 pass",
+            processId: 4001,
           },
         ],
         childMemberships: [
