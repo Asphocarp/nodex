@@ -34,7 +34,7 @@ function buildModel(overrides?: Partial<ThreadStageModel>): ThreadStageModel {
     reasoningEffortOptions: [],
     permissionMode: "sandbox",
     isQueueingEnabled: false,
-    promptSubmitShortcut: "enter",
+    composerEnterBehavior: "enter",
     searchOpenTick: 0,
     composerIntent: null,
     title: "Thread title",

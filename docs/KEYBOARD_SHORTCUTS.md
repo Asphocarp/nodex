@@ -36,9 +36,10 @@ All keyboard shortcuts in Nodex. Platform modifier: **⌘ (Cmd)** on Mac, **Ctrl
 
 | Shortcut | Action | Notes |
 |----------|--------|-------|
-| `Enter` | Send prompt | Default behavior in thread panel composer |
+| `Enter` | Send prompt | Default behavior in thread panel composer; in `Cmd/Ctrl+Enter to send long prompts` mode, multiline drafts use `Enter` for newline instead |
 | `Shift+Enter` | Insert newline | Thread panel composer |
-| `⌘/Ctrl+Enter` | Send prompt | Available when `Settings -> Editor -> Thread send shortcut` is set to `Cmd/Ctrl+Enter` |
+| `⌘/Ctrl+Enter` | Send prompt | Always submits; when `Cmd/Ctrl+Enter to send long prompts` is enabled, this becomes the primary submit for multiline drafts |
+| `⌘/Ctrl+Shift+Enter` | Alternate queue/steer submit | Running-thread composer only, when `Cmd/Ctrl+Enter to send long prompts` is enabled |
 
 ## Editor (NFM / BlockNote)
 

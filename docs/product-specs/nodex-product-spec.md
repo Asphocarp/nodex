@@ -403,7 +403,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Thread and turn start requests include `collaborationMode` when selected; `Plan` mode enables clarifying-question flows through `item/tool/requestUserInput`.
 - Thread stage composer also shows the real Git branch for the effective thread `cwd` (falling back to the project workspace path), and that branch chip auto-refreshes when the current worktree switches branches outside the app.
 - Threads composer uses one round icon button: it sends when idle, shows a spinner immediately while the prompt send is pending, and switches to a stop icon while Codex is running so users can interrupt immediately.
-- Threads composer send shortcut defaults to `Enter` (with `Shift+Enter` for newline) and is user-configurable in Settings -> Editor -> `Thread send shortcut` (`Enter` or `Cmd/Ctrl+Enter`).
+- Threads composer send behavior defaults to `Enter` (with `Shift+Enter` for newline). Settings -> Editor exposes `Cmd/Ctrl+Enter to send long prompts`; when enabled, single-line drafts still submit on `Enter`, multiline drafts switch primary submit to `Cmd/Ctrl+Enter`, and running-thread alternate queue/steer submit moves to `Cmd/Ctrl+Shift+Enter`.
 - Visible transcript semantics are defined in [Codex Thread Transcript Behavior](./codex-thread-transcript-behavior.md), including optimistic prompt rows, request-user-input cards, plan follow-up flow, local file links in transcript markdown, reasoning/tool rendering, exploration coalescing, queue cleanup, and restart recovery consistency.
 - Browser/HTTP transport returns explicit unsupported errors for `codex:*` methods in this release.
 

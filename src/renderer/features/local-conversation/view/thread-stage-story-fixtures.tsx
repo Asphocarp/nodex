@@ -1721,7 +1721,7 @@ export function buildThreadStageStoryModel(
     reasoningEffortOptions: DEFAULT_REASONING_OPTIONS,
     permissionMode: controls.permissionMode,
     isQueueingEnabled: controls.isQueueingEnabled,
-    promptSubmitShortcut: "enter",
+    composerEnterBehavior: "enter",
     searchOpenTick: runtime.searchOpenTick,
     composerIntent: runtime.composerIntent,
   };

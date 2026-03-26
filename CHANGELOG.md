@@ -26,6 +26,7 @@ All notable changes to this project will be documented in this file.
 - Thread request cards now follow Codex Electron’s request family more closely: approval prompts render through the ask-for-permission shell with inline command or patch preview and `Skip`/`Submit`, background child approvals inject the worker identity inline into the prompt instead of rendering a separate header, implement-plan and request-user-input prompts share the same questionnaire shell, and MCP elicitation uses its own dedicated approval card instead of a local Nodex wrapper.
 
 ### Fixed
+- Fixed running-thread composer keyboard parity so `Cmd/Ctrl+Enter` now queues multiline follow-ups when `Cmd/Ctrl+Enter to send long prompts` is enabled, matching Codex Electron instead of incorrectly steering as the alternate action.
 - Fixed mounted Thread transcripts so automatic approval reviews and multi-agent agent actions now render through their own Codex Electron-style dedicated rows instead of falling back to generic system banners, and live guardian review notifications now enter the canonical conversation state.
 - Fixed mounted Thread transcripts so context compaction now renders as Codex Electron’s compact divider/status row with the correct in-progress and completed labels instead of falling back to a generic system banner.
 - Fixed reopened session-backed Threads so context compaction boundaries now survive replay/bootstrap: compacted sessions keep the `Context automatically compacted` divider and continue subsequent transcript items in the correct post-compaction turn.

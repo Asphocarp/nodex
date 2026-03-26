@@ -22,7 +22,7 @@ import type {
   CodexReasoningEffort,
   CodexReasoningEffortOption,
 } from "../../lib/types";
-import type { ThreadPromptSubmitShortcut } from "../../lib/thread-panel-prompt-submit-shortcut";
+import type { ComposerEnterBehavior } from "../../lib/composer-enter-behavior";
 import type { CodexTurnScopedConversationRequest } from "./conversation-request-helpers";
 
 export interface ThreadStageModelInput {
@@ -59,7 +59,7 @@ export interface ThreadStageModelInput {
   reasoningEffortOptions: CodexReasoningEffortOption[];
   permissionMode: CodexPermissionMode;
   isQueueingEnabled: boolean;
-  promptSubmitShortcut: ThreadPromptSubmitShortcut;
+  composerEnterBehavior: ComposerEnterBehavior;
   searchOpenTick: number;
   composerIntent: CodexComposerIntent | null;
 }
@@ -321,7 +321,7 @@ export interface ThreadStageModel {
   reasoningEffortOptions: CodexReasoningEffortOption[];
   permissionMode: CodexPermissionMode;
   isQueueingEnabled: boolean;
-  promptSubmitShortcut: ThreadPromptSubmitShortcut;
+  composerEnterBehavior: ComposerEnterBehavior;
   searchOpenTick: number;
   composerIntent: CodexComposerIntent | null;
   title: string;
