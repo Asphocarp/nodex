@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   Project,
   UpdateWorktreeEnvironmentConfigInput,
@@ -78,6 +78,39 @@ function buildSnapshot(projectId: string, overrides?: Partial<WorktreeEnvironmen
           ],
         },
       },
+      {
+        configPath: ".codex/environments/release.toml",
+        fileName: "release.toml",
+        state: "success",
+        exists: true,
+        name: `${project.name} release`,
+        hasSetupScript: true,
+        hasCleanupScript: false,
+        actionCount: 1,
+        parseErrorMessage: null,
+        readErrorMessage: null,
+        environment: {
+          version: 1,
+          name: `${project.name} release`,
+          setup: {
+            script: "bun install --frozen-lockfile\nbun run build",
+            platformScripts: {},
+          },
+          cleanup: {
+            script: "",
+            platformScripts: {},
+          },
+          actions: [
+            {
+              id: "action-release",
+              name: "Build release",
+              icon: "run",
+              command: "bun run build",
+              platform: null,
+            },
+          ],
+        },
+      },
     ],
     environment: {
       version: 1,
@@ -119,12 +152,59 @@ function LocalEnvironmentsStory({
   initialProjectId,
   initialConfigPath,
   snapshots,
+  autoAction,
 }: {
   initialProjectId?: string | null;
   initialConfigPath?: string | null;
   snapshots: Record<string, WorktreeEnvironmentSettingsSnapshot>;
+  autoAction?: "edit" | "env-vars";
 }) {
   const [snapshotMap, setSnapshotMap] = useState(snapshots);
+
+  useEffect(() => {
+    if (!autoAction) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const clickButtonByText = (text: string): boolean => {
+      const targetButton = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+        (button) => button.textContent?.trim() === text,
+      );
+      if (!targetButton) {
+        return false;
+      }
+      targetButton.click();
+      return true;
+    };
+
+    const runAutoAction = () => {
+      if (cancelled) {
+        return;
+      }
+
+      if (autoAction === "edit") {
+        clickButtonByText("Edit local environment");
+        return;
+      }
+
+      if (clickButtonByText("Available environment variables")) {
+        return;
+      }
+
+      if (clickButtonByText("Edit local environment")) {
+        window.setTimeout(runAutoAction, 50);
+      }
+    };
+
+    const timeoutId = window.setTimeout(runAutoAction, 50);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [autoAction]);
 
   return (
     <div className="min-h-[720px] rounded-[24px] border border-(--border) bg-token-side-bar-background p-5 shadow-[0_18px_48px_rgba(0,0,0,0.16)]">
@@ -246,6 +326,60 @@ export const Workspace: Story = {
   ),
 };
 
+export const WorkspaceMultiConfigList: Story = {
+  render: () => (
+    <LocalEnvironmentsStory
+      initialProjectId={null}
+      snapshots={{
+        "project-alpha": buildSnapshot("project-alpha"),
+        "project-beta": buildSnapshot("project-beta", {
+          configs: [
+            {
+              configPath: ".codex/environments/environment.toml",
+              fileName: "environment.toml",
+              state: "success",
+              exists: true,
+              name: "Beta base",
+              hasSetupScript: true,
+              hasCleanupScript: false,
+              actionCount: 1,
+              parseErrorMessage: null,
+              readErrorMessage: null,
+              environment: null,
+            },
+            {
+              configPath: ".codex/environments/staging.toml",
+              fileName: "staging.toml",
+              state: "success",
+              exists: true,
+              name: "Beta staging",
+              hasSetupScript: true,
+              hasCleanupScript: true,
+              actionCount: 2,
+              parseErrorMessage: null,
+              readErrorMessage: null,
+              environment: null,
+            },
+            {
+              configPath: ".codex/environments/mobile.toml",
+              fileName: "mobile.toml",
+              state: "parseError",
+              exists: true,
+              name: "mobile",
+              hasSetupScript: false,
+              hasCleanupScript: false,
+              actionCount: 0,
+              parseErrorMessage: "Unexpected token at line 4",
+              readErrorMessage: null,
+              environment: null,
+            },
+          ],
+        }),
+      }}
+    />
+  ),
+};
+
 export const ParseError: Story = {
   args: {
     initialProjectId: "project-beta",
@@ -331,6 +465,32 @@ export const CreateNewConfig: Story = {
         }),
         "project-beta": buildSnapshot("project-beta"),
       }}
+    />
+  ),
+};
+
+export const Edit: Story = {
+  render: () => (
+    <LocalEnvironmentsStory
+      initialProjectId="project-alpha"
+      snapshots={{
+        "project-alpha": buildSnapshot("project-alpha"),
+        "project-beta": buildSnapshot("project-beta"),
+      }}
+      autoAction="edit"
+    />
+  ),
+};
+
+export const EnvironmentVariablesPopover: Story = {
+  render: () => (
+    <LocalEnvironmentsStory
+      initialProjectId="project-alpha"
+      snapshots={{
+        "project-alpha": buildSnapshot("project-alpha"),
+        "project-beta": buildSnapshot("project-beta"),
+      }}
+      autoAction="env-vars"
     />
   ),
 };
