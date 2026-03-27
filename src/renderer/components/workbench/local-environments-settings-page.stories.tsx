@@ -6,6 +6,7 @@ import type {
   WorktreeEnvironmentSettingsSnapshot,
 } from "@/lib/types";
 import { LocalEnvironmentsSettingsPage } from "./local-environments-settings-page";
+import { SettingsPageSurface } from "./workbench-settings-primitives";
 
 const PROJECTS: Project[] = [
   {
@@ -126,51 +127,63 @@ function LocalEnvironmentsStory({
   const [snapshotMap, setSnapshotMap] = useState(snapshots);
 
   return (
-    <div className="min-h-[720px] rounded-[24px] border border-(--border) bg-(--background) p-5 shadow-[0_18px_48px_rgba(0,0,0,0.16)]">
-      <div className="mx-auto flex max-w-4xl flex-col gap-4">
-        <div className="max-w-2xl">
-          <div className="text-sm font-semibold text-(--foreground)">Local Environments</div>
-          <div className="mt-1 text-sm/relaxed text-(--foreground-secondary)">
-            Codex-style local-environment settings flow with workspace selection, read-only summary, and structured edit form.
+    <div className="min-h-[720px] rounded-[24px] border border-(--border) bg-token-side-bar-background p-5 shadow-[0_18px_48px_rgba(0,0,0,0.16)]">
+      <LocalEnvironmentsSettingsPage
+        open={true}
+        active={true}
+        projects={PROJECTS}
+        activeProjectId={initialProjectId ?? PROJECTS[0].id}
+        initialProjectId={initialProjectId}
+        initialConfigPath={initialConfigPath}
+        onAddProject={() => {}}
+        renderShell={({ title, subtitle, backSlot, children }) => (
+          <div className="h-[760px] overflow-hidden rounded-[20px]">
+            <SettingsPageSurface title={title} subtitle={subtitle} backSlot={backSlot}>
+              {children}
+            </SettingsPageSurface>
           </div>
-        </div>
-        <LocalEnvironmentsSettingsPage
-          open={true}
-          active={true}
-          projects={PROJECTS}
-          activeProjectId={initialProjectId ?? PROJECTS[0].id}
-          initialProjectId={initialProjectId}
-          initialConfigPath={initialConfigPath}
-          service={{
-            readConfig: async (projectId) => snapshotMap[projectId] ?? buildSnapshot(projectId),
-            saveConfig: async (input: UpdateWorktreeEnvironmentConfigInput) => {
-              const nextSnapshot = buildSnapshot(input.projectId, {
-                environment: input.environment,
-                configs: [
-                  {
-                    configPath: input.configPath,
-                    fileName: "environment.toml",
-                    state: "success",
-                    exists: true,
-                    name: input.environment.name,
-                    hasSetupScript: Boolean(input.environment.setup.script),
-                    hasCleanupScript: Boolean(input.environment.cleanup.script),
-                    actionCount: input.environment.actions.length,
-                    parseErrorMessage: null,
-                    readErrorMessage: null,
-                    environment: input.environment,
-                  },
-                ],
-              });
-              setSnapshotMap((current) => ({
-                ...current,
-                [input.projectId]: nextSnapshot,
-              }));
-              return nextSnapshot;
-            },
-          }}
-        />
-      </div>
+        )}
+        service={{
+          listConfigs: async (projectId) => (snapshotMap[projectId] ?? buildSnapshot(projectId)).configs,
+          readConfig: async (projectId, configPath) => {
+            const baseSnapshot = snapshotMap[projectId] ?? buildSnapshot(projectId);
+            if (configPath && configPath !== baseSnapshot.configPath) {
+              return {
+                ...baseSnapshot,
+                configPath,
+                configExists: false,
+                environment: null,
+              };
+            }
+            return baseSnapshot;
+          },
+          saveConfig: async (input: UpdateWorktreeEnvironmentConfigInput) => {
+            const nextSnapshot = buildSnapshot(input.projectId, {
+              environment: input.environment,
+              configs: [
+                {
+                  configPath: input.configPath,
+                  fileName: "environment.toml",
+                  state: "success",
+                  exists: true,
+                  name: input.environment.name,
+                  hasSetupScript: Boolean(input.environment.setup.script),
+                  hasCleanupScript: Boolean(input.environment.cleanup.script),
+                  actionCount: input.environment.actions.length,
+                  parseErrorMessage: null,
+                  readErrorMessage: null,
+                  environment: input.environment,
+                },
+              ],
+            });
+            setSnapshotMap((current) => ({
+              ...current,
+              [input.projectId]: nextSnapshot,
+            }));
+            return nextSnapshot;
+          },
+        }}
+      />
     </div>
   );
 }
@@ -213,6 +226,18 @@ export const Summary: Story = {
   render: () => (
     <LocalEnvironmentsStory
       initialProjectId="project-alpha"
+      snapshots={{
+        "project-alpha": buildSnapshot("project-alpha"),
+        "project-beta": buildSnapshot("project-beta"),
+      }}
+    />
+  ),
+};
+
+export const Workspace: Story = {
+  render: () => (
+    <LocalEnvironmentsStory
+      initialProjectId={null}
       snapshots={{
         "project-alpha": buildSnapshot("project-alpha"),
         "project-beta": buildSnapshot("project-beta"),

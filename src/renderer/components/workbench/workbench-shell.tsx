@@ -2105,6 +2105,7 @@ export function WorkbenchShell({
         onOpenChange={setSettingsOpen}
         path={settingsPath}
         onPathChange={setSettingsPath}
+        onRequestProjectPickerOpen={onRequestProjectPickerOpen}
         projects={projects}
         activeProjectId={dbProjectId}
         initialLocalEnvironmentProjectId={settingsInitialLocalEnvironmentProjectId}

@@ -7,6 +7,7 @@ import type {
 } from "@/lib/types";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
 import { LocalEnvironmentsSettingsPage } from "./local-environments-settings-page";
+import { SettingsPageSurface } from "./workbench-settings-primitives";
 
 const PROJECTS: Project[] = [
   {
@@ -98,8 +99,49 @@ function buildSnapshot(projectId: string, overrides?: Partial<WorktreeEnvironmen
 }
 
 describe("LocalEnvironmentsSettingsPage", () => {
+  test("loads each workspace config list once per mount in workspace mode", async () => {
+    const listCalls: string[] = [];
+    const snapshots = new Map<string, WorktreeEnvironmentSettingsSnapshot>([
+      ["project-alpha", buildSnapshot("project-alpha")],
+      ["project-beta", buildSnapshot("project-beta")],
+    ]);
+
+    render(
+      <LocalEnvironmentsSettingsPage
+        open={true}
+        active={true}
+        projects={PROJECTS}
+        activeProjectId="project-alpha"
+        initialProjectId={null}
+        initialConfigPath={null}
+        renderShell={({ title, subtitle, backSlot, children }) => (
+          <SettingsPageSurface title={title} subtitle={subtitle} backSlot={backSlot}>
+            {children}
+          </SettingsPageSurface>
+        )}
+        service={{
+          listConfigs: async (projectId) => {
+            listCalls.push(projectId);
+            return (snapshots.get(projectId) ?? buildSnapshot(projectId)).configs;
+          },
+          readConfig: async (projectId) => snapshots.get(projectId) ?? buildSnapshot(projectId),
+          saveConfig: async (input) => buildSnapshot(input.projectId, {
+            environment: input.environment,
+          }),
+        }}
+      />,
+    );
+
+    await settleAsyncRender();
+    expect(listCalls.length).toBe(2);
+
+    await settleAsyncRender();
+    expect(listCalls.length).toBe(2);
+  });
+
   test("switches workspaces and saves edits through the injected service", async () => {
     const readCalls: Array<[string, string | null | undefined]> = [];
+    const listCalls: string[] = [];
     const saveCalls: UpdateWorktreeEnvironmentConfigInput[] = [];
     const snapshots = new Map<string, WorktreeEnvironmentSettingsSnapshot>([
       ["project-alpha", buildSnapshot("project-alpha")],
@@ -112,7 +154,17 @@ describe("LocalEnvironmentsSettingsPage", () => {
         active={true}
         projects={PROJECTS}
         activeProjectId="project-alpha"
+        initialProjectId="project-alpha"
+        renderShell={({ title, subtitle, backSlot, children }) => (
+          <SettingsPageSurface title={title} subtitle={subtitle} backSlot={backSlot}>
+            {children}
+          </SettingsPageSurface>
+        )}
         service={{
+          listConfigs: async (projectId) => {
+            listCalls.push(projectId);
+            return (snapshots.get(projectId) ?? buildSnapshot(projectId)).configs;
+          },
           readConfig: async (projectId, configPath) => {
             readCalls.push([projectId, configPath]);
             return snapshots.get(projectId) ?? buildSnapshot(projectId);
@@ -150,8 +202,10 @@ describe("LocalEnvironmentsSettingsPage", () => {
     expect(readCalls.length).toBe(1);
     expect(readCalls[0]?.[0]).toBe("project-alpha");
 
-    fireEvent.click(view.getByLabelText("Choose a different workspace"));
+    fireEvent.click(view.getByText("Back"));
+    await settleAsyncRender();
     expect(textContent(view.container).includes("Beta")).toBeTrue();
+    expect(listCalls.length).toBe(4);
 
     fireEvent.click(view.getByText("Beta"));
     await settleAsyncRender();
@@ -159,6 +213,7 @@ describe("LocalEnvironmentsSettingsPage", () => {
     expect(textContent(view.container).includes("Beta env")).toBeTrue();
     expect(readCalls.length).toBe(2);
     expect(readCalls[1]?.[0]).toBe("project-beta");
+    expect(listCalls.length).toBe(4);
 
     fireEvent.click(view.getByText("Edit local environment"));
     fireEvent.click(view.getByText("Add action"));
