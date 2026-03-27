@@ -1,12 +1,9 @@
-import { startTransition, useEffect, useEffectEvent, useId, useState, type ReactNode } from "react";
+import { forwardRef, startTransition, useEffect, useEffectEvent, useId, useState, type ComponentPropsWithoutRef, type ReactNode, type SVGProps } from "react";
+import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
+import * as PopoverPrimitive from "@radix-ui/react-popover";
 import {
-  Bug,
   ChevronLeft,
-  CirclePlay,
-  FolderCode,
-  Hammer,
   Plus,
-  TestTube2,
   Trash2,
 } from "lucide-react";
 import { SpinnerIcon } from "@/components/shared/icons";
@@ -67,15 +64,90 @@ const PLATFORM_OPTIONS: Array<{
   { value: "win32", label: "Windows" },
 ];
 
+function CodexWorkspaceProjectIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+      <path
+        d="M16.6182 9.33203H3.38184V12.7002C3.38184 13.3753 3.38238 13.8438 3.41211 14.208C3.44124 14.5646 3.49494 14.766 3.57129 14.916L3.63867 15.0361C3.80618 15.3094 4.04683 15.5324 4.33399 15.6787L4.45703 15.7314C4.59362 15.7803 4.77411 15.816 5.04199 15.8379C5.40624 15.8676 5.87469 15.8682 6.54981 15.8682H13.4502C14.1253 15.8682 14.5938 15.8676 14.958 15.8379C15.3146 15.8088 15.516 15.7551 15.666 15.6787L15.7861 15.6113C16.0594 15.4438 16.2824 15.2032 16.4287 14.916L16.4814 14.793C16.5303 14.6564 16.566 14.4759 16.5879 14.208C16.6176 13.8438 16.6182 13.3753 16.6182 12.7002V9.33203ZM17.8818 12.7002C17.8818 13.3547 17.8826 13.8838 17.8477 14.3115C17.8165 14.6922 17.7543 15.0349 17.6172 15.3545L17.5537 15.4902C17.3015 15.9852 16.9182 16.3996 16.4473 16.6885L16.2402 16.8037C15.8824 16.9861 15.4966 17.0621 15.0615 17.0977C14.6338 17.1326 14.1047 17.1318 13.4502 17.1318H6.54981C5.89526 17.1318 5.36616 17.1326 4.93848 17.0977C4.55777 17.0665 4.21506 17.0043 3.89551 16.8672L3.75977 16.8037C3.26483 16.5515 2.85036 16.1682 2.56152 15.6973L2.44629 15.4902C2.26394 15.1324 2.1879 14.7466 2.15235 14.3115C2.1174 13.8838 2.11817 13.3547 2.11817 12.7002V7.29981C2.11817 6.64526 2.1174 6.11616 2.15235 5.68848C2.1879 5.25344 2.26394 4.86765 2.44629 4.50977L2.56152 4.30274C2.85036 3.83179 3.26483 3.44854 3.75977 3.19629L3.89551 3.13281C4.21506 2.99571 4.55777 2.93346 4.93848 2.90235C5.36616 2.8674 5.89526 2.86817 6.54981 2.86817H7.24512C7.38876 2.86816 7.48717 2.86807 7.58399 2.87402L7.83496 2.90039C8.41501 2.98537 8.96006 3.23832 9.40039 3.63086L9.64356 3.86817C9.75546 3.98103 9.79343 4.0181 9.83008 4.05078L9.94238 4.14356C10.2142 4.34787 10.5413 4.46917 10.8828 4.49024L11.1445 4.49317H13.4502C14.1047 4.49317 14.6338 4.4924 15.0615 4.52735C15.4966 4.5629 15.8824 4.63894 16.2402 4.82129L16.4473 4.93652C16.9182 5.22536 17.3015 5.63983 17.5537 6.13477L17.6172 6.27051C17.7543 6.59006 17.8165 6.93277 17.8477 7.31348C17.8826 7.74116 17.8818 8.27026 17.8818 8.92481V12.7002ZM3.38184 8.06836H16.6143C16.6105 7.81516 16.603 7.60256 16.5879 7.41699C16.566 7.14911 16.5303 6.96862 16.4814 6.83203L16.4287 6.70899C16.2824 6.42183 16.0594 6.18118 15.7861 6.01367L15.666 5.94629C15.516 5.86994 15.3146 5.81624 14.958 5.78711C14.5938 5.75738 14.1253 5.75684 13.4502 5.75684H11.1445L10.8047 5.75098C10.2158 5.71466 9.65236 5.50645 9.1836 5.1543L8.98926 4.99414C8.91673 4.92948 8.84746 4.85908 8.7461 4.75684L8.55957 4.57422C8.30416 4.34653 7.98784 4.19959 7.65137 4.15039L7.50684 4.13477C7.45779 4.13174 7.4043 4.13184 7.24512 4.13184H6.54981C5.87469 4.13184 5.40624 4.13238 5.04199 4.16211C4.77411 4.184 4.59362 4.21966 4.45703 4.26856L4.33399 4.32129C4.04683 4.4676 3.80618 4.69061 3.63867 4.96387L3.57129 5.08399C3.49494 5.23405 3.44124 5.43543 3.41211 5.79199C3.38238 6.15624 3.38184 6.62469 3.38184 7.29981V8.06836Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+function CodexWorktreeProjectIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 20 20" {...props}>
+      <path d="M15.8 11.535c.367 0 .665.298.665.665v5a.665.665 0 0 1-.665.665h-5a.665.665 0 1 1 0-1.33h3.394l-3.565-3.564a.666.666 0 0 1 .942-.942l3.564 3.565V12.2c0-.367.298-.665.665-.665Zm0-9.4c.367 0 .665.298.665.665v5a.665.665 0 0 1-1.33 0V4.405l-5.128 5.128c-.323.324-.558.565-.842.74a2.668 2.668 0 0 1-.771.319c-.324.078-.662.073-1.12.073H1.93a.665.665 0 1 1 0-1.33h5.345c.52 0 .673-.005.809-.037.136-.033.266-.086.385-.16.12-.072.23-.177.598-.545l5.128-5.128H10.8a.665.665 0 0 1 0-1.33h5Z" />
+    </svg>
+  );
+}
+
+function LocalEnvironmentProjectIcon({
+  project,
+  className,
+}: {
+  project: Project;
+  className?: string;
+}) {
+  const Icon = project.icon === "worktree" ? CodexWorktreeProjectIcon : CodexWorkspaceProjectIcon;
+  return <Icon className={className} />;
+}
+
+function CodexToolActionIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="21" height="21" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+      <path d="M10.7228 2.53564C11.5515 2.53564 12.3183 2.97502 12.7374 3.68994L13.5587 5.09033L13.6124 5.15967C13.6736 5.22007 13.7566 5.2556 13.8448 5.25635L15.4601 5.26904L15.6144 5.27588C16.3826 5.33292 17.0775 5.76649 17.465 6.43994L17.7931 7.01123L17.8663 7.14697C18.1815 7.78943 18.1843 8.54208 17.8741 9.18701L17.8028 9.32275L17.0001 10.7446C16.9427 10.8467 16.9426 10.9717 17.0001 11.0737L17.8028 12.4946L17.8741 12.6313C18.1842 13.2763 18.1816 14.029 17.8663 14.6714L17.7931 14.8071L17.465 15.3784C17.0774 16.0517 16.3825 16.4855 15.6144 16.5425L15.4601 16.5483L13.8448 16.562C13.7565 16.5628 13.6736 16.5982 13.6124 16.6587L13.5587 16.7271L12.7374 18.1284C12.3183 18.8432 11.5514 19.2827 10.7228 19.2827H10.0763C9.29958 19.2826 8.57714 18.8964 8.14465 18.2593L8.06261 18.1284L7.24133 16.7271C7.1966 16.6509 7.12417 16.5966 7.04113 16.5737L6.95519 16.562L5.33996 16.5483C4.56297 16.542 3.84347 16.1503 3.41613 15.5093L3.33508 15.3784L3.00695 14.8071C2.59564 14.0921 2.59168 13.2129 2.99719 12.4946L3.79894 11.0737L3.83215 10.9937C3.84657 10.9383 3.84652 10.88 3.83215 10.8247L3.79894 10.7446L2.99719 9.32275C2.59184 8.60451 2.59571 7.72612 3.00695 7.01123L3.33508 6.43994L3.41613 6.30908C3.84345 5.66796 4.56288 5.27538 5.33996 5.26904L6.95519 5.25635L7.04113 5.24463C7.12427 5.22177 7.1966 5.16664 7.24133 5.09033L8.06261 3.68994L8.14465 3.55908C8.57712 2.92179 9.29949 2.5358 10.0763 2.53564H10.7228ZM10.0763 3.86572C9.76448 3.86587 9.47308 4.01039 9.28429 4.25244L9.21008 4.36279L8.38879 5.76318C8.12941 6.20571 7.68297 6.49995 7.18273 6.56982L6.96594 6.58643L5.3507 6.59912C5.03877 6.60167 4.74854 6.74903 4.56164 6.99268L4.48742 7.10303L4.15929 7.67432C3.98236 7.98202 3.98089 8.36033 4.15539 8.66943L4.95715 10.0903L5.05187 10.2856C5.21318 10.6851 5.21302 11.1323 5.05187 11.5317L4.95715 11.728L4.15539 13.1489C3.98092 13.4581 3.98228 13.8363 4.15929 14.144L4.48742 14.7144L4.56164 14.8247C4.74853 15.0686 5.03859 15.2157 5.3507 15.2183L6.96594 15.2319L7.18273 15.2476C7.68301 15.3174 8.12939 15.6126 8.38879 16.0552L9.21008 17.4556L9.28429 17.5649C9.47307 17.8072 9.76431 17.9525 10.0763 17.9526H10.7228C11.0794 17.9526 11.4096 17.7632 11.59 17.4556L12.4112 16.0552L12.5333 15.8745C12.8433 15.4758 13.3212 15.2361 13.8341 15.2319L15.4493 15.2183L15.5812 15.2085C15.8855 15.1657 16.1569 14.985 16.3126 14.7144L16.6407 14.144L16.6984 14.0259C16.7984 13.7835 16.8 13.5113 16.7023 13.2681L16.6446 13.1489L15.8419 11.728C15.5551 11.2201 15.5552 10.5983 15.8419 10.0903L16.6446 8.66943L16.7023 8.55029C16.8001 8.30708 16.7983 8.03486 16.6984 7.79248L16.6407 7.67432L16.3126 7.10303C16.1569 6.8324 15.8856 6.65166 15.5812 6.60889L15.4493 6.59912L13.8341 6.58643C13.3213 6.58224 12.8433 6.34243 12.5333 5.94385L12.4112 5.76318L11.59 4.36279C11.4096 4.05506 11.0795 3.86572 10.7228 3.86572H10.0763ZM11.9855 10.9087C11.9853 10.0336 11.2755 9.32399 10.4005 9.32373C9.52524 9.32373 8.81474 10.0335 8.81457 10.9087C8.81457 11.7841 9.52513 12.4937 10.4005 12.4937C11.2757 12.4934 11.9855 11.7839 11.9855 10.9087ZM13.3146 10.9087C13.3146 12.5184 12.0102 13.8235 10.4005 13.8237C8.7906 13.8237 7.48547 12.5186 7.48547 10.9087C7.48564 9.29893 8.7907 7.99365 10.4005 7.99365C12.0101 7.99391 13.3144 9.29909 13.3146 10.9087Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function CodexRunActionIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+      <path d="M3.82422 4.74933C3.82427 3.32901 5.39273 2.46804 6.59102 3.23058L13.2698 7.48185C14.3813 8.18917 14.3813 9.81116 13.2698 10.5185L6.59102 14.7689C5.39281 15.5314 3.82448 14.6711 3.82422 13.251V4.74933ZM5.17422 13.251C5.17448 13.6058 5.56646 13.8211 5.86592 13.6307L12.5456 9.37941C12.8232 9.20249 12.8234 8.79681 12.5456 8.62004L5.86592 4.36964C5.56636 4.17902 5.17427 4.39428 5.17422 4.74933V13.251Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function CodexDebugActionIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="21" height="20" viewBox="0 0 21 20" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+      <path d="M10.2 12.083C10.8904 12.083 11.45 12.8295 11.45 13.75C11.45 14.6705 10.8904 15.417 10.2 15.417C9.50966 15.417 8.95001 14.6705 8.95001 13.75C8.95003 12.8295 9.50967 12.083 10.2 12.083Z" fill="currentColor" />
+      <path d="M8.117 9.16699C8.80708 9.16713 9.36678 9.63296 9.367 10.208C9.367 10.7832 8.80722 11.2499 8.117 11.25C7.42665 11.25 6.867 10.7833 6.867 10.208C6.86723 9.63287 7.42679 9.16699 8.117 9.16699Z" fill="currentColor" />
+      <path d="M12.283 9.16699C12.9732 9.16699 13.5328 9.63287 13.533 10.208C13.533 10.7833 12.9734 11.25 12.283 11.25C11.5928 11.2499 11.033 10.7832 11.033 10.208C11.0332 9.63296 11.5929 9.16713 12.283 9.16699Z" fill="currentColor" />
+      <path fillRule="evenodd" clipRule="evenodd" d="M15.1356 1.83496C16.0895 1.83496 16.7003 2.36544 17.0438 2.83887C17.2139 3.07346 17.3281 3.30439 17.3992 3.47461C17.435 3.56037 17.4606 3.6336 17.4783 3.6875C17.4872 3.71448 17.4948 3.73684 17.4998 3.75391C17.5023 3.76229 17.5041 3.76965 17.5057 3.77539C17.5065 3.7782 17.5071 3.78106 17.5076 3.7832C17.5079 3.7842 17.5084 3.78528 17.5086 3.78613L17.5096 3.78809C17.5062 3.78919 17.461 3.8011 16.866 3.95801L16.617 4.02344L17.5096 3.78809C17.603 4.1431 17.391 4.50793 17.0359 4.60156C16.6809 4.695 16.3171 4.48291 16.2234 4.12793V4.12988L16.2244 4.13086V4.13281C16.2243 4.13251 16.2239 4.13143 16.2234 4.12988C16.2222 4.12556 16.2198 4.11621 16.2156 4.10352C16.2071 4.07776 16.1927 4.03673 16.1717 3.98633C16.1286 3.88318 16.0617 3.74891 15.9676 3.61914C15.7822 3.36365 15.5274 3.16504 15.1356 3.16504C14.3975 3.16516 13.8581 3.58082 13.4207 4.30273C13.3067 4.491 13.2038 4.69355 13.1111 4.9043C15.6971 5.96132 17.5311 8.38367 17.5311 11.25C17.5311 15.1087 14.208 18.1649 10.2 18.165C6.19206 18.1649 2.86798 15.1087 2.86798 11.25C2.86798 8.38418 4.70168 5.96162 7.28693 4.9043C7.19434 4.69371 7.0923 4.49087 6.97833 4.30273C6.54095 3.58089 6.00159 3.16504 5.26349 3.16504C4.87181 3.16524 4.61679 3.36363 4.43146 3.61914C4.33733 3.74896 4.27044 3.88319 4.22736 3.98633C4.20628 4.0368 4.1919 4.07779 4.18341 4.10352C4.17947 4.11549 4.17694 4.12438 4.1756 4.12891C4.17561 4.12887 4.17593 4.12831 4.17462 4.12793C4.08077 4.48278 3.71807 4.69518 3.3631 4.60156C3.00839 4.5077 2.79702 4.14392 2.89044 3.78906L3.74689 4.01465C3.68504 3.99833 3.61397 3.97936 3.53302 3.95801C2.936 3.80055 2.89338 3.79012 2.89044 3.78906V3.78613C2.89067 3.78527 2.89113 3.78423 2.89142 3.7832C2.892 3.78105 2.89258 3.77824 2.89337 3.77539C2.89498 3.76964 2.89772 3.76233 2.90021 3.75391C2.90523 3.73688 2.91185 3.71438 2.92072 3.6875C2.9385 3.63356 2.96494 3.56051 3.00079 3.47461C3.07186 3.30444 3.18519 3.07343 3.35529 2.83887C3.69862 2.36548 4.30975 1.83519 5.26349 1.83496C6.64054 1.83496 7.54382 2.66973 8.11603 3.61426C8.2881 3.89836 8.434 4.20218 8.56232 4.50977C9.08979 4.39594 9.6384 4.33498 10.2 4.33496C10.7611 4.33498 11.3088 4.39615 11.8358 4.50977C11.9641 4.20208 12.1109 3.89845 12.283 3.61426C12.8552 2.66975 13.7586 1.83509 15.1356 1.83496ZM10.2 5.66504C9.78619 5.66506 9.38256 5.70388 8.99396 5.77734C8.99966 5.79796 9.00597 5.8184 9.01154 5.83887L9.18146 6.51758L9.19806 6.65039C9.20595 6.95974 8.99569 7.24216 8.68243 7.31445C8.36933 7.38653 8.05697 7.22473 7.92853 6.94336L7.88458 6.81641L7.7254 6.17871C7.72389 6.17318 7.72204 6.16765 7.72052 6.16211C5.62919 7.0461 4.19806 9.01126 4.19806 11.25C4.19806 14.2946 6.84445 16.8348 10.2 16.835C13.5556 16.8348 16.201 14.2946 16.201 11.25C16.201 9.01078 14.7696 7.04582 12.6776 6.16211C12.6166 6.38459 12.5633 6.60491 12.5145 6.81641L12.4715 6.94336C12.343 7.22493 12.0299 7.38675 11.7166 7.31445C11.3592 7.23167 11.1363 6.87512 11.2186 6.51758L11.3875 5.83887C11.393 5.81848 11.3984 5.79788 11.4041 5.77734C11.016 5.70407 10.6133 5.66506 10.2 5.66504Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function CodexTestActionIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+      <path d="M16.0013 14.4404C16.0012 13.9504 15.8514 13.4739 15.5736 13.0742L15.4467 12.9082L15.0121 12.3877C13.8615 12.8911 12.9154 13.1121 12.0619 13.1562C11.1476 13.2035 10.3805 13.0475 9.66541 12.8857C8.9421 12.7221 8.28162 12.5562 7.47302 12.5146C6.70041 12.475 5.77589 12.5504 4.56873 12.8887L4.5531 12.9082C4.19469 13.3383 3.99852 13.8806 3.99841 14.4404C3.99841 15.7627 5.07071 16.835 6.39294 16.835H13.6078C14.9299 16.8349 16.0013 15.7626 16.0013 14.4404ZM11.8353 3.16504H8.16541V7.72949C8.16541 8.20671 8.01889 8.6713 7.74841 9.06055L7.62439 9.22266L5.93396 11.25C6.52127 11.1756 7.05057 11.1614 7.54041 11.1865C8.48678 11.2351 9.2693 11.432 9.95837 11.5879C10.6557 11.7456 11.272 11.8653 11.9926 11.8281C12.5792 11.7978 13.2617 11.6591 14.1215 11.3184L12.3754 9.22266C12.0262 8.80363 11.8353 8.27494 11.8353 7.72949V3.16504ZM13.1654 7.72949C13.1654 7.96372 13.247 8.19111 13.3969 8.37109L16.4681 12.0566L16.6654 12.3154C17.0976 12.9371 17.3313 13.6782 17.3314 14.4404C17.3314 16.4971 15.6645 18.1649 13.6078 18.165H6.39294C4.33617 18.165 2.66833 16.4972 2.66833 14.4404C2.66844 13.5694 2.97398 12.7258 3.53162 12.0566L6.60291 8.37109L6.65564 8.30176C6.77198 8.13447 6.83533 7.93464 6.83533 7.72949V3.16504H6.66638C6.29926 3.16486 6.00134 2.86716 6.00134 2.5C6.00134 2.13284 6.29926 1.83514 6.66638 1.83496H13.3334L13.4672 1.84863C13.7703 1.91057 13.9984 2.17857 13.9984 2.5C13.9984 2.82143 13.7703 3.08943 13.4672 3.15137L13.3334 3.16504H13.1654V7.72949Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function CodexCheckboxCheckIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="17" height="17" viewBox="0 0 17 17" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+      <path d="M12.8961 3.64101C13.1297 3.41418 13.4984 3.37523 13.7779 3.56581C14.0571 3.75635 14.1554 4.11331 14.0299 4.41347L13.9615 4.53847L7.71151 13.7045C7.59411 13.8767 7.4063 13.9877 7.19881 14.0072C6.99136 14.0267 6.78564 13.9533 6.63826 13.806L2.88826 10.056L2.79842 9.9457C2.6192 9.67407 2.64927 9.30496 2.88826 9.06581C3.12738 8.82669 3.49647 8.79676 3.76815 8.97597L3.8785 9.06581L7.03084 12.2182L12.8053 3.74941L12.8961 3.64101Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+type ActionIconComponent = (props: SVGProps<SVGSVGElement>) => ReactNode;
+
 const ACTION_ICON_OPTIONS: Array<{
   value: WorktreeEnvironmentActionIcon;
   label: string;
-  icon: typeof Hammer;
+  icon: ActionIconComponent;
 }> = [
-  { value: "tool", label: "Tool", icon: Hammer },
-  { value: "run", label: "Run", icon: CirclePlay },
-  { value: "debug", label: "Debug", icon: Bug },
-  { value: "test", label: "Test", icon: TestTube2 },
+  { value: "tool", label: "Tool", icon: CodexToolActionIcon },
+  { value: "run", label: "Run", icon: CodexRunActionIcon },
+  { value: "debug", label: "Debug", icon: CodexDebugActionIcon },
+  { value: "test", label: "Test", icon: CodexTestActionIcon },
 ];
 
 const DEFAULT_LOCAL_ENVIRONMENTS_SETTINGS_SERVICE: LocalEnvironmentsSettingsService = {
@@ -220,26 +292,6 @@ function configSecondaryLabel(config: WorktreeEnvironmentConfigRecord): string |
   return fileName !== primary ? fileName : null;
 }
 
-function SummarySection({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="flex flex-col gap-2 rounded-xl border border-token-border bg-token-input-background/50 p-4">
-      <div className="flex flex-col gap-1">
-        <div className="text-sm font-medium text-token-foreground">{title}</div>
-        <div className="text-sm text-token-text-secondary">{description}</div>
-      </div>
-      {children}
-    </section>
-  );
-}
-
 function PageSection({
   title,
   description,
@@ -289,131 +341,44 @@ function Panel({
   );
 }
 
-function SectionActionButton({
-  children,
-  onClick,
-  variant = "secondary",
-  disabled = false,
-}: {
-  children: ReactNode;
-  onClick: () => void;
-  variant?: "secondary" | "primary" | "danger";
-  disabled?: boolean;
-}) {
+const SectionActionButton = forwardRef<
+  HTMLButtonElement,
+  ComponentPropsWithoutRef<"button"> & {
+    variant?: "secondary" | "primary" | "ghost" | "danger";
+    ariaLabel?: string;
+  }
+>(function SectionActionButton(
+  {
+    children,
+    variant = "secondary",
+    disabled = false,
+    className,
+    ariaLabel,
+    type = "button",
+    ...props
+  },
+  ref,
+) {
   return (
     <button
-      type="button"
-      onClick={onClick}
+      {...props}
+      ref={ref}
+      type={type}
       disabled={disabled}
+      aria-label={ariaLabel}
       className={cn(
-        "inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3 text-sm transition-colors",
-        "disabled:cursor-not-allowed disabled:opacity-50",
-        variant === "primary" && "bg-(--accent-blue) text-white hover:bg-(--accent-blue-hover)",
-        variant === "secondary" && "bg-foreground-5 text-token-foreground hover:bg-foreground-10",
-        variant === "danger" && "bg-(--red-text)/10 text-(--red-text) hover:bg-(--red-text)/15",
+        "border-token-border user-select-none no-drag cursor-interaction inline-flex items-center gap-1 border whitespace-nowrap rounded-lg border-transparent h-token-button-composer px-2 py-0 text-base leading-[18px] focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 transition-colors",
+        variant === "primary" && "bg-token-foreground text-token-dropdown-background enabled:hover:bg-token-foreground/80 data-[state=open]:bg-token-foreground/80",
+        variant === "secondary" && "text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background",
+        variant === "ghost" && "text-token-description-foreground enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background",
+        variant === "danger" && "text-(--red-text) enabled:hover:bg-(--red-text)/10 data-[state=open]:bg-(--red-text)/10",
+        className,
       )}
     >
       {children}
     </button>
   );
-}
-
-function FieldLabel({
-  htmlFor,
-  title,
-  description,
-}: {
-  htmlFor?: string;
-  title: string;
-  description?: string;
-}) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <label htmlFor={htmlFor} className="text-sm font-medium text-token-foreground">
-        {title}
-      </label>
-      {description ? (
-        <div className="text-sm text-token-text-secondary">{description}</div>
-      ) : null}
-    </div>
-  );
-}
-
-function ScriptEditorSection({
-  title,
-  description,
-  value,
-  onChange,
-  platformScripts,
-  onPlatformScriptChange,
-}: {
-  title: string;
-  description: string;
-  value: string | null;
-  onChange: (value: string) => void;
-  platformScripts: Partial<Record<WorktreeEnvironmentPlatform, string>>;
-  onPlatformScriptChange: (platform: WorktreeEnvironmentPlatform, value: string | null) => void;
-}) {
-  const textareaId = useId();
-
-  return (
-    <SummarySection title={title} description={description}>
-      <FieldLabel
-        htmlFor={textareaId}
-        title="Script"
-        description="Runs in the project root."
-      />
-      <textarea
-        id={textareaId}
-        value={value ?? ""}
-        rows={6}
-        onChange={(event) => onChange(event.target.value)}
-        className="focus-visible:ring-token-focus w-full rounded-lg border border-token-border bg-token-input-background px-3 py-2 font-mono text-sm text-token-foreground outline-none focus-visible:ring-2"
-      />
-
-      <div className="flex flex-col gap-2 pt-1">
-        <div className="text-sm font-medium text-token-foreground">Platform overrides</div>
-        {PLATFORM_OPTIONS.map((platform) => {
-          const currentValue = platformScripts[platform.value] ?? null;
-
-          return (
-            <div key={platform.value} className="rounded-lg border border-token-border/80 bg-token-input-background/60 p-3">
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <div className="text-sm text-token-foreground">{platform.label}</div>
-                {currentValue ? (
-                  <SectionActionButton
-                    variant="danger"
-                    onClick={() => onPlatformScriptChange(platform.value, null)}
-                  >
-                    Remove override
-                  </SectionActionButton>
-                ) : (
-                  <SectionActionButton
-                    onClick={() => onPlatformScriptChange(platform.value, "")}
-                  >
-                    Add override
-                  </SectionActionButton>
-                )}
-              </div>
-              {currentValue !== null ? (
-                <textarea
-                  value={currentValue}
-                  rows={4}
-                  onChange={(event) => onPlatformScriptChange(platform.value, event.target.value)}
-                  className="focus-visible:ring-token-focus w-full rounded-lg border border-token-border bg-token-input-background px-3 py-2 font-mono text-sm text-token-foreground outline-none focus-visible:ring-2"
-                />
-              ) : (
-                <div className="text-sm text-token-text-secondary">
-                  Uses the default script.
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </SummarySection>
-  );
-}
+});
 
 function ActionIconPreview({
   icon,
@@ -424,126 +389,411 @@ function ActionIconPreview({
 }) {
   const Icon =
     ACTION_ICON_OPTIONS.find((option) => option.value === icon)?.icon
-    ?? Hammer;
+    ?? CodexToolActionIcon;
 
-  return <Icon className={cn("size-4", className)} />;
+  return <Icon className={cn("icon-sm", className)} />;
 }
 
-function ActionsEditorSection({
+function CodexCheckbox({
+  id,
+  checked,
+  onCheckedChange,
+}: {
+  id: string;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <button
+      id={id}
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      data-state={checked ? "checked" : "unchecked"}
+      onClick={() => onCheckedChange(!checked)}
+      className={cn(
+        "border-token-border peer inline-flex items-center justify-center",
+        "data-[state=checked]:bg-token-checkbox-background data-[state=checked]:text-token-checkbox-foreground",
+        "data-[state=checked]:border-token-border",
+        "focus-visible:border-token-border focus-visible:ring-token-checkbox-background/50 focus-visible:ring-1",
+        "aria-invalid:ring-2 aria-invalid:ring-token-error-foreground/20 aria-invalid:border-token-error-foreground",
+        "icon-2xs rounded-xs shrink-0 border shadow-sm outline-none transition-all",
+        "hover:bg-token-editor-background",
+      )}
+    >
+      {checked ? (
+        <span className="flex h-full w-full items-center justify-center text-current">
+          <CodexCheckboxCheckIcon className="icon-xxs flex-shrink-0" />
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
+function CodexSegmentedPlatformToggle({
+  selectedPlatform,
+  onSelect,
+}: {
+  selectedPlatform: WorktreeEnvironmentPlatform;
+  onSelect: (platform: WorktreeEnvironmentPlatform) => void;
+}) {
+  return (
+    <div className="inline-flex items-center gap-0.5" role="group" aria-label="Platform selection">
+      {PLATFORM_OPTIONS.map((option) => (
+        <SectionActionButton
+          key={option.value}
+          onClick={() => onSelect(option.value)}
+          variant={selectedPlatform === option.value ? "secondary" : "ghost"}
+          className="w-auto"
+          ariaLabel={option.label}
+        >
+          {option.label}
+        </SectionActionButton>
+      ))}
+    </div>
+  );
+}
+
+function LocalEnvironmentActionIconDropdown({
+  value,
+  onSelect,
+  ariaLabel,
+}: {
+  value: WorktreeEnvironmentActionIcon;
+  onSelect: (icon: WorktreeEnvironmentActionIcon) => void;
+  ariaLabel: string;
+}) {
+  const selectedOption = ACTION_ICON_OPTIONS.find((option) => option.value === value) ?? ACTION_ICON_OPTIONS[0];
+
+  return (
+    <DropdownMenuPrimitive.Root>
+      <DropdownMenuPrimitive.Trigger asChild>
+        <SectionActionButton
+          variant="secondary"
+          ariaLabel={ariaLabel}
+          className="w-12 justify-center text-sm"
+        >
+          <ActionIconPreview icon={selectedOption.value} />
+        </SectionActionButton>
+      </DropdownMenuPrimitive.Trigger>
+      <DropdownMenuPrimitive.Portal>
+        <DropdownMenuPrimitive.Content
+          side="bottom"
+          align="start"
+          sideOffset={4}
+          collisionPadding={6}
+          className={cn(
+            "no-drag bg-token-dropdown-background/90 text-token-foreground ring-token-border z-50 m-px flex select-none flex-col overflow-y-auto rounded-xl px-1 py-1 shadow-xl-spread backdrop-blur-sm",
+            "[transform-origin:var(--radix-dropdown-menu-content-transform-origin)] [will-change:opacity,transform]",
+            "min-w-[120px] max-w-[min(var(--radix-dropdown-menu-content-available-width),calc(100vw-16px))]",
+          )}
+        >
+          {ACTION_ICON_OPTIONS.map((option) => (
+            <DropdownMenuPrimitive.Item
+              key={option.value}
+              onSelect={() => onSelect(option.value)}
+              className={cn(
+                "text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm",
+                "hover:bg-token-list-hover-background focus:bg-token-list-hover-background cursor-interaction",
+              )}
+            >
+              <span className="flex w-full items-center gap-1.5">
+                <ActionIconPreview icon={option.value} className="shrink-0" />
+                <span>{option.label}</span>
+              </span>
+            </DropdownMenuPrimitive.Item>
+          ))}
+        </DropdownMenuPrimitive.Content>
+      </DropdownMenuPrimitive.Portal>
+    </DropdownMenuPrimitive.Root>
+  );
+}
+
+function EnvironmentVariableCodeRow({
+  variableName,
+  description,
+}: {
+  variableName: string;
+  description: string;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5 rounded-lg px-2 py-1">
+      <div className="text-sm text-token-text-secondary">{description}</div>
+      <div className="overflow-x-auto rounded-md border border-token-input-background bg-token-text-code-block-background px-2 py-1.5">
+        <code className="block text-xs font-medium whitespace-nowrap text-token-text-primary">{variableName}</code>
+      </div>
+    </div>
+  );
+}
+
+function SetupEnvironmentVariablesButton() {
+  return (
+    <PopoverPrimitive.Root>
+      <PopoverPrimitive.Trigger asChild>
+        <SectionActionButton variant="ghost">
+          Available environment variables
+        </SectionActionButton>
+      </PopoverPrimitive.Trigger>
+      <PopoverPrimitive.Portal>
+        <PopoverPrimitive.Content
+          side="bottom"
+          align="end"
+          sideOffset={6}
+          collisionPadding={8}
+          className="z-50 flex w-80 max-w-[min(20rem,var(--radix-popover-content-available-width))] flex-col gap-1 rounded-xl border border-token-border bg-token-bg-elevated p-2 shadow-[0_12px_32px_rgba(0,0,0,0.16)] outline-none"
+        >
+          <div className="px-2 py-1 text-sm font-medium text-token-text-primary">
+            Setup script environment variables
+          </div>
+          <div className="flex flex-col gap-1">
+            <EnvironmentVariableCodeRow
+              variableName="CODEX_SOURCE_TREE_PATH"
+              description="Source workspace path"
+            />
+            <EnvironmentVariableCodeRow
+              variableName="CODEX_WORKTREE_PATH"
+              description="New worktree path"
+            />
+          </div>
+        </PopoverPrimitive.Content>
+      </PopoverPrimitive.Portal>
+    </PopoverPrimitive.Root>
+  );
+}
+
+function CodexScriptEditorPanels({
+  title,
+  description,
+  showHeader = true,
+  value,
+  onChange,
+  platformScripts,
+  onPlatformScriptChange,
+  scriptHint,
+  addOverrideLabel,
+  removeOverrideLabel,
   actions,
-  onAdd,
+}: {
+  title: string;
+  description: string;
+  showHeader?: boolean;
+  value: string | null;
+  onChange: (value: string) => void;
+  platformScripts: Partial<Record<WorktreeEnvironmentPlatform, string>>;
+  onPlatformScriptChange: (platform: WorktreeEnvironmentPlatform, value: string | null) => void;
+  scriptHint: string;
+  addOverrideLabel: (platform: string) => string;
+  removeOverrideLabel: string;
+  actions?: ReactNode;
+}) {
+  const textareaId = useId();
+
+  return (
+    <div className="flex flex-col gap-3">
+      {showHeader ? (
+        <div className="flex flex-col gap-1">
+          <div className="text-sm font-medium text-token-text-primary">{title}</div>
+          <div className="text-sm text-token-text-secondary">{description}</div>
+        </div>
+      ) : null}
+      <Panel>
+        <div className="flex flex-col gap-2 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-medium tracking-wide text-token-text-secondary uppercase">
+                Script
+              </div>
+              <div className="text-sm text-token-text-secondary">{scriptHint}</div>
+            </div>
+            {actions}
+          </div>
+          <textarea
+            id={textareaId}
+            value={value ?? ""}
+            rows={6}
+            onChange={(event) => onChange(event.target.value)}
+            className="focus-visible:ring-token-focus w-full rounded-md border border-token-border bg-token-input-background px-2.5 py-2 font-mono text-sm text-token-text-primary outline-none focus-visible:ring-2"
+          />
+        </div>
+      </Panel>
+      <Panel>
+        <div className="flex flex-col gap-3 p-3">
+          <div className="flex flex-col gap-1">
+            <div className="text-xs font-medium tracking-wide text-token-text-secondary uppercase">
+              Platform overrides
+            </div>
+            <div className="text-sm text-token-text-secondary">
+              Overrides the default script for specific OSes.
+            </div>
+          </div>
+          <div className="flex flex-col gap-4">
+            {PLATFORM_OPTIONS.map((platform) => {
+              const currentValue = platformScripts[platform.value] ?? null;
+              if (currentValue === null) return null;
+
+              return (
+                <div key={platform.value} className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-medium tracking-wide text-token-text-secondary uppercase">
+                      {platform.label}
+                    </div>
+                    <SectionActionButton
+                      variant="ghost"
+                      onClick={() => onPlatformScriptChange(platform.value, null)}
+                    >
+                      {removeOverrideLabel}
+                    </SectionActionButton>
+                  </div>
+                  <textarea
+                    value={currentValue}
+                    rows={6}
+                    onChange={(event) => onPlatformScriptChange(platform.value, event.target.value)}
+                    className="focus-visible:ring-token-focus w-full rounded-md border border-token-border bg-token-input-background px-2.5 py-2 font-mono text-sm text-token-text-primary outline-none focus-visible:ring-2"
+                  />
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex flex-col items-start gap-2">
+            {PLATFORM_OPTIONS.map((platform) => {
+              if (platformScripts[platform.value] !== undefined) return null;
+
+              return (
+                <SectionActionButton
+                  key={platform.value}
+                  onClick={() => onPlatformScriptChange(platform.value, "")}
+                >
+                  {addOverrideLabel(platform.label)}
+                </SectionActionButton>
+              );
+            })}
+          </div>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function CodexActionsEditorSection({
+  actions,
   onUpdate,
   onRemove,
 }: {
   actions: WorktreeEnvironmentActionDefinition[];
-  onAdd: () => void;
   onUpdate: (actionId: string, patch: Partial<WorktreeEnvironmentActionDefinition>) => void;
   onRemove: (actionId: string) => void;
 }) {
-  return (
-    <SummarySection
-      title="Actions"
-      description="Reusable commands surfaced from this local environment."
-    >
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-sm text-token-text-secondary">
-          Add run/debug/test shortcuts tied to this environment.
-        </div>
-        <SectionActionButton onClick={onAdd}>
-          <Plus className="size-4" />
-          Add action
-        </SectionActionButton>
+  return actions.length === 0 ? (
+    <Panel>
+      <div className="p-3 text-sm text-token-text-secondary">
+        Add an action to run commands from the local toolbar.
       </div>
-
-      {actions.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-token-border p-4 text-sm text-token-text-secondary">
-          No actions yet.
-        </div>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {actions.map((action, index) => (
-            <div
-              key={action.id}
-              className="flex flex-col gap-3 rounded-lg border border-token-border bg-token-input-background/60 p-4"
+    </Panel>
+  ) : (
+    <div className="flex flex-col gap-3">
+      {actions.map((action, index) => (
+        <div
+          key={action.id}
+          className="flex flex-col gap-3 rounded-lg border border-token-border bg-token-input-background p-3"
+        >
+          <div className="flex flex-col gap-2">
+            <label
+              className="text-xs font-medium tracking-wide text-token-text-secondary uppercase"
+              htmlFor={`local-env-action-name-${action.id}`}
             >
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-sm font-medium text-token-foreground">Action {index + 1}</div>
-                <button
-                  type="button"
-                  onClick={() => onRemove(action.id)}
-                  className="inline-flex size-8 items-center justify-center rounded-lg text-token-text-secondary transition-colors hover:bg-(--red-text)/10 hover:text-(--red-text)"
-                  aria-label={`Delete action ${index + 1}`}
-                >
-                  <Trash2 className="size-4" />
-                </button>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-[10rem_minmax(0,1fr)_10rem]">
-                <div className="flex flex-col gap-1">
-                  <FieldLabel title="Icon" />
-                  <select
-                    value={action.icon}
-                    onChange={(event) => onUpdate(action.id, { icon: event.target.value as WorktreeEnvironmentActionIcon })}
-                    className="h-9 rounded-lg border border-token-border bg-token-input-background px-3 text-sm text-token-foreground outline-none"
-                  >
-                    {ACTION_ICON_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="inline-flex items-center gap-2 text-sm text-token-text-secondary">
-                    <ActionIconPreview icon={action.icon} />
-                    <span>{ACTION_ICON_OPTIONS.find((option) => option.value === action.icon)?.label ?? "Tool"}</span>
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <FieldLabel title="Name" />
-                  <Input
-                    value={action.name}
-                    onChange={(event) => onUpdate(action.id, { name: event.target.value })}
-                    className="h-9 rounded-lg border border-token-border bg-token-input-background px-3 text-sm text-token-foreground"
-                    placeholder="Run integration tests"
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <FieldLabel title="Platform" />
-                  <select
-                    value={action.platform ?? ""}
-                    onChange={(event) =>
-                      onUpdate(action.id, {
-                        platform: event.target.value
-                          ? (event.target.value as WorktreeEnvironmentPlatform)
-                          : null,
-                      })}
-                    className="h-9 rounded-lg border border-token-border bg-token-input-background px-3 text-sm text-token-foreground outline-none"
-                  >
-                    <option value="">All platforms</option>
-                    {PLATFORM_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <FieldLabel title="Command" />
-                <textarea
-                  value={action.command}
-                  rows={4}
-                  onChange={(event) => onUpdate(action.id, { command: event.target.value })}
-                  className="focus-visible:ring-token-focus w-full rounded-lg border border-token-border bg-token-input-background px-3 py-2 font-mono text-sm text-token-foreground outline-none focus-visible:ring-2"
+              Name
+            </label>
+            <div className="flex items-center gap-2">
+              <LocalEnvironmentActionIconDropdown
+                value={action.icon ?? "tool"}
+                onSelect={(icon) => onUpdate(action.id, { icon })}
+                ariaLabel={`Action ${index + 1} icon`}
+              />
+              <div className="flex-1">
+                <Input
+                  id={`local-env-action-name-${action.id}`}
+                  value={action.name}
+                  onChange={(event) => onUpdate(action.id, { name: event.target.value })}
+                  className="h-9 rounded-md border border-token-border bg-token-input-background px-2.5 py-1.5 text-sm text-token-text-primary"
                 />
               </div>
             </div>
-          ))}
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label
+              className="text-xs font-medium tracking-wide text-token-text-secondary uppercase"
+              htmlFor={`local-env-action-command-${action.id}`}
+            >
+              Action script
+            </label>
+            <textarea
+              id={`local-env-action-command-${action.id}`}
+              value={action.command}
+              rows={4}
+              onChange={(event) => onUpdate(action.id, { command: event.target.value })}
+              className="focus-visible:ring-token-focus w-full rounded-md border border-token-border bg-token-input-background px-2.5 py-2 font-mono text-sm text-token-text-primary outline-none focus-visible:ring-2"
+            />
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-6">
+              <div className="min-w-0">
+                <div className="flex flex-col gap-2">
+                  <div className="text-xs font-medium tracking-wide text-token-text-secondary uppercase">
+                    Platforms
+                  </div>
+                  <div className="text-xs text-token-text-secondary">
+                    Only run on a specific OS.
+                  </div>
+                  <div className="relative flex items-center gap-2 text-sm">
+                    <CodexCheckbox
+                      id={`local-env-action-platform-specific-${action.id}`}
+                      checked={action.platform !== null}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          onUpdate(action.id, { platform: action.platform ?? "darwin" });
+                          return;
+                        }
+                        onUpdate(action.id, { platform: null });
+                      }}
+                    />
+                    <label
+                      className="cursor-interaction text-token-text-secondary"
+                      onClick={() => {
+                        onUpdate(action.id, {
+                          platform: action.platform === null ? "darwin" : null,
+                        });
+                      }}
+                    >
+                      Platform specific
+                    </label>
+                  </div>
+                </div>
+              </div>
+              {action.platform !== null ? (
+                <div className="flex justify-start">
+                  <CodexSegmentedPlatformToggle
+                    selectedPlatform={action.platform}
+                    onSelect={(platform) => onUpdate(action.id, { platform })}
+                  />
+                </div>
+              ) : null}
+            </div>
+            <div className="flex justify-end sm:justify-center">
+              <SectionActionButton
+                onClick={() => onRemove(action.id)}
+                variant="ghost"
+                className="size-8 justify-center px-0"
+                ariaLabel={`Delete action ${index + 1}`}
+              >
+                <Trash2 className="icon-sm" />
+              </SectionActionButton>
+            </div>
+          </div>
         </div>
-      )}
-    </SummarySection>
+      ))}
+    </div>
   );
 }
 
@@ -594,7 +844,7 @@ function WorkspaceProjectEnvironmentGroup({
             void onSelectEnvironment(project.id, preferredPath);
           }}
         >
-          <FolderCode className="icon-sm shrink-0 text-token-text-secondary" />
+          <LocalEnvironmentProjectIcon project={project} className="icon-sm shrink-0 text-token-text-secondary" />
           <div className="flex min-w-0 flex-col gap-1">
             <div className="flex min-w-0 items-center gap-2 text-sm text-token-text-primary">
               <span className="truncate font-medium">{project.name}</span>
@@ -1019,7 +1269,7 @@ export function LocalEnvironmentsSettingsPage({
           <PageSection title="Project">
             <Panel>
               <div className="flex items-center gap-3 p-3">
-                <FolderCode className="icon-sm shrink-0 text-token-text-secondary" />
+                <LocalEnvironmentProjectIcon project={selectedProject} className="icon-sm shrink-0 text-token-text-secondary" />
                 <div className="flex min-w-0 flex-col gap-1">
                   <div className="flex min-w-0 items-center gap-1 text-sm text-token-text-primary">
                     <span className="truncate">{selectedProject.name}</span>
@@ -1189,7 +1439,7 @@ export function LocalEnvironmentsSettingsPage({
           <PageSection title="Local environment file">
             <Panel>
               <div className="flex items-center gap-3 p-3">
-                <FolderCode className="icon-sm shrink-0 text-token-text-secondary" />
+                <LocalEnvironmentProjectIcon project={selectedProject} className="icon-sm shrink-0 text-token-text-secondary" />
                 <div className="flex min-w-0 flex-col gap-1">
                   <div className="flex min-w-0 items-center gap-1 text-sm text-token-text-primary">
                     <span className="truncate">{selectedProject.name}</span>
@@ -1240,11 +1490,15 @@ export function LocalEnvironmentsSettingsPage({
                 </div>
               </Panel>
 
-              <ScriptEditorSection
+              <CodexScriptEditorPanels
                 title="Setup script"
                 description="This script will run on worktree creation."
                 value={draft.setup.script}
                 onChange={(value) => updateScriptSection("setup", { script: value })}
+                scriptHint="Runs in the project root."
+                addOverrideLabel={(platform) => `Add ${platform} setup script`}
+                removeOverrideLabel="Remove"
+                actions={<SetupEnvironmentVariablesButton />}
                 platformScripts={draft.setup.platformScripts}
                 onPlatformScriptChange={(platform, value) => {
                   const nextPlatformScripts = { ...draft.setup.platformScripts };
@@ -1256,31 +1510,45 @@ export function LocalEnvironmentsSettingsPage({
             </div>
           </PageSection>
 
-          <ScriptEditorSection
-            title="Cleanup script"
-            description="This script will run before a worktree is deleted."
-            value={draft.cleanup.script}
-            onChange={(value) => updateScriptSection("cleanup", { script: value })}
-            platformScripts={draft.cleanup.platformScripts}
-            onPlatformScriptChange={(platform, value) => {
-              const nextPlatformScripts = { ...draft.cleanup.platformScripts };
-              if (value === null) delete nextPlatformScripts[platform];
-              else nextPlatformScripts[platform] = value;
-              updateScriptSection("cleanup", { platformScripts: nextPlatformScripts });
-            }}
-          />
+          <PageSection title="Cleanup script">
+            <CodexScriptEditorPanels
+              title="Cleanup script"
+              description="This script will run before a worktree is deleted."
+              showHeader={false}
+              value={draft.cleanup.script}
+              onChange={(value) => updateScriptSection("cleanup", { script: value })}
+              scriptHint="Runs in the project root just before cleanup."
+              addOverrideLabel={(platform) => `Add ${platform} cleanup script`}
+              removeOverrideLabel="Remove"
+              platformScripts={draft.cleanup.platformScripts}
+              onPlatformScriptChange={(platform, value) => {
+                const nextPlatformScripts = { ...draft.cleanup.platformScripts };
+                if (value === null) delete nextPlatformScripts[platform];
+                else nextPlatformScripts[platform] = value;
+                updateScriptSection("cleanup", { platformScripts: nextPlatformScripts });
+              }}
+            />
+          </PageSection>
 
-          <ActionsEditorSection
-            actions={draft.actions}
-            onAdd={addAction}
-            onUpdate={updateAction}
-            onRemove={removeAction}
-          />
+          <PageSection
+            title="Actions"
+            actions={(
+              <SectionActionButton onClick={addAction}>
+                Add action
+              </SectionActionButton>
+            )}
+          >
+            <div className="text-sm text-token-text-secondary">
+              These actions can run any command and will be displayed in the header.
+            </div>
+            <CodexActionsEditorSection
+              actions={draft.actions}
+              onUpdate={updateAction}
+              onRemove={removeAction}
+            />
+          </PageSection>
 
-          <div className="flex justify-end gap-2">
-            <SectionActionButton onClick={handleCancelEdit}>
-              Cancel
-            </SectionActionButton>
+          <div className="flex justify-end">
             <SectionActionButton
               variant="primary"
               onClick={() => {
@@ -1293,7 +1561,7 @@ export function LocalEnvironmentsSettingsPage({
                   <SpinnerIcon className="size-4" />
                   Saving…
                 </>
-              ) : "Save local environment"}
+              ) : "Save"}
             </SectionActionButton>
           </div>
         </form>

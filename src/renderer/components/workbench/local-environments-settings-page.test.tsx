@@ -218,7 +218,7 @@ describe("LocalEnvironmentsSettingsPage", () => {
     fireEvent.click(view.getByText("Edit local environment"));
     fireEvent.click(view.getByText("Add action"));
     await settleAsyncRender();
-    const saveButton = view.getByText("Save local environment") as HTMLButtonElement;
+    const saveButton = view.getByText("Save") as HTMLButtonElement;
     expect(saveButton.disabled).toBeFalse();
     fireEvent.click(saveButton);
     await settleAsyncRender();
@@ -227,5 +227,40 @@ describe("LocalEnvironmentsSettingsPage", () => {
     expect(saveCalls[0]?.projectId).toBe("project-beta");
     expect(saveCalls[0]?.environment.actions.length).toBe(2);
     expect(textContent(view.container).includes("Action 2")).toBeFalse();
+  });
+
+  test("opens the action icon dropdown in edit mode", async () => {
+    const view = render(
+      <LocalEnvironmentsSettingsPage
+        open={true}
+        active={true}
+        projects={PROJECTS}
+        activeProjectId="project-alpha"
+        initialProjectId="project-alpha"
+        renderShell={({ title, subtitle, backSlot, children }) => (
+          <SettingsPageSurface title={title} subtitle={subtitle} backSlot={backSlot}>
+            {children}
+          </SettingsPageSurface>
+        )}
+        service={{
+          listConfigs: async (projectId) => buildSnapshot(projectId).configs,
+          readConfig: async (projectId) => buildSnapshot(projectId),
+          saveConfig: async (input) => buildSnapshot(input.projectId, {
+            environment: input.environment,
+          }),
+        }}
+      />,
+    );
+
+    await settleAsyncRender();
+
+    fireEvent.click(view.getByText("Edit local environment"));
+    await settleAsyncRender();
+
+    fireEvent.pointerDown(view.getByLabelText("Action 1 icon"));
+    await settleAsyncRender();
+
+    expect(textContent(document.body).includes("Debug")).toBeTrue();
+    expect(textContent(document.body).includes("Test")).toBeTrue();
   });
 });
