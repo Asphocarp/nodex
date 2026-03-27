@@ -872,6 +872,80 @@ export interface CodexBackgroundTerminalRow {
   previewLine: string | null;
 }
 
+export type GitReviewSource = "unstaged" | "staged" | "branch";
+
+export type GitReviewFileStatus = "modified" | "added" | "deleted" | "renamed";
+
+export type GitApplyPatchTarget = "staged" | "unstaged";
+
+export type GitApplyPatchStatus = "success" | "partial-success" | "error";
+
+export interface GitReviewFileSummary {
+  path: string;
+  previousPath: string | null;
+  status: GitReviewFileStatus;
+  additions: number;
+  deletions: number;
+}
+
+export interface GitReviewSnapshot {
+  cwd: string;
+  source: GitReviewSource;
+  patch: string;
+  files: GitReviewFileSummary[];
+  isGitRepository: boolean;
+  baseRef: string | null;
+  currentBranch: string | null;
+  defaultBranch: string | null;
+  errorMessage: string | null;
+}
+
+export interface GitReviewFileContentsInput {
+  cwd: string;
+  source: GitReviewSource;
+  path: string;
+  previousPath?: string | null;
+  baseRef?: string | null;
+}
+
+export interface GitReviewFileContents {
+  path: string;
+  previousPath: string | null;
+  oldText: string | null;
+  newText: string | null;
+  oldExists: boolean;
+  newExists: boolean;
+  errorMessage: string | null;
+}
+
+export interface GitReviewSearchInput {
+  cwd: string;
+  source: GitReviewSource;
+  query: string;
+  baseRef?: string | null;
+}
+
+export interface GitReviewSearchResult {
+  query: string;
+  matchingPaths: string[];
+}
+
+export interface GitApplyPatchInput {
+  cwd: string;
+  diff: string;
+  target: GitApplyPatchTarget;
+  revert?: boolean;
+}
+
+export interface GitApplyPatchResult {
+  status: GitApplyPatchStatus;
+  appliedPaths: string[];
+  skippedPaths: string[];
+  conflictedPaths: string[];
+  errorCode: string | null;
+  errorMessage: string | null;
+}
+
 export interface CodexConversationChildMembership {
   threadId: string;
   parentThreadId: string;

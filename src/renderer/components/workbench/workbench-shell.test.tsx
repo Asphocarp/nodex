@@ -98,8 +98,8 @@ mock.module("./left-sidebar", () => ({
   },
 }));
 
-mock.module("./stage-files-placeholder", () => ({
-  StageFilesPlaceholder: () => createElement("div", { "data-diff-placeholder": "true" }),
+mock.module("./review-diff-panel", () => ({
+  ReviewDiffPanel: () => createElement("div", { "data-review-diff-panel": "true" }),
 }));
 
 mock.module("./workbench-stage-tab-strip", () => ({

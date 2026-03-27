@@ -33,7 +33,7 @@ import {
 import { StageMinimap } from "./stage-minimap";
 import { StageRail, type StageRailStage } from "./stage-rail";
 import { StageTabStrip } from "./workbench-stage-tab-strip";
-import { StageFilesPlaceholder } from "./stage-files-placeholder";
+import { ReviewDiffPanel } from "./review-diff-panel";
 import { HistoryPanel } from "./workbench-history-panel";
 import { CardStage } from "./workbench-card-stage";
 import { TerminalPanel } from "./workbench-terminal-panel";
@@ -222,6 +222,7 @@ interface WorkbenchShellProps {
   projectPickerOpenTick: number;
   taskSearchOpenTick: number;
   threadSearchOpenTick: number;
+  diffSearchOpenTick: number;
   commandPaletteOpenTick: number;
   commandPaletteInitialQuery: string;
   settingsToggleTick: number;
@@ -378,6 +379,7 @@ export function WorkbenchShell({
   projectPickerOpenTick,
   taskSearchOpenTick,
   threadSearchOpenTick,
+  diffSearchOpenTick,
   commandPaletteOpenTick,
   commandPaletteInitialQuery,
   settingsToggleTick,
@@ -1770,7 +1772,13 @@ export function WorkbenchShell({
       title: "Diffs",
       icon: STAGE_ICONS.files,
       hideHeader: true,
-      content: <StageFilesPlaceholder />,
+      content: (
+        <ReviewDiffPanel
+          conversation={activeThreadConversation}
+          projectWorkspacePath={activeThreadsProject?.workspacePath ?? null}
+          searchOpenTick={diffSearchOpenTick}
+        />
+      ),
     },
   ];
 

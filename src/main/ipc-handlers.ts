@@ -25,6 +25,13 @@ import {
   readGitBranchState,
   watchGitBranch,
 } from "./git-branch-service";
+import {
+  applyGitReviewPatch,
+  initializeGitRepositoryAndReadReviewSnapshot,
+  readGitReviewFileContents,
+  readGitReviewSnapshot,
+  searchGitReview,
+} from "./git-review-service";
 import type { AppUpdateSettings, AppUpdateStatus } from "../shared/types";
 
 function registerHandle(
@@ -323,6 +330,30 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   registerHandle("git:branch:create", (_, input: { cwd: string; branch: string }) => {
     return createAndCheckoutGitBranch(input);
+  });
+
+  registerHandle("git:review:snapshot", (_, input: {
+    cwd: string;
+    source: "unstaged" | "staged" | "branch";
+    baseRef?: string | null;
+  }) => {
+    return readGitReviewSnapshot(input);
+  });
+
+  registerHandle("git:review:file-contents", (_, input) => {
+    return readGitReviewFileContents(input);
+  });
+
+  registerHandle("git:review:search", (_, input) => {
+    return searchGitReview(input);
+  });
+
+  registerHandle("git:apply-patch", (_, input) => {
+    return applyGitReviewPatch(input);
+  });
+
+  registerHandle("git:init", (_, cwd: string) => {
+    return initializeGitRepositoryAndReadReviewSnapshot(cwd);
   });
 
   registerHandle("git:branch:watch:start", async (event, cwd: string) => {

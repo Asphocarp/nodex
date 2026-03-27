@@ -110,7 +110,17 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Thread stage project context is stage-local (`threadsProjectId`) and remains stable when DB datasource changes
 - By default, desktop notifications fire when a Codex thread finishes; the notification title uses the thread title and the body uses the latest turn message. Settings can disable this.
 - Packaged macOS builds can check for stable app updates on launch in the background, download them automatically when found, expose a manual `Check now` action in Settings -> Workspace -> `App updates`, expose `Check for Updates…` in the macOS app menu, and require an explicit `Restart to Update` action before installation.
-- Diff stage is an interactive placeholder in this release
+- Diff stage is a Codex-style review panel bound to the active thread/project workspace:
+  - review sources include `Last turn`, `Branch`, `Staged`, and `Unstaged`
+  - the panel can initialize Git for a workspace that is not yet a repository
+  - the toolbar exposes source selection, review options, unified/split diff mode, line wrapping, word-diff toggles, full-file loading, rich-preview toggles, and file-tree visibility
+  - Git-backed review sources expose refresh plus `Copy git apply command`
+  - the panel includes `Find in review` search across changed file paths and loaded review content
+  - the right-side file tree can filter changed files and focus one file in large-diff mode
+  - `Last turn` renders from the active conversation's turn diff, while `Branch` / `Staged` / `Unstaged` load workspace Git snapshots through main-process IPC
+  - Git-backed review sources can lazily load old/new file contents for partial diffs, enabling full-file diff rendering inside the panel
+  - `Staged` and `Unstaged` review rows can run file-level `Stage`, `Unstage`, and `Revert` actions in place
+  - very large reviews fall back to a capped one-file-at-a-time mode instead of trying to expand every diff at once
 - Create/delete projects via switcher dropdown or CLI
 - Default project "default" seeded on first boot
 - In Electron, startup opens into a blocking bootstrap surface until local initialization completes; if a future supported SQLite schema migration is running, that surface shows determinate migration progress and migration-specific status copy

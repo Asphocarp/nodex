@@ -12,6 +12,14 @@ import type {
   CodexConnectionState,
   CodexCollaborationModePreset,
   CodexEvent,
+  GitApplyPatchInput,
+  GitApplyPatchResult,
+  GitReviewFileContents,
+  GitReviewFileContentsInput,
+  GitReviewSearchInput,
+  GitReviewSearchResult,
+  GitReviewSnapshot,
+  GitReviewSource,
   CodexHostMessage,
   CodexModelOption,
   CodexPermissionMode,
@@ -330,6 +338,22 @@ export interface IpcApi {
   "workbench:resume:save": { args: [snapshot: WorkbenchResumeSnapshot]; result: boolean };
   // Internal app lifecycle handshake used to flush renderer state before window close.
   "app:flush-before-close:done": { args: [webContentsId: number]; result: void };
+
+  // Git review
+  "git:review:snapshot": {
+    args: [input: { cwd: string; source: GitReviewSource; baseRef?: string | null }];
+    result: GitReviewSnapshot;
+  };
+  "git:review:file-contents": {
+    args: [input: GitReviewFileContentsInput];
+    result: GitReviewFileContents;
+  };
+  "git:review:search": {
+    args: [input: GitReviewSearchInput];
+    result: GitReviewSearchResult;
+  };
+  "git:apply-patch": { args: [input: GitApplyPatchInput]; result: GitApplyPatchResult };
+  "git:init": { args: [cwd: string]; result: GitReviewSnapshot };
 
   // Terminal
   "pty:spawn": {

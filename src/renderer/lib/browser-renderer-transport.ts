@@ -425,6 +425,256 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       });
       return res.json();
     }
+    case "git:review:snapshot": {
+      const [input] = args as [{
+        cwd: string;
+        source: "unstaged" | "staged" | "branch";
+        baseRef?: string | null;
+      }];
+      if (isStorybookRuntime()) {
+        const buildStorybookMultiFilePatch = (fileCount: number, nested = false): string => {
+          return Array.from({ length: fileCount }, (_, index) => {
+            const suffix = String(index + 1).padStart(3, "0");
+            const dirPrefix = nested
+              ? `src/domain-${String((index % 12) + 1).padStart(2, "0")}/feature-${String(Math.floor(index / 12) + 1).padStart(2, "0")}`
+              : "src";
+            const filePath = `${dirPrefix}/file-${suffix}.ts`;
+            return [
+              `diff --git a/${filePath} b/${filePath}`,
+              "index 1111111..2222222 100644",
+              `--- a/${filePath}`,
+              `+++ b/${filePath}`,
+              "@@ -1 +1,2 @@",
+              ` export const file${suffix} = ${index + 1};`,
+              `+export const changed${suffix} = true;`,
+              "",
+            ].join("\n");
+          }).join("\n");
+        };
+        const buildStorybookGitReviewFiles = (fileCount: number, nested = false) => {
+          return Array.from({ length: fileCount }, (_, index) => {
+            const suffix = String(index + 1).padStart(3, "0");
+            const dirPrefix = nested
+              ? `src/domain-${String((index % 12) + 1).padStart(2, "0")}/feature-${String(Math.floor(index / 12) + 1).padStart(2, "0")}`
+              : "src";
+            const filePath = `${dirPrefix}/file-${suffix}.ts`;
+            const status = index % 3 === 0
+              ? "added"
+              : index % 3 === 1
+                ? "modified"
+                : "deleted";
+            return {
+              path: filePath,
+              previousPath: null,
+              status,
+              additions: status === "deleted" ? 0 : 1,
+              deletions: status === "deleted" ? 1 : 0,
+            };
+          });
+        };
+        if (input.cwd.includes("no-git")) {
+          return {
+            cwd: input.cwd,
+            source: input.source,
+            patch: "",
+            files: [],
+            isGitRepository: false,
+            baseRef: null,
+            currentBranch: null,
+            defaultBranch: null,
+            errorMessage: null,
+          };
+        }
+        if (input.cwd.includes("no-diff")) {
+          return {
+            cwd: input.cwd,
+            source: input.source,
+            patch: "",
+            files: [],
+            isGitRepository: true,
+            baseRef: input.source === "branch" ? (input.baseRef ?? "main") : null,
+            currentBranch: "codex/storybook",
+            defaultBranch: "main",
+            errorMessage: null,
+          };
+        }
+        if (input.cwd.includes("staged-empty") && input.source === "staged") {
+          return {
+            cwd: input.cwd,
+            source: input.source,
+            patch: "",
+            files: [],
+            isGitRepository: true,
+            baseRef: null,
+            currentBranch: "codex/storybook",
+            defaultBranch: "main",
+            errorMessage: null,
+          };
+        }
+        if (input.cwd.includes("large-diff")) {
+          const addedLines = Array.from({ length: 9_105 }, (_, index) => `+line ${index + 1}`).join("\n");
+          return {
+            cwd: input.cwd,
+            source: input.source,
+            patch: `diff --git a/src/large.ts b/src/large.ts\nindex 1111111..2222222 100644\n--- a/src/large.ts\n+++ b/src/large.ts\n@@ -1 +1,9106 @@\n export const large = true;\n${addedLines}\n`,
+            files: [],
+            isGitRepository: true,
+            baseRef: input.source === "branch" ? (input.baseRef ?? "main") : null,
+            currentBranch: "codex/storybook",
+            defaultBranch: "main",
+            errorMessage: null,
+          };
+        }
+        if (input.cwd.includes("virtualized-tree")) {
+          return {
+            cwd: input.cwd,
+            source: input.source,
+            patch: buildStorybookMultiFilePatch(120, true),
+            files: buildStorybookGitReviewFiles(120, true),
+            isGitRepository: true,
+            baseRef: input.source === "branch" ? (input.baseRef ?? "main") : null,
+            currentBranch: "codex/storybook",
+            defaultBranch: "main",
+            errorMessage: null,
+          };
+        }
+        const patch = input.source === "staged"
+          ? "diff --git a/src/app.ts b/src/app.ts\nindex 1111111..2222222 100644\n--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1,2 +1,3 @@\n export const title = 'Nodex';\n+export const staged = true;\n export const version = '1.0.0';\n"
+          : input.source === "branch"
+            ? "diff --git a/src/feature.ts b/src/feature.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/feature.ts\n@@ -0,0 +1,4 @@\n+export function reviewPanel() {\n+  return 'branch diff';\n+}\n+\n"
+            : "diff --git a/src/workbench.tsx b/src/workbench.tsx\nindex 3333333..4444444 100644\n--- a/src/workbench.tsx\n+++ b/src/workbench.tsx\n@@ -10,2 +10,4 @@\n export function Workbench() {\n+  const showDiffTree = true;\n   return null;\n }\n";
+        return {
+          cwd: input.cwd,
+          source: input.source,
+          patch,
+          files: [],
+          isGitRepository: true,
+          baseRef: input.source === "branch" ? (input.baseRef ?? "main") : null,
+          currentBranch: "codex/storybook",
+          defaultBranch: "main",
+          errorMessage: null,
+        };
+      }
+      return {
+        cwd: input.cwd,
+        source: input.source,
+        patch: "",
+        files: [],
+        isGitRepository: false,
+        baseRef: input.baseRef ?? null,
+        currentBranch: null,
+        defaultBranch: null,
+        errorMessage: "Git review is unavailable outside Electron.",
+      };
+    }
+    case "git:review:file-contents": {
+      const [input] = args as [{
+        cwd: string;
+        source: "unstaged" | "staged" | "branch";
+        path: string;
+        previousPath?: string | null;
+      }];
+      if (isStorybookRuntime()) {
+        if (input.cwd.includes("large-diff")) {
+          return {
+            path: input.path,
+            previousPath: input.previousPath ?? null,
+            oldText: "export const large = true;\n",
+            newText: `export const large = true;\n${Array.from({ length: 40 }, (_, index) => `export const line${index + 1} = ${index + 1};`).join("\n")}\n`,
+            oldExists: true,
+            newExists: true,
+            errorMessage: null,
+          };
+        }
+        return {
+          path: input.path,
+          previousPath: input.previousPath ?? null,
+          oldText: "export const title = 'Nodex';\nexport const version = '1.0.0';\n",
+          newText: "export const title = 'Nodex';\nexport const version = '1.0.0';\nexport const review = true;\n",
+          oldExists: true,
+          newExists: true,
+          errorMessage: null,
+        };
+      }
+      return {
+        path: input.path,
+        previousPath: input.previousPath ?? null,
+        oldText: null,
+        newText: null,
+        oldExists: false,
+        newExists: false,
+        errorMessage: "Review file contents are unavailable outside Electron.",
+      };
+    }
+    case "git:review:search": {
+      const [input] = args as [{
+        cwd: string;
+        source: "unstaged" | "staged" | "branch";
+        query: string;
+      }];
+      if (isStorybookRuntime()) {
+        const normalizedQuery = input.query.trim().toLowerCase();
+        const matchingPaths = normalizedQuery.length === 0
+          ? []
+          : normalizedQuery.includes("feature")
+            ? ["src/feature.ts"]
+            : normalizedQuery.includes("file-090")
+              ? ["src/file-090.ts"]
+            : normalizedQuery.includes("app") || normalizedQuery.includes("title")
+              ? ["src/app.ts"]
+              : normalizedQuery.includes("workbench") || normalizedQuery.includes("difftree")
+                ? ["src/workbench.tsx"]
+                : [];
+        return {
+          query: input.query,
+          matchingPaths,
+        };
+      }
+      return {
+        query: input.query,
+        matchingPaths: [],
+      };
+    }
+    case "git:init": {
+      const [cwd] = args as [string];
+      return {
+        cwd,
+        source: "unstaged" as const,
+        patch: "",
+        files: [],
+        isGitRepository: true,
+        baseRef: null,
+        currentBranch: "main",
+        defaultBranch: "main",
+        errorMessage: null,
+      };
+    }
+    case "git:apply-patch": {
+      const [input] = args as [{
+        cwd: string;
+        diff: string;
+        target: "staged" | "unstaged";
+        revert?: boolean;
+      }];
+      if (isStorybookRuntime()) {
+        return {
+          status: "success" as const,
+          appliedPaths: [input.diff.includes("src/feature.ts") ? "src/feature.ts" : "src/workbench.tsx"],
+          skippedPaths: [],
+          conflictedPaths: [],
+          errorCode: null,
+          errorMessage: null,
+        };
+      }
+      return {
+        status: "error" as const,
+        appliedPaths: [],
+        skippedPaths: [],
+        conflictedPaths: [],
+        errorCode: "unavailableInBrowser",
+        errorMessage: "Git patch application is unavailable outside Electron.",
+      };
+    }
     case "git:branch:watch:start":
     case "git:branch:watch:stop": {
       return;

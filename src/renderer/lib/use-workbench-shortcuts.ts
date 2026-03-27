@@ -15,6 +15,7 @@ export interface WorkbenchShortcutActions {
   onRequestProjectPicker?: () => void;
   onRequestTaskSearch?: (projectId: string) => void;
   onRequestThreadSearch?: (projectId: string) => void;
+  onRequestDiffSearch?: (projectId: string) => void;
   onRequestSettingsToggle?: () => void;
   navigateBack?: () => void;
   navigateForward?: () => void;
@@ -125,6 +126,11 @@ export function handleWorkbenchShortcut(
   if (!e.altKey && !e.shiftKey && (e.key === "F" || e.key === "f")) {
     if (actions.focusedStage === "threads" && actions.onRequestThreadSearch) {
       actions.onRequestThreadSearch(actions.dbProjectId);
+      return true;
+    }
+
+    if (actions.focusedStage === "files" && actions.onRequestDiffSearch) {
+      actions.onRequestDiffSearch(actions.dbProjectId);
       return true;
     }
 

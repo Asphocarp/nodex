@@ -217,6 +217,143 @@ export function SearchIcon({ className }: IconProps) {
   );
 }
 
+export function RefreshIcon({ className }: IconProps) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 20 20" className={cn("icon-xs", className)}>
+      <path d="M9.99984 3.16669C6.59408 3.16669 3.83317 5.9276 3.83317 9.33335C3.83317 9.70061 3.5354 9.99839 3.16813 9.99839C2.80087 9.99839 2.50309 9.70061 2.50309 9.33335C2.50309 5.19223 5.85872 1.83661 9.99984 1.83661C11.9854 1.83661 13.7913 2.60769 15.1286 3.86623V2.99766C15.1286 2.6304 15.4264 2.33262 15.7936 2.33262C16.1609 2.33262 16.4587 2.6304 16.4587 2.99766V5.66669C16.4587 6.03396 16.1609 6.33173 15.7936 6.33173H13.1246C12.7573 6.33173 12.4596 6.03396 12.4596 5.66669C12.4596 5.29943 12.7573 5.00165 13.1246 5.00165H14.3342C13.2397 4.06105 11.8165 3.49677 10.2628 3.49677L9.99984 3.16669ZM16.8315 10.0016C17.1987 10.0016 17.4965 10.2994 17.4965 10.6667C17.4965 14.8078 14.1409 18.1634 9.99984 18.1634C7.96879 18.1634 6.12408 17.3554 4.77888 16.0466V17.0024C4.77888 17.3696 4.48111 17.6674 4.11384 17.6674C3.74658 17.6674 3.4488 17.3696 3.4488 17.0024V14.3334C3.4488 13.9661 3.74658 13.6683 4.11384 13.6683H6.78288C7.15014 13.6683 7.44792 13.9661 7.44792 14.3334C7.44792 14.7006 7.15014 14.9984 6.78288 14.9984H5.5764C6.66873 15.9394 8.11274 16.5033 9.73792 16.5033C13.1437 16.5033 15.9046 13.7424 15.9046 10.3366C15.9046 9.96935 16.2024 9.67157 16.5697 9.67157L16.8315 10.0016Z" />
+    </svg>
+  );
+}
+
+export function ReviewSplitDiffIcon({ className }: IconProps) {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={cn("icon-xs", className)}>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="3" stroke="currentColor" strokeWidth="2" />
+      <path d="M6 8C6 7.44772 6.44772 7 7 7H10.25C10.8023 7 11.25 7.44772 11.25 8V16C11.25 16.5523 10.8023 17 10.25 17H7C6.44772 17 6 16.5523 6 16V8Z" fill="#F84E63" fillOpacity="0.5" />
+      <path d="M12.75 8C12.75 7.44772 13.1977 7 13.75 7H17C17.5523 7 18 7.44772 18 8V16C18 16.5523 17.5523 17 17 17H13.75C13.1977 17 12.75 16.5523 12.75 16V8Z" fill="#36D958" fillOpacity="0.5" />
+    </svg>
+  );
+}
+
+export function ReviewUnifiedDiffIcon({ className }: IconProps) {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={cn("icon-xs", className)}>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="3" stroke="currentColor" strokeWidth="2" />
+      <path d="M6 8C6 7.44772 6.44772 7 7 7H17C17.5523 7 18 7.44772 18 8V10.25C18 10.8023 17.5523 11.25 17 11.25H7C6.44772 11.25 6 10.8023 6 10.25V8Z" fill="#F84E63" fillOpacity="0.5" />
+      <path d="M6 13.75C6 13.1977 6.44772 12.75 7 12.75H17C17.5523 12.75 18 13.1977 18 13.75V16C18 16.5523 17.5523 17 17 17H7C6.44772 17 6 16.5523 6 16V13.75Z" fill="#36D958" fillOpacity="0.5" />
+    </svg>
+  );
+}
+
+export function ReviewEnableWordWrapIcon({ className }: IconProps) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 20 20" className={cn("icon-xs", className)}>
+      <path d="M10.33 12.668c.367 0 .665.298.665.665l.002 3.333a.665.665 0 0 1-1.33.001l-.002-3.334c0-.367.298-.665.665-.665Zm3.364-5.639a.665.665 0 0 1 .94 0l2.5 2.5c.26.26.26.682 0 .942l-2.5 2.5a.666.666 0 0 1-.94-.942l1.365-1.364H3.33a.665.665 0 1 1 0-1.33h11.728l-1.365-1.364a.666.666 0 0 1 0-.942ZM10.33 2.668c.367 0 .665.298.665.665l.002 3.333a.665.665 0 0 1-1.33.001l-.002-3.334c0-.367.298-.665.665-.665Z" />
+    </svg>
+  );
+}
+
+export function ReviewDisableWordWrapIcon({ className }: IconProps) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 20 20" className={cn("icon-xs", className)}>
+      <path d="M15.672 2.668c.367 0 .665.298.665.665l-.002 13.333a.665.665 0 0 1-1.33 0l.002-13.333c0-.367.298-.665.665-.665ZM9.586 6.002a3.582 3.582 0 0 1 0 7.163H5.777l.949.948a.665.665 0 1 1-.94.94l-2.084-2.082a.667.667 0 0 1 0-.94l2.083-2.085a.666.666 0 0 1 .94.942l-.947.947h3.808a2.251 2.251 0 0 0 0-4.503H4.169a.666.666 0 0 1 0-1.33h5.417Z" />
+    </svg>
+  );
+}
+
+export function ReviewExpandAllDiffsIcon({ className }: IconProps) {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={cn("icon-xs", className)}>
+      <path d="M12.8 8L19.8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M12.8 12L19.8 12.002" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M12.8 16L16.8 16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M6.24013 6V18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3.74022 7.50012L6.24022 5.00012L8.74022 7.50012" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M8.74022 16.5L6.24022 19L3.74022 16.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function ReviewCollapseAllDiffsIcon({ className }: IconProps) {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={cn("icon-xs", className)}>
+      <path d="M13 9.50004L20 9.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M13 14.5L17 14.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M6.23999 4V9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M6.23999 15V20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3.74009 16.5L6.24009 14L8.74009 16.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M8.74009 7.5L6.24009 10L3.74009 7.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function ReviewFileDocumentIcon({ className }: IconProps) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" className={cn("icon-xs", className)}>
+      <path d="M11.8352 4.58331C11.8352 3.56995 11.0136 2.74848 10.0002 2.74835C8.9868 2.74835 8.16528 3.56987 8.16528 4.58331C8.16528 4.67625 8.24033 4.75123 8.33325 4.75128H11.6663C11.7592 4.75128 11.8352 4.67628 11.8352 4.58331ZM16.7063 13.0833C16.7063 13.7724 16.707 14.3294 16.6702 14.7796C16.6374 15.1802 16.5731 15.541 16.429 15.8773L16.3616 16.0198C16.096 16.541 15.6924 16.9775 15.1965 17.2816L14.9788 17.4036C14.602 17.5956 14.1956 17.6748 13.7376 17.7122C13.2874 17.749 12.7302 17.7484 12.0413 17.7484H7.95825C7.26916 17.7484 6.71221 17.749 6.26196 17.7122C5.86132 17.6795 5.5006 17.6143 5.16431 17.47L5.02173 17.4036C4.50069 17.1381 4.06411 16.7343 3.76001 16.2386L3.63794 16.0198C3.44614 15.6432 3.36676 15.2374 3.32935 14.7796C3.29256 14.3294 3.29321 13.7724 3.29321 13.0833V7.4339C3.29321 6.89108 3.2926 6.45196 3.31568 6.09503C3.33912 5.73276 3.38938 5.40917 3.51001 5.09991C3.83166 4.27546 4.48341 3.62273 5.30786 3.30109L5.54321 3.22394C5.78184 3.15798 6.03209 3.12531 6.30396 3.10773C6.56114 3.0911 6.86075 3.08745 7.21118 3.08624C7.74527 2.0934 8.79389 1.41827 10.0002 1.41827C11.2064 1.41836 12.2542 2.09359 12.7883 3.08624C13.139 3.08744 13.4392 3.09109 13.6965 3.10773C14.0587 3.13116 14.3825 3.18053 14.6917 3.30109L14.844 3.36554C15.5964 3.7052 16.1889 4.32679 16.4905 5.09991L16.5686 5.33527C16.6344 5.5736 16.6663 5.82355 16.6838 6.09503C16.7069 6.45195 16.7063 6.89108 16.7063 7.4339V13.0833ZM13.1653 4.58331C13.1653 5.41082 12.4938 6.08136 11.6663 6.08136H8.33325C7.50579 6.08131 6.83521 5.41079 6.83521 4.58331C6.83521 4.52829 6.83634 4.47359 6.83911 4.41925C6.66887 4.42205 6.52147 4.42638 6.38989 4.43488C6.16579 4.44937 6.01318 4.47293 5.89673 4.50519L5.79126 4.54034C5.31326 4.72683 4.93477 5.10531 4.74829 5.58331C4.69813 5.71204 4.66211 5.88293 4.64282 6.18097C4.62316 6.48503 4.62329 6.87387 4.62329 7.4339V13.0833C4.62329 13.7944 4.62418 14.2877 4.65552 14.6712C4.68622 15.0469 4.74298 15.2583 4.82349 15.4163L4.8938 15.5423C5.07011 15.8299 5.32299 16.0641 5.62525 16.2181L5.75513 16.2747C5.89888 16.3262 6.08851 16.363 6.37036 16.386C6.75388 16.4174 7.24721 16.4183 7.95825 16.4183H12.0413C12.7521 16.4183 13.2457 16.4174 13.6292 16.386C14.0047 16.3554 14.2163 16.2985 14.3743 16.2181L14.5012 16.1478C14.7887 15.9715 15.0231 15.7185 15.177 15.4163L15.2327 15.2864C15.2841 15.1427 15.3219 14.9532 15.345 14.6712C15.3763 14.2877 15.3762 13.7944 15.3762 13.0833V7.4339C15.3762 6.87387 15.3764 6.48503 15.3567 6.18097C15.3422 5.95722 15.3186 5.80513 15.2864 5.68878L15.2512 5.58331C15.0881 5.16509 14.7781 4.8233 14.3831 4.61945L14.2083 4.54034C14.0795 4.49017 13.9087 4.45416 13.6106 4.43488C13.4788 4.42636 13.331 4.42205 13.1604 4.41925C13.1632 4.47359 13.1653 4.52828 13.1653 4.58331Z" />
+    </svg>
+  );
+}
+
+export function ReviewRichPreviewIcon({ className }: IconProps) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" className={cn("icon-xs", className)}>
+      <rect x="3.25" y="4.25" width="13.5" height="11.5" rx="2.5" stroke="currentColor" strokeWidth="1.33" />
+      <circle cx="7.1" cy="8.05" r="1.2" fill="currentColor" />
+      <path d="M5.4 13.1L8.36667 10.4C8.73157 10.0683 9.29163 10.0816 9.64039 10.4304L11.1 11.89L12.7596 10.2304C13.1084 9.88165 13.6684 9.86834 14.0333 10.2L14.6 10.7152L14.6757 10.7923C14.9051 11.0565 14.8833 11.4564 14.6191 11.6858C14.3549 11.9152 13.9549 11.8934 13.7256 11.6292L13.1818 11.135L11.5353 12.7815C11.0405 13.2763 10.2383 13.2763 9.74352 12.7815L8.28391 11.3219L6.29639 13.1319C6.02495 13.3792 5.60427 13.3598 5.35697 13.0884C5.10965 12.817 5.12905 12.3963 5.40049 12.149L5.4 13.1Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function ReviewWordDiffsIcon({ className }: IconProps) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 20 20" className={cn("icon-xs", className)}>
+      <path d="M14.375 9.502a3.165 3.165 0 0 1 0 6.33h-2.77l.949.948a.666.666 0 0 1-.942.94L9.53 15.639a.667.667 0 0 1 0-.942l2.083-2.083a.666.666 0 0 1 .942.94l-.949.949h2.77a1.836 1.836 0 0 0 0-3.67H3.333a.666.666 0 0 1 0-1.33h11.042Zm-7.709 5a.665.665 0 1 1 0 1.33H3.333a.666.666 0 0 1 0-1.33h3.333Zm10-10a.665.665 0 1 1 0 1.33H3.333a.666.666 0 0 1 0-1.33h13.333Z" />
+    </svg>
+  );
+}
+
+export function FileTreeChevronIcon({ className }: IconProps) {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className={cn("shrink-0", className)} aria-hidden="true">
+      <path
+        d="M12.4697 5.46973C12.7626 5.17684 13.2374 5.17684 13.5303 5.46973C13.8232 5.76262 13.8232 6.23738 13.5303 6.53028L8.53028 11.5303C8.23738 11.8232 7.76262 11.8232 7.46973 11.5303L2.46973 6.53028C2.17684 6.23738 2.17684 5.76262 2.46973 5.46973C2.76262 5.17684 3.23738 5.17684 3.53028 5.46973L8 9.93946L12.4697 5.46973Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+export function FileTreeFileIcon({ className }: IconProps) {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className={cn("shrink-0", className)} aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M10.75 0c.199 0 .39.08.53.22l3.5 3.5c.14.14.22.331.22.53v9A2.75 2.75 0 0 1 12.25 16h-8.5A2.75 2.75 0 0 1 1 13.25V2.75A2.75 2.75 0 0 1 3.75 0zm-7 1.5c-.69 0-1.25.56-1.25 1.25v10.5c0 .69.56 1.25 1.25 1.25h8.5c.69 0 1.25-.56 1.25-1.25V5h-1.25A2.25 2.25 0 0 1 10 2.75V1.5z"
+      />
+    </svg>
+  );
+}
+
+export function FileTreeDotIcon({ className }: IconProps) {
+  return (
+    <svg width="6" height="6" viewBox="0 0 6 6" fill="none" xmlns="http://www.w3.org/2000/svg" className={cn("shrink-0", className)} aria-hidden="true">
+      <circle cx="3" cy="3" r="3" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function FileTreeLockIcon({ className }: IconProps) {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className={cn("shrink-0", className)} aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M4 5.336V4a4 4 0 1 1 8 0v1.336c1.586.54 2 1.843 2 4.664v1c0 4.118-.883 5-5 5H7c-4.117 0-5-.883-5-5v-1c0-2.821.414-4.124 2-4.664M5.5 4v1.054Q6.166 4.998 7 5h2q.834-.002 1.5.054V4a2.5 2.5 0 0 0-5 0m-2 6v1c0 .995.055 1.692.167 2.193.107.483.246.686.35.79s.307.243.79.35c.5.112 1.198.167 2.193.167h2c.995 0 1.692-.055 2.193-.166.483-.108.686-.247.79-.35.104-.105.243-.308.35-.791.112-.5.167-1.198.167-2.193v-1c0-.995-.055-1.692-.166-2.193-.108-.483-.247-.686-.35-.79-.105-.104-.308-.243-.791-.35C10.693 6.555 9.995 6.5 9 6.5H7c-.995 0-1.692.055-2.193.167-.483.107-.686.246-.79.35s-.243.307-.35.79C3.555 8.307 3.5 9.005 3.5 10"
+      />
+    </svg>
+  );
+}
+
 export function PriorityPickerIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 16 16" className={cn("size-3", className)} fill="none" aria-hidden="true">

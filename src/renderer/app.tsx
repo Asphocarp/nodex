@@ -126,6 +126,7 @@ function WorkbenchApp({ initialResumeSnapshot }: { initialResumeSnapshot: Workbe
   const [projectPickerOpenTick, setProjectPickerOpenTick] = useState(0);
   const [taskSearchOpenTick, setTaskSearchOpenTick] = useState(0);
   const [threadSearchOpenTick, setThreadSearchOpenTick] = useState(0);
+  const [diffSearchOpenTick, setDiffSearchOpenTick] = useState(0);
   const [commandPaletteOpenTick, setCommandPaletteOpenTick] = useState(0);
   const [commandPaletteInitialQuery, setCommandPaletteInitialQuery] = useState("");
   const [settingsToggleTick, setSettingsToggleTick] = useState(0);
@@ -836,6 +837,11 @@ function WorkbenchApp({ initialResumeSnapshot }: { initialResumeSnapshot: Workbe
     focusStageWithNearestIntent(projectId, "threads");
   }, [focusStageWithNearestIntent]);
 
+  const handleOpenDiffSearch = useCallback((projectId: string) => {
+    setDiffSearchOpenTick((tick) => tick + 1);
+    focusStageWithNearestIntent(projectId, "files");
+  }, [focusStageWithNearestIntent]);
+
   const handleToggleSettings = useCallback(() => {
     setSettingsToggleTick((tick) => tick + 1);
   }, []);
@@ -861,6 +867,7 @@ function WorkbenchApp({ initialResumeSnapshot }: { initialResumeSnapshot: Workbe
     onRequestProjectPicker: handleOpenProjectPicker,
     onRequestTaskSearch: handleOpenTaskSearch,
     onRequestThreadSearch: handleOpenThreadSearch,
+    onRequestDiffSearch: handleOpenDiffSearch,
     onRequestSettingsToggle: handleToggleSettings,
     navigateBack: () => {
       void navigateBack();
@@ -961,6 +968,7 @@ function WorkbenchApp({ initialResumeSnapshot }: { initialResumeSnapshot: Workbe
       projectPickerOpenTick={projectPickerOpenTick}
       taskSearchOpenTick={taskSearchOpenTick}
       threadSearchOpenTick={threadSearchOpenTick}
+      diffSearchOpenTick={diffSearchOpenTick}
       commandPaletteOpenTick={commandPaletteOpenTick}
       commandPaletteInitialQuery={commandPaletteInitialQuery}
       settingsToggleTick={settingsToggleTick}
