@@ -66,7 +66,7 @@
   - keep theme/color ownership in the generated Codex contract/foundation layers plus the runtime theme bridge, not in feature components
 - Keep app-owned SVG icons centralized:
   - prefer `lucide-react` for generic stock icons that already exist in the library
-  - keep all custom SVGs in `src/renderer/components/shared/icons.tsx`
+  - you MUST keep ALL custom SVGs in `src/renderer/components/shared/icons.tsx`
 - Prefer shared primitives over bespoke wrappers:
   - if a surface looks like an existing row shell, accordion shell, summary header, fade-mask container, or compact card, reuse or extract a primitive instead of restyling a feature-local wrapper
   - keep visual density aligned to the existing rhythm (`gap-*`, `px-panel`, `var(--conversation-tool-assistant-gap)`) rather than per-component spacing tweaks
