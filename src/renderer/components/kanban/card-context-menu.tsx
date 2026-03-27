@@ -7,12 +7,19 @@ import {
   Image,
   LayoutGrid,
   PanelRightOpen,
-  Search,
   SlidersHorizontal,
   Star,
   Trash2,
 } from "lucide-react";
 import { CheckmarkIcon } from "@/components/shared/icons";
+import { NodexIconButton } from "@/components/ui/button";
+import {
+  NodexDropdownMessage,
+  NodexDropdownSearchInput,
+  NodexDropdownSectionLabel,
+  NodexDropdownSeparator,
+  NodexDropdownSurface,
+} from "@/components/ui/dropdown";
 import { cn } from "@/lib/utils";
 import {
   getCardActionMenuEntries,
@@ -36,19 +43,13 @@ interface CardContextMenuProps {
 }
 
 type CardContextMenuView = "actions" | "move";
-
-const CONTENT_CLASS_NAME = [
-  "z-50 overflow-hidden rounded-[10px] p-1 text-(--foreground) select-none no-drag",
-  "bg-[color-mix(in_srgb,var(--background)_94%,transparent)]",
-  "shadow-[0_22px_60px_rgba(15,23,42,0.18)] ring-[0.5px] ring-[color-mix(in_srgb,var(--foreground)_12%,transparent)] backdrop-blur-xl",
-  "outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-[0.985]",
+const CONTEXT_MENU_MOTION_CLASS_NAME = [
   "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-[0.985]",
 ].join(" ");
-
-const ITEM_CLASS_NAME = [
-  "flex min-h-7 w-full cursor-default items-center gap-2 rounded-lg px-2 py-1.5 text-sm outline-none",
-  "data-highlighted:bg-[color-mix(in_srgb,var(--foreground)_8%,transparent)] data-highlighted:text-(--foreground)",
-  "data-[disabled]:pointer-events-none data-[disabled]:opacity-45",
+const CONTEXT_MENU_ITEM_CLASS_NAME = [
+  "no-drag text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm",
+  "focus:bg-token-list-hover-background data-highlighted:bg-token-list-hover-background",
+  "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
 ].join(" ");
 
 function focusMenuInput(input: HTMLInputElement | null) {
@@ -115,6 +116,21 @@ function ActionIcon({ entryId }: { entryId: CardActionMenuEntry["id"] }) {
     case "delete":
       return <Trash2 className={className} strokeWidth={1.8} />;
   }
+}
+
+function CardContextMenuSectionFooter({
+  currentProjectName,
+  createdAt,
+}: {
+  currentProjectName: string;
+  createdAt: Date;
+}) {
+  return (
+    <div className="px-[var(--padding-row-x)] pt-0.5 pb-2 text-xs text-token-description-foreground">
+      <div className="truncate">{currentProjectName}</div>
+      <div className="truncate pt-0.5">Created {formatCreatedLabel(createdAt)}</div>
+    </div>
+  );
 }
 
 export function CardContextMenu({
@@ -222,170 +238,138 @@ export function CardContextMenu({
             event.preventDefault();
             setView("actions");
           }}
-          className={cn(CONTENT_CLASS_NAME, view === "move" ? "w-[330px]" : "w-[265px]")}
+          className={cn("z-50 no-drag outline-hidden", CONTEXT_MENU_MOTION_CLASS_NAME)}
         >
-          <div className="flex flex-col gap-1">
-            {view === "actions" ? (
-              <>
-                <div className="px-1 pt-1">
-                  <label className="flex h-7 items-center gap-2 rounded-lg bg-[color-mix(in_srgb,var(--foreground)_6%,transparent)] px-2 text-sm text-(--foreground-secondary)">
-                    <Search className="size-3.5 shrink-0" strokeWidth={1.9} />
-                    <input
-                      ref={actionInputRef}
-                      value={actionQuery}
-                      onChange={(event) => setActionQuery(event.target.value)}
-                      onKeyDown={handleActionInputKeyDown}
-                      onPointerDown={(event) => event.stopPropagation()}
-                      placeholder="Search actions…"
-                      className="h-full min-w-0 flex-1 border-none bg-transparent p-0 text-(--foreground) outline-none placeholder:text-(--foreground-tertiary)"
-                    />
-                  </label>
-                </div>
+          <NodexDropdownSurface className={cn(view === "move" ? "w-[330px]" : "w-[265px]")}>
+            <div className="flex flex-col">
+              {view === "actions" ? (
+                <>
+                  <NodexDropdownSearchInput
+                    ref={actionInputRef}
+                    value={actionQuery}
+                    onChange={(event) => setActionQuery(event.target.value)}
+                    onKeyDown={handleActionInputKeyDown}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    placeholder="Search actions…"
+                  />
 
-                <div className="px-3 pt-2 pb-1 text-xs font-medium tracking-wide text-(--foreground-tertiary)">
-                  Page
-                </div>
+                  <NodexDropdownSectionLabel>Page</NodexDropdownSectionLabel>
 
-                {actions.length === 0 ? (
-                  <div className="px-3 py-2 text-sm text-(--foreground-secondary)">
-                    No actions found
-                  </div>
-                ) : (
-                  actions.map((entry) => (
-                    <ContextMenuPrimitive.Item
-                      key={entry.id}
-                      disabled={entry.disabled || (entry.id === "copy-link" && !canCopyLink)}
-                      data-card-menu-item="true"
-                      onSelect={(event) => {
-                        if (entry.id === "move-to") {
-                          event.preventDefault();
-                          setMoveQuery("");
-                          setView("move");
-                          return;
-                        }
+                  {actions.length === 0 ? (
+                    <NodexDropdownMessage compact>No actions found</NodexDropdownMessage>
+                  ) : (
+                    actions.map((entry) => (
+                      <ContextMenuPrimitive.Item
+                        key={entry.id}
+                        disabled={entry.disabled || (entry.id === "copy-link" && !canCopyLink)}
+                        data-card-menu-item="true"
+                        onSelect={(event) => {
+                          if (entry.id === "move-to") {
+                            event.preventDefault();
+                            setMoveQuery("");
+                            setView("move");
+                            return;
+                          }
 
-                        if (entry.id === "copy-link") {
-                          void onCopyLink({
-                            cardId: card.id,
-                            projectId: currentProjectId,
-                          });
-                          return;
-                        }
+                          if (entry.id === "copy-link") {
+                            void onCopyLink({
+                              cardId: card.id,
+                              projectId: currentProjectId,
+                            });
+                            return;
+                          }
 
-                        if (entry.id === "delete") {
-                          void onDelete({
-                            cardId: card.id,
-                            columnId: currentColumnId,
-                          });
-                        }
-                      }}
-                      className={cn(
-                        ITEM_CLASS_NAME,
-                        entry.id === "delete"
-                          ? "data-highlighted:bg-[color-mix(in_srgb,var(--destructive)_12%,transparent)] data-highlighted:text-(--destructive)"
-                          : null,
-                      )}
-                    >
-                      <span className="flex size-5 shrink-0 items-center justify-center text-(--foreground-secondary)">
-                        <ActionIcon entryId={entry.id} />
-                      </span>
-                      <span className="min-w-0 flex-1 truncate">{entry.label}</span>
-                      {entry.shortcut ? (
-                        <span className="shrink-0 text-xs text-(--foreground-tertiary)">
-                          {entry.shortcut}
+                          if (entry.id === "delete") {
+                            void onDelete({
+                              cardId: card.id,
+                              columnId: currentColumnId,
+                            });
+                          }
+                        }}
+                        className={cn(CONTEXT_MENU_ITEM_CLASS_NAME, "flex w-full items-center gap-2")}
+                      >
+                        <span className="flex size-5 shrink-0 items-center justify-center text-token-description-foreground">
+                          <ActionIcon entryId={entry.id} />
                         </span>
-                      ) : null}
-                      {entry.id === "move-to" ? (
-                        <ChevronRight className="size-3.5 shrink-0 text-(--foreground-tertiary)" strokeWidth={1.9} />
-                      ) : null}
-                    </ContextMenuPrimitive.Item>
-                  ))
-                )}
-              </>
-            ) : (
-              <>
-                <div className="px-1 pt-1">
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
+                        <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+                        {entry.shortcut ? (
+                          <span className="shrink-0 text-xs text-token-description-foreground">
+                            {entry.shortcut}
+                          </span>
+                        ) : null}
+                        {entry.id === "move-to" ? (
+                          <ChevronRight className="size-3.5 shrink-0 text-token-description-foreground" strokeWidth={1.9} />
+                        ) : null}
+                      </ContextMenuPrimitive.Item>
+                    ))
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-1 px-[var(--padding-row-x)] py-[var(--padding-row-y)]">
+                    <NodexIconButton
+                      icon={ArrowLeft}
+                      ariaLabel="Back to actions"
+                      size="xs"
                       onClick={() => setView("actions")}
-                      className="flex size-7 shrink-0 items-center justify-center rounded-lg text-(--foreground-secondary) hover:bg-[color-mix(in_srgb,var(--foreground)_8%,transparent)] hover:text-(--foreground)"
-                      aria-label="Back to actions"
-                    >
-                      <ArrowLeft className="size-3.5" strokeWidth={1.9} />
-                    </button>
-                    <label className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-lg bg-[color-mix(in_srgb,var(--foreground)_6%,transparent)] px-2 text-sm text-(--foreground-secondary)">
-                      <Search className="size-3.5 shrink-0" strokeWidth={1.9} />
-                      <input
-                        ref={moveInputRef}
-                        value={moveQuery}
-                        onChange={(event) => setMoveQuery(event.target.value)}
-                        onKeyDown={handleMoveInputKeyDown}
-                        onPointerDown={(event) => event.stopPropagation()}
-                        placeholder="Move task to project…"
-                        className="h-full min-w-0 flex-1 border-none bg-transparent p-0 text-(--foreground) outline-none placeholder:text-(--foreground-tertiary)"
-                      />
-                    </label>
+                    />
+                    <NodexDropdownSearchInput
+                      ref={moveInputRef}
+                      value={moveQuery}
+                      onChange={(event) => setMoveQuery(event.target.value)}
+                      onKeyDown={handleMoveInputKeyDown}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      placeholder="Move task to project…"
+                      className="min-w-0 flex-1 px-0 py-0"
+                    />
                   </div>
-                </div>
 
-                <div className="flex items-center px-3 pt-2 pb-1 text-xs font-medium tracking-wide text-(--foreground-tertiary)">
-                  <span className="truncate">Projects</span>
-                  <span className="ml-auto shrink-0 tabular-nums">
-                    {projects.length}
-                  </span>
-                </div>
+                  <NodexDropdownSectionLabel className="flex items-center gap-2">
+                    <span className="truncate">Projects</span>
+                    <span className="ml-auto shrink-0 tabular-nums">{projects.length}</span>
+                  </NodexDropdownSectionLabel>
 
-                {moveTargets.length === 0 ? (
-                  <div className="px-3 py-2 text-sm text-(--foreground-secondary)">
-                    No projects found
-                  </div>
-                ) : (
-                  moveTargets.map((target) => (
-                    <ContextMenuPrimitive.Item
-                      key={target.id}
-                      disabled={target.disabled}
-                      data-card-menu-item="true"
-                      onSelect={() => {
-                        if (target.disabled) {
-                          return;
-                        }
+                  {moveTargets.length === 0 ? (
+                    <NodexDropdownMessage compact>No projects found</NodexDropdownMessage>
+                  ) : (
+                    moveTargets.map((target) => (
+                      <ContextMenuPrimitive.Item
+                        key={target.id}
+                        disabled={target.disabled}
+                        data-card-menu-item="true"
+                        onSelect={() => {
+                          if (target.disabled) {
+                            return;
+                          }
 
-                        void onMoveToProject(target.id);
-                      }}
-                      className={cn(
-                        "flex min-h-[45px] w-full cursor-default items-start gap-2 rounded-lg px-2 py-2 text-sm outline-none",
-                        "data-highlighted:bg-[color-mix(in_srgb,var(--foreground)_8%,transparent)] data-highlighted:text-(--foreground)",
-                        "data-[disabled]:opacity-70",
-                      )}
-                    >
-                      <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md bg-[color-mix(in_srgb,var(--foreground)_7%,transparent)] text-xs">
-                        {getProjectBadgeLabel(target)}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-(--foreground)">
-                          {target.label}
+                          void onMoveToProject(target.id);
+                        }}
+                        className={cn(CONTEXT_MENU_ITEM_CLASS_NAME, "flex min-h-[45px] w-full items-start gap-2")}
+                      >
+                        <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center text-xs text-token-description-foreground">
+                          {getProjectBadgeLabel(target)}
                         </span>
-                        <span className="block truncate pt-0.5 text-xs text-(--foreground-secondary)">
-                          {target.description}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-token-foreground">
+                            {target.label}
+                          </span>
+                          <span className="block truncate pt-0.5 text-xs text-token-description-foreground">
+                            {target.description}
+                          </span>
                         </span>
-                      </span>
-                      {target.isCurrent ? (
-                        <CheckmarkIcon className="mt-0.5 shrink-0 text-(--foreground-tertiary)" />
-                      ) : null}
-                    </ContextMenuPrimitive.Item>
-                  ))
-                )}
-              </>
-            )}
+                        {target.isCurrent ? (
+                          <CheckmarkIcon className="mt-0.5 shrink-0 text-token-description-foreground" />
+                        ) : null}
+                      </ContextMenuPrimitive.Item>
+                    ))
+                  )}
+                </>
+              )}
 
-            <ContextMenuPrimitive.Separator className="mx-2 my-1 h-px bg-[color-mix(in_srgb,var(--foreground)_10%,transparent)]" />
-
-            <div className="px-3 pt-0.5 pb-2 text-xs text-(--foreground-tertiary)">
-              <div className="truncate">{currentProjectName}</div>
-              <div className="truncate pt-0.5">Created {formatCreatedLabel(card.created)}</div>
+              <NodexDropdownSeparator />
+              <CardContextMenuSectionFooter currentProjectName={currentProjectName} createdAt={card.created} />
             </div>
-          </div>
+          </NodexDropdownSurface>
         </ContextMenuPrimitive.Content>
       </ContextMenuPrimitive.Portal>
     </ContextMenuPrimitive.Root>

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import { render, settleAsyncRender, textContent } from "@/test/dom";
 import type { CodexApprovalRequest } from "@/lib/types";
 import { CodexApprovalRequestCard } from "./codex-approval-request-card";
@@ -28,8 +28,8 @@ describe("CodexApprovalRequestCard", () => {
       <TooltipProvider>
         <CodexApprovalRequestCard
           request={approvalRequest}
-          onRespond={async () => {}}
-          onSubmitLocalFollowup={async () => {}}
+          onRespond={async () => { }}
+          onSubmitLocalFollowup={async () => { }}
         />
       </TooltipProvider>,
     );
@@ -60,8 +60,8 @@ describe("CodexApprovalRequestCard", () => {
           request={backgroundApprovalRequest}
           actorName="Worker 1"
           approvalQuestionActor={<span className="font-medium">Worker 1</span>}
-          onRespond={async () => {}}
-          onSubmitLocalFollowup={async () => {}}
+          onRespond={async () => { }}
+          onSubmitLocalFollowup={async () => { }}
         />
       </TooltipProvider>,
     );

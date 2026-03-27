@@ -23,11 +23,9 @@ import {
 } from "./projection-drag-handle";
 import { hasRecursiveInlineProjectAncestor } from "./projection-card-toggle";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select";
+  NodexDropdownButtonTrigger,
+  NodexDropdownChoiceMenu,
+} from "@/components/ui/dropdown";
 import { ToggleListSummaryBadges, ToggleListRulesBody } from "@/components/kanban/toggle-list-rules-body";
 import {
   getDefaultToggleListInlineViewProps,
@@ -342,29 +340,27 @@ export const createToggleListInlineViewBlockSpec = createReactBlockSpec(
         >
           <div className={cn("pointer-events-none absolute -top-8.5 right-0 inline-flex items-center gap-1 rounded-lg px-0.5 py-0.5 opacity-0 transition-all duration-swift ease-out", active && `pointer-events-auto opacity-100`)} contentEditable={false}>
             <ProjectionDragHandleButton editor={editor} block={block} />
-            <Select
+            <NodexDropdownChoiceMenu
               value={sourceProjectId}
               onValueChange={(value) => {
                 updateBlockProps(settings, value);
               }}
-            >
-              <SelectTrigger className={cn(PROJECTION_ACTION_BTN, "h-7! pr-2")}>
-                <span className="inline-flex items-center gap-1.5">
-                  <Layers3 className="size-3.5" />
-                  {sourceProjectId}
-                </span>
-              </SelectTrigger>
-              <SelectContent sideOffset={4}>
-                {projects.map((project) => {
-                  const icon = normalizeProjectIcon(project.icon);
-                  return (
-                    <SelectItem key={project.id} value={project.id}>
-                      {icon ? `${icon} ${project.name}` : project.name}
-                    </SelectItem>
-                  );
-                })}
-              </SelectContent>
-            </Select>
+              options={projects.map((project) => {
+                const icon = normalizeProjectIcon(project.icon);
+                return {
+                  value: project.id,
+                  label: icon ? `${icon} ${project.name}` : project.name,
+                };
+              })}
+              triggerButton={(
+                <NodexDropdownButtonTrigger className={cn(PROJECTION_ACTION_BTN, "h-7! pr-2")}>
+                  <span className="inline-flex items-center gap-1.5">
+                    <Layers3 className="size-3.5" />
+                    {sourceProjectId}
+                  </span>
+                </NodexDropdownButtonTrigger>
+              )}
+            />
 
             <button
               type="button"

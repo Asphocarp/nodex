@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import type { ThreadStageActions } from "../thread-stage-types";
 import { LocalConversationComposerShell } from "./composer/local-conversation-composer-shell";
 import {
@@ -26,37 +26,37 @@ const STORY_CONTROLS: ThreadStageStoryControls = {
 
 function buildActions(): ThreadStageActions {
   return {
-    onCollaborationModeChange: () => {},
-    onModelChange: () => {},
-    onReasoningEffortChange: () => {},
-    onPermissionModeChange: () => {},
-    onQueueingEnabledChange: () => {},
+    onCollaborationModeChange: () => { },
+    onModelChange: () => { },
+    onReasoningEffortChange: () => { },
+    onPermissionModeChange: () => { },
+    onQueueingEnabledChange: () => { },
     onRefreshAccount: async () => {
       throw new Error("not implemented");
     },
     onStartChatGptLogin: async () => ({ type: "apiKey" }),
     onStartApiKeyLogin: async () => ({ type: "apiKey" }),
-    onCancelLogin: async () => {},
-    onLogout: async () => {},
-    onStartThreadForCard: async () => {},
-    onSendPrompt: async () => {},
-    onSteerPrompt: async () => {},
-    onInterruptTurn: async () => {},
-    onRespondApproval: async () => {},
-    onRespondUserInput: async () => {},
-    onRespondMcpElicitation: async () => {},
-    onResolvePlanImplementationRequest: () => {},
-    onEnqueueQueuedFollowUp: async () => {},
-    onRemoveQueuedFollowUp: async () => {},
-    onReorderQueuedFollowUps: async () => {},
-    onSendQueuedFollowUpNow: async () => {},
-    onEditQueuedFollowUp: async () => {},
-    onEditLastUserTurn: async () => {},
-    onForkFromTurn: async () => {},
-    onConsumeComposerIntent: () => {},
-    onOpenThread: () => {},
-    onCleanBackgroundTerminals: async () => {},
-    onOpenCard: () => {},
+    onCancelLogin: async () => { },
+    onLogout: async () => { },
+    onStartThreadForCard: async () => { },
+    onSendPrompt: async () => { },
+    onSteerPrompt: async () => { },
+    onInterruptTurn: async () => { },
+    onRespondApproval: async () => { },
+    onRespondUserInput: async () => { },
+    onRespondMcpElicitation: async () => { },
+    onResolvePlanImplementationRequest: () => { },
+    onEnqueueQueuedFollowUp: async () => { },
+    onRemoveQueuedFollowUp: async () => { },
+    onReorderQueuedFollowUps: async () => { },
+    onSendQueuedFollowUpNow: async () => { },
+    onEditQueuedFollowUp: async () => { },
+    onEditLastUserTurn: async () => { },
+    onForkFromTurn: async () => { },
+    onConsumeComposerIntent: () => { },
+    onOpenThread: () => { },
+    onCleanBackgroundTerminals: async () => { },
+    onOpenCard: () => { },
   };
 }
 
@@ -208,7 +208,7 @@ function AboveComposerStoryFrame({
             model={model}
             actions={buildActions()}
             errorMessage={null}
-            onErrorMessage={() => {}}
+            onErrorMessage={() => { }}
           />
         </div>
       </TooltipProvider>

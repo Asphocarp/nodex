@@ -13,7 +13,7 @@ import {
 } from "react";
 import { motion } from "motion/react";
 import { ChevronDownIcon, ChevronRightIcon } from "@/components/shared/icons";
-import { Tooltip } from "../../../../../components/ui/tooltip";
+import { NodexTooltip } from "../../../../../components/ui/tooltip";
 import {
   handleFormSubmit,
   resolveFormErrorMessage,
@@ -441,12 +441,11 @@ function UserInputQuestionSection({
                         <span className="flex min-w-0 items-center gap-2">
                           <span className="min-w-0 truncate">{option.label}</span>
                           {option.description && (
-                            <Tooltip
-                              content={option.description}
+                            <NodexTooltip
+                              tooltipContent={option.description}
                               side="top"
                               delayDuration={0}
-                              disableAnimation
-                              contentClassName="max-w-64"
+                              tooltipBodyClassName="max-w-64"
                             >
                               <span
                                 aria-label={`About ${option.label}`}
@@ -458,7 +457,7 @@ function UserInputQuestionSection({
                               >
                                 <InfoIcon />
                               </span>
-                            </Tooltip>
+                            </NodexTooltip>
                           )}
                         </span>
                       </span>

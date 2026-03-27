@@ -1,5 +1,5 @@
 import { type ReactNode } from "react";
-import { TooltipProvider } from "./components/ui/tooltip";
+import { NodexTooltipProvider } from "./components/ui/tooltip";
 import { CardPropertyPositionProvider } from "./lib/use-card-property-position";
 import { CodeFontSizeProvider } from "./lib/use-code-font-size";
 import { FileLinkOpenerProvider } from "./lib/use-file-link-opener";
@@ -62,9 +62,9 @@ export function AppProviders({ children }: AppProvidersProps) {
                     <ThreadSectionSendSettingsProvider>
                       <CardStageCollapsedPropertiesProvider>
                         <CardPropertyPositionProvider>
-                          <TooltipProvider>
+                          <NodexTooltipProvider>
                             {children}
-                          </TooltipProvider>
+                          </NodexTooltipProvider>
                         </CardPropertyPositionProvider>
                       </CardStageCollapsedPropertiesProvider>
                     </ThreadSectionSendSettingsProvider>

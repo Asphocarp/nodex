@@ -1,14 +1,14 @@
 import { FileCode2, FileText, Folder, Link2 } from "lucide-react";
 import { useRef } from "react";
 
-import { Button } from "@/components/ui/button";
+import { NodexButton as Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  NodexDialog as Dialog,
+  NodexDialogContent as DialogContent,
+  NodexDialogDescription as DialogDescription,
+  NodexDialogFooter as DialogFooter,
+  NodexDialogHeader as DialogHeader,
+  NodexDialogTitle as DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { canMaterializePasteResourceItems, type PasteResourceDialogState } from "./paste-resource";
@@ -80,7 +80,7 @@ export function PasteResourceDialog({
       ? "Keep a link to the original folder, or cancel."
       : !canSaveCopy
         ? "Keep links to the original items, or cancel."
-    : "Save a copy or keep a link to the original location.";
+        : "Save a copy or keep a link to the original location.";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

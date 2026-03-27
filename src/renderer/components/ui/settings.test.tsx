@@ -1,15 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { render } from "../../test/dom";
-import {
-  SettingsPageSurface,
-} from "./workbench-settings-primitives";
+import { NodexSettingsPageSurface } from "./settings";
 
-describe("SettingsPageSurface", () => {
+describe("NodexSettingsPageSurface", () => {
   test("applies Codex settings shell typography variables", () => {
     const view = render(
-      <SettingsPageSurface title="Environments">
+      <NodexSettingsPageSurface title="Environments">
         <div>Body</div>
-      </SettingsPageSurface>,
+      </NodexSettingsPageSurface>,
     );
 
     const shell = view.container.firstElementChild as HTMLElement | null;

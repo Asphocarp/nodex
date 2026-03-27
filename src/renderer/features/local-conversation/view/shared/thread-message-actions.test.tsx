@@ -4,9 +4,14 @@ import { render } from "../../../../test/dom";
 import { ForkMessageIcon, ThreadActionIconButton } from "./thread-message-actions";
 
 mock.module("../../../../components/ui/tooltip", () => ({
-  TooltipProvider: ({ children }: { children: ReactNode }) => createElement(Fragment, null, children),
-  Tooltip: ({ children, content }: { children: ReactNode; content: ReactNode }) =>
-    createElement("div", { "data-tooltip-content": String(content) }, children),
+  NodexTooltipProvider: ({ children }: { children: ReactNode }) => createElement(Fragment, null, children),
+  NodexTooltip: ({
+    children,
+    tooltipContent,
+  }: {
+    children: ReactNode;
+    tooltipContent: ReactNode;
+  }) => createElement("div", { "data-tooltip-content": String(tooltipContent) }, children),
 }));
 
 describe("ThreadActionIconButton", () => {

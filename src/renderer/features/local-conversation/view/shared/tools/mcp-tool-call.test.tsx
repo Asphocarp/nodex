@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
-import { TooltipProvider } from "../../../../../components/ui/tooltip";
+import { NodexTooltipProvider as TooltipProvider } from "../../../../../components/ui/tooltip";
 import { render, settleAsyncRender, textContent } from "../../../../../test/dom";
 import { McpToolCall } from "./mcp-tool-call";
 

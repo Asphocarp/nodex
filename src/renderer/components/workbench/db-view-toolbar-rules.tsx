@@ -1,17 +1,15 @@
 import { useMemo } from "react";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
+import {
+  NodexDropdownButtonTrigger,
+  NodexDropdownChoiceMenu,
+  NodexDropdownSeparator,
+} from "@/components/ui/dropdown";
+import {
+  NodexPopover,
+  NodexPopoverContent,
+  NodexPopoverTrigger,
+} from "@/components/ui/popover";
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Eye, EyeOff, Plus, X } from "lucide-react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "../ui/select";
-import {
-  SELECTOR_MENU_CONTENT_CLASS_NAME,
-  SELECTOR_MENU_DIVIDER_CLASS_NAME,
-  SELECTOR_MENU_DIVIDER_WRAPPER_CLASS_NAME,
-} from "@/features/local-conversation/view/shared/selector-popover-primitives";
 import {
   DB_VIEW_DISPLAY_PROPERTY_LABELS,
   DB_VIEW_SORT_FIELD_LABELS,
@@ -44,7 +42,7 @@ import {
 import { priorityClauseIncludesEmpty } from "../../lib/toggle-list/priority-clause";
 import { cn } from "../../lib/utils";
 
-const PANEL_CLASS_NAME = "min-w-96 max-w-[min(34rem,calc(100vw-2rem))] outline-none";
+const PANEL_CLASS_NAME = "min-w-96 max-w-[min(34rem,calc(100vw-2rem))]";
 const SECTION_LABEL =
   "text-xs font-medium uppercase tracking-label text-token-description-foreground select-none";
 const ROW_LABEL =
@@ -56,7 +54,6 @@ const CHIP_ACTIVE =
 const ICON_BTN =
   "inline-flex size-5 items-center justify-center rounded-md text-token-description-foreground hover:bg-token-foreground/5 hover:text-token-foreground disabled:cursor-not-allowed disabled:opacity-40";
 const TEXT_BTN = "inline-flex items-center gap-1 text-xs font-medium text-token-description-foreground hover:text-token-foreground";
-const SELECT_TRIGGER = "h-6 min-w-24 rounded-md border-transparent bg-token-foreground/5 px-2 py-0! text-xs shadow-none [&_svg]:size-3";
 
 function ToolbarPopoverContent({
   children,
@@ -66,17 +63,13 @@ function ToolbarPopoverContent({
   className?: string;
 }) {
   return (
-    <PopoverPrimitive.Portal>
-      <PopoverPrimitive.Content
-        side="bottom"
-        align="end"
-        sideOffset={8}
-        collisionPadding={12}
-        className={cn(SELECTOR_MENU_CONTENT_CLASS_NAME, PANEL_CLASS_NAME, className)}
-      >
-        <div className="flex flex-col gap-3 p-2">{children}</div>
-      </PopoverPrimitive.Content>
-    </PopoverPrimitive.Portal>
+    <NodexPopoverContent
+      side="bottom"
+      align="end"
+      className={cn(PANEL_CLASS_NAME, className)}
+    >
+      <div className="flex flex-col gap-3 p-2">{children}</div>
+    </NodexPopoverContent>
   );
 }
 
@@ -265,16 +258,20 @@ function FilterGroupEditor({
       <div className="flex items-start gap-2">
         <span className={ROW_LABEL}>Tags</span>
         <div className="flex flex-wrap items-start gap-1.5">
-          <Select value={tagMode} onValueChange={(value) => setTagMode(value as Extract<DbViewFilterClause, { field: "tags" }>["op"])}>
-            <SelectTrigger className={cn(SELECT_TRIGGER, "w-18")}>
-              {tagMode === "hasAny" ? "Any" : tagMode === "hasAll" ? "All" : "None"}
-            </SelectTrigger>
-            <SelectContent sideOffset={4}>
-              <SelectItem value="hasAny">Any</SelectItem>
-              <SelectItem value="hasAll">All</SelectItem>
-              <SelectItem value="hasNone">None</SelectItem>
-            </SelectContent>
-          </Select>
+          <NodexDropdownChoiceMenu
+            value={tagMode}
+            onValueChange={(value) => setTagMode(value as Extract<DbViewFilterClause, { field: "tags" }>["op"])}
+            options={[
+              { value: "hasAny", label: "Any" },
+              { value: "hasAll", label: "All" },
+              { value: "hasNone", label: "None" },
+            ]}
+            triggerButton={(
+              <NodexDropdownButtonTrigger size="xs" className="w-18">
+                {tagMode === "hasAny" ? "Any" : tagMode === "hasAll" ? "All" : "None"}
+              </NodexDropdownButtonTrigger>
+            )}
+          />
           {availableTags.length === 0 ? (
             <span className="pt-1 text-xs text-token-description-foreground italic">No tags in project</span>
           ) : (
@@ -311,8 +308,8 @@ export function DbViewFilterPopover({
   children: React.ReactNode;
 }) {
   return (
-    <PopoverPrimitive.Root open={open} onOpenChange={onOpenChange}>
-      <PopoverPrimitive.Trigger asChild>{children}</PopoverPrimitive.Trigger>
+    <NodexPopover open={open} onOpenChange={onOpenChange}>
+      <NodexPopoverTrigger asChild>{children}</NodexPopoverTrigger>
       <ToolbarPopoverContent>
         <div className="flex items-center justify-between">
           <span className={SECTION_LABEL}>Filters</span>
@@ -336,9 +333,7 @@ export function DbViewFilterPopover({
         {prefs.rules.filter.any.map((group, groupIndex) => (
           <div key={`filter-group-${groupIndex}`} className="flex flex-col gap-2">
             {groupIndex > 0 ? (
-              <div className={SELECTOR_MENU_DIVIDER_WRAPPER_CLASS_NAME}>
-                <div className={SELECTOR_MENU_DIVIDER_CLASS_NAME} />
-              </div>
+              <NodexDropdownSeparator />
             ) : null}
             <FilterGroupEditor
               group={group}
@@ -367,7 +362,7 @@ export function DbViewFilterPopover({
           </div>
         ))}
       </ToolbarPopoverContent>
-    </PopoverPrimitive.Root>
+    </NodexPopover>
   );
 }
 
@@ -388,6 +383,8 @@ export function DbViewSortPopover({
   onChange: (update: (prev: DbViewPrefs) => DbViewPrefs) => void;
   children: React.ReactNode;
 }) {
+  void view;
+
   const unusedSortFields = useMemo(
     () => availableSortFields.filter((field) => !prefs.rules.sort.some((entry) => entry.field === field)),
     [availableSortFields, prefs.rules.sort],
@@ -408,8 +405,8 @@ export function DbViewSortPopover({
     });
 
   return (
-    <PopoverPrimitive.Root open={open} onOpenChange={onOpenChange}>
-      <PopoverPrimitive.Trigger asChild>{children}</PopoverPrimitive.Trigger>
+    <NodexPopover open={open} onOpenChange={onOpenChange}>
+      <NodexPopoverTrigger asChild>{children}</NodexPopoverTrigger>
       <ToolbarPopoverContent>
         <div className="flex items-center justify-between">
           <span className={SECTION_LABEL}>Sort</span>
@@ -437,7 +434,7 @@ export function DbViewSortPopover({
         <div className="flex flex-col gap-1.5">
           {prefs.rules.sort.map((entry, index) => (
             <div key={`${entry.field}:${index}`} className="flex items-center gap-1.5">
-              <Select
+              <NodexDropdownChoiceMenu
                 value={entry.field}
                 onValueChange={(value) =>
                   updateSortEntry(index, (currentEntry) => buildSortKeyWithEmptyPlacement({
@@ -445,19 +442,17 @@ export function DbViewSortPopover({
                     direction: currentEntry.direction,
                     emptyPlacement: currentEntry.emptyPlacement,
                   }))}
-              >
-                <SelectTrigger className={cn(SELECT_TRIGGER, "min-w-28 max-w-36")}>
-                  {DB_VIEW_SORT_FIELD_LABELS[entry.field]}
-                </SelectTrigger>
-                <SelectContent sideOffset={4}>
-                  {availableSortFields.map((field) => (
-                    <SelectItem key={`${view}:${field}`} value={field}>
-                      {DB_VIEW_SORT_FIELD_LABELS[field]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select
+                options={availableSortFields.map((field) => ({
+                  value: field,
+                  label: DB_VIEW_SORT_FIELD_LABELS[field],
+                }))}
+                triggerButton={(
+                  <NodexDropdownButtonTrigger size="xs" className="min-w-28 max-w-36">
+                    {DB_VIEW_SORT_FIELD_LABELS[entry.field]}
+                  </NodexDropdownButtonTrigger>
+                )}
+              />
+              <NodexDropdownChoiceMenu
                 value={entry.direction}
                 onValueChange={(value) =>
                   updateSortEntry(index, (currentEntry) => buildSortKeyWithEmptyPlacement({
@@ -465,17 +460,18 @@ export function DbViewSortPopover({
                     direction: value as DbViewSortDirection,
                     emptyPlacement: currentEntry.emptyPlacement,
                   }))}
-              >
-                <SelectTrigger className={cn(SELECT_TRIGGER, "w-18")}>
-                  {entry.direction === "asc" ? "Asc" : "Desc"}
-                </SelectTrigger>
-                <SelectContent sideOffset={4}>
-                  <SelectItem value="asc">Ascending</SelectItem>
-                  <SelectItem value="desc">Descending</SelectItem>
-                </SelectContent>
-              </Select>
+                options={[
+                  { value: "asc", label: "Ascending" },
+                  { value: "desc", label: "Descending" },
+                ]}
+                triggerButton={(
+                  <NodexDropdownButtonTrigger size="xs" className="w-18">
+                    {entry.direction === "asc" ? "Asc" : "Desc"}
+                  </NodexDropdownButtonTrigger>
+                )}
+              />
               {supportsSortEmptyPlacementField(entry.field) ? (
-                <Select
+                <NodexDropdownChoiceMenu
                   value={resolveSortEmptyPlacement(entry.field, entry.emptyPlacement)}
                   onValueChange={(value) =>
                     updateSortEntry(index, (currentEntry) => buildSortKeyWithEmptyPlacement({
@@ -483,15 +479,16 @@ export function DbViewSortPopover({
                       direction: currentEntry.direction,
                       emptyPlacement: value,
                     }))}
-                >
-                  <SelectTrigger className={cn(SELECT_TRIGGER, "w-24")}>
-                    {resolveSortEmptyPlacement(entry.field, entry.emptyPlacement) === "first" ? "Empty first" : "Empty last"}
-                  </SelectTrigger>
-                  <SelectContent sideOffset={4}>
-                    <SelectItem value="first">Empty first</SelectItem>
-                    <SelectItem value="last">Empty last</SelectItem>
-                  </SelectContent>
-                </Select>
+                  options={[
+                    { value: "first", label: "Empty first" },
+                    { value: "last", label: "Empty last" },
+                  ]}
+                  triggerButton={(
+                    <NodexDropdownButtonTrigger size="xs" className="w-24">
+                      {resolveSortEmptyPlacement(entry.field, entry.emptyPlacement) === "first" ? "Empty first" : "Empty last"}
+                    </NodexDropdownButtonTrigger>
+                  )}
+                />
               ) : null}
               <div className="ml-auto flex items-center gap-0.5">
                 <button
@@ -551,7 +548,7 @@ export function DbViewSortPopover({
           ))}
         </div>
       </ToolbarPopoverContent>
-    </PopoverPrimitive.Root>
+    </NodexPopover>
   );
 }
 
@@ -578,8 +575,8 @@ export function DbViewDisplayPopover({
   }
 
   return (
-    <PopoverPrimitive.Root open={open} onOpenChange={onOpenChange}>
-      <PopoverPrimitive.Trigger asChild>{children}</PopoverPrimitive.Trigger>
+    <NodexPopover open={open} onOpenChange={onOpenChange}>
+      <NodexPopoverTrigger asChild>{children}</NodexPopoverTrigger>
       <ToolbarPopoverContent className="min-w-80">
         <div className="flex flex-col gap-3">
           <span className={SECTION_LABEL}>Display</span>
@@ -689,7 +686,7 @@ export function DbViewDisplayPopover({
           </div>
         </div>
       </ToolbarPopoverContent>
-    </PopoverPrimitive.Root>
+    </NodexPopover>
   );
 }
 

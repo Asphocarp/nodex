@@ -1,13 +1,21 @@
-import { forwardRef, startTransition, useEffect, useEffectEvent, useId, useState, type ComponentPropsWithoutRef, type ReactNode, type SVGProps } from "react";
-import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
+import { startTransition, useEffect, useEffectEvent, useId, useState, type ReactNode, type SVGProps } from "react";
 import {
   ChevronLeft,
   Plus,
   Trash2,
 } from "lucide-react";
 import { SpinnerIcon } from "@/components/shared/icons";
+import { NodexButton } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  NodexDropdownItem,
+  NodexDropdownMenu,
+} from "@/components/ui/dropdown";
+import {
+  NodexPopover,
+  NodexPopoverContent,
+  NodexPopoverTrigger,
+} from "@/components/ui/popover";
 import { invoke } from "@/lib/api";
 import type {
   Project,
@@ -59,10 +67,10 @@ const PLATFORM_OPTIONS: Array<{
   value: WorktreeEnvironmentPlatform;
   label: string;
 }> = [
-  { value: "darwin", label: "macOS" },
-  { value: "linux", label: "Linux" },
-  { value: "win32", label: "Windows" },
-];
+    { value: "darwin", label: "macOS" },
+    { value: "linux", label: "Linux" },
+    { value: "win32", label: "Windows" },
+  ];
 
 function CodexWorkspaceProjectIcon(props: SVGProps<SVGSVGElement>) {
   return (
@@ -144,11 +152,11 @@ const ACTION_ICON_OPTIONS: Array<{
   label: string;
   icon: ActionIconComponent;
 }> = [
-  { value: "tool", label: "Tool", icon: CodexToolActionIcon },
-  { value: "run", label: "Run", icon: CodexRunActionIcon },
-  { value: "debug", label: "Debug", icon: CodexDebugActionIcon },
-  { value: "test", label: "Test", icon: CodexTestActionIcon },
-];
+    { value: "tool", label: "Tool", icon: CodexToolActionIcon },
+    { value: "run", label: "Run", icon: CodexRunActionIcon },
+    { value: "debug", label: "Debug", icon: CodexDebugActionIcon },
+    { value: "test", label: "Test", icon: CodexTestActionIcon },
+  ];
 
 const DEFAULT_LOCAL_ENVIRONMENTS_SETTINGS_SERVICE: LocalEnvironmentsSettingsService = {
   async listConfigs(projectId) {
@@ -341,45 +349,6 @@ function Panel({
   );
 }
 
-const SectionActionButton = forwardRef<
-  HTMLButtonElement,
-  ComponentPropsWithoutRef<"button"> & {
-    variant?: "secondary" | "primary" | "ghost" | "danger";
-    ariaLabel?: string;
-  }
->(function SectionActionButton(
-  {
-    children,
-    variant = "secondary",
-    disabled = false,
-    className,
-    ariaLabel,
-    type = "button",
-    ...props
-  },
-  ref,
-) {
-  return (
-    <button
-      {...props}
-      ref={ref}
-      type={type}
-      disabled={disabled}
-      aria-label={ariaLabel}
-      className={cn(
-        "border-token-border user-select-none no-drag cursor-interaction inline-flex items-center gap-1 border whitespace-nowrap rounded-lg border-transparent h-token-button-composer px-2 py-0 text-base leading-[18px] focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 transition-colors",
-        variant === "primary" && "bg-token-foreground text-token-dropdown-background enabled:hover:bg-token-foreground/80 data-[state=open]:bg-token-foreground/80",
-        variant === "secondary" && "text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background",
-        variant === "ghost" && "text-token-description-foreground enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background",
-        variant === "danger" && "text-(--red-text) enabled:hover:bg-(--red-text)/10 data-[state=open]:bg-(--red-text)/10",
-        className,
-      )}
-    >
-      {children}
-    </button>
-  );
-});
-
 function ActionIconPreview({
   icon,
   className,
@@ -440,15 +409,15 @@ function CodexSegmentedPlatformToggle({
   return (
     <div className="inline-flex items-center gap-0.5" role="group" aria-label="Platform selection">
       {PLATFORM_OPTIONS.map((option) => (
-        <SectionActionButton
+        <NodexButton
           key={option.value}
           onClick={() => onSelect(option.value)}
           variant={selectedPlatform === option.value ? "secondary" : "ghost"}
           className="w-auto"
-          ariaLabel={option.label}
+          aria-label={option.label}
         >
           {option.label}
-        </SectionActionButton>
+        </NodexButton>
       ))}
     </div>
   );
@@ -466,46 +435,31 @@ function LocalEnvironmentActionIconDropdown({
   const selectedOption = ACTION_ICON_OPTIONS.find((option) => option.value === value) ?? ACTION_ICON_OPTIONS[0];
 
   return (
-    <DropdownMenuPrimitive.Root>
-      <DropdownMenuPrimitive.Trigger asChild>
-        <SectionActionButton
+    <NodexDropdownMenu
+      triggerButton={(
+        <NodexButton
           variant="secondary"
-          ariaLabel={ariaLabel}
+          aria-label={ariaLabel}
+          size="composer"
           className="w-12 justify-center text-sm"
         >
           <ActionIconPreview icon={selectedOption.value} />
-        </SectionActionButton>
-      </DropdownMenuPrimitive.Trigger>
-      <DropdownMenuPrimitive.Portal>
-        <DropdownMenuPrimitive.Content
-          side="bottom"
-          align="start"
-          sideOffset={4}
-          collisionPadding={6}
-          className={cn(
-            "no-drag bg-token-dropdown-background/90 text-token-foreground ring-token-border z-50 m-px flex select-none flex-col overflow-y-auto rounded-xl px-1 py-1 shadow-xl-spread backdrop-blur-sm",
-            "[transform-origin:var(--radix-dropdown-menu-content-transform-origin)] [will-change:opacity,transform]",
-            "min-w-[120px] max-w-[min(var(--radix-dropdown-menu-content-available-width),calc(100vw-16px))]",
-          )}
+        </NodexButton>
+      )}
+      side="bottom"
+      align="start"
+      contentWidth="icon"
+    >
+      {ACTION_ICON_OPTIONS.map((option) => (
+        <NodexDropdownItem
+          key={option.value}
+          onSelect={() => onSelect(option.value)}
+          leftSlot={<ActionIconPreview icon={option.value} className="shrink-0" />}
         >
-          {ACTION_ICON_OPTIONS.map((option) => (
-            <DropdownMenuPrimitive.Item
-              key={option.value}
-              onSelect={() => onSelect(option.value)}
-              className={cn(
-                "text-token-foreground outline-hidden rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm",
-                "hover:bg-token-list-hover-background focus:bg-token-list-hover-background cursor-interaction",
-              )}
-            >
-              <span className="flex w-full items-center gap-1.5">
-                <ActionIconPreview icon={option.value} className="shrink-0" />
-                <span>{option.label}</span>
-              </span>
-            </DropdownMenuPrimitive.Item>
-          ))}
-        </DropdownMenuPrimitive.Content>
-      </DropdownMenuPrimitive.Portal>
-    </DropdownMenuPrimitive.Root>
+          {option.label}
+        </NodexDropdownItem>
+      ))}
+    </NodexDropdownMenu>
   );
 }
 
@@ -528,20 +482,18 @@ function EnvironmentVariableCodeRow({
 
 function SetupEnvironmentVariablesButton() {
   return (
-    <PopoverPrimitive.Root>
-      <PopoverPrimitive.Trigger asChild>
-        <SectionActionButton variant="ghost">
+    <NodexPopover>
+      <NodexPopoverTrigger asChild>
+        <NodexButton variant="ghost" size="composer">
           Available environment variables
-        </SectionActionButton>
-      </PopoverPrimitive.Trigger>
-      <PopoverPrimitive.Portal>
-        <PopoverPrimitive.Content
-          side="bottom"
-          align="end"
-          sideOffset={6}
-          collisionPadding={8}
-          className="z-50 flex w-80 max-w-[min(20rem,var(--radix-popover-content-available-width))] flex-col gap-1 rounded-xl border border-token-border bg-token-bg-elevated p-2 shadow-[0_12px_32px_rgba(0,0,0,0.16)] outline-none"
-        >
+        </NodexButton>
+      </NodexPopoverTrigger>
+      <NodexPopoverContent
+        side="bottom"
+        align="end"
+        className="w-80 max-w-[min(20rem,var(--radix-popover-content-available-width))]"
+      >
+        <div className="flex flex-col gap-1 p-2">
           <div className="px-2 py-1 text-sm font-medium text-token-text-primary">
             Setup script environment variables
           </div>
@@ -555,9 +507,9 @@ function SetupEnvironmentVariablesButton() {
               description="New worktree path"
             />
           </div>
-        </PopoverPrimitive.Content>
-      </PopoverPrimitive.Portal>
-    </PopoverPrimitive.Root>
+        </div>
+      </NodexPopoverContent>
+    </NodexPopover>
   );
 }
 
@@ -637,12 +589,13 @@ function CodexScriptEditorPanels({
                     <div className="text-xs font-medium tracking-wide text-token-text-secondary uppercase">
                       {platform.label}
                     </div>
-                    <SectionActionButton
+                    <NodexButton
                       variant="ghost"
+                      size="composer"
                       onClick={() => onPlatformScriptChange(platform.value, null)}
                     >
                       {removeOverrideLabel}
-                    </SectionActionButton>
+                    </NodexButton>
                   </div>
                   <textarea
                     value={currentValue}
@@ -659,12 +612,13 @@ function CodexScriptEditorPanels({
               if (platformScripts[platform.value] !== undefined) return null;
 
               return (
-                <SectionActionButton
+                <NodexButton
                   key={platform.value}
+                  size="composer"
                   onClick={() => onPlatformScriptChange(platform.value, "")}
                 >
                   {addOverrideLabel(platform.label)}
-                </SectionActionButton>
+                </NodexButton>
               );
             })}
           </div>
@@ -781,14 +735,14 @@ function CodexActionsEditorSection({
               ) : null}
             </div>
             <div className="flex justify-end sm:justify-center">
-              <SectionActionButton
+              <NodexButton
                 onClick={() => onRemove(action.id)}
                 variant="ghost"
                 className="size-8 justify-center px-0"
-                ariaLabel={`Delete action ${index + 1}`}
+                aria-label={`Delete action ${index + 1}`}
               >
                 <Trash2 className="icon-sm" />
-              </SectionActionButton>
+              </NodexButton>
             </div>
           </div>
         </div>
@@ -854,21 +808,17 @@ function WorkspaceProjectEnvironmentGroup({
             </span>
           </div>
         </button>
-        <button
-          type="button"
-          className={cn(
-            "border-token-border user-select-none no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap",
-            "focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg text-token-foreground",
-            "bg-token-foreground/5 enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background",
-            "border-transparent h-token-button-composer w-9 justify-center px-2 py-0 text-base leading-[18px]",
-          )}
+        <NodexButton
+          variant="secondary"
+          size="composer"
+          className="w-9 justify-center px-0"
           aria-label="Add environment"
           onClick={() => {
             void onCreateEnvironment(project.id);
           }}
         >
           <Plus className="icon-sm" />
-        </button>
+        </NodexButton>
       </div>
 
       {loading ? (
@@ -914,13 +864,14 @@ function WorkspaceProjectEnvironmentGroup({
                     ) : null}
                   </div>
                 </button>
-                <SectionActionButton
+                <NodexButton
+                  size="composer"
                   onClick={() => {
                     void onSelectEnvironment(project.id, config.configPath);
                   }}
                 >
                   View
-                </SectionActionButton>
+                </NodexButton>
               </div>
             ))}
           </div>
@@ -941,19 +892,15 @@ function LocalEnvironmentsBreadcrumb({
 }) {
   return (
     <nav className="flex items-center gap-2 text-sm text-token-text-secondary">
-      <button
-        type="button"
+      <NodexButton
+        variant="ghost"
+        size="composer"
         onClick={onBack}
-        className={cn(
-          "border-token-border user-select-none no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap",
-          "focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg text-token-description-foreground",
-          "enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent",
-          "h-token-button-composer px-2 py-0 text-base leading-[18px]",
-        )}
+        className="gap-1 text-token-description-foreground"
       >
         <ChevronLeft className="icon-2xs" />
         Back
-      </button>
+      </NodexButton>
       <div className="flex items-center gap-1">
         <span>Environments</span>
         <ChevronLeft className="icon-xs rotate-180 text-token-text-secondary" />
@@ -1224,9 +1171,9 @@ export function LocalEnvironmentsSettingsPage({
         <PageSection
           title="Select a project"
           actions={(
-            <SectionActionButton onClick={onAddProject ?? (() => {})} disabled={!onAddProject}>
+            <NodexButton size="composer" onClick={onAddProject ?? (() => { })} disabled={!onAddProject}>
               Add project
-            </SectionActionButton>
+            </NodexButton>
           )}
         >
           {workspaceProjects.length === 0 ? (
@@ -1421,9 +1368,9 @@ export function LocalEnvironmentsSettingsPage({
           </PageSection>
 
           <div className="flex justify-end">
-            <SectionActionButton variant="primary" onClick={handleEditCurrentEnvironment}>
+            <NodexButton variant="primary" size="composer" onClick={handleEditCurrentEnvironment}>
               {snapshot.configExists ? "Edit local environment" : "Create local environment"}
-            </SectionActionButton>
+            </NodexButton>
           </div>
         </div>
       ) : null}
@@ -1533,9 +1480,9 @@ export function LocalEnvironmentsSettingsPage({
           <PageSection
             title="Actions"
             actions={(
-              <SectionActionButton onClick={addAction}>
+              <NodexButton size="composer" onClick={addAction}>
                 Add action
-              </SectionActionButton>
+              </NodexButton>
             )}
           >
             <div className="text-sm text-token-text-secondary">
@@ -1549,8 +1496,9 @@ export function LocalEnvironmentsSettingsPage({
           </PageSection>
 
           <div className="flex justify-end">
-            <SectionActionButton
+            <NodexButton
               variant="primary"
+              size="composer"
               onClick={() => {
                 void handleSave();
               }}
@@ -1562,7 +1510,7 @@ export function LocalEnvironmentsSettingsPage({
                   Saving…
                 </>
               ) : "Save"}
-            </SectionActionButton>
+            </NodexButton>
           </div>
         </form>
       ) : null}

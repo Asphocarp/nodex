@@ -1,6 +1,10 @@
 import { useForm, useStore } from "@tanstack/react-form";
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
+import {
+  NodexPopover,
+  NodexPopoverContent,
+  NodexPopoverTrigger,
+} from "@/components/ui/popover";
 import { invoke } from "../../lib/api";
 import { handleFormSubmit } from "../../lib/forms";
 import { normalizeProjectIcon } from "../../lib/project-icon";
@@ -579,34 +583,29 @@ export function ProjectManagerPopover({
   contentClassName,
 }: ProjectManagerPopoverProps) {
   return (
-    <PopoverPrimitive.Root open={open} onOpenChange={onOpenChange}>
-      <PopoverPrimitive.Trigger asChild>
+    <NodexPopover open={open} onOpenChange={onOpenChange}>
+      <NodexPopoverTrigger asChild>
         {trigger}
-      </PopoverPrimitive.Trigger>
-      <PopoverPrimitive.Portal>
-        <PopoverPrimitive.Content
-          side={side}
-          align={align}
-          sideOffset={sideOffset}
-          className={cn(
-            "z-50 w-72 rounded-lg border border-(--border) bg-(--popover) p-2 shadow-lg",
-            contentClassName,
-          )}
-          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-        >
-          <ProjectManagerPopoverContent
-            projects={projects}
-            spaces={spaces}
-            activeProjectId={activeProjectId}
-            onSelectSpace={onSelectSpace}
-            onCreateProject={onCreateProject}
-            onDeleteProject={onDeleteProject}
-            onRenameProject={onRenameProject}
-            onRequestClose={() => onOpenChange(false)}
-          />
-        </PopoverPrimitive.Content>
-      </PopoverPrimitive.Portal>
-    </PopoverPrimitive.Root>
+      </NodexPopoverTrigger>
+      <NodexPopoverContent
+        side={side}
+        align={align}
+        sideOffset={sideOffset}
+        className={cn("w-72 p-2", contentClassName)}
+        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+      >
+        <ProjectManagerPopoverContent
+          projects={projects}
+          spaces={spaces}
+          activeProjectId={activeProjectId}
+          onSelectSpace={onSelectSpace}
+          onCreateProject={onCreateProject}
+          onDeleteProject={onDeleteProject}
+          onRenameProject={onRenameProject}
+          onRequestClose={() => onOpenChange(false)}
+        />
+      </NodexPopoverContent>
+    </NodexPopover>
   );
 }
 
@@ -688,7 +687,6 @@ export function LeftSidebarProjectManager({
           onOpenChange={setManageOpen}
           side="top"
           align="end"
-          sideOffset={8}
           trigger={(
             <button
               type="button"

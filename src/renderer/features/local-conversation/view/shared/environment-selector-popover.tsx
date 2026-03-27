@@ -1,18 +1,16 @@
 import { useCallback, useMemo, useState } from "react";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { CheckmarkIcon, ConfigStatusIcon } from "@/components/shared/icons";
+import {
+  NodexDropdownButtonTrigger,
+  NodexDropdownItem,
+  NodexDropdownMessage,
+  NodexDropdownMenu,
+  NodexDropdownSection,
+  NodexDropdownSeparator,
+  NodexDropdownTitle,
+} from "@/components/ui/dropdown";
 import type { WorktreeEnvironmentOption } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import {
-  SELECTOR_MENU_DIVIDER_CLASS_NAME,
-  SELECTOR_MENU_DIVIDER_WRAPPER_CLASS_NAME,
-  SELECTOR_MENU_ITEM_CLASS_NAME,
-  SELECTOR_MENU_LIST_CLASS_NAME,
-  SELECTOR_MENU_PANEL_CLASS_NAME,
-  SELECTOR_MENU_TITLE_CLASS_NAME,
-  SelectorPopoverContent,
-  SelectorPopoverTrigger,
-} from "./selector-popover-primitives";
 
 interface EnvironmentSelectorPopoverProps {
   options: WorktreeEnvironmentOption[];
@@ -59,85 +57,89 @@ export function EnvironmentSelectorPopover({
   }, [onSelect]);
 
   return (
-    <PopoverPrimitive.Root open={open} onOpenChange={handleOpenChange}>
-      <SelectorPopoverTrigger
-        ariaLabel="Select worktree environment"
-        title={triggerLabel}
-        label={triggerLabel}
-        icon={<ConfigStatusIcon className="size-3.5 shrink-0" />}
-        disabled={isDisabled}
-        className={triggerClassName}
-      />
+    <NodexDropdownMenu
+      open={open}
+      onOpenChange={handleOpenChange}
+      side="top"
+      align="start"
+      triggerButton={(
+        <NodexDropdownButtonTrigger
+          aria-label="Select worktree environment"
+          title={triggerLabel}
+          disabled={isDisabled}
+          size="sm"
+          chrome="transparent"
+          shape="pill"
+          muted
+          className={cn("px-1.5", triggerClassName)}
+        >
+          <span className="inline-flex min-w-0 items-center gap-1">
+            <ConfigStatusIcon className="size-3.5 shrink-0" />
+            <span className="max-w-40 truncate text-sm">{triggerLabel}</span>
+          </span>
+        </NodexDropdownButtonTrigger>
+      )}
+      contentWidth="workspace"
+    >
+      <NodexDropdownTitle>Local environment</NodexDropdownTitle>
 
-      <SelectorPopoverContent className="min-w-65">
-        <div className={cn(SELECTOR_MENU_PANEL_CLASS_NAME, "w-full")}>
-          <div className={SELECTOR_MENU_TITLE_CLASS_NAME}>Select environment</div>
-          <div className={cn(SELECTOR_MENU_LIST_CLASS_NAME, "max-h-55 pr-1 pb-1")}>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void handleSelect(null)}
-              className={cn(
-                SELECTOR_MENU_ITEM_CLASS_NAME,
-                "w-full",
-                busy && "cursor-wait opacity-60",
-              )}
-            >
-              <div className="flex w-full items-center gap-1.5">
-                <span className="min-w-0 flex-1 truncate text-left">No environment</span>
-                {normalizedSelectedPath.length === 0 ? <CheckmarkIcon className="shrink-0" /> : null}
-              </div>
-            </button>
+      <div className="vertical-scroll-fade-mask flex max-h-[200px] flex-col gap-0.5 overflow-y-auto pr-1">
+        <NodexDropdownItem
+          disabled={busy}
+          onSelect={() => {
+            void handleSelect(null);
+          }}
+          rightSlot={normalizedSelectedPath.length === 0 ? <CheckmarkIcon className="shrink-0" /> : null}
+        >
+          No environment
+        </NodexDropdownItem>
 
+        {options.length === 0 ? (
+          <NodexDropdownMessage compact>No environments found</NodexDropdownMessage>
+        ) : (
+          <NodexDropdownSection className="flex flex-col">
             {options.map((option) => (
-              <button
+              <NodexDropdownItem
                 key={option.path}
-                type="button"
                 disabled={busy}
-                onClick={() => void handleSelect(option.path)}
-                className={cn(
-                  SELECTOR_MENU_ITEM_CLASS_NAME,
-                  "w-full",
-                  busy && "cursor-wait opacity-60",
-                )}
+                onSelect={() => {
+                  void handleSelect(option.path);
+                }}
+                rightSlot={option.path === normalizedSelectedPath ? <CheckmarkIcon className="shrink-0" /> : null}
+                subText={buildEnvironmentSubText(option)}
               >
-                <div className="flex w-full items-center gap-1.5">
-                  <div className="flex min-w-0 flex-1 items-center gap-1.5">
-                    <span className="min-w-0 truncate text-left">{option.name}</span>
-                    {option.hasSetupScript ? (
-                      <span className="shrink-0 rounded-sm bg-(--blue-bg) px-1 text-xs text-(--blue-text)">
-                        setup
-                      </span>
-                    ) : null}
-                  </div>
-                  {option.path === normalizedSelectedPath ? <CheckmarkIcon className="shrink-0" /> : null}
-                </div>
-              </button>
+                {option.name}
+              </NodexDropdownItem>
             ))}
-          </div>
-        </div>
+          </NodexDropdownSection>
+        )}
+      </div>
 
-        <div className={SELECTOR_MENU_DIVIDER_WRAPPER_CLASS_NAME}>
-          <div className={SELECTOR_MENU_DIVIDER_CLASS_NAME} />
-        </div>
+      <NodexDropdownSeparator />
 
-        <button
-          type="button"
-          onClick={() => {
+      <NodexDropdownSection className="flex flex-col pb-1">
+        <NodexDropdownItem
+          onSelect={() => {
             void onOpenSettings();
             setOpen(false);
           }}
-          className={cn(
-            SELECTOR_MENU_ITEM_CLASS_NAME,
-            "w-full",
-          )}
+          leftSlot={<ConfigStatusIcon className="size-4 shrink-0" />}
         >
-          <div className="flex w-full items-center gap-1.5">
-            <ConfigStatusIcon className="size-4 shrink-0" />
-            <span className="min-w-0 flex-1 truncate text-left">Environment settings</span>
-          </div>
-        </button>
-      </SelectorPopoverContent>
-    </PopoverPrimitive.Root>
+          Environment settings
+        </NodexDropdownItem>
+      </NodexDropdownSection>
+    </NodexDropdownMenu>
   );
+}
+
+function buildEnvironmentSubText(option: WorktreeEnvironmentOption): string | null {
+  const details: string[] = [];
+  if (option.hasSetupScript) details.push("setup");
+  if (option.hasCleanupScript) details.push("cleanup");
+  if (option.actionCount > 0) {
+    details.push(option.actionCount === 1 ? "1 action" : `${option.actionCount} actions`);
+  }
+
+  if (details.length === 0) return null;
+  return details.join(" · ");
 }

@@ -1,4 +1,7 @@
-import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
+import {
+  NodexDropdownItem,
+  NodexDropdownMenu,
+} from "@/components/ui/dropdown";
 import {
   closestCenter,
   DndContext,
@@ -19,7 +22,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ChevronRightIcon, StopIcon } from "@/components/shared/icons";
-import { Tooltip } from "@/components/ui/tooltip";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type {
   ThreadComposerShellBackgroundAgentRowModel,
@@ -28,12 +31,6 @@ import type {
   ThreadStageActions,
   ThreadStageModel,
 } from "../../thread-stage-types";
-import {
-  SELECTOR_MENU_CONTENT_CLASS_NAME,
-  SELECTOR_MENU_ITEM_CLASS_NAME,
-  SELECTOR_MENU_LIST_CLASS_NAME,
-  SELECTOR_MENU_PANEL_CLASS_NAME,
-} from "../shared/selector-popover-primitives";
 import { ThreadComposer } from "./local-conversation-thread-composer";
 import { CodexPendingRequestCard } from "./request-cards/codex-pending-request-card";
 import { CODEX_MEASURED_TRANSITION } from "../shared/use-measured-element-height";
@@ -295,11 +292,11 @@ function PendingSteerRow({ row }: { row: ThreadComposerShellPendingSteerRowModel
         <SteerIcon className="text-token-input-placeholder-foreground/70" />
         <span className="line-clamp-2 min-w-0 flex-1 leading-4 text-token-description-foreground">{row.displayText}</span>
       </span>
-      <Tooltip content={<PendingSteerTooltipContent />}>
+      <NodexTooltip tooltipContent={<PendingSteerTooltipContent />}>
         <QueueActionButton ariaLabel="Why this steer is pending">
           <InfoIcon />
         </QueueActionButton>
-      </Tooltip>
+      </NodexTooltip>
     </div>
   );
 }
@@ -355,7 +352,7 @@ function QueuedFollowUpRow({
         </span>
         <span className="line-clamp-2 min-w-0 flex-1 leading-4 text-token-description-foreground">{row.displayText}</span>
         <div className="flex shrink-0 items-center gap-1">
-          <Tooltip side="top" content={<QueuedFollowUpTooltipContent />} contentClassName="max-w-80 text-center whitespace-normal leading-snug">
+          <NodexTooltip side="top" tooltipContent={<QueuedFollowUpTooltipContent />} tooltipBodyClassName="max-w-80 text-center whitespace-normal leading-snug">
             <QueueSteerActionButton
               ariaLabel="Steer"
               onClick={() => {
@@ -365,7 +362,7 @@ function QueuedFollowUpRow({
               <SteerIcon />
               <span>Steer</span>
             </QueueSteerActionButton>
-          </Tooltip>
+          </NodexTooltip>
           <QueueActionButton
             ariaLabel="Delete queued message"
             onClick={() => {
@@ -374,59 +371,38 @@ function QueuedFollowUpRow({
           >
             <TrashIcon />
           </QueueActionButton>
-          <DropdownMenuPrimitive.Root>
-            <DropdownMenuPrimitive.Trigger asChild>
+          <NodexDropdownMenu
+            triggerButton={(
               <QueueActionButton ariaLabel="Queued message actions">
                 <MoreIcon />
               </QueueActionButton>
-            </DropdownMenuPrimitive.Trigger>
-            <DropdownMenuPrimitive.Portal>
-              <DropdownMenuPrimitive.Content
-                side="top"
-                align="end"
-                sideOffset={6}
-                collisionPadding={8}
-                className={cn(SELECTOR_MENU_CONTENT_CLASS_NAME, "outline-none")}
-              >
-                <div className={cn(SELECTOR_MENU_PANEL_CLASS_NAME, "min-w-44")}>
-                  <div className={SELECTOR_MENU_LIST_CLASS_NAME}>
-                    <DropdownMenuPrimitive.Item
-                      className={SELECTOR_MENU_ITEM_CLASS_NAME}
-                      onSelect={() => {
-                        void actions.onEditQueuedFollowUp({
-                          threadId,
-                          followUpId: row.followUpId,
-                          prompt: row.prompt,
-                        });
-                      }}
-                    >
-                      <div className="flex w-full items-center gap-1.5 text-token-description-foreground">
-                        <EditIcon />
-                        <span>Edit message</span>
-                      </div>
-                    </DropdownMenuPrimitive.Item>
-                    <DropdownMenuPrimitive.Item
-                      className={cn(
-                        SELECTOR_MENU_ITEM_CLASS_NAME,
-                        !isQueueingEnabled && "pointer-events-none opacity-50",
-                      )}
-                      onSelect={() => {
-                        if (!isQueueingEnabled) {
-                          return;
-                        }
-                        actions.onQueueingEnabledChange(false);
-                      }}
-                    >
-                      <div className="flex w-full items-center gap-1.5 text-token-description-foreground">
-                        <QueueLaneHandleIcon className="icon-2xs" />
-                        <span>Turn off queueing</span>
-                      </div>
-                    </DropdownMenuPrimitive.Item>
-                  </div>
-                </div>
-              </DropdownMenuPrimitive.Content>
-            </DropdownMenuPrimitive.Portal>
-          </DropdownMenuPrimitive.Root>
+            )}
+            side="top"
+            align="end"
+            contentWidth="xs"
+          >
+            <NodexDropdownItem
+              onSelect={() => {
+                void actions.onEditQueuedFollowUp({
+                  threadId,
+                  followUpId: row.followUpId,
+                  prompt: row.prompt,
+                });
+              }}
+              leftSlot={<EditIcon />}
+            >
+              Edit message
+            </NodexDropdownItem>
+            <NodexDropdownItem
+              disabled={!isQueueingEnabled}
+              onSelect={() => {
+                actions.onQueueingEnabledChange(false);
+              }}
+              leftSlot={<QueueLaneHandleIcon className="icon-2xs" />}
+            >
+              Turn off queueing
+            </NodexDropdownItem>
+          </NodexDropdownMenu>
         </div>
       </div>
     </motion.div>
@@ -535,8 +511,8 @@ function BackgroundTerminalRow({
   }
 
   return (
-    <Tooltip
-      content={(
+    <NodexTooltip
+      tooltipContent={(
         <div className="max-h-40 max-w-[36rem] overflow-auto font-mono text-sm leading-5">
           <div className="break-all whitespace-pre-wrap">{terminal.command}</div>
           {terminal.previewLine ? (
@@ -547,11 +523,11 @@ function BackgroundTerminalRow({
         </div>
       )}
       side="top"
-      enableHoverableContent
-      contentClassName="max-w-none"
+      interactive
+      tooltipBodyClassName="max-w-none"
     >
       {visibleRow}
-    </Tooltip>
+    </NodexTooltip>
   );
 }
 
@@ -581,7 +557,7 @@ function BackgroundTerminalPanel({
           </span>
         </div>
         <div className="flex items-center gap-1">
-          <Tooltip content="Stop background terminals">
+          <NodexTooltip tooltipContent="Stop background terminals">
             <ComposerGhostIconButton
               ariaLabel="Stop"
               onClick={() => {
@@ -590,7 +566,7 @@ function BackgroundTerminalPanel({
             >
               <StopIcon className="icon-2xs" />
             </ComposerGhostIconButton>
-          </Tooltip>
+          </NodexTooltip>
           <ComposerGhostIconButton
             ariaLabel={expanded ? "Collapse running terminals details" : "Expand running terminals details"}
             onClick={() => {

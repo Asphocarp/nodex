@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
-import { TooltipProvider } from "../../../../components/ui/tooltip";
+import { NodexTooltipProvider as TooltipProvider } from "../../../../components/ui/tooltip";
 import { render, settleAsyncRender } from "../../../../test/dom";
 import type { CodexTranscriptEntry } from "../../../../lib/types";
 import { TurnDiffSurface, turnDiffSurfaceTestHelpers } from "./turn-diff-surface";
@@ -81,7 +81,7 @@ describe("TurnDiffSurface", () => {
 
     (window as { api?: unknown }).api = {
       invoke: async () => true,
-      on: () => () => {},
+      on: () => () => { },
     };
   });
 

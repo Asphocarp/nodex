@@ -1,6 +1,6 @@
 import type { FileDiffMetadata } from "@pierre/diffs/react";
 import { ChevronRightIcon } from "../../../../../components/shared/icons";
-import { Tooltip } from "../../../../../components/ui/tooltip";
+import { NodexTooltip } from "../../../../../components/ui/tooltip";
 import { cn } from "../../../../../lib/utils";
 
 export interface DiffSummary {
@@ -144,14 +144,13 @@ export function FilenameButton({
   );
 
   return (
-    <Tooltip
-      content={<span className="font-mono">{displayPath}</span>}
+    <NodexTooltip
+      tooltipContent={<span className="font-mono">{displayPath}</span>}
       side="top"
-      sideOffset={8}
       delayDuration={0}
-      contentClassName="rounded-[18px] px-3 py-1.5 text-[13px] font-medium tracking-[-0.01em]"
+      tooltipBodyClassName="font-mono text-xs leading-4"
     >
       {button}
-    </Tooltip>
+    </NodexTooltip>
   );
 }

@@ -1,14 +1,13 @@
 import { forwardRef, type ComponentPropsWithoutRef, type ReactNode } from "react";
-import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { cn } from "../../../../lib/utils";
 import { CheckmarkIcon, ChevronDownIcon } from "@/components/shared/icons";
 import {
-  SELECTOR_MENU_CONTENT_CLASS_NAME,
-  SELECTOR_MENU_ITEM_CLASS_NAME,
-  SELECTOR_MENU_LIST_CLASS_NAME,
-  SELECTOR_MENU_PANEL_CLASS_NAME,
-  SELECTOR_MENU_TITLE_CLASS_NAME,
-} from "./selector-popover-primitives";
+  NodexDropdownItem,
+  NodexDropdownMenu,
+  NodexDropdownMessage,
+  NodexDropdownSection,
+  NodexDropdownTitle,
+} from "@/components/ui/dropdown";
 
 const ToolbarDropdown = forwardRef<
   HTMLButtonElement,
@@ -43,35 +42,6 @@ const ToolbarDropdown = forwardRef<
   );
 });
 
-function ToolbarMenuItem({
-  label,
-  description,
-  selected,
-  icon,
-  multiline,
-}: {
-  label: string;
-  description?: string;
-  selected: boolean;
-  icon?: ReactNode;
-  multiline?: boolean;
-}) {
-  return (
-    <div className="flex w-full items-center gap-1.5">
-      {icon ? <span className="text-token-foreground">{icon}</span> : null}
-      <span className="min-w-0 flex-1 truncate">
-        <span className={cn("flex items-center gap-1 tabular-nums", multiline && "flex-col items-start gap-0.5")}>
-          <span className="truncate">{label}</span>
-          {description && multiline ? (
-            <span className="truncate text-xs text-token-description-foreground">{description}</span>
-          ) : null}
-        </span>
-      </span>
-      {selected ? <CheckmarkIcon className="shrink-0 text-token-foreground" /> : null}
-    </div>
-  );
-}
-
 export function ToolbarDropdownMenu({
   label,
   title,
@@ -98,56 +68,42 @@ export function ToolbarDropdownMenu({
   selectedItemDataAttribute?: string;
 }) {
   return (
-    <DropdownMenuPrimitive.Root>
-      <DropdownMenuPrimitive.Trigger asChild>
-        <ToolbarDropdown label={label} className={className} ariaLabel={ariaLabel} />
-      </DropdownMenuPrimitive.Trigger>
-      <DropdownMenuPrimitive.Portal>
-        <DropdownMenuPrimitive.Content
-          side="top"
-          align="start"
-          sideOffset={6}
-          collisionPadding={8}
-          className={cn(
-            SELECTOR_MENU_CONTENT_CLASS_NAME,
-            "max-h-[min(20rem,var(--radix-dropdown-menu-content-available-height,20rem))] outline-none",
+    <NodexDropdownMenu
+      triggerButton={<ToolbarDropdown label={label} className={className} ariaLabel={ariaLabel} />}
+      side="top"
+      align="start"
+      contentClassName="max-h-[min(20rem,var(--radix-dropdown-menu-content-available-height,20rem))]"
+    >
+      <NodexDropdownSection className="flex min-w-40 flex-col overflow-hidden pt-1">
+        <NodexDropdownTitle>{title}</NodexDropdownTitle>
+        <div className="flex max-h-[250px] flex-col overflow-y-auto">
+          {items.length === 0 ? (
+            <NodexDropdownMessage compact>{emptyLabel ?? "No options available"}</NodexDropdownMessage>
+          ) : (
+            items.map((item) => {
+              const icon = renderItemIcon?.(item.value);
+
+              return (
+                <NodexDropdownItem
+                  key={item.value}
+                  onSelect={() => onSelect(item.value)}
+                  {...(
+                    selectedItemDataAttribute && item.value === selectedValue
+                      ? { [selectedItemDataAttribute]: "true" }
+                      : {}
+                  )}
+                  leftSlot={icon ? <span className="text-token-foreground">{icon}</span> : null}
+                  rightSlot={item.value === selectedValue ? <CheckmarkIcon className="shrink-0 text-token-foreground" /> : null}
+                  subText={showDescriptions ? item.description : undefined}
+                  allowWrap={showDescriptions}
+                >
+                  {item.label}
+                </NodexDropdownItem>
+              );
+            })
           )}
-        >
-          <div className={cn(SELECTOR_MENU_PANEL_CLASS_NAME, "min-w-40")}>
-            <div className={SELECTOR_MENU_TITLE_CLASS_NAME}>{title}</div>
-            <div className={SELECTOR_MENU_LIST_CLASS_NAME}>
-              {items.length === 0 ? (
-                <div className="px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm text-token-description-foreground">
-                  {emptyLabel ?? "No options available"}
-                </div>
-              ) : (
-                items.map((item) => (
-                  <DropdownMenuPrimitive.Item
-                    key={item.value}
-                    onSelect={() => onSelect(item.value)}
-                    {...(
-                      selectedItemDataAttribute && item.value === selectedValue
-                        ? { [selectedItemDataAttribute]: "true" }
-                        : {}
-                    )}
-                    className={cn(
-                      SELECTOR_MENU_ITEM_CLASS_NAME,
-                    )}
-                  >
-                    <ToolbarMenuItem
-                      label={item.label}
-                      description={showDescriptions ? item.description : undefined}
-                      selected={item.value === selectedValue}
-                      icon={renderItemIcon?.(item.value)}
-                      multiline={showDescriptions}
-                    />
-                  </DropdownMenuPrimitive.Item>
-                ))
-              )}
-            </div>
-          </div>
-        </DropdownMenuPrimitive.Content>
-      </DropdownMenuPrimitive.Portal>
-    </DropdownMenuPrimitive.Root>
+        </div>
+      </NodexDropdownSection>
+    </NodexDropdownMenu>
   );
 }

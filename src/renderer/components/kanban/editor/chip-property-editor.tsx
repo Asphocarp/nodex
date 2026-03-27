@@ -2,11 +2,11 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { Check } from "lucide-react";
 import { EMPTY_PRIORITY_OPTION_VALUE, KANBAN_PRIORITY_SELECT_OPTIONS } from "@/lib/kanban-options";
-import { estimateOptions, estimateStyles } from "@/lib/types";
 import {
-  SELECTOR_MENU_CONTENT_CLASS_NAME,
-  SELECTOR_MENU_ITEM_CLASS_NAME,
-} from "@/components/ui/selector-menu-chrome";
+  NodexDropdownActionRow,
+  NodexDropdownSurface,
+} from "@/components/ui/dropdown";
+import { estimateOptions, estimateStyles } from "@/lib/types";
 import {
   TOGGLE_LIST_STATUS_ORDER,
   TOGGLE_LIST_STATUS_LABELS,
@@ -133,25 +133,19 @@ export function ChipPropertyEditor({
   }, [handleSelect, highlightedIndex, items]);
 
   return createPortal(
-    <div
+    <NodexDropdownSurface
       ref={menuRef}
-      className={cn(
-        SELECTOR_MENU_CONTENT_CLASS_NAME,
-        "fixed min-w-36 outline-none",
-        position ? "opacity-100" : "invisible opacity-0",
-      )}
+      className={cn("fixed min-w-36 outline-none", position ? "opacity-100" : "invisible opacity-0")}
       style={position ? { top: position.top, left: position.left } : undefined}
       role="listbox"
       aria-label={`Edit ${propertyType}`}
     >
       {items.map((item, index) => (
-        <button
+        <NodexDropdownActionRow
           key={item.value}
-          type="button"
           role="option"
           aria-selected={item.value === currentValue}
           className={cn(
-            SELECTOR_MENU_ITEM_CLASS_NAME,
             "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-none bg-transparent text-left text-inherit",
             index === highlightedIndex && "bg-token-list-hover-background",
           )}
@@ -165,9 +159,9 @@ export function ChipPropertyEditor({
           {item.value === currentValue && (
             <Check className="h-3.5 w-3.5 shrink-0 text-token-foreground" />
           )}
-        </button>
+        </NodexDropdownActionRow>
       ))}
-    </div>,
+    </NodexDropdownSurface>,
     document.body,
   );
 }

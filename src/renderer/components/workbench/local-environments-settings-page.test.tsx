@@ -7,7 +7,7 @@ import type {
 } from "@/lib/types";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
 import { LocalEnvironmentsSettingsPage } from "./local-environments-settings-page";
-import { SettingsPageSurface } from "./workbench-settings-primitives";
+import { NodexSettingsPageSurface as SettingsPageSurface } from "../ui/settings";
 
 const PROJECTS: Project[] = [
   {
@@ -216,7 +216,10 @@ describe("LocalEnvironmentsSettingsPage", () => {
     expect(listCalls.length).toBe(4);
 
     fireEvent.click(view.getByText("Edit local environment"));
+    await settleAsyncRender();
+    await settleAsyncRender();
     fireEvent.click(view.getByText("Add action"));
+    await settleAsyncRender();
     await settleAsyncRender();
     const saveButton = view.getByText("Save") as HTMLButtonElement;
     expect(saveButton.disabled).toBeFalse();

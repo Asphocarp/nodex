@@ -7,13 +7,18 @@ import {
   useState,
   type ComponentType,
 } from "react";
-import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import {
   Monitor,
   Moon,
   RotateCcw,
   Sun,
 } from "lucide-react";
+import { CheckmarkIcon } from "@/components/shared/icons";
+import {
+  NodexDropdownButtonTrigger,
+  NodexDropdownItem,
+  NodexDropdownMenu,
+} from "@/components/ui/dropdown";
 import { Input } from "../ui/input";
 import { invoke } from "../../lib/api";
 import {
@@ -103,10 +108,10 @@ import {
 } from "./workbench-settings-sections";
 import {
   CODEX_SETTINGS_SHELL_STYLE,
-  SectionBlock,
-  SettingRow,
-  SettingsPageSurface,
-} from "./workbench-settings-primitives";
+  NodexSettingsSection as SectionBlock,
+  NodexSettingsRow as SettingRow,
+  NodexSettingsPageSurface as SettingsPageSurface,
+} from "../ui/settings";
 import { SettingsSidebar } from "./workbench-settings-sidebar";
 import {
   buildSettingsPath,
@@ -547,60 +552,31 @@ function ThreadDetailLevelSettingControl() {
     ?? THREAD_DETAIL_LEVEL_OPTIONS[1];
 
   return (
-    <DropdownMenuPrimitive.Root>
-      <DropdownMenuPrimitive.Trigger asChild>
-        <button
-          type="button"
-          className={cn(
-            "flex h-7 min-w-56 items-center justify-between gap-1 rounded-lg border border-transparent px-2 py-0 text-base/4.5",
-            "bg-foreground-5 text-(--foreground)",
-            "transition-colors hover:bg-foreground-10",
-            "outline-hidden focus-visible:ring-2 focus-visible:ring-(--accent-blue)/30",
-            "select-none disabled:cursor-not-allowed disabled:opacity-40",
-          )}
+    <NodexDropdownMenu
+      triggerButton={(
+        <NodexDropdownButtonTrigger
           aria-label="Thread detail"
+          className="min-w-56 text-base/4.5"
         >
           <span className="truncate">{formatCodexThreadDetailLevelLabel(selectedOption.value)}</span>
-        </button>
-      </DropdownMenuPrimitive.Trigger>
-      <DropdownMenuPrimitive.Portal>
-        <DropdownMenuPrimitive.Content
-          sideOffset={8}
-          align="end"
-          className={cn(
-            "z-50 w-[260px] max-w-xs rounded-lg p-1",
-            "bg-(--background) text-(--foreground)",
-            "border border-(--border)",
-            "shadow-overlay-xl",
-            "scrollbar-token max-h-[min(24rem,var(--radix-dropdown-menu-content-available-height,24rem))] overflow-y-auto",
-            "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-[0.985]",
-            "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-[0.985]",
-          )}
+        </NodexDropdownButtonTrigger>
+      )}
+      align="end"
+      contentWidth="workspace"
+      contentMaxHeight="tall"
+    >
+      {THREAD_DETAIL_LEVEL_OPTIONS.map((option) => (
+        <NodexDropdownItem
+          key={option.value}
+          onSelect={() => setThreadDetailLevel(option.value)}
+          rightSlot={option.value === selectedValue ? <CheckmarkIcon className="shrink-0 text-token-foreground" /> : null}
+          subText={option.description}
+          allowWrap
         >
-          {THREAD_DETAIL_LEVEL_OPTIONS.map((option) => {
-            const isSelected = option.value === selectedValue;
-
-            return (
-              <DropdownMenuPrimitive.Item
-                key={option.value}
-                onSelect={() => setThreadDetailLevel(option.value)}
-                className={cn(
-                  "flex cursor-default rounded-lg px-2 py-1.5 text-sm transition-colors outline-none select-none",
-                  isSelected
-                    ? "bg-(--accent) text-(--foreground)"
-                    : "text-(--foreground) hover:bg-(--accent) focus:bg-(--accent)",
-                )}
-              >
-                <div className="flex min-w-0 flex-col items-start gap-0.5">
-                  <span className="text-sm">{option.label}</span>
-                  <span className="text-xs text-token-text-secondary">{option.description}</span>
-                </div>
-              </DropdownMenuPrimitive.Item>
-            );
-          })}
-        </DropdownMenuPrimitive.Content>
-      </DropdownMenuPrimitive.Portal>
-    </DropdownMenuPrimitive.Root>
+          {option.label}
+        </NodexDropdownItem>
+      ))}
+    </NodexDropdownMenu>
   );
 }
 
@@ -694,18 +670,11 @@ function FileLinkOpenerSettingControl() {
     ?? FILE_LINK_OPENER_OPTIONS[0];
 
   return (
-    <DropdownMenuPrimitive.Root>
-      <DropdownMenuPrimitive.Trigger asChild>
-        <button
-          type="button"
-          className={cn(
-            "flex h-7 min-w-50 items-center justify-between gap-1 rounded-lg border border-transparent px-2 py-0 text-base/4.5",
-            "bg-foreground-5 text-(--foreground)",
-            "transition-colors hover:bg-foreground-10",
-            "outline-hidden focus-visible:ring-2 focus-visible:ring-(--accent-blue)/30",
-            "select-none disabled:cursor-not-allowed disabled:opacity-40",
-          )}
+    <NodexDropdownMenu
+      triggerButton={(
+        <NodexDropdownButtonTrigger
           aria-label={`Open markdown file links in ${selectedOption.label}`}
+          className="min-w-50 text-base/4.5"
         >
           <span className="flex items-center gap-1.5">
             <img
@@ -716,49 +685,30 @@ function FileLinkOpenerSettingControl() {
             />
             <span className="truncate">{selectedOption.label}</span>
           </span>
-        </button>
-      </DropdownMenuPrimitive.Trigger>
-      <DropdownMenuPrimitive.Portal>
-        <DropdownMenuPrimitive.Content
-          sideOffset={8}
-          align="end"
-          className={cn(
-            "z-50 min-w-48 rounded-lg p-1",
-            "bg-(--background) text-(--foreground)",
-            "border border-(--border)",
-            "shadow-overlay-xl",
-            "scrollbar-token max-h-[min(24rem,var(--radix-dropdown-menu-content-available-height,24rem))] overflow-y-auto",
-            "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-[0.985]",
-            "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-[0.985]",
+        </NodexDropdownButtonTrigger>
+      )}
+      align="end"
+      contentWidth="sm"
+      contentMaxHeight="tall"
+    >
+      {FILE_LINK_OPENER_OPTIONS.map((option) => (
+        <NodexDropdownItem
+          key={option.id}
+          onSelect={() => setOpener(normalizeFileLinkOpenerId(option.id))}
+          leftSlot={(
+            <img
+              src={FILE_LINK_OPENER_ICON_URLS[option.id]}
+              alt=""
+              className="size-4 shrink-0 object-contain"
+              aria-hidden="true"
+            />
           )}
+          rightSlot={option.id === selectedOption.id ? <CheckmarkIcon className="shrink-0 text-token-foreground" /> : null}
         >
-          {FILE_LINK_OPENER_OPTIONS.map((option) => {
-            const isSelected = option.id === selectedOption.id;
-
-            return (
-              <DropdownMenuPrimitive.Item
-                key={option.id}
-                onSelect={() => setOpener(normalizeFileLinkOpenerId(option.id))}
-                className={cn(
-                  "flex cursor-default items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors outline-none select-none",
-                  isSelected
-                    ? "bg-(--accent) text-(--foreground)"
-                    : "text-(--foreground) hover:bg-(--accent) focus:bg-(--accent)",
-                )}
-              >
-                <img
-                  src={FILE_LINK_OPENER_ICON_URLS[option.id]}
-                  alt=""
-                  className="size-4 shrink-0 object-contain"
-                  aria-hidden="true"
-                />
-                <span className="min-w-0 flex-1 truncate">{option.label}</span>
-              </DropdownMenuPrimitive.Item>
-            );
-          })}
-        </DropdownMenuPrimitive.Content>
-      </DropdownMenuPrimitive.Portal>
-    </DropdownMenuPrimitive.Root>
+          {option.label}
+        </NodexDropdownItem>
+      ))}
+    </NodexDropdownMenu>
   );
 }
 

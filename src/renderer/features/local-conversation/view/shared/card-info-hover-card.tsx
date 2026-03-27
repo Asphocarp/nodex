@@ -46,7 +46,7 @@ export function CardInfoHoverCard({
         <HoverCardPrimitive.Content
           side="bottom"
           align="end"
-          sideOffset={8}
+          sideOffset={2}
           className={cn(
             "z-50 w-72 rounded-xl border shadow-lg",
             "border-[color-mix(in_srgb,var(--border)_85%,transparent)]",

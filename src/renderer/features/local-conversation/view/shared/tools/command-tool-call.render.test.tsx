@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { act, fireEvent } from "@testing-library/react";
-import { TooltipProvider } from "../../../../../components/ui/tooltip";
+import { NodexTooltipProvider as TooltipProvider } from "../../../../../components/ui/tooltip";
 import { THREAD_SETTINGS_STORAGE_KEY } from "../../../../../lib/codex-thread-settings";
 import { render, settleAsyncRender, textContent } from "../../../../../test/dom";
 import type { CodexTranscriptEntry } from "../../../../../lib/types";

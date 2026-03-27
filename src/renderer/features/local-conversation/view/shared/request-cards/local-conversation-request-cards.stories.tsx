@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ReactNode } from "react";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import {
   UserInputComposerView,
   UserInputTranscriptView,
@@ -62,8 +62,8 @@ export const Approval: Story = {
     >
       <CodexApprovalRequestCard
         request={THREAD_REQUEST_CARD_STORY_DATA.approval}
-        onRespond={async () => {}}
-        onSubmitLocalFollowup={async () => {}}
+        onRespond={async () => { }}
+        onSubmitLocalFollowup={async () => { }}
       />
     </RequestSurface>
   ),
@@ -83,8 +83,8 @@ export const BackgroundApproval: Story = {
         }}
         actorName="Worker 1"
         approvalQuestionActor={<span className="font-medium">Worker 1</span>}
-        onRespond={async () => {}}
-        onSubmitLocalFollowup={async () => {}}
+        onRespond={async () => { }}
+        onSubmitLocalFollowup={async () => { }}
       />
     </RequestSurface>
   ),
@@ -98,7 +98,7 @@ export const UserInput: Story = {
     >
       <UserInputComposerView
         request={THREAD_REQUEST_CARD_STORY_DATA.userInput}
-        onRespond={async () => {}}
+        onRespond={async () => { }}
       />
     </RequestSurface>
   ),
@@ -166,7 +166,7 @@ export const ImplementPlan: Story = {
     >
       <CodexImplementPlanRequestCard
         request={THREAD_REQUEST_CARD_STORY_DATA.implementPlan}
-        onRespond={async () => {}}
+        onRespond={async () => { }}
       />
     </RequestSurface>
   ),
@@ -180,7 +180,7 @@ export const McpServerElicitation: Story = {
     >
       <CodexMcpElicitationRequestCard
         request={THREAD_REQUEST_CARD_STORY_DATA.mcpServerElicitation}
-        onRespond={async () => {}}
+        onRespond={async () => { }}
       />
     </RequestSurface>
   ),

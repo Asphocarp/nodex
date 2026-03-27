@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
-import { TooltipProvider } from "../../../../../components/ui/tooltip";
+import { NodexTooltipProvider as TooltipProvider } from "../../../../../components/ui/tooltip";
 import { render, settleAsyncRender, textContent } from "../../../../../test/dom";
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
 import { FileChangeToolCall, fileChangeToolCallTestHelpers } from "./file-change-tool-call";
@@ -87,14 +87,14 @@ describe("FileChangeToolCall", () => {
         ], this);
       }
 
-      disconnect() {}
+      disconnect() { }
 
-      unobserve() {}
+      unobserve() { }
     } as typeof ResizeObserver;
 
     (window as { api?: unknown }).api = {
       invoke: async () => true,
-      on: () => () => {},
+      on: () => () => { },
     };
   });
 

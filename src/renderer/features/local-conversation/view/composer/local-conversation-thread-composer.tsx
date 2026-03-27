@@ -12,7 +12,7 @@ import {
   resolveThreadInProgressFollowUpMode,
   shouldInvertThreadInProgressFollowUpModeFromKeyDown,
 } from "@/lib/thread-composer-follow-up-mode";
-import { Tooltip } from "@/components/ui/tooltip";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import {
   resolveStageThreadsComposerActionState,
   type StageThreadsBusyAction,
@@ -238,11 +238,11 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
 
   useEffect(() => {
     if (!branchCwd) {
-      void invoke("git:branch:watch:stop").catch(() => {});
+      void invoke("git:branch:watch:stop").catch(() => { });
       return;
     }
 
-    void invoke("git:branch:watch:start", branchCwd).catch(() => {});
+    void invoke("git:branch:watch:start", branchCwd).catch(() => { });
     const unsubscribe = subscribeGitBranchChanges((event) => {
       if (event.cwd !== branchCwdRef.current) return;
       void handleRefreshBranchState();
@@ -250,7 +250,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
 
     return () => {
       unsubscribe();
-      void invoke("git:branch:watch:stop").catch(() => {});
+      void invoke("git:branch:watch:stop").catch(() => { });
     };
   }, [branchCwd, handleRefreshBranchState]);
 
@@ -502,11 +502,10 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
                 <MicIcon className="size-4" />
               </button>
 
-              <Tooltip
-                content={composerActionTooltip}
+              <NodexTooltip
+                tooltipContent={composerActionTooltip}
                 side="top"
-                sideOffset={4}
-                contentClassName={cn(
+                tooltipBodyClassName={cn(
                   composerActionState.action === "stop" || !model.isThreadRunning
                     ? "text-center text-pretty"
                     : "max-w-none",
@@ -536,7 +535,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
                     )}
                   </button>
                 </span>
-              </Tooltip>
+              </NodexTooltip>
             </div>
           </div>
         </div>

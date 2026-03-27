@@ -3,11 +3,9 @@ import { EnvironmentSelectorPopover } from "@/features/local-conversation/view/s
 import { ThreadsIcon } from "@/components/workbench/threads-icon";
 import { Input } from "@/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select";
+  NodexDropdownButtonTrigger,
+  NodexDropdownChoiceMenu,
+} from "@/components/ui/dropdown";
 import { SchedulePopover } from "@/components/kanban/schedule-popover";
 import {
   CheckboxSquareIcon,
@@ -346,32 +344,34 @@ export function CardStagePropertiesSection({ controller }: CardStagePropertiesSe
 
               <div className="flex flex-1 items-center justify-between gap-2 px-2">
                 <div className="flex min-w-0 items-center gap-2">
-                  <Select value={runInTarget} onValueChange={(value) => {
+                  <NodexDropdownChoiceMenu value={runInTarget} onValueChange={(value) => {
                     void handleRunInTargetChange(value as CardRunInTarget);
-                  }}>
-                    <SelectTrigger
-                      className={cn(
-                        cardStagePropertyTriggerChrome,
-                        cardStagePropertyValueHoverSurface,
-                        "gap-1 px-0",
-                      )}
-                    >
-                      <span className="inline-flex h-5 items-center rounded-sm bg-(--gray-bg) px-1.5 text-xs text-(--foreground-secondary)">
-                        {runInTarget === "localProject"
-                          ? "Local project"
-                          : runInTarget === "newWorktree"
-                            ? runInWorktreePathDisplay
-                              ? "Worktree"
-                              : "New worktree"
-                            : "Cloud (mock)"}
-                      </span>
-                    </SelectTrigger>
-                    <SelectContent sideOffset={4}>
-                      <SelectItem value="localProject">Local project</SelectItem>
-                      <SelectItem value="newWorktree">{runInWorktreePathDisplay ? "Worktree" : "New worktree"}</SelectItem>
-                      <SelectItem value="cloud">Cloud (mock)</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  }}
+                    options={[
+                      { value: "localProject", label: "Local project" },
+                      { value: "newWorktree", label: runInWorktreePathDisplay ? "Worktree" : "New worktree" },
+                      { value: "cloud", label: "Cloud (mock)" },
+                    ]}
+                    triggerButton={(
+                      <NodexDropdownButtonTrigger
+                        className={cn(
+                          cardStagePropertyTriggerChrome,
+                          cardStagePropertyValueHoverSurface,
+                          "gap-1 px-0",
+                        )}
+                      >
+                        <span className="inline-flex h-5 items-center rounded-sm bg-(--gray-bg) px-1.5 text-xs text-(--foreground-secondary)">
+                          {runInTarget === "localProject"
+                            ? "Local project"
+                            : runInTarget === "newWorktree"
+                              ? runInWorktreePathDisplay
+                                ? "Worktree"
+                                : "New worktree"
+                              : "Cloud (mock)"}
+                        </span>
+                      </NodexDropdownButtonTrigger>
+                    )}
+                  />
 
                   {runInTarget === "localProject" && (
                     <>

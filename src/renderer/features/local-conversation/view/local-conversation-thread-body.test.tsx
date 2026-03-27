@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { fireEvent, waitFor } from "@testing-library/react";
-import { TooltipProvider } from "../../../components/ui/tooltip";
+import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
 import { render, settleAsyncRender } from "../../../test/dom";
 import type { CodexConversationItem } from "../../../lib/types";
 import type { ThreadStageActions, ThreadStageModel } from "../thread-stage-types";
@@ -104,11 +104,11 @@ function buildModel(overrides?: Partial<ThreadStageModel>): ThreadStageModel {
 
 function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActions {
   return {
-    onCollaborationModeChange: () => {},
-    onModelChange: () => {},
-    onReasoningEffortChange: () => {},
-    onPermissionModeChange: () => {},
-    onQueueingEnabledChange: () => {},
+    onCollaborationModeChange: () => { },
+    onModelChange: () => { },
+    onReasoningEffortChange: () => { },
+    onPermissionModeChange: () => { },
+    onQueueingEnabledChange: () => { },
     onRefreshAccount: async () => ({
       account: null,
       requiresOpenAiAuth: false,
@@ -117,27 +117,27 @@ function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActio
     }),
     onStartChatGptLogin: async () => ({ type: "apiKey" }),
     onStartApiKeyLogin: async () => ({ type: "apiKey" }),
-    onCancelLogin: async () => {},
-    onLogout: async () => {},
-    onStartThreadForCard: async () => {},
-    onSendPrompt: async () => {},
-    onSteerPrompt: async () => {},
-    onInterruptTurn: async () => {},
-    onRespondApproval: async () => {},
-    onRespondUserInput: async () => {},
-    onRespondMcpElicitation: async () => {},
-    onResolvePlanImplementationRequest: () => {},
-    onEnqueueQueuedFollowUp: async () => {},
-    onRemoveQueuedFollowUp: async () => {},
-    onReorderQueuedFollowUps: async () => {},
-    onSendQueuedFollowUpNow: async () => {},
-    onEditQueuedFollowUp: async () => {},
-    onEditLastUserTurn: async () => {},
-    onForkFromTurn: async () => {},
-    onConsumeComposerIntent: () => {},
-    onOpenThread: () => {},
-    onCleanBackgroundTerminals: async () => {},
-    onOpenCard: () => {},
+    onCancelLogin: async () => { },
+    onLogout: async () => { },
+    onStartThreadForCard: async () => { },
+    onSendPrompt: async () => { },
+    onSteerPrompt: async () => { },
+    onInterruptTurn: async () => { },
+    onRespondApproval: async () => { },
+    onRespondUserInput: async () => { },
+    onRespondMcpElicitation: async () => { },
+    onResolvePlanImplementationRequest: () => { },
+    onEnqueueQueuedFollowUp: async () => { },
+    onRemoveQueuedFollowUp: async () => { },
+    onReorderQueuedFollowUps: async () => { },
+    onSendQueuedFollowUpNow: async () => { },
+    onEditQueuedFollowUp: async () => { },
+    onEditLastUserTurn: async () => { },
+    onForkFromTurn: async () => { },
+    onConsumeComposerIntent: () => { },
+    onOpenThread: () => { },
+    onCleanBackgroundTerminals: async () => { },
+    onOpenCard: () => { },
     ...overrides,
   };
 }
@@ -170,7 +170,7 @@ describe("LocalConversationThreadBody", () => {
     const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
     const { container, rerender } = render(
       <TooltipProvider>
-        <LocalConversationThreadBody model={buildModel()} actions={buildActions()} onErrorMessage={() => {}} />
+        <LocalConversationThreadBody model={buildModel()} actions={buildActions()} onErrorMessage={() => { }} />
       </TooltipProvider>,
     );
 
@@ -181,7 +181,7 @@ describe("LocalConversationThreadBody", () => {
         <LocalConversationThreadBody
           model={buildModel({ searchOpenTick: 1 })}
           actions={buildActions()}
-          onErrorMessage={() => {}}
+          onErrorMessage={() => { }}
         />
       </TooltipProvider>,
     );
@@ -213,7 +213,7 @@ describe("LocalConversationThreadBody", () => {
             },
           })}
           actions={buildActions()}
-          onErrorMessage={() => {}}
+          onErrorMessage={() => { }}
         />
       </TooltipProvider>,
     );
@@ -296,7 +296,7 @@ describe("LocalConversationThreadBody", () => {
               onForkFromTurnCalls.push(input);
             },
           })}
-          onErrorMessage={() => {}}
+          onErrorMessage={() => { }}
         />
       </TooltipProvider>,
     );
@@ -386,7 +386,7 @@ describe("LocalConversationThreadBody", () => {
               onEditLastUserTurnCalls.push(input);
             },
           })}
-          onErrorMessage={() => {}}
+          onErrorMessage={() => { }}
         />
       </TooltipProvider>,
     );
@@ -543,7 +543,7 @@ describe("LocalConversationThreadBody", () => {
 
     const { getByRole } = render(
       <TooltipProvider>
-        <LocalConversationThreadBody model={model} actions={buildActions()} onErrorMessage={() => {}} />
+        <LocalConversationThreadBody model={model} actions={buildActions()} onErrorMessage={() => { }} />
       </TooltipProvider>,
     );
 
@@ -589,7 +589,7 @@ describe("LocalConversationThreadBody", () => {
 
     const { queryByRole, getByText } = render(
       <TooltipProvider>
-        <LocalConversationThreadBody model={model} actions={buildActions()} onErrorMessage={() => {}} />
+        <LocalConversationThreadBody model={model} actions={buildActions()} onErrorMessage={() => { }} />
       </TooltipProvider>,
     );
 
@@ -631,7 +631,7 @@ describe("LocalConversationThreadBody", () => {
         <LocalConversationThreadBody
           model={model}
           actions={buildActions()}
-          onErrorMessage={() => {}}
+          onErrorMessage={() => { }}
           initialUiState={{ collapsedAgentBodyByTurnId: { turn_1: true } }}
         />
       </TooltipProvider>,

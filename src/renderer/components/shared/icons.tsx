@@ -48,7 +48,7 @@ export function StopIcon({ className }: IconProps) {
 
 export function CheckmarkIcon({ className }: IconProps) {
   return (
-    <svg viewBox="0 0 17 17" className={cn("icon-2xs", className)} fill="none" xmlns="http://www.w3.org/2000/svg">
+    <svg width="14" height="14" viewBox="0 0 17 17" className={cn("shrink-0", className)} fill="none" xmlns="http://www.w3.org/2000/svg">
       <path
         d="M12.8961 3.64101C13.1297 3.41418 13.4984 3.37523 13.7779 3.56581C14.0571 3.75635 14.1554 4.11331 14.0299 4.41347L13.9615 4.53847L7.71151 13.7045C7.59411 13.8767 7.4063 13.9877 7.19881 14.0072C6.99136 14.0267 6.78564 13.9533 6.63826 13.806L2.88826 10.056L2.79842 9.9457C2.6192 9.67407 2.64927 9.30496 2.88826 9.06581C3.12738 8.82669 3.49647 8.79676 3.76815 8.97597L3.8785 9.06581L7.03084 12.2182L12.8053 3.74941L12.8961 3.64101Z"
         fill="currentColor"
@@ -124,7 +124,7 @@ export function MicIcon({ className }: IconProps) {
 
 export function ChevronDownIcon({ className }: IconProps) {
   return (
-    <svg viewBox="0 0 20 21" className={cn("icon-2xs", className)} fill="none" xmlns="http://www.w3.org/2000/svg">
+    <svg width="14" height="14" viewBox="0 0 20 21" className={cn("shrink-0", className)} fill="none" xmlns="http://www.w3.org/2000/svg">
       <path
         d={CHEVRON_DOWN_PATH}
         fill="currentColor"
@@ -208,7 +208,7 @@ export function BranchStatusIcon({ className }: IconProps) {
 
 export function SearchIcon({ className }: IconProps) {
   return (
-    <svg viewBox="0 0 21 21" className={cn("icon-2xs", className)} fill="none" xmlns="http://www.w3.org/2000/svg">
+    <svg width="14" height="14" viewBox="0 0 21 21" className={cn("shrink-0", className)} fill="none" xmlns="http://www.w3.org/2000/svg">
       <path
         d="M14.6856 9.29553C14.6856 6.34909 12.2971 3.96057 9.35065 3.96057C6.40421 3.96057 4.01569 6.34909 4.01569 9.29553C4.01569 12.242 6.40421 14.6305 9.35065 14.6305C12.2971 14.6305 14.6856 12.242 14.6856 9.29553ZM16.0157 9.29553C16.0157 10.8995 15.4479 12.3701 14.504 13.5201L14.5704 13.5758L17.5704 16.5758L17.6563 16.6793C17.8268 16.9375 17.7976 17.289 17.5704 17.5162C17.3431 17.7431 16.9924 17.7716 16.7344 17.6012L16.6299 17.5162L13.6299 14.5162L13.5753 14.4489C12.4252 15.3928 10.9546 15.9606 9.35065 15.9606C5.66967 15.9606 2.68561 12.9765 2.68561 9.29553C2.68561 5.61455 5.66967 2.63049 9.35065 2.63049C13.0316 2.63049 16.0157 5.61455 16.0157 9.29553Z"
         fill="currentColor"
@@ -232,7 +232,7 @@ export function PlusSmallIcon({ className }: IconProps) {
 
 export function ChevronRightIcon({ className }: IconProps) {
   return (
-    <svg viewBox="0 0 20 20" className={cn("icon-2xs", className)} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <svg width="14" height="14" viewBox="0 0 20 20" className={cn("shrink-0", className)} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <path d={CHEVRON_RIGHT_PATH} fill="currentColor" />
     </svg>
   );
@@ -248,7 +248,7 @@ export function CodeBracketsIcon({ className }: IconProps) {
 
 export function SmallChevronDownIcon({ className }: IconProps) {
   return (
-    <svg viewBox="0 0 12 12" className={cn("shrink-0", className)} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <svg width="12" height="12" viewBox="0 0 12 12" className={cn("shrink-0", className)} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );

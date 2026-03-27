@@ -1,7 +1,11 @@
 import { useForm, useStore } from "@tanstack/react-form";
 import { type ReactNode } from "react";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { Tooltip } from "@/components/ui/tooltip";
+import {
+  NodexPopover,
+  NodexPopoverContent,
+  NodexPopoverTrigger,
+} from "@/components/ui/popover";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { handleFormSubmit } from "@/lib/forms";
 import { cn } from "../../../../lib/utils";
 import type { CodexAccountSnapshot, CodexConnectionState } from "../../../../lib/types";
@@ -103,16 +107,15 @@ export function ConnectionBadge({
   if (!tooltipContent) return badge;
 
   return (
-    <Tooltip
-      content={tooltipContent}
+    <NodexTooltip
+      tooltipContent={tooltipContent}
       side="bottom"
-      sideOffset={8}
       delayDuration={0}
       onOpenChange={onTooltipOpenChange}
-      enableHoverableContent
+      interactive
     >
       {badge}
-    </Tooltip>
+    </NodexTooltip>
   );
 }
 
@@ -147,79 +150,71 @@ export function AuthPopover({
   if (account === null || account.account) return null;
 
   return (
-    <PopoverPrimitive.Root>
-      <PopoverPrimitive.Trigger asChild>
+    <NodexPopover>
+      <NodexPopoverTrigger asChild>
         <button
           type="button"
           className="h-5 shrink-0 rounded-full bg-(--foreground) px-2 text-xs font-medium text-(--background) outline-none hover:opacity-90 focus-visible:ring-2 focus-visible:ring-(--ring)"
         >
           Sign in
         </button>
-      </PopoverPrimitive.Trigger>
-      <PopoverPrimitive.Portal>
-        <PopoverPrimitive.Content
-          align="end"
-          side="bottom"
-          sideOffset={6}
-          className={cn(
-            "z-50 w-64 space-y-3 rounded-lg border p-3 shadow-lg",
-            "border-(--border) bg-(--popover)",
-            "animate-in fade-in-0 zoom-in-95 data-[side=bottom]:slide-in-from-top-2",
-            "outline-none",
-          )}
-        >
-          {account?.pendingLogin ? (
-            <div className="text-xs text-(--foreground-tertiary)">
-              Login pending...{" "}
-              <button
-                type="button"
-                className="underline hover:text-(--foreground-secondary)"
-                onClick={() => onCancelLogin(account.pendingLogin!.loginId)}
-              >
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <>
-              <button
-                type="button"
-                className="h-7 w-full rounded-md bg-(--foreground) text-xs font-medium text-(--background) shadow-card-xs hover:opacity-90"
-                onClick={onChatGptLogin}
-                disabled={busyAction !== null}
-              >
-                Sign in with ChatGPT
-              </button>
-              <div className="relative">
-                <div className="absolute inset-x-0 top-1/2 border-t border-(--border)" />
-                <div className="relative flex justify-center">
-                  <span className="bg-(--popover) px-2 text-[10px] text-(--foreground-tertiary)">or</span>
-                </div>
+      </NodexPopoverTrigger>
+      <NodexPopoverContent
+        align="end"
+        side="bottom"
+        className="w-64 p-3"
+      >
+        {account?.pendingLogin ? (
+          <div className="text-xs text-(--foreground-tertiary)">
+            Login pending...{" "}
+            <button
+              type="button"
+              className="underline hover:text-(--foreground-secondary)"
+              onClick={() => onCancelLogin(account.pendingLogin!.loginId)}
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="h-7 w-full rounded-md bg-(--foreground) text-xs font-medium text-(--background) shadow-card-xs hover:opacity-90"
+              onClick={onChatGptLogin}
+              disabled={busyAction !== null}
+            >
+              Sign in with ChatGPT
+            </button>
+            <div className="relative">
+              <div className="absolute inset-x-0 top-1/2 border-t border-(--border)" />
+              <div className="relative flex justify-center">
+                <span className="bg-(--popover) px-2 text-[10px] text-(--foreground-tertiary)">or</span>
               </div>
-              <form
-                className="flex items-center gap-1.5"
-                onSubmit={(event) => handleFormSubmit(event, apiKeyForm.handleSubmit)}
+            </div>
+            <form
+              className="flex items-center gap-1.5"
+              onSubmit={(event) => handleFormSubmit(event, apiKeyForm.handleSubmit)}
+            >
+              <input
+                type="password"
+                value={apiKeyInput}
+                onChange={(event) => {
+                  apiKeyForm.setFieldValue("apiKey", event.target.value);
+                }}
+                placeholder="API key"
+                className="h-7 flex-1 rounded-md border border-(--border) bg-(--background) px-2 text-xs inset-shadow-field focus:ring-1 focus:ring-(--ring) focus:outline-none"
+              />
+              <button
+                type="submit"
+                className="h-7 shrink-0 rounded-md border border-(--border) px-2.5 text-xs font-medium transition-colors duration-150 hover:bg-(--background-tertiary)"
+                disabled={busyAction !== null || !apiKeyInput.trim()}
               >
-                <input
-                  type="password"
-                  value={apiKeyInput}
-                  onChange={(event) => {
-                    apiKeyForm.setFieldValue("apiKey", event.target.value);
-                  }}
-                  placeholder="API key"
-                  className="h-7 flex-1 rounded-md border border-(--border) bg-(--background) px-2 text-xs inset-shadow-field focus:ring-1 focus:ring-(--ring) focus:outline-none"
-                />
-                <button
-                  type="submit"
-                  className="h-7 shrink-0 rounded-md border border-(--border) px-2.5 text-xs font-medium transition-colors duration-150 hover:bg-(--background-tertiary)"
-                  disabled={busyAction !== null || !apiKeyInput.trim()}
-                >
-                  Use key
-                </button>
-              </form>
-            </>
-          )}
-        </PopoverPrimitive.Content>
-      </PopoverPrimitive.Portal>
-    </PopoverPrimitive.Root>
+                Use key
+              </button>
+            </form>
+          </>
+        )}
+      </NodexPopoverContent>
+    </NodexPopover>
   );
 }

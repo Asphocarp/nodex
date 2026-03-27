@@ -1,11 +1,9 @@
 import { useEffect, useState } from "react";
 import { ArrowDown, ArrowUp, Eye, EyeOff, Plus, RotateCcw, X } from "lucide-react";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select";
+  NodexDropdownButtonTrigger,
+  NodexDropdownChoiceMenu,
+} from "@/components/ui/dropdown";
 import { formatRulesV2AsJsonLogic, parseRulesV2FromJsonLogic } from "@/lib/toggle-list/rules-v2-jsonlogic";
 import { priorityClauseIncludesEmpty } from "@/lib/toggle-list/priority-clause";
 import {
@@ -69,17 +67,6 @@ const ICON_BTN =
 
 const GHOST_BTN =
   "inline-flex items-center gap-1 text-xs font-medium text-[var(--foreground-tertiary)] cursor-pointer hover:text-[var(--foreground-secondary)]";
-
-/** Shared overrides to make Radix selects match the compact chip aesthetic.
- *  `h-[calc(var(--spacing)*6)]!` forces height past the base `data-[size=default]:h-9`. */
-const SELECT_TRIGGER =
-  "shadow-none px-2 py-0! gap-1 h-[calc(var(--spacing)*6)]! [&_svg]:size-3 [&_svg]:opacity-40";
-
-const TAG_MODE_SELECT =
-  cn(SELECT_TRIGGER, `
-    w-auto max-w-18 min-w-14 shrink-0 rounded-md border-transparent
-    bg-(--background-secondary) text-xs
-  `);
 
 /* NOTE: The checkbox ::after pseudo-element (rotated checkmark via border-width trick) remains in CSS. */
 const CHECKBOX =
@@ -457,59 +444,59 @@ function SortSection({
       <div className={cn("flex flex-col", compact ? "gap-1" : "gap-1.5")}>
         {settings.rulesV2.sort.map((entry, index) => (
           <div key={`${entry.field}:${index}`} className="flex items-center gap-1.5">
-            <Select
+            <NodexDropdownChoiceMenu
               value={entry.field}
               onValueChange={(value) => updateSort(index, buildSortKeyWithEmptyPlacement({
                 field: value as ToggleListRankField,
                 direction: entry.direction,
                 emptyPlacement: entry.emptyPlacement,
               }))}
-            >
-              <SelectTrigger className={cn(SELECT_TRIGGER, "max-w-32.5 min-w-25 rounded-md border-transparent bg-(--background-secondary) text-xs")}>
-                {TOGGLE_LIST_RANK_FIELD_LABELS[entry.field]}
-              </SelectTrigger>
-              <SelectContent sideOffset={4}>
-                {TOGGLE_LIST_RANK_FIELDS.map((field) => (
-                  <SelectItem key={field} value={field}>
-                    {TOGGLE_LIST_RANK_FIELD_LABELS[field]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              options={TOGGLE_LIST_RANK_FIELDS.map((field) => ({
+                value: field,
+                label: TOGGLE_LIST_RANK_FIELD_LABELS[field],
+              }))}
+              triggerButton={(
+                <NodexDropdownButtonTrigger size="xs" className="max-w-32.5 min-w-25">
+                  {TOGGLE_LIST_RANK_FIELD_LABELS[entry.field]}
+                </NodexDropdownButtonTrigger>
+              )}
+            />
 
-            <Select
+            <NodexDropdownChoiceMenu
               value={entry.direction}
               onValueChange={(value) => updateSort(index, buildSortKeyWithEmptyPlacement({
                 field: entry.field,
                 direction: value as ToggleListRankDirection,
                 emptyPlacement: entry.emptyPlacement,
               }))}
-            >
-              <SelectTrigger className={cn(SELECT_TRIGGER, "w-16 rounded-md border-transparent bg-(--background-secondary) text-xs")}>
-                {entry.direction === "asc" ? "Asc" : "Desc"}
-              </SelectTrigger>
-              <SelectContent sideOffset={4}>
-                <SelectItem value="asc">Ascending</SelectItem>
-                <SelectItem value="desc">Descending</SelectItem>
-              </SelectContent>
-            </Select>
+              options={[
+                { value: "asc", label: "Ascending" },
+                { value: "desc", label: "Descending" },
+              ]}
+              triggerButton={(
+                <NodexDropdownButtonTrigger size="xs" className="w-16">
+                  {entry.direction === "asc" ? "Asc" : "Desc"}
+                </NodexDropdownButtonTrigger>
+              )}
+            />
             {supportsSortEmptyPlacementField(entry.field) ? (
-              <Select
+              <NodexDropdownChoiceMenu
                 value={resolveSortEmptyPlacement(entry.field, entry.emptyPlacement)}
                 onValueChange={(value) => updateSort(index, buildSortKeyWithEmptyPlacement({
                   field: entry.field,
                   direction: entry.direction,
                   emptyPlacement: value,
                 }))}
-              >
-                <SelectTrigger className={cn(SELECT_TRIGGER, "w-23 rounded-md border-transparent bg-(--background-secondary) text-xs")}>
-                  {resolveSortEmptyPlacement(entry.field, entry.emptyPlacement) === "first" ? "Empty first" : "Empty last"}
-                </SelectTrigger>
-                <SelectContent sideOffset={4}>
-                  <SelectItem value="first">Empty first</SelectItem>
-                  <SelectItem value="last">Empty last</SelectItem>
-                </SelectContent>
-              </Select>
+                options={[
+                  { value: "first", label: "Empty first" },
+                  { value: "last", label: "Empty last" },
+                ]}
+                triggerButton={(
+                  <NodexDropdownButtonTrigger size="xs" className="w-23">
+                    {resolveSortEmptyPlacement(entry.field, entry.emptyPlacement) === "first" ? "Empty first" : "Empty last"}
+                  </NodexDropdownButtonTrigger>
+                )}
+              />
             ) : null}
 
             <div className="ml-auto flex items-center gap-0.5">
@@ -801,21 +788,19 @@ function GroupEditor({
       <div className="flex items-start gap-2">
         <span className={cn(ROW_LABEL, "pt-0.75")}>Tags</span>
         <div className="flex flex-wrap items-start gap-1.5">
-          <Select
+          <NodexDropdownChoiceMenu
             value={tagMode}
             onValueChange={(value) => setTagMode(value as ToggleListTagFilterMode)}
-          >
-            <SelectTrigger className={TAG_MODE_SELECT}>
-              {TOGGLE_LIST_TAG_FILTER_MODE_LABELS[tagMode]}
-            </SelectTrigger>
-            <SelectContent sideOffset={4}>
-              {TOGGLE_LIST_TAG_FILTER_MODES.map((mode) => (
-                <SelectItem key={mode} value={mode}>
-                  {TOGGLE_LIST_TAG_FILTER_MODE_LABELS[mode]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            options={TOGGLE_LIST_TAG_FILTER_MODES.map((mode) => ({
+              value: mode,
+              label: TOGGLE_LIST_TAG_FILTER_MODE_LABELS[mode],
+            }))}
+            triggerButton={(
+              <NodexDropdownButtonTrigger size="xs" className="w-auto max-w-18 min-w-14 shrink-0">
+                {TOGGLE_LIST_TAG_FILTER_MODE_LABELS[tagMode]}
+              </NodexDropdownButtonTrigger>
+            )}
+          />
 
           {availableTags.length === 0 && (
             <span className="pt-[calc(var(--spacing)*1)] text-xs text-(--foreground-tertiary) italic">

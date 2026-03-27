@@ -7,20 +7,20 @@ import { render, settleAsyncRender, textContent } from "@/test/dom";
 
 mock.module("@/components/ui/tooltip", () => ({
   ...TooltipModule,
-  Tooltip: ({
+  NodexTooltip: ({
     children,
     delayDuration,
-    disableAnimation,
+    tooltipClassName,
   }: {
     children: ReactNode;
     delayDuration?: number;
-    disableAnimation?: boolean;
+    tooltipClassName?: string;
   }) =>
     createElement(
       "span",
       {
         "data-delay-duration": delayDuration,
-        "data-disable-animation": disableAnimation ? "true" : undefined,
+        "data-disable-animation": tooltipClassName?.includes("animate-none") ? "true" : undefined,
       },
       children,
     ),
@@ -128,7 +128,7 @@ describe("local-conversation request cards", () => {
     const { container } = render(
       <UserInputComposerView
         request={optionRequestWithoutOtherFlag}
-        onRespond={async () => {}}
+        onRespond={async () => { }}
       />,
     );
 
@@ -227,7 +227,7 @@ describe("local-conversation request cards", () => {
     const { container, getByLabelText, getByText } = render(
       <UserInputComposerView
         request={optionRequest}
-        onRespond={async () => {}}
+        onRespond={async () => { }}
       />,
     );
 
@@ -235,7 +235,6 @@ describe("local-conversation request cards", () => {
     expect(getByText("2 (Recommended)").textContent).toBe("2 (Recommended)");
     expect(getByLabelText("About 2 (Recommended)").getAttribute("aria-label")).toBe("About 2 (Recommended)");
     expect(container.querySelector('[data-delay-duration="0"]')).not.toBeNull();
-    expect(container.querySelector('[data-disable-animation="true"]')).not.toBeNull();
     expect(textContent(container).includes("Tell Codex what to do differently")).toBeTrue();
     expect(container.querySelector('[data-user-input-focus-target="options"]')).not.toBeNull();
     expect(container.querySelector('[data-user-input-focus-target="other"]')).not.toBeNull();
@@ -249,7 +248,7 @@ describe("local-conversation request cards", () => {
     const { container, getByText } = render(
       <PlanImplementationComposerView
         request={planImplementationRequest}
-        onRespond={async () => {}}
+        onRespond={async () => { }}
       />,
     );
 

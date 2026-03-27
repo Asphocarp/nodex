@@ -77,7 +77,15 @@
   - if a class exists as an exact shipped Codex selector, keep it in the generated utility layer
   - if a class is renderer-local and not recoverable from the shipped Codex CSS, keep it in `theme-utilities.css`
   - do not re-create shipped utility selectors by hand in local feature CSS
-- Keep selector dropdown content on the shared tokenized menu chrome in `src/renderer/components/ui/selector-menu-chrome.ts`; let trigger styling stay local to each surface.
+- Keep tooltip, popover, and menu-style dropdown overlays on the shared Nodex facade layer in `src/renderer/components/ui/`; feature code should consume `tooltip.tsx`, `popover.tsx`, and `dropdown.tsx` directly instead of importing raw Radix overlay primitives. Keep trigger styling local to each surface, but keep overlay chrome and positioning rules centralized.
+- Apply that same shared-facade rule to adjacent common UI. Buttons, dialogs, and settings page primitives should also live in `src/renderer/components/ui/`; do not reintroduce parallel imports from `src/renderer/components/ui/button.tsx`, `src/renderer/components/ui/dialog.tsx`, or workbench-local settings primitive files.
+- Keep shared controls shared. Do not reintroduce feature-local clones such as toolbar icon buttons, section action buttons, secondary button wrappers, or command-palette filter triggers when `ui/button.tsx` or `ui/dropdown.tsx` can express the same control.
+- For tooltips, do not locally override tooltip shell radius, padding, font sizing, or large `sideOffset` values.
+- Apply the same rule to dropdowns and popovers: do not hand-tune `sideOffset`, outline suppression, panel shadows, or raw Radix content chrome for ordinary menus. Prefer the shared `ui` defaults.
+- Prefer shared presets over local class bags. If a surface needs a recurring trigger/button/menu shape, add or reuse a preset on `ui/dropdown.tsx`, `ui/button.tsx`, or `ui/popover.tsx` instead of introducing feature-local constants such as `SELECT_TRIGGER`, `*_ACTION_BUTTON_CLASS_NAME`, or bespoke sidebar menu chrome.
+- Facade APIs should stay component-shaped.
+- Do not expose a separate shared `Select` family. Common single-choice controls should be built from the shared dropdown facade in `src/renderer/components/ui/dropdown.tsx`; do not reintroduce `ui/select.tsx`, a selector-chrome shim, or a parallel select-only styling layer.
+- Selector-style pickers like branch/environment/workspace choosers should compose `NodexDropdownMenu`, `NodexDropdownSearchInput`, `NodexDropdownSection`, `NodexDropdownItem`, and `NodexDropdownSeparator` directly.
 - Theme `@pierre/diffs` instances through host `style` plus `options.unsafeCSS`; use the shared renderer helper in `src/renderer/lib/diff-presentation.ts` instead of per-surface shadow-DOM CSS or broad global selectors.
   - Keep the Codex-style utility contract in the generated Codex utility layer so exact shipped selectors remain available even when Tailwind would not regenerate them from the local source graph alone.
   - Reserve `theme-utilities.css` for Nodex-local additions, not for reconstructed copies of Codex Electron utility families.

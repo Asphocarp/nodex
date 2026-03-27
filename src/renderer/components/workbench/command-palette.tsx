@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import {
+  NodexDialog as Dialog,
+  NodexDialogContent as DialogContent,
+  NodexDialogTitle as DialogTitle,
+} from "@/components/ui/dialog";
 import type { CommandPaletteCard, CommandPaletteCommand } from "@/lib/command-palette";
 import { getKanbanProjectStore } from "@/lib/kanban-store";
 import { normalizeProjectIcon } from "@/lib/project-icon";

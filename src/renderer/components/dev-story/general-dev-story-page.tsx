@@ -1,26 +1,23 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { NodexButton as Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
+  NodexDialog as Dialog,
+  NodexDialogContent as DialogContent,
+  NodexDialogDescription as DialogDescription,
+  NodexDialogFooter as DialogFooter,
+  NodexDialogHeader as DialogHeader,
+  NodexDialogTitle as DialogTitle,
+  NodexDialogTrigger as DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  NodexDropdownButtonTrigger,
+  NodexDropdownChoiceMenu,
+} from "@/components/ui/dropdown";
 import { Textarea } from "@/components/ui/textarea";
-import { Tooltip } from "@/components/ui/tooltip";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { PermissionModeDropdown } from "@/features/local-conversation/view/shared/permission-mode-dropdown";
 import { ToolbarDropdownMenu } from "@/features/local-conversation/view/shared/toolbar-dropdown-menu";
 import {
@@ -364,24 +361,25 @@ export function GeneralDevStoryPage({
             </ShowcaseCard>
 
             <ShowcaseCard
-              title="Select"
-              description="Radix-backed select behavior with the shared frosted selector menu chrome used across toolbar, dialog, and card-stage poppers."
-              source="src/renderer/components/ui/select.tsx"
+              title="Dropdown Choice"
+              description="Codex-style dropdown composition for single-choice selectors, using the same shared menu facade as model, reasoning, and workspace pickers."
+              source="src/renderer/components/ui/dropdown.tsx"
             >
               <PreviewSurface className="items-start">
                 <div className="w-full max-w-sm space-y-3">
-                  <Select value={density} onValueChange={(value) => setDensity(value as GeneralDevStoryDensity)}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Choose density" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SELECT_DENSITY_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <NodexDropdownChoiceMenu
+                    value={density}
+                    onValueChange={(value) => setDensity(value as GeneralDevStoryDensity)}
+                    options={SELECT_DENSITY_OPTIONS.map((option) => ({
+                      value: option.value,
+                      label: option.label,
+                    }))}
+                    triggerButton={(
+                      <NodexDropdownButtonTrigger className="w-full" muted>
+                        {densityLabel}
+                      </NodexDropdownButtonTrigger>
+                    )}
+                  />
                   <div className="text-sm/relaxed text-(--foreground-secondary)">
                     Current value: <span className="text-(--foreground)">{densityLabel}</span>
                   </div>
@@ -414,12 +412,12 @@ export function GeneralDevStoryPage({
                 <div className="max-w-sm text-sm/relaxed text-(--foreground-secondary)">
                   Hover the action to inspect the default tooltip treatment used throughout the workbench.
                 </div>
-                <Tooltip content="Keeps controls quiet until intent is clear." side="top">
+                <NodexTooltip tooltipContent="Keeps controls quiet until intent is clear." side="top">
                   <Button variant="outline">
                     <Bell className="size-4" />
                     Hover for tooltip
                   </Button>
-                </Tooltip>
+                </NodexTooltip>
               </PreviewSurface>
             </ShowcaseCard>
 
