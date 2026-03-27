@@ -312,7 +312,9 @@ export const NodexDropdownButtonTrigger = forwardRef<
       )}
       {...props}
     >
-      <span className="min-w-0 truncate">{children}</span>
+      <span className="flex min-w-0 items-center gap-1">
+        {children}
+      </span>
       {showChevron ? <ChevronDownIcon className="icon-2xs" /> : null}
     </button>
   );

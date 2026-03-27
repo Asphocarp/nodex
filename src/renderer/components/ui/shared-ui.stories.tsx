@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import { Check, FolderGit2, Settings2, Shield, Sparkles } from "lucide-react";
-import { ConfigStatusIcon } from "@/components/shared/icons";
+import { ConfigStatusIcon, EstimatePickerIcon } from "@/components/shared/icons";
 import { NodexButton } from "./button";
 import {
   NodexDialog,
@@ -66,6 +66,31 @@ function XsTriggerDropdownDemo() {
           { value: "auto", label: "Auto" },
           { value: "high", label: "High" },
           { value: "low", label: "Low" },
+        ]}
+      />
+    </StorySurface>
+  );
+}
+
+function CompactIconLabelTriggerDemo() {
+  const [value, setValue] = useState("estimate");
+
+  return (
+    <StorySurface>
+      <NodexDropdownChoiceMenu
+        open={true}
+        value={value}
+        onValueChange={setValue}
+        contentWidth="xs"
+        triggerButton={(
+          <NodexDropdownButtonTrigger size="xs">
+            <EstimatePickerIcon />
+            <span>Estimate</span>
+          </NodexDropdownButtonTrigger>
+        )}
+        options={[
+          { value: "estimate", label: "Estimate" },
+          { value: "priority", label: "Priority" },
         ]}
       />
     </StorySurface>
@@ -337,6 +362,10 @@ type Story = StoryObj<typeof meta>;
 
 export const DropdownXsTrigger: Story = {
   render: () => <XsTriggerDropdownDemo />,
+};
+
+export const DropdownCompactIconLabelTrigger: Story = {
+  render: () => <CompactIconLabelTriggerDemo />,
 };
 
 export const DropdownIconOnlyTrigger: Story = {

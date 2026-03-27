@@ -1,6 +1,11 @@
 import { useForm, useStore } from "@tanstack/react-form";
 import { useState, useRef, useEffect } from "react";
 import { Input } from "@/components/ui/input";
+import {
+  EstimatePickerIcon,
+  PriorityPickerIcon,
+  StatusLinesIcon,
+} from "@/components/shared/icons";
 import { handleFormSubmit } from "@/lib/forms";
 import { KANBAN_PRIORITY_OPTIONS, resolveKanbanPriorityOption } from "../../lib/kanban-options";
 import {
@@ -140,15 +145,13 @@ export function InlineCardCreator({ onSave, onCancel }: InlineCardCreatorProps) 
             }))}
             triggerButton={(
               <NodexDropdownButtonTrigger
+                size="xs"
                 className={cn(
-                  "h-6 w-auto gap-1 border-none px-1 py-1 shadow-none",
+                  "w-auto border-none px-1",
                   "hover:bg-(--background-tertiary)"
                 )}
               >
-                <svg className="h-2 w-2" viewBox="0 0 16 16" fill="none">
-                  <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" />
-                  <path d="M8 5v3M8 10v1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                </svg>
+                <PriorityPickerIcon />
                 <span>Priority</span>
               </NodexDropdownButtonTrigger>
             )}
@@ -172,15 +175,13 @@ export function InlineCardCreator({ onSave, onCancel }: InlineCardCreatorProps) 
             }))}
             triggerButton={(
               <NodexDropdownButtonTrigger
+                size="xs"
                 className={cn(
-                  "h-6 w-auto gap-1 border-none px-1 py-1 shadow-none",
+                  "w-auto border-none px-1",
                   "hover:bg-(--background-tertiary)"
                 )}
               >
-                <svg className="h-2 w-2" viewBox="0 0 16 16" fill="none">
-                  <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" />
-                  <path d="M8 5v3l2 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                </svg>
+                <EstimatePickerIcon />
                 <span>Estimate</span>
               </NodexDropdownButtonTrigger>
             )}
@@ -214,9 +215,7 @@ export function InlineCardCreator({ onSave, onCancel }: InlineCardCreatorProps) 
               "rounded-xs"
             )}
           >
-            <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none">
-              <path d="M3 5h10M3 8h10M3 11h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
+            <StatusLinesIcon />
             <span>Status</span>
           </button>
         )}

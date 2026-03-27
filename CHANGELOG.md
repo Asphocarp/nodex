@@ -68,6 +68,7 @@ All notable changes to this project will be documented in this file.
 - Fixed reopened Codex threads rendering as blank after restore; active resume now materializes the canonical conversation directly from the `thread/resume` payload instead of leaving the thread in a `resumed` but empty placeholder state.
 - Fixed active Codex thread streaming so assistant text, reasoning text, and command output now update incrementally during a running turn instead of appearing only in large delayed chunks.
 - Fixed mounted Thread-stage reasoning parity so completed `Thought` rows now follow Codex's summary-first projection: empty-summary reasoning items no longer render, replayed reasoning events coalesce into one visible row per contiguous reasoning run, and private reasoning content is no longer expanded into extra transcript rows.
+- Fixed the inline card creator’s compact dropdown controls so their icons now use shared sized SVGs and an explicit Storybook surface, avoiding the oversized compact-control icon regression.
 
 ## [0.1.7] - 2026-03-19
 
