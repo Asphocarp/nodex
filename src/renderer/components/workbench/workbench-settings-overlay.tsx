@@ -14,6 +14,7 @@ import {
   Sun,
 } from "lucide-react";
 import { CheckmarkIcon } from "@/components/shared/icons";
+import { NodexButton } from "@/components/ui/button";
 import {
   NodexDropdownButtonTrigger,
   NodexDropdownItem,
@@ -261,6 +262,12 @@ function TogglePill({
     </button>
   );
 }
+
+const SETTINGS_NUMBER_INPUT_CLASS_NAME =
+  "h-9 rounded-md border border-token-border bg-token-input-background px-2.5 py-1.5 text-right text-sm text-token-text-primary outline-none focus-visible:ring-2 focus-visible:ring-(--accent-blue)/30";
+
+const SETTINGS_TEXT_INPUT_CLASS_NAME =
+  "h-9 rounded-md border border-token-border bg-token-input-background px-2.5 py-1.5 text-sm text-token-text-primary outline-none focus-visible:ring-2 focus-visible:ring-(--accent-blue)/30";
 
 function ThemeSettingControl() {
   const { theme, setTheme } = useTheme();
@@ -1344,15 +1351,8 @@ function BackupSettingsControl({ open }: { open: boolean }) {
   const hasHistoryEnvOverride = historySettings?.envOverrides.retentionCount;
 
   return (
-    <div className="flex flex-col gap-3">
-      {/* Schedule settings card */}
-      <div
-        className={cn(
-          "flex flex-col rounded-lg border-[calc(var(--spacing)*0.125)]",
-          "border-(--border) bg-foreground-2",
-          "divide-y-[calc(var(--spacing)*0.125)] divide-(--border)",
-        )}
-      >
+    <div className="flex flex-col gap-[var(--padding-panel)]">
+      <SectionBlock title="Automatic snapshots">
         <SettingRow label="Auto backups" description="Schedule background snapshots for the local store.">
           <TogglePill
             value={scheduleValues.autoEnabled}
@@ -1368,9 +1368,9 @@ function BackupSettingsControl({ open }: { open: boolean }) {
               value={scheduleValues.intervalHours}
               disabled={Boolean(settings?.envOverrides.intervalHours)}
               onChange={(event) => scheduleForm.setFieldValue("intervalHours", event.target.value)}
-              className="h-7 w-16 rounded-lg border border-(--border) bg-foreground-5 px-2 text-right text-sm outline-none focus-visible:ring-2 focus-visible:ring-(--accent-blue)/30"
+              className={cn(SETTINGS_NUMBER_INPUT_CLASS_NAME, "w-16")}
             />
-            <span className="text-sm text-(--foreground-secondary)">hours</span>
+            <span className="text-sm text-token-text-secondary">hours</span>
           </div>
         </SettingRow>
         <SettingRow label="Retention" description="Snapshots kept before pruning.">
@@ -1381,52 +1381,37 @@ function BackupSettingsControl({ open }: { open: boolean }) {
               value={scheduleValues.retentionCount}
               disabled={Boolean(settings?.envOverrides.retentionCount)}
               onChange={(event) => scheduleForm.setFieldValue("retentionCount", event.target.value)}
-              className="h-7 w-16 rounded-lg border border-(--border) bg-foreground-5 px-2 text-right text-sm outline-none focus-visible:ring-2 focus-visible:ring-(--accent-blue)/30"
+              className={cn(SETTINGS_NUMBER_INPUT_CLASS_NAME, "w-16")}
             />
-            <span className="text-sm text-(--foreground-secondary)">max</span>
+            <span className="text-sm text-token-text-secondary">max</span>
           </div>
         </SettingRow>
-        {/* Save row inside the card */}
         <div className="flex items-center justify-between gap-3 p-3">
-          <div className="text-sm text-(--foreground-secondary)">
+          <div className="text-sm text-token-text-secondary">
             {hasBackupEnvOverrides ? "Some values locked by env vars." : null}
           </div>
           <div className="flex items-center gap-2">
-            <button
-              type="button"
+            <NodexButton
+              variant="secondary"
+              size="sm"
               onClick={() => void refresh()}
               disabled={busyAction !== null}
-              className={cn(
-                "h-7 rounded-lg bg-foreground-5 px-2.5 text-sm text-(--foreground-secondary) transition-colors",
-                "hover:bg-foreground-10 hover:text-(--foreground)",
-                "disabled:cursor-not-allowed disabled:opacity-50",
-              )}
             >
               Refresh
-            </button>
-            <button
-              type="button"
+            </NodexButton>
+            <NodexButton
+              variant="primary"
+              size="sm"
               onClick={() => void scheduleForm.handleSubmit()}
               disabled={busyAction !== null}
-              className={cn(
-                "h-7 rounded-lg bg-(--accent-blue) px-2.5 text-sm text-white transition-colors",
-                "hover:bg-(--accent-blue-hover)",
-                "disabled:cursor-not-allowed disabled:opacity-50",
-              )}
             >
               Save schedule
-            </button>
+            </NodexButton>
           </div>
         </div>
-      </div>
+      </SectionBlock>
 
-      <div
-        className={cn(
-          "flex flex-col rounded-lg border-[calc(var(--spacing)*0.125)]",
-          "border-(--border) bg-foreground-2",
-          "divide-y-[calc(var(--spacing)*0.125)] divide-(--border)",
-        )}
-      >
+      <SectionBlock title="History retention">
         <SettingRow
           label="History retention"
           description="Per-project history rows kept before pruning. Use 0 for unlimited."
@@ -1438,39 +1423,27 @@ function BackupSettingsControl({ open }: { open: boolean }) {
               value={historyValues.retentionCount}
               disabled={Boolean(historySettings?.envOverrides.retentionCount)}
               onChange={(event) => historyForm.setFieldValue("retentionCount", event.target.value)}
-              className="h-7 w-20 rounded-lg border border-(--border) bg-foreground-5 px-2 text-right text-sm outline-none focus-visible:ring-2 focus-visible:ring-(--accent-blue)/30"
+              className={cn(SETTINGS_NUMBER_INPUT_CLASS_NAME, "w-20")}
             />
-            <span className="text-sm text-(--foreground-secondary)">rows</span>
+            <span className="text-sm text-token-text-secondary">rows</span>
           </div>
         </SettingRow>
         <div className="flex items-center justify-between gap-3 p-3">
-          <div className="text-sm text-(--foreground-secondary)">
+          <div className="text-sm text-token-text-secondary">
             {hasHistoryEnvOverride ? "Value locked by env var." : "Applied on future writes."}
           </div>
-          <button
-            type="button"
+          <NodexButton
+            variant="primary"
+            size="sm"
             onClick={() => void historyForm.handleSubmit()}
             disabled={busyAction !== null}
-            className={cn(
-              "h-7 rounded-lg bg-(--accent-blue) px-2.5 text-sm text-white transition-colors",
-              "hover:bg-(--accent-blue-hover)",
-              "disabled:cursor-not-allowed disabled:opacity-50",
-            )}
           >
             Apply
-          </button>
+          </NodexButton>
         </div>
-      </div>
+      </SectionBlock>
 
-      {/* Snapshot + restore card */}
-      <div
-        className={cn(
-          "flex flex-col overflow-hidden rounded-lg border-[calc(var(--spacing)*0.125)]",
-          "border-(--border) bg-foreground-2",
-          "divide-y-[calc(var(--spacing)*0.125)] divide-(--border)",
-        )}
-      >
-        {/* Create snapshot row */}
+      <SectionBlock title="Snapshots">
         <form
           className="flex items-center gap-2 p-3"
           onSubmit={(event) => handleFormSubmit(event, snapshotForm.handleSubmit)}
@@ -1479,26 +1452,22 @@ function BackupSettingsControl({ open }: { open: boolean }) {
             value={snapshotValues.label}
             placeholder="Optional snapshot label"
             onChange={(event) => snapshotForm.setFieldValue("label", event.target.value)}
-            className="h-7 min-w-0 flex-1 rounded-lg border border-(--border) bg-foreground-5 px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-(--accent-blue)/30"
+            className={cn(SETTINGS_TEXT_INPUT_CLASS_NAME, "min-w-0 flex-1")}
           />
-          <button
+          <NodexButton
             type="submit"
+            variant="secondary"
+            size="sm"
             disabled={busyAction !== null}
-            className={cn(
-              "h-7 shrink-0 rounded-lg bg-foreground-5 px-2.5 text-sm text-(--foreground-secondary) transition-colors",
-              "hover:bg-foreground-10 hover:text-(--foreground)",
-              "disabled:cursor-not-allowed disabled:opacity-50",
-            )}
           >
             Create snapshot
-          </button>
+          </NodexButton>
         </form>
-        {/* Restore header */}
-        <div className="flex items-center justify-between gap-3 p-3">
-          <div className="text-sm text-(--foreground)">
-            Restore history
-          </div>
-          <label className="inline-flex items-center gap-1.5 text-sm text-(--foreground-secondary)">
+        <SettingRow
+          label="Safety backup"
+          description="Create a fresh snapshot before restoring an older one."
+        >
+          <label className="inline-flex items-center gap-1.5 text-sm text-token-text-secondary">
             <input
               type="checkbox"
               checked={createSafetyBackup}
@@ -1507,55 +1476,48 @@ function BackupSettingsControl({ open }: { open: boolean }) {
             />
             Safety backup
           </label>
-        </div>
-        {/* Backup list */}
-        <div className="scrollbar-token max-h-56 overflow-y-auto">
+        </SettingRow>
+        <div className="flex flex-col">
           {backups.length === 0 ? (
-            <div className="px-3 py-3 text-sm text-(--foreground-secondary)">
+            <div className="px-3 py-3 text-sm text-token-text-secondary">
               No snapshots yet.
             </div>
           ) : (
             backups.map((backup) => (
               <div
                 key={backup.id}
-                className="flex items-center justify-between gap-3 border-t border-(--border) px-3 py-2.5 first:border-t-0"
+                className="flex items-center justify-between gap-3 p-3"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm text-(--foreground)">
+                  <div className="truncate text-sm text-token-text-primary">
                     {backup.label?.trim() || backup.id}
                   </div>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-(--foreground-secondary)">
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-token-text-secondary">
                     <span>{formatBackupTimestamp(backup.createdAt)}</span>
                     <span>{formatBackupSize(backup.totalBytes)}</span>
-                    <span className="inline-flex items-center rounded-full bg-(--accent) px-1.5 py-px text-xs">
+                    <span className="inline-flex items-center rounded-full bg-token-foreground/5 px-1.5 py-px text-xs text-token-text-secondary">
                       {BACKUP_TRIGGER_LABELS[backup.trigger]}
                     </span>
                   </div>
                 </div>
-                <button
-                  type="button"
+                <NodexButton
+                  variant={confirmRestoreId === backup.id ? "destructive" : "secondary"}
+                  size="sm"
                   onClick={() => void handleRestoreBackup(backup.id)}
                   disabled={busyAction !== null}
-                  className={cn(
-                    "h-7 shrink-0 rounded-lg px-2.5 text-sm transition-colors",
-                    confirmRestoreId === backup.id
-                      ? "bg-red-10 text-(--red-text)"
-                      : "bg-foreground-5 text-(--foreground-secondary) hover:bg-foreground-10 hover:text-(--foreground)",
-                    "disabled:cursor-not-allowed disabled:opacity-50",
-                  )}
                 >
                   {confirmRestoreId === backup.id ? "Confirm restore" : "Restore"}
-                </button>
+                </NodexButton>
               </div>
             ))
           )}
         </div>
-      </div>
+      </SectionBlock>
 
       {status ? (
-        <p className="text-sm text-(--foreground-secondary)">{status}</p>
+        <p className="text-sm text-token-text-secondary">{status}</p>
       ) : null}
-      {error ? <p className="text-sm text-(--red-text)">{error}</p> : null}
+      {error ? <p className="text-sm text-token-error-foreground">{error}</p> : null}
     </div>
   );
 }

@@ -280,6 +280,10 @@ export const LocalEnvironments: Story = {
   render: () => <SettingsOverlayStory initialPath={buildSettingsPath("local-environments")} />,
 };
 
+export const Backups: Story = {
+  render: () => <SettingsOverlayStory initialPath={buildSettingsPath("backups")} />,
+};
+
 export const InvalidSectionRedirect: Story = {
   render: () => <SettingsOverlayStory initialPath="/settings/not-real" />,
 };
