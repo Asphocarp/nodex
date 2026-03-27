@@ -217,6 +217,32 @@ export function SearchIcon({ className }: IconProps) {
   );
 }
 
+export function PriorityPickerIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" className={cn("size-3", className)} fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M8 5v3M8 10v1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function EstimatePickerIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" className={cn("size-3", className)} fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M8 5v3l2 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function StatusLinesIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" className={cn("size-3.5", className)} fill="none" aria-hidden="true">
+      <path d="M3 5h10M3 8h10M3 11h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function PlusSmallIcon({ className }: IconProps) {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={className}>
