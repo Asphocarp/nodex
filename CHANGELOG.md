@@ -28,6 +28,7 @@ All notable changes to this project will be documented in this file.
 - Thread request cards now follow Codex Electron’s request family more closely: approval prompts render through the ask-for-permission shell with inline command or patch preview and `Skip`/`Submit`, background child approvals inject the worker identity inline into the prompt instead of rendering a separate header, implement-plan and request-user-input prompts share the same questionnaire shell, and MCP elicitation uses its own dedicated approval card instead of a local Nodex wrapper.
 
 ### Fixed
+- Fixed the NFM editor side-menu add-block button so clicking the visible `+` glyph now reaches the real button hit target instead of getting stranded on the icon subtree.
 - Fixed the Codex-style settings typography scale so settings page titles like `Environments` now inherit the same 23px/28px heading variables as Codex Electron instead of falling back to the app-wide 18px electron heading override.
 - Fixed the Codex-style settings shell colors so the left rail now uses the sidebar surface token while the active settings page uses the main-surface token, matching Codex Electron instead of swapping the two layers.
 - Fixed poor-network thread recovery so retryable reconnect attempts now stay inside the mounted transcript as Codex-style `Reconnecting...` rows with expandable details, instead of replacing the whole thread with a shell reconnect state.
@@ -132,6 +133,7 @@ All notable changes to this project will be documented in this file.
 - Changed the command palette to open faster, keep the workbench visible behind it instead of dimming the background, and use a heavier floating shadow for separation.
 
 ### Fixed
+- Fixed NFM editor drag-handle menu actions like `Delete`, `Send blocks`, and `Colors` so BlockNote side-menu dropdown items now complete their pointer interaction reliably in Electron, and follow-up actions no longer leave the side menu frozen in place.
 - Fixed the Card Stage history button so it opens reliably again after the navigation-history refactor; the cards overlay no longer clears itself by coupling the selected recent session to the active cards tab.
 - Fixed DB view toolbar filter, sort, and display settings resetting after a full window close; they now persist durably per project and per supported view across reopen.
 

@@ -9,9 +9,10 @@ import {
 import { GripVertical, Plus } from "lucide-react";
 import {
   useCallback,
-  useEffect,
   useMemo,
+  useRef,
   type ComponentType,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import {
@@ -19,7 +20,6 @@ import {
   type NfmDragHandleMenuComponentProps,
 } from "./nfm-drag-handle-menu";
 import { resolveCardRefOwnerDragBlock } from "./side-menu-drag-target";
-import { createSideMenuFreezeController } from "./side-menu-freeze-controller";
 
 interface SideMenuBlock {
   id?: string;
@@ -54,10 +54,10 @@ interface SideMenuButtonProps {
   className?: string;
   icon?: ReactNode;
   onClick?: () => void;
+  onPointerUp?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   onDragStart?: (event: { dataTransfer: DataTransfer | null; clientY: number }) => void;
   onDragEnd?: () => void;
   draggable?: boolean;
-  tabIndex?: number;
 }
 
 function NfmAddBlockButton() {
@@ -67,12 +67,13 @@ function NfmAddBlockButton() {
   const suggestionMenu = useExtension(SuggestionMenu);
   const SideMenuButton = Components.SideMenu.Button as unknown as (props: SideMenuButtonProps) => ReactNode;
   type CursorTarget = Parameters<typeof editor.setTextCursorPosition>[0];
+  const lastPointerActivationAtRef = useRef<number | null>(null);
   const block = useExtensionState(SideMenuExtension, {
     editor,
     selector: (state) => state?.block,
   }) as (CursorTarget & { content?: unknown[] }) | undefined;
 
-  const handleClick = useCallback(() => {
+  const activateAddBlock = useCallback(() => {
     if (!block) return;
 
     const blockContent = Array.isArray(block.content) ? block.content : [];
@@ -89,15 +90,36 @@ function NfmAddBlockButton() {
     suggestionMenu.openSuggestionMenu("/");
   }, [block, editor, suggestionMenu]);
 
+  const handlePointerUp = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.pointerType !== "mouse" || event.button !== 0) return;
+
+    lastPointerActivationAtRef.current = performance.now();
+    activateAddBlock();
+  }, [activateAddBlock]);
+
+  const handleClick = useCallback(() => {
+    const lastPointerActivationAt = lastPointerActivationAtRef.current;
+    if (lastPointerActivationAt !== null && performance.now() - lastPointerActivationAt < 500) {
+      lastPointerActivationAtRef.current = null;
+      return;
+    }
+
+    activateAddBlock();
+  }, [activateAddBlock]);
+
   if (!block) return null;
 
   return (
     <SideMenuButton
       className="bn-button"
       label={dict.side_menu.add_block_label}
-      tabIndex={-1}
       onClick={handleClick}
-      icon={<Plus size={18} />}
+      onPointerUp={handlePointerUp}
+      icon={
+        <span className="pointer-events-none" data-test="dragHandleAdd">
+          <Plus size={18} />
+        </span>
+      }
     />
   );
 }
@@ -113,11 +135,6 @@ export function NfmSideMenu(props: NfmSideMenuProps) {
   }) as unknown as SideMenuBlock | undefined;
 
   const runtimeEditor = editor as unknown as SideMenuEditorRuntime;
-  const freezeController = useMemo(
-    () => createSideMenuFreezeController(sideMenu),
-    [sideMenu],
-  );
-
   const dragTargetBlock = useMemo(
     () => (block ? resolveCardRefOwnerDragBlock(runtimeEditor, block) : block),
     [block, runtimeEditor],
@@ -145,13 +162,6 @@ export function NfmSideMenu(props: NfmSideMenuProps) {
     return attrs;
   }, [block, runtimeEditor.schema.blockSpecs]);
 
-  useEffect(
-    () => () => {
-      freezeController.release();
-    },
-    [freezeController],
-  );
-
   if (!block || !dragTargetBlock) return null;
 
   const DragHandleMenuComponent = props.dragHandleMenu ?? NfmDefaultDragHandleMenu;
@@ -160,7 +170,13 @@ export function NfmSideMenu(props: NfmSideMenuProps) {
     <Components.SideMenu.Root className="bn-side-menu" {...dataAttributes}>
       <NfmAddBlockButton />
       <Components.Generic.Menu.Root
-        onOpenChange={freezeController.handleMenuOpenChange}
+        onOpenChange={(open: boolean) => {
+          if (open) {
+            sideMenu.freezeMenu();
+            return;
+          }
+          sideMenu.unfreezeMenu();
+        }}
         position="left"
       >
         <Components.Generic.Menu.Trigger>
@@ -172,12 +188,13 @@ export function NfmSideMenu(props: NfmSideMenuProps) {
             }
             onDragEnd={sideMenu.blockDragEnd}
             className="bn-button"
-            tabIndex={-1}
             icon={<GripVertical size={24} data-test="dragHandle" />}
           />
         </Components.Generic.Menu.Trigger>
         <DragHandleMenuComponent
-          releaseSideMenuFreeze={freezeController.release}
+          releaseSideMenuFreeze={() => {
+            sideMenu.unfreezeMenu();
+          }}
         />
       </Components.Generic.Menu.Root>
     </Components.SideMenu.Root>

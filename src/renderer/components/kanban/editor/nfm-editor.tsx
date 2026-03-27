@@ -1164,7 +1164,6 @@ export function NfmEditor({
     };
   }, [editor, syncSearchStats]);
 
-  // Handle blur via DOM events since BlockNoteView doesn't have onBlur prop
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Detect toggle button clicks (which don't create ProseMirror transactions)
@@ -1206,22 +1205,6 @@ export function NfmEditor({
       }
     };
   }, []);
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    const handleFocusOut = (e: FocusEvent) => {
-      if (suppressExternalDropRef.current) return;
-      // Only trigger blur if focus is moving outside the editor
-      if (!el.contains(e.relatedTarget as Node)) {
-        onBlurRef.current();
-      }
-    };
-
-    el.addEventListener("focusout", handleFocusOut);
-    return () => el.removeEventListener("focusout", handleFocusOut);
-  }, []);
-
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
