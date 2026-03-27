@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Threads settings now include Codex Electron’s thread-detail mode, so you can switch between `Steps`, `Steps with code commands`, and `Steps with code output` to control how much command activity appears in mounted threads.
+- Shared text and number fields now use a thinner Codex Electron-style input contract, so settings and inline form controls no longer inherit the older shadcn shadow/ring/file-input styling.
 - Workbench settings and request-card questionnaires now share schema-backed TanStack Form validation, so integer/range checks, structured answers, and invalid-submit messaging stay consistent without scattering field parsing across each renderer surface.
 - Mounted Thread transcript expand/collapse behavior now uses the same Motion-style subtype-owned animation model as Codex Electron: command, exploration, patch, MCP, reasoning, todo, answered request-user-input, and plan-summary rows animate through subtype-owned Motion wrappers, while agent-work collapse uses a separate presence animation.
 - Mounted Thread transcripts no longer render a generic fallback tool row for unknown raw tool payloads; only the Codex Electron tool families with dedicated transcript surfaces stay visible.
