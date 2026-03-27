@@ -102,6 +102,7 @@ import {
   type SettingsSectionId,
 } from "./workbench-settings-sections";
 import {
+  CODEX_SETTINGS_SHELL_STYLE,
   SectionBlock,
   SettingRow,
   SettingsPageSurface,
@@ -1614,6 +1615,7 @@ interface SettingsOverlayProps {
   onOpenChange: (open: boolean) => void;
   path: string;
   onPathChange: (path: string) => void;
+  onRequestProjectPickerOpen: () => void;
   projects: Project[];
   activeProjectId: string;
   initialLocalEnvironmentProjectId?: string | null;
@@ -1646,6 +1648,7 @@ interface SettingsSectionPageProps extends Pick<
   | "initialLocalEnvironmentConfigPath"
   | "initialLocalEnvironmentProjectId"
   | "nextPanelPeekPx"
+  | "onRequestProjectPickerOpen"
   | "onComposerEnterBehaviorChange"
   | "onNextPanelPeekPxChange"
   | "onSidebarTopLevelSectionVisibleChange"
@@ -1947,24 +1950,29 @@ function LocalEnvironmentsSettingsSectionPage({
   activeProjectId,
   initialLocalEnvironmentConfigPath,
   initialLocalEnvironmentProjectId,
+  onRequestProjectPickerOpen,
   open,
   projects,
 }: SettingsSectionPageProps) {
   return (
-    <SettingsPageSurface
-      title="Environments"
-      subtitle="Project-scoped local environment files and structured editing."
-      fullWidth
-    >
-      <LocalEnvironmentsSettingsPage
-        open={open}
-        active
-        projects={projects}
-        activeProjectId={activeProjectId}
-        initialProjectId={initialLocalEnvironmentProjectId}
-        initialConfigPath={initialLocalEnvironmentConfigPath}
-      />
-    </SettingsPageSurface>
+    <LocalEnvironmentsSettingsPage
+      open={open}
+      active
+      projects={projects}
+      activeProjectId={activeProjectId}
+      initialProjectId={initialLocalEnvironmentProjectId}
+      initialConfigPath={initialLocalEnvironmentConfigPath}
+      onAddProject={onRequestProjectPickerOpen}
+      renderShell={({ title, subtitle, backSlot, children }) => (
+        <SettingsPageSurface
+          title={title}
+          subtitle={subtitle}
+          backSlot={backSlot}
+        >
+          {children}
+        </SettingsPageSurface>
+      )}
+    />
   );
 }
 
@@ -2010,6 +2018,7 @@ export function SettingsOverlay({
   onOpenChange,
   path,
   onPathChange,
+  onRequestProjectPickerOpen,
   projects,
   activeProjectId,
   initialLocalEnvironmentProjectId,
@@ -2074,7 +2083,10 @@ export function SettingsOverlay({
     || activeSection?.placeholderKind === "external";
 
   return (
-    <div className="fixed inset-0 z-50 bg-token-bg-primary text-(--foreground) electron:bg-token-side-bar-background">
+    <div
+      className="fixed inset-0 z-50 bg-token-bg-primary text-(--foreground) electron:bg-token-side-bar-background"
+      style={CODEX_SETTINGS_SHELL_STYLE}
+    >
       <div
         ref={shellRef}
         role="dialog"
@@ -2112,6 +2124,7 @@ export function SettingsOverlay({
               activeProjectId={activeProjectId}
               initialLocalEnvironmentProjectId={initialLocalEnvironmentProjectId}
               initialLocalEnvironmentConfigPath={initialLocalEnvironmentConfigPath}
+              onRequestProjectPickerOpen={onRequestProjectPickerOpen}
               sidebarTopLevelSectionOrder={sidebarTopLevelSectionOrder}
               sidebarTopLevelSections={sidebarTopLevelSections}
               onSidebarTopLevelSectionVisibleChange={onSidebarTopLevelSectionVisibleChange}

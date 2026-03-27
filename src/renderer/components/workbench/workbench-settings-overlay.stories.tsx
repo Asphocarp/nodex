@@ -1,6 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
-import type { Project } from "@/lib/types";
+import type {
+  Project,
+  UpdateWorktreeEnvironmentConfigInput,
+  WorktreeEnvironmentSettingsSnapshot,
+} from "@/lib/types";
 import { SettingsOverlay } from "./workbench-settings-overlay";
 import { buildSettingsPath } from "./workbench-settings-routes";
 
@@ -14,11 +18,92 @@ const PROJECTS: Project[] = [
   },
 ];
 
-function ensureStorybookElectronBridge() {
+function buildEnvironmentSnapshot(
+  projectId: string,
+  overrides?: Partial<WorktreeEnvironmentSettingsSnapshot>,
+): WorktreeEnvironmentSettingsSnapshot {
+  const project = PROJECTS.find((candidate) => candidate.id === projectId) ?? PROJECTS[0];
+
+  return {
+    projectId: project.id,
+    projectName: project.name,
+    workspacePath: project.workspacePath ?? "",
+    configPath: ".codex/environments/environment.toml",
+    nextConfigPath: ".codex/environments/environment-2.toml",
+    configExists: true,
+    configs: [
+      {
+        configPath: ".codex/environments/environment.toml",
+        fileName: "environment.toml",
+        state: "success",
+        exists: true,
+        name: `${project.name} env`,
+        hasSetupScript: true,
+        hasCleanupScript: true,
+        actionCount: 1,
+        parseErrorMessage: null,
+        readErrorMessage: null,
+        environment: {
+          version: 1,
+          name: `${project.name} env`,
+          setup: {
+            script: "bun install\nbun run build",
+            platformScripts: {},
+          },
+          cleanup: {
+            script: "git clean -fd",
+            platformScripts: {},
+          },
+          actions: [
+            {
+              id: "action-1",
+              name: "Run tests",
+              icon: "test",
+              command: "bun test",
+              platform: null,
+            },
+          ],
+        },
+      },
+    ],
+    environment: {
+      version: 1,
+      name: `${project.name} env`,
+      setup: {
+        script: "bun install\nbun run build",
+        platformScripts: {},
+      },
+      cleanup: {
+        script: "git clean -fd",
+        platformScripts: {},
+      },
+      actions: [
+        {
+          id: "action-1",
+          name: "Run tests",
+          icon: "test",
+          command: "bun test",
+          platform: null,
+        },
+      ],
+    },
+    parseErrorMessage: null,
+    readErrorMessage: null,
+    ...overrides,
+  };
+}
+
+function ensureStorybookElectronBridge({
+  snapshots,
+  onSaveSnapshot,
+}: {
+  snapshots: Record<string, WorktreeEnvironmentSettingsSnapshot>;
+  onSaveSnapshot: (input: UpdateWorktreeEnvironmentConfigInput) => WorktreeEnvironmentSettingsSnapshot;
+}) {
   if (typeof window === "undefined") return;
 
   window.api = {
-    invoke: async (channel: string) => {
+    invoke: async (channel: string, ...args: unknown[]) => {
       switch (channel) {
         case "settings:thread-notifications:get":
           return { threadCompletionEnabled: true };
@@ -56,6 +141,26 @@ function ensureStorybookElectronBridge() {
             retentionCount: 1000,
             envOverrides: {},
           };
+        case "worktrees:environments:config:read": {
+          const projectId = typeof args[0] === "string" ? args[0] : PROJECTS[0].id;
+          const configPath = typeof args[1] === "string" ? args[1] : null;
+          const baseSnapshot = snapshots[projectId] ?? buildEnvironmentSnapshot(projectId);
+          if (configPath && configPath !== baseSnapshot.configPath) {
+            return {
+              ...baseSnapshot,
+              configPath,
+              configExists: false,
+              environment: null,
+            };
+          }
+          return baseSnapshot;
+        }
+        case "worktrees:environments:configs:list": {
+          const projectId = typeof args[0] === "string" ? args[0] : PROJECTS[0].id;
+          return (snapshots[projectId] ?? buildEnvironmentSnapshot(projectId)).configs;
+        }
+        case "worktrees:environments:config:save":
+          return onSaveSnapshot(args[0] as UpdateWorktreeEnvironmentConfigInput);
         default:
           return null;
       }
@@ -71,7 +176,39 @@ function SettingsOverlayStory({
 }) {
   const [open, setOpen] = useState(true);
   const [path, setPath] = useState(initialPath);
-  ensureStorybookElectronBridge();
+  const [environmentSnapshots, setEnvironmentSnapshots] = useState<Record<string, WorktreeEnvironmentSettingsSnapshot>>({
+    default: buildEnvironmentSnapshot("default"),
+  });
+  ensureStorybookElectronBridge({
+    snapshots: environmentSnapshots,
+    onSaveSnapshot: (input) => {
+      const nextSnapshot = buildEnvironmentSnapshot(input.projectId, {
+        configPath: input.configPath,
+        configExists: true,
+        environment: input.environment,
+        configs: [
+          {
+            configPath: input.configPath,
+            fileName: input.configPath.split("/").at(-1) ?? "environment.toml",
+            state: "success",
+            exists: true,
+            name: input.environment.name,
+            hasSetupScript: Boolean(input.environment.setup.script),
+            hasCleanupScript: Boolean(input.environment.cleanup.script),
+            actionCount: input.environment.actions.length,
+            parseErrorMessage: null,
+            readErrorMessage: null,
+            environment: input.environment,
+          },
+        ],
+      });
+      setEnvironmentSnapshots((current) => ({
+        ...current,
+        [input.projectId]: nextSnapshot,
+      }));
+      return nextSnapshot;
+    },
+  });
 
   return (
     <div className="min-h-screen bg-(--background)">
@@ -80,10 +217,11 @@ function SettingsOverlayStory({
         onOpenChange={setOpen}
         path={path}
         onPathChange={setPath}
+        onRequestProjectPickerOpen={() => {}}
         projects={PROJECTS}
         activeProjectId="default"
-        initialLocalEnvironmentProjectId="default"
-        initialLocalEnvironmentConfigPath=".codex/environments/environment.toml"
+        initialLocalEnvironmentProjectId={null}
+        initialLocalEnvironmentConfigPath={null}
         sidebarTopLevelSectionOrder={["files", "threads", "recents", "cards"]}
         sidebarTopLevelSections={{
           files: { visible: true, itemLimit: 10 },

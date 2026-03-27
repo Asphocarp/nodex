@@ -1,5 +1,20 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { cn } from "@/lib/utils";
+
+export const CODEX_SETTINGS_SHELL_STYLE = {
+  "--vscode-font-size": "15px",
+  "--text-4xl": "83px",
+  "--text-3xl": "55px",
+  "--text-2xl": "42px",
+  "--text-xl": "32px",
+  "--text-lg": "18px",
+  "--text-base": "15px",
+  "--text-sm": "14px",
+  "--text-xs": "12px",
+  "--text-heading-lg": "28px",
+  "--text-heading-md": "23px",
+  "--cursor-interaction": "pointer",
+} as CSSProperties;
 
 export interface SettingRowProps {
   label: string;
@@ -71,7 +86,10 @@ export function SettingsPageSurface({
   className?: string;
 }) {
   return (
-    <div className={cn("main-surface flex h-full min-h-0 flex-col", className)}>
+    <div
+      className={cn("main-surface flex h-full min-h-0 flex-col", className)}
+      style={CODEX_SETTINGS_SHELL_STYLE}
+    >
       <div className="draggable flex items-center px-panel electron:h-toolbar extension:h-toolbar-sm">
         {backSlot}
       </div>

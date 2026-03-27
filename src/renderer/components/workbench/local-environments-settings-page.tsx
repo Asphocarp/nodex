@@ -9,7 +9,7 @@ import {
   TestTube2,
   Trash2,
 } from "lucide-react";
-import { ConfigStatusIcon, LocalStatusIcon, SpinnerIcon } from "@/components/shared/icons";
+import { SpinnerIcon } from "@/components/shared/icons";
 import { Input } from "@/components/ui/input";
 import { invoke } from "@/lib/api";
 import type {
@@ -25,6 +25,9 @@ import type {
 import { cn } from "@/lib/utils";
 
 interface LocalEnvironmentsSettingsService {
+  listConfigs: (
+    projectId: string,
+  ) => Promise<WorktreeEnvironmentConfigRecord[]>;
   readConfig: (
     projectId: string,
     configPath?: string | null,
@@ -41,10 +44,19 @@ interface LocalEnvironmentsSettingsPageProps {
   activeProjectId: string;
   initialProjectId?: string | null;
   initialConfigPath?: string | null;
+  onAddProject?: () => void;
+  renderShell?: (shell: LocalEnvironmentsSettingsShellProps) => ReactNode;
   service?: LocalEnvironmentsSettingsService;
 }
 
 type LocalEnvironmentsPageMode = "workspace" | "summary" | "edit";
+
+export interface LocalEnvironmentsSettingsShellProps {
+  title: string;
+  subtitle?: ReactNode;
+  backSlot?: ReactNode;
+  children: ReactNode;
+}
 
 const PLATFORM_OPTIONS: Array<{
   value: WorktreeEnvironmentPlatform;
@@ -67,6 +79,9 @@ const ACTION_ICON_OPTIONS: Array<{
 ];
 
 const DEFAULT_LOCAL_ENVIRONMENTS_SETTINGS_SERVICE: LocalEnvironmentsSettingsService = {
+  async listConfigs(projectId) {
+    return invoke("worktrees:environments:configs:list", projectId) as Promise<WorktreeEnvironmentConfigRecord[]>;
+  },
   async readConfig(projectId, configPath) {
     return invoke("worktrees:environments:config:read", projectId, configPath) as Promise<WorktreeEnvironmentSettingsSnapshot>;
   },
@@ -125,20 +140,6 @@ function hasPlatformOverrides(environment: WorktreeEnvironmentDefinition, key: "
   return Object.keys(environment[key].platformScripts).length > 0;
 }
 
-function scriptSectionSummary(environment: WorktreeEnvironmentDefinition, key: "setup" | "cleanup"): string {
-  const section = environment[key];
-  const parts: string[] = [];
-
-  if (section.script?.trim()) {
-    parts.push("default script");
-  }
-  if (Object.keys(section.platformScripts).length > 0) {
-    parts.push(`${Object.keys(section.platformScripts).length} platform override${Object.keys(section.platformScripts).length === 1 ? "" : "s"}`);
-  }
-
-  return parts.join(" + ");
-}
-
 function normalizeEnvironmentForSave(environment: WorktreeEnvironmentDefinition): WorktreeEnvironmentDefinition {
   return {
     version: environment.version > 0 ? environment.version : 1,
@@ -167,17 +168,6 @@ function normalizeEnvironmentForSave(environment: WorktreeEnvironmentDefinition)
   };
 }
 
-function describeConfigState(config: WorktreeEnvironmentConfigRecord): string {
-  if (config.state === "parseError") return "Parse error";
-  if (config.state === "readError") return "Read error";
-
-  const details: string[] = [];
-  if (config.hasSetupScript) details.push("setup");
-  if (config.hasCleanupScript) details.push("cleanup");
-  if (config.actionCount > 0) details.push(`${config.actionCount} action${config.actionCount === 1 ? "" : "s"}`);
-  return details.join(" · ") || "empty";
-}
-
 function MultiLineCodePreview({
   script,
   emptyLabel,
@@ -194,6 +184,40 @@ function MultiLineCodePreview({
       <code>{script}</code>
     </pre>
   );
+}
+
+function humanizeConfigFileName(configPath: string): string {
+  const normalizedPath = configPath.trim().split("/").filter(Boolean).at(-1) ?? configPath.trim();
+  return normalizedPath.length > 0 ? normalizedPath : "environment.toml";
+}
+
+function preferredConfigPath(configs: WorktreeEnvironmentConfigRecord[]): string | null {
+  const preferredConfig =
+    configs.find((config) => config.fileName === "environment.toml" && config.state === "success")
+    ?? configs.find((config) => config.state === "success")
+    ?? configs[0]
+    ?? null;
+
+  return preferredConfig?.configPath ?? null;
+}
+
+function configPrimaryLabel(config: WorktreeEnvironmentConfigRecord): string {
+  if (config.state !== "success") {
+    return "Environment needs attention";
+  }
+
+  return config.environment?.name?.trim() || config.name || humanizeConfigFileName(config.configPath);
+}
+
+function configSecondaryLabel(config: WorktreeEnvironmentConfigRecord): string | null {
+  const fileName = humanizeConfigFileName(config.configPath);
+  const primary = configPrimaryLabel(config);
+
+  if (config.state !== "success") {
+    return fileName;
+  }
+
+  return fileName !== primary ? fileName : null;
 }
 
 function SummarySection({
@@ -213,6 +237,55 @@ function SummarySection({
       </div>
       {children}
     </section>
+  );
+}
+
+function PageSection({
+  title,
+  description,
+  actions,
+  children,
+  className,
+}: {
+  title: string;
+  description?: ReactNode;
+  actions?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={cn("flex flex-col gap-2", className)}>
+      <div className="flex h-toolbar items-center justify-between gap-2 px-0 py-0">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <div className="text-base font-medium text-token-text-primary">{title}</div>
+          {description ? (
+            <div className="text-sm text-token-text-secondary">{description}</div>
+          ) : null}
+        </div>
+        {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
+      </div>
+      <div className="flex flex-col gap-1.5">{children}</div>
+    </section>
+  );
+}
+
+function Panel({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "border-token-border flex flex-col divide-y-[0.5px] divide-token-border rounded-lg border",
+        className,
+      )}
+      style={{ backgroundColor: "var(--color-background-panel, var(--color-token-bg-fog))" }}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -474,6 +547,178 @@ function ActionsEditorSection({
   );
 }
 
+function WorkspaceProjectEnvironmentGroup({
+  project,
+  service,
+  onCreateEnvironment,
+  onSelectEnvironment,
+}: {
+  project: Project;
+  service: LocalEnvironmentsSettingsService;
+  onCreateEnvironment: (projectId: string) => Promise<void>;
+  onSelectEnvironment: (projectId: string, configPath: string) => Promise<void>;
+}) {
+  const [configs, setConfigs] = useState<WorktreeEnvironmentConfigRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
+
+  const refreshConfigs = useEffectEvent(async () => {
+    setLoading(true);
+    setHasError(false);
+
+    try {
+      const nextConfigs = await service.listConfigs(project.id);
+      setConfigs(nextConfigs);
+    } catch {
+      setHasError(true);
+      setConfigs([]);
+    } finally {
+      setLoading(false);
+    }
+  });
+
+  useEffect(() => {
+    void refreshConfigs();
+  }, [project.id]);
+
+  const preferredPath = preferredConfigPath(configs);
+
+  return (
+    <Panel className="p-0">
+      <div className="flex items-center justify-between gap-2 px-4 py-3">
+        <button
+          className="flex min-w-0 items-center gap-3 text-left"
+          type="button"
+          onClick={() => {
+            if (!preferredPath) return;
+            void onSelectEnvironment(project.id, preferredPath);
+          }}
+        >
+          <FolderCode className="icon-sm shrink-0 text-token-text-secondary" />
+          <div className="flex min-w-0 flex-col gap-1">
+            <div className="flex min-w-0 items-center gap-2 text-sm text-token-text-primary">
+              <span className="truncate font-medium">{project.name}</span>
+            </div>
+            <span className="truncate text-xs text-token-text-secondary">
+              {project.workspacePath?.trim() || "No workspace path"}
+            </span>
+          </div>
+        </button>
+        <button
+          type="button"
+          className={cn(
+            "border-token-border user-select-none no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap",
+            "focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg text-token-foreground",
+            "bg-token-foreground/5 enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background",
+            "border-transparent h-token-button-composer w-9 justify-center px-2 py-0 text-base leading-[18px]",
+          )}
+          aria-label="Add environment"
+          onClick={() => {
+            void onCreateEnvironment(project.id);
+          }}
+        >
+          <Plus className="icon-sm" />
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="border-t border-token-border px-4 py-3">
+          <div className="flex items-center gap-2 text-sm text-token-text-secondary">
+            <SpinnerIcon className="icon-xs" />
+            <span>Loading environment</span>
+          </div>
+        </div>
+      ) : null}
+
+      {!loading && hasError ? (
+        <div className="border-t border-token-border px-4 py-3">
+          <div className="flex items-center gap-2 text-sm text-token-error-foreground">
+            <span>Environment needs attention</span>
+          </div>
+        </div>
+      ) : null}
+
+      {!loading && !hasError && configs.length > 0 ? (
+        <div className="border-t border-token-border">
+          <div className="flex flex-col divide-y divide-token-border">
+            {configs.map((config) => (
+              <div
+                key={config.configPath}
+                className="flex items-center justify-between gap-3 px-4 py-3"
+              >
+                <button
+                  className="flex min-w-0 flex-1 text-left"
+                  type="button"
+                  onClick={() => {
+                    void onSelectEnvironment(project.id, config.configPath);
+                  }}
+                >
+                  <div className="flex min-w-0 flex-col gap-0.5 text-sm">
+                    <span className={config.state === "success" ? "text-token-text-primary" : "text-token-error-foreground"}>
+                      {configPrimaryLabel(config)}
+                    </span>
+                    {configSecondaryLabel(config) ? (
+                      <span className="text-xs text-token-description-foreground">
+                        {configSecondaryLabel(config)}
+                      </span>
+                    ) : null}
+                  </div>
+                </button>
+                <SectionActionButton
+                  onClick={() => {
+                    void onSelectEnvironment(project.id, config.configPath);
+                  }}
+                >
+                  View
+                </SectionActionButton>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </Panel>
+  );
+}
+
+function LocalEnvironmentsBreadcrumb({
+  projectName,
+  mode,
+  onBack,
+}: {
+  projectName: string;
+  mode: Extract<LocalEnvironmentsPageMode, "summary" | "edit">;
+  onBack: () => void;
+}) {
+  return (
+    <nav className="flex items-center gap-2 text-sm text-token-text-secondary">
+      <button
+        type="button"
+        onClick={onBack}
+        className={cn(
+          "border-token-border user-select-none no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap",
+          "focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg text-token-description-foreground",
+          "enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent",
+          "h-token-button-composer px-2 py-0 text-base leading-[18px]",
+        )}
+      >
+        <ChevronLeft className="icon-2xs" />
+        Back
+      </button>
+      <div className="flex items-center gap-1">
+        <span>Environments</span>
+        <ChevronLeft className="icon-xs rotate-180 text-token-text-secondary" />
+        <span className="text-token-text-primary">{projectName}</span>
+        {mode === "edit" ? (
+          <>
+            <ChevronLeft className="icon-xs rotate-180 text-token-text-secondary" />
+            <span>edit</span>
+          </>
+        ) : null}
+      </div>
+    </nav>
+  );
+}
+
 export function LocalEnvironmentsSettingsPage({
   open,
   active,
@@ -481,9 +726,12 @@ export function LocalEnvironmentsSettingsPage({
   activeProjectId,
   initialProjectId,
   initialConfigPath,
+  onAddProject,
+  renderShell,
   service = DEFAULT_LOCAL_ENVIRONMENTS_SETTINGS_SERVICE,
 }: LocalEnvironmentsSettingsPageProps) {
   const workspaceProjects = projects.filter((project) => project.workspacePath?.trim());
+  const workspaceProjectIdsKey = workspaceProjects.map((project) => project.id).join("|");
   const [mode, setMode] = useState<LocalEnvironmentsPageMode>("workspace");
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<WorktreeEnvironmentSettingsSnapshot | null>(null);
@@ -497,11 +745,6 @@ export function LocalEnvironmentsSettingsPage({
   const selectedProject =
     workspaceProjects.find((project) => project.id === selectedProjectId)
     ?? null;
-  const emptyEnvironment =
-    selectedProject
-      ? buildEmptyEnvironmentDefinition(selectedProject)
-      : null;
-
   const applySnapshot = useEffectEvent((nextSnapshot: WorktreeEnvironmentSettingsSnapshot) => {
     const project =
       workspaceProjects.find((candidate) => candidate.id === nextSnapshot.projectId)
@@ -539,18 +782,22 @@ export function LocalEnvironmentsSettingsPage({
   useEffect(() => {
     if (!open || !active) return;
 
-    const targetProjectId = (() => {
-      if (initialProjectId && workspaceProjects.some((project) => project.id === initialProjectId)) {
-        return initialProjectId;
-      }
-      if (workspaceProjects.some((project) => project.id === activeProjectId)) {
-        return activeProjectId;
-      }
-      return workspaceProjects[0]?.id ?? null;
-    })();
+    const hasExplicitContext = Boolean(initialProjectId || initialConfigPath);
+    const targetProjectId = hasExplicitContext
+      ? (() => {
+        if (initialProjectId && workspaceProjects.some((project) => project.id === initialProjectId)) {
+          return initialProjectId;
+        }
+        if (workspaceProjects.some((project) => project.id === activeProjectId)) {
+          return activeProjectId;
+        }
+        return workspaceProjects[0]?.id ?? null;
+      })()
+      : null;
 
     const nextKey = `${targetProjectId ?? "__none__"}::${initialConfigPath ?? ""}`;
     if (!targetProjectId) {
+      if (initializedKey === nextKey) return;
       setInitializedKey(nextKey);
       setMode("workspace");
       setSelectedProjectId(null);
@@ -570,9 +817,8 @@ export function LocalEnvironmentsSettingsPage({
     initialConfigPath,
     initialProjectId,
     initializedKey,
-    loadSnapshot,
     open,
-    workspaceProjects,
+    workspaceProjectIdsKey,
   ]);
 
   const normalizedDraft = draft ? normalizeEnvironmentForSave(draft) : null;
@@ -673,76 +919,51 @@ export function LocalEnvironmentsSettingsPage({
     });
   }
 
-  const activeConfigRecord = snapshot?.configs.find((config) => config.configPath === snapshot.configPath) ?? null;
-  const summaryEnvironment = snapshot?.environment ?? draft ?? emptyEnvironment;
+  async function handleCreateEnvironmentForProject(projectId: string) {
+    setLoading(true);
+    setErrorMessage(null);
 
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-2">
-          {mode !== "workspace" ? (
-            <button
-              type="button"
-              onClick={handleOpenWorkspaceList}
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-token-text-secondary transition-colors hover:bg-foreground-5 hover:text-token-foreground"
-              aria-label="Choose a different workspace"
-            >
-              <ChevronLeft className="size-4" />
-            </button>
-          ) : null}
-          <div className="flex min-w-0 flex-col gap-1">
-            <div className="text-base font-medium text-token-foreground">
-              {mode === "workspace"
-                ? "Local environments"
-                : (selectedProject?.name ?? "Local environments")}
-            </div>
-            <div className="text-sm text-token-text-secondary">
-              {mode === "workspace"
-                ? "Choose a project workspace to inspect or edit .codex/environments/*.toml."
-                : (selectedProject?.workspacePath?.trim() || "No workspace path")}
-            </div>
-          </div>
-        </div>
+    try {
+      const currentSnapshot = await service.readConfig(projectId, null);
+      const nextSnapshot = currentSnapshot.configExists || currentSnapshot.configs.length > 0
+        ? await service.readConfig(projectId, currentSnapshot.nextConfigPath)
+        : currentSnapshot;
+      applySnapshot(nextSnapshot);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Could not prepare a new local environment.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
-        {mode === "summary" && snapshot ? (
-          <div className="flex shrink-0 items-center gap-2">
-            {snapshot.configs.length > 0 ? (
-              <SectionActionButton
-                onClick={() => {
-                  if (!selectedProjectId) return;
-                  void loadSnapshot(selectedProjectId, snapshot.nextConfigPath);
-                }}
-              >
-                <Plus className="size-4" />
-                New config
-              </SectionActionButton>
-            ) : null}
-            <SectionActionButton
-              variant="primary"
-              onClick={handleEditCurrentEnvironment}
-            >
-              {snapshot.configExists ? "Edit local environment" : "Create local environment"}
-            </SectionActionButton>
-          </div>
-        ) : null}
+  const summaryEnvironment = snapshot?.environment ?? null;
+  const shellSubtitle = mode === "workspace" ? (
+    <>
+      Local environments tell Codex how to set up worktrees for a project.{" "}
+      <a
+        className="inline-flex items-center gap-1 text-base text-token-text-link-foreground"
+        href="https://developers.openai.com/codex/app/local-environments"
+        target="_blank"
+        rel="noreferrer"
+      >
+        Learn more.
+      </a>
+    </>
+  ) : undefined;
+  const shellBackSlot = (
+    mode !== "workspace" && selectedProject
+      ? (
+        <LocalEnvironmentsBreadcrumb
+          projectName={selectedProject.name}
+          mode={mode}
+          onBack={mode === "edit" ? handleCancelEdit : handleOpenWorkspaceList}
+        />
+      )
+      : undefined
+  );
 
-        {mode === "edit" ? (
-          <div className="flex shrink-0 items-center gap-2">
-            <SectionActionButton onClick={handleCancelEdit}>
-              Cancel
-            </SectionActionButton>
-            <SectionActionButton variant="primary" onClick={handleSave} disabled={!canSave}>
-              {saving ? (
-                <>
-                  <SpinnerIcon className="size-4" />
-                  Saving…
-                </>
-              ) : "Save local environment"}
-            </SectionActionButton>
-          </div>
-        ) : null}
-      </div>
-
+  const content = (
+    <div className="flex flex-col gap-[var(--padding-panel)]">
       {errorMessage ? (
         <div className="rounded-lg border border-(--red-text)/20 bg-(--red-text)/8 px-3 py-2 text-sm text-(--red-text)">
           {errorMessage}
@@ -750,275 +971,294 @@ export function LocalEnvironmentsSettingsPage({
       ) : null}
 
       {mode === "workspace" ? (
-        <div className="flex flex-col gap-3">
-          {workspaceProjects.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-token-border p-5 text-sm text-token-text-secondary">
-              No projects with a workspace path yet.
-            </div>
-          ) : (
-            workspaceProjects.map((project) => (
-              <button
-                key={project.id}
-                type="button"
-                onClick={() => {
-                  void loadSnapshot(project.id, null);
-                }}
-                className={cn(
-                  "flex items-center justify-between gap-3 rounded-xl border border-token-border bg-token-input-background/50 px-4 py-3 text-left transition-colors",
-                  "hover:bg-token-input-background",
-                )}
-              >
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-foreground-5 text-token-foreground">
-                    <FolderCode className="size-4" />
-                  </div>
-                  <div className="flex min-w-0 flex-col gap-0.5">
-                    <div className="truncate text-sm font-medium text-token-foreground">{project.name}</div>
-                    <div className="truncate text-sm text-token-text-secondary">
-                      {project.workspacePath?.trim() || "No workspace path"}
-                    </div>
-                  </div>
-                </div>
-                <ChevronLeft className="size-4 rotate-180 text-token-text-secondary" />
-              </button>
-            ))
+        <PageSection
+          title="Select a project"
+          actions={(
+            <SectionActionButton onClick={onAddProject ?? (() => {})} disabled={!onAddProject}>
+              Add project
+            </SectionActionButton>
           )}
-        </div>
+        >
+          {workspaceProjects.length === 0 ? (
+            <Panel>
+              <div className="p-3 text-sm text-token-text-secondary">
+                No projects yet. Add one to configure local environments.
+              </div>
+            </Panel>
+          ) : (
+            <div className="flex flex-col gap-3" role="list" aria-label="Available projects">
+              {workspaceProjects.map((project) => (
+                <WorkspaceProjectEnvironmentGroup
+                  key={project.id}
+                  project={project}
+                  service={service}
+                  onCreateEnvironment={handleCreateEnvironmentForProject}
+                  onSelectEnvironment={async (projectId, configPath) => {
+                    await loadSnapshot(projectId, configPath);
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </PageSection>
       ) : null}
 
       {mode !== "workspace" && loading ? (
-        <div className="flex items-center gap-2 rounded-xl border border-token-border bg-token-input-background/50 px-4 py-3 text-sm text-token-text-secondary">
-          <SpinnerIcon className="size-4" />
-          Loading local environment…
+        <PageSection title="Loading local environments">
+          <Panel>
+            <div className="flex items-center gap-2 p-3 text-sm text-token-text-secondary">
+              <SpinnerIcon className="icon-xs" />
+              Fetching your project configuration.
+            </div>
+          </Panel>
+        </PageSection>
+      ) : null}
+
+      {mode === "summary" && snapshot && !loading && selectedProject ? (
+        <div className="flex flex-col gap-[var(--padding-panel)]">
+          <PageSection title="Project">
+            <Panel>
+              <div className="flex items-center gap-3 p-3">
+                <FolderCode className="icon-sm shrink-0 text-token-text-secondary" />
+                <div className="flex min-w-0 flex-col gap-1">
+                  <div className="flex min-w-0 items-center gap-1 text-sm text-token-text-primary">
+                    <span className="truncate">{selectedProject.name}</span>
+                  </div>
+                  <span className="truncate text-xs text-token-text-secondary">
+                    {selectedProject.workspacePath?.trim() || "No workspace path"}
+                  </span>
+                </div>
+              </div>
+            </Panel>
+          </PageSection>
+
+          <PageSection title="Environment details">
+            <div className="flex flex-col gap-[var(--padding-panel)]">
+              <Panel>
+                {summaryEnvironment ? (
+                  <div className="flex items-center justify-between p-3">
+                    <div className="flex min-w-0 flex-col gap-1">
+                      <div className="min-w-0 text-sm text-token-text-primary">Name</div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className="text-sm text-token-text-secondary">{summaryEnvironment.name}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3 text-sm text-token-text-secondary">
+                    No local environment is configured for this project yet.
+                  </div>
+                )}
+              </Panel>
+
+              {summaryEnvironment ? (
+                <>
+                  <div className="flex flex-col gap-3">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium text-token-text-primary">Setup script</div>
+                          <div className="text-sm text-token-text-secondary">This script will run on worktree creation.</div>
+                        </div>
+                      </div>
+                    </div>
+                    <MultiLineCodePreview
+                      script={summaryEnvironment.setup.script}
+                      emptyLabel="No setup script configured."
+                    />
+                    {hasPlatformOverrides(summaryEnvironment, "setup") ? (
+                      <div className="flex flex-col gap-3">
+                        <div className="flex flex-col gap-1">
+                          <div className="text-xs font-medium tracking-wide text-token-text-secondary uppercase">
+                            Platform overrides
+                          </div>
+                          <div className="text-sm text-token-text-secondary">
+                            Overrides the default script for specific OSes.
+                          </div>
+                        </div>
+                        {PLATFORM_OPTIONS.map((platform) => {
+                          const script = summaryEnvironment.setup.platformScripts[platform.value] ?? null;
+                          if (!script) return null;
+                          return (
+                            <div key={platform.value} className="flex flex-col gap-2">
+                              <div className="text-xs font-medium tracking-wide text-token-text-secondary uppercase">
+                                {platform.label}
+                              </div>
+                              <MultiLineCodePreview script={script} emptyLabel="" />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="flex flex-col gap-3">
+                    <div className="flex flex-col gap-1">
+                      <div className="text-sm font-medium text-token-text-primary">Cleanup script</div>
+                      <div className="text-sm text-token-text-secondary">
+                        This script will run before a worktree is deleted.
+                      </div>
+                    </div>
+                    <MultiLineCodePreview
+                      script={summaryEnvironment.cleanup.script}
+                      emptyLabel="No cleanup script configured."
+                    />
+                    {hasPlatformOverrides(summaryEnvironment, "cleanup") ? (
+                      <div className="flex flex-col gap-3">
+                        <div className="flex flex-col gap-1">
+                          <div className="text-xs font-medium tracking-wide text-token-text-secondary uppercase">
+                            Platform overrides
+                          </div>
+                          <div className="text-sm text-token-text-secondary">
+                            Overrides the default cleanup script for specific OSes.
+                          </div>
+                        </div>
+                        {PLATFORM_OPTIONS.map((platform) => {
+                          const script = summaryEnvironment.cleanup.platformScripts[platform.value] ?? null;
+                          if (!script) return null;
+                          return (
+                            <div key={platform.value} className="flex flex-col gap-2">
+                              <div className="text-xs font-medium tracking-wide text-token-text-secondary uppercase">
+                                {platform.label}
+                              </div>
+                              <MultiLineCodePreview script={script} emptyLabel="" />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+                </>
+              ) : null}
+
+              {snapshot.parseErrorMessage ? (
+                <div className="mt-2 text-sm text-token-error-foreground">
+                  Unable to parse the existing file. Saving will overwrite it. ({snapshot.parseErrorMessage})
+                </div>
+              ) : null}
+              {snapshot.readErrorMessage ? (
+                <div className="mt-2 text-sm text-token-error-foreground">
+                  Failed to load local environment data. ({snapshot.readErrorMessage})
+                </div>
+              ) : null}
+            </div>
+          </PageSection>
+
+          <PageSection title="Actions">
+            <div className="text-sm text-token-text-secondary">
+              These actions can run any command and will be displayed in the header.
+            </div>
+            <Panel>
+              <div className="flex flex-col gap-2 p-3">
+                {(summaryEnvironment?.actions.length ?? 0) > 0 ? (
+                  <div className="flex flex-col gap-2">
+                    {(summaryEnvironment?.actions ?? []).map((action, index) => (
+                      <div key={`${action.name}-${index}`} className="flex items-center gap-2 text-sm text-token-text-secondary">
+                        <span className="text-token-text-secondary">
+                          <ActionIconPreview icon={action.icon ?? "tool"} className="size-4" />
+                        </span>
+                        <span>{action.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-token-text-secondary">
+                    Add an action to run commands from the local toolbar.
+                  </div>
+                )}
+              </div>
+            </Panel>
+          </PageSection>
+
+          <div className="flex justify-end">
+            <SectionActionButton variant="primary" onClick={handleEditCurrentEnvironment}>
+              {snapshot.configExists ? "Edit local environment" : "Create local environment"}
+            </SectionActionButton>
+          </div>
         </div>
       ) : null}
 
-      {mode === "summary" && snapshot && !loading ? (
-        <div className="flex flex-col gap-4">
-          <SummarySection
-            title="Local environment file"
-            description="Choose a config file in this workspace or create a new one."
-          >
-            <div className="flex flex-wrap gap-2">
-              {snapshot.configs.map((config) => {
-                const isSelected = config.configPath === snapshot.configPath;
-                return (
-                  <button
-                    key={config.configPath}
-                    type="button"
-                    onClick={() => {
-                      if (!selectedProjectId) return;
-                      void loadSnapshot(selectedProjectId, config.configPath);
-                    }}
-                    className={cn(
-                      "flex min-w-0 max-w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
-                      isSelected
-                        ? "border-(--accent-blue) bg-(--accent-blue)/10 text-token-foreground"
-                        : "border-token-border bg-token-input-background hover:bg-foreground-5",
-                    )}
-                  >
-                    <ConfigStatusIcon className="size-4 shrink-0" />
-                    <div className="flex min-w-0 flex-col">
-                      <span className="truncate text-sm">{config.name}</span>
-                      <span className="truncate text-xs text-token-text-secondary">
-                        {config.fileName} · {describeConfigState(config)}
-                      </span>
-                    </div>
-                  </button>
-                );
-              })}
-              <button
-                type="button"
-                onClick={() => {
-                  if (!selectedProjectId) return;
-                  void loadSnapshot(selectedProjectId, snapshot.nextConfigPath);
-                }}
-                className="inline-flex items-center gap-2 rounded-lg border border-dashed border-token-border px-3 py-2 text-sm text-token-text-secondary transition-colors hover:bg-foreground-5 hover:text-token-foreground"
-              >
-                <Plus className="size-4" />
-                New config
-              </button>
+      {mode === "edit" && draft && snapshot && !loading && selectedProject ? (
+        <form
+          className="flex flex-col gap-[var(--padding-panel)]"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleSave();
+          }}
+        >
+          <PageSection title="Local environment file">
+            <Panel>
+              <div className="flex items-center gap-3 p-3">
+                <FolderCode className="icon-sm shrink-0 text-token-text-secondary" />
+                <div className="flex min-w-0 flex-col gap-1">
+                  <div className="flex min-w-0 items-center gap-1 text-sm text-token-text-primary">
+                    <span className="truncate">{selectedProject.name}</span>
+                  </div>
+                  <span className="truncate text-xs text-token-text-secondary">
+                    {selectedProject.workspacePath?.trim() || "No workspace path"}
+                  </span>
+                </div>
+              </div>
+            </Panel>
+            <div className="mt-2 truncate text-xs text-token-text-secondary">
+              File: <span className="font-mono">{snapshot.configPath}</span>
             </div>
-
-            <div className="text-sm text-token-text-secondary">
-              File: <span className="font-mono text-token-foreground">{snapshot.configPath}</span>
-            </div>
-
             {!snapshot.configExists ? (
-              <div className="text-sm text-token-text-secondary">
+              <div className="mt-1 text-sm text-token-text-secondary">
                 Save to create this file for the first time.
               </div>
             ) : null}
             {snapshot.parseErrorMessage ? (
-              <div className="text-sm text-(--red-text)">
+              <div className="mt-2 text-sm text-token-error-foreground">
                 Unable to parse the existing file. Saving will overwrite it. ({snapshot.parseErrorMessage})
               </div>
             ) : null}
             {snapshot.readErrorMessage ? (
-              <div className="text-sm text-(--red-text)">
+              <div className="mt-2 text-sm text-token-error-foreground">
                 Failed to load local environment data. ({snapshot.readErrorMessage})
               </div>
             ) : null}
-          </SummarySection>
+          </PageSection>
 
-          <SummarySection
-            title="Environment details"
-            description="Structured view of the selected local environment."
-          >
-            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
-              <div className="flex flex-col gap-1">
-                <div className="text-sm font-medium text-token-foreground">
-                  {summaryEnvironment?.name ?? "local"}
-                </div>
-                <div className="text-sm text-token-text-secondary">
-                  Version {summaryEnvironment?.version ?? 1}
-                </div>
-              </div>
-              {activeConfigRecord ? (
-                <div className="inline-flex items-center gap-1 rounded-full bg-foreground-5 px-2 py-1 text-xs text-token-text-secondary">
-                  <LocalStatusIcon className="size-3.5" />
-                  {describeConfigState(activeConfigRecord)}
-                </div>
-              ) : null}
-            </div>
-          </SummarySection>
-
-          <SummarySection
-            title="Setup script"
-            description={
-              summaryEnvironment
-                ? scriptSectionSummary(summaryEnvironment, "setup")
-              || "No setup script configured."
-                : "No setup script configured."
-            }
-          >
-            <MultiLineCodePreview
-              script={summaryEnvironment?.setup.script ?? null}
-              emptyLabel="No default setup script."
-            />
-            {summaryEnvironment && hasPlatformOverrides(summaryEnvironment, "setup") ? (
-              <div className="flex flex-col gap-2">
-                {PLATFORM_OPTIONS.map((platform) => {
-                  const script = summaryEnvironment.setup.platformScripts[platform.value] ?? null;
-                  if (!script) return null;
-                  return (
-                    <div key={platform.value} className="rounded-lg border border-token-border p-3">
-                      <div className="mb-2 text-sm font-medium text-token-foreground">{platform.label}</div>
-                      <MultiLineCodePreview script={script} emptyLabel="" />
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
-          </SummarySection>
-
-          <SummarySection
-            title="Cleanup script"
-            description={
-              summaryEnvironment
-                ? scriptSectionSummary(summaryEnvironment, "cleanup")
-              || "No cleanup script configured."
-                : "No cleanup script configured."
-            }
-          >
-            <MultiLineCodePreview
-              script={summaryEnvironment?.cleanup.script ?? null}
-              emptyLabel="No default cleanup script."
-            />
-            {summaryEnvironment && hasPlatformOverrides(summaryEnvironment, "cleanup") ? (
-              <div className="flex flex-col gap-2">
-                {PLATFORM_OPTIONS.map((platform) => {
-                  const script = summaryEnvironment.cleanup.platformScripts[platform.value] ?? null;
-                  if (!script) return null;
-                  return (
-                    <div key={platform.value} className="rounded-lg border border-token-border p-3">
-                      <div className="mb-2 text-sm font-medium text-token-foreground">{platform.label}</div>
-                      <MultiLineCodePreview script={script} emptyLabel="" />
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
-          </SummarySection>
-
-          <SummarySection
-            title="Actions"
-            description="Reusable commands surfaced from this local environment."
-          >
-            {(summaryEnvironment?.actions.length ?? 0) === 0 ? (
-              <div className="text-sm text-token-text-secondary">No actions configured.</div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {(summaryEnvironment?.actions ?? []).map((action) => (
-                  <div key={action.id} className="flex items-center gap-3 rounded-lg border border-token-border p-3">
-                    <div className="inline-flex size-8 items-center justify-center rounded-lg bg-foreground-5 text-token-foreground">
-                      <ActionIconPreview icon={action.icon} />
-                    </div>
-                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <div className="truncate text-sm font-medium text-token-foreground">{action.name || "Untitled action"}</div>
-                      <div className="truncate font-mono text-xs text-token-text-secondary">{action.command || "No command"}</div>
-                    </div>
-                    {action.platform ? (
-                      <span className="rounded-full bg-foreground-5 px-2 py-1 text-xs text-token-text-secondary">
-                        {PLATFORM_OPTIONS.find((option) => option.value === action.platform)?.label ?? action.platform}
-                      </span>
-                    ) : null}
+          <PageSection title="Environment details">
+            <div className="flex flex-col gap-[var(--padding-panel)]">
+              <Panel>
+                <div className="flex items-center justify-between p-3">
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <div className="min-w-0 text-token-text-primary text-sm">Name</div>
                   </div>
-                ))}
-              </div>
-            )}
-          </SummarySection>
-        </div>
-      ) : null}
+                  <div className="flex shrink-0 items-center gap-2">
+                    <div className="w-72">
+                      <Input
+                        id="local-environment-name"
+                        value={draft.name}
+                        onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+                        className="h-9 w-full rounded-md border border-token-border bg-token-input-background px-2.5 py-1.5 text-sm text-token-text-primary"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </Panel>
 
-      {mode === "edit" && draft && snapshot && !loading ? (
-        <div className="flex flex-col gap-4">
-          <SummarySection
-            title="Local environment file"
-            description="Save writes this structured environment config to disk."
-          >
-            <div className="text-sm text-token-text-secondary">
-              File: <span className="font-mono text-token-foreground">{snapshot.configPath}</span>
+              <ScriptEditorSection
+                title="Setup script"
+                description="This script will run on worktree creation."
+                value={draft.setup.script}
+                onChange={(value) => updateScriptSection("setup", { script: value })}
+                platformScripts={draft.setup.platformScripts}
+                onPlatformScriptChange={(platform, value) => {
+                  const nextPlatformScripts = { ...draft.setup.platformScripts };
+                  if (value === null) delete nextPlatformScripts[platform];
+                  else nextPlatformScripts[platform] = value;
+                  updateScriptSection("setup", { platformScripts: nextPlatformScripts });
+                }}
+              />
             </div>
-            {!snapshot.configExists ? (
-              <div className="text-sm text-token-text-secondary">
-                Saving will create this file.
-              </div>
-            ) : null}
-          </SummarySection>
-
-          <SummarySection
-            title="Environment details"
-            description="Name and top-level metadata for this local environment."
-          >
-            <FieldLabel
-              title="Name"
-              description="Shown in environment pickers and action menus."
-            />
-            <Input
-              value={draft.name}
-              onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-              className="h-9 w-full rounded-lg border border-token-border bg-token-input-background px-3 text-sm text-token-foreground"
-            />
-          </SummarySection>
-
-          <ScriptEditorSection
-            title="Setup script"
-            description="Runs on worktree creation."
-            value={draft.setup.script}
-            onChange={(value) => updateScriptSection("setup", { script: value })}
-            platformScripts={draft.setup.platformScripts}
-            onPlatformScriptChange={(platform, value) => {
-              const nextPlatformScripts = { ...draft.setup.platformScripts };
-              if (value === null) delete nextPlatformScripts[platform];
-              else nextPlatformScripts[platform] = value;
-              updateScriptSection("setup", { platformScripts: nextPlatformScripts });
-            }}
-          />
+          </PageSection>
 
           <ScriptEditorSection
             title="Cleanup script"
-            description="Runs when the environment is cleaned up."
+            description="This script will run before a worktree is deleted."
             value={draft.cleanup.script}
             onChange={(value) => updateScriptSection("cleanup", { script: value })}
             platformScripts={draft.cleanup.platformScripts}
@@ -1036,8 +1276,39 @@ export function LocalEnvironmentsSettingsPage({
             onUpdate={updateAction}
             onRemove={removeAction}
           />
-        </div>
+
+          <div className="flex justify-end gap-2">
+            <SectionActionButton onClick={handleCancelEdit}>
+              Cancel
+            </SectionActionButton>
+            <SectionActionButton
+              variant="primary"
+              onClick={() => {
+                void handleSave();
+              }}
+              disabled={!canSave}
+            >
+              {saving ? (
+                <>
+                  <SpinnerIcon className="size-4" />
+                  Saving…
+                </>
+              ) : "Save local environment"}
+            </SectionActionButton>
+          </div>
+        </form>
       ) : null}
     </div>
   );
+
+  if (renderShell) {
+    return renderShell({
+      title: "Environments",
+      subtitle: shellSubtitle,
+      backSlot: shellBackSlot,
+      children: content,
+    });
+  }
+
+  return content;
 }

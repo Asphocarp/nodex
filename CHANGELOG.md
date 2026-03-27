@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Added a command-palette card-filter popover with an active-filter summary row, so global card search can now narrow results by status, priority, tags, assignee, and project using the same compact filter language as the View-stage toolbar, and those filter selections now persist across reopen.
-- Added a first-class `Local environments` settings page for workspace-backed projects, so `.codex/environments/*.toml` files can now be browsed, summarized, created, and edited in-app with structured setup/cleanup scripts, platform overrides, and reusable actions instead of only opening the folder in Finder.
+- Added a first-class `Local environments` settings page for workspace-backed projects, so `.codex/environments/*.toml` files can now be browsed, summarized, created, and edited in-app with the same max-width settings column, workspace chooser, breadcrumb subpages, structured setup/cleanup scripts, platform overrides, and reusable actions instead of only opening the folder in Finder.
 
 ### Changed
 - Threads settings now include Codex Electron’s thread-detail mode, so you can switch between `Steps`, `Steps with code commands`, and `Steps with code output` to control how much command activity appears in mounted threads.
@@ -28,6 +28,7 @@ All notable changes to this project will be documented in this file.
 - Thread request cards now follow Codex Electron’s request family more closely: approval prompts render through the ask-for-permission shell with inline command or patch preview and `Skip`/`Submit`, background child approvals inject the worker identity inline into the prompt instead of rendering a separate header, implement-plan and request-user-input prompts share the same questionnaire shell, and MCP elicitation uses its own dedicated approval card instead of a local Nodex wrapper.
 
 ### Fixed
+- Fixed the Codex-style settings typography scale so settings page titles like `Environments` now inherit the same 23px/28px heading variables as Codex Electron instead of falling back to the app-wide 18px electron heading override.
 - Fixed the Codex-style settings shell colors so the left rail now uses the sidebar surface token while the active settings page uses the main-surface token, matching Codex Electron instead of swapping the two layers.
 - Fixed poor-network thread recovery so retryable reconnect attempts now stay inside the mounted transcript as Codex-style `Reconnecting...` rows with expandable details, instead of replacing the whole thread with a shell reconnect state.
 - Fixed the Threads composer `Running terminal(s)` panel so it now follows Codex Electron's real background-terminal model: rows come from older still-running command executions in the current conversation, the panel shows compact mono command rows with preview tooltips, and stopping background terminals now cleans that conversation-scoped running-terminal set instead of treating child-thread queue state as fake terminal activity.
