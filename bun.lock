@@ -126,6 +126,7 @@
     },
   },
   "patchedDependencies": {
+    "@blocknote/shadcn@0.47.1": "patches/@blocknote%2Fshadcn@0.47.1.patch",
     "@blocknote/core@0.47.1": "patches/@blocknote%2Fcore@0.47.1.patch",
     "@blocknote/react@0.47.1": "patches/@blocknote%2Freact@0.47.1.patch",
   },

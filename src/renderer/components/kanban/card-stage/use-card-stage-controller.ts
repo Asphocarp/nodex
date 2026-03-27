@@ -766,8 +766,8 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
 
       descriptionSaveTimerRef.current = setTimeout(() => {
         descriptionSaveTimerRef.current = null;
-        if (!card || value === card.description) return;
         clearDraftDirty("description");
+        if (!card || value === card.description) return;
         setSaving(true);
         runUpdate(columnId, card.id, { description: value }).finally(() => {
           setSaving(false);
@@ -777,19 +777,23 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
     [card, clearDraftDirty, columnId, markDraftDirty, onPatch, runUpdate],
   );
 
-  const handleDescriptionBlur = useCallback(() => {
+  const flushDescriptionSave = useCallback((value: string) => {
     if (descriptionSaveTimerRef.current) {
       clearTimeout(descriptionSaveTimerRef.current);
       descriptionSaveTimerRef.current = null;
     }
 
     clearDraftDirty("description");
-    if (!card || description === card.description) return;
+    if (!card || value === card.description) return;
     setSaving(true);
-    runUpdate(columnId, card.id, { description }).finally(() => {
+    runUpdate(columnId, card.id, { description: value }).finally(() => {
       setSaving(false);
     });
-  }, [card, clearDraftDirty, columnId, description, runUpdate]);
+  }, [card, clearDraftDirty, columnId, runUpdate]);
+
+  const handleDescriptionBlur = useCallback(() => {
+    flushDescriptionSave(description);
+  }, [description, flushDescriptionSave]);
 
   const handleSave = useCallback(async () => {
     if (!card || !title.trim() || !hasChanges()) return;

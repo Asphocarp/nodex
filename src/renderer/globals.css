@@ -547,7 +547,7 @@
   height: 24px;
   width: 24px;
   color: var(--nfm-side-menu-icon-color);
-  cursor: grab;
+  cursor: pointer;
   transition: opacity 200ms ease-out;
 }
 .nfm-editor .bn-side-menu .bn-button[draggable="true"] {
@@ -588,7 +588,7 @@
   mask-repeat: no-repeat;
 }
 
-.nfm-editor .bn-side-menu .bn-button svg {
+.nfm-editor .bn-side-menu .bn-button[draggable="true"] svg {
   width: 18px;
   height: 18px;
   cursor: grab;
@@ -597,7 +597,14 @@
 }
 
 .nfm-editor .bn-side-menu .bn-button[aria-label="Add block"] svg {
+  width: 18px;
+  height: 18px;
   opacity: 1;
+  pointer-events: none;
+}
+
+.nfm-editor .bn-side-menu .bn-button[aria-label="Add block"] svg * {
+  pointer-events: none;
 }
 
 .nfm-editor .bn-block-group .bn-block-group .bn-block-outer::before {
