@@ -1,7 +1,67 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useEffect, useRef } from "react";
 import { CardContextMenu } from "./card-context-menu";
 
-function CardContextMenuStoryDemo() {
+const PROJECTS = [
+  {
+    id: "project-a",
+    name: "Alpha workspace",
+    icon: "A",
+    workspacePath: "/Users/asc/repo/nodex",
+  },
+  {
+    id: "project-b",
+    name: "Beta workspace",
+    icon: "B",
+    workspacePath: "/Users/asc/repo/devtools-codex",
+  },
+  {
+    id: "project-c",
+    name: "Gamma workspace",
+    icon: "G",
+    description: "Archived experiments",
+  },
+];
+
+function dispatchContextMenu(target: HTMLElement | null) {
+  if (!target) {
+    return;
+  }
+
+  const rect = target.getBoundingClientRect();
+  target.dispatchEvent(new MouseEvent("contextmenu", {
+    bubbles: true,
+    cancelable: true,
+    clientX: rect.left + 16,
+    clientY: rect.top + 16,
+    button: 2,
+  }));
+}
+
+function CardContextMenuStory({
+  openMoveView = false,
+}: {
+  openMoveView?: boolean;
+}) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    dispatchContextMenu(triggerRef.current);
+
+    if (!openMoveView) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      const moveToItem = Array.from(document.querySelectorAll<HTMLElement>("[data-card-menu-item='true']")).find(
+        (element) => element.textContent?.includes("Move to"),
+      );
+      moveToItem?.click();
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [openMoveView]);
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-token-main-surface-primary p-8">
       <CardContextMenu
@@ -12,60 +72,44 @@ function CardContextMenuStoryDemo() {
         currentColumnId="inbox"
         currentProjectId="project-a"
         currentProjectName="Alpha workspace"
-        projects={[
-          {
-            id: "project-a",
-            name: "Alpha workspace",
-            icon: "A",
-            workspacePath: "/Users/asc/repo/nodex",
-          },
-          {
-            id: "project-b",
-            name: "Beta workspace",
-            icon: "B",
-            workspacePath: "/Users/asc/repo/devtools-codex",
-          },
-          {
-            id: "project-c",
-            name: "Gamma workspace",
-            icon: "G",
-            description: "Archived experiments",
-          },
-        ]}
+        projects={PROJECTS}
         onMoveToProject={() => {}}
         onDelete={() => {}}
         onCopyLink={() => {}}
       >
         <button
+          ref={triggerRef}
           type="button"
           data-testid="card-context-menu-trigger"
           className="rounded-xl bg-token-main-surface-secondary px-4 py-3 text-sm text-token-foreground shadow-sm ring-1 ring-token-border"
         >
-          Right-click card
+          Card context menu harness
         </button>
       </CardContextMenu>
-      <div className="pointer-events-none absolute bottom-6 text-sm text-token-description-foreground">
-        Right-click the card to open the menu.
-      </div>
     </div>
   );
 }
 
 const meta = {
   title: "Kanban/Card Context Menu",
-  component: CardContextMenuStoryDemo,
   parameters: {
     layout: "fullscreen",
     docs: {
       description: {
-        component: "Card context menu aligned to the shared Codex menu surface.",
+        component: "Story-only harnesses that render the menu already open instead of requiring manual right-click.",
       },
     },
   },
-} satisfies Meta<typeof CardContextMenuStoryDemo>;
+} satisfies Meta;
 
 export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-export const Overview: Story = {};
+export const ActionsOpen: Story = {
+  render: () => <CardContextMenuStory />,
+};
+
+export const MoveOpen: Story = {
+  render: () => <CardContextMenuStory openMoveView={true} />,
+};
