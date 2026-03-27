@@ -4,8 +4,8 @@ import { render, textContent } from "../../../test/dom";
 import type { ThreadStageActions, ThreadStageModel } from "../thread-stage-types";
 
 mock.module("@/components/ui/tooltip", () => ({
-  TooltipProvider: ({ children }: { children: ReactNode }) => createElement(Fragment, null, children),
-  Tooltip: ({ children }: { children: ReactNode }) => createElement(Fragment, null, children),
+  NodexTooltipProvider: ({ children }: { children: ReactNode }) => createElement(Fragment, null, children),
+  NodexTooltip: ({ children }: { children: ReactNode }) => createElement(Fragment, null, children),
 }));
 
 mock.module("./shared/card-info-hover-card", () => ({
@@ -66,11 +66,11 @@ function buildModel(overrides?: Partial<ThreadStageModel>): ThreadStageModel {
 
 function buildActions(): ThreadStageActions {
   return {
-    onCollaborationModeChange: () => {},
-    onModelChange: () => {},
-    onReasoningEffortChange: () => {},
-    onPermissionModeChange: () => {},
-    onQueueingEnabledChange: () => {},
+    onCollaborationModeChange: () => { },
+    onModelChange: () => { },
+    onReasoningEffortChange: () => { },
+    onPermissionModeChange: () => { },
+    onQueueingEnabledChange: () => { },
     onRefreshAccount: async () => ({
       account: null,
       requiresOpenAiAuth: true,
@@ -79,27 +79,27 @@ function buildActions(): ThreadStageActions {
     }),
     onStartChatGptLogin: async () => ({ type: "apiKey" }),
     onStartApiKeyLogin: async () => ({ type: "apiKey" }),
-    onCancelLogin: async () => {},
-    onLogout: async () => {},
-    onStartThreadForCard: async () => {},
-    onSendPrompt: async () => {},
-    onSteerPrompt: async () => {},
-    onInterruptTurn: async () => {},
-    onRespondApproval: async () => {},
-    onRespondUserInput: async () => {},
-    onRespondMcpElicitation: async () => {},
-    onResolvePlanImplementationRequest: () => {},
-    onEnqueueQueuedFollowUp: async () => {},
-    onRemoveQueuedFollowUp: async () => {},
-    onReorderQueuedFollowUps: async () => {},
-    onSendQueuedFollowUpNow: async () => {},
-    onEditQueuedFollowUp: async () => {},
-    onEditLastUserTurn: async () => {},
-    onForkFromTurn: async () => {},
-    onConsumeComposerIntent: () => {},
-    onOpenThread: () => {},
-    onCleanBackgroundTerminals: async () => {},
-    onOpenCard: () => {},
+    onCancelLogin: async () => { },
+    onLogout: async () => { },
+    onStartThreadForCard: async () => { },
+    onSendPrompt: async () => { },
+    onSteerPrompt: async () => { },
+    onInterruptTurn: async () => { },
+    onRespondApproval: async () => { },
+    onRespondUserInput: async () => { },
+    onRespondMcpElicitation: async () => { },
+    onResolvePlanImplementationRequest: () => { },
+    onEnqueueQueuedFollowUp: async () => { },
+    onRemoveQueuedFollowUp: async () => { },
+    onReorderQueuedFollowUps: async () => { },
+    onSendQueuedFollowUpNow: async () => { },
+    onEditQueuedFollowUp: async () => { },
+    onEditLastUserTurn: async () => { },
+    onForkFromTurn: async () => { },
+    onConsumeComposerIntent: () => { },
+    onOpenThread: () => { },
+    onCleanBackgroundTerminals: async () => { },
+    onOpenCard: () => { },
   };
 }
 
@@ -107,7 +107,7 @@ describe("ThreadStageHeader auth chrome", () => {
   test("does not show sign-in or connected badge before the account snapshot hydrates", async () => {
     const { ThreadStageHeader } = await import("./local-conversation-stage-header");
     const { container } = render(
-      <ThreadStageHeader model={buildModel({ account: null })} actions={buildActions()} onErrorMessage={() => {}} />,
+      <ThreadStageHeader model={buildModel({ account: null })} actions={buildActions()} onErrorMessage={() => { }} />,
     );
 
     const content = textContent(container);
@@ -128,7 +128,7 @@ describe("ThreadStageHeader auth chrome", () => {
           },
         })}
         actions={buildActions()}
-        onErrorMessage={() => {}}
+        onErrorMessage={() => { }}
       />,
     );
 
@@ -150,7 +150,7 @@ describe("ThreadStageHeader auth chrome", () => {
           },
         })}
         actions={buildActions()}
-        onErrorMessage={() => {}}
+        onErrorMessage={() => { }}
       />,
     );
 

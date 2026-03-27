@@ -1,22 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { cn } from "../../../../lib/utils";
+import { useCallback, useMemo, useState } from "react";
 import {
   BranchStatusIcon,
   CheckmarkIcon,
   PlusIcon,
-  SearchIcon,
 } from "@/components/shared/icons";
 import {
-  SELECTOR_MENU_DIVIDER_CLASS_NAME,
-  SELECTOR_MENU_DIVIDER_WRAPPER_CLASS_NAME,
-  SELECTOR_MENU_ITEM_CLASS_NAME,
-  SELECTOR_MENU_LIST_CLASS_NAME,
-  SELECTOR_MENU_PANEL_CLASS_NAME,
-  SELECTOR_MENU_TITLE_CLASS_NAME,
-  SelectorPopoverContent,
-  SelectorPopoverTrigger,
-} from "./selector-popover-primitives";
+  NodexDropdownButtonTrigger,
+  NodexDropdownItem,
+  NodexDropdownMessage,
+  NodexDropdownMenu,
+  NodexDropdownSearchInput,
+  NodexDropdownSection,
+  NodexDropdownSectionLabel,
+  NodexDropdownSeparator,
+} from "@/components/ui/dropdown";
+import { cn } from "@/lib/utils";
 
 export interface BranchSelectorPopoverState {
   currentBranch: string | null;
@@ -55,38 +53,29 @@ export function BranchSelectorPopover({
 }: BranchSelectorPopoverProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const filteredBranches = useMemo(
     () => filterBranches(state.branches, search),
     [search, state.branches],
   );
 
-  useEffect(() => {
-    if (!open) {
-      setSearch("");
+  const handleOpenChange = useCallback((nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (nextOpen) {
+      void onRefresh();
       return;
     }
 
-    requestAnimationFrame(() => {
-      searchInputRef.current?.focus();
-      searchInputRef.current?.select();
-    });
-  }, [open]);
+    setSearch("");
+  }, [onRefresh]);
 
-  const handleOpenChange = useCallback((nextOpen: boolean) => {
-    setOpen(nextOpen);
-    if (!nextOpen || !cwd) return;
-    void onRefresh();
-  }, [cwd, onRefresh]);
-
-  const handleBranchClick = useCallback(async (branch: string) => {
+  const handleBranchSelect = useCallback(async (branch: string) => {
     const didCheckout = await onCheckout(branch);
     if (!didCheckout) return;
     setOpen(false);
   }, [onCheckout]);
 
-  const handleCreateClick = useCallback(async () => {
+  const handleCreateSelect = useCallback(async () => {
     if (!onCreate) return;
 
     const typedBranch = search.trim();
@@ -102,7 +91,8 @@ export function BranchSelectorPopover({
   }, [onCreate, search]);
 
   const activeSelectedBranch = selectedBranch?.trim() || null;
-  const triggerLabel = activeSelectedBranch ?? state.currentBranch ?? state.defaultBranch ?? "No branch";
+  const currentBranch = activeSelectedBranch ?? state.currentBranch;
+  const triggerLabel = currentBranch ?? state.defaultBranch ?? "No branch";
   const isDisabled = disabled || !cwd || busy;
   const hasRepositoryState = state.currentBranch !== null || state.branches.length > 0 || Boolean(state.defaultBranch);
   const emptyBranchMessage = !cwd
@@ -113,86 +103,114 @@ export function BranchSelectorPopover({
   const canCreateBranch = Boolean(onCreate && cwd && !busy && hasRepositoryState);
 
   return (
-    <PopoverPrimitive.Root open={open} onOpenChange={handleOpenChange}>
-      <SelectorPopoverTrigger
-        ariaLabel="Select Git branch"
-        title={cwd ? triggerLabel : "Working directory unavailable"}
-        label={triggerLabel}
-        icon={<BranchStatusIcon className="shrink-0" />}
-        disabled={isDisabled}
-        className={triggerClassName}
+    <NodexDropdownMenu
+      open={open}
+      onOpenChange={handleOpenChange}
+      side="top"
+      align="start"
+      triggerButton={(
+        <NodexDropdownButtonTrigger
+          aria-label="Select Git branch"
+          title={cwd ? triggerLabel : "Working directory unavailable"}
+          disabled={isDisabled}
+          size="sm"
+          chrome="transparent"
+          shape="pill"
+          muted
+          className={cn("px-1.5", triggerClassName)}
+        >
+          <span className="inline-flex min-w-0 items-center gap-1">
+            <BranchStatusIcon className="shrink-0" />
+            <span className="max-w-40 truncate text-sm">{triggerLabel}</span>
+          </span>
+        </NodexDropdownButtonTrigger>
+      )}
+      contentWidth="panel"
+    >
+      <NodexDropdownSearchInput
+        autoFocus={false}
+        placeholder="Search branches"
+        value={search}
+        onChange={(event) => setSearch(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") return;
+
+          event.preventDefault();
+          if (filteredBranches.length === 0) {
+            void handleCreateSelect();
+            return;
+          }
+
+          const nextBranch = filteredBranches.find((branch) => branch !== currentBranch) ?? filteredBranches[0];
+          if (!nextBranch) return;
+          void handleBranchSelect(nextBranch);
+        }}
       />
-      <SelectorPopoverContent className="w-72">
-        <div className={cn(SELECTOR_MENU_PANEL_CLASS_NAME, "w-full")}>
-          <div className="flex w-full items-center rounded-md bg-foreground-5 px-2 py-1">
-            <SearchIcon className="shrink-0 text-token-description-foreground" />
-            <input
-              ref={searchInputRef}
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search branches"
-              className="w-full min-w-0 border-0 bg-transparent px-2 py-1 text-sm text-token-foreground outline-none placeholder:text-token-description-foreground"
-            />
-          </div>
 
-          <div className={cn(SELECTOR_MENU_LIST_CLASS_NAME, "max-h-50 gap-1.5")}>
-            <div className={SELECTOR_MENU_TITLE_CLASS_NAME}>Branches</div>
-            <div className="flex flex-col">
-              {filteredBranches.length === 0 ? (
-                <div className="px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm text-token-description-foreground">
-                  {emptyBranchMessage}
-                </div>
-              ) : (
-                filteredBranches.map((branch) => (
-                  <button
-                    key={branch}
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void handleBranchClick(branch)}
-                    className={cn(
-                      SELECTOR_MENU_ITEM_CLASS_NAME,
-                      "w-full",
-                      busy && "cursor-wait opacity-60",
-                    )}
-                  >
-                    <div className="flex w-full items-center gap-1.5">
-                      <BranchStatusIcon className="shrink-0" />
-                      <span className="min-w-0 flex-1 truncate text-left">{branch}</span>
-                      {branch === (activeSelectedBranch ?? state.currentBranch)
-                        ? <CheckmarkIcon className="shrink-0" />
-                        : null}
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
+      <NodexDropdownScrollBranchList
+        filteredBranches={filteredBranches}
+        currentBranch={currentBranch}
+        busy={busy}
+        emptyBranchMessage={emptyBranchMessage}
+        onBranchSelect={handleBranchSelect}
+      />
 
-          {onCreate && (
-            <>
-              <div className={SELECTOR_MENU_DIVIDER_WRAPPER_CLASS_NAME}>
-                <div className={SELECTOR_MENU_DIVIDER_CLASS_NAME} />
-              </div>
+      {onCreate ? (
+        <>
+          <NodexDropdownSeparator />
+          <NodexDropdownItem
+            disabled={!canCreateBranch}
+            onSelect={() => {
+              void handleCreateSelect();
+            }}
+            leftSlot={<PlusIcon className="size-4 shrink-0" />}
+          >
+            Create and checkout new branch…
+          </NodexDropdownItem>
+        </>
+      ) : null}
+    </NodexDropdownMenu>
+  );
+}
 
-              <button
-                type="button"
-                disabled={!canCreateBranch}
-                onClick={() => void handleCreateClick()}
-                className={cn(
-                  SELECTOR_MENU_ITEM_CLASS_NAME,
-                  "w-full",
-                  !canCreateBranch && "cursor-default opacity-60",
-                )}
-              >
-                <div className="flex w-full items-center gap-1.5">
-                  <PlusIcon className="size-4 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate text-left">Create and checkout new branch…</span>
-                </div>
-              </button>
-            </>
-          )}
-        </div>
-      </SelectorPopoverContent>
-    </PopoverPrimitive.Root>
+function NodexDropdownScrollBranchList({
+  filteredBranches,
+  currentBranch,
+  busy,
+  emptyBranchMessage,
+  onBranchSelect,
+}: {
+  filteredBranches: string[];
+  currentBranch: string | null;
+  busy: boolean;
+  emptyBranchMessage: string;
+  onBranchSelect: (branch: string) => Promise<void>;
+}) {
+  return (
+    <div className="vertical-scroll-fade-mask flex h-[200px] flex-col gap-1.5 overflow-y-auto">
+      <NodexDropdownSectionLabel>Branches</NodexDropdownSectionLabel>
+      {filteredBranches.length === 0 ? (
+        <NodexDropdownMessage compact>{emptyBranchMessage}</NodexDropdownMessage>
+      ) : (
+        <NodexDropdownSection className="flex flex-col">
+          {filteredBranches.map((branch) => (
+            <NodexDropdownItem
+              key={branch}
+              disabled={busy}
+              onSelect={() => {
+                void onBranchSelect(branch);
+              }}
+              leftSlot={<BranchStatusIcon className="shrink-0" />}
+              rightSlot={branch === currentBranch ? <CheckmarkIcon className="shrink-0" /> : null}
+              tooltipText={branch}
+              tooltipSide="top"
+              tooltipAlign="start"
+            >
+              {branch}
+            </NodexDropdownItem>
+          ))}
+        </NodexDropdownSection>
+      )}
+    </div>
   );
 }

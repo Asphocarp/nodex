@@ -12,11 +12,9 @@ import {
   isCursorWithinOwnerTree,
 } from "./use-projected-card-embed-sync";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select";
+  NodexDropdownButtonTrigger,
+  NodexDropdownChoiceMenu,
+} from "@/components/ui/dropdown";
 import type {
   ToggleListPropertyKey,
   ToggleListStatusId,
@@ -293,31 +291,29 @@ export const createCardRefBlockSpec = createReactBlockSpec(
             )}
             contentEditable={false}
           >
-            <Select
+            <NodexDropdownChoiceMenu
               value={sourceProjectId}
               onValueChange={(value) => {
                 editor.updateBlock(block, {
                   props: { sourceProjectId: value },
                 });
               }}
-            >
-              <SelectTrigger className={cn(PROJECTION_ACTION_BTN, "h-7! pr-2")}>
-                <span className="inline-flex items-center gap-1.5">
-                  <Layers3 className="size-3.5" />
-                  {sourceProjectId}
-                </span>
-              </SelectTrigger>
-              <SelectContent sideOffset={4}>
-                {projects.map((project) => {
-                  const icon = normalizeProjectIcon(project.icon);
-                  return (
-                    <SelectItem key={project.id} value={project.id}>
-                      {icon ? `${icon} ${project.name}` : project.name}
-                    </SelectItem>
-                  );
-                })}
-              </SelectContent>
-            </Select>
+              options={projects.map((project) => {
+                const icon = normalizeProjectIcon(project.icon);
+                return {
+                  value: project.id,
+                  label: icon ? `${icon} ${project.name}` : project.name,
+                };
+              })}
+              triggerButton={(
+                <NodexDropdownButtonTrigger className={cn(PROJECTION_ACTION_BTN, "h-7! pr-2")}>
+                  <span className="inline-flex items-center gap-1.5">
+                    <Layers3 className="size-3.5" />
+                    {sourceProjectId}
+                  </span>
+                </NodexDropdownButtonTrigger>
+              )}
+            />
           </div>
 
           {/* Projected card children are injected by useProjectedCardEmbedSync */}

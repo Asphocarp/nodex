@@ -1,4 +1,4 @@
-import { forwardRef, useState, type ButtonHTMLAttributes, type ComponentType, type RefObject } from "react";
+import { useState, type ComponentType, type RefObject } from "react";
 import {
   ArrowUpDown,
   ListFilter,
@@ -7,6 +7,7 @@ import {
   XCircle,
 } from "lucide-react";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
+import { NodexIconButton } from "@/components/ui/button";
 import {
   getAvailableSortFields,
   hasActiveDbViewFilters,
@@ -66,50 +67,6 @@ export function resolveDbViewToolbarClearAction(hasActiveSearchQuery: boolean): 
   };
 }
 
-const ToolbarIconButton = forwardRef<
-  HTMLButtonElement,
-  ButtonHTMLAttributes<HTMLButtonElement> & {
-    icon: ComponentType<{ className?: string }>;
-    active?: boolean;
-    ariaLabel: string;
-    title: string;
-  }
->(function ToolbarIconButton(
-  {
-    icon: Icon,
-    active = false,
-    disabled = false,
-    className,
-    ariaLabel,
-    title,
-    type = "button",
-    ...props
-  },
-  ref,
-) {
-  return (
-    <button
-      {...props}
-      ref={ref}
-      type={type}
-      disabled={disabled}
-      aria-label={ariaLabel}
-      title={title}
-      className={cn(
-        "inline-flex size-7 items-center justify-center rounded-md",
-        "hover:bg-[color-mix(in_srgb,var(--foreground)_5%,transparent)]",
-        active
-          ? "text-(--accent-blue)"
-          : "text-[color-mix(in_srgb,var(--foreground)_62%,transparent)] hover:text-(--foreground)",
-        disabled && "cursor-not-allowed opacity-40 hover:bg-transparent",
-        className,
-      )}
-    >
-      <Icon className="size-4" />
-    </button>
-  );
-});
-
 export function DbViewToolbar({
   items,
   activeSearchQuery,
@@ -162,8 +119,9 @@ export function DbViewToolbar({
         availableTags={availableTags}
         onChange={onUpdateDbViewPrefs}
       >
-        <ToolbarIconButton
+        <NodexIconButton
           icon={ListFilter}
+          size="sm"
           active={filterActive}
           ariaLabel="Filter"
           title="Filter"
@@ -178,8 +136,9 @@ export function DbViewToolbar({
         availableSortFields={getAvailableSortFields(rulesView)}
         onChange={onUpdateDbViewPrefs}
       >
-        <ToolbarIconButton
+        <NodexIconButton
           icon={ArrowUpDown}
+          size="sm"
           active={sortActive}
           ariaLabel="Sort"
           title="Sort"
@@ -194,8 +153,9 @@ export function DbViewToolbar({
           prefs={dbViewPrefs}
           onChange={onUpdateDbViewPrefs}
         >
-          <ToolbarIconButton
+          <NodexIconButton
             icon={SlidersHorizontal}
+            size="sm"
             active={openPanel === "display"}
             ariaLabel="Display"
             title="Display"
@@ -203,8 +163,9 @@ export function DbViewToolbar({
           />
         </DbViewDisplayPopover>
       ) : (
-        <ToolbarIconButton
+        <NodexIconButton
           icon={SlidersHorizontal}
+          size="sm"
           ariaLabel="Display"
           title="Display"
           disabled
@@ -213,9 +174,9 @@ export function DbViewToolbar({
     </>
   ) : (
     <>
-      <ToolbarIconButton icon={ListFilter} ariaLabel="Filter" title="Filter" disabled />
-      <ToolbarIconButton icon={ArrowUpDown} ariaLabel="Sort" title="Sort" disabled />
-      <ToolbarIconButton icon={SlidersHorizontal} ariaLabel="Display" title="Display" disabled />
+      <NodexIconButton icon={ListFilter} ariaLabel="Filter" title="Filter" size="sm" disabled />
+      <NodexIconButton icon={ArrowUpDown} ariaLabel="Sort" title="Sort" size="sm" disabled />
+      <NodexIconButton icon={SlidersHorizontal} ariaLabel="Display" title="Display" size="sm" disabled />
     </>
   );
 
@@ -290,18 +251,13 @@ export function DbViewToolbar({
             {rulesButtons}
 
             <div className="flex items-center">
-              <button
-                type="button"
-                onClick={() => onOpenTaskSearch(true)}
-                aria-label="Search"
+              <NodexIconButton
+                icon={Search}
+                size="sm"
+                ariaLabel="Search"
                 title={`Task search (${searchShortcutLabel})`}
-                className={cn(
-                  "inline-flex size-7 shrink-0 items-center justify-center rounded-md",
-                  "text-[color-mix(in_srgb,var(--foreground)_62%,transparent)] hover:bg-[color-mix(in_srgb,var(--foreground)_5%,transparent)] hover:text-(--foreground)",
-                )}
-              >
-                <Search className="size-4" />
-              </button>
+                onClick={() => onOpenTaskSearch(true)}
+              />
 
               <div
                 aria-hidden={!showSearchField}

@@ -2,12 +2,12 @@ import { motion } from "motion/react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChevronRightIcon, CodeBracketsIcon } from "@/components/shared/icons";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
+  NodexDialog as Dialog,
+  NodexDialogContent as DialogContent,
+  NodexDialogHeader as DialogHeader,
+  NodexDialogTitle as DialogTitle,
 } from "../../../../../components/ui/dialog";
-import { Tooltip } from "../../../../../components/ui/tooltip";
+import { NodexTooltip } from "../../../../../components/ui/tooltip";
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
 import { cn } from "../../../../../lib/utils";
 import { CODEX_MEASURED_TRANSITION, useMeasuredElementHeight } from "../use-measured-element-height";
@@ -364,8 +364,8 @@ function McpRawOutputDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <Tooltip
-        content="Show raw tool call output"
+      <NodexTooltip
+        tooltipContent="Show raw tool call output"
         side="top"
         delayDuration={0}
       >
@@ -386,7 +386,7 @@ function McpRawOutputDialog({
         >
           <CodeBracketsIcon />
         </button>
-      </Tooltip>
+      </NodexTooltip>
       <DialogContent
         id={dialogId}
         ref={contentRef}

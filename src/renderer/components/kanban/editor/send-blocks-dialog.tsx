@@ -8,19 +8,17 @@ import { normalizeProjectIcon } from "@/lib/project-icon";
 import { useProjects } from "@/lib/use-projects";
 import { cn } from "@/lib/utils";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  NodexDialog as Dialog,
+  NodexDialogContent as DialogContent,
+  NodexDialogDescription as DialogDescription,
+  NodexDialogFooter as DialogFooter,
+  NodexDialogHeader as DialogHeader,
+  NodexDialogTitle as DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select";
+  NodexDropdownButtonTrigger,
+  NodexDropdownChoiceMenu,
+} from "@/components/ui/dropdown";
 import type { SendBlocksMode } from "./nfm-drag-handle-menu";
 
 interface AppendTarget {
@@ -238,7 +236,7 @@ export function SendBlocksDialog({
             <p className="text-xs font-medium text-(--foreground-secondary)">
               Destination project
             </p>
-            <Select
+            <NodexDropdownChoiceMenu
               value={formValues.targetProjectId}
               onValueChange={(value) => {
                 form.setFieldValue("targetProjectId", value);
@@ -246,25 +244,23 @@ export function SendBlocksDialog({
                 form.setFieldValue("targetStatus", "");
                 form.setFieldValue("cardQuery", "");
               }}
-            >
-              <SelectTrigger className="h-8 w-full">
-                <span className="truncate text-sm">
-                  {targetProjectIcon
-                    ? `${targetProjectIcon} ${targetProject?.name ?? formValues.targetProjectId}`
-                    : targetProject?.name ?? formValues.targetProjectId}
-                </span>
-              </SelectTrigger>
-              <SelectContent sideOffset={6}>
-                {projects.map((project) => {
-                  const icon = normalizeProjectIcon(project.icon);
-                  return (
-                    <SelectItem key={project.id} value={project.id}>
-                      {icon ? `${icon} ${project.name}` : project.name}
-                    </SelectItem>
-                  );
-                })}
-              </SelectContent>
-            </Select>
+              options={projects.map((project) => {
+                const icon = normalizeProjectIcon(project.icon);
+                return {
+                  value: project.id,
+                  label: icon ? `${icon} ${project.name}` : project.name,
+                };
+              })}
+              triggerButton={(
+                <NodexDropdownButtonTrigger className="w-full">
+                  <span className="truncate text-sm">
+                    {targetProjectIcon
+                      ? `${targetProjectIcon} ${targetProject?.name ?? formValues.targetProjectId}`
+                      : targetProject?.name ?? formValues.targetProjectId}
+                  </span>
+                </NodexDropdownButtonTrigger>
+              )}
+            />
           </div>
 
           {mode === "card" ? (
@@ -325,20 +321,19 @@ export function SendBlocksDialog({
               <p className="text-xs font-medium text-(--foreground-secondary)">
                 Destination column
               </p>
-              <Select value={formValues.targetStatus} onValueChange={(value) => form.setFieldValue("targetStatus", value)}>
-                <SelectTrigger className="h-8 w-full">
-                  <span className="truncate text-sm">
-                    {selectedBoard?.columns.find((column) => column.id === formValues.targetStatus)?.name ?? "Select column"}
-                  </span>
-                </SelectTrigger>
-                <SelectContent sideOffset={6}>
-                  {(selectedBoard?.columns ?? []).map((column) => (
-                    <SelectItem key={column.id} value={column.id}>
-                      {column.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <NodexDropdownChoiceMenu value={formValues.targetStatus} onValueChange={(value) => form.setFieldValue("targetStatus", value)}
+                options={(selectedBoard?.columns ?? []).map((column) => ({
+                  value: column.id,
+                  label: column.name,
+                }))}
+                triggerButton={(
+                  <NodexDropdownButtonTrigger className="w-full">
+                    <span className="truncate text-sm">
+                      {selectedBoard?.columns.find((column) => column.id === formValues.targetStatus)?.name ?? "Select column"}
+                    </span>
+                  </NodexDropdownButtonTrigger>
+                )}
+              />
               <p className="text-xs text-(--foreground-tertiary)">
                 Selected blocks become new cards and are removed from the source card.
               </p>

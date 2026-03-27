@@ -3,18 +3,18 @@ import type { ComponentProps } from "react";
 import { render, textContent } from "../../../test/dom";
 
 mock.module("@/components/ui/button", () => ({
-  Button: ({ children, ...props }: ComponentProps<"button">) => (
+  NodexButton: ({ children, ...props }: ComponentProps<"button">) => (
     <button {...props}>{children}</button>
   ),
 }));
 
 mock.module("@/components/ui/dialog", () => ({
-  Dialog: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
-  DialogContent: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
-  DialogDescription: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
-  DialogFooter: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
-  DialogHeader: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
-  DialogTitle: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
+  NodexDialog: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
+  NodexDialogContent: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
+  NodexDialogDescription: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
+  NodexDialogFooter: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
+  NodexDialogHeader: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
+  NodexDialogTitle: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
 }));
 
 describe("paste resource dialog", () => {

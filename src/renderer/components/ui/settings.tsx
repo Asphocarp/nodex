@@ -16,23 +16,23 @@ export const CODEX_SETTINGS_SHELL_STYLE = {
   "--cursor-interaction": "pointer",
 } as CSSProperties;
 
-export interface SettingRowProps {
+export interface NodexSettingsRowProps {
   label: string;
   description?: string;
   children: ReactNode;
 }
 
-export function SettingRow({
+export function NodexSettingsRow({
   label,
   description,
   children,
-}: SettingRowProps) {
+}: NodexSettingsRowProps) {
   return (
     <div className="flex items-center justify-between p-3">
       <div className="flex min-w-0 flex-col gap-1">
         <div className="min-w-0 text-sm text-token-text-primary">{label}</div>
         {description ? (
-          <div className="text-token-text-secondary min-w-0 text-sm">{description}</div>
+          <div className="min-w-0 text-sm text-token-text-secondary">{description}</div>
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-2">{children}</div>
@@ -40,7 +40,7 @@ export function SettingRow({
   );
 }
 
-export function SectionBlock({
+export function NodexSettingsSection({
   title,
   children,
 }: {
@@ -54,9 +54,7 @@ export function SectionBlock({
       </div>
       <div className="flex flex-col gap-1.5">
         <div
-          className={cn(
-            "border-token-border flex flex-col divide-y-[0.5px] divide-token-border rounded-lg border",
-          )}
+          className="border-token-border flex flex-col divide-y-[0.5px] divide-token-border rounded-lg border"
           style={{ backgroundColor: "var(--color-background-panel, var(--color-token-bg-fog))" }}
         >
           {children}
@@ -66,7 +64,7 @@ export function SectionBlock({
   );
 }
 
-export function SettingsPageSurface({
+export function NodexSettingsPageSurface({
   title,
   backSlot,
   subtitle,

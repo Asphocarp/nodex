@@ -6,7 +6,7 @@ import type {
   WorktreeEnvironmentSettingsSnapshot,
 } from "@/lib/types";
 import { LocalEnvironmentsSettingsPage } from "./local-environments-settings-page";
-import { SettingsPageSurface } from "./workbench-settings-primitives";
+import { NodexSettingsPageSurface as SettingsPageSurface } from "../ui/settings";
 
 const PROJECTS: Project[] = [
   {
@@ -135,7 +135,7 @@ function LocalEnvironmentsStory({
         activeProjectId={initialProjectId ?? PROJECTS[0].id}
         initialProjectId={initialProjectId}
         initialConfigPath={initialConfigPath}
-        onAddProject={() => {}}
+        onAddProject={() => { }}
         renderShell={({ title, subtitle, backSlot, children }) => (
           <div className="h-[760px] overflow-hidden rounded-[20px]">
             <SettingsPageSurface title={title} subtitle={subtitle} backSlot={backSlot}>

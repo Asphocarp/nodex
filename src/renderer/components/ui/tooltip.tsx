@@ -1,63 +1,137 @@
 import * as RadixTooltip from "@radix-ui/react-tooltip";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ComponentPropsWithoutRef,
+  type ComponentPropsWithRef,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { cn } from "@/lib/utils";
-import type { ReactNode } from "react";
 
-interface TooltipProps {
+const CODEX_TOOLTIP_DISMISS_EVENT = "codex:dismiss-tooltips";
+
+export function dismissNodexTooltips() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(CODEX_TOOLTIP_DISMISS_EVENT));
+}
+
+export type NodexTooltipProviderProps = ComponentPropsWithoutRef<typeof RadixTooltip.Provider>;
+
+export function NodexTooltipProvider({
+  delayDuration = 0,
+  ...props
+}: NodexTooltipProviderProps) {
+  return <RadixTooltip.Provider delayDuration={delayDuration} {...props} />;
+}
+
+export interface NodexTooltipProps
+  extends Omit<ComponentPropsWithoutRef<typeof RadixTooltip.Content>, "content">,
+  Pick<
+    ComponentPropsWithoutRef<typeof RadixTooltip.Root>,
+    "open" | "defaultOpen" | "onOpenChange" | "delayDuration"
+  > {
   children: ReactNode;
-  content: ReactNode;
-  side?: "top" | "right" | "bottom" | "left";
-  sideOffset?: number;
-  contentClassName?: string;
-  delayDuration?: number;
-  disableAnimation?: boolean;
-  enableHoverableContent?: boolean;
-  onOpenChange?: (open: boolean) => void;
+  tooltipContent: ReactNode;
+  shortcut?: ReactNode;
+  disabled?: boolean;
+  triggerAsChild?: boolean;
+  triggerRef?: RefObject<HTMLElement | null>;
+  delayOpen?: boolean;
+  interactive?: boolean;
+  tooltipClassName?: string;
+  tooltipBodyClassName?: string;
 }
 
-export function TooltipProvider({ children }: { children: ReactNode }) {
-  return (
-    <RadixTooltip.Provider delayDuration={150} skipDelayDuration={150}>
-      {children}
-    </RadixTooltip.Provider>
-  );
-}
-
-export function Tooltip({
+export function NodexTooltip({
   children,
-  content,
-  side = "bottom",
-  sideOffset = 6,
-  contentClassName,
-  delayDuration,
-  disableAnimation = false,
-  enableHoverableContent,
+  tooltipContent,
+  shortcut,
+  disabled = false,
+  triggerAsChild = true,
+  triggerRef,
+  delayOpen,
+  interactive = false,
+  open,
+  defaultOpen,
   onOpenChange,
-}: TooltipProps) {
+  delayDuration,
+  tooltipClassName,
+  tooltipBodyClassName,
+  align,
+  side = "bottom",
+  sideOffset = 2,
+  style,
+  ...props
+}: NodexTooltipProps) {
+  const contentRef = useRef<HTMLDivElement>(null);
+  const isControlled = open !== undefined;
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen ?? false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const handleDismiss = () => {
+      if (isControlled) {
+        onOpenChange?.(false);
+        return;
+      }
+      setUncontrolledOpen(false);
+    };
+
+    window.addEventListener(CODEX_TOOLTIP_DISMISS_EVENT, handleDismiss);
+    return () => {
+      window.removeEventListener(CODEX_TOOLTIP_DISMISS_EVENT, handleDismiss);
+    };
+  }, [isControlled, onOpenChange]);
+
+  if (disabled || tooltipContent == null) return <>{children}</>;
+
+  const resolvedOpen = isControlled ? open : uncontrolledOpen;
+  const resolvedDelay = delayOpen ? 250 : delayDuration;
+
   return (
     <RadixTooltip.Root
-      delayDuration={delayDuration}
-      disableHoverableContent={!enableHoverableContent}
-      onOpenChange={onOpenChange}
+      open={resolvedOpen}
+      defaultOpen={defaultOpen}
+      onOpenChange={(nextOpen) => {
+        if (!isControlled) setUncontrolledOpen(nextOpen);
+        onOpenChange?.(nextOpen);
+      }}
+      delayDuration={resolvedDelay}
+      disableHoverableContent={!interactive}
     >
-      <RadixTooltip.Trigger asChild>{children}</RadixTooltip.Trigger>
+      <RadixTooltip.Trigger
+        asChild={triggerAsChild}
+        ref={
+          triggerRef as ComponentPropsWithRef<typeof RadixTooltip.Trigger>["ref"]
+        }
+      >
+        {children}
+      </RadixTooltip.Trigger>
       <RadixTooltip.Portal>
         <RadixTooltip.Content
+          ref={contentRef}
           side={side}
+          align={align}
           sideOffset={sideOffset}
           collisionPadding={8}
           className={cn(
-            "z-50 rounded-xl border px-2 py-1 text-sm",
-            "border-[color-mix(in_srgb,var(--border)_85%,transparent)]",
-            "bg-[color-mix(in_srgb,var(--background-secondary)_96%,transparent)] text-(--foreground)",
-            "shadow-[0_12px_30px_rgba(0,0,0,0.22)] backdrop-blur-md",
-            "outline-none",
-            disableAnimation
-              ? "animate-none transition-none"
-              : "data-[state=delayed-open]:animate-in data-[state=delayed-open]:fade-in-0 data-[state=delayed-open]:zoom-in-[0.985] data-[side=bottom]:data-[state=delayed-open]:slide-in-from-top-1 data-[side=left]:data-[state=delayed-open]:slide-in-from-right-1 data-[side=right]:data-[state=delayed-open]:slide-in-from-left-1 data-[side=top]:data-[state=delayed-open]:slide-in-from-bottom-1",
-            contentClassName,
+            "bg-token-dropdown-background text-token-foreground border-token-border z-50 w-fit select-none rounded-lg border px-2 py-1 text-sm whitespace-normal break-words",
+            tooltipClassName,
           )}
+          style={{
+            maxWidth: "min(20rem, var(--radix-tooltip-content-available-width), calc(100vw - 16px))",
+            maxHeight: "min(var(--radix-tooltip-content-available-height), calc(100vh - 16px))",
+            ...style,
+          }}
+          {...props}
         >
-          {content}
+          <div className="flex items-center gap-2">
+            <div className={cn("min-w-0", tooltipBodyClassName)}>{tooltipContent}</div>
+            {shortcut ? <span>{shortcut}</span> : null}
+          </div>
         </RadixTooltip.Content>
       </RadixTooltip.Portal>
     </RadixTooltip.Root>

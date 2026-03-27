@@ -1,6 +1,3 @@
-import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
-import { Tooltip } from "@/components/ui/tooltip";
-import { cn } from "../../../../lib/utils";
 import type { CodexPermissionMode } from "../../../../lib/types";
 import {
   CheckmarkIcon,
@@ -10,9 +7,9 @@ import {
   PermissionFullAccessIcon,
 } from "@/components/shared/icons";
 import {
-  SELECTOR_MENU_CONTENT_CLASS_NAME,
-  SELECTOR_MENU_ITEM_CLASS_NAME,
-} from "./selector-popover-primitives";
+  NodexDropdownItem,
+  NodexDropdownMenu,
+} from "@/components/ui/dropdown";
 
 const PERMISSION_MODE_ITEMS: Array<{ value: CodexPermissionMode; label: string }> = [
   { value: "sandbox", label: "Workspace sandbox" },
@@ -57,8 +54,8 @@ export function PermissionModeDropdown({
   onSelect: (mode: CodexPermissionMode) => void;
 }) {
   return (
-    <DropdownMenuPrimitive.Root>
-      <DropdownMenuPrimitive.Trigger asChild>
+    <NodexDropdownMenu
+      triggerButton={(
         <button
           type="button"
           aria-label="Permission mode"
@@ -70,41 +67,21 @@ export function PermissionModeDropdown({
           </span>
           <ChevronDownIcon />
         </button>
-      </DropdownMenuPrimitive.Trigger>
-      <DropdownMenuPrimitive.Portal>
-        <DropdownMenuPrimitive.Content
-          side="top"
-          align="start"
-          sideOffset={6}
-          collisionPadding={8}
-          className={cn(
-            SELECTOR_MENU_CONTENT_CLASS_NAME,
-            "outline-none",
-          )}
+      )}
+      side="top"
+      align="start"
+    >
+      {PERMISSION_MODE_ITEMS.map((item) => (
+        <NodexDropdownItem
+          key={item.value}
+          onSelect={() => onSelect(item.value)}
+          leftSlot={<PermissionModeMenuIcon mode={item.value} />}
+          rightSlot={item.value === selectedMode ? <CheckmarkIcon className="shrink-0 text-token-foreground" /> : null}
+          tooltipText={resolvePermissionModeTooltip(item.value, customDescription)}
         >
-          {PERMISSION_MODE_ITEMS.map((item) => (
-            <DropdownMenuPrimitive.Item
-              key={item.value}
-              onSelect={() => onSelect(item.value)}
-              className={cn(
-                SELECTOR_MENU_ITEM_CLASS_NAME,
-              )}
-            >
-              <Tooltip
-                content={resolvePermissionModeTooltip(item.value, customDescription)}
-                side="right"
-                sideOffset={12}
-              >
-                <div className="flex w-full items-center gap-2">
-                  <PermissionModeMenuIcon mode={item.value} />
-                  <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                  {item.value === selectedMode ? <CheckmarkIcon className="shrink-0 text-token-foreground" /> : null}
-                </div>
-              </Tooltip>
-            </DropdownMenuPrimitive.Item>
-          ))}
-        </DropdownMenuPrimitive.Content>
-      </DropdownMenuPrimitive.Portal>
-    </DropdownMenuPrimitive.Root>
+          {item.label}
+        </NodexDropdownItem>
+      ))}
+    </NodexDropdownMenu>
   );
 }

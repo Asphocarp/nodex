@@ -1,112 +1,161 @@
-import * as React from "react"
-import { cva, type VariantProps } from "class-variance-authority"
-import * as Slot from "@radix-ui/react-slot"
+import * as React from "react";
+import * as Slot from "@radix-ui/react-slot";
+import { cva, type VariantProps } from "class-variance-authority";
+import { cn } from "@/lib/utils";
 
-import { cn } from "@/lib/utils"
-
-const buttonVariants = cva(
-  `
-    inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm
-    font-medium whitespace-nowrap transition-all outline-none
-    focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50
-    disabled:pointer-events-none disabled:opacity-50
-    aria-invalid:border-destructive aria-invalid:ring-destructive/20
-    dark:aria-invalid:ring-destructive/40
-    [&_svg]:pointer-events-none [&_svg]:shrink-0
-    [&_svg:not([class*='size-'])]:size-4
-  `,
+const nodexButtonVariants = cva(
+  [
+    "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap",
+    "outline-hidden transition-colors disabled:pointer-events-none disabled:opacity-50",
+    "focus-visible:ring-token-focus focus-visible:ring-2",
+    "cursor-interaction",
+    "[&_svg]:pointer-events-none [&_svg]:shrink-0",
+    "[&_svg:not([class*='size-'])]:size-4",
+  ],
   {
     variants: {
       variant: {
-        default: `
-          bg-primary text-primary-foreground
-          hover:bg-primary/90
-        `,
-        destructive:
-          `
-            bg-destructive text-white
-            hover:bg-destructive/90
-            focus-visible:ring-destructive/20
-            dark:bg-destructive/60
-            dark:focus-visible:ring-destructive/40
-          `,
-        outline:
-          `
-            border bg-background shadow-xs
-            hover:bg-accent hover:text-accent-foreground
-            dark:border-input dark:bg-input/30
-            dark:hover:bg-input/50
-          `,
+        default:
+          "bg-token-foreground text-token-background hover:bg-token-foreground/90",
+        primary:
+          "bg-token-foreground text-token-background hover:bg-token-foreground/90",
         secondary:
-          `
-            bg-secondary text-secondary-foreground
-            hover:bg-secondary/80
-          `,
+          "bg-token-foreground/6 text-token-foreground hover:bg-token-foreground/10",
+        outline:
+          "border border-token-border bg-token-main-surface-primary text-token-foreground hover:bg-token-list-hover-background",
         ghost:
-          `
-            hover:bg-accent hover:text-accent-foreground
-            dark:hover:bg-accent/50
-          `,
-        link: `
-          text-primary underline-offset-4
-          hover:underline
-        `,
+          "text-token-foreground hover:bg-token-list-hover-background",
+        destructive:
+          "bg-token-error-background text-token-error-foreground hover:opacity-90",
       },
       size: {
-        default: `
-          h-9 px-4 py-2
-          has-[>svg]:px-3
-        `,
-        xs: `
-          h-6 gap-1 rounded-md px-2 text-xs
-          has-[>svg]:px-1.5
-          [&_svg:not([class*='size-'])]:size-3
-        `,
-        sm: `
-          h-8 gap-1.5 rounded-md px-3
-          has-[>svg]:px-2.5
-        `,
-        lg: `
-          h-10 rounded-md px-6
-          has-[>svg]:px-4
-        `,
-        icon: "size-9",
-        "icon-xs": `
-          size-6 rounded-md
-          [&_svg:not([class*='size-'])]:size-3
-        `,
-        "icon-sm": "size-8",
-        "icon-lg": "size-10",
+        default: "h-9 rounded-xl px-4 text-sm",
+        sm: "h-8 rounded-lg px-3 text-sm",
+        xs: "h-6 rounded-md px-2 text-xs [&_svg:not([class*='size-'])]:size-3",
+        composer: "h-token-button-composer rounded-lg px-2 py-0 text-base leading-[18px]",
+        lg: "h-10 rounded-xl px-5 text-sm",
+        icon: "size-9 rounded-xl",
+        "icon-sm": "size-8 rounded-lg",
+        "icon-xs": "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3",
+        "icon-lg": "size-10 rounded-xl",
       },
     },
     defaultVariants: {
       variant: "default",
       size: "default",
     },
-  }
-)
+  },
+);
 
-function Button({
+export interface NodexButtonProps
+  extends React.ComponentProps<"button">,
+  VariantProps<typeof nodexButtonVariants> {
+  asChild?: boolean;
+}
+
+export function NodexButton({
   className,
-  variant = "default",
-  size = "default",
+  variant,
+  size,
   asChild = false,
+  type,
   ...props
-}: React.ComponentProps<"button"> &
-  VariantProps<typeof buttonVariants> & {
-    asChild?: boolean
-  }) {
-  const Comp = asChild ? Slot.Root : "button"
+}: NodexButtonProps) {
+  const Comp = asChild ? Slot.Root : "button";
 
   return (
     <Comp
-      data-slot="button"
-      data-variant={variant}
-      data-size={size}
-      className={cn(buttonVariants({ variant, size, className }))}
+      data-slot="codex-button"
+      type={asChild ? undefined : (type ?? "button")}
+      className={cn(nodexButtonVariants({ variant, size, className }))}
       {...props}
     />
-  )
+  );
 }
 
-export { Button, buttonVariants }
+export interface NodexIconButtonProps extends React.ComponentProps<"button"> {
+  icon: React.ComponentType<{ className?: string }>;
+  active?: boolean;
+  tone?: "default" | "danger";
+  size?: "xs" | "sm" | "default";
+  ariaLabel: string;
+}
+
+export function NodexIconButton({
+  icon: Icon,
+  active = false,
+  tone = "default",
+  size = "default",
+  disabled = false,
+  className,
+  ariaLabel,
+  type = "button",
+  title,
+  ...props
+}: NodexIconButtonProps) {
+  return (
+    <button
+      {...props}
+      type={type}
+      disabled={disabled}
+      aria-label={ariaLabel}
+      title={title ?? ariaLabel}
+      className={cn(
+        "inline-flex items-center justify-center rounded-md outline-hidden transition-colors",
+        "focus-visible:ring-token-focus focus-visible:ring-2",
+        size === "xs" && "size-6",
+        size === "sm" && "size-7",
+        size === "default" && "size-8",
+        tone === "danger"
+          ? active
+            ? "text-token-error-foreground"
+            : "text-token-error-foreground/70 hover:bg-token-error-background/10 hover:text-token-error-foreground"
+          : active
+            ? "text-(--accent-blue)"
+            : "text-[color-mix(in_srgb,var(--foreground)_62%,transparent)] hover:bg-[color-mix(in_srgb,var(--foreground)_5%,transparent)] hover:text-(--foreground)",
+        disabled && "cursor-not-allowed opacity-40 hover:bg-transparent",
+        className,
+      )}
+    >
+      <Icon className="size-4" />
+    </button>
+  );
+}
+
+export interface NodexSwitchProps {
+  checked: boolean;
+  disabled?: boolean;
+  onCheckedChange: (nextChecked: boolean) => void;
+}
+
+export function NodexSwitch({
+  checked,
+  disabled = false,
+  onCheckedChange,
+}: NodexSwitchProps) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={() => onCheckedChange(!checked)}
+      className={cn(
+        "relative inline-flex h-6 w-10 items-center rounded-full transition-colors outline-hidden",
+        "focus-visible:ring-token-focus focus-visible:ring-2",
+        disabled
+          ? "cursor-not-allowed bg-token-foreground/8 opacity-60"
+          : checked
+            ? "bg-(--accent-blue)"
+            : "bg-token-foreground/8",
+      )}
+    >
+      <span
+        className={cn(
+          "absolute left-0.5 size-5 rounded-full bg-token-main-surface-primary transition-transform",
+          checked ? "translate-x-4" : "translate-x-0",
+        )}
+      />
+    </button>
+  );
+}

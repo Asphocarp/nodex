@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState, type ComponentType } from "react";
 import * as CollapsiblePrimitive from "@radix-ui/react-collapsible";
-import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
+import {
+  NodexDropdownButtonTrigger,
+  NodexDropdownFlyoutSubmenuItem,
+  NodexDropdownItem,
+  NodexDropdownMenu,
+  NodexDropdownSeparator,
+} from "@/components/ui/dropdown";
 import { cn } from "@/lib/utils";
 import { formatElapsedSince } from "@/lib/elapsed-time";
 import type { Project } from "@/lib/types";
@@ -101,41 +107,6 @@ function isFiniteTimestamp(value: number | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
-const SIDEBAR_ACTION_MENU_CONTENT_CLASS = cn(
-  "z-50 min-w-54 rounded-xl p-1 no-drag outline-none select-none",
-  "bg-[color-mix(in_srgb,var(--background)_92%,transparent)] text-(--foreground)",
-  "shadow-[0_18px_48px_rgba(0,0,0,0.2)] ring-[0.5px] ring-[color-mix(in_srgb,var(--foreground)_10%,transparent)] backdrop-blur-xl",
-  "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-[0.985]",
-  "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-[0.985]",
-);
-
-function SidebarSectionActionItem({
-  icon: Icon,
-  children,
-  disabled = false,
-  danger = false,
-}: {
-  icon: ComponentType<{ className?: string }>;
-  children: React.ReactNode;
-  disabled?: boolean;
-  danger?: boolean;
-}) {
-  return (
-    <>
-      <span
-        className={cn(
-          "inline-flex size-5 shrink-0 items-center justify-center",
-          danger ? "text-(--red-text)" : "text-(--sidebar-foreground-secondary)",
-          disabled && "opacity-40",
-        )}
-      >
-        <Icon className="size-4" />
-      </span>
-      <span className={cn("min-w-0 flex-1 truncate", disabled && "opacity-40")}>{children}</span>
-    </>
-  );
-}
-
 function SidebarSectionMoreActionsMenu({
   group,
   onBeforeItemLimitChange,
@@ -156,122 +127,79 @@ function SidebarSectionMoreActionsMenu({
   } = group.moreActions;
 
   return (
-    <DropdownMenuPrimitive.Root>
-      <DropdownMenuPrimitive.Trigger asChild>
-        <button
-          type="button"
+    <NodexDropdownMenu
+      align="end"
+      contentWidth="sm"
+      triggerButton={(
+        <NodexDropdownButtonTrigger
           aria-label={`${group.label} actions`}
+          showChevron={false}
           className={cn(
-            "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md outline-none",
+            "h-6 w-6 shrink-0 justify-center px-0",
             "text-(--sidebar-foreground-tertiary) opacity-0 group-hover/top-header:opacity-100",
             "group-focus-within/top-header:opacity-100 data-[state=open]:opacity-100",
-            "hover:bg-[color-mix(in_srgb,var(--sidebar-foreground)_8%,transparent)] hover:text-(--sidebar-foreground)",
-            "focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-(--sidebar-ring)/35",
+            "hover:text-(--sidebar-foreground) focus-visible:opacity-100 focus-visible:ring-(--sidebar-ring)/35",
           )}
         >
           <MoreHorizontal className="size-4" />
-        </button>
-      </DropdownMenuPrimitive.Trigger>
-      <DropdownMenuPrimitive.Portal>
-        <DropdownMenuPrimitive.Content
-          sideOffset={8}
-          align="end"
-          collisionPadding={8}
-          className={SIDEBAR_ACTION_MENU_CONTENT_CLASS}
-          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-        >
-          <DropdownMenuPrimitive.Sub>
-            <DropdownMenuPrimitive.SubTrigger
-              className={cn(
-                "flex min-h-7 w-full cursor-default items-center gap-2 rounded-lg px-2 py-1.5 text-sm outline-none",
-                "data-highlighted:bg-(--sidebar-accent) data-highlighted:text-(--foreground)",
-              )}
-            >
-              <SidebarSectionActionItem icon={Hash}>
-                Show
-              </SidebarSectionActionItem>
-              <span className="ml-auto shrink-0 text-xs text-(--sidebar-foreground-tertiary) tabular-nums">
-                {itemLimit}
-              </span>
-              <ChevronRight className="size-3.5 shrink-0 text-(--sidebar-foreground-tertiary)" />
-            </DropdownMenuPrimitive.SubTrigger>
-            <DropdownMenuPrimitive.Portal>
-              <DropdownMenuPrimitive.SubContent
-                sideOffset={6}
-                collisionPadding={8}
-                className={cn(SIDEBAR_ACTION_MENU_CONTENT_CLASS, "min-w-40")}
-              >
-                <DropdownMenuPrimitive.RadioGroup
-                  value={String(itemLimit)}
-                  onValueChange={(value) => {
-                    const nextLimit = Number.parseInt(value, 10);
-                    if (!SIDEBAR_SECTION_ITEM_LIMITS.includes(nextLimit as SidebarSectionItemLimit)) return;
-                    onBeforeItemLimitChange();
-                    onItemLimitChange(nextLimit as SidebarSectionItemLimit);
-                  }}
-                >
-                  {SIDEBAR_SECTION_ITEM_LIMITS.map((limit) => (
-                    <DropdownMenuPrimitive.RadioItem
-                      key={limit}
-                      value={String(limit)}
-                      className={cn(
-                        "flex min-h-7 w-full cursor-default items-center gap-2 rounded-lg px-3 py-1.5 text-sm outline-none",
-                        "data-highlighted:bg-(--sidebar-accent) data-highlighted:text-(--foreground)",
-                      )}
-                    >
-                      <span className="min-w-0 flex-1 truncate">{limit} items</span>
-                      {itemLimit === limit ? <Check className="size-4 shrink-0 text-(--foreground)" /> : null}
-                    </DropdownMenuPrimitive.RadioItem>
-                  ))}
-                </DropdownMenuPrimitive.RadioGroup>
-              </DropdownMenuPrimitive.SubContent>
-            </DropdownMenuPrimitive.Portal>
-          </DropdownMenuPrimitive.Sub>
-
-          <DropdownMenuPrimitive.Item
-            onSelect={onMoveUp}
-            disabled={!canMoveUp}
-            className={cn(
-              "mt-0.5 flex min-h-7 w-full cursor-default items-center gap-2 rounded-lg px-2 py-1.5 text-sm outline-none",
-              "data-highlighted:bg-(--sidebar-accent) data-highlighted:text-(--foreground)",
-              "data-[disabled]:pointer-events-none data-[disabled]:opacity-40",
-            )}
+        </NodexDropdownButtonTrigger>
+      )}
+      onCloseAutoFocus={(event) => event.preventDefault()}
+    >
+      <NodexDropdownFlyoutSubmenuItem
+        label="Show"
+        contentClassName="min-w-[180px]"
+        triggerContent={(
+          <div className="flex min-h-5 w-full items-center gap-2 text-sm">
+            <Hash className="size-4 shrink-0 text-(--sidebar-foreground-secondary)" />
+            <span className="min-w-0 flex-1 truncate">Show</span>
+            <span className="ml-auto shrink-0 text-xs text-(--sidebar-foreground-tertiary) tabular-nums">
+              {itemLimit}
+            </span>
+            <ChevronRight className="size-3.5 shrink-0 text-(--sidebar-foreground-tertiary)" />
+          </div>
+        )}
+      >
+        {SIDEBAR_SECTION_ITEM_LIMITS.map((limit) => (
+          <NodexDropdownItem
+            key={limit}
+            onSelect={() => {
+              onBeforeItemLimitChange();
+              onItemLimitChange(limit);
+            }}
+            rightSlot={itemLimit === limit ? <Check className="size-4 shrink-0 text-(--foreground)" /> : null}
           >
-            <SidebarSectionActionItem icon={ArrowUp} disabled={!canMoveUp}>
-              Move up
-            </SidebarSectionActionItem>
-          </DropdownMenuPrimitive.Item>
+            {limit} items
+          </NodexDropdownItem>
+        ))}
+      </NodexDropdownFlyoutSubmenuItem>
 
-          <DropdownMenuPrimitive.Item
-            onSelect={onMoveDown}
-            disabled={!canMoveDown}
-            className={cn(
-              "flex min-h-7 w-full cursor-default items-center gap-2 rounded-lg px-2 py-1.5 text-sm outline-none",
-              "data-highlighted:bg-(--sidebar-accent) data-highlighted:text-(--foreground)",
-              "data-[disabled]:pointer-events-none data-[disabled]:opacity-40",
-            )}
-          >
-            <SidebarSectionActionItem icon={ArrowDown} disabled={!canMoveDown}>
-              Move down
-            </SidebarSectionActionItem>
-          </DropdownMenuPrimitive.Item>
+      <NodexDropdownItem
+        onSelect={onMoveUp}
+        disabled={!canMoveUp}
+        className="mt-0.5"
+        leftSlot={<ArrowUp className="size-4 shrink-0 text-(--sidebar-foreground-secondary)" />}
+      >
+        Move up
+      </NodexDropdownItem>
 
-          <DropdownMenuPrimitive.Separator className="mx-2 my-1 h-px bg-[color-mix(in_srgb,var(--foreground)_10%,transparent)]" />
+      <NodexDropdownItem
+        onSelect={onMoveDown}
+        disabled={!canMoveDown}
+        leftSlot={<ArrowDown className="size-4 shrink-0 text-(--sidebar-foreground-secondary)" />}
+      >
+        Move down
+      </NodexDropdownItem>
 
-          <DropdownMenuPrimitive.Item
-            onSelect={onHide}
-            className={cn(
-              "flex min-h-7 w-full cursor-default items-center gap-2 rounded-lg px-2 py-1.5 text-sm outline-none",
-              "data-highlighted:bg-[color-mix(in_srgb,var(--red-text)_12%,transparent)] data-highlighted:text-(--red-text)",
-            )}
-          >
-            <SidebarSectionActionItem icon={EyeOff} danger>
-              Hide section
-            </SidebarSectionActionItem>
-          </DropdownMenuPrimitive.Item>
-        </DropdownMenuPrimitive.Content>
-      </DropdownMenuPrimitive.Portal>
-    </DropdownMenuPrimitive.Root>
+      <NodexDropdownSeparator />
+
+      <NodexDropdownItem
+        onSelect={onHide}
+        leftSlot={<EyeOff className="size-4 shrink-0 text-(--red-text)" />}
+      >
+        Hide section
+      </NodexDropdownItem>
+    </NodexDropdownMenu>
   );
 }
 

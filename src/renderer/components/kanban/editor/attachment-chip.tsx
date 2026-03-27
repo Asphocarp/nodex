@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createReactInlineContentSpec } from "@blocknote/react";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
 import {
   ArrowUpRight,
   Copy,
@@ -11,7 +10,12 @@ import {
   Link2,
 } from "lucide-react";
 
-import { Tooltip } from "@/components/ui/tooltip";
+import {
+  NodexPopover,
+  NodexPopoverContent,
+  NodexPopoverTrigger,
+} from "@/components/ui/popover";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { resolveAssetSourceToHttpUrl } from "@/lib/assets";
 import { invoke } from "@/lib/api";
 import { useFileLinkOpener } from "@/lib/use-file-link-opener";
@@ -190,7 +194,7 @@ function AttachmentPopover({
   }, [openPath, props.origin]);
 
   return (
-    <div className="w-[min(32rem,calc(100vw-2rem))] rounded-xl border border-[color-mix(in_srgb,var(--foreground)_10%,transparent)] bg-[color-mix(in_srgb,var(--background-secondary)_96%,transparent)] p-3 text-sm shadow-[0_16px_40px_rgba(0,0,0,0.24)] backdrop-blur-xl">
+    <div className="w-[min(32rem,calc(100vw-2rem))] p-1 text-sm">
       <div className="flex items-start gap-2.5">
         <div className="mt-0.5 rounded-lg bg-[color-mix(in_srgb,var(--foreground)_7%,transparent)] p-1.5 text-[color-mix(in_srgb,var(--foreground)_76%,transparent)]">
           {(() => {
@@ -332,9 +336,9 @@ function AttachmentInlineContent({
   const Icon = getAttachmentIcon(inlineContent.props.kind, inlineContent.props.mode);
 
   return (
-    <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
-      <Tooltip
-        content={
+    <NodexPopover open={open} onOpenChange={setOpen}>
+      <NodexTooltip
+        tooltipContent={
           <div className="space-y-0.5">
             <div className="font-medium text-[var(--foreground)]">{tooltipLines.primary}</div>
             <div className="text-xs text-[color-mix(in_srgb,var(--foreground)_58%,transparent)]">
@@ -343,12 +347,10 @@ function AttachmentInlineContent({
           </div>
         }
         side="top"
-        contentClassName="shadow-none"
-        disableAnimation={true}
         delayDuration={0}
       >
         <span className="inline align-baseline">
-          <PopoverPrimitive.Trigger asChild>
+          <NodexPopoverTrigger asChild>
             <button
               type="button"
               contentEditable={false}
@@ -372,23 +374,19 @@ function AttachmentInlineContent({
                 <Link2 className="-mr-0.5 ml-0.5 inline-block size-3.5 shrink-0 self-center" />
               )}
             </button>
-          </PopoverPrimitive.Trigger>
+          </NodexPopoverTrigger>
         </span>
-      </Tooltip>
+      </NodexTooltip>
 
-      <PopoverPrimitive.Portal>
-        <PopoverPrimitive.Content
-          side="top"
-          align="start"
-          sideOffset={8}
-          collisionPadding={8}
-          className="outline-none"
-          onOpenAutoFocus={(event) => event.preventDefault()}
-        >
-          <AttachmentPopover props={inlineContent.props} onPrimaryOpen={handlePrimaryOpen} />
-        </PopoverPrimitive.Content>
-      </PopoverPrimitive.Portal>
-    </PopoverPrimitive.Root>
+      <NodexPopoverContent
+        side="top"
+        align="start"
+        className="w-full"
+        onOpenAutoFocus={(event) => event.preventDefault()}
+      >
+        <AttachmentPopover props={inlineContent.props} onPrimaryOpen={handlePrimaryOpen} />
+      </NodexPopoverContent>
+    </NodexPopover>
   );
 }
 

@@ -1,4 +1,4 @@
-import { Tooltip } from "@/components/ui/tooltip";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "../../../../lib/utils";
 import type { ContextWindowIndicatorState } from "@/lib/codex-context-window";
 
@@ -91,11 +91,9 @@ export function ContextWindowIndicator({ state }: { state: ContextWindowIndicato
         : "text-[var(--foreground)]";
 
   return (
-    <Tooltip
-      content={renderContextWindowTooltip(state)}
+    <NodexTooltip
+      tooltipContent={renderContextWindowTooltip(state)}
       side="top"
-      sideOffset={10}
-      contentClassName="rounded-3xl px-4 py-3"
     >
       <button
         type="button"
@@ -122,6 +120,6 @@ export function ContextWindowIndicator({ state }: { state: ContextWindowIndicato
           />
         </svg>
       </button>
-    </Tooltip>
+    </NodexTooltip>
   );
 }

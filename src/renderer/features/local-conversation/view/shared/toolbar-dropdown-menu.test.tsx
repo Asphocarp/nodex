@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
 import { act } from "react";
 import { ToolbarDropdownMenu } from "./toolbar-dropdown-menu";
-import { SELECTOR_MENU_CONTENT_CLASS_NAME } from "./selector-popover-primitives";
 import { render } from "@/test/dom";
 
 describe("toolbar dropdown menu", () => {
@@ -42,7 +41,7 @@ describe("toolbar dropdown menu", () => {
     expect(content).not.toBeNull();
     expect(content?.className.includes("bg-token-dropdown-background/90")).toBeTrue();
     expect(content?.className.includes("ring-token-border")).toBeTrue();
-    expect(content?.className.includes(SELECTOR_MENU_CONTENT_CLASS_NAME.split(" ")[0] ?? "")).toBeTrue();
+    expect(content?.className.includes("rounded-xl")).toBeTrue();
     expect(view.container.ownerDocument.body.textContent?.includes("Balanced output")).toBeTrue();
     expect(selectedItem?.getAttribute("data-reasoning-selected")).toBe("true");
     expect(onSelectCalls.length).toBe(0);

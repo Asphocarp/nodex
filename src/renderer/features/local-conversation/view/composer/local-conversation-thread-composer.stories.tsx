@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import type { ThreadStageActions, ThreadStageModel } from "../../thread-stage-types";
 import {
   buildThreadStageStoryModel,
@@ -28,9 +28,9 @@ function buildModel(args: ComposerSendButtonStoryProps): ThreadStageModel {
     composerIntent: args.draftPrompt.trim().length === 0
       ? null
       : {
-          prompt: args.draftPrompt,
-          focusNonce: 1,
-        },
+        prompt: args.draftPrompt,
+        focusNonce: 1,
+      },
   };
   return {
     ...buildThreadStageStoryModel(scenario, controls, runtime),
@@ -40,37 +40,37 @@ function buildModel(args: ComposerSendButtonStoryProps): ThreadStageModel {
 
 function buildActions(): ThreadStageActions {
   return {
-    onCollaborationModeChange: () => {},
-    onModelChange: () => {},
-    onReasoningEffortChange: () => {},
-    onPermissionModeChange: () => {},
-    onQueueingEnabledChange: () => {},
+    onCollaborationModeChange: () => { },
+    onModelChange: () => { },
+    onReasoningEffortChange: () => { },
+    onPermissionModeChange: () => { },
+    onQueueingEnabledChange: () => { },
     onRefreshAccount: async () => {
       throw new Error("not implemented");
     },
     onStartChatGptLogin: async () => ({ type: "apiKey" }),
     onStartApiKeyLogin: async () => ({ type: "apiKey" }),
-    onCancelLogin: async () => {},
-    onLogout: async () => {},
-    onStartThreadForCard: async () => {},
-    onSendPrompt: async () => {},
-    onSteerPrompt: async () => {},
-    onInterruptTurn: async () => {},
-    onRespondApproval: async () => {},
-    onRespondUserInput: async () => {},
-    onRespondMcpElicitation: async () => {},
-    onResolvePlanImplementationRequest: () => {},
-    onEnqueueQueuedFollowUp: async () => {},
-    onRemoveQueuedFollowUp: async () => {},
-    onReorderQueuedFollowUps: async () => {},
-    onSendQueuedFollowUpNow: async () => {},
-    onEditQueuedFollowUp: async () => {},
-    onEditLastUserTurn: async () => {},
-    onForkFromTurn: async () => {},
-    onConsumeComposerIntent: () => {},
-    onOpenThread: () => {},
-    onCleanBackgroundTerminals: async () => {},
-    onOpenCard: () => {},
+    onCancelLogin: async () => { },
+    onLogout: async () => { },
+    onStartThreadForCard: async () => { },
+    onSendPrompt: async () => { },
+    onSteerPrompt: async () => { },
+    onInterruptTurn: async () => { },
+    onRespondApproval: async () => { },
+    onRespondUserInput: async () => { },
+    onRespondMcpElicitation: async () => { },
+    onResolvePlanImplementationRequest: () => { },
+    onEnqueueQueuedFollowUp: async () => { },
+    onRemoveQueuedFollowUp: async () => { },
+    onReorderQueuedFollowUps: async () => { },
+    onSendQueuedFollowUpNow: async () => { },
+    onEditQueuedFollowUp: async () => { },
+    onEditLastUserTurn: async () => { },
+    onForkFromTurn: async () => { },
+    onConsumeComposerIntent: () => { },
+    onOpenThread: () => { },
+    onCleanBackgroundTerminals: async () => { },
+    onOpenCard: () => { },
   };
 }
 
@@ -88,7 +88,7 @@ function ComposerSendButtonStory(args: ComposerSendButtonStoryProps) {
           model={buildModel(args)}
           actions={buildActions()}
           errorMessage={null}
-          onErrorMessage={() => {}}
+          onErrorMessage={() => { }}
         />
       </TooltipProvider>
     </div>

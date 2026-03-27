@@ -215,7 +215,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Cards created via the inline creator are inserted at the top of the current column
 - Quick-add with optional priority, estimate, tags
 - Enter to save, Escape to cancel
-- Priority/estimate dropdowns use Radix Select popper positioning for reliable rendering with custom trigger chips
+- Priority/estimate and other single-choice pickers use the shared Codex dropdown facade rather than a separate shared Select primitive
 - Click-outside save/cancel logic ignores portaled select menus so property selection does not dismiss the creator
 
 #### 7. Card Stage Editor

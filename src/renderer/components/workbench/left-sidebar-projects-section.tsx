@@ -107,7 +107,6 @@ export function SidebarProjectsSection({
           onOpenChange={setManageOpen}
           side="bottom"
           align="end"
-          sideOffset={8}
           contentClassName="w-80"
           trigger={(
             <button

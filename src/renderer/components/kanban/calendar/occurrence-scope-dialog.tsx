@@ -1,11 +1,11 @@
-import { Button } from "@/components/ui/button";
+import { NodexButton as Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  NodexDialog as Dialog,
+  NodexDialogContent as DialogContent,
+  NodexDialogDescription as DialogDescription,
+  NodexDialogFooter as DialogFooter,
+  NodexDialogHeader as DialogHeader,
+  NodexDialogTitle as DialogTitle,
 } from "@/components/ui/dialog";
 import type { OccurrenceEditScope } from "@/lib/types";
 import { resolveOccurrenceScopeOptions } from "./occurrence-scope-options";

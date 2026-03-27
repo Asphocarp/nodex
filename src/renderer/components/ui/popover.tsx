@@ -1,0 +1,76 @@
+import * as PopoverPrimitive from "@radix-ui/react-popover";
+import { forwardRef, type ComponentPropsWithoutRef, type CSSProperties } from "react";
+import { cn } from "@/lib/utils";
+
+const CODEX_POPOVER_BOUNDARY_STYLE: CSSProperties = {
+  maxWidth: "min(var(--radix-popover-content-available-width), calc(100vw - 16px))",
+  maxHeight: "min(var(--radix-popover-content-available-height), calc(100vh - 16px))",
+};
+
+export function NodexPopover(props: ComponentPropsWithoutRef<typeof PopoverPrimitive.Root>) {
+  return <PopoverPrimitive.Root data-slot="popover" {...props} />;
+}
+
+export function NodexPopoverTrigger(
+  props: ComponentPropsWithoutRef<typeof PopoverPrimitive.Trigger>,
+) {
+  return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />;
+}
+
+export function NodexPopoverAnchor(
+  props: ComponentPropsWithoutRef<typeof PopoverPrimitive.Anchor>,
+) {
+  return <PopoverPrimitive.Anchor data-slot="popover-anchor" {...props} />;
+}
+
+export function NodexPopoverPortal(
+  props: ComponentPropsWithoutRef<typeof PopoverPrimitive.Portal>,
+) {
+  return <PopoverPrimitive.Portal data-slot="popover-portal" {...props} />;
+}
+
+export const NodexPopoverContent = forwardRef<
+  HTMLDivElement,
+  ComponentPropsWithoutRef<typeof PopoverPrimitive.Content>
+>(function NodexPopoverContent(
+  {
+    className,
+    align = "start",
+    sideOffset = 4,
+    style,
+    collisionPadding = 6,
+    ...props
+  },
+  ref,
+) {
+  return (
+    <NodexPopoverPortal>
+      <PopoverPrimitive.Content
+        ref={ref}
+        data-slot="popover-content"
+        align={align}
+        sideOffset={sideOffset}
+        collisionPadding={collisionPadding}
+        className={cn(
+          "bg-token-dropdown-background/90 text-token-foreground ring-token-border z-50 flex w-72 origin-[var(--radix-popover-content-transform-origin)] flex-col overflow-y-auto rounded-xl px-1 py-1 shadow-lg ring-[0.5px] backdrop-blur-sm outline-hidden",
+          className,
+        )}
+        style={{ ...CODEX_POPOVER_BOUNDARY_STYLE, ...style }}
+        {...props}
+      />
+    </NodexPopoverPortal>
+  );
+});
+
+export function NodexPopoverTitle({
+  className,
+  ...props
+}: ComponentPropsWithoutRef<"div">) {
+  return (
+    <div
+      data-slot="popover-title"
+      className={cn("font-medium", className)}
+      {...props}
+    />
+  );
+}

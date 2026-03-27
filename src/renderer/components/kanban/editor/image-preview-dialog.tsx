@@ -1,7 +1,11 @@
 import { Minus, Plus, RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
+import { NodexButton as Button } from "@/components/ui/button";
+import {
+  NodexDialog as Dialog,
+  NodexDialogContent as DialogContent,
+  NodexDialogTitle as DialogTitle,
+} from "@/components/ui/dialog";
 import { isSpaceShortcut } from "./image-preview-shortcut";
 
 const MIN_ZOOM = 0.25;

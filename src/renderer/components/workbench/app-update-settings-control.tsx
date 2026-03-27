@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { NodexButton, NodexSwitch } from "@/components/ui/button";
 import { invoke, subscribeAppUpdateStatus } from "../../lib/api";
 import type { AppUpdateSettings, AppUpdateStatus } from "../../lib/types";
-import { cn } from "../../lib/utils";
 
 function isAppUpdateSettings(value: unknown): value is AppUpdateSettings {
   return typeof value === "object"
@@ -77,71 +77,6 @@ const FALLBACK_STATUS: AppUpdateStatus = {
   checkedAt: null,
   message: "App updates are only available in packaged macOS builds.",
 };
-
-function SecondaryButton({
-  children,
-  className,
-  disabled,
-  onClick,
-}: {
-  children: string;
-  className?: string;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={cn(
-        "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
-        disabled
-          ? "cursor-not-allowed border-(--border) text-(--foreground-tertiary) opacity-60"
-          : "border-(--border) text-(--foreground-secondary) hover:bg-foreground-5 hover:text-(--foreground)",
-        className,
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-function ToggleButton({
-  disabled,
-  pressed,
-  onPressedChange,
-}: {
-  disabled?: boolean;
-  pressed: boolean;
-  onPressedChange: (nextValue: boolean) => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={pressed}
-      disabled={disabled}
-      onClick={() => onPressedChange(!pressed)}
-      className={cn(
-        "relative inline-flex h-6 w-10 items-center rounded-full transition-colors",
-        "focus-visible:ring-2 focus-visible:ring-(--accent-blue)/30 focus-visible:outline-none",
-        disabled
-          ? "cursor-not-allowed bg-foreground-5 opacity-60"
-          : pressed
-            ? "bg-(--accent-blue)"
-            : "bg-foreground-5",
-      )}
-    >
-      <span
-        className={cn(
-          "absolute left-0.5 size-5 rounded-full bg-white transition-transform",
-          pressed ? "translate-x-4" : "translate-x-0",
-        )}
-      />
-    </button>
-  );
-}
 
 export function AppUpdateSettingsControl({ open }: { open: boolean }) {
   const [settings, setSettings] = useState<AppUpdateSettings>({
@@ -258,10 +193,10 @@ export function AppUpdateSettingsControl({ open }: { open: boolean }) {
         <span className="text-xs text-(--foreground-secondary)">
           Auto check
         </span>
-        <ToggleButton
+        <NodexSwitch
           disabled={busy || !status.supported}
-          pressed={settings.automaticChecksEnabled}
-          onPressedChange={(nextValue) => {
+          checked={settings.automaticChecksEnabled}
+          onCheckedChange={(nextValue) => {
             void handleAutomaticChecksChange(nextValue);
           }}
         />
@@ -278,24 +213,28 @@ export function AppUpdateSettingsControl({ open }: { open: boolean }) {
       ) : null}
 
       <div className="flex flex-wrap justify-end gap-2">
-        <SecondaryButton
+        <NodexButton
+          variant="outline"
+          size="xs"
           disabled={busy || !status.supported}
           onClick={() => {
             void handleCheckNow();
           }}
         >
           Check now
-        </SecondaryButton>
+        </NodexButton>
         {status.status === "downloaded" ? (
-          <SecondaryButton
-            className="border-(--accent-blue)/30 bg-(--accent-blue)/10 text-(--accent-blue) hover:bg-(--accent-blue)/15"
+          <NodexButton
+            variant="secondary"
+            size="xs"
+            className="border-(--accent-blue)/30 bg-(--accent-blue)/10 text-(--accent-blue) hover:bg-(--accent-blue)/15 hover:text-(--accent-blue)"
             disabled={busy}
             onClick={() => {
               void handleInstall();
             }}
           >
             Restart to Update
-          </SecondaryButton>
+          </NodexButton>
         ) : null}
       </div>
 

@@ -4,11 +4,9 @@ import { Input } from "@/components/ui/input";
 import { handleFormSubmit } from "@/lib/forms";
 import { KANBAN_PRIORITY_OPTIONS, resolveKanbanPriorityOption } from "../../lib/kanban-options";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select";
+  NodexDropdownButtonTrigger,
+  NodexDropdownChoiceMenu,
+} from "@/components/ui/dropdown";
 import { estimateStyles, estimateOptions } from "@/lib/types";
 import type { CardInput, Priority, Estimate } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -133,56 +131,60 @@ export function InlineCardCreator({ onSave, onCancel }: InlineCardCreatorProps) 
         {formValues.priority ? (
           <PriorityBadge priority={formValues.priority} onClear={() => form.setFieldValue("priority", null)} />
         ) : (
-          <Select onValueChange={(value) => form.setFieldValue("priority", value as Priority)}>
-            <SelectTrigger
-              className={cn(
-                "h-6 w-auto gap-1 border-none px-1 py-1 shadow-none",
-                "hover:bg-(--background-tertiary)"
-              )}
-            >
-              <svg className="h-2 w-2" viewBox="0 0 16 16" fill="none">
-                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" />
-                <path d="M8 5v3M8 10v1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
-              <span>Priority</span>
-            </SelectTrigger>
-            <SelectContent sideOffset={4}>
-              {KANBAN_PRIORITY_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <NodexDropdownChoiceMenu
+            value=""
+            onValueChange={(value) => form.setFieldValue("priority", value as Priority)}
+            options={KANBAN_PRIORITY_OPTIONS.map((option) => ({
+              value: option.value,
+              label: option.label,
+            }))}
+            triggerButton={(
+              <NodexDropdownButtonTrigger
+                className={cn(
+                  "h-6 w-auto gap-1 border-none px-1 py-1 shadow-none",
+                  "hover:bg-(--background-tertiary)"
+                )}
+              >
+                <svg className="h-2 w-2" viewBox="0 0 16 16" fill="none">
+                  <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" />
+                  <path d="M8 5v3M8 10v1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+                <span>Priority</span>
+              </NodexDropdownButtonTrigger>
+            )}
+          />
         )}
 
         {/* Estimate */}
         {formValues.estimate ? (
           <EstimateBadge estimate={formValues.estimate} onClear={() => form.setFieldValue("estimate", null)} />
         ) : (
-          <Select onValueChange={(value) => form.setFieldValue("estimate", value as Estimate)}>
-            <SelectTrigger
-              className={cn(
-                "h-6 w-auto gap-1 border-none px-1 py-1 shadow-none",
-                "hover:bg-(--background-tertiary)"
-              )}
-            >
-              <svg className="h-2 w-2" viewBox="0 0 16 16" fill="none">
-                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" />
-                <path d="M8 5v3l2 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
-              <span>Estimate</span>
-            </SelectTrigger>
-            <SelectContent sideOffset={4}>
-              {estimateOptions.filter((opt) => opt.value !== "none").map((opt) => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  <span className={cn("inline-flex h-5 items-center rounded-sm px-1.5 text-sm", estimateStyles[opt.value as Estimate].className)}>
-                    {opt.label}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <NodexDropdownChoiceMenu
+            value=""
+            onValueChange={(value) => form.setFieldValue("estimate", value as Estimate)}
+            options={estimateOptions.filter((opt) => opt.value !== "none").map((opt) => ({
+              value: opt.value,
+              label: (
+                <span className={cn("inline-flex h-5 items-center rounded-sm px-1.5 text-sm", estimateStyles[opt.value as Estimate].className)}>
+                  {opt.label}
+                </span>
+              ),
+            }))}
+            triggerButton={(
+              <NodexDropdownButtonTrigger
+                className={cn(
+                  "h-6 w-auto gap-1 border-none px-1 py-1 shadow-none",
+                  "hover:bg-(--background-tertiary)"
+                )}
+              >
+                <svg className="h-2 w-2" viewBox="0 0 16 16" fill="none">
+                  <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" />
+                  <path d="M8 5v3l2 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+                <span>Estimate</span>
+              </NodexDropdownButtonTrigger>
+            )}
+          />
         )}
 
         {/* Agent Status */}

@@ -1,10 +1,8 @@
 import { Input } from "@/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select";
+  NodexDropdownButtonTrigger,
+  NodexDropdownChoiceMenu,
+} from "@/components/ui/dropdown";
 import { cn } from "@/lib/utils";
 import { estimateOptions, estimateStyles, type Estimate, type Priority } from "@/lib/types";
 import { CalendarIcon, PriorityIcon, StatusIcon } from "@/components/shared/icons";
@@ -91,112 +89,110 @@ export function CardStageInlinePropertyStrip({
         </div>
 
         <div className="flex h-7.5 items-center px-1.5">
-          <Select
+          <NodexDropdownChoiceMenu
             value={priority ?? EMPTY_PRIORITY_OPTION_VALUE}
             onValueChange={(value) => onPriorityChange(
               value === EMPTY_PRIORITY_OPTION_VALUE ? null : (value as Priority),
             )}
-          >
-            <SelectTrigger
-              className={cn(
-                cardStagePropertyTriggerChrome,
-                cardStagePropertyValueHoverSurface,
-                "gap-1 px-0",
-                !priority && "text-(--foreground-tertiary) hover:text-(--foreground-secondary)",
-              )}
-            >
-              {resolveKanbanPriorityOption(priority) ? (
+            options={KANBAN_PRIORITY_SELECT_OPTIONS.map((option) => ({
+              value: option.value,
+              label: option.value === EMPTY_PRIORITY_OPTION_VALUE ? (
+                <span className="text-sm text-(--foreground-tertiary)">{option.label}</span>
+              ) : (
                 <span
                   className={cn(
                     "inline-flex h-5 items-center rounded-sm px-1.5 text-sm",
-                    resolveKanbanPriorityOption(priority)?.className,
+                    option.className,
                   )}
                 >
-                  {resolveKanbanPriorityOption(priority)?.shortLabel}
+                  {option.label}
                 </span>
-              ) : (
-                <span className={cardStagePropertyEmptyValue}>Empty</span>
-              )}
-            </SelectTrigger>
-            <SelectContent sideOffset={4}>
-              {KANBAN_PRIORITY_SELECT_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.value === EMPTY_PRIORITY_OPTION_VALUE ? (
-                    <span className="text-sm text-(--foreground-tertiary)">{option.label}</span>
-                  ) : (
-                    <span
-                      className={cn(
-                        "inline-flex h-5 items-center rounded-sm px-1.5 text-sm",
-                        option.className,
-                      )}
-                    >
-                      {option.label}
-                    </span>
-                  )}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+              ),
+            }))}
+            triggerButton={(
+              <NodexDropdownButtonTrigger
+                className={cn(
+                  cardStagePropertyTriggerChrome,
+                  cardStagePropertyValueHoverSurface,
+                  "gap-1 px-0",
+                  !priority && "text-(--foreground-tertiary) hover:text-(--foreground-secondary)",
+                )}
+              >
+                {resolveKanbanPriorityOption(priority) ? (
+                  <span
+                    className={cn(
+                      "inline-flex h-5 items-center rounded-sm px-1.5 text-sm",
+                      resolveKanbanPriorityOption(priority)?.className,
+                    )}
+                  >
+                    {resolveKanbanPriorityOption(priority)?.shortLabel}
+                  </span>
+                ) : (
+                  <span className={cardStagePropertyEmptyValue}>Empty</span>
+                )}
+              </NodexDropdownButtonTrigger>
+            )}
+          />
         </div>
 
         <div className="flex h-7.5 items-center px-1.5">
-          <Select value={currentColumnId} onValueChange={(value) => void onColumnChange(value)}>
-            <SelectTrigger
-              className={cn(
-                cardStagePropertyTriggerChrome,
-                cardStagePropertyValueHoverSurface,
-                "gap-0 px-0",
-              )}
-            >
-              <StatusChip statusId={currentColumnId} label={currentColumnName} />
-            </SelectTrigger>
-            <SelectContent sideOffset={4}>
-              {KANBAN_STATUS_OPTIONS.map((option) => {
-                return (
-                  <SelectItem key={option.id} value={option.id}>
-                    <StatusChip statusId={option.id} label={option.name} />
-                  </SelectItem>
-                );
-              })}
-            </SelectContent>
-          </Select>
+          <NodexDropdownChoiceMenu
+            value={currentColumnId}
+            onValueChange={(value) => void onColumnChange(value)}
+            options={KANBAN_STATUS_OPTIONS.map((option) => ({
+              value: option.id,
+              label: <StatusChip statusId={option.id} label={option.name} />,
+            }))}
+            triggerButton={(
+              <NodexDropdownButtonTrigger
+                className={cn(
+                  cardStagePropertyTriggerChrome,
+                  cardStagePropertyValueHoverSurface,
+                  "gap-0 px-0",
+                )}
+              >
+                <StatusChip statusId={currentColumnId} label={currentColumnName} />
+              </NodexDropdownButtonTrigger>
+            )}
+          />
         </div>
 
         <div className="flex h-7.5 items-center px-1.5">
-          <Select value={estimate} onValueChange={onEstimateChange}>
-            <SelectTrigger
-              className={cn(
-                cardStagePropertyTriggerChrome,
-                cardStagePropertyValueHoverSurface,
-                "gap-1 px-0",
-                estimate === "none" && "text-(--foreground-tertiary) hover:text-(--foreground-secondary)",
-              )}
-            >
-              {estimate !== "none" && estimate in estimateStyles ? (
-                <span
-                  className={cn(
-                    "inline-flex h-5 items-center rounded-sm px-1.5 text-sm/5",
-                    estimateStyles[estimate as Estimate].className,
-                  )}
-                >
-                  {estimateStyles[estimate as Estimate].label}
+          <NodexDropdownChoiceMenu
+            value={estimate}
+            onValueChange={onEstimateChange}
+            options={estimateOptions.map((option) => ({
+              value: option.value,
+              label: option.value !== "none" ? (
+                <span className={cn("inline-flex h-5 items-center rounded-sm px-1.5 text-sm", estimateStyles[option.value].className)}>
+                  {option.label}
                 </span>
-              ) : (
-                <span className={cardStagePropertyEmptyValue}>Empty</span>
-              )}
-            </SelectTrigger>
-            <SelectContent sideOffset={4}>
-              {estimateOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.value !== "none" ? (
-                    <span className={cn("inline-flex h-5 items-center rounded-sm px-1.5 text-sm", estimateStyles[option.value].className)}>
-                      {option.label}
-                    </span>
-                  ) : option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+              ) : option.label,
+            }))}
+            triggerButton={(
+              <NodexDropdownButtonTrigger
+                className={cn(
+                  cardStagePropertyTriggerChrome,
+                  cardStagePropertyValueHoverSurface,
+                  "gap-1 px-0",
+                  estimate === "none" && "text-(--foreground-tertiary) hover:text-(--foreground-secondary)",
+                )}
+              >
+                {estimate !== "none" && estimate in estimateStyles ? (
+                  <span
+                    className={cn(
+                      "inline-flex h-5 items-center rounded-sm px-1.5 text-sm/5",
+                      estimateStyles[estimate as Estimate].className,
+                    )}
+                  >
+                    {estimateStyles[estimate as Estimate].label}
+                  </span>
+                ) : (
+                  <span className={cardStagePropertyEmptyValue}>Empty</span>
+                )}
+              </NodexDropdownButtonTrigger>
+            )}
+          />
         </div>
 
         <div className="flex h-7.5 items-center px-1.5">

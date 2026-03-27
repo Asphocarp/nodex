@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
-import { TooltipProvider } from "../../../../components/ui/tooltip";
+import { NodexTooltipProvider as TooltipProvider } from "../../../../components/ui/tooltip";
 import { render, settleAsyncRender, textContent } from "../../../../test/dom";
 import { PlanMessage } from "./plan-message";
 
@@ -12,7 +12,7 @@ describe("PlanMessage", () => {
     });
     Object.defineProperty(URL, "revokeObjectURL", {
       configurable: true,
-      value: () => {},
+      value: () => { },
     });
   });
 

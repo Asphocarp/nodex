@@ -224,20 +224,4 @@ describe("CommandPaletteSurface", () => {
     expect(textContent(container).includes("Assignee:")).toBeTrue();
     expect(textContent(container).includes("Alex")).toBeTrue();
   });
-
-  test("forwards trigger events through the custom filter button", async () => {
-    const { CommandPaletteCardFilterButton } = await import("./command-palette-filters");
-    let clicks = 0;
-
-    const { getByLabelText } = render(
-      <CommandPaletteCardFilterButton active={false} onClick={() => {
-        clicks += 1;
-      }}
-      />,
-    );
-
-    fireEvent.click(getByLabelText("Filter cards"));
-
-    expect(clicks).toBe(1);
-  });
 });

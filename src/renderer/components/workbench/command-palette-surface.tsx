@@ -6,6 +6,7 @@ import {
   FileText,
   FolderSearch2,
   LayoutGrid,
+  ListFilter,
   PanelBottom,
   Search,
   Settings2,
@@ -28,10 +29,10 @@ import type { CommandPaletteCardSearchIndex } from "../../lib/command-palette-ca
 import { cn } from "../../lib/utils";
 import { CardIcon } from "./card-icon";
 import {
-  CommandPaletteCardFilterButton,
   CommandPaletteCardFilterPopover,
   CommandPaletteCardFiltersSummaryRow,
 } from "./command-palette-filters";
+import { NodexIconButton } from "@/components/ui/button";
 import { ThreadsIcon } from "./threads-icon";
 import { ToggleListIcon } from "./toggle-list-icon";
 
@@ -483,7 +484,14 @@ export function CommandPaletteSurface({
           disabled={results.commandMode}
           onChange={(update) => setCardFilters((prev) => update(cloneCommandPaletteCardFilters(prev)))}
         >
-          <CommandPaletteCardFilterButton active={filterActive} disabled={results.commandMode} />
+          <NodexIconButton
+            icon={ListFilter}
+            size="sm"
+            active={filterActive}
+            ariaLabel="Filter cards"
+            title="Filter cards"
+            disabled={results.commandMode}
+          />
         </CommandPaletteCardFilterPopover>
       </div>
 

@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { NodexButton } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  NodexDialog as Dialog,
+  NodexDialogContent as DialogContent,
+  NodexDialogDescription as DialogDescription,
+  NodexDialogFooter as DialogFooter,
+  NodexDialogHeader as DialogHeader,
+  NodexDialogTitle as DialogTitle,
 } from "@/components/ui/dialog";
 
 interface LocalConversationForkFromTurnDialogProps {
@@ -67,12 +67,12 @@ export function LocalConversationForkFromTurnDialog({
         </label>
 
         <DialogFooter className="gap-2 sm:flex-row">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
+          <NodexButton type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
             Cancel
-          </Button>
-          <Button type="button" onClick={() => onConfirm(skipConfirm)} disabled={busy}>
+          </NodexButton>
+          <NodexButton type="button" onClick={() => onConfirm(skipConfirm)} disabled={busy}>
             {busy ? "Forking…" : "Fork thread"}
-          </Button>
+          </NodexButton>
         </DialogFooter>
       </DialogContent>
     </Dialog>

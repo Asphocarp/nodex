@@ -1,6 +1,3 @@
-import { forwardRef, type ButtonHTMLAttributes } from "react";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { ListFilter } from "lucide-react";
 import {
   CARD_STATUS_LABELS,
   CARD_STATUS_ORDER,
@@ -22,16 +19,16 @@ import {
 } from "../../lib/toggle-list/types";
 import { cn } from "../../lib/utils";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "../ui/select";
+  NodexPopover,
+  NodexPopoverContent,
+  NodexPopoverTrigger,
+} from "../ui/popover";
 import {
-  SELECTOR_MENU_CONTENT_CLASS_NAME,
-} from "@/features/local-conversation/view/shared/selector-popover-primitives";
+  NodexDropdownButtonTrigger,
+  NodexDropdownChoiceMenu,
+} from "../ui/dropdown";
 
-const PANEL_CLASS_NAME = "min-w-96 max-w-[min(36rem,calc(100vw-2rem))] outline-none";
+const PANEL_CLASS_NAME = "min-w-96 max-w-[min(36rem,calc(100vw-2rem))]";
 const SECTION_LABEL =
   "text-xs font-medium uppercase tracking-label text-token-description-foreground select-none";
 const ROW_LABEL =
@@ -41,12 +38,8 @@ const CHIP_BASE =
 const CHIP_ACTIVE =
   "bg-[color-mix(in_srgb,var(--accent-blue)_18%,transparent)] text-(--accent-blue) hover:bg-[color-mix(in_srgb,var(--accent-blue)_22%,transparent)] hover:text-(--accent-blue)";
 const TEXT_BTN = "inline-flex items-center gap-1 text-xs font-medium text-token-description-foreground hover:text-token-foreground";
-const SELECT_TRIGGER = "h-6 min-w-24 rounded-md border-transparent bg-token-foreground/5 px-2 py-0! text-xs shadow-none [&_svg]:size-3";
 const SUMMARY_CHIP =
   "inline-flex h-6 items-center gap-0.5 rounded-full bg-[color-mix(in_srgb,var(--accent-blue)_14%,transparent)] px-2 text-xs font-medium text-(--accent-blue) hover:bg-[color-mix(in_srgb,var(--accent-blue)_18%,transparent)]";
-const ICON_BUTTON_BASE =
-  "inline-flex size-7 items-center justify-center rounded-md hover:bg-[color-mix(in_srgb,var(--foreground)_5%,transparent)]";
-
 export interface CommandPaletteProjectFilterOption {
   id: string;
   label: string;
@@ -58,17 +51,13 @@ function ToolbarPopoverContent({
   children: React.ReactNode;
 }) {
   return (
-    <PopoverPrimitive.Portal>
-      <PopoverPrimitive.Content
-        side="bottom"
-        align="end"
-        sideOffset={8}
-        collisionPadding={12}
-        className={cn(SELECTOR_MENU_CONTENT_CLASS_NAME, PANEL_CLASS_NAME)}
-      >
-        <div className="flex flex-col gap-3 p-2">{children}</div>
-      </PopoverPrimitive.Content>
-    </PopoverPrimitive.Portal>
+    <NodexPopoverContent
+      side="bottom"
+      align="end"
+      className={PANEL_CLASS_NAME}
+    >
+      <div className="flex flex-col gap-3 p-2">{children}</div>
+    </NodexPopoverContent>
   );
 }
 
@@ -130,43 +119,6 @@ function FilterValueRow({
   );
 }
 
-export const CommandPaletteCardFilterButton = forwardRef<
-  HTMLButtonElement,
-  ButtonHTMLAttributes<HTMLButtonElement> & {
-    active: boolean;
-  }
->(function CommandPaletteCardFilterButton(
-  {
-    active,
-    disabled = false,
-    className,
-    type = "button",
-    ...props
-  },
-  ref,
-) {
-  return (
-    <button
-      {...props}
-      ref={ref}
-      type={type}
-      aria-label="Filter cards"
-      title="Filter cards"
-      disabled={disabled}
-      className={cn(
-        ICON_BUTTON_BASE,
-        active
-          ? "text-(--accent-blue)"
-          : "text-[color-mix(in_srgb,var(--foreground)_62%,transparent)] hover:text-(--foreground)",
-        disabled && "cursor-not-allowed opacity-40 hover:bg-transparent",
-        className,
-      )}
-    >
-      <ListFilter className="size-4" />
-    </button>
-  );
-});
-
 export function CommandPaletteCardFilterPopover({
   open,
   onOpenChange,
@@ -191,8 +143,8 @@ export function CommandPaletteCardFilterPopover({
   const filterActive = hasActiveCommandPaletteCardFilters(filters);
 
   return (
-    <PopoverPrimitive.Root open={open && !disabled} onOpenChange={onOpenChange}>
-      <PopoverPrimitive.Trigger asChild>{children}</PopoverPrimitive.Trigger>
+    <NodexPopover open={open && !disabled} onOpenChange={onOpenChange}>
+      <NodexPopoverTrigger asChild>{children}</NodexPopoverTrigger>
       <ToolbarPopoverContent>
         <div className="flex items-center justify-between">
           <span className={SECTION_LABEL}>Filters</span>
@@ -227,11 +179,11 @@ export function CommandPaletteCardFilterPopover({
               key={`priority:${priority}`}
               active={filters.priorities.includes(priority)}
               label={TOGGLE_LIST_PRIORITY_CHIP_LABELS[priority]}
-                onClick={() =>
-                  onChange((prev) => ({
-                    ...cloneCommandPaletteCardFilters(prev),
-                    priorities: togglePriority(prev.priorities, priority),
-                  }))}
+              onClick={() =>
+                onChange((prev) => ({
+                  ...cloneCommandPaletteCardFilters(prev),
+                  priorities: togglePriority(prev.priorities, priority),
+                }))}
             />
           ))}
           <FilterChip
@@ -246,25 +198,23 @@ export function CommandPaletteCardFilterPopover({
         </FilterValueRow>
 
         <FilterValueRow label="Tags">
-          <Select
+          <NodexDropdownChoiceMenu
             value={filters.tagMode}
             onValueChange={(value) =>
               onChange((prev) => ({
                 ...cloneCommandPaletteCardFilters(prev),
                 tagMode: value as CommandPaletteCardFilters["tagMode"],
               }))}
-          >
-            <SelectTrigger className={cn(SELECT_TRIGGER, "w-18")}>
-              {TOGGLE_LIST_TAG_FILTER_MODE_LABELS[filters.tagMode]}
-            </SelectTrigger>
-            <SelectContent sideOffset={4}>
-              {TOGGLE_LIST_TAG_FILTER_MODES.map((mode) => (
-                <SelectItem key={mode} value={mode}>
-                  {TOGGLE_LIST_TAG_FILTER_MODE_LABELS[mode]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            options={TOGGLE_LIST_TAG_FILTER_MODES.map((mode) => ({
+              value: mode,
+              label: TOGGLE_LIST_TAG_FILTER_MODE_LABELS[mode],
+            }))}
+            triggerButton={(
+              <NodexDropdownButtonTrigger size="xs" className="w-18">
+                {TOGGLE_LIST_TAG_FILTER_MODE_LABELS[filters.tagMode]}
+              </NodexDropdownButtonTrigger>
+            )}
+          />
           {availableTags.length === 0 ? (
             <span className="pt-1 text-xs text-token-description-foreground italic">No tags in results</span>
           ) : (
@@ -321,7 +271,7 @@ export function CommandPaletteCardFilterPopover({
           )}
         </FilterValueRow>
       </ToolbarPopoverContent>
-    </PopoverPrimitive.Root>
+    </NodexPopover>
   );
 }
 

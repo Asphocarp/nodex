@@ -1,4 +1,4 @@
-import { Tooltip } from "@/components/ui/tooltip";
+import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 interface CardStageToolbarProps {
@@ -33,7 +33,7 @@ export function CardStageToolbar({
   return (
     <div className="flex h-11 items-center justify-between px-3">
       <div className="flex items-center gap-1">
-        <Tooltip content="Close" side="bottom" disableAnimation delayDuration={0}>
+        <NodexTooltip tooltipContent="Close" side="bottom" delayDuration={0}>
           <button
             type="button"
             onClick={onClose}
@@ -47,9 +47,9 @@ export function CardStageToolbar({
               <path d="M12 4L4 12M4 4l8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
           </button>
-        </Tooltip>
+        </NodexTooltip>
 
-        <Tooltip content="Copy deeplink" side="bottom" disableAnimation delayDuration={0}>
+        <NodexTooltip tooltipContent="Copy deeplink" side="bottom" delayDuration={0}>
           <button
             type="button"
             className={cn(
@@ -69,7 +69,7 @@ export function CardStageToolbar({
               />
             </svg>
           </button>
-        </Tooltip>
+        </NodexTooltip>
       </div>
 
       <div className="flex items-center gap-1">
@@ -79,7 +79,7 @@ export function CardStageToolbar({
           </span>
         )}
 
-        <Tooltip content={showRawContent ? "Show editor" : "Show raw-format content"} side="bottom" disableAnimation delayDuration={0}>
+        <NodexTooltip tooltipContent={showRawContent ? "Show editor" : "Show raw-format content"} side="bottom" delayDuration={0}>
           <button
             type="button"
             onClick={onToggleShowRawContent}
@@ -96,9 +96,9 @@ export function CardStageToolbar({
           >
             <RawContentIcon />
           </button>
-        </Tooltip>
+        </NodexTooltip>
 
-        <Tooltip content="Full width" side="bottom" disableAnimation delayDuration={0}>
+        <NodexTooltip tooltipContent="Full width" side="bottom" delayDuration={0}>
           <button
             type="button"
             onClick={onToggleContentWidth}
@@ -123,9 +123,9 @@ export function CardStageToolbar({
               />
             </svg>
           </button>
-        </Tooltip>
+        </NodexTooltip>
 
-        <Tooltip content="History" side="bottom" disableAnimation delayDuration={0}>
+        <NodexTooltip tooltipContent="History" side="bottom" delayDuration={0}>
           <button
             type="button"
             onClick={onOpenHistoryPanel}
@@ -147,9 +147,9 @@ export function CardStageToolbar({
               />
             </svg>
           </button>
-        </Tooltip>
+        </NodexTooltip>
 
-        <Tooltip content="Delete" side="bottom" disableAnimation delayDuration={0}>
+        <NodexTooltip tooltipContent="Delete" side="bottom" delayDuration={0}>
           <button
             type="button"
             onClick={onDelete}
@@ -170,7 +170,7 @@ export function CardStageToolbar({
               />
             </svg>
           </button>
-        </Tooltip>
+        </NodexTooltip>
       </div>
     </div>
   );

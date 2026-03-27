@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
-import { Tooltip } from "../../../../components/ui/tooltip";
+import { NodexTooltip } from "../../../../components/ui/tooltip";
 import { CheckmarkIcon } from "../../../../components/shared/icons";
 import { cn } from "../../../../lib/utils";
 import { writeTextToClipboard } from "../../../../lib/clipboard";
@@ -47,15 +47,13 @@ export function ThreadActionIconButton({
   if (!tooltip) return button;
 
   return (
-    <Tooltip
-      content={tooltip}
+    <NodexTooltip
+      tooltipContent={tooltip}
       side="top"
-      sideOffset={8}
       delayDuration={0}
-      contentClassName="rounded-[18px] px-3 py-1.5 text-[13px] font-medium tracking-[-0.01em]"
     >
       {button}
-    </Tooltip>
+    </NodexTooltip>
   );
 }
 

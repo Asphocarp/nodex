@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { ChevronsLeftRight, ChevronsRightLeft, Minus, MoreHorizontal, Plus } from "lucide-react";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
 import {
-  SELECTOR_MENU_CONTENT_CLASS_NAME,
-  SELECTOR_MENU_DIVIDER_CLASS_NAME,
-  SELECTOR_MENU_DIVIDER_WRAPPER_CLASS_NAME,
-} from "../ui/selector-menu-chrome";
+  NodexDropdownSeparator,
+} from "@/components/ui/dropdown";
+import {
+  NodexPopover,
+  NodexPopoverContent,
+  NodexPopoverTrigger,
+} from "@/components/ui/popover";
 import {
   KANBAN_COLUMN_WIDTH_PRESETS,
   KANBAN_COLUMN_WIDTH_STEP,
@@ -114,9 +116,7 @@ export function ColumnActionPopoverContent({
         <span>{collapsed ? "Expand" : "Collapse"}</span>
       </button>
 
-      <div className={SELECTOR_MENU_DIVIDER_WRAPPER_CLASS_NAME}>
-        <div className={SELECTOR_MENU_DIVIDER_CLASS_NAME} />
-      </div>
+      <NodexDropdownSeparator />
 
       {/* Width controls */}
       <div className="px-[var(--padding-row-x)] pt-0.5 pb-[var(--padding-row-y)]">
@@ -184,8 +184,8 @@ export function ColumnActionPopover({
   const [open, setOpen] = useState(false);
 
   return (
-    <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
-      <PopoverPrimitive.Trigger asChild>
+    <NodexPopover open={open} onOpenChange={setOpen}>
+      <NodexPopoverTrigger asChild>
         <button
           type="button"
           aria-label={`More options for ${columnName}`}
@@ -205,28 +205,24 @@ export function ColumnActionPopover({
         >
           <MoreHorizontal className="size-3.5" />
         </button>
-      </PopoverPrimitive.Trigger>
+      </NodexPopoverTrigger>
 
-      <PopoverPrimitive.Portal>
-        <PopoverPrimitive.Content
-          side="bottom"
-          align="end"
-          sideOffset={6}
-          collisionPadding={8}
-          className={cn(SELECTOR_MENU_CONTENT_CLASS_NAME, "w-52 outline-none")}
-          onOpenAutoFocus={(event) => event.preventDefault()}
-        >
-          <ColumnActionPopoverContent
-            columnName={columnName}
-            collapsed={collapsed}
-            width={width}
-            accentColor={accentColor}
-            onCollapsedChange={onCollapsedChange}
-            onWidthChange={onWidthChange}
-            onRequestClose={() => setOpen(false)}
-          />
-        </PopoverPrimitive.Content>
-      </PopoverPrimitive.Portal>
-    </PopoverPrimitive.Root>
+      <NodexPopoverContent
+        side="bottom"
+        align="end"
+        className="w-52"
+        onOpenAutoFocus={(event) => event.preventDefault()}
+      >
+        <ColumnActionPopoverContent
+          columnName={columnName}
+          collapsed={collapsed}
+          width={width}
+          accentColor={accentColor}
+          onCollapsedChange={onCollapsedChange}
+          onWidthChange={onWidthChange}
+          onRequestClose={() => setOpen(false)}
+        />
+      </NodexPopoverContent>
+    </NodexPopover>
   );
 }
