@@ -116,10 +116,10 @@ export function InlineCardCreator({ onSave, onCancel }: InlineCardCreatorProps) 
           onKeyDown={handleKeyDown}
           placeholder="Type a name..."
           className={cn(
-            "h-auto border-none px-0 shadow-none",
+            "h-auto border-none bg-transparent px-0",
             // Match card title: font-size:15px, line-height:1.5, font-weight:500
             "text-sm/normal font-medium text-(--foreground)",
-            "bg-transparent focus-visible:ring-0",
+            "focus:border-transparent",
             "placeholder:font-normal placeholder:text-(--foreground-disabled)"
           )}
         />

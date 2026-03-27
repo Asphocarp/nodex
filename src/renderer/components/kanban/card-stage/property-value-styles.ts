@@ -5,7 +5,7 @@ export const cardStagePropertyTriggerChrome =
   "h-auto w-fit border-none shadow-none focus:ring-0 focus-visible:ring-0 [&>svg:last-child]:hidden";
 
 export const cardStagePropertyInputChrome =
-  "border-none bg-transparent shadow-none focus-visible:ring-0";
+  "border-none bg-transparent focus:border-transparent";
 
 export const cardStagePropertyInputPlaceholder =
   "placeholder:text-sm placeholder:leading-5 placeholder:font-normal placeholder:text-[var(--foreground-tertiary)]";

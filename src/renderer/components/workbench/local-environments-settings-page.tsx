@@ -668,7 +668,7 @@ function CodexActionsEditorSection({
                   id={`local-env-action-name-${action.id}`}
                   value={action.name}
                   onChange={(event) => onUpdate(action.id, { name: event.target.value })}
-                  className="h-9 rounded-md border border-token-border bg-token-input-background px-2.5 py-1.5 text-sm text-token-text-primary"
+                  className="text-sm"
                 />
               </div>
             </div>
@@ -1430,7 +1430,6 @@ export function LocalEnvironmentsSettingsPage({
                         id="local-environment-name"
                         value={draft.name}
                         onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-                        className="h-9 w-full rounded-md border border-token-border bg-token-input-background px-2.5 py-1.5 text-sm text-token-text-primary"
                       />
                     </div>
                   </div>

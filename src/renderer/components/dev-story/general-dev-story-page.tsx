@@ -16,7 +16,6 @@ import {
   NodexDropdownButtonTrigger,
   NodexDropdownChoiceMenu,
 } from "@/components/ui/dropdown";
-import { Textarea } from "@/components/ui/textarea";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { PermissionModeDropdown } from "@/features/local-conversation/view/shared/permission-mode-dropdown";
 import { ToolbarDropdownMenu } from "@/features/local-conversation/view/shared/toolbar-dropdown-menu";
@@ -354,9 +353,6 @@ export function GeneralDevStoryPage({
               <PreviewSurface className="flex flex-col gap-3">
                 <Input placeholder="Search cards, files, or commands" defaultValue="stage-threads" />
                 <Input disabled value="Disabled field state" readOnly />
-                <Textarea
-                  defaultValue={"A compact multiline surface for prompts, notes, or descriptions.\nIt should remain quiet until focus and selection states need to show."}
-                />
               </PreviewSurface>
             </ShowcaseCard>
 
@@ -551,7 +547,7 @@ export function GeneralDevStoryPage({
                   <Button variant="ghost" size="icon-sm" aria-label="Search">
                     <Search className="size-4" />
                   </Button>
-                  <Input className="max-w-sm border-none bg-transparent shadow-none focus-visible:ring-0" placeholder="Search stories, controls, or tokens" />
+                  <Input className="max-w-sm border-none bg-transparent px-0 focus:border-transparent" placeholder="Search stories, controls, or tokens" />
                   <div className="ml-auto flex items-center gap-2">
                     <Badge variant="outline" className="border-transparent bg-foreground-5 text-(--foreground-secondary)">
                       <Filter className="mr-1 size-3" />

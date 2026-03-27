@@ -263,12 +263,6 @@ function TogglePill({
   );
 }
 
-const SETTINGS_NUMBER_INPUT_CLASS_NAME =
-  "h-9 rounded-md border border-token-border bg-token-input-background px-2.5 py-1.5 text-right text-sm text-token-text-primary outline-none focus-visible:ring-2 focus-visible:ring-(--accent-blue)/30";
-
-const SETTINGS_TEXT_INPUT_CLASS_NAME =
-  "h-9 rounded-md border border-token-border bg-token-input-background px-2.5 py-1.5 text-sm text-token-text-primary outline-none focus-visible:ring-2 focus-visible:ring-(--accent-blue)/30";
-
 function ThemeSettingControl() {
   const { theme, setTheme } = useTheme();
 
@@ -480,7 +474,7 @@ function PasteResourceNumberSettingControl({
         spellCheck={false}
         inputMode="numeric"
         aria-label={ariaLabel}
-        className="h-8 w-28 rounded-md border border-(--border) bg-(--background) px-2 text-sm text-(--foreground)"
+        className="h-8 w-28 px-2 text-sm"
       />
       <span className="text-sm text-(--foreground-secondary) tabular-nums">
         Default {defaultValue.toLocaleString()}
@@ -804,7 +798,7 @@ function WorktreeAutoBranchPrefixSettingControl({
       autoCorrect="off"
       placeholder={DEFAULT_WORKTREE_AUTO_BRANCH_PREFIX}
       aria-label="Auto branch prefix"
-      className="h-8 w-52 rounded-md border border-(--border) bg-(--background) px-2 text-sm text-(--foreground)"
+      className="h-8 w-52 px-2 text-sm"
     />
   );
 }
@@ -1368,7 +1362,7 @@ function BackupSettingsControl({ open }: { open: boolean }) {
               value={scheduleValues.intervalHours}
               disabled={Boolean(settings?.envOverrides.intervalHours)}
               onChange={(event) => scheduleForm.setFieldValue("intervalHours", event.target.value)}
-              className={cn(SETTINGS_NUMBER_INPUT_CLASS_NAME, "w-16")}
+              className="w-16 text-right"
             />
             <span className="text-sm text-token-text-secondary">hours</span>
           </div>
@@ -1381,7 +1375,7 @@ function BackupSettingsControl({ open }: { open: boolean }) {
               value={scheduleValues.retentionCount}
               disabled={Boolean(settings?.envOverrides.retentionCount)}
               onChange={(event) => scheduleForm.setFieldValue("retentionCount", event.target.value)}
-              className={cn(SETTINGS_NUMBER_INPUT_CLASS_NAME, "w-16")}
+              className="w-16 text-right"
             />
             <span className="text-sm text-token-text-secondary">max</span>
           </div>
@@ -1423,7 +1417,7 @@ function BackupSettingsControl({ open }: { open: boolean }) {
               value={historyValues.retentionCount}
               disabled={Boolean(historySettings?.envOverrides.retentionCount)}
               onChange={(event) => historyForm.setFieldValue("retentionCount", event.target.value)}
-              className={cn(SETTINGS_NUMBER_INPUT_CLASS_NAME, "w-20")}
+              className="w-20 text-right"
             />
             <span className="text-sm text-token-text-secondary">rows</span>
           </div>
@@ -1452,7 +1446,7 @@ function BackupSettingsControl({ open }: { open: boolean }) {
             value={snapshotValues.label}
             placeholder="Optional snapshot label"
             onChange={(event) => snapshotForm.setFieldValue("label", event.target.value)}
-            className={cn(SETTINGS_TEXT_INPUT_CLASS_NAME, "min-w-0 flex-1")}
+            className="min-w-0 flex-1"
           />
           <NodexButton
             type="submit"
