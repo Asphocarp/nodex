@@ -279,6 +279,37 @@ describe("handleWorkbenchShortcut", () => {
     expect(taskSearchCalled).toBeFalse();
   });
 
+  test("Cmd+F opens diff search when the Diffs stage is focused", () => {
+    let diffSearchProjectId: string | null = null;
+    let taskSearchCalled = false;
+    const actions = makeActions({
+      focusedStage: "files",
+      onRequestDiffSearch: (projectId) => {
+        diffSearchProjectId = projectId;
+      },
+      onRequestTaskSearch: () => {
+        taskSearchCalled = true;
+      },
+    });
+
+    const handled = handleWorkbenchShortcut(
+      {
+        key: "f",
+        ctrlKey: false,
+        metaKey: true,
+        shiftKey: false,
+        altKey: false,
+        target: makeInputTarget(),
+      },
+      actions,
+      true,
+    );
+
+    expect(handled).toBeTrue();
+    expect(diffSearchProjectId).toBe("a");
+    expect(taskSearchCalled).toBeFalse();
+  });
+
   test("Cmd+F keeps task search blocked inside editable inputs outside the Threads stage", () => {
     let taskSearchCalled = false;
     const actions = makeActions({

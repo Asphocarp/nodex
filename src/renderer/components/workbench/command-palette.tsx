@@ -262,7 +262,7 @@ function buildCommands(input: {
       kind: "command",
       id: "focus-diff-stage",
       title: "Focus Diff stage",
-      subtitle: "Move focus to the diff stage",
+      subtitle: "Move focus to the review panel",
       keywords: ["diff", "files", "stage", "focus"],
       shortcut: createShortcutLabel("Cmd+4", isMac),
       active: focusedStage === "files",

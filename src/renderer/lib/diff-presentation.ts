@@ -171,15 +171,32 @@ export function getNodexDiffHostStyle(themeType: DiffThemeType): CSSProperties {
 export function getNodexDiffOptions(
   themeType: DiffThemeType,
   disableFileHeader: boolean,
+  opts?: {
+    diffStyle?: SharedDiffOptions["diffStyle"];
+    overflow?: SharedDiffOptions["overflow"];
+    wrap?: boolean;
+    lineDiffType?: SharedDiffOptions["lineDiffType"];
+  },
 ): SharedDiffOptions {
+  const wrapUnsafeCss = opts?.wrap
+    ? `
+[data-line-content] pre,
+[data-line-content] code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+`
+    : "";
+
   return {
     theme: NODEX_DIFF_THEME,
     themeType,
-    diffStyle: "unified",
+    diffStyle: opts?.diffStyle ?? "unified",
     diffIndicators: "bars",
-    overflow: "scroll",
+    overflow: opts?.overflow ?? (opts?.wrap ? "wrap" : "scroll"),
+    lineDiffType: opts?.lineDiffType ?? "none",
     hunkSeparators: "simple",
-    unsafeCSS: NODEX_DIFF_UNSAFE_CSS,
+    unsafeCSS: `${NODEX_DIFF_UNSAFE_CSS}\n${wrapUnsafeCss}`,
     disableFileHeader,
   };
 }
