@@ -6,7 +6,6 @@ import {
   ChevronDownIcon,
   CheckmarkIcon,
   FileTreeChevronIcon,
-  FileTreeDotIcon,
   FileTreeFileIcon,
   FileTreeLockIcon,
   RefreshIcon,
@@ -934,10 +933,6 @@ function ReviewFileTreePane({
   const getTreeStatusSlot = (row: ReviewFileTreeRow<ReviewFileEntry>) => {
     if (row.gitStatus === "added") return "A";
     if (row.gitStatus === "deleted") return "D";
-    if (row.gitStatus === "modified") return "M";
-    if (row.containsGitChange) {
-      return <FileTreeDotIcon className="text-current" />;
-    }
     return null;
   };
 
@@ -1039,9 +1034,6 @@ function ReviewFileTreePane({
               "flex w-3 shrink-0 items-center justify-center text-center",
               row.gitStatus === "added" ? "text-token-charts-green" : undefined,
               row.gitStatus === "deleted" ? "text-token-charts-red" : undefined,
-              row.gitStatus === "modified" ? "text-token-charts-blue" : undefined,
-              row.containsGitChange && !row.gitStatus ? "text-token-charts-blue" : undefined,
-              row.containsGitChange && !row.gitStatus ? "opacity-50" : undefined,
               row.gitStatus ? "text-[11px] font-semibold leading-none" : undefined,
             )}
           >
