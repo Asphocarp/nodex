@@ -30,6 +30,7 @@ All notable changes to this project will be documented in this file.
 - Thread request cards now follow Codex Electron’s request family more closely: approval prompts render through the ask-for-permission shell with inline command or patch preview and `Skip`/`Submit`, background child approvals inject the worker identity inline into the prompt instead of rendering a separate header, implement-plan and request-user-input prompts share the same questionnaire shell, and MCP elicitation uses its own dedicated approval card instead of a local Nodex wrapper.
 
 ### Fixed
+- Fixed Diff-stage file tree status markers so ordinary modified rows and folders no longer render extra markers, while added/deleted files use `A` / `D` again instead of dots.
 - Fixed Diff-stage `Enable word wrap` so review diffs now switch the underlying diff renderer to wrap mode instead of only toggling a local CSS hint, making the wrap action actually reflow diff lines.
 - Fixed the Diff-stage review options dropdown so it now follows Codex Electron’s actions-menu contract: Git-backed review menus include `Refresh`, use the same leading action icons for diff mode, wrap, expand/collapse, full-file loading, rich preview, word diffs, and copy-git-apply, and no longer show Nodex-only right-side state text or checkmark rows.
 - Fixed the Diff-stage file tree so it now renders as a real Codex-style directory tree with expandable folders, flattened single-child directory chains, tree-aware file filtering, and virtualized visible tree rows instead of a flat path list.

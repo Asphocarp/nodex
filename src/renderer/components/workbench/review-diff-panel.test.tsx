@@ -315,7 +315,7 @@ describe("review diff panel", () => {
     expect(textContent(view.container).includes("file-001.ts")).toBeTrue();
   });
 
-  test("renders git status and folder change slots in file tree rows", async () => {
+  test("keeps folder change metadata without rendering modified status markers", async () => {
     const { ReviewDiffPanel } = await import("./review-diff-panel");
     mockInvokeImpl = async (channel: unknown) => {
       if (channel !== "git:review:snapshot") return null;
@@ -347,13 +347,75 @@ describe("review diff panel", () => {
     await settleAsyncRender();
 
     const folderRow = view.container.querySelector('[data-item-type="folder"][data-review-tree-path="src"]');
-    const fileStatus = view.container.querySelector('[data-item-type="file"][data-review-tree-path="src/workbench.tsx"] [data-item-section="status"]');
-    if (!(folderRow instanceof HTMLElement) || !(fileStatus instanceof HTMLElement)) {
-      throw new Error("Expected file tree status slots to render.");
+    const fileRow = view.container.querySelector('[data-item-type="file"][data-review-tree-path="src/workbench.tsx"]');
+    if (!(folderRow instanceof HTMLElement) || !(fileRow instanceof HTMLElement)) {
+      throw new Error("Expected file tree rows to render.");
     }
 
     expect(folderRow.getAttribute("data-item-contains-git-change")).toBe("true");
-    expect(fileStatus.textContent ?? "").toBe("M");
+    expect(folderRow.querySelector('[data-item-section="status"]')).toBe(null);
+    expect(fileRow.querySelector('[data-item-section="status"]')).toBe(null);
+  });
+
+  test("renders A/D markers for added and deleted files", async () => {
+    const { ReviewDiffPanel } = await import("./review-diff-panel");
+    mockInvokeImpl = async (channel: unknown) => {
+      if (channel !== "git:review:snapshot") return null;
+      return {
+        cwd: "/tmp/storybook/status-tree",
+        source: "unstaged",
+        patch: [
+          "diff --git a/src/added.ts b/src/added.ts",
+          "new file mode 100644",
+          "--- /dev/null",
+          "+++ b/src/added.ts",
+          "@@ -0,0 +1 @@",
+          "+export const added = true;",
+          "",
+          "diff --git a/src/deleted.ts b/src/deleted.ts",
+          "deleted file mode 100644",
+          "--- a/src/deleted.ts",
+          "+++ /dev/null",
+          "@@ -1 +0,0 @@",
+          "-export const deleted = true;",
+          "",
+        ].join("\n"),
+        files: [
+          buildGitSummary("src/added.ts", "added"),
+          buildGitSummary("src/deleted.ts", "deleted"),
+        ],
+        isGitRepository: true,
+        baseRef: null,
+        currentBranch: "feature",
+        defaultBranch: "main",
+        errorMessage: null,
+      };
+    };
+
+    const view = render(
+      <NodexTooltipProvider>
+        <ReviewDiffPanel
+          conversation={buildConversation()}
+          projectWorkspacePath="/tmp/storybook/status-tree"
+          initialSource="unstaged"
+          initialFileTreeOpen
+        />
+      </NodexTooltipProvider>,
+    );
+
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const addedStatus = view.container.querySelector('[data-item-type="file"][data-review-tree-path="src/added.ts"] [data-item-section="status"]');
+    const deletedStatus = view.container.querySelector('[data-item-type="file"][data-review-tree-path="src/deleted.ts"] [data-item-section="status"]');
+    if (!(addedStatus instanceof HTMLElement) || !(deletedStatus instanceof HTMLElement)) {
+      throw new Error("Expected added and deleted file status slots.");
+    }
+
+    expect((addedStatus.textContent ?? "").trim()).toBe("A");
+    expect((deletedStatus.textContent ?? "").trim()).toBe("D");
+    expect(addedStatus.className.includes("text-token-charts-green")).toBeTrue();
+    expect(deletedStatus.className.includes("text-token-charts-red")).toBeTrue();
   });
 
   test("keeps review search hidden until searchOpenTick opens it", async () => {
