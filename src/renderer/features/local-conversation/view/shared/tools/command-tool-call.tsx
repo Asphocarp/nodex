@@ -8,8 +8,8 @@ import { useCodexThreadSettings } from "../../../../../lib/use-codex-thread-sett
 import { cn } from "../../../../../lib/utils";
 import { CODEX_MEASURED_TRANSITION, useMeasuredElementHeight } from "../use-measured-element-height";
 import { extractCommandActions, isExplorationAction } from "./command-actions";
-import { CopyMessageActionButton } from "../thread-message-actions";
 import { ToolErrorDetail } from "./tool-primitives";
+import { ThreadCommandShellBlock } from "./thread-command-shell-block";
 
 interface CommandToolCallProps {
   item: CodexTranscriptEntry;
@@ -203,15 +203,11 @@ function SummaryText({
   );
 }
 
-function CommandBody({
-  command,
-  output,
+function CommandFooter({
   isInProgress,
   exitCode,
   effectiveStatus,
 }: {
-  command: string;
-  output: string;
   isInProgress: boolean;
   exitCode: number | null;
   effectiveStatus: string | undefined;
@@ -219,67 +215,22 @@ function CommandBody({
   const isSuccess = effectiveStatus === "completed" || (exitCode !== null && exitCode === 0);
 
   return (
-    <div className="pt-2">
-      <div className="group flex flex-col overflow-hidden rounded-lg border border-token-input-background bg-token-text-code-block-background">
-        <div className="flex flex-col overflow-clip rounded-none border-none">
-          <div className="flex items-center justify-between gap-2 px-2 py-1 font-sans text-sm text-token-description-foreground select-none">
-            <span>Shell</span>
-          </div>
-          <div className="relative overflow-hidden">
-            <div className="relative">
-              <div className="px-2 pt-2">
-                <div className="group/command relative pr-6">
-                  <div className="cursor-pointer" role="button" tabIndex={0}>
-                    <code className="text-size-chat-sm text-token-description-foreground whitespace-pre-wrap break-words font-vscode-editor line-clamp-2">
-                      <span>$ {command}</span>
-                    </code>
-                  </div>
-                  <CopyMessageActionButton
-                    text={`$ ${command}`}
-                    label="Copy"
-                    copiedLabel="Copied"
-                    tooltipLabel="Copy"
-                    copiedTooltipLabel="Copied"
-                    className="absolute top-0 right-0 opacity-0 transition-opacity duration-200 group-hover/command:opacity-100"
-                  />
-                </div>
-                <div className="group/output relative pr-0 min-h-[1.25rem]">
-                  <div className="vertical-scroll-fade-mask [--edge-fade-distance:2rem] box-border flex max-h-[140px] flex-col gap-1.5 overflow-x-auto overflow-y-auto whitespace-pre p-2 font-vscode-editor font-medium text-size-chat-sm text-token-description-foreground">
-                    <code className="text-token-description-foreground">
-                      <span>{output.trim().length > 0 ? output : "No output"}</span>
-                    </code>
-                  </div>
-                  <CopyMessageActionButton
-                    text={output.trim().length > 0 ? output : "No output"}
-                    label="Copy"
-                    copiedLabel="Copied"
-                    tooltipLabel="Copy"
-                    copiedTooltipLabel="Copied"
-                    className="absolute top-0 right-2.5 opacity-0 transition-opacity duration-200 group-hover/output:opacity-100"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="text-size-chat flex items-center gap-2 px-2.5 pt-0.5 pb-1 text-token-input-placeholder-foreground">
-            <span className="ml-auto flex items-center gap-1">
-              {isInProgress ? (
-                <>
-                  <span className="size-2 animate-pulse rounded-full bg-(--accent-blue)" />
-                  Running
-                </>
-              ) : (
-                <>
-                  <svg width="17" height="17" viewBox="0 0 17 17" fill="none" xmlns="http://www.w3.org/2000/svg" className="icon-xxs">
-                    <path d="M12.8961 3.64101C13.1297 3.41418 13.4984 3.37523 13.7779 3.56581C14.0571 3.75635 14.1554 4.11331 14.0299 4.41347L13.9615 4.53847L7.71151 13.7045C7.59411 13.8767 7.4063 13.9877 7.19881 14.0072C6.99136 14.0267 6.78564 13.9533 6.63826 13.806L2.88826 10.056L2.79842 9.9457C2.6192 9.67407 2.64927 9.30496 2.88826 9.06581C3.12738 8.82669 3.49647 8.79676 3.76815 8.97597L3.8785 9.06581L7.03084 12.2182L12.8053 3.74941L12.8961 3.64101Z" fill="currentColor" />
-                  </svg>
-                  {isSuccess ? "Success" : exitCode !== null ? `Exit ${exitCode}` : "Finished"}
-                </>
-              )}
-            </span>
-          </div>
-        </div>
-      </div>
+    <div className="text-size-chat flex items-center gap-2 px-2.5 pt-0.5 pb-1 text-token-input-placeholder-foreground">
+      <span className="ml-auto flex items-center gap-1">
+        {isInProgress ? (
+          <>
+            <span className="size-2 animate-pulse rounded-full bg-(--accent-blue)" />
+            Running
+          </>
+        ) : (
+          <>
+            <svg width="17" height="17" viewBox="0 0 17 17" fill="none" xmlns="http://www.w3.org/2000/svg" className="icon-xxs">
+              <path d="M12.8961 3.64101C13.1297 3.41418 13.4984 3.37523 13.7779 3.56581C14.0571 3.75635 14.1554 4.11331 14.0299 4.41347L13.9615 4.53847L7.71151 13.7045C7.59411 13.8767 7.4063 13.9877 7.19881 14.0072C6.99136 14.0267 6.78564 13.9533 6.63826 13.806L2.88826 10.056L2.79842 9.9457C2.6192 9.67407 2.64927 9.30496 2.88826 9.06581C3.12738 8.82669 3.49647 8.79676 3.76815 8.97597L3.8785 9.06581L7.03084 12.2182L12.8053 3.74941L12.8961 3.64101Z" fill="currentColor" />
+            </svg>
+            {isSuccess ? "Success" : exitCode !== null ? `Exit ${exitCode}` : "Finished"}
+          </>
+        )}
+      </span>
     </div>
   );
 }
@@ -382,7 +333,11 @@ export function CommandToolCall({
   };
 
   const header = (
-    <div className="group flex items-start gap-1 px-0 py-0 cursor-interaction" onClick={handleToggle}>
+    <div
+      className="group flex items-start gap-1 px-0 py-0 cursor-interaction"
+      data-command-tool-summary-toggle
+      onClick={handleToggle}
+    >
       <div className="flex min-w-0 items-center gap-1">
         <SummaryText
           command={command}
@@ -413,13 +368,22 @@ export function CommandToolCall({
       </div>
     </div>
   ) : (
-    <CommandBody
+    <div className="pt-2">
+      <ThreadCommandShellBlock
+        variant="embedded"
       command={command}
-      output={output}
-      isInProgress={isInProgress}
-      exitCode={exitCode}
-      effectiveStatus={effectiveStatus}
-    />
+        output={output}
+        cwd={toolArgs.cwd}
+        isInProgress={isInProgress}
+        footer={(
+          <CommandFooter
+            isInProgress={isInProgress}
+            exitCode={exitCode}
+            effectiveStatus={effectiveStatus}
+          />
+        )}
+      />
+    </div>
   );
   const previewHeightPx = bodyHeightPx > 0
     ? Math.min(bodyHeightPx, EXEC_PREVIEW_HEIGHT_REM * 16)
