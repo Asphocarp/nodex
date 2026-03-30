@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
 import type { CodexConversationItem } from "../../../../lib/types";
+import { installElementScrollHeight, installMeasuredResizeObserver } from "../../../../test/browser-globals";
 import { render, settleAsyncRender, textContent } from "../../../../test/dom";
 import {
   ThreadContextCompactionBlock,
@@ -40,36 +41,8 @@ function buildCommandEntry(
 
 describe("ThreadExplorationGroupBlock", () => {
   beforeEach(() => {
-    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
-      configurable: true,
-      get() {
-        return 160;
-      },
-    });
-
-    globalThis.ResizeObserver = class ResizeObserver {
-      private readonly callback: ResizeObserverCallback;
-
-      constructor(callback: ResizeObserverCallback) {
-        this.callback = callback;
-      }
-
-      observe(target: Element) {
-        this.callback([
-          {
-            target,
-            contentRect: target.getBoundingClientRect(),
-            borderBoxSize: [{ blockSize: 160, inlineSize: 320 }],
-            contentBoxSize: [{ blockSize: 160, inlineSize: 320 }],
-            devicePixelContentBoxSize: [{ blockSize: 160, inlineSize: 320 }],
-          } as unknown as ResizeObserverEntry,
-        ], this);
-      }
-
-      disconnect() {}
-
-      unobserve() {}
-    } as typeof ResizeObserver;
+    installElementScrollHeight(160);
+    installMeasuredResizeObserver({ blockSize: 160, inlineSize: 320 });
   });
 
   test("renders Codex-style counts and deduplicates read files in the header", async () => {
@@ -242,36 +215,8 @@ describe("ThreadContextCompactionBlock", () => {
 
 describe("ThreadStreamErrorBlock", () => {
   beforeEach(() => {
-    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
-      configurable: true,
-      get() {
-        return 96;
-      },
-    });
-
-    globalThis.ResizeObserver = class ResizeObserver {
-      private readonly callback: ResizeObserverCallback;
-
-      constructor(callback: ResizeObserverCallback) {
-        this.callback = callback;
-      }
-
-      observe(target: Element) {
-        this.callback([
-          {
-            target,
-            contentRect: target.getBoundingClientRect(),
-            borderBoxSize: [{ blockSize: 96, inlineSize: 320 }],
-            contentBoxSize: [{ blockSize: 96, inlineSize: 320 }],
-            devicePixelContentBoxSize: [{ blockSize: 96, inlineSize: 320 }],
-          } as unknown as ResizeObserverEntry,
-        ], this);
-      }
-
-      disconnect() {}
-
-      unobserve() {}
-    } as typeof ResizeObserver;
+    installElementScrollHeight(96);
+    installMeasuredResizeObserver({ blockSize: 96, inlineSize: 320 });
   });
 
   test("renders a Codex-style reconnect row inside the thread body and expands details on demand", async () => {

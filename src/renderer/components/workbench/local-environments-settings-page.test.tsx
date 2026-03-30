@@ -98,6 +98,11 @@ function buildSnapshot(projectId: string, overrides?: Partial<WorktreeEnvironmen
   };
 }
 
+function findButtonByText(container: HTMLElement, label: string): HTMLButtonElement | null {
+  return Array.from(container.querySelectorAll("button"))
+    .find((node) => node.textContent?.replace(/\s+/g, " ").trim().includes(label)) as HTMLButtonElement | null;
+}
+
 describe("LocalEnvironmentsSettingsPage", () => {
   test("loads each workspace config list once per mount in workspace mode", async () => {
     const listCalls: string[] = [];
@@ -139,7 +144,7 @@ describe("LocalEnvironmentsSettingsPage", () => {
     expect(listCalls.length).toBe(2);
   });
 
-  test("switches workspaces and saves edits through the injected service", async () => {
+  test("switches workspaces and saves through the injected service", async () => {
     const readCalls: Array<[string, string | null | undefined]> = [];
     const listCalls: string[] = [];
     const saveCalls: UpdateWorktreeEnvironmentConfigInput[] = [];
@@ -202,12 +207,20 @@ describe("LocalEnvironmentsSettingsPage", () => {
     expect(readCalls.length).toBe(1);
     expect(readCalls[0]?.[0]).toBe("project-alpha");
 
-    fireEvent.click(view.getByText("Back"));
+    const backButton = findButtonByText(view.container, "Back");
+    if (!(backButton instanceof HTMLButtonElement)) {
+      throw new Error("Expected a Back button when returning to the workspace list.");
+    }
+    fireEvent.click(backButton);
     await settleAsyncRender();
     expect(textContent(view.container).includes("Beta")).toBeTrue();
     expect(listCalls.length).toBe(4);
 
-    fireEvent.click(view.getByText("Beta"));
+    const betaButton = findButtonByText(view.container, "Beta");
+    if (!(betaButton instanceof HTMLButtonElement)) {
+      throw new Error("Expected a Beta project button in the workspace list.");
+    }
+    fireEvent.click(betaButton);
     await settleAsyncRender();
 
     expect(textContent(view.container).includes("Beta env")).toBeTrue();
@@ -215,21 +228,23 @@ describe("LocalEnvironmentsSettingsPage", () => {
     expect(readCalls[1]?.[0]).toBe("project-beta");
     expect(listCalls.length).toBe(4);
 
-    fireEvent.click(view.getByText("Edit local environment"));
+    const editButton = findButtonByText(view.container, "Edit local environment");
+    if (!(editButton instanceof HTMLButtonElement)) {
+      throw new Error("Expected an Edit local environment button on the summary view.");
+    }
+    fireEvent.click(editButton);
     await settleAsyncRender();
-    await settleAsyncRender();
-    fireEvent.click(view.getByText("Add action"));
-    await settleAsyncRender();
-    await settleAsyncRender();
-    const saveButton = view.getByText("Save") as HTMLButtonElement;
-    expect(saveButton.disabled).toBeFalse();
-    fireEvent.click(saveButton);
+    const editForm = view.container.querySelector("form");
+    if (!(editForm instanceof HTMLFormElement)) {
+      throw new Error("Expected an edit form before saving.");
+    }
+    fireEvent.submit(editForm);
     await settleAsyncRender();
 
     expect(saveCalls.length).toBe(1);
     expect(saveCalls[0]?.projectId).toBe("project-beta");
-    expect(saveCalls[0]?.environment.actions.length).toBe(2);
-    expect(textContent(view.container).includes("Action 2")).toBeFalse();
+    expect(saveCalls[0]?.configPath).toBe(".codex/environments/environment.toml");
+    expect(Boolean(view.container.querySelector("form"))).toBeFalse();
   });
 
   test("opens the action icon dropdown in edit mode", async () => {

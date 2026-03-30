@@ -528,9 +528,11 @@ export function StageRail({
     };
 
     updateAvailableWidth();
-    const observer = new ResizeObserver(updateAvailableWidth);
-    observer.observe(container);
-    return () => observer.disconnect();
+    const observer = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(updateAvailableWidth);
+    observer?.observe(container);
+    return () => observer?.disconnect();
   }, [layoutMode, slidingWindowStages.length]);
 
   useEffect(() => {

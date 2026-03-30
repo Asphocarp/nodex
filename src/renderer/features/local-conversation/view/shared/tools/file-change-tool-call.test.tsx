@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../../components/ui/tooltip";
+import {
+  installAsyncRequestAnimationFrame,
+  installElementScrollHeight,
+  installMeasuredResizeObserver,
+  installWindowApi,
+} from "../../../../../test/browser-globals";
 import { render, settleAsyncRender, textContent } from "../../../../../test/dom";
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
 import { FileChangeToolCall, fileChangeToolCallTestHelpers } from "./file-change-tool-call";
@@ -56,46 +62,13 @@ function buildFileChangeEntry(overrides?: Partial<CodexTranscriptEntry>): CodexT
 
 describe("FileChangeToolCall", () => {
   beforeEach(() => {
-    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
-      configurable: true,
-      get() {
-        return 96;
-      },
-    });
-
-    globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
-      callback(0);
-      return 1;
-    }) as typeof globalThis.requestAnimationFrame;
-
-    globalThis.ResizeObserver = class ResizeObserver {
-      private readonly callback: ResizeObserverCallback;
-
-      constructor(callback: ResizeObserverCallback) {
-        this.callback = callback;
-      }
-
-      observe(target: Element) {
-        this.callback([
-          {
-            target,
-            contentRect: target.getBoundingClientRect(),
-            borderBoxSize: [{ blockSize: 96, inlineSize: 320 }],
-            contentBoxSize: [{ blockSize: 96, inlineSize: 320 }],
-            devicePixelContentBoxSize: [{ blockSize: 96, inlineSize: 320 }],
-          } as unknown as ResizeObserverEntry,
-        ], this);
-      }
-
-      disconnect() { }
-
-      unobserve() { }
-    } as typeof ResizeObserver;
-
-    (window as { api?: unknown }).api = {
+    installElementScrollHeight(96);
+    installAsyncRequestAnimationFrame();
+    installMeasuredResizeObserver({ blockSize: 96, inlineSize: 320 });
+    installWindowApi({
       invoke: async () => true,
       on: () => () => { },
-    };
+    });
   });
 
   test("expands into an inline diff frame with the Codex-style inner header", async () => {

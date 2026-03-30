@@ -1,11 +1,13 @@
 import { describe, expect, mock, test } from "bun:test";
 import { act, fireEvent } from "@testing-library/react";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
+import * as AppUpdateSettingsControlDeps from "./app-update-settings-control-deps";
 
 let invokeCalls: unknown[][] = [];
 let subscribeCallback: ((status: import("../../lib/types").AppUpdateStatus) => void) | null = null;
 
-mock.module("../../lib/api", () => ({
+mock.module("./app-update-settings-control-deps", () => ({
+  ...AppUpdateSettingsControlDeps,
   invoke: async (...args: unknown[]) => {
     invokeCalls.push(args);
     const channel = args[0];

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CardStage } from "../card-stage";
+import { CardStage } from "./card-stage-dev-story-deps";
 import { useCardStageCollapsedProperties } from "../../../lib/use-card-stage-collapsed-properties";
 import type { CardInput } from "../../../lib/types";
 import {

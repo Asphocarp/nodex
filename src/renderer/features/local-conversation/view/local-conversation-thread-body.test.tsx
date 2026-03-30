@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { fireEvent, waitFor } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
+import { installAsyncRequestAnimationFrame } from "../../../test/browser-globals";
 import { render, settleAsyncRender } from "../../../test/dom";
 import type { CodexConversationItem } from "../../../lib/types";
 import type { ThreadStageActions, ThreadStageModel } from "../thread-stage-types";
@@ -160,10 +161,7 @@ function buildAssistantEntry(overrides?: Partial<CodexConversationItem>): CodexC
 
 describe("LocalConversationThreadBody", () => {
   beforeEach(() => {
-    globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
-      callback(0);
-      return 1;
-    }) as typeof globalThis.requestAnimationFrame;
+    installAsyncRequestAnimationFrame();
   });
 
   test("keeps find-in-thread hidden until cmd+f opens it", async () => {

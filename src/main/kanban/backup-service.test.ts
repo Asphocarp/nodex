@@ -12,20 +12,14 @@ const state = {
   notifications: [] as Array<[string, string, string]>,
 };
 
-mock.module("./config", () => ({
+mock.module("./backup-service-deps", () => ({
   getKanbanDir: () => fixtureRoot,
   getDatabasePath: () => liveDbPath,
-}));
-
-mock.module("./db-notifier", () => ({
   dbNotifier: {
     notifyChange: (projectId: string, changeType: string, columnId: string) => {
       state.notifications.push([projectId, changeType, columnId]);
     },
   },
-}));
-
-mock.module("./db-service", () => ({
   closeDatabase: () => undefined,
   listProjects: () => state.projects,
   getDb: () => ({

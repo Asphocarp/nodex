@@ -10,8 +10,6 @@ import {
 } from "lucide-react";
 import { subscribeAppUpdateStatus } from "../../lib/api";
 import { AppUpdateRestartNotice } from "./app-update-restart-notice";
-import { CardIcon } from "./card-icon";
-import { CommandPalette } from "./command-palette";
 import { DbViewToolbar } from "./db-view-toolbar";
 import {
   type DbViewPrefs,
@@ -20,24 +18,11 @@ import {
 } from "../../lib/db-view-prefs";
 import { ThreadsIcon } from "./threads-icon";
 import { ToggleListIcon } from "./toggle-list-icon";
-import { MainViewHost } from "./main-view-host";
-import { SettingsOverlay } from "./workbench-settings-overlay";
 import type { SettingsSectionId } from "./workbench-settings-sections";
 import { buildSettingsPath } from "./workbench-settings-routes";
-import {
-  LeftSidebar,
-  type StageSidebarGroup,
-  type StageSidebarItem,
-  type StageSidebarSection,
-} from "./left-sidebar";
+import { type StageSidebarGroup, type StageSidebarItem, type StageSidebarSection } from "./left-sidebar";
 import { StageMinimap } from "./stage-minimap";
 import { StageRail, type StageRailStage } from "./stage-rail";
-import { StageTabStrip } from "./workbench-stage-tab-strip";
-import { ReviewDiffPanel } from "./review-diff-panel";
-import { HistoryPanel } from "./workbench-history-panel";
-import { CardStage } from "./workbench-card-stage";
-import { TerminalPanel } from "./workbench-terminal-panel";
-import { invoke } from "./workbench-api";
 import {
   FLOATING_SIDEBAR_TRANSITION_DURATION_MS,
   FLOATING_SIDEBAR_TRANSITION_TIMING_FUNCTION,
@@ -45,54 +30,53 @@ import {
   SIDEBAR_HOVER_OPEN_DELAY_MS,
   SIDEBAR_HOVER_TRIGGER_WIDTH_PX,
 } from "../../lib/floating-sidebar";
+import { readThreadQueueFollowUpsEnabled, writeThreadQueueFollowUpsEnabled } from "@/lib/thread-composer-follow-up-mode";
 import {
-  readNextPanelPeekPx,
-  writeNextPanelPeekPx,
-} from "@/lib/stage-rail-peek";
-import {
+  CardStage,
+  CardIcon,
+  CommandPalette,
+  HistoryPanel,
+  invoke,
+  KANBAN_STATUS_LABELS,
+  LeftSidebar,
+  MainViewHost,
+  NEW_THREAD_STAGE_TAB_ID,
+  readCollaborationModeForContextKey,
   readComposerEnterBehavior,
-  writeComposerEnterBehavior,
-} from "@/lib/composer-enter-behavior";
-import {
-  readThreadQueueFollowUpsEnabled,
-  writeThreadQueueFollowUpsEnabled,
-} from "@/lib/thread-composer-follow-up-mode";
-import {
+  readNextPanelPeekPx,
+  readSmartPrefixParsingEnabled,
+  readStripSmartPrefixFromTitleEnabled,
+  readWorktreeAutoBranchPrefix,
   readWorktreeStartMode,
-  writeWorktreeStartMode,
-} from "@/lib/worktree-start-mode";
-import {
+  resolveExpandedStages,
+  resolveSlidingWindowFocusIntent,
+  ReviewDiffPanel,
+  SettingsOverlay,
+  SharedStatusIcon,
+  StageTabStrip,
   StageThreads,
+  STAGE_ORDER,
+  TerminalPanel,
+  useCodexAccountActions,
+  useCodexControl,
+  useCodexThreadFollowerClient,
+  useKanban,
   useLocalConversation,
   useThreadStageModel,
-  type ThreadStageActions,
-  type ThreadStageModelInput,
-} from "@/features/local-conversation";
-import { resolveThreadCardStatus } from "@/features/local-conversation/view/shared/thread-card-fetch";
-import {
-  readWorktreeAutoBranchPrefix,
+  writeCollaborationModeForContextKey,
+  writeComposerEnterBehavior,
+  writeNextPanelPeekPx,
+  writeSmartPrefixParsingEnabled,
+  writeStripSmartPrefixFromTitleEnabled,
   writeWorktreeAutoBranchPrefix,
-} from "@/lib/worktree-branch-prefix";
-import {
+  writeWorktreeStartMode,
   DEFAULT_CODEX_COLLABORATION_MODE,
   getDraftCollaborationModeStorageKey,
   getThreadCollaborationModeStorageKey,
-  readCollaborationModeForContextKey,
-  writeCollaborationModeForContextKey,
-} from "@/lib/codex-collaboration-mode-settings";
-import {
-  readSmartPrefixParsingEnabled,
-  readStripSmartPrefixFromTitleEnabled,
-  writeSmartPrefixParsingEnabled,
-  writeStripSmartPrefixFromTitleEnabled,
-} from "@/lib/smart-prefix-parsing";
+} from "./workbench-shell-deps";
+import { type ThreadStageActions, type ThreadStageModelInput } from "@/features/local-conversation";
+import { resolveThreadCardStatus } from "@/features/local-conversation/view/shared/thread-card-fetch";
 import type { StageRailLayoutMode } from "@/lib/stage-rail-layout-mode";
-import { useCodexAccountActions } from "@/lib/use-codex-account-actions";
-import { useCodexControl } from "@/lib/use-codex-control";
-import { useCodexThreadFollowerClient } from "@/lib/use-codex-thread-follower-client";
-import { useKanban } from "@/lib/use-kanban";
-import { KANBAN_STATUS_LABELS } from "@/lib/kanban-options";
-import { StatusIcon as SharedStatusIcon } from "@/lib/status-chip";
 import { cn } from "@/lib/utils";
 import { TOGGLE_LIST_STATUS_ORDER } from "../../lib/toggle-list/types";
 import {
@@ -111,12 +95,6 @@ import type {
   Project,
 } from "@/lib/types";
 import type { CardStageState } from "@/lib/use-card-stage";
-import {
-  NEW_THREAD_STAGE_TAB_ID,
-  resolveSlidingWindowFocusIntent,
-  resolveExpandedStages,
-  STAGE_ORDER,
-} from "@/lib/use-workbench-state";
 import type {
   CardsStageTab,
   FilesStageTab,

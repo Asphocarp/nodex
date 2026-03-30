@@ -6,7 +6,7 @@ describe("renderer api transport", () => {
     delete (globalThis as { window?: unknown }).window;
 
     try {
-      const { invoke } = await import("./api");
+      const { invoke } = await import(`./api?transport-test=${Date.now()}`);
       const invokeCalls: unknown[][] = [];
 
       Object.defineProperty(globalThis, "window", {

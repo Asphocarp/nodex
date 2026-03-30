@@ -4,7 +4,7 @@ import { CARD_STAGE_STORY_DEFAULT_PRESET } from "./card-stage-dev-story-data";
 
 describe("card stage dev story", () => {
   test("renders the Storybook scene shell", async () => {
-    mock.module("../card-stage", () => ({
+    mock.module("./card-stage-dev-story-deps", () => ({
       CardStage: () => <div>Mock CardStage Preview</div>,
     }));
 

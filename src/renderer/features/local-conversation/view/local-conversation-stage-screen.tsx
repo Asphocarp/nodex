@@ -1,7 +1,6 @@
 import { useState } from "react";
 import type { ThreadStageScreenProps } from "../thread-stage-types";
-import { LocalConversationFooter } from "./local-conversation-footer";
-import { ThreadStageHeader } from "./local-conversation-stage-header";
+import { LocalConversationFooter, ThreadStageHeader } from "./local-conversation-stage-screen-deps";
 import { LocalConversationThreadBody } from "./local-conversation-thread-body";
 
 export function LocalConversationStageScreen({ model, actions, initialUiState }: ThreadStageScreenProps) {

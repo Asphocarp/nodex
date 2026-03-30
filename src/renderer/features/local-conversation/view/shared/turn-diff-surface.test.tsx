@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../components/ui/tooltip";
+import { installAsyncRequestAnimationFrame, installWindowApi } from "../../../../test/browser-globals";
 import { render, settleAsyncRender } from "../../../../test/dom";
 import type { CodexTranscriptEntry } from "../../../../lib/types";
 import { TurnDiffSurface, turnDiffSurfaceTestHelpers } from "./turn-diff-surface";
@@ -74,15 +75,11 @@ function buildSpanHeavyTurnDiffEntry(): CodexTranscriptEntry {
 
 describe("TurnDiffSurface", () => {
   beforeEach(() => {
-    globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
-      callback(0);
-      return 1;
-    }) as typeof globalThis.requestAnimationFrame;
-
-    (window as { api?: unknown }).api = {
+    installAsyncRequestAnimationFrame();
+    installWindowApi({
       invoke: async () => true,
       on: () => () => { },
-    };
+    });
   });
 
   test("renders a Codex-style files-changed card with collapsed per-file rows", () => {

@@ -3,11 +3,8 @@ import { createElement } from "react";
 import { render } from "../../../test/dom";
 import type { ThreadStageScreenProps } from "../thread-stage-types";
 
-mock.module("./local-conversation-stage-header", () => ({
+mock.module("./local-conversation-stage-screen-deps", () => ({
   ThreadStageHeader: () => createElement("div", { "data-local-conversation-header": "true" }),
-}));
-
-mock.module("./local-conversation-footer", () => ({
   LocalConversationFooter: () => createElement("div", { "data-local-conversation-footer": "true" }),
 }));
 

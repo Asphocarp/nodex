@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { NodexButton, NodexSwitch } from "@/components/ui/button";
-import { invoke, subscribeAppUpdateStatus } from "../../lib/api";
 import type { AppUpdateSettings, AppUpdateStatus } from "../../lib/types";
+import { invoke, subscribeAppUpdateStatus } from "./app-update-settings-control-deps";
 
 function isAppUpdateSettings(value: unknown): value is AppUpdateSettings {
   return typeof value === "object"

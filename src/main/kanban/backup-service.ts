@@ -7,9 +7,7 @@ import type {
   RestoreBackupInput,
   RestoreBackupResult,
 } from "../../shared/types";
-import { dbNotifier } from "./db-notifier";
-import { getDatabasePath, getKanbanDir } from "./config";
-import { closeDatabase, getDb, listProjects } from "./db-service";
+import { closeDatabase, dbNotifier, getDatabasePath, getDb, getKanbanDir, listProjects } from "./backup-service-deps";
 import { getLogger } from "../logging/logger";
 
 const BACKUP_SCHEMA_VERSION = 1;

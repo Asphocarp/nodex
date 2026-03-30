@@ -3,13 +3,17 @@ import { Fragment, createElement, type ReactNode } from "react";
 import { render, textContent } from "../../../test/dom";
 import type { ThreadStageActions, ThreadStageModel } from "../thread-stage-types";
 
-mock.module("@/components/ui/tooltip", () => ({
-  NodexTooltipProvider: ({ children }: { children: ReactNode }) => createElement(Fragment, null, children),
-  NodexTooltip: ({ children }: { children: ReactNode }) => createElement(Fragment, null, children),
-}));
-
-mock.module("./shared/card-info-hover-card", () => ({
+mock.module("./local-conversation-stage-header-deps", () => ({
   CardInfoHoverCard: ({ children }: { children: ReactNode }) => createElement(Fragment, null, children),
+  invoke: async () => null,
+  AuthPopover: ({ account }: { account: ThreadStageModel["account"] }) => (
+    account !== null && account.account === null
+      ? createElement("div", null, "Sign in")
+      : null
+  ),
+  ConnectionBadge: ({ connection }: { connection: ThreadStageModel["connection"] }) =>
+    createElement("div", null, connection.status === "connected" ? "Connected" : connection.status),
+  renderConnectionAccountTooltipContent: () => null,
 }));
 
 function buildModel(overrides?: Partial<ThreadStageModel>): ThreadStageModel {
