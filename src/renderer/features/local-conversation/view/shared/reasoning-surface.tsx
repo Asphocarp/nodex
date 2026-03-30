@@ -4,7 +4,8 @@ import { ChevronRightIcon } from "@/components/shared/icons";
 import { cn } from "../../../../lib/utils";
 import type { CodexTranscriptEntry } from "../../../../lib/types";
 import { MarkdownRenderer } from "./markdown/markdown-renderer";
-import { CODEX_MEASURED_TRANSITION, useMeasuredElementHeight } from "./use-measured-element-height";
+import { CODEX_THREAD_ACCORDION_TRANSITION } from "./thread-motion";
+import { useMeasuredElementHeight } from "./use-measured-element-height";
 
 interface ReasoningSurfaceProps {
   item: Pick<CodexTranscriptEntry, "markdownText"> & { status?: CodexTranscriptEntry["status"] };
@@ -220,7 +221,7 @@ export function ReasoningSurface({
             height: shouldRenderBody ? elementHeightPx : 0,
             opacity: shouldRenderBody ? 1 : 0,
           }}
-          transition={CODEX_MEASURED_TRANSITION}
+          transition={CODEX_THREAD_ACCORDION_TRANSITION}
           className={cn(shouldRenderBody ? "overflow-visible" : "overflow-hidden")}
           data-thread-find-skip={shouldRenderBody ? undefined : true}
           style={{

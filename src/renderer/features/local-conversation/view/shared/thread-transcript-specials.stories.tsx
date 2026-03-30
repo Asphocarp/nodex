@@ -1,9 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { CodexConversationItem } from "@/lib/types";
 import { THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS } from "../thread-stage-story-fixtures";
 import { LOCAL_CONVERSATION_CONTENT_CLASS_NAME } from "./local-conversation-view-constants";
 import { AutomaticApprovalReviewSurface } from "./automatic-approval-review-surface";
+import { MarkdownRenderer } from "./markdown/markdown-renderer";
 import { MultiAgentActionSurface } from "./multi-agent-action-surface";
 import { ReasoningSurface } from "./reasoning-surface";
 import { TodoListSurface } from "./todo-list-surface";
@@ -47,6 +48,55 @@ function ElectronDarkThreadStorySurface({ children }: { children: ReactNode }) {
   return (
     <div data-codex-window-type="electron" className="dark electron-dark">
       <ConversationStorySurface>{children}</ConversationStorySurface>
+    </div>
+  );
+}
+
+function AutoOpenSurface({ children }: { children: ReactNode }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const toggle = containerRef.current?.querySelector<HTMLElement>('button[aria-expanded="false"]');
+    toggle?.click();
+  }, []);
+
+  return <div ref={containerRef}>{children}</div>;
+}
+
+const STREAMING_ASSISTANT_SEGMENTS =
+  (
+    "Investigating the Storybook regression while comparing the streaming transcript against the Codex Electron bundle, verifying tooltip sizing, dropdown chrome, shell command expansion, and per-word prose animation as new text arrives."
+      .match(/\S+\s*/g) ?? []
+  );
+
+function StreamingAssistantMarkdownPreview() {
+  const [visibleSegmentCount, setVisibleSegmentCount] = useState(1);
+  const isComplete = visibleSegmentCount >= STREAMING_ASSISTANT_SEGMENTS.length;
+  const content = STREAMING_ASSISTANT_SEGMENTS.slice(0, visibleSegmentCount).join("");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (isComplete) {
+        setVisibleSegmentCount(1);
+        return;
+      }
+
+      setVisibleSegmentCount((current) => Math.min(current + 1, STREAMING_ASSISTANT_SEGMENTS.length));
+    }, isComplete ? 1200 : 110);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [isComplete, visibleSegmentCount]);
+
+  return (
+    <div className="max-w-3xl rounded-2xl bg-token-main-surface-primary px-5 py-4 text-token-foreground">
+      <MarkdownRenderer
+        className="text-size-chat"
+        content={content}
+        parseIncompleteMarkdown={!isComplete}
+        animateStreamingText={!isComplete}
+      />
     </div>
   );
 }
@@ -105,6 +155,19 @@ export const ReasoningStreaming: Story = {
   ),
 };
 
+export const AssistantStreamingWordFade: Story = {
+  render: () => (
+    <StorySurface
+      title="Assistant Streaming Word Fade"
+      description="This harness appends one word segment at a time so the Streamdown word fade can be inspected in the current Storybook theme without forcing an electron-dark surface."
+    >
+      <ConversationStorySurface>
+        <StreamingAssistantMarkdownPreview />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
 export const ReasoningCompleted: Story = {
   render: () => (
     <StorySurface
@@ -118,6 +181,26 @@ export const ReasoningCompleted: Story = {
             status: "completed",
           }}
         />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const ReasoningCompletedExpanded: Story = {
+  render: () => (
+    <StorySurface
+      title="Reasoning Completed Expanded"
+      description="Completed reasoning should reopen with the same measured accordion motion contract used by Codex Electron."
+    >
+      <ConversationStorySurface>
+        <AutoOpenSurface>
+          <ReasoningSurface
+            item={{
+              markdownText: "**Investigating**\n\nChecking the failing story state.\n\n- comparing bundle behavior\n- checking transcript buckets",
+              status: "completed",
+            }}
+          />
+        </AutoOpenSurface>
       </ConversationStorySurface>
     </StorySurface>
   ),
@@ -166,6 +249,33 @@ export const TodoListCompleted: Story = {
             },
           }}
         />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const TodoListCollapsed: Story = {
+  render: () => (
+    <StorySurface
+      title="Todo List Collapsed"
+      description="Completed todo plans should collapse back to the same measured transcript accordion used by Codex Electron."
+    >
+      <ConversationStorySurface>
+        <AutoOpenSurface>
+          <TodoListSurface
+            item={{
+              markdownText: "",
+              status: "completed",
+              rawItem: {
+                plan: [
+                  { step: "Audit the bundle", status: "completed" },
+                  { step: "Port the todo shell", status: "completed" },
+                  { step: "Update stories and tests", status: "completed" },
+                ],
+              },
+            }}
+          />
+        </AutoOpenSurface>
       </ConversationStorySurface>
     </StorySurface>
   ),
@@ -294,6 +404,21 @@ export const MultiAgentActionCompleted: Story = {
     >
       <ConversationStorySurface>
         <MultiAgentActionSurface items={THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.multiAgentSettled} />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const MultiAgentActionCompletedExpanded: Story = {
+  render: () => (
+    <StorySurface
+      title="Multi-Agent Action Completed Expanded"
+      description="Completed multi-agent activity should reopen with the same measured accordion timing as other transcript-special surfaces."
+    >
+      <ConversationStorySurface>
+        <AutoOpenSurface>
+          <MultiAgentActionSurface items={THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.multiAgentSettled} />
+        </AutoOpenSurface>
       </ConversationStorySurface>
     </StorySurface>
   ),

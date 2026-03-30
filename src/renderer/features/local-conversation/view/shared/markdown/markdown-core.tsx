@@ -11,6 +11,7 @@ interface MarkdownCoreProps {
   content: string;
   parseIncompleteMarkdown?: boolean;
   preserveLineBreaks?: boolean;
+  animateStreamingText?: boolean;
 }
 
 function normalizeMarkdown(content: string): string {
@@ -26,8 +27,10 @@ export function MarkdownCore({
   content,
   parseIncompleteMarkdown = false,
   preserveLineBreaks = false,
+  animateStreamingText = false,
 }: MarkdownCoreProps) {
   const normalizedContent = useMemo(() => normalizeMarkdown(content), [content]);
+  const shouldAnimateStreamingText = animateStreamingText && parseIncompleteMarkdown;
 
   return (
     <Streamdown
@@ -37,6 +40,17 @@ export function MarkdownCore({
       mermaid={{ errorComponent: StreamdownMermaidError }}
       parseIncompleteMarkdown={parseIncompleteMarkdown}
       mode={parseIncompleteMarkdown ? "streaming" : "static"}
+      animated={
+        shouldAnimateStreamingText
+          ? {
+              animation: "fadeIn",
+              sep: "word",
+              duration: 200,
+              easing: "cubic-bezier(.37, .55, .86, .88)",
+            }
+          : undefined
+      }
+      isAnimating={shouldAnimateStreamingText}
       className="space-y-1"
       controls={{ table: false, code: true, mermaid: true }}
     >

@@ -7,7 +7,7 @@ import {
   CopyMessageActionButton,
   ThreadActionIconButton,
 } from "./thread-message-actions";
-import { CODEX_MEASURED_TRANSITION } from "./use-measured-element-height";
+import { CODEX_THREAD_ACCORDION_TRANSITION } from "./thread-motion";
 
 const COLLAPSED_PLAN_MAX_HEIGHT_PX = 320;
 
@@ -111,7 +111,7 @@ export function PlanMessage({
           className="relative overflow-hidden"
           initial={false}
           animate={{ height: expanded ? "auto" : COLLAPSED_PLAN_MAX_HEIGHT_PX }}
-          transition={CODEX_MEASURED_TRANSITION}
+          transition={CODEX_THREAD_ACCORDION_TRANSITION}
         >
           <div className="px-4 py-3">
             <MarkdownRenderer

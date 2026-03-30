@@ -10,7 +10,8 @@ import {
   type CodexMultiAgentActionStatus,
   type CodexMultiAgentAgentState,
 } from "../../../../../shared/codex-transcript-special-items";
-import { CODEX_MEASURED_TRANSITION, useMeasuredElementHeight } from "./use-measured-element-height";
+import { CODEX_THREAD_ACCORDION_TRANSITION } from "./thread-motion";
+import { useMeasuredElementHeight } from "./use-measured-element-height";
 
 function getHeaderLabel(action: CodexMultiAgentActionName, status: CodexMultiAgentActionStatus): string {
   if (action === "spawnAgent") {
@@ -201,7 +202,7 @@ export function MultiAgentActionSurface({
             height: isOpen ? elementHeightPx : 0,
             opacity: isOpen ? 1 : 0,
           }}
-          transition={CODEX_MEASURED_TRANSITION}
+          transition={CODEX_THREAD_ACCORDION_TRANSITION}
           className={cn(isOpen ? "overflow-visible" : "overflow-hidden")}
           style={{
             pointerEvents: isOpen ? "auto" : "none",

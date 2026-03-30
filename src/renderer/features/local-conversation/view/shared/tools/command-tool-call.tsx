@@ -6,7 +6,8 @@ import { getDisplayCommand } from "../../../../../lib/command-display";
 import { resolveCodexThreadDetailLevel } from "../../../../../lib/codex-thread-settings";
 import { useCodexThreadSettings } from "../../../../../lib/use-codex-thread-settings";
 import { cn } from "../../../../../lib/utils";
-import { CODEX_MEASURED_TRANSITION, useMeasuredElementHeight } from "../use-measured-element-height";
+import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
+import { useMeasuredElementHeight } from "../use-measured-element-height";
 import { extractCommandActions, isExplorationAction } from "./command-actions";
 import { ToolErrorDetail } from "./tool-primitives";
 import { ThreadCommandShellBlock } from "./thread-command-shell-block";
@@ -408,7 +409,7 @@ export function CommandToolCall({
               height: Math.max(measuredHeight, 0),
               opacity: isMeasuredOpen ? 1 : 0,
             }}
-            transition={CODEX_MEASURED_TRANSITION}
+            transition={CODEX_THREAD_ACCORDION_TRANSITION}
             style={{
               overflow: isExpanded ? "visible" : "hidden",
               pointerEvents: isMeasuredOpen ? "auto" : "none",

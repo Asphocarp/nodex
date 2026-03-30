@@ -4,6 +4,7 @@ import { CheckmarkIcon, ChevronDownIcon } from "../../../../../components/shared
 import { NodexTooltip } from "../../../../../components/ui/tooltip";
 import { writeTextToClipboard } from "../../../../../lib/clipboard";
 import { cn } from "../../../../../lib/utils";
+import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
 import { CopyMessageActionButton, CopyMessageIcon } from "../thread-message-actions";
 
 export type ThreadCommandShellVariant = "embedded" | "default";
@@ -359,7 +360,7 @@ export function ThreadCommandShellBlock({
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.18, ease: "easeOut" }}
+            transition={CODEX_THREAD_ACCORDION_TRANSITION}
             className="relative overflow-hidden"
           >
             {shellBody}

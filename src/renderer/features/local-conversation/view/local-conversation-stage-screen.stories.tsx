@@ -84,6 +84,14 @@ export const CompletedCollapsed: Story = {
   },
 };
 
+export const CompletedExpanded: Story = {
+  args: {
+    preset: "completed-collapsed",
+    isQueueingEnabled: false,
+    collapseAgentBody: false,
+  },
+};
+
 export const ApprovalLane: Story = {
   args: {
     preset: "approval-lane",

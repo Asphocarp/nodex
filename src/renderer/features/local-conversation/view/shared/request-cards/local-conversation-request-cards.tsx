@@ -22,7 +22,8 @@ import {
 import { cn } from "../../../../../lib/utils";
 import type { CodexPlanImplementationRequest, CodexTranscriptEntry, CodexUserInputRequest } from "../../../../../lib/types";
 import { resolvePromptTextareaSize } from "../prompt-textarea-size";
-import { CODEX_MEASURED_TRANSITION, useMeasuredElementHeight } from "../use-measured-element-height";
+import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
+import { useMeasuredElementHeight } from "../use-measured-element-height";
 import {
   buildUserInputAnswers,
   createInitialUserInputComposerState,
@@ -133,7 +134,7 @@ export function UserInputTranscriptView({
             height: canExpand && expanded ? elementHeightPx : 0,
             opacity: canExpand && expanded ? 1 : 0,
           }}
-          transition={CODEX_MEASURED_TRANSITION}
+          transition={CODEX_THREAD_ACCORDION_TRANSITION}
           className={cn(canExpand && expanded ? "overflow-visible" : "overflow-hidden")}
           data-thread-find-skip={canExpand && expanded ? undefined : true}
           style={{

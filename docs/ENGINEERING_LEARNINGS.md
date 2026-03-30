@@ -4,6 +4,9 @@ Status: Verified
 
 This file captures high-signal implementation discoveries that have caused regressions or costly debugging in the past.
 
+### Codex Electron thread motion is a shared measured accordion contract, not generic transcript slide-ins
+The readable Codex Electron bundle reuses one shared thread/transcript accordion transition across command shells, MCP tool calls, todo lists, exploration groups, collapsed turn bodies, and worked-for dividers: `duration: 0.45` with `ease: [0.4, 0, 0.1, 1]`. The main thread-body surfaces animate `height + opacity` with `overflow: hidden` while collapsed, and `AnimatePresence initial={false}` only where the whole block mounts/unmounts. Regressions came from treating the effect as "messages slide in" and scattering local `0.18` / `easeOut` transitions through transcript and composer surfaces. Keep motion policy in a dedicated shared thread-motion module, keep measurement separate from motion, and do not introduce generic y-translate transcript animations that Codex Electron does not use.
+
 ### Codex-style zod usage belongs at boundaries, not inside internal renderer state machines
 Codex Electron's zod usage shows up at external boundaries such as imported settings blobs and other serialized inputs, not as a second validation layer inside already-normalized React state. In Nodex, the stable pattern is the same: parse persisted storage, selected HTTP payloads, Codex session replay JSONL lines, transcript special-item payloads, and other raw JSON families through `src/shared/schemas/*` or a feature-local schema adapter, then hand plain normalized values to reducers, projectors, and view models. Regressions came from the opposite extremes: ad hoc `JSON.parse(... as unknown)` plus hand-written field checks at every boundary, or the temptation to re-parse already-normalized view state deep inside renderer components.
 
