@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+## [0.1.8] - 2026-03-30
+
+### Added
 - Added full-feature Codex thread.
 - Added command-palette card filters with persistent status, priority, tag, assignee, and project rules.
 - Added a `Local environments` settings page for browsing and editing workspace `.codex/environments/*.toml` files in-app.
@@ -297,3 +305,4 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - Fixed SSE controller shutdown handling, optimistic card updates, toggle drag/drop stability, editor newline and empty-line persistence, inline creator dropdowns, tag and estimate edge cases, and a long run of early UI fit-and-finish issues.
+
