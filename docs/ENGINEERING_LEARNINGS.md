@@ -92,6 +92,50 @@ On March 16, 2026, Nodex's packaged app had grown to roughly 800 MB installed be
 ### Bun test file order makes `mock.module()` leaks a cross-file hazard for shared renderer modules
 Under Bun's sequential test runner, `mock.module()` replacements can bleed into later files because `mock.restore()` does not revert module mocks. In Nodex, an old workbench thread dev-story test mocked `./tools/file-change-tool-call`, and a later `ThreadItemRenderer` test silently rendered that stub on Ubuntu, dropping the expected filename label. Avoid `mock.module()` for shared renderer modules that later tests import; prefer rendering the real component with representative mock data, and keep root `tsconfig.json` path aliases available so isolated renderer tests do not depend on unrelated earlier mocks just to resolve `@/...` imports.
 
+### GitHub-only Bun flakes on macOS need exact-SHA `act` reproduction plus full-suite order perturbation
+For renderer flakes that only fail on GitHub cloud, a green local `bun test`, a green local `act` run on `HEAD`, or even a green `act` run of the exact workflow does not clear the issue. In Nodex, the March 30, 2026 Ubuntu release-workflow failures only reproduced locally after all of the following matched the cloud run together:
+
+- use the exact failing commit SHA in a detached worktree, not the current branch tip
+- use the repo's `.actrc` runner mapping: `linux/amd64` plus `ghcr.io/catthehacker/ubuntu:act-24.04`
+- on Apple Silicon, explicitly pass `--container-architecture linux/amd64`
+- run the exact workflow/job first so the container has the same installed dependency tree and checkout shape
+- rerun the full suite inside that exact `act` job container with `bun test --randomize --seed <n>`
+
+The successful local reproduction ladder was:
+
+```bash
+git worktree add --detach .repro-<sha> <full-sha>
+
+act workflow_dispatch \
+  -C /abs/path/to/.repro-<sha> \
+  -W .github/workflows/prepare-release.yml \
+  -j prepare \
+  --input release_type=patch \
+  --container-architecture linux/amd64 \
+  -P ubuntu-latest=ghcr.io/catthehacker/ubuntu:act-24.04 \
+  -P ubuntu-24.04=ghcr.io/catthehacker/ubuntu:act-24.04
+
+docker exec <act-container-id> bash -lc '
+  cd /abs/path/to/.repro-<sha>
+  export PATH=/root/.bun/bin:$PATH
+  bun test --randomize --seed 1
+'
+```
+
+On the exact failing SHA `696736bbfd0777a10afe20ae543c26b02eb51191`, that randomized rerun inside the `act` container reproduced the same GitHub-cloud failures:
+
+- `StageRail > sliding-window mode renders requested visible panes`
+- `StageRail > sliding-window mode supports single-pane layout`
+- `StageRail > sliding-window mode degrades gracefully when ResizeObserver is unavailable`
+- `shared input > renders the thin Nodex form-input contract`
+
+The important lesson is that default `act` execution can stay green while the cloud flake is still real. The difference is usually execution order and shared renderer global state, not just package versions. Treat GitHub-only Bun flake reproduction as a strict ladder:
+
+1. Read the exact GitHub run metadata first: `head_sha`, runner label, and runner image version.
+2. Re-run the exact workflow locally with `.actrc` and no `--bind`.
+3. If that still passes, rerun the full suite inside the resulting `act` job container with `--randomize --seed ...`.
+4. If more fidelity is needed than `act-24.04`, move up to `catthehacker/ubuntu:full-24.04` or a real Ubuntu 24.04 x86_64 VM, because GitHub-hosted runners are fresh VMs and `act` is still a Docker approximation.
+
 ### Renderer transport detection must be runtime-based, not cached at module import
 `src/renderer/lib/api.ts` is shared by tests that may import it before `window.api` exists, then install the Electron bridge later. Caching `const isElectron = typeof window !== "undefined" && !!window.api` at module load makes later callers fall back to the browser HTTP path forever, which surfaced in release CI as `Unknown IPC channel: app:flush-before-close:done`. Keep Electron-vs-browser detection inside each exported function call, and for component tests prefer mocking a local adapter module (for example `workbench-api.ts`) instead of mocking the shared renderer transport directly.
 
