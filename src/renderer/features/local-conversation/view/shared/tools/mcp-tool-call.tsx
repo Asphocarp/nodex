@@ -10,7 +10,8 @@ import {
 import { NodexTooltip } from "../../../../../components/ui/tooltip";
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
 import { cn } from "../../../../../lib/utils";
-import { CODEX_MEASURED_TRANSITION, useMeasuredElementHeight } from "../use-measured-element-height";
+import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
+import { useMeasuredElementHeight } from "../use-measured-element-height";
 import { CopyMessageActionButton } from "../thread-message-actions";
 import { ToolErrorDetail } from "./tool-primitives";
 import {
@@ -565,7 +566,7 @@ export function McpToolCall({
             height: isExpanded ? elementHeightPx : 0,
             opacity: isExpanded ? 1 : 0,
           }}
-          transition={CODEX_MEASURED_TRANSITION}
+          transition={CODEX_THREAD_ACCORDION_TRANSITION}
           className={cn(isExpanded ? "overflow-visible" : "overflow-hidden")}
           data-thread-find-skip={isExpanded ? undefined : true}
           style={{

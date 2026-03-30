@@ -28,7 +28,12 @@ import { TodoListSurface } from "../shared/todo-list-surface";
 import { getToolComponent } from "../shared/tools/get-tool-component";
 import { JsonBlock } from "../shared/tools/tool-primitives";
 import { extractCommandActions } from "../shared/tools/command-actions";
-import { CODEX_MEASURED_TRANSITION, useMeasuredElementHeight } from "../shared/use-measured-element-height";
+import {
+  CODEX_THREAD_ACCORDION_TRANSITION,
+  CODEX_THREAD_DIVIDER_ENTER_ANIMATE,
+  CODEX_THREAD_DIVIDER_ENTER_INITIAL,
+} from "../shared/thread-motion";
+import { useMeasuredElementHeight } from "../shared/use-measured-element-height";
 import { AnsweredUserInputBlock } from "../composer/request-cards/answered-user-input-block";
 import type { CodexCommandAction } from "../../../../lib/types";
 import type { CodexConversationItem } from "../../../../lib/types";
@@ -368,7 +373,7 @@ function ThreadExplorationAccordion({ entries, status }: { entries: CodexConvers
                 height: measuredHeightPx,
                 opacity: isExpanded ? 1 : 0,
               }}
-              transition={CODEX_MEASURED_TRANSITION}
+              transition={CODEX_THREAD_ACCORDION_TRANSITION}
               className={cn(isExpanded ? "overflow-visible" : "overflow-hidden")}
               style={{
                 pointerEvents: isExpanded ? "auto" : "none",
@@ -721,11 +726,18 @@ export function ThreadWorkedForBlock({ block }: ThreadLeafBlockProps) {
   if (!timeLabel) return null;
 
   return (
-    <div className="flex items-center gap-2 overflow-hidden text-size-chat text-token-text-secondary">
-      <div className="flex-1 border-t border-current/20" />
-      <span>Worked for {timeLabel}</span>
-      <div className="flex-1 border-t border-current/20" />
-    </div>
+    <motion.div
+      initial={CODEX_THREAD_DIVIDER_ENTER_INITIAL}
+      animate={CODEX_THREAD_DIVIDER_ENTER_ANIMATE}
+      transition={CODEX_THREAD_ACCORDION_TRANSITION}
+      style={{ overflow: "hidden" }}
+    >
+      <div className="flex items-center gap-2 overflow-hidden text-size-chat text-token-text-secondary">
+        <div className="flex-1 border-t border-current/20" />
+        <span>Worked for {timeLabel}</span>
+        <div className="flex-1 border-t border-current/20" />
+      </div>
+    </motion.div>
   );
 }
 
@@ -737,6 +749,7 @@ export function ThreadAssistantBodyBlock({
   isActiveSearchMatch = false,
 }: ThreadLeafBlockProps) {
   const markdownText = block.entry.markdownText ?? "";
+  const isStreamingAssistantText = isStreamingTurn && (block.entry.status === "inProgress" || isLatestTurn);
 
   return (
     <div
@@ -750,7 +763,8 @@ export function ThreadAssistantBodyBlock({
         <div className={THREAD_VISUAL_TOKENS.assistantBody}>
           <MarkdownRenderer
             content={markdownText}
-            parseIncompleteMarkdown={isStreamingTurn && (block.entry.status === "inProgress" || isLatestTurn)}
+            parseIncompleteMarkdown={isStreamingAssistantText}
+            animateStreamingText={isStreamingAssistantText}
           />
         </div>
         {block.showAssistantMessageActions ? (
@@ -860,7 +874,7 @@ export function ThreadStreamErrorBlock({ block }: ThreadLeafBlockProps) {
           height: isOpen ? elementHeightPx : 0,
           opacity: isOpen ? 1 : 0,
         }}
-        transition={CODEX_MEASURED_TRANSITION}
+        transition={CODEX_THREAD_ACCORDION_TRANSITION}
         className={isOpen ? "overflow-visible" : "overflow-hidden"}
         style={{ pointerEvents: isOpen ? "auto" : "none" }}
       >

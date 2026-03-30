@@ -6,6 +6,7 @@ interface MarkdownRendererProps {
   className?: string;
   parseIncompleteMarkdown?: boolean;
   preserveLineBreaks?: boolean;
+  animateStreamingText?: boolean;
 }
 
 export function MarkdownRenderer({
@@ -13,6 +14,7 @@ export function MarkdownRenderer({
   className,
   parseIncompleteMarkdown,
   preserveLineBreaks,
+  animateStreamingText,
 }: MarkdownRendererProps) {
   return (
     <div className={cn("codex-markdown", className)}>
@@ -20,6 +22,7 @@ export function MarkdownRenderer({
         content={content}
         parseIncompleteMarkdown={parseIncompleteMarkdown}
         preserveLineBreaks={preserveLineBreaks}
+        animateStreamingText={animateStreamingText}
       />
     </div>
   );

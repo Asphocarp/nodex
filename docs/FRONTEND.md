@@ -73,6 +73,13 @@
 - Mirror Codex Electron's transcript animation split:
   - for Codex-native expandable transcript surfaces, reuse a shared measured-height hook and let each subtype own its own `motion.div` / `AnimatePresence` wrapper and state machine
   - keep transcript expand/collapse subtype-owned; reuse the measured-height hook, but let each Codex-parity surface own its own Motion wrapper and state machine
+- Keep Codex Electron's transcript timing exact:
+  - thread-body, transcript-special, and tool-call accordion surfaces should share one exported motion contract (`duration: 0.45`, `ease: [0.4, 0, 0.1, 1]`)
+  - do not reintroduce local `0.18` / `easeOut` expand-collapse timings on command shells, composer lanes, or transcript accordions
+  - do not invent a generic y-axis slide-in for transcript rows; Codex Electron's main thread motion language is measured `height + opacity`, not row translation
+- Keep streaming assistant prose animation scoped:
+  - when assistant message markdown is still streaming, use Streamdown's built-in animated word fade (`animated` with `sep: "word"`) to approximate Codex Electron's per-word prose fade
+  - do not enable that animation for completed prose, user messages, or unrelated markdown surfaces unless a Codex parity investigation shows the same behavior there
 - Treat utilities as part of the design contract:
   - if a class exists as an exact shipped Codex selector, keep it in the generated utility layer
   - if a class is renderer-local and not recoverable from the shipped Codex CSS, keep it in `theme-utilities.css`

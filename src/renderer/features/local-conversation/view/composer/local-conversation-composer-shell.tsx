@@ -33,7 +33,7 @@ import type {
 } from "../../thread-stage-types";
 import { ThreadComposer } from "./local-conversation-thread-composer";
 import { CodexPendingRequestCard } from "./request-cards/codex-pending-request-card";
-import { CODEX_MEASURED_TRANSITION } from "../shared/use-measured-element-height";
+import { CODEX_THREAD_ACCORDION_TRANSITION } from "../shared/thread-motion";
 import {
   LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ID,
 } from "../local-conversation-above-composer-portal";
@@ -332,7 +332,7 @@ function QueuedFollowUpRow({
       initial={{ height: 0, opacity: 0 }}
       animate={{ height: "auto", opacity: 1 }}
       exit={{ height: 0, opacity: 0 }}
-      transition={{ duration: 0.18 }}
+      transition={CODEX_THREAD_ACCORDION_TRANSITION}
       className="overflow-visible"
     >
       <div className={cn("group flex min-w-0 items-center justify-between gap-2 py-0.5 text-sm", (isDragging) && "opacity-60")}>
@@ -583,7 +583,7 @@ function BackgroundTerminalPanel({
           height: expanded ? "auto" : 0,
           opacity: expanded ? 1 : 0,
         }}
-        transition={CODEX_MEASURED_TRANSITION}
+        transition={CODEX_THREAD_ACCORDION_TRANSITION}
         className={expanded ? "overflow-visible" : "overflow-hidden"}
         style={{
           pointerEvents: expanded ? "auto" : "none",
@@ -657,7 +657,7 @@ function BackgroundAgentPanel({
           height: expanded ? "auto" : 0,
           opacity: expanded ? 1 : 0,
         }}
-        transition={CODEX_MEASURED_TRANSITION}
+        transition={CODEX_THREAD_ACCORDION_TRANSITION}
         className={expanded ? "overflow-visible" : "overflow-hidden"}
         style={{
           pointerEvents: expanded ? "auto" : "none",

@@ -3,7 +3,12 @@ import { Fragment, type ReactNode } from "react";
 import { ChevronDownIcon } from "@/components/shared/icons";
 import { cn } from "../../../lib/utils";
 import type { ThreadAgentEntryModel, ThreadTurnModel } from "../thread-stage-types";
-import { CODEX_MEASURED_TRANSITION } from "./shared/use-measured-element-height";
+import {
+  CODEX_THREAD_ACCORDION_TRANSITION,
+  CODEX_THREAD_DIVIDER_ENTER_ANIMATE,
+  CODEX_THREAD_DIVIDER_ENTER_INITIAL,
+  CODEX_THREAD_DIVIDER_EXIT,
+} from "./shared/thread-motion";
 import { ThreadBlockRenderer } from "./blocks/local-conversation-block-renderer";
 
 interface ThreadTurnProps {
@@ -164,10 +169,10 @@ export function ThreadTurn({
                 {effectiveAgentBodyCollapsed ? null : (
                   <motion.div
                     key="agent-body"
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    transition={CODEX_MEASURED_TRANSITION}
+                    initial={CODEX_THREAD_DIVIDER_ENTER_INITIAL}
+                    animate={CODEX_THREAD_DIVIDER_ENTER_ANIMATE}
+                    exit={CODEX_THREAD_DIVIDER_EXIT}
+                    transition={CODEX_THREAD_ACCORDION_TRANSITION}
                     style={{ overflow: "hidden" }}
                   >
                     {shouldAllowAgentBodyCollapse ? <ThreadGap /> : null}

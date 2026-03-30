@@ -1,10 +1,4 @@
 import { useCallback, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
-import type { Transition } from "motion/react";
-
-export const CODEX_MEASURED_TRANSITION: Transition = {
-  duration: 0.18,
-  ease: [0.2, 0, 0, 1],
-};
 
 export function useMeasuredElementHeight() {
   const [element, setElement] = useState<HTMLDivElement | null>(null);
