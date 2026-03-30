@@ -14,11 +14,23 @@ export interface ThreadSectionLinkedThreadState {
   updatedAt: number;
 }
 
+export interface ThreadSectionOwnerCardContext {
+  projectId: string;
+  cardId: string;
+}
+
+export interface ThreadSectionResolvedScope {
+  ownerCardContext: ThreadSectionOwnerCardContext | null;
+  threads: Record<string, ThreadSectionLinkedThreadState>;
+}
+
 export interface ThreadSectionRuntimeValue {
   threads: Record<string, ThreadSectionLinkedThreadState>;
   pendingBlockIds: Set<string>;
   openThread?: (threadId: string) => void;
   send?: (blockId: string) => void;
+  resolveScope?: (blockId: string) => ThreadSectionResolvedScope;
+  ensureScopeLoaded?: (blockId: string) => void;
 }
 
 const EMPTY_PENDING_BLOCK_IDS = new Set<string>();

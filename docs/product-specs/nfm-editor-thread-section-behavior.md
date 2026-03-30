@@ -197,6 +197,7 @@ Each section may optionally be bound to one Codex thread via the `thread` attrib
 
 If the section has no bound thread, clicking `Send` or pressing `Cmd/Ctrl+Enter` while inside that section:
 - starts a new card-linked thread
+- if the section lives inside a projected `cardToggle` row from `cardRef` or `toggleListInlineView`, the new thread is linked to that projected source card rather than the current host document card
 - uses the section prompt body as the initial prompt
 - writes the returned thread id into the section marker's `thread` attribute
 - keeps focus in the editor
@@ -220,6 +221,8 @@ Rebinding to an arbitrary existing thread is out of scope for v1.
 ## Inline Status States
 
 The section row resolves live state by matching its stored `thread` id against the card’s linked Codex threads.
+
+For projected `cardToggle` rows rendered from `cardRef` or `toggleListInlineView`, that lookup is scoped to the projected source card, not the host document card.
 
 Current states:
 - `Not sent`: no bound thread id

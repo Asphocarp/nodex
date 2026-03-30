@@ -1,5 +1,6 @@
 import { defaultProps } from "@blocknote/core";
 import { createReactBlockSpec } from "@blocknote/react";
+import { useEffect } from "react";
 import { useThreadSectionRuntime } from "./thread-section-runtime";
 import { ThreadSectionRow } from "./thread-section-row";
 
@@ -16,11 +17,17 @@ export const createThreadSectionBlockSpec = createReactBlockSpec(
   {
     render: ({ block, editor }) => {
       const runtime = useThreadSectionRuntime();
+      const scope = runtime.resolveScope?.(block.id) ?? null;
       const threadId = typeof block.props.threadId === "string" ? block.props.threadId.trim() : "";
-      const thread = runtime.threads[threadId] ?? null;
+      const thread = scope?.threads[threadId] ?? runtime.threads[threadId] ?? null;
       const pending = runtime.pendingBlockIds.has(block.id);
+      const canSendFromScope = scope ? scope.ownerCardContext !== null : true;
       const canOpenThread = Boolean(threadId && thread && !thread.archived && runtime.openThread);
-      const canSend = Boolean(runtime.send);
+      const canSend = Boolean(runtime.send) && canSendFromScope;
+
+      useEffect(() => {
+        runtime.ensureScopeLoaded?.(block.id);
+      }, [block.id, runtime]);
 
       return (
         <ThreadSectionRow

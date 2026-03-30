@@ -43,6 +43,11 @@ export interface ProjectedCardPatch {
   targetStatus?: ToggleListStatusId;
 }
 
+export interface ProjectedCardOwnerContext {
+  projectId: string;
+  cardId: string;
+}
+
 type ProjectedCardComparable = Pick<
 ToggleListCard,
   "title" | "description" | "priority" | "estimate" | "tags" | "columnId"
@@ -501,6 +506,36 @@ export function hasRecursiveInlineProjectAncestor(
   }
 
   return false;
+}
+
+export function resolveProjectedCardOwnerContext(
+  editor: {
+    getBlock: (id: string) => unknown;
+    getParentBlock: (id: string) => unknown;
+  },
+  blockId: string,
+): ProjectedCardOwnerContext | null {
+  let current = editor.getBlock(blockId);
+
+  while (isRecord(current) && typeof current.id === "string") {
+    if (current.type === "cardToggle") {
+      const props = isRecord(current.props)
+        ? current.props
+        : undefined;
+      const projectId = toStringProp(props, PROJECTION_SOURCE_PROJECT_PROP)
+        || toStringProp(props, "sourceProjectId");
+      const cardId = toStringProp(props, PROJECTION_CARD_ID_PROP)
+        || toStringProp(props, "cardId");
+
+      if (projectId && cardId) {
+        return { projectId, cardId };
+      }
+    }
+
+    current = editor.getParentBlock(current.id);
+  }
+
+  return null;
 }
 
 export function serializeProjectionRows(rows: unknown[]): string {

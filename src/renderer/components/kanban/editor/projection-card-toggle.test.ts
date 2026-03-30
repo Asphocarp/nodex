@@ -15,6 +15,7 @@ import {
   hasRecursiveInlineProjectAncestor,
   isProjectedCardToggleBlock,
   makeProjectedCardToggleBlockId,
+  resolveProjectedCardOwnerContext,
   serializeProjectionRows,
   splitEmbedChildren,
   stripProjectedSubtrees,
@@ -358,5 +359,48 @@ describe("projection card toggle helpers", () => {
     };
 
     expect(hasRecursiveInlineProjectAncestor(editor, "leaf", "default")).toBeTrue();
+  });
+
+  test("resolveProjectedCardOwnerContext returns the nearest projected card ancestor", () => {
+    const projected = buildProjectedCardToggleBlock({
+      ownerBlockId: "embed-1",
+      projectionKind: "cardRef",
+      sourceProjectId: "project-b",
+      card: makeCard({ id: "card-b" }),
+      propertyOrder: ["priority", "estimate", "status", "tags"],
+      hiddenProperties: [],
+    }) as {
+      id?: string;
+      children?: Array<{ id?: string; type?: string; children?: unknown[] }>;
+    };
+
+    projected.children = [
+      {
+        id: "projected-child",
+        type: "paragraph",
+        children: [{ id: "nested-descendant", type: "paragraph" }],
+      },
+    ];
+
+    const blocksById = new Map<string, unknown>([
+      [projected.id ?? "", projected],
+      ["projected-child", projected.children[0]],
+      ["nested-descendant", (projected.children[0] as { children?: unknown[] }).children?.[0]],
+    ]);
+    const parentById = new Map<string, unknown>([
+      ["projected-child", projected],
+      ["nested-descendant", projected.children[0]],
+    ]);
+
+    const owner = resolveProjectedCardOwnerContext(
+      {
+        getBlock: (id: string) => blocksById.get(id),
+        getParentBlock: (id: string) => parentById.get(id),
+      },
+      "nested-descendant",
+    );
+
+    expect(owner?.projectId).toBe("project-b");
+    expect(owner?.cardId).toBe("card-b");
   });
 });

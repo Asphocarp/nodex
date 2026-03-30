@@ -112,6 +112,7 @@ import {
 import {
   isProjectedCardToggleBlock,
   isProjectionMutationActive,
+  resolveProjectedCardOwnerContext,
   splitEmbedChildren,
   stripProjectedSubtrees,
 } from "./projection-card-toggle";
@@ -145,6 +146,7 @@ import type { MetaChipPropertyType } from "@/lib/toggle-list/meta-chips";
 import type {
   BlockDropImportSourceUpdate,
   Board,
+  CodexThreadSummary,
 } from "@/lib/types";
 import {
   materializeLocalResourceAsset,
@@ -157,6 +159,7 @@ import { useThreadSectionSendSettings } from "@/lib/use-thread-section-send-sett
 import { useTheme } from "@/lib/use-theme";
 import { usePasteResourceSettings } from "@/lib/use-paste-resource-settings";
 import { cn } from "@/lib/utils";
+import { useProjectThreadSummaries } from "@/features/local-conversation/local-conversation-store";
 
 interface ActiveChipEdit {
   propertyType: Exclude<MetaChipPropertyType, "tag">;
@@ -247,6 +250,15 @@ interface PreparedThreadSectionSendDialogState extends ThreadSectionSendDialogSt
   threadId: string;
   canReuseThread: boolean;
   createMarkerBeforeBlockId: string | null;
+  ownerCardContext: {
+    projectId: string;
+    cardId: string;
+  } | null;
+}
+
+interface ThreadSectionOwnerCardContext {
+  projectId: string;
+  cardId: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -269,6 +281,43 @@ function toStringProp(
 function toStatusId(value: string): ToggleListStatusId | undefined {
   if (!TOGGLE_LIST_STATUS_ORDER.includes(value as ToggleListStatusId)) return undefined;
   return value as ToggleListStatusId;
+}
+
+function toThreadSectionLinkedThreadState(
+  thread: CardStageLinkedThread,
+): ThreadSectionLinkedThreadState {
+  return {
+    threadId: thread.threadId,
+    threadName: thread.title,
+    threadPreview: thread.preview ?? "",
+    statusType: thread.statusType,
+    statusActiveFlags: thread.statusActiveFlags,
+    archived: thread.archived,
+    updatedAt: thread.updatedAt,
+  };
+}
+
+function toThreadSectionLinkedThreadStateFromSummary(
+  thread: CodexThreadSummary,
+): ThreadSectionLinkedThreadState {
+  return {
+    threadId: thread.threadId,
+    threadName: thread.threadName ?? "",
+    threadPreview: thread.threadPreview,
+    statusType: thread.statusType,
+    statusActiveFlags: thread.statusActiveFlags,
+    archived: thread.archived,
+    updatedAt: thread.updatedAt,
+  };
+}
+
+function buildThreadSectionThreadMap(
+  threads: ThreadSectionLinkedThreadState[],
+): Record<string, ThreadSectionLinkedThreadState> {
+  return threads.reduce<Record<string, ThreadSectionLinkedThreadState>>((acc, thread) => {
+    acc[thread.threadId] = thread;
+    return acc;
+  }, {});
 }
 
 function resolveInlineViewOwnerBlock(
@@ -395,6 +444,7 @@ export function NfmEditor({
   const { spellcheck } = useSpellcheck();
   const { settings: pasteResourceSettings } = usePasteResourceSettings();
   const { settings: threadSectionSendSettings, updateSettings: updateThreadSectionSendSettings } = useThreadSectionSendSettings();
+  const projectThreadSummaries = useProjectThreadSummaries(projectId);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [replaceOpen, setReplaceOpen] = useState(false);
@@ -410,6 +460,13 @@ export function NfmEditor({
   const [imagePreview, setImagePreview] = useState<{ source: string; alt: string } | null>(null);
   const [threadSectionPendingBlockIds, setThreadSectionPendingBlockIds] = useState<Set<string>>(() => new Set());
   const [threadSectionHint, setThreadSectionHint] = useState<ThreadSectionHintState | null>(null);
+  const [threadSectionThreadsByOwnerKey, setThreadSectionThreadsByOwnerKey] = useState<
+    Record<string, Record<string, ThreadSectionLinkedThreadState>>
+  >({});
+  const threadSectionLoadingOwnerKeysRef = useRef<Set<string>>(new Set());
+  const threadSectionLoadingOwnerPromisesRef = useRef<
+    Map<string, Promise<Record<string, ThreadSectionLinkedThreadState>>>
+  >(new Map());
   const searchInputRef = useRef<HTMLInputElement>(null);
   const suppressExternalDropRef = useRef(false);
   const suppressExternalContentSyncRef = useRef(false);
@@ -446,20 +503,20 @@ export function NfmEditor({
     };
   }, []);
 
-  const threadSectionThreadMap = useMemo<Record<string, ThreadSectionLinkedThreadState>>(
-    () => linkedCodexThreads.reduce<Record<string, ThreadSectionLinkedThreadState>>((acc, thread) => {
-      acc[thread.threadId] = {
-        threadId: thread.threadId,
-        threadName: thread.title,
-        threadPreview: thread.preview ?? "",
-        statusType: thread.statusType,
-        statusActiveFlags: thread.statusActiveFlags,
-        archived: thread.archived,
-        updatedAt: thread.updatedAt,
-      };
-      return acc;
-    }, {}),
+  const threadSectionThreadMap = useMemo(
+    () => buildThreadSectionThreadMap(
+      linkedCodexThreads.map(toThreadSectionLinkedThreadState),
+    ),
     [linkedCodexThreads],
+  );
+
+  const hostThreadSummaryMap = useMemo(
+    () => buildThreadSectionThreadMap(
+      projectThreadSummaries
+        .filter((thread) => thread.cardId === sourceCardContext?.cardId)
+        .map(toThreadSectionLinkedThreadStateFromSummary),
+    ),
+    [projectThreadSummaries, sourceCardContext?.cardId],
   );
 
   const uploadFile = useCallback(
@@ -520,6 +577,107 @@ export function NfmEditor({
     },
     [projectId],
   );
+
+  const resolveThreadSectionOwnerCardContext = useCallback((
+    blockId: string,
+  ): ThreadSectionOwnerCardContext | null => {
+    if (!editor) {
+      return sourceCardContext
+        ? { projectId, cardId: sourceCardContext.cardId }
+        : null;
+    }
+
+    const projectedOwner = resolveProjectedCardOwnerContext(editor, blockId);
+    if (projectedOwner) {
+      return projectedOwner;
+    }
+
+    if (!sourceCardContext) return null;
+    return {
+      projectId,
+      cardId: sourceCardContext.cardId,
+    };
+  }, [editor, projectId, sourceCardContext]);
+
+  const resolveThreadMapForOwner = useCallback((
+    ownerCardContext: ThreadSectionOwnerCardContext | null,
+  ): Record<string, ThreadSectionLinkedThreadState> => {
+    if (!ownerCardContext) return {};
+    if (
+      sourceCardContext
+      && ownerCardContext.projectId === projectId
+      && ownerCardContext.cardId === sourceCardContext.cardId
+    ) {
+      return Object.keys(threadSectionThreadMap).length > 0
+        ? threadSectionThreadMap
+        : hostThreadSummaryMap;
+    }
+
+    const ownerKey = `${ownerCardContext.projectId}:${ownerCardContext.cardId}`;
+    return threadSectionThreadsByOwnerKey[ownerKey] ?? {};
+  }, [
+    hostThreadSummaryMap,
+    projectId,
+    sourceCardContext,
+    threadSectionThreadMap,
+    threadSectionThreadsByOwnerKey,
+  ]);
+
+  const loadThreadSectionOwnerThreads = useCallback(async (
+    ownerCardContext: ThreadSectionOwnerCardContext | null,
+  ): Promise<Record<string, ThreadSectionLinkedThreadState>> => {
+    if (!ownerCardContext) return {};
+    if (
+      sourceCardContext
+      && ownerCardContext.projectId === projectId
+      && ownerCardContext.cardId === sourceCardContext.cardId
+    ) {
+      return Object.keys(threadSectionThreadMap).length > 0
+        ? threadSectionThreadMap
+        : hostThreadSummaryMap;
+    }
+
+    const ownerKey = `${ownerCardContext.projectId}:${ownerCardContext.cardId}`;
+    const cached = threadSectionThreadsByOwnerKey[ownerKey];
+    if (cached) return cached;
+
+    const existingPromise = threadSectionLoadingOwnerPromisesRef.current.get(ownerKey);
+    if (existingPromise) {
+      return existingPromise;
+    }
+
+    threadSectionLoadingOwnerKeysRef.current.add(ownerKey);
+    const loadingPromise = invoke("codex:threads:list", ownerCardContext.projectId, {
+      cardId: ownerCardContext.cardId,
+      includeArchived: true,
+    })
+      .then((threads) => {
+        const nextMap = buildThreadSectionThreadMap(
+          (threads as CodexThreadSummary[]).map(toThreadSectionLinkedThreadStateFromSummary),
+        );
+        setThreadSectionThreadsByOwnerKey((current) => ({
+          ...current,
+          [ownerKey]: nextMap,
+        }));
+        return nextMap;
+      })
+      .finally(() => {
+        threadSectionLoadingOwnerKeysRef.current.delete(ownerKey);
+        threadSectionLoadingOwnerPromisesRef.current.delete(ownerKey);
+      });
+    threadSectionLoadingOwnerPromisesRef.current.set(ownerKey, loadingPromise);
+    return loadingPromise;
+  }, [
+    hostThreadSummaryMap,
+    projectId,
+    sourceCardContext,
+    threadSectionThreadMap,
+    threadSectionThreadsByOwnerKey,
+  ]);
+
+  const ensureThreadSectionOwnerThreadsLoaded = useCallback((ownerCardContext: ThreadSectionOwnerCardContext | null) => {
+    void loadThreadSectionOwnerThreads(ownerCardContext);
+  }, [loadThreadSectionOwnerThreads]);
 
   const syncSearchStats = useCallback(() => {
     if (!editor) return;
@@ -618,12 +776,21 @@ export function NfmEditor({
     });
   }, [editor]);
 
-  const prepareThreadSectionSend = useCallback((blockId: string) => {
+  const prepareThreadSectionSend = useCallback(async (blockId: string) => {
     if (!editor) return null;
 
     const strippedDocument = stripProjectedSubtrees(editor.document) as ThreadSectionBlockLike[];
     const sendPlan = resolveThreadSectionSendPlan(strippedDocument, blockId);
     if (!sendPlan) return null;
+    const ownerCardContext = resolveThreadSectionOwnerCardContext(blockId);
+    let ownerThreads = resolveThreadMapForOwner(ownerCardContext);
+    if (
+      ownerCardContext
+      && sendPlan.section.threadId.length > 0
+      && !ownerThreads[sendPlan.section.threadId]
+    ) {
+      ownerThreads = await loadThreadSectionOwnerThreads(ownerCardContext);
+    }
 
     const promptBlocks = deriveThreadSectionPromptBlocks(sendPlan.section);
     const prompt = serializeThreadSectionPrompt(promptBlocks, (nfmBlocks) => {
@@ -632,7 +799,7 @@ export function NfmEditor({
     });
     const plainTextPreview = prompt;
     const existingThread = sendPlan.section.threadId.length > 0
-      ? threadSectionThreadMap[sendPlan.section.threadId]
+      ? ownerThreads[sendPlan.section.threadId]
       : undefined;
     const canReuseThread = Boolean(existingThread && !existingThread.archived);
     const sectionTitle = sendPlan.section.label || sendPlan.section.fallbackTitle;
@@ -660,8 +827,14 @@ export function NfmEditor({
       threadId: sendPlan.section.threadId,
       canReuseThread,
       createMarkerBeforeBlockId: sendPlan.createMarkerBeforeBlockId,
+      ownerCardContext,
     };
-  }, [editor, threadSectionThreadMap]);
+  }, [
+    editor,
+    loadThreadSectionOwnerThreads,
+    resolveThreadMapForOwner,
+    resolveThreadSectionOwnerCardContext,
+  ]);
 
   const closeThreadSectionSendDialog = useCallback(() => {
     setThreadSectionSendDialog(null);
@@ -720,7 +893,7 @@ export function NfmEditor({
       await withPendingThreadSection(markerBlockId, async () => {
         if (request.canReuseThread && request.threadId.length > 0) {
           await onSendThreadSectionPrompt({
-            projectId,
+            projectId: request.ownerCardContext?.projectId ?? projectId,
             threadId: request.threadId,
             prompt: request.prompt,
           });
@@ -728,8 +901,8 @@ export function NfmEditor({
         }
 
         const started = await onStartThreadSection({
-          projectId,
-          cardId: sourceCardContext.cardId,
+          projectId: request.ownerCardContext?.projectId ?? projectId,
+          cardId: request.ownerCardContext?.cardId ?? sourceCardContext.cardId,
           prompt: request.prompt,
         });
         const markerBlock = editor.getBlock(markerBlockId);
@@ -782,23 +955,27 @@ export function NfmEditor({
   const handleSendThreadSectionByBlockId = useCallback((blockId: string) => {
     if (!editor || !sourceCardContext || !onStartThreadSection || !onSendThreadSectionPrompt) return false;
 
-    const sendRequest = prepareThreadSectionSend(blockId);
-    if (!sendRequest) {
-      showThreadSectionHint("error", "Could not resolve content to send.");
-      return true;
-    }
+    void (async () => {
+      ensureThreadSectionOwnerThreadsLoaded(resolveThreadSectionOwnerCardContext(blockId));
 
-    if (sendRequest.prompt.length === 0) {
-      showThreadSectionHint("info", "This thread section is empty.");
-      return true;
-    }
+      const sendRequest = await prepareThreadSectionSend(blockId);
+      if (!sendRequest) {
+        showThreadSectionHint("error", "Could not resolve content to send.");
+        return;
+      }
 
-    if (threadSectionSendSettings.confirmBeforeSend) {
-      setThreadSectionSendDialog(sendRequest);
-      return true;
-    }
+      if (sendRequest.prompt.length === 0) {
+        showThreadSectionHint("info", "This thread section is empty.");
+        return;
+      }
 
-    void performThreadSectionSend(sendRequest);
+      if (threadSectionSendSettings.confirmBeforeSend) {
+        setThreadSectionSendDialog(sendRequest);
+        return;
+      }
+
+      await performThreadSectionSend(sendRequest);
+    })();
 
     return true;
   }, [
@@ -811,6 +988,8 @@ export function NfmEditor({
     showThreadSectionHint,
     sourceCardContext,
     threadSectionSendSettings.confirmBeforeSend,
+    ensureThreadSectionOwnerThreadsLoaded,
+    resolveThreadSectionOwnerCardContext,
   ]);
 
   const threadSectionRuntimeValue = useMemo<ThreadSectionRuntimeValue>(() => ({
@@ -818,9 +997,22 @@ export function NfmEditor({
     pendingBlockIds: threadSectionPendingBlockIds,
     openThread: handleOpenThreadSectionThread,
     send: handleSendThreadSectionByBlockId,
+    resolveScope: (blockId) => {
+      const ownerCardContext = resolveThreadSectionOwnerCardContext(blockId);
+      return {
+        ownerCardContext,
+        threads: resolveThreadMapForOwner(ownerCardContext),
+      };
+    },
+    ensureScopeLoaded: (blockId) => {
+      ensureThreadSectionOwnerThreadsLoaded(resolveThreadSectionOwnerCardContext(blockId));
+    },
   }), [
+    ensureThreadSectionOwnerThreadsLoaded,
     handleOpenThreadSectionThread,
     handleSendThreadSectionByBlockId,
+    resolveThreadMapForOwner,
+    resolveThreadSectionOwnerCardContext,
     threadSectionPendingBlockIds,
     threadSectionThreadMap,
   ]);
