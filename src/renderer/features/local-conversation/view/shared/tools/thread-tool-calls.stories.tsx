@@ -8,6 +8,32 @@ import { getToolComponent } from "./get-tool-component";
 import { McpToolCall } from "./mcp-tool-call";
 import { THREAD_TOOL_CALL_STORY_ITEMS } from "../../thread-stage-story-fixtures";
 
+const LONG_COMMAND = [
+  "bun x tsx scripts/collect-long-command-metrics.ts",
+  "--project nodex",
+  "--scope renderer",
+  "--filter command-tool-call",
+  "--json",
+  "--include src/renderer/features/local-conversation/view/shared/tools/command-tool-call.tsx",
+  "--include src/renderer/features/local-conversation/view/shared/tools/thread-command-shell-block.tsx",
+  "--include src/renderer/features/local-conversation/view/shared/tools/thread-tool-calls.stories.tsx",
+  "--include src/renderer/features/local-conversation/view/shared/tools/command-tool-call.render.test.tsx",
+  "--group-by semanticKind,status,toolName",
+  "--output /tmp/nodex-command-shell-regression-fixture.json",
+].join(" ");
+
+const COMMAND_TOOL_CALL = THREAD_TOOL_CALL_STORY_ITEMS.command.toolCall;
+
+function buildCommandToolCall(overrides?: Partial<NonNullable<typeof COMMAND_TOOL_CALL>>) {
+  return {
+    subtype: COMMAND_TOOL_CALL?.subtype ?? "command",
+    toolName: COMMAND_TOOL_CALL?.toolName ?? "bash",
+    args: COMMAND_TOOL_CALL?.args ?? { command: "bun test" },
+    result: COMMAND_TOOL_CALL?.result ?? "",
+    ...overrides,
+  };
+}
+
 function StorySurface({
   title,
   description,
@@ -41,22 +67,53 @@ function ToolCallStory({
   title,
   description,
   autoOpen = false,
+  autoExpandCommandLine = false,
 }: {
   item: CodexTranscriptEntry;
   title: string;
   description: string;
   autoOpen?: boolean;
+  autoExpandCommandLine?: boolean;
 }) {
   const ToolComponent = getToolComponent(item);
   if (!ToolComponent) return null;
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!autoOpen) return;
-    const toggle = containerRef.current?.querySelector<HTMLElement>('button[aria-expanded="false"]');
-    if (!toggle) return;
-    toggle.click();
-  }, [autoOpen]);
+    if (!autoOpen && !autoExpandCommandLine) return;
+
+    const root = containerRef.current;
+    if (!root) return;
+
+    let frameId = 0;
+    let nestedFrameId = 0;
+
+    const clickSummaryToggle = () => {
+      const summaryToggle = root.querySelector<HTMLElement>(
+        'button[aria-expanded="false"], [data-command-tool-summary-toggle]',
+      );
+      summaryToggle?.click();
+    };
+
+    frameId = window.requestAnimationFrame(() => {
+      if (autoOpen) {
+        clickSummaryToggle();
+      }
+
+      nestedFrameId = window.requestAnimationFrame(() => {
+        if (!autoExpandCommandLine) return;
+        if (!root.querySelector("[data-command-shell-line-toggle]")) {
+          clickSummaryToggle();
+        }
+        root.querySelector<HTMLElement>("[data-command-shell-line-toggle]")?.click();
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.cancelAnimationFrame(nestedFrameId);
+    };
+  }, [autoExpandCommandLine, autoOpen]);
 
   return (
     <StorySurface title={title} description={description}>
@@ -154,6 +211,70 @@ export const CommandExecution: Story = {
       item={THREAD_TOOL_CALL_STORY_ITEMS.command}
       title="Command Execution"
       description="Structured command summary, output body, and metadata for a settled command run."
+    />
+  ),
+};
+
+export const CommandExecutionLongCommandCollapsed: Story = {
+  render: () => (
+    <ToolCallStory
+      item={{
+        ...THREAD_TOOL_CALL_STORY_ITEMS.command,
+        itemId: "tool-call-long-command-collapsed",
+        entryId: "tool-call-long-command-collapsed",
+        toolCall: buildCommandToolCall({
+          args: {
+            command: LONG_COMMAND,
+          },
+        }),
+      }}
+      title="Command Execution Long Command Collapsed"
+      description="Transcript shell commands start line-clamped inside the expanded embedded shell block."
+      autoOpen
+    />
+  ),
+};
+
+export const CommandExecutionLongCommandExpanded: Story = {
+  render: () => (
+    <ToolCallStory
+      item={{
+        ...THREAD_TOOL_CALL_STORY_ITEMS.command,
+        itemId: "tool-call-long-command-expanded",
+        entryId: "tool-call-long-command-expanded",
+        toolCall: buildCommandToolCall({
+          args: {
+            command: LONG_COMMAND,
+          },
+        }),
+      }}
+      title="Command Execution Long Command Expanded"
+      description="Clicking the embedded shell command line expands it instead of always truncating with ellipsis."
+      autoOpen
+      autoExpandCommandLine
+    />
+  ),
+};
+
+export const CommandExecutionInProgressNoOutput: Story = {
+  render: () => (
+    <ToolCallStory
+      item={{
+        ...THREAD_TOOL_CALL_STORY_ITEMS.command,
+        itemId: "tool-call-running-no-output",
+        entryId: "tool-call-running-no-output",
+        status: "inProgress",
+        markdownText: "Running bun test",
+        toolCall: buildCommandToolCall({
+          args: {
+            command: "bun test",
+          },
+          result: "",
+        }),
+      }}
+      title="Command Execution In Progress Without Output"
+      description="Running shell commands keep the embedded output area blank until real output arrives."
+      autoOpen
     />
   ),
 };

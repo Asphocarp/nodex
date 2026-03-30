@@ -7,6 +7,14 @@ import type { CodexTranscriptEntry } from "../../../../../lib/types";
 import { CodexThreadSettingsProvider } from "../../../../../lib/use-codex-thread-settings";
 import { CommandToolCall } from "./command-tool-call";
 
+const LONG_COMMAND = [
+  "bun x tsx scripts/collect-long-command-metrics.ts",
+  "--project nodex",
+  "--scope renderer",
+  "--filter command-tool-call",
+  "--json",
+].join(" ");
+
 function buildCommandEntry(overrides?: Partial<CodexTranscriptEntry>): CodexTranscriptEntry {
   return {
     threadId: "thread-1",
@@ -185,5 +193,97 @@ describe("CommandToolCall render state", () => {
 
     const collapsedBody = container.querySelector('[data-thread-find-skip="true"]');
     expect(Boolean(collapsedBody)).toBeTrue();
+  });
+
+  test("expands a long command line when clicked", async () => {
+    localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_EXECUTION" }));
+
+    const { container } = render(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall
+            item={buildCommandEntry({
+              toolCall: {
+                subtype: "command",
+                toolName: "bash",
+                args: {
+                  command: LONG_COMMAND,
+                },
+                result: "done\nExit code 0\n",
+              },
+            })}
+          />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+
+    const commandLine = container.querySelector<HTMLElement>("[data-command-shell-line]");
+    expect(Boolean(commandLine?.className.includes("line-clamp-2"))).toBeTrue();
+
+    const toggle = container.querySelector<HTMLElement>("[data-command-shell-line-toggle]");
+    expect(Boolean(toggle)).toBeTrue();
+    fireEvent.click(toggle as HTMLElement);
+    await settleAsyncRender();
+
+    const expandedLine = container.querySelector<HTMLElement>("[data-command-shell-line]");
+    expect(Boolean(expandedLine?.className.includes("line-clamp-2"))).toBeFalse();
+  });
+
+  test("expands a long command line from keyboard", async () => {
+    localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_EXECUTION" }));
+
+    const { container } = render(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall
+            item={buildCommandEntry({
+              toolCall: {
+                subtype: "command",
+                toolName: "bash",
+                args: {
+                  command: LONG_COMMAND,
+                },
+                result: "done\nExit code 0\n",
+              },
+            })}
+          />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+
+    const toggle = container.querySelector<HTMLElement>("[data-command-shell-line-toggle]");
+    expect(Boolean(toggle)).toBeTrue();
+    fireEvent.keyDown(toggle as HTMLElement, { key: "Enter" });
+    await settleAsyncRender();
+
+    const expandedLine = container.querySelector<HTMLElement>("[data-command-shell-line]");
+    expect(Boolean(expandedLine?.className.includes("line-clamp-2"))).toBeFalse();
+  });
+
+  test("does not show a no-output placeholder while a command is still running", () => {
+    localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_EXECUTION" }));
+
+    const { container } = render(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall
+            item={buildCommandEntry({
+              status: "inProgress",
+              markdownText: "Running bun test",
+              toolCall: {
+                subtype: "command",
+                toolName: "bash",
+                args: {
+                  command: "bun test",
+                },
+                result: "",
+              },
+            })}
+          />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(textContent(container).includes("No output"))).toBeFalse();
   });
 });
