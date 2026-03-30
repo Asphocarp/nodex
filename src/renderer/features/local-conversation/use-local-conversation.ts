@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
-import { invoke, subscribeCodexHostMessages } from "../../lib/api";
 import type {
   CodexAccountSnapshot,
   CodexComposerIntent,
@@ -11,6 +10,7 @@ import {
   createInitialLocalConversationStoreState,
   localConversationStoreReducer,
 } from "./local-conversation-store";
+import { invoke, subscribeCodexHostMessages } from "./use-local-conversation-deps";
 
 export function useLocalConversation(activeProjectId: string) {
   const [state, dispatch] = useReducer(

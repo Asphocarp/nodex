@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
 import type { CodexConversationItem } from "../../../../lib/types";
+import { installElementScrollHeight, installMeasuredResizeObserver } from "../../../../test/browser-globals";
 import { render, settleAsyncRender, textContent } from "../../../../test/dom";
 import { MultiAgentActionSurface } from "./multi-agent-action-surface";
 
@@ -48,35 +49,8 @@ function buildMultiAgentItem(overrides?: Partial<CodexConversationItem>): CodexC
 
 describe("MultiAgentActionSurface", () => {
   beforeEach(() => {
-    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
-      configurable: true,
-      get() {
-        return 96;
-      },
-    });
-
-    globalThis.ResizeObserver = class ResizeObserver {
-      private readonly callback: ResizeObserverCallback;
-
-      constructor(callback: ResizeObserverCallback) {
-        this.callback = callback;
-      }
-
-      observe(target: Element) {
-        this.callback([
-          {
-            target,
-            contentRect: target.getBoundingClientRect(),
-            borderBoxSize: [{ blockSize: 96, inlineSize: 320 }],
-            contentBoxSize: [{ blockSize: 96, inlineSize: 320 }],
-            devicePixelContentBoxSize: [{ blockSize: 96, inlineSize: 320 }],
-          } as unknown as ResizeObserverEntry,
-        ], this);
-      }
-
-      disconnect() {}
-      unobserve() {}
-    } as typeof ResizeObserver;
+    installElementScrollHeight(96);
+    installMeasuredResizeObserver({ blockSize: 96, inlineSize: 320 });
   });
 
   test("renders a dedicated Codex-style grouped surface for settled items", async () => {

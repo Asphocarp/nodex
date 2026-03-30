@@ -5,7 +5,7 @@ import { render, settleAsyncRender, textContent } from "../../test/dom";
 const invokeCalls: string[] = [];
 let accountBootstrapCompleted = false;
 
-mock.module("../../lib/api", () => ({
+mock.module("./use-local-conversation-deps", () => ({
   invoke: async (channel: string) => {
     invokeCalls.push(channel);
     if (channel === "codex:connection:status") {

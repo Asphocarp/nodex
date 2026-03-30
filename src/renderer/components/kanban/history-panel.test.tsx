@@ -1,16 +1,12 @@
 import { describe, expect, mock, test } from "bun:test";
-import * as DiffReact from "@pierre/diffs/react";
 import { createElement } from "react";
-import * as KanbanOptions from "@/lib/kanban-options";
 import type { HistoryPanelEntry } from "../../../shared/ipc-api";
 import { render, textContent } from "../../test/dom";
+import * as HistoryPanelDeps from "./history-panel-deps";
 
-mock.module("@/lib/layout", () => ({
+mock.module("./history-panel-deps", () => ({
+  ...HistoryPanelDeps,
   TAB_BAR_HEIGHT: 48,
-}));
-
-mock.module("@/lib/kanban-options", () => ({
-  ...KanbanOptions,
   ARCHIVED_CARD_OPTION_ID: "archived",
   ARCHIVED_CARD_OPTION_NAME: "Archived",
   EMPTY_PRIORITY_OPTION_VALUE: "none",
@@ -22,19 +18,9 @@ mock.module("@/lib/kanban-options", () => ({
     draft: "Draft",
     in_progress: "In progress",
   },
-}));
-
-mock.module("@/lib/api", () => ({
   invoke: async () => ({ entries: [] }),
   subscribeGitBranchChanges: () => () => undefined,
-}));
-
-mock.module("@/lib/use-theme", () => ({
   useTheme: () => ({ resolved: "light" as const }),
-}));
-
-mock.module("@pierre/diffs/react", () => ({
-  ...DiffReact,
   FileDiff: ({ className }: { className?: string }) => createElement("div", { className, "data-file-diff": "true" }),
   MultiFileDiff: ({
     oldFile,

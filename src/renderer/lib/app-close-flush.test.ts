@@ -1,29 +1,40 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const invokeCalls: unknown[][] = [];
 let closeListener: ((...args: unknown[]) => void) | null = null;
 
-const windowApi = {
+mock.module("./app-close-flush-deps", () => ({
   invoke: async (...args: unknown[]) => {
     invokeCalls.push(args);
     return undefined;
   },
-  on: (event: string, callback: (...args: unknown[]) => void) => {
-    if (event === "app:flush-before-close") {
-      closeListener = callback;
-    }
-    return () => undefined;
-  },
-};
+  readAppCloseBridge: () => ({
+    on: (event: string, callback: (...args: unknown[]) => void) => {
+      if (event === "app:flush-before-close") {
+        closeListener = callback;
+      }
+      return () => undefined;
+    },
+    invoke: async () => undefined,
+    serverUrl: null,
+    assetPathPrefix: "",
+    inspectPasteClipboard: () => ({ items: [] }),
+    getPathInfoForFile: () => null,
+  }),
+}));
 
-(globalThis as { window?: unknown }).window = {
-  api: windowApi,
-} as Window & typeof globalThis;
+async function loadAppCloseFlushModule() {
+  return import(`./app-close-flush?test=${Date.now()}`);
+}
 
 describe("app-close-flush", () => {
-  test("waits for all registered handlers and acks once", async () => {
+  beforeEach(() => {
     invokeCalls.length = 0;
-    const { registerAppCloseFlushHandler } = await import("./app-close-flush");
+    closeListener = null;
+  });
+
+  test("waits for all registered handlers and acks once", async () => {
+    const { registerAppCloseFlushHandler } = await loadAppCloseFlushModule();
     const calls: string[] = [];
     const unregisterSuccess = registerAppCloseFlushHandler(async () => {
       calls.push("first:start");

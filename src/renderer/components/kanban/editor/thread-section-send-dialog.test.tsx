@@ -1,20 +1,19 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { ComponentProps } from "react";
 import { render, textContent } from "../../../test/dom";
+import * as ThreadSectionSendDialogDeps from "./thread-section-send-dialog-deps";
 
-mock.module("@/components/ui/button", () => ({
-  NodexButton: ({ children, ...props }: ComponentProps<"button">) => (
+mock.module("./thread-section-send-dialog-deps", () => ({
+  ...ThreadSectionSendDialogDeps,
+  Button: ({ children, ...props }: ComponentProps<"button">) => (
     <button {...props}>{children}</button>
   ),
-}));
-
-mock.module("@/components/ui/dialog", () => ({
-  NodexDialog: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
-  NodexDialogContent: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
-  NodexDialogDescription: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
-  NodexDialogFooter: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
-  NodexDialogHeader: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
-  NodexDialogTitle: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
+  Dialog: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
+  DialogContent: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
+  DialogDescription: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
+  DialogFooter: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
+  DialogHeader: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
+  DialogTitle: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
 }));
 
 describe("thread section send dialog", () => {

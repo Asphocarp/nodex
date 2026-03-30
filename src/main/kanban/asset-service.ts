@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 
-import { getKanbanDir } from "./config";
+import { getKanbanDir } from "./asset-service-deps";
 import {
   getAssetSource,
   isSafeAssetFileName,

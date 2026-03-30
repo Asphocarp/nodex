@@ -1,4 +1,4 @@
-import { invoke } from "./api";
+import { invoke, readAppCloseBridge } from "./app-close-flush-deps";
 
 export type AppCloseFlushHandler = () => Promise<void> | void;
 
@@ -12,10 +12,11 @@ async function flushHandlers(): Promise<void> {
 
 function ensureCoordinatorRegistered(): void {
   if (coordinatorRegistered) return;
-  if (typeof window === "undefined" || !window.api) return;
+  const bridge = readAppCloseBridge();
+  if (!bridge) return;
 
   coordinatorRegistered = true;
-  window.api.on("app:flush-before-close", (...args: unknown[]) => {
+  bridge.on("app:flush-before-close", (...args: unknown[]) => {
     const webContentsId = typeof args[0] === "number" ? args[0] : -1;
     void flushHandlers().finally(() => {
       void invoke("app:flush-before-close:done", webContentsId);

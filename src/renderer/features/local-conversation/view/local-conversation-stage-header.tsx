@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { columnStyles } from "@/components/kanban/column";
-import { invoke } from "../../../lib/api";
 import { cn } from "../../../lib/utils";
 import { CardIcon } from "../../../components/workbench/card-icon";
-import { CardInfoHoverCard } from "./shared/card-info-hover-card";
 import {
   AuthPopover,
   ConnectionBadge,
   renderConnectionAccountTooltipContent,
-} from "./shared/auth-controls";
+  CardInfoHoverCard,
+  invoke,
+} from "./local-conversation-stage-header-deps";
 import { shouldRefreshAccountOnConnectionTooltipOpen } from "./shared/account-tooltip-refresh";
 import { resolveThreadCardResult } from "./shared/thread-card-fetch";
 import type { Card } from "../../../lib/types";

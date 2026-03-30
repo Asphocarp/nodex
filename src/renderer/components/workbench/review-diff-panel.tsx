@@ -1,6 +1,5 @@
-import { parsePatchFiles } from "@pierre/diffs";
 import type { FileContents } from "@pierre/diffs";
-import { FileDiff, MultiFileDiff, type FileDiffMetadata } from "@pierre/diffs/react";
+import type { FileDiffMetadata } from "@pierre/diffs/react";
 import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
   ChevronDownIcon,
@@ -66,9 +65,7 @@ import {
   resolveReviewFileTreeItemHeight,
   type ReviewFileTreeVirtualRange,
 } from "@/lib/review-file-tree-virtualization";
-import { invoke } from "@/lib/api";
 import { useFileLinkOpener } from "@/lib/use-file-link-opener";
-import { useTheme } from "@/lib/use-theme";
 import type {
   CodexConversationItem,
   CodexConversationSnapshot,
@@ -80,6 +77,13 @@ import type {
   GitReviewSource,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import {
+  parsePatchFiles as defaultParsePatchFiles,
+  FileDiff as defaultFileDiff,
+  invoke as defaultInvoke,
+  MultiFileDiff as defaultMultiFileDiff,
+  useTheme as defaultUseTheme,
+} from "./review-diff-panel-deps";
 import {
   DiffStats,
   FilenameButton,
@@ -99,6 +103,15 @@ interface ReviewDiffPanelProps {
   initialSource?: ReviewSource;
   initialFileTreeOpen?: boolean;
   searchOpenTick?: number;
+  deps?: Partial<ReviewDiffPanelDeps>;
+}
+
+interface ReviewDiffPanelDeps {
+  parsePatchFiles: typeof defaultParsePatchFiles;
+  invoke: typeof defaultInvoke;
+  useTheme: typeof defaultUseTheme;
+  FileDiff: typeof defaultFileDiff;
+  MultiFileDiff: typeof defaultMultiFileDiff;
 }
 
 interface ReviewFileEntry {
@@ -164,6 +177,14 @@ const REVIEW_FILE_TREE_HOST_STYLE = {
   "--trees-search-bg": "var(--color-token-input-background)",
   "--trees-search-fg": "var(--color-token-foreground)",
 } satisfies ReviewFileTreeHostStyle;
+
+const DEFAULT_REVIEW_DIFF_PANEL_DEPS: ReviewDiffPanelDeps = {
+  parsePatchFiles: defaultParsePatchFiles,
+  invoke: defaultInvoke,
+  useTheme: defaultUseTheme,
+  FileDiff: defaultFileDiff,
+  MultiFileDiff: defaultMultiFileDiff,
+};
 
 function clampReviewFileTreeWidth(value: number): number {
   return Math.min(REVIEW_FILE_TREE_MAX_WIDTH_PX, Math.max(REVIEW_FILE_TREE_MIN_WIDTH_PX, Math.round(value)));
@@ -276,6 +297,7 @@ function splitFilePatchByHunks(filePatch: string): string[] {
 function buildReviewFileEntries(
   patch: string,
   basePath: string | null,
+  parsePatchFiles: ReviewDiffPanelDeps["parsePatchFiles"],
 ): ReviewFileEntry[] {
   if (!patch.trim()) return [];
 
@@ -343,6 +365,7 @@ function extractLastTurnPatchItem(items: CodexConversationItem[]): string | null
 function buildLastTurnSnapshot(
   conversation: CodexConversationSnapshot | null,
   projectWorkspacePath: string | null | undefined,
+  parsePatchFiles: ReviewDiffPanelDeps["parsePatchFiles"],
 ): ReviewSnapshot {
   const turn = conversation?.turns.at(-1) ?? null;
   const patch = typeof turn?.diff === "string" && turn.diff.trim().length > 0
@@ -352,7 +375,7 @@ function buildLastTurnSnapshot(
       : "";
   const cwd = conversation?.cwd ?? projectWorkspacePath ?? null;
   const basePath = normalizeReviewBasePath(cwd);
-  const files = buildReviewFileEntries(patch, basePath);
+  const files = buildReviewFileEntries(patch, basePath, parsePatchFiles);
 
   return {
     source: "last-turn",
@@ -370,6 +393,7 @@ function buildLastTurnSnapshot(
 
 function buildGitSnapshot(
   gitSnapshot: GitReviewSnapshot | null,
+  parsePatchFiles: ReviewDiffPanelDeps["parsePatchFiles"],
 ): ReviewSnapshot {
   const cwd = gitSnapshot?.cwd ?? null;
   const basePath = normalizeReviewBasePath(cwd);
@@ -377,7 +401,7 @@ function buildGitSnapshot(
   const statusByPath = new Map<string, GitReviewFileStatus | null>(
     (gitSnapshot?.files ?? []).map((file) => [stripPatchPrefix(file.path), file.status]),
   );
-  const files = buildReviewFileEntries(patch, basePath).map((file) => ({
+  const files = buildReviewFileEntries(patch, basePath, parsePatchFiles).map((file) => ({
     ...file,
     gitStatus: statusByPath.get(file.displayPath) ?? null,
   }));
@@ -482,6 +506,7 @@ function ReviewFileRow({
   actionPending,
   fullContents,
   fullContentsLoading,
+  deps,
   onRunGitAction,
   onRunGitHunkAction,
   onToggleExpanded,
@@ -498,10 +523,17 @@ function ReviewFileRow({
   actionPending: boolean;
   fullContents: GitReviewFileContents | null;
   fullContentsLoading: boolean;
+  deps: ReviewDiffPanelDeps;
   onRunGitAction: (action: ReviewGitFileAction, entry: ReviewFileEntry) => void;
   onRunGitHunkAction: (action: ReviewGitFileAction, entry: ReviewFileEntry, hunkIndex: number) => void;
   onToggleExpanded: () => void;
 }) {
+  const {
+    invoke,
+    useTheme,
+    FileDiff,
+    MultiFileDiff,
+  } = deps;
   const { resolved } = useTheme();
   const diffHostStyle = getNodexDiffHostStyle(resolved === "dark" ? "dark" : "light");
   const lineDiffType = wordDiffsEnabled && entry.additions + entry.deletions <= LARGE_DIFF_LINE_THRESHOLD
@@ -1167,7 +1199,13 @@ export function ReviewDiffPanel({
   initialSource = "last-turn",
   initialFileTreeOpen = false,
   searchOpenTick = 0,
+  deps,
 }: ReviewDiffPanelProps) {
+  const resolvedDeps = {
+    ...DEFAULT_REVIEW_DIFF_PANEL_DEPS,
+    ...deps,
+  };
+  const { invoke, parsePatchFiles } = resolvedDeps;
   const { opener } = useFileLinkOpener();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const lastHandledSearchOpenTickRef = useRef(searchOpenTick);
@@ -1227,8 +1265,8 @@ export function ReviewDiffPanel({
   }, [searchOpenTick]);
 
   const lastTurnSnapshot = useMemo(
-    () => buildLastTurnSnapshot(conversation, projectWorkspacePath),
-    [conversation, projectWorkspacePath],
+    () => buildLastTurnSnapshot(conversation, projectWorkspacePath, parsePatchFiles),
+    [conversation, parsePatchFiles, projectWorkspacePath],
   );
 
   const loadGitSnapshot = async (
@@ -1330,8 +1368,8 @@ export function ReviewDiffPanel({
   }, [reviewCwd, source]);
 
   const snapshot = useMemo(
-    () => source === "last-turn" ? lastTurnSnapshot : buildGitSnapshot(gitSnapshot),
-    [gitSnapshot, lastTurnSnapshot, source],
+    () => source === "last-turn" ? lastTurnSnapshot : buildGitSnapshot(gitSnapshot, parsePatchFiles),
+    [gitSnapshot, lastTurnSnapshot, parsePatchFiles, source],
   );
   const totalChangedLines = useMemo(
     () => getReviewTotalChangedLines(snapshot.files),
@@ -1605,6 +1643,7 @@ export function ReviewDiffPanel({
         actionPending={gitActionKey === entry.key}
         fullContents={fullContentsByPath[entry.displayPath] ?? null}
         fullContentsLoading={Boolean(fullContentsLoadingPaths[entry.displayPath])}
+        deps={resolvedDeps}
         onRunGitAction={(action, targetEntry) => {
           void handleRunGitFileAction(action, targetEntry);
         }}

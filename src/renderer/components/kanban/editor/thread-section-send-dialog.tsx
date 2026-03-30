@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Info, MessageSquareText, Workflow } from "lucide-react";
-import { NodexButton as Button } from "@/components/ui/button";
-import {
-  NodexDialog as Dialog,
-  NodexDialogContent as DialogContent,
-  NodexDialogDescription as DialogDescription,
-  NodexDialogFooter as DialogFooter,
-  NodexDialogHeader as DialogHeader,
-  NodexDialogTitle as DialogTitle,
-} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import {
+  Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./thread-section-send-dialog-deps";
 
 export interface ThreadSectionSendDialogState {
   sectionTitle: string;

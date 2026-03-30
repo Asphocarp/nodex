@@ -1,15 +1,10 @@
-import { MultiFileDiff } from "@pierre/diffs/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   NODEX_DIFF_HOST_CLASS,
   getNodexDiffHostStyle,
   getNodexDiffOptions,
 } from "../../lib/diff-presentation";
-import { TAB_BAR_HEIGHT } from "@/lib/layout";
-import { KANBAN_STATUS_LABELS } from "@/lib/kanban-options";
-import { useTheme } from "@/lib/use-theme";
 import { cn } from "@/lib/utils";
-import { invoke } from "@/lib/api";
 import type {
   HistoryPanelDescriptionDelta,
   HistoryPanelDescriptionDeltaBlock,
@@ -17,6 +12,13 @@ import type {
   HistoryPanelDescriptionSnapshotBlock,
   HistoryPanelEntry,
 } from "../../../shared/ipc-api";
+import {
+  invoke,
+  KANBAN_STATUS_LABELS,
+  MultiFileDiff,
+  TAB_BAR_HEIGHT,
+  useTheme,
+} from "./history-panel-deps";
 
 type HistoryOperationFilter = "all" | HistoryPanelEntry["operation"];
 

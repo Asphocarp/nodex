@@ -1,17 +1,16 @@
 import { FileCode2, FileText, Folder, Link2 } from "lucide-react";
 import { useRef } from "react";
-
-import { NodexButton as Button } from "@/components/ui/button";
-import {
-  NodexDialog as Dialog,
-  NodexDialogContent as DialogContent,
-  NodexDialogDescription as DialogDescription,
-  NodexDialogFooter as DialogFooter,
-  NodexDialogHeader as DialogHeader,
-  NodexDialogTitle as DialogTitle,
-} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { canMaterializePasteResourceItems, type PasteResourceDialogState } from "./paste-resource";
+import {
+  Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./paste-resource-dialog-deps";
 
 interface PasteResourceDialogProps {
   open: boolean;

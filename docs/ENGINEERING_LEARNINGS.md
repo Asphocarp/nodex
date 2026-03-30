@@ -434,6 +434,14 @@ When a renderer utility consumes a semantic token like `bg-token-input-backgroun
 ### Renderer utilities should compile from authored source CSS and scanned renderer files
 Codex Electron's shipped CSS is a compiled output, not a second hand-maintained renderer utility mirror. Keep `theme-source.css`, `theme-token-bridge.css`, and `theme-surface.css` as the authored renderer source, then let Tailwind compile the utility surface directly from those files plus the scanned renderer/story inputs. This keeps the utility layer aligned with the authored source of truth instead of drifting behind a parallel vendored dump.
 
+### Randomized renderer tests should not trust global DOM constructors or shared parser imports
+`bun test --randomize --seed ...` exposed two test-suite fragilities:
+
+- `instanceof HTMLElement` / `instanceof HTMLDivElement` is not reliable in a long-running happy-dom suite when some tests temporarily replace `window` or other browser globals. Prefer existence checks, `nodeType === Node.ELEMENT_NODE`, or realm-aware constructor checks via `node.ownerDocument.defaultView`.
+- If a component test needs to stub diff parsing or diff rendering, route those dependencies through the component's own adapter seam instead of importing shared parser/renderer modules directly in the test path. For `review-diff-panel`, moving `parsePatchFiles` behind `review-diff-panel-deps.ts` and injecting a local test parser removed randomized-order pollution from shared module state.
+
+Also restore browser constructors like `Node`, `Element`, `HTMLElement`, `HTMLDivElement`, and input events in `src/renderer/test/setup.ts` after each test, not just `window` and `document`.
+
 ---
 ## Codex session replay compaction boundaries
 

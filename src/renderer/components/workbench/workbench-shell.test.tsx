@@ -1,15 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import { createElement } from "react";
 import { act } from "@testing-library/react";
-import * as CodexCollaborationModeSettings from "@/lib/codex-collaboration-mode-settings";
-import * as KanbanOptions from "@/lib/kanban-options";
-import * as SmartPrefixParsing from "@/lib/smart-prefix-parsing";
-import * as StageRailPeek from "@/lib/stage-rail-peek";
-import * as StatusChip from "@/lib/status-chip";
-import * as ComposerEnterBehavior from "@/lib/composer-enter-behavior";
-import * as WorkbenchState from "@/lib/use-workbench-state";
-import * as WorktreeBranchPrefix from "@/lib/worktree-branch-prefix";
-import * as WorktreeStartMode from "@/lib/worktree-start-mode";
 import type { Project } from "@/lib/types";
 import { resetCardDraftStoreForTest, setCardDraftOverlay } from "../../lib/card-draft-store";
 import { render, textContent } from "../../test/dom";
@@ -56,138 +47,68 @@ type StageTabStripProps = {
   onSelect?: (tabId: string) => void;
 };
 
-mock.module("./card-icon", () => ({
+mock.module("./workbench-shell-deps", () => ({
   CardIcon: ({ className }: { className?: string }) => createElement("span", { className }, "C"),
-}));
-
-mock.module("./command-palette", () => ({
   CommandPalette: (props: Record<string, unknown>) => {
     (globalThis as { __lastCommandPaletteProps?: Record<string, unknown> }).__lastCommandPaletteProps = props;
     return createElement("div", { "data-command-palette": String(Boolean(props.open)) });
   },
-}));
-
-mock.module("./main-view-host", () => ({
   MainViewHost: (props: Record<string, unknown>) => {
     (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps = props;
     return createElement("div", { "data-main-view-host": "true" });
   },
-}));
-
-mock.module("./workbench-remote-card-stage-handlers", () => ({
-  makeRemoteCardStageHandlers: () => ({
-    onUpdate: async () => undefined,
-    onPatch: () => undefined,
-    onDelete: async () => undefined,
-    onMove: async () => undefined,
-  }),
-}));
-
-mock.module("./workbench-settings-overlay", () => ({
   SettingsOverlay: (props: Record<string, unknown>) => {
     (globalThis as { __lastSettingsOverlayProps?: Record<string, unknown> }).__lastSettingsOverlayProps = props;
     return null;
   },
-}));
-
-mock.module("./left-sidebar", () => ({
   LeftSidebar: (props: Record<string, unknown>) => {
     (globalThis as { __lastLeftSidebarProps?: Record<string, unknown> }).__lastLeftSidebarProps = props;
     const stageGroups = (props.stageGroups as Array<{ id: string }> | undefined) ?? [];
     return createElement("div", { "data-stage-groups": stageGroups.map((group) => group.id).join(",") });
   },
-}));
-
-mock.module("./review-diff-panel", () => ({
   ReviewDiffPanel: () => createElement("div", { "data-review-diff-panel": "true" }),
-}));
-
-mock.module("./workbench-stage-tab-strip", () => ({
   StageTabStrip: (props: StageTabStripProps) => {
     const globalState = globalThis as { __stageTabStripProps?: StageTabStripProps[] };
     globalState.__stageTabStripProps ??= [];
     globalState.__stageTabStripProps.push(props);
     return createElement("div", { "data-stage-tab-strip": "true" });
   },
-}));
-
-mock.module("./workbench-history-panel", () => ({
   HistoryPanel: (props: Record<string, unknown>) => {
     (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> }).__lastHistoryPanelProps = props;
     if (!props.open) return null;
     return createElement("div", { "data-history-panel": "true" });
   },
-}));
-
-mock.module("./workbench-card-stage", () => ({
   CardStage: (props: Record<string, unknown>) => {
     (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps = props;
     return createElement("div", { "data-card-stage": "true" });
   },
-}));
-
-mock.module("./workbench-terminal-panel", () => ({
   TerminalPanel: (props: Record<string, unknown>) => {
     (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> }).__lastTerminalPanelProps = props;
     return createElement("div", { "data-terminal-panel": "true" });
   },
-}));
-
-mock.module("@/components/ui/input", () => ({
   Input: (props: Record<string, unknown>) => createElement("input", props),
-}));
-
-mock.module("./workbench-api", () => ({
   invoke: async (...args: unknown[]) => {
     invokeCalls.push(args);
     if (!mockInvokeImpl) return null;
     return mockInvokeImpl(...args);
   },
-}));
-
-mock.module("@/lib/stage-rail-peek", () => ({
-  ...StageRailPeek,
-  normalizeNextPanelPeekPx: (value: number) => value,
   readNextPanelPeekPx: () => 28,
   writeNextPanelPeekPx: (value: number) => value,
-}));
-
-mock.module("@/lib/composer-enter-behavior", () => ({
-  ...ComposerEnterBehavior,
   readComposerEnterBehavior: () => "enter" as const,
   writeComposerEnterBehavior: (value: "enter" | "cmdIfMultiline") => value,
-}));
-
-mock.module("@/lib/worktree-start-mode", () => ({
-  ...WorktreeStartMode,
   readWorktreeStartMode: () => "autoBranch" as const,
   writeWorktreeStartMode: (value: "autoBranch" | "detachedHead") => value,
-}));
-
-mock.module("@/lib/worktree-branch-prefix", () => ({
-  ...WorktreeBranchPrefix,
   readWorktreeAutoBranchPrefix: () => "nodex/" as const,
   writeWorktreeAutoBranchPrefix: (value: string) => value,
-}));
-
-mock.module("@/lib/codex-collaboration-mode-settings", () => ({
-  ...CodexCollaborationModeSettings,
   DEFAULT_CODEX_COLLABORATION_MODE: "default" as const,
   getDraftCollaborationModeStorageKey: (projectId: string, cardId: string) => `draft:${projectId}:${cardId}`,
   getThreadCollaborationModeStorageKey: (threadId: string) => `thread:${threadId}`,
   readCollaborationModeForContextKey: () => "default" as const,
   writeCollaborationModeForContextKey: (_contextKey: string, mode: "default" | "plan") => mode,
-}));
-
-mock.module("@/lib/smart-prefix-parsing", () => ({
-  ...SmartPrefixParsing,
   readSmartPrefixParsingEnabled: () => true,
   readStripSmartPrefixFromTitleEnabled: () => true,
   writeSmartPrefixParsingEnabled: (value: boolean) => value,
   writeStripSmartPrefixFromTitleEnabled: (value: boolean) => value,
-}));
-
-mock.module("@/lib/use-codex-control", () => ({
   useCodexControl: () => ({
     ...({
       state: {
@@ -217,9 +138,6 @@ mock.module("@/lib/use-codex-control", () => ({
     }),
     ...((globalThis as { __mockUseCodexOverrides?: Record<string, unknown> }).__mockUseCodexOverrides ?? {}),
   }),
-}));
-
-mock.module("@/lib/use-codex-thread-follower-client", () => ({
   useCodexThreadFollowerClient: () => ({
     startTurn: async () => null,
     enqueueQueuedFollowUp: async () => undefined,
@@ -241,9 +159,6 @@ mock.module("@/lib/use-codex-thread-follower-client", () => ({
     }),
     ...((globalThis as { __mockUseCodexThreadFollowerClientOverrides?: Record<string, unknown> }).__mockUseCodexThreadFollowerClientOverrides ?? {}),
   }),
-}));
-
-mock.module("@/lib/use-codex-account-actions", () => ({
   useCodexAccountActions: () => ({
     refreshAccount: async () => null,
     startChatGptLogin: async () => ({ type: "apiKey" as const }),
@@ -252,9 +167,6 @@ mock.module("@/lib/use-codex-account-actions", () => ({
     logout: async () => true,
     ...((globalThis as { __mockUseCodexAccountActionOverrides?: Record<string, unknown> }).__mockUseCodexAccountActionOverrides ?? {}),
   }),
-}));
-
-mock.module("@/features/local-conversation", () => ({
   StageThreads: (props: Record<string, unknown>) => {
     const model = (props.model as Record<string, unknown> | undefined) ?? {};
     const actions = (props.actions as Record<string, unknown> | undefined) ?? {};
@@ -288,9 +200,6 @@ mock.module("@/features/local-conversation", () => ({
     }),
     ...((globalThis as { __mockUseLocalConversationOverrides?: Record<string, unknown> }).__mockUseLocalConversationOverrides ?? {}),
   }),
-}));
-
-mock.module("@/lib/use-kanban", () => ({
   useKanban: () => ({
     board: {
       columns: [
@@ -365,26 +274,13 @@ mock.module("@/lib/use-kanban", () => ({
     completeOccurrence: async () => true,
     skipOccurrence: async () => true,
   }),
-}));
-
-mock.module("@/lib/kanban-options", () => ({
-  ...KanbanOptions,
   KANBAN_STATUS_LABELS: {
     in_progress: "In Progress",
   },
-}));
-
-mock.module("@/lib/status-chip", () => ({
-  ...StatusChip,
-  StatusIcon: ({ className }: { className?: string }) =>
+  SharedStatusIcon: ({ className }: { className?: string }) =>
     createElement("span", { className, "data-status-icon": "true" }, "S"),
-}));
-
-mock.module("@/lib/use-workbench-state", () => ({
-  ...WorkbenchState,
   STAGE_ORDER: ["db", "cards", "threads", "files"],
   NEW_THREAD_STAGE_TAB_ID: "thread:new",
-  resolveEffectiveSlidingWindowPaneCount: () => 2,
   resolveExpandedStages: () => resolveExpandedStagesReturn,
   resolveSlidingWindowFocusIntent: (...args: [unknown, unknown, unknown, unknown]) => {
     resolveSlidingWindowFocusIntentCalls.push(args);
