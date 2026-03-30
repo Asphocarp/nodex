@@ -43,26 +43,29 @@ import {
   NEW_THREAD_STAGE_TAB_ID,
   readCollaborationModeForContextKey,
   readComposerEnterBehavior,
+  readLocalConversationSnapshot,
   readNextPanelPeekPx,
   readSmartPrefixParsingEnabled,
   readStripSmartPrefixFromTitleEnabled,
   readWorktreeAutoBranchPrefix,
   readWorktreeStartMode,
   resolveExpandedStages,
+  resolveLocalConversationPlanImplementation,
   resolveSlidingWindowFocusIntent,
-  ReviewDiffPanel,
+  requestLocalConversationSnapshot,
   SettingsOverlay,
   SharedStatusIcon,
   StageTabStrip,
-  StageThreads,
+  ConnectedReviewDiffPanel,
+  ConnectedThreadStage,
   STAGE_ORDER,
   TerminalPanel,
+  setLocalConversationComposerIntent,
   useCodexAccountActions,
   useCodexControl,
   useCodexThreadFollowerClient,
   useKanban,
-  useLocalConversation,
-  useThreadStageModel,
+  useProjectThreadSummaries,
   writeCollaborationModeForContextKey,
   writeComposerEnterBehavior,
   writeNextPanelPeekPx,
@@ -71,11 +74,11 @@ import {
   writeWorktreeAutoBranchPrefix,
   writeWorktreeStartMode,
   DEFAULT_CODEX_COLLABORATION_MODE,
+  consumeLocalConversationComposerIntent,
   getDraftCollaborationModeStorageKey,
   getThreadCollaborationModeStorageKey,
 } from "./workbench-shell-deps";
-import { type ThreadStageActions, type ThreadStageModelInput } from "@/features/local-conversation";
-import { resolveThreadCardStatus } from "@/features/local-conversation/view/shared/thread-card-fetch";
+import { type ThreadStageActions } from "@/features/local-conversation";
 import type { StageRailLayoutMode } from "@/lib/stage-rail-layout-mode";
 import { cn } from "@/lib/utils";
 import { TOGGLE_LIST_STATUS_ORDER } from "../../lib/toggle-list/types";
@@ -414,7 +417,6 @@ export function WorkbenchShell({
   const [selectedCollaborationMode, setSelectedCollaborationMode] = useState<CodexCollaborationModeKind>(
     DEFAULT_CODEX_COLLABORATION_MODE,
   );
-  const [activeThreadCardColumnId, setActiveThreadCardColumnId] = useState<string | null>(null);
   const [taskSearchOpen, setTaskSearchOpen] = useState(false);
   const taskSearchInputRef = useRef<HTMLInputElement>(null);
   const previousTaskSearchOpenTickRef = useRef(taskSearchOpenTick);
@@ -422,7 +424,6 @@ export function WorkbenchShell({
   const previousSettingsToggleTickRef = useRef(settingsToggleTick);
   const {
     state: codexState,
-    threads: codexThreads,
     availableModels,
     threadSettings,
     reasoningEffortOptions,
@@ -446,14 +447,7 @@ export function WorkbenchShell({
     cancelLogin,
     logout,
   } = useCodexAccountActions();
-  const {
-    state: localConversationState,
-    requestConversationSnapshot,
-    requestConversationResume,
-    resolvePlanImplementation: resolveLocalConversationPlanImplementation,
-    setComposerIntent,
-    consumeComposerIntent,
-  } = useLocalConversation(threadsProjectId);
+  const projectThreadSummaries = useProjectThreadSummaries(threadsProjectId);
   const threadFollowerClient = useCodexThreadFollowerClient({
     projectId: threadsProjectId,
     permissionMode,
@@ -917,13 +911,13 @@ export function WorkbenchShell({
   const codexThreadTabs = useMemo<ThreadsStageTab[]>(
     () => [
       { id: NEW_THREAD_STAGE_TAB_ID, title: "New thread", preview: "" },
-      ...codexThreads.map((thread) => ({
+      ...projectThreadSummaries.map((thread) => ({
         id: thread.threadId,
         title: thread.threadName?.trim() || thread.threadPreview || thread.threadId,
         preview: thread.threadPreview,
       })),
     ],
-    [codexThreads],
+    [projectThreadSummaries],
   );
 
   useEffect(() => {
@@ -931,13 +925,7 @@ export function WorkbenchShell({
   }, [threadsProjectId, codexThreadTabs, setThreadsTabs]);
 
   const resolvedThreadsTabs = codexThreadTabs.length > 0 ? codexThreadTabs : threadsTabs;
-  const resolvedConversationThreadSummaries = useMemo(
-    () => {
-      const summaries = localConversationState.threadSummariesByProject[threadsProjectId] ?? [];
-      return summaries.length > 0 ? summaries : codexThreads;
-    },
-    [codexThreads, localConversationState.threadSummariesByProject, threadsProjectId],
-  );
+  const resolvedConversationThreadSummaries = projectThreadSummaries;
   const resolvedActiveThreadsTabId = useMemo(() => {
     if (resolvedThreadsTabs.some((tab) => tab.id === activeThreadsTabId)) return activeThreadsTabId;
     return resolvedThreadsTabs[0]?.id ?? "";
@@ -958,41 +946,15 @@ export function WorkbenchShell({
   const runningThreadIds = useMemo(() => {
     const ids = new Set<string>();
     for (const thread of resolvedConversationThreadSummaries) {
-      const conversation = localConversationState.conversationsById[thread.threadId];
-      const hasInProgressTurn = conversation?.turns.some((turn) => turn.status === "inProgress") ?? false;
-      if (thread.statusType === "active" || hasInProgressTurn) ids.add(thread.threadId);
+      if (thread.statusType === "active") ids.add(thread.threadId);
     }
     return ids;
-  }, [localConversationState.conversationsById, resolvedConversationThreadSummaries]);
-
-  const activeThreadConversation = useMemo(() => {
-    if (!activeThreadTab || activeThreadTab.id === NEW_THREAD_STAGE_TAB_ID) return null;
-    const conversation = localConversationState.conversationsById[activeThreadTab.id];
-    if (!conversation) return null;
-
-    const summary = resolvedConversationThreadSummaries.find((thread) => thread.threadId === activeThreadTab.id);
-    if (!summary) return conversation;
-
-    return {
-      ...conversation,
-      statusType: summary.statusType,
-      statusActiveFlags: summary.statusActiveFlags,
-      updatedAt: Math.max(conversation.updatedAt, summary.updatedAt),
-    };
-  }, [activeThreadTab, localConversationState.conversationsById, resolvedConversationThreadSummaries]);
+  }, [resolvedConversationThreadSummaries]);
 
   const activeThreadSummary = useMemo(() => {
     if (!activeThreadTab || activeThreadTab.id === NEW_THREAD_STAGE_TAB_ID) return null;
     return resolvedConversationThreadSummaries.find((thread) => thread.threadId === activeThreadTab.id) ?? null;
   }, [activeThreadTab, resolvedConversationThreadSummaries]);
-
-  useEffect(() => {
-    if (!activeThreadTab) return;
-    if (activeThreadTab.id === NEW_THREAD_STAGE_TAB_ID) return;
-    const resumeState = activeThreadConversation?.resumeState ?? "needs_resume";
-    if (resumeState === "resuming" || resumeState === "resumed") return;
-    void requestConversationResume(activeThreadTab.id).catch(() => { });
-  }, [activeThreadConversation?.resumeState, activeThreadTab, requestConversationResume]);
 
   const activeCardStageCardId = cardStageState.open ? cardStageState.cardId : null;
   const activeCardStageCard = useMemo(
@@ -1346,86 +1308,10 @@ export function WorkbenchShell({
     await skipOccurrenceForCardStage({ cardId, occurrenceStart, source: "card-stage" });
   }, [cardStageProjectId, skipOccurrenceForCardStage]);
 
-  useEffect(() => {
-    const activeThreadCardId = activeThreadConversation?.cardId;
-    const activeThreadProjectId = activeThreadConversation?.projectId ?? threadsProjectId;
-    if (!activeThreadCardId) {
-      setActiveThreadCardColumnId(null);
-      return;
-    }
-
-    let cancelled = false;
-    void invoke("card:get", activeThreadProjectId, activeThreadCardId)
-      .then((result) => {
-        if (cancelled) return;
-        setActiveThreadCardColumnId(resolveThreadCardStatus(result));
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setActiveThreadCardColumnId(null);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeThreadConversation?.cardId, activeThreadConversation?.projectId, threadsProjectId]);
-
   const handleOpenCardFromThread = useCallback(async (cardId: string) => {
-    const projectId = activeThreadConversation?.projectId ?? threadsProjectId;
+    const projectId = activeThreadSummary?.projectId ?? threadsProjectId;
     await openCardStage(projectId, cardId);
-  }, [activeThreadConversation?.projectId, openCardStage, threadsProjectId]);
-
-  const threadStageInput = useMemo<ThreadStageModelInput>(() => ({
-    projectId: threadsProjectId,
-    projectWorkspacePath: activeThreadsProject?.workspacePath ?? null,
-    isNewThreadTab,
-    newThreadTarget,
-    activeThreadCardColumnId,
-    threadStartProgress: newThreadStartProgress,
-    activeThreadId: activeThreadTab?.id ?? null,
-    activeThreadSummary,
-    conversation: activeThreadConversation,
-    knownConversationsById: localConversationState.conversationsById,
-    dismissedPlanImplementationTurnIdByThread: localConversationState.dismissedPlanImplementationTurnIdByThread,
-    connection: localConversationState.connection,
-    account: localConversationState.account,
-    availableModels,
-    collaborationModes: availableCollaborationModes,
-    selectedCollaborationMode,
-    selectedModel: threadSettings.model,
-    selectedReasoningEffort: threadSettings.reasoningEffort,
-    reasoningEffortOptions,
-    permissionMode,
-    isQueueingEnabled: threadQueueFollowUpsEnabled,
-    composerEnterBehavior,
-    searchOpenTick: threadSearchOpenTick,
-    composerIntent: activeThreadTab ? localConversationState.composerIntentsByThread?.[activeThreadTab.id] ?? null : null,
-  }), [
-    activeThreadTab,
-    activeThreadCardColumnId,
-    activeThreadConversation,
-    activeThreadSummary,
-    activeThreadTab,
-    activeThreadsProject?.workspacePath,
-    availableCollaborationModes,
-    availableModels,
-    isNewThreadTab,
-    localConversationState.account,
-    localConversationState.composerIntentsByThread,
-    localConversationState.connection,
-    localConversationState.conversationsById,
-    newThreadStartProgress,
-    newThreadTarget,
-    permissionMode,
-    threadQueueFollowUpsEnabled,
-    reasoningEffortOptions,
-    selectedCollaborationMode,
-    threadSearchOpenTick,
-    composerEnterBehavior,
-    threadSettings.model,
-    threadSettings.reasoningEffort,
-    threadsProjectId,
-  ]);
+  }, [activeThreadSummary?.projectId, openCardStage, threadsProjectId]);
 
   const threadStageActions = useMemo<ThreadStageActions>(() => ({
     onCollaborationModeChange: handleCollaborationModeChange,
@@ -1507,29 +1393,29 @@ export function WorkbenchShell({
     },
     onEditQueuedFollowUp: async ({ threadId, followUpId, prompt }) => {
       await threadFollowerClient.removeQueuedFollowUp(threadId, followUpId);
-      setComposerIntent(threadId, {
+      setLocalConversationComposerIntent(threadId, {
         prompt,
         focusNonce: Date.now(),
       });
     },
     onEditLastUserTurn: async (input) => {
       await threadFollowerClient.editLastUserTurn(input.threadId, input.turnId, input.message);
-      await requestConversationSnapshot(input.threadId);
+      await requestLocalConversationSnapshot(input.threadId);
     },
     onForkFromTurn: async (input) => {
       const result = await threadFollowerClient.forkConversationFromTurn(input.threadId, input.turnId, input.message);
-      const forkedConversation = await requestConversationSnapshot(result.threadId);
-      setComposerIntent(result.threadId, result.composerIntent);
+      const forkedConversation = await requestLocalConversationSnapshot(result.threadId);
+      setLocalConversationComposerIntent(result.threadId, result.composerIntent);
       writeCollaborationModeForContextKey(
         getThreadCollaborationModeStorageKey(result.threadId),
         selectedCollaborationMode,
       );
-      const projectId = forkedConversation?.projectId ?? activeThreadConversation?.projectId ?? threadsProjectId;
+      const projectId = forkedConversation?.projectId ?? activeThreadSummary?.projectId ?? threadsProjectId;
       await loadCodexThreads(projectId);
       navigateToThreadTab(projectId, result.threadId);
     },
     onConsumeComposerIntent: (threadId, focusNonce) => {
-      consumeComposerIntent(threadId, focusNonce);
+      consumeLocalConversationComposerIntent(threadId, focusNonce);
     },
     onOpenThread: (threadId) => {
       navigateToThreadTab(threadsProjectId, threadId);
@@ -1541,25 +1427,23 @@ export function WorkbenchShell({
       void handleOpenCardFromThread(cardId);
     },
   }), [
-    activeThreadConversation?.projectId,
     activeThreadTab,
+    activeThreadSummary?.projectId,
     cancelLogin,
-    consumeComposerIntent,
+    consumeLocalConversationComposerIntent,
     handleCollaborationModeChange,
     handleOpenCardFromThread,
     loadCodexThreads,
-    localConversationState.conversationsById,
     logout,
     navigateToThreadTab,
     refreshAccount,
-    requestConversationSnapshot,
     resolveLocalConversationPlanImplementation,
     respondApproval,
     respondMcpElicitation,
     respondUserInput,
     selectedCollaborationMode,
-    setComposerIntent,
     setPermissionMode,
+    setLocalConversationComposerIntent,
     setThreadQueueFollowUpsEnabled,
     setThreadModel,
     setThreadReasoningEffort,
@@ -1571,11 +1455,6 @@ export function WorkbenchShell({
     worktreeAutoBranchPrefix,
     worktreeStartMode,
   ]);
-
-  const { model: threadStageModel, actions: boundThreadStageActions } = useThreadStageModel(
-    threadStageInput,
-    threadStageActions,
-  );
 
   const stages: StageRailStage[] = [
     {
@@ -1682,7 +1561,7 @@ export function WorkbenchShell({
                 return { threadId: detail.threadId };
               }}
               onSendThreadSectionPrompt={async ({ projectId, threadId, prompt }) => {
-                const conversation = localConversationState.conversationsById[threadId] ?? null;
+                const conversation = readLocalConversationSnapshot().conversationsById[threadId] ?? null;
                 const activeTurn = conversation
                   ? [...conversation.turns].reverse().find((turn) => turn.status === "inProgress") ?? null
                   : null;
@@ -1739,9 +1618,25 @@ export function WorkbenchShell({
       icon: STAGE_ICONS.threads,
       hideHeader: true,
       content: (
-        <StageThreads
-          model={threadStageModel}
-          actions={boundThreadStageActions}
+        <ConnectedThreadStage
+          projectId={threadsProjectId}
+          projectWorkspacePath={activeThreadsProject?.workspacePath ?? null}
+          isNewThreadTab={isNewThreadTab}
+          newThreadTarget={newThreadTarget}
+          threadStartProgress={newThreadStartProgress}
+          activeThreadId={activeThreadTab?.id ?? null}
+          activeThreadSummary={activeThreadSummary}
+          availableModels={availableModels}
+          collaborationModes={availableCollaborationModes}
+          selectedCollaborationMode={selectedCollaborationMode}
+          selectedModel={threadSettings.model}
+          selectedReasoningEffort={threadSettings.reasoningEffort}
+          reasoningEffortOptions={reasoningEffortOptions}
+          permissionMode={permissionMode}
+          isQueueingEnabled={threadQueueFollowUpsEnabled}
+          composerEnterBehavior={composerEnterBehavior}
+          searchOpenTick={threadSearchOpenTick}
+          actions={threadStageActions}
         />
       ),
     },
@@ -1751,8 +1646,8 @@ export function WorkbenchShell({
       icon: STAGE_ICONS.files,
       hideHeader: true,
       content: (
-        <ReviewDiffPanel
-          conversation={activeThreadConversation}
+        <ConnectedReviewDiffPanel
+          threadId={activeThreadTab?.id ?? null}
           projectWorkspacePath={activeThreadsProject?.workspacePath ?? null}
           searchOpenTick={diffSearchOpenTick}
         />

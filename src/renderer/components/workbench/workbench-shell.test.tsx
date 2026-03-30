@@ -66,7 +66,7 @@ mock.module("./workbench-shell-deps", () => ({
     const stageGroups = (props.stageGroups as Array<{ id: string }> | undefined) ?? [];
     return createElement("div", { "data-stage-groups": stageGroups.map((group) => group.id).join(",") });
   },
-  ReviewDiffPanel: () => createElement("div", { "data-review-diff-panel": "true" }),
+  ConnectedReviewDiffPanel: () => createElement("div", { "data-review-diff-panel": "true" }),
   StageTabStrip: (props: StageTabStripProps) => {
     const globalState = globalThis as { __stageTabStripProps?: StageTabStripProps[] };
     globalState.__stageTabStripProps ??= [];
@@ -114,7 +114,6 @@ mock.module("./workbench-shell-deps", () => ({
       state: {
         threadStartProgressByTarget: {},
       },
-      threads: ((globalThis as { __mockCodexThreads?: Array<Record<string, unknown>> }).__mockCodexThreads ?? []),
       availableModels: [],
       threadSettings: {
         model: "gpt-5.3-codex",
@@ -167,39 +166,50 @@ mock.module("./workbench-shell-deps", () => ({
     logout: async () => true,
     ...((globalThis as { __mockUseCodexAccountActionOverrides?: Record<string, unknown> }).__mockUseCodexAccountActionOverrides ?? {}),
   }),
-  StageThreads: (props: Record<string, unknown>) => {
-    const model = (props.model as Record<string, unknown> | undefined) ?? {};
+  ConnectedThreadStage: (props: Record<string, unknown>) => {
     const actions = (props.actions as Record<string, unknown> | undefined) ?? {};
+    const activeThreadId = props.activeThreadId as string | null | undefined;
+    const knownConversationsById =
+      (globalThis as { __mockKnownConversationsById?: Record<string, unknown> }).__mockKnownConversationsById ?? {};
+    const resumeRequests =
+      (globalThis as { __mockResumeRequestThreadIds?: Set<string> }).__mockResumeRequestThreadIds
+      ?? new Set<string>();
+    (globalThis as { __mockResumeRequestThreadIds?: Set<string> }).__mockResumeRequestThreadIds = resumeRequests;
+    if (
+      activeThreadId
+      && activeThreadId !== "new-thread"
+      && props.isNewThreadTab !== true
+      && !resumeRequests.has(activeThreadId)
+    ) {
+      resumeRequests.add(activeThreadId);
+      void (
+        (globalThis as {
+          __mockRequestConversationResume?: (...args: unknown[]) => Promise<unknown>;
+        }).__mockRequestConversationResume?.(activeThreadId)
+      );
+    }
     (globalThis as { __lastStageThreadsProps?: Record<string, unknown> }).__lastStageThreadsProps = {
       ...props,
-      ...model,
       ...actions,
+      conversation: activeThreadId ? knownConversationsById[activeThreadId] : null,
     };
     return createElement("div", { "data-stage-threads": "true" });
   },
-  useThreadStageModel: (model: unknown, actions: unknown) => ({ model, actions }),
-  useLocalConversation: () => ({
-    ...({
-      state: {
-        connection: {
-          status: "disconnected",
-          retries: 0,
-        },
-        account: null,
-        threadSummariesByProject: {},
-        conversationsById: {},
-        composerIntentsByThread: {},
-        dismissedPlanImplementationTurnIdByThread: {},
-        errorMessage: null,
-      },
-      threads: [],
-      requestConversationSnapshot: async () => null,
-      requestConversationResume: async () => null,
-      setComposerIntent: () => undefined,
-      consumeComposerIntent: () => undefined,
-    }),
-    ...((globalThis as { __mockUseLocalConversationOverrides?: Record<string, unknown> }).__mockUseLocalConversationOverrides ?? {}),
+  useProjectThreadSummaries: () => (
+    (globalThis as { __mockProjectThreadSummaries?: Array<Record<string, unknown>> }).__mockProjectThreadSummaries ?? []
+  ),
+  readLocalConversationSnapshot: () => ({
+    conversationsById:
+      (globalThis as { __mockKnownConversationsById?: Record<string, unknown> }).__mockKnownConversationsById ?? {},
   }),
+  requestLocalConversationSnapshot: async (...args: unknown[]) => (
+    (globalThis as {
+      __mockRequestConversationSnapshot?: (...args: unknown[]) => Promise<unknown>;
+    }).__mockRequestConversationSnapshot?.(...args) ?? null
+  ),
+  resolveLocalConversationPlanImplementation: () => undefined,
+  setLocalConversationComposerIntent: () => undefined,
+  consumeLocalConversationComposerIntent: () => undefined,
   useKanban: () => ({
     board: {
       columns: [
@@ -317,12 +327,19 @@ async function renderShell(
   (globalThis as { __lastStageThreadsProps?: Record<string, unknown> }).__lastStageThreadsProps = undefined;
   (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> }).__lastTerminalPanelProps = undefined;
   (globalThis as { __stageTabStripProps?: StageTabStripProps[] }).__stageTabStripProps = [];
-  (globalThis as { __mockCodexThreads?: Array<Record<string, unknown>> }).__mockCodexThreads = mockCodexThreads;
+  (globalThis as { __mockResumeRequestThreadIds?: Set<string> }).__mockResumeRequestThreadIds = new Set();
+  (globalThis as { __mockProjectThreadSummaries?: Array<Record<string, unknown>> }).__mockProjectThreadSummaries = mockCodexThreads;
   (globalThis as { __mockUseCodexOverrides?: Record<string, unknown> }).__mockUseCodexOverrides = useCodexOverrides;
   (globalThis as { __mockUseCodexThreadFollowerClientOverrides?: Record<string, unknown> }).__mockUseCodexThreadFollowerClientOverrides =
     useCodexThreadFollowerOverrides;
-  (globalThis as { __mockUseLocalConversationOverrides?: Record<string, unknown> }).__mockUseLocalConversationOverrides =
-    useLocalConversationOverrides;
+  (globalThis as { __mockKnownConversationsById?: Record<string, unknown> }).__mockKnownConversationsById =
+    (
+      useLocalConversationOverrides?.state as { conversationsById?: Record<string, unknown> } | undefined
+    )?.conversationsById ?? {};
+  (globalThis as { __mockRequestConversationSnapshot?: (...args: unknown[]) => Promise<unknown> }).__mockRequestConversationSnapshot =
+    useLocalConversationOverrides?.requestConversationSnapshot as ((...args: unknown[]) => Promise<unknown>) | undefined;
+  (globalThis as { __mockRequestConversationResume?: (...args: unknown[]) => Promise<unknown> }).__mockRequestConversationResume =
+    useLocalConversationOverrides?.requestConversationResume as ((...args: unknown[]) => Promise<unknown>) | undefined;
   resolveExpandedStagesReturn = expandedStages;
   mockInvokeImpl = invokeImpl;
   invokeCalls = [];

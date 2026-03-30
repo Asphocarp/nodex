@@ -26,7 +26,7 @@
 - Live workbench navigation/session state is window-local (`sessionStorage`), while shared preferences remain in `localStorage`.
 - Restart resume is a separate Electron-only path: the main process stores one durable last-window snapshot under profile-scoped `userData`, and renderer bootstrap consumes it only when a window is created from zero open windows.
 - Terminal: `use-terminal.ts` manages ghostty-web lifecycle, fit/resize behavior, and PTY IPC.
-- Active conversation UI: reduce host messages and conversation snapshots in `features/local-conversation/`, then derive renderer-only projection data in `features/local-conversation/projection/*`. Keep transcript projection, composer-shell aggregation, search-unit derivation, turn-request stitching, and background-activity ordering upstream of JSX.
+- Active conversation UI: keep Codex host-message ingestion in the singleton external store under `features/local-conversation/`, subscribe through per-thread selectors, then derive renderer-only projection data in `features/local-conversation/projection/*`. Keep transcript projection, composer-shell aggregation, search-unit derivation, turn-request stitching, and background-activity ordering upstream of JSX.
 - Keep active conversation UI ownership inside `features/local-conversation/view/*` and `features/local-conversation/view/shared/*`. Do not reintroduce a second workbench thread renderer path outside that feature.
 - Use `@tanstack/react-form` for structured renderer forms with real validation or value coercion; keep simple one-field inputs on local state and use `src/renderer/lib/forms.ts` for shared submit/error helpers.
 - Keep runtime validation at boundaries:

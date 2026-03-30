@@ -40,9 +40,14 @@ export {
   writeStripSmartPrefixFromTitleEnabled,
 } from "@/lib/smart-prefix-parsing";
 export {
-  StageThreads,
-  useLocalConversation,
-  useThreadStageModel,
+  ConnectedReviewDiffPanel,
+  ConnectedThreadStage,
+  consumeLocalConversationComposerIntent,
+  readLocalConversationSnapshot,
+  requestLocalConversationSnapshot,
+  resolveLocalConversationPlanImplementation,
+  setLocalConversationComposerIntent,
+  useProjectThreadSummaries,
 } from "@/features/local-conversation";
 export { useCodexAccountActions } from "@/lib/use-codex-account-actions";
 export { useCodexControl } from "@/lib/use-codex-control";

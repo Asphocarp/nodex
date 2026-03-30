@@ -2,52 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { codexControlStoreReducer, createInitialCodexControlState } from "./codex-control-store";
 
 describe("codex-control-store", () => {
-  test("stores thread lists sorted by updatedAt descending", () => {
+  test("ignores thread summary and status events because thread lists now live in local conversation store", () => {
     const initial = createInitialCodexControlState();
-
-    const next = codexControlStoreReducer(initial, {
-      type: "setThreads",
-      projectId: "project-1",
-      threads: [
-        {
-          threadId: "thread-older",
-          projectId: "project-1",
-          cardId: "card-1",
-          threadName: "Older",
-          threadPreview: "",
-          modelProvider: "openai",
-          cwd: "/tmp/project",
-          statusType: "idle",
-          statusActiveFlags: [],
-          archived: false,
-          createdAt: 1,
-          updatedAt: 2,
-          linkedAt: "2026-03-23T00:00:00.000Z",
-        },
-        {
-          threadId: "thread-newer",
-          projectId: "project-1",
-          cardId: "card-2",
-          threadName: "Newer",
-          threadPreview: "",
-          modelProvider: "openai",
-          cwd: "/tmp/project",
-          statusType: "active",
-          statusActiveFlags: [],
-          archived: false,
-          createdAt: 1,
-          updatedAt: 5,
-          linkedAt: "2026-03-23T00:00:00.000Z",
-        },
-      ],
-    });
-
-    expect(next.threadsByProject["project-1"]?.[0]?.threadId).toBe("thread-newer");
-    expect(next.threadsByProject["project-1"]?.[1]?.threadId).toBe("thread-older");
-  });
-
-  test("applies thread summary, archive, and status events without thread detail state", () => {
-    const initial = codexControlStoreReducer(createInitialCodexControlState(), {
+    const afterSummary = codexControlStoreReducer(initial, {
       type: "event",
       event: {
         type: "threadSummary",
@@ -68,16 +25,7 @@ describe("codex-control-store", () => {
         },
       },
     });
-
-    const withArchived = codexControlStoreReducer(initial, {
-      type: "event",
-      event: {
-        type: "threadArchivedState",
-        threadId: "thread-1",
-        archived: true,
-      },
-    });
-    const withStatus = codexControlStoreReducer(withArchived, {
+    const afterStatus = codexControlStoreReducer(afterSummary, {
       type: "event",
       event: {
         type: "threadStatus",
@@ -87,9 +35,7 @@ describe("codex-control-store", () => {
       },
     });
 
-    expect(withStatus.threadsByProject["project-1"]?.[0]?.archived).toBeTrue();
-    expect(withStatus.threadsByProject["project-1"]?.[0]?.statusType).toBe("active");
-    expect(withStatus.threadsByProject["project-1"]?.[0]?.statusActiveFlags[0]).toBe("waitingOnUserInput");
+    expect(afterStatus).toBe(initial);
   });
 
   test("stores permission mode per project", () => {

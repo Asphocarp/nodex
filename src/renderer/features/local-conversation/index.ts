@@ -1,10 +1,25 @@
 export {
-  createInitialLocalConversationStoreState,
-  localConversationStoreReducer,
-  type LocalConversationStoreAction,
+  __resetLocalConversationStoreForTests,
+  consumeLocalConversationComposerIntent,
+  getLocalConversationStore,
+  hydrateLocalConversationThreadSummaries,
+  readLocalConversationSnapshot,
+  requestLocalConversationResume,
+  requestLocalConversationSnapshot,
+  resolveLocalConversationPlanImplementation,
+  setLocalConversationComposerIntent,
   type LocalConversationStoreState,
+  useComposerIntent,
+  useConversation,
+  useConversationSubset,
+  useDismissedPlanImplementationTurnIds,
+  useLocalConversationAccount,
+  useLocalConversationConnection,
+  useProjectThreadSummaries,
 } from "./local-conversation-store";
 export { LocalConversationStageScreen as StageThreads } from "./view/local-conversation-stage-screen";
+export { ConnectedThreadStage } from "./view/connected-thread-stage";
+export { ConnectedReviewDiffPanel } from "./view/connected-review-diff-panel";
 export { useThreadStageModel } from "./use-thread-stage-model";
 export {
   selectBlockedTurnIds,
@@ -19,4 +34,3 @@ export type {
   ThreadStageModel,
   ThreadStageModelInput,
 } from "./thread-stage-types";
-export { useLocalConversation } from "./use-local-conversation";

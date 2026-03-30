@@ -1,7 +1,6 @@
-import type { CodexEvent, CodexPermissionMode, CodexThreadStartProgressPhase, CodexThreadSummary } from "./types";
+import type { CodexEvent, CodexPermissionMode, CodexThreadStartProgressPhase } from "./types";
 
 export interface CodexControlState {
-  threadsByProject: Record<string, CodexThreadSummary[]>;
   permissionModeByProject: Record<string, CodexPermissionMode>;
   threadStartProgressByTarget: Record<string, CodexThreadStartProgressState>;
 }
@@ -18,12 +17,10 @@ export interface CodexThreadStartProgressState {
 
 export type CodexControlAction =
   | { type: "event"; event: CodexEvent }
-  | { type: "setThreads"; projectId: string; threads: CodexThreadSummary[] }
   | { type: "setPermissionMode"; projectId: string; mode: CodexPermissionMode };
 
 export function createInitialCodexControlState(): CodexControlState {
   return {
-    threadsByProject: {},
     permissionModeByProject: {},
     threadStartProgressByTarget: {},
   };
@@ -75,76 +72,7 @@ function applyTerminalOutputDelta(input: {
   };
 }
 
-function upsertThread(threads: CodexThreadSummary[], thread: CodexThreadSummary): CodexThreadSummary[] {
-  const existing = threads.find((candidate) => candidate.threadId === thread.threadId);
-  if (!existing) {
-    return [thread, ...threads].sort((left, right) => right.updatedAt - left.updatedAt);
-  }
-
-  return threads
-    .map((candidate) => (candidate.threadId === thread.threadId ? thread : candidate))
-    .sort((left, right) => right.updatedAt - left.updatedAt);
-}
-
-function updateThreadLists(
-  threadsByProject: Record<string, CodexThreadSummary[]>,
-  thread: CodexThreadSummary,
-): Record<string, CodexThreadSummary[]> {
-  const current = threadsByProject[thread.projectId] ?? [];
-
-  return {
-    ...threadsByProject,
-    [thread.projectId]: upsertThread(current, thread),
-  };
-}
-
 function reduceEvent(state: CodexControlState, event: CodexEvent): CodexControlState {
-  if (event.type === "threadSummary") {
-    return {
-      ...state,
-      threadsByProject: updateThreadLists(state.threadsByProject, event.thread),
-    };
-  }
-
-  if (event.type === "threadArchivedState") {
-    return {
-      ...state,
-      threadsByProject: Object.fromEntries(
-        Object.entries(state.threadsByProject).map(([projectId, threads]) => [
-          projectId,
-          threads.map((thread) =>
-            thread.threadId === event.threadId
-              ? {
-                  ...thread,
-                  archived: event.archived,
-                }
-              : thread
-          ),
-        ]),
-      ),
-    };
-  }
-
-  if (event.type === "threadStatus") {
-    return {
-      ...state,
-      threadsByProject: Object.fromEntries(
-        Object.entries(state.threadsByProject).map(([projectId, threads]) => [
-          projectId,
-          threads.map((thread) =>
-            thread.threadId === event.threadId
-              ? {
-                  ...thread,
-                  statusType: event.statusType,
-                  statusActiveFlags: event.statusActiveFlags,
-                }
-              : thread
-          ),
-        ]),
-      ),
-    };
-  }
-
   if (event.type === "threadStartProgress") {
     const targetKey = getThreadStartProgressTargetKey(event.projectId, event.cardId);
     const previous = state.threadStartProgressByTarget[targetKey];
@@ -184,16 +112,6 @@ function reduceEvent(state: CodexControlState, event: CodexEvent): CodexControlS
 export function codexControlStoreReducer(state: CodexControlState, action: CodexControlAction): CodexControlState {
   if (action.type === "event") {
     return reduceEvent(state, action.event);
-  }
-
-  if (action.type === "setThreads") {
-    return {
-      ...state,
-      threadsByProject: {
-        ...state.threadsByProject,
-        [action.projectId]: [...action.threads].sort((left, right) => right.updatedAt - left.updatedAt),
-      },
-    };
   }
 
   if (action.type === "setPermissionMode") {

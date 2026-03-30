@@ -12,6 +12,7 @@ import {
   codexControlStoreReducer,
   createInitialCodexControlState,
 } from "./codex-control-store";
+import { hydrateLocalConversationThreadSummaries } from "../features/local-conversation/local-conversation-store";
 import type {
   CodexApprovalDecision,
   CodexCollaborationModeKind,
@@ -19,9 +20,9 @@ import type {
   CodexModelOption,
   CodexMcpServerElicitationAction,
   CodexPermissionMode,
+  CodexThreadSummary,
   CodexThreadSettings,
   CodexThreadStartForCardInput,
-  CodexThreadSummary,
   CodexTurnStartOptions,
   CodexTurnSummary,
 } from "./types";
@@ -55,7 +56,7 @@ export function useCodexControl(activeProjectId: string) {
   const loadThreads = useCallback(
     async (projectId: string, opts?: { cardId?: string; includeArchived?: boolean }) => {
       const threads = (await invoke("codex:threads:list", projectId, opts)) as CodexThreadSummary[];
-      dispatch({ type: "setThreads", projectId, threads });
+      hydrateLocalConversationThreadSummaries(projectId, threads);
       return threads;
     },
     [],
@@ -101,50 +102,15 @@ export function useCodexControl(activeProjectId: string) {
     prompt: string,
     opts?: { projectId?: string; collaborationMode?: CodexCollaborationModeKind },
   ) => {
-    dispatch({
-      type: "event",
-      event: {
-        type: "threadStatus",
-        threadId,
-        statusType: "active",
-        statusActiveFlags: [],
-      },
-    });
-
-    try {
-      const resolvedSettings = resolveCodexThreadSettings(storedThreadSettings, availableModels);
-      const resolvedProjectId = opts?.projectId ?? activeProjectId;
-      const turnOpts: CodexTurnStartOptions = {
-        permissionMode: resolveProjectPermissionMode(state.permissionModeByProject, resolvedProjectId),
-        model: resolvedSettings.model,
-        reasoningEffort: resolvedSettings.reasoningEffort,
-        collaborationMode: opts?.collaborationMode,
-      };
-      const turn = (await invoke("codex:turn:start", threadId, prompt, turnOpts)) as CodexTurnSummary | null;
-      if (turn) {
-        dispatch({
-          type: "event",
-          event: {
-            type: "threadStatus",
-            threadId,
-            statusType: "active",
-            statusActiveFlags: [],
-          },
-        });
-      }
-      return turn;
-    } catch (error) {
-      dispatch({
-        type: "event",
-        event: {
-          type: "threadStatus",
-          threadId,
-          statusType: "idle",
-          statusActiveFlags: [],
-        },
-      });
-      throw error;
-    }
+    const resolvedSettings = resolveCodexThreadSettings(storedThreadSettings, availableModels);
+    const resolvedProjectId = opts?.projectId ?? activeProjectId;
+    const turnOpts: CodexTurnStartOptions = {
+      permissionMode: resolveProjectPermissionMode(state.permissionModeByProject, resolvedProjectId),
+      model: resolvedSettings.model,
+      reasoningEffort: resolvedSettings.reasoningEffort,
+      collaborationMode: opts?.collaborationMode,
+    };
+    return (await invoke("codex:turn:start", threadId, prompt, turnOpts)) as CodexTurnSummary | null;
   }, [activeProjectId, availableModels, state.permissionModeByProject, storedThreadSettings]);
 
   const enqueueQueuedFollowUp = useCallback(async (
@@ -242,10 +208,6 @@ export function useCodexControl(activeProjectId: string) {
     });
   }, []);
 
-  const threads = useMemo(
-    () => state.threadsByProject[activeProjectId] ?? [],
-    [activeProjectId, state.threadsByProject],
-  );
   const threadSettings = useMemo(
     () => resolveCodexThreadSettings(storedThreadSettings, availableModels),
     [availableModels, storedThreadSettings],
@@ -258,7 +220,6 @@ export function useCodexControl(activeProjectId: string) {
 
   return {
     state,
-    threads,
     availableModels,
     threadSettings,
     reasoningEffortOptions,
