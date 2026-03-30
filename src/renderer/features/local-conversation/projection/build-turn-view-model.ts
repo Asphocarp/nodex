@@ -3,6 +3,7 @@ import { groupAgentEntries } from "./group-exploration-blocks";
 import type {
   ThreadAgentEntryModel,
   ThreadBlockModel,
+  ThreadExplorationGroupBlockModel,
   ThreadSearchUnitModel,
   ThreadThinkingPlaceholderBlockModel,
   ThreadTranscriptBlockModel,
@@ -164,38 +165,103 @@ function isIncompleteBlock(
   return true;
 }
 
-function resolveThinkingPlaceholderItem(
-  turnId: string,
+function isTrailingReasoningEntryInProgress(entry: ThreadAgentEntryModel | undefined): boolean {
+  if (!entry || entry.type === "explorationGroup" || entry.type === "multiAgentGroup") return false;
+  if (entry.type !== "reasoning") return false;
+  return entry.status === "inProgress";
+}
+
+function hasIncompleteNonAgentBlock(
+  buckets: ThreadTurnRenderBuckets,
+  isStreamingTurn: boolean,
+): boolean {
+  return [
+    buckets.assistantItem,
+    buckets.proposedPlanItem,
+    buckets.todoListItem,
+    buckets.unifiedDiffItem,
+    ...buckets.postAssistantItems,
+    ...buckets.mcpServerElicitationItems,
+  ].some((block) => isIncompleteBlock(block, isStreamingTurn));
+}
+
+function reconcileExplorationState(
   groupedAgentItems: ThreadAgentEntryModel[],
   buckets: ThreadTurnRenderBuckets,
   input: Pick<BuildTurnViewModelInput, "isStreamingTurn" | "isBlocked">,
+): {
+  groupedAgentItems: ThreadAgentEntryModel[];
+  isExploring: boolean;
+  hasWorkedForItem: boolean;
+  isAnyNonExploringAgentItemInProgress: boolean;
+} {
+  const hasWorkedForItem = groupedAgentItems.some((entry) => "entry" in entry && entry.type === "workedFor");
+  const trailingEntry = groupedAgentItems[groupedAgentItems.length - 1];
+  const hasTrailingExplorationGroup = trailingEntry?.type === "explorationGroup";
+  const trailingExplorationGroup = hasTrailingExplorationGroup ? trailingEntry as ThreadExplorationGroupBlockModel : null;
+  const nonAgentBlockInProgress = hasIncompleteNonAgentBlock(buckets, input.isStreamingTurn);
+  const explorationEntryInProgress = trailingExplorationGroup?.entries.some((entry) => entry.status === "inProgress") ?? false;
+  const isExploring =
+    !input.isBlocked
+    && input.isStreamingTurn
+    && trailingExplorationGroup !== null
+    && (!nonAgentBlockInProgress || explorationEntryInProgress);
+
+  const nextGroupedAgentItems =
+    isExploring && trailingExplorationGroup
+      ? groupedAgentItems.map((entry, index) => {
+          if (index !== groupedAgentItems.length - 1 || entry.type !== "explorationGroup") return entry;
+          return {
+            ...entry,
+            status: "inProgress",
+          } satisfies ThreadExplorationGroupBlockModel;
+        })
+      : groupedAgentItems;
+
+  const trailingResolvedEntry = nextGroupedAgentItems[nextGroupedAgentItems.length - 1];
+  const isAnyNonExploringAgentItemInProgress =
+    trailingResolvedEntry !== undefined
+    && trailingResolvedEntry.type !== "explorationGroup"
+    && trailingResolvedEntry.type !== "multiAgentGroup"
+    && trailingResolvedEntry.status === "inProgress"
+    && !isTrailingReasoningEntryInProgress(trailingResolvedEntry);
+
+  return {
+    groupedAgentItems: nextGroupedAgentItems,
+    isExploring,
+    hasWorkedForItem,
+    isAnyNonExploringAgentItemInProgress,
+  };
+}
+
+function resolveThinkingPlaceholderItem(
+  turnId: string,
+  buckets: ThreadTurnRenderBuckets,
+  input: Pick<BuildTurnViewModelInput, "isStreamingTurn" | "isBlocked"> & {
+    isExploring: boolean;
+    hasWorkedForItem: boolean;
+    isAnyNonExploringAgentItemInProgress: boolean;
+  },
 ): ThreadThinkingPlaceholderBlockModel | null {
   if (!input.isStreamingTurn || input.isBlocked) return null;
-
-  const hasWorkedForItem = groupedAgentItems.some((entry) => "entry" in entry && entry.type === "workedFor");
-  if (hasWorkedForItem) return null;
-
-  const isExploring = groupedAgentItems.some((entry) =>
-    entry.type === "explorationGroup" && entry.status === "inProgress");
-  if (isExploring) return null;
+  if (input.hasWorkedForItem) return null;
+  if (input.isExploring) return null;
 
   if (isIncompleteBlock(buckets.proposedPlanItem, input.isStreamingTurn)) return null;
   if (isIncompleteBlock(buckets.assistantItem, input.isStreamingTurn)) return buildThinkingPlaceholderItem(turnId);
-
-  const isAnyNonExploringAgentItemInProgress = groupedAgentItems.some((entry) =>
-    entry.type !== "explorationGroup" && entry.status === "inProgress");
-  if (isAnyNonExploringAgentItemInProgress) return null;
+  if (input.isAnyNonExploringAgentItemInProgress) return null;
 
   return buildThinkingPlaceholderItem(turnId);
 }
 
 export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnModel {
   const groupedAgentItems = groupAgentEntries(input.buckets.agentItems);
-  const renderableCollapsedEntries = groupedAgentItems.filter((entry) => {
+  const explorationState = reconcileExplorationState(groupedAgentItems, input.buckets, input);
+  const renderableCollapsedEntries = explorationState.groupedAgentItems.filter((entry) => {
     if ("entry" in entry && entry.type === "workedFor") return false;
     return true;
   });
-  const workedForEntry = groupedAgentItems.find((entry) =>
+  const workedForEntry = explorationState.groupedAgentItems.find((entry) =>
     "entry" in entry
     && entry.type === "workedFor"
     && typeof entry.entry.timeLabel === "string"
@@ -209,7 +275,12 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
 
   let buckets: ThreadTurnRenderBuckets = {
     ...input.buckets,
-    thinkingPlaceholderItem: resolveThinkingPlaceholderItem(input.turnId, groupedAgentItems, input.buckets, input),
+    thinkingPlaceholderItem: resolveThinkingPlaceholderItem(input.turnId, input.buckets, {
+      ...input,
+      isExploring: explorationState.isExploring,
+      hasWorkedForItem: explorationState.hasWorkedForItem,
+      isAnyNonExploringAgentItemInProgress: explorationState.isAnyNonExploringAgentItemInProgress,
+    }),
   };
 
   const searchUnits = buildSearchUnits(buckets, input.turnId);
@@ -251,7 +322,7 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
     ...buckets.personalityChangedItems,
     ...buckets.forkedFromConversationItems,
   ].filter((block) => !portalBlockIds.has(block.id));
-  const blocks = flattenBlocks(leadingBlocks, groupedAgentItems, trailingBlocks);
+  const resolvedBlocks = flattenBlocks(leadingBlocks, explorationState.groupedAgentItems, trailingBlocks);
   const hasRenderableAgentBodyEntries =
     renderableCollapsedEntries.length > 0
     && !input.isStreamingTurn
@@ -263,14 +334,14 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
     turn: input.turn,
     buckets,
     leadingBlocks,
-    agentBodyEntries: groupedAgentItems,
+    agentBodyEntries: explorationState.groupedAgentItems,
     trailingBlocks,
-    blocks,
+    blocks: resolvedBlocks,
     aboveComposerBlocks,
     isLatestTurn: input.isLatestTurn,
     isStreamingTurn: input.isStreamingTurn,
     isBlocked: input.isBlocked,
-    searchableText: collectSearchableText(blocks),
+    searchableText: collectSearchableText(resolvedBlocks),
     searchUnits,
     hasRenderableAgentBodyEntries,
     defaultAgentBodyCollapsed: hasRenderableAgentBodyEntries && !input.isLatestTurn,

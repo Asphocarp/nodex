@@ -20,7 +20,10 @@ describe("PlanMessage", () => {
     const { container, getByRole } = render(
       <TooltipProvider>
         <PlanMessage
+          completed={false}
           content={`# Plan\n\n1. Inspect the codebase.\n2. Implement the change.\n3. Verify the result.`}
+          parseIncompleteMarkdown
+          defaultCollapsed
         />
       </TooltipProvider>,
     );
@@ -28,11 +31,27 @@ describe("PlanMessage", () => {
     const body = container.querySelector(`#${getByRole("button", { name: "Expand plan summary" }).getAttribute("aria-controls") ?? ""}`);
     expect(Boolean(body)).toBeTrue();
     expect(Boolean(body?.getAttribute("style")?.includes("height: 320px"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Writing plan"))).toBeTrue();
     expect(Boolean(textContent(container).includes("Expand plan"))).toBeTrue();
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeTrue();
 
     fireEvent.click(getByRole("button", { name: "Expand plan summary" }));
     await settleAsyncRender();
 
     expect(Boolean(body?.getAttribute("style")?.includes("height: auto"))).toBeTrue();
+  });
+
+  test("renders the completed title without the writing shimmer", () => {
+    const { container } = render(
+      <TooltipProvider>
+        <PlanMessage
+          completed
+          content={`# Plan\n\n1. Inspect the codebase.`}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(textContent(container).includes("Plan"))).toBeTrue();
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
   });
 });

@@ -74,7 +74,7 @@
   - for Codex-native expandable transcript surfaces, reuse a shared measured-height hook and let each subtype own its own `motion.div` / `AnimatePresence` wrapper and state machine
   - keep transcript expand/collapse subtype-owned; reuse the measured-height hook, but let each Codex-parity surface own its own Motion wrapper and state machine
 - Keep Codex Electron's transcript timing exact:
-  - thread-body, transcript-special, and tool-call accordion surfaces should share one exported motion contract (`duration: 0.45`, `ease: [0.4, 0, 0.1, 1]`)
+  - thread-body, transcript-special, and tool-call accordion surfaces should share one exported motion contract (`duration: 0.5`, `ease: [0.19, 1, 0.22, 1]`)
   - do not reintroduce local `0.18` / `easeOut` expand-collapse timings on command shells, composer lanes, or transcript accordions
   - do not invent a generic y-axis slide-in for transcript rows; Codex Electron's main thread motion language is measured `height + opacity`, not row translation
 - Keep streaming assistant prose animation scoped:

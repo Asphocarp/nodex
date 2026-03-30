@@ -293,6 +293,116 @@ describe("bucketizeTurnItems", () => {
     expect(turn.blocks.map((block) => block.type).join(",")).toBe("thinkingPlaceholder");
   });
 
+  test("promotes a trailing exploration cluster to Exploring while the turn is still active", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({
+          id: "exec_1",
+          type: "exec",
+          status: "completed",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "exec_1",
+            type: "command_execution",
+            kind: "commandExecution",
+            semanticKind: "exec",
+            status: "completed",
+            createdAt: 1,
+            updatedAt: 1,
+            toolCall: {
+              subtype: "command",
+              toolName: "run_command",
+              args: {
+                commandActions: [{ type: "read", name: "stage.tsx", path: "src/stage.tsx" }],
+              },
+            },
+          },
+        }),
+        buildItem({
+          id: "reasoning_1",
+          type: "reasoning",
+          status: "inProgress",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "reasoning_1",
+            type: "reasoning",
+            kind: "reasoning",
+            semanticKind: "reasoning",
+            status: "inProgress",
+            createdAt: 2,
+            updatedAt: 2,
+            markdownText: "Checking stage layout details.",
+          },
+        }),
+      ],
+      turnStatus: "inProgress",
+    });
+
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: {
+        threadId: "thread_1",
+        turnId: "turn_1",
+        status: "inProgress",
+        itemIds: ["exec_1", "reasoning_1"],
+        items: [],
+      },
+      buckets,
+      isLatestTurn: true,
+      isStreamingTurn: true,
+      isBlocked: false,
+    });
+
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe("explorationGroup");
+    const explorationBlock = turn.blocks[0];
+    expect(explorationBlock?.type).toBe("explorationGroup");
+    expect(explorationBlock && explorationBlock.type === "explorationGroup" ? explorationBlock.status : undefined).toBe("inProgress");
+  });
+
+  test("does not let a trailing in-progress reasoning row suppress the Thinking placeholder", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({
+          id: "reasoning_1",
+          type: "reasoning",
+          status: "inProgress",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "reasoning_1",
+            type: "reasoning",
+            kind: "reasoning",
+            semanticKind: "reasoning",
+            status: "inProgress",
+            createdAt: 2,
+            updatedAt: 2,
+            markdownText: "Checking the bundle.",
+          },
+        }),
+      ],
+      turnStatus: "inProgress",
+    });
+
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: {
+        threadId: "thread_1",
+        turnId: "turn_1",
+        status: "inProgress",
+        itemIds: ["reasoning_1"],
+        items: [],
+      },
+      buckets,
+      isLatestTurn: true,
+      isStreamingTurn: true,
+      isBlocked: false,
+    });
+
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe("reasoning,thinkingPlaceholder");
+  });
+
   test("suppresses the thinking placeholder while a proposed plan is still streaming", () => {
     const buckets = bucketizeTurnItems({
       items: [

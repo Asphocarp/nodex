@@ -700,24 +700,20 @@ export function ThreadPlanCardBlock({
   isStreamingTurn,
 }: ThreadLeafBlockProps) {
   const item = block.entry;
+  const isInProgress = item.status === "inProgress";
+  const shouldParseIncompleteMarkdown = isStreamingTurn && (isInProgress || isLatestTurn);
 
   return (
-    <div className="flex flex-col gap-2">
-      {block.type === "todoList" ? (
-        <TodoListSurface item={item} />
-      ) : (
-        <>
-          <div className="text-[11px] font-medium tracking-wide text-token-description-foreground uppercase">
-            Proposed plan
-          </div>
-          <PlanMessage
-            content={item.markdownText ?? ""}
-            parseIncompleteMarkdown={isStreamingTurn && (item.status === "inProgress" || isLatestTurn)}
-            defaultExpanded={Boolean(isStreamingTurn || item.status === "inProgress")}
-          />
-        </>
-      )}
-    </div>
+    block.type === "todoList" ? (
+      <TodoListSurface item={item} />
+    ) : (
+      <PlanMessage
+        content={item.markdownText ?? ""}
+        completed={!isInProgress}
+        parseIncompleteMarkdown={shouldParseIncompleteMarkdown}
+        defaultCollapsed={isInProgress}
+      />
+    )
   );
 }
 

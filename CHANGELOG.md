@@ -11,6 +11,9 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - Fixed heavy streaming thread sessions repainting the whole Electron shell by moving active thread state to a per-thread external store instead of a WorkbenchShell-owned reducer.
 - Fixed Kanban board horizontal overflow so the board keeps a visible thin scrollbar instead of hiding the only obvious horizontal scroll affordance.
+- Fixed active thread exploration rows so live read/search/list-file sequences now stay in Codex-style `Exploring` preview mode instead of immediately falling back to `Explored`.
+- Fixed thread-body and tool-call accordion motion timing so transcript reveals now use the same shared easing and duration as Codex instead of a slower misidentified transition.
+- Fixed streaming proposed-plan cards so active plans now render as `Writing plan` in the collapsed preview state instead of expanding immediately under an extra `Proposed plan` label.
 
 ## [0.1.8] - 2026-03-30
 

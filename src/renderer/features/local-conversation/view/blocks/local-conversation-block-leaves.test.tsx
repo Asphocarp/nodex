@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
 import type { CodexConversationItem } from "../../../../lib/types";
+import { NodexTooltipProvider as TooltipProvider } from "../../../../components/ui/tooltip";
 import { installElementScrollHeight, installMeasuredResizeObserver } from "../../../../test/browser-globals";
 import { render, settleAsyncRender, textContent } from "../../../../test/dom";
 import {
   ThreadContextCompactionBlock,
   ThreadExplorationGroupBlock,
+  ThreadPlanCardBlock,
   ThreadStreamErrorBlock,
   ThreadSystemErrorBlock,
   ThreadTurnDiffBlock,
@@ -210,6 +212,43 @@ describe("ThreadContextCompactionBlock", () => {
     getByText("Automatically compacting context");
     expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeTrue();
     expect(Boolean(container.querySelector("svg"))).toBeFalse();
+  });
+});
+
+describe("ThreadPlanCardBlock", () => {
+  test("uses the Codex writing-plan shell without the old proposed-plan eyebrow", () => {
+    const { container, getByText } = render(
+      <TooltipProvider>
+        <ThreadPlanCardBlock
+          block={{
+            id: "plan-1",
+            turnId: "turn-1",
+            createdAt: 1,
+            updatedAt: 1,
+            searchableText: "plan",
+            type: "proposedPlan",
+            entry: {
+              threadId: "thread-1",
+              turnId: "turn-1",
+              itemId: "plan-1",
+              type: "proposedPlan",
+              kind: "plan",
+              semanticKind: "proposedPlan",
+              status: "inProgress",
+              markdownText: "# Plan\n\n1. Investigate\n2. Implement",
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          }}
+          isLatestTurn
+          isStreamingTurn
+        />
+      </TooltipProvider>,
+    );
+
+    getByText("Writing plan");
+    expect(Boolean(textContent(container).includes("Proposed plan"))).toBeFalse();
+    expect(Boolean(textContent(container).includes("Expand plan"))).toBeTrue();
   });
 });
 

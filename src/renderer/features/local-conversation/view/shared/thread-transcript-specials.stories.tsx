@@ -9,12 +9,14 @@ import { MultiAgentActionSurface } from "./multi-agent-action-surface";
 import { ReasoningSurface } from "./reasoning-surface";
 import { TodoListSurface } from "./todo-list-surface";
 import {
+  ThreadExplorationGroupBlock,
   ThreadContextCompactionBlock,
+  ThreadPlanCardBlock,
   ThreadStreamErrorBlock,
   ThreadSystemErrorBlock,
 } from "../blocks/local-conversation-block-leaves";
 import { buildRendererItemStream } from "../../projection/build-renderer-item-stream";
-import type { ThreadTranscriptBlockModel } from "../../thread-stage-types";
+import type { ThreadExplorationGroupBlockModel, ThreadTranscriptBlockModel } from "../../thread-stage-types";
 
 function StorySurface({
   title,
@@ -164,6 +166,110 @@ export const AssistantStreamingWordFade: Story = {
       <ConversationStorySurface>
         <StreamingAssistantMarkdownPreview />
       </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const ExplorationStreaming: Story = {
+  render: () => {
+    const block: ThreadExplorationGroupBlockModel = {
+      id: "exploration_story_streaming",
+      turnId: "turn_story_streaming",
+      createdAt: 1,
+      updatedAt: 2,
+      searchableText: "exploration",
+      type: "explorationGroup",
+      summary: "Exploration",
+      status: "inProgress",
+      entries: [
+        {
+          threadId: "thread_story",
+          turnId: "turn_story_streaming",
+          itemId: "exec_story_streaming",
+          type: "command_execution",
+          kind: "commandExecution",
+          semanticKind: "exec",
+          status: "completed",
+          createdAt: 1,
+          updatedAt: 1,
+          toolCall: {
+            subtype: "command",
+            toolName: "exec_command",
+            args: {
+              command: "sed -n '1,220p' src/renderer/features/local-conversation/view/shared/thread-transcript-specials.stories.tsx",
+              commandActions: [{ type: "read", name: "thread-transcript-specials.stories.tsx", path: "src/renderer/features/local-conversation/view/shared/thread-transcript-specials.stories.tsx" }],
+            },
+            result: "import type { Meta, StoryObj } from \"@storybook/react-vite\";",
+          },
+        },
+        {
+          threadId: "thread_story",
+          turnId: "turn_story_streaming",
+          itemId: "reasoning_story_streaming",
+          type: "reasoning",
+          kind: "reasoning",
+          semanticKind: "reasoning",
+          status: "inProgress",
+          createdAt: 2,
+          updatedAt: 2,
+          markdownText: "Checking whether the exploration accordion replaces the Thinking placeholder.",
+        },
+      ],
+    };
+
+    return (
+      <StorySurface
+        title="Exploration Streaming"
+        description="Active exploration clusters should render as Exploring in preview mode and replace the Thinking placeholder while the turn is still live."
+      >
+        <ElectronDarkThreadStorySurface>
+          <ThreadExplorationGroupBlock
+            block={block}
+            isLatestTurn
+            isStreamingTurn
+          />
+        </ElectronDarkThreadStorySurface>
+      </StorySurface>
+    );
+  },
+};
+
+export const WritingPlanStreaming: Story = {
+  render: () => (
+    <StorySurface
+      title="Writing Plan Streaming"
+      description="In-progress proposed plans should replace Thinking, render the Writing plan header, and start in the collapsed preview state."
+    >
+      <ElectronDarkThreadStorySurface>
+        <ThreadPlanCardBlock
+          block={{
+            id: "plan_story_streaming",
+            turnId: "turn_story_streaming",
+            createdAt: 1,
+            updatedAt: 2,
+            searchableText: "plan",
+            type: "proposedPlan",
+            entry: {
+              threadId: "thread_story",
+              turnId: "turn_story_streaming",
+              itemId: "plan_story_streaming",
+              type: "proposedPlan",
+              kind: "plan",
+              semanticKind: "proposedPlan",
+              status: "inProgress",
+              createdAt: 1,
+              updatedAt: 2,
+              markdownText: `# Implementation plan
+
+1. Audit the current transcript state derivation.
+2. Align the shell header with Codex Electron.
+3. Verify that in-progress plans stay collapsed by default.`,
+            },
+          }}
+          isLatestTurn
+          isStreamingTurn
+        />
+      </ElectronDarkThreadStorySurface>
     </StorySurface>
   ),
 };

@@ -51,17 +51,19 @@ function DownloadIcon() {
 
 interface PlanMessageProps {
   content: string;
+  completed?: boolean;
   parseIncompleteMarkdown?: boolean;
-  defaultExpanded?: boolean;
+  defaultCollapsed?: boolean;
 }
 
 export function PlanMessage({
   content,
+  completed = true,
   parseIncompleteMarkdown = false,
-  defaultExpanded = false,
+  defaultCollapsed = false,
 }: PlanMessageProps) {
   const contentId = useId();
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const downloadFilename = useMemo(() => resolvePlanDownloadFilename(content), [content]);
 
   const handleDownload = () => {
@@ -86,22 +88,24 @@ export function PlanMessage({
     <div className="px-2.5">
       <div className="relative overflow-clip rounded-lg bg-token-foreground/5">
         <div className="relative flex flex-wrap items-center justify-between gap-2 px-3 py-2">
-          <span className="text-base/tight font-semibold text-token-foreground">Plan</span>
+          <span className={cn("text-base/tight font-semibold text-token-foreground", !completed && "loading-shimmer-pure-text")}>
+            {completed ? "Plan" : "Writing plan"}
+          </span>
           <div className="flex items-center gap-1">
             <ThreadActionIconButton label="Download plan" onClick={handleDownload}>
               <DownloadIcon />
             </ThreadActionIconButton>
             <CopyMessageActionButton text={content} label="Copy" copiedLabel="Copied" />
             <ThreadActionIconButton
-              label={expanded ? "Collapse plan summary" : "Expand plan summary"}
+              label={collapsed ? "Expand plan summary" : "Collapse plan summary"}
               aria-controls={contentId}
-              aria-expanded={expanded}
-              state={expanded ? "open" : "closed"}
+              aria-expanded={!collapsed}
+              state={collapsed ? "closed" : "open"}
               onClick={() => {
-                setExpanded((current) => !current);
+                setCollapsed((current) => !current);
               }}
             >
-              <ChevronDownIcon className={cn("transition-transform duration-200", expanded ? "rotate-0" : "rotate-180")} />
+              <ChevronDownIcon className={cn("transition-transform duration-200", collapsed ? "rotate-180" : "rotate-0")} />
             </ThreadActionIconButton>
           </div>
         </div>
@@ -110,18 +114,19 @@ export function PlanMessage({
           id={contentId}
           className="relative overflow-hidden"
           initial={false}
-          animate={{ height: expanded ? "auto" : COLLAPSED_PLAN_MAX_HEIGHT_PX }}
+          animate={{ height: collapsed ? COLLAPSED_PLAN_MAX_HEIGHT_PX : "auto" }}
           transition={CODEX_THREAD_ACCORDION_TRANSITION}
         >
           <div className="px-4 py-3">
             <MarkdownRenderer
               content={content}
               parseIncompleteMarkdown={parseIncompleteMarkdown}
+              animateStreamingText={!completed && parseIncompleteMarkdown}
               className="codex-markdown-plan"
             />
           </div>
 
-          {!expanded && (
+          {collapsed && (
             <>
               <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-linear-to-t from-token-input-background to-transparent" />
               <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
@@ -129,7 +134,7 @@ export function PlanMessage({
                   type="button"
                   className="pointer-events-auto flex cursor-interaction items-center gap-1 rounded-full border border-token-border bg-token-foreground px-2 py-0.5 text-sm leading-[18px] text-token-dropdown-background transition-colors select-none no-drag hover:bg-token-foreground/80"
                   onClick={() => {
-                    setExpanded(true);
+                    setCollapsed(false);
                   }}
                 >
                   Expand plan
