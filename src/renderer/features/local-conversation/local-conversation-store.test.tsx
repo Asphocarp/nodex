@@ -12,6 +12,7 @@ import { render, settleAsyncRender, textContent } from "../../test/dom";
 
 let invokeCalls: string[] = [];
 let hostMessageListener: ((message: CodexHostMessage) => void) | null = null;
+let threadListByProject: Record<string, CodexThreadSummary[]> = {};
 
 mock.module("./local-conversation-deps", () => ({
   invoke: async (channel: string, threadId?: string) => {
@@ -50,6 +51,10 @@ mock.module("./local-conversation-deps", () => ({
           ],
         },
       ];
+    }
+
+    if (channel === "codex:threads:list" && typeof threadId === "string") {
+      return threadListByProject[threadId] ?? [];
     }
 
     return null;
@@ -105,6 +110,7 @@ describe("local-conversation-store", () => {
   test("hydrates account and connection through the external store bootstrap", async () => {
     invokeCalls = [];
     hostMessageListener = null;
+    threadListByProject = {};
     const {
       __resetLocalConversationStoreForTests,
       LocalConversationProvider,
@@ -134,6 +140,7 @@ describe("local-conversation-store", () => {
   test("conversation selectors stay isolated to the selected thread", async () => {
     invokeCalls = [];
     hostMessageListener = null;
+    threadListByProject = {};
     const {
       __resetLocalConversationStoreForTests,
       hydrateLocalConversationThreadSummaries,
@@ -251,6 +258,7 @@ describe("local-conversation-store", () => {
   test("control-plane selectors update without a separate reducer store", async () => {
     invokeCalls = [];
     hostMessageListener = null;
+    threadListByProject = {};
     const {
       __resetLocalConversationStoreForTests,
       LocalConversationProvider,
@@ -294,5 +302,64 @@ describe("local-conversation-store", () => {
     await settleAsyncRender();
 
     expect(textContent(container)).toBe("custom:runningSetup:hello");
+  });
+
+  test("project thread summary subscriptions lazily hydrate once per project", async () => {
+    invokeCalls = [];
+    hostMessageListener = null;
+    threadListByProject = {
+      "project-1": [buildThreadSummary("thread-1", "project-1")],
+    };
+    const {
+      __resetLocalConversationStoreForTests,
+      LocalConversationProvider,
+      useProjectThreadSummaries,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    function Probe() {
+      const summaries = useProjectThreadSummaries("project-1");
+      return createElement("div", null, String(summaries.length));
+    }
+
+    const { container } = render(
+      createElement(
+        LocalConversationProvider,
+        null,
+        createElement("div", null, createElement(Probe), createElement(Probe)),
+      ),
+    );
+    await settleAsyncRender();
+
+    expect(textContent(container)).toBe("11");
+    expect(String(invokeCalls.filter((call) => call === "codex:threads:list").length)).toBe("1");
+  });
+
+  test("empty project thread results still count as hydrated", async () => {
+    invokeCalls = [];
+    hostMessageListener = null;
+    threadListByProject = {
+      "project-empty": [],
+    };
+    const {
+      __resetLocalConversationStoreForTests,
+      LocalConversationProvider,
+      useProjectThreadSummaries,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    function Probe() {
+      const summaries = useProjectThreadSummaries("project-empty");
+      return createElement("div", null, String(summaries.length));
+    }
+
+    const { rerender } = render(
+      createElement(LocalConversationProvider, null, createElement(Probe)),
+    );
+    await settleAsyncRender();
+    rerender(createElement(LocalConversationProvider, null, createElement(Probe)));
+    await settleAsyncRender();
+
+    expect(String(invokeCalls.filter((call) => call === "codex:threads:list").length)).toBe("1");
   });
 });

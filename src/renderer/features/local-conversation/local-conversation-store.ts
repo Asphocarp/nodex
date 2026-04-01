@@ -306,6 +306,8 @@ export class CodexAppServerManager {
   private availableModels: CodexModelOption[] = EMPTY_MODELS;
   private readonly threadSummariesByProject = new Map<string, CodexThreadSummary[]>();
   private readonly threadSummariesById = new Map<string, CodexThreadSummary>();
+  private readonly loadedThreadSummariesByProject = new Set<string>();
+  private readonly threadSummaryLoadsInFlightByProject = new Map<string, Promise<CodexThreadSummary[]>>();
   private readonly conversationsById = new Map<string, CodexConversationSnapshot>();
   private readonly conversationVersionById = new Map<string, number>();
   private readonly composerIntentsByThread = new Map<string, CodexComposerIntent>();
@@ -441,6 +443,7 @@ export class CodexAppServerManager {
   subscribeProjectThreadSummaries(projectId: string, listener: StoreListener): () => void {
     this.start();
     const listeners = getOrCreateListenerSet(this.projectSummaryCallbacksByProject, projectId);
+    this.ensureProjectThreadSummariesLoaded(projectId);
     const unsubscribe = subscribeSet(listeners, listener);
     return () => {
       unsubscribe();
@@ -488,6 +491,7 @@ export class CodexAppServerManager {
 
   hydrateThreadSummaries(projectId: string, threads: CodexThreadSummary[]): void {
     const sortedThreads = sortThreadSummaries(threads);
+    this.loadedThreadSummariesByProject.add(projectId);
     const current = this.threadSummariesByProject.get(projectId) ?? EMPTY_THREADS;
     if (areThreadSummariesEqual(current, sortedThreads)) {
       return;
@@ -503,6 +507,28 @@ export class CodexAppServerManager {
   }
 
   async loadThreads(
+    projectId: string,
+    opts?: { cardId?: string; includeArchived?: boolean },
+  ): Promise<CodexThreadSummary[]> {
+    if (!opts && this.threadSummaryLoadsInFlightByProject.has(projectId)) {
+      return this.threadSummaryLoadsInFlightByProject.get(projectId)!;
+    }
+
+    const loadPromise = this.loadThreadsFromHost(projectId, opts);
+    if (!opts) {
+      this.threadSummaryLoadsInFlightByProject.set(projectId, loadPromise);
+    }
+
+    try {
+      return await loadPromise;
+    } finally {
+      if (!opts) {
+        this.threadSummaryLoadsInFlightByProject.delete(projectId);
+      }
+    }
+  }
+
+  private async loadThreadsFromHost(
     projectId: string,
     opts?: { cardId?: string; includeArchived?: boolean },
   ): Promise<CodexThreadSummary[]> {
@@ -655,6 +681,8 @@ export class CodexAppServerManager {
     this.availableModels = EMPTY_MODELS;
     this.threadSummariesByProject.clear();
     this.threadSummariesById.clear();
+    this.loadedThreadSummariesByProject.clear();
+    this.threadSummaryLoadsInFlightByProject.clear();
     this.conversationsById.clear();
     this.conversationVersionById.clear();
     this.composerIntentsByThread.clear();
@@ -880,6 +908,18 @@ export class CodexAppServerManager {
     this.threadSummariesByProject.set(thread.projectId, nextThreads);
     this.notifyProjectThreadSummaries(thread.projectId);
     this.notifyAnyConversationCallbacks({ forceMeta: true });
+  }
+
+  private ensureProjectThreadSummariesLoaded(projectId: string): void {
+    if (this.loadedThreadSummariesByProject.has(projectId)) {
+      return;
+    }
+
+    if (this.threadSummaryLoadsInFlightByProject.has(projectId)) {
+      return;
+    }
+
+    void this.loadThreads(projectId).catch(() => {});
   }
 
   private applyConversationSnapshot(
