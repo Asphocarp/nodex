@@ -191,3 +191,53 @@ mark.codex-thread-find-active {
 .automation-row {
   container-type: inline-size;
 }
+
+.nodex-logo-shimmer-base {
+  background-color: #adadad;
+}
+
+.dark .nodex-logo-shimmer-base {
+  background-color: #686868;
+}
+
+.nodex-logo-shimmer-overlay {
+  background-image: linear-gradient(
+    112deg,
+    transparent 22%,
+    #ffffff05 38%,
+    #ffffff75 49%,
+    #ffffff0f 56%,
+    transparent 74%
+  );
+  background-position: 140% 0;
+  background-repeat: no-repeat;
+  background-size: 220% 100%;
+  animation: 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite nodex-logo-shimmer;
+}
+
+.dark .nodex-logo-shimmer-overlay {
+  background-image: linear-gradient(
+    112deg,
+    transparent 22%,
+    #ffffff06 38%,
+    #fff3 49%,
+    #ffffff0d 56%,
+    transparent 74%
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nodex-logo-shimmer-overlay {
+    animation: none;
+  }
+}
+
+@keyframes nodex-logo-shimmer {
+  0% {
+    background-position: 140% 0;
+  }
+
+  to {
+    background-position: -120% 0;
+  }
+}

@@ -20,6 +20,7 @@ import {
   LocalConversationThreadScrollLayout,
   useLocalConversationThreadScrollController,
 } from "./local-conversation-thread-scroll-controller";
+import { LocalConversationResumeLoader } from "./shared/local-conversation-resume-loader";
 
 const PROGRESS_PHASES = [
   { key: "creatingWorktree", label: "Worktree" },
@@ -308,7 +309,7 @@ function LocalConversationThreadBodyContent({ model, actions, onErrorMessage, in
           threadCwd={model.conversation?.cwd ?? null}
         />
       ) : null}
-      <div className="mx-auto flex min-h-full max-w-(--thread-content-max-width) flex-col px-2.5 md:px-panel">
+      <div className="mx-auto flex h-full min-h-full max-w-(--thread-content-max-width) flex-col px-2.5 md:px-panel">
         {body.showThreadStartProgressPanel && model.threadStartProgress ? (
           <div className="flex flex-1 items-center justify-center">
             <ThreadStartProgressPanel
@@ -332,15 +333,10 @@ function LocalConversationThreadBodyContent({ model, actions, onErrorMessage, in
             </div>
           </div>
         ) : body.emptyState.type === "resumingThread" ? (
-          <div className="flex flex-1 items-center justify-center">
-            <div className="flex max-w-110 items-start gap-3 rounded-2xl border border-[color-mix(in_srgb,var(--border)_75%,transparent)] bg-token-input-background/45 px-4 py-4 text-left">
-              <SpinnerIcon className="mt-0.5 size-4 shrink-0 text-token-description-foreground" />
-              <div className="space-y-1">
-                <div className="text-sm font-medium text-token-foreground">{body.emptyState.title}</div>
-                <div className="text-sm/normal text-token-description-foreground">{body.emptyState.description}</div>
-              </div>
-            </div>
-          </div>
+          <LocalConversationResumeLoader
+            title={body.emptyState.title}
+            description={body.emptyState.description}
+          />
         ) : (
           <div data-thread-find-target="conversation" className={LOCAL_CONVERSATION_CONTENT_CLASS_NAME}>
             {showThreadSearch ? (
@@ -434,7 +430,7 @@ export function LocalConversationThreadBody({ model, actions, onErrorMessage, in
   return (
     <LocalConversationThreadScrollLayout
       scrollViewClassName="min-h-0 flex-1 px-panel hide-scrollbar electron:md:px-0"
-      contentWrapperClassName="min-h-full"
+      contentWrapperClassName="h-full min-h-full"
     >
       <LocalConversationThreadBodyContent
         model={model}

@@ -23,6 +23,7 @@ function runGit(cwd: string, args: string[]): string {
   return execFileSync("git", args, {
     cwd,
     encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
   });
 }
 
@@ -105,7 +106,7 @@ describe("git review service", () => {
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
     commitAll(cwd, "initial");
-    runGit(cwd, ["checkout", "-b", "feature/review"]);
+    runGit(cwd, ["checkout", "--quiet", "-b", "feature/review"]);
     writeFileSync(path.join(cwd, "feature.ts"), "export const branchDiff = true;\n", "utf8");
     commitAll(cwd, "feature");
 

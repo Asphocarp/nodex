@@ -1,0 +1,62 @@
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import {
+  buildThreadStageStoryModel,
+  buildThreadStageStoryScenario,
+  type ThreadStageStoryControls,
+} from "../thread-stage-story-fixtures";
+import { LocalConversationResumeLoader } from "./local-conversation-resume-loader";
+
+const RESUMING_STORY_CONTROLS: ThreadStageStoryControls = {
+  preset: "resuming",
+  permissionMode: "sandbox",
+  authenticatedAccount: true,
+  isQueueingEnabled: false,
+  collapseAgentBody: true,
+};
+
+function buildResumeLoaderArgs() {
+  const scenario = buildThreadStageStoryScenario(RESUMING_STORY_CONTROLS);
+  const model = buildThreadStageStoryModel(scenario, RESUMING_STORY_CONTROLS, scenario.runtime);
+  if (model.body.emptyState.type !== "resumingThread") {
+    throw new Error("Expected the resuming story fixture to produce the resuming thread empty state.");
+  }
+  return {
+    title: model.body.emptyState.title,
+    description: model.body.emptyState.description,
+  };
+}
+
+const resumeLoaderArgs = buildResumeLoaderArgs();
+
+function ResumeLoaderStory(props: typeof resumeLoaderArgs) {
+  return (
+    <div className="flex min-h-screen bg-token-main-surface-primary">
+      <div className="mx-auto flex h-screen w-full max-w-(--thread-content-max-width) px-2.5 md:px-panel">
+        <LocalConversationResumeLoader {...props} />
+      </div>
+    </div>
+  );
+}
+
+const meta = {
+  title: "Workbench/Threads/Shared/Resume Loader",
+  component: LocalConversationResumeLoader,
+  parameters: {
+    layout: "fullscreen",
+    docs: {
+      description: {
+        component:
+          "Focused resume-state loader coverage using the same resuming thread fixture as the composed stage story, so the visible copy stays aligned with the real local-conversation projection.",
+      },
+    },
+  },
+  args: resumeLoaderArgs,
+} satisfies Meta<typeof LocalConversationResumeLoader>;
+
+export default meta;
+
+type Story = StoryObj<typeof meta>;
+
+export const Centered: Story = {
+  render: (args) => <ResumeLoaderStory {...args} />,
+};

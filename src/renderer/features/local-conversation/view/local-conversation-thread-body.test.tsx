@@ -193,7 +193,7 @@ describe("LocalConversationThreadBody", () => {
 
   test("shows a restoring placeholder instead of rendering turn content while the active thread is resuming", async () => {
     const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
-    const { getByText, queryByText } = render(
+    const { getByRole, queryByText } = render(
       <TooltipProvider>
         <LocalConversationThreadBody
           model={buildModel({
@@ -216,7 +216,7 @@ describe("LocalConversationThreadBody", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(getByText("Restoring thread"))).toBeTrue();
+    expect(Boolean(getByRole("status", { name: /Restoring thread/i }))).toBeTrue();
     expect(Boolean(queryByText("Needle result"))).toBeFalse();
   });
 
