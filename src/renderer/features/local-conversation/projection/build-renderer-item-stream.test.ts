@@ -120,13 +120,17 @@ describe("buildRendererItemStream", () => {
           itemId: "patch_1",
           type: "file_change",
           kind: "fileChange",
-          semanticKind: "patch",
           toolCall: {
             subtype: "fileChange",
             toolName: "file_change",
             result: {
               summary: "Edited src/app.tsx",
             },
+          },
+          fileChange: {
+            paths: ["src/app.tsx"],
+            changes: [],
+            diffs: [],
           },
         }),
         buildEntry({
@@ -158,7 +162,7 @@ describe("buildRendererItemStream", () => {
       turnStatus: "completed",
     });
 
-    expect(items.map((item) => item.type).join(",")).toBe("patch,mcpToolCall");
+    expect(items.map((item) => item.type).join(",")).toBe("fileChange,mcpToolCall");
   });
 
   test("injects turn-scoped requests into the renderer item stream", () => {

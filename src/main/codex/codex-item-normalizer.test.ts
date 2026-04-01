@@ -49,6 +49,10 @@ describe("codex-item-normalizer", () => {
         changes: [
           {
             path: "src/example.ts",
+            kind: {
+              type: "update",
+              move_path: "src/example-old.ts",
+            },
             diff: "--- a/src/example.ts\n+++ b/src/example.ts\n@@ -1 +1 @@\n-old\n+new",
           },
         ],
@@ -64,7 +68,52 @@ describe("codex-item-normalizer", () => {
     expect(item?.toolCall?.subtype).toBe("fileChange");
     expect(item?.toolCall?.toolName).toBe("file_change");
     expect((item?.toolCall?.args as { label?: string }).label).toBe("Edited src/example.ts");
-    expect(((item?.toolCall?.result as { diff?: string } | undefined)?.diff ?? "").includes("@@ -1 +1 @@")).toBeTrue();
+    expect(item?.fileChange?.changes[0]?.type ?? null).toBe("update");
+    expect(item?.fileChange?.changes[0]?.type === "update" ? item.fileChange.changes[0].movePath : null).toBe("src/example-old.ts");
+    expect((((item?.toolCall?.result as { diffs?: string[] } | undefined)?.diffs ?? [])[0] ?? "").includes("@@ -1 +1 @@")).toBeTrue();
+  });
+
+  test("normalizes fileChange add and delete items using v2 diff text as file content", () => {
+    const item = normalizeThreadItem(
+      {
+        id: "item-file-create-delete",
+        type: "fileChange",
+        status: "completed",
+        changes: [
+          {
+            path: "src/new-file.ts",
+            kind: {
+              type: "add",
+            },
+            diff: "export const created = true;\nconsole.log(created);\n",
+          },
+          {
+            path: "src/old-file.ts",
+            kind: {
+              type: "delete",
+            },
+            diff: "export const removed = true;\n",
+          },
+        ],
+      },
+      "thread-1",
+      "turn-1",
+    );
+
+    expect(item).not.toBeNull();
+    const changes = item?.fileChange?.changes ?? [];
+
+    expect(changes.length).toBe(2);
+    expect(changes[0]?.type ?? null).toBe("add");
+    expect(changes[0]?.type === "add" ? changes[0].content : null).toBe("export const created = true;\nconsole.log(created);\n");
+    expect(changes[1]?.type ?? null).toBe("delete");
+    expect(changes[1]?.type === "delete" ? changes[1].content : null).toBe("export const removed = true;\n");
+
+    const diffs = ((item?.toolCall?.result as { diffs?: string[] } | undefined)?.diffs ?? []);
+    expect(diffs[0]?.includes("new file mode 100644") ?? false).toBeTrue();
+    expect(diffs[0]?.includes("+export const created = true;") ?? false).toBeTrue();
+    expect(diffs[1]?.includes("deleted file mode 100644") ?? false).toBeTrue();
+    expect(diffs[1]?.includes("-export const removed = true;") ?? false).toBeTrue();
   });
 
   test("normalizes mcpToolCall items into canonical tool payloads", () => {

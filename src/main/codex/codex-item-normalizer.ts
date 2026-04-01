@@ -1,11 +1,15 @@
 import type {
   CodexCommandAction,
+  CodexFileChange,
+  CodexFileChangeKind,
+  CodexFileChangeView,
   CodexItemStatus,
   CodexItemView,
   CodexToolCallSubtype,
   CodexToolCallView,
   CodexUserInputQuestion,
 } from "../../shared/types";
+import { buildCodexFileChangeFromProtocol, buildCodexFileChangeUnifiedDiff } from "../../shared/codex-file-change";
 import {
   buildAutomaticApprovalReviewSummary,
   normalizeAutomaticApprovalReviewPayload,
@@ -195,41 +199,86 @@ function buildToolCall(
 
 function extractFileChanges(candidate: Record<string, unknown>): {
   label?: string;
-  diff?: string;
   paths: string[];
-  parsedChanges: Array<{ path?: string; diff?: string }>;
+  parsedChanges: CodexFileChange[];
+  diffs: string[];
 } {
   const changes = Array.isArray(candidate.changes) ? candidate.changes : [];
-  if (changes.length === 0) return { paths: [], parsedChanges: [] };
+  if (changes.length === 0) return { paths: [], parsedChanges: [], diffs: [] };
 
-  const diffs: string[] = [];
   const paths: string[] = [];
-  const parsedChanges: Array<{ path?: string; diff?: string }> = [];
+  const parsedChanges: CodexFileChange[] = [];
 
   for (const change of changes) {
     const parsed = asRecord(change);
     if (!parsed) continue;
     const path = getString(parsed, ["path"]);
     const diff = getString(parsed, ["diff"]);
-    parsedChanges.push({ path, diff });
-    if (path) paths.push(path);
-    if (diff) diffs.push(diff);
+    const kind = parseFileChangeKind(parsed.kind);
+    const movePath = kind === "update"
+      ? getString(asRecord(parsed.kind) ?? {}, ["move_path", "movePath"]) ?? null
+      : undefined;
+    if (!path || !diff || !kind) continue;
+
+    const materializedChange = buildCodexFileChangeFromProtocol({
+      path,
+      kind,
+      diff,
+      movePath,
+    });
+    if (!materializedChange) continue;
+
+    parsedChanges.push(materializedChange);
+    paths.push(path);
   }
 
   const uniquePaths = Array.from(new Set(paths));
+  const diffs = parsedChanges
+    .map((change) => buildCodexFileChangeUnifiedDiff(change))
+    .filter((diff): diff is string => typeof diff === "string" && diff.trim().length > 0);
+  const firstKind = parsedChanges[0]?.type;
+  const actionLabel = firstKind === "add"
+    ? "Created"
+    : firstKind === "delete"
+      ? "Deleted"
+      : "Edited";
   const label =
     uniquePaths.length === 0
       ? undefined
       : uniquePaths.length === 1
-        ? `Edited ${uniquePaths[0]}`
-        : `Edited ${uniquePaths[0]} and ${uniquePaths.length - 1} more file(s)`;
+        ? `${actionLabel} ${uniquePaths[0]}`
+        : `${actionLabel} ${uniquePaths[0]} and ${uniquePaths.length - 1} more file(s)`;
 
   return {
     label,
-    diff: diffs.length > 0 ? diffs.join("\n\n") : undefined,
     paths: uniquePaths,
     parsedChanges,
+    diffs,
   };
+}
+
+function buildFileChangeView(data: {
+  label?: string;
+  paths: string[];
+  parsedChanges: CodexFileChange[];
+  diffs: string[];
+}): CodexFileChangeView | undefined {
+  if (data.parsedChanges.length === 0) return undefined;
+  return {
+    label: data.label,
+    paths: data.paths,
+    changes: data.parsedChanges,
+    diffs: data.diffs,
+  };
+}
+
+function parseFileChangeKind(value: unknown): CodexFileChangeKind | undefined {
+  const candidate = asRecord(value);
+  const type = candidate ? getString(candidate, ["type"]) : undefined;
+  if (type === "add" || type === "delete" || type === "update") {
+    return type;
+  }
+  return undefined;
 }
 
 function parseCommandActions(value: unknown): CodexCommandAction[] {
@@ -417,18 +466,18 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
   }
 
   if (isType(itemType, ["fileChange", "file_change"])) {
-    const { label, diff, paths, parsedChanges } = extractFileChanges(candidate);
+    const { label, paths, parsedChanges, diffs } = extractFileChanges(candidate);
     result.normalizedKind = "fileChange";
     result.semanticKind = "patch";
     result.status = normalizeItemStatus(getUnknown(candidate, ["status"]));
+    result.fileChange = buildFileChangeView({ label, paths, parsedChanges, diffs });
     result.toolCall = buildToolCall("fileChange", "file_change", {
       args: {
         label,
-        changes: parsedChanges,
       },
       result: {
         paths,
-        diff,
+        diffs,
       },
       error: resolveToolCallError(candidate),
     });

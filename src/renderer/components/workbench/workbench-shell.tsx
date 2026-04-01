@@ -96,6 +96,7 @@ import type {
   CardUpdateMutationResult,
   CodexCollaborationModeKind,
   CodexCollaborationModePreset,
+  CodexTurnDiffReviewTarget,
   Project,
 } from "@/lib/types";
 import type { CardStageState } from "@/lib/use-card-stage";
@@ -418,6 +419,7 @@ export function WorkbenchShell({
   const [selectedCollaborationMode, setSelectedCollaborationMode] = useState<CodexCollaborationModeKind>(
     DEFAULT_CODEX_COLLABORATION_MODE,
   );
+  const [selectedTurnDiffReviewTarget, setSelectedTurnDiffReviewTarget] = useState<CodexTurnDiffReviewTarget | null>(null);
   const [taskSearchOpen, setTaskSearchOpen] = useState(false);
   const taskSearchInputRef = useRef<HTMLInputElement>(null);
   const previousTaskSearchOpenTickRef = useRef(taskSearchOpenTick);
@@ -1305,6 +1307,11 @@ export function WorkbenchShell({
     await openCardStage(projectId, cardId);
   }, [activeThreadSummary?.projectId, openCardStage, threadsProjectId]);
 
+  const handleOpenTurnDiffReview = useCallback((target: CodexTurnDiffReviewTarget) => {
+    setSelectedTurnDiffReviewTarget(target);
+    navigateToStage(threadsProjectId, "files", "right");
+  }, [navigateToStage, threadsProjectId]);
+
   const threadStageActions = useMemo<ThreadStageActions>(() => ({
     onCollaborationModeChange: handleCollaborationModeChange,
     onModelChange: setThreadModel,
@@ -1406,6 +1413,7 @@ export function WorkbenchShell({
       await loadCodexThreads(projectId);
       navigateToThreadTab(projectId, result.threadId);
     },
+    onOpenTurnDiffReview: handleOpenTurnDiffReview,
     onConsumeComposerIntent: (threadId, focusNonce) => {
       consumeLocalConversationComposerIntent(threadId, focusNonce);
     },
@@ -1425,6 +1433,7 @@ export function WorkbenchShell({
     consumeLocalConversationComposerIntent,
     handleCollaborationModeChange,
     handleOpenCardFromThread,
+    handleOpenTurnDiffReview,
     loadCodexThreads,
     logout,
     navigateToThreadTab,
@@ -1639,9 +1648,10 @@ export function WorkbenchShell({
       hideHeader: true,
       content: (
         <ConnectedReviewDiffPanel
-          threadId={activeThreadTab?.id ?? null}
+          threadId={selectedTurnDiffReviewTarget?.threadId ?? activeThreadTab?.id ?? null}
           projectWorkspacePath={activeThreadsProject?.workspacePath ?? null}
           searchOpenTick={diffSearchOpenTick}
+          selectedTurnDiff={selectedTurnDiffReviewTarget}
         />
       ),
     },

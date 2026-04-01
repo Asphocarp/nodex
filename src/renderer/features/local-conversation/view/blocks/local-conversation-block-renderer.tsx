@@ -17,6 +17,7 @@ import {
   ThreadUserBubbleBlock,
   ThreadWorkedForBlock,
 } from "./local-conversation-block-leaves";
+import type { CodexTurnDiffReviewTarget } from "../../../../lib/types";
 import type { ThreadBlockModel } from "../../thread-stage-types";
 
 interface ThreadBlockRendererProps {
@@ -29,6 +30,7 @@ interface ThreadBlockRendererProps {
   threadCwd?: string | null;
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
+  onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
 }
 
 export function ThreadBlockRenderer({
@@ -41,6 +43,7 @@ export function ThreadBlockRenderer({
   threadCwd,
   onEditLastUserTurn,
   onForkFromTurn,
+  onOpenTurnDiffReview,
 }: ThreadBlockRendererProps) {
   if (block.type === "explorationGroup") {
     return (
@@ -72,7 +75,6 @@ export function ThreadBlockRenderer({
 
   if (
     block.type === "exec"
-    || block.type === "patch"
     || block.type === "fileChange"
     || block.type === "mcpToolCall"
     || block.type === "webSearch"
@@ -84,6 +86,7 @@ export function ThreadBlockRenderer({
         isStreamingTurn={isStreamingTurn}
         projectWorkspacePath={projectWorkspacePath}
         threadCwd={threadCwd}
+        onOpenTurnDiffReview={onOpenTurnDiffReview}
       />
     );
   }
@@ -104,6 +107,7 @@ export function ThreadBlockRenderer({
         isStreamingTurn={isStreamingTurn}
         projectWorkspacePath={projectWorkspacePath}
         threadCwd={threadCwd}
+        onOpenTurnDiffReview={onOpenTurnDiffReview}
       />
     );
   }

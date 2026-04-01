@@ -69,6 +69,7 @@ import { useFileLinkOpener } from "@/lib/use-file-link-opener";
 import type {
   CodexConversationItem,
   CodexConversationSnapshot,
+  CodexTurnDiffReviewTarget,
   GitApplyPatchResult,
   GitReviewFileContents,
   GitReviewFileStatus,
@@ -94,12 +95,14 @@ import {
   summarizeFileDiffMetadata,
 } from "@/features/local-conversation/view/shared/tools/diff-file-shared";
 
-type ReviewSource = "last-turn" | GitReviewSource;
+type TranscriptReviewSource = "selected-turn" | "last-turn";
+type ReviewSource = TranscriptReviewSource | GitReviewSource;
 type ReviewDiffMode = "unified" | "split";
 
 interface ReviewDiffPanelProps {
   conversation: CodexConversationSnapshot | null;
   projectWorkspacePath?: string | null;
+  selectedTurnDiff?: CodexTurnDiffReviewTarget | null;
   initialSource?: ReviewSource;
   initialFileTreeOpen?: boolean;
   searchOpenTick?: number;
@@ -191,11 +194,20 @@ function clampReviewFileTreeWidth(value: number): number {
 }
 
 const SOURCE_LABELS: Record<ReviewSource, string> = {
+  "selected-turn": "Selected turn",
   "last-turn": "Last turn",
   branch: "Branch",
   staged: "Staged",
   unstaged: "Unstaged",
 };
+
+function isTranscriptReviewSource(source: ReviewSource): source is TranscriptReviewSource {
+  return source === "selected-turn" || source === "last-turn";
+}
+
+function isGitReviewSource(source: ReviewSource): source is GitReviewSource {
+  return source === "branch" || source === "staged" || source === "unstaged";
+}
 
 function ReviewTreeIcon({ className }: { className?: string }) {
   return (
@@ -379,6 +391,31 @@ function buildLastTurnSnapshot(
 
   return {
     source: "last-turn",
+    patch,
+    files,
+    cwd,
+    isGitRepository: true,
+    baseRef: null,
+    currentBranch: null,
+    defaultBranch: null,
+    errorMessage: null,
+    emptyReason: patch.trim().length === 0 ? "noLongerAvailable" : null,
+  };
+}
+
+function buildSelectedTurnSnapshot(
+  selectedTurnDiff: CodexTurnDiffReviewTarget | null | undefined,
+  conversation: CodexConversationSnapshot | null,
+  projectWorkspacePath: string | null | undefined,
+  parsePatchFiles: ReviewDiffPanelDeps["parsePatchFiles"],
+): ReviewSnapshot {
+  const patch = selectedTurnDiff?.patch ?? "";
+  const cwd = selectedTurnDiff?.cwd ?? conversation?.cwd ?? projectWorkspacePath ?? null;
+  const basePath = normalizeReviewBasePath(cwd);
+  const files = buildReviewFileEntries(patch, basePath, parsePatchFiles);
+
+  return {
+    source: "selected-turn",
     patch,
     files,
     cwd,
@@ -1196,6 +1233,7 @@ function ReviewDeferredRender({
 export function ReviewDiffPanel({
   conversation,
   projectWorkspacePath,
+  selectedTurnDiff = null,
   initialSource = "last-turn",
   initialFileTreeOpen = false,
   searchOpenTick = 0,
@@ -1214,7 +1252,7 @@ export function ReviewDiffPanel({
   const [wrap, setWrap] = useState(false);
   const [wordDiffsEnabled, setWordDiffsEnabled] = useState(false);
   const [richPreviewEnabled, setRichPreviewEnabled] = useState(false);
-  const [loadFullFilesEnabled, setLoadFullFilesEnabled] = useState(initialSource !== "last-turn");
+  const [loadFullFilesEnabled, setLoadFullFilesEnabled] = useState(isGitReviewSource(initialSource));
   const [fileTreeOpen, setFileTreeOpen] = useState(initialFileTreeOpen);
   const [fileTreeWidth, setFileTreeWidth] = useState(REVIEW_FILE_TREE_DEFAULT_WIDTH_PX);
   const [fileFilter, setFileFilter] = useState("");
@@ -1241,8 +1279,10 @@ export function ReviewDiffPanel({
   const rowRefs = useRef<Map<string, HTMLElement>>(new Map());
   const [visibleSearchMatchCount, setVisibleSearchMatchCount] = useState(REVIEW_CAPPED_MATCH_PAGE_SIZE);
 
-  const reviewCwd = source === "last-turn"
-    ? (conversation?.cwd ?? projectWorkspacePath ?? null)
+  const reviewCwd = isTranscriptReviewSource(source)
+    ? (source === "selected-turn"
+      ? (selectedTurnDiff?.cwd ?? conversation?.cwd ?? projectWorkspacePath ?? null)
+      : (conversation?.cwd ?? projectWorkspacePath ?? null))
     : (projectWorkspacePath ?? conversation?.cwd ?? null);
 
   useEffect(() => {
@@ -1264,9 +1304,23 @@ export function ReviewDiffPanel({
     });
   }, [searchOpenTick]);
 
+  useEffect(() => {
+    if (!selectedTurnDiff) {
+      setSource((current) => current === "selected-turn" ? "last-turn" : current);
+      return;
+    }
+
+    setSource("selected-turn");
+    setLoadFullFilesEnabled(false);
+  }, [selectedTurnDiff?.entryId, selectedTurnDiff?.patch]);
+
   const lastTurnSnapshot = useMemo(
     () => buildLastTurnSnapshot(conversation, projectWorkspacePath, parsePatchFiles),
     [conversation, parsePatchFiles, projectWorkspacePath],
+  );
+  const selectedTurnSnapshot = useMemo(
+    () => buildSelectedTurnSnapshot(selectedTurnDiff, conversation, projectWorkspacePath, parsePatchFiles),
+    [conversation, parsePatchFiles, projectWorkspacePath, selectedTurnDiff],
   );
 
   const loadGitSnapshot = async (
@@ -1282,7 +1336,7 @@ export function ReviewDiffPanel({
   const loadReviewFileContents = async (
     entry: ReviewFileEntry,
   ): Promise<GitReviewFileContents> => {
-    if (source === "last-turn") {
+    if (isTranscriptReviewSource(source)) {
       throw new Error("Full-file review is only available for Git-backed review sources.");
     }
 
@@ -1301,7 +1355,7 @@ export function ReviewDiffPanel({
   };
 
   const runReviewSearch = async (query: string): Promise<GitReviewSearchResult> => {
-    if (source === "last-turn") {
+    if (isTranscriptReviewSource(source)) {
       return {
         query,
         matchingPaths: [],
@@ -1325,7 +1379,7 @@ export function ReviewDiffPanel({
   };
 
   useEffect(() => {
-    if (source === "last-turn") {
+    if (isTranscriptReviewSource(source)) {
       setGitSnapshot(null);
       return;
     }
@@ -1367,10 +1421,11 @@ export function ReviewDiffPanel({
     };
   }, [reviewCwd, source]);
 
-  const snapshot = useMemo(
-    () => source === "last-turn" ? lastTurnSnapshot : buildGitSnapshot(gitSnapshot, parsePatchFiles),
-    [gitSnapshot, lastTurnSnapshot, parsePatchFiles, source],
-  );
+  const snapshot = useMemo(() => {
+    if (source === "selected-turn") return selectedTurnSnapshot;
+    if (source === "last-turn") return lastTurnSnapshot;
+    return buildGitSnapshot(gitSnapshot, parsePatchFiles);
+  }, [gitSnapshot, lastTurnSnapshot, parsePatchFiles, selectedTurnSnapshot, source]);
   const totalChangedLines = useMemo(
     () => getReviewTotalChangedLines(snapshot.files),
     [snapshot.files],
@@ -1401,7 +1456,7 @@ export function ReviewDiffPanel({
   }, [deferredFileFilter, effectiveSearchQuery, snapshot.patch, source]);
 
   useEffect(() => {
-    if (source === "last-turn") {
+    if (isTranscriptReviewSource(source)) {
       setReviewSearchResult(null);
       return;
     }
@@ -1441,7 +1496,7 @@ export function ReviewDiffPanel({
   }, [effectiveSearchQuery, fullContentsByPath, snapshot.files]);
   const reviewSearchMatchCount = effectiveSearchQuery.trim().length === 0
     ? 0
-    : source === "last-turn"
+    : isTranscriptReviewSource(source)
       ? reviewSearchMatches.length
       : (reviewSearchResult?.matchingPaths.length ?? 0);
 
@@ -1449,7 +1504,7 @@ export function ReviewDiffPanel({
     const normalizedQuery = effectiveSearchQuery.trim();
     if (normalizedQuery.length === 0) return null;
 
-    if (source === "last-turn") {
+    if (isTranscriptReviewSource(source)) {
       return new Set(reviewSearchMatches.map((match) => match.path));
     }
 
@@ -1668,7 +1723,7 @@ export function ReviewDiffPanel({
   const reviewFallbackRows = reviewRenderPlan.fallbackFiles.map((entry) => renderReviewRow(entry, "fallback:"));
 
   const refreshGitSnapshot = async (): Promise<void> => {
-    if (source === "last-turn") return;
+    if (!isGitReviewSource(source)) return;
 
     const normalizedCwd = reviewCwd?.trim() ?? "";
     if (!normalizedCwd) return;
@@ -1690,7 +1745,7 @@ export function ReviewDiffPanel({
   };
 
   useEffect(() => {
-    if (!loadFullFilesEnabled || source === "last-turn") return;
+    if (!loadFullFilesEnabled || isTranscriptReviewSource(source)) return;
 
     const nextEntries = visibleFiles.filter((entry) => {
       if (!isTextualFullDiffCandidate(entry)) return false;
@@ -1981,6 +2036,11 @@ export function ReviewDiffPanel({
             <div className="flex min-w-0 items-center text-base">
               <div className="min-w-0 font-medium text-token-foreground">
                 <NodexDropdownMenu triggerButton={sourceTrigger} align="start" sideOffset={8}>
+                  {selectedTurnDiff ? (
+                    <NodexDropdownItem onSelect={() => setSource("selected-turn")} rightSlot={source === "selected-turn" ? <CheckmarkIcon className="size-4" /> : null}>
+                      Selected turn
+                    </NodexDropdownItem>
+                  ) : null}
                   <NodexDropdownItem onSelect={() => setSource("last-turn")} rightSlot={source === "last-turn" ? <CheckmarkIcon className="size-4" /> : null}>
                     Last turn
                   </NodexDropdownItem>
@@ -1999,7 +2059,7 @@ export function ReviewDiffPanel({
             <div className="mr-1 flex h-9 flex-shrink-0 items-center">
               <div className="flex items-center gap-1.5">
                 <NodexDropdownMenu triggerButton={optionsTrigger} align="end" sideOffset={8}>
-                  {source !== "last-turn" ? (
+                  {isGitReviewSource(source) ? (
                     <NodexDropdownItem
                       onSelect={() => void refreshGitSnapshot()}
                       leftSlot={<RefreshIcon className="icon-xs" />}
@@ -2036,14 +2096,14 @@ export function ReviewDiffPanel({
                   <NodexDropdownItem
                     onSelect={() => setLoadFullFilesEnabled((current) => !current)}
                     leftSlot={<ReviewFileDocumentIcon className="icon-xs" />}
-                    disabled={source === "last-turn"}
+                    disabled={!isGitReviewSource(source)}
                   >
                     {loadFullFilesEnabled ? "Don't load full files" : "Load full files"}
                   </NodexDropdownItem>
                   <NodexDropdownItem
                     onSelect={() => setRichPreviewEnabled((current) => !current)}
                     leftSlot={<ReviewRichPreviewIcon className="icon-xs" />}
-                    disabled={!loadFullFilesEnabled || source === "last-turn"}
+                    disabled={!loadFullFilesEnabled || !isGitReviewSource(source)}
                   >
                     {richPreviewEnabled ? "Disable rich preview" : "Enable rich preview"}
                   </NodexDropdownItem>
@@ -2053,7 +2113,7 @@ export function ReviewDiffPanel({
                   >
                     {wordDiffsEnabled ? "Disable word diffs" : "Enable word diffs"}
                   </NodexDropdownItem>
-                  {source !== "last-turn" ? (
+                  {isGitReviewSource(source) ? (
                     <NodexDropdownItem
                       onSelect={() => void handleCopyGitApplyCommand()}
                       leftSlot={<ReviewFileDocumentIcon className="icon-xs" />}
@@ -2117,14 +2177,14 @@ export function ReviewDiffPanel({
               </div>
             </div>
           ) : null}
-          {gitLoading && source !== "last-turn" ? (
+          {gitLoading && isGitReviewSource(source) ? (
             <div className="flex h-full items-center justify-center text-sm text-token-description-foreground">Loading review…</div>
           ) : snapshot.errorMessage ? (
             <ReviewPanelEmptyState
               title="Could not load review"
               description={snapshot.errorMessage}
             />
-          ) : !snapshot.isGitRepository && source !== "last-turn" ? (
+          ) : !snapshot.isGitRepository && isGitReviewSource(source) ? (
             <ReviewPanelEmptyState
               title="Create a Git repository"
               description="Track, review, and undo changes in this project."
@@ -2142,7 +2202,9 @@ export function ReviewDiffPanel({
             <ReviewPanelEmptyState
               title={snapshot.emptyReason === "noLongerAvailable" ? "No file changes yet" : "No file changes yet"}
               description={snapshot.emptyReason === "noLongerAvailable"
-                ? "The latest diffs are no longer available."
+                ? source === "selected-turn"
+                  ? "The selected turn diff is no longer available."
+                  : "The latest diffs are no longer available."
                 : "Review file changes here once the workspace has modifications."}
             />
           ) : visibleFiles.length === 0 ? (

@@ -39,6 +39,7 @@ function projectItemToTranscriptEntry(
     source,
     sequence,
     toolCall: item.toolCall,
+    fileChange: item.fileChange,
     markdownText: item.markdownText,
     additionalDetails: item.additionalDetails,
     willRetry: item.willRetry,

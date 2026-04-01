@@ -128,6 +128,7 @@ function buildProps(overrides?: Partial<ThreadStageScreenProps["model"]>): Threa
       onEditQueuedFollowUp: async () => {},
       onEditLastUserTurn: async () => {},
       onForkFromTurn: async () => {},
+      onOpenTurnDiffReview: () => {},
       onConsumeComposerIntent: () => {},
       onOpenThread: () => {},
       onCleanBackgroundTerminals: async () => {},

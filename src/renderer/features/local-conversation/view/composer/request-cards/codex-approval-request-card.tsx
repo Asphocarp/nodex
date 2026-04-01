@@ -197,7 +197,7 @@ function PatchPreviewBody({
           className="border-token-border bg-token-text-code-block-background flex items-center justify-between gap-3 rounded-xl border px-3 py-2"
         >
           <div className="min-w-0">
-            <div className="text-token-foreground">{row.expandedLabel}</div>
+            <div className="text-token-foreground">{row.expandedLabel ?? row.label}</div>
             <div className="truncate text-token-description-foreground">{row.displayPath ?? "Changed file"}</div>
           </div>
           <div className="shrink-0 text-xs text-token-description-foreground">

@@ -653,12 +653,48 @@ export type CodexItemStatus = "inProgress" | "completed" | "failed" | "declined"
 export type CodexTranscriptEntryKind = CodexItemNormalizedKind;
 export type CodexTranscriptEntryStatus = CodexItemStatus;
 export type CodexTranscriptEntrySource = "live" | "bootstrap" | "replay" | "optimistic";
+export type CodexFileChangeKind = "add" | "delete" | "update";
 
 export type CodexCommandAction =
   | { type: "read"; command: string; name: string; path: string }
   | { type: "listFiles"; command: string; path: string | null }
   | { type: "search"; command: string; query: string | null; path: string | null }
   | { type: "unknown"; command: string };
+
+export type CodexFileChange =
+  | {
+      path: string;
+      type: "add";
+      content: string;
+    }
+  | {
+      path: string;
+      type: "delete";
+      content: string;
+    }
+  | {
+      path: string;
+      type: "update";
+      unifiedDiff: string;
+      movePath: string | null;
+    };
+
+export interface CodexFileChangeView {
+  label?: string;
+  paths: string[];
+  changes: CodexFileChange[];
+  diffs: string[];
+}
+
+export interface CodexTurnDiffReviewTarget {
+  type: "turnDiff";
+  threadId: string;
+  turnId: string;
+  entryId: string;
+  patch: string;
+  cwd: string | null;
+  showRevertButton: boolean;
+}
 
 export interface CodexToolCallView {
   toolName: string;
@@ -681,6 +717,7 @@ export interface CodexItemView {
   status?: CodexItemStatus;
   role?: "user" | "assistant";
   toolCall?: CodexToolCallView;
+  fileChange?: CodexFileChangeView;
   markdownText?: string;
   additionalDetails?: string | null;
   willRetry?: boolean;
@@ -706,6 +743,7 @@ export interface CodexTranscriptEntry {
   source?: CodexTranscriptEntrySource;
   sequence?: number;
   toolCall?: CodexToolCallView;
+  fileChange?: CodexFileChangeView;
   markdownText?: string;
   additionalDetails?: string | null;
   willRetry?: boolean;

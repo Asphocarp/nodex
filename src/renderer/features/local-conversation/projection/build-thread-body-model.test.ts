@@ -463,7 +463,7 @@ describe("buildThreadBodyModel", () => {
     expect(latestTurnUserBlocks[1]?.userMessageActions?.canEdit).toBeTrue();
   });
 
-  test("keeps file-edit patch rows in the turn body while porting turn diff above the composer", () => {
+  test("keeps file-change rows in the turn body while porting turn diff above the composer", () => {
     const model = buildThreadBodyModel({
       activeThreadId: "thread_1",
       conversation: buildConversation({
@@ -492,13 +492,17 @@ describe("buildThreadBodyModel", () => {
                 itemId: "patch_1",
                 type: "file_change",
                 kind: "fileChange",
-                semanticKind: "patch",
                 toolCall: {
                   subtype: "fileChange",
                   toolName: "file_change",
                   result: {
                     diff: "@@ -1 +1 @@\n-old\n+new",
                   },
+                },
+                fileChange: {
+                  paths: ["src/example.ts"],
+                  changes: [],
+                  diffs: ["@@ -1 +1 @@\n-old\n+new"],
                 },
               }),
               buildEntry({
@@ -522,7 +526,7 @@ describe("buildThreadBodyModel", () => {
     });
 
     expect(model.turns[0]?.aboveComposerBlocks?.map((block) => block.type).join(",")).toBe("todoList,turnDiff");
-    expect(model.turns[0]?.blocks.map((block) => block.type).join(",")).toBe("patch,proposedPlan");
+    expect(model.turns[0]?.blocks.map((block) => block.type).join(",")).toBe("fileChange,proposedPlan");
   });
 
   test("shows user actions only on the leading user-message prefix, not on later steer messages", () => {

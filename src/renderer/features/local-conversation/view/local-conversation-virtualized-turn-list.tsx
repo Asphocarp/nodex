@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { CodexTurnDiffReviewTarget } from "../../../lib/types";
 import { cn } from "../../../lib/utils";
 import type { ThreadTurnModel } from "../thread-stage-types";
 import {
@@ -38,6 +39,7 @@ interface VirtualizedTurnListProps {
   className?: string;
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
+  onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
 }
 
 function MeasuredTurn({
@@ -54,6 +56,7 @@ function MeasuredTurn({
   threadCwd,
   onEditLastUserTurn,
   onForkFromTurn,
+  onOpenTurnDiffReview,
 }: {
   turn: ThreadTurnModel;
   turnIndex: number;
@@ -68,6 +71,7 @@ function MeasuredTurn({
   threadCwd?: string | null;
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
+  onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
 }) {
   const elementRef = useRef<HTMLDivElement | null>(null);
 
@@ -120,6 +124,7 @@ function MeasuredTurn({
         threadCwd={threadCwd}
         onEditLastUserTurn={onEditLastUserTurn}
         onForkFromTurn={onForkFromTurn}
+        onOpenTurnDiffReview={onOpenTurnDiffReview}
       />
     </div>
   );
@@ -149,6 +154,7 @@ export const VirtualizedTurnList = forwardRef<VirtualizedTurnListHandle, Virtual
   className,
   onEditLastUserTurn,
   onForkFromTurn,
+  onOpenTurnDiffReview,
 }, ref) {
   const {
     adjustForMeasuredTurnHeightDelta,
@@ -360,6 +366,7 @@ export const VirtualizedTurnList = forwardRef<VirtualizedTurnListHandle, Virtual
             threadCwd={threadCwd}
             onEditLastUserTurn={onEditLastUserTurn}
             onForkFromTurn={onForkFromTurn}
+            onOpenTurnDiffReview={onOpenTurnDiffReview}
           />
         ))}
       </div>

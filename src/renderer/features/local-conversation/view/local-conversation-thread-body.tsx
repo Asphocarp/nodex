@@ -307,6 +307,7 @@ function LocalConversationThreadBodyContent({ model, actions, onErrorMessage, in
           isStreamingTurn={true}
           projectWorkspacePath={model.projectWorkspacePath}
           threadCwd={model.conversation?.cwd ?? null}
+          onOpenTurnDiffReview={actions.onOpenTurnDiffReview}
         />
       ) : null}
       <div className="mx-auto flex h-full min-h-full max-w-(--thread-content-max-width) flex-col px-2.5 md:px-panel">
@@ -389,11 +390,12 @@ function LocalConversationThreadBodyContent({ model, actions, onErrorMessage, in
               matchedTurnIds={matchedTurnIds}
               matchedSearchUnitKeys={matchedSearchUnitKeys}
               activeSearchUnitKey={activeSearchUnitKey}
-              projectWorkspacePath={model.projectWorkspacePath}
-              threadCwd={model.conversation?.cwd ?? null}
-              onEditLastUserTurn={handleEditLastUserTurn}
-              onForkFromTurn={handleForkFromTurn}
-            />
+                projectWorkspacePath={model.projectWorkspacePath}
+                threadCwd={model.conversation?.cwd ?? null}
+                onEditLastUserTurn={handleEditLastUserTurn}
+                onForkFromTurn={handleForkFromTurn}
+                onOpenTurnDiffReview={actions.onOpenTurnDiffReview}
+              />
 
             {showCatchUpControl ? (
               <div className="pointer-events-none sticky bottom-4 mt-4 flex justify-center">

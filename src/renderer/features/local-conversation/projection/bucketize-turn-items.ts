@@ -57,7 +57,7 @@ function isCodexAgentItem(item: ThreadTranscriptBlockModel): boolean {
   switch (item.type) {
     case "assistantMessage":
     case "exec":
-    case "patch":
+    case "fileChange":
     case "mcpToolCall":
     case "automaticApprovalReview":
     case "multiAgentAction":

@@ -36,7 +36,7 @@ import {
 import { useMeasuredElementHeight } from "../shared/use-measured-element-height";
 import { AnsweredUserInputBlock } from "../composer/request-cards/answered-user-input-block";
 import type { CodexCommandAction } from "../../../../lib/types";
-import type { CodexConversationItem } from "../../../../lib/types";
+import type { CodexConversationItem, CodexTurnDiffReviewTarget } from "../../../../lib/types";
 import { resolveCodexThreadDetailLevel } from "../../../../lib/codex-thread-settings";
 import { useCodexThreadSettings } from "../../../../lib/use-codex-thread-settings";
 import { cn } from "../../../../lib/utils";
@@ -53,6 +53,7 @@ export interface ThreadLeafBlockProps {
   threadCwd?: string | null;
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
+  onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
 }
 
 export interface ThreadSpecialBlockProps {
@@ -509,6 +510,7 @@ export function ThreadTurnDiffBlock({
   isStreamingTurn,
   projectWorkspacePath,
   threadCwd,
+  onOpenTurnDiffReview,
 }: ThreadLeafBlockProps) {
   return (
     <TurnDiffSurface
@@ -516,6 +518,7 @@ export function ThreadTurnDiffBlock({
       isInProgress={isStreamingTurn}
       projectWorkspacePath={projectWorkspacePath ?? undefined}
       threadCwd={threadCwd ?? undefined}
+      onOpenReview={onOpenTurnDiffReview}
     />
   );
 }

@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { Fragment, type ReactNode } from "react";
 import { ChevronDownIcon } from "@/components/shared/icons";
+import type { CodexTurnDiffReviewTarget } from "../../../lib/types";
 import { cn } from "../../../lib/utils";
 import type { ThreadAgentEntryModel, ThreadTurnModel } from "../thread-stage-types";
 import {
@@ -23,6 +24,7 @@ interface ThreadTurnProps {
   threadCwd?: string | null;
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
+  onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
 }
 
 function ThreadGap() {
@@ -107,6 +109,7 @@ export function ThreadTurn({
   threadCwd,
   onEditLastUserTurn,
   onForkFromTurn,
+  onOpenTurnDiffReview,
 }: ThreadTurnProps) {
   const shouldAllowAgentBodyCollapse =
     turn.hasRenderableAgentBodyEntries
@@ -130,6 +133,7 @@ export function ThreadTurn({
       threadCwd={threadCwd}
       onEditLastUserTurn={onEditLastUserTurn}
       onForkFromTurn={onForkFromTurn}
+      onOpenTurnDiffReview={onOpenTurnDiffReview}
     />
   );
 
@@ -143,6 +147,7 @@ export function ThreadTurn({
       threadCwd={threadCwd}
       onEditLastUserTurn={onEditLastUserTurn}
       onForkFromTurn={onForkFromTurn}
+      onOpenTurnDiffReview={onOpenTurnDiffReview}
     />
   );
 

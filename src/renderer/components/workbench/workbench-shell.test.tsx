@@ -66,7 +66,10 @@ mock.module("./workbench-shell-deps", () => ({
     const stageGroups = (props.stageGroups as Array<{ id: string }> | undefined) ?? [];
     return createElement("div", { "data-stage-groups": stageGroups.map((group) => group.id).join(",") });
   },
-  ConnectedReviewDiffPanel: () => createElement("div", { "data-review-diff-panel": "true" }),
+  ConnectedReviewDiffPanel: (props: Record<string, unknown>) => {
+    (globalThis as { __lastConnectedReviewDiffPanelProps?: Record<string, unknown> }).__lastConnectedReviewDiffPanelProps = props;
+    return createElement("div", { "data-review-diff-panel": "true" });
+  },
   StageTabStrip: (props: StageTabStripProps) => {
     const globalState = globalThis as { __stageTabStripProps?: StageTabStripProps[] };
     globalState.__stageTabStripProps ??= [];
@@ -888,6 +891,40 @@ describe("WorkbenchShell", () => {
     expect(conversation?.threadId).toBe("thr-1");
     expect(conversation?.turns?.[0]?.items?.[0]?.itemId).toBe("user-1");
     expect(conversation?.requests?.[0]?.requestId).toBe("approval-1");
+  });
+
+  test("opens the diffs stage with an explicit selected turn diff target", async () => {
+    const navigateToStageCalls: unknown[][] = [];
+    await renderShell(false, "full-rail", {
+      activeThreadsTabId: "thr-1",
+      threadsTabs: [{ id: "thr-1", title: "Thread 1", preview: "Preview" }],
+      navigateToStage: (...args: unknown[]) => {
+        navigateToStageCalls.push(args);
+      },
+    });
+
+    const stageThreadsProps = (globalThis as { __lastStageThreadsProps?: Record<string, unknown> }).__lastStageThreadsProps;
+    const openTurnDiffReview = stageThreadsProps?.onOpenTurnDiffReview as ((target: Record<string, unknown>) => void) | undefined;
+    expect(Boolean(openTurnDiffReview)).toBeTrue();
+
+    act(() => {
+      openTurnDiffReview?.({
+        type: "turnDiff",
+        threadId: "thr-1",
+        turnId: "turn-2",
+        entryId: "turn-diff:turn-2",
+        patch: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new",
+        cwd: "/tmp/project",
+        showRevertButton: true,
+      });
+    });
+
+    expect(navigateToStageCalls.length).toBe(1);
+    expect(navigateToStageCalls[0]?.[1] ?? null).toBe("files");
+
+    const reviewProps = (globalThis as { __lastConnectedReviewDiffPanelProps?: Record<string, unknown> }).__lastConnectedReviewDiffPanelProps;
+    expect((reviewProps?.threadId as string | null) ?? null).toBe("thr-1");
+    expect(((reviewProps?.selectedTurnDiff as { turnId?: string } | undefined)?.turnId) ?? null).toBe("turn-2");
   });
 
   test("terminal panel uses active terminal tab project", async () => {

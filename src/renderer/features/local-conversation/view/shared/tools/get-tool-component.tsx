@@ -18,11 +18,7 @@ export function getToolComponent(item: CodexTranscriptEntry): ToolComponent | nu
     return CommandToolCall;
   }
 
-  if (
-    item.semanticKind === "patch"
-    || item.kind === "fileChange"
-    || item.toolCall?.subtype === "fileChange"
-  ) {
+  if (item.kind === "fileChange") {
     return FileChangeToolCall;
   }
 

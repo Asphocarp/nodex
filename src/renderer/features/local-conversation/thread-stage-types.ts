@@ -19,6 +19,7 @@ import type {
   CodexThreadSummary,
   CodexReasoningEffort,
   CodexReasoningEffortOption,
+  CodexTurnDiffReviewTarget,
 } from "../../lib/types";
 import type { ComposerEnterBehavior } from "../../lib/composer-enter-behavior";
 import type { CodexTurnScopedConversationRequest } from "./conversation-request-helpers";
@@ -92,6 +93,7 @@ export interface ThreadStageActions {
   onEditQueuedFollowUp: (input: { threadId: string; followUpId: string; prompt: string }) => Promise<void>;
   onEditLastUserTurn: (input: { threadId: string; turnId: string; message: string }) => Promise<void>;
   onForkFromTurn: (input: { threadId: string; turnId: string; message: string }) => Promise<void>;
+  onOpenTurnDiffReview: (target: CodexTurnDiffReviewTarget) => void;
   onConsumeComposerIntent: (threadId: string, focusNonce: number) => void;
   onOpenThread: (threadId: string) => void;
   onCleanBackgroundTerminals: (threadId: string) => Promise<void>;
@@ -131,7 +133,6 @@ export interface ThreadTranscriptBlockModel {
     | "proposedPlan"
     | "todoList"
     | "exec"
-    | "patch"
     | "fileChange"
     | "turnDiff"
     | "mcpToolCall"

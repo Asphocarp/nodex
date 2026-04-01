@@ -122,7 +122,7 @@ describe("TurnDiffSurface", () => {
 
     expect(container.querySelectorAll('[role="button"][aria-expanded="true"]').length).toBe(0);
 
-    const summaryToggle = container.querySelector('[role="button"][aria-expanded="false"]');
+    const summaryToggle = container.querySelectorAll<HTMLElement>('[role="button"][aria-expanded="false"]')[0] ?? null;
     expect(Boolean(summaryToggle)).toBeTrue();
     fireEvent.click(summaryToggle as HTMLElement);
     await settleAsyncRender();
@@ -132,12 +132,16 @@ describe("TurnDiffSurface", () => {
   });
 
   test("shows the compact streaming banner above the composer without inline rows", () => {
+    let reviewTargetPatch = "";
     const { container } = render(
       <TooltipProvider>
         <TurnDiffSurface
           item={buildTurnDiffEntry()}
           isInProgress={true}
           threadCwd="/tmp/project"
+          onOpenReview={(target) => {
+            reviewTargetPatch = target.patch;
+          }}
         />
       </TooltipProvider>,
     );
@@ -145,6 +149,11 @@ describe("TurnDiffSurface", () => {
     expect(Boolean(container.textContent?.includes("2 files changed"))).toBeTrue();
     expect(Boolean(container.textContent?.includes("Review"))).toBeTrue();
     expect(container.querySelectorAll('[role="button"][aria-expanded]').length).toBe(0);
+
+    const reviewButton = container.querySelector('button[aria-label="Review changes"]');
+    expect(Boolean(reviewButton)).toBeTrue();
+    fireEvent.click(reviewButton as HTMLElement);
+    expect(reviewTargetPatch.includes("src/one.ts")).toBeTrue();
   });
 
   test("derives per-file stats from actual changed lines instead of hunk span counts", () => {
@@ -175,15 +184,90 @@ describe("TurnDiffSurface", () => {
           })}
           isInProgress={false}
           threadCwd="/tmp/project"
+          onOpenReview={() => {}}
         />
       </TooltipProvider>,
     );
 
-    const summaryToggle = container.querySelector('[role="button"][aria-expanded="false"]');
+    const summaryToggle = container.querySelectorAll<HTMLElement>('[role="button"][aria-expanded="false"]')[0] ?? null;
     expect(Boolean(summaryToggle)).toBeTrue();
     fireEvent.click(summaryToggle as HTMLElement);
     await settleAsyncRender();
 
     expect(Boolean(container.textContent?.includes("Too large to render inline"))).toBeTrue();
+    expect(Boolean(container.textContent?.includes("Review changes"))).toBeTrue();
+  });
+
+  test("builds an explicit review target for the selected turn diff", () => {
+    const target = turnDiffSurfaceTestHelpers.buildTurnDiffReviewTarget(
+      buildTurnDiffEntry(),
+      "/tmp/project",
+      undefined,
+    );
+
+    expect(target?.type ?? null).toBe("turnDiff");
+    expect(target?.threadId ?? null).toBe("thread-1");
+    expect(target?.turnId ?? null).toBe("turn-1");
+    expect(target?.cwd ?? null).toBe("/tmp/project");
+  });
+
+  test("toggles revert and reapply when showRevertButton is enabled", async () => {
+    const invokeCalls: Array<[string, unknown]> = [];
+    installWindowApi({
+      invoke: async (channel: string, payload: unknown) => {
+        invokeCalls.push([channel, payload]);
+        if (channel === "git:apply-patch") {
+          return {
+            status: "success",
+            appliedPaths: ["src/one.ts"],
+            skippedPaths: [],
+            conflictedPaths: [],
+            errorCode: null,
+            errorMessage: null,
+          };
+        }
+        return true;
+      },
+      on: () => () => { },
+    });
+
+    const { container } = render(
+      <TooltipProvider>
+        <TurnDiffSurface
+          item={buildTurnDiffEntry({
+            rawItem: {
+              type: "turn-diff",
+              cwd: "/tmp/project",
+              unifiedDiff: [
+                "--- a/src/one.ts",
+                "+++ b/src/one.ts",
+                "@@ -1 +1 @@",
+                "-old",
+                "+new",
+              ].join("\n"),
+              showRevertButton: true,
+            },
+          })}
+          isInProgress={false}
+          threadCwd="/tmp/project"
+        />
+      </TooltipProvider>,
+    );
+
+    const revertButton = container.querySelector('button[aria-label="Revert changes"]');
+    expect(Boolean(revertButton)).toBeTrue();
+    fireEvent.click(revertButton as HTMLElement);
+    await settleAsyncRender();
+
+    expect(invokeCalls[0]?.[0] ?? null).toBe("git:apply-patch");
+    expect(Boolean(String(JSON.stringify(invokeCalls[0]?.[1] ?? {})).includes("\"revert\":true"))).toBeTrue();
+    expect(Boolean(container.textContent?.includes("Reverted thread changes."))).toBeTrue();
+
+    const reapplyButton = container.querySelector('button[aria-label="Reapply changes"]');
+    expect(Boolean(reapplyButton)).toBeTrue();
+    fireEvent.click(reapplyButton as HTMLElement);
+    await settleAsyncRender();
+
+    expect(Boolean(String(JSON.stringify(invokeCalls[1]?.[1] ?? {})).includes("\"revert\":false"))).toBeTrue();
   });
 });

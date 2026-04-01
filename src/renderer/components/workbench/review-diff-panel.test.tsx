@@ -266,6 +266,34 @@ describe("review diff panel", () => {
     expect(container.querySelector('[data-file-diff="src/example.ts"]')).not.toBeNull();
   });
 
+  test("prefers the explicitly selected turn diff when provided", async () => {
+    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
+
+    const { container, getByText } = render(
+      <NodexTooltipProvider>
+        <ReviewDiffPanel
+          conversation={buildConversation()}
+          projectWorkspacePath="/tmp/codex"
+          selectedTurnDiff={{
+            type: "turnDiff",
+            threadId: "thr_review",
+            turnId: "turn_selected",
+            entryId: "turn-diff:turn_selected",
+            patch: "diff --git a/src/selected.ts b/src/selected.ts\nindex 1111111..2222222 100644\n--- a/src/selected.ts\n+++ b/src/selected.ts\n@@ -1 +1 @@\n-export const selected = false;\n+export const selected = true;\n",
+            cwd: "/tmp/codex",
+            showRevertButton: true,
+          }}
+        />
+      </NodexTooltipProvider>,
+    );
+
+    await settleAsyncRender();
+
+    expect(getByText("Selected turn").textContent).toBe("Selected turn");
+    expect(textContent(container).includes("selected.ts")).toBeTrue();
+    expect(container.querySelector('[data-file-diff="src/selected.ts"]')).not.toBeNull();
+  });
+
   test("opens the file tree when requested", async () => {
     const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
 
@@ -356,6 +384,7 @@ describe("review diff panel", () => {
 
     await settleAsyncRender();
     await settleAsyncRender();
+    await waitForReviewTree(view.container);
     await waitFor(() => {
       if (!view.container.querySelector('[data-file-tree-virtualized-root="true"]')) {
         throw new Error("Expected the review file tree to render the virtualized shell.");

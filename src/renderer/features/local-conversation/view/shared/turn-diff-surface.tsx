@@ -1,16 +1,16 @@
 import { parsePatchFiles } from "@pierre/diffs";
 import { FileDiff, type FileDiffMetadata } from "@pierre/diffs/react";
 import { motion } from "motion/react";
-import { useMemo, useState, type CSSProperties } from "react";
-import { invoke } from "../../../../lib/api";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   NODEX_DIFF_HOST_CLASS,
   getNodexDiffHostStyle,
   getNodexDiffOptions,
 } from "../../../../lib/diff-presentation";
+import { resolveInvokeTransport } from "../../../../lib/renderer-transport";
 import { useFileLinkOpener } from "../../../../lib/use-file-link-opener";
 import { useTheme } from "../../../../lib/use-theme";
-import type { CodexTranscriptEntry } from "../../../../lib/types";
+import type { CodexTranscriptEntry, CodexTurnDiffReviewTarget, GitApplyPatchResult } from "../../../../lib/types";
 import { cn } from "../../../../lib/utils";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "./thread-motion";
 import { useMeasuredElementHeight } from "./use-measured-element-height";
@@ -50,6 +50,11 @@ interface TurnDiffRowModel {
   isTooLarge: boolean;
 }
 
+interface TurnDiffNotice {
+  tone: "success" | "error";
+  text: string;
+}
+
 function extractTurnDiffPayload(item: CodexTranscriptEntry): TurnDiffPayload | null {
   const rawItem = item.rawItem;
   if (typeof rawItem !== "object" || rawItem === null) return null;
@@ -76,6 +81,25 @@ function normalizeBasePath(
   if (!basePath) return null;
   const normalizedPath = normalizePathSegments(basePath);
   return normalizedPath.length > 0 ? normalizedPath : null;
+}
+
+function buildTurnDiffReviewTarget(
+  item: CodexTranscriptEntry,
+  threadCwd: string | undefined,
+  projectWorkspacePath: string | undefined,
+): CodexTurnDiffReviewTarget | null {
+  const payload = extractTurnDiffPayload(item);
+  if (!payload) return null;
+
+  return {
+    type: "turnDiff",
+    threadId: item.threadId,
+    turnId: item.turnId,
+    entryId: item.entryId ?? item.itemId,
+    patch: payload.unifiedDiff,
+    cwd: normalizeBasePath(payload, threadCwd, projectWorkspacePath),
+    showRevertButton: payload.showRevertButton === true,
+  };
 }
 
 function resolveOpenLine(fileDiff: FileDiffMetadata | null): number | undefined {
@@ -183,7 +207,45 @@ function ReviewChangesIcon() {
   );
 }
 
-function TurnDiffBanner({ summary }: { summary: TurnDiffSummary }) {
+function turnDiffActionButtonClassName(tone: "default" | "destructive" = "default"): string {
+  return cn(
+    "group text-size-chat ml-auto inline-flex cursor-pointer items-center gap-1 rounded-full px-2 py-1 text-token-input-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
+    tone === "destructive" ? "hover:bg-token-charts-red/10" : "hover:bg-token-foreground/5",
+  );
+}
+
+function TurnDiffActionButton({
+  label,
+  onClick,
+  tone = "default",
+  disabled = false,
+}: {
+  label: string;
+  onClick: () => void;
+  tone?: "default" | "destructive";
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className={turnDiffActionButtonClassName(tone)}
+      onClick={onClick}
+      aria-label={label}
+      disabled={disabled}
+    >
+      <span>{label}</span>
+      <ReviewChangesIcon />
+    </button>
+  );
+}
+
+function TurnDiffBanner({
+  summary,
+  onReview,
+}: {
+  summary: TurnDiffSummary;
+  onReview: (() => void) | null;
+}) {
   return (
     <div className="bg-token-input-background/70 text-token-foreground border-token-border/80 relative overflow-clip border-x border-t backdrop-blur-sm transition-colors first:rounded-t-2xl">
       <div className="flex flex-col">
@@ -198,17 +260,9 @@ function TurnDiffBanner({ summary }: { summary: TurnDiffSummary }) {
               <span className="text-token-charts-green">+{summary.additions}</span>
               <span className="text-token-charts-red">-{summary.deletions}</span>
             </div>
-            <button
-              type="button"
-              className="group text-size-chat ml-auto flex cursor-pointer items-center gap-1 text-token-input-foreground focus-visible:outline-none"
-              aria-label="Review changes"
-            >
-              <span className="flex items-center gap-0.5">
-                Review
-                <span className="max-[480px]:hidden">changes</span>
-              </span>
-              <ReviewChangesIcon />
-            </button>
+            {onReview ? (
+              <TurnDiffActionButton label="Review changes" onClick={onReview} />
+            ) : null}
           </div>
         </div>
       </div>
@@ -222,19 +276,22 @@ function TurnDiffEmbeddedRow({
   diffHostClassName,
   diffHostStyle,
   diffOptions,
+  onReview,
 }: {
   row: TurnDiffRowModel;
   openerId: string;
   diffHostClassName: string;
   diffHostStyle: CSSProperties;
   diffOptions: ReturnType<typeof getNodexDiffOptions>;
+  onReview: (() => void) | null;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const { elementHeightPx, elementRef } = useMeasuredElementHeight();
+  const openFileTransport = useMemo(() => resolveInvokeTransport("shell:open-file-link"), []);
 
   function openFile() {
     if (!row.openPath) return;
-    void invoke("shell:open-file-link", {
+    void openFileTransport.invoke("shell:open-file-link", {
       path: row.openPath,
       ...(row.openLine ? { line: row.openLine } : {}),
     }, openerId);
@@ -295,8 +352,11 @@ function TurnDiffEmbeddedRow({
         <div ref={elementRef}>
           <div className="bg-token-editor-background border-t border-token-border">
             {row.isTooLarge ? (
-              <div className="text-token-description-foreground/80 flex items-center justify-center px-4 py-5 text-size-chat">
-                Too large to render inline
+              <div className="text-token-description-foreground/80 flex flex-col items-center justify-center gap-2 px-4 py-5 text-size-chat">
+                <span>Too large to render inline</span>
+                {onReview ? (
+                  <TurnDiffActionButton label="Review changes" onClick={onReview} />
+                ) : null}
               </div>
             ) : row.fileDiff ? (
               <div className="overflow-hidden">
@@ -324,27 +384,86 @@ export function TurnDiffSurface({
   isInProgress,
   projectWorkspacePath,
   threadCwd,
+  onOpenReview,
 }: {
   item: CodexTranscriptEntry;
   isInProgress: boolean;
   projectWorkspacePath?: string;
   threadCwd?: string;
+  onOpenReview?: (target: CodexTurnDiffReviewTarget) => void;
 }) {
   const payload = extractTurnDiffPayload(item);
   const rows = useMemo(() => buildTurnDiffRows(item, threadCwd, projectWorkspacePath), [item, projectWorkspacePath, threadCwd]);
   const summary = useMemo(() => summarizeRows(rows, payload?.unifiedDiff), [payload?.unifiedDiff, rows]);
+  const reviewTarget = useMemo(
+    () => buildTurnDiffReviewTarget(item, threadCwd, projectWorkspacePath),
+    [item, projectWorkspacePath, threadCwd],
+  );
   const { resolved } = useTheme();
   const { opener } = useFileLinkOpener();
   const diffOptions = useMemo(() => getNodexDiffOptions(resolved, true), [resolved]);
   const diffHostStyle = useMemo(() => getNodexDiffHostStyle(resolved), [resolved]);
   const diffHostClassName = NODEX_DIFF_HOST_CLASS;
+  const [isPatchApplied, setIsPatchApplied] = useState(true);
+  const [patchActionInFlight, setPatchActionInFlight] = useState(false);
+  const [notice, setNotice] = useState<TurnDiffNotice | null>(null);
+  const patchTransport = useMemo(() => resolveInvokeTransport("git:apply-patch"), []);
+
+  useEffect(() => {
+    setIsPatchApplied(true);
+    setPatchActionInFlight(false);
+    setNotice(null);
+  }, [reviewTarget?.entryId, reviewTarget?.patch]);
 
   if (!payload || (summary.fileCount === 0 && summary.additions === 0 && summary.deletions === 0)) {
     return null;
   }
 
+  const handleOpenReview = reviewTarget && onOpenReview
+    ? () => {
+        onOpenReview(reviewTarget);
+      }
+    : null;
+
+  const handleTogglePatch = reviewTarget?.showRevertButton && reviewTarget.cwd
+    ? async () => {
+        setPatchActionInFlight(true);
+        try {
+          const result = await patchTransport.invoke("git:apply-patch", {
+            cwd: reviewTarget.cwd,
+            diff: reviewTarget.patch,
+            target: "unstaged",
+            revert: isPatchApplied,
+          }) as GitApplyPatchResult;
+
+          if (result.status === "success") {
+            setIsPatchApplied((current) => !current);
+            setNotice({
+              tone: "success",
+              text: isPatchApplied ? "Reverted thread changes." : "Reapplied thread changes.",
+            });
+            return;
+          }
+
+          setNotice({
+            tone: "error",
+            text: result.status === "partial-success"
+              ? "Partially applied thread patch. Review the workspace before continuing."
+              : (result.errorMessage ?? "Could not apply thread patch."),
+          });
+        } catch (error) {
+          setNotice({
+            tone: "error",
+            text: error instanceof Error ? error.message : "Could not apply thread patch.",
+          });
+        } finally {
+          setPatchActionInFlight(false);
+        }
+      }
+    : null;
+
   if (isInProgress) {
-    return <TurnDiffBanner summary={summary} />;
+    return <TurnDiffBanner summary={summary} onReview={handleOpenReview} />;
   }
 
   return (
@@ -356,8 +475,35 @@ export function TurnDiffSurface({
             <DiffStats additions={summary.additions} deletions={summary.deletions} className="text-size-chat" />
           ) : null}
           <div className="flex-1" />
+          {handleTogglePatch ? (
+            <TurnDiffActionButton
+              label={isPatchApplied ? "Revert changes" : "Reapply changes"}
+              onClick={() => {
+                void handleTogglePatch();
+              }}
+              tone={isPatchApplied ? "destructive" : "default"}
+              disabled={patchActionInFlight}
+            />
+          ) : null}
+          {handleOpenReview ? (
+            <TurnDiffActionButton label="Review changes" onClick={handleOpenReview} disabled={patchActionInFlight} />
+          ) : null}
         </div>
       </div>
+      {notice ? (
+        <div className="px-3 pb-2">
+          <div
+            className={cn(
+              "rounded-lg px-3 py-2 text-sm",
+              notice.tone === "success"
+                ? "bg-token-charts-green/10 text-token-charts-green"
+                : "bg-token-charts-red/10 text-token-charts-red",
+            )}
+          >
+            {notice.text}
+          </div>
+        </div>
+      ) : null}
       <div className="flex flex-col divide-y-[0.5px] divide-token-border">
         {rows.map((row) => (
           <TurnDiffEmbeddedRow
@@ -367,6 +513,7 @@ export function TurnDiffSurface({
             diffHostClassName={diffHostClassName}
             diffHostStyle={diffHostStyle}
             diffOptions={diffOptions}
+            onReview={row.isTooLarge ? handleOpenReview : null}
           />
         ))}
       </div>
@@ -376,4 +523,5 @@ export function TurnDiffSurface({
 
 export const turnDiffSurfaceTestHelpers = {
   buildTurnDiffRows,
+  buildTurnDiffReviewTarget,
 };

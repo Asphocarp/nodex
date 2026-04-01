@@ -29,6 +29,7 @@ function resolveSearchableText(entry: CodexConversationItem): string {
     entry.additionalDetails ?? "",
     entry.toolCall?.toolName ?? "",
     entry.toolCall?.server ?? "",
+    stringifyValue(entry.fileChange),
     stringifyValue(entry.toolCall?.args),
     stringifyValue(entry.toolCall?.result),
     stringifyValue(entry.rawItem),
@@ -39,6 +40,8 @@ function resolveSearchableText(entry: CodexConversationItem): string {
 }
 
 function resolveRendererType(entry: CodexConversationItem): ThreadTranscriptBlockModel["type"] | null {
+  if (entry.kind === "fileChange") return "fileChange";
+
   if (entry.kind === "userInputRequest" && entry.semanticKind !== "answeredUserInput") {
     return null;
   }
@@ -60,8 +63,6 @@ function resolveRendererType(entry: CodexConversationItem): ThreadTranscriptBloc
       return "proposedPlan";
     case "exec":
       return "exec";
-    case "patch":
-      return "patch";
     case "diff":
       return "turnDiff";
     case "mcpToolCall":
@@ -172,7 +173,7 @@ function hasAboveAssistantWork(items: ThreadTranscriptBlockModel[], anchorIndex:
       case "modelChanged":
       case "modelRerouted":
       case "exec":
-      case "patch":
+      case "fileChange":
       case "mcpToolCall":
       case "automaticApprovalReview":
       case "streamError":

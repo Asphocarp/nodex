@@ -339,6 +339,7 @@ describe("ThreadSystemErrorBlock", () => {
 
 describe("ThreadTurnDiffBlock", () => {
   test("renders the compact Codex above-composer banner while the turn is streaming", () => {
+    let selectedTurnId: string | null = null;
     const { container, getByText } = render(
       <ThreadTurnDiffBlock
         block={{
@@ -380,11 +381,16 @@ describe("ThreadTurnDiffBlock", () => {
         isLatestTurn={true}
         isStreamingTurn={true}
         threadCwd="/tmp/project"
+        onOpenTurnDiffReview={(target) => {
+          selectedTurnId = target.turnId;
+        }}
       />,
     );
 
     getByText("2 files changed");
     expect(Boolean(container.textContent?.includes("Review"))).toBeTrue();
     expect(container.querySelectorAll('[role="button"][aria-expanded="false"]').length).toBe(0);
+    fireEvent.click(container.querySelector('button[aria-label="Review changes"]') as HTMLElement);
+    expect(selectedTurnId).toBe("turn-1");
   });
 });

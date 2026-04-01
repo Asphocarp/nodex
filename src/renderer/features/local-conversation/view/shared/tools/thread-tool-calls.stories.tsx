@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useRef, type ReactNode } from "react";
-import type { CodexTranscriptEntry } from "@/lib/types";
+import type { CodexFileChange, CodexTranscriptEntry } from "@/lib/types";
+import { buildCodexFileChangeUnifiedDiff } from "../../../../../../shared/codex-file-change";
 import { ThreadExplorationGroupBlock } from "../../blocks/local-conversation-block-leaves";
 import { LOCAL_CONVERSATION_CONTENT_CLASS_NAME } from "../local-conversation-view-constants";
 import { TurnDiffSurface } from "../turn-diff-surface";
@@ -23,7 +24,6 @@ const LONG_COMMAND = [
 ].join(" ");
 
 const COMMAND_TOOL_CALL = THREAD_TOOL_CALL_STORY_ITEMS.command.toolCall;
-
 function buildCommandToolCall(overrides?: Partial<NonNullable<typeof COMMAND_TOOL_CALL>>) {
   return {
     subtype: COMMAND_TOOL_CALL?.subtype ?? "command",
@@ -31,6 +31,32 @@ function buildCommandToolCall(overrides?: Partial<NonNullable<typeof COMMAND_TOO
     args: COMMAND_TOOL_CALL?.args ?? { command: "bun test" },
     result: COMMAND_TOOL_CALL?.result ?? "",
     ...overrides,
+  };
+}
+
+function buildStoryFileChangePayload(changes: CodexFileChange[]) {
+  return {
+    label: changes.length === 1 ? `${changes[0]?.type === "add" ? "Created" : changes[0]?.type === "delete" ? "Deleted" : "Edited"} ${changes[0]?.path}` : undefined,
+    paths: changes.map((change) => change.path),
+    changes,
+    diffs: changes
+      .map((change) => buildCodexFileChangeUnifiedDiff(change))
+      .filter((diff): diff is string => typeof diff === "string"),
+  };
+}
+
+function buildStoryFileChangeToolCall(changes: CodexFileChange[]) {
+  const payload = buildStoryFileChangePayload(changes);
+
+  return {
+    subtype: "fileChange" as const,
+    toolName: "file_change",
+    args: {
+      label: payload.label,
+    },
+    result: {
+      diffs: payload.diffs,
+    },
   };
 }
 
@@ -399,7 +425,7 @@ export const FileChange: Story = {
     <ToolCallStory
       item={THREAD_TOOL_CALL_STORY_ITEMS.fileChange}
       title="File Change / Diff"
-      description="Codex Electron-style file-edit tool surface rendered from the patch item."
+      description="Codex Electron-style file-edit tool surface rendered from the canonical file-change item."
       autoOpen
     />
   ),
@@ -408,51 +434,105 @@ export const FileChange: Story = {
 export const FileChangeMultiFile: Story = {
   render: () => (
     <ToolCallStory
-      item={{
-        ...THREAD_TOOL_CALL_STORY_ITEMS.fileChange,
-        itemId: "tool_story_file_change_multi",
-        entryId: "tool_story_file_change_multi",
-        toolCall: {
-          subtype: THREAD_TOOL_CALL_STORY_ITEMS.fileChange.toolCall?.subtype ?? "fileChange",
-          toolName: THREAD_TOOL_CALL_STORY_ITEMS.fileChange.toolCall?.toolName ?? "file_change",
-          args: {
-            changes: [
-              {
-                path: "src/one.ts",
-                diff: [
-                  "@@ -1 +1 @@",
-                  "-console.log('one');",
-                  "+console.log('ONE');",
-                ].join("\n"),
-              },
-              {
-                path: "src/two.ts",
-                diff: [
-                  "@@ -1 +1 @@",
-                  "-console.log('two');",
-                  "+console.log('TWO');",
-                ].join("\n"),
-              },
-            ],
-          },
-          result: {
-            diff: [
-              "--- a/src/one.ts",
-              "+++ b/src/one.ts",
+      item={(() => {
+        const changes: CodexFileChange[] = [
+          {
+            path: "src/one.ts",
+            type: "update",
+            movePath: null,
+            unifiedDiff: [
               "@@ -1 +1 @@",
               "-console.log('one');",
               "+console.log('ONE');",
-              "--- a/src/two.ts",
-              "+++ b/src/two.ts",
+            ].join("\n"),
+          },
+          {
+            path: "src/two.ts",
+            type: "update",
+            movePath: null,
+            unifiedDiff: [
               "@@ -1 +1 @@",
               "-console.log('two');",
               "+console.log('TWO');",
             ].join("\n"),
           },
-        },
-      }}
+        ];
+
+        return {
+          ...THREAD_TOOL_CALL_STORY_ITEMS.fileChange,
+          itemId: "tool_story_file_change_multi",
+          entryId: "tool_story_file_change_multi",
+          fileChange: buildStoryFileChangePayload(changes),
+          toolCall: buildStoryFileChangeToolCall(changes),
+        };
+      })()}
       title="File Change / Diff Multi-File"
       description="Expanded per-file rows keep the thread-owned filename header without repeating the diff library header inside each embedded preview."
+      autoOpen
+    />
+  ),
+};
+
+export const FileChangeSemanticFallback: Story = {
+  render: () => (
+    <ToolCallStory
+      item={(() => {
+        const changes: CodexFileChange[] = [
+          {
+            path: "src/new-file.ts",
+            type: "add",
+            content: "export function Foo() {}\n",
+          },
+          {
+            path: "src/deleted-file.ts",
+            type: "delete",
+            content: "export function Gone() {}\n",
+          },
+        ];
+
+        return {
+          ...THREAD_TOOL_CALL_STORY_ITEMS.fileChange,
+          itemId: "tool-call-file-change-semantic-fallback",
+          entryId: "tool-call-file-change-semantic-fallback",
+          fileChange: buildStoryFileChangePayload(changes),
+          toolCall: buildStoryFileChangeToolCall(changes),
+        };
+      })()}
+      title="File Change Semantic Fallback"
+      description="Structured add and delete changes use semantic previews instead of a raw patch text fallback when no parsed inline file diff is available."
+      autoOpen
+    />
+  ),
+};
+
+export const FileChangeDeclinedRename: Story = {
+  render: () => (
+    <ToolCallStory
+      item={(() => {
+        const changes: CodexFileChange[] = [
+          {
+            path: "src/renamed.ts",
+            type: "update",
+            movePath: "src/original.ts",
+            unifiedDiff: [
+              "@@ -1 +1 @@",
+              "-export const value = 'old';",
+              "+export const value = 'new';",
+            ].join("\n"),
+          },
+        ];
+
+        return {
+          ...THREAD_TOOL_CALL_STORY_ITEMS.fileChange,
+          itemId: "tool-call-file-change-declined-rename",
+          entryId: "tool-call-file-change-declined-rename",
+          status: "declined",
+          fileChange: buildStoryFileChangePayload(changes),
+          toolCall: buildStoryFileChangeToolCall(changes),
+        };
+      })()}
+      title="File Change Declined Rename"
+      description="Rejected file edits preserve rename metadata in the renderer and match Codex Electron's plain rejected summary label."
       autoOpen
     />
   ),
@@ -467,6 +547,35 @@ export const TurnDiff: Story = {
       <ConversationStorySurface>
         <TurnDiffSurface
           item={THREAD_TOOL_CALL_STORY_ITEMS.turnDiff}
+          isInProgress={false}
+          projectWorkspacePath="/workspace/nodex"
+          threadCwd="/workspace/nodex"
+        />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const TurnDiffWithRevert: Story = {
+  render: () => (
+    <StorySurface
+      title="Turn Diff With Revert"
+      description="Completed turn diffs can hand off directly to the Diffs stage and expose the Codex-style revert/reapply affordance when the payload requests it."
+    >
+      <ConversationStorySurface>
+        <TurnDiffSurface
+          item={{
+            ...THREAD_TOOL_CALL_STORY_ITEMS.turnDiff,
+            rawItem: {
+              ...(typeof THREAD_TOOL_CALL_STORY_ITEMS.turnDiff.rawItem === "object" && THREAD_TOOL_CALL_STORY_ITEMS.turnDiff.rawItem !== null
+                ? THREAD_TOOL_CALL_STORY_ITEMS.turnDiff.rawItem
+                : {}),
+              type: "turn-diff",
+              cwd: "/workspace/nodex",
+              unifiedDiff: (THREAD_TOOL_CALL_STORY_ITEMS.turnDiff.rawItem as { unifiedDiff?: string } | undefined)?.unifiedDiff ?? "",
+              showRevertButton: true,
+            },
+          }}
           isInProgress={false}
           projectWorkspacePath="/workspace/nodex"
           threadCwd="/workspace/nodex"

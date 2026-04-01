@@ -519,6 +519,9 @@ export function ThreadStageDevStoryPage({
         }));
       }
     },
+    onOpenTurnDiffReview: (target) => {
+      setRuntime((current) => setStoryLog(current, `Opened diff review for ${target.turnId}.`));
+    },
     onConsumeComposerIntent: (threadId: string, focusNonce: number) => {
       setRuntime((current) => {
         if (current.composerIntent?.focusNonce !== focusNonce || current.activeThreadId !== threadId) return current;

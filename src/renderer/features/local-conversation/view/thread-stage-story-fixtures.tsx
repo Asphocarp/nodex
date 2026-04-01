@@ -787,28 +787,45 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
     itemId: "tool_story_file_change",
     type: "file_change",
     kind: "fileChange",
-    semanticKind: "patch",
+    fileChange: {
+      label: "Edited src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
+      paths: ["src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx"],
+      changes: [
+        {
+          path: "src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
+          type: "update",
+          movePath: null,
+          unifiedDiff: [
+            "@@ -1,5 +1,7 @@",
+            " import { useState } from \"react\";",
+            "+import { StoryShell } from \"./thread-stage-dev-story\";",
+            " ",
+            " export function LocalConversationStageScreen() {",
+            "+  return <StoryShell />;",
+            " }",
+          ].join("\n"),
+        },
+      ],
+      diffs: [[
+        "--- a/src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
+        "+++ b/src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
+        "@@ -1,5 +1,7 @@",
+        " import { useState } from \"react\";",
+        "+import { StoryShell } from \"./thread-stage-dev-story\";",
+        " ",
+        " export function LocalConversationStageScreen() {",
+        "+  return <StoryShell />;",
+        " }",
+      ].join("\n")],
+    },
     toolCall: {
       subtype: "fileChange",
       toolName: "file_change",
       args: {
-        changes: [
-          {
-            path: "src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
-            diff: [
-              "@@ -1,5 +1,7 @@",
-              " import { useState } from \"react\";",
-              "+import { StoryShell } from \"./thread-stage-dev-story\";",
-              " ",
-              " export function LocalConversationStageScreen() {",
-              "+  return <StoryShell />;",
-              " }",
-            ].join("\n"),
-          },
-        ],
+        label: "Edited src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
       },
       result: {
-        diff: [
+        diffs: [[
           "--- a/src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
           "+++ b/src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
           "@@ -1,5 +1,7 @@",
@@ -818,7 +835,7 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
           " export function LocalConversationStageScreen() {",
           "+  return <StoryShell />;",
           " }",
-        ].join("\n"),
+        ].join("\n")],
       },
     },
   }),
@@ -875,8 +892,8 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
         "+  - completed turn-diff cards summarize multi-file changes before any embedded rows expand.",
         "+  - embedded turn-diff rows are collapsed by default and open files from the filename button when a workspace path is available.",
         "   - the unified diff card is never allowed to replace or swallow the underlying `Edited file` tool row",
-        "   - patch rows expand inline to reveal their own unified diff frame instead of delegating expansion to the separate turn-level diff card",
-        "   - patch headers split the status label and filename into separate elements; the filename is clickable and opens the local file target without toggling the row",
+        "   - file-change rows expand inline to reveal their own unified diff frame instead of delegating expansion to the separate turn-level diff card",
+        "   - file-change headers split the status label and filename into separate elements; the filename is clickable and opens the local file target without toggling the row",
         "--- a/src/renderer/features/local-conversation/view/shared/turn-diff-surface.tsx",
         "+++ b/src/renderer/features/local-conversation/view/shared/turn-diff-surface.tsx",
         "@@ -183,7 +183,7 @@",

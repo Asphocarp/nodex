@@ -67,6 +67,7 @@ function buildActions(): ThreadStageActions {
     onEditQueuedFollowUp: async () => { },
     onEditLastUserTurn: async () => { },
     onForkFromTurn: async () => { },
+    onOpenTurnDiffReview: () => { },
     onConsumeComposerIntent: () => { },
     onOpenThread: () => { },
     onCleanBackgroundTerminals: async () => { },
