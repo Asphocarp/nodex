@@ -144,5 +144,8 @@ describe("LocalConversationStageScreen", () => {
     expect(Boolean(container.querySelector("[data-local-conversation-header='true']"))).toBeTrue();
     expect(Boolean(container.querySelector("[data-local-conversation-thread-body='true']"))).toBeTrue();
     expect(Boolean(container.querySelector("[data-local-conversation-footer='true']"))).toBeTrue();
+    expect(Boolean(container.querySelector(".sticky.top-0.z-10"))).toBeTrue();
+    expect(Boolean(container.querySelector(".min-h-0.flex-1"))).toBeTrue();
+    expect(Boolean(container.querySelector(".z-10.w-full.pb-2"))).toBeTrue();
   });
 });

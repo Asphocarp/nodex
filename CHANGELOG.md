@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 ### Fixed
+- Fixed the Threads composer staying visible at the bottom of the stage even when the transcript is long, matching the Codex thread shell layout instead of letting the body push the composer out of view.
 - Fixed Codex thread sidebar and card-stage thread lists so they hydrate as soon as a project subscribes to thread summaries instead of staying empty until some later thread mutation happens.
 - Fixed heavy streaming thread updates so live thread sync now follows a Codex-style per-thread patch stream and provider-backed conversation manager instead of rebroadcasting full live snapshots through a shell-owned renderer reducer.
 - Fixed heavy streaming thread sessions repainting the whole Electron shell by moving active thread state to a per-thread external store instead of a WorkbenchShell-owned reducer.

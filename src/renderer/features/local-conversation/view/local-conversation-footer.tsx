@@ -22,7 +22,7 @@ export function LocalConversationFooter({
 
   if (isResumingActiveThread) {
     return (
-      <div className="px-panel z-10 mx-auto flex w-full max-w-[var(--thread-composer-max-width)] flex-col pb-2">
+      <div className="mx-auto flex w-full max-w-[var(--thread-composer-max-width)] flex-col px-panel">
         <LocalConversationAboveComposerPortalHost />
         <LocalConversationAboveComposerQueuePortalHost />
       </div>
@@ -30,7 +30,7 @@ export function LocalConversationFooter({
   }
 
   return (
-    <div className="px-panel z-10 mx-auto flex w-full max-w-[var(--thread-composer-max-width)] flex-col pb-2">
+    <div className="mx-auto flex w-full max-w-[var(--thread-composer-max-width)] flex-col px-panel">
       <LocalConversationAboveComposerPortalHost />
       <LocalConversationAboveComposerQueuePortalHost />
       <LocalConversationComposerShell
