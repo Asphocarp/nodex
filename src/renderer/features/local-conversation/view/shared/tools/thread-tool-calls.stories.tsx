@@ -405,6 +405,59 @@ export const FileChange: Story = {
   ),
 };
 
+export const FileChangeMultiFile: Story = {
+  render: () => (
+    <ToolCallStory
+      item={{
+        ...THREAD_TOOL_CALL_STORY_ITEMS.fileChange,
+        itemId: "tool_story_file_change_multi",
+        entryId: "tool_story_file_change_multi",
+        toolCall: {
+          subtype: THREAD_TOOL_CALL_STORY_ITEMS.fileChange.toolCall?.subtype ?? "fileChange",
+          toolName: THREAD_TOOL_CALL_STORY_ITEMS.fileChange.toolCall?.toolName ?? "file_change",
+          args: {
+            changes: [
+              {
+                path: "src/one.ts",
+                diff: [
+                  "@@ -1 +1 @@",
+                  "-console.log('one');",
+                  "+console.log('ONE');",
+                ].join("\n"),
+              },
+              {
+                path: "src/two.ts",
+                diff: [
+                  "@@ -1 +1 @@",
+                  "-console.log('two');",
+                  "+console.log('TWO');",
+                ].join("\n"),
+              },
+            ],
+          },
+          result: {
+            diff: [
+              "--- a/src/one.ts",
+              "+++ b/src/one.ts",
+              "@@ -1 +1 @@",
+              "-console.log('one');",
+              "+console.log('ONE');",
+              "--- a/src/two.ts",
+              "+++ b/src/two.ts",
+              "@@ -1 +1 @@",
+              "-console.log('two');",
+              "+console.log('TWO');",
+            ].join("\n"),
+          },
+        },
+      }}
+      title="File Change / Diff Multi-File"
+      description="Expanded per-file rows keep the thread-owned filename header without repeating the diff library header inside each embedded preview."
+      autoOpen
+    />
+  ),
+};
+
 export const TurnDiff: Story = {
   render: () => (
     <StorySurface

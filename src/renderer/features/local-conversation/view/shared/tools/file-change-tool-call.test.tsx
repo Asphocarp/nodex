@@ -225,6 +225,10 @@ describe("FileChangeToolCall", () => {
 
     expect(container.querySelectorAll('[role="button"][aria-expanded="true"]').length).toBe(1);
     expect(Boolean(textContent(container).includes("Edited file"))).toBeTrue();
+
+    const diffHost = container.querySelector<HTMLElement>(".nodex-inline-diff");
+    expect(Boolean(diffHost)).toBeTrue();
+    expect(Boolean(diffHost?.shadowRoot?.querySelector("[data-diffs-header]"))).toBeFalse();
   });
 
   test("keeps the patch body on explicit pixel height instead of switching to auto", async () => {

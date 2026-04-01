@@ -435,8 +435,7 @@ export function FileChangeToolCall({
     projectWorkspacePath,
     threadCwd,
   ]);
-  const isSingleFile = rows.length <= 1;
-  const diffOptions = useMemo(() => getNodexDiffOptions(resolved, isSingleFile), [resolved, isSingleFile]);
+  const diffOptions = useMemo(() => getNodexDiffOptions(resolved, true), [resolved]);
   const diffHostStyle = useMemo(() => getNodexDiffHostStyle(resolved), [resolved]);
   const diffHostClassName = `${NODEX_DIFF_HOST_CLASS} overflow-y-auto`;
 
