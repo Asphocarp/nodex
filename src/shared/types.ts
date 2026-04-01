@@ -980,6 +980,14 @@ export interface CodexConversationSnapshot extends CodexThreadSummary {
   capabilityFlags: CodexConversationCapabilityFlags;
 }
 
+export type CodexConversationPatchPathSegment = string | number;
+
+export interface CodexConversationStateUpdate {
+  op: "replace" | "remove";
+  path: CodexConversationPatchPathSegment[];
+  value?: unknown;
+}
+
 export type CodexThreadStartProgressPhase =
   | "creatingWorktree"
   | "runningSetup"
@@ -1024,10 +1032,58 @@ export type CodexPendingThreadRequest =
   | CodexUserInputRequest
   | CodexPlanImplementationRequest;
 
+export type CodexSharedObject =
+  | {
+      objectType: "connection";
+      objectId: "connection";
+      value: CodexConnectionState;
+    }
+  | {
+      objectType: "account";
+      objectId: "account";
+      value: CodexAccountSnapshot;
+    }
+  | {
+      objectType: "rateLimits";
+      objectId: "rateLimits";
+      value: CodexRateLimitsSnapshot | null;
+    }
+  | {
+      objectType: "threadSummary";
+      objectId: string;
+      value: CodexThreadSummary;
+    }
+  | {
+      objectType: "threadStartProgress";
+      objectId: string;
+      value: {
+        projectId: string;
+        cardId: string;
+        phase: CodexThreadStartProgressPhase;
+        message: string;
+        stream?: CodexThreadStartProgressStream;
+        outputDelta?: string;
+        clearOutput?: boolean;
+        updatedAt: number;
+      };
+    };
+
+export type CodexThreadStreamStateChange =
+  | { type: "snapshot"; conversationState: CodexConversationSnapshot }
+  | { type: "patches"; patches: CodexConversationStateUpdate[] };
+
 export type CodexHostMessage =
-  | { type: "connection"; connection: CodexConnectionState }
-  | { type: "account"; account: CodexAccountSnapshot }
-  | { type: "rateLimits"; rateLimits: CodexRateLimitsSnapshot | null }
-  | { type: "threadSummary"; thread: CodexThreadSummary }
-  | { type: "conversationSnapshot"; conversation: CodexConversationSnapshot }
-  | { type: "error"; message: string; detail?: string };
+  | {
+      type: "sharedObjectUpdated";
+      hostId: string;
+      object: CodexSharedObject;
+    }
+  | {
+      type: "threadStreamStateChanged";
+      hostId: string;
+      conversationId: string;
+      change: CodexThreadStreamStateChange;
+      version: number;
+      sourceClientId?: string | null;
+    }
+  | { type: "error"; hostId: string; message: string; detail?: string };

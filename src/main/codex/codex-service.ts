@@ -133,6 +133,7 @@ import {
   resolveThreadPreviewFromTranscript,
 } from "./codex-transcript-projection";
 import { buildCodexConversationSnapshot } from "./codex-conversation-snapshot";
+import { buildCodexConversationStateUpdates } from "../../shared/codex-conversation-patches";
 import { resolveCodexRuntime, type ResolvedCodexRuntime } from "./codex-runtime";
 import {
   listWorktreeEnvironmentOptions,
@@ -142,6 +143,7 @@ import {
   saveWorktreeEnvironmentSettingsSnapshot as saveWorktreeEnvironmentSettingsRecord,
 } from "./worktree-environment-service";
 import { getLogger } from "../logging/logger";
+import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
 
 const codexLogger = getLogger({ subsystem: "codex", component: "service" });
 const require = createRequire(import.meta.url);
@@ -1057,6 +1059,8 @@ export class CodexService extends EventEmitter {
   private readonly pendingUserInputs = new Map<string, PendingUserInput>();
   private readonly pendingMcpElicitations = new Map<string, PendingMcpServerElicitation>();
   private readonly conversationRecords = new Map<string, CodexConversationRecord>();
+  private readonly lastBroadcastConversationById = new Map<string, CodexConversationSnapshot>();
+  private readonly conversationVersionById = new Map<string, number>();
   private readonly queuedFollowUpDrainInFlight = new Set<string>();
   private readonly frameTextDeltaQueue = new FrameTextDeltaQueue((updates) => {
     this.applyFrameTextDeltas(updates);
@@ -1122,13 +1126,27 @@ export class CodexService extends EventEmitter {
     this.emit("hostMessage", message);
   }
 
-  private emitConversationSnapshotFromRecord(threadId: string): void {
+  private getNextConversationVersion(threadId: string): number {
+    const nextVersion = (this.conversationVersionById.get(threadId) ?? 0) + 1;
+    this.conversationVersionById.set(threadId, nextVersion);
+    return nextVersion;
+  }
+
+  private emitThreadStreamSnapshotFromRecord(threadId: string): void {
     try {
       const conversation = this.serializeConversationSnapshot(threadId);
       if (!conversation) return;
+      this.lastBroadcastConversationById.set(threadId, conversation);
       this.emitHostMessage({
-        type: "conversationSnapshot",
-        conversation,
+        type: "threadStreamStateChanged",
+        hostId: DEFAULT_CODEX_HOST_ID,
+        conversationId: threadId,
+        change: {
+          type: "snapshot",
+          conversationState: conversation,
+        },
+        version: this.getNextConversationVersion(threadId),
+        sourceClientId: null,
       });
     } catch (error) {
       this.logger.warn("Could not serialize conversation snapshot for host message", {
@@ -1138,37 +1156,133 @@ export class CodexService extends EventEmitter {
     }
   }
 
-  private emitConversationSnapshot(threadId: string): void {
-    this.emitConversationSnapshotFromRecord(threadId);
+  private emitThreadStreamStateChange(threadId: string): void {
+    try {
+      const conversation = this.serializeConversationSnapshot(threadId);
+      if (!conversation) return;
+
+      const previousConversation = this.lastBroadcastConversationById.get(threadId);
+      if (!previousConversation) {
+        this.lastBroadcastConversationById.set(threadId, conversation);
+        this.emitHostMessage({
+          type: "threadStreamStateChanged",
+          hostId: DEFAULT_CODEX_HOST_ID,
+          conversationId: threadId,
+          change: {
+            type: "snapshot",
+            conversationState: conversation,
+          },
+          version: this.getNextConversationVersion(threadId),
+          sourceClientId: null,
+        });
+        return;
+      }
+
+      const patches = buildCodexConversationStateUpdates(previousConversation, conversation);
+      if (patches.length === 0) {
+        return;
+      }
+
+      this.lastBroadcastConversationById.set(threadId, conversation);
+      this.emitHostMessage({
+        type: "threadStreamStateChanged",
+        hostId: DEFAULT_CODEX_HOST_ID,
+        conversationId: threadId,
+        change: {
+          type: "patches",
+          patches,
+        },
+        version: this.getNextConversationVersion(threadId),
+        sourceClientId: null,
+      });
+    } catch (error) {
+      this.logger.warn("Could not compute conversation patch update for host message", {
+        threadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      this.emitThreadStreamSnapshotFromRecord(threadId);
+    }
   }
 
   private emitHostMessagesForEvent(event: CodexEvent): void {
     if (event.type === "connection" || event.type === "account" || event.type === "rateLimits") {
-      this.emitHostMessage(event);
+      this.emitHostMessage({
+        type: "sharedObjectUpdated",
+        hostId: DEFAULT_CODEX_HOST_ID,
+        object: event.type === "connection"
+          ? {
+              objectType: "connection",
+              objectId: "connection",
+              value: event.connection,
+            }
+          : event.type === "account"
+            ? {
+                objectType: "account",
+                objectId: "account",
+                value: event.account,
+              }
+            : {
+                objectType: "rateLimits",
+                objectId: "rateLimits",
+                value: event.rateLimits,
+              },
+      });
       return;
     }
 
     if (event.type === "error") {
-      this.emitHostMessage(event);
+      this.emitHostMessage({
+        ...event,
+        hostId: DEFAULT_CODEX_HOST_ID,
+      });
       return;
     }
 
     if (event.type === "threadSummary") {
-      this.emitHostMessage(event);
-      this.emitConversationSnapshot(event.thread.threadId);
+      this.emitHostMessage({
+        type: "sharedObjectUpdated",
+        hostId: DEFAULT_CODEX_HOST_ID,
+        object: {
+          objectType: "threadSummary",
+          objectId: event.thread.threadId,
+          value: event.thread,
+        },
+      });
+      this.emitThreadStreamStateChange(event.thread.threadId);
       return;
+    }
+
+    if (event.type === "threadStartProgress") {
+      this.emitHostMessage({
+        type: "sharedObjectUpdated",
+        hostId: DEFAULT_CODEX_HOST_ID,
+        object: {
+          objectType: "threadStartProgress",
+          objectId: `${event.projectId}:${event.cardId}`,
+          value: {
+            projectId: event.projectId,
+            cardId: event.cardId,
+            phase: event.phase,
+            message: event.message,
+            stream: event.stream,
+            outputDelta: event.outputDelta,
+            clearOutput: event.clearOutput,
+            updatedAt: event.updatedAt,
+          },
+        },
+      });
     }
 
     const threadId = resolveThreadIdFromCodexEvent(event);
     if (!threadId) return;
-    this.emitConversationSnapshot(threadId);
+    this.emitThreadStreamStateChange(threadId);
   }
 
-  private emitConversationSnapshots(threadIds?: string[]): void {
+  private emitThreadStreamSnapshots(threadIds?: string[]): void {
     const nextThreadIds = (threadIds ?? listCodexThreadLinks({ includeArchived: true }).map((thread) => thread.threadId))
       .filter((threadId, index, values) => threadId.length > 0 && values.indexOf(threadId) === index);
     for (const threadId of nextThreadIds) {
-      this.emitConversationSnapshotFromRecord(threadId);
+      this.emitThreadStreamSnapshotFromRecord(threadId);
     }
   }
 
@@ -1266,7 +1380,7 @@ export class CodexService extends EventEmitter {
       record.isStreaming = false;
     }
 
-    this.emitConversationSnapshots(Array.from(knownThreadIds));
+    this.emitThreadStreamSnapshots(Array.from(knownThreadIds));
   }
 
   private markConversationsNeedResumeAfterReconnect(): void {
@@ -1338,7 +1452,7 @@ export class CodexService extends EventEmitter {
 
     if (!changed) return;
     this.ensureConversationRecord(threadId).queuedFollowUps = nextEntries;
-    this.emitConversationSnapshot(threadId);
+    this.emitThreadStreamStateChange(threadId);
   }
 
   private enqueueQueuedFollowUp(
@@ -1359,7 +1473,7 @@ export class CodexService extends EventEmitter {
       },
     ];
     this.ensureConversationRecord(threadId).queuedFollowUps = nextEntries;
-    this.emitConversationSnapshot(threadId);
+    this.emitThreadStreamStateChange(threadId);
     return followUpId;
   }
 
@@ -1370,7 +1484,7 @@ export class CodexService extends EventEmitter {
     } else {
       this.ensureConversationRecord(threadId).queuedFollowUps = nextEntries;
     }
-    this.emitConversationSnapshot(threadId);
+    this.emitThreadStreamStateChange(threadId);
   }
 
   private getQueuedFollowUp(threadId: string, followUpId: string): CodexQueuedFollowUp | null {
@@ -1390,7 +1504,7 @@ export class CodexService extends EventEmitter {
       },
       ...existing,
     ];
-    this.emitConversationSnapshot(threadId);
+    this.emitThreadStreamStateChange(threadId);
   }
 
   removeQueuedFollowUp(threadId: string, followUpId: string): void {
@@ -1410,7 +1524,7 @@ export class CodexService extends EventEmitter {
     const nextEntries = [...ordered, ...existing.filter((followUp) => !seen.has(followUp.followUpId))];
 
     this.ensureConversationRecord(threadId).queuedFollowUps = nextEntries;
-    this.emitConversationSnapshot(threadId);
+    this.emitThreadStreamStateChange(threadId);
   }
 
   async enqueueQueuedFollowUpPrompt(
@@ -1440,7 +1554,7 @@ export class CodexService extends EventEmitter {
       },
     ];
     this.ensureConversationRecord(threadId).pendingSteers = nextEntries;
-    this.emitConversationSnapshot(threadId);
+    this.emitThreadStreamStateChange(threadId);
     return steerId;
   }
 
@@ -1451,7 +1565,7 @@ export class CodexService extends EventEmitter {
     } else {
       this.ensureConversationRecord(threadId).pendingSteers = nextEntries;
     }
-    this.emitConversationSnapshot(threadId);
+    this.emitThreadStreamStateChange(threadId);
   }
 
   private clearPendingSteerForConsumedPrompt(threadId: string, turnId: string, prompt: string): void {
@@ -1466,14 +1580,14 @@ export class CodexService extends EventEmitter {
 
     nextEntries.splice(matchIndex, 1);
     this.ensureConversationRecord(threadId).pendingSteers = nextEntries;
-    this.emitConversationSnapshot(threadId);
+    this.emitThreadStreamStateChange(threadId);
   }
 
   private clearPendingSteersForTurn(threadId: string, turnId: string): void {
     const nextEntries = this.listPendingSteers(threadId).filter((steer) => steer.turnId !== turnId);
     if (nextEntries.length === this.listPendingSteers(threadId).length) return;
     this.ensureConversationRecord(threadId).pendingSteers = nextEntries;
-    this.emitConversationSnapshot(threadId);
+    this.emitThreadStreamStateChange(threadId);
   }
 
   private scheduleQueuedFollowUpDrain(threadId: string): void {
@@ -3363,7 +3477,7 @@ export class CodexService extends EventEmitter {
   async requestConversationSnapshot(threadId: string): Promise<CodexConversationSnapshot | null> {
     const existingConversation = this.serializeConversationSnapshot(threadId);
     if (existingConversation) {
-      this.emitConversationSnapshotFromRecord(threadId);
+      this.emitThreadStreamSnapshotFromRecord(threadId);
       return existingConversation;
     }
 
@@ -3420,18 +3534,18 @@ export class CodexService extends EventEmitter {
   async requestConversationResume(threadId: string): Promise<CodexConversationSnapshot | null> {
     this.setConversationResumeState(threadId, "resuming");
     this.ensureConversationDetail(threadId);
-    this.emitConversationSnapshotFromRecord(threadId);
+    this.emitThreadStreamSnapshotFromRecord(threadId);
 
     try {
       const detail = await this.resumeThread(threadId);
       if (!detail) {
         this.setConversationResumeState(threadId, "needs_resume");
-        this.emitConversationSnapshotFromRecord(threadId);
+        this.emitThreadStreamSnapshotFromRecord(threadId);
         return null;
       }
 
       this.setConversationResumeState(threadId, "resumed");
-      this.emitConversationSnapshotFromRecord(threadId);
+      this.emitThreadStreamSnapshotFromRecord(threadId);
       this.scheduleQueuedFollowUpDrain(threadId);
       return this.serializeConversationSnapshot(threadId);
     } catch (error) {
@@ -3439,7 +3553,7 @@ export class CodexService extends EventEmitter {
       const record = this.ensureConversationRecord(threadId);
       record.streamRole = null;
       record.isStreaming = false;
-      this.emitConversationSnapshotFromRecord(threadId);
+      this.emitThreadStreamSnapshotFromRecord(threadId);
       throw error;
     }
   }
@@ -3519,12 +3633,12 @@ export class CodexService extends EventEmitter {
       if (summary) {
         this.emitEvent({ type: "threadSummary", thread: summary });
       } else {
-        this.emitConversationSnapshot(threadId);
+        this.emitThreadStreamStateChange(threadId);
       }
       throw error;
     }
 
-    this.emitConversationSnapshot(threadId);
+    this.emitThreadStreamStateChange(threadId);
 
     return {
       threadId,
@@ -3592,7 +3706,7 @@ export class CodexService extends EventEmitter {
     if (summary) {
       this.emitEvent({ type: "threadSummary", thread: summary });
     } else {
-      this.emitConversationSnapshot(detail.threadId);
+      this.emitThreadStreamStateChange(detail.threadId);
     }
 
     return {
@@ -3865,7 +3979,7 @@ export class CodexService extends EventEmitter {
     pending.resolve({ decision });
     this.pendingApprovals.delete(requestId);
     this.emitEvent({ type: "approvalResolved", requestId, decision });
-    this.emitConversationSnapshot(pending.request.threadId);
+    this.emitThreadStreamStateChange(pending.request.threadId);
     return true;
   }
 
@@ -3906,7 +4020,7 @@ export class CodexService extends EventEmitter {
     const resolvedEntry = this.upsertResolvedUserInputItem(pending.request, transcriptAnswers);
     void resolvedEntry;
     this.emitEvent({ type: "userInputResolved", requestId });
-    this.emitConversationSnapshot(pending.request.threadId);
+    this.emitThreadStreamStateChange(pending.request.threadId);
     return true;
   }
 
@@ -3930,7 +4044,7 @@ export class CodexService extends EventEmitter {
       _meta: null,
     });
     this.pendingMcpElicitations.delete(requestId);
-    this.emitConversationSnapshot(pending.request.threadId);
+    this.emitThreadStreamStateChange(pending.request.threadId);
     return true;
   }
 
@@ -4216,7 +4330,7 @@ export class CodexService extends EventEmitter {
         resolve,
         reject,
       });
-      this.emitConversationSnapshot(threadId);
+      this.emitThreadStreamStateChange(threadId);
     });
   }
 
@@ -4329,7 +4443,7 @@ export class CodexService extends EventEmitter {
     }
 
     if (touchedThreadIds.size === 0) return;
-    this.emitConversationSnapshots(Array.from(touchedThreadIds));
+    this.emitThreadStreamSnapshots(Array.from(touchedThreadIds));
   }
 
   private applyOutputDeltas(updates: OutputDeltaUpdate[]): void {
@@ -4390,7 +4504,7 @@ export class CodexService extends EventEmitter {
     }
 
     if (touchedThreadIds.size === 0) return;
-    this.emitConversationSnapshots(Array.from(touchedThreadIds));
+    this.emitThreadStreamSnapshots(Array.from(touchedThreadIds));
   }
 
   private resolvePendingServerRequest(requestId: string): void {
@@ -4409,7 +4523,7 @@ export class CodexService extends EventEmitter {
       pendingApproval.resolve({ decision: "cancel" });
       this.pendingApprovals.delete(requestId);
       this.emitEvent({ type: "approvalResolved", requestId, decision: "cancel" });
-      this.emitConversationSnapshot(pendingApproval.request.threadId);
+      this.emitThreadStreamStateChange(pendingApproval.request.threadId);
       emittedApprovalResolved = true;
     }
 
@@ -4418,7 +4532,7 @@ export class CodexService extends EventEmitter {
       pendingUserInput.resolve({ answers: {} });
       this.pendingUserInputs.delete(requestId);
       this.emitEvent({ type: "userInputResolved", requestId });
-      this.emitConversationSnapshot(pendingUserInput.request.threadId);
+      this.emitThreadStreamStateChange(pendingUserInput.request.threadId);
       emittedUserInputResolved = true;
     }
 
@@ -4426,7 +4540,7 @@ export class CodexService extends EventEmitter {
     if (pendingMcpElicitation) {
       pendingMcpElicitation.resolve({ action: "cancel", content: null, _meta: null });
       this.pendingMcpElicitations.delete(requestId);
-      this.emitConversationSnapshot(pendingMcpElicitation.request.threadId);
+      this.emitThreadStreamStateChange(pendingMcpElicitation.request.threadId);
     }
 
     if (!emittedApprovalResolved) {
@@ -4638,7 +4752,7 @@ export class CodexService extends EventEmitter {
       this.mergeTurn(payload.threadId, nextTurn);
       this.syncTurnDiffItem(payload.threadId, payload.turnId, diff, nextTurn.status);
       this.emitEvent({ type: "turn", turn: nextTurn });
-      this.emitConversationSnapshot(payload.threadId);
+      this.emitThreadStreamStateChange(payload.threadId);
       return;
     }
 
@@ -4648,7 +4762,7 @@ export class CodexService extends EventEmitter {
       const lifecycleStatus = method === "item/autoApprovalReview/started" ? "inProgress" as const : "completed" as const;
       const entry = this.upsertAutomaticApprovalReviewItem(payload, lifecycleStatus);
       if (!entry) return;
-      this.emitConversationSnapshot(entry.threadId);
+      this.emitThreadStreamStateChange(entry.threadId);
       return;
     }
 
@@ -4675,7 +4789,7 @@ export class CodexService extends EventEmitter {
                 : normalizedItem.markdownText,
             };
       this.mergeItem(item);
-      this.emitConversationSnapshot(payload.threadId);
+      this.emitThreadStreamStateChange(payload.threadId);
       return;
     }
 
@@ -4832,7 +4946,7 @@ export class CodexService extends EventEmitter {
           additionalDetails,
           willRetry,
         });
-        this.emitConversationSnapshot(threadId);
+        this.emitThreadStreamStateChange(threadId);
       }
 
       this.emitEvent({ type: "error", message, detail: additionalDetails ?? undefined });

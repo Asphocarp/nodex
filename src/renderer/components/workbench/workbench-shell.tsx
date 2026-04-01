@@ -43,7 +43,7 @@ import {
   NEW_THREAD_STAGE_TAB_ID,
   readCollaborationModeForContextKey,
   readComposerEnterBehavior,
-  readLocalConversationSnapshot,
+  readLocalConversation,
   readNextPanelPeekPx,
   readSmartPrefixParsingEnabled,
   readStripSmartPrefixFromTitleEnabled,
@@ -61,8 +61,9 @@ import {
   STAGE_ORDER,
   TerminalPanel,
   setLocalConversationComposerIntent,
+  useCodexAppServerControl,
   useCodexAccountActions,
-  useCodexControl,
+  useCodexThreadStartProgress,
   useCodexThreadFollowerClient,
   useKanban,
   useProjectThreadSummaries,
@@ -423,7 +424,6 @@ export function WorkbenchShell({
   const previousCommandPaletteOpenTickRef = useRef(commandPaletteOpenTick);
   const previousSettingsToggleTickRef = useRef(settingsToggleTick);
   const {
-    state: codexState,
     availableModels,
     threadSettings,
     reasoningEffortOptions,
@@ -439,7 +439,7 @@ export function WorkbenchShell({
     setPermissionMode,
     setThreadModel,
     setThreadReasoningEffort,
-  } = useCodexControl(threadsProjectId);
+  } = useCodexAppServerControl(threadsProjectId);
   const {
     refreshAccount,
     startChatGptLogin,
@@ -1240,18 +1240,10 @@ export function WorkbenchShell({
       runInTarget: activeCardStageCard.runInTarget,
     };
   }, [activeCardStageCard, activeCardStageColumnId, cardStageState.projectId, projects]);
-  const newThreadStartProgress = useMemo(() => {
-    if (!newThreadTarget) return null;
-    const key = `${newThreadTarget.projectId}:${newThreadTarget.cardId}`;
-    const progress = codexState.threadStartProgressByTarget?.[key];
-    if (!progress) return null;
-    return {
-      phase: progress.phase,
-      message: progress.message,
-      outputText: progress.outputText,
-      updatedAt: progress.updatedAt,
-    };
-  }, [codexState.threadStartProgressByTarget, newThreadTarget]);
+  const newThreadStartProgress = useCodexThreadStartProgress(
+    newThreadTarget?.projectId ?? null,
+    newThreadTarget?.cardId ?? null,
+  );
   const activeCollaborationModeContextKey = useMemo(() => {
     if (!isNewThreadTab) {
       if (!resolvedActiveThreadsTabId || resolvedActiveThreadsTabId === NEW_THREAD_STAGE_TAB_ID) return null;
@@ -1561,7 +1553,7 @@ export function WorkbenchShell({
                 return { threadId: detail.threadId };
               }}
               onSendThreadSectionPrompt={async ({ projectId, threadId, prompt }) => {
-                const conversation = readLocalConversationSnapshot().conversationsById[threadId] ?? null;
+                const conversation = readLocalConversation(threadId);
                 const activeTurn = conversation
                   ? [...conversation.turns].reverse().find((turn) => turn.status === "inProgress") ?? null
                   : null;

@@ -7,6 +7,7 @@ import type {
   CodexHostMessage,
   CodexThreadSummary,
 } from "../../lib/types";
+import { buildCodexConversationStateUpdates } from "../../../shared/codex-conversation-patches";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
 
 let invokeCalls: string[] = [];
@@ -33,6 +34,22 @@ mock.module("./local-conversation-deps", () => ({
 
     if (channel === "codex:thread:snapshot:request" && threadId === "thread-child") {
       return buildConversation("thread-child", "project-1");
+    }
+
+    if (channel === "codex:model:list") {
+      return [
+        {
+          id: "gpt-5.3-codex",
+          displayName: "GPT-5.3 Codex",
+          hidden: false,
+          isDefault: true,
+          defaultReasoningEffort: "high",
+          supportedReasoningEfforts: [
+            { reasoningEffort: "medium", description: "Balanced" },
+            { reasoningEffort: "high", description: "Deep" },
+          ],
+        },
+      ];
     }
 
     return null;
@@ -90,6 +107,8 @@ describe("local-conversation-store", () => {
     hostMessageListener = null;
     const {
       __resetLocalConversationStoreForTests,
+      LocalConversationProvider,
+      useCodexAvailableModels,
       useLocalConversationAccount,
       useLocalConversationConnection,
     } = await import("./local-conversation-store");
@@ -98,17 +117,18 @@ describe("local-conversation-store", () => {
     function Probe() {
       const account = useLocalConversationAccount();
       const connection = useLocalConversationConnection();
+      const models = useCodexAvailableModels();
       const accountEmail = account?.account?.type === "chatgpt"
         ? account.account.email
         : "none";
-      return createElement("div", null, `${connection.status}:${accountEmail}`);
+      return createElement("div", null, `${connection.status}:${accountEmail}:${models[0]?.id ?? "none"}`);
     }
 
-    const { container } = render(createElement(Probe));
+    const { container } = render(createElement(LocalConversationProvider, null, createElement(Probe)));
     await settleAsyncRender();
 
-    expect(invokeCalls.join(",")).toBe("codex:account:read,codex:connection:status");
-    expect(textContent(container)).toBe("connected:dev@example.com");
+    expect([...invokeCalls].sort().join(",")).toBe("codex:account:read,codex:connection:status,codex:model:list");
+    expect(textContent(container)).toBe("connected:dev@example.com:gpt-5.3-codex");
   });
 
   test("conversation selectors stay isolated to the selected thread", async () => {
@@ -117,6 +137,8 @@ describe("local-conversation-store", () => {
     const {
       __resetLocalConversationStoreForTests,
       hydrateLocalConversationThreadSummaries,
+      LocalConversationProvider,
+      readLocalConversation,
       useConversation,
       useProjectThreadSummaries,
     } = await import("./local-conversation-store");
@@ -141,30 +163,136 @@ describe("local-conversation-store", () => {
       return createElement("div", { "data-summary-count": String(summaries.length) });
     }
 
-    render(createElement("div", null, createElement(ConversationProbe), createElement(SummaryProbe)));
+    render(
+      createElement(
+        LocalConversationProvider,
+        null,
+        createElement("div", null, createElement(ConversationProbe), createElement(SummaryProbe)),
+      ),
+    );
     await settleAsyncRender();
 
     conversationRenderCount = 0;
     summaryRenderCount = 0;
 
     await act(async () => {
+      const snapshot = buildConversation("thread-2", "project-2");
       hostMessageListener?.({
-        type: "conversationSnapshot",
-        conversation: buildConversation("thread-2", "project-1"),
+        type: "threadStreamStateChanged",
+        hostId: "default",
+        conversationId: "thread-2",
+        change: {
+          type: "snapshot",
+          conversationState: snapshot,
+        },
+        version: 1,
+        sourceClientId: null,
       });
     });
+    await settleAsyncRender();
 
     expect(String(conversationRenderCount)).toBe("0");
     expect(String(summaryRenderCount)).toBe("0");
 
     await act(async () => {
+      const snapshot = buildConversation("thread-1", "project-1");
       hostMessageListener?.({
-        type: "conversationSnapshot",
-        conversation: buildConversation("thread-1", "project-1"),
+        type: "threadStreamStateChanged",
+        hostId: "default",
+        conversationId: "thread-1",
+        change: {
+          type: "snapshot",
+          conversationState: snapshot,
+        },
+        version: 1,
+        sourceClientId: null,
       });
     });
+    await settleAsyncRender();
 
-    expect(String(conversationRenderCount)).toBe("1");
+    expect(readLocalConversation("thread-1")?.threadId ?? "none").toBe("thread-1");
     expect(String(summaryRenderCount)).toBe("0");
+
+    conversationRenderCount = 0;
+    summaryRenderCount = 0;
+
+    await act(async () => {
+      const previousConversation = buildConversation("thread-1", "project-1");
+      const nextConversation: CodexConversationSnapshot = {
+        ...previousConversation,
+        turns: [
+          {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            status: "inProgress",
+            itemIds: [],
+            items: [],
+          },
+        ],
+      };
+      hostMessageListener?.({
+        type: "threadStreamStateChanged",
+        hostId: "default",
+        conversationId: "thread-1",
+        change: {
+          type: "patches",
+          patches: buildCodexConversationStateUpdates(previousConversation, nextConversation),
+        },
+        version: 2,
+        sourceClientId: null,
+      });
+    });
+    await settleAsyncRender();
+
+    expect(readLocalConversation("thread-1")?.turns.length ?? 0).toBe(1);
+    expect(String(summaryRenderCount)).toBe("0");
+  });
+
+  test("control-plane selectors update without a separate reducer store", async () => {
+    invokeCalls = [];
+    hostMessageListener = null;
+    const {
+      __resetLocalConversationStoreForTests,
+      LocalConversationProvider,
+      useCodexPermissionMode,
+      useCodexThreadStartProgress,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    function Probe() {
+      const permissionMode = useCodexPermissionMode("project-1");
+      const progress = useCodexThreadStartProgress("project-1", "card-1");
+      return createElement(
+        "div",
+        null,
+        `${permissionMode}:${progress?.phase ?? "none"}:${progress?.outputText ?? "empty"}`,
+      );
+    }
+
+    const { container } = render(createElement(LocalConversationProvider, null, createElement(Probe)));
+    await settleAsyncRender();
+    expect(textContent(container)).toBe("custom:none:empty");
+
+    await act(async () => {
+      hostMessageListener?.({
+        type: "sharedObjectUpdated",
+        hostId: "default",
+        object: {
+          objectType: "threadStartProgress",
+          objectId: "project-1:card-1",
+          value: {
+            projectId: "project-1",
+            cardId: "card-1",
+            phase: "runningSetup",
+            message: "Running setup",
+            outputDelta: "hello",
+            updatedAt: 10,
+          },
+        },
+      });
+    });
+    await settleAsyncRender();
+
+    expect(textContent(container)).toBe("custom:runningSetup:hello");
   });
 });

@@ -43,14 +43,15 @@ export {
   ConnectedReviewDiffPanel,
   ConnectedThreadStage,
   consumeLocalConversationComposerIntent,
-  readLocalConversationSnapshot,
+  readLocalConversation,
   requestLocalConversationSnapshot,
   resolveLocalConversationPlanImplementation,
   setLocalConversationComposerIntent,
+  useCodexAppServerControl,
+  useCodexThreadStartProgress,
   useProjectThreadSummaries,
 } from "@/features/local-conversation";
 export { useCodexAccountActions } from "@/lib/use-codex-account-actions";
-export { useCodexControl } from "@/lib/use-codex-control";
 export { useCodexThreadFollowerClient } from "@/lib/use-codex-thread-follower-client";
 export { useKanban } from "@/lib/use-kanban";
 export { KANBAN_STATUS_LABELS } from "@/lib/kanban-options";

@@ -109,11 +109,8 @@ mock.module("./workbench-shell-deps", () => ({
   readStripSmartPrefixFromTitleEnabled: () => true,
   writeSmartPrefixParsingEnabled: (value: boolean) => value,
   writeStripSmartPrefixFromTitleEnabled: (value: boolean) => value,
-  useCodexControl: () => ({
+  useCodexAppServerControl: () => ({
     ...({
-      state: {
-        threadStartProgressByTarget: {},
-      },
       availableModels: [],
       threadSettings: {
         model: "gpt-5.3-codex",
@@ -131,12 +128,16 @@ mock.module("./workbench-shell-deps", () => ({
       interruptTurn: async () => true,
       respondApproval: async () => true,
       respondUserInput: async () => true,
+      respondMcpElicitation: async () => true,
       setPermissionMode: async () => undefined,
       setThreadModel: () => undefined,
       setThreadReasoningEffort: () => undefined,
     }),
     ...((globalThis as { __mockUseCodexOverrides?: Record<string, unknown> }).__mockUseCodexOverrides ?? {}),
   }),
+  useCodexThreadStartProgress: () => (
+    ((globalThis as { __mockThreadStartProgress?: Record<string, unknown> | null }).__mockThreadStartProgress ?? null)
+  ),
   useCodexThreadFollowerClient: () => ({
     startTurn: async () => null,
     enqueueQueuedFollowUp: async () => undefined,
@@ -198,10 +199,10 @@ mock.module("./workbench-shell-deps", () => ({
   useProjectThreadSummaries: () => (
     (globalThis as { __mockProjectThreadSummaries?: Array<Record<string, unknown>> }).__mockProjectThreadSummaries ?? []
   ),
-  readLocalConversationSnapshot: () => ({
-    conversationsById:
-      (globalThis as { __mockKnownConversationsById?: Record<string, unknown> }).__mockKnownConversationsById ?? {},
-  }),
+  readLocalConversation: (threadId: string) => (
+    ((globalThis as { __mockKnownConversationsById?: Record<string, unknown> }).__mockKnownConversationsById ?? {})[threadId]
+      ?? null
+  ),
   requestLocalConversationSnapshot: async (...args: unknown[]) => (
     (globalThis as {
       __mockRequestConversationSnapshot?: (...args: unknown[]) => Promise<unknown>;
@@ -330,6 +331,12 @@ async function renderShell(
   (globalThis as { __mockResumeRequestThreadIds?: Set<string> }).__mockResumeRequestThreadIds = new Set();
   (globalThis as { __mockProjectThreadSummaries?: Array<Record<string, unknown>> }).__mockProjectThreadSummaries = mockCodexThreads;
   (globalThis as { __mockUseCodexOverrides?: Record<string, unknown> }).__mockUseCodexOverrides = useCodexOverrides;
+  (globalThis as { __mockThreadStartProgress?: Record<string, unknown> | null }).__mockThreadStartProgress =
+    (
+      useCodexOverrides?.state as {
+        threadStartProgressByTarget?: Record<string, Record<string, unknown>>;
+      } | undefined
+    )?.threadStartProgressByTarget?.["default:card-1"] ?? null;
   (globalThis as { __mockUseCodexThreadFollowerClientOverrides?: Record<string, unknown> }).__mockUseCodexThreadFollowerClientOverrides =
     useCodexThreadFollowerOverrides;
   (globalThis as { __mockKnownConversationsById?: Record<string, unknown> }).__mockKnownConversationsById =

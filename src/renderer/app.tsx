@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { WorkbenchShell } from "@/components/workbench/workbench-shell";
+import { LocalConversationProvider } from "@/features/local-conversation";
 import { useProjects } from "@/lib/use-projects";
 import {
   resolveCardsStageSelectionForCard,
@@ -902,7 +903,8 @@ function WorkbenchApp({ initialResumeSnapshot }: { initialResumeSnapshot: Workbe
   }
 
   return (
-    <WorkbenchShell
+    <LocalConversationProvider>
+      <WorkbenchShell
       projects={projects}
       dbProjectId={resolvedDbProjectId}
       threadsProjectId={threadsProjectId}
@@ -989,7 +991,8 @@ function WorkbenchApp({ initialResumeSnapshot }: { initialResumeSnapshot: Workbe
       onNavigateForward={() => {
         void navigateForward();
       }}
-    />
+      />
+    </LocalConversationProvider>
   );
 }
 

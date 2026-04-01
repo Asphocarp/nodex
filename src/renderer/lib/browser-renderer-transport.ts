@@ -1,5 +1,5 @@
 import { toApiUrl } from "./http-base";
-import type { AppUpdateStatus, CodexEvent } from "./types";
+import type { AppUpdateStatus } from "./types";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 
 function isStorybookRuntime(): boolean {
@@ -803,11 +803,6 @@ function subscribeBoardChanges(projectId: string, callback: () => void): () => v
   return () => es.close();
 }
 
-function subscribeCodexEvents(callback: (event: CodexEvent) => void): () => void {
-  void callback;
-  return () => { };
-}
-
 function subscribeCodexHostMessages(
   callback: (message: import("./types").CodexHostMessage) => void,
 ): () => void {
@@ -829,7 +824,6 @@ export const browserRendererTransport = {
   kind: "browser" as const,
   invoke,
   subscribeBoardChanges,
-  subscribeCodexEvents,
   subscribeCodexHostMessages,
   subscribeGitBranchChanges,
   subscribeAppUpdateStatus,

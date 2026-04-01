@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type {
+  CodexHostMessage,
   CodexConversationSnapshot,
   CodexEvent,
   CodexItemView,
@@ -15,6 +16,7 @@ import type {
   CodexTurnSummary,
   ManagedWorktreeRecord,
 } from "../../shared/types";
+import { applyCodexConversationStateUpdates } from "../../shared/codex-conversation-patches";
 import {
   closeDatabase,
   createCard,
@@ -112,6 +114,30 @@ function makeThreadDetail(threadId: string): CodexThreadDetail {
 
 function createService(): TestableCodexService {
   return new CodexService() as unknown as TestableCodexService;
+}
+
+function projectConversationFromHostMessages(
+  messages: readonly CodexHostMessage[],
+): CodexConversationSnapshot | null {
+  let conversation: CodexConversationSnapshot | null = null;
+  for (const message of messages) {
+    if (message.type !== "threadStreamStateChanged") {
+      continue;
+    }
+
+    if (message.change.type === "snapshot") {
+      conversation = message.change.conversationState;
+      continue;
+    }
+
+    if (!conversation) {
+      continue;
+    }
+
+    conversation = applyCodexConversationStateUpdates(conversation, message.change.patches);
+  }
+
+  return conversation;
 }
 
 function getRecordedItem(
@@ -5273,7 +5299,7 @@ describe("codex-service terminal turn reconciliation", () => {
     }
   });
 
-  test("streams assistant deltas through queued conversation snapshots", async () => {
+  test("streams assistant deltas through thread stream patch updates", async () => {
     const ran = await withTempDatabase(async () => {
       const card = await createCard("codex", "in_progress", { title: "Streaming assistant delta" });
       upsertCodexCardThreadLink({
@@ -5288,11 +5314,11 @@ describe("codex-service terminal turn reconciliation", () => {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
         handleNotification: (method: string, params: unknown) => Promise<void>;
       };
-      const snapshots: CodexConversationSnapshot[] = [];
+      const hostMessages: CodexHostMessage[] = [];
 
       service.on("hostMessage", (message) => {
-        if (message.type === "conversationSnapshot") {
-          snapshots.push(message.conversation);
+        if (message.type === "threadStreamStateChanged") {
+          hostMessages.push(message);
         }
       });
 
@@ -5318,7 +5344,7 @@ describe("codex-service terminal turn reconciliation", () => {
         });
         await new Promise((resolve) => setTimeout(resolve, 30));
 
-        const latest = snapshots.at(-1) ?? null;
+        const latest = projectConversationFromHostMessages(hostMessages);
         expect(latest).not.toBeNull();
         expect(latest?.turns.length).toBe(1);
         expect(latest?.turns[0]?.items.length).toBe(1);
@@ -5331,7 +5357,7 @@ describe("codex-service terminal turn reconciliation", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
-  test("streams command output deltas through queued conversation snapshots", async () => {
+  test("streams command output deltas through thread stream patch updates", async () => {
     const ran = await withTempDatabase(async () => {
       const card = await createCard("codex", "in_progress", { title: "Streaming command output" });
       upsertCodexCardThreadLink({
@@ -5346,11 +5372,11 @@ describe("codex-service terminal turn reconciliation", () => {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
         handleNotification: (method: string, params: unknown) => Promise<void>;
       };
-      const snapshots: CodexConversationSnapshot[] = [];
+      const hostMessages: CodexHostMessage[] = [];
 
       service.on("hostMessage", (message) => {
-        if (message.type === "conversationSnapshot") {
-          snapshots.push(message.conversation);
+        if (message.type === "threadStreamStateChanged") {
+          hostMessages.push(message);
         }
       });
 
@@ -5387,7 +5413,7 @@ describe("codex-service terminal turn reconciliation", () => {
         });
         await new Promise((resolve) => setTimeout(resolve, 70));
 
-        const latest = snapshots.at(-1) ?? null;
+        const latest = projectConversationFromHostMessages(hostMessages);
         expect(latest).not.toBeNull();
         expect(latest?.turns.length).toBe(1);
         expect(latest?.turns[0]?.items.length).toBe(1);
@@ -5416,11 +5442,11 @@ describe("codex-service terminal turn reconciliation", () => {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
         handleNotification: (method: string, params: unknown) => Promise<void>;
       };
-      const snapshots: CodexConversationSnapshot[] = [];
+      const hostMessages: CodexHostMessage[] = [];
 
       service.on("hostMessage", (message) => {
-        if (message.type === "conversationSnapshot") {
-          snapshots.push(message.conversation);
+        if (message.type === "threadStreamStateChanged") {
+          hostMessages.push(message);
         }
       });
 
@@ -5463,7 +5489,7 @@ describe("codex-service terminal turn reconciliation", () => {
           diff: "--- a/src/example.ts\n+++ b/src/example.ts\n@@ -1 +1 @@\n-old\n+new\n",
         });
 
-        const latest = snapshots.at(-1) ?? null;
+        const latest = projectConversationFromHostMessages(hostMessages);
         expect(latest).not.toBeNull();
         expect(latest?.turns[0]?.items.length).toBe(2);
         expect(`${latest?.turns[0]?.items[0]?.kind}:${latest?.turns[0]?.items[0]?.semanticKind}`).toBe("fileChange:patch");

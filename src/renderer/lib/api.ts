@@ -20,10 +20,6 @@ export function subscribeBoardChanges(
   return resolveRendererTransport().subscribeBoardChanges(projectId, callback);
 }
 
-export function subscribeCodexEvents(callback: (event: import("./types").CodexEvent) => void): () => void {
-  return resolveRendererTransport().subscribeCodexEvents(callback);
-}
-
 export function subscribeCodexHostMessages(
   callback: (message: import("./types").CodexHostMessage) => void,
 ): () => void {
