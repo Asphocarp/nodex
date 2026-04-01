@@ -17,7 +17,7 @@ describe("view scroll containers", () => {
 
     const wrapper = getByTestId(KANBAN_BOARD_SCROLL_CONTAINER_TEST_ID);
     expect(wrapper.className.includes("overflow-auto")).toBeTrue();
-    expect(wrapper.className.includes("hide-scrollbar")).toBeTrue();
+    expect(wrapper.className.includes("scrollbar-token")).toBeTrue();
   });
 
   test("toggle-list wrapper provides vertical scroll semantics", () => {

@@ -8,7 +8,7 @@ export const KanbanBoardScrollContainer = forwardRef<HTMLDivElement, { children:
     return (
       <div
         ref={ref}
-        className="hide-scrollbar min-h-0 flex-1 overflow-auto"
+        className="scrollbar-token min-h-0 flex-1 overflow-auto"
         data-testid={KANBAN_BOARD_SCROLL_CONTAINER_TEST_ID}
       >
         {children}
