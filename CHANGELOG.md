@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 ### Fixed
+- Fixed `Context automatically compacted` transcript markers so live and replayed compaction rows now stay in the canonical turn item order instead of drifting to the bottom of the thread.
 - Fixed multi-file thread patch previews so each expanded file row no longer repeats the diff library's inner file header under the thread-owned filename and line-count header.
 - Fixed thread file-change rendering so patch rows now follow Codex's semantic file-change model, synthesizing structured inline diffs and semantic add/delete fallbacks instead of showing raw patch text.
 - Fixed the thread `Restoring thread` state so reopen/resume now uses a centered Nodex logo shimmer loader instead of a bordered spinner card, matching Codex's simpler thread restore shell more closely.

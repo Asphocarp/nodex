@@ -210,6 +210,22 @@ function addItemToTurn(turn: MutableTurnRecord, itemId: string, timestamp: numbe
   turn.updatedAt = Math.max(turn.updatedAt, timestamp);
 }
 
+function appendReplayTranscriptEntry(
+  transcript: CodexTranscriptEntry[],
+  turn: MutableTurnRecord,
+  itemId: string,
+  timestamp: number,
+  entry: Omit<CodexTranscriptEntry, "sequence">,
+): number {
+  addItemToTurn(turn, itemId, timestamp);
+  const nextIndex = transcript.length;
+  transcript.push({
+    ...entry,
+    sequence: nextIndex,
+  });
+  return nextIndex;
+}
+
 function appendReplayReasoningSummary(
   transcript: CodexTranscriptEntry[],
   turn: MutableTurnRecord,
@@ -235,8 +251,7 @@ function appendReplayReasoningSummary(
   }
 
   const itemId = buildReplayItemId(threadId, "reasoning", lineIndex);
-  addItemToTurn(turn, itemId, timestamp);
-  transcript.push({
+  appendReplayTranscriptEntry(transcript, turn, itemId, timestamp, {
     threadId,
     turnId: turn.turnId,
     entryId: itemId,
@@ -245,7 +260,6 @@ function appendReplayReasoningSummary(
     kind: "reasoning",
     semanticKind: "reasoning",
     source: "replay",
-    sequence: transcript.length,
     markdownText: normalizedSummary,
     status: "completed",
     createdAt: timestamp,
@@ -273,8 +287,7 @@ function appendReplayContextCompaction(
   }
 
   const itemId = buildReplayItemId(threadId, "system", lineIndex);
-  addItemToTurn(turn, itemId, timestamp);
-  transcript.push({
+  appendReplayTranscriptEntry(transcript, turn, itemId, timestamp, {
     threadId,
     turnId: turn.turnId,
     entryId: itemId,
@@ -283,7 +296,6 @@ function appendReplayContextCompaction(
     kind: "systemEvent",
     semanticKind: "contextCompaction",
     source: "replay",
-    sequence: transcript.length,
     markdownText: "Context automatically compacted",
     status: "completed",
     createdAt: timestamp,
@@ -396,8 +408,7 @@ function parseSessionJsonl(
       if (eventType === "user_message" && typeof payload?.message === "string" && payload.message.trim().length > 0) {
         const turn = ensureTurn(turnsById, input.threadId, currentTurnId, timestamp);
         const itemId = buildReplayItemId(input.threadId, "user", lineIndex);
-        addItemToTurn(turn, itemId, timestamp);
-        transcript.push({
+        appendReplayTranscriptEntry(transcript, turn, itemId, timestamp, {
           threadId: input.threadId,
           turnId: turn.turnId,
           entryId: itemId,
@@ -407,7 +418,6 @@ function parseSessionJsonl(
           semanticKind: "userMessage",
           role: "user",
           source: "replay",
-          sequence: transcript.length,
           markdownText: normalizeText(payload.message),
           status: "completed",
           createdAt: timestamp,
@@ -421,8 +431,7 @@ function parseSessionJsonl(
         const assistantPhase = typeof payload.phase === "string" ? payload.phase : null;
         const turn = ensureTurn(turnsById, input.threadId, currentTurnId, timestamp);
         const itemId = buildReplayItemId(input.threadId, "msg", lineIndex);
-        addItemToTurn(turn, itemId, timestamp);
-        transcript.push({
+        appendReplayTranscriptEntry(transcript, turn, itemId, timestamp, {
           threadId: input.threadId,
           turnId: turn.turnId,
           entryId: itemId,
@@ -433,7 +442,6 @@ function parseSessionJsonl(
           assistantPhase: assistantPhase ?? undefined,
           role: "assistant",
           source: "replay",
-          sequence: transcript.length,
           markdownText: normalizeText(payload.message),
           status: "completed",
           createdAt: timestamp,
@@ -520,7 +528,7 @@ function parseSessionJsonl(
       const itemId = typeof payload.call_id === "string" && payload.call_id.trim().length > 0
         ? payload.call_id
         : buildReplayItemId(input.threadId, "tool", lineIndex);
-      const item: CodexTranscriptEntry = {
+      const item: Omit<CodexTranscriptEntry, "sequence"> = {
         threadId: input.threadId,
         turnId: turn.turnId,
         entryId: itemId,
@@ -530,7 +538,6 @@ function parseSessionJsonl(
         semanticKind: responseType === "web_search_call" ? "webSearch" : "toolCall",
         status: "inProgress",
         source: "replay",
-        sequence: transcript.length,
         toolCall: {
           subtype: responseType === "web_search_call" ? "webSearch" : resolveToolSubtype(toolName),
           toolName,
@@ -540,9 +547,8 @@ function parseSessionJsonl(
         updatedAt: timestamp,
         rawItem: payload,
       };
-      addItemToTurn(turn, itemId, timestamp);
-      toolIndexByCallId.set(itemId, transcript.length);
-      transcript.push(item);
+      const transcriptIndex = appendReplayTranscriptEntry(transcript, turn, itemId, timestamp, item);
+      toolIndexByCallId.set(itemId, transcriptIndex);
       continue;
     }
 
@@ -574,8 +580,7 @@ function parseSessionJsonl(
       }
 
       const itemId = callId;
-      addItemToTurn(turn, itemId, timestamp);
-      transcript.push({
+      appendReplayTranscriptEntry(transcript, turn, itemId, timestamp, {
         threadId: input.threadId,
         turnId: turn.turnId,
         entryId: itemId,
@@ -585,7 +590,6 @@ function parseSessionJsonl(
         semanticKind: "toolCall",
         status: "completed",
         source: "replay",
-        sequence: transcript.length,
         toolCall: {
           subtype: "generic",
           toolName: "tool",

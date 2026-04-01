@@ -58,7 +58,7 @@ function buildThreadDetail(overrides?: Partial<CodexThreadDetail>): CodexThreadD
 }
 
 describe("buildCodexConversationSnapshot", () => {
-  test("nests turn items in renderer order and preserves server requests", () => {
+  test("orders turn items by the canonical turn itemIds instead of transcript sequence", () => {
     const request: CodexApprovalRequest = {
       type: "approval",
       requestId: "approval_1",
@@ -84,9 +84,51 @@ describe("buildCodexConversationSnapshot", () => {
     });
 
     expect(snapshot.turns.length).toBe(1);
-    expect(snapshot.turns[0]?.items[0]?.itemId).toBe("user_1");
-    expect(snapshot.turns[0]?.items[1]?.itemId).toBe("assistant_1");
+    expect(snapshot.turns[0]?.items[0]?.itemId).toBe("assistant_1");
+    expect(snapshot.turns[0]?.items[1]?.itemId).toBe("user_1");
     expect(snapshot.requests[0]?.requestId).toBe("approval_1");
     expect(snapshot.capabilityFlags.canSearch).toBeTrue();
+  });
+
+  test("appends unknown turn entries after known itemIds using transcript fallback order", () => {
+    const snapshot = buildCodexConversationSnapshot({
+      detail: buildThreadDetail({
+        turns: [
+          {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            status: "completed",
+            itemIds: ["assistant_1", "user_1"],
+          },
+        ],
+        transcript: [
+          ...buildThreadDetail().transcript,
+          {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "tool_1",
+            type: "function_call",
+            kind: "toolCall",
+            semanticKind: "toolCall",
+            sequence: 0,
+            createdAt: 0,
+            updatedAt: 0,
+          },
+        ],
+      }),
+      resumeState: "resumed",
+      requests: [],
+      capabilityFlags: {
+        canEditLastUserTurn: true,
+        canForkFromTurn: true,
+        canSearch: true,
+        canCollapseTurns: true,
+      },
+    });
+
+    expect(snapshot.turns[0]?.items.length).toBe(3);
+    expect(snapshot.turns[0]?.items[0]?.itemId).toBe("assistant_1");
+    expect(snapshot.turns[0]?.items[1]?.itemId).toBe("user_1");
+    expect(snapshot.turns[0]?.items[2]?.itemId).toBe("tool_1");
   });
 });

@@ -5,6 +5,7 @@ import {
   resolveCodexTranscriptPrimaryIdentityKey,
   resolveCodexTranscriptTextIdentityKey,
 } from "./codex-transcript-identity";
+import { mergeOrderedStringIds } from "./codex-turn-order";
 import type {
   CodexTranscriptEntry,
   CodexTurnSummary,
@@ -18,7 +19,7 @@ export function mergeCodexTurnSummary(
     ...existing,
     ...incoming,
     errorMessage: incoming.errorMessage ?? existing.errorMessage,
-    itemIds: Array.from(new Set([...incoming.itemIds, ...existing.itemIds])),
+    itemIds: mergeOrderedStringIds(existing.itemIds, incoming.itemIds),
     tokenUsage: incoming.tokenUsage ?? existing.tokenUsage,
   };
 }

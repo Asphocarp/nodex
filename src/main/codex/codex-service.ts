@@ -94,6 +94,7 @@ import {
   mergeCodexItemView,
   resolveCodexItemPrimaryIdentityKey,
 } from "../../shared/codex-item-identity";
+import { mergeOrderedStringIds } from "../../shared/codex-turn-order";
 import * as dbService from "../kanban/db-service";
 import { getKanbanDir } from "../kanban/config";
 import {
@@ -2336,7 +2337,7 @@ export class CodexService extends EventEmitter {
       return;
     }
 
-    const mergedItemIds = Array.from(new Set([...existing.itemIds, ...turn.itemIds]));
+    const mergedItemIds = mergeOrderedStringIds(existing.itemIds, turn.itemIds);
     detail.turns = detail.turns.map((candidate) => candidate.turnId !== turn.turnId
       ? candidate
       : {
@@ -2462,7 +2463,12 @@ export class CodexService extends EventEmitter {
     byItem.set(itemKey, item);
     record.itemsByTurn.set(turnId, byItem);
 
-    const entry = projectItemToLiveTranscriptEntry(item, source, this.getThreadTranscript(threadId));
+    const entry = projectItemToLiveTranscriptEntry(
+      item,
+      source,
+      this.getThreadTranscript(threadId),
+      this.getKnownTurn(threadId, turnId)?.itemIds,
+    );
     this.setThreadTranscript(
       threadId,
       applyLiveTranscriptMutation(this.getThreadTranscript(threadId), {
@@ -2499,7 +2505,12 @@ export class CodexService extends EventEmitter {
     });
     this.mergeItem(item, source);
     return this.getThreadTranscript(input.threadId).find((entry) => (entry.entryId ?? entry.itemId) === item.itemId)
-      ?? projectItemToLiveTranscriptEntry(item, source, this.getThreadTranscript(input.threadId));
+      ?? projectItemToLiveTranscriptEntry(
+        item,
+        source,
+        this.getThreadTranscript(input.threadId),
+        this.getKnownTurn(input.threadId, input.turnId)?.itemIds,
+      );
   }
 
   private getKnownTurn(threadId: string, turnId: string): CodexTurnSummary | null {
@@ -2793,7 +2804,12 @@ export class CodexService extends EventEmitter {
     record.itemsByTurn.set(item.turnId, byItem);
 
     const currentTranscript = this.getThreadTranscript(item.threadId);
-    const nextEntry = projectItemToLiveTranscriptEntry(mergedItem, source, currentTranscript);
+    const nextEntry = projectItemToLiveTranscriptEntry(
+      mergedItem,
+      source,
+      currentTranscript,
+      this.getKnownTurn(item.threadId, item.turnId)?.itemIds,
+    );
     const nextTranscript = source === "optimistic" && nextEntry.kind === "userMessage"
       ? applyOptimisticUserPrompt({
           transcript: currentTranscript,
@@ -4372,7 +4388,12 @@ export class CodexService extends EventEmitter {
 
         byItem.set(itemKey, next);
         record.itemsByTurn.set(update.turnId, byItem);
-        const entry = projectItemToLiveTranscriptEntry(next, "live", this.getThreadTranscript(update.threadId));
+        const entry = projectItemToLiveTranscriptEntry(
+          next,
+          "live",
+          this.getThreadTranscript(update.threadId),
+          this.getKnownTurn(update.threadId, update.turnId)?.itemIds,
+        );
         this.setThreadTranscript(
           update.threadId,
           applyLiveTranscriptMutation(this.getThreadTranscript(update.threadId), {
@@ -4431,7 +4452,12 @@ export class CodexService extends EventEmitter {
 
       byItem.set(itemKey, next);
       record.itemsByTurn.set(update.turnId, byItem);
-      const entry = projectItemToLiveTranscriptEntry(next, "live", this.getThreadTranscript(update.threadId));
+      const entry = projectItemToLiveTranscriptEntry(
+        next,
+        "live",
+        this.getThreadTranscript(update.threadId),
+        this.getKnownTurn(update.threadId, update.turnId)?.itemIds,
+      );
       this.setThreadTranscript(
         update.threadId,
         applyLiveTranscriptMutation(this.getThreadTranscript(update.threadId), {
@@ -4492,7 +4518,12 @@ export class CodexService extends EventEmitter {
 
       byItem.set(itemKey, next);
       record.itemsByTurn.set(update.turnId, byItem);
-      const entry = projectItemToLiveTranscriptEntry(next, "live", this.getThreadTranscript(update.threadId));
+      const entry = projectItemToLiveTranscriptEntry(
+        next,
+        "live",
+        this.getThreadTranscript(update.threadId),
+        this.getKnownTurn(update.threadId, update.turnId)?.itemIds,
+      );
       this.setThreadTranscript(
         update.threadId,
         applyLiveTranscriptMutation(this.getThreadTranscript(update.threadId), {

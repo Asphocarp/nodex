@@ -162,6 +162,19 @@ export function projectItemToLiveTranscriptEntry(
   item: CodexItemView,
   source: CodexTranscriptEntrySource,
   existingTranscript: CodexTranscriptEntry[],
+  canonicalTurnItemIds?: readonly string[],
 ): CodexTranscriptEntry {
-  return projectItemToTranscriptEntry(item, source, existingTranscript.length);
+  const existingEntry = existingTranscript.find((entry) =>
+    entry.threadId === item.threadId
+    && entry.turnId === item.turnId
+    && (entry.entryId ?? entry.itemId) === item.itemId,
+  );
+
+  const canonicalSequence = canonicalTurnItemIds?.indexOf(item.itemId) ?? -1;
+
+  return projectItemToTranscriptEntry(
+    item,
+    source,
+    existingEntry?.sequence ?? (canonicalSequence >= 0 ? canonicalSequence : existingTranscript.length),
+  );
 }

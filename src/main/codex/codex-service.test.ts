@@ -5099,6 +5099,91 @@ describe("codex-service item lifecycle status fallback", () => {
     }
   });
 
+  test("inserts live context compaction at the canonical turn item position instead of the transcript tail", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Context compaction order" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_compaction_order",
+        threadName: "Compaction order",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") {
+          hostMessages.push(message);
+        }
+      });
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_compaction_order"),
+        turns: [
+          {
+            threadId: "thr_compaction_order",
+            turnId: "turn_compaction_order",
+            status: "completed",
+            itemIds: ["assistant_before", "item_context_compaction", "tool_after"],
+          },
+        ],
+        transcript: [],
+      });
+
+      try {
+        await serviceInternals.handleNotification("item/completed", {
+          threadId: "thr_compaction_order",
+          turnId: "turn_compaction_order",
+          item: {
+            id: "tool_after",
+            type: "function_call",
+            name: "bash",
+            arguments: "{\"command\":\"echo later\"}",
+          },
+        });
+
+        await serviceInternals.handleNotification("item/completed", {
+          threadId: "thr_compaction_order",
+          turnId: "turn_compaction_order",
+          item: {
+            id: "assistant_before",
+            type: "assistant_message",
+            text: "Assistant first.",
+          },
+        });
+
+        await serviceInternals.handleNotification("item/completed", {
+          threadId: "thr_compaction_order",
+          turnId: "turn_compaction_order",
+          item: {
+            id: "item_context_compaction",
+            type: "context_compaction",
+          },
+        });
+
+        await new Promise((resolve) => setTimeout(resolve, 30));
+
+        const latest = projectConversationFromHostMessages(hostMessages);
+        expect(latest).not.toBeNull();
+        expect(latest?.turns.length).toBe(1);
+        expect(latest?.turns[0]?.items.length).toBe(3);
+        expect(latest?.turns[0]?.items[0]?.itemId).toBe("assistant_before");
+        expect(latest?.turns[0]?.items[1]?.itemId).toBe("item_context_compaction");
+        expect(latest?.turns[0]?.items[2]?.itemId).toBe("tool_after");
+        expect(latest?.turns[0]?.items[1]?.markdownText).toBe("Context automatically compacted");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("projects automatic approval review notifications into the canonical conversation", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
