@@ -1,17 +1,23 @@
 import {
   forwardRef,
   useCallback,
-  useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 import { cn } from "../../../lib/utils";
 import type { ThreadTurnModel } from "../thread-stage-types";
+import {
+  buildVirtualizedTurnLayout,
+  resolveVisibleTurnRange,
+} from "./local-conversation-turn-virtualization";
+import { useLocalConversationThreadScrollController } from "./local-conversation-thread-scroll-controller";
 import { ThreadTurn } from "./local-conversation-thread-turn";
 
-const DEFAULT_TURN_HEIGHT_PX = 220;
+const DEFAULT_TURN_HEIGHT_PX = 280;
+const TURN_GAP_PX = 12;
 const OVERSCAN_TURNS = 6;
 
 export interface VirtualizedTurnListHandle {
@@ -22,9 +28,6 @@ export interface VirtualizedTurnListHandle {
 
 interface VirtualizedTurnListProps {
   turns: ThreadTurnModel[];
-  scrollTop: number;
-  viewportHeight: number;
-  scrollContainerRef: React.RefObject<HTMLDivElement | null>;
   collapsedAgentBodyByTurnId: Readonly<Record<string, boolean>>;
   matchedTurnIds?: ReadonlySet<string>;
   matchedSearchUnitKeys?: ReadonlySet<string>;
@@ -39,7 +42,7 @@ interface VirtualizedTurnListProps {
 
 function MeasuredTurn({
   turn,
-  top,
+  turnIndex,
   onHeightChange,
   agentBodyCollapsed,
   hasPersistedAgentBodyCollapsedState,
@@ -53,8 +56,8 @@ function MeasuredTurn({
   onForkFromTurn,
 }: {
   turn: ThreadTurnModel;
-  top: number;
-  onHeightChange: (turnId: string, nextHeight: number) => void;
+  turnIndex: number;
+  onHeightChange: (turnId: string, turnIndex: number, nextHeight: number) => void;
   agentBodyCollapsed: boolean;
   hasPersistedAgentBodyCollapsedState: boolean;
   onAgentBodyCollapsedChange: (turnId: string, collapsed: boolean) => void;
@@ -71,27 +74,40 @@ function MeasuredTurn({
   const handleElementRef = useCallback((element: HTMLDivElement | null) => {
     elementRef.current = element;
     if (!element) return;
-    onHeightChange(turn.turnId, element.getBoundingClientRect().height);
-  }, [onHeightChange, turn.turnId]);
+    onHeightChange(turn.turnId, turnIndex, element.offsetHeight);
+  }, [onHeightChange, turn.turnId, turnIndex]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = elementRef.current;
     if (!element || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver((entries) => {
-      const nextHeight = entries[0]?.contentRect.height;
-      if (!nextHeight) return;
-      onHeightChange(turn.turnId, nextHeight);
+    let frameHandle: number | null = null;
+    const measureHeight = () => {
+      onHeightChange(turn.turnId, turnIndex, element.offsetHeight);
+    };
+    const scheduleMeasure = () => {
+      if (frameHandle !== null) return;
+      frameHandle = window.requestAnimationFrame(() => {
+        frameHandle = null;
+        measureHeight();
+      });
+    };
+
+    scheduleMeasure();
+    const observer = new ResizeObserver(() => {
+      scheduleMeasure();
     });
     observer.observe(element);
-    return () => observer.disconnect();
-  }, [onHeightChange, turn.turnId]);
+
+    return () => {
+      observer.disconnect();
+      if (frameHandle !== null) {
+        window.cancelAnimationFrame(frameHandle);
+      }
+    };
+  }, [onHeightChange, turn.turnId, turnIndex]);
 
   return (
-    <div
-      ref={handleElementRef}
-      data-thread-turn-id={turn.turnId}
-      style={{ position: "absolute", top, left: 0, right: 0 }}
-    >
+    <div ref={handleElementRef} data-thread-turn-id={turn.turnId}>
       <ThreadTurn
         turn={turn}
         agentBodyCollapsed={agentBodyCollapsed}
@@ -109,11 +125,20 @@ function MeasuredTurn({
   );
 }
 
+function resolveAbsoluteScrollTopPxForElement({
+  scrollElement,
+  targetElement,
+}: {
+  scrollElement: HTMLDivElement;
+  targetElement: HTMLElement;
+}): number {
+  const scrollRect = scrollElement.getBoundingClientRect();
+  const targetRect = targetElement.getBoundingClientRect();
+  return targetRect.top - scrollRect.top + scrollElement.scrollTop;
+}
+
 export const VirtualizedTurnList = forwardRef<VirtualizedTurnListHandle, VirtualizedTurnListProps>(function VirtualizedTurnList({
   turns,
-  scrollTop,
-  viewportHeight,
-  scrollContainerRef,
   collapsedAgentBodyByTurnId,
   matchedTurnIds,
   matchedSearchUnitKeys,
@@ -125,103 +150,205 @@ export const VirtualizedTurnList = forwardRef<VirtualizedTurnListHandle, Virtual
   onEditLastUserTurn,
   onForkFromTurn,
 }, ref) {
+  const {
+    adjustForMeasuredTurnHeightDelta,
+    jumpToBottom,
+    maybeStickToBottom,
+    notifyContentLayout,
+    scrollElement,
+    scrollToTopPx,
+    setScrollMode,
+  } = useLocalConversationThreadScrollController();
   const [measuredHeights, setMeasuredHeights] = useState<Record<string, number>>({});
+  const [listRoot, setListRoot] = useState<HTMLDivElement | null>(null);
+  const listRootRef = useRef<HTMLDivElement | null>(null);
+  const turnsTopOffsetPxRef = useRef(0);
+  const [viewportState, setViewportState] = useState({
+    scrollTopPx: 0,
+    viewportHeightPx: 0,
+    turnsTopOffsetPx: 0,
+  });
+  const heightsPx = useMemo(
+    () => turns.map((turn) => measuredHeights[turn.turnId] ?? DEFAULT_TURN_HEIGHT_PX),
+    [measuredHeights, turns],
+  );
+  const layout = useMemo(
+    () => buildVirtualizedTurnLayout({ heightsPx, gapPx: TURN_GAP_PX }),
+    [heightsPx],
+  );
+  const offsetsByTurnId = useMemo(
+    () => new Map(
+      turns.map((turn, index) => [
+        turn.turnId,
+        {
+          top: layout.offsetsPx[index] ?? 0,
+          height: heightsPx[index] ?? DEFAULT_TURN_HEIGHT_PX,
+          index,
+        },
+      ] as const),
+    ),
+    [heightsPx, layout.offsetsPx, turns],
+  );
 
-  const offsets = useMemo(() => {
-    let nextOffset = 0;
-    return turns.map((turn) => {
-      const height = measuredHeights[turn.turnId] ?? DEFAULT_TURN_HEIGHT_PX;
-      const currentOffset = nextOffset;
-      nextOffset += height;
-      return { turnId: turn.turnId, top: currentOffset, height };
-    });
-  }, [measuredHeights, turns]);
-  const offsetsByTurnId = useMemo(() => new Map(offsets.map((entry) => [entry.turnId, entry] as const)), [offsets]);
+  useLayoutEffect(() => {
+    if (scrollElement === null || listRoot === null) return;
 
-  const totalHeight = offsets[offsets.length - 1]
-    ? offsets[offsets.length - 1]!.top + offsets[offsets.length - 1]!.height
-    : 0;
-
-  const visibleRange = useMemo(() => {
-    if (offsets.length === 0) {
-      return { startIndex: 0, endIndex: -1 };
-    }
-
-    if (viewportHeight <= 0) {
-      return { startIndex: 0, endIndex: offsets.length - 1 };
-    }
-
-    const visibleBottom = scrollTop + viewportHeight;
-    let startIndex = offsets.findIndex((entry) => entry.top + entry.height >= scrollTop);
-    if (startIndex < 0) startIndex = 0;
-
-    let endIndex = offsets.findIndex((entry) => entry.top > visibleBottom);
-    if (endIndex < 0) endIndex = offsets.length;
-
-    return {
-      startIndex: Math.max(0, startIndex - OVERSCAN_TURNS),
-      endIndex: Math.min(offsets.length - 1, endIndex + OVERSCAN_TURNS),
+    const syncViewportState = () => {
+      const scrollTopPx = scrollElement.scrollTop;
+      const viewportHeightPx = scrollElement.clientHeight;
+      const containerRect = scrollElement.getBoundingClientRect();
+      const listRect = listRoot.getBoundingClientRect();
+      const turnsTopOffsetPx = listRect.top - containerRect.top + scrollTopPx;
+      turnsTopOffsetPxRef.current = turnsTopOffsetPx;
+      setViewportState((current) => (
+        current.scrollTopPx === scrollTopPx
+        && current.viewportHeightPx === viewportHeightPx
+        && current.turnsTopOffsetPx === turnsTopOffsetPx
+          ? current
+          : {
+              scrollTopPx,
+              viewportHeightPx,
+              turnsTopOffsetPx,
+            }
+      ));
     };
-  }, [offsets, scrollTop, viewportHeight]);
 
-  const handleHeightChange = useCallback((turnId: string, nextHeight: number) => {
+    syncViewportState();
+    scrollElement.addEventListener("scroll", syncViewportState, { passive: true });
+    const observer = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(() => {
+          syncViewportState();
+        });
+    observer?.observe(scrollElement);
+    observer?.observe(listRoot);
+
+    return () => {
+      scrollElement.removeEventListener("scroll", syncViewportState);
+      observer?.disconnect();
+    };
+  }, [listRoot, scrollElement]);
+
+  useLayoutEffect(() => {
+    if (scrollElement === null || listRoot === null) return;
+    notifyContentLayout();
+  }, [listRoot, notifyContentLayout, scrollElement]);
+
+  useLayoutEffect(() => {
+    if (scrollElement === null) return;
+    maybeStickToBottom();
+  }, [layout.totalHeightPx, measuredHeights, maybeStickToBottom, scrollElement, turns.length]);
+
+  const viewportTopPx = Math.max(0, viewportState.scrollTopPx - viewportState.turnsTopOffsetPx);
+  const viewportBottomPx = viewportTopPx + viewportState.viewportHeightPx;
+  const visibleRange = useMemo(() => {
+    if (viewportState.viewportHeightPx <= 0) {
+      return { startIndex: 0, endIndex: turns.length };
+    }
+
+    return resolveVisibleTurnRange({
+      heightsPx,
+      gapPx: TURN_GAP_PX,
+      viewportTopPx,
+      viewportBottomPx,
+      overscanCount: OVERSCAN_TURNS,
+    });
+  }, [heightsPx, turns.length, viewportBottomPx, viewportState.viewportHeightPx, viewportTopPx]);
+
+  const handleHeightChange = useCallback((turnId: string, turnIndex: number, nextHeight: number) => {
     setMeasuredHeights((current) => {
       const previousHeight = current[turnId] ?? DEFAULT_TURN_HEIGHT_PX;
       if (Math.abs(previousHeight - nextHeight) < 1) return current;
 
-      const scrollContainer = scrollContainerRef.current;
-      const targetOffset = offsetsByTurnId.get(turnId);
-      if (scrollContainer && targetOffset && targetOffset.top < scrollContainer.scrollTop) {
-        scrollContainer.scrollTop += nextHeight - previousHeight;
-      }
+      const heightDeltaPx = nextHeight - previousHeight;
+      const turnBottomPx = (layout.offsetsPx[turnIndex] ?? 0) + previousHeight;
+      const currentViewportTopPx = Math.max(0, viewportState.scrollTopPx - turnsTopOffsetPxRef.current);
+      adjustForMeasuredTurnHeightDelta({
+        heightDeltaPx,
+        turnBottomPx,
+        viewportTopPx: currentViewportTopPx,
+      });
 
       return {
         ...current,
         [turnId]: nextHeight,
       };
     });
-  }, [offsetsByTurnId, scrollContainerRef]);
+  }, [adjustForMeasuredTurnHeightDelta, layout.offsetsPx, viewportState.scrollTopPx]);
+
+  const handleListRootRef = useCallback((element: HTMLDivElement | null) => {
+    listRootRef.current = element;
+    setListRoot(element);
+  }, []);
 
   useImperativeHandle(ref, () => ({
     scrollToTurn(turnId: string, opts?: { expandAgentBody?: boolean }) {
-      const container = scrollContainerRef.current;
-      if (!container) return;
+      if (scrollElement === null) return;
+
+      setScrollMode("programmaticFind");
+
+      const finishProgrammaticFind = () => {
+        queueMicrotask(() => {
+          setScrollMode("user");
+        });
+      };
+
       if (opts?.expandAgentBody) {
         onAgentBodyCollapsedChange(turnId, false);
         requestAnimationFrame(() => {
-          const refreshedContainer = scrollContainerRef.current;
-          const targetElement = refreshedContainer?.querySelector<HTMLElement>(`[data-thread-turn-id="${turnId}"]`);
-          if (!refreshedContainer || !targetElement) return;
-          refreshedContainer.scrollTop = targetElement.offsetTop;
+          const targetElement = listRootRef.current?.querySelector<HTMLElement>(`[data-thread-turn-id="${turnId}"]`);
+          if (!targetElement) {
+            finishProgrammaticFind();
+            return;
+          }
+          scrollToTopPx(
+            resolveAbsoluteScrollTopPxForElement({
+              scrollElement,
+              targetElement,
+            }),
+            "smooth",
+          );
+          finishProgrammaticFind();
         });
         return;
       }
-      const target = offsets.find((entry) => entry.turnId === turnId);
-      if (!target) return;
-      container.scrollTop = target.top;
+
+      const target = offsetsByTurnId.get(turnId);
+      if (!target) {
+        finishProgrammaticFind();
+        return;
+      }
+
+      scrollToTopPx(viewportState.turnsTopOffsetPx + target.top, "smooth");
+      finishProgrammaticFind();
     },
     scrollToLatest() {
-      const container = scrollContainerRef.current;
-      if (!container) return;
-      container.scrollTop = container.scrollHeight;
+      jumpToBottom();
     },
     setAgentBodyCollapsed(turnId: string, collapsed: boolean) {
       onAgentBodyCollapsedChange(turnId, collapsed);
     },
-  }), [offsets, onAgentBodyCollapsedChange, scrollContainerRef]);
+  }), [jumpToBottom, offsetsByTurnId, onAgentBodyCollapsedChange, scrollElement, scrollToTopPx, setScrollMode, viewportState.turnsTopOffsetPx]);
 
-  const visibleTurns = turns.slice(visibleRange.startIndex, visibleRange.endIndex + 1);
+  const visibleTurns = turns.slice(visibleRange.startIndex, visibleRange.endIndex);
+  const topSpacerHeightPx = layout.offsetsPx[visibleRange.startIndex] ?? 0;
+  const visibleHeightsPx = heightsPx.slice(visibleRange.startIndex, visibleRange.endIndex);
+  const visibleBlockHeightPx =
+    visibleHeightsPx.reduce((sum, heightPx) => sum + heightPx, 0)
+    + Math.max(0, visibleHeightsPx.length - 1) * TURN_GAP_PX;
+  const bottomSpacerHeightPx = Math.max(0, layout.totalHeightPx - topSpacerHeightPx - visibleBlockHeightPx);
 
   return (
-    <div className={cn("relative", className)} style={{ height: totalHeight }}>
-      {visibleTurns.map((turn, index) => {
-        const offset = offsets[visibleRange.startIndex + index];
-        if (!offset) return null;
-        return (
+    <div ref={handleListRootRef} className={cn("relative", className)}>
+      {topSpacerHeightPx > 0 ? (
+        <div aria-hidden="true" style={{ height: `${topSpacerHeightPx}px` }} />
+      ) : null}
+      <div className="flex flex-col gap-3">
+        {visibleTurns.map((turn, index) => (
           <MeasuredTurn
             key={turn.turnId}
             turn={turn}
-            top={offset.top}
+            turnIndex={visibleRange.startIndex + index}
             onHeightChange={handleHeightChange}
             agentBodyCollapsed={collapsedAgentBodyByTurnId[turn.turnId] ?? turn.defaultAgentBodyCollapsed}
             hasPersistedAgentBodyCollapsedState={Object.hasOwn(collapsedAgentBodyByTurnId, turn.turnId)}
@@ -234,8 +361,11 @@ export const VirtualizedTurnList = forwardRef<VirtualizedTurnListHandle, Virtual
             onEditLastUserTurn={onEditLastUserTurn}
             onForkFromTurn={onForkFromTurn}
           />
-        );
-      })}
+        ))}
+      </div>
+      {bottomSpacerHeightPx > 0 ? (
+        <div aria-hidden="true" style={{ height: `${bottomSpacerHeightPx}px` }} />
+      ) : null}
     </div>
   );
 });

@@ -7,7 +7,6 @@ import {
   SpinnerIcon,
 } from "@/components/shared/icons";
 import { readSkipForkFromOlderTurnConfirm, writeSkipForkFromOlderTurnConfirm } from "@/lib/thread-fork-confirm-settings";
-import { shouldAutoScrollThread, shouldShowThreadCatchUpControl } from "./shared/thread-auto-scroll";
 import { LOCAL_CONVERSATION_CONTENT_CLASS_NAME } from "./shared/local-conversation-view-constants";
 import { cn } from "../../../lib/utils";
 import type { ThreadBodyUiStateOverrides, ThreadStageActions, ThreadStageModel } from "../thread-stage-types";
@@ -17,6 +16,10 @@ import {
 } from "./local-conversation-virtualized-turn-list";
 import { LocalConversationAboveComposerPortal } from "./local-conversation-above-composer-portal";
 import { LocalConversationForkFromTurnDialog } from "./local-conversation-fork-from-turn-dialog";
+import {
+  LocalConversationThreadScrollLayout,
+  useLocalConversationThreadScrollController,
+} from "./local-conversation-thread-scroll-controller";
 
 const PROGRESS_PHASES = [
   { key: "creatingWorktree", label: "Worktree" },
@@ -110,16 +113,18 @@ interface LocalConversationThreadBodyProps {
   initialUiState?: ThreadBodyUiStateOverrides;
 }
 
-export function LocalConversationThreadBody({ model, actions, onErrorMessage, initialUiState }: LocalConversationThreadBodyProps) {
+function LocalConversationThreadBodyContent({ model, actions, onErrorMessage, initialUiState }: LocalConversationThreadBodyProps) {
   const body = model.body;
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const {
+    isScrolledFromBottom,
+    maybeStickToBottom,
+    scrollToBottom,
+    setScrollMode,
+  } = useLocalConversationThreadScrollController();
   const listRef = useRef<VirtualizedTurnListHandle>(null);
   const setupProgressLogRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const lastHandledSearchOpenTickRef = useRef(model.searchOpenTick);
-  const [isFollowingLatest, setIsFollowingLatest] = useState(true);
-  const [scrollTop, setScrollTop] = useState(0);
-  const [viewportHeight, setViewportHeight] = useState(0);
   const [isSearchVisible, setIsSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const deferredSearchQuery = useDeferredValue(searchQuery);
@@ -134,27 +139,10 @@ export function LocalConversationThreadBody({ model, actions, onErrorMessage, in
   } | null>(null);
   const [isForkSubmitting, setIsForkSubmitting] = useState(false);
 
-  const latestUpdatedAt = useMemo(() => {
-    return body.turns.reduce((latest, turn) => (
-      Math.max(
-        latest,
-        ...turn.blocks.map((block) =>
-          "entry" in block ? block.entry.updatedAt : ("entries" in block ? Math.max(...block.entries.map((entry) => entry.updatedAt)) : 0)),
-      )
-    ), 0);
-  }, [body.turns]);
-
-  const updateFollowModeFromScroll = useCallback(() => {
-    const element = scrollRef.current;
-    if (!element) return;
-    setScrollTop(element.scrollTop);
-    setViewportHeight(element.clientHeight);
-    setIsFollowingLatest(shouldAutoScrollThread({ position: element }));
-  }, []);
-
   useEffect(() => {
-    setIsFollowingLatest(true);
-  }, [body.threadId]);
+    setScrollMode("stickToBottom");
+    maybeStickToBottom();
+  }, [body.threadId, maybeStickToBottom, setScrollMode]);
 
   useEffect(() => {
     setIsSearchVisible(false);
@@ -184,18 +172,6 @@ export function LocalConversationThreadBody({ model, actions, onErrorMessage, in
   }, [body.emptyState.type, body.showThreadStartProgressPanel, body.turns.length, model.searchOpenTick]);
 
   useEffect(() => {
-    const element = scrollRef.current;
-    if (!element || !isFollowingLatest) return;
-    requestAnimationFrame(() => {
-      const current = scrollRef.current;
-      if (!current) return;
-      current.scrollTop = current.scrollHeight;
-      setScrollTop(current.scrollTop);
-      setViewportHeight(current.clientHeight);
-    });
-  }, [body.turns.length, isFollowingLatest, latestUpdatedAt]);
-
-  useEffect(() => {
     if (!body.showThreadStartProgressPanel) return;
     const element = setupProgressLogRef.current;
     if (!element) return;
@@ -207,12 +183,8 @@ export function LocalConversationThreadBody({ model, actions, onErrorMessage, in
   }, [body.showThreadStartProgressPanel, model.threadStartProgress?.outputText, model.threadStartProgress?.updatedAt]);
 
   const handleCatchUp = useCallback(() => {
-    const element = scrollRef.current;
-    if (!element) return;
-    setIsFollowingLatest(true);
-    element.scrollTop = element.scrollHeight;
-    setScrollTop(element.scrollTop);
-  }, []);
+    scrollToBottom();
+  }, [scrollToBottom]);
 
   const handleAgentBodyCollapsedChange = useCallback((turnId: string, collapsed: boolean) => {
     setCollapsedAgentBodyByTurnId((current) => {
@@ -316,24 +288,17 @@ export function LocalConversationThreadBody({ model, actions, onErrorMessage, in
     && body.turns.length > 0
     && !body.showThreadStartProgressPanel
     && body.emptyState.type === "none";
-
-  const showCatchUpControl = shouldShowThreadCatchUpControl({
-    hasThread: model.conversation !== null,
-    hasItems: body.turns.length > 0,
-    isFollowingLatest,
-  });
+  const showCatchUpControl =
+    model.conversation !== null
+    && body.turns.length > 0
+    && isScrolledFromBottom;
   const aboveComposerBlocks = body.aboveComposerBlocks ?? [];
   const shouldRenderAboveComposerPortal =
     aboveComposerBlocks.length > 0
     && body.activeTurnId !== null;
 
   return (
-    <div
-      ref={scrollRef}
-      onScroll={updateFollowModeFromScroll}
-      data-local-conversation-thread-body="true"
-      className="relative min-h-0 flex-1 overflow-y-auto px-panel pb-8 pt-(--edge-fade-distance) [container-name:thread-content] [container-type:inline-size] vertical-scroll-fade-mask-top hide-scrollbar electron:md:px-0"
-    >
+    <>
       {shouldRenderAboveComposerPortal ? (
         <LocalConversationAboveComposerPortal
           blocks={aboveComposerBlocks}
@@ -423,9 +388,6 @@ export function LocalConversationThreadBody({ model, actions, onErrorMessage, in
             <VirtualizedTurnList
               ref={listRef}
               turns={body.turns}
-              scrollTop={scrollTop}
-              viewportHeight={viewportHeight}
-              scrollContainerRef={scrollRef}
               collapsedAgentBodyByTurnId={collapsedAgentBodyByTurnId}
               onAgentBodyCollapsedChange={handleAgentBodyCollapsedChange}
               matchedTurnIds={matchedTurnIds}
@@ -464,6 +426,22 @@ export function LocalConversationThreadBody({ model, actions, onErrorMessage, in
           void runForkFromTurn(forkDialogState, { skipConfirm });
         }}
       />
-    </div>
+    </>
+  );
+}
+
+export function LocalConversationThreadBody({ model, actions, onErrorMessage, initialUiState }: LocalConversationThreadBodyProps) {
+  return (
+    <LocalConversationThreadScrollLayout
+      scrollViewClassName="min-h-0 flex-1 px-panel hide-scrollbar electron:md:px-0"
+      contentWrapperClassName="min-h-full"
+    >
+      <LocalConversationThreadBodyContent
+        model={model}
+        actions={actions}
+        onErrorMessage={onErrorMessage}
+        initialUiState={initialUiState}
+      />
+    </LocalConversationThreadScrollLayout>
   );
 }

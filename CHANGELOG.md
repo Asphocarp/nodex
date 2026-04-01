@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
 - Fixed active thread exploration rows so live read/search/list-file sequences now stay in Codex-style `Exploring` preview mode instead of immediately falling back to `Explored`.
 - Fixed thread-body and tool-call accordion motion timing so transcript reveals now use the same shared easing and duration as Codex instead of a slower misidentified transition.
 - Fixed streaming proposed-plan cards so active plans now render as `Writing plan` in the collapsed preview state instead of expanding immediately under an extra `Proposed plan` label.
+- Fixed thread tool-call expand/collapse scroll anchoring so opening a visible tool body no longer drags the surrounding turn header and transcript position.
+- Fixed thread transcript scroll behavior so tool-call and body remeasurements now follow the same shared scroll-controller lifecycle as Codex, preserving visible turn headers while keeping follow-latest and search jumps stable.
 
 ## [0.1.8] - 2026-03-30
 
