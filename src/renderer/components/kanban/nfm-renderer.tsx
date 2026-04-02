@@ -3,7 +3,7 @@ import { Streamdown } from "streamdown";
 import {
   InlineMarkdownCode,
   INLINE_MARKDOWN_HEADING_CLASS_NAME,
-  INLINE_MARKDOWN_ROOT_CLASS_NAME,
+  MARKDOWN_CONTENT_CLASS_NAME,
 } from "@/components/shared/inline-markdown-code";
 import type {
   NfmBlock,
@@ -27,7 +27,7 @@ export function NfmRenderer({ content, className }: NfmRendererProps) {
   if (!content.trim()) return null;
   const blocks = parseNfm(content);
   return (
-    <div className={cn("nfm-render", INLINE_MARKDOWN_ROOT_CLASS_NAME, className)}>
+    <div className={cn("nfm-render", MARKDOWN_CONTENT_CLASS_NAME, className)}>
       <BlockList blocks={blocks} />
     </div>
   );

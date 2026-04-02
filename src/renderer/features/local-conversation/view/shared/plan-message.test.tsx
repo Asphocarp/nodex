@@ -54,4 +54,23 @@ describe("PlanMessage", () => {
     expect(Boolean(textContent(container).includes("Plan"))).toBeTrue();
     expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
   });
+
+  test("reuses the shared markdown element contract inside plan markdown", () => {
+    const { container } = render(
+      <TooltipProvider>
+        <PlanMessage
+          completed
+          content={"## Plan heading\n\nParagraph body.\n\n- First bullet"}
+        />
+      </TooltipProvider>,
+    );
+
+    const heading = container.querySelector("h2");
+    const paragraph = container.querySelector("p");
+    const list = container.querySelector("ul");
+
+    expect(Boolean(heading?.className.includes("heading-base"))).toBeTrue();
+    expect(Boolean(paragraph?.className.includes("text-size-chat"))).toBeTrue();
+    expect(Boolean(list?.className.includes("list-disc"))).toBeTrue();
+  });
 });

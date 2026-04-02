@@ -46,7 +46,6 @@
 }
 
 @supports (corner-shape: superellipse(1.5)) {
-  .rounded-sm,
   .rounded-md,
   .rounded-lg,
   .rounded-xl,

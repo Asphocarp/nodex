@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
+import { settleAsyncRender } from "../../../../test/dom";
 import { render, textContent } from "../../../../test/dom";
 import {
   extractReasoningSections,
@@ -65,5 +66,27 @@ describe("ReasoningSurface", () => {
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(Boolean(textContent(container).includes("Checking the failing story state."))).toBeTrue();
+  });
+
+  test("keeps reasoning body markdown on the shared Streamdown class contract", async () => {
+    const { container, getByRole } = render(
+      <ReasoningSurface
+        item={{
+          markdownText: "Intro paragraph.\n\n## Details\n\nParagraph body.\n\n- First bullet",
+          status: "completed",
+        }}
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: /Thought/i }));
+    await settleAsyncRender();
+
+    const heading = container.querySelector("h2");
+    const paragraph = container.querySelector("p");
+    const listItem = container.querySelector("li");
+
+    expect(Boolean(heading?.className.includes("heading-base"))).toBeTrue();
+    expect(Boolean(paragraph?.className.includes("text-size-chat"))).toBeTrue();
+    expect(Boolean(listItem?.className.includes("mb-1.5"))).toBeTrue();
   });
 });

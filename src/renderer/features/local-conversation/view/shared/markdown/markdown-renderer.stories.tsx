@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { MarkdownRenderer } from "./markdown-renderer";
 
 const meta = {
-  title: "Workbench/Threads/Markdown Inline Code",
+  title: "Workbench/Threads/Markdown Parity",
   component: MarkdownRenderer,
   parameters: {
     layout: "padded",
@@ -32,5 +32,25 @@ export const HeadingInlineCode: Story = {
 export const ListAndPunctuation: Story = {
   args: {
     content: "- Check `README.md`.\n- Then run `bun test`, `bun run lint`, and `bun run typecheck`.",
+  },
+};
+
+export const OrderedListGrouping: Story = {
+  args: {
+    content: "99. Ninety-nine\n100. One hundred\n101. One hundred one",
+  },
+};
+
+export const BlockquoteTableAndDetails: Story = {
+  args: {
+    content: [
+      "> Quote block",
+      "",
+      "| Name | Value |",
+      "| --- | --- |",
+      "| Foo | Bar |",
+      "",
+      "<details><summary>More</summary>Body</details>",
+    ].join("\n"),
   },
 };

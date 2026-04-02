@@ -1,6 +1,7 @@
 import { parseLocalFileLinkHref } from "../../../shared/file-link-openers";
 import type { ReactNode } from "react";
 import { NodexTooltip } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 interface FileLinkAnchorProps {
   href?: string;
@@ -33,12 +34,17 @@ export function FileLinkAnchor({
   const anchor = (
     <a
       href={href}
-      className={className}
+      className={cn(
+        "cursor-interaction inline-block max-w-full appearance-none border-0 bg-transparent p-0 text-left align-baseline whitespace-normal text-token-text-link-foreground hover:underline",
+        className,
+      )}
       target="_blank"
       rel="noopener noreferrer"
       title={tooltipLabel ?? undefined}
     >
-      {children}
+      <span className="break-words whitespace-normal" data-state="closed">
+        {children}
+      </span>
     </a>
   );
 

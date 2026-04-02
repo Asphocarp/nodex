@@ -83,6 +83,9 @@
 - Keep markdown inline code on one shared renderer contract:
   - assistant/thread markdown, plan markdown, reasoning markdown, and NFM read-only inline code should all render through the same shared `span.inline-markdown` visual contract instead of feature-local `code` pill CSS
   - keep heading-specific inline-code inheritance (`font-size` / `line-height`) on a scoped hook class such as `heading-inline-code`; do not reintroduce broad `.codex-markdown code` ownership for inline pills
+- Keep assistant markdown block styling renderer-owned:
+  - Streamdown element renderers (`p`, `h1`-`h3`, `ul`, `ol`, `li`, `a`, `blockquote`, `hr`, `table`, `details`, `summary`) should carry the Codex Electron class contract directly
+  - do not use `.codex-markdown` / `.codex-markdown-plan` global prose CSS as the primary owner for markdown font size, line height, heading scale, or list spacing
 - Treat utilities as part of the design contract:
   - if a class exists as an exact shipped Codex selector, keep it in the generated utility layer
   - if a class is renderer-local and not recoverable from the shipped Codex CSS, keep it in `theme-utilities.css`

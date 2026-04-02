@@ -2,7 +2,7 @@ import type { HTMLAttributes, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import "./inline-markdown-code.css";
 
-export const INLINE_MARKDOWN_ROOT_CLASS_NAME = "markdown-content";
+export const MARKDOWN_CONTENT_CLASS_NAME = "markdown-content";
 export const INLINE_MARKDOWN_CLASS_NAME = "inline-markdown";
 export const INLINE_MARKDOWN_HEADING_CLASS_NAME = "heading-inline-code";
 export const INLINE_MARKDOWN_VISUAL_CLASS_NAME =

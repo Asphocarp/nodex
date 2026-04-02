@@ -274,16 +274,12 @@
   opacity: 1;
 }
 .nfm-render-link {
-  color: var(--foreground) !important;
-  text-decoration: underline !important;
-  text-decoration-thickness: 0.05em !important;
-  text-decoration-color: var(--link-decoration-color) !important;
-  text-underline-offset: 10% !important;
-  opacity: 0.7 !important;
-  cursor: pointer;
+  color: var(--color-token-text-link-foreground) !important;
+  text-decoration: none !important;
+  cursor: var(--cursor-interaction, pointer);
 }
 .nfm-render-link:hover {
-  opacity: 1;
+  text-decoration: underline !important;
 }
 
 /* Search match highlights (applied by ProseMirror extension) */
@@ -924,60 +920,8 @@
 /* ===== Codex Threads: Markdown + Tool Cards ===== */
 
 .codex-markdown {
-  font-size: 14px;
-  line-height: 1.5;
   color: var(--foreground);
   white-space: normal;
-}
-
-.codex-markdown > * > :first-child {
-  margin-top: 0;
-}
-
-.codex-markdown > * > :last-child {
-  margin-bottom: 0;
-}
-
-.codex-markdown h1,
-.codex-markdown h2,
-.codex-markdown h3,
-.codex-markdown h4,
-.codex-markdown h5,
-.codex-markdown h6 {
-  margin: 0.65em 0 0.2em;
-  line-height: 1.25;
-  font-weight: 600;
-}
-
-.codex-markdown h1 {
-  font-size: 1rem;
-}
-
-.codex-markdown h2 {
-  font-size: 0.925rem;
-}
-
-.codex-markdown h3 {
-  font-size: 0.875rem;
-}
-
-.codex-markdown p,
-.codex-markdown ul,
-.codex-markdown ol,
-.codex-markdown table,
-.codex-markdown blockquote,
-.codex-markdown pre {
-  margin: 0.2em 0;
-}
-
-.codex-markdown ul,
-.codex-markdown ol {
-  padding-left: 1.1em;
-  list-style-position: outside;
-}
-
-.codex-markdown li {
-  margin: 0.05em 0;
 }
 
 .codex-markdown pre {
@@ -1026,67 +970,6 @@
   margin: 0;
 }
 
-.codex-markdown blockquote {
-  border-left: 3px solid var(--border-strong);
-  background: var(--background-secondary);
-  border-radius: 0 6px 6px 0;
-  padding: 0.25rem 0.6rem;
-  color: var(--foreground-secondary);
-}
-
-.codex-markdown a {
-  color: var(--color-token-text-link-foreground);
-  text-decoration: none;
-}
-
-.codex-markdown a:hover {
-  text-decoration: underline;
-}
-
-.codex-markdown table {
-  border-collapse: collapse;
-  width: fit-content;
-  max-width: 100%;
-  display: block;
-  overflow-x: auto;
-}
-
-.codex-markdown th,
-.codex-markdown td {
-  border: 1px solid var(--border);
-  padding: 0.38rem 0.55rem;
-  text-align: left;
-  white-space: nowrap;
-}
-
-.codex-markdown th {
-  background: var(--background-secondary);
-  color: var(--foreground-secondary);
-  font-weight: 600;
-}
-
-.codex-markdown tr:nth-child(even) td {
-  background: color-mix(in srgb, var(--background-secondary) 55%, transparent);
-}
-
-.codex-markdown hr {
-  border: none;
-  border-top: 1px solid var(--border);
-  margin: 0.55em 0;
-}
-
-.codex-markdown details {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--background-secondary);
-  padding: 0.2rem 0.4rem;
-}
-
-.codex-markdown summary {
-  cursor: pointer;
-  user-select: none;
-}
-
 .codex-markdown .katex-display {
   overflow-x: auto;
   overflow-y: hidden;
@@ -1099,42 +982,7 @@
 }
 
 .codex-markdown-plan {
-  font-size: 14px;
-  line-height: 1.5;
   color: var(--foreground);
-}
-
-.codex-markdown-plan > * > :first-child {
-  margin-top: 0;
-}
-
-.codex-markdown-plan > * > :last-child {
-  margin-bottom: 0;
-}
-
-.codex-markdown-plan p,
-.codex-markdown-plan h1,
-.codex-markdown-plan h2,
-.codex-markdown-plan h3,
-.codex-markdown-plan h4,
-.codex-markdown-plan h5,
-.codex-markdown-plan h6 {
-  margin: 0.5rem 0;
-  font-size: 14px;
-  line-height: 1.5;
-  font-weight: 500;
-}
-
-.codex-markdown-plan ul,
-.codex-markdown-plan ol {
-  margin: 0 0 1rem;
-  padding-left: 1rem;
-  font-size: 14px;
-  line-height: 1.5;
-}
-
-.codex-markdown-plan li {
-  margin-bottom: 0.375rem;
 }
 
 .codex-markdown-plan pre {
