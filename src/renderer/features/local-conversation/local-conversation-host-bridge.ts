@@ -31,7 +31,23 @@ function applyHostMessage(message: CodexHostMessage): void {
       version: message.version,
       sourceClientId: message.sourceClientId ?? null,
     });
+    return;
   }
+
+  if (message.type === "threadTitleUpdated") {
+    dispatchCodexAppServerMessage("thread-title-updated", {
+      hostId: message.hostId,
+      conversationId: message.conversationId,
+      title: message.title,
+    });
+    return;
+  }
+
+  dispatchCodexAppServerMessage("error", {
+    hostId: message.hostId,
+    message: message.message,
+    detail: message.detail,
+  });
 }
 
 export function startLocalConversationHostBridge(): () => void {

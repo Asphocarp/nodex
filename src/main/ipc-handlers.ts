@@ -536,6 +536,20 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     codexService.setThreadName(threadId, name)
   );
 
+  registerHandle(
+    "codex:thread:title:generate",
+    (
+      _,
+      input: { hostId: string; prompt: string; cwd: string | null },
+    ) => {
+      void input.hostId;
+      return codexService.generateThreadTitle({
+        prompt: input.prompt,
+        cwd: input.cwd,
+      });
+    },
+  );
+
   registerHandle("codex:thread:archive", (_, threadId: string) =>
     codexService.archiveThread(threadId)
   );

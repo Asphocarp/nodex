@@ -417,6 +417,10 @@ export interface IpcApi {
     args: [threadId: string, name: string];
     result: boolean;
   };
+  "codex:thread:title:generate": {
+    args: [input: { hostId: string; prompt: string; cwd: string | null }];
+    result: { title: string | null };
+  };
   "codex:thread:archive": { args: [threadId: string]; result: boolean };
   "codex:thread:unarchive": { args: [threadId: string]; result: CodexThreadSummary | null };
   "codex:turn:start": {

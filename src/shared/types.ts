@@ -1124,4 +1124,10 @@ export type CodexHostMessage =
       version: number;
       sourceClientId?: string | null;
     }
+  | {
+      type: "threadTitleUpdated";
+      hostId: string;
+      conversationId: string;
+      title: string;
+    }
   | { type: "error"; hostId: string; message: string; detail?: string };

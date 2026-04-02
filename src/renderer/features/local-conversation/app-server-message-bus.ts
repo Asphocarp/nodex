@@ -24,10 +24,24 @@ export interface CodexClientStatusChangedEvent {
   status: CodexConnectionState["status"];
 }
 
+export interface CodexThreadTitleUpdatedEvent {
+  hostId: string;
+  conversationId: string;
+  title: string;
+}
+
+export interface CodexErrorEvent {
+  hostId: string;
+  message: string;
+  detail?: string;
+}
+
 interface CodexAppServerMessageMap {
   "shared-object-updated": CodexSharedObjectUpdatedEvent;
   "thread-stream-state-changed": CodexThreadStreamStateChangedEvent;
   "client-status-changed": CodexClientStatusChangedEvent;
+  "thread-title-updated": CodexThreadTitleUpdatedEvent;
+  error: CodexErrorEvent;
 }
 
 const listenersByType: {
@@ -36,6 +50,8 @@ const listenersByType: {
   "shared-object-updated": new Set(),
   "thread-stream-state-changed": new Set(),
   "client-status-changed": new Set(),
+  "thread-title-updated": new Set(),
+  error: new Set(),
 };
 
 export function subscribeCodexAppServerMessage<K extends keyof CodexAppServerMessageMap>(

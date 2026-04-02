@@ -381,7 +381,8 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 #### 12. Codex Threads (Electron-only in this phase)
 - New threads are created from a card and linked immediately to that card.
 - Thread creation requires the first user prompt and immediately starts the first turn.
-- New threads auto-generate a concise title from the first user prompt using `scripts/generate-thread-title.md` (`gpt-5.1-codex-mini`, reasoning effort `low`) unless an explicit thread name is provided.
+- New threads auto-generate a concise title from the first user prompt through the main-process `generate-thread-title` host capability (`gpt-5.1-codex-mini`, reasoning effort `low`) unless an explicit thread name is provided.
+- Auto-generated and manually renamed thread titles are cached in the host, replayed back to app-server after startup/reconnect, and rebroadcast to renderer through explicit `threadTitleUpdated` host messages so installed and dev builds share the same behavior.
 - Thread stage always includes a persistent `New thread` tab.
 - In Card Stage `Threads`, pressing `New` focuses the Thread stage `New thread` tab (no inline Card Stage prompt composer).
 - The `New thread` tab shows the selected project/card context and uses the stage composer for the first prompt.

@@ -20,6 +20,7 @@ import type {
   CodexMcpServerElicitationAction,
   CodexModelOption,
   CodexPermissionMode,
+  CodexThreadDetail,
   CodexReasoningEffortOption,
   CodexSharedObject,
   CodexThreadSettings,
@@ -29,6 +30,7 @@ import type {
 } from "../../lib/types";
 import { applyCodexConversationStateUpdates } from "../../../shared/codex-conversation-patches";
 import { DEFAULT_CODEX_HOST_ID } from "../../../shared/codex-host";
+import { sanitizeCodexThreadTitlePrompt } from "../../../shared/codex-thread-title";
 import {
   readCodexPermissionModes,
   writeCodexPermissionModes,
@@ -42,7 +44,9 @@ import { invoke } from "./local-conversation-deps";
 import {
   subscribeCodexAppServerMessage,
   type CodexClientStatusChangedEvent,
+  type CodexErrorEvent,
   type CodexSharedObjectUpdatedEvent,
+  type CodexThreadTitleUpdatedEvent,
   type CodexThreadStreamStateChangedEvent,
   __resetCodexAppServerMessageBusForTests,
 } from "./app-server-message-bus";
@@ -73,6 +77,12 @@ interface CodexThreadStartProgressState {
   message: string;
   outputText: string;
   outputCarriageReturnPending: boolean;
+  updatedAt: number;
+}
+
+interface CodexHostErrorState {
+  message: string;
+  detail?: string;
   updatedAt: number;
 }
 
@@ -314,6 +324,7 @@ export class CodexAppServerManager {
   private readonly dismissedPlanImplementationTurnIdByThread = new Map<string, string>();
   private readonly permissionModeByProject = new Map<string, CodexPermissionMode>();
   private readonly threadStartProgressByTarget = new Map<string, CodexThreadStartProgressState>();
+  private readonly threadTitlesById = new Map<string, string>();
   private readonly recentConversationIds: string[] = [];
   private readonly streamingConversationIds = new Set<string>();
   private readonly streamRoles = new Map<string, "owner" | "follower">();
@@ -333,6 +344,7 @@ export class CodexAppServerManager {
   private readonly busUnsubscribers: Array<() => void> = [];
   private bootstrapStarted = false;
   private readonly resyncInFlight = new Set<string>();
+  private lastHostError: CodexHostErrorState | null = null;
 
   constructor(private readonly hostId: string) {
     this.busUnsubscribers.push(
@@ -344,6 +356,12 @@ export class CodexAppServerManager {
       }),
       subscribeCodexAppServerMessage("client-status-changed", (event) => {
         this.handleClientStatusChanged(event);
+      }),
+      subscribeCodexAppServerMessage("thread-title-updated", (event) => {
+        this.handleThreadTitleUpdated(event);
+      }),
+      subscribeCodexAppServerMessage("error", (event) => {
+        this.handleHostError(event);
       }),
     );
   }
@@ -412,6 +430,10 @@ export class CodexAppServerManager {
 
   readThreadStartProgress(projectId: string, cardId: string): CodexThreadStartProgressState | null {
     return this.threadStartProgressByTarget.get(getThreadStartProgressTargetKey(projectId, cardId)) ?? null;
+  }
+
+  readLastHostError(): CodexHostErrorState | null {
+    return this.lastHostError;
   }
 
   readRecentConversations(): CodexConversationSnapshot[] {
@@ -490,7 +512,14 @@ export class CodexAppServerManager {
   }
 
   hydrateThreadSummaries(projectId: string, threads: CodexThreadSummary[]): void {
-    const sortedThreads = sortThreadSummaries(threads);
+    const normalizedThreads = threads.map((thread) => {
+      const nextThread = this.withCachedThreadTitle(thread);
+      if (nextThread.threadName?.trim()) {
+        this.threadTitlesById.set(nextThread.threadId, nextThread.threadName);
+      }
+      return nextThread;
+    });
+    const sortedThreads = sortThreadSummaries(normalizedThreads);
     this.loadedThreadSummariesByProject.add(projectId);
     const current = this.threadSummariesByProject.get(projectId) ?? EMPTY_THREADS;
     if (areThreadSummariesEqual(current, sortedThreads)) {
@@ -568,19 +597,41 @@ export class CodexAppServerManager {
     collaborationMode?: CodexCollaborationModeKind;
     model?: string;
     reasoningEffort?: CodexThreadSettings["reasoningEffort"];
-  }): Promise<{ threadId: string; projectId: string }> {
-    return (await invoke("codex:thread:start-for-card", {
+  }): Promise<CodexThreadDetail> {
+    const detail = (await invoke("codex:thread:start-for-card", {
       ...input,
       permissionMode: this.readPermissionMode(input.projectId),
-    })) as { threadId: string; projectId: string };
+    })) as CodexThreadDetail;
+
+    if (!detail.threadName?.trim()) {
+      void this.generateAndPersistThreadTitle({
+        threadId: detail.threadId,
+        projectId: detail.projectId,
+        prompt: input.prompt,
+        cwd: detail.cwd,
+      });
+    }
+
+    return detail;
   }
 
   async setThreadName(threadId: string, name: string, projectId: string): Promise<boolean> {
-    const result = (await invoke("codex:thread:name:set", threadId, name)) as boolean;
-    if (result) {
-      await this.loadThreads(projectId);
+    const normalizedName = name.trim();
+    if (!normalizedName) {
+      return false;
     }
-    return result;
+
+    this.applyThreadTitleUpdate(threadId, normalizedName);
+    try {
+      const result = (await invoke("codex:thread:name:set", threadId, normalizedName)) as boolean;
+      if (!result) {
+        void this.loadThreads(projectId).catch(() => {});
+      }
+      return result;
+    } catch (error) {
+      void this.loadThreads(projectId).catch(() => {});
+      throw error;
+    }
   }
 
   async archiveThread(threadId: string, projectId: string): Promise<boolean> {
@@ -689,10 +740,12 @@ export class CodexAppServerManager {
     this.dismissedPlanImplementationTurnIdByThread.clear();
     this.permissionModeByProject.clear();
     this.threadStartProgressByTarget.clear();
+    this.threadTitlesById.clear();
     this.projectSummaryCallbacksByProject.clear();
     this.recentConversationIds.length = 0;
     this.streamingConversationIds.clear();
     this.streamRoles.clear();
+    this.lastHostError = null;
     this.lastAnySnapshotById.clear();
     this.lastMetaSnapshotById.clear();
     this.lastAnyOrderKey = null;
@@ -826,6 +879,28 @@ export class CodexAppServerManager {
     }
   }
 
+  private handleThreadTitleUpdated(event: CodexThreadTitleUpdatedEvent): void {
+    if (event.hostId !== this.hostId) {
+      return;
+    }
+
+    this.applyThreadTitleUpdate(event.conversationId, event.title);
+  }
+
+  private handleHostError(event: CodexErrorEvent): void {
+    if (event.hostId !== this.hostId) {
+      return;
+    }
+
+    this.lastHostError = {
+      message: event.message,
+      detail: event.detail,
+      updatedAt: Date.now(),
+    };
+    console.error("[codex-host-error]", event.message, event.detail ?? "");
+    this.notifyControlCallbacks();
+  }
+
   private handleThreadStreamStateChanged(event: CodexThreadStreamStateChangedEvent): void {
     if (event.hostId !== this.hostId) {
       return;
@@ -895,18 +970,127 @@ export class CodexAppServerManager {
     this.notifyControlCallbacks();
   }
 
+  private withCachedThreadTitle(thread: CodexThreadSummary): CodexThreadSummary {
+    if (thread.threadName?.trim()) {
+      return thread;
+    }
+
+    const cachedTitle = this.threadTitlesById.get(thread.threadId);
+    if (!cachedTitle) {
+      return thread;
+    }
+
+    return {
+      ...thread,
+      threadName: cachedTitle,
+    };
+  }
+
+  private withCachedConversationTitle(conversation: CodexConversationSnapshot): CodexConversationSnapshot {
+    if (conversation.threadName?.trim()) {
+      return conversation;
+    }
+
+    const cachedTitle = this.threadTitlesById.get(conversation.threadId);
+    if (!cachedTitle) {
+      return conversation;
+    }
+
+    return {
+      ...conversation,
+      threadName: cachedTitle,
+    };
+  }
+
+  private applyThreadTitleUpdate(threadId: string, title: string): void {
+    const normalizedThreadId = threadId.trim();
+    const normalizedTitle = title.trim();
+    if (!normalizedThreadId || !normalizedTitle) {
+      return;
+    }
+
+    if (this.threadTitlesById.get(normalizedThreadId) === normalizedTitle) {
+      return;
+    }
+
+    this.threadTitlesById.set(normalizedThreadId, normalizedTitle);
+    const summary = this.threadSummariesById.get(normalizedThreadId);
+    if (summary && summary.threadName !== normalizedTitle) {
+      this.applyThreadSummary({
+        ...summary,
+        threadName: normalizedTitle,
+      });
+    }
+
+    const conversation = this.conversationsById.get(normalizedThreadId);
+    if (conversation && conversation.threadName !== normalizedTitle) {
+      this.applyConversationSnapshot(normalizedThreadId, {
+        ...conversation,
+        threadName: normalizedTitle,
+      });
+      return;
+    }
+
+    this.notifyAnyConversationCallbacks({ forceMeta: true });
+  }
+
+  private async generateAndPersistThreadTitle(input: {
+    threadId: string;
+    projectId: string;
+    prompt: string;
+    cwd: string | null;
+  }): Promise<void> {
+    const existingSummary = this.threadSummariesById.get(input.threadId);
+    if (existingSummary?.threadName?.trim()) {
+      return;
+    }
+
+    const normalizedPrompt = sanitizeCodexThreadTitlePrompt(input.prompt);
+    if (!normalizedPrompt) {
+      return;
+    }
+
+    try {
+      const result = (await invoke("codex:thread:title:generate", {
+        hostId: this.hostId,
+        prompt: normalizedPrompt,
+        cwd: input.cwd,
+      })) as { title: string | null };
+
+      const title = result.title?.trim() ?? "";
+      if (!title) {
+        return;
+      }
+
+      this.applyThreadTitleUpdate(input.threadId, title);
+      await this.setThreadName(input.threadId, title, input.projectId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.handleHostError({
+        hostId: this.hostId,
+        message: "Could not generate thread title",
+        detail: message,
+      });
+    }
+  }
+
   private applyThreadSummary(thread: CodexThreadSummary): void {
-    const currentThreads = this.threadSummariesByProject.get(thread.projectId) ?? EMPTY_THREADS;
-    const nextThreads = upsertThreadSummary(currentThreads, thread);
-    this.threadSummariesById.set(thread.threadId, thread);
-    this.ensureRecentConversationId(thread.threadId);
+    const nextThread = this.withCachedThreadTitle(thread);
+    if (nextThread.threadName?.trim()) {
+      this.threadTitlesById.set(nextThread.threadId, nextThread.threadName);
+    }
+
+    const currentThreads = this.threadSummariesByProject.get(nextThread.projectId) ?? EMPTY_THREADS;
+    const nextThreads = upsertThreadSummary(currentThreads, nextThread);
+    this.threadSummariesById.set(nextThread.threadId, nextThread);
+    this.ensureRecentConversationId(nextThread.threadId);
     if (areThreadSummariesEqual(currentThreads, nextThreads)) {
       this.notifyAnyConversationCallbacks({ forceMeta: true });
       return;
     }
 
-    this.threadSummariesByProject.set(thread.projectId, nextThreads);
-    this.notifyProjectThreadSummaries(thread.projectId);
+    this.threadSummariesByProject.set(nextThread.projectId, nextThreads);
+    this.notifyProjectThreadSummaries(nextThread.projectId);
     this.notifyAnyConversationCallbacks({ forceMeta: true });
   }
 
@@ -927,14 +1111,19 @@ export class CodexAppServerManager {
     conversation: CodexConversationSnapshot,
     version?: number,
   ): void {
+    const nextConversation = this.withCachedConversationTitle(conversation);
     const currentConversation = this.conversationsById.get(threadId);
-    if (currentConversation === conversation) {
+    if (currentConversation === nextConversation) {
       return;
     }
 
-    this.conversationsById.set(threadId, conversation);
+    if (nextConversation.threadName?.trim()) {
+      this.threadTitlesById.set(threadId, nextConversation.threadName);
+    }
+
+    this.conversationsById.set(threadId, nextConversation);
     this.ensureRecentConversationId(threadId);
-    if (isConversationStreaming(conversation)) {
+    if (isConversationStreaming(nextConversation)) {
       this.streamingConversationIds.add(threadId);
     } else {
       this.streamingConversationIds.delete(threadId);
@@ -945,13 +1134,13 @@ export class CodexAppServerManager {
 
     const existingSummary = this.threadSummariesById.get(threadId);
     const mergedSummary: CodexThreadSummary = {
-      ...(existingSummary ?? conversation),
-      ...conversation,
+      ...(existingSummary ?? nextConversation),
+      ...nextConversation,
     };
     this.applyThreadSummary(mergedSummary);
 
     this.notifyConversationCallbacks(threadId);
-    this.ensureChildConversationSnapshots(conversation);
+    this.ensureChildConversationSnapshots(nextConversation);
   }
 
   private ensureChildConversationSnapshots(conversation: CodexConversationSnapshot): void {
@@ -1547,6 +1736,10 @@ export function useCodexAvailableModels(): CodexModelOption[] {
 
 export function useCodexPermissionMode(projectId: string): CodexPermissionMode {
   return useManagerControlSelection((manager) => manager.readPermissionMode(projectId));
+}
+
+export function useCodexLastHostError(): CodexHostErrorState | null {
+  return useManagerControlSelection((manager) => manager.readLastHostError());
 }
 
 export function useCodexThreadStartProgress(

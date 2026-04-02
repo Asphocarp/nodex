@@ -136,6 +136,15 @@ import {
 import { buildCodexConversationSnapshot } from "./codex-conversation-snapshot";
 import { buildCodexConversationStateUpdates } from "../../shared/codex-conversation-patches";
 import { resolveCodexRuntime, type ResolvedCodexRuntime } from "./codex-runtime";
+import { CodexThreadTitleStateStore } from "./thread-title-state";
+import {
+  buildThreadTitleGenerationPrompt,
+  parseGeneratedThreadTitleResponse,
+  THREAD_TITLE_MODEL,
+  THREAD_TITLE_REASONING_EFFORT,
+  THREAD_TITLE_SCHEMA,
+  THREAD_TITLE_TIMEOUT_MS,
+} from "./thread-title-generator";
 import {
   listWorktreeEnvironmentOptions,
   readWorktreeEnvironmentDefinition,
@@ -421,63 +430,11 @@ type DefaultCodexRuntimeOptions = {
   resourcesPath?: string;
 };
 
-const THREAD_TITLE_MIN_LENGTH = 18;
-const THREAD_TITLE_MAX_LENGTH = 36;
-const THREAD_TITLE_PROMPT_MAX_CHARS = 2_000;
-const THREAD_TITLE_TIMEOUT_MS = 30_000;
-const THREAD_TITLE_MODEL = "gpt-5.1-codex-mini";
-const THREAD_TITLE_REASONING_EFFORT: CodexReasoningEffort = "low";
 const THREAD_START_EXPERIMENTAL_RAW_EVENTS = false;
 const THREAD_START_PERSIST_EXTENDED_HISTORY = true;
 const THREAD_RESUME_PERSIST_EXTENDED_HISTORY = true;
 const WORKTREE_SETUP_SCRIPT_TIMEOUT_MS = 10 * 60 * 1000;
 const WORKTREE_LOG_STATUS_MESSAGE = "Creating a worktree and running setup.";
-const THREAD_TITLE_PROMPT_PATH = path.resolve(process.cwd(), "scripts", "generate-thread-title.md");
-const THREAD_TITLE_SCHEMA: Record<string, unknown> = {
-  type: "object",
-  additionalProperties: false,
-  required: ["title"],
-  properties: {
-    title: {
-      type: "string",
-      minLength: 18,
-      maxLength: 36,
-    },
-  },
-};
-
-function normalizeGeneratedThreadTitle(rawTitle: string): string | null {
-  let title = (rawTitle.replace(/\r\n/g, "\n").split("\n").find((line) => line.trim().length > 0) ?? "").trim();
-  if (!title) return null;
-
-  title = title.replace(/^title[:\s]+/i, "");
-  title = title.replace(/^[`"'\u201c\u201d\u2018\u2019]+|[`"'\u201c\u201d\u2018\u2019]+$/g, "");
-  title = title.replace(/\s+/g, " ").trim();
-  title = title.replace(/[.?!]+$/g, "").trim();
-  if (!title) return null;
-  if (title.length < THREAD_TITLE_MIN_LENGTH) return null;
-  if (title.length > THREAD_TITLE_MAX_LENGTH) {
-    return `${title.slice(0, THREAD_TITLE_MAX_LENGTH - 1).trimEnd()}…`;
-  }
-  return title;
-}
-
-function parseGeneratedThreadTitleResponse(raw: string | null | undefined): string | null {
-  const text = raw?.trim();
-  if (!text) return null;
-
-  try {
-    const parsed = JSON.parse(text) as unknown;
-    const candidate = asRecord(parsed);
-    if (typeof candidate?.title === "string") {
-      return normalizeGeneratedThreadTitle(candidate.title);
-    }
-  } catch {
-    return normalizeGeneratedThreadTitle(text);
-  }
-
-  return normalizeGeneratedThreadTitle(text);
-}
 
 function normalizeTimestamp(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return Date.now();
@@ -1069,11 +1026,12 @@ export class CodexService extends EventEmitter {
   private readonly outputDeltaQueue = new OutputDeltaQueue((updates) => {
     this.applyOutputDeltas(updates);
   });
+  private readonly threadTitleState = new CodexThreadTitleStateStore(getKanbanDir());
 
   private accountSnapshot: CodexAccountSnapshot = emptyAccountSnapshot();
-  private threadTitlePromptTemplate: string | null | undefined = undefined;
   private syntheticItemIdCounter = 0;
   private lastConnectionStatus: CodexConnectionState["status"] = "disconnected";
+  private threadTitleBackfillPromise: Promise<void> | null = null;
 
   constructor(options?: CodexServiceOptions) {
     super();
@@ -1097,6 +1055,9 @@ export class CodexService extends EventEmitter {
       const wasConnected = this.lastConnectionStatus === "connected";
       this.lastConnectionStatus = connection.status;
       this.emitEvent({ type: "connection", connection });
+      if (connection.status === "connected") {
+        void this.backfillPendingThreadTitles();
+      }
       if (connection.status === "connected" && connection.retries > 0 && !wasConnected) {
         this.markConversationsNeedResumeAfterReconnect();
       }
@@ -1240,6 +1201,9 @@ export class CodexService extends EventEmitter {
     }
 
     if (event.type === "threadSummary") {
+      if (event.thread.threadName?.trim()) {
+        this.emitThreadTitleUpdated(event.thread.threadId, event.thread.threadName);
+      }
       this.emitHostMessage({
         type: "sharedObjectUpdated",
         hostId: DEFAULT_CODEX_HOST_ID,
@@ -1847,6 +1811,7 @@ export class CodexService extends EventEmitter {
 
   private async ensureClientReady(): Promise<void> {
     await this.client.start();
+    await this.backfillPendingThreadTitles();
   }
 
   async readAccountSnapshot(): Promise<CodexAccountSnapshot> {
@@ -2936,7 +2901,7 @@ export class CodexService extends EventEmitter {
 
     const parsedStatus = parseThreadStatus(candidate.status);
 
-    return upsertCodexCardThreadLink({
+    const summary = upsertCodexCardThreadLink({
       projectId: ref.projectId,
       cardId: ref.cardId,
       threadId: candidate.id,
@@ -2953,6 +2918,12 @@ export class CodexService extends EventEmitter {
       updatedAt: normalizeTimestamp(candidate.updatedAt),
       linkedAt: existing?.linkedAt,
     });
+
+    if (summary?.threadName?.trim()) {
+      this.threadTitleState.setTitle(summary.threadId, summary.threadName);
+    }
+
+    return summary;
   }
 
   private parseWorkspacePath(projectId: string): string {
@@ -2969,36 +2940,60 @@ export class CodexService extends EventEmitter {
     return workspacePath;
   }
 
-  private readThreadTitlePromptTemplate(): string | null {
-    if (this.threadTitlePromptTemplate !== undefined) {
-      return this.threadTitlePromptTemplate;
+  private emitThreadTitleUpdated(threadId: string, title: string): void {
+    const normalizedThreadId = threadId.trim();
+    const normalizedTitle = title.trim();
+    if (!normalizedThreadId || !normalizedTitle) {
+      return;
     }
 
-    try {
-      const template = readFileSync(THREAD_TITLE_PROMPT_PATH, "utf8").trim();
-      if (!template) {
-        this.threadTitlePromptTemplate = null;
-        return null;
-      }
-      this.threadTitlePromptTemplate = template;
-      return template;
-    } catch (error) {
-      this.threadTitlePromptTemplate = null;
-      this.emitEvent({
-        type: "error",
-        message: "Could not read thread title prompt template",
-        detail: error instanceof Error ? error.message : String(error),
-      });
-      return null;
-    }
+    this.threadTitleState.setTitle(normalizedThreadId, normalizedTitle);
+    this.emitHostMessage({
+      type: "threadTitleUpdated",
+      hostId: DEFAULT_CODEX_HOST_ID,
+      conversationId: normalizedThreadId,
+      title: normalizedTitle,
+    });
   }
 
-  private buildThreadTitleGenerationPrompt(template: string, userPrompt: string): string {
-    const marker = "<USER_PROMPT>";
-    if (!template.includes(marker)) {
-      return `${template}\n\n${userPrompt}`;
+  private async backfillPendingThreadTitles(): Promise<void> {
+    if (this.threadTitleBackfillPromise) {
+      return this.threadTitleBackfillPromise;
     }
-    return template.replace(marker, userPrompt);
+
+    this.threadTitleBackfillPromise = (async () => {
+      const pendingBackfill = this.threadTitleState.readPendingBackfill();
+      if (pendingBackfill.order.length === 0) {
+        return;
+      }
+
+      const completedThreadIds: string[] = [];
+      for (const threadId of pendingBackfill.order) {
+        const title = pendingBackfill.titles[threadId];
+        if (!title) {
+          continue;
+        }
+
+        try {
+          await this.client.request("thread/name/set", {
+            threadId,
+            name: title,
+          });
+          completedThreadIds.push(threadId);
+        } catch (error) {
+          this.logger.warn("Could not backfill cached thread title", {
+            threadId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      this.threadTitleState.clearPendingBackfill(completedThreadIds);
+    })().finally(() => {
+      this.threadTitleBackfillPromise = null;
+    });
+
+    return this.threadTitleBackfillPromise;
   }
 
   private async runStructuredThreadTitle(input: RunStructuredThreadTitleInput): Promise<string | null> {
@@ -3215,13 +3210,8 @@ export class CodexService extends EventEmitter {
     const userPrompt = input.prompt.trim();
     if (!userPrompt) return null;
 
-    const promptTemplate = this.readThreadTitlePromptTemplate();
-    if (!promptTemplate) return null;
-
-    const truncatedPrompt = userPrompt.length > THREAD_TITLE_PROMPT_MAX_CHARS
-      ? userPrompt.slice(0, THREAD_TITLE_PROMPT_MAX_CHARS)
-      : userPrompt;
-    const titlePrompt = this.buildThreadTitleGenerationPrompt(promptTemplate, truncatedPrompt);
+    const titlePrompt = buildThreadTitleGenerationPrompt(userPrompt);
+    if (!titlePrompt) return null;
 
     return await this.runStructuredThreadTitle({
       prompt: titlePrompt,
@@ -3249,7 +3239,7 @@ export class CodexService extends EventEmitter {
     });
   }
 
-  private async generateThreadTitleForPrompt(firstPrompt: string, cwd: string): Promise<string | null> {
+  private async generateThreadTitleForPrompt(firstPrompt: string, cwd: string | null): Promise<string | null> {
     return await this.generateThreadTitleViaAdapter({
       prompt: firstPrompt,
       cwd,
@@ -3267,38 +3257,15 @@ export class CodexService extends EventEmitter {
     });
   }
 
-  private queueGeneratedThreadTitle(input: { threadId: string; firstPrompt: string; cwd: string }): void {
-    const firstPrompt = input.firstPrompt.trim();
-    if (!firstPrompt) return;
-
-    void (async () => {
-      const initialLink = this.getThreadLinkSafely(input.threadId);
-      if (!initialLink) return;
-      if (initialLink.threadName?.trim()) return;
-
-      const generatedTitle = await this.generateThreadTitleForPrompt(firstPrompt, input.cwd);
-      if (!generatedTitle) return;
-
-      const latestLink = this.getThreadLinkSafely(input.threadId);
-      if (!latestLink) return;
-      if (latestLink.threadName?.trim()) return;
-
-      await this.client.request("thread/name/set", {
-        threadId: input.threadId,
-        name: generatedTitle,
-      });
-
-      const updated = updateCodexThreadName(input.threadId, generatedTitle);
-      if (updated) {
-        this.emitEvent({ type: "threadSummary", thread: updated });
-      }
-    })().catch((error) => {
-      this.emitEvent({
-        type: "error",
-        message: `Could not auto-generate thread title for ${input.threadId}`,
-        detail: error instanceof Error ? error.message : String(error),
-      });
-    });
+  async generateThreadTitle(input: {
+    prompt: string;
+    cwd: string | null;
+  }): Promise<{ title: string | null }> {
+    await this.ensureClientReady();
+    const title = await this.generateThreadTitleForPrompt(input.prompt, input.cwd);
+    return {
+      title,
+    };
   }
 
   async startThreadForCard(input: CodexThreadStartForCardInput): Promise<CodexThreadDetail> {
@@ -3396,7 +3363,11 @@ export class CodexService extends EventEmitter {
           threadId: link.threadId,
           name: explicitThreadName,
         });
-        updateCodexThreadName(link.threadId, explicitThreadName);
+        const updatedThread = updateCodexThreadName(link.threadId, explicitThreadName);
+        this.emitThreadTitleUpdated(link.threadId, explicitThreadName);
+        if (updatedThread) {
+          this.emitEvent({ type: "threadSummary", thread: updatedThread });
+        }
       }
 
       const collaborationMode = this.buildCollaborationModePayload({
@@ -3430,14 +3401,6 @@ export class CodexService extends EventEmitter {
       const detail = this.serializeThreadDetail(link.threadId);
       if (!detail) {
         throw new Error("Thread was created but could not be loaded");
-      }
-
-      if (!explicitThreadName) {
-        this.queueGeneratedThreadTitle({
-          threadId: link.threadId,
-          firstPrompt: prompt,
-          cwd: runLocation.cwd,
-        });
       }
 
       if (runLocation.createdManagedWorktree) {
@@ -3733,12 +3696,18 @@ export class CodexService extends EventEmitter {
 
   async setThreadName(threadId: string, name: string): Promise<boolean> {
     await this.ensureClientReady();
+    const normalizedName = name.trim();
+    if (!normalizedName) {
+      throw new Error("Thread name requires a non-empty value");
+    }
+
     await this.client.request("thread/name/set", {
       threadId,
-      name,
+      name: normalizedName,
     });
 
-    updateCodexThreadName(threadId, name);
+    this.emitThreadTitleUpdated(threadId, normalizedName);
+    updateCodexThreadName(threadId, normalizedName);
     const updated = this.getThreadLinkSafely(threadId);
     if (updated) {
       this.emitEvent({ type: "threadSummary", thread: updated });

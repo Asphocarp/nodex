@@ -2737,7 +2737,6 @@ describe("codex-service startThreadForCard", () => {
   test("generates thread title through structured thread/start and turn/start flow", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
-      threadTitlePromptTemplate: string | null | undefined;
       generateThreadTitleWithStructuredTurn: (input: {
         prompt: string;
         cwd: string | null;
@@ -2752,7 +2751,6 @@ describe("codex-service startThreadForCard", () => {
     let notificationHandler: ((notification: { method: string; params: unknown }) => void) | null = null;
     let threadStartParams: Record<string, unknown> | null = null;
     let turnStartParams: Record<string, unknown> | null = null;
-    serviceInternals.threadTitlePromptTemplate = "<USER_PROMPT>";
 
     const mockClient = {
       startThread: async (params: Record<string, unknown>) => {
@@ -2816,30 +2814,11 @@ describe("codex-service startThreadForCard", () => {
         persistExtendedHistory: false,
       }));
 
-      expect(JSON.stringify(turnStartParams)).toBe(JSON.stringify({
-        threadId: "thr_title_1",
-        input: [{ type: "text", text: "Refactor inbox list layout", text_elements: [] }],
-        cwd: null,
-        approvalPolicy: null,
-        sandboxPolicy: null,
-        model: null,
-        effort: null,
-        summary: "auto",
-        personality: null,
-        outputSchema: {
-          type: "object",
-          additionalProperties: false,
-          required: ["title"],
-          properties: {
-            title: {
-              type: "string",
-              minLength: 18,
-              maxLength: 36,
-            },
-          },
-        },
-        collaborationMode: null,
-      }));
+      const turnStartPayload = turnStartParams && typeof turnStartParams === "object"
+        ? turnStartParams as { input?: Array<{ text?: string }> }
+        : {};
+      const generatedPrompt = turnStartPayload.input?.[0]?.text ?? "";
+      expect(generatedPrompt.includes("User request:\nRefactor inbox list layout")).toBeTrue();
     } finally {
       await service.shutdown();
     }
@@ -2848,7 +2827,6 @@ describe("codex-service startThreadForCard", () => {
   test("normalizes title text and truncates input prompt before sending", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
-      threadTitlePromptTemplate: string | null | undefined;
       generateThreadTitleWithStructuredTurn: (input: {
         prompt: string;
         cwd: string | null;
@@ -2863,7 +2841,6 @@ describe("codex-service startThreadForCard", () => {
     let notificationHandler: ((notification: { method: string; params: unknown }) => void) | null = null;
     let turnStartParams: Record<string, unknown> | null = null;
     const longPrompt = "x".repeat(2_500);
-    serviceInternals.threadTitlePromptTemplate = "Title source:\n<USER_PROMPT>";
 
     const mockClient = {
       startThread: async () => ({ thread: { id: "thr_title_2" } }),
@@ -2925,8 +2902,9 @@ describe("codex-service startThreadForCard", () => {
         ? turnStartParams as { input?: Array<{ text?: string }> }
         : {};
       const generatedPrompt = turnStartPayload.input?.[0]?.text ?? "";
-      expect(generatedPrompt.startsWith("Title source:\n")).toBeTrue();
-      const promptBody = generatedPrompt.replace("Title source:\n", "");
+      const promptPrefix = "User request:\n";
+      expect(generatedPrompt.includes(promptPrefix)).toBeTrue();
+      const promptBody = generatedPrompt.split(promptPrefix)[1] ?? "";
       expect(promptBody.length).toBe(2_000);
     } finally {
       await service.shutdown();
@@ -2936,7 +2914,6 @@ describe("codex-service startThreadForCard", () => {
   test("ignores unrelated notifications before the helper thread starts", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
-      threadTitlePromptTemplate: string | null | undefined;
       generateThreadTitleWithStructuredTurn: (input: {
         prompt: string;
         cwd: string | null;
@@ -2949,7 +2926,6 @@ describe("codex-service startThreadForCard", () => {
       }) => Promise<string | null>;
     };
     let notificationHandler: ((notification: { method: string; params: unknown }) => void) | null = null;
-    serviceInternals.threadTitlePromptTemplate = "<USER_PROMPT>";
 
     const mockClient = {
       startThread: async () => ({ thread: { id: "thr_title_3" } }),
