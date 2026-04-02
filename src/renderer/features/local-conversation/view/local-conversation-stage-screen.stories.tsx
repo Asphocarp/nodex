@@ -77,6 +77,22 @@ export const Streaming: Story = {
   },
 };
 
+export const LongThreadStreaming: Story = {
+  args: {
+    preset: "long-thread-streaming",
+    isQueueingEnabled: false,
+    collapseAgentBody: false,
+  },
+};
+
+export const LongThreadSearchOpen: Story = {
+  args: {
+    preset: "long-thread-search-open",
+    isQueueingEnabled: false,
+    collapseAgentBody: false,
+  },
+};
+
 export const CompletedCollapsed: Story = {
   args: {
     preset: "completed-collapsed",

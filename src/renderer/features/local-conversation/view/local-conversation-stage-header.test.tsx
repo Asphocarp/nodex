@@ -46,7 +46,9 @@ function buildModel(overrides?: Partial<ThreadStageModel>): ThreadStageModel {
     activeThreadCardColumnId: null,
     body: {
       threadId: "thread_1",
-      turns: [],
+      turnCount: 0,
+      hasAboveComposerBlocks: false,
+      dismissedPlanImplementationTurnId: null,
       isThreadRunning: false,
       activeTurnId: null,
       latestTurnId: null,

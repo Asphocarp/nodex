@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
+import { selectConversationTurnRequestsByTurnId } from "../conversation-request-helpers";
+import { buildTurnRenderModel } from "../projection/build-turn-render-model";
 import type { ThreadStageActions } from "../thread-stage-types";
 import { LocalConversationComposerShell } from "./composer/local-conversation-composer-shell";
 import {
@@ -59,6 +61,30 @@ function buildActions(): ThreadStageActions {
     onCleanBackgroundTerminals: async () => { },
     onOpenCard: () => { },
   };
+}
+
+function resolveStoryAboveComposerBlocks(
+  model: ReturnType<typeof buildThreadStageStoryModel>,
+) {
+  const activeTurnId = model.body.activeTurnId;
+  const conversation = model.conversation;
+  if (!activeTurnId || !conversation) return [];
+
+  const activeTurn = conversation.turns.find((turn) => turn.turnId === activeTurnId);
+  if (!activeTurn) return [];
+
+  const turnRequestsByTurnId = selectConversationTurnRequestsByTurnId(conversation, {
+    dismissedPlanImplementationTurnId: model.body.dismissedPlanImplementationTurnId,
+  });
+
+  return buildTurnRenderModel({
+    turn: activeTurn,
+    requests: turnRequestsByTurnId.get(activeTurnId) ?? [],
+    isLatestTurn: model.body.latestTurnId === activeTurnId,
+    isStreamingTurn: true,
+    canEditTurnUserPrefix: false,
+    canForkTurnUserPrefix: false,
+  }).aboveComposerBlocks ?? [];
 }
 
 function buildShellModel(customize?: (model: ReturnType<typeof buildThreadStageStoryModel>) => ReturnType<typeof buildThreadStageStoryModel>) {
@@ -199,7 +225,7 @@ function AboveComposerStoryFrame({
           <LocalConversationAboveComposerPortalHost />
           <LocalConversationAboveComposerQueuePortalHost />
           <LocalConversationAboveComposerPortal
-            blocks={model.body.aboveComposerBlocks ?? []}
+            blocks={resolveStoryAboveComposerBlocks(model)}
             isLatestTurn={model.body.latestTurnId === model.body.activeTurnId}
             isStreamingTurn={true}
             projectWorkspacePath={model.projectWorkspacePath}

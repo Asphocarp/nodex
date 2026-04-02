@@ -28,6 +28,8 @@ export type ThreadStageStoryPresetId =
   | "existing-empty"
   | "resuming"
   | "streaming"
+  | "long-thread-streaming"
+  | "long-thread-search-open"
   | "completed-collapsed"
   | "approval-lane"
   | "user-input-lane"
@@ -186,6 +188,16 @@ export const THREAD_STAGE_STORY_PRESETS: ThreadStageStoryPreset[] = [
     id: "streaming",
     name: "Streaming",
     description: "In-progress turn with live command and reasoning activity.",
+  },
+  {
+    id: "long-thread-streaming",
+    name: "Long Thread Streaming",
+    description: "Long transcript mounted through the virtualized owner with a streaming latest turn.",
+  },
+  {
+    id: "long-thread-search-open",
+    name: "Long Thread Search",
+    description: "Long transcript with find-in-thread open against owner-backed search indexing.",
   },
   {
     id: "completed-collapsed",
@@ -498,6 +510,46 @@ function buildStreamingConversation(
       }),
     ],
     ...overrides,
+  });
+}
+
+function buildLongThreadStreamingConversation(): CodexConversationSnapshot {
+  const olderTurns = Array.from({ length: 59 }, (_, index) =>
+    buildStoryConversationTurn({
+      turnId: `turn_story_long_${index + 1}`,
+      status: "completed",
+      items: [
+        buildStoryConversationItem({
+          turnId: `turn_story_long_${index + 1}`,
+          itemId: `user_story_long_${index + 1}`,
+          type: "user_message",
+          kind: "userMessage",
+          semanticKind: "userMessage",
+          role: "user",
+          markdownText: `Checkpoint request ${index + 1}: audit the mounted thread renderer seams.`,
+          createdAt: 1_000 + index * 100,
+          updatedAt: 1_000 + index * 100,
+        }),
+        buildStoryConversationItem({
+          turnId: `turn_story_long_${index + 1}`,
+          itemId: `assistant_story_long_${index + 1}`,
+          type: "assistant_message",
+          kind: "assistantMessage",
+          semanticKind: "assistantMessage",
+          role: "assistant",
+          assistantPhase: "final_answer",
+          markdownText: `Completed checkpoint ${index + 1}.`,
+          createdAt: 1_020 + index * 100,
+          updatedAt: 1_020 + index * 100,
+        }),
+      ],
+    }),
+  );
+  const latestStreamingTurn = buildStreamingConversation().turns;
+
+  return buildStreamingConversation({
+    turns: [...olderTurns, ...latestStreamingTurn],
+    updatedAt: 99_999,
   });
 }
 
@@ -1611,6 +1663,39 @@ function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageSt
         activeThreadSummary: conversation,
         conversation,
         knownConversationsById: { [conversation.threadId]: conversation },
+      },
+      initialUiState: { collapsedAgentBodyByTurnId },
+      transportCard,
+      permissionDescription,
+    };
+  }
+
+  if (controls.preset === "long-thread-streaming") {
+    const conversation = buildLongThreadStreamingConversation();
+    return {
+      preset,
+      runtime: {
+        ...baseRuntime,
+        activeThreadSummary: conversation,
+        conversation,
+        knownConversationsById: { [conversation.threadId]: conversation },
+      },
+      initialUiState: { collapsedAgentBodyByTurnId },
+      transportCard,
+      permissionDescription,
+    };
+  }
+
+  if (controls.preset === "long-thread-search-open") {
+    const conversation = buildLongThreadStreamingConversation();
+    return {
+      preset,
+      runtime: {
+        ...baseRuntime,
+        activeThreadSummary: conversation,
+        conversation,
+        knownConversationsById: { [conversation.threadId]: conversation },
+        searchOpenTick: 1,
       },
       initialUiState: { collapsedAgentBodyByTurnId },
       transportCard,

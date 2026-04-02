@@ -152,7 +152,7 @@ export function ThreadTurn({
   );
 
   return (
-    <div data-content-search-turn-key={turn.turnId}>
+    <div>
       <div className={cn("flex flex-col gap-0", isMatched && "rounded-2xl bg-token-foreground/3")}>
         <div className="flex flex-col">
           {renderSpacedBlocks(turn.leadingBlocks, renderBlock)}

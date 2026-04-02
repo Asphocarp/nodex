@@ -257,8 +257,9 @@ export interface ThreadSearchUnitModel {
 
 export interface ThreadBodyModel {
   threadId: string | null;
-  turns: ThreadTurnModel[];
-  aboveComposerBlocks?: ThreadBlockModel[];
+  turnCount: number;
+  hasAboveComposerBlocks: boolean;
+  dismissedPlanImplementationTurnId: string | null;
   isThreadRunning: boolean;
   activeTurnId: string | null;
   latestTurnId: string | null;

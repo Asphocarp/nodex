@@ -737,7 +737,7 @@ export function LocalConversationComposerShell({
   errorMessage,
   onErrorMessage,
 }: LocalConversationComposerShellProps) {
-  const hasFixedPortalContent = (model.body.aboveComposerBlocks?.length ?? 0) > 0;
+  const hasFixedPortalContent = model.body.hasAboveComposerBlocks;
   const queuePortalHost = usePortalHost(LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ID);
   const showQueuePanel = model.composerShell.pendingSteerRows.length > 0 || model.composerShell.queuedFollowUpRows.length > 0;
   const backgroundTerminalThreadId = model.conversation?.threadId ?? null;

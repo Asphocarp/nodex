@@ -1,9 +1,7 @@
-import type { CodexConversationSnapshot, CodexConversationTurn } from "../../../lib/types";
-import { buildRendererItemStream } from "./build-renderer-item-stream";
-import { bucketizeTurnItems } from "./bucketize-turn-items";
-import { buildTurnViewModel } from "./build-turn-view-model";
+import type { CodexConversationSnapshot } from "../../../lib/types";
 import { selectConversationTurnRequestsByTurnId } from "../conversation-request-helpers";
-import type { ThreadBodyModel, ThreadTurnModel } from "../thread-stage-types";
+import type { ThreadBodyModel } from "../thread-stage-types";
+import { buildTurnRenderModel } from "./build-turn-render-model";
 
 interface BuildThreadBodyModelInput {
   activeThreadId: string | null;
@@ -27,25 +25,52 @@ interface BuildThreadBodyModelInput {
   } | null;
 }
 
-function buildVisibleItemsByTurnId(
-  conversation: CodexConversationSnapshot,
-): Map<string, CodexConversationTurn["items"]> {
-  return new Map(
-    conversation.turns.map((turn) => [
-      turn.turnId,
-      turn.items,
-    ]),
-  );
+function resolveActiveTurn(conversation: CodexConversationSnapshot | null) {
+  return conversation
+    ? [...conversation.turns].reverse().find((turn) => turn.status === "inProgress") ?? null
+    : null;
 }
 
-function hasIncompleteElicitation(items: ReturnType<typeof buildRendererItemStream>): boolean {
-  return items.some((item) => item.type === "mcpServerElicitation" && item.status !== "completed");
+function resolveLatestTurnId(conversation: CodexConversationSnapshot | null): string | null {
+  return conversation?.turns[conversation.turns.length - 1]?.turnId ?? null;
+}
+
+function resolveHasVisibleContent(conversation: CodexConversationSnapshot): boolean {
+  return conversation.turns.some((turn) => turn.items.length > 0);
+}
+
+function resolveHasAboveComposerBlocks(
+  conversation: CodexConversationSnapshot,
+  activeTurnId: string | null,
+  latestTurnId: string | null,
+  dismissedPlanImplementationTurnIdByThread: Record<string, string>,
+): boolean {
+  if (!activeTurnId) return false;
+
+  const activeTurn = conversation.turns.find((turn) => turn.turnId === activeTurnId);
+  if (!activeTurn) return false;
+
+  const turnRequestsByTurnId = selectConversationTurnRequestsByTurnId(conversation, {
+    dismissedPlanImplementationTurnId:
+      dismissedPlanImplementationTurnIdByThread[conversation.threadId] ?? null,
+  });
+  const renderedTurn = buildTurnRenderModel({
+    turn: activeTurn,
+    requests: turnRequestsByTurnId.get(activeTurnId) ?? [],
+    isLatestTurn: latestTurnId === activeTurnId,
+    isStreamingTurn: true,
+    canEditTurnUserPrefix: false,
+    canForkTurnUserPrefix: false,
+  });
+
+  return (renderedTurn.aboveComposerBlocks?.length ?? 0) > 0;
 }
 
 export function buildThreadBodyModel(input: BuildThreadBodyModelInput): ThreadBodyModel {
   const conversation = input.conversation;
   const resumeState = conversation?.resumeState ?? null;
-  const dismissedPlanImplementationTurnIdByThread = input.dismissedPlanImplementationTurnIdByThread ?? {};
+  const dismissedPlanImplementationTurnIdByThread =
+    input.dismissedPlanImplementationTurnIdByThread ?? {};
   const showThreadStartProgressPanel = Boolean(
     input.isNewThreadTab && !conversation && input.newThreadTarget && input.threadStartProgress,
   );
@@ -54,8 +79,9 @@ export function buildThreadBodyModel(input: BuildThreadBodyModelInput): ThreadBo
     if (input.activeThreadId && resumeState) {
       return {
         threadId: input.activeThreadId,
-        turns: [],
-        aboveComposerBlocks: [],
+        turnCount: 0,
+        hasAboveComposerBlocks: false,
+        dismissedPlanImplementationTurnId: null,
         isThreadRunning: false,
         activeTurnId: null,
         latestTurnId: null,
@@ -75,8 +101,9 @@ export function buildThreadBodyModel(input: BuildThreadBodyModelInput): ThreadBo
     if (input.isNewThreadTab) {
       return {
         threadId: null,
-        turns: [],
-        aboveComposerBlocks: [],
+        turnCount: 0,
+        hasAboveComposerBlocks: false,
+        dismissedPlanImplementationTurnId: null,
         isThreadRunning: false,
         activeTurnId: null,
         latestTurnId: null,
@@ -95,8 +122,9 @@ export function buildThreadBodyModel(input: BuildThreadBodyModelInput): ThreadBo
 
     return {
       threadId: null,
-      turns: [],
-      aboveComposerBlocks: [],
+      turnCount: 0,
+      hasAboveComposerBlocks: false,
+      dismissedPlanImplementationTurnId: null,
       isThreadRunning: false,
       activeTurnId: null,
       latestTurnId: null,
@@ -112,15 +140,20 @@ export function buildThreadBodyModel(input: BuildThreadBodyModelInput): ThreadBo
   if (conversation.resumeState !== "resumed") {
     return {
       threadId: conversation.threadId,
-      turns: [],
-      aboveComposerBlocks: [],
+      turnCount: 0,
+      hasAboveComposerBlocks: false,
+      dismissedPlanImplementationTurnId:
+        dismissedPlanImplementationTurnIdByThread[conversation.threadId] ?? null,
       isThreadRunning: false,
       activeTurnId: null,
       latestTurnId: null,
       showThreadStartProgressPanel: false,
       emptyState: {
         type: "resumingThread",
-        title: conversation.resumeState === "resuming" ? "Restoring thread" : "Preparing thread",
+        title:
+          conversation.resumeState === "resuming"
+            ? "Restoring thread"
+            : "Preparing thread",
         description:
           conversation.resumeState === "resuming"
             ? "Loading the latest conversation state before rendering the thread."
@@ -130,70 +163,41 @@ export function buildThreadBodyModel(input: BuildThreadBodyModelInput): ThreadBo
     };
   }
 
-  const activeTurn = [...conversation.turns].reverse().find((turn) => turn.status === "inProgress") ?? null;
-  const activeTurnId = activeTurn?.turnId ?? null;
-  const latestTurnId = conversation.turns[conversation.turns.length - 1]?.turnId ?? null;
-  const isThreadRunning = conversation.statusType === "active" || activeTurn !== null;
-  const visibleItemsByTurnId = buildVisibleItemsByTurnId(conversation);
-  const hasVisibleContent = Array.from(visibleItemsByTurnId.values()).some((items) => items.length > 0);
+  const activeTurnId = resolveActiveTurn(conversation)?.turnId ?? null;
+  const latestTurnId = resolveLatestTurnId(conversation);
+  const isThreadRunning =
+    conversation.statusType === "active" || activeTurnId !== null;
 
-  if (!hasVisibleContent && conversation.turns.length === 0) {
+  if (!resolveHasVisibleContent(conversation) && conversation.turns.length === 0) {
     return {
       threadId: conversation.threadId,
-        turns: [],
-        aboveComposerBlocks: [],
-        isThreadRunning,
-        activeTurnId,
-        latestTurnId,
-        showThreadStartProgressPanel,
-        emptyState: {
-          type: "emptyThread",
-          title: "No messages yet",
-          description: "Send a prompt to begin.",
-        },
-      };
+      turnCount: 0,
+      hasAboveComposerBlocks: false,
+      dismissedPlanImplementationTurnId:
+        dismissedPlanImplementationTurnIdByThread[conversation.threadId] ?? null,
+      isThreadRunning,
+      activeTurnId,
+      latestTurnId,
+      showThreadStartProgressPanel,
+      emptyState: {
+        type: "emptyThread",
+        title: "No messages yet",
+        description: "Send a prompt to begin.",
+      },
+    };
   }
-
-  const editableTurnId =
-    conversation.capabilityFlags.canEditLastUserTurn
-      ? ([...conversation.turns].reverse().find((turn) => turn.status !== "inProgress")?.turnId ?? null)
-      : null;
-  const turnRequestsByTurnId = selectConversationTurnRequestsByTurnId(conversation, {
-    dismissedPlanImplementationTurnId: dismissedPlanImplementationTurnIdByThread[conversation.threadId] ?? null,
-  });
-  const turns: ThreadTurnModel[] = conversation.turns.map((turn: CodexConversationTurn) => {
-    const turnId = turn.turnId;
-    const items = buildRendererItemStream({
-      entries: visibleItemsByTurnId.get(turnId) ?? [],
-      requests: turnRequestsByTurnId.get(turnId) ?? [],
-      turnStatus: turn.status,
-      isLatestTurn: latestTurnId === turnId,
-    });
-    const buckets = bucketizeTurnItems({
-      items,
-      turnStatus: turn.status,
-    });
-    const isBlocked =
-      buckets.approvalItems.length > 0
-      || buckets.userInputItems.length > 0
-      || hasIncompleteElicitation(items);
-    return buildTurnViewModel({
-      turnId,
-      turn,
-      buckets,
-      isLatestTurn: latestTurnId === turnId,
-      isStreamingTurn: activeTurnId === turnId,
-      isBlocked,
-      canEditTurnUserPrefix: editableTurnId === turnId,
-      canForkTurnUserPrefix: conversation.capabilityFlags.canForkFromTurn && turn.status !== "inProgress",
-    });
-  });
-  const aboveComposerBlocks = turns.flatMap((turn) => turn.aboveComposerBlocks ?? []);
 
   return {
     threadId: conversation.threadId,
-    turns,
-    aboveComposerBlocks,
+    turnCount: conversation.turns.length,
+    hasAboveComposerBlocks: resolveHasAboveComposerBlocks(
+      conversation,
+      activeTurnId,
+      latestTurnId,
+      dismissedPlanImplementationTurnIdByThread,
+    ),
+    dismissedPlanImplementationTurnId:
+      dismissedPlanImplementationTurnIdByThread[conversation.threadId] ?? null,
     isThreadRunning,
     activeTurnId,
     latestTurnId,
