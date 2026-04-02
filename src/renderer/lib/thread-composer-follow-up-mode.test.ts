@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
-  getThreadComposerAlternateShortcutLabel,
-  getThreadComposerPrimaryShortcutLabel,
   resolveThreadInProgressFollowUpMode,
+  resolveShortcutKeycapTokens,
+  resolveThreadComposerAlternateShortcutAccelerator,
+  resolveThreadComposerPrimaryShortcutAccelerator,
   shouldInvertThreadInProgressFollowUpModeFromKeyDown,
 } from "./thread-composer-follow-up-mode";
 
@@ -52,16 +53,31 @@ describe("thread composer follow-up mode", () => {
     })).toBeFalse();
   });
 
-  test("formats the primary and alternate shortcut labels like the Codex tooltip", () => {
-    expect(getThreadComposerPrimaryShortcutLabel({
+  test("resolves the primary and alternate accelerators like the Codex tooltip", () => {
+    expect(resolveThreadComposerPrimaryShortcutAccelerator({
       enterBehavior: "enter",
       hasMultilinePrompt: false,
     })).toBe("Enter");
-    expect(getThreadComposerPrimaryShortcutLabel({
+    expect(resolveThreadComposerPrimaryShortcutAccelerator({
       enterBehavior: "cmdIfMultiline",
       hasMultilinePrompt: true,
-    })).toBe("Cmd/Ctrl+Enter");
-    expect(getThreadComposerAlternateShortcutLabel("enter")).toBe("Cmd/Ctrl+Enter");
-    expect(getThreadComposerAlternateShortcutLabel("cmdIfMultiline")).toBe("Cmd/Ctrl+Shift+Enter");
+    })).toBe("CmdOrCtrl+Enter");
+    expect(resolveThreadComposerAlternateShortcutAccelerator("enter")).toBe("CmdOrCtrl+Enter");
+    expect(resolveThreadComposerAlternateShortcutAccelerator("cmdIfMultiline")).toBe("CmdOrCtrl+Shift+Enter");
+  });
+
+  test("formats mac keycap tokens like the Codex tooltip", () => {
+    expect(JSON.stringify(resolveShortcutKeycapTokens({
+      accelerator: "Enter",
+      isMacPlatform: true,
+    }))).toBe(JSON.stringify(["Enter"]));
+    expect(JSON.stringify(resolveShortcutKeycapTokens({
+      accelerator: "CmdOrCtrl+Enter",
+      isMacPlatform: true,
+    }))).toBe(JSON.stringify(["⌘", "Enter"]));
+    expect(JSON.stringify(resolveShortcutKeycapTokens({
+      accelerator: "CmdOrCtrl+Shift+Enter",
+      isMacPlatform: true,
+    }))).toBe(JSON.stringify(["⌘", "⇧", "Enter"]));
   });
 });

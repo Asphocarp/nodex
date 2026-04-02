@@ -1,6 +1,10 @@
 import type { ComposerEnterBehavior } from "./composer-enter-behavior";
 
 export type ThreadInProgressFollowUpMode = "queue" | "steer";
+export type ThreadComposerShortcutAccelerator =
+  | "Enter"
+  | "CmdOrCtrl+Enter"
+  | "CmdOrCtrl+Shift+Enter";
 
 export const THREAD_QUEUE_FOLLOW_UPS_STORAGE_KEY =
   "nodex-thread-composer-queue-follow-ups-v1";
@@ -23,6 +27,11 @@ interface ThreadComposerInvertedShortcutInput {
 interface ThreadComposerPrimaryShortcutLabelInput {
   enterBehavior: ComposerEnterBehavior;
   hasMultilinePrompt: boolean;
+}
+
+interface ResolveShortcutKeycapTokensInput {
+  accelerator: ThreadComposerShortcutAccelerator;
+  isMacPlatform: boolean;
 }
 
 export function readThreadQueueFollowUpsEnabled(): boolean {
@@ -68,23 +77,35 @@ export function shouldInvertThreadInProgressFollowUpModeFromKeyDown(
   return input.shiftKey;
 }
 
-export function getThreadComposerPrimaryShortcutLabel(
+export function resolveThreadComposerPrimaryShortcutAccelerator(
   input: ThreadComposerPrimaryShortcutLabelInput,
-): string {
+): ThreadComposerShortcutAccelerator {
   if (
     input.enterBehavior === "cmdIfMultiline"
     && input.hasMultilinePrompt
   ) {
-    return "Cmd/Ctrl+Enter";
+    return "CmdOrCtrl+Enter";
   }
 
   return "Enter";
 }
 
-export function getThreadComposerAlternateShortcutLabel(
+export function resolveThreadComposerAlternateShortcutAccelerator(
   enterBehavior: ComposerEnterBehavior,
-): string {
+): ThreadComposerShortcutAccelerator {
   return enterBehavior === "cmdIfMultiline"
-    ? "Cmd/Ctrl+Shift+Enter"
-    : "Cmd/Ctrl+Enter";
+    ? "CmdOrCtrl+Shift+Enter"
+    : "CmdOrCtrl+Enter";
+}
+
+export function resolveShortcutKeycapTokens(
+  input: ResolveShortcutKeycapTokensInput,
+): string[] {
+  if (input.accelerator === "Enter") return ["Enter"];
+
+  if (input.accelerator === "CmdOrCtrl+Enter") {
+    return input.isMacPlatform ? ["⌘", "Enter"] : ["Ctrl", "Enter"];
+  }
+
+  return input.isMacPlatform ? ["⌘", "⇧", "Enter"] : ["Ctrl", "Shift", "Enter"];
 }

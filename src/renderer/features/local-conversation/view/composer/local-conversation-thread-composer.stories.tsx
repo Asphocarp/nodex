@@ -81,7 +81,7 @@ function ComposerSendButtonStory(args: ComposerSendButtonStoryProps) {
       <div className="mb-4 max-w-2xl">
         <div className="text-sm font-semibold text-(--foreground)">Composer Send Button</div>
         <div className="mt-1 text-sm/relaxed text-(--foreground-secondary)">
-          Running-thread composer states reconstructed from the Codex Electron send-button state machine. Hover the primary action to inspect the live queue-versus-steer tooltip.
+          Running-thread composer states reconstructed from the Codex Electron send-button state machine. Hover the primary action to inspect the exact running-thread queue-versus-steer tooltip and platform keycaps.
         </div>
       </div>
       <TooltipProvider>
@@ -120,7 +120,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Focused Codex-style parity story for the running-thread composer button. Empty draft keeps Stop; any draft switches to submit, which becomes Steer or Queue based on the queue-follow-ups preference.",
+          "Focused Codex-style parity story for the running-thread composer button. Empty draft keeps Stop; any draft switches to submit, which becomes Steer or Queue based on the queue-follow-ups preference and shows the exact platform keycap tooltip rows.",
       },
     },
   },

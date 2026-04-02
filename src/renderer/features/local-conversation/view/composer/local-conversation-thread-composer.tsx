@@ -2,17 +2,16 @@ import { useForm, useStore } from "@tanstack/react-form";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { handleFormSubmit } from "@/lib/forms";
 import { formatCodexModelLabel, formatCodexReasoningEffortLabel } from "@/lib/codex-thread-settings";
-import { invoke, subscribeGitBranchChanges } from "@/lib/api";
 import { resolveContextWindowIndicatorState } from "@/lib/codex-context-window";
 import type { CodexReasoningEffort } from "@/lib/types";
 import { shouldSubmitComposerPromptFromKeyDown } from "@/lib/composer-enter-behavior";
 import {
-  getThreadComposerAlternateShortcutLabel,
-  getThreadComposerPrimaryShortcutLabel,
   resolveThreadInProgressFollowUpMode,
+  resolveShortcutKeycapTokens,
+  resolveThreadComposerAlternateShortcutAccelerator,
+  resolveThreadComposerPrimaryShortcutAccelerator,
   shouldInvertThreadInProgressFollowUpModeFromKeyDown,
 } from "@/lib/thread-composer-follow-up-mode";
-import { NodexTooltip } from "@/components/ui/tooltip";
 import {
   resolveStageThreadsComposerActionState,
   type StageThreadsBusyAction,
@@ -25,15 +24,7 @@ import {
   resolveBranchSelectorCwd,
   type BranchSelectorState,
 } from "../shared/branch-selector-state";
-import { BranchSelectorPopover } from "../shared/branch-selector-popover";
 import { resolvePromptTextareaSize } from "../shared/prompt-textarea-size";
-import {
-  ContextWindowIndicator,
-  resolvePromptTextareaMaxHeightPx,
-} from "../shared/context-window";
-import { PermissionModeDropdown } from "../shared/permission-mode-dropdown";
-import { StageThreadsCollaborationModeDropdown } from "../shared/collaboration-mode-dropdown";
-import { ToolbarDropdownMenu } from "../shared/toolbar-dropdown-menu";
 import { cn } from "../../../../lib/utils";
 import {
   ChevronDownIcon,
@@ -46,6 +37,18 @@ import {
   UpArrowIcon,
 } from "@/components/shared/icons";
 import type { ThreadStageActions, ThreadStageModel } from "../../thread-stage-types";
+import { ComposerActionTooltipContent } from "./composer-submit-tooltip";
+import {
+  BranchSelectorPopover,
+  ContextWindowIndicator,
+  invoke,
+  NodexTooltip,
+  PermissionModeDropdown,
+  resolvePromptTextareaMaxHeightPx,
+  StageThreadsCollaborationModeDropdown,
+  subscribeGitBranchChanges,
+  ToolbarDropdownMenu,
+} from "./local-conversation-thread-composer-deps";
 
 interface ThreadComposerProps {
   model: ThreadStageModel;
@@ -367,6 +370,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
 
   const hasDraftContent = prompt.trim().length > 0;
   const hasMultilinePrompt = prompt.includes("\n");
+  const isMacPlatform = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
 
   const composerActionState = resolveStageThreadsComposerActionState({
     canSendPrompt: (model.conversation !== null || (model.isNewThreadTab && model.newThreadTarget !== null)) && !model.isCloudNewThreadTarget,
@@ -381,19 +385,25 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     (model.conversation || (model.isNewThreadTab && model.newThreadTarget)) &&
     !model.isCloudNewThreadTarget,
   );
-  const primaryShortcutLabel = getThreadComposerPrimaryShortcutLabel({
-    enterBehavior: model.composerEnterBehavior,
-    hasMultilinePrompt,
+  const primaryShortcutKeys = resolveShortcutKeycapTokens({
+    accelerator: resolveThreadComposerPrimaryShortcutAccelerator({
+      enterBehavior: model.composerEnterBehavior,
+      hasMultilinePrompt,
+    }),
+    isMacPlatform,
   });
-  const alternateShortcutLabel = getThreadComposerAlternateShortcutLabel(model.composerEnterBehavior);
+  const alternateShortcutKeys = resolveShortcutKeycapTokens({
+    accelerator: resolveThreadComposerAlternateShortcutAccelerator(model.composerEnterBehavior),
+    isMacPlatform,
+  });
   const contextWindowIndicatorState = resolveContextWindowIndicatorState(model.conversation);
   const composerActionTooltip = renderComposerActionTooltipContent({
     action: composerActionState.action,
     submitAction: composerActionState.submitAction,
     alternateInProgressSubmitAction: composerActionState.alternateInProgressSubmitAction,
     isThreadRunning: model.isThreadRunning,
-    primaryShortcutLabel,
-    alternateShortcutLabel,
+    primaryShortcutKeys,
+    alternateShortcutKeys,
   });
 
   return (
@@ -582,35 +592,17 @@ function renderComposerActionTooltipContent(input: {
   submitAction: StageThreadsComposerSubmitAction | null;
   alternateInProgressSubmitAction: Exclude<StageThreadsComposerSubmitAction, "send"> | null;
   isThreadRunning: boolean;
-  primaryShortcutLabel: string;
-  alternateShortcutLabel: string;
+  primaryShortcutKeys: readonly string[];
+  alternateShortcutKeys: readonly string[];
 }) {
-  if (input.action === "stop") return "Stop";
-  if (!input.isThreadRunning || input.submitAction === "send" || !input.alternateInProgressSubmitAction) {
-    return "Send";
-  }
-
-  const primaryAction: Exclude<StageThreadsComposerSubmitAction, "send"> =
-    input.submitAction === "queue" ? "queue" : "steer";
-
   return (
-    <div className="grid grid-cols-[auto_auto] items-center gap-x-2 gap-y-1">
-      <span className="text-token-foreground">
-        {formatComposerSubmitActionLabel(primaryAction)}
-      </span>
-      <span className="justify-self-end text-token-foreground-secondary">
-        {input.primaryShortcutLabel}
-      </span>
-      <span className="text-token-foreground">
-        {formatComposerSubmitActionLabel(input.alternateInProgressSubmitAction)}
-      </span>
-      <span className="justify-self-end text-token-foreground-secondary">
-        {input.alternateShortcutLabel}
-      </span>
-    </div>
+    <ComposerActionTooltipContent
+      action={input.action}
+      submitAction={input.submitAction}
+      alternateInProgressSubmitAction={input.alternateInProgressSubmitAction}
+      isThreadRunning={input.isThreadRunning}
+      primaryShortcutKeys={input.primaryShortcutKeys}
+      alternateShortcutKeys={input.alternateShortcutKeys}
+    />
   );
-}
-
-function formatComposerSubmitActionLabel(action: Exclude<StageThreadsComposerSubmitAction, "send">) {
-  return action === "queue" ? "Queue" : "Steer";
 }

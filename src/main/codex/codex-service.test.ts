@@ -2288,7 +2288,7 @@ describe("codex-service startTurn", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
-  test("queueing a follow-up during an active turn drains through turn/steer instead of turn/start", async () => {
+  test("queueing a follow-up during an active turn keeps the queued item until send-now is requested", async () => {
     const ran = await withTempDatabase(async () => {
       const card = await createCard("codex", "in_progress", { title: "Queued steer prompt" });
       upsertCodexCardThreadLink({
@@ -2325,14 +2325,25 @@ describe("codex-service startTurn", () => {
 
       try {
         await service.enqueueQueuedFollowUpPrompt("thr_queue_prompt", "Queue this without interrupting");
-        await Promise.resolve();
         const snapshot = service.serializeConversationSnapshot("thr_queue_prompt");
+
+        expect(requests.length).toBe(0);
+        expect(snapshot?.queuedFollowUps.length).toBe(1);
+        expect(snapshot?.queuedFollowUps[0]?.prompt).toBe("Queue this without interrupting");
+        expect(snapshot?.pendingSteers.length).toBe(0);
+
+        const followUpId = snapshot?.queuedFollowUps[0]?.followUpId ?? null;
+        expect(Boolean(followUpId)).toBeTrue();
+        if (!followUpId) return;
+
+        await service.sendQueuedFollowUpNow("thr_queue_prompt", followUpId);
+        const afterSendSnapshot = service.serializeConversationSnapshot("thr_queue_prompt");
 
         expect(requests.length).toBe(1);
         expect(requests[0]?.method).toBe("turn/steer");
-        expect(snapshot?.queuedFollowUps.length).toBe(0);
-        expect(snapshot?.pendingSteers.length).toBe(1);
-        expect(snapshot?.pendingSteers[0]?.prompt).toBe("Queue this without interrupting");
+        expect(afterSendSnapshot?.queuedFollowUps.length).toBe(0);
+        expect(afterSendSnapshot?.pendingSteers.length).toBe(1);
+        expect(afterSendSnapshot?.pendingSteers[0]?.prompt).toBe("Queue this without interrupting");
       } finally {
         await service.shutdown();
       }

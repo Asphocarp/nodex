@@ -1019,7 +1019,6 @@ export class CodexService extends EventEmitter {
   private readonly conversationRecords = new Map<string, CodexConversationRecord>();
   private readonly lastBroadcastConversationById = new Map<string, CodexConversationSnapshot>();
   private readonly conversationVersionById = new Map<string, number>();
-  private readonly queuedFollowUpDrainInFlight = new Set<string>();
   private readonly frameTextDeltaQueue = new FrameTextDeltaQueue((updates) => {
     this.applyFrameTextDeltas(updates);
   });
@@ -1503,7 +1502,6 @@ export class CodexService extends EventEmitter {
     }
 
     this.enqueueQueuedFollowUp(threadId, promptText, overrides?.collaborationMode);
-    this.scheduleQueuedFollowUpDrain(threadId);
   }
 
   private recordPendingSteer(threadId: string, turnId: string, prompt: string): string {
@@ -1553,27 +1551,6 @@ export class CodexService extends EventEmitter {
     if (nextEntries.length === this.listPendingSteers(threadId).length) return;
     this.ensureConversationRecord(threadId).pendingSteers = nextEntries;
     this.emitThreadStreamStateChange(threadId);
-  }
-
-  private scheduleQueuedFollowUpDrain(threadId: string): void {
-    if (this.queuedFollowUpDrainInFlight.has(threadId)) return;
-    this.queuedFollowUpDrainInFlight.add(threadId);
-    queueMicrotask(() => {
-      void this.drainQueuedFollowUps(threadId).finally(() => {
-        this.queuedFollowUpDrainInFlight.delete(threadId);
-        const nextPending = this.listQueuedFollowUps(threadId)[0] ?? null;
-        if (nextPending && !nextPending.pausedReason) {
-          this.scheduleQueuedFollowUpDrain(threadId);
-        }
-      });
-    });
-  }
-
-  private async drainQueuedFollowUps(threadId: string): Promise<void> {
-    const followUp = this.listQueuedFollowUps(threadId)[0] ?? null;
-    if (!followUp || followUp.pausedReason) return;
-    this.dequeueQueuedFollowUp(threadId, followUp.followUpId);
-    await this.submitQueuedFollowUp(threadId, followUp);
   }
 
   private async submitQueuedFollowUp(threadId: string, followUp: CodexQueuedFollowUp): Promise<void> {
@@ -3525,7 +3502,6 @@ export class CodexService extends EventEmitter {
 
       this.setConversationResumeState(threadId, "resumed");
       this.emitThreadStreamSnapshotFromRecord(threadId);
-      this.scheduleQueuedFollowUpDrain(threadId);
       return this.serializeConversationSnapshot(threadId);
     } catch (error) {
       this.setConversationResumeState(threadId, "needs_resume");
@@ -4728,7 +4704,6 @@ export class CodexService extends EventEmitter {
       this.reconcileTurnItemsToTerminalStatus(threadId, turn.turnId, turn.status);
       if (turn.status !== "inProgress") {
         this.clearPendingSteersForTurn(threadId, turn.turnId);
-        this.scheduleQueuedFollowUpDrain(threadId);
       }
       this.emitEvent({ type: "turn", turn });
       return;

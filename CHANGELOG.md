@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 ### Fixed
+- Fixed running-thread composer follow-ups so `Cmd+Enter` now keeps messages in the queued-follow-up lane instead of immediately collapsing them into `Steer`, and the send-button tooltip now matches the Codex `Steer`/`Queue` shortcut rows.
 - Fixed `Context automatically compacted` transcript markers so live and replayed compaction rows now stay in the canonical turn item order instead of drifting to the bottom of the thread.
 - Fixed installed-build thread auto-naming so title generation now matches Codex's host-owned flow, with renderer-triggered `generate-thread-title`, persistent title cache/backfill, and explicit thread-title/error host-message sync instead of a repo-relative prompt-file dependency.
 - Fixed multi-file thread patch previews so each expanded file row no longer repeats the diff library's inner file header under the thread-owned filename and line-count header.
