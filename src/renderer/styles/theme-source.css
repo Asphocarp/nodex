@@ -126,7 +126,6 @@
   --text-heading-lg: 28px;
 }
 
-
 :root {
   --gray-0: #ffffff;
   --gray-50: #f9f9f9;
@@ -356,7 +355,6 @@
   --chart-3: #2783de;
   --chart-4: #d8a32f;
   --chart-5: #b577d6;
-  --inline-code-text: #eb5757;
   --inline-code-bg: rgba(135, 131, 120, 0.15);
   --diff-add: #1a7f37;
   --diff-add-bg: rgba(46, 160, 67, 0.15);
@@ -488,7 +486,6 @@
   --diff-hunk-text: #8b949e;
   --diff-hunk-bg: rgba(56, 132, 244, 0.12);
   --diff-line-num: #5f5e59;
-  --inline-code-text: #e97366;
   --inline-code-bg: rgba(135, 131, 120, 0.15);
   --link-decoration-color: hsla(0, 0%, 100%, 0.283);
   --code-block-bg: #fcfcfc08;

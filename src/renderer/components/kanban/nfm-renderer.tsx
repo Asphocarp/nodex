@@ -1,5 +1,10 @@
 import { FileCode2, FileText, Folder, Link2 } from "lucide-react";
 import { Streamdown } from "streamdown";
+import {
+  InlineMarkdownCode,
+  INLINE_MARKDOWN_HEADING_CLASS_NAME,
+  INLINE_MARKDOWN_ROOT_CLASS_NAME,
+} from "@/components/shared/inline-markdown-code";
 import type {
   NfmBlock,
   NfmInlineContent,
@@ -22,7 +27,7 @@ export function NfmRenderer({ content, className }: NfmRendererProps) {
   if (!content.trim()) return null;
   const blocks = parseNfm(content);
   return (
-    <div className={cn("nfm-render", className)}>
+    <div className={cn("nfm-render", INLINE_MARKDOWN_ROOT_CLASS_NAME, className)}>
       <BlockList blocks={blocks} />
     </div>
   );
@@ -62,7 +67,7 @@ function BlockComponent({ block }: { block: NfmBlock }) {
       if (block.isToggleable) {
         return (
           <details className={cn("nfm-toggle my-1", colorClass)} open={block.isOpen || undefined}>
-            <summary className={cn("nfm-toggle-summary", sizes[block.level])}>
+            <summary className={cn("nfm-toggle-summary", sizes[block.level], INLINE_MARKDOWN_HEADING_CLASS_NAME)}>
               <ToggleCaretIcon hasChildren={block.children.length > 0} />
               <span className="min-w-0">
                 <InlineList items={block.content} />
@@ -78,7 +83,7 @@ function BlockComponent({ block }: { block: NfmBlock }) {
       }
 
       return (
-        <Tag className={cn(sizes[block.level], colorClass)}>
+        <Tag className={cn(sizes[block.level], colorClass, INLINE_MARKDOWN_HEADING_CLASS_NAME)}>
           <InlineList items={block.content} />
           <ChildBlocks children={block.children} />
         </Tag>
@@ -339,21 +344,24 @@ function InlineItem({ item }: { item: NfmInlineContent }) {
   }
 
   // text span
-  const classes = styleClasses(item.styles);
+  const classes = styleClasses(item.styles, { includeCode: false });
+  if (item.styles.code) {
+    return <InlineMarkdownCode className={classes}>{item.text}</InlineMarkdownCode>;
+  }
   if (!classes) return <>{item.text}</>;
   return <span className={classes}>{item.text}</span>;
 }
 
-function styleClasses(styles: NfmStyleSet): string | undefined {
+function styleClasses(
+  styles: NfmStyleSet,
+  options?: { includeCode?: boolean },
+): string | undefined {
   const parts: string[] = [];
   if (styles.bold) parts.push("font-semibold");
   if (styles.italic) parts.push("italic");
   if (styles.strikethrough) parts.push("line-through");
   if (styles.underline) parts.push("underline");
-  if (styles.code)
-    parts.push(
-      "font-mono text-[0.9em] text-[var(--inline-code-text)] bg-[var(--inline-code-bg)] px-1.5 py-0.5 rounded",
-    );
+  if (styles.code && options?.includeCode !== false) parts.push("font-mono");
   if (styles.color) parts.push(nfmColorClass(styles.color));
   return parts.length > 0 ? parts.join(" ") : undefined;
 }

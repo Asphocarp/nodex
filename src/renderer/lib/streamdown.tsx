@@ -9,8 +9,13 @@ import {
   type MermaidErrorComponentProps,
 } from "streamdown";
 import type { Pluggable } from "unified";
+import {
+  InlineMarkdownCode,
+  INLINE_MARKDOWN_HEADING_CLASS_NAME,
+} from "@/components/shared/inline-markdown-code";
 import { FileLinkAnchor } from "@/components/shared/file-link-anchor";
 import { NFM_CODE_THEME_PAIR } from "./syntax-highlighting";
+import { cn } from "./utils";
 
 import "katex/dist/katex.min.css";
 
@@ -69,12 +74,44 @@ export const streamdownPlugins = {
   cjk,
 } as const;
 
+function createHeadingComponent(
+  tagName: "h1" | "h2" | "h3" | "h4" | "h5" | "h6",
+): NonNullable<Components["h1"]> {
+  return function StreamdownHeading({ children, className, node, ...props }) {
+    void node;
+    const Tag = tagName;
+    return (
+      <Tag
+        {...props}
+        className={cn(className, INLINE_MARKDOWN_HEADING_CLASS_NAME)}
+      >
+        {children}
+      </Tag>
+    );
+  };
+}
+
 export const streamdownComponents: Components = {
   a: ({ href, children, className }) => (
     <FileLinkAnchor href={href} className={className} showLocalFileTooltip>
       {children}
     </FileLinkAnchor>
   ),
+  h1: createHeadingComponent("h1"),
+  h2: createHeadingComponent("h2"),
+  h3: createHeadingComponent("h3"),
+  h4: createHeadingComponent("h4"),
+  h5: createHeadingComponent("h5"),
+  h6: createHeadingComponent("h6"),
+  inlineCode: ({ children, className, node, ...props }) => {
+    void node;
+
+    return (
+      <InlineMarkdownCode {...props} className={className}>
+        {children}
+      </InlineMarkdownCode>
+    );
+  },
 };
 
 export const streamdownRemarkPluginsWithBreaks: Pluggable[] = [

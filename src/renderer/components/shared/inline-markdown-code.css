@@ -1,0 +1,8 @@
+.markdown-content {
+  overflow-wrap: anywhere;
+}
+
+.heading-inline-code .inline-markdown {
+  font-size: inherit;
+  line-height: inherit;
+}

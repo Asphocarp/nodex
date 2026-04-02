@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { Streamdown } from "streamdown";
+import { INLINE_MARKDOWN_ROOT_CLASS_NAME } from "@/components/shared/inline-markdown-code";
 import {
   StreamdownMermaidError,
   streamdownComponents,
@@ -51,7 +52,7 @@ export function MarkdownCore({
           : undefined
       }
       isAnimating={shouldAnimateStreamingText}
-      className="space-y-1"
+      className={`space-y-1 ${INLINE_MARKDOWN_ROOT_CLASS_NAME}`}
       controls={{ table: false, code: true, mermaid: true }}
     >
       {normalizedContent}

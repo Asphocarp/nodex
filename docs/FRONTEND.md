@@ -80,6 +80,9 @@
 - Keep streaming assistant prose animation scoped:
   - when assistant message markdown is still streaming, use Streamdown's built-in animated word fade (`animated` with `sep: "word"`) to approximate Codex Electron's per-word prose fade
   - do not enable that animation for completed prose, user messages, or unrelated markdown surfaces unless a Codex parity investigation shows the same behavior there
+- Keep markdown inline code on one shared renderer contract:
+  - assistant/thread markdown, plan markdown, reasoning markdown, and NFM read-only inline code should all render through the same shared `span.inline-markdown` visual contract instead of feature-local `code` pill CSS
+  - keep heading-specific inline-code inheritance (`font-size` / `line-height`) on a scoped hook class such as `heading-inline-code`; do not reintroduce broad `.codex-markdown code` ownership for inline pills
 - Treat utilities as part of the design contract:
   - if a class exists as an exact shipped Codex selector, keep it in the generated utility layer
   - if a class is renderer-local and not recoverable from the shipped Codex CSS, keep it in `theme-utilities.css`
