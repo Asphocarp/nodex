@@ -20,6 +20,10 @@ export function mergeCodexTurnSummary(
     ...incoming,
     errorMessage: incoming.errorMessage ?? existing.errorMessage,
     itemIds: mergeOrderedStringIds(existing.itemIds, incoming.itemIds),
+    interruptedCommandExecutionItemIds: mergeOrderedStringIds(
+      existing.interruptedCommandExecutionItemIds ?? [],
+      incoming.interruptedCommandExecutionItemIds ?? [],
+    ),
     tokenUsage: incoming.tokenUsage ?? existing.tokenUsage,
   };
 }

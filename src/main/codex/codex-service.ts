@@ -133,6 +133,7 @@ import {
   reconcileCommittedUserPrompt,
   resolveThreadPreviewFromTranscript,
 } from "./codex-transcript-projection";
+import { shouldTerminalizeItemWithTurn } from "../../shared/codex-turn-terminalization";
 import { buildCodexConversationSnapshot } from "./codex-conversation-snapshot";
 import { buildCodexConversationStateUpdates } from "../../shared/codex-conversation-patches";
 import { resolveCodexRuntime, type ResolvedCodexRuntime } from "./codex-runtime";
@@ -2257,6 +2258,11 @@ export class CodexService extends EventEmitter {
           : undefined
         : undefined;
     const tokenUsage = parseCodexThreadTokenUsage(candidate.tokenUsage ?? candidate.token_usage);
+    const interruptedCommandExecutionItemIds = Array.isArray(candidate.interruptedCommandExecutionItemIds)
+      ? candidate.interruptedCommandExecutionItemIds.filter((value): value is string => typeof value === "string")
+      : Array.isArray(candidate.interrupted_command_execution_item_ids)
+        ? candidate.interrupted_command_execution_item_ids.filter((value): value is string => typeof value === "string")
+        : [];
 
     return {
       threadId,
@@ -2265,6 +2271,7 @@ export class CodexService extends EventEmitter {
       errorMessage,
       diff: parseTurnDiff(candidate),
       itemIds,
+      interruptedCommandExecutionItemIds,
       tokenUsage,
     };
   }
@@ -2280,6 +2287,10 @@ export class CodexService extends EventEmitter {
     }
 
     const mergedItemIds = mergeOrderedStringIds(existing.itemIds, turn.itemIds);
+    const mergedInterruptedCommandExecutionItemIds = mergeOrderedStringIds(
+      existing.interruptedCommandExecutionItemIds ?? [],
+      turn.interruptedCommandExecutionItemIds ?? [],
+    );
     detail.turns = detail.turns.map((candidate) => candidate.turnId !== turn.turnId
       ? candidate
       : {
@@ -2287,6 +2298,7 @@ export class CodexService extends EventEmitter {
           ...turn,
           errorMessage: turn.errorMessage ?? existing.errorMessage,
           itemIds: mergedItemIds,
+          interruptedCommandExecutionItemIds: mergedInterruptedCommandExecutionItemIds,
           tokenUsage: turn.tokenUsage ?? existing.tokenUsage,
         });
   }
@@ -2577,7 +2589,7 @@ export class CodexService extends EventEmitter {
     const updatedItems: CodexItemView[] = [];
 
     for (const [itemKey, item] of byItem.entries()) {
-      if (item.status !== "inProgress") continue;
+      if (!shouldTerminalizeItemWithTurn(item, turnStatus)) continue;
       const nextItem: CodexItemView = {
         ...item,
         status: terminalStatus,
@@ -3891,6 +3903,10 @@ export class CodexService extends EventEmitter {
     const interruptedTurn: CodexTurnSummary = {
       ...knownTurn,
       status: "interrupted",
+      interruptedCommandExecutionItemIds: [
+        ...(knownTurn.interruptedCommandExecutionItemIds ?? []),
+        ...this.listRecordedInterruptedCommandExecutionItemIds(threadId, resolvedTurnId),
+      ],
     };
     this.mergeTurn(threadId, interruptedTurn);
     this.syncThreadStatusFromKnownTurns(threadId);
@@ -5136,8 +5152,14 @@ export class CodexService extends EventEmitter {
         continue;
       }
 
+      const interruptedCommandExecutionItemIds = new Set(turn.interruptedCommandExecutionItemIds ?? []);
       for (const item of turn.items) {
-        if (!item || item.kind !== "commandExecution" || item.status !== "inProgress") {
+        if (
+          !item
+          || item.kind !== "commandExecution"
+          || item.status !== "inProgress"
+          || interruptedCommandExecutionItemIds.has(item.itemId)
+        ) {
           continue;
         }
 
@@ -5161,6 +5183,26 @@ export class CodexService extends EventEmitter {
     conversation: CodexConversationSnapshot,
   ): CodexBackgroundTerminalRow[] {
     return this.collectBackgroundTerminalRows(conversation).map(({ row }) => row);
+  }
+
+  private listRecordedInterruptedCommandExecutionItemIds(threadId: string, turnId: string): string[] {
+    const byItem = this.getMaybeConversationRecord(threadId)?.itemsByTurn.get(turnId);
+    if (!byItem || byItem.size === 0) {
+      return [];
+    }
+
+    const interruptedIds: string[] = [];
+    for (const item of byItem.values()) {
+      if (item.normalizedKind !== "commandExecution") {
+        continue;
+      }
+      if (item.status !== "inProgress") {
+        continue;
+      }
+      interruptedIds.push(item.itemId);
+    }
+
+    return interruptedIds;
   }
 
   serializeConversationSnapshot(threadId: string, visitedThreadIds = new Set<string>()): CodexConversationSnapshot | null {

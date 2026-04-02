@@ -5246,7 +5246,7 @@ describe("codex-service item lifecycle status fallback", () => {
 });
 
 describe("codex-service terminal turn reconciliation", () => {
-  test("falls back turn/completed status and terminalizes lingering in-progress items", async () => {
+  test("turn/completed still terminalizes non-command lingering in-progress items", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       getConversationRecord: (threadId: string) => {
@@ -5272,7 +5272,7 @@ describe("codex-service terminal turn reconciliation", () => {
         threadId: "thr_terminal",
         turnId: "turn_terminal",
         status: "inProgress",
-        itemIds: ["item_reasoning"],
+        itemIds: ["item_reasoning", "item_tool"],
       });
       serviceInternals.mergeItem({
         threadId: "thr_terminal",
@@ -5286,6 +5286,24 @@ describe("codex-service terminal turn reconciliation", () => {
         createdAt: 10,
         updatedAt: 10,
       });
+      serviceInternals.mergeItem({
+        threadId: "thr_terminal",
+        turnId: "turn_terminal",
+        itemId: "item_tool",
+        type: "commandExecution",
+        normalizedKind: "commandExecution",
+        semanticKind: "exec",
+        status: "inProgress",
+        toolCall: {
+          subtype: "command",
+          toolName: "bash",
+          args: {
+            command: "bun test",
+          },
+        },
+        createdAt: 11,
+        updatedAt: 11,
+      });
 
       await serviceInternals.handleNotification("turn/completed", {
         threadId: "thr_terminal",
@@ -5297,8 +5315,10 @@ describe("codex-service terminal turn reconciliation", () => {
       );
       expect(turnEvents.length).toBe(1);
       expect(turnEvents[0]?.turn.status).toBe("completed");
-      const item = getRecordedItem(serviceInternals, "thr_terminal", "turn_terminal", "item_reasoning");
-      expect(item?.status).toBe("completed");
+      const reasoningItem = getRecordedItem(serviceInternals, "thr_terminal", "turn_terminal", "item_reasoning");
+      expect(reasoningItem?.status).toBe("completed");
+      const commandItem = getRecordedItem(serviceInternals, "thr_terminal", "turn_terminal", "item_tool");
+      expect(commandItem?.status).toBe("inProgress");
     } finally {
       await service.shutdown();
     }
@@ -5364,6 +5384,8 @@ describe("codex-service terminal turn reconciliation", () => {
         (event): event is Extract<CodexEvent, { type: "turn" }> => event.type === "turn",
       );
       expect(turnEvents.some((event) => event.turn.status === "interrupted")).toBeTrue();
+      const interruptedTurn = turnEvents.find((event) => event.turn.turnId === "turn_interrupt_terminal")?.turn;
+      expect(interruptedTurn?.interruptedCommandExecutionItemIds?.[0]).toBe("item_tool");
       const item = getRecordedItem(serviceInternals, "thr_interrupt_terminal", "turn_interrupt_terminal", "item_tool");
       expect(item?.status).toBe("interrupted");
     } finally {
@@ -5491,6 +5513,141 @@ describe("codex-service terminal turn reconciliation", () => {
         expect(latest?.turns[0]?.items.length).toBe(1);
         expect(typeof latest?.turns[0]?.items[0]?.toolCall?.result).toBe("string");
         expect(latest?.turns[0]?.items[0]?.toolCall?.result).toBe("1340 pass\n");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("background terminals include older turns whose command executions are still running", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Background terminal after turn completed" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_background_long_running",
+        threadName: "Background long running",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_background_long_running"),
+        turns: [
+          {
+            threadId: "thr_background_long_running",
+            turnId: "turn_old_running",
+            status: "inProgress",
+            itemIds: ["exec_long_running"],
+          },
+          {
+            threadId: "thr_background_long_running",
+            turnId: "turn_latest",
+            status: "inProgress",
+            itemIds: ["assistant_latest"],
+          },
+        ],
+        transcript: [],
+      });
+
+      try {
+        await serviceInternals.handleNotification("item/started", {
+          threadId: "thr_background_long_running",
+          turnId: "turn_old_running",
+          item: {
+            id: "exec_long_running",
+            type: "commandExecution",
+            command: "bun run dev",
+            cwd: "/tmp/project",
+            processId: 7001,
+            status: "in_progress",
+          },
+        });
+
+        await serviceInternals.handleNotification("turn/completed", {
+          threadId: "thr_background_long_running",
+          turnId: "turn_old_running",
+        });
+
+        const snapshot = service.serializeConversationSnapshot("thr_background_long_running");
+        expect(snapshot).not.toBeNull();
+        expect(snapshot?.backgroundTerminalRows.length).toBe(1);
+        expect(snapshot?.backgroundTerminalRows[0]?.id).toBe("exec_long_running");
+        expect(snapshot?.backgroundTerminalRows[0]?.command).toBe("bun run dev");
+        expect(snapshot?.backgroundTerminalRows[0]?.cwd).toBe("/tmp/project");
+        expect(snapshot?.backgroundTerminalRows[0]?.processId).toBe(7001);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("background terminals immediately exclude manually interrupted command executions by turn metadata", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Interrupted background terminal hidden immediately" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_background_interrupted_ids",
+        threadName: "Background interrupted ids",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      };
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_background_interrupted_ids"),
+        turns: [
+          {
+            threadId: "thr_background_interrupted_ids",
+            turnId: "turn_background_old",
+            status: "completed",
+            itemIds: ["exec_hidden"],
+            interruptedCommandExecutionItemIds: ["exec_hidden"],
+          },
+          {
+            threadId: "thr_background_interrupted_ids",
+            turnId: "turn_latest",
+            status: "inProgress",
+            itemIds: [],
+          },
+        ],
+        transcript: [
+          {
+            threadId: "thr_background_interrupted_ids",
+            turnId: "turn_background_old",
+            itemId: "exec_hidden",
+            type: "commandExecution",
+            kind: "commandExecution",
+            semanticKind: "exec",
+            status: "inProgress",
+            toolCall: {
+              toolName: "bash",
+              subtype: "command",
+              args: {
+                command: "bun run dev",
+              },
+            },
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ],
+      });
+
+      try {
+        const snapshot = service.serializeConversationSnapshot("thr_background_interrupted_ids");
+        expect(snapshot).not.toBeNull();
+        expect(snapshot?.backgroundTerminalRows.length).toBe(0);
       } finally {
         await service.shutdown();
       }

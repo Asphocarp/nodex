@@ -3,6 +3,7 @@ import {
   dedupeCodexTranscriptEntries,
   upsertCodexTranscriptEntry,
 } from "../../shared/codex-thread-detail-reducer";
+import { shouldTerminalizeItemWithTurn } from "../../shared/codex-turn-terminalization";
 import type {
   CodexItemView,
   CodexTranscriptEntry,
@@ -133,7 +134,7 @@ export function finalizeTurnTranscriptState(
   if (turnStatus === "inProgress") return transcript;
 
   const nextEntries = transcript.map((entry) =>
-    entry.turnId === turnId && entry.status === "inProgress"
+    entry.turnId === turnId && shouldTerminalizeItemWithTurn(entry, turnStatus)
       ? {
           ...entry,
           status: turnStatus,

@@ -9,6 +9,8 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 ### Fixed
+- Fixed background terminal detection so long-running command executions from older completed turns now stay in the `Running terminals` lane until the command itself finishes or is interrupted, matching Codex's background-terminal behavior.
+- Fixed `Stop background terminals` so manually interrupted commands now disappear from the background-terminal lane immediately via turn-level interrupted-command tracking, matching Codex's hide-on-interrupt behavior more closely.
 - Fixed running-thread composer follow-ups so `Cmd+Enter` now keeps messages in the queued-follow-up lane instead of immediately collapsing them into `Steer`, and the send-button tooltip now matches the Codex `Steer`/`Queue` shortcut rows.
 - Fixed `Context automatically compacted` transcript markers so live and replayed compaction rows now stay in the canonical turn item order instead of drifting to the bottom of the thread.
 - Fixed installed-build thread auto-naming so title generation now matches Codex's host-owned flow, with renderer-triggered `generate-thread-title`, persistent title cache/backfill, and explicit thread-title/error host-message sync instead of a repo-relative prompt-file dependency.

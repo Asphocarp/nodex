@@ -607,6 +607,7 @@ export interface CodexTurnSummary {
   errorMessage?: string;
   diff?: string;
   itemIds: string[];
+  interruptedCommandExecutionItemIds?: string[];
   tokenUsage?: CodexThreadTokenUsage;
 }
 
