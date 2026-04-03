@@ -36,6 +36,8 @@ import { CodexService } from "./codex-service";
 interface TestableCodexService {
   on: (event: "hostMessage", listener: (message: import("../../shared/types").CodexHostMessage) => void) => unknown;
   shutdown: () => Promise<void>;
+  readAccountSnapshot: () => Promise<import("../../shared/types").CodexAccountSnapshot>;
+  logoutAccount: () => Promise<boolean>;
   readThread: (threadId: string, includeTurns?: boolean) => Promise<CodexThreadDetail | null>;
   requestConversationSnapshot: (threadId: string) => Promise<CodexConversationSnapshot | null>;
   requestConversationResume: (threadId: string) => Promise<CodexConversationSnapshot | null>;
@@ -112,8 +114,8 @@ function makeThreadDetail(threadId: string): CodexThreadDetail {
   };
 }
 
-function createService(): TestableCodexService {
-  return new CodexService() as unknown as TestableCodexService;
+function createService(options?: { rateLimitsPollIntervalMs?: number }): TestableCodexService {
+  return new CodexService(options) as unknown as TestableCodexService;
 }
 
 function projectConversationFromHostMessages(
@@ -221,6 +223,91 @@ function initializeGitRepository(repoPath: string): void {
   execFileSync("git", ["add", "README.md"], { cwd: repoPath });
   execFileSync("git", ["commit", "-m", "initial"], { cwd: repoPath });
 }
+
+describe("codex-service rate limit polling", () => {
+  test("polls rate limits every interval without rereading account", async () => {
+    const service = createService({ rateLimitsPollIntervalMs: 20 });
+    const client = Reflect.get(service as object, "client") as {
+      emit: (event: string, payload: unknown) => boolean;
+      start: () => Promise<void>;
+      request: (method: string, params?: unknown) => Promise<unknown>;
+    };
+    let accountReadCount = 0;
+    let rateLimitsReadCount = 0;
+
+    client.start = async () => undefined;
+    client.request = async (method: string) => {
+      if (method === "account/read") {
+        accountReadCount += 1;
+        return {
+          account: { type: "chatgpt", email: "test@example.com", planType: "plus" },
+          requiresOpenaiAuth: false,
+        };
+      }
+      if (method === "account/rateLimits/read") {
+        rateLimitsReadCount += 1;
+        return {
+          rateLimits: {
+            primary: { usedPercent: 18, windowDurationMins: 300, resetsAt: Date.now() + 1_000 },
+            secondary: { usedPercent: 39, windowDurationMins: 10_080, resetsAt: Date.now() + 2_000 },
+          },
+        };
+      }
+      throw new Error(`Unexpected method ${method}`);
+    };
+
+    client.emit("connection", { status: "connected", retries: 0 });
+    await service.readAccountSnapshot();
+    await new Promise((resolve) => setTimeout(resolve, 55));
+    await service.shutdown();
+
+    expect(accountReadCount).toBe(1);
+    expect(rateLimitsReadCount >= 3).toBeTrue();
+  });
+
+  test("stops polling after logout clears the authenticated account", async () => {
+    const service = createService({ rateLimitsPollIntervalMs: 20 });
+    const client = Reflect.get(service as object, "client") as {
+      emit: (event: string, payload: unknown) => boolean;
+      start: () => Promise<void>;
+      request: (method: string, params?: unknown) => Promise<unknown>;
+    };
+    let rateLimitsReadCount = 0;
+
+    client.start = async () => undefined;
+    client.request = async (method: string) => {
+      if (method === "account/read") {
+        return {
+          account: { type: "chatgpt", email: "test@example.com", planType: "plus" },
+          requiresOpenaiAuth: false,
+        };
+      }
+      if (method === "account/rateLimits/read") {
+        rateLimitsReadCount += 1;
+        return {
+          rateLimits: {
+            primary: { usedPercent: 18, windowDurationMins: 300, resetsAt: Date.now() + 1_000 },
+          },
+        };
+      }
+      if (method === "account/logout") {
+        return {};
+      }
+      throw new Error(`Unexpected method ${method}`);
+    };
+
+    client.emit("connection", { status: "connected", retries: 0 });
+    await service.readAccountSnapshot();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const readsBeforeLogout = rateLimitsReadCount;
+    await service.logoutAccount();
+    await new Promise((resolve) => setTimeout(resolve, 45));
+    await service.shutdown();
+
+    expect(readsBeforeLogout >= 2).toBeTrue();
+    expect(rateLimitsReadCount).toBe(readsBeforeLogout);
+  });
+});
 
 describe("codex-service readThread fallback", () => {
   test("retries with includeTurns=false for pre-materialization errors", async () => {

@@ -268,6 +268,7 @@ interface GenerateThreadTitleAdapterInput {
 
 type CodexServiceOptions = {
   runtime?: ResolvedCodexRuntime;
+  rateLimitsPollIntervalMs?: number;
 };
 
 type CodexConversationStreamRole = "owner" | "follower" | null;
@@ -304,6 +305,7 @@ interface OutputDeltaUpdate {
 
 const FRAME_TEXT_DELTA_FLUSH_MS = 16;
 const OUTPUT_DELTA_FLUSH_MS = 50;
+const RATE_LIMITS_POLL_INTERVAL_MS = 60_000;
 
 class FrameTextDeltaQueue {
   private readonly buffers = new Map<string, FrameTextDeltaUpdate>();
@@ -1011,6 +1013,7 @@ function parseModelOption(value: unknown): CodexModelOption | null {
 export class CodexService extends EventEmitter {
   private readonly logger = codexLogger;
   private readonly client: CodexAppServerClient;
+  private readonly rateLimitsPollIntervalMs: number;
 
   private readonly projectPermissionMode = new Map<string, CodexPermissionMode>();
   private readonly collaborationModePresets = new Map<CodexCollaborationModeKind, CodexCollaborationModePreset>();
@@ -1032,11 +1035,14 @@ export class CodexService extends EventEmitter {
   private syntheticItemIdCounter = 0;
   private lastConnectionStatus: CodexConnectionState["status"] = "disconnected";
   private threadTitleBackfillPromise: Promise<void> | null = null;
+  private rateLimitsPollHandle: ReturnType<typeof setInterval> | null = null;
+  private rateLimitsPollInFlight = false;
 
   constructor(options?: CodexServiceOptions) {
     super();
 
     const runtime = options?.runtime ?? resolveDefaultCodexRuntime();
+    this.rateLimitsPollIntervalMs = options?.rateLimitsPollIntervalMs ?? RATE_LIMITS_POLL_INTERVAL_MS;
 
     this.client = new CodexAppServerClient({
       binaryPath: runtime.binaryPath,
@@ -1055,6 +1061,7 @@ export class CodexService extends EventEmitter {
       const wasConnected = this.lastConnectionStatus === "connected";
       this.lastConnectionStatus = connection.status;
       this.emitEvent({ type: "connection", connection });
+      this.syncRateLimitsPolling();
       if (connection.status === "connected") {
         void this.backfillPendingThreadTitles();
       }
@@ -1761,6 +1768,73 @@ export class CodexService extends EventEmitter {
     return this.client.getState();
   }
 
+  private shouldPollRateLimits(): boolean {
+    if (this.rateLimitsPollIntervalMs <= 0) return false;
+    if (this.lastConnectionStatus !== "connected") return false;
+    if (this.accountSnapshot.account === null) return false;
+    return true;
+  }
+
+  private syncRateLimitsPolling(): void {
+    if (!this.shouldPollRateLimits()) {
+      this.stopRateLimitsPolling();
+      return;
+    }
+
+    if (this.rateLimitsPollHandle !== null) {
+      return;
+    }
+
+    this.rateLimitsPollHandle = setInterval(() => {
+      void this.pollRateLimits();
+    }, this.rateLimitsPollIntervalMs);
+  }
+
+  private stopRateLimitsPolling(): void {
+    if (this.rateLimitsPollHandle === null) return;
+    clearInterval(this.rateLimitsPollHandle);
+    this.rateLimitsPollHandle = null;
+  }
+
+  private async pollRateLimits(): Promise<void> {
+    if (!this.shouldPollRateLimits()) {
+      this.stopRateLimitsPolling();
+      return;
+    }
+
+    if (this.rateLimitsPollInFlight) return;
+    this.rateLimitsPollInFlight = true;
+
+    try {
+      await this.refreshRateLimitsSnapshot();
+    } catch (error) {
+      this.logger.debug("Could not refresh Codex rate limits snapshot", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      this.rateLimitsPollInFlight = false;
+      if (!this.shouldPollRateLimits()) {
+        this.stopRateLimitsPolling();
+      }
+    }
+  }
+
+  private async refreshRateLimitsSnapshot(): Promise<CodexRateLimitsSnapshot | null> {
+    const rateLimitResult = await this.client.request<"account/rateLimits/read", GetAccountRateLimitsResponse>(
+      "account/rateLimits/read",
+    ).catch(() => ({ rateLimits: null, rateLimitsByLimitId: null }));
+
+    const parsed = parseRateLimitsSnapshot(rateLimitResult.rateLimits ?? null);
+    this.accountSnapshot = {
+      ...this.accountSnapshot,
+      rateLimits: parsed,
+    };
+    this.syncRateLimitsPolling();
+    this.emitEvent({ type: "rateLimits", rateLimits: parsed });
+    this.emitEvent({ type: "account", account: this.accountSnapshot });
+    return parsed;
+  }
+
   async shutdown(): Promise<void> {
     this.logger.info("Shutting down Codex service", {
       pendingApprovals: this.pendingApprovals.size,
@@ -1769,6 +1843,7 @@ export class CodexService extends EventEmitter {
     });
     this.frameTextDeltaQueue.cancel();
     this.outputDeltaQueue.cancel();
+    this.stopRateLimitsPolling();
     for (const pending of this.pendingApprovals.values()) {
       pending.reject(new Error("Codex service shutting down"));
     }
@@ -1799,16 +1874,13 @@ export class CodexService extends EventEmitter {
       refreshToken: false,
     });
 
-    const rateLimitResult = await this.client.request<"account/rateLimits/read", GetAccountRateLimitsResponse>(
-      "account/rateLimits/read",
-    ).catch(() => ({ rateLimits: null, rateLimitsByLimitId: null }));
-
     this.accountSnapshot = {
       account: parseAccountIdentity(accountResult.account ?? null),
       requiresOpenAiAuth: Boolean(accountResult.requiresOpenaiAuth),
       pendingLogin: this.accountSnapshot.pendingLogin ?? null,
-      rateLimits: parseRateLimitsSnapshot(rateLimitResult.rateLimits ?? null),
+      rateLimits: await this.refreshRateLimitsSnapshotForRead(),
     };
+    this.syncRateLimitsPolling();
 
     this.logger.info("Read Codex account snapshot", {
       accountType: this.accountSnapshot.account?.type ?? null,
@@ -1817,6 +1889,13 @@ export class CodexService extends EventEmitter {
     });
     this.emitEvent({ type: "account", account: this.accountSnapshot });
     return this.accountSnapshot;
+  }
+
+  private async refreshRateLimitsSnapshotForRead(): Promise<CodexRateLimitsSnapshot | null> {
+    const rateLimitResult = await this.client.request<"account/rateLimits/read", GetAccountRateLimitsResponse>(
+      "account/rateLimits/read",
+    ).catch(() => ({ rateLimits: null, rateLimitsByLimitId: null }));
+    return parseRateLimitsSnapshot(rateLimitResult.rateLimits ?? null);
   }
 
   async startAccountLogin(
@@ -1880,6 +1959,7 @@ export class CodexService extends EventEmitter {
     await this.ensureClientReady();
     await this.client.request("account/logout");
     this.accountSnapshot = emptyAccountSnapshot();
+    this.syncRateLimitsPolling();
     this.emitEvent({ type: "account", account: this.accountSnapshot });
     return true;
   }
@@ -5009,6 +5089,7 @@ export class CodexService extends EventEmitter {
         ...this.accountSnapshot,
         rateLimits: parsed,
       };
+      this.syncRateLimitsPolling();
       this.emitEvent({ type: "rateLimits", rateLimits: parsed });
       this.emitEvent({ type: "account", account: this.accountSnapshot });
       return;
