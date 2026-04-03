@@ -198,10 +198,11 @@ describe("bucketizeTurnItems", () => {
             semanticKind: "exec",
             createdAt: 1,
             updatedAt: 1,
+            commandActions: [{ type: "read", command: "", name: "read", path: "src/app.ts" }],
             toolCall: {
               subtype: "command",
               toolName: "run_command",
-              args: { commandActions: [{ type: "read", name: "read", path: "src/app.ts" }] },
+              args: {},
             },
           },
         }),
@@ -310,12 +311,11 @@ describe("bucketizeTurnItems", () => {
             status: "completed",
             createdAt: 1,
             updatedAt: 1,
+            commandActions: [{ type: "read", command: "", name: "stage.tsx", path: "src/stage.tsx" }],
             toolCall: {
               subtype: "command",
               toolName: "run_command",
-              args: {
-                commandActions: [{ type: "read", name: "stage.tsx", path: "src/stage.tsx" }],
-              },
+              args: {},
             },
           },
         }),

@@ -398,6 +398,16 @@ function buildPrimaryCompletedConversation(): CodexConversationSnapshot {
             kind: "commandExecution",
             semanticKind: "exec",
             status: "completed",
+            command: "rg --files src/renderer/features/local-conversation",
+            cwd: STORY_WORKSPACE_PATH,
+            commandActions: [
+              {
+                type: "listFiles",
+                command: "rg --files src/renderer/features/local-conversation",
+                path: "src/renderer/features/local-conversation",
+              } satisfies CodexCommandAction,
+            ],
+            aggregatedOutput: "src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
             toolCall: {
               subtype: "command",
               toolName: "exec_command",
@@ -811,28 +821,34 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
     kind: "commandExecution",
     semanticKind: "exec",
     status: "completed",
+    command: "rg --files src/renderer/features/local-conversation",
+    cwd: STORY_WORKSPACE_PATH,
+    processId: "4172",
+    commandActions: [
+      {
+        type: "listFiles",
+        command: "rg --files src/renderer/features/local-conversation",
+        path: "src/renderer/features/local-conversation",
+      } satisfies CodexCommandAction,
+      {
+        type: "read",
+        command: "sed -n '1,220p' src/renderer/features/local-conversation/view/local-conversation-thread-body.tsx",
+        name: "local-conversation-thread-body.tsx",
+        path: "src/renderer/features/local-conversation/view/local-conversation-thread-body.tsx",
+      } satisfies CodexCommandAction,
+    ],
+    aggregatedOutput:
+      "src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx\nsrc/renderer/features/local-conversation/view/local-conversation-thread-body.tsx",
+    exitCode: 0,
+    durationMs: 1_200,
     toolCall: {
       subtype: "command",
       toolName: "exec_command",
       args: {
-        command: "rg --files src/renderer/features/local-conversation",
-        cwd: STORY_WORKSPACE_PATH,
         summaryLabel: "Explored thread renderer files",
-        commandActions: [
-          {
-            type: "listFiles",
-            command: "rg --files src/renderer/features/local-conversation",
-            path: "src/renderer/features/local-conversation",
-          } satisfies CodexCommandAction,
-          {
-            type: "read",
-            command: "sed -n '1,220p' src/renderer/features/local-conversation/view/local-conversation-thread-body.tsx",
-            name: "local-conversation-thread-body.tsx",
-            path: "src/renderer/features/local-conversation/view/local-conversation-thread-body.tsx",
-          } satisfies CodexCommandAction,
-        ],
       },
-      result: "src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx\nsrc/renderer/features/local-conversation/view/local-conversation-thread-body.tsx",
+      result:
+        "src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx\nsrc/renderer/features/local-conversation/view/local-conversation-thread-body.tsx",
     },
   }),
   fileChange: buildToolItemBase({

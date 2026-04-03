@@ -1,6 +1,7 @@
 import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { ChevronDownIcon } from "@/components/shared/icons";
+import { resolveCommandExecutionRenderStatus } from "../../../../../../shared/codex-command-execution";
 import type { CodexCommandAction, CodexTranscriptEntry } from "../../../../../lib/types";
 import { getDisplayCommand } from "../../../../../lib/command-display";
 import { resolveCodexThreadDetailLevel } from "../../../../../lib/codex-thread-settings";
@@ -18,8 +19,6 @@ interface CommandToolCallProps {
 }
 
 interface CommandToolArgs {
-  command?: string;
-  cwd?: string;
   summaryLabel?: string;
 }
 
@@ -34,18 +33,6 @@ export interface CommandElapsedSnapshot {
 const PREVIEW_TIMEOUT_MS = 200;
 const EXPAND_AFTER_START_MS = 2_000;
 const EXEC_PREVIEW_HEIGHT_REM = 8;
-function detectExitCode(text: string | undefined): number | null {
-  if (!text) return null;
-  const match = text.match(/[Ee]xit\s+code\s+(\d+)/);
-  if (!match) return null;
-  return Number.parseInt(match[1], 10);
-}
-
-function statusFromExitCode(status: string | undefined, exitCode: number | null): string | undefined {
-  if (status) return status;
-  if (exitCode === null) return undefined;
-  return exitCode === 0 ? "completed" : "failed";
-}
 
 function normalizePath(path: string | undefined): string | null {
   if (!path) return null;
@@ -247,13 +234,15 @@ export function CommandToolCall({
   const toolArgs = (typeof item.toolCall?.args === "object" && item.toolCall.args !== null)
     ? item.toolCall.args as CommandToolArgs
     : {};
-  const rawCommand = typeof toolArgs.command === "string" && toolArgs.command.trim().length > 0
-    ? toolArgs.command
+  const rawCommand = typeof item.command === "string" && item.command.trim().length > 0
+    ? item.command
     : "command";
   const command = getDisplayCommand(rawCommand);
-  const output = typeof item.toolCall?.result === "string" ? item.toolCall.result : "";
-  const exitCode = detectExitCode(output);
-  const effectiveStatus = statusFromExitCode(item.status, exitCode);
+  const output = item.aggregatedOutput ?? "";
+  const exitCode = item.exitCode ?? null;
+  const effectiveStatus = resolveCommandExecutionRenderStatus({
+    itemStatus: item.status,
+  });
   const isInProgress = effectiveStatus === "inProgress";
   const elapsedLabel = useElapsedLabel(effectiveStatus);
   const commandActions = extractCommandActions(item);
@@ -344,7 +333,7 @@ export function CommandToolCall({
           command={command}
           summaryLabel={summaryLabel}
           elapsedLabel={elapsedLabel}
-          commandCwd={toolArgs.cwd}
+          commandCwd={item.cwd ?? undefined}
           threadCwd={threadCwd}
           isExpanded={isExpanded}
         />
@@ -370,11 +359,11 @@ export function CommandToolCall({
     </div>
   ) : (
     <div className="pt-2">
-      <ThreadCommandShellBlock
+        <ThreadCommandShellBlock
         variant="embedded"
       command={command}
         output={output}
-        cwd={toolArgs.cwd}
+        cwd={item.cwd ?? undefined}
         isInProgress={isInProgress}
         footer={(
           <CommandFooter

@@ -26,12 +26,17 @@ function buildCommandEntry(overrides?: Partial<CodexTranscriptEntry>): CodexTran
     semanticKind: "exec",
     status: "completed",
     markdownText: "Ran bun test",
+    command: "bun test",
+    cwd: null,
+    processId: null,
+    commandActions: [],
+    aggregatedOutput: "3 pass\nExit code 0\n",
+    exitCode: 0,
+    durationMs: null,
     toolCall: {
       subtype: "command",
       toolName: "bash",
-      args: {
-        command: "bun test",
-      },
+      args: {},
       result: "3 pass\nExit code 0\n",
     },
     createdAt: 1,
@@ -53,12 +58,12 @@ describe("CommandToolCall render state", () => {
             item={buildCommandEntry({
               status: "inProgress",
               markdownText: "Running bun test",
+              command: "bun test",
+              aggregatedOutput: "running...\n",
+              exitCode: null,
               toolCall: {
                 subtype: "command",
                 toolName: "bash",
-                args: {
-                  command: "bun test",
-                },
                 result: "running...\n",
               },
             })}
@@ -123,12 +128,12 @@ describe("CommandToolCall render state", () => {
             item={buildCommandEntry({
               status: "inProgress",
               markdownText: "Running bun test",
+              command: "bun test",
+              aggregatedOutput: "running...\n",
+              exitCode: null,
               toolCall: {
                 subtype: "command",
                 toolName: "bash",
-                args: {
-                  command: "bun test",
-                },
                 result: "running...\n",
               },
             })}
@@ -156,12 +161,12 @@ describe("CommandToolCall render state", () => {
     const inProgressEntry = buildCommandEntry({
       status: "inProgress",
       markdownText: "Running bun test",
+      command: "bun test",
+      aggregatedOutput: "running...\n",
+      exitCode: null,
       toolCall: {
         subtype: "command",
         toolName: "bash",
-        args: {
-          command: "bun test",
-        },
         result: "running...\n",
       },
     });
@@ -203,14 +208,7 @@ describe("CommandToolCall render state", () => {
         <CodexThreadSettingsProvider>
           <CommandToolCall
             item={buildCommandEntry({
-              toolCall: {
-                subtype: "command",
-                toolName: "bash",
-                args: {
-                  command: LONG_COMMAND,
-                },
-                result: "done\nExit code 0\n",
-              },
+              command: LONG_COMMAND,
             })}
           />
         </CodexThreadSettingsProvider>
@@ -237,14 +235,7 @@ describe("CommandToolCall render state", () => {
         <CodexThreadSettingsProvider>
           <CommandToolCall
             item={buildCommandEntry({
-              toolCall: {
-                subtype: "command",
-                toolName: "bash",
-                args: {
-                  command: LONG_COMMAND,
-                },
-                result: "done\nExit code 0\n",
-              },
+              command: LONG_COMMAND,
             })}
           />
         </CodexThreadSettingsProvider>
@@ -270,12 +261,12 @@ describe("CommandToolCall render state", () => {
             item={buildCommandEntry({
               status: "inProgress",
               markdownText: "Running bun test",
+              command: "bun test",
+              aggregatedOutput: "",
+              exitCode: null,
               toolCall: {
                 subtype: "command",
                 toolName: "bash",
-                args: {
-                  command: "bun test",
-                },
                 result: "",
               },
             })}
@@ -285,5 +276,27 @@ describe("CommandToolCall render state", () => {
     );
 
     expect(Boolean(textContent(container).includes("No output"))).toBeFalse();
+  });
+
+  test("renders explicit canonical exit codes without parsing output text", async () => {
+    localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_EXECUTION" }));
+
+    const { container } = render(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall
+            item={buildCommandEntry({
+              status: "failed",
+              command: "bun test",
+              aggregatedOutput: "tests failed\n",
+              exitCode: 7,
+            })}
+          />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+
+    await settleAsyncRender();
+    expect(Boolean(textContent(container).includes("Exit 7"))).toBeTrue();
   });
 });

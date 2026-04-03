@@ -14,7 +14,7 @@ export interface ToolComponentProps {
 type ToolComponent = ComponentType<ToolComponentProps>;
 
 export function getToolComponent(item: CodexTranscriptEntry): ToolComponent | null {
-  if (item.semanticKind === "exec" || item.kind === "commandExecution" || item.toolCall?.subtype === "command") {
+  if (item.semanticKind === "exec" || item.kind === "commandExecution") {
     return CommandToolCall;
   }
 

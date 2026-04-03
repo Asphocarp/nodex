@@ -26,6 +26,11 @@ function buildCommandEntry(
     type: "exec",
     kind: "commandExecution",
     status: "completed",
+    command: "fd",
+    cwd: "/workspace/nodex",
+    commandActions: actions as CodexConversationItem["commandActions"],
+    aggregatedOutput: "",
+    exitCode: 0,
     toolCall: {
       toolName: "exec",
       subtype: "command",
@@ -68,7 +73,7 @@ describe("ThreadExplorationGroupBlock", () => {
           { type: "search", command: "rg thing", query: "thing", path: "src" },
         ]),
         buildCommandEntry("item-4", [
-          { type: "list_files", command: "fd", path: "src" },
+          { type: "listFiles", command: "fd", path: "src" },
         ]),
       ],
     };

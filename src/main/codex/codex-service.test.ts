@@ -1192,6 +1192,10 @@ describe("codex-service session-backed transcript recovery", () => {
             kind: "commandExecution",
             semanticKind: "exec",
             status: "inProgress",
+            command: "bun test src/renderer/features/local-conversation/view/composer/local-conversation-composer-shell.test.tsx",
+            cwd: "/tmp/project",
+            processId: "4172",
+            aggregatedOutput: "1400 pass\n1418 pass\n",
             toolCall: {
               toolName: "bash",
               subtype: "command",
@@ -1200,9 +1204,6 @@ describe("codex-service session-backed transcript recovery", () => {
                 cwd: "/tmp/project",
               },
               result: "1400 pass\n1418 pass\n",
-            },
-            rawItem: {
-              processId: 4172,
             },
             createdAt: 1,
             updatedAt: 1,
@@ -1215,6 +1216,9 @@ describe("codex-service session-backed transcript recovery", () => {
             kind: "commandExecution",
             semanticKind: "exec",
             status: "interrupted",
+            command: "bun run lint",
+            cwd: "/tmp/project",
+            aggregatedOutput: "stopped",
             toolCall: {
               toolName: "bash",
               subtype: "command",
@@ -1235,6 +1239,9 @@ describe("codex-service session-backed transcript recovery", () => {
             kind: "commandExecution",
             semanticKind: "exec",
             status: "inProgress",
+            command: "bun run dev",
+            cwd: "/tmp/project",
+            aggregatedOutput: "dev server starting",
             toolCall: {
               toolName: "bash",
               subtype: "command",
@@ -1258,7 +1265,7 @@ describe("codex-service session-backed transcript recovery", () => {
         expect(conversation?.backgroundTerminalRows[0]?.command).toBe("bun test src/renderer/features/local-conversation/view/composer/local-conversation-composer-shell.test.tsx");
         expect(conversation?.backgroundTerminalRows[0]?.cwd).toBe("/tmp/project");
         expect(conversation?.backgroundTerminalRows[0]?.previewLine).toBe("1418 pass");
-        expect(conversation?.backgroundTerminalRows[0]?.processId).toBe(4172);
+        expect(conversation?.backgroundTerminalRows[0]?.processId).toBe("4172");
       } finally {
         await service.shutdown();
       }
@@ -4390,6 +4397,9 @@ describe("codex-service approval fallback", () => {
 
       await Promise.resolve();
       expect(serviceInternals.pendingApprovals.size).toBe(1);
+      const approvalItem = getRecordedItem(serviceInternals, "thr_default", "turn_default", "item_default");
+      expect(approvalItem?.normalizedKind).toBe("commandExecution");
+      expect(approvalItem?.approvalRequestId).toBe("req_sandbox");
 
       for (const pending of serviceInternals.pendingApprovals.values()) {
         pending.reject(new Error("test cleanup"));
@@ -4436,6 +4446,8 @@ describe("codex-service approval fallback", () => {
 
       await Promise.resolve();
       expect(serviceInternals.pendingApprovals.has("42")).toBeTrue();
+      const approvalItem = getRecordedItem(serviceInternals, "thr_request_id", "turn_request_id", "item_request_id");
+      expect(approvalItem?.approvalRequestId).toBe("42");
 
       const requestedEvent = events.find(
         (event): event is Extract<CodexEvent, { type: "approvalRequested" }> => event.type === "approvalRequested",
@@ -4566,6 +4578,8 @@ describe("codex-service streaming notification parity", () => {
       expect(JSON.stringify(inputResult)).toBe(JSON.stringify({ answers: {} }));
       expect(serviceInternals.pendingApprovals.has("approval_req")).toBeFalse();
       expect(serviceInternals.pendingUserInputs.has("input_req")).toBeFalse();
+      const approvalItem = getRecordedItem(serviceInternals, "thr_resolved", "turn_resolved", "item_approval");
+      expect(approvalItem?.approvalRequestId ?? null).toBe(null);
 
       const approvalResolvedEvents = events.filter(
         (event): event is Extract<CodexEvent, { type: "approvalResolved" }> => event.type === "approvalResolved",
@@ -5511,6 +5525,7 @@ describe("codex-service terminal turn reconciliation", () => {
         expect(latest).not.toBeNull();
         expect(latest?.turns.length).toBe(1);
         expect(latest?.turns[0]?.items.length).toBe(1);
+        expect(latest?.turns[0]?.items[0]?.aggregatedOutput).toBe("1340 pass\n");
         expect(typeof latest?.turns[0]?.items[0]?.toolCall?.result).toBe("string");
         expect(latest?.turns[0]?.items[0]?.toolCall?.result).toBe("1340 pass\n");
       } finally {
@@ -5565,7 +5580,7 @@ describe("codex-service terminal turn reconciliation", () => {
             type: "commandExecution",
             command: "bun run dev",
             cwd: "/tmp/project",
-            processId: 7001,
+            processId: "7001",
             status: "in_progress",
           },
         });
@@ -5581,7 +5596,7 @@ describe("codex-service terminal turn reconciliation", () => {
         expect(snapshot?.backgroundTerminalRows[0]?.id).toBe("exec_long_running");
         expect(snapshot?.backgroundTerminalRows[0]?.command).toBe("bun run dev");
         expect(snapshot?.backgroundTerminalRows[0]?.cwd).toBe("/tmp/project");
-        expect(snapshot?.backgroundTerminalRows[0]?.processId).toBe(7001);
+        expect(snapshot?.backgroundTerminalRows[0]?.processId).toBe("7001");
       } finally {
         await service.shutdown();
       }
@@ -5631,6 +5646,8 @@ describe("codex-service terminal turn reconciliation", () => {
             kind: "commandExecution",
             semanticKind: "exec",
             status: "inProgress",
+            command: "bun run dev",
+            aggregatedOutput: null,
             toolCall: {
               toolName: "bash",
               subtype: "command",

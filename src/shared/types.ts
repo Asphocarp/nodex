@@ -1,3 +1,11 @@
+import type {
+  CommandAction as CodexAppServerCommandAction,
+  CommandExecutionRequestApprovalParams as CodexAppServerCommandExecutionRequestApprovalParams,
+  ExecPolicyAmendment as CodexAppServerExecPolicyAmendment,
+  NetworkApprovalContext as CodexAppServerNetworkApprovalContext,
+  ThreadItem as CodexAppServerThreadItem,
+} from "@nodex/codex-app-server-protocol/v2";
+
 export type Priority = "p0-critical" | "p1-high" | "p2-medium" | "p3-low" | "p4-later";
 
 export type Estimate = "xs" | "s" | "m" | "l" | "xl";
@@ -656,11 +664,28 @@ export type CodexTranscriptEntryStatus = CodexItemStatus;
 export type CodexTranscriptEntrySource = "live" | "bootstrap" | "replay" | "optimistic";
 export type CodexFileChangeKind = "add" | "delete" | "update";
 
-export type CodexCommandAction =
-  | { type: "read"; command: string; name: string; path: string }
-  | { type: "listFiles"; command: string; path: string | null }
-  | { type: "search"; command: string; query: string | null; path: string | null }
-  | { type: "unknown"; command: string };
+export type ProtocolThreadItem = CodexAppServerThreadItem;
+export type ProtocolCommandExecutionItem = Extract<ProtocolThreadItem, { type: "commandExecution" }>;
+export type ProtocolCommandAction = CodexAppServerCommandAction;
+export type ProtocolCommandExecutionApprovalParams = CodexAppServerCommandExecutionRequestApprovalParams;
+export type ProtocolExecPolicyAmendment = CodexAppServerExecPolicyAmendment;
+export type ProtocolNetworkApprovalContext = CodexAppServerNetworkApprovalContext;
+
+export type CodexCommandAction = ProtocolCommandAction;
+
+export interface CodexCommandExecutionAttachmentFields {
+  command?: ProtocolCommandExecutionItem["command"] | null;
+  cwd?: ProtocolCommandExecutionItem["cwd"] | null;
+  processId?: ProtocolCommandExecutionItem["processId"];
+  commandActions?: ProtocolCommandExecutionItem["commandActions"];
+  aggregatedOutput?: ProtocolCommandExecutionItem["aggregatedOutput"];
+  exitCode?: ProtocolCommandExecutionItem["exitCode"];
+  durationMs?: ProtocolCommandExecutionItem["durationMs"];
+  approvalRequestId?: string | null;
+  networkApprovalContext?: ProtocolNetworkApprovalContext | null;
+  proposedExecpolicyAmendment?: ProtocolExecPolicyAmendment | null;
+  grantRoot?: string | null;
+}
 
 export type CodexFileChange =
   | {
@@ -706,7 +731,7 @@ export interface CodexToolCallView {
   subtype: CodexToolCallSubtype;
 }
 
-export interface CodexItemView {
+export interface CodexItemView extends CodexCommandExecutionAttachmentFields {
   threadId: string;
   turnId: string;
   itemId: string;
@@ -729,7 +754,7 @@ export interface CodexItemView {
   updatedAt: number;
 }
 
-export interface CodexTranscriptEntry {
+export interface CodexTranscriptEntry extends CodexCommandExecutionAttachmentFields {
   threadId: string;
   turnId: string;
   entryId?: string;
@@ -769,10 +794,7 @@ export interface CodexConversationTurn extends CodexTurnSummary {
 }
 
 export type CodexApprovalKind = "command" | "file";
-export interface CodexNetworkApprovalContext {
-  host: string;
-  protocol?: string | null;
-}
+export type CodexNetworkApprovalContext = ProtocolNetworkApprovalContext;
 
 export interface CodexNetworkPolicyAmendment {
   host: string;
@@ -786,7 +808,7 @@ export type CodexApprovalDecision =
   | "cancel"
   | {
       acceptWithExecpolicyAmendment: {
-        execpolicy_amendment: string[];
+        execpolicy_amendment: ProtocolExecPolicyAmendment;
       };
     }
   | {
@@ -813,7 +835,7 @@ export interface CodexApprovalRequest {
   approvalReason?: string;
   cmd?: string[];
   networkApprovalContext?: CodexNetworkApprovalContext | null;
-  proposedExecpolicyAmendment?: string[] | null;
+  proposedExecpolicyAmendment?: ProtocolExecPolicyAmendment | null;
   proposedNetworkPolicyAmendments?: CodexNetworkPolicyAmendment[] | null;
   availableDecisions?: string[] | null;
   grantRoot?: string | null;

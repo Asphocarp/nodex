@@ -61,10 +61,8 @@ export function parseCommandActions(value: unknown): CodexCommandAction[] {
   }, []);
 }
 
-export function extractCommandActions(item: Pick<CodexTranscriptEntry, "toolCall">): CodexCommandAction[] {
-  const args = item.toolCall?.args;
-  if (typeof args !== "object" || args === null) return [];
-  return parseCommandActions((args as { commandActions?: unknown }).commandActions);
+export function extractCommandActions(item: Pick<CodexTranscriptEntry, "commandActions">): CodexCommandAction[] {
+  return item.commandActions ?? [];
 }
 
 export function isExplorationAction(action: CodexCommandAction): boolean {

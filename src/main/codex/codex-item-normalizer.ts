@@ -39,6 +39,14 @@ function getString(candidate: Record<string, unknown>, keys: string[]): string |
   return undefined;
 }
 
+function getNumber(candidate: Record<string, unknown>, keys: string[]): number | undefined {
+  for (const key of keys) {
+    const value = candidate[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return undefined;
+}
+
 function getUnknown(candidate: Record<string, unknown>, keys: string[]): unknown {
   for (const key of keys) {
     if (Object.prototype.hasOwnProperty.call(candidate, key)) {
@@ -46,6 +54,18 @@ function getUnknown(candidate: Record<string, unknown>, keys: string[]): unknown
     }
   }
   return undefined;
+}
+
+function getProcessId(candidate: Record<string, unknown>): string | null {
+  const direct = candidate.processId;
+  if (typeof direct === "string" && direct.trim().length > 0) return direct;
+  if (typeof direct === "number" && Number.isFinite(direct)) return String(direct);
+
+  const snake = candidate.process_id;
+  if (typeof snake === "string" && snake.trim().length > 0) return snake;
+  if (typeof snake === "number" && Number.isFinite(snake)) return String(snake);
+
+  return null;
 }
 
 function normalizeItemStatus(value: unknown): CodexItemStatus | undefined {
@@ -445,21 +465,31 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
   }
 
   if (isType(itemType, ["commandExecution", "command_execution"])) {
-    const command = getString(candidate, ["command"]);
-    const cwd = getString(candidate, ["cwd"]);
-    const output = getString(candidate, ["aggregatedOutput", "aggregated_output"]);
+    const command = getString(candidate, ["command"]) ?? "";
+    const cwd = getString(candidate, ["cwd"]) ?? null;
+    const output = getString(candidate, ["aggregatedOutput", "aggregated_output"]) ?? null;
+    const processId = getProcessId(candidate);
     const commandActions = parseCommandActions(candidate.commandActions ?? candidate.command_actions);
+    const exitCode = getNumber(candidate, ["exitCode", "exit_code"]) ?? null;
+    const durationMs = getNumber(candidate, ["durationMs", "duration_ms"]) ?? null;
 
     result.normalizedKind = "commandExecution";
     result.semanticKind = "exec";
     result.status = normalizeItemStatus(getUnknown(candidate, ["status"]));
+    result.command = command;
+    result.cwd = cwd;
+    result.processId = processId;
+    result.commandActions = commandActions;
+    result.aggregatedOutput = output;
+    result.exitCode = exitCode;
+    result.durationMs = durationMs;
     result.toolCall = buildToolCall("command", "bash", {
       args: {
         command,
-        cwd,
+        cwd: cwd ?? undefined,
         commandActions: commandActions.length > 0 ? commandActions : undefined,
       },
-      result: output,
+      result: output ?? undefined,
       error: resolveToolCallError(candidate),
     });
     return applyFallbackContent(result, itemType);

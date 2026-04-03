@@ -55,6 +55,17 @@ function resolveAboveComposerBlocks(
 }
 
 function stringifyToolCall(entry: CodexConversationItem): string {
+  if (entry.kind === "commandExecution") {
+    return [
+      entry.command ?? "",
+      entry.cwd ?? "",
+      entry.aggregatedOutput ?? "",
+    ]
+      .map((segment) => segment.trim())
+      .filter((segment) => segment.length > 0)
+      .join(" ");
+  }
+
   return [
     entry.toolCall?.toolName ?? "",
     entry.toolCall?.server ?? "",

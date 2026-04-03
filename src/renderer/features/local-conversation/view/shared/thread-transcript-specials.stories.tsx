@@ -190,14 +190,26 @@ export const ExplorationStreaming: Story = {
           kind: "commandExecution",
           semanticKind: "exec",
           status: "completed",
+          command:
+            "sed -n '1,220p' src/renderer/features/local-conversation/view/shared/thread-transcript-specials.stories.tsx",
+          commandActions: [
+            {
+              type: "read",
+              command:
+                "sed -n '1,220p' src/renderer/features/local-conversation/view/shared/thread-transcript-specials.stories.tsx",
+              name: "thread-transcript-specials.stories.tsx",
+              path: "src/renderer/features/local-conversation/view/shared/thread-transcript-specials.stories.tsx",
+            },
+          ],
+          aggregatedOutput: "import type { Meta, StoryObj } from \"@storybook/react-vite\";",
           createdAt: 1,
           updatedAt: 1,
           toolCall: {
             subtype: "command",
             toolName: "exec_command",
             args: {
-              command: "sed -n '1,220p' src/renderer/features/local-conversation/view/shared/thread-transcript-specials.stories.tsx",
-              commandActions: [{ type: "read", name: "thread-transcript-specials.stories.tsx", path: "src/renderer/features/local-conversation/view/shared/thread-transcript-specials.stories.tsx" }],
+              command:
+                "sed -n '1,220p' src/renderer/features/local-conversation/view/shared/thread-transcript-specials.stories.tsx",
             },
             result: "import type { Meta, StoryObj } from \"@storybook/react-vite\";",
           },

@@ -3955,6 +3955,12 @@ export class CodexService extends EventEmitter {
     });
     pending.resolve({ decision });
     this.pendingApprovals.delete(requestId);
+    this.clearCommandExecutionApprovalRequestAttachment(
+      pending.request.threadId,
+      pending.request.turnId,
+      pending.request.itemId,
+      requestId,
+    );
     this.emitEvent({ type: "approvalResolved", requestId, decision });
     this.emitThreadStreamStateChange(pending.request.threadId);
     return true;
@@ -4195,6 +4201,10 @@ export class CodexService extends EventEmitter {
       return { decision: "accept" };
     }
 
+    if (kind === "command") {
+      this.attachCommandExecutionApprovalRequest(requestId, params as CommandExecutionRequestApprovalParams);
+    }
+
     return await new Promise<CommandExecutionRequestApprovalResponse | FileChangeRequestApprovalResponse>((resolve, reject) => {
       this.pendingApprovals.set(requestId, {
         request: payload,
@@ -4202,6 +4212,94 @@ export class CodexService extends EventEmitter {
         reject,
       });
       this.emitEvent({ type: "approvalRequested", request: payload });
+    });
+  }
+
+  private attachCommandExecutionApprovalRequest(
+    requestId: string,
+    params: CommandExecutionRequestApprovalParams,
+  ): void {
+    const existing = this.getRecordedItem(params.threadId, params.turnId, params.itemId);
+    const existingRawItem = asRecord(existing?.rawItem);
+    const now = Date.now();
+    const command = params.command ?? existing?.command ?? "";
+    const cwd = params.cwd ?? existing?.cwd ?? null;
+    const commandActions = params.commandActions ?? existing?.commandActions ?? [];
+    const next: CodexItemView = {
+      threadId: params.threadId,
+      turnId: params.turnId,
+      itemId: params.itemId,
+      type: existing?.type ?? "commandExecution",
+      normalizedKind: "commandExecution",
+      semanticKind: existing?.semanticKind ?? "exec",
+      status: existing?.status ?? "inProgress",
+      toolCall: {
+        subtype: "command",
+        toolName: "bash",
+        args: {
+          command,
+          cwd: cwd ?? undefined,
+          commandActions: commandActions.length > 0 ? commandActions : undefined,
+        },
+        result: existing?.aggregatedOutput ?? undefined,
+        error: existing?.toolCall?.error,
+      },
+      command,
+      cwd,
+      processId: existing?.processId ?? null,
+      commandActions,
+      aggregatedOutput: existing?.aggregatedOutput ?? null,
+      exitCode: existing?.exitCode ?? null,
+      durationMs: existing?.durationMs ?? null,
+      approvalRequestId: requestId,
+      networkApprovalContext: params.networkApprovalContext ?? null,
+      proposedExecpolicyAmendment: params.proposedExecpolicyAmendment ?? null,
+      grantRoot: existing?.grantRoot ?? null,
+      rawItem: {
+        ...(existingRawItem ?? {}),
+        id: params.itemId,
+        type: existing?.type ?? "commandExecution",
+        command,
+        cwd,
+        commandActions,
+        approvalRequestId: requestId,
+        networkApprovalContext: params.networkApprovalContext ?? null,
+        proposedExecpolicyAmendment: params.proposedExecpolicyAmendment ?? null,
+      },
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+
+    const turn = this.getKnownTurn(params.threadId, params.turnId);
+    if (turn && !turn.itemIds.includes(params.itemId)) {
+      this.mergeTurn(params.threadId, {
+        ...turn,
+        itemIds: [...turn.itemIds, params.itemId],
+      });
+    }
+
+    this.mergeItem(next);
+    this.emitThreadStreamStateChange(params.threadId);
+  }
+
+  private clearCommandExecutionApprovalRequestAttachment(
+    threadId: string,
+    turnId: string,
+    itemId: string,
+    requestId: string,
+  ): void {
+    const existing = this.getRecordedItem(threadId, turnId, itemId);
+    if (!existing || existing.approvalRequestId !== requestId) {
+      return;
+    }
+
+    this.mergeItem({
+      ...existing,
+      approvalRequestId: null,
+      networkApprovalContext: null,
+      proposedExecpolicyAmendment: null,
+      grantRoot: null,
+      updatedAt: Date.now(),
     });
   }
 
@@ -4447,17 +4545,28 @@ export class CodexService extends EventEmitter {
       });
       const existing = byItem.get(itemKey);
       const now = Date.now();
-      const currentOutput = typeof existing?.toolCall?.result === "string" ? existing.toolCall.result : "";
+      const currentOutput = existing?.aggregatedOutput ?? "";
       const nextOutput = `${currentOutput}${update.delta}`;
       const next: CodexItemView = existing
         ? {
             ...existing,
+            command: existing.command ?? "",
+            cwd: existing.cwd ?? null,
+            processId: existing.processId ?? null,
+            commandActions: existing.commandActions ?? [],
+            aggregatedOutput: nextOutput,
+            exitCode: existing.exitCode ?? null,
+            durationMs: existing.durationMs ?? null,
             toolCall: existing.toolCall
               ? {
                   ...existing.toolCall,
                   result: nextOutput,
                 }
               : existing.toolCall,
+            rawItem: {
+              ...(asRecord(existing.rawItem) ?? {}),
+              aggregatedOutput: nextOutput,
+            },
             updatedAt: now,
           }
         : {
@@ -4468,6 +4577,13 @@ export class CodexService extends EventEmitter {
             normalizedKind: "commandExecution",
             semanticKind: "exec",
             status: "inProgress",
+            command: "",
+            cwd: null,
+            processId: null,
+            commandActions: [],
+            aggregatedOutput: nextOutput,
+            exitCode: null,
+            durationMs: null,
             toolCall: {
               subtype: "command",
               toolName: "bash",
@@ -4514,6 +4630,12 @@ export class CodexService extends EventEmitter {
     if (pendingApproval) {
       pendingApproval.resolve({ decision: "cancel" });
       this.pendingApprovals.delete(requestId);
+      this.clearCommandExecutionApprovalRequestAttachment(
+        pendingApproval.request.threadId,
+        pendingApproval.request.turnId,
+        pendingApproval.request.itemId,
+        String(requestId),
+      );
       this.emitEvent({ type: "approvalResolved", requestId, decision: "cancel" });
       this.emitThreadStreamStateChange(pendingApproval.request.threadId);
       emittedApprovalResolved = true;
@@ -5054,76 +5176,19 @@ export class CodexService extends EventEmitter {
   }
 
   private extractBackgroundTerminalCommand(item: CodexConversationItem): string {
-    const toolArgs = item.toolCall?.args;
-    if (toolArgs && typeof toolArgs === "object" && "command" in toolArgs) {
-      const command = (toolArgs as { command?: unknown }).command;
-      if (typeof command === "string") {
-        return command;
-      }
-    }
-
-    const rawItem = item.rawItem;
-    if (rawItem && typeof rawItem === "object" && "command" in rawItem) {
-      const command = (rawItem as { command?: unknown }).command;
-      if (typeof command === "string") {
-        return command;
-      }
-    }
-
-    return "";
+    return item.command ?? "";
   }
 
   private extractBackgroundTerminalCwd(item: CodexConversationItem): string | null {
-    const toolArgs = item.toolCall?.args;
-    if (toolArgs && typeof toolArgs === "object" && "cwd" in toolArgs) {
-      const cwd = (toolArgs as { cwd?: unknown }).cwd;
-      if (typeof cwd === "string") {
-        return cwd;
-      }
-    }
-
-    const rawItem = item.rawItem;
-    if (rawItem && typeof rawItem === "object" && "cwd" in rawItem) {
-      const cwd = (rawItem as { cwd?: unknown }).cwd;
-      if (typeof cwd === "string") {
-        return cwd;
-      }
-    }
-
-    return null;
+    return item.cwd ?? null;
   }
 
-  private extractBackgroundTerminalProcessId(item: CodexConversationItem): number | string | null {
-    const rawItem = item.rawItem;
-    if (!rawItem || typeof rawItem !== "object") {
-      return null;
-    }
-
-    const directProcessId = (rawItem as { processId?: unknown }).processId;
-    if (typeof directProcessId === "number" || typeof directProcessId === "string") {
-      return directProcessId;
-    }
-
-    const snakeProcessId = (rawItem as { process_id?: unknown }).process_id;
-    if (typeof snakeProcessId === "number" || typeof snakeProcessId === "string") {
-      return snakeProcessId;
-    }
-
-    return null;
+  private extractBackgroundTerminalProcessId(item: CodexConversationItem): string | null {
+    return item.processId ?? null;
   }
 
   private extractBackgroundTerminalPreviewLine(item: CodexConversationItem): string | null {
-    const output = typeof item.toolCall?.result === "string"
-      ? item.toolCall.result
-      : item.rawItem && typeof item.rawItem === "object"
-        ? (
-          typeof (item.rawItem as { aggregatedOutput?: unknown }).aggregatedOutput === "string"
-            ? (item.rawItem as { aggregatedOutput: string }).aggregatedOutput
-            : typeof (item.rawItem as { aggregated_output?: unknown }).aggregated_output === "string"
-              ? (item.rawItem as { aggregated_output: string }).aggregated_output
-              : null
-        )
-        : null;
+    const output = item.aggregatedOutput ?? null;
     if (!output) return null;
 
     const lines = output

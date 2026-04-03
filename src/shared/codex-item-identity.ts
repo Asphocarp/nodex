@@ -70,6 +70,24 @@ export function mergeCodexItemView(existing: CodexItemView, incoming: CodexItemV
     role: incoming.role ?? existing.role,
     toolCall: incoming.toolCall ?? existing.toolCall,
     markdownText: incoming.markdownText ?? existing.markdownText,
+    command: incoming.command !== undefined ? incoming.command : existing.command,
+    cwd: incoming.cwd !== undefined ? incoming.cwd : existing.cwd,
+    processId: incoming.processId !== undefined ? incoming.processId : existing.processId,
+    commandActions: incoming.commandActions !== undefined ? incoming.commandActions : existing.commandActions,
+    aggregatedOutput: incoming.aggregatedOutput !== undefined ? incoming.aggregatedOutput : existing.aggregatedOutput,
+    exitCode: incoming.exitCode !== undefined ? incoming.exitCode : existing.exitCode,
+    durationMs: incoming.durationMs !== undefined ? incoming.durationMs : existing.durationMs,
+    approvalRequestId:
+      incoming.approvalRequestId !== undefined ? incoming.approvalRequestId : existing.approvalRequestId,
+    networkApprovalContext:
+      incoming.networkApprovalContext !== undefined
+        ? incoming.networkApprovalContext
+        : existing.networkApprovalContext,
+    proposedExecpolicyAmendment:
+      incoming.proposedExecpolicyAmendment !== undefined
+        ? incoming.proposedExecpolicyAmendment
+        : existing.proposedExecpolicyAmendment,
+    grantRoot: incoming.grantRoot !== undefined ? incoming.grantRoot : existing.grantRoot,
     userInputQuestions: incoming.userInputQuestions ?? existing.userInputQuestions,
     userInputAnswers: incoming.userInputAnswers ?? existing.userInputAnswers,
     rawItem: incoming.rawItem ?? existing.rawItem,

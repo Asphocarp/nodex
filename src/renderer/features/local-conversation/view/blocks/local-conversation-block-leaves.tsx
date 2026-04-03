@@ -147,10 +147,7 @@ function resolveExplorationSkill(path: string | null): { skillName: string } | n
 }
 
 function extractCommandCwd(entry: CodexConversationItem): string | null {
-  const args = entry.toolCall?.args;
-  if (typeof args !== "object" || args === null) return null;
-  const cwd = (args as { cwd?: unknown }).cwd;
-  return typeof cwd === "string" ? cwd : null;
+  return entry.cwd ?? null;
 }
 
 function formatExplorationLine(action: CodexCommandAction, cwd: string | null): string {

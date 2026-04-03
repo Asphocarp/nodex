@@ -33,6 +33,11 @@ describe("codex-item-normalizer", () => {
     expect(item).not.toBeNull();
     expect(item?.normalizedKind).toBe("commandExecution");
     expect(item?.status).toBe("inProgress");
+    expect(item?.command).toBe("bun run lint");
+    expect(item?.cwd).toBe("/tmp/repo");
+    expect(item?.aggregatedOutput).toBe("Checked 42 files");
+    expect(item?.commandActions?.length).toBe(2);
+    expect(item?.exitCode ?? null).toBe(null);
     expect(item?.toolCall?.subtype).toBe("command");
     expect(item?.toolCall?.toolName).toBe("bash");
     expect((item?.toolCall?.args as { command?: string }).command).toBe("bun run lint");

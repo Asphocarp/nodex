@@ -23,13 +23,10 @@ const LONG_COMMAND = [
   "--output /tmp/nodex-command-shell-regression-fixture.json",
 ].join(" ");
 
-const COMMAND_TOOL_CALL = THREAD_TOOL_CALL_STORY_ITEMS.command.toolCall;
-function buildCommandToolCall(overrides?: Partial<NonNullable<typeof COMMAND_TOOL_CALL>>) {
+const COMMAND_ITEM = THREAD_TOOL_CALL_STORY_ITEMS.command;
+function buildCommandItem(overrides?: Partial<typeof COMMAND_ITEM>) {
   return {
-    subtype: COMMAND_TOOL_CALL?.subtype ?? "command",
-    toolName: COMMAND_TOOL_CALL?.toolName ?? "bash",
-    args: COMMAND_TOOL_CALL?.args ?? { command: "bun test" },
-    result: COMMAND_TOOL_CALL?.result ?? "",
+    ...COMMAND_ITEM,
     ...overrides,
   };
 }
@@ -286,14 +283,10 @@ export const CommandExecutionLongCommandCollapsed: Story = {
   render: () => (
     <ToolCallStory
       item={{
-        ...THREAD_TOOL_CALL_STORY_ITEMS.command,
+        ...buildCommandItem(),
         itemId: "tool-call-long-command-collapsed",
         entryId: "tool-call-long-command-collapsed",
-        toolCall: buildCommandToolCall({
-          args: {
-            command: LONG_COMMAND,
-          },
-        }),
+        command: LONG_COMMAND,
       }}
       title="Command Execution Long Command Collapsed"
       description="Transcript shell commands start line-clamped inside the expanded embedded shell block."
@@ -306,14 +299,10 @@ export const CommandExecutionLongCommandExpanded: Story = {
   render: () => (
     <ToolCallStory
       item={{
-        ...THREAD_TOOL_CALL_STORY_ITEMS.command,
+        ...buildCommandItem(),
         itemId: "tool-call-long-command-expanded",
         entryId: "tool-call-long-command-expanded",
-        toolCall: buildCommandToolCall({
-          args: {
-            command: LONG_COMMAND,
-          },
-        }),
+        command: LONG_COMMAND,
       }}
       title="Command Execution Long Command Expanded"
       description="Clicking the embedded shell command line expands it instead of always truncating with ellipsis."
@@ -326,14 +315,10 @@ export const CommandExecutionLongCommandExpanded: Story = {
 export const CommandExecutionScrollAnchorHarness: Story = {
   render: () => {
     const item = {
-      ...THREAD_TOOL_CALL_STORY_ITEMS.command,
+      ...buildCommandItem(),
       itemId: "tool-call-scroll-anchor-harness",
       entryId: "tool-call-scroll-anchor-harness",
-      toolCall: buildCommandToolCall({
-        args: {
-          command: LONG_COMMAND,
-        },
-      }),
+      command: LONG_COMMAND,
     };
     const ToolComponent = getToolComponent(item);
     if (!ToolComponent) {
@@ -377,17 +362,14 @@ export const CommandExecutionInProgressNoOutput: Story = {
   render: () => (
     <ToolCallStory
       item={{
-        ...THREAD_TOOL_CALL_STORY_ITEMS.command,
+        ...buildCommandItem(),
         itemId: "tool-call-running-no-output",
         entryId: "tool-call-running-no-output",
         status: "inProgress",
         markdownText: "Running bun test",
-        toolCall: buildCommandToolCall({
-          args: {
-            command: "bun test",
-          },
-          result: "",
-        }),
+        command: "bun test",
+        aggregatedOutput: "",
+        exitCode: null,
       }}
       title="Command Execution In Progress Without Output"
       description="Running shell commands keep the embedded output area blank until real output arrives."
@@ -396,17 +378,32 @@ export const CommandExecutionInProgressNoOutput: Story = {
   ),
 };
 
+export const CommandExecutionFailedExitCode: Story = {
+  render: () => (
+    <ToolCallStory
+      item={{
+        ...buildCommandItem(),
+        itemId: "tool-call-failed-exit-code",
+        entryId: "tool-call-failed-exit-code",
+        status: "failed",
+        command: "bun test",
+        aggregatedOutput: "tests failed\n",
+        exitCode: 7,
+      }}
+      title="Command Execution Failed Exit Code"
+      description="The embedded shell footer reads the canonical exit code instead of inferring terminal state from output text."
+      autoOpen
+    />
+  ),
+};
+
 export const CommandExecutionScrollAnchorPartiallyVisible: Story = {
   render: () => {
     const item = {
-      ...THREAD_TOOL_CALL_STORY_ITEMS.command,
+      ...buildCommandItem(),
       itemId: "tool-call-scroll-anchor-partially-visible",
       entryId: "tool-call-scroll-anchor-partially-visible",
-      toolCall: buildCommandToolCall({
-        args: {
-          command: LONG_COMMAND,
-        },
-      }),
+      command: LONG_COMMAND,
     };
 
     return (
