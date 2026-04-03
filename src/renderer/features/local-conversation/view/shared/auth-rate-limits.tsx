@@ -24,6 +24,30 @@ export function formatRateLimitWindowLabel(windowDurationMins?: number): string 
   return `${roundedMinutes}m`;
 }
 
+export function formatRateLimitWindowCompactLabel(windowDurationMins?: number): string | null {
+  if (!windowDurationMins || windowDurationMins <= 0) return null;
+
+  const roundedMinutes = Math.round(windowDurationMins);
+  const minutesPerHour = 60;
+  const minutesPerDay = 24 * minutesPerHour;
+  const minutesPerWeek = 7 * minutesPerDay;
+
+  if (roundedMinutes >= minutesPerWeek) {
+    const weeks = Math.max(1, Math.round(roundedMinutes / minutesPerWeek));
+    return weeks === 1 ? "wk" : `${weeks}w`;
+  }
+
+  if (roundedMinutes >= minutesPerDay) {
+    return `${Math.round(roundedMinutes / minutesPerDay)}d`;
+  }
+
+  if (roundedMinutes >= minutesPerHour) {
+    return `${Math.round(roundedMinutes / minutesPerHour)}h`;
+  }
+
+  return `${roundedMinutes}m`;
+}
+
 export function formatRateLimitResetLabel(
   resetsAt?: number,
   now: number = Date.now(),
@@ -62,6 +86,24 @@ function buildRateLimitRow(window: CodexRateLimitsSnapshot["primary"]) {
     remainingPercent: getRemainingRateLimitPercent(window.usedPercent),
     resetsAtLabel: formatRateLimitResetLabel(window.resetsAt),
   };
+}
+
+function buildRateLimitSummaryPart(window: CodexRateLimitsSnapshot["primary"]): string | null {
+  if (!window) return null;
+  return `${getRemainingRateLimitPercent(window.usedPercent)}%`;
+}
+
+export function formatRateLimitSummary(
+  rateLimits: CodexAccountSnapshot["rateLimits"] | undefined,
+): string | null {
+  if (!rateLimits) return null;
+
+  const parts = [buildRateLimitSummaryPart(rateLimits.primary), buildRateLimitSummaryPart(rateLimits.secondary)].filter(
+    (part): part is string => part !== null,
+  );
+  if (parts.length === 0) return null;
+
+  return parts.join(" · ");
 }
 
 export function RateLimitTooltipSection({

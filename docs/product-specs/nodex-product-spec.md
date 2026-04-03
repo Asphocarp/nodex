@@ -406,7 +406,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Running threads keep syncing in the background when users switch to another thread tab; returning to the running tab preserves live state (including stop affordance and existing tool-call logs).
 - Thread tabs show a running indicator for actively executing threads.
 - Sidebar thread entries (and the Threads group icon) switch to a running indicator while execution is active.
-- In-app account UX supports account read, ChatGPT/API-key login, login cancel, logout, and a `Connected` tooltip that appears only for authenticated accounts, refreshes on reveal, and shows the remaining primary/secondary rate-limit windows when available.
+- In-app account UX supports account read, ChatGPT/API-key login, login cancel, logout, and an authenticated quota chip that shows concise remaining primary/secondary percentages in the header (for example `82% · 61%`), refreshes account data on reveal, and keeps the detailed remaining windows in the tooltip when available.
 - Approval policy is per-project: `auto` by default, with optional `manual` mode in Thread stage.
 - Thread stage composer exposes real Codex model and reasoning-effort selectors; selections persist globally in local storage and are applied to the first turn of new threads and subsequent turns.
 - Thread stage composer exposes collaboration mode presets (`Default`, `Plan`) sourced from app-server `collaborationMode/list` with a client fallback to `Default` + `Plan` when unavailable.

@@ -11,8 +11,20 @@ mock.module("./local-conversation-stage-header-deps", () => ({
       ? createElement("div", null, "Sign in")
       : null
   ),
-  ConnectionBadge: ({ connection }: { connection: ThreadStageModel["connection"] }) =>
-    createElement("div", null, connection.status === "connected" ? "Connected" : connection.status),
+  ConnectionBadge: ({
+    connection,
+    rateLimits,
+  }: {
+    connection: ThreadStageModel["connection"];
+    rateLimits?: NonNullable<ThreadStageModel["account"]>["rateLimits"];
+  }) =>
+    createElement(
+      "div",
+      null,
+      connection.status === "connected"
+        ? (rateLimits ? "82% · 61%" : "Connected")
+        : connection.status,
+    ),
   renderConnectionAccountTooltipContent: () => null,
 }));
 
@@ -144,7 +156,7 @@ describe("ThreadStageHeader auth chrome", () => {
     expect(content.includes("Connected")).toBeFalse();
   });
 
-  test("shows the connected badge without sign-in when the account snapshot is authenticated", async () => {
+  test("shows quota remaining without sign-in when the account snapshot is authenticated", async () => {
     const { ThreadStageHeader } = await import("./local-conversation-stage-header");
     const { container } = render(
       <ThreadStageHeader
@@ -153,7 +165,16 @@ describe("ThreadStageHeader auth chrome", () => {
             account: { type: "chatgpt", email: "dev@example.com", planType: "Plus" },
             requiresOpenAiAuth: false,
             pendingLogin: null,
-            rateLimits: null,
+            rateLimits: {
+              primary: {
+                usedPercent: 18,
+                windowDurationMins: 300,
+              },
+              secondary: {
+                usedPercent: 39,
+                windowDurationMins: 7 * 24 * 60,
+              },
+            },
           },
         })}
         actions={buildActions()}
@@ -163,6 +184,7 @@ describe("ThreadStageHeader auth chrome", () => {
 
     const content = textContent(container);
     expect(content.includes("Sign in")).toBeFalse();
-    expect(content.includes("Connected")).toBeTrue();
+    expect(content.includes("Connected")).toBeFalse();
+    expect(content.includes("82% · 61%")).toBeTrue();
   });
 });

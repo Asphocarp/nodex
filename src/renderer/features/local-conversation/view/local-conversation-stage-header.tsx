@@ -157,6 +157,7 @@ export function ThreadStageHeader({ model, actions, onErrorMessage }: ThreadStag
           {hasAuthenticatedAccount && (
             <ConnectionBadge
               connection={model.connection}
+              rateLimits={model.account?.rateLimits}
               tooltipContent={connectionTooltipContent}
               onTooltipOpenChange={handleConnectionTooltipOpenChange}
             />

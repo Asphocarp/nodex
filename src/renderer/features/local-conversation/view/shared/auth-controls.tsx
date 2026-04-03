@@ -10,10 +10,13 @@ import { handleFormSubmit } from "@/lib/forms";
 import { cn } from "../../../../lib/utils";
 import type { CodexAccountSnapshot, CodexConnectionState } from "../../../../lib/types";
 import type { StageThreadsBusyAction } from "./composer-action";
-import { RateLimitTooltipSection } from "./auth-rate-limits";
+import { formatRateLimitSummary, RateLimitTooltipSection } from "./auth-rate-limits";
 
-function connectionLabel(status: CodexConnectionState["status"]): string {
-  if (status === "connected") return "Connected";
+function connectionLabel(
+  status: CodexConnectionState["status"],
+  rateLimits?: CodexAccountSnapshot["rateLimits"],
+): string {
+  if (status === "connected") return formatRateLimitSummary(rateLimits) ?? "Connected";
   if (status === "starting") return "Connecting...";
   if (status === "missingBinary") return "Codex CLI missing";
   if (status === "error") return "Error";
@@ -82,10 +85,12 @@ function connectionBadgeClasses(status: CodexConnectionState["status"]): string 
 
 export function ConnectionBadge({
   connection,
+  rateLimits,
   tooltipContent,
   onTooltipOpenChange,
 }: {
   connection: CodexConnectionState;
+  rateLimits?: CodexAccountSnapshot["rateLimits"];
   tooltipContent: ReactNode | null;
   onTooltipOpenChange?: (open: boolean) => void;
 }) {
@@ -100,7 +105,7 @@ export function ConnectionBadge({
       )}
     >
       <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-      {connectionLabel(connection.status)}
+      {connectionLabel(connection.status, rateLimits)}
     </button>
   );
 
