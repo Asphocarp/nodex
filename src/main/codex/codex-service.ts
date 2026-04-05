@@ -1023,6 +1023,7 @@ export class CodexService extends EventEmitter {
   private readonly conversationRecords = new Map<string, CodexConversationRecord>();
   private readonly lastBroadcastConversationById = new Map<string, CodexConversationSnapshot>();
   private readonly conversationVersionById = new Map<string, number>();
+  private readonly queuedFollowUpDispatchInFlight = new Set<string>();
   private readonly frameTextDeltaQueue = new FrameTextDeltaQueue((updates) => {
     this.applyFrameTextDeltas(updates);
   });
@@ -1427,6 +1428,48 @@ export class CodexService extends EventEmitter {
     this.emitThreadStreamStateChange(threadId);
   }
 
+  private hasActiveTurn(threadId: string): boolean {
+    return this.listKnownTurns(threadId).some((turn) => turn.status === "inProgress");
+  }
+
+  private canDispatchQueuedFollowUp(threadId: string): boolean {
+    if (this.queuedFollowUpDispatchInFlight.has(threadId)) return false;
+    if (this.hasActiveTurn(threadId)) return false;
+
+    const nextFollowUp = this.listQueuedFollowUps(threadId)[0];
+    if (!nextFollowUp) return false;
+    if (nextFollowUp.pausedReason) return false;
+
+    return true;
+  }
+
+  private maybeDispatchQueuedFollowUp(threadId: string): void {
+    if (!this.canDispatchQueuedFollowUp(threadId)) return;
+
+    this.queuedFollowUpDispatchInFlight.add(threadId);
+    void this.dispatchNextQueuedFollowUp(threadId).finally(() => {
+      this.queuedFollowUpDispatchInFlight.delete(threadId);
+    });
+  }
+
+  private async dispatchNextQueuedFollowUp(threadId: string): Promise<void> {
+    if (this.hasActiveTurn(threadId)) return;
+
+    const nextFollowUp = this.listQueuedFollowUps(threadId)[0];
+    if (!nextFollowUp || nextFollowUp.pausedReason) return;
+
+    this.dequeueQueuedFollowUp(threadId, nextFollowUp.followUpId);
+    try {
+      await this.submitQueuedFollowUp(threadId, nextFollowUp);
+    } catch (error) {
+      this.restoreQueuedFollowUp(
+        threadId,
+        nextFollowUp,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
   private enqueueQueuedFollowUp(
     threadId: string,
     prompt: string,
@@ -1577,9 +1620,7 @@ export class CodexService extends EventEmitter {
         return;
       }
 
-      await this.startTurn(threadId, followUp.prompt, {
-        collaborationMode: followUp.collaborationMode ?? undefined,
-      });
+      await this.startTurn(threadId, followUp.prompt);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.restoreQueuedFollowUp(threadId, followUp, message);
@@ -2135,7 +2176,11 @@ export class CodexService extends EventEmitter {
     if (!selectedMode) return null;
 
     const preset = this.collaborationModePresets.get(selectedMode);
-    const model = preset?.model ?? input.model ?? "";
+    const modelCandidate = preset?.model ?? input.model ?? null;
+    const model = typeof modelCandidate === "string" && modelCandidate.trim().length > 0
+      ? modelCandidate.trim()
+      : null;
+    if (!model) return null;
     const reasoningEffort = preset?.reasoningEffort !== undefined
       ? preset.reasoningEffort
       : (input.reasoningEffort ?? null);
@@ -3992,6 +4037,7 @@ export class CodexService extends EventEmitter {
     this.syncThreadStatusFromKnownTurns(threadId);
     this.reconcileTurnItemsToTerminalStatus(threadId, resolvedTurnId, "interrupted");
     this.emitEvent({ type: "turn", turn: interruptedTurn });
+    this.maybeDispatchQueuedFollowUp(threadId);
     return true;
   }
 
@@ -4924,6 +4970,9 @@ export class CodexService extends EventEmitter {
         this.clearPendingSteersForTurn(threadId, turn.turnId);
       }
       this.emitEvent({ type: "turn", turn });
+      if (turn.status !== "inProgress") {
+        this.maybeDispatchQueuedFollowUp(threadId);
+      }
       return;
     }
 
