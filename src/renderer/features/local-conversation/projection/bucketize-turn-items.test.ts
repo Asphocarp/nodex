@@ -69,6 +69,50 @@ describe("bucketizeTurnItems", () => {
     expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("exec,user_2");
   });
 
+  test("routes leading hooks into preUserItems and trailing hooks into postAssistantItems", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({ id: "hook_pre", type: "hook" }),
+        buildItem({ id: "user_1", type: "userMessage" }),
+        buildItem({ id: "assistant_1", type: "assistantMessage" }),
+        buildItem({ id: "hook_post", type: "hook" }),
+      ],
+      turnStatus: "completed",
+    });
+
+    expect(buckets.preUserItems.map((item) => item.id).join(",")).toBe("hook_pre");
+    expect(buckets.userItems.map((item) => item.id).join(",")).toBe("user_1");
+    expect(buckets.assistantItem?.id ?? "").toBe("assistant_1");
+    expect(buckets.postAssistantItems.map((item) => item.id).join(",")).toBe("hook_post");
+  });
+
+  test("keeps completed MCP elicitation rows in generic agent items", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({ id: "exec", type: "exec" }),
+        buildItem({ id: "elicitation_done", type: "mcpServerElicitation", status: "completed" }),
+        buildItem({ id: "assistant", type: "assistantMessage" }),
+      ],
+      turnStatus: "completed",
+    });
+
+    expect(buckets.mcpServerElicitationItems.length).toBe(0);
+    expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("exec,elicitation_done");
+  });
+
+  test("extracts planImplementation into its dedicated bucket instead of generic agent items", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({ id: "exec", type: "exec" }),
+        buildItem({ id: "plan_impl", type: "planImplementation" }),
+      ],
+      turnStatus: "completed",
+    });
+
+    expect(buckets.planImplementationItem?.id ?? "").toBe("plan_impl");
+    expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("exec");
+  });
+
   test("keeps pre-final assistant commentary in agentItems and reserves postAssistant for trailing reviews", () => {
     const buckets = bucketizeTurnItems({
       items: [

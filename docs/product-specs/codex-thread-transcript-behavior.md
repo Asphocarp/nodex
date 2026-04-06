@@ -81,13 +81,14 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
 ## Turn Rendering
 - The renderer groups transcript entries by `turnId`, projects a flat renderer-item stream, bucketizes that stream, and then renders each turn in fixed block order:
   - `modelChanged`
+  - leading `hook` items that appear before the first user message
   - `userMessage`
   - selected `modelRerouted`
-  - activity blocks (`reasoning`, `commandExecution`, `patch`, `turnDiff`, `mcpToolCall`, `webSearch`, `multiAgentAction`, plus derived exploration groups)
+  - activity blocks (`reasoning`, `commandExecution`, `patch`, `mcpToolCall`, `webSearch`, `multiAgentAction`, inline `hook`, completed `mcpServerElicitation`, completed `userInputResponse`, `contextCompaction`, plus derived exploration groups)
   - `systemEvent`
   - `assistantMessage`
-  - post-assistant artifacts such as answered `userInputRequest`
-  - inline `mcpServerElicitation`
+  - post-assistant artifacts such as trailing `hook` items and trailing automatic approval review
+  - inline incomplete `mcpServerElicitation`
   - `proposedPlan`
   - turn-body `Thinking` placeholder when the in-progress placeholder state resolves to `thinking`
   - completed inline `turn diff`
@@ -109,6 +110,7 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
 ## Message Rendering
 - Assistant, plan, and reasoning content render through Streamdown with official code, Mermaid, math, and CJK plugins.
 - Transcript markdown rendering remains streaming-safe for in-progress turns.
+- `imageView` transcript items render as assistant markdown content; review-mode markers (`enteredReviewMode`, `exitedReviewMode`) are ignored and do not render transcript rows.
 - Active-thread streaming updates are manager-driven: assistant text, plan text, reasoning text, and command output flush into the canonical conversation incrementally during the turn instead of waiting for turn completion to reveal large chunks.
 - Absolute local file links in transcript markdown open in the configured desktop app, and hovering those links shows the full resolved local path plus line/column when present.
 - Reasoning rows follow Codex Electron's summary-first projection: only the reasoning `summary` is rendered into the transcript item, empty summaries produce no reasoning row, and raw `content` remains non-transcript state.

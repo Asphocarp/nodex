@@ -678,6 +678,21 @@ function buildImplementPlanConversation(): CodexConversationSnapshot {
             createdAt: 25_000,
             updatedAt: 29_000,
           }),
+          buildStoryConversationItem({
+            turnId: "turn_story_plan",
+            itemId: "implement-plan:turn_story_plan",
+            type: "planImplementation",
+            kind: "planImplementation",
+            semanticKind: "planImplementation",
+            markdownText: [
+              "1. Add story fixtures on top of buildThreadStageModel.",
+              "2. Cover tool-call families and request cards with focused stories.",
+              "3. Extract the threadSection row for editor and Storybook reuse.",
+            ].join("\n"),
+            status: "inProgress",
+            createdAt: 29_500,
+            updatedAt: 30_000,
+          }),
         ],
       }),
     ],
@@ -1529,7 +1544,7 @@ export const THREAD_REQUEST_CARD_STORY_DATA = {
     questions: buildUserInputQuestions(),
     createdAt: 1,
   },
-  answeredUserInput: {
+  userInputResponse: {
     userInputQuestions: buildUserInputQuestions(),
     userInputAnswers: {
       thread_scope: ["Both surfaces"],
@@ -1537,12 +1552,12 @@ export const THREAD_REQUEST_CARD_STORY_DATA = {
     },
     status: "completed" as const,
   },
-  answeredUserInputEmpty: {
+  userInputResponseEmpty: {
     userInputQuestions: buildUserInputQuestions(),
     userInputAnswers: {},
     status: "completed" as const,
   },
-  answeredUserInputInProgress: {
+  userInputResponseInProgress: {
     userInputQuestions: buildUserInputQuestions(),
     userInputAnswers: {},
     status: "inProgress" as const,

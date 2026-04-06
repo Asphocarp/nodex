@@ -315,6 +315,7 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
 
   const leadingBlocks: ThreadBlockModel[] = [
     ...buckets.modelChangedItems,
+    ...buckets.preUserItems,
     ...buckets.userItems,
     ...buckets.modelReroutedItems,
   ];

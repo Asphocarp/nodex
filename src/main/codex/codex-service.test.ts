@@ -72,6 +72,7 @@ interface TestableCodexService {
     },
   ) => Promise<void>;
   sendQueuedFollowUpNow: (threadId: string, followUpId: string) => Promise<void>;
+  respondToMcpServerElicitation: (requestId: string, action: "accept" | "decline" | "cancel") => Promise<boolean>;
   startThreadForCard: (input: {
     projectId: string;
     cardId: string;
@@ -4960,10 +4961,15 @@ describe("codex-service streaming notification parity", () => {
         },
       }));
 
-      const answeredItem = getRecordedItem(serviceInternals, "thr_input", "turn_input", "item_input");
+      const answeredItem = getRecordedItem(
+        serviceInternals,
+        "thr_input",
+        "turn_input",
+        "user-input-response-input_req",
+      );
 
-      expect(answeredItem?.normalizedKind).toBe("userInputRequest");
-      expect(answeredItem?.semanticKind).toBe("answeredUserInput");
+      expect(answeredItem?.normalizedKind).toBe("userInputResponse");
+      expect(answeredItem?.semanticKind).toBe("userInputResponse");
       expect(answeredItem?.status).toBe("completed");
       expect(answeredItem?.userInputQuestions?.[0]?.question).toBe("What is 1 + 1?");
       expect(answeredItem?.userInputAnswers?.q1?.[0]).toBe("2");
@@ -5650,6 +5656,169 @@ describe("codex-service item lifecycle status fallback", () => {
       expect(item?.status).toBe("completed");
       expect((item?.rawItem as { review?: { status?: string } } | undefined)?.review?.status).toBe("approved");
       expect(item?.markdownText).toBe("This only runs the local test suite.");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("projects hook lifecycle notifications into canonical turn items", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
+      persistThreadSnapshot: (threadId: string) => void;
+    };
+
+    serviceInternals.persistThreadSnapshot = () => {};
+
+    try {
+      serviceInternals.mergeTurn("thr_hook", {
+        threadId: "thr_hook",
+        turnId: "turn_hook",
+        status: "inProgress",
+        itemIds: [],
+      });
+
+      await serviceInternals.handleNotification("hook/started", {
+        threadId: "thr_hook",
+        turnId: "turn_hook",
+        run: {
+          id: "hook_run_1",
+          eventName: "preToolUse",
+          status: "running",
+          statusMessage: "Preparing context",
+          entries: [{ kind: "context", text: "Added AGENTS.md" }],
+        },
+      });
+
+      let item = getRecordedItem(serviceInternals, "thr_hook", "turn_hook", "hook_run_1");
+      expect(item?.semanticKind).toBe("hook");
+      expect(item?.status).toBe("inProgress");
+
+      await serviceInternals.handleNotification("hook/completed", {
+        threadId: "thr_hook",
+        turnId: "turn_hook",
+        run: {
+          id: "hook_run_1",
+          eventName: "preToolUse",
+          status: "completed",
+          statusMessage: "Preparing context",
+          entries: [{ kind: "context", text: "Added AGENTS.md" }],
+        },
+      });
+
+      item = getRecordedItem(serviceInternals, "thr_hook", "turn_hook", "hook_run_1");
+      expect(item?.status).toBe("completed");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("projects MCP elicitation requests into canonical turn items and completes them on response", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      parseThreadRef: (threadId: string) => { projectId: string; cardId: string; cwd: string | null } | null;
+      handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
+      persistThreadSnapshot: (threadId: string) => void;
+    };
+
+    serviceInternals.parseThreadRef = () => ({ projectId: "codex", cardId: "card-1", cwd: null });
+    serviceInternals.persistThreadSnapshot = () => {};
+
+    try {
+      serviceInternals.mergeTurn("thr_mcp", {
+        threadId: "thr_mcp",
+        turnId: "turn_mcp",
+        status: "inProgress",
+        itemIds: [],
+      });
+
+      const requestPromise = serviceInternals.handleServerRequest({
+        id: "mcp_req",
+        method: "mcpServer/elicitation/request",
+        params: {
+          threadId: "thr_mcp",
+          turnId: "turn_mcp",
+          mode: "form",
+          serverName: "Context7",
+          message: "Allow this call?",
+          requestedSchema: {},
+        },
+      });
+
+      await Promise.resolve();
+
+      let item = getRecordedItem(serviceInternals, "thr_mcp", "turn_mcp", "mcp-server-elicitation-mcp_req");
+      expect(item?.semanticKind).toBe("mcpServerElicitation");
+      expect(item?.status).toBe("inProgress");
+
+      const responded = await service.respondToMcpServerElicitation("mcp_req", "accept");
+      expect(responded).toBeTrue();
+      await requestPromise;
+
+      item = getRecordedItem(serviceInternals, "thr_mcp", "turn_mcp", "mcp-server-elicitation-mcp_req");
+      expect(item?.status).toBe("completed");
+      expect((item?.rawItem as { action?: string } | undefined)?.action).toBe("accept");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("synthesizes planImplementation items from completed turns with unfinished plans", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
+      persistThreadSnapshot: (threadId: string) => void;
+      syncThreadStatusFromKnownTurns: (threadId: string) => void;
+    };
+
+    serviceInternals.persistThreadSnapshot = () => {};
+    serviceInternals.syncThreadStatusFromKnownTurns = () => {};
+
+    try {
+      serviceInternals.mergeTurn("thr_plan_impl", {
+        threadId: "thr_plan_impl",
+        turnId: "turn_plan_impl",
+        status: "inProgress",
+        itemIds: [],
+      });
+
+      await serviceInternals.handleNotification("item/completed", {
+        threadId: "thr_plan_impl",
+        turnId: "turn_plan_impl",
+        item: {
+          id: "plan_text",
+          type: "plan",
+          text: "1. Ship the fix\n2. Verify the behavior",
+        },
+      });
+
+      await serviceInternals.handleNotification("turn/plan/updated", {
+        threadId: "thr_plan_impl",
+        turnId: "turn_plan_impl",
+        explanation: null,
+        plan: [
+          { step: "Ship the fix", status: "completed" },
+          { step: "Verify the behavior", status: "in_progress" },
+        ],
+      });
+
+      await serviceInternals.handleNotification("turn/completed", {
+        threadId: "thr_plan_impl",
+        turnId: "turn_plan_impl",
+      });
+
+      const item = getRecordedItem(
+        serviceInternals,
+        "thr_plan_impl",
+        "turn_plan_impl",
+        "implement-plan:turn_plan_impl",
+      );
+      expect(item?.semanticKind).toBe("planImplementation");
+      expect(item?.status).toBe("inProgress");
+      expect(item?.markdownText).toBe("1. Ship the fix\n2. Verify the behavior");
     } finally {
       await service.shutdown();
     }

@@ -30,32 +30,31 @@ export function selectPlanImplementationRequest(
 ): CodexPlanImplementationRequest | null {
   if (!conversation) return null;
 
-  const latestTurn = conversation.turns[conversation.turns.length - 1];
-  if (!latestTurn || latestTurn.status !== "completed") return null;
-  if (options?.dismissedPlanImplementationTurnId === latestTurn.turnId) return null;
+  for (let index = conversation.turns.length - 1; index >= 0; index -= 1) {
+    const turn = conversation.turns[index];
+    if (!turn) continue;
+    if (options?.dismissedPlanImplementationTurnId === turn.turnId) continue;
 
-  const latestPlanItem = [...latestTurn.items]
-    .filter((item) => item.kind === "plan" && (item.markdownText ?? "").trim().length > 0)
-    .sort((left, right) =>
-      (left.sequence ?? 0) - (right.sequence ?? 0)
-      || left.createdAt - right.createdAt
-      || left.updatedAt - right.updatedAt,
-    )
-    .at(-1);
+    const planImplementationItem = turn.items.find((item) =>
+      item.semanticKind === "planImplementation"
+      && item.status !== "completed"
+      && (item.markdownText ?? "").trim().length > 0);
+    if (!planImplementationItem) continue;
 
-  if (!latestPlanItem) return null;
+    return {
+      type: "implementPlan",
+      requestId: buildPlanImplementationRequestId(turn.turnId),
+      projectId: conversation.projectId,
+      cardId: conversation.cardId,
+      threadId: conversation.threadId,
+      turnId: turn.turnId,
+      itemId: planImplementationItem.itemId,
+      planContent: (planImplementationItem.markdownText ?? "").trim(),
+      createdAt: planImplementationItem.updatedAt,
+    };
+  }
 
-  return {
-    type: "implementPlan",
-    requestId: buildPlanImplementationRequestId(latestTurn.turnId),
-    projectId: conversation.projectId,
-    cardId: conversation.cardId,
-    threadId: conversation.threadId,
-    turnId: latestTurn.turnId,
-    itemId: latestPlanItem.itemId,
-    planContent: (latestPlanItem.markdownText ?? "").trim(),
-    createdAt: latestPlanItem.updatedAt,
-  };
+  return null;
 }
 
 export function selectConversationLiveRequests(

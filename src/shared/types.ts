@@ -625,9 +625,12 @@ export type CodexItemNormalizedKind =
   | "reasoning"
   | "plan"
   | "userInputRequest"
+  | "userInputResponse"
   | "commandExecution"
   | "fileChange"
   | "toolCall"
+  | "hook"
+  | "planImplementation"
   | "systemEvent";
 
 export type CodexSemanticItemKind =
@@ -654,7 +657,9 @@ export type CodexSemanticItemKind =
   | "contextCompaction"
   | "automaticApprovalReview"
   | "multiAgentAction"
-  | "answeredUserInput"
+  | "userInputResponse"
+  | "hook"
+  | "planImplementation"
   | "systemEvent";
 
 export type CodexToolCallSubtype = "mcp" | "webSearch" | "generic" | "command" | "fileChange";

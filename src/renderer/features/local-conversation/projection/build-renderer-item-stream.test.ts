@@ -63,6 +63,38 @@ describe("buildRendererItemStream", () => {
     expect(items.map((item) => item.type).join(",")).toBe("todoList,turnDiff,modelRerouted,webSearch");
   });
 
+  test("maps bundle-native hook, planImplementation, and userInputResponse families", () => {
+    const items = buildRendererItemStream({
+      entries: [
+        buildEntry({
+          itemId: "hook_1",
+          type: "hook",
+          kind: "hook",
+          semanticKind: "hook",
+        }),
+        buildEntry({
+          itemId: "plan_impl_1",
+          type: "planImplementation",
+          kind: "planImplementation",
+          semanticKind: "planImplementation",
+          markdownText: "Implement the plan",
+        }),
+        buildEntry({
+          itemId: "user_input_response_1",
+          type: "request_user_input",
+          kind: "userInputResponse",
+          semanticKind: "userInputResponse",
+          userInputQuestions: [],
+          userInputAnswers: {},
+        }),
+      ],
+      requests: [],
+      turnStatus: "completed",
+    });
+
+    expect(items.map((item) => item.type).join(",")).toBe("hook,planImplementation,userInputResponse");
+  });
+
   test("omits unanswered user-input requests from inline renderer items", () => {
     const items = buildRendererItemStream({
       entries: [

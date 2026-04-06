@@ -16,6 +16,10 @@ function resolveEntryKind(entry: CodexItemView | CodexTranscriptEntry): string {
   return "";
 }
 
+function resolveSemanticKind(entry: CodexItemView | CodexTranscriptEntry): string {
+  return typeof entry.semanticKind === "string" ? entry.semanticKind : "";
+}
+
 export function shouldTerminalizeItemWithTurn(
   entry: CodexItemView | CodexTranscriptEntry,
   turnStatus: CodexTurnStatus,
@@ -26,6 +30,10 @@ export function shouldTerminalizeItemWithTurn(
 
   if (turnStatus === "interrupted") {
     return true;
+  }
+
+  if (resolveSemanticKind(entry) === "planImplementation") {
+    return false;
   }
 
   return resolveEntryKind(entry) !== "commandExecution";

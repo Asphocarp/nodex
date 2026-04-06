@@ -138,6 +138,8 @@ export interface ThreadTranscriptBlockModel {
     | "mcpToolCall"
     | "webSearch"
     | "workedFor"
+    | "hook"
+    | "planImplementation"
     | "mcpServerElicitation"
     | "streamError"
     | "systemError"
@@ -150,7 +152,7 @@ export interface ThreadTranscriptBlockModel {
     | "automaticApprovalReview"
     | "multiAgentAction"
     | "systemEvent"
-    | "answeredUserInput";
+    | "userInputResponse";
   entry: CodexConversationItem;
   status?: CodexConversationItem["status"];
   userMessageActions?: ThreadUserMessageActionsModel;
@@ -208,16 +210,17 @@ export type ThreadBlockModel =
   | ThreadThinkingPlaceholderBlockModel;
 
 export interface ThreadTurnRenderBuckets {
+  preUserItems: ThreadTranscriptBlockModel[];
   userItems: ThreadTranscriptBlockModel[];
   assistantItem: ThreadTranscriptBlockModel | null;
   systemEventItem: ThreadTranscriptBlockModel | null;
-  approvalItems: ThreadPendingTurnRequestModel[];
-  userInputItems: ThreadPendingTurnRequestModel[];
-  implementPlanItem: ThreadPendingTurnRequestModel | null;
+  approvalItem: ThreadPendingTurnRequestModel | null;
+  userInputItem: ThreadPendingTurnRequestModel | null;
   mcpServerElicitationItems: ThreadTranscriptBlockModel[];
   todoListItem: ThreadTranscriptBlockModel | null;
   unifiedDiffItem: ThreadTranscriptBlockModel | null;
   proposedPlanItem: ThreadTranscriptBlockModel | null;
+  planImplementationItem: ThreadTranscriptBlockModel | null;
   postAssistantItems: ThreadTranscriptBlockModel[];
   agentItems: ThreadTranscriptBlockModel[];
   remoteTaskCreatedItems: ThreadTranscriptBlockModel[];

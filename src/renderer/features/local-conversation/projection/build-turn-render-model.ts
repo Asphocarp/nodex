@@ -36,8 +36,8 @@ export function buildTurnRenderModel(
     turnStatus: input.turn.status,
   });
   const isBlocked =
-    buckets.approvalItems.length > 0
-    || buckets.userInputItems.length > 0
+    buckets.approvalItem !== null
+    || buckets.userInputItem !== null
     || hasIncompleteElicitation(items);
 
   return buildTurnViewModel({

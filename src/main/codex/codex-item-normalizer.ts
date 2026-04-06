@@ -186,6 +186,12 @@ function formatAskedQuestionLabel(count: number): string {
   return count === 1 ? "Asked 1 question" : `Asked ${count} questions`;
 }
 
+function buildMarkdownImage(path: string | undefined): string | undefined {
+  const trimmed = path?.trim();
+  if (!trimmed) return undefined;
+  return `![Image](${trimmed})`;
+}
+
 function isTodoListMarkdown(value: string | undefined): boolean {
   const text = value?.trim() ?? "";
   if (!text) return false;
@@ -447,12 +453,13 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
 
   if (isType(itemType, ["requestUserInput", "request_user_input"])) {
     const questions = parseUserInputQuestions(candidate.questions);
-    result.normalizedKind = "userInputRequest";
-    result.semanticKind = parseUserInputAnswers(candidate.answers) ? "answeredUserInput" : "systemEvent";
+    const answers = parseUserInputAnswers(candidate.answers);
+    result.normalizedKind = answers ? "userInputResponse" : "userInputRequest";
+    result.semanticKind = answers ? "userInputResponse" : "systemEvent";
     result.status = normalizeItemStatus(getUnknown(candidate, ["status"]));
     result.markdownText = formatAskedQuestionLabel(questions.length);
     result.userInputQuestions = questions;
-    result.userInputAnswers = parseUserInputAnswers(candidate.answers);
+    result.userInputAnswers = answers;
     return applyFallbackContent(result, itemType);
   }
 
@@ -594,26 +601,20 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
 
   if (isType(itemType, ["imageView", "image_view"])) {
     const path = getString(candidate, ["path"]);
-    result.normalizedKind = "systemEvent";
-    result.semanticKind = "systemEvent";
-    result.markdownText = path ? `Viewed image: ${path}` : "Viewed image";
+    result.normalizedKind = "assistantMessage";
+    result.semanticKind = "assistantMessage";
+    result.role = "assistant";
+    result.status = "completed";
+    result.markdownText = buildMarkdownImage(path) ?? "";
     return applyFallbackContent(result, itemType);
   }
 
   if (isType(itemType, ["enteredReviewMode", "entered_review_mode"])) {
-    const reviewId = getString(candidate, ["review"]);
-    result.normalizedKind = "systemEvent";
-    result.semanticKind = "systemEvent";
-    result.markdownText = reviewId ? `Entered review mode (${reviewId})` : "Entered review mode";
-    return applyFallbackContent(result, itemType);
+    return null;
   }
 
   if (isType(itemType, ["exitedReviewMode", "exited_review_mode"])) {
-    const reviewId = getString(candidate, ["review"]);
-    result.normalizedKind = "systemEvent";
-    result.semanticKind = "systemEvent";
-    result.markdownText = reviewId ? `Exited review mode (${reviewId})` : "Exited review mode";
-    return applyFallbackContent(result, itemType);
+    return null;
   }
 
   if (isType(itemType, ["contextCompaction", "context_compaction"])) {
@@ -622,6 +623,30 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
     result.semanticKind = "contextCompaction";
     result.status = status;
     result.markdownText = resolveContextCompactionMarkdown(status);
+    return applyFallbackContent(result, itemType);
+  }
+
+  if (isType(itemType, ["mcpServerElicitation", "mcp_server_elicitation"])) {
+    result.normalizedKind = "systemEvent";
+    result.semanticKind = "mcpServerElicitation";
+    result.status = Boolean(candidate.completed) ? "completed" : "inProgress";
+    result.markdownText = getString(candidate, ["message"]) ?? "MCP elicitation";
+    return applyFallbackContent(result, itemType);
+  }
+
+  if (isType(itemType, ["hook"])) {
+    result.normalizedKind = "hook";
+    result.semanticKind = "hook";
+    result.status = normalizeItemStatus(getUnknown(candidate, ["status"]));
+    result.markdownText = getString(candidate, ["statusMessage", "status_message"]) ?? "Hook";
+    return applyFallbackContent(result, itemType);
+  }
+
+  if (isType(itemType, ["planImplementation", "plan_implementation"])) {
+    result.normalizedKind = "planImplementation";
+    result.semanticKind = "planImplementation";
+    result.status = Boolean(candidate.isCompleted) ? "completed" : "inProgress";
+    result.markdownText = getString(candidate, ["planContent", "plan_content"]) ?? "";
     return applyFallbackContent(result, itemType);
   }
 

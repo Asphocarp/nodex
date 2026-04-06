@@ -2,11 +2,13 @@ import {
   ThreadAutomaticApprovalReviewBlock,
   ThreadMultiAgentGroupBlock,
   ThreadMultiAgentActionBlock,
-  ThreadAnsweredUserInputCard,
   ThreadAssistantBodyBlock,
   ThreadContextCompactionBlock,
   ThreadExplorationGroupBlock,
+  ThreadHookBlock,
+  ThreadMcpServerElicitationBlock,
   ThreadPlanCardBlock,
+  ThreadPlanImplementationBlock,
   ThreadReasoningBlock,
   ThreadStreamErrorBlock,
   ThreadSystemErrorBlock,
@@ -14,6 +16,7 @@ import {
   ThreadSystemBannerBlock,
   ThreadTurnDiffBlock,
   ThreadToolSurfaceBlock,
+  ThreadUserInputResponseCard,
   ThreadUserBubbleBlock,
   ThreadWorkedForBlock,
 } from "./local-conversation-block-leaves";
@@ -170,8 +173,20 @@ export function ThreadBlockRenderer({
     );
   }
 
-  if (block.type === "answeredUserInput") {
-    return <ThreadAnsweredUserInputCard block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
+  if (block.type === "userInputResponse") {
+    return <ThreadUserInputResponseCard block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
+  }
+
+  if (block.type === "mcpServerElicitation") {
+    return <ThreadMcpServerElicitationBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
+  }
+
+  if (block.type === "hook") {
+    return <ThreadHookBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
+  }
+
+  if (block.type === "planImplementation") {
+    return <ThreadPlanImplementationBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
   }
 
   if (block.type === "contextCompaction") {

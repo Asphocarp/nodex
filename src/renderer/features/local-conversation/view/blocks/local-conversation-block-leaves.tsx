@@ -76,6 +76,11 @@ interface ExplorationAccordionModel {
   listCount: number;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== "object" || value === null) return null;
+  return value as Record<string, unknown>;
+}
+
 function normalizeExplorationPath(value: string | null | undefined): string | null {
   if (!value) return null;
   const trimmed = value.trim();
@@ -424,6 +429,10 @@ function humanizeBlockType(type: ThreadBlockModel["type"]): string {
       return "Context automatically compacted";
     case "automaticApprovalReview":
       return "Approval review";
+    case "hook":
+      return "Hook";
+    case "planImplementation":
+      return "Plan implementation";
     case "mcpServerElicitation":
       return "MCP elicitation";
     case "mcpToolCall":
@@ -434,6 +443,8 @@ function humanizeBlockType(type: ThreadBlockModel["type"]): string {
       return "Web search";
     case "workedFor":
       return "Worked for";
+    case "userInputResponse":
+      return "User input response";
     default:
       return "System event";
   }
@@ -717,6 +728,92 @@ export function ThreadPlanCardBlock({
   );
 }
 
+function humanizeHookEventName(value: string | null | undefined): string {
+  switch (value) {
+    case "preToolUse":
+      return "PreToolUse";
+    case "postToolUse":
+      return "PostToolUse";
+    case "sessionStart":
+      return "SessionStart";
+    case "userPromptSubmit":
+      return "UserPromptSubmit";
+    case "stop":
+      return "Stop";
+    default:
+      return "Hook";
+  }
+}
+
+function resolveHookSummary(entry: CodexConversationItem): {
+  summary: string;
+  status: string;
+  details: Array<{ kind: string; text: string }>;
+} {
+  const raw = asRecord(entry.rawItem);
+  const run = asRecord(raw?.run);
+  const eventName = typeof run?.eventName === "string" ? run.eventName : null;
+  const statusMessage = typeof run?.statusMessage === "string" ? run.statusMessage.trim() : "";
+  const status = typeof run?.status === "string" ? run.status : "running";
+  const details = Array.isArray(run?.entries)
+    ? run.entries.flatMap((candidate) => {
+        const parsed = asRecord(candidate);
+        if (!parsed || typeof parsed.kind !== "string" || typeof parsed.text !== "string") return [];
+        return [{ kind: parsed.kind, text: parsed.text }];
+      })
+    : [];
+
+  return {
+    summary: statusMessage.length > 0
+      ? `${humanizeHookEventName(eventName)} - ${statusMessage}`
+      : humanizeHookEventName(eventName),
+    status,
+    details,
+  };
+}
+
+export function ThreadHookBlock({ block }: ThreadLeafBlockProps) {
+  if (block.type !== "hook") return null;
+
+  const [expanded, setExpanded] = useState(false);
+  const hook = resolveHookSummary(block.entry);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <button
+        type="button"
+        className="group flex w-full min-w-0 items-center gap-1.5 text-left text-size-chat text-token-description-foreground transition-colors hover:text-token-foreground"
+        aria-expanded={expanded}
+        onClick={() => {
+          setExpanded((current) => !current);
+        }}
+      >
+        <ChevronRightIcon
+          className={cn(
+            "icon-xs shrink-0 transition-transform duration-300",
+            expanded && "rotate-90",
+          )}
+        />
+        <span className="min-w-0 flex-1 truncate">{hook.summary}</span>
+        <span className="shrink-0 pl-4 text-right">{hook.status}</span>
+      </button>
+      {expanded ? (
+        <div className="ml-5 flex flex-col gap-1">
+          {hook.details.map((detail, index) => (
+            <p
+              key={`${detail.kind}:${index}`}
+              className="text-size-chat whitespace-pre-wrap text-token-description-foreground"
+              data-hook-entry-kind={detail.kind}
+            >
+              {detail.kind}: {detail.text}
+            </p>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function ThreadWorkedForBlock({ block }: ThreadLeafBlockProps) {
   const timeLabel = block.entry.timeLabel?.trim();
   if (!timeLabel) return null;
@@ -775,8 +872,63 @@ export function ThreadAssistantBodyBlock({
   );
 }
 
-export function ThreadAnsweredUserInputCard({ block }: ThreadLeafBlockProps) {
+export function ThreadUserInputResponseCard({ block }: ThreadLeafBlockProps) {
+  if (block.type !== "userInputResponse") return null;
   return <AnsweredUserInputBlock item={block.entry} />;
+}
+
+function resolveMcpServerElicitationSummary(entry: CodexConversationItem): {
+  title: string;
+  body: string | null;
+} {
+  const raw = asRecord(entry.rawItem);
+  const serverName = typeof raw?.serverName === "string" ? raw.serverName.trim() : "";
+  const message = typeof raw?.message === "string" ? raw.message.trim() : "";
+  const action = typeof raw?.action === "string" ? raw.action.trim() : "";
+  const title = serverName.length > 0 ? `MCP elicitation: ${serverName}` : "MCP elicitation";
+  const body = [message, action.length > 0 ? `Action: ${action}` : ""]
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+    .join("\n");
+
+  return {
+    title,
+    body: body.length > 0 ? body : null,
+  };
+}
+
+export function ThreadMcpServerElicitationBlock({ block }: ThreadLeafBlockProps) {
+  if (block.type !== "mcpServerElicitation") return null;
+
+  const summary = resolveMcpServerElicitationSummary(block.entry);
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="text-[11px] font-medium tracking-wide text-token-description-foreground uppercase">
+        {summary.title}
+      </div>
+      {summary.body ? (
+        <div className="text-size-chat whitespace-pre-wrap text-token-text-secondary">
+          {summary.body}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export function ThreadPlanImplementationBlock({ block }: ThreadLeafBlockProps) {
+  if (block.type !== "planImplementation") return null;
+
+  const content = block.entry.markdownText?.trim() ?? "";
+  if (content.length === 0) return null;
+
+  return (
+    <PlanMessage
+      content={content}
+      completed={block.status === "completed"}
+      parseIncompleteMarkdown={false}
+      defaultCollapsed={block.status !== "completed"}
+    />
+  );
 }
 
 function ContextCompactionIcon({ className }: { className?: string }) {

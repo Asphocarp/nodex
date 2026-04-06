@@ -175,6 +175,35 @@ describe("codex-item-normalizer", () => {
     expect(item?.markdownText).toBe("The command only runs the local test suite.");
   });
 
+  test("normalizes imageView items into assistant messages", () => {
+    const item = normalizeThreadItem(
+      {
+        id: "item-image-view",
+        type: "imageView",
+        path: "/tmp/screenshot.png",
+      },
+      "thread-1",
+      "turn-1",
+    );
+
+    expect(item?.normalizedKind).toBe("assistantMessage");
+    expect(item?.semanticKind).toBe("assistantMessage");
+    expect(item?.markdownText).toBe("![Image](/tmp/screenshot.png)");
+  });
+
+  test("ignores review mode markers", () => {
+    expect(normalizeThreadItem({
+      id: "item-review-enter",
+      type: "enteredReviewMode",
+      review: "review-1",
+    }, "thread-1", "turn-1")).toBe(null);
+    expect(normalizeThreadItem({
+      id: "item-review-exit",
+      type: "exitedReviewMode",
+      review: "review-1",
+    }, "thread-1", "turn-1")).toBe(null);
+  });
+
   test("normalizes multi-agent actions with structured receiver metadata", () => {
     const item = normalizeThreadItem(
       {
@@ -383,7 +412,7 @@ describe("codex-item-normalizer", () => {
     );
 
     expect(item).not.toBeNull();
-    expect(item?.normalizedKind).toBe("userInputRequest");
+    expect(item?.normalizedKind).toBe("userInputResponse");
     expect(item?.status).toBe("completed");
     expect(item?.markdownText).toBe("Asked 1 question");
     expect(item?.userInputQuestions?.[0]?.question).toBe("What is 1 + 1?");

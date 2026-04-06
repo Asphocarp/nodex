@@ -42,7 +42,11 @@ function resolveSearchableText(entry: CodexConversationItem): string {
 function resolveRendererType(entry: CodexConversationItem): ThreadTranscriptBlockModel["type"] | null {
   if (entry.kind === "fileChange") return "fileChange";
 
-  if (entry.kind === "userInputRequest" && entry.semanticKind !== "answeredUserInput") {
+  if (entry.kind === "userInputRequest") {
+    return null;
+  }
+
+  if (entry.kind === "userInputResponse" && entry.semanticKind !== "userInputResponse") {
     return null;
   }
 
@@ -73,6 +77,10 @@ function resolveRendererType(entry: CodexConversationItem): ThreadTranscriptBloc
       return "workedFor";
     case "mcpServerElicitation":
       return "mcpServerElicitation";
+    case "hook":
+      return "hook";
+    case "planImplementation":
+      return "planImplementation";
     case "streamError":
       return "streamError";
     case "systemError":
@@ -93,8 +101,8 @@ function resolveRendererType(entry: CodexConversationItem): ThreadTranscriptBloc
       return "automaticApprovalReview";
     case "multiAgentAction":
       return "multiAgentAction";
-    case "answeredUserInput":
-      return "answeredUserInput";
+    case "userInputResponse":
+      return "userInputResponse";
     case "systemEvent":
       return "systemEvent";
     default:
@@ -176,10 +184,11 @@ function hasAboveAssistantWork(items: ThreadTranscriptBlockModel[], anchorIndex:
       case "fileChange":
       case "mcpToolCall":
       case "automaticApprovalReview":
+      case "hook":
       case "streamError":
       case "systemError":
       case "contextCompaction":
-      case "answeredUserInput":
+      case "userInputResponse":
       case "mcpServerElicitation":
         return true;
       case "webSearch":

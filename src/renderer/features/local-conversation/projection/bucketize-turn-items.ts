@@ -12,16 +12,17 @@ interface BucketizeTurnItemsInput {
 
 function createEmptyBuckets(): ThreadTurnRenderBuckets {
   return {
+    preUserItems: [],
     userItems: [],
     assistantItem: null,
     systemEventItem: null,
-    approvalItems: [],
-    userInputItems: [],
-    implementPlanItem: null,
+    approvalItem: null,
+    userInputItem: null,
     mcpServerElicitationItems: [],
     todoListItem: null,
     unifiedDiffItem: null,
     proposedPlanItem: null,
+    planImplementationItem: null,
     postAssistantItems: [],
     agentItems: [],
     remoteTaskCreatedItems: [],
@@ -37,15 +38,12 @@ function isPendingRequestItem(item: ThreadRendererItemModel): item is ThreadPend
   return item.type === "approval" || item.type === "userInput" || item.type === "implementPlan";
 }
 
-function isSystemLikeItem(item: ThreadTranscriptBlockModel): boolean {
-  return item.type === "systemError"
-    || item.type === "streamError"
-    || item.type === "contextCompaction"
-    || item.type === "systemEvent";
-}
-
-function isTrailingAutomaticApprovalReview(item: ThreadTranscriptBlockModel): boolean {
-  return item.type === "automaticApprovalReview";
+function isPendingApproval(item: ThreadTranscriptBlockModel): boolean {
+  return item.type === "fileChange"
+    ? item.entry.approvalRequestId != null && item.entry.fileChange == null
+    : item.type === "exec"
+      ? item.entry.approvalRequestId != null && item.entry.exitCode == null
+      : false;
 }
 
 function hasRenderableAssistantContent(item: ThreadTranscriptBlockModel | null): boolean {
@@ -53,7 +51,11 @@ function hasRenderableAssistantContent(item: ThreadTranscriptBlockModel | null):
   return (item.entry.markdownText?.trim().length ?? 0) > 0;
 }
 
-function isCodexAgentItem(item: ThreadTranscriptBlockModel): boolean {
+function isTrailingAutomaticApprovalReview(item: ThreadTranscriptBlockModel): boolean {
+  return item.type === "automaticApprovalReview";
+}
+
+function isRenderableAgentItem(item: ThreadTranscriptBlockModel): boolean {
   switch (item.type) {
     case "assistantMessage":
     case "exec":
@@ -65,8 +67,9 @@ function isCodexAgentItem(item: ThreadTranscriptBlockModel): boolean {
     case "systemError":
     case "contextCompaction":
     case "reasoning":
-    case "answeredUserInput":
+    case "userInputResponse":
     case "workedFor":
+    case "mcpServerElicitation":
       return true;
     case "webSearch":
       return item.searchableText.trim().length > 0;
@@ -75,64 +78,56 @@ function isCodexAgentItem(item: ThreadTranscriptBlockModel): boolean {
   }
 }
 
+function shouldPushHookToAgentItems(
+  items: ThreadRendererItemModel[],
+  currentIndex: number,
+): boolean {
+  return items.slice(currentIndex + 1).some((candidate) => {
+    if (isPendingRequestItem(candidate)) {
+      return candidate.type === "approval" || candidate.type === "userInput";
+    }
+
+    return candidate.type === "userMessage" || isRenderableAgentItem(candidate);
+  });
+}
+
 export function bucketizeTurnItems(input: BucketizeTurnItemsInput): ThreadTurnRenderBuckets {
   const buckets = createEmptyBuckets();
   const genericItems: ThreadTranscriptBlockModel[] = [];
-  let leadingUserPrefixOpen = true;
+  let beforeAgentSequence = true;
 
-  for (const item of input.items) {
+  for (const [index, item] of input.items.entries()) {
     if (isPendingRequestItem(item)) {
       if (item.type === "approval") {
-        buckets.approvalItems.push(item);
+        buckets.approvalItem = item;
         continue;
       }
 
       if (item.type === "userInput") {
-        buckets.userInputItems.push(item);
-        continue;
-      }
-
-      if (buckets.implementPlanItem === null) {
-        buckets.implementPlanItem = item;
+        buckets.userInputItem = item;
       }
       continue;
     }
 
-    switch (item.type) {
-      case "modelChanged":
-        buckets.modelChangedItems.push(item);
-        continue;
-      case "modelRerouted":
-        buckets.modelReroutedItems.push(item);
-        continue;
-      case "remoteTaskCreated":
-        buckets.remoteTaskCreatedItems.push(item);
-        continue;
-      case "personalityChanged":
-        buckets.personalityChangedItems.push(item);
-        continue;
-      case "forkedFromConversation":
-        buckets.forkedFromConversationItems.push(item);
-        continue;
-    }
-
-    if (item.type === "userMessage" && leadingUserPrefixOpen) {
+    if (beforeAgentSequence && item.type === "userMessage") {
       buckets.userItems.push(item);
       continue;
     }
 
-    leadingUserPrefixOpen = false;
+    if (beforeAgentSequence && item.type === "hook") {
+      buckets.preUserItems.push(item);
+      continue;
+    }
+
+    beforeAgentSequence = false;
 
     if (item.type === "turnDiff") {
       buckets.unifiedDiffItem = item;
+      continue;
     }
 
     if (item.type === "todoList") {
       buckets.todoListItem = item;
-    }
-
-    if (item.type === "mcpServerElicitation" && item.status !== "completed") {
-      buckets.mcpServerElicitationItems.push(item);
       continue;
     }
 
@@ -141,8 +136,51 @@ export function bucketizeTurnItems(input: BucketizeTurnItemsInput): ThreadTurnRe
       continue;
     }
 
-    if (item.type === "answeredUserInput") {
-      genericItems.push(item);
+    if (item.type === "planImplementation") {
+      buckets.planImplementationItem = item;
+      continue;
+    }
+
+    if (item.type === "remoteTaskCreated") {
+      buckets.remoteTaskCreatedItems.push(item);
+      continue;
+    }
+
+    if (item.type === "personalityChanged") {
+      buckets.personalityChangedItems.push(item);
+      continue;
+    }
+
+    if (item.type === "forkedFromConversation") {
+      buckets.forkedFromConversationItems.push(item);
+      continue;
+    }
+
+    if (item.type === "modelChanged") {
+      buckets.modelChangedItems.push(item);
+      continue;
+    }
+
+    if (item.type === "modelRerouted") {
+      buckets.modelReroutedItems.push(item);
+      continue;
+    }
+
+    if (item.type === "mcpServerElicitation" && item.status !== "completed") {
+      buckets.mcpServerElicitationItems.push(item);
+      continue;
+    }
+
+    if (isPendingApproval(item)) {
+      continue;
+    }
+
+    if (item.type === "hook") {
+      if (shouldPushHookToAgentItems(input.items, index)) {
+        genericItems.push(item);
+      } else {
+        buckets.postAssistantItems.push(item);
+      }
       continue;
     }
 
@@ -151,9 +189,8 @@ export function bucketizeTurnItems(input: BucketizeTurnItemsInput): ThreadTurnRe
       continue;
     }
 
-    if (isCodexAgentItem(item)) {
+    if (isRenderableAgentItem(item)) {
       genericItems.push(item);
-      continue;
     }
   }
 
@@ -168,30 +205,22 @@ export function bucketizeTurnItems(input: BucketizeTurnItemsInput): ThreadTurnRe
   buckets.assistantItem = lastGenericItem?.type === "assistantMessage" ? lastGenericItem : null;
   if (buckets.assistantItem) {
     genericItems.pop();
-    buckets.postAssistantItems.push(...trailingReviews);
+    buckets.postAssistantItems.unshift(...trailingReviews);
   } else {
     genericItems.push(...trailingReviews);
   }
 
   const trailingSystemCandidate = genericItems[genericItems.length - 1] ?? null;
-  const canPromoteSystemEvent =
+  const canPromoteSystemError =
     input.turnStatus !== "inProgress"
     && !hasRenderableAssistantContent(buckets.assistantItem)
     && trailingSystemCandidate?.type === "systemError";
-  if (canPromoteSystemEvent && trailingSystemCandidate) {
+
+  if (canPromoteSystemError && trailingSystemCandidate) {
     buckets.systemEventItem = trailingSystemCandidate;
     genericItems.pop();
   }
 
-  for (const item of genericItems) {
-    if (!item) continue;
-    if (isSystemLikeItem(item) && buckets.systemEventItem === null && item.type === "systemEvent") {
-      buckets.systemEventItem = item;
-      continue;
-    }
-
-    buckets.agentItems.push(item);
-  }
-
+  buckets.agentItems.push(...genericItems);
   return buckets;
 }

@@ -112,11 +112,11 @@ export const AnsweredUserInput: Story = {
     >
       <UserInputTranscriptView
         item={{
-          ...THREAD_REQUEST_CARD_STORY_DATA.answeredUserInput,
-          userInputQuestions: [...THREAD_REQUEST_CARD_STORY_DATA.answeredUserInput.userInputQuestions],
+          ...THREAD_REQUEST_CARD_STORY_DATA.userInputResponse,
+          userInputQuestions: [...THREAD_REQUEST_CARD_STORY_DATA.userInputResponse.userInputQuestions],
           userInputAnswers: {
-            thread_scope: [...THREAD_REQUEST_CARD_STORY_DATA.answeredUserInput.userInputAnswers.thread_scope],
-            storybook_shape: [...THREAD_REQUEST_CARD_STORY_DATA.answeredUserInput.userInputAnswers.storybook_shape],
+            thread_scope: [...THREAD_REQUEST_CARD_STORY_DATA.userInputResponse.userInputAnswers.thread_scope],
+            storybook_shape: [...THREAD_REQUEST_CARD_STORY_DATA.userInputResponse.userInputAnswers.storybook_shape],
           },
         }}
       />
@@ -132,8 +132,8 @@ export const AnsweredUserInputEmpty: Story = {
     >
       <UserInputTranscriptView
         item={{
-          ...THREAD_REQUEST_CARD_STORY_DATA.answeredUserInputEmpty,
-          userInputQuestions: [...THREAD_REQUEST_CARD_STORY_DATA.answeredUserInputEmpty.userInputQuestions],
+          ...THREAD_REQUEST_CARD_STORY_DATA.userInputResponseEmpty,
+          userInputQuestions: [...THREAD_REQUEST_CARD_STORY_DATA.userInputResponseEmpty.userInputQuestions],
           userInputAnswers: {},
         }}
       />
@@ -149,8 +149,8 @@ export const AnsweredUserInputInProgress: Story = {
     >
       <UserInputTranscriptView
         item={{
-          ...THREAD_REQUEST_CARD_STORY_DATA.answeredUserInputInProgress,
-          userInputQuestions: [...THREAD_REQUEST_CARD_STORY_DATA.answeredUserInputInProgress.userInputQuestions],
+          ...THREAD_REQUEST_CARD_STORY_DATA.userInputResponseInProgress,
+          userInputQuestions: [...THREAD_REQUEST_CARD_STORY_DATA.userInputResponseInProgress.userInputQuestions],
           userInputAnswers: {},
         }}
       />

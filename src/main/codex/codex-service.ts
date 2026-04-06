@@ -84,7 +84,10 @@ import type {
   WorktreeStartMode,
 } from "../../shared/types";
 import { parseCodexThreadTokenUsage } from "../../shared/schemas/codex";
-import { selectPrimaryConversationRequest } from "../../shared/codex-conversation-request";
+import {
+  buildPlanImplementationRequestId,
+  selectPrimaryConversationRequest,
+} from "../../shared/codex-conversation-request";
 import {
   buildAutomaticApprovalReviewSummary,
   normalizeAutomaticApprovalReviewPayload,
@@ -2479,6 +2482,24 @@ export class CodexService extends EventEmitter {
     return `error:${turnId}`;
   }
 
+  private buildTodoListItemId(turnId: string): string {
+    return `todo-list:${turnId}`;
+  }
+
+  private buildMcpServerElicitationItemId(requestId: string): string {
+    return `mcp-server-elicitation-${requestId}`;
+  }
+
+  private buildUserInputResponseItemId(requestId: string): string {
+    return `user-input-response-${requestId}`;
+  }
+
+  private resolveLiveTurnId(threadId: string, turnId: string | null | undefined): string | null {
+    if (typeof turnId === "string" && turnId.trim().length > 0) return turnId;
+    const turns = this.listKnownTurns(threadId);
+    return turns[turns.length - 1]?.turnId ?? null;
+  }
+
   private buildTurnDiffItemView(input: {
     threadId: string;
     turnId: string;
@@ -2531,6 +2552,113 @@ export class CodexService extends EventEmitter {
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     });
+  }
+
+  private buildTodoListItemView(input: {
+    threadId: string;
+    turnId: string;
+    explanation: string | null;
+    plan: Array<{ step: string; status: string }>;
+  }): CodexItemView {
+    const existing = this.getRecordedItem(input.threadId, input.turnId, this.buildTodoListItemId(input.turnId));
+    const now = Date.now();
+    const itemId = this.buildTodoListItemId(input.turnId);
+    const planMarkdown = input.plan
+      .map((step, index) => `${index + 1}. [${step.status === "completed" ? "x" : " "}] ${step.step}`)
+      .join("\n");
+
+    return {
+      threadId: input.threadId,
+      turnId: input.turnId,
+      itemId,
+      type: "todo-list",
+      normalizedKind: "plan",
+      semanticKind: "todoList",
+      status: input.plan.every((step) => step.status === "completed") ? "completed" : "inProgress",
+      markdownText: planMarkdown,
+      rawItem: {
+        id: itemId,
+        type: "todo-list",
+        explanation: input.explanation,
+        plan: input.plan,
+      },
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+  }
+
+  private buildPlanImplementationItemView(input: {
+    threadId: string;
+    turnId: string;
+    planContent: string;
+    isCompleted: boolean;
+  }): CodexItemView {
+    const itemId = buildPlanImplementationRequestId(input.turnId);
+    const existing = this.getRecordedItem(input.threadId, input.turnId, itemId);
+    const now = Date.now();
+
+    return {
+      threadId: input.threadId,
+      turnId: input.turnId,
+      itemId,
+      type: "planImplementation",
+      normalizedKind: "planImplementation",
+      semanticKind: "planImplementation",
+      status: input.isCompleted ? "completed" : "inProgress",
+      markdownText: input.planContent,
+      rawItem: {
+        id: itemId,
+        type: "planImplementation",
+        turnId: input.turnId,
+        planContent: input.planContent,
+        isCompleted: input.isCompleted,
+      },
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+  }
+
+  private buildHookItemView(input: {
+    threadId: string;
+    turnId: string;
+    run: Record<string, unknown>;
+  }): CodexItemView | null {
+    const runId = typeof input.run.id === "string" ? input.run.id : null;
+    if (!runId) return null;
+
+    const existing = this.getRecordedItem(input.threadId, input.turnId, runId);
+    const now = Date.now();
+    const status =
+      typeof input.run.status === "string"
+        ? input.run.status === "running"
+          ? "inProgress"
+          : input.run.status === "failed"
+            ? "failed"
+            : input.run.status === "blocked"
+              ? "declined"
+              : input.run.status === "stopped"
+                ? "interrupted"
+                : "completed"
+        : "inProgress";
+    const statusMessage = typeof input.run.statusMessage === "string" ? input.run.statusMessage : null;
+
+    return {
+      threadId: input.threadId,
+      turnId: input.turnId,
+      itemId: runId,
+      type: "hook",
+      normalizedKind: "hook",
+      semanticKind: "hook",
+      status,
+      markdownText: statusMessage ?? "Hook",
+      rawItem: {
+        id: runId,
+        type: "hook",
+        run: input.run,
+      },
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
   }
 
   private removeTranscriptEntry(threadId: string, entryId: string): void {
@@ -4185,6 +4313,10 @@ export class CodexService extends EventEmitter {
       _meta: null,
     });
     this.pendingMcpElicitations.delete(requestId);
+    void this.upsertMcpServerElicitationItem(pending.request, {
+      completed: true,
+      action,
+    });
     this.emitThreadStreamStateChange(pending.request.threadId);
     return true;
   }
@@ -4193,44 +4325,132 @@ export class CodexService extends EventEmitter {
     request: CodexUserInputRequest,
     answers: Record<string, string[]>,
   ): CodexTranscriptEntry | null {
-    this.ensureConversationDetail(request.threadId);
-    const record = this.ensureConversationRecord(request.threadId);
-    const byItem = record.itemsByTurn.get(request.turnId) ?? new Map<string, CodexItemView>();
-    const itemKey = resolveCodexItemPrimaryIdentityKey({
-      turnId: request.turnId,
-      itemId: request.itemId,
-    });
-    const existing = byItem.get(itemKey);
-    const existingRawItem = asRecord(existing?.rawItem);
-    const questionCount = request.questions.length;
-    const now = Date.now();
-    const next: CodexItemView = {
+    const itemId = this.buildUserInputResponseItemId(request.requestId);
+    this.upsertCanonicalTurnItem(request.threadId, request.turnId, itemId, "inProgress");
+    return this.mergeItem({
       threadId: request.threadId,
       turnId: request.turnId,
-      itemId: request.itemId,
-      type: existing?.type ?? "request_user_input",
-      normalizedKind: "userInputRequest",
-      semanticKind: "answeredUserInput",
+      itemId,
+      type: "request_user_input",
+      normalizedKind: "userInputResponse",
+      semanticKind: "userInputResponse",
       status: "completed",
-      markdownText: questionCount === 1 ? "Asked 1 question" : `Asked ${questionCount} questions`,
+      markdownText: request.questions.length === 1 ? "Asked 1 question" : `Asked ${request.questions.length} questions`,
       userInputQuestions: request.questions,
       userInputAnswers: answers,
       rawItem: {
-        ...(existingRawItem ?? {}),
-        id: request.itemId,
-        type: existing?.type ?? "request_user_input",
+        id: itemId,
+        type: "userInputResponse",
+        requestId: request.requestId,
+        turnId: request.turnId,
         questions: request.questions,
         answers,
-        status: "completed",
+        completed: true,
       },
-      createdAt: existing?.createdAt ?? request.createdAt,
-      updatedAt: now,
-    };
+      createdAt: request.createdAt,
+      updatedAt: Date.now(),
+    });
+  }
 
-    const merged = existing ? mergeCodexItemView(existing, next) : next;
-    byItem.set(itemKey, merged);
-    record.itemsByTurn.set(request.turnId, byItem);
-    return this.mergeItem(merged);
+  private upsertMcpServerElicitationItem(
+    request: CodexMcpServerElicitationRequest,
+    options: { completed: boolean; action?: CodexMcpServerElicitationAction | null },
+  ): CodexTranscriptEntry | null {
+    const itemId = this.buildMcpServerElicitationItemId(request.requestId);
+    this.upsertCanonicalTurnItem(request.threadId, request.turnId, itemId, "inProgress");
+    return this.mergeItem({
+      threadId: request.threadId,
+      turnId: request.turnId,
+      itemId,
+      type: "mcpServerElicitation",
+      normalizedKind: "systemEvent",
+      semanticKind: "mcpServerElicitation",
+      status: options.completed ? "completed" : "inProgress",
+      markdownText: request.message,
+      rawItem: {
+        id: itemId,
+        type: "mcpServerElicitation",
+        requestId: request.requestId,
+        turnId: request.turnId,
+        elicitation: {
+          kind: request.kind,
+          mode: request.mode,
+          serverName: request.serverName,
+          message: request.message,
+          url: request.url,
+          elicitationId: request.elicitationId,
+          requestedSchema: request.requestedSchema,
+          meta: request.meta,
+        },
+        completed: options.completed,
+        action: options.action ?? null,
+        serverName: request.serverName,
+        message: request.message,
+      },
+      createdAt: request.createdAt,
+      updatedAt: Date.now(),
+    });
+  }
+
+  private syncPlanImplementationForTurn(threadId: string, turnId: string): void {
+    const record = this.getMaybeConversationRecord(threadId);
+    const byItem = record?.itemsByTurn.get(turnId);
+    if (!byItem || byItem.size === 0) return;
+
+    const items = Array.from(byItem.values());
+    const latestTodoList = items
+      .filter((item) => item.semanticKind === "todoList")
+      .sort((left, right) => left.updatedAt - right.updatedAt)
+      .at(-1);
+    const latestPlan = items
+      .filter((item) => item.type === "plan" && (item.markdownText?.trim().length ?? 0) > 0)
+      .sort((left, right) => left.updatedAt - right.updatedAt)
+      .at(-1);
+    const rawTodo = asRecord(latestTodoList?.rawItem);
+    const planSteps = Array.isArray(rawTodo?.plan)
+      ? rawTodo.plan.flatMap((candidate) => {
+          const parsed = asRecord(candidate);
+          if (!parsed || typeof parsed.step !== "string" || typeof parsed.status !== "string") return [];
+          return [{ step: parsed.step, status: parsed.status }];
+        })
+      : [];
+    const hasIncompletePlan = planSteps.some((step) => step.status !== "completed");
+    const planContent = latestPlan?.markdownText?.trim() ?? "";
+    const existing = this.getRecordedItem(threadId, turnId, buildPlanImplementationRequestId(turnId));
+
+    if (!hasIncompletePlan || planContent.length === 0) {
+      if (!existing) return;
+      this.mergeItem(this.buildPlanImplementationItemView({
+        threadId,
+        turnId,
+        planContent: existing.markdownText ?? "",
+        isCompleted: true,
+      }));
+      return;
+    }
+
+    this.upsertCanonicalTurnItem(threadId, turnId, buildPlanImplementationRequestId(turnId), "completed");
+    this.mergeItem(this.buildPlanImplementationItemView({
+      threadId,
+      turnId,
+      planContent,
+      isCompleted: false,
+    }));
+  }
+
+  private completeStalePlanImplementationItems(threadId: string, activeTurnId: string): void {
+    const turns = this.listKnownTurns(threadId);
+    for (const turn of turns) {
+      if (turn.turnId === activeTurnId) continue;
+      const existing = this.getRecordedItem(threadId, turn.turnId, buildPlanImplementationRequestId(turn.turnId));
+      if (!existing || existing.status === "completed") continue;
+      this.mergeItem(this.buildPlanImplementationItemView({
+        threadId,
+        turnId: turn.turnId,
+        planContent: existing.markdownText ?? "",
+        isCompleted: true,
+      }));
+    }
   }
 
   private async handleServerRequest(request: CodexServerRequest): Promise<unknown> {
@@ -4555,6 +4775,10 @@ export class CodexService extends EventEmitter {
       turnId: payload.turnId,
       mode: params.mode,
       serverName: params.serverName,
+    });
+    void this.upsertMcpServerElicitationItem(payload, {
+      completed: false,
+      action: null,
     });
 
     return await new Promise<McpServerElicitationRequestResponse>((resolve, reject) => {
@@ -4993,8 +5217,14 @@ export class CodexService extends EventEmitter {
         status: turn.status,
       });
       this.mergeTurn(threadId, turn);
+      if (method === "turn/started") {
+        this.completeStalePlanImplementationItems(threadId, turn.turnId);
+      }
       if (Object.prototype.hasOwnProperty.call(turnRecord, "diff")) {
         this.syncTurnDiffItem(threadId, turn.turnId, turn.diff, turn.status);
+      }
+      if (turn.status === "completed") {
+        this.syncPlanImplementationForTurn(threadId, turn.turnId);
       }
       this.syncThreadStatusFromKnownTurns(threadId);
       this.reconcileTurnItemsToTerminalStatus(threadId, turn.turnId, turn.status);
@@ -5005,6 +5235,48 @@ export class CodexService extends EventEmitter {
       if (turn.status !== "inProgress") {
         this.maybeDispatchQueuedFollowUp(threadId);
       }
+      return;
+    }
+
+    if (method === "turn/plan/updated") {
+      const payload = asRecord(params);
+      if (!payload || typeof payload.threadId !== "string" || typeof payload.turnId !== "string") return;
+      const plan = Array.isArray(payload.plan)
+        ? payload.plan.flatMap((candidate) => {
+            const parsed = asRecord(candidate);
+            if (!parsed || typeof parsed.step !== "string" || typeof parsed.status !== "string") return [];
+            return [{ step: parsed.step, status: parsed.status }];
+          })
+        : [];
+      const explanation = typeof payload.explanation === "string" ? payload.explanation : null;
+      const item = this.buildTodoListItemView({
+        threadId: payload.threadId,
+        turnId: payload.turnId,
+        explanation,
+        plan,
+      });
+      this.upsertCanonicalTurnItem(payload.threadId, payload.turnId, item.itemId, "inProgress");
+      this.mergeItem(item);
+      this.emitThreadStreamStateChange(payload.threadId);
+      return;
+    }
+
+    if (method === "hook/started" || method === "hook/completed") {
+      const payload = asRecord(params);
+      if (!payload || typeof payload.threadId !== "string") return;
+      const turnId = this.resolveLiveTurnId(payload.threadId, typeof payload.turnId === "string" ? payload.turnId : null);
+      if (!turnId) return;
+      const run = asRecord(payload.run);
+      if (!run) return;
+      const item = this.buildHookItemView({
+        threadId: payload.threadId,
+        turnId,
+        run,
+      });
+      if (!item) return;
+      this.upsertCanonicalTurnItem(payload.threadId, turnId, item.itemId, "inProgress");
+      this.mergeItem(item);
+      this.emitThreadStreamStateChange(payload.threadId);
       return;
     }
 

@@ -70,18 +70,20 @@ function buildConversation(
 }
 
 describe("local-conversation selectors", () => {
-  test("derives implement-plan requests from the latest completed plan turn", () => {
+  test("derives implement-plan requests from the latest incomplete planImplementation item", () => {
     const conversation = buildConversation({
       turns: [
         buildTurn({
           turnId: "turn_1",
           items: [
             buildItem({
-              itemId: "plan_1",
-              type: "plan",
-              kind: "plan",
+              itemId: "implement-plan:turn_1",
+              type: "planImplementation",
+              kind: "planImplementation",
+              semanticKind: "planImplementation",
               markdownText: "- step 1\n- step 2",
               updatedAt: 10,
+              status: "inProgress",
             }),
           ],
         }),
