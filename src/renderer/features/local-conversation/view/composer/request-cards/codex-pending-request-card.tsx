@@ -59,7 +59,10 @@ export function CodexPendingRequestCard({
           onRespond={async (response) => {
             actions.onResolvePlanImplementationRequest(entry.conversationId, request.turnId);
             if (response.type === "implement") {
-              await actions.onSendPrompt(`${PLAN_IMPLEMENTATION_PROMPT_PREFIX}\n${request.planContent}`);
+              actions.onCollaborationModeChange("default");
+              await actions.onSendPrompt(`${PLAN_IMPLEMENTATION_PROMPT_PREFIX}\n${request.planContent}`, {
+                collaborationMode: "default",
+              });
               return;
             }
             if (response.type === "followUp") {

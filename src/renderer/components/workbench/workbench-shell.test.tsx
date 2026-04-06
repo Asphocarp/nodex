@@ -104,10 +104,8 @@ mock.module("./workbench-shell-deps", () => ({
   readWorktreeAutoBranchPrefix: () => "nodex/" as const,
   writeWorktreeAutoBranchPrefix: (value: string) => value,
   DEFAULT_CODEX_COLLABORATION_MODE: "default" as const,
-  getDraftCollaborationModeStorageKey: (projectId: string, cardId: string) => `draft:${projectId}:${cardId}`,
-  getThreadCollaborationModeStorageKey: (threadId: string) => `thread:${threadId}`,
-  readCollaborationModeForContextKey: () => "default" as const,
-  writeCollaborationModeForContextKey: (_contextKey: string, mode: "default" | "plan") => mode,
+  readGlobalCollaborationMode: () => "default" as const,
+  writeGlobalCollaborationMode: (mode: "default" | "plan") => mode,
   readSmartPrefixParsingEnabled: () => true,
   readStripSmartPrefixFromTitleEnabled: () => true,
   writeSmartPrefixParsingEnabled: (value: boolean) => value,
@@ -212,7 +210,31 @@ mock.module("./workbench-shell-deps", () => ({
     }).__mockRequestConversationSnapshot?.(...args) ?? null
   ),
   resolveLocalConversationPlanImplementation: () => undefined,
+  setLocalConversationCollaborationMode: async (threadId: string, mode: "default" | "plan") => {
+    const globalState = globalThis as {
+      __mockConversationModesById?: Record<string, { mode: "default" | "plan"; settings: { model: string; reasoning_effort: "high"; developer_instructions: null } }>;
+    };
+    globalState.__mockConversationModesById ??= {};
+    globalState.__mockConversationModesById[threadId] = {
+      mode,
+      settings: {
+        model: "gpt-5.3-codex",
+        reasoning_effort: "high",
+        developer_instructions: null,
+      },
+    };
+    return globalState.__mockConversationModesById[threadId];
+  },
   setLocalConversationComposerIntent: () => undefined,
+  useConversationCollaborationMode: (threadId: string | null) => {
+    if (!threadId) return null;
+    return ((globalThis as {
+      __mockConversationModesById?: Record<string, {
+        mode: "default" | "plan";
+        settings: { model: string; reasoning_effort: "high"; developer_instructions: null };
+      }>;
+    }).__mockConversationModesById ?? {})[threadId] ?? null;
+  },
   consumeLocalConversationComposerIntent: () => undefined,
   useKanban: () => ({
     board: {
@@ -346,6 +368,26 @@ async function renderShell(
     (
       useLocalConversationOverrides?.state as { conversationsById?: Record<string, unknown> } | undefined
     )?.conversationsById ?? {};
+  (globalThis as {
+    __mockConversationModesById?: Record<string, {
+      mode: "default" | "plan";
+      settings: { model: string; reasoning_effort: "high"; developer_instructions: null };
+    }>;
+  }).__mockConversationModesById =
+    Object.fromEntries(
+      Object.entries(
+        ((useLocalConversationOverrides?.state as {
+          conversationsById?: Record<string, { latestCollaborationMode?: {
+            mode: "default" | "plan";
+            settings: { model: string; reasoning_effort: "high"; developer_instructions: null };
+          } }>;
+        } | undefined)?.conversationsById ?? {}),
+      ).flatMap(([threadId, conversation]) =>
+        conversation.latestCollaborationMode
+          ? [[threadId, conversation.latestCollaborationMode]]
+          : [],
+      ),
+    );
   (globalThis as { __mockRequestConversationSnapshot?: (...args: unknown[]) => Promise<unknown> }).__mockRequestConversationSnapshot =
     useLocalConversationOverrides?.requestConversationSnapshot as ((...args: unknown[]) => Promise<unknown>) | undefined;
   (globalThis as { __mockRequestConversationResume?: (...args: unknown[]) => Promise<unknown> }).__mockRequestConversationResume =
@@ -728,6 +770,92 @@ describe("WorkbenchShell", () => {
     expect(startTurnCalls.length).toBe(1);
     const startTurnOptions = startTurnCalls[0]?.[2] as { collaborationMode?: string } | undefined;
     expect(startTurnOptions?.collaborationMode).toBe("default");
+  });
+
+  test("uses the active conversation collaboration mode instead of shell-local storage", async () => {
+    const startTurnCalls: Array<unknown[]> = [];
+    const threadFollowerOverrides: Record<string, unknown> = {
+      startTurn: async (...args: unknown[]) => {
+        startTurnCalls.push(args);
+        return null;
+      },
+    };
+
+    await renderShell(false, "full-rail", {
+      activeThreadsTabId: "thr-1",
+      threadsTabs: [{ id: "thr-1", title: "Thread 1", preview: "Preview" }],
+    }, [
+      {
+        threadId: "thr-1",
+        projectId: "default",
+        cardId: "card-1",
+        threadName: "Thread 1",
+        threadPreview: "Preview",
+        modelProvider: "openai",
+        statusType: "idle",
+        statusActiveFlags: [],
+        archived: false,
+        createdAt: 1,
+        updatedAt: 2,
+        linkedAt: "2026-02-21T00:00:00.000Z",
+      },
+    ], null, ["db", "cards"], {
+      state: {
+        threadStartProgressByTarget: {},
+      },
+    }, {
+      state: {
+        conversationsById: {
+          "thr-1": {
+            threadId: "thr-1",
+            projectId: "default",
+            cardId: "card-1",
+            threadName: "Thread 1",
+            threadPreview: "Preview",
+            modelProvider: "openai",
+            cwd: "/tmp/project",
+            statusType: "idle",
+            statusActiveFlags: [],
+            archived: false,
+            createdAt: 1,
+            updatedAt: 2,
+            linkedAt: "2026-02-21T00:00:00.000Z",
+            latestCollaborationMode: {
+              mode: "plan",
+              settings: {
+                model: "gpt-5.3-codex",
+                reasoning_effort: "high",
+                developer_instructions: null,
+              },
+            },
+            resumeState: "resumed",
+            turns: [],
+            requests: [],
+            queuedFollowUps: [],
+            pendingSteers: [],
+            backgroundTerminalRows: [],
+            childMemberships: [],
+            capabilityFlags: {
+              canEditLastUserTurn: false,
+              canForkFromTurn: false,
+              canSearch: true,
+              canCollapseTurns: true,
+            },
+          },
+        },
+      },
+    }, threadFollowerOverrides);
+
+    const stageThreadsProps = (globalThis as { __lastStageThreadsProps?: Record<string, unknown> }).__lastStageThreadsProps;
+    expect(stageThreadsProps?.selectedCollaborationMode).toBe("plan");
+
+    const onSendPrompt = stageThreadsProps?.onSendPrompt as ((prompt: string) => Promise<void>) | undefined;
+    expect(Boolean(onSendPrompt)).toBeTrue();
+
+    await onSendPrompt?.("Follow up");
+
+    const startTurnOptions = startTurnCalls[0]?.[2] as { collaborationMode?: string } | undefined;
+    expect(startTurnOptions?.collaborationMode).toBe("plan");
   });
 
   test("allows thread prompt callbacks to override collaboration mode for plan implementation follow-ups", async () => {

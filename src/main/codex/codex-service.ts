@@ -48,6 +48,7 @@ import type {
   CodexConversationServerRequest,
   CodexConversationSnapshot,
   CodexCollaborationModeKind,
+  CodexCollaborationModeState,
   CodexCollaborationModePreset,
   CodexConnectionState,
   CodexEvent,
@@ -281,6 +282,7 @@ interface CodexConversationRecord {
   itemsByTurn: Map<string, Map<string, CodexItemView>>;
   queuedFollowUps: CodexQueuedFollowUp[];
   pendingSteers: CodexPendingSteer[];
+  latestCollaborationMode: CodexCollaborationModeState;
   resumeState: CodexConversationResumeState;
   streamRole: CodexConversationStreamRole;
   isStreaming: boolean;
@@ -1262,12 +1264,71 @@ export class CodexService extends EventEmitter {
     }
   }
 
+  private buildDefaultCollaborationModeState(): CodexCollaborationModeState {
+    const preset = this.collaborationModePresets.get("default");
+    return {
+      mode: "default",
+      settings: {
+        model: preset?.model ?? "gpt-5.2-codex",
+        reasoning_effort: preset?.reasoningEffort ?? "medium",
+        developer_instructions: null,
+      },
+    };
+  }
+
+  private buildCollaborationModeState(input: {
+    collaborationMode?: CodexCollaborationModeKind | null;
+    model?: string | null;
+    reasoningEffort?: CodexReasoningEffort | null;
+    fallback?: CodexCollaborationModeState | null;
+  }): CodexCollaborationModeState {
+    const fallback = input.fallback ?? this.buildDefaultCollaborationModeState();
+    const mode = input.collaborationMode ?? fallback.mode;
+    const preset = this.collaborationModePresets.get(mode);
+    const modelCandidate = input.model ?? preset?.model ?? fallback.settings.model;
+    const model = typeof modelCandidate === "string" && modelCandidate.trim().length > 0
+      ? modelCandidate.trim()
+      : fallback.settings.model;
+    const presetReasoningEffort = preset?.reasoningEffort;
+    const reasoningEffort = input.reasoningEffort !== undefined
+      ? input.reasoningEffort
+      : presetReasoningEffort !== undefined
+        ? presetReasoningEffort
+        : fallback.settings.reasoning_effort;
+
+    return {
+      mode,
+      settings: {
+        model,
+        reasoning_effort: reasoningEffort ?? null,
+        developer_instructions: null,
+      },
+    };
+  }
+
+  private setLatestCollaborationModeForThread(
+    threadId: string,
+    latestCollaborationMode: CodexCollaborationModeState,
+  ): void {
+    const record = this.ensureConversationRecord(threadId);
+    record.latestCollaborationMode = latestCollaborationMode;
+    if (!record.detail) {
+      return;
+    }
+
+    record.detail = {
+      ...record.detail,
+      latestCollaborationMode,
+    };
+  }
+
   private createConversationRecord(): CodexConversationRecord {
     return {
       detail: null,
       itemsByTurn: new Map<string, Map<string, CodexItemView>>(),
       queuedFollowUps: [],
       pendingSteers: [],
+      latestCollaborationMode: this.buildDefaultCollaborationModeState(),
       resumeState: "resumed",
       streamRole: null,
       isStreaming: false,
@@ -1310,6 +1371,7 @@ export class CodexService extends EventEmitter {
           threadName: link.threadName,
           threadPreview: link.threadPreview,
           cwd: link.cwd,
+          latestCollaborationMode: record.latestCollaborationMode,
           turns: [],
           transcript: [],
         }
@@ -1327,6 +1389,7 @@ export class CodexService extends EventEmitter {
           createdAt: 0,
           updatedAt: 0,
           linkedAt: new Date(0).toISOString(),
+          latestCollaborationMode: record.latestCollaborationMode,
           turns: [],
           transcript: [],
         };
@@ -1623,7 +1686,9 @@ export class CodexService extends EventEmitter {
         return;
       }
 
-      await this.startTurn(threadId, followUp.prompt);
+      await this.startTurn(threadId, followUp.prompt, {
+        collaborationMode: followUp.collaborationMode ?? undefined,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.restoreQueuedFollowUp(threadId, followUp, message);
@@ -3073,8 +3138,10 @@ export class CodexService extends EventEmitter {
     const retainedTurnIds = new Set(detail.turns.map((turn) => turn.turnId));
     this.clearThreadPendingRequestsForRemovedTurns(detail.threadId, retainedTurnIds);
     this.pruneThreadTransientState(detail.threadId, retainedTurnIds);
+    record.latestCollaborationMode = detail.latestCollaborationMode ?? record.latestCollaborationMode;
     record.detail = {
       ...detail,
+      latestCollaborationMode: record.latestCollaborationMode,
       turns: [...detail.turns],
       transcript: [...detail.transcript],
     };
@@ -3146,8 +3213,10 @@ export class CodexService extends EventEmitter {
       source: "live",
     });
 
+    const existingRecord = this.getMaybeConversationRecord(threadId);
     return {
       ...link,
+      latestCollaborationMode: existingRecord?.latestCollaborationMode ?? this.buildDefaultCollaborationModeState(),
       turns: turnSummaries,
       transcript,
     };
@@ -3649,6 +3718,12 @@ export class CodexService extends EventEmitter {
         model: input.model,
         reasoningEffort: input.reasoningEffort,
       });
+      this.setLatestCollaborationModeForThread(link.threadId, this.buildCollaborationModeState({
+        collaborationMode: input.collaborationMode ?? null,
+        model: input.model ?? null,
+        reasoningEffort: input.reasoningEffort ?? null,
+        fallback: this.getConversationRecord(link.threadId).latestCollaborationMode,
+      }));
 
       const turnStartParams: TurnStartParams = {
         threadId: link.threadId,
@@ -4009,6 +4084,20 @@ export class CodexService extends EventEmitter {
     return summary;
   }
 
+  async setConversationCollaborationMode(
+    threadId: string,
+    collaborationMode: CodexCollaborationModeKind,
+  ): Promise<CodexCollaborationModeState> {
+    await this.ensureClientReady();
+    const nextMode = this.buildCollaborationModeState({
+      collaborationMode,
+      fallback: this.getConversationRecord(threadId).latestCollaborationMode,
+    });
+    this.setLatestCollaborationModeForThread(threadId, nextMode);
+    this.emitThreadStreamStateChange(threadId);
+    return nextMode;
+  }
+
   async startTurn(
     threadId: string,
     prompt: string,
@@ -4031,6 +4120,14 @@ export class CodexService extends EventEmitter {
       model: overrides?.model,
       reasoningEffort: overrides?.reasoningEffort,
     });
+    if (overrides?.collaborationMode) {
+      this.setLatestCollaborationModeForThread(threadId, this.buildCollaborationModeState({
+        collaborationMode: overrides.collaborationMode,
+        model: overrides.model ?? null,
+        reasoningEffort: overrides.reasoningEffort ?? null,
+        fallback: this.getConversationRecord(threadId).latestCollaborationMode,
+      }));
+    }
     const startedAt = Date.now();
 
     this.logger.info("Starting Codex turn", {
@@ -5504,7 +5601,8 @@ export class CodexService extends EventEmitter {
   serializeThreadDetail(threadId: string): CodexThreadDetail | null {
     const link = this.getThreadLinkSafely(threadId);
     if (!link) return null;
-    const detail = this.getMaybeConversationRecord(threadId)?.detail;
+    const record = this.getMaybeConversationRecord(threadId);
+    const detail = record?.detail;
     const turns = [...(detail?.turns ?? [])];
     const transcript = [...(detail?.transcript ?? [])];
     const transcriptUpdatedAt = transcript.reduce((latest, entry) => Math.max(latest, entry.updatedAt), 0);
@@ -5517,6 +5615,7 @@ export class CodexService extends EventEmitter {
         link.threadPreview,
       ),
       cwd: link.cwd,
+      latestCollaborationMode: detail?.latestCollaborationMode ?? record?.latestCollaborationMode ?? this.buildDefaultCollaborationModeState(),
       updatedAt: Math.max(link.updatedAt, transcriptUpdatedAt),
       turns,
       transcript,

@@ -559,6 +559,12 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   );
 
   registerHandle(
+    "codex:thread:collaboration-mode:set",
+    (_, threadId: string, collaborationMode: "default" | "plan") =>
+      codexService.setConversationCollaborationMode(threadId, collaborationMode),
+  );
+
+  registerHandle(
     "codex:turn:start",
     (
       _,

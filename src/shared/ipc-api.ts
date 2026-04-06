@@ -11,6 +11,7 @@ import type {
   CodexConversationSnapshot,
   CodexConnectionState,
   CodexCollaborationModePreset,
+  CodexCollaborationModeState,
   CodexEvent,
   GitApplyPatchInput,
   GitApplyPatchResult,
@@ -423,6 +424,10 @@ export interface IpcApi {
   };
   "codex:thread:archive": { args: [threadId: string]; result: boolean };
   "codex:thread:unarchive": { args: [threadId: string]; result: CodexThreadSummary | null };
+  "codex:thread:collaboration-mode:set": {
+    args: [threadId: string, collaborationMode: "default" | "plan"];
+    result: CodexCollaborationModeState;
+  };
   "codex:turn:start": {
     args: [threadId: string, prompt: string, opts?: CodexTurnStartOptions];
     result: CodexTurnSummary | null;

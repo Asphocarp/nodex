@@ -93,6 +93,10 @@ interface TestableCodexService {
   getCustomPermissionModeDescription: (projectId: string) => string;
   listManagedWorktrees: () => Promise<ManagedWorktreeRecord[]>;
   deleteManagedWorktree: (threadId: string) => Promise<boolean>;
+  setConversationCollaborationMode: (
+    threadId: string,
+    collaborationMode: "default" | "plan",
+  ) => Promise<import("../../shared/types").CodexCollaborationModeState>;
 }
 
 function makeThreadDetail(threadId: string): CodexThreadDetail {
@@ -3057,6 +3061,39 @@ describe("codex-service collaboration modes", () => {
     } finally {
       await service.shutdown();
     }
+  });
+
+  test("persists conversation collaboration mode into serialized snapshots", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Plan mode snapshot" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_plan_mode",
+      });
+
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+      };
+
+      client.start = async () => undefined;
+
+      try {
+        const nextMode = await service.setConversationCollaborationMode("thr_plan_mode", "plan");
+        expect(nextMode.mode).toBe("plan");
+
+        const detail = service.serializeThreadDetail("thr_plan_mode");
+        const snapshot = service.serializeConversationSnapshot("thr_plan_mode");
+
+        expect(detail?.latestCollaborationMode?.mode).toBe("plan");
+        expect(snapshot?.latestCollaborationMode?.mode).toBe("plan");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
   });
 });
 

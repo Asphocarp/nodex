@@ -3,6 +3,7 @@ import type {
   CodexConversationChildMembership,
   CodexConversationCapabilityFlags,
   CodexConversationItem,
+  CodexCollaborationModeState,
   CodexConversationResumeState,
   CodexPendingSteer,
   CodexQueuedFollowUp,
@@ -12,6 +13,15 @@ import type {
   CodexThreadDetail,
   CodexTranscriptEntry,
 } from "../../shared/types";
+
+const DEFAULT_COLLABORATION_MODE_STATE: CodexCollaborationModeState = {
+  mode: "default",
+  settings: {
+    model: "gpt-5.2-codex",
+    reasoning_effort: "medium",
+    developer_instructions: null,
+  },
+};
 
 function sortConversationItems(left: CodexTranscriptEntry, right: CodexTranscriptEntry): number {
   return (left.sequence ?? 0) - (right.sequence ?? 0)
@@ -75,6 +85,7 @@ export function buildCodexConversationSnapshot(input: {
 
   return {
     ...detail,
+    latestCollaborationMode: input.detail.latestCollaborationMode ?? DEFAULT_COLLABORATION_MODE_STATE,
     resumeState: input.resumeState,
     turns: input.detail.turns.map((turn) => buildConversationTurn(input.detail, turn)),
     requests: [...input.requests].sort((left, right) => left.createdAt - right.createdAt),

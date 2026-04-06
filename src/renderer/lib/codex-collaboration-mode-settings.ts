@@ -1,8 +1,6 @@
 import type { CodexCollaborationModeKind } from "./types";
-import { CodexCollaborationModesByContextSchema } from "../../shared/schemas/codex";
-import { parseJsonStringWithSchema } from "../../shared/schemas/storage";
 
-const STORAGE_KEY = "nodex-codex-collaboration-mode-settings-v1";
+const STORAGE_KEY = "nodex-codex-collaboration-mode-v2";
 export const DEFAULT_CODEX_COLLABORATION_MODE: CodexCollaborationModeKind = "default";
 
 function readRawStorageValue(): string | null {
@@ -23,34 +21,17 @@ function writeRawStorageValue(value: string): void {
   }
 }
 
-function readStoredMap(): Record<string, CodexCollaborationModeKind> {
-  const raw = readRawStorageValue();
-  return parseJsonStringWithSchema(raw, CodexCollaborationModesByContextSchema, {});
-}
-
-function writeStoredMap(value: Record<string, CodexCollaborationModeKind>): void {
-  writeRawStorageValue(JSON.stringify(value));
-}
-
-export function getThreadCollaborationModeStorageKey(threadId: string): string {
-  return `thread:${threadId}`;
-}
-
-export function getDraftCollaborationModeStorageKey(projectId: string, cardId: string): string {
-  return `draft:${projectId}:${cardId}`;
-}
-
-export function readCollaborationModeForContextKey(contextKey: string): CodexCollaborationModeKind {
-  const value = readStoredMap()[contextKey];
+export function readGlobalCollaborationMode(): CodexCollaborationModeKind {
+  const value = readRawStorageValue();
   return value === "default" || value === "plan" ? value : DEFAULT_CODEX_COLLABORATION_MODE;
 }
 
-export function writeCollaborationModeForContextKey(
-  contextKey: string,
+export function writeGlobalCollaborationMode(
   mode: CodexCollaborationModeKind,
 ): CodexCollaborationModeKind {
-  const current = readStoredMap();
-  current[contextKey] = mode === "default" || mode === "plan" ? mode : DEFAULT_CODEX_COLLABORATION_MODE;
-  writeStoredMap(current);
-  return current[contextKey] ?? DEFAULT_CODEX_COLLABORATION_MODE;
+  const nextMode = mode === "default" || mode === "plan"
+    ? mode
+    : DEFAULT_CODEX_COLLABORATION_MODE;
+  writeRawStorageValue(nextMode);
+  return nextMode;
 }

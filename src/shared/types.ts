@@ -531,6 +531,15 @@ export type CodexThreadDetailLevel = "STEPS_PROSE" | "STEPS_COMMANDS" | "STEPS_E
 
 export type CodexCollaborationModeKind = "default" | "plan";
 
+export interface CodexCollaborationModeState {
+  mode: CodexCollaborationModeKind;
+  settings: {
+    model: string;
+    reasoning_effort: CodexReasoningEffort | null;
+    developer_instructions: null;
+  };
+}
+
 export interface CodexCollaborationModePreset {
   name: string;
   mode: CodexCollaborationModeKind;
@@ -786,6 +795,7 @@ export interface CodexTranscriptEntry extends CodexCommandExecutionAttachmentFie
 }
 
 export interface CodexThreadDetail extends CodexThreadSummary {
+  latestCollaborationMode?: CodexCollaborationModeState;
   turns: CodexTurnSummary[];
   transcript: CodexTranscriptEntry[];
 }
@@ -1036,6 +1046,7 @@ export type CodexConversationLiveRequest =
   | CodexPlanImplementationRequest;
 
 export interface CodexConversationSnapshot extends CodexThreadSummary {
+  latestCollaborationMode?: CodexCollaborationModeState;
   resumeState: CodexConversationResumeState;
   turns: CodexConversationTurn[];
   requests: CodexConversationServerRequest[];

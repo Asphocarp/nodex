@@ -37,6 +37,7 @@ export type {
   CodexAccountSnapshot,
   CodexModelOption,
   CodexCollaborationModeKind,
+  CodexCollaborationModeState,
   CodexCollaborationModePreset,
   CodexRateLimitsSnapshot,
   CodexReasoningEffort,

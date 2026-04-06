@@ -73,7 +73,7 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `lib/use-workbench-shortcuts.ts`: app-wide stage-first keyboard shortcut mapping.
 - `lib/use-terminal.ts`: ghostty-web terminal lifecycle hook with cached instances, fit/resize handling, IPC wiring, and theme sync.
 - `lib/use-codex-account-actions.ts`: auth/account command wrappers (`read`, login start/cancel, logout). For the active thread renderer, auth state flows from the local-conversation app-server manager substrate, not from this action layer.
-- `lib/codex-collaboration-mode-settings.ts`: local per-context collaboration mode persistence (`thread:*`, `draft:*`) with draft->thread handoff after thread creation.
+- `lib/codex-collaboration-mode-settings.ts`: global fallback collaboration mode persistence for no-thread/new-thread surfaces. Active thread collaboration mode is owned by the local-conversation manager record, not by shell-local storage.
 - `lib/nfm/*`: renderer wrappers over the shared NFM core plus the BlockNote adapter and clipboard/read-only helpers.
 - `lib/toggle-list/*`: rule engine and mapping logic for toggle-list views.
 
@@ -88,7 +88,7 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 
 Codex Threads flow:
 1. Renderer sends `codex:*` IPC actions through `lib/api.ts`, manager-backed control hooks, and the local-conversation app-server manager substrate.
-2. Renderer loads `collaborationMode/list` via IPC and resolves active collaboration mode from local per-context persistence (`thread:*` or `draft:*`).
+2. Renderer loads `collaborationMode/list` via IPC and resolves active collaboration mode from the local-conversation manager when a thread exists; only no-thread/new-thread surfaces fall back to the global persisted default.
 3. `codex-service` resolves card run target (`localProject` / `newWorktree` / `cloud`), including sticky per-card managed-worktree reuse via `runInWorktreePath`; for freshly created worktrees, it optionally executes selected `.codex/environments/*.toml` `[setup].script` before thread start.
 4. For fresh worktree creation, `codex-service` emits `codex:event` `threadStartProgress` updates (`creatingWorktree` / `runningSetup` / `startingThread` / terminal `ready|failed`) with streamed stdout/stderr chunks so renderer can render real-time setup logs.
 5. `codex-service` persists thread cwd in `codex_card_threads` (payload cwd or resolved fallback) so follow-up turns keep the same execution location.

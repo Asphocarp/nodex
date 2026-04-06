@@ -1,10 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   DEFAULT_CODEX_COLLABORATION_MODE,
-  getDraftCollaborationModeStorageKey,
-  getThreadCollaborationModeStorageKey,
-  readCollaborationModeForContextKey,
-  writeCollaborationModeForContextKey,
+  readGlobalCollaborationMode,
+  writeGlobalCollaborationMode,
 } from "./codex-collaboration-mode-settings";
 
 const mockStorage = {
@@ -31,11 +29,10 @@ describe("codex collaboration mode settings", () => {
     mockStorage.clear();
 
     try {
-      const threadKey = getThreadCollaborationModeStorageKey("thr-1");
-      expect(readCollaborationModeForContextKey(threadKey)).toBe(DEFAULT_CODEX_COLLABORATION_MODE);
+      expect(readGlobalCollaborationMode()).toBe(DEFAULT_CODEX_COLLABORATION_MODE);
 
-      mockStorage.setItem("nodex-codex-collaboration-mode-settings-v1", "not-json");
-      expect(readCollaborationModeForContextKey(threadKey)).toBe(DEFAULT_CODEX_COLLABORATION_MODE);
+      mockStorage.setItem("nodex-codex-collaboration-mode-v2", "invalid");
+      expect(readGlobalCollaborationMode()).toBe(DEFAULT_CODEX_COLLABORATION_MODE);
     } finally {
       if (previousLocalStorage) {
         storageGlobal.localStorage = previousLocalStorage;
@@ -45,21 +42,17 @@ describe("codex collaboration mode settings", () => {
     }
   });
 
-  test("reads legacy wrapped mode maps", () => {
+  test("round-trips the global collaboration mode", () => {
     const storageGlobal = globalThis as unknown as { localStorage?: typeof mockStorage };
     const previousLocalStorage = storageGlobal.localStorage;
     storageGlobal.localStorage = mockStorage;
     mockStorage.clear();
 
     try {
-      const threadKey = getThreadCollaborationModeStorageKey("thr-legacy");
-      mockStorage.setItem("nodex-codex-collaboration-mode-settings-v1", JSON.stringify({
-        modes: {
-          [threadKey]: "plan",
-        },
-      }));
-
-      expect(readCollaborationModeForContextKey(threadKey)).toBe("plan");
+      writeGlobalCollaborationMode("plan");
+      expect(readGlobalCollaborationMode()).toBe("plan");
+      writeGlobalCollaborationMode("default");
+      expect(readGlobalCollaborationMode()).toBe("default");
     } finally {
       if (previousLocalStorage) {
         storageGlobal.localStorage = previousLocalStorage;
@@ -68,29 +61,4 @@ describe("codex collaboration mode settings", () => {
       }
     }
   });
-
-  test("round-trips thread and draft context keys", () => {
-    const storageGlobal = globalThis as unknown as { localStorage?: typeof mockStorage };
-    const previousLocalStorage = storageGlobal.localStorage;
-    storageGlobal.localStorage = mockStorage;
-    mockStorage.clear();
-
-    try {
-      const threadKey = getThreadCollaborationModeStorageKey("thr-2");
-      const draftKey = getDraftCollaborationModeStorageKey("project-1", "card-1");
-
-      writeCollaborationModeForContextKey(threadKey, "plan");
-      writeCollaborationModeForContextKey(draftKey, "default");
-
-      expect(readCollaborationModeForContextKey(threadKey)).toBe("plan");
-      expect(readCollaborationModeForContextKey(draftKey)).toBe("default");
-    } finally {
-      if (previousLocalStorage) {
-        storageGlobal.localStorage = previousLocalStorage;
-      } else {
-        delete storageGlobal.localStorage;
-      }
-    }
-  });
-
 });

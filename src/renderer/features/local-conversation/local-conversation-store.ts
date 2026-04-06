@@ -13,6 +13,7 @@ import type {
   CodexAccountSnapshot,
   CodexApprovalDecision,
   CodexCollaborationModeKind,
+  CodexCollaborationModeState,
   CodexCollaborationModePreset,
   CodexComposerIntent,
   CodexConnectionState,
@@ -64,6 +65,14 @@ const EMPTY_THREADS: CodexThreadSummary[] = [];
 const EMPTY_DISMISSED_TURN_IDS: Record<string, string> = {};
 const EMPTY_CONVERSATION_MAP: Record<string, CodexConversationSnapshot> = {};
 const EMPTY_MODELS: CodexModelOption[] = [];
+const DEFAULT_COLLABORATION_MODE_STATE: CodexCollaborationModeState = {
+  mode: "default",
+  settings: {
+    model: "gpt-5.2-codex",
+    reasoning_effort: "medium",
+    developer_instructions: null,
+  },
+};
 
 type StoreListener = () => void;
 type ConversationListener = (conversation: CodexConversationSnapshot) => void;
@@ -416,6 +425,10 @@ export class CodexAppServerManager {
     return this.conversationsById.get(threadId) ?? null;
   }
 
+  readConversationCollaborationMode(threadId: string): CodexCollaborationModeState | null {
+    return this.conversationsById.get(threadId)?.latestCollaborationMode ?? null;
+  }
+
   readComposerIntent(threadId: string): CodexComposerIntent | null {
     return this.composerIntentsByThread.get(threadId) ?? null;
   }
@@ -650,6 +663,44 @@ export class CodexAppServerManager {
 
   async startTurn(threadId: string, prompt: string, opts?: CodexTurnStartOptions): Promise<unknown> {
     return invoke("codex:turn:start", threadId, prompt, opts);
+  }
+
+  async setLatestCollaborationModeForConversation(
+    threadId: string,
+    mode: CodexCollaborationModeKind,
+  ): Promise<CodexCollaborationModeState> {
+    const currentConversation = this.conversationsById.get(threadId);
+    const nextMode: CodexCollaborationModeState = {
+      ...(currentConversation?.latestCollaborationMode ?? DEFAULT_COLLABORATION_MODE_STATE),
+      mode,
+    };
+    if (currentConversation && currentConversation.latestCollaborationMode?.mode !== mode) {
+      this.applyConversationSnapshot(threadId, {
+        ...currentConversation,
+        latestCollaborationMode: nextMode,
+      });
+      this.streamRoles.set(threadId, "owner");
+    }
+
+    try {
+      const persistedMode = (await invoke(
+        "codex:thread:collaboration-mode:set",
+        threadId,
+        mode,
+      )) as CodexCollaborationModeState;
+      const refreshedConversation = this.conversationsById.get(threadId);
+      if (refreshedConversation) {
+        this.applyConversationSnapshot(threadId, {
+          ...refreshedConversation,
+          latestCollaborationMode: persistedMode,
+        });
+        this.streamRoles.set(threadId, "owner");
+      }
+      return persistedMode;
+    } catch (error) {
+      this.resyncConversation(threadId);
+      throw error;
+    }
   }
 
   async enqueueQueuedFollowUp(threadId: string, prompt: string, opts?: CodexTurnStartOptions): Promise<void> {
@@ -1585,6 +1636,13 @@ export function resolveLocalConversationPlanImplementation(threadId: string, tur
   getDefaultLocalConversationManager().resolvePlanImplementation(threadId, turnId);
 }
 
+export function setLocalConversationCollaborationMode(
+  threadId: string,
+  mode: CodexCollaborationModeKind,
+): Promise<CodexCollaborationModeState> {
+  return getDefaultLocalConversationManager().setLatestCollaborationModeForConversation(threadId, mode);
+}
+
 export function readLocalConversation(threadId: string): CodexConversationSnapshot | null {
   return getDefaultLocalConversationManager().readConversation(threadId);
 }
@@ -1605,6 +1663,12 @@ export function useProjectThreadSummaries(projectId: string): CodexThreadSummary
 
 export function useConversation(threadId: string | null): CodexConversationSnapshot | null {
   return useCodexConversationValue(threadId, (conversation) => conversation);
+}
+
+export function useConversationCollaborationMode(
+  threadId: string | null,
+): CodexCollaborationModeState | null {
+  return useCodexConversationValue(threadId, (conversation) => conversation?.latestCollaborationMode ?? null);
 }
 
 export function useConversationSubset(threadIds: readonly string[]): Record<string, CodexConversationSnapshot> {

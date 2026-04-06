@@ -41,7 +41,7 @@ import {
   LeftSidebar,
   MainViewHost,
   NEW_THREAD_STAGE_TAB_ID,
-  readCollaborationModeForContextKey,
+  readGlobalCollaborationMode,
   readComposerEnterBehavior,
   readLocalConversation,
   readNextPanelPeekPx,
@@ -61,13 +61,15 @@ import {
   STAGE_ORDER,
   TerminalPanel,
   setLocalConversationComposerIntent,
+  setLocalConversationCollaborationMode,
   useCodexAppServerControl,
   useCodexAccountActions,
+  useConversationCollaborationMode,
   useCodexThreadStartProgress,
   useCodexThreadFollowerClient,
   useKanban,
   useProjectThreadSummaries,
-  writeCollaborationModeForContextKey,
+  writeGlobalCollaborationMode,
   writeComposerEnterBehavior,
   writeNextPanelPeekPx,
   writeSmartPrefixParsingEnabled,
@@ -76,8 +78,6 @@ import {
   writeWorktreeStartMode,
   DEFAULT_CODEX_COLLABORATION_MODE,
   consumeLocalConversationComposerIntent,
-  getDraftCollaborationModeStorageKey,
-  getThreadCollaborationModeStorageKey,
 } from "./workbench-shell-deps";
 import { type ThreadStageActions } from "@/features/local-conversation";
 import type { StageRailLayoutMode } from "@/lib/stage-rail-layout-mode";
@@ -416,8 +416,8 @@ export function WorkbenchShell({
   const [availableCollaborationModes, setAvailableCollaborationModes] = useState<CodexCollaborationModePreset[]>(
     FALLBACK_COLLABORATION_MODE_PRESETS,
   );
-  const [selectedCollaborationMode, setSelectedCollaborationMode] = useState<CodexCollaborationModeKind>(
-    DEFAULT_CODEX_COLLABORATION_MODE,
+  const [globalSelectedCollaborationMode, setGlobalSelectedCollaborationMode] = useState<CodexCollaborationModeKind>(
+    () => readGlobalCollaborationMode(),
   );
   const [selectedTurnDiffReviewTarget, setSelectedTurnDiffReviewTarget] = useState<CodexTurnDiffReviewTarget | null>(null);
   const [taskSearchOpen, setTaskSearchOpen] = useState(false);
@@ -1246,32 +1246,23 @@ export function WorkbenchShell({
     newThreadTarget?.projectId ?? null,
     newThreadTarget?.cardId ?? null,
   );
-  const activeCollaborationModeContextKey = useMemo(() => {
-    if (!isNewThreadTab) {
-      if (!resolvedActiveThreadsTabId || resolvedActiveThreadsTabId === NEW_THREAD_STAGE_TAB_ID) return null;
-      return getThreadCollaborationModeStorageKey(resolvedActiveThreadsTabId);
-    }
-
-    if (!newThreadTarget) return null;
-    return getDraftCollaborationModeStorageKey(newThreadTarget.projectId, newThreadTarget.cardId);
-  }, [isNewThreadTab, newThreadTarget, resolvedActiveThreadsTabId]);
-
-  useEffect(() => {
-    if (!activeCollaborationModeContextKey) {
-      setSelectedCollaborationMode(DEFAULT_CODEX_COLLABORATION_MODE);
-      return;
-    }
-    setSelectedCollaborationMode(readCollaborationModeForContextKey(activeCollaborationModeContextKey));
-  }, [activeCollaborationModeContextKey]);
+  const activeConversationCollaborationMode = useConversationCollaborationMode(
+    !isNewThreadTab && resolvedActiveThreadsTabId && resolvedActiveThreadsTabId !== NEW_THREAD_STAGE_TAB_ID
+      ? resolvedActiveThreadsTabId
+      : null,
+  );
+  const selectedCollaborationMode = isNewThreadTab
+    ? globalSelectedCollaborationMode
+    : activeConversationCollaborationMode?.mode ?? DEFAULT_CODEX_COLLABORATION_MODE;
 
   const handleCollaborationModeChange = useCallback((mode: CodexCollaborationModeKind) => {
-    if (!activeCollaborationModeContextKey) {
-      setSelectedCollaborationMode(DEFAULT_CODEX_COLLABORATION_MODE);
+    if (!isNewThreadTab && resolvedActiveThreadsTabId && resolvedActiveThreadsTabId !== NEW_THREAD_STAGE_TAB_ID) {
+      void setLocalConversationCollaborationMode(resolvedActiveThreadsTabId, mode);
       return;
     }
-    const nextMode = writeCollaborationModeForContextKey(activeCollaborationModeContextKey, mode);
-    setSelectedCollaborationMode(nextMode);
-  }, [activeCollaborationModeContextKey]);
+    const nextMode = writeGlobalCollaborationMode(mode);
+    setGlobalSelectedCollaborationMode(nextMode);
+  }, [isNewThreadTab, resolvedActiveThreadsTabId]);
   const handleCardStagePatch = useCallback((columnId: string, cardId: string, updates: Partial<CardInput>) => {
     if (!cardStageProjectId) return;
     patchCardForCardStage(columnId, cardId, updates);
@@ -1340,11 +1331,6 @@ export function WorkbenchShell({
         worktreeStartMode,
         worktreeBranchPrefix: worktreeAutoBranchPrefix,
       });
-      const nextMode = writeCollaborationModeForContextKey(
-        getThreadCollaborationModeStorageKey(detail.threadId),
-        selectedCollaborationMode,
-      );
-      setSelectedCollaborationMode(nextMode);
       await loadCodexThreads(input.projectId);
       navigateToThreadTab(input.projectId, detail.threadId);
     },
@@ -1405,10 +1391,7 @@ export function WorkbenchShell({
       const result = await threadFollowerClient.forkConversationFromTurn(input.threadId, input.turnId, input.message);
       const forkedConversation = await requestLocalConversationSnapshot(result.threadId);
       setLocalConversationComposerIntent(result.threadId, result.composerIntent);
-      writeCollaborationModeForContextKey(
-        getThreadCollaborationModeStorageKey(result.threadId),
-        selectedCollaborationMode,
-      );
+      void setLocalConversationCollaborationMode(result.threadId, selectedCollaborationMode);
       const projectId = forkedConversation?.projectId ?? activeThreadSummary?.projectId ?? threadsProjectId;
       await loadCodexThreads(projectId);
       navigateToThreadTab(projectId, result.threadId);
