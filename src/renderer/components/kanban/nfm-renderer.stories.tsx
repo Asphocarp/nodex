@@ -34,3 +34,10 @@ export const MixedFormatting: Story = {
     content: "List item with `inline code`, *emphasis*, and ~~strikethrough~~.\n- Another `code sample` here.",
   },
 };
+
+export const RelativeFileLink: Story = {
+  args: {
+    content: "Relative file link: [spec](folder/abc/file)",
+    projectWorkspacePath: "/Users/asc/repo/nodex2",
+  },
+};

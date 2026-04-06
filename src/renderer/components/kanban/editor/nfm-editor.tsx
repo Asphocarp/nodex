@@ -1,6 +1,7 @@
 import { useEffect, useRef, useMemo, useCallback, useState } from "react";
 import {
   FormattingToolbarController,
+  LinkToolbarController,
   SideMenuController,
   useCreateBlockNote,
 } from "@blocknote/react";
@@ -21,6 +22,7 @@ import {
   NOTION_MULTI_TEXT_MIME,
 } from "./notion-paste";
 import { NfmFormattingToolbar } from "./nfm-formatting-toolbar";
+import { NfmLinkToolbar } from "./nfm-link-toolbar";
 import { ChipPropertyEditor } from "./chip-property-editor";
 import { useEditorDragBehaviors } from "./use-editor-drag-behaviors";
 import type { Card } from "@/lib/types";
@@ -171,6 +173,7 @@ interface ActiveChipEdit {
 
 interface NfmEditorProps {
   projectId: string;
+  projectWorkspacePath?: string | null;
   content: string;
   onChange: (nfm: string) => void;
   onBlur: () => void;
@@ -429,6 +432,7 @@ function isBoard(value: unknown): value is Board {
 
 export function NfmEditor({
   projectId,
+  projectWorkspacePath,
   content,
   onChange,
   onBlur,
@@ -2314,6 +2318,7 @@ export function NfmEditor({
           onChange={handleChange}
           theme={themeMode}
           formattingToolbar={false}
+          linkToolbar={false}
           slashMenu={false}
           sideMenu={false}
           data-theming-css-variables-demo
@@ -2323,6 +2328,14 @@ export function NfmEditor({
             floatingUIOptions={sideMenuFloatingOptions}
           />
           <FormattingToolbarController formattingToolbar={NfmFormattingToolbar} />
+          <LinkToolbarController
+            linkToolbar={(props) => (
+              <NfmLinkToolbar
+                {...props}
+                projectWorkspacePath={projectWorkspacePath}
+              />
+            )}
+          />
           <NfmSlashMenu projectId={projectId} />
         </BlockNoteView>
       </ThreadSectionRuntimeProvider>

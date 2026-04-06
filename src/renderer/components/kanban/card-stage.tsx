@@ -114,6 +114,7 @@ export function CardStage(props: CardStageProps) {
                 <NfmEditor
                   key={`${props.projectId}:${controller.card.id}`}
                   projectId={props.projectId}
+                  projectWorkspacePath={props.projectWorkspacePath}
                   content={controller.description}
                   onChange={controller.handleDescriptionChange}
                   onBlur={controller.handleDescriptionBlur}

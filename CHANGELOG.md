@@ -9,6 +9,8 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 ### Fixed
+- Fixed NFM editor link editing so absolute local paths like `/Users/...` no longer get rewritten to malformed `https:///Users/...` URLs.
+- Fixed preserved NFM links opening with browser-relative navigation by classifying stored hrefs at click time instead, so bare domains open as web URLs, absolute/file paths still open as local files, and relative file-like links resolve against the active project workspace or fail closed when they cannot be resolved safely.
 - Fixed command-execution lifecycle ownership so exec rows, background terminals, approvals, and exit-code rendering now consume one canonical protocol-first exec item instead of mixing `toolCall`, `rawItem`, and output-text fallbacks.
 - Fixed the Thread-stage auth chip so authenticated sessions now show concise remaining quota windows in the header instead of a generic `Connected` label.
 - Fixed authenticated Codex quota badges going stale by adding a main-process 60-second quota refresh loop while the app-server connection is live, so thread headers stay current even without opening the tooltip.

@@ -1,6 +1,11 @@
-import { parseLocalFileLinkHref } from "../../../shared/file-link-openers";
-import type { ReactNode } from "react";
+import type { MouseEventHandler, ReactNode } from "react";
 import { NodexTooltip } from "@/components/ui/tooltip";
+import {
+  openNfmResolvedLinkAction,
+  resolveNfmLinkAction,
+  resolveNfmLinkTooltipLabel,
+} from "@/lib/nfm-link-actions";
+import { useFileLinkOpener } from "@/lib/use-file-link-opener";
 import { cn } from "@/lib/utils";
 
 interface FileLinkAnchorProps {
@@ -8,17 +13,7 @@ interface FileLinkAnchorProps {
   className?: string;
   children: ReactNode;
   showLocalFileTooltip?: boolean;
-}
-
-function resolveLocalFileTooltipLabel(href?: string): string | null {
-  if (!href) return null;
-
-  const target = parseLocalFileLinkHref(href);
-  if (!target) return null;
-  if (!target.line) return target.path;
-  if (!target.column) return `${target.path} (line ${target.line})`;
-
-  return `${target.path} (line ${target.line}, column ${target.column})`;
+  projectWorkspacePath?: string | null;
 }
 
 export function FileLinkAnchor({
@@ -26,20 +21,44 @@ export function FileLinkAnchor({
   className,
   children,
   showLocalFileTooltip = false,
+  projectWorkspacePath,
 }: FileLinkAnchorProps) {
-  const tooltipLabel = showLocalFileTooltip
-    ? resolveLocalFileTooltipLabel(href)
-    : null;
+  const { opener } = useFileLinkOpener();
+  const action = resolveNfmLinkAction(href, projectWorkspacePath);
+  const tooltipLabel = resolveNfmLinkTooltipLabel(action, showLocalFileTooltip);
+
+  const handleClick: MouseEventHandler<HTMLAnchorElement> = (event) => {
+    if (!action) return;
+    if (action.kind === "local-file") return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (action.kind === "blocked" || action.kind === "unresolved-file-like") {
+      return;
+    }
+
+    void openNfmResolvedLinkAction(action, opener);
+  };
 
   const anchor = (
     <a
       href={href}
+      onClick={handleClick}
+      aria-disabled={
+        action?.kind === "blocked" || action?.kind === "unresolved-file-like"
+          ? true
+          : undefined
+      }
       className={cn(
         "cursor-interaction inline-block max-w-full appearance-none border-0 bg-transparent p-0 text-left align-baseline whitespace-normal text-token-text-link-foreground hover:underline",
+        action?.kind === "blocked" || action?.kind === "unresolved-file-like"
+          ? "cursor-not-allowed"
+          : "",
         className,
       )}
-      target="_blank"
-      rel="noopener noreferrer"
+      target={action?.kind === "literal-anchor" ? undefined : "_blank"}
+      rel={action?.kind === "literal-anchor" ? undefined : "noopener noreferrer"}
       title={tooltipLabel ?? undefined}
     >
       <span className="break-words whitespace-normal" data-state="closed">

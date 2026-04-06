@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FormattingToolbarController, SideMenuController, useCreateBlockNote } from "@blocknote/react";
+import { FormattingToolbarController, LinkToolbarController, SideMenuController, useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
@@ -25,6 +25,7 @@ import { useSpellcheck } from "@/lib/use-spellcheck";
 import { useTheme } from "@/lib/use-theme";
 import { cn } from "@/lib/utils";
 import { EDITOR_SYNC_DEBOUNCE_MS } from "@/lib/timing";
+import { useProjects } from "@/lib/use-projects";
 import { createNfmEditorExtensions, createNfmPasteHandler, NFM_DISABLED_EXTENSIONS } from "./nfm-editor-extensions";
 import { createNfmLinkExtension } from "./nfm-link-extension";
 import { NfmSideMenu } from "./nfm-side-menu";
@@ -48,6 +49,7 @@ import {
   renderCardDropIndicator,
 } from "./card-drop-indicator";
 import { NfmFormattingToolbar } from "./nfm-formatting-toolbar";
+import { NfmLinkToolbar } from "./nfm-link-toolbar";
 import { ImagePreviewDialog } from "./image-preview-dialog";
 import {
   isSpaceShortcut,
@@ -222,6 +224,7 @@ export function ToggleListCardEditor({
 }: ToggleListCardEditorProps) {
   const { resolved: themeMode } = useTheme();
   const { spellcheck } = useSpellcheck();
+  const { projects } = useProjects();
   const [activeChipEdit, setActiveChipEdit] = useState<ActiveChipEdit | null>(null);
   const [imagePreview, setImagePreview] = useState<{ source: string; alt: string } | null>(null);
   const chipEditOpenRef = useRef(false);
@@ -250,6 +253,10 @@ export function ToggleListCardEditor({
       return { blocks, toggleStates };
     },
     [cards, hiddenProperties, projectId, propertyOrder, showEmptyEstimate, showEmptyPriority],
+  );
+  const projectWorkspacePath = useMemo(
+    () => projects.find((project) => project.id === projectId)?.workspacePath ?? null,
+    [projectId, projects],
   );
 
   const uploadFile = useCallback(
@@ -994,6 +1001,7 @@ export function ToggleListCardEditor({
         editor={editor}
         theme={themeMode}
         formattingToolbar={false}
+        linkToolbar={false}
         slashMenu={false}
         sideMenu={false}
         data-theming-css-variables-demo
@@ -1003,6 +1011,14 @@ export function ToggleListCardEditor({
           floatingUIOptions={sideMenuFloatingOptions}
         />
         <FormattingToolbarController formattingToolbar={NfmFormattingToolbar} />
+        <LinkToolbarController
+          linkToolbar={(props) => (
+            <NfmLinkToolbar
+              {...props}
+              projectWorkspacePath={projectWorkspacePath}
+            />
+          )}
+        />
         <NfmSlashMenu projectId={projectId} />
       </BlockNoteView>
       {activeChipEdit && (

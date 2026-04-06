@@ -1,8 +1,10 @@
 import { FormattingToolbar, getFormattingToolbarItems } from "@blocknote/react";
 import { CopyImageButton } from "./copy-image-button";
+import { NfmCreateLinkButton } from "./nfm-link-toolbar";
 
 export function NfmFormattingToolbar() {
-  const toolbarItems = getFormattingToolbarItems();
+  const toolbarItems = getFormattingToolbarItems().map((item) =>
+    item.key === "createLinkButton" ? <NfmCreateLinkButton key="createLinkButton" /> : item);
   const copyImageButton = <CopyImageButton key="copyImageButton" />;
   const fileDownloadButtonIndex = toolbarItems.findIndex(
     (item) => item.key === "fileDownloadButton",

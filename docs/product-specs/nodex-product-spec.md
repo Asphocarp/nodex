@@ -246,7 +246,10 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - BlockNote structural animations are mostly disabled in-editor (including indent/unindent depth transitions) to keep editing interactions immediate
 - NFM link labels are escape-normalized on parse, so repeated auto-save cycles remain idempotent (prevents exponential backslash growth on escaped markdown markers inside link text)
 - NFM autolink behavior is renderer-configurable: typing and paste recognition can be toggled independently, bare-domain recognition defaults on, and paste-time matching is intentionally strict enough to leave repo paths, slash-separated path segments, local file paths, and filename-like text such as `foo/bar/baz.md`, `local/code-block-mock-ui/action-menu-popper.com`, or `nfm-editor-copy-behavior.md` plain by default
+- Manual link creation/editing in the NFM editor trims surrounding whitespace only and otherwise preserves the entered target exactly, so absolute local paths, slash-separated relative file paths, `file://` URLs, and protocol-less domains are all stored as authored
+- Preserved manual NFM links are classified only at open time: bare domains open as `https://...`, absolute/file URLs open through the local-file path, relative file-like links resolve against the active project workspace, and unresolved file-like links fail closed instead of navigating browser-relative
 - Detailed autolink rules and examples: [NFM Editor Autolink Behavior](./nfm-editor-autolink-behavior.md)
+- Detailed manual-link rules and examples: [NFM Editor Link Behavior](./nfm-editor-link-behavior.md)
 - Card writes are validated before persistence (field limits + enum/type checks), and oversized HTTP payloads for create/update are rejected with `413`
 - `Shift+Enter` hard line breaks are persisted within the same block across app restarts
 - Enter-created blank paragraph lines are persisted as `<empty-block/>` and preserved across app restarts

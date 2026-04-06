@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import {
   render,
   settleAsyncRender,
@@ -62,5 +63,36 @@ describe("NfmRenderer", () => {
     expect(container.querySelector('[data-streamdown="code-block"]')).not.toBeNull();
     expect(container.querySelector('pre[style*="--shiki-dark-bg"]') === null).toBeTrue();
     expect(textContent(container).includes("hello()")).toBeTrue();
+  });
+
+  test("fails closed for unresolved relative file-like links without a project workspace", async () => {
+    const { container } = render(
+      <NodexTooltipProvider>
+        <NfmRenderer content={"[spec](folder/abc/file)"} />
+      </NodexTooltipProvider>,
+    );
+
+    await settleAsyncRender();
+
+    const link = container.querySelector("a[href='folder/abc/file']");
+    expect(Boolean(link)).toBeTrue();
+    expect(link?.getAttribute("aria-disabled")).toBe("true");
+    expect(link?.getAttribute("title")).toBe("Cannot resolve relative file link without project workspace.");
+  });
+
+  test("passes project workspace context to relative file-like links", async () => {
+    const { container } = render(
+      <NfmRenderer
+        content={"[spec](folder/abc/file)"}
+        projectWorkspacePath="/workspace/project"
+      />,
+    );
+
+    await settleAsyncRender();
+
+    const link = container.querySelector("a[href='folder/abc/file']");
+    expect(Boolean(link)).toBeTrue();
+    expect(link?.getAttribute("aria-disabled") === null).toBeTrue();
+    expect(link?.getAttribute("title") === null).toBeTrue();
   });
 });

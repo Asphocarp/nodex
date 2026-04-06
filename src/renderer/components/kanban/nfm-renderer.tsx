@@ -20,38 +20,59 @@ import { streamdownCodePlugin } from "@/lib/streamdown";
 interface NfmRendererProps {
   content: string;
   className?: string;
+  projectWorkspacePath?: string | null;
 }
 
 /** Read-only renderer for Notion-flavored Markdown. */
-export function NfmRenderer({ content, className }: NfmRendererProps) {
+export function NfmRenderer({
+  content,
+  className,
+  projectWorkspacePath,
+}: NfmRendererProps) {
   if (!content.trim()) return null;
   const blocks = parseNfm(content);
   return (
     <div className={cn("nfm-render", MARKDOWN_CONTENT_CLASS_NAME, className)}>
-      <BlockList blocks={blocks} />
+      <BlockList blocks={blocks} projectWorkspacePath={projectWorkspacePath} />
     </div>
   );
 }
 
-function BlockList({ blocks }: { blocks: NfmBlock[] }) {
+function BlockList({
+  blocks,
+  projectWorkspacePath,
+}: {
+  blocks: NfmBlock[];
+  projectWorkspacePath?: string | null;
+}) {
   return (
     <>
       {blocks.map((block, i) => (
-        <BlockComponent key={i} block={block} />
+        <BlockComponent
+          key={i}
+          block={block}
+          projectWorkspacePath={projectWorkspacePath}
+        />
       ))}
     </>
   );
 }
 
-function BlockComponent({ block }: { block: NfmBlock }) {
+function BlockComponent({
+  block,
+  projectWorkspacePath,
+}: {
+  block: NfmBlock;
+  projectWorkspacePath?: string | null;
+}) {
   const colorClass = block.color ? nfmColorClass(block.color) : undefined;
 
   switch (block.type) {
     case "paragraph":
       return (
         <p className={cn("my-1 leading-relaxed", colorClass)}>
-          <InlineList items={block.content} />
-          <ChildBlocks children={block.children} />
+          <InlineList items={block.content} projectWorkspacePath={projectWorkspacePath} />
+          <ChildBlocks children={block.children} projectWorkspacePath={projectWorkspacePath} />
         </p>
       );
 
@@ -70,12 +91,12 @@ function BlockComponent({ block }: { block: NfmBlock }) {
             <summary className={cn("nfm-toggle-summary", sizes[block.level], INLINE_MARKDOWN_HEADING_CLASS_NAME)}>
               <ToggleCaretIcon hasChildren={block.children.length > 0} />
               <span className="min-w-0">
-                <InlineList items={block.content} />
+                <InlineList items={block.content} projectWorkspacePath={projectWorkspacePath} />
               </span>
             </summary>
             {block.children.length > 0 && (
               <div className="mt-1 pl-4">
-                <BlockList blocks={block.children} />
+                <BlockList blocks={block.children} projectWorkspacePath={projectWorkspacePath} />
               </div>
             )}
           </details>
@@ -84,8 +105,8 @@ function BlockComponent({ block }: { block: NfmBlock }) {
 
       return (
         <Tag className={cn(sizes[block.level], colorClass, INLINE_MARKDOWN_HEADING_CLASS_NAME)}>
-          <InlineList items={block.content} />
-          <ChildBlocks children={block.children} />
+          <InlineList items={block.content} projectWorkspacePath={projectWorkspacePath} />
+          <ChildBlocks children={block.children} projectWorkspacePath={projectWorkspacePath} />
         </Tag>
       );
     }
@@ -94,8 +115,8 @@ function BlockComponent({ block }: { block: NfmBlock }) {
       return (
         <ul className="my-0.5 list-disc pl-6">
           <li className={colorClass}>
-            <InlineList items={block.content} />
-            <ChildBlocks children={block.children} />
+            <InlineList items={block.content} projectWorkspacePath={projectWorkspacePath} />
+            <ChildBlocks children={block.children} projectWorkspacePath={projectWorkspacePath} />
           </li>
         </ul>
       );
@@ -104,8 +125,8 @@ function BlockComponent({ block }: { block: NfmBlock }) {
       return (
         <ol className="my-0.5 list-decimal pl-6">
           <li className={colorClass}>
-            <InlineList items={block.content} />
-            <ChildBlocks children={block.children} />
+            <InlineList items={block.content} projectWorkspacePath={projectWorkspacePath} />
+            <ChildBlocks children={block.children} projectWorkspacePath={projectWorkspacePath} />
           </li>
         </ol>
       );
@@ -131,9 +152,9 @@ function BlockComponent({ block }: { block: NfmBlock }) {
             )}
           </span>
           <span className={block.checked ? "line-through opacity-60" : ""}>
-            <InlineList items={block.content} />
+            <InlineList items={block.content} projectWorkspacePath={projectWorkspacePath} />
           </span>
-          <ChildBlocks children={block.children} />
+          <ChildBlocks children={block.children} projectWorkspacePath={projectWorkspacePath} />
         </div>
       );
 
@@ -143,12 +164,12 @@ function BlockComponent({ block }: { block: NfmBlock }) {
           <summary className="nfm-toggle-summary">
             <ToggleCaretIcon hasChildren={block.children.length > 0} />
             <span className="min-w-0">
-              <InlineList items={block.content} />
+              <InlineList items={block.content} projectWorkspacePath={projectWorkspacePath} />
             </span>
           </summary>
           {block.children.length > 0 && (
             <div className="mt-1 pl-4">
-              <BlockList blocks={block.children} />
+              <BlockList blocks={block.children} projectWorkspacePath={projectWorkspacePath} />
             </div>
           )}
         </details>
@@ -162,8 +183,8 @@ function BlockComponent({ block }: { block: NfmBlock }) {
             colorClass,
           )}
         >
-          <InlineList items={block.content} />
-          <ChildBlocks children={block.children} />
+          <InlineList items={block.content} projectWorkspacePath={projectWorkspacePath} />
+          <ChildBlocks children={block.children} projectWorkspacePath={projectWorkspacePath} />
         </blockquote>
       );
 
@@ -188,8 +209,8 @@ function BlockComponent({ block }: { block: NfmBlock }) {
             <span className="text-[1.2em] select-none">{block.icon}</span>
           )}
           <div className="min-w-0 flex-1">
-            <InlineList items={block.content} />
-            <ChildBlocks children={block.children} />
+            <InlineList items={block.content} projectWorkspacePath={projectWorkspacePath} />
+            <ChildBlocks children={block.children} projectWorkspacePath={projectWorkspacePath} />
           </div>
         </div>
       );
@@ -212,10 +233,10 @@ function BlockComponent({ block }: { block: NfmBlock }) {
           />
           {block.caption.length > 0 && (
             <figcaption className="mt-1 text-sm text-(--foreground-secondary)">
-              <InlineList items={block.caption} />
+              <InlineList items={block.caption} projectWorkspacePath={projectWorkspacePath} />
             </figcaption>
           )}
-          <ChildBlocks children={block.children} />
+          <ChildBlocks children={block.children} projectWorkspacePath={projectWorkspacePath} />
         </figure>
       );
     }
@@ -249,12 +270,12 @@ function BlockComponent({ block }: { block: NfmBlock }) {
               {block.meta && (
                 <span className="mr-2 text-(--foreground-secondary)">{block.meta}</span>
               )}
-              <InlineList items={block.content} />
+              <InlineList items={block.content} projectWorkspacePath={projectWorkspacePath} />
             </span>
           </summary>
           {block.children.length > 0 && (
             <div className="mt-1 pl-4">
-              <BlockList blocks={block.children} />
+              <BlockList blocks={block.children} projectWorkspacePath={projectWorkspacePath} />
             </div>
           )}
         </details>
@@ -289,32 +310,55 @@ function HighlightedCodeBlock({
   );
 }
 
-function ChildBlocks({ children }: { children: NfmBlock[] }) {
+function ChildBlocks({
+  children,
+  projectWorkspacePath,
+}: {
+  children: NfmBlock[];
+  projectWorkspacePath?: string | null;
+}) {
   if (!children || children.length === 0) return null;
   return (
     <div className="mt-1 pl-4">
-      <BlockList blocks={children} />
+      <BlockList blocks={children} projectWorkspacePath={projectWorkspacePath} />
     </div>
   );
 }
 
-function InlineList({ items }: { items: NfmInlineContent[] }) {
+function InlineList({
+  items,
+  projectWorkspacePath,
+}: {
+  items: NfmInlineContent[];
+  projectWorkspacePath?: string | null;
+}) {
   return (
     <>
       {items.map((item, i) => (
-        <InlineItem key={i} item={item} />
+        <InlineItem
+          key={i}
+          item={item}
+          projectWorkspacePath={projectWorkspacePath}
+        />
       ))}
     </>
   );
 }
 
-function InlineItem({ item }: { item: NfmInlineContent }) {
+function InlineItem({
+  item,
+  projectWorkspacePath,
+}: {
+  item: NfmInlineContent;
+  projectWorkspacePath?: string | null;
+}) {
   if (item.type === "linebreak") return <br />;
 
   if (item.type === "link") {
     return (
       <FileLinkAnchor
         href={item.href}
+        projectWorkspacePath={projectWorkspacePath}
         className={cn("nfm-render-link", styleClasses(item.styles))}
       >
         {item.text}
