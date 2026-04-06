@@ -1,4 +1,5 @@
 import { DownArrowIcon } from "@/components/shared/icons";
+import { AnimatePresence, motion } from "motion/react";
 import type { ThreadStageActions, ThreadStageModel } from "../thread-stage-types";
 import { LocalConversationComposerShell } from "./composer/local-conversation-composer-shell";
 import {
@@ -27,20 +28,30 @@ export function LocalConversationFooter({
     model.conversation !== null &&
     model.body.turnCount > 0 &&
     isScrolledFromBottom;
-  const catchUpControl = showCatchUpControl ? (
+  const catchUpControl = (
     <div className="relative h-0">
-      <div className="pointer-events-none absolute inset-x-0 bottom-[calc(100%+6*var(--spacing))] flex justify-center">
-        <button
-          type="button"
-          aria-label="Scroll to latest message"
-          onClick={scrollToBottom}
-          className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-token-border bg-token-background px-1.5 py-1.5 text-size-chat-sm text-token-foreground shadow-card-md hover:bg-token-foreground/5"
-        >
-          <DownArrowIcon className="size-4" />
-        </button>
-      </div>
+      <AnimatePresence initial={false}>
+        {showCatchUpControl ? (
+          <motion.div
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }}
+            transition={{ duration: 0.15, ease: "easeInOut" }}
+            className="pointer-events-none absolute inset-x-0 bottom-[calc(100%+6*var(--spacing))] flex justify-center"
+          >
+            <button
+              type="button"
+              aria-label="Scroll to latest message"
+              onClick={scrollToBottom}
+              className="pointer-events-auto inline-flex size-8 items-center justify-center rounded-full border border-token-border bg-token-background text-token-foreground shadow-card-md hover:bg-token-foreground/5"
+            >
+              <DownArrowIcon className="size-4" />
+            </button>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </div>
-  ) : null;
+  );
 
   if (isResumingActiveThread) {
     return (
