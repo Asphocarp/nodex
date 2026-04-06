@@ -232,6 +232,44 @@ describe("LocalConversationThreadBody", () => {
     });
   });
 
+  test("lets the shared scroll layout own viewport padding and width shell geometry", async () => {
+    const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
+    const { container } = render(
+      <TooltipProvider>
+        <LocalConversationThreadBody
+          model={buildModel()}
+          actions={buildActions()}
+          onErrorMessage={() => {}}
+        />
+      </TooltipProvider>,
+    );
+
+    const viewport = container.querySelector(
+      "[data-local-conversation-thread-body='true']",
+    ) as HTMLDivElement | null;
+    const contentRoot = container.querySelector(
+      "[data-thread-find-target='conversation']",
+    ) as HTMLDivElement | null;
+    const widthWrapper = viewport?.firstElementChild as HTMLDivElement | null;
+
+    expect(Boolean(viewport)).toBeTrue();
+    expect(viewport?.className.includes("pb-8") ?? false).toBeTrue();
+    expect(viewport?.className.includes("px-panel") ?? false).toBeFalse();
+
+    expect(Boolean(widthWrapper)).toBeTrue();
+    expect(
+      widthWrapper?.className.includes("max-w-[var(--thread-content-max-width)]") ?? false,
+    ).toBeTrue();
+    expect(widthWrapper?.className.includes("px-2.5") ?? false).toBeTrue();
+    expect(widthWrapper?.className.includes("md:px-panel") ?? false).toBeTrue();
+
+    expect(Boolean(contentRoot)).toBeTrue();
+    expect(contentRoot?.className.includes("h-full") ?? false).toBeFalse();
+    expect(contentRoot?.className.includes("min-h-full") ?? false).toBeFalse();
+    expect(contentRoot?.className.includes("max-w-[") ?? false).toBeFalse();
+    expect(contentRoot?.className.includes("px-2.5") ?? false).toBeFalse();
+  });
+
   test("shows a restoring placeholder instead of rendering turn content while the active thread is resuming", async () => {
     const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
     const model = buildModel({

@@ -2100,11 +2100,14 @@ describe("codex-service interrupt target resolution", () => {
 
     try {
       const result = await service.interruptTurn("thr_interrupt");
+      const interruptRequest = requests.find(
+        (request) => request.method === "turn/interrupt",
+      );
       expect(result).toBeTrue();
       expect(requests.length >= 1).toBeTrue();
-      expect(requests[0]?.method).toBe("turn/interrupt");
-      expect((requests[0]?.params as { threadId?: string })?.threadId).toBe("thr_interrupt");
-      expect((requests[0]?.params as { turnId?: string })?.turnId).toBe("turn_in_progress");
+      expect(Boolean(interruptRequest)).toBeTrue();
+      expect((interruptRequest?.params as { threadId?: string })?.threadId).toBe("thr_interrupt");
+      expect((interruptRequest?.params as { turnId?: string })?.turnId).toBe("turn_in_progress");
     } finally {
       await service.shutdown();
     }

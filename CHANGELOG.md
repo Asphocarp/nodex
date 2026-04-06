@@ -31,6 +31,7 @@ All notable changes to this project will be documented in this file.
 - Fixed streaming proposed-plan cards so active plans now render as `Writing plan` in the collapsed preview state instead of expanding immediately under an extra `Proposed plan` label.
 - Fixed thread tool-call expand/collapse scroll anchoring so opening a visible tool body no longer drags the surrounding turn header and transcript position.
 - Fixed thread transcript scroll behavior so tool-call and body remeasurements now follow the same shared scroll-controller lifecycle as Codex, preserving visible turn headers while keeping follow-latest and search jumps stable.
+- Fixed the mounted thread footer/body geometry so the transcript now keeps Codex-style natural spacing above the composer, the scroll-to-latest control lives with the footer instead of inside the body, and bottom-follow no longer fights an extra resize-observer snap path.
 
 ## [0.1.8] - 2026-03-30
 

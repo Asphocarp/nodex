@@ -10,7 +10,6 @@ import {
 import {
   CheckmarkIcon,
   ChevronDownIcon,
-  DownArrowIcon,
   SearchIcon,
   SpinnerIcon,
 } from "@/components/shared/icons";
@@ -199,10 +198,8 @@ export function LocalConversationThreadBodyOwner({
   initialUiState,
 }: LocalConversationThreadBodyOwnerProps) {
   const {
-    isScrolledFromBottom,
     maybeStickToBottom,
     scrollElement,
-    scrollToBottom,
     setScrollMode,
   } = useLocalConversationThreadScrollController();
   const setupProgressLogRef = useRef<HTMLDivElement>(null);
@@ -417,10 +414,6 @@ export function LocalConversationThreadBodyOwner({
     };
   }, [body.emptyState.type, body.showThreadStartProgressPanel, body.threadId, body.turnCount]);
 
-  const handleCatchUp = useCallback(() => {
-    scrollToBottom();
-  }, [scrollToBottom]);
-
   const handleAgentBodyCollapsedChange = useCallback(
     (turnId: string, collapsed: boolean) => {
       setCollapsedAgentBodyByTurnId((current) => {
@@ -607,8 +600,6 @@ export function LocalConversationThreadBodyOwner({
     body.turnCount > 0 &&
     !body.showThreadStartProgressPanel &&
     body.emptyState.type === "none";
-  const showCatchUpControl =
-    conversation !== null && body.turnCount > 0 && isScrolledFromBottom;
   const shouldRenderAboveComposerPortal =
     aboveComposerBlocks.length > 0 && body.activeTurnId !== null;
 
@@ -624,9 +615,9 @@ export function LocalConversationThreadBodyOwner({
           onOpenTurnDiffReview={actions.onOpenTurnDiffReview}
         />
       ) : null}
-      <div className="mx-auto flex h-full min-h-full max-w-(--thread-content-max-width) flex-col px-2.5 md:px-panel">
+      <div className="flex flex-col">
         {body.showThreadStartProgressPanel && threadStartProgress ? (
-          <div className="flex flex-1 items-center justify-center">
+          <div className="flex items-center justify-center py-10">
             <ThreadStartProgressPanel
               progress={threadStartProgress}
               outputText={threadStartProgress.outputText}
@@ -634,7 +625,7 @@ export function LocalConversationThreadBodyOwner({
             />
           </div>
         ) : body.emptyState.type === "newThread" || body.emptyState.type === "noThread" ? (
-          <div className="flex flex-1 items-center justify-center">
+          <div className="flex items-center justify-center py-16">
             <div className="max-w-95 space-y-2 px-6 text-center">
               <div className="text-base font-medium text-(--foreground-tertiary)">
                 {body.emptyState.title}
@@ -645,7 +636,7 @@ export function LocalConversationThreadBodyOwner({
             </div>
           </div>
         ) : body.emptyState.type === "emptyThread" ? (
-          <div className="flex flex-1 items-center justify-center">
+          <div className="flex items-center justify-center py-16">
             <div className="space-y-1 px-6 text-center">
               <div className="text-base font-medium text-(--foreground-tertiary)">
                 {body.emptyState.title}
@@ -724,18 +715,6 @@ export function LocalConversationThreadBodyOwner({
             ) : (
               <DeferredThreadBodyPlaceholder />
             )}
-
-            {showCatchUpControl ? (
-              <div className="pointer-events-none sticky bottom-4 mt-4 flex justify-center">
-                <button
-                  type="button"
-                  onClick={handleCatchUp}
-                  className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-token-border bg-token-background px-1.5 py-1.5 text-size-chat-sm text-token-foreground shadow-card-md hover:bg-token-foreground/5"
-                >
-                  <DownArrowIcon className="size-4" />
-                </button>
-              </div>
-            ) : null}
           </div>
         )}
       </div>

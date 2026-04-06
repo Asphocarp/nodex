@@ -83,6 +83,14 @@ export const LongThreadStreaming: Story = {
     isQueueingEnabled: false,
     collapseAgentBody: false,
   },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Parity check for the Codex-style flow footer and shared thread scroll shell: the transcript keeps its natural-height root, the viewport owns the inner width wrapper and bottom gap, and follow-latest should stay stable during long streaming turns.",
+      },
+    },
+  },
 };
 
 export const LongThreadSearchOpen: Story = {

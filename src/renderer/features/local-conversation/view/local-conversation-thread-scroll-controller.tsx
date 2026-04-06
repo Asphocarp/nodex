@@ -60,7 +60,19 @@ interface LocalConversationThreadScrollLayoutProps {
   contentWrapperClassName?: string;
 }
 
-const LocalConversationThreadScrollControllerContext = createContext<LocalConversationThreadScrollControllerValue | null>(null);
+interface LocalConversationThreadScrollControllerContextValue
+  extends LocalConversationThreadScrollControllerValue {
+  registerScrollElement: (element: HTMLDivElement | null) => void;
+}
+
+const THREAD_SCROLL_VIEWPORT_CLASS_NAME =
+  "relative h-full vertical-scroll-fade-mask-top [--edge-fade-distance:2rem] overflow-y-auto [overflow-anchor:none] [scrollbar-gutter:stable] pb-8 pt-[var(--edge-fade-distance)] [container-name:thread-content] [container-type:inline-size]";
+
+const THREAD_SCROLL_CONTENT_WRAPPER_CLASS_NAME =
+  "mx-auto w-full max-w-[var(--thread-content-max-width)] px-2.5 md:px-panel";
+
+const LocalConversationThreadScrollControllerContext =
+  createContext<LocalConversationThreadScrollControllerContextValue | null>(null);
 
 export function isThreadScrollNearBottom({
   scrollHeight,
@@ -92,19 +104,18 @@ function resolveScrollTargetPx(element: HTMLDivElement, topPx: number): number {
 export function useLocalConversationThreadScrollController() {
   const context = useContext(LocalConversationThreadScrollControllerContext);
   if (context === null) {
-    throw new Error("useLocalConversationThreadScrollController must be used within LocalConversationThreadScrollLayout");
+    throw new Error(
+      "useLocalConversationThreadScrollController must be used within a LocalConversationThreadScrollControllerProvider",
+    );
   }
   return context;
 }
 
-export const LocalConversationThreadScrollLayout = forwardRef<
-  LocalConversationThreadScrollLayoutHandle,
-  LocalConversationThreadScrollLayoutProps
->(function LocalConversationThreadScrollLayout({
+function LocalConversationThreadScrollControllerProvider({
   children,
-  scrollViewClassName,
-  contentWrapperClassName,
-}, ref) {
+}: {
+  children: ReactNode;
+}) {
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
   const [isScrolledFromBottom, setIsScrolledFromBottom] = useState(false);
   const scrollElementRef = useRef<HTMLDivElement | null>(null);
@@ -240,39 +251,19 @@ export const LocalConversationThreadScrollLayout = forwardRef<
     };
   }, [maybeStickToBottom, scrollElement, setScrollMode]);
 
-  useEffect(() => {
-    const element = scrollElementRef.current;
-    if (element === null || typeof ResizeObserver === "undefined") return;
-    notifyContentLayout();
-    const observer = new ResizeObserver(() => {
-      notifyContentLayout();
-    });
-    observer.observe(element);
-    const firstChild = element.firstElementChild;
-    if (firstChild !== null) {
-      observer.observe(firstChild);
-    }
-    return () => {
-      observer.disconnect();
-    };
-  }, [notifyContentLayout, scrollElement]);
-
-  useImperativeHandle(ref, () => ({
-    scrollToBottom,
-  }), [scrollToBottom]);
-
-  const controller = useMemo<LocalConversationThreadScrollControllerValue>(() => ({
-    isScrolledFromBottom,
-    scrollElement,
-    notifyContentLayout,
-    suppressAutoStickToBottom,
-    setScrollMode,
-    getScrollMode,
-    maybeStickToBottom,
-    scrollToBottom,
-    jumpToBottom,
-    scrollToTopPx,
+  const controller = useMemo<LocalConversationThreadScrollControllerContextValue>(() => ({
     adjustForMeasuredTurnHeightDelta,
+    getScrollMode,
+    isScrolledFromBottom,
+    jumpToBottom,
+    maybeStickToBottom,
+    notifyContentLayout,
+    registerScrollElement: setScrollElement,
+    scrollElement,
+    scrollToBottom,
+    scrollToTopPx,
+    setScrollMode,
+    suppressAutoStickToBottom,
   }), [
     adjustForMeasuredTurnHeightDelta,
     getScrollMode,
@@ -283,28 +274,65 @@ export const LocalConversationThreadScrollLayout = forwardRef<
     scrollElement,
     scrollToBottom,
     scrollToTopPx,
+    setScrollElement,
     setScrollMode,
     suppressAutoStickToBottom,
   ]);
 
   return (
     <LocalConversationThreadScrollControllerContext.Provider value={controller}>
-      <div className="h-full" style={{ contentVisibility: "auto" }}>
+      {children}
+    </LocalConversationThreadScrollControllerContext.Provider>
+  );
+}
+
+export function EnsureLocalConversationThreadScrollController({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  const context = useContext(LocalConversationThreadScrollControllerContext);
+  if (context !== null) return <>{children}</>;
+  return (
+    <LocalConversationThreadScrollControllerProvider>
+      {children}
+    </LocalConversationThreadScrollControllerProvider>
+  );
+}
+
+export const LocalConversationThreadScrollLayout = forwardRef<
+  LocalConversationThreadScrollLayoutHandle,
+  LocalConversationThreadScrollLayoutProps
+>(function LocalConversationThreadScrollLayout({
+  children,
+  scrollViewClassName,
+  contentWrapperClassName,
+}, ref) {
+  const controller = useLocalConversationThreadScrollController();
+
+  useImperativeHandle(ref, () => ({
+    scrollToBottom: controller.scrollToBottom,
+  }), [controller.scrollToBottom]);
+
+  return (
+    <div className="relative h-full">
+      <div
+        ref={controller.registerScrollElement}
+        data-local-conversation-thread-body="true"
+        className={cn(
+          THREAD_SCROLL_VIEWPORT_CLASS_NAME,
+          scrollViewClassName,
+        )}
+      >
         <div
-          ref={setScrollElement}
-          data-local-conversation-thread-body="true"
           className={cn(
-            "relative h-full vertical-scroll-fade-mask-top [--edge-fade-distance:2rem] overflow-y-auto [overflow-anchor:none] [scrollbar-gutter:stable] pb-8 pt-[var(--edge-fade-distance)] [container-name:thread-content] [container-type:inline-size]",
-            scrollViewClassName,
+            THREAD_SCROLL_CONTENT_WRAPPER_CLASS_NAME,
+            contentWrapperClassName,
           )}
         >
-          {contentWrapperClassName ? (
-            <div className={contentWrapperClassName}>
-              {children}
-            </div>
-          ) : children}
+          {children}
         </div>
       </div>
-    </LocalConversationThreadScrollControllerContext.Provider>
+    </div>
   );
 });
