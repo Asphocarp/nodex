@@ -94,7 +94,7 @@ import {
   mergeCodexItemView,
   resolveCodexItemPrimaryIdentityKey,
 } from "../../shared/codex-item-identity";
-import { mergeOrderedStringIds } from "../../shared/codex-turn-order";
+import { mergeOrderedStringIds, upsertOrderedStringId } from "../../shared/codex-turn-order";
 import * as dbService from "../kanban/db-service";
 import { getKanbanDir } from "../kanban/config";
 import {
@@ -2428,6 +2428,37 @@ export class CodexService extends EventEmitter {
         });
   }
 
+  private upsertCanonicalTurnItem(
+    threadId: string,
+    turnId: string,
+    itemId: string,
+    fallbackStatus: CodexTurnStatus = "inProgress",
+  ): CodexTurnSummary {
+    const existing = this.getKnownTurn(threadId, turnId);
+    if (!existing) {
+      const synthesizedTurn: CodexTurnSummary = {
+        threadId,
+        turnId,
+        status: fallbackStatus,
+        itemIds: [itemId],
+      };
+      this.mergeTurn(threadId, synthesizedTurn);
+      return this.getKnownTurn(threadId, turnId) ?? synthesizedTurn;
+    }
+
+    const nextItemIds = upsertOrderedStringId(existing.itemIds, itemId);
+    if (nextItemIds.length === existing.itemIds.length) {
+      return existing;
+    }
+
+    const nextTurn: CodexTurnSummary = {
+      ...existing,
+      itemIds: nextItemIds,
+    };
+    this.mergeTurn(threadId, nextTurn);
+    return this.getKnownTurn(threadId, turnId) ?? nextTurn;
+  }
+
   private listKnownTurns(threadId: string): CodexTurnSummary[] {
     return [...(this.getMaybeConversationRecord(threadId)?.detail?.turns ?? [])];
   }
@@ -2821,6 +2852,7 @@ export class CodexService extends EventEmitter {
 
     const itemId = `${targetItemId}:automaticApprovalReview`;
     const now = Date.now();
+    this.upsertCanonicalTurnItem(threadId, turnId, itemId, "inProgress");
     return this.mergeItem({
       threadId,
       turnId,
@@ -5030,6 +5062,7 @@ export class CodexService extends EventEmitter {
                 ? resolveContextCompactionMarkdown(lifecycleStatus)
                 : normalizedItem.markdownText,
             };
+      this.upsertCanonicalTurnItem(payload.threadId, payload.turnId, item.itemId, "inProgress");
       this.mergeItem(item);
       this.emitThreadStreamStateChange(payload.threadId);
       return;

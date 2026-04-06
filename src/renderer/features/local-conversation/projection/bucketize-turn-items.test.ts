@@ -433,7 +433,7 @@ describe("bucketizeTurnItems", () => {
     expect(turn.blocks.map((block) => block.type).join(",")).toBe("proposedPlan");
   });
 
-  test("routes context compaction markers into the post-assistant lane instead of agent body", () => {
+  test("keeps context compaction inline before the final assistant when that is its canonical item order", () => {
     const buckets = bucketizeTurnItems({
       items: [
         buildItem({ id: "exec", type: "exec" }),
@@ -473,7 +473,117 @@ describe("bucketizeTurnItems", () => {
       turnStatus: "completed",
     });
 
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: null,
+      buckets,
+      isLatestTurn: false,
+      isStreamingTurn: false,
+      isBlocked: false,
+    });
+
+    expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("exec,compact");
+    expect(buckets.assistantItem?.id ?? "").toBe("assistant");
+    expect(buckets.postAssistantItems.length).toBe(0);
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe("exec,contextCompaction,assistantMessage");
+  });
+
+  test("keeps context compaction inline after the assistant instead of forcing it to the turn tail", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({
+          id: "assistant",
+          type: "assistantMessage",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "assistant",
+            type: "assistant_message",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            assistantPhase: "final_answer",
+            markdownText: "Done",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        }),
+        buildItem({
+          id: "compact",
+          type: "contextCompaction",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "compact",
+            type: "context_compaction",
+            kind: "systemEvent",
+            semanticKind: "contextCompaction",
+            status: "completed",
+            markdownText: "Context automatically compacted",
+            createdAt: 2,
+            updatedAt: 2,
+          },
+        }),
+        buildItem({ id: "exec", type: "exec" }),
+      ],
+      turnStatus: "completed",
+    });
+
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: null,
+      buckets,
+      isLatestTurn: false,
+      isStreamingTurn: false,
+      isBlocked: false,
+    });
+
+    expect(buckets.assistantItem).toBe(null);
+    expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("assistant,compact,exec");
+    expect(buckets.postAssistantItems.length).toBe(0);
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe("assistantMessage,contextCompaction,exec");
+  });
+
+  test("still reserves postAssistant for trailing automatic approval reviews", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({ id: "exec", type: "exec" }),
+        buildItem({
+          id: "assistant",
+          type: "assistantMessage",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "assistant",
+            type: "assistant_message",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            assistantPhase: "final_answer",
+            markdownText: "Done",
+            createdAt: 2,
+            updatedAt: 2,
+          },
+        }),
+        buildItem({
+          id: "review",
+          type: "automaticApprovalReview",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "review",
+            type: "automaticApprovalReview",
+            kind: "systemEvent",
+            semanticKind: "automaticApprovalReview",
+            status: "completed",
+            createdAt: 3,
+            updatedAt: 3,
+          },
+        }),
+      ],
+      turnStatus: "completed",
+    });
+
     expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("exec");
-    expect(buckets.postAssistantItems.map((item) => item.id).join(",")).toBe("compact");
+    expect(buckets.assistantItem?.id ?? "").toBe("assistant");
+    expect(buckets.postAssistantItems.map((item) => item.id).join(",")).toBe("review");
   });
 });
