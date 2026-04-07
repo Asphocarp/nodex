@@ -40,7 +40,11 @@ import type { CodexConversationItem, CodexTurnDiffReviewTarget } from "../../../
 import { resolveCodexThreadDetailLevel } from "../../../../lib/codex-thread-settings";
 import { useCodexThreadSettings } from "../../../../lib/use-codex-thread-settings";
 import { cn } from "../../../../lib/utils";
-import type { ThreadBlockModel, ThreadTranscriptBlockModel } from "../../thread-stage-types";
+import type {
+  ThreadBlockModel,
+  ThreadTranscriptBlockModel,
+  ThreadWorkedForAdornmentModel,
+} from "../../thread-stage-types";
 import { THREAD_VISUAL_TOKENS } from "./local-conversation-visual-tokens";
 
 export interface ThreadLeafBlockProps {
@@ -441,8 +445,6 @@ function humanizeBlockType(type: ThreadBlockModel["type"]): string {
       return "Multi-agent action";
     case "webSearch":
       return "Web search";
-    case "workedFor":
-      return "Worked for";
     case "userInputResponse":
       return "User input response";
     default:
@@ -814,8 +816,8 @@ export function ThreadHookBlock({ block }: ThreadLeafBlockProps) {
   );
 }
 
-export function ThreadWorkedForBlock({ block }: ThreadLeafBlockProps) {
-  const timeLabel = block.entry.timeLabel?.trim();
+export function ThreadWorkedForBlock({ adornment }: { adornment: ThreadWorkedForAdornmentModel }) {
+  const timeLabel = adornment.timeLabel.trim();
   if (!timeLabel) return null;
 
   return (

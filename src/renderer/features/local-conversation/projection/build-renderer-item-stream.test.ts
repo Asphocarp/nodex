@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { CodexConversationItem } from "../../../lib/types";
-import { buildRendererItemStream } from "./build-renderer-item-stream";
+import type { ThreadTranscriptBlockModel } from "../thread-stage-types";
+import { buildRendererItemStream, resolveWorkedForAdornment } from "./build-renderer-item-stream";
 
 function buildEntry(overrides: Partial<CodexConversationItem>): CodexConversationItem {
   return {
@@ -219,7 +220,7 @@ describe("buildRendererItemStream", () => {
     expect(items.map((item) => item.type).join(",")).toBe("approval");
   });
 
-  test("preserves transcript order and injects worked-for before the final assistant anchor", () => {
+  test("injects a synthetic worked-for item into the transcript stream and resolves adornment metadata from it", () => {
     const items = buildRendererItemStream({
       entries: [
         buildEntry({
@@ -271,15 +272,14 @@ describe("buildRendererItemStream", () => {
       turnStatus: "completed",
       isLatestTurn: true,
     });
-
-    expect(items.map((item) => item.id).join(",")).toBe(
-      "user_1,commentary_1,exec_1,assistant_1:worked-for,assistant_1",
+    const workedForAdornment = resolveWorkedForAdornment(
+      items.filter((item): item is ThreadTranscriptBlockModel => "entry" in item),
+      "completed",
+      true,
     );
-    const workedForItem = items[3];
-    expect(workedForItem?.type ?? "").toBe("workedFor");
-    if (!workedForItem || !("entry" in workedForItem)) {
-      throw new Error("expected worked-for transcript item");
-    }
-    expect(workedForItem.entry.timeLabel ?? "").toBe("4s");
+
+    expect(items.map((item) => item.id).join(",")).toBe("user_1,commentary_1,exec_1,assistant_1,assistant_1:worked_for");
+    expect(workedForAdornment?.anchorBlockId ?? "").toBe("assistant_1");
+    expect(workedForAdornment?.timeLabel ?? "").toBe("4s");
   });
 });

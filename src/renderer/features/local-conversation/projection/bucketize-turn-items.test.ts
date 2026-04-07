@@ -66,6 +66,7 @@ describe("bucketizeTurnItems", () => {
 
     expect(buckets.userItems.map((item) => item.id).join(",")).toBe("user_1");
     expect(buckets.assistantItem?.id ?? "").toBe("assistant");
+    expect(buckets.latestAssistantMessage?.id ?? "").toBe("assistant");
     expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("exec,user_2");
   });
 
@@ -158,6 +159,137 @@ describe("bucketizeTurnItems", () => {
     expect(buckets.postAssistantItems.length).toBe(0);
   });
 
+  test("keeps the final assistant inline in agentItems when exec arrives later in the turn", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({
+          id: "assistant",
+          type: "assistantMessage",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "assistant",
+            type: "assistant_message",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            assistantPhase: "final_answer",
+            createdAt: 1,
+            updatedAt: 1,
+            markdownText: "Done",
+          },
+        }),
+        buildItem({ id: "exec", type: "exec" }),
+      ],
+      turnStatus: "inProgress",
+    });
+
+    expect(buckets.assistantItem).toBe(null);
+    expect(buckets.latestAssistantMessage?.id ?? "").toBe("assistant");
+    expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("assistant,exec");
+  });
+
+  test("keeps the final assistant inline when later exploration rows are grouped", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({
+          id: "assistant",
+          type: "assistantMessage",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "assistant",
+            type: "assistant_message",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            assistantPhase: "final_answer",
+            createdAt: 1,
+            updatedAt: 1,
+            markdownText: "Done",
+          },
+        }),
+        buildItem({
+          id: "exec_1",
+          type: "exec",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "exec_1",
+            type: "command_execution",
+            kind: "commandExecution",
+            semanticKind: "exec",
+            createdAt: 2,
+            updatedAt: 2,
+            commandActions: [{ type: "read", command: "", name: "read", path: "src/app.ts" }],
+            toolCall: {
+              subtype: "command",
+              toolName: "run_command",
+              args: {},
+            },
+          },
+        }),
+        buildItem({
+          id: "reasoning_1",
+          type: "reasoning",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "reasoning_1",
+            type: "reasoning",
+            kind: "reasoning",
+            semanticKind: "reasoning",
+            createdAt: 3,
+            updatedAt: 3,
+            markdownText: "Thinking",
+          },
+        }),
+      ],
+      turnStatus: "completed",
+    });
+
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: null,
+      buckets,
+      isLatestTurn: false,
+      isStreamingTurn: false,
+      isBlocked: false,
+    });
+
+    expect(buckets.assistantItem).toBe(null);
+    expect(turn.agentBodyEntries.map((entry) => entry.type).join(",")).toBe("assistantMessage,explorationGroup");
+    expect(turn.trailingBlocks.map((block) => block.type).join(",")).toBe("");
+  });
+
+  test("keeps later MCP and web search items in agent lanes and leaves the latest assistant inline", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({
+          id: "assistant",
+          type: "assistantMessage",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "assistant",
+            type: "assistant_message",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            assistantPhase: "final_answer",
+            createdAt: 1,
+            updatedAt: 1,
+            markdownText: "Done",
+          },
+        }),
+        buildItem({ id: "mcp", type: "mcpToolCall" }),
+        buildItem({ id: "web", type: "webSearch", searchableText: "search docs" }),
+      ],
+      turnStatus: "inProgress",
+    });
+
+    expect(buckets.assistantItem).toBe(null);
+    expect(buckets.latestAssistantMessage?.id ?? "").toBe("assistant");
+    expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("assistant,mcp,web");
+  });
+
   test("builds search units from user and assistant items only", () => {
     const buckets = bucketizeTurnItems({
       items: [
@@ -179,6 +311,48 @@ describe("bucketizeTurnItems", () => {
     expect(turn.searchUnits.map((unit) => `${unit.blockType}:${unit.key}`).join(",")).toBe(
       "userMessage:turn_1:user:0,assistantMessage:turn_1:assistant",
     );
+  });
+
+  test("preserves the latest-assistant search unit when later agent rows are appended", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({ id: "user", type: "userMessage", searchableText: "Refactor the renderer" }),
+        buildItem({
+          id: "assistant",
+          type: "assistantMessage",
+          searchableText: "I updated the renderer",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "assistant",
+            type: "assistant_message",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            assistantPhase: "final_answer",
+            createdAt: 2,
+            updatedAt: 2,
+            markdownText: "I updated the renderer",
+          },
+        }),
+        buildItem({ id: "exec", type: "exec", searchableText: "bun test" }),
+      ],
+      turnStatus: "inProgress",
+    });
+
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: null,
+      buckets,
+      isLatestTurn: true,
+      isStreamingTurn: true,
+      isBlocked: false,
+    });
+
+    expect(turn.searchUnits.map((unit) => `${unit.blockType}:${unit.key}`).join(",")).toBe(
+      "userMessage:turn_1:user:0,assistantMessage:turn_1:assistant",
+    );
+    expect(turn.agentBodyEntries.map((entry) => entry.type).join(",")).toBe("assistantMessage,exec");
+    expect(turn.trailingBlocks.map((block) => block.id).join(",")).toBe("turn_1:thinking");
   });
 
   test("only allows default collapse for older completed turns with grouped agent body content", () => {
@@ -532,7 +706,7 @@ describe("bucketizeTurnItems", () => {
     expect(turn.blocks.map((block) => block.type).join(",")).toBe("exec,contextCompaction,assistantMessage");
   });
 
-  test("keeps context compaction inline after the assistant instead of forcing it to the turn tail", () => {
+  test("keeps context compaction inline after the assistant instead of promoting the assistant", () => {
     const buckets = bucketizeTurnItems({
       items: [
         buildItem({
@@ -582,6 +756,7 @@ describe("bucketizeTurnItems", () => {
     });
 
     expect(buckets.assistantItem).toBe(null);
+    expect(buckets.latestAssistantMessage?.id ?? "").toBe("assistant");
     expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("assistant,compact,exec");
     expect(buckets.postAssistantItems.length).toBe(0);
     expect(turn.blocks.map((block) => block.type).join(",")).toBe("assistantMessage,contextCompaction,exec");
@@ -629,5 +804,71 @@ describe("bucketizeTurnItems", () => {
     expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("exec");
     expect(buckets.assistantItem?.id ?? "").toBe("assistant");
     expect(buckets.postAssistantItems.map((item) => item.id).join(",")).toBe("review");
+  });
+
+  test("keeps worked-for in the classifier path so it blocks assistant promotion", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({
+          id: "assistant",
+          type: "assistantMessage",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "assistant",
+            type: "assistant_message",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            assistantPhase: "final_answer",
+            markdownText: "Done",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        }),
+        buildItem({
+          id: "worked_for",
+          type: "workedFor",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "worked_for",
+            type: "worked_for",
+            kind: "systemEvent",
+            semanticKind: "workedFor",
+            timeLabel: "4s",
+            createdAt: 2,
+            updatedAt: 2,
+          },
+        }),
+      ],
+      turnStatus: "completed",
+    });
+
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: {
+        threadId: "thread_1",
+        turnId: "turn_1",
+        status: "completed",
+        itemIds: ["assistant", "worked_for"],
+        items: [],
+      },
+      buckets,
+      workedForAdornment: {
+        id: "assistant:worked-for",
+        turnId: "turn_1",
+        anchorBlockId: "assistant",
+        timeLabel: "4s",
+        createdAt: 2,
+        updatedAt: 2,
+      },
+      isLatestTurn: true,
+      isStreamingTurn: false,
+      isBlocked: false,
+    });
+
+    expect(buckets.assistantItem).toBe(null);
+    expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("assistant,worked_for");
+    expect(turn.agentBodyEntries.map((entry) => entry.type).join(",")).toBe("assistantMessage");
   });
 });

@@ -40,6 +40,7 @@ This spec does not cover:
 - Projection assigns one canonical sequence order for visible entries.
 - Optimistic user prompts and later authoritative user-message entries must deduplicate into one visible row instead of rendering twice.
 - Transcript identity and duplicate reconciliation operate at the transcript-entry layer, not by mixing raw rollout ids directly into renderer state.
+- The detailed turn-level classifier, conditional assistant-promotion rule, and post-classification lane order are specified in [../codex-thread-turn-ordering-and-assistant-promotion.md](../codex-thread-turn-ordering-and-assistant-promotion.md).
 
 ## Transcript Entry Kinds
 The visible transcript can contain these projected kinds:

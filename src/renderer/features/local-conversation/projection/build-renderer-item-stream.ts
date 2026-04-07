@@ -4,6 +4,7 @@ import type {
   ThreadPendingTurnRequestModel,
   ThreadRendererItemModel,
   ThreadTranscriptBlockModel,
+  ThreadWorkedForAdornmentModel,
 } from "../thread-stage-types";
 
 interface BuildRendererItemStreamInput {
@@ -73,8 +74,6 @@ function resolveRendererType(entry: CodexConversationItem): ThreadTranscriptBloc
       return "mcpToolCall";
     case "webSearch":
       return "webSearch";
-    case "workedFor":
-      return "workedFor";
     case "mcpServerElicitation":
       return "mcpServerElicitation";
     case "hook":
@@ -101,6 +100,8 @@ function resolveRendererType(entry: CodexConversationItem): ThreadTranscriptBloc
       return "automaticApprovalReview";
     case "multiAgentAction":
       return "multiAgentAction";
+    case "workedFor":
+      return "workedFor";
     case "userInputResponse":
       return "userInputResponse";
     case "systemEvent":
@@ -124,6 +125,28 @@ function buildTranscriptBlock(entry: CodexConversationItem): ThreadTranscriptBlo
     type,
     entry,
     status: entry.status,
+  };
+}
+
+function buildWorkedForEntry(
+  assistantAnchor: ThreadTranscriptBlockModel,
+  timeLabel: string,
+): CodexConversationItem {
+  return {
+    threadId: assistantAnchor.entry.threadId,
+    turnId: assistantAnchor.turnId,
+    itemId: `${assistantAnchor.entry.itemId}:worked_for`,
+    entryId: `${assistantAnchor.id}:worked_for`,
+    type: "worked_for",
+    kind: "systemEvent",
+    semanticKind: "workedFor",
+    timeLabel,
+    createdAt: assistantAnchor.createdAt,
+    updatedAt: assistantAnchor.updatedAt,
+    rawItem: {
+      type: "worked_for",
+      timeLabel,
+    },
   };
 }
 
@@ -223,59 +246,34 @@ function formatWorkedForTimeLabel(durationMs: number): string | null {
   return `${seconds}s`;
 }
 
-function injectWorkedForBlock(
+export function resolveWorkedForAdornment(
   items: ThreadTranscriptBlockModel[],
   turnStatus?: BuildRendererItemStreamInput["turnStatus"],
   isLatestTurn?: boolean,
-): ThreadTranscriptBlockModel[] {
-  if (!isLatestTurn) return items;
-  const anchorIndex = resolveWorkedForAnchorIndex(items, turnStatus);
-  if (anchorIndex < 0) return items;
-  if (!hasAboveAssistantWork(items, anchorIndex)) return items;
+): ThreadWorkedForAdornmentModel | null {
+  if (!isLatestTurn) return null;
+  const workedForIndex = items.findLastIndex((item) => item.type === "workedFor");
+  if (workedForIndex < 0) return null;
 
-  const assistantAnchor = items[anchorIndex];
-  if (!assistantAnchor) return items;
+  const workedForItem = items[workedForIndex];
+  if (!workedForItem) return null;
 
-  const turnStartedAtMs = items.reduce<number | null>((earliest, item) => {
-    if (!Number.isFinite(item.createdAt)) return earliest;
-    if (earliest === null) return item.createdAt;
-    return Math.min(earliest, item.createdAt);
-  }, null);
-  if (turnStartedAtMs === null) return items;
+  const assistantAnchor = items
+    .slice(0, workedForIndex)
+    .findLast((item) => item.type === "assistantMessage");
+  if (!assistantAnchor) return null;
 
-  const timeLabel = formatWorkedForTimeLabel(assistantAnchor.createdAt - turnStartedAtMs);
-  if (!timeLabel) return items;
+  const timeLabel = workedForItem.entry.timeLabel?.trim() ?? "";
+  if (!timeLabel) return null;
 
-  const workedForId = `${assistantAnchor.id}:worked-for`;
-  const workedForBlock: ThreadTranscriptBlockModel = {
-    id: workedForId,
+  return {
+    id: `${assistantAnchor.id}:worked-for`,
     turnId: assistantAnchor.turnId,
+    anchorBlockId: assistantAnchor.id,
+    timeLabel,
     createdAt: assistantAnchor.createdAt,
     updatedAt: assistantAnchor.updatedAt,
-    searchableText: `Worked for ${timeLabel}`,
-    type: "workedFor",
-    entry: {
-      ...assistantAnchor.entry,
-      entryId: workedForId,
-      itemId: workedForId,
-      type: "worked_for",
-      kind: "systemEvent",
-      semanticKind: "workedFor",
-      timeLabel,
-      markdownText: undefined,
-      toolCall: undefined,
-      userInputQuestions: undefined,
-      userInputAnswers: undefined,
-      rawItem: { timeLabel },
-    },
-    status: "completed",
   };
-
-  return [
-    ...items.slice(0, anchorIndex),
-    workedForBlock,
-    ...items.slice(anchorIndex),
-  ];
 }
 
 export function buildRendererItemStream(
@@ -284,13 +282,39 @@ export function buildRendererItemStream(
   const transcriptBlocks = input.entries
     .map((entry) => buildTranscriptBlock(entry))
     .filter((item): item is ThreadTranscriptBlockModel => item !== null);
-  const transcriptBlocksWithWorkedFor = injectWorkedForBlock(
-    transcriptBlocks,
-    input.turnStatus,
-    input.isLatestTurn,
-  );
+  const hasWorkedForBlock = transcriptBlocks.some((item) => item.type === "workedFor");
+  const syntheticWorkedForBlock =
+    !hasWorkedForBlock && input.isLatestTurn
+      ? (() => {
+          const anchorIndex = resolveWorkedForAnchorIndex(transcriptBlocks, input.turnStatus);
+          if (anchorIndex < 0) return null;
+          if (!hasAboveAssistantWork(transcriptBlocks, anchorIndex)) return null;
 
+          const assistantAnchor = transcriptBlocks[anchorIndex];
+          if (!assistantAnchor) return null;
+
+          const turnStartedAtMs = transcriptBlocks.reduce<number | null>((earliest, item) => {
+            if (!Number.isFinite(item.createdAt)) return earliest;
+            if (earliest === null) return item.createdAt;
+            return Math.min(earliest, item.createdAt);
+          }, null);
+          if (turnStartedAtMs === null) return null;
+
+          const timeLabel = formatWorkedForTimeLabel(assistantAnchor.createdAt - turnStartedAtMs);
+          if (!timeLabel) return null;
+
+          return buildTranscriptBlock(buildWorkedForEntry(assistantAnchor, timeLabel));
+        })()
+      : null;
   const requestBlocks = input.requests.map((request) => buildPendingRequestBlock(request));
+  const itemsWithWorkedFor =
+    syntheticWorkedForBlock === null
+      ? transcriptBlocks
+      : [
+          ...transcriptBlocks.slice(0, resolveWorkedForAnchorIndex(transcriptBlocks, input.turnStatus) + 1),
+          syntheticWorkedForBlock,
+          ...transcriptBlocks.slice(resolveWorkedForAnchorIndex(transcriptBlocks, input.turnStatus) + 1),
+        ];
 
-  return [...transcriptBlocksWithWorkedFor, ...requestBlocks];
+  return [...itemsWithWorkedFor, ...requestBlocks];
 }

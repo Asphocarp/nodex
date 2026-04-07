@@ -14,6 +14,7 @@ function createEmptyBuckets(): ThreadTurnRenderBuckets {
   return {
     preUserItems: [],
     userItems: [],
+    latestAssistantMessage: null,
     assistantItem: null,
     systemEventItem: null,
     approvalItem: null,
@@ -68,8 +69,8 @@ function isRenderableAgentItem(item: ThreadTranscriptBlockModel): boolean {
     case "contextCompaction":
     case "reasoning":
     case "userInputResponse":
-    case "workedFor":
     case "mcpServerElicitation":
+    case "workedFor":
       return true;
     case "webSearch":
       return item.searchableText.trim().length > 0;
@@ -93,7 +94,7 @@ function shouldPushHookToAgentItems(
 
 export function bucketizeTurnItems(input: BucketizeTurnItemsInput): ThreadTurnRenderBuckets {
   const buckets = createEmptyBuckets();
-  const genericItems: ThreadTranscriptBlockModel[] = [];
+  const agentCandidates: ThreadTranscriptBlockModel[] = [];
   let beforeAgentSequence = true;
 
   for (const [index, item] of input.items.entries()) {
@@ -177,7 +178,7 @@ export function bucketizeTurnItems(input: BucketizeTurnItemsInput): ThreadTurnRe
 
     if (item.type === "hook") {
       if (shouldPushHookToAgentItems(input.items, index)) {
-        genericItems.push(item);
+        agentCandidates.push(item);
       } else {
         buckets.postAssistantItems.push(item);
       }
@@ -185,32 +186,41 @@ export function bucketizeTurnItems(input: BucketizeTurnItemsInput): ThreadTurnRe
     }
 
     if (item.type === "userMessage") {
-      genericItems.push(item);
+      agentCandidates.push(item);
+      continue;
+    }
+
+    if (item.type === "assistantMessage") {
+      buckets.latestAssistantMessage = item;
+      agentCandidates.push(item);
       continue;
     }
 
     if (isRenderableAgentItem(item)) {
-      genericItems.push(item);
+      agentCandidates.push(item);
     }
   }
 
   const trailingReviews: ThreadTranscriptBlockModel[] = [];
-  while (genericItems.length > 0 && isTrailingAutomaticApprovalReview(genericItems[genericItems.length - 1]!)) {
-    const review = genericItems.pop();
+  while (agentCandidates.length > 0 && isTrailingAutomaticApprovalReview(agentCandidates[agentCandidates.length - 1]!)) {
+    const review = agentCandidates.pop();
     if (!review) break;
     trailingReviews.unshift(review);
   }
 
-  const lastGenericItem = genericItems[genericItems.length - 1] ?? null;
-  buckets.assistantItem = lastGenericItem?.type === "assistantMessage" ? lastGenericItem : null;
-  if (buckets.assistantItem) {
-    genericItems.pop();
-    buckets.postAssistantItems.unshift(...trailingReviews);
-  } else {
-    genericItems.push(...trailingReviews);
+  const trailingAssistantCandidate = agentCandidates[agentCandidates.length - 1] ?? null;
+  if (trailingAssistantCandidate?.type === "assistantMessage") {
+    buckets.assistantItem = trailingAssistantCandidate;
+    agentCandidates.pop();
   }
 
-  const trailingSystemCandidate = genericItems[genericItems.length - 1] ?? null;
+  if (buckets.assistantItem) {
+    buckets.postAssistantItems.unshift(...trailingReviews);
+  } else {
+    agentCandidates.push(...trailingReviews);
+  }
+
+  const trailingSystemCandidate = agentCandidates[agentCandidates.length - 1] ?? null;
   const canPromoteSystemError =
     input.turnStatus !== "inProgress"
     && !hasRenderableAssistantContent(buckets.assistantItem)
@@ -218,9 +228,9 @@ export function bucketizeTurnItems(input: BucketizeTurnItemsInput): ThreadTurnRe
 
   if (canPromoteSystemError && trailingSystemCandidate) {
     buckets.systemEventItem = trailingSystemCandidate;
-    genericItems.pop();
+    agentCandidates.pop();
   }
 
-  buckets.agentItems.push(...genericItems);
+  buckets.agentItems.push(...agentCandidates);
   return buckets;
 }

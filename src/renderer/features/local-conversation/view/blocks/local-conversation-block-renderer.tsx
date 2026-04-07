@@ -18,7 +18,6 @@ import {
   ThreadToolSurfaceBlock,
   ThreadUserInputResponseCard,
   ThreadUserBubbleBlock,
-  ThreadWorkedForBlock,
 } from "./local-conversation-block-leaves";
 import type { CodexTurnDiffReviewTarget } from "../../../../lib/types";
 import type { ThreadBlockModel } from "../../thread-stage-types";
@@ -111,18 +110,6 @@ export function ThreadBlockRenderer({
         projectWorkspacePath={projectWorkspacePath}
         threadCwd={threadCwd}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
-      />
-    );
-  }
-
-  if (block.type === "workedFor") {
-    return (
-      <ThreadWorkedForBlock
-        block={block}
-        isLatestTurn={isLatestTurn}
-        isStreamingTurn={isStreamingTurn}
-        projectWorkspacePath={projectWorkspacePath}
-        threadCwd={threadCwd}
       />
     );
   }

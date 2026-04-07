@@ -3,13 +3,19 @@ import { Fragment, type ReactNode } from "react";
 import { ChevronDownIcon } from "@/components/shared/icons";
 import type { CodexTurnDiffReviewTarget } from "../../../lib/types";
 import { cn } from "../../../lib/utils";
-import type { ThreadAgentEntryModel, ThreadTurnModel } from "../thread-stage-types";
+import type {
+  ThreadAgentEntryModel,
+  ThreadBlockModel,
+  ThreadTurnModel,
+  ThreadWorkedForAdornmentModel,
+} from "../thread-stage-types";
 import {
   CODEX_THREAD_ACCORDION_TRANSITION,
   CODEX_THREAD_DIVIDER_ENTER_ANIMATE,
   CODEX_THREAD_DIVIDER_ENTER_INITIAL,
   CODEX_THREAD_DIVIDER_EXIT,
 } from "./shared/thread-motion";
+import { ThreadWorkedForBlock } from "./blocks/local-conversation-block-leaves";
 import { ThreadBlockRenderer } from "./blocks/local-conversation-block-renderer";
 
 interface ThreadTurnProps {
@@ -87,7 +93,7 @@ function renderSpacedBlocks<TBlock extends { id: string }>(
   renderBlock: (block: TBlock, index: number) => ReactNode,
 ) {
   return blocks.map((block, index) => (
-    <Fragment key={`${block.id}:${index}`}>
+    <Fragment key={block.id}>
       {index > 0 ? <ThreadGap /> : null}
       {renderBlock(block, index)}
     </Fragment>
@@ -112,12 +118,12 @@ export function ThreadTurn({
   const showFinalAssistantDivider =
     shouldAllowAgentBodyCollapse
     && !effectiveAgentBodyCollapsed
-    && !turn.workedForTimeLabel
+    && turn.workedForAdornment === null
     && turn.trailingBlocks.some((block) => "entry" in block && block.type === "assistantMessage");
+  const workedForTimeLabel = turn.workedForAdornment?.timeLabel ?? null;
 
-  const renderBlock = (block: ThreadTurnModel["blocks"][number], index: number) => (
+  const renderBlock = (block: ThreadBlockModel) => (
     <ThreadBlockRenderer
-      key={`${turn.turnId}:${block.type}:${index}`}
       block={block}
       isLatestTurn={turn.isLatestTurn}
       isStreamingTurn={turn.isStreamingTurn}
@@ -129,9 +135,8 @@ export function ThreadTurn({
     />
   );
 
-  const renderAgentEntry = (block: ThreadAgentEntryModel, index: number) => (
+  const renderAgentEntry = (block: ThreadAgentEntryModel) => (
     <ThreadBlockRenderer
-      key={`${turn.turnId}:agent:${block.type}:${index}`}
       block={block}
       isLatestTurn={turn.isLatestTurn}
       isStreamingTurn={turn.isStreamingTurn}
@@ -142,6 +147,29 @@ export function ThreadTurn({
       onOpenTurnDiffReview={onOpenTurnDiffReview}
     />
   );
+
+  const trailingRenderItems = turn.trailingBlocks.flatMap((block) => {
+    const items: Array<
+      | { id: string; kind: "workedFor"; adornment: ThreadWorkedForAdornmentModel }
+      | { id: string; kind: "block"; block: ThreadBlockModel }
+    > = [];
+
+    if (turn.workedForAdornment?.anchorBlockId === block.id) {
+      items.push({
+        id: turn.workedForAdornment.id,
+        kind: "workedFor",
+        adornment: turn.workedForAdornment,
+      });
+    }
+
+    items.push({
+      id: block.id,
+      kind: "block",
+      block,
+    });
+
+    return items;
+  });
 
   return (
     <div>
@@ -157,7 +185,7 @@ export function ThreadTurn({
               {shouldAllowAgentBodyCollapse ? (
                 <AgentBodyToggleRow
                   collapsedMessageCount={turn.collapsedMessageCount}
-                  workedForTimeLabel={turn.workedForTimeLabel}
+                  workedForTimeLabel={workedForTimeLabel}
                   collapsed={effectiveAgentBodyCollapsed}
                   onToggle={() => onAgentBodyCollapsedChange(turn.turnId, !effectiveAgentBodyCollapsed)}
                 />
@@ -174,10 +202,7 @@ export function ThreadTurn({
                   >
                     {shouldAllowAgentBodyCollapse ? <ThreadGap /> : null}
                     <div className="flex flex-col gap-0">
-                      {renderSpacedBlocks(
-                        turn.agentBodyEntries.filter((entry) => !("entry" in entry && entry.type === "workedFor")),
-                        renderAgentEntry,
-                      )}
+                      {renderSpacedBlocks(turn.agentBodyEntries, renderAgentEntry)}
                     </div>
                   </motion.div>
                 )}
@@ -192,7 +217,10 @@ export function ThreadTurn({
             <div className="flex flex-col">
               {showFinalAssistantDivider ? <FinalAssistantDividerRow /> : null}
               {showFinalAssistantDivider && turn.trailingBlocks.length > 0 ? <ThreadGap /> : null}
-              {renderSpacedBlocks(turn.trailingBlocks, renderBlock)}
+              {renderSpacedBlocks(trailingRenderItems, (item) =>
+                item.kind === "workedFor"
+                  ? <ThreadWorkedForBlock adornment={item.adornment} />
+                  : renderBlock(item.block))}
             </div>
           </>
         ) : null}

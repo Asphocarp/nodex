@@ -142,7 +142,6 @@ export interface ThreadTranscriptBlockModel {
     | "turnDiff"
     | "mcpToolCall"
     | "webSearch"
-    | "workedFor"
     | "hook"
     | "planImplementation"
     | "mcpServerElicitation"
@@ -156,6 +155,7 @@ export interface ThreadTranscriptBlockModel {
     | "contextCompaction"
     | "automaticApprovalReview"
     | "multiAgentAction"
+    | "workedFor"
     | "systemEvent"
     | "userInputResponse";
   entry: CodexConversationItem;
@@ -163,6 +163,15 @@ export interface ThreadTranscriptBlockModel {
   userMessageActions?: ThreadUserMessageActionsModel;
   showAssistantMessageActions?: boolean;
   searchUnitKey?: string;
+}
+
+export interface ThreadWorkedForAdornmentModel {
+  id: string;
+  turnId: string;
+  anchorBlockId: string;
+  timeLabel: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface ThreadExplorationGroupBlockModel {
@@ -217,6 +226,7 @@ export type ThreadBlockModel =
 export interface ThreadTurnRenderBuckets {
   preUserItems: ThreadTranscriptBlockModel[];
   userItems: ThreadTranscriptBlockModel[];
+  latestAssistantMessage: ThreadTranscriptBlockModel | null;
   assistantItem: ThreadTranscriptBlockModel | null;
   systemEventItem: ThreadTranscriptBlockModel | null;
   approvalItem: ThreadPendingTurnRequestModel | null;
@@ -245,6 +255,7 @@ export interface ThreadTurnModel {
   trailingBlocks: ThreadBlockModel[];
   blocks: ThreadBlockModel[];
   aboveComposerBlocks?: ThreadBlockModel[];
+  workedForAdornment: ThreadWorkedForAdornmentModel | null;
   isLatestTurn: boolean;
   isStreamingTurn: boolean;
   isBlocked: boolean;
@@ -253,7 +264,6 @@ export interface ThreadTurnModel {
   hasRenderableAgentBodyEntries: boolean;
   defaultAgentBodyCollapsed: boolean;
   collapsedMessageCount: number;
-  workedForTimeLabel: string | null;
 }
 
 export interface ThreadSearchUnitModel {

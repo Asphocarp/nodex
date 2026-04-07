@@ -101,6 +101,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
   - pre-final assistant commentary stays in the agent-work body ahead of the final assistant anchor; only the final assistant message becomes the dedicated assistant block for the turn
   - when an expanded collapsible agent-work section has no worked-for timing label, the renderer inserts the same Codex-style `Final message` divider immediately before the final assistant block
   - when the latest visible turn has qualifying prior work and usable timing data, the renderer injects a Codex-style `Worked for …` divider immediately before the final assistant message
+  - the detailed classifier contract, conditional assistant-promotion rule, and scenario matrix live in [codex-thread-turn-ordering-and-assistant-promotion.md](../codex-thread-turn-ordering-and-assistant-promotion.md)
   - collapsed agent-work sections collapse to the summary row only; their body exits the DOM once collapsed, while collapsed command-tool bodies keep the hidden measured body in the DOM with `height: 0`, `opacity: 0`, and pointer events disabled
   - the mounted thread body uses a flat Codex-style section layout: no extra turn-level tool card wraps, and tool / exploration / system rows render as direct sections instead of being nested inside additional app-owned shell cards
   - approvals, request-user-input, and implement-plan prompts stay in the footer request surface above the composer rather than being rendered as normal inline timeline blocks

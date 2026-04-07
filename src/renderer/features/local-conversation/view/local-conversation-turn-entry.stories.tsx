@@ -41,6 +41,53 @@ const longThreadTurn = buildStoryConversationTurn({
   ],
 });
 
+const assistantThenExecTurn = buildStoryConversationTurn({
+  turnId: "turn_story_assistant_exec",
+  status: "completed",
+  items: [
+    buildStoryConversationItem({
+      turnId: "turn_story_assistant_exec",
+      itemId: "user_story_assistant_exec",
+      type: "user_message",
+      kind: "userMessage",
+      semanticKind: "userMessage",
+      role: "user",
+      markdownText: "Inspect the renderer and then run the test suite.",
+      createdAt: 1_000,
+      updatedAt: 1_000,
+    }),
+    buildStoryConversationItem({
+      turnId: "turn_story_assistant_exec",
+      itemId: "assistant_story_assistant_exec",
+      type: "assistant_message",
+      kind: "assistantMessage",
+      semanticKind: "assistantMessage",
+      role: "assistant",
+      assistantPhase: "final_answer",
+      markdownText: "I inspected the renderer and queued the verification command.",
+      createdAt: 2_000,
+      updatedAt: 2_000,
+    }),
+    buildStoryConversationItem({
+      turnId: "turn_story_assistant_exec",
+      itemId: "exec_story_assistant_exec",
+      type: "command_execution",
+      kind: "commandExecution",
+      semanticKind: "exec",
+      createdAt: 3_000,
+      updatedAt: 3_000,
+      toolCall: {
+        subtype: "command",
+        toolName: "exec_command",
+        args: {
+          command: "bun test src/renderer/features/local-conversation/projection/bucketize-turn-items.test.ts",
+        },
+      },
+      aggregatedOutput: "bun test src/renderer/features/local-conversation/projection/bucketize-turn-items.test.ts",
+    }),
+  ],
+});
+
 const meta = {
   title: "Workbench/Threads/Turn Entry",
   component: LocalConversationTurnEntry,
@@ -66,3 +113,10 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
+
+export const AssistantThenExecInline: Story = {
+  args: {
+    turnSearchKey: assistantThenExecTurn.turnId,
+    turn: assistantThenExecTurn,
+  },
+};
