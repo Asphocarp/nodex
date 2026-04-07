@@ -409,14 +409,9 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   return (
     <>
       <form
-        className="relative overflow-hidden rounded-3xl border border-token-border shadow-card-md"
+        className="border-token-border bg-token-input-background relative overflow-hidden rounded-3xl border bg-clip-padding shadow-card-md electron:shadow-md electron:focus-within:shadow-lg electron:dark:bg-token-dropdown-background/50"
         onSubmit={(event) => handleFormSubmit(event, promptForm.handleSubmit)}
       >
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 z-0 rounded-3xl bg-token-input-background electron:rounded-3xl electron:bg-token-side-bar-background electron:dark:bg-token-dropdown-background/25"
-        />
-
         <div className="relative z-10">
           <div className="px-2 py-1.5">
             <div className="flex w-full flex-wrap items-center justify-start gap-1" />

@@ -509,14 +509,14 @@
 
 [data-codex-window-type="electron"]:not([data-codex-os="win32"]) body {
   background: transparent;
-  background: var(--color-token-side-bar-background);
+  background: var(--color-token-editor-background);
 }
 
 @supports (color: color-mix(in lab, red, red)) {
   [data-codex-window-type="electron"]:not([data-codex-os="win32"]) body {
     background: color-mix(
       in srgb,
-      var(--color-token-side-bar-background) 50%,
+      var(--color-token-editor-background) 55%,
       transparent
     );
   }
