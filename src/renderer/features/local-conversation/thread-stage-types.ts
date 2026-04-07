@@ -360,6 +360,7 @@ export interface ThreadFooterModel {
   projectWorkspacePath?: string | null;
   threadId: string | null;
   cwd: string | null;
+  account: CodexAccountSnapshot | null;
   conversation: CodexConversationSnapshot | null;
   resumeState: CodexConversationResumeState | null;
   activeTurn: CodexConversationTurn | null;

@@ -2004,6 +2004,7 @@ export function buildThreadStageStorySurfaceModels(
     projectWorkspacePath: STORY_WORKSPACE_PATH,
     threadId: activeThreadId,
     cwd: conversation?.cwd ?? null,
+    account: controls.authenticatedAccount ? DEFAULT_ACCOUNT_AUTHENTICATED : DEFAULT_ACCOUNT_SIGNED_OUT,
     conversation,
     resumeState,
     activeTurn,

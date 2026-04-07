@@ -15,6 +15,7 @@ function buildModel(overrides?: Partial<ThreadFooterModel>): ThreadFooterModel {
     projectWorkspacePath: "/tmp/project",
     threadId: "thread_1",
     cwd: "/tmp/project",
+    account: null,
     conversation: {
       threadId: "thread_1",
       projectId: "project_1",

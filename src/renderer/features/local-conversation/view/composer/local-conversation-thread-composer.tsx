@@ -575,7 +575,10 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
             onCheckout={handleCheckoutBranch}
             onCreate={handleCreateBranch}
           />
-          <ContextWindowIndicator state={contextWindowIndicatorState} />
+          <ContextWindowIndicator
+            state={contextWindowIndicatorState}
+            account={model.account}
+          />
         </div>
       </div>
     </>

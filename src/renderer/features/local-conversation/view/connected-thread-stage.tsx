@@ -280,6 +280,7 @@ function ConnectedThreadStageFooter({
   const backgroundTerminalRows = useConversationBackgroundTerminalRows(activeThreadId);
   const composerIntent = useComposerIntent(activeThreadId);
   const primaryRequest = useConversationPrimaryRequest(activeThreadId);
+  const account = useLocalConversationAccount();
   const childThreadIds = useMemo(
     () => childMemberships.map((membership) => membership.threadId),
     [childMemberships],
@@ -360,6 +361,7 @@ function ConnectedThreadStageFooter({
       projectWorkspacePath: input.projectWorkspacePath ?? null,
       threadId: activeThreadId,
       cwd,
+      account,
       conversation: activeThreadId
         ? {
             threadId: activeThreadId,
@@ -416,6 +418,7 @@ function ConnectedThreadStageFooter({
     [
       activeThreadId,
       activeTurn,
+      account,
       body,
       backgroundTerminalRows,
       childMemberships,

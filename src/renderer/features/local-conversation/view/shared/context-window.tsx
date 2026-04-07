@@ -1,16 +1,12 @@
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "../../../../lib/utils";
+import type { CodexAccountSnapshot } from "@/lib/types";
 import type { ContextWindowIndicatorState } from "@/lib/codex-context-window";
 
 const PROMPT_TEXTAREA_MAX_VIEWPORT_RATIO = 0.25;
 const FALLBACK_PROMPT_TEXTAREA_MAX_HEIGHT_PX = 220;
 const CONTEXT_RING_RADIUS = 5;
 const CONTEXT_RING_CIRCUMFERENCE = 2 * Math.PI * CONTEXT_RING_RADIUS;
-const COMPACT_TOKEN_FORMATTER = new Intl.NumberFormat("en-US", {
-  notation: "compact",
-  compactDisplay: "short",
-  maximumFractionDigits: 1,
-});
 const WHOLE_TOKEN_FORMATTER = new Intl.NumberFormat("en-US");
 
 export function resolvePromptTextareaMaxHeightPx(): number {
@@ -24,9 +20,9 @@ export function resolvePromptTextareaMaxHeightPx(): number {
   return maxHeightPx;
 }
 
-function formatCompactTokenCount(value: number): string {
-  const normalizedValue = Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
-  return COMPACT_TOKEN_FORMATTER.format(normalizedValue).replace("K", "k");
+function formatRoundedTokenThousands(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return "0k";
+  return `${Math.max(0, Math.round(value / 1_000))}k`;
 }
 
 function formatWholeTokenCount(value: number): string {
@@ -34,73 +30,81 @@ function formatWholeTokenCount(value: number): string {
   return WHOLE_TOKEN_FORMATTER.format(normalizedValue);
 }
 
-function renderContextWindowTooltip(state: ContextWindowIndicatorState) {
-  if (state.status === "ready" && state.usedTokens !== null && state.windowTokens !== null) {
+function shouldShowAutoCompactionNote(account: CodexAccountSnapshot | null): boolean {
+  return account?.account?.type === "chatgpt";
+}
+
+export function ContextWindowTooltipContent({
+  state,
+  showAutoCompactionNote,
+}: {
+  state: ContextWindowIndicatorState;
+  showAutoCompactionNote: boolean;
+}) {
+  if (state.status !== "ready" || state.usedTokens === null || state.windowTokens === null) {
     return (
-      <div className="flex max-w-52 flex-col items-center gap-1 text-center">
-        <div className="text-xs text-(--foreground-tertiary)">Context window:</div>
-        <div className="text-xl font-semibold text-(--foreground)">{state.percentFull}% full</div>
-        <div className="text-lg font-semibold text-(--foreground)">
-          {formatCompactTokenCount(state.usedTokens)} / {formatCompactTokenCount(state.windowTokens)} tokens used
-        </div>
-        <div className="text-sm text-(--foreground-secondary)">Codex automatically compacts its context</div>
+      <div className="flex flex-col gap-0.5">
+        <span className="whitespace-pre-line text-token-input-placeholder-foreground">Context window:</span>
+        <span>0% used (100% left)</span>
       </div>
     );
   }
 
-  if (state.status === "usageOnly" && state.usedTokens !== null) {
-    return (
-      <div className="flex max-w-44 flex-col items-center gap-1 text-center">
-        <div className="text-xs text-(--foreground-tertiary)">Context window:</div>
-        <div className="text-lg font-semibold text-(--foreground)">
-          {formatCompactTokenCount(state.usedTokens)} tokens in context
-        </div>
-        <div className="text-sm text-(--foreground-secondary)">Model context window not reported yet</div>
-      </div>
-    );
-  }
+  const remainingPercent = Math.max(0, 100 - state.percentFull);
+  const isFullLabel = state.percentFull >= 50;
 
   return (
-    <div className="flex max-w-44 flex-col items-center gap-1 text-center">
-      <div className="text-xs text-(--foreground-tertiary)">Context window:</div>
-      <div className="text-lg font-semibold text-(--foreground)">Waiting for data</div>
-      <div className="text-sm text-(--foreground-secondary)">Codex reports usage after token updates arrive</div>
+    <div className="flex w-38 flex-col gap-0.5 text-center">
+      <span className="whitespace-pre-line text-token-input-placeholder-foreground">Context window:</span>
+      <span className={isFullLabel ? "text-token-input-placeholder-foreground" : undefined}>
+        {isFullLabel
+          ? `${state.percentFull}% full`
+          : `${state.percentFull}% used (${remainingPercent}% left)`}
+      </span>
+      <span>{formatRoundedTokenThousands(state.usedTokens)} / {formatRoundedTokenThousands(state.windowTokens)} tokens used</span>
+      {showAutoCompactionNote ? <p className="mt-2 font-medium">Codex automatically compacts its context</p> : null}
     </div>
   );
 }
 
 function contextWindowAriaLabel(state: ContextWindowIndicatorState): string {
   if (state.status === "ready" && state.usedTokens !== null && state.windowTokens !== null) {
-    return `Context window ${state.percentFull}% full, ${formatWholeTokenCount(state.usedTokens)} of ${formatWholeTokenCount(state.windowTokens)} tokens used`;
+    if (state.percentFull >= 50) {
+      return `Context window ${state.percentFull}% full, ${formatWholeTokenCount(state.usedTokens)} of ${formatWholeTokenCount(state.windowTokens)} tokens used`;
+    }
+
+    return `Context window ${state.percentFull}% used, ${Math.max(0, 100 - state.percentFull)}% left, ${formatWholeTokenCount(state.usedTokens)} of ${formatWholeTokenCount(state.windowTokens)} tokens used`;
   }
 
-  if (state.status === "usageOnly" && state.usedTokens !== null) {
-    return `Context window usage available, ${formatWholeTokenCount(state.usedTokens)} tokens in context`;
-  }
-
-  return "Context window data unavailable";
+  return "Context window 0% used, 100% left";
 }
 
-export function ContextWindowIndicator({ state }: { state: ContextWindowIndicatorState }) {
+export function ContextWindowIndicator({
+  state,
+  account,
+}: {
+  state: ContextWindowIndicatorState;
+  account: CodexAccountSnapshot | null;
+}) {
   const dashOffset = CONTEXT_RING_CIRCUMFERENCE * (1 - state.percentFull / 100);
-  const toneClass =
-    state.status !== "ready"
-      ? "text-[var(--foreground-tertiary)]"
-      : state.percentFull >= 90
-        ? "text-[var(--destructive)]"
-        : "text-[var(--foreground)]";
+  const showFallbackLabel = state.status !== "ready";
+  const showAutoCompaction = shouldShowAutoCompactionNote(account);
 
   return (
     <NodexTooltip
-      tooltipContent={renderContextWindowTooltip(state)}
+      tooltipContent={(
+        <ContextWindowTooltipContent
+          state={state}
+          showAutoCompactionNote={showAutoCompaction}
+        />
+      )}
       side="top"
     >
       <button
         type="button"
         aria-label={contextWindowAriaLabel(state)}
         className={cn(
-          "inline-flex size-6 items-center justify-center rounded-full transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-(--ring)",
-          toneClass,
+          "ml-2 inline-flex items-center gap-1 rounded-full text-token-description-foreground outline-none focus-visible:ring-2 focus-visible:ring-(--ring)",
         )}
       >
         <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" className="shrink-0">
@@ -119,6 +123,11 @@ export function ContextWindowIndicator({ state }: { state: ContextWindowIndicato
             opacity={state.status === "unavailable" ? 0 : 1}
           />
         </svg>
+        {showFallbackLabel ? (
+          <span className="composer-footer__label--sm select-none whitespace-nowrap text-sm text-token-input-placeholder-foreground opacity-60">
+            0%
+          </span>
+        ) : null}
       </button>
     </NodexTooltip>
   );

@@ -9,6 +9,11 @@ import {
 } from "./local-conversation-above-composer-portal";
 import { useLocalConversationThreadScrollController } from "./local-conversation-thread-scroll-controller";
 
+function areFooterTooltipInputsEqual(left: ThreadFooterModel, right: ThreadFooterModel): boolean {
+  return left.account?.account?.type === right.account?.account?.type
+    && left.conversation?.modelProvider === right.conversation?.modelProvider;
+}
+
 interface LocalConversationFooterProps {
   model: ThreadFooterModel;
   actions: ThreadStageActions;
@@ -91,5 +96,6 @@ export const LocalConversationFooter = memo(
     && left.model.threadId === right.model.threadId
     && left.model.body.turnCount === right.model.body.turnCount
     && left.model.body.hasAboveComposerBlocks === right.model.body.hasAboveComposerBlocks
+    && areFooterTooltipInputsEqual(left.model, right.model)
     && left.model.composerShell === right.model.composerShell,
 );
