@@ -23,6 +23,7 @@ function buildConversation(
     threadId: "thread_1",
     projectId: "project_1",
     cardId: "card_1",
+    source: overrides?.source ?? null,
     threadName: "Thread",
     threadPreview: "Preview",
     modelProvider: "openai",
@@ -79,6 +80,7 @@ describe("buildThreadBodyModel", () => {
     const model = buildThreadBodyModel({
       activeThreadId: "thread_1",
       conversation: buildConversation(),
+      parentTurns: [],
       isNewThreadTab: false,
       newThreadTarget: null,
       isCloudNewThreadTarget: false,
@@ -121,6 +123,7 @@ describe("buildThreadBodyModel", () => {
           },
         ],
       }),
+      parentTurns: [],
       isNewThreadTab: false,
       newThreadTarget: null,
       isCloudNewThreadTarget: false,

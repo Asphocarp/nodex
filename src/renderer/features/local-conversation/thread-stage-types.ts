@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type {
   Card,
   CardRunInTarget,
@@ -8,14 +9,17 @@ import type {
   CodexComposerIntent,
   CodexCollaborationModePreset,
   CodexConnectionState,
+  CodexConversationCapabilityFlags,
   CodexConversationItem,
   CodexConversationLiveRequest,
   CodexConversationResumeState,
+  CodexConversationServerRequest,
   CodexMcpServerElicitationAction,
   CodexConversationSnapshot,
   CodexConversationTurn,
   CodexModelOption,
   CodexPermissionMode,
+  CodexThreadStatusType,
   CodexThreadSummary,
   CodexReasoningEffort,
   CodexReasoningEffortOption,
@@ -24,7 +28,7 @@ import type {
 import type { ComposerEnterBehavior } from "../../lib/composer-enter-behavior";
 import type { CodexTurnScopedConversationRequest } from "./conversation-request-helpers";
 
-export interface ThreadStageModelInput {
+export interface ThreadStageRouteInput {
   projectId: string;
   projectWorkspacePath?: string | null;
   isNewThreadTab: boolean;
@@ -46,6 +50,7 @@ export interface ThreadStageModelInput {
   activeThreadId: string | null;
   activeThreadSummary: CodexThreadSummary | null;
   conversation: CodexConversationSnapshot | null;
+  parentTurns: readonly CodexConversationTurn[];
   knownConversationsById: Record<string, CodexConversationSnapshot>;
   connection: CodexConnectionState;
   account: CodexAccountSnapshot | null;
@@ -60,6 +65,7 @@ export interface ThreadStageModelInput {
   composerEnterBehavior: ComposerEnterBehavior;
   searchOpenTick: number;
   composerIntent: CodexComposerIntent | null;
+  primaryRequest: CodexConversationLiveRequest | null;
 }
 
 export interface ThreadStageActions {
@@ -318,41 +324,67 @@ export interface ThreadComposerShellModel {
   showApprovalMode: boolean;
 }
 
-export interface ThreadStageModel {
+export interface ThreadStageHeaderModel {
+  projectId: string;
+  threadId: string | null;
+  cardId: string | null;
+  title: string;
+  openCardTarget: ThreadOpenCardTarget | null;
+  activeThreadCardColumnId: string | null;
+  connection: CodexConnectionState;
+  account: CodexAccountSnapshot | null;
+}
+
+export interface ThreadBodySurfaceModel {
+  threadId: string | null;
+  cwd: string | null;
+  turns: CodexConversationTurn[];
+  requests: CodexConversationServerRequest[];
+  resumeState: CodexConversationResumeState | null;
+  statusType: CodexThreadStatusType | null;
+  capabilityFlags: CodexConversationCapabilityFlags;
+  body: ThreadBodyModel;
+  parentTurns: readonly CodexConversationTurn[];
+  projectWorkspacePath?: string | null;
+  searchOpenTick: number;
+  threadStartProgress: {
+    phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
+    message: string;
+    outputText: string;
+    updatedAt: number;
+  } | null;
+}
+
+export interface ThreadFooterModel {
   projectId: string;
   projectWorkspacePath?: string | null;
+  threadId: string | null;
+  cwd: string | null;
   conversation: CodexConversationSnapshot | null;
   resumeState: CodexConversationResumeState | null;
   activeTurn: CodexConversationTurn | null;
   isThreadRunning: boolean;
   isNewThreadTab: boolean;
   isCloudNewThreadTarget: boolean;
-  newThreadTarget: ThreadStageModelInput["newThreadTarget"];
-  threadStartProgress: ThreadStageModelInput["threadStartProgress"];
-  connection: CodexConnectionState;
-  account: CodexAccountSnapshot | null;
-  availableModels: CodexModelOption[];
+  newThreadTarget: ThreadStageRouteInput["newThreadTarget"];
+  composerShell: ThreadComposerShellModel;
+  body: ThreadBodyModel;
   collaborationModes: CodexCollaborationModePreset[];
   selectedCollaborationMode: CodexCollaborationModeKind;
   selectedModel: string;
+  availableModels: CodexModelOption[];
   selectedReasoningEffort: CodexReasoningEffort;
   reasoningEffortOptions: CodexReasoningEffortOption[];
   permissionMode: CodexPermissionMode;
   isQueueingEnabled: boolean;
   composerEnterBehavior: ComposerEnterBehavior;
-  searchOpenTick: number;
   composerIntent: CodexComposerIntent | null;
-  title: string;
-  openCardTarget: ThreadOpenCardTarget | null;
-  activeThreadCardColumnId: string | null;
-  body: ThreadBodyModel;
-  composerShell: ThreadComposerShellModel;
 }
 
 export interface ThreadStageScreenProps {
-  model: ThreadStageModel;
-  actions: ThreadStageActions;
-  initialUiState?: ThreadBodyUiStateOverrides;
+  header: ReactNode;
+  body: ReactNode;
+  footer: ReactNode;
 }
 
 export interface ThreadBodyUiStateOverrides {

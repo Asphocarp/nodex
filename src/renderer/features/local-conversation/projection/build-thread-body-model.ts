@@ -1,11 +1,24 @@
-import type { CodexConversationSnapshot } from "../../../lib/types";
-import { selectConversationTurnRequestsByTurnId } from "../conversation-request-helpers";
+import type {
+  CodexConversationCapabilityFlags,
+  CodexConversationSnapshot,
+  CodexConversationResumeState,
+  CodexConversationServerRequest,
+  CodexConversationTurn,
+  CodexThreadStatusType,
+} from "../../../lib/types";
 import type { ThreadBodyModel } from "../thread-stage-types";
 import { buildTurnRenderModel } from "./build-turn-render-model";
+import { selectVisibleConversationTurnEntries } from "../selectors";
 
 interface BuildThreadBodyModelInput {
   activeThreadId: string | null;
-  conversation: CodexConversationSnapshot | null;
+  threadId: string | null;
+  turns: CodexConversationTurn[];
+  requests: CodexConversationServerRequest[];
+  resumeState: CodexConversationResumeState | null;
+  statusType: CodexThreadStatusType | null;
+  capabilityFlags: CodexConversationCapabilityFlags;
+  parentTurns: readonly CodexConversationTurn[];
   isNewThreadTab: boolean;
   newThreadTarget: {
     projectId: string;
@@ -24,34 +37,127 @@ interface BuildThreadBodyModelInput {
   } | null;
 }
 
-function resolveActiveTurn(conversation: CodexConversationSnapshot | null) {
-  return conversation
-    ? [...conversation.turns].reverse().find((turn) => turn.status === "inProgress") ?? null
-    : null;
+interface LegacyBuildThreadBodyModelInput {
+  activeThreadId: string | null;
+  conversation: CodexConversationSnapshot | null;
+  parentTurns: readonly CodexConversationTurn[];
+  isNewThreadTab: boolean;
+  newThreadTarget: BuildThreadBodyModelInput["newThreadTarget"];
+  isCloudNewThreadTarget: boolean;
+  threadStartProgress: BuildThreadBodyModelInput["threadStartProgress"];
 }
 
-function resolveLatestTurnId(conversation: CodexConversationSnapshot | null): string | null {
-  return conversation?.turns[conversation.turns.length - 1]?.turnId ?? null;
+export type ThreadBodyModelInput =
+  | BuildThreadBodyModelInput
+  | LegacyBuildThreadBodyModelInput;
+
+function normalizeBuildThreadBodyModelInput(input: ThreadBodyModelInput): BuildThreadBodyModelInput {
+  if ("conversation" in input) {
+    return {
+      activeThreadId: input.activeThreadId,
+      threadId: input.conversation?.threadId ?? input.activeThreadId,
+      turns: input.conversation?.turns ?? [],
+      requests: input.conversation?.requests ?? [],
+      resumeState: input.conversation?.resumeState ?? null,
+      statusType: input.conversation?.statusType ?? null,
+      capabilityFlags: input.conversation?.capabilityFlags ?? {
+        canEditLastUserTurn: false,
+        canForkFromTurn: false,
+        canSearch: false,
+        canCollapseTurns: false,
+      },
+      parentTurns: input.parentTurns,
+      isNewThreadTab: input.isNewThreadTab,
+      newThreadTarget: input.newThreadTarget,
+      isCloudNewThreadTarget: input.isCloudNewThreadTarget,
+      threadStartProgress: input.threadStartProgress,
+    };
+  }
+
+  return input;
 }
 
-function resolveHasVisibleContent(conversation: CodexConversationSnapshot): boolean {
-  return conversation.turns.some((turn) => turn.items.length > 0);
+function buildBodyConversation(input: BuildThreadBodyModelInput) {
+  if (!input.threadId) {
+    return null;
+  }
+
+  return {
+    threadId: input.threadId,
+    projectId: "",
+    cardId: "",
+    source: null,
+    threadName: null,
+    threadPreview: "",
+    modelProvider: "",
+    cwd: null,
+    statusType: input.statusType ?? "notLoaded",
+    statusActiveFlags: [],
+    archived: false,
+    createdAt: 0,
+    updatedAt: 0,
+    linkedAt: "",
+    latestCollaborationMode: undefined,
+    resumeState: input.resumeState ?? "needs_resume",
+    turns: input.turns,
+    requests: input.requests,
+    queuedFollowUps: [],
+    pendingSteers: [],
+    backgroundTerminalRows: [],
+    childMemberships: [],
+    capabilityFlags: input.capabilityFlags,
+  };
+}
+
+function resolveActiveTurnId(
+  conversation: ReturnType<typeof buildBodyConversation>,
+  parentTurns: readonly CodexConversationTurn[],
+): string | null {
+  const visibleEntries = selectVisibleConversationTurnEntries({
+    conversation,
+    parentTurns,
+  });
+  return [...visibleEntries].reverse().find((entry) => entry.turn.status === "inProgress")?.turnId ?? null;
+}
+
+function resolveLatestTurnId(
+  conversation: ReturnType<typeof buildBodyConversation>,
+  parentTurns: readonly CodexConversationTurn[],
+): string | null {
+  const visibleEntries = selectVisibleConversationTurnEntries({
+    conversation,
+    parentTurns,
+  });
+  return visibleEntries[visibleEntries.length - 1]?.turnId ?? null;
+}
+
+function resolveVisibleTurnCount(
+  conversation: NonNullable<ReturnType<typeof buildBodyConversation>>,
+  parentTurns: readonly CodexConversationTurn[],
+): number {
+  return selectVisibleConversationTurnEntries({
+    conversation,
+    parentTurns,
+  }).length;
 }
 
 function resolveHasAboveComposerBlocks(
-  conversation: CodexConversationSnapshot,
+  conversation: NonNullable<ReturnType<typeof buildBodyConversation>>,
+  parentTurns: readonly CodexConversationTurn[],
   activeTurnId: string | null,
   latestTurnId: string | null,
 ): boolean {
   if (!activeTurnId) return false;
 
-  const activeTurn = conversation.turns.find((turn) => turn.turnId === activeTurnId);
-  if (!activeTurn) return false;
+  const visibleEntry = selectVisibleConversationTurnEntries({
+    conversation,
+    parentTurns,
+  }).find((entry) => entry.turnId === activeTurnId);
+  if (!visibleEntry) return false;
 
-  const turnRequestsByTurnId = selectConversationTurnRequestsByTurnId(conversation);
   const renderedTurn = buildTurnRenderModel({
-    turn: activeTurn,
-    requests: turnRequestsByTurnId.get(activeTurnId) ?? [],
+    turn: visibleEntry.turn,
+    requests: visibleEntry.requests,
     isLatestTurn: latestTurnId === activeTurnId,
     isStreamingTurn: true,
     canEditTurnUserPrefix: false,
@@ -61,17 +167,18 @@ function resolveHasAboveComposerBlocks(
   return (renderedTurn.aboveComposerBlocks?.length ?? 0) > 0;
 }
 
-export function buildThreadBodyModel(input: BuildThreadBodyModelInput): ThreadBodyModel {
-  const conversation = input.conversation;
-  const resumeState = conversation?.resumeState ?? null;
+export function buildThreadBodyModel(input: ThreadBodyModelInput): ThreadBodyModel {
+  const normalized = normalizeBuildThreadBodyModelInput(input);
+  const conversation = buildBodyConversation(normalized);
+  const resumeState = normalized.resumeState;
   const showThreadStartProgressPanel = Boolean(
-    input.isNewThreadTab && !conversation && input.newThreadTarget && input.threadStartProgress,
+    normalized.isNewThreadTab && !conversation && normalized.newThreadTarget && normalized.threadStartProgress,
   );
 
   if (!conversation) {
-    if (input.activeThreadId && resumeState) {
+    if (normalized.activeThreadId && resumeState) {
       return {
-        threadId: input.activeThreadId,
+        threadId: normalized.activeThreadId,
         turnCount: 0,
         hasAboveComposerBlocks: false,
         isThreadRunning: false,
@@ -90,7 +197,7 @@ export function buildThreadBodyModel(input: BuildThreadBodyModelInput): ThreadBo
       };
     }
 
-    if (input.isNewThreadTab) {
+    if (normalized.isNewThreadTab) {
       return {
         threadId: null,
         turnCount: 0,
@@ -102,8 +209,8 @@ export function buildThreadBodyModel(input: BuildThreadBodyModelInput): ThreadBo
         emptyState: {
           type: "newThread",
           title: "Start a new thread",
-          description: input.newThreadTarget
-            ? input.isCloudNewThreadTarget
+          description: normalized.newThreadTarget
+            ? normalized.isCloudNewThreadTarget
               ? "Cloud run target is mock-only right now. Change the card Run in property to Local project or New worktree."
               : "Write the first prompt and send to create a new card-linked thread."
             : "Select a card in the Cards stage, then press New in its Threads property.",
@@ -151,12 +258,13 @@ export function buildThreadBodyModel(input: BuildThreadBodyModelInput): ThreadBo
     };
   }
 
-  const activeTurnId = resolveActiveTurn(conversation)?.turnId ?? null;
-  const latestTurnId = resolveLatestTurnId(conversation);
+  const activeTurnId = resolveActiveTurnId(conversation, normalized.parentTurns);
+  const latestTurnId = resolveLatestTurnId(conversation, normalized.parentTurns);
+  const visibleTurnCount = resolveVisibleTurnCount(conversation, normalized.parentTurns);
   const isThreadRunning =
     conversation.statusType === "active" || activeTurnId !== null;
 
-  if (!resolveHasVisibleContent(conversation) && conversation.turns.length === 0) {
+  if (visibleTurnCount === 0) {
     return {
       threadId: conversation.threadId,
       turnCount: 0,
@@ -175,9 +283,10 @@ export function buildThreadBodyModel(input: BuildThreadBodyModelInput): ThreadBo
 
   return {
     threadId: conversation.threadId,
-    turnCount: conversation.turns.length,
+    turnCount: visibleTurnCount,
     hasAboveComposerBlocks: resolveHasAboveComposerBlocks(
       conversation,
+      normalized.parentTurns,
       activeTurnId,
       latestTurnId,
     ),

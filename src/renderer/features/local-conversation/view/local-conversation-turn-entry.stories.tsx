@@ -53,7 +53,6 @@ const meta = {
     isMostRecentTurn: true,
     canEditTurnUserPrefix: true,
     canForkTurnUserPrefix: true,
-    isMatched: false,
     projectWorkspacePath: "/workspace/nodex",
     threadCwd: "/workspace/nodex",
   },

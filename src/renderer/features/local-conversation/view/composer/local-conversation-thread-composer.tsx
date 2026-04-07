@@ -36,7 +36,7 @@ import {
   StopIcon,
   UpArrowIcon,
 } from "@/components/shared/icons";
-import type { ThreadStageActions, ThreadStageModel } from "../../thread-stage-types";
+import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-types";
 import { ComposerActionTooltipContent } from "./composer-submit-tooltip";
 import {
   BranchSelectorPopover,
@@ -51,7 +51,7 @@ import {
 } from "./local-conversation-thread-composer-deps";
 
 interface ThreadComposerProps {
-  model: ThreadStageModel;
+  model: ThreadFooterModel;
   actions: ThreadStageActions;
   errorMessage: string | null;
   onErrorMessage: (message: string | null) => void;

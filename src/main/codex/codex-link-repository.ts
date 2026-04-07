@@ -1,4 +1,5 @@
 import type {
+  CodexConversationSource,
   CodexThreadActiveFlag,
   CodexThreadStatusType,
   CodexThreadSummary,
@@ -14,6 +15,7 @@ interface DbCodexCardThread {
   project_id: string;
   card_id: string;
   thread_id: string;
+  parent_thread_id: string | null;
   thread_name: string | null;
   thread_preview: string;
   model_provider: string;
@@ -30,6 +32,7 @@ export interface UpsertCodexCardThreadInput {
   projectId: string;
   cardId: string;
   threadId: string;
+  source?: CodexConversationSource | null;
   threadName?: string | null;
   threadPreview?: string;
   modelProvider?: string;
@@ -55,6 +58,9 @@ function rowToSummary(row: DbCodexCardThread): CodexThreadSummary {
     threadId: row.thread_id,
     projectId: row.project_id,
     cardId: row.card_id,
+    source: row.parent_thread_id
+      ? { parentThreadId: row.parent_thread_id }
+      : null,
     threadName: row.thread_name,
     threadPreview: row.thread_preview,
     modelProvider: row.model_provider,
@@ -81,6 +87,7 @@ export function upsertCodexCardThreadLink(input: UpsertCodexCardThreadInput): Co
       card_id,
       thread_id,
       thread_name,
+      parent_thread_id,
       thread_preview,
       model_provider,
       cwd,
@@ -91,11 +98,12 @@ export function upsertCodexCardThreadLink(input: UpsertCodexCardThreadInput): Co
       updated_at,
       linked_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(thread_id) DO UPDATE SET
       project_id = excluded.project_id,
       card_id = excluded.card_id,
       thread_name = excluded.thread_name,
+      parent_thread_id = excluded.parent_thread_id,
       thread_preview = excluded.thread_preview,
       model_provider = excluded.model_provider,
       cwd = excluded.cwd,
@@ -109,6 +117,7 @@ export function upsertCodexCardThreadLink(input: UpsertCodexCardThreadInput): Co
     input.cardId,
     input.threadId,
     input.threadName ?? null,
+    input.source?.parentThreadId ?? null,
     input.threadPreview ?? "",
     input.modelProvider ?? "",
     input.cwd ?? null,

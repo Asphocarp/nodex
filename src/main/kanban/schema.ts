@@ -116,6 +116,7 @@ function createLatestSchema(db: Database.Database): void {
       thread_id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+      parent_thread_id TEXT,
       thread_name TEXT,
       thread_preview TEXT NOT NULL DEFAULT '',
       model_provider TEXT NOT NULL DEFAULT '',
@@ -224,6 +225,14 @@ function createLatestSchema(db: Database.Database): void {
   `);
 }
 
+function ensureCodexCardThreadColumns(db: Database.Database): void {
+  const columns = db.prepare("PRAGMA table_info(codex_card_threads)").all() as Array<{ name: string }>;
+  const columnNames = new Set(columns.map((column) => column.name));
+  if (!columnNames.has("parent_thread_id")) {
+    db.exec("ALTER TABLE codex_card_threads ADD COLUMN parent_thread_id TEXT");
+  }
+}
+
 function resetDatabaseToLatestSchema(db: Database.Database): void {
   db.exec("PRAGMA foreign_keys = OFF");
   try {
@@ -273,6 +282,7 @@ export function ensureDatabase(options: EnsureDatabaseOptions = {}): void {
     }
 
     db.exec("DROP TABLE IF EXISTS codex_thread_snapshots");
+    ensureCodexCardThreadColumns(db);
     seedDefaultProjectIfMissing(db);
   } finally {
     db.close();

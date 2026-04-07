@@ -14,6 +14,7 @@ function makeLink(threadId: string): CodexThreadSummary {
     threadId,
     projectId: "codex",
     cardId: "card-1",
+    source: null,
     threadName: null,
     threadPreview: "",
     modelProvider: "openai",

@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
-  buildThreadStageStoryModel,
+  buildThreadStageStorySurfaceModels,
   buildThreadStageStoryScenario,
   type ThreadStageStoryControls,
 } from "../thread-stage-story-fixtures";
@@ -16,13 +16,13 @@ const RESUMING_STORY_CONTROLS: ThreadStageStoryControls = {
 
 function buildResumeLoaderArgs() {
   const scenario = buildThreadStageStoryScenario(RESUMING_STORY_CONTROLS);
-  const model = buildThreadStageStoryModel(scenario, RESUMING_STORY_CONTROLS, scenario.runtime);
-  if (model.body.emptyState.type !== "resumingThread") {
+  const { bodyModel } = buildThreadStageStorySurfaceModels(scenario, RESUMING_STORY_CONTROLS, scenario.runtime);
+  if (bodyModel.body.emptyState.type !== "resumingThread") {
     throw new Error("Expected the resuming story fixture to produce the resuming thread empty state.");
   }
   return {
-    title: model.body.emptyState.title,
-    description: model.body.emptyState.description,
+    title: bodyModel.body.emptyState.title,
+    description: bodyModel.body.emptyState.description,
   };
 }
 

@@ -8,7 +8,7 @@ import type {
   CodexConversationSnapshot,
   CodexConversationTurn,
 } from "../../../lib/types";
-import type { ThreadStageActions, ThreadStageModel } from "../thread-stage-types";
+import type { ThreadBodySurfaceModel, ThreadStageActions } from "../thread-stage-types";
 import { buildThreadBodyModel } from "../projection/build-thread-body-model";
 
 function buildAssistantEntry(
@@ -67,6 +67,7 @@ function buildConversation(
     threadId: "thread_1",
     projectId: "project_1",
     cardId: "card_1",
+    source: overrides?.source ?? null,
     threadName: "Thread",
     threadPreview: "Preview",
     modelProvider: "openai",
@@ -94,59 +95,54 @@ function buildConversation(
   };
 }
 
-function buildModel(overrides?: Partial<ThreadStageModel>): ThreadStageModel {
+function buildModel(overrides?: {
+  conversation?: CodexConversationSnapshot | null;
+  body?: ThreadBodySurfaceModel["body"];
+  searchOpenTick?: number;
+  projectWorkspacePath?: string | null;
+  threadStartProgress?: ThreadBodySurfaceModel["threadStartProgress"];
+}): ThreadBodySurfaceModel {
   const conversation = overrides?.conversation ?? buildConversation();
   const body =
     overrides?.body ??
     buildThreadBodyModel({
-      activeThreadId: conversation.threadId,
-      conversation,
+      activeThreadId: conversation?.threadId ?? null,
+      threadId: conversation?.threadId ?? null,
+      turns: conversation?.turns ?? [],
+      requests: conversation?.requests ?? [],
+      resumeState: conversation?.resumeState ?? null,
+      statusType: conversation?.statusType ?? null,
+      capabilityFlags: conversation?.capabilityFlags ?? {
+        canEditLastUserTurn: false,
+        canForkFromTurn: false,
+        canSearch: false,
+        canCollapseTurns: false,
+      },
+      parentTurns: [],
       isNewThreadTab: false,
       newThreadTarget: null,
       isCloudNewThreadTarget: false,
-      threadStartProgress: null,
+      threadStartProgress: overrides?.threadStartProgress ?? null,
     });
 
   return {
-    projectId: "project_1",
-    projectWorkspacePath: "/tmp/project",
-    conversation,
-    resumeState: conversation.resumeState,
-    activeTurn: conversation.turns[0] ?? null,
-    isThreadRunning: false,
-    isNewThreadTab: false,
-    isCloudNewThreadTarget: false,
-    newThreadTarget: null,
-    threadStartProgress: null,
-    connection: { status: "connected", retries: 0 },
-    account: null,
-    availableModels: [],
-    collaborationModes: [],
-    selectedCollaborationMode: "default",
-    selectedModel: "gpt-5.3-codex",
-    selectedReasoningEffort: "high",
-    reasoningEffortOptions: [],
-    permissionMode: "sandbox",
-    isQueueingEnabled: false,
-    composerEnterBehavior: "enter",
-    searchOpenTick: 0,
-    composerIntent: null,
-    title: "Thread",
-    openCardTarget: null,
-    activeThreadCardColumnId: null,
-    body,
-    composerShell: {
-      activeRequest: null,
-      backgroundRequest: null,
-      pendingSteerRows: [],
-      queuedFollowUpRows: [],
-      backgroundAgentRows: [],
-      backgroundTerminalRows: [],
-      showRequestCards: false,
-      showComposer: true,
-      showApprovalMode: false,
+    threadId: conversation?.threadId ?? null,
+    cwd: conversation?.cwd ?? null,
+    turns: conversation?.turns ?? [],
+    requests: conversation?.requests ?? [],
+    resumeState: conversation?.resumeState ?? null,
+    statusType: conversation?.statusType ?? null,
+    capabilityFlags: conversation?.capabilityFlags ?? {
+      canEditLastUserTurn: false,
+      canForkFromTurn: false,
+      canSearch: false,
+      canCollapseTurns: false,
     },
-    ...overrides,
+    body,
+    parentTurns: [],
+    projectWorkspacePath: overrides?.projectWorkspacePath ?? "/tmp/project",
+    searchOpenTick: overrides?.searchOpenTick ?? 0,
+    threadStartProgress: overrides?.threadStartProgress ?? null,
   };
 }
 
@@ -273,8 +269,6 @@ describe("LocalConversationThreadBody", () => {
     const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
     const model = buildModel({
       conversation: null,
-      resumeState: "resuming",
-      activeTurn: null,
       body: {
         threadId: "thread_1",
         turnCount: 0,
@@ -292,11 +286,16 @@ describe("LocalConversationThreadBody", () => {
         showThreadStartProgressPanel: false,
       },
     });
+    const resumingModel: ThreadBodySurfaceModel = {
+      ...model,
+      threadId: "thread_1",
+      resumeState: "resuming",
+    };
 
     const { getByRole, queryByText } = render(
       <TooltipProvider>
         <LocalConversationThreadBody
-          model={model}
+          model={resumingModel}
           actions={buildActions()}
           onErrorMessage={() => {}}
         />

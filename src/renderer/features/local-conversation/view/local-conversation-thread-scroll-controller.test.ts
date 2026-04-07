@@ -27,7 +27,7 @@ describe("isThreadScrollNearBottom", () => {
 });
 
 describe("resolveThreadScrollModeForScrollEvent", () => {
-  test("preserves programmatic find mode during follow-up scroll events", () => {
+  test("preserves programmatic find mode until the programmatic settle window expires", () => {
     expect(
       resolveThreadScrollModeForScrollEvent({
         currentMode: "programmaticFind",
@@ -37,6 +37,18 @@ describe("resolveThreadScrollModeForScrollEvent", () => {
         programmaticScrollSettledUntilMs: 1_100,
       }),
     ).toBe("programmaticFind");
+  });
+
+  test("returns user after the programmatic find settle window expires", () => {
+    expect(
+      resolveThreadScrollModeForScrollEvent({
+        currentMode: "programmaticFind",
+        isNearBottom: false,
+        nowMs: 1_200,
+        userScrollGraceUntilMs: 1_500,
+        programmaticScrollSettledUntilMs: 1_100,
+      }),
+    ).toBe("user");
   });
 
   test("returns stickToBottom when the scroll position reaches the bottom again", () => {

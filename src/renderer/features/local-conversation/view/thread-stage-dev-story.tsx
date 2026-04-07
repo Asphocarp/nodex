@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { LocalConversationFooter } from "./local-conversation-footer";
 import { LocalConversationStageScreen } from "./local-conversation-stage-screen";
+import { ThreadStageHeader } from "./local-conversation-stage-header";
+import { LocalConversationThreadBody } from "./local-conversation-thread-body";
 import {
   StorybookElectronTransportBoundary,
   THREAD_STAGE_STORY_PRESETS,
   buildStoryConversation,
   buildStoryConversationItem,
   buildStoryConversationTurn,
-  buildThreadStageStoryModel,
+  buildThreadStageStorySurfaceModels,
   buildThreadStageStoryScenario,
   type ThreadStageStoryControls,
   type ThreadStageStoryRuntimeState,
@@ -316,8 +319,8 @@ export function ThreadStageDevStoryPage({
     setRuntime(scenario.runtime);
   }, [scenario]);
 
-  const model = useMemo(
-    () => buildThreadStageStoryModel(scenario, {
+  const surfaceModels = useMemo(
+    () => buildThreadStageStorySurfaceModels(scenario, {
       preset,
       permissionMode,
       authenticatedAccount,
@@ -534,7 +537,7 @@ export function ThreadStageDevStoryPage({
     },
     onForkFromTurn: async ({ threadId, turnId, message }) => {
       setRuntime((current) => setStoryLog(current, `Forked from ${turnId}: ${message}`));
-      if (threadId === model.conversation?.threadId) {
+      if (threadId === surfaceModels.footerModel.conversation?.threadId) {
         setRuntime((current) => ({
           ...current,
           composerIntent: {
@@ -559,7 +562,7 @@ export function ThreadStageDevStoryPage({
     onOpenThread: () => {},
     onCleanBackgroundTerminals: async () => {},
     onOpenCard: () => {},
-  }), [authenticatedAccount, model.conversation?.threadId, scenario.autoAction]);
+  }), [authenticatedAccount, scenario.autoAction, surfaceModels.footerModel.conversation?.threadId]);
 
   useEffect(() => {
     if (!scenario.autoAction || !renderPreview) return;
@@ -629,7 +632,7 @@ export function ThreadStageDevStoryPage({
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             <span className="rounded-full border border-(--border) bg-(--background) px-2.5 py-1 text-xs text-(--foreground-secondary)">
-              real `buildThreadStageModel(...)`
+              split surface story models
             </span>
             <span className="rounded-full border border-(--border) bg-(--background) px-2.5 py-1 text-xs text-(--foreground-secondary)">
               fake Electron bridge
@@ -658,9 +661,23 @@ export function ThreadStageDevStoryPage({
             >
               <div ref={previewRef} className="min-h-[760px]">
                 <LocalConversationStageScreen
-                  model={model}
-                  actions={actions}
-                  initialUiState={scenario.initialUiState}
+                  header={<ThreadStageHeader model={surfaceModels.headerModel} actions={actions} onErrorMessage={() => {}} />}
+                  body={
+                    <LocalConversationThreadBody
+                      model={surfaceModels.bodyModel}
+                      actions={actions}
+                      onErrorMessage={() => {}}
+                      initialUiState={scenario.initialUiState}
+                    />
+                  }
+                  footer={
+                    <LocalConversationFooter
+                      model={surfaceModels.footerModel}
+                      actions={actions}
+                      errorMessage={null}
+                      onErrorMessage={() => {}}
+                    />
+                  }
                 />
               </div>
             </StorybookElectronTransportBoundary>

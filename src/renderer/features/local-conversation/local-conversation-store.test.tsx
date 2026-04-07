@@ -74,6 +74,7 @@ function buildThreadSummary(threadId: string, projectId: string): CodexThreadSum
     threadId,
     projectId,
     cardId: `card-${threadId}`,
+    source: null,
     threadName: threadId,
     threadPreview: threadId,
     modelProvider: "openai",
@@ -333,6 +334,54 @@ describe("local-conversation-store", () => {
 
     expect(textContent(container)).toBe("11");
     expect(String(invokeCalls.filter((call) => call === "codex:threads:list").length)).toBe("1");
+  });
+
+  test("normalizes incoming conversation snapshots before storing them", async () => {
+    invokeCalls = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    const {
+      __resetLocalConversationStoreForTests,
+      LocalConversationProvider,
+      readLocalConversation,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    render(createElement(LocalConversationProvider, null, createElement("div")));
+    await settleAsyncRender();
+
+    await act(async () => {
+      hostMessageListener?.({
+        type: "threadStreamStateChanged",
+        hostId: "default",
+        conversationId: "thread-1",
+        change: {
+          type: "snapshot",
+          conversationState: {
+            ...buildConversation("thread-1", "project-1"),
+            threadName: undefined as unknown as string,
+            threadPreview: undefined as unknown as string,
+            pendingSteers: undefined as unknown as [],
+            queuedFollowUps: undefined as unknown as [],
+            backgroundTerminalRows: undefined as unknown as [],
+            childMemberships: undefined as unknown as [],
+            statusActiveFlags: undefined as unknown as [],
+          },
+        },
+        version: 1,
+        sourceClientId: null,
+      });
+    });
+    await settleAsyncRender();
+
+    const conversation = readLocalConversation("thread-1");
+    expect(conversation?.threadName ?? "missing").toBe("");
+    expect(conversation?.threadPreview ?? "missing").toBe("");
+    expect(String(conversation?.pendingSteers.length ?? -1)).toBe("0");
+    expect(String(conversation?.queuedFollowUps.length ?? -1)).toBe("0");
+    expect(String(conversation?.backgroundTerminalRows.length ?? -1)).toBe("0");
+    expect(String(conversation?.childMemberships.length ?? -1)).toBe("0");
+    expect(String(conversation?.statusActiveFlags.length ?? -1)).toBe("0");
   });
 
   test("empty project thread results still count as hydrated", async () => {

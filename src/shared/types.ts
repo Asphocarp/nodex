@@ -512,6 +512,7 @@ export interface CodexThreadSummary {
   threadId: string;
   projectId: string;
   cardId: string;
+  source: CodexConversationSource | null;
   threadName: string | null;
   threadPreview: string;
   modelProvider: string;
@@ -525,6 +526,10 @@ export interface CodexThreadSummary {
 }
 
 export type CodexConversationResumeState = "needs_resume" | "resuming" | "resumed";
+
+export interface CodexConversationSource {
+  parentThreadId: string | null;
+}
 
 export type CodexReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
 export type CodexThreadDetailLevel = "STEPS_PROSE" | "STEPS_COMMANDS" | "STEPS_EXECUTION";
@@ -1061,7 +1066,7 @@ export interface CodexConversationSnapshot extends CodexThreadSummary {
 export type CodexConversationPatchPathSegment = string | number;
 
 export interface CodexConversationStateUpdate {
-  op: "replace" | "remove";
+  op: "add" | "replace" | "remove";
   path: CodexConversationPatchPathSegment[];
   value?: unknown;
 }

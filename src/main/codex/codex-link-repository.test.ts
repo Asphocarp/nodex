@@ -54,6 +54,7 @@ describe("codex-link-repository", () => {
         projectId: "codex",
         cardId: card.id,
         threadId: "thr_test_1",
+        source: { parentThreadId: "thr_parent" },
         threadName: "Thread One",
         threadPreview: "Initial preview",
         modelProvider: "openai",
@@ -64,6 +65,7 @@ describe("codex-link-repository", () => {
       expect(first.threadId).toBe("thr_test_1");
       expect(first.threadName).toBe("Thread One");
       expect(first.archived).toBe(false);
+      expect(first.source?.parentThreadId).toBe("thr_parent");
 
       const second = upsertCodexCardThreadLink({
         projectId: "codex",
@@ -80,6 +82,7 @@ describe("codex-link-repository", () => {
       expect(second.threadName).toBe("Thread One Updated");
       expect(second.statusType).toBe("active");
       expect(second.statusActiveFlags.length).toBe(1);
+      expect(second.source?.parentThreadId).toBe("thr_parent");
 
       const byProject = listCodexProjectThreads("codex");
       expect(byProject.length).toBe(1);
@@ -88,6 +91,7 @@ describe("codex-link-repository", () => {
       const byCard = listCodexProjectThreads("codex", { cardId: card.id });
       expect(byCard.length).toBe(1);
       expect(byCard[0]?.cardId).toBe(card.id);
+      expect(byCard[0]?.source?.parentThreadId).toBe("thr_parent");
     });
 
     if (!ran) expect(true).toBeTrue();

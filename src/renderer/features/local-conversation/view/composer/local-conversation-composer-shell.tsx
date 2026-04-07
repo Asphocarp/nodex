@@ -28,8 +28,8 @@ import type {
   ThreadComposerShellBackgroundAgentRowModel,
   ThreadComposerShellPendingSteerRowModel,
   ThreadComposerShellQueuedFollowUpRowModel,
+  ThreadFooterModel,
   ThreadStageActions,
-  ThreadStageModel,
 } from "../../thread-stage-types";
 import { ThreadComposer } from "./local-conversation-thread-composer";
 import { CodexPendingRequestCard } from "./request-cards/codex-pending-request-card";
@@ -40,7 +40,7 @@ import {
 import { usePortalHost } from "../use-portal-host";
 
 interface LocalConversationComposerShellProps {
-  model: ThreadStageModel;
+  model: ThreadFooterModel;
   actions: ThreadStageActions;
   errorMessage: string | null;
   onErrorMessage: (message: string | null) => void;
@@ -414,11 +414,11 @@ function QueuePanel({
   actions,
   showRoundedTop,
 }: {
-  model: ThreadStageModel;
+  model: ThreadFooterModel;
   actions: ThreadStageActions;
   showRoundedTop: boolean;
 }) {
-  const threadId = model.conversation?.threadId ?? null;
+  const threadId = model.threadId;
   const pendingSteerRows = model.composerShell.pendingSteerRows;
   const queuedFollowUpRows = model.composerShell.queuedFollowUpRows;
   const sensors = useSensors(
@@ -493,7 +493,7 @@ function QueuePanel({
 function BackgroundTerminalRow({
   terminal,
 }: {
-  terminal: ThreadStageModel["composerShell"]["backgroundTerminalRows"][number];
+  terminal: ThreadFooterModel["composerShell"]["backgroundTerminalRows"][number];
 }) {
   const visibleRow = (
     <div className="min-w-0">
@@ -538,7 +538,7 @@ function BackgroundTerminalPanel({
   showRoundedTop,
 }: {
   threadId: string;
-  rows: ThreadStageModel["composerShell"]["backgroundTerminalRows"];
+  rows: ThreadFooterModel["composerShell"]["backgroundTerminalRows"];
   actions: ThreadStageActions;
   showRoundedTop: boolean;
 }) {
@@ -614,7 +614,7 @@ function BackgroundAgentPanel({
   actions,
   showRoundedTop,
 }: {
-  rows: ThreadStageModel["composerShell"]["backgroundAgentRows"];
+  rows: ThreadFooterModel["composerShell"]["backgroundAgentRows"];
   actions: ThreadStageActions;
   showRoundedTop: boolean;
 }) {
@@ -707,7 +707,7 @@ function RequestCardStack({
   model,
   actions,
 }: {
-  model: ThreadStageModel;
+  model: ThreadFooterModel;
   actions: ThreadStageActions;
 }) {
   const entries = [
@@ -740,7 +740,7 @@ export function LocalConversationComposerShell({
   const hasFixedPortalContent = model.body.hasAboveComposerBlocks;
   const queuePortalHost = usePortalHost(LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ID);
   const showQueuePanel = model.composerShell.pendingSteerRows.length > 0 || model.composerShell.queuedFollowUpRows.length > 0;
-  const backgroundTerminalThreadId = model.conversation?.threadId ?? null;
+  const backgroundTerminalThreadId = model.threadId;
   const showBackgroundTerminals =
     backgroundTerminalThreadId !== null && model.composerShell.backgroundTerminalRows.length > 0;
   const showBackgroundAgents = model.composerShell.backgroundAgentRows.length > 0 && !model.composerShell.showApprovalMode;

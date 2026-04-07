@@ -1,36 +1,22 @@
-import { useState } from "react";
 import type { ThreadStageScreenProps } from "../thread-stage-types";
-import { LocalConversationFooter, ThreadStageHeader } from "./local-conversation-stage-screen-deps";
-import { LocalConversationThreadBody } from "./local-conversation-thread-body";
 import { EnsureLocalConversationThreadScrollController } from "./local-conversation-thread-scroll-controller";
 
-export function LocalConversationStageScreen({ model, actions, initialUiState }: ThreadStageScreenProps) {
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
+export function LocalConversationStageScreen(props: ThreadStageScreenProps) {
+  const { header, body, footer } = props;
   return (
     <div className="relative flex h-full min-h-0 flex-col bg-(--background)">
       <div className="sticky top-0 z-10">
-        <ThreadStageHeader model={model} actions={actions} onErrorMessage={setErrorMessage} />
+        {header}
       </div>
       <EnsureLocalConversationThreadScrollController>
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="relative mx-auto flex min-h-0 w-full flex-1 flex-col">
             <div className="min-h-0 flex-1">
-              <LocalConversationThreadBody
-                model={model}
-                actions={actions}
-                onErrorMessage={setErrorMessage}
-                initialUiState={initialUiState}
-              />
+              {body}
             </div>
           </div>
           <div className="z-10 w-full pb-2">
-            <LocalConversationFooter
-              model={model}
-              actions={actions}
-              errorMessage={errorMessage}
-              onErrorMessage={setErrorMessage}
-            />
+            {footer}
           </div>
         </div>
       </EnsureLocalConversationThreadScrollController>

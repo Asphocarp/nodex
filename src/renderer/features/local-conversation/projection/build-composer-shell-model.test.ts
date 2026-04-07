@@ -9,6 +9,7 @@ function buildConversationSnapshot(
     threadId: "thread_1",
     projectId: "project_1",
     cardId: "card_1",
+    source: overrides?.source ?? null,
     threadName: "Thread",
     threadPreview: "Preview",
     modelProvider: "openai",
@@ -40,6 +41,15 @@ describe("buildComposerShellModel", () => {
   test("merges queue rows, background terminals, active request, and first child approval", () => {
     const model = buildComposerShellModel({
       conversation: buildConversationSnapshot({
+        turns: [
+          {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            status: "completed",
+            itemIds: [],
+            items: [],
+          },
+        ],
         requests: [
           {
             type: "userInput",
@@ -93,6 +103,15 @@ describe("buildComposerShellModel", () => {
         thread_1: buildConversationSnapshot(),
         thread_2: buildConversationSnapshot({
           threadId: "thread_2",
+          turns: [
+            {
+              threadId: "thread_2",
+              turnId: "turn_2",
+              status: "completed",
+              itemIds: [],
+              items: [],
+            },
+          ],
           requests: [
             {
               type: "approval",
@@ -145,6 +164,15 @@ describe("buildComposerShellModel", () => {
       knownConversationsById: {
         thread_b: buildConversationSnapshot({
           threadId: "thread_b",
+          turns: [
+            {
+              threadId: "thread_b",
+              turnId: "turn_b",
+              status: "completed",
+              itemIds: [],
+              items: [],
+            },
+          ],
           requests: [
             {
               type: "approval",
@@ -161,6 +189,15 @@ describe("buildComposerShellModel", () => {
         }),
         thread_a: buildConversationSnapshot({
           threadId: "thread_a",
+          turns: [
+            {
+              threadId: "thread_a",
+              turnId: "turn_a",
+              status: "completed",
+              itemIds: [],
+              items: [],
+            },
+          ],
           requests: [
             {
               type: "approval",

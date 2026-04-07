@@ -1,5 +1,5 @@
 import {
-  type ReactNode,
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -7,12 +7,16 @@ import {
   useRef,
   useState,
 } from "react";
+import type { CodexTurnDiffReviewTarget } from "../../../lib/types";
 import { cn } from "../../../lib/utils";
+import type { VisibleConversationTurnEntry } from "../selectors";
+import type { CodexTurnScopedConversationRequest } from "../conversation-request-helpers";
 import {
   buildVirtualizedTurnLayout,
   resolveVisibleTurnRange,
 } from "./local-conversation-turn-virtualization";
 import { useLocalConversationThreadScrollController } from "./local-conversation-thread-scroll-controller";
+import { LocalConversationTurnEntry } from "./local-conversation-turn-entry";
 
 const DEFAULT_TURN_HEIGHT_PX = 280;
 const TURN_GAP_PX = 12;
@@ -20,7 +24,12 @@ const OVERSCAN_TURNS = 6;
 const COLLAPSED_VISIBLE_TURNS = 3;
 
 export interface LocalConversationVirtualizedTurnListEntry {
+  turn: VisibleConversationTurnEntry["turn"];
+  turnId: string;
   turnKey: string;
+  turnSearchKey: string;
+  requests: CodexTurnScopedConversationRequest[];
+  isMostRecentTurn: boolean;
 }
 
 export interface LocalConversationVirtualizedTurnListApi {
@@ -31,7 +40,25 @@ export interface LocalConversationVirtualizedTurnListApi {
 
 interface LocalConversationVirtualizedTurnListProps {
   entries: LocalConversationVirtualizedTurnListEntry[];
-  renderTurn: (index: number) => ReactNode;
+  conversationId: string;
+  threadCwd: string | null;
+  projectWorkspacePath?: string | null;
+  editableTurnId: string | null;
+  canForkFromTurn: boolean;
+  collapsedAgentBodyByTurnId: Readonly<Record<string, boolean>>;
+  onSetTurnCollapsed: (turnId: string, collapsed: boolean) => void;
+  onEditLastTurnMessage?: (input: {
+    threadId: string;
+    turnId: string;
+    message: string;
+  }) => void | Promise<void>;
+  onForkTurnMessage?: (input: {
+    threadId: string;
+    turnId: string;
+    message: string;
+    isLatestTurn: boolean;
+  }) => void | Promise<void>;
+  onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
   onApiChange?: (api: LocalConversationVirtualizedTurnListApi | null) => void;
   scrollElement: HTMLDivElement | null;
   className?: string;
@@ -46,26 +73,55 @@ function resolveAbsoluteScrollTopPxForElement(input: {
   return targetRect.top - scrollRect.top + input.scrollElement.scrollTop;
 }
 
-function MeasuredTurn({
-  turnKey,
-  turnIndex,
-  renderTurn,
-  onHeightChange,
-}: {
-  turnKey: string;
+interface MeasuredTurnProps {
+  entry: LocalConversationVirtualizedTurnListEntry;
   turnIndex: number;
-  renderTurn: (index: number) => ReactNode;
+  conversationId: string;
+  threadCwd: string | null;
+  projectWorkspacePath?: string | null;
+  persistedCollapsed?: boolean;
+  canEditTurnUserPrefix: boolean;
+  canForkTurnUserPrefix: boolean;
+  onSetTurnCollapsed: (turnId: string, collapsed: boolean) => void;
+  onEditLastTurnMessage?: (input: {
+    threadId: string;
+    turnId: string;
+    message: string;
+  }) => void | Promise<void>;
+  onForkTurnMessage?: (input: {
+    threadId: string;
+    turnId: string;
+    message: string;
+    isLatestTurn: boolean;
+  }) => void | Promise<void>;
+  onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
   onHeightChange: (turnKey: string, turnIndex: number, nextHeight: number) => void;
-}) {
+}
+
+function MeasuredTurnComponent({
+  entry,
+  turnIndex,
+  conversationId,
+  threadCwd,
+  projectWorkspacePath,
+  persistedCollapsed,
+  canEditTurnUserPrefix,
+  canForkTurnUserPrefix,
+  onSetTurnCollapsed,
+  onEditLastTurnMessage,
+  onForkTurnMessage,
+  onOpenTurnDiffReview,
+  onHeightChange,
+}: MeasuredTurnProps) {
   const elementRef = useRef<HTMLDivElement | null>(null);
 
   const handleElementRef = useCallback(
     (element: HTMLDivElement | null) => {
       elementRef.current = element;
       if (!element) return;
-      onHeightChange(turnKey, turnIndex, element.offsetHeight);
+      onHeightChange(entry.turnKey, turnIndex, element.offsetHeight);
     },
-    [onHeightChange, turnIndex, turnKey],
+    [entry.turnKey, onHeightChange, turnIndex],
   );
 
   useLayoutEffect(() => {
@@ -74,7 +130,7 @@ function MeasuredTurn({
 
     let frameHandle: number | null = null;
     const measureHeight = () => {
-      onHeightChange(turnKey, turnIndex, element.offsetHeight);
+      onHeightChange(entry.turnKey, turnIndex, element.offsetHeight);
     };
     const scheduleMeasure = () => {
       if (frameHandle !== null) return;
@@ -96,18 +152,63 @@ function MeasuredTurn({
         window.cancelAnimationFrame(frameHandle);
       }
     };
-  }, [onHeightChange, turnIndex, turnKey]);
+  }, [entry.turnKey, onHeightChange, turnIndex]);
 
   return (
-    <div ref={handleElementRef} data-thread-turn-id={turnKey}>
-      {renderTurn(turnIndex)}
+    <div ref={handleElementRef} data-thread-turn-id={entry.turnKey}>
+      <LocalConversationTurnEntry
+        conversationId={conversationId}
+        turnSearchKey={entry.turnSearchKey}
+        turn={entry.turn}
+        requests={entry.requests}
+        cwd={threadCwd}
+        isMostRecentTurn={entry.isMostRecentTurn}
+        persistedCollapsed={persistedCollapsed}
+        onSetCollapsed={(collapsed) => {
+          onSetTurnCollapsed(entry.turnId, collapsed);
+        }}
+        canEditTurnUserPrefix={canEditTurnUserPrefix}
+        canForkTurnUserPrefix={canForkTurnUserPrefix}
+        projectWorkspacePath={projectWorkspacePath}
+        threadCwd={threadCwd}
+        onEditLastTurnMessage={onEditLastTurnMessage}
+        onForkTurnMessage={onForkTurnMessage}
+        onOpenTurnDiffReview={onOpenTurnDiffReview}
+      />
     </div>
   );
 }
 
+const MeasuredTurn = memo(
+  MeasuredTurnComponent,
+  (left, right) =>
+    left.entry === right.entry
+    && left.turnIndex === right.turnIndex
+    && left.conversationId === right.conversationId
+    && left.threadCwd === right.threadCwd
+    && left.projectWorkspacePath === right.projectWorkspacePath
+    && left.persistedCollapsed === right.persistedCollapsed
+    && left.canEditTurnUserPrefix === right.canEditTurnUserPrefix
+    && left.canForkTurnUserPrefix === right.canForkTurnUserPrefix
+    && left.onSetTurnCollapsed === right.onSetTurnCollapsed
+    && left.onEditLastTurnMessage === right.onEditLastTurnMessage
+    && left.onForkTurnMessage === right.onForkTurnMessage
+    && left.onOpenTurnDiffReview === right.onOpenTurnDiffReview
+    && left.onHeightChange === right.onHeightChange,
+);
+
 export function LocalConversationVirtualizedTurnList({
   entries,
-  renderTurn,
+  conversationId,
+  threadCwd,
+  projectWorkspacePath,
+  editableTurnId,
+  canForkFromTurn,
+  collapsedAgentBodyByTurnId,
+  onSetTurnCollapsed,
+  onEditLastTurnMessage,
+  onForkTurnMessage,
+  onOpenTurnDiffReview,
   onApiChange,
   scrollElement,
   className,
@@ -123,6 +224,8 @@ export function LocalConversationVirtualizedTurnList({
   const [measuredHeights, setMeasuredHeights] = useState<Record<string, number>>({});
   const [listRoot, setListRoot] = useState<HTMLDivElement | null>(null);
   const turnsTopOffsetPxRef = useRef(0);
+  const layoutOffsetsPxRef = useRef<number[]>([]);
+  const scrollTopPxRef = useRef(0);
   const [viewportState, setViewportState] = useState({
     scrollTopPx: 0,
     viewportHeightPx: 0,
@@ -148,6 +251,9 @@ export function LocalConversationVirtualizedTurnList({
     () => new Map(entries.map((entry, index) => [entry.turnKey, index] as const)),
     [entries],
   );
+
+  layoutOffsetsPxRef.current = layout.offsetsPx;
+  scrollTopPxRef.current = viewportState.scrollTopPx;
 
   useLayoutEffect(() => {
     if (scrollElement === null || listRoot === null) return;
@@ -227,10 +333,10 @@ export function LocalConversationVirtualizedTurnList({
         if (Math.abs(previousHeight - nextHeight) < 1) return current;
 
         const heightDeltaPx = nextHeight - previousHeight;
-        const turnBottomPx = (layout.offsetsPx[turnIndex] ?? 0) + previousHeight;
+        const turnBottomPx = (layoutOffsetsPxRef.current[turnIndex] ?? 0) + previousHeight;
         const currentViewportTopPx = Math.max(
           0,
-          viewportState.scrollTopPx - turnsTopOffsetPxRef.current,
+          scrollTopPxRef.current - turnsTopOffsetPxRef.current,
         );
         adjustForMeasuredTurnHeightDelta({
           heightDeltaPx,
@@ -244,7 +350,7 @@ export function LocalConversationVirtualizedTurnList({
         };
       });
     },
-    [adjustForMeasuredTurnHeightDelta, layout.offsetsPx, viewportState.scrollTopPx],
+    [adjustForMeasuredTurnHeightDelta],
   );
 
   const finishPendingScroll = useCallback(
@@ -256,10 +362,9 @@ export function LocalConversationVirtualizedTurnList({
         setPendingScrollTarget((current) =>
           current?.requestId === requestId ? null : current,
         );
-        setScrollMode("user");
       });
     },
-    [setScrollMode],
+    [],
   );
 
   const scrollToKey = useCallback(
@@ -370,9 +475,20 @@ export function LocalConversationVirtualizedTurnList({
           {visibleEntries.map((entry, index) => (
             <MeasuredTurn
               key={entry.turnKey}
-              turnKey={entry.turnKey}
+              entry={entry}
               turnIndex={visibleRange.startIndex + index}
-              renderTurn={renderTurn}
+              conversationId={conversationId}
+              threadCwd={threadCwd}
+              projectWorkspacePath={projectWorkspacePath}
+              persistedCollapsed={collapsedAgentBodyByTurnId[entry.turnId]}
+              canEditTurnUserPrefix={editableTurnId === entry.turnId}
+              canForkTurnUserPrefix={
+                canForkFromTurn && entry.turn.status !== "inProgress"
+              }
+              onSetTurnCollapsed={onSetTurnCollapsed}
+              onEditLastTurnMessage={onEditLastTurnMessage}
+              onForkTurnMessage={onForkTurnMessage}
+              onOpenTurnDiffReview={onOpenTurnDiffReview}
               onHeightChange={handleHeightChange}
             />
           ))}

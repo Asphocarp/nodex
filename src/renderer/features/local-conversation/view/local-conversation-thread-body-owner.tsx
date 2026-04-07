@@ -19,11 +19,13 @@ import {
 } from "@/lib/thread-fork-confirm-settings";
 import { cn } from "../../../lib/utils";
 import type {
-  CodexConversationSnapshot,
+  CodexConversationCapabilityFlags,
+  CodexConversationResumeState,
+  CodexConversationServerRequest,
+  CodexConversationTurn,
+  CodexThreadStatusType,
 } from "../../../lib/types";
-import {
-  selectConversationTurnRequestsByTurnId,
-} from "../conversation-request-helpers";
+import { selectVisibleConversationTurnEntries } from "../selectors";
 import type {
   ThreadBodyModel,
   ThreadBodyUiStateOverrides,
@@ -42,8 +44,8 @@ import {
 } from "./local-conversation-thread-scroll-controller";
 import { LocalConversationResumeLoader } from "./shared/local-conversation-resume-loader";
 import { LOCAL_CONVERSATION_CONTENT_CLASS_NAME } from "./shared/local-conversation-view-constants";
-import { LocalConversationTurnEntry } from "./local-conversation-turn-entry";
 import { createLocalConversationSearchSource } from "./local-conversation-search-source";
+import { applyThreadSearchDomMarks } from "./local-conversation-thread-search-dom-marks";
 
 const PROGRESS_PHASES = [
   { key: "creatingWorktree", label: "Worktree" },
@@ -52,7 +54,6 @@ const PROGRESS_PHASES = [
 ] as const;
 
 const DEFER_TURN_COUNT_THRESHOLD = 40;
-
 function resolvePhaseIndex(
   phase:
     | "creatingWorktree"
@@ -173,7 +174,14 @@ function DeferredThreadBodyPlaceholder() {
 
 interface LocalConversationThreadBodyOwnerProps {
   body: ThreadBodyModel;
-  conversation: CodexConversationSnapshot | null;
+  threadId: string | null;
+  cwd: string | null;
+  turns: CodexConversationTurn[];
+  requests: CodexConversationServerRequest[];
+  resumeState: CodexConversationResumeState | null;
+  capabilityFlags: CodexConversationCapabilityFlags;
+  statusType: CodexThreadStatusType | null;
+  parentTurns: readonly CodexConversationTurn[];
   projectWorkspacePath?: string | null;
   searchOpenTick: number;
   threadStartProgress: {
@@ -189,7 +197,14 @@ interface LocalConversationThreadBodyOwnerProps {
 
 export function LocalConversationThreadBodyOwner({
   body,
-  conversation,
+  threadId,
+  cwd,
+  turns,
+  requests,
+  resumeState,
+  capabilityFlags,
+  statusType,
+  parentTurns,
   projectWorkspacePath,
   searchOpenTick,
   threadStartProgress,
@@ -222,74 +237,95 @@ export function LocalConversationThreadBodyOwner({
   const [isForkSubmitting, setIsForkSubmitting] = useState(false);
   const [isDeferredBodyReady, setIsDeferredBodyReady] = useState(
     () =>
-      !conversation ||
-      conversation.turns.length < DEFER_TURN_COUNT_THRESHOLD ||
+      !threadId ||
+      body.turnCount < DEFER_TURN_COUNT_THRESHOLD ||
       body.emptyState.type !== "none",
   );
-
-  const turnRequestsByTurnId = useMemo(
+  const matchedSearchUnitKeysRef = useRef<ReadonlySet<string>>(new Set());
+  const matchedTurnKeysRef = useRef<ReadonlySet<string>>(new Set());
+  const activeSearchUnitKeyRef = useRef<string | null>(null);
+  const conversation = useMemo(
     () =>
-      conversation
-        ? selectConversationTurnRequestsByTurnId(conversation)
-        : new Map(),
-    [conversation],
+      threadId
+        ? {
+            threadId,
+            projectId: "",
+            cardId: "",
+            source: null,
+            threadName: null,
+            threadPreview: "",
+            modelProvider: "",
+            cwd,
+            statusType: statusType ?? (resumeState === "resumed" ? "idle" : "notLoaded"),
+            statusActiveFlags: [],
+            archived: false,
+            createdAt: 0,
+            updatedAt: 0,
+            linkedAt: "",
+            latestCollaborationMode: undefined,
+            resumeState: resumeState ?? "needs_resume",
+            turns,
+            requests,
+            queuedFollowUps: [],
+            pendingSteers: [],
+            backgroundTerminalRows: [],
+            childMemberships: [],
+            capabilityFlags,
+          }
+        : null,
+    [capabilityFlags, cwd, requests, resumeState, statusType, threadId, turns],
   );
+
   const latestTurnId = body.latestTurnId;
   const editableTurnId =
-    conversation?.capabilityFlags.canEditLastUserTurn
-      ? [...conversation.turns]
+    capabilityFlags.canEditLastUserTurn
+      ? [...turns]
           .reverse()
           .find((turn) => turn.status !== "inProgress")?.turnId ?? null
       : null;
   const canForkFromTurn =
-    conversation?.capabilityFlags.canForkFromTurn ?? false;
+    capabilityFlags.canForkFromTurn;
   const turnEntries = useMemo(
-    () =>
-      conversation?.turns.map((turn, index) => ({
-        turn,
-        turnId: turn.turnId,
-        turnKey: turn.turnId || `turn-index-${index}`,
-        requests: turnRequestsByTurnId.get(turn.turnId) ?? [],
-        isMostRecentTurn: latestTurnId === turn.turnId,
-      })) ?? [],
-    [conversation?.turns, latestTurnId, turnRequestsByTurnId],
+    () => selectVisibleConversationTurnEntries({
+      conversation,
+      parentTurns,
+    }),
+    [conversation, parentTurns],
   );
-  const turnKeyByTurnId = useMemo(
-    () =>
-      new Map(turnEntries.map((entry) => [entry.turnId, entry.turnKey] as const)),
+  const virtualizedEntries = useMemo<LocalConversationVirtualizedTurnListEntry[]>(
+    () => turnEntries,
     [turnEntries],
   );
-  const entryDescriptors = useMemo<LocalConversationVirtualizedTurnListEntry[]>(
-    () => turnEntries.map((entry) => ({ turnKey: entry.turnKey })),
+  const turnKeyByTurnId = useMemo(
+    () => new Map(turnEntries.map((entry) => [entry.turnId, entry.turnKey] as const)),
     [turnEntries],
   );
 
-  const activeTurn = useMemo(
-    () =>
-      body.activeTurnId
-        ? conversation?.turns.find((turn) => turn.turnId === body.activeTurnId) ?? null
-        : null,
-    [body.activeTurnId, conversation?.turns],
-  );
   const activeTurnRenderModel = useMemo(
-    () =>
-      activeTurn
-        ? buildTurnRenderModel({
-            turn: activeTurn,
-            requests: turnRequestsByTurnId.get(activeTurn.turnId) ?? [],
-            isLatestTurn: latestTurnId === activeTurn.turnId,
-            isStreamingTurn: true,
-            canEditTurnUserPrefix: editableTurnId === activeTurn.turnId,
-            canForkTurnUserPrefix:
-              canForkFromTurn && activeTurn.status !== "inProgress",
-          })
-        : null,
+    () => {
+      const activeEntry = body.activeTurnId
+        ? turnEntries.find((entry) => entry.turnId === body.activeTurnId) ?? null
+        : null;
+      if (!activeEntry) {
+        return null;
+      }
+
+      return buildTurnRenderModel({
+        turn: activeEntry.turn,
+        requests: activeEntry.requests,
+        isLatestTurn: latestTurnId === activeEntry.turnId,
+        isStreamingTurn: true,
+        canEditTurnUserPrefix: editableTurnId === activeEntry.turnId,
+        canForkTurnUserPrefix:
+          canForkFromTurn && activeEntry.turn.status !== "inProgress",
+      });
+    },
     [
-      activeTurn,
+      body.activeTurnId,
+      turnEntries,
       canForkFromTurn,
       editableTurnId,
       latestTurnId,
-      turnRequestsByTurnId,
     ],
   );
   const aboveComposerBlocks = activeTurnRenderModel?.aboveComposerBlocks ?? [];
@@ -424,21 +460,69 @@ export function LocalConversationThreadBodyOwner({
     [],
   );
 
+  const syncSearchMarks = useCallback(() => {
+    const root = contentRootRef.current;
+    if (!root) return;
+    applyThreadSearchDomMarks({
+      root,
+      matchedSearchUnitKeys: matchedSearchUnitKeysRef.current,
+      matchedTurnKeys: matchedTurnKeysRef.current,
+      activeSearchUnitKey: activeSearchUnitKeyRef.current,
+    });
+  }, []);
+
   const normalizedSearchQuery = deferredSearchQuery.trim().toLowerCase();
   const matchedSearchUnits = useMemo(
     () => searchSource.findMatches(normalizedSearchQuery),
     [normalizedSearchQuery, searchSource],
   );
-  const matchedTurnIds = useMemo(
-    () => new Set(matchedSearchUnits.map((unit) => unit.turnId)),
-    [matchedSearchUnits],
-  );
   const matchedSearchUnitKeys = useMemo(
     () => new Set(matchedSearchUnits.map((unit) => unit.key)),
     [matchedSearchUnits],
   );
+  const matchedTurnKeys = useMemo(
+    () =>
+      new Set(
+        matchedSearchUnits.flatMap((unit) => {
+          const turnKey = turnKeyByTurnId.get(unit.turnId);
+          return turnKey ? [turnKey] : [];
+        }),
+      ),
+    [matchedSearchUnits, turnKeyByTurnId],
+  );
   const activeSearchUnitKey =
     matchedSearchUnits[activeMatchIndex]?.key ?? null;
+
+  useEffect(() => {
+    matchedSearchUnitKeysRef.current = matchedSearchUnitKeys;
+    matchedTurnKeysRef.current = matchedTurnKeys;
+    activeSearchUnitKeyRef.current = activeSearchUnitKey;
+    syncSearchMarks();
+  }, [
+    activeSearchUnitKey,
+    matchedSearchUnitKeys,
+    matchedTurnKeys,
+    syncSearchMarks,
+  ]);
+
+  useEffect(() => {
+    const root = contentRootRef.current;
+    if (!root || typeof MutationObserver === "undefined") {
+      return;
+    }
+
+    const observer = new MutationObserver(() => {
+      syncSearchMarks();
+    });
+    observer.observe(root, {
+      childList: true,
+      subtree: true,
+    });
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [body.threadId, syncSearchMarks]);
 
   useEffect(() => {
     if (matchedSearchUnits.length === 0) {
@@ -543,55 +627,6 @@ export function LocalConversationThreadBodyOwner({
     [runForkFromTurn],
   );
 
-  const renderTurn = useCallback(
-    (index: number) => {
-      const entry = turnEntries[index];
-      if (!entry || !conversation) return null;
-
-      return (
-        <LocalConversationTurnEntry
-          conversationId={conversation.threadId}
-          turnSearchKey={entry.turnKey}
-          turn={entry.turn}
-          requests={entry.requests}
-          cwd={conversation.cwd ?? null}
-          isMostRecentTurn={entry.isMostRecentTurn}
-          persistedCollapsed={collapsedAgentBodyByTurnId[entry.turnId]}
-          onSetCollapsed={(collapsed) => {
-            handleAgentBodyCollapsedChange(entry.turnId, collapsed);
-          }}
-          canEditTurnUserPrefix={editableTurnId === entry.turnId}
-          canForkTurnUserPrefix={
-            canForkFromTurn && entry.turn.status !== "inProgress"
-          }
-          matchedSearchUnitKeys={matchedSearchUnitKeys}
-          activeSearchUnitKey={activeSearchUnitKey}
-          isMatched={matchedTurnIds.has(entry.turnId)}
-          projectWorkspacePath={projectWorkspacePath}
-          threadCwd={conversation.cwd ?? null}
-          onEditLastTurnMessage={handleEditLastUserTurn}
-          onForkTurnMessage={handleForkFromTurn}
-          onOpenTurnDiffReview={actions.onOpenTurnDiffReview}
-        />
-      );
-    },
-    [
-      actions.onOpenTurnDiffReview,
-      activeSearchUnitKey,
-      canForkFromTurn,
-      collapsedAgentBodyByTurnId,
-      conversation,
-      editableTurnId,
-      handleAgentBodyCollapsedChange,
-      handleEditLastUserTurn,
-      handleForkFromTurn,
-      matchedSearchUnitKeys,
-      matchedTurnIds,
-      projectWorkspacePath,
-      turnEntries,
-    ],
-  );
-
   const showThreadSearch =
     isSearchVisible &&
     body.turnCount > 0 &&
@@ -608,7 +643,7 @@ export function LocalConversationThreadBodyOwner({
           isLatestTurn={body.latestTurnId === body.activeTurnId}
           isStreamingTurn={true}
           projectWorkspacePath={projectWorkspacePath}
-          threadCwd={conversation?.cwd ?? null}
+          threadCwd={cwd}
           onOpenTurnDiffReview={actions.onOpenTurnDiffReview}
         />
       ) : null}
@@ -702,12 +737,21 @@ export function LocalConversationThreadBodyOwner({
 
             {isDeferredBodyReady ? (
               <LocalConversationVirtualizedTurnList
-                entries={entryDescriptors}
+                entries={virtualizedEntries}
+                conversationId={conversation?.threadId ?? body.threadId ?? ""}
+                threadCwd={conversation?.cwd ?? null}
+                projectWorkspacePath={projectWorkspacePath}
+                editableTurnId={editableTurnId}
+                canForkFromTurn={canForkFromTurn}
+                collapsedAgentBodyByTurnId={collapsedAgentBodyByTurnId}
+                onSetTurnCollapsed={handleAgentBodyCollapsedChange}
+                onEditLastTurnMessage={handleEditLastUserTurn}
+                onForkTurnMessage={handleForkFromTurn}
+                onOpenTurnDiffReview={actions.onOpenTurnDiffReview}
                 scrollElement={scrollElement}
                 onApiChange={(api) => {
                   listApiRef.current = api;
                 }}
-                renderTurn={renderTurn}
               />
             ) : (
               <DeferredThreadBodyPlaceholder />

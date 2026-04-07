@@ -3,20 +3,23 @@ import { fireEvent, waitFor } from "@testing-library/react";
 import { installAsyncRequestAnimationFrame } from "../../../test/browser-globals";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
 import { render } from "../../../test/dom";
-import type { ThreadStageActions, ThreadStageModel } from "../thread-stage-types";
+import type { ThreadFooterModel, ThreadStageActions } from "../thread-stage-types";
 import {
   EnsureLocalConversationThreadScrollController,
   LocalConversationThreadScrollLayout,
 } from "./local-conversation-thread-scroll-controller";
 
-function buildModel(overrides?: Partial<ThreadStageModel>): ThreadStageModel {
+function buildModel(overrides?: Partial<ThreadFooterModel>): ThreadFooterModel {
   return {
     projectId: "project_1",
     projectWorkspacePath: "/tmp/project",
+    threadId: "thread_1",
+    cwd: "/tmp/project",
     conversation: {
       threadId: "thread_1",
       projectId: "project_1",
       cardId: "card_1",
+      source: null,
       threadName: "Thread",
       threadPreview: "Preview",
       modelProvider: "openai",
@@ -48,16 +51,13 @@ function buildModel(overrides?: Partial<ThreadStageModel>): ThreadStageModel {
         canSearch: true,
         canCollapseTurns: true,
       },
-    } as ThreadStageModel["conversation"],
+    },
     resumeState: "resumed",
     activeTurn: null,
     isThreadRunning: false,
     isNewThreadTab: false,
     isCloudNewThreadTarget: false,
     newThreadTarget: null,
-    threadStartProgress: null,
-    connection: { status: "connected", retries: 0 },
-    account: null,
     availableModels: [],
     collaborationModes: [],
     selectedCollaborationMode: "default",
@@ -67,11 +67,7 @@ function buildModel(overrides?: Partial<ThreadStageModel>): ThreadStageModel {
     permissionMode: "sandbox",
     isQueueingEnabled: false,
     composerEnterBehavior: "enter",
-    searchOpenTick: 0,
     composerIntent: null,
-    title: "Thread",
-    openCardTarget: null,
-    activeThreadCardColumnId: null,
     body: {
       threadId: "thread_1",
       turnCount: 1,

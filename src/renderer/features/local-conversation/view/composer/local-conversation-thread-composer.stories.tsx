@@ -1,8 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
-import type { ThreadStageActions, ThreadStageModel } from "../../thread-stage-types";
+import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-types";
 import {
-  buildThreadStageStoryModel,
+  buildThreadStageStorySurfaceModels,
   buildThreadStageStoryScenario,
   type ThreadStageStoryControls,
 } from "../thread-stage-story-fixtures";
@@ -14,7 +14,7 @@ interface ComposerSendButtonStoryProps {
   draftPrompt: string;
 }
 
-function buildModel(args: ComposerSendButtonStoryProps): ThreadStageModel {
+function buildModel(args: ComposerSendButtonStoryProps): ThreadFooterModel {
   const controls: ThreadStageStoryControls = {
     preset: "streaming",
     permissionMode: "sandbox",
@@ -33,7 +33,7 @@ function buildModel(args: ComposerSendButtonStoryProps): ThreadStageModel {
       },
   };
   return {
-    ...buildThreadStageStoryModel(scenario, controls, runtime),
+    ...buildThreadStageStorySurfaceModels(scenario, controls, runtime).footerModel,
     composerEnterBehavior: args.composerEnterBehavior,
   };
 }

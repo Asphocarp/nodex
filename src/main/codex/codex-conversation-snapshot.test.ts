@@ -7,6 +7,7 @@ function buildThreadDetail(overrides?: Partial<CodexThreadDetail>): CodexThreadD
     threadId: "thread_1",
     projectId: "project_1",
     cardId: "card_1",
+    source: null,
     threadName: "Thread",
     threadPreview: "Preview",
     modelProvider: "openai",

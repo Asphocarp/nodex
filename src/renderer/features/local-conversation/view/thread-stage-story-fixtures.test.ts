@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  buildThreadStageStoryModel,
+  buildThreadStageStorySurfaceModels,
   buildThreadStageStoryScenario,
 } from "./thread-stage-story-fixtures";
 
@@ -14,7 +14,7 @@ describe("thread stage story fixtures", () => {
       collapseAgentBody: true,
     });
 
-    const model = buildThreadStageStoryModel(scenario, {
+    const { bodyModel } = buildThreadStageStorySurfaceModels(scenario, {
       preset: "new-thread",
       permissionMode: "sandbox",
       authenticatedAccount: true,
@@ -22,8 +22,8 @@ describe("thread stage story fixtures", () => {
       collapseAgentBody: true,
     }, scenario.runtime);
 
-    expect(model.isNewThreadTab).toBeTrue();
-    expect(model.body.emptyState.type).toBe("newThread");
+    expect(bodyModel.threadId).toBe(null);
+    expect(bodyModel.body.emptyState.type).toBe("newThread");
   });
 
   test("surfaces the synthesized implement-plan request for the plan preset", () => {
@@ -35,7 +35,7 @@ describe("thread stage story fixtures", () => {
       collapseAgentBody: true,
     });
 
-    const model = buildThreadStageStoryModel(scenario, {
+    const { footerModel } = buildThreadStageStorySurfaceModels(scenario, {
       preset: "implement-plan",
       permissionMode: "sandbox",
       authenticatedAccount: true,
@@ -43,7 +43,7 @@ describe("thread stage story fixtures", () => {
       collapseAgentBody: true,
     }, scenario.runtime);
 
-    const requestEntry = model.composerShell.activeRequest;
+    const requestEntry = footerModel.composerShell.activeRequest;
     if (!requestEntry) {
       throw new Error("expected implement-plan request entry");
     }
@@ -59,7 +59,7 @@ describe("thread stage story fixtures", () => {
       collapseAgentBody: false,
     });
 
-    const model = buildThreadStageStoryModel(scenario, {
+    const { footerModel } = buildThreadStageStorySurfaceModels(scenario, {
       preset: "background-activity",
       permissionMode: "sandbox",
       authenticatedAccount: true,
@@ -67,7 +67,7 @@ describe("thread stage story fixtures", () => {
       collapseAgentBody: false,
     }, scenario.runtime);
 
-    expect(model.composerShell.backgroundRequest?.request.type).toBe("approval");
-    expect(model.composerShell.showComposer).toBeFalse();
+    expect(footerModel.composerShell.backgroundRequest?.request.type).toBe("approval");
+    expect(footerModel.composerShell.showComposer).toBeFalse();
   });
 });

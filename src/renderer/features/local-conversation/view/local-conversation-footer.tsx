@@ -1,6 +1,7 @@
+import { memo } from "react";
 import { DownArrowIcon } from "@/components/shared/icons";
 import { AnimatePresence, motion } from "motion/react";
-import type { ThreadStageActions, ThreadStageModel } from "../thread-stage-types";
+import type { ThreadFooterModel, ThreadStageActions } from "../thread-stage-types";
 import { LocalConversationComposerShell } from "./composer/local-conversation-composer-shell";
 import {
   LocalConversationAboveComposerPortalHost,
@@ -9,13 +10,13 @@ import {
 import { useLocalConversationThreadScrollController } from "./local-conversation-thread-scroll-controller";
 
 interface LocalConversationFooterProps {
-  model: ThreadStageModel;
+  model: ThreadFooterModel;
   actions: ThreadStageActions;
   errorMessage: string | null;
   onErrorMessage: (message: string | null) => void;
 }
 
-export function LocalConversationFooter({
+function LocalConversationFooterComponent({
   model,
   actions,
   errorMessage,
@@ -25,7 +26,7 @@ export function LocalConversationFooter({
     useLocalConversationThreadScrollController();
   const isResumingActiveThread = !model.isNewThreadTab && model.resumeState !== null && model.resumeState !== "resumed";
   const showCatchUpControl =
-    model.conversation !== null &&
+    model.threadId !== null &&
     model.body.turnCount > 0 &&
     isScrolledFromBottom;
   const catchUpControl = (
@@ -77,3 +78,18 @@ export function LocalConversationFooter({
     </div>
   );
 }
+
+export const LocalConversationFooter = memo(
+  LocalConversationFooterComponent,
+  (left, right) =>
+    left.actions === right.actions
+    && left.errorMessage === right.errorMessage
+    && left.onErrorMessage === right.onErrorMessage
+    && left.model.resumeState === right.model.resumeState
+    && left.model.isNewThreadTab === right.model.isNewThreadTab
+    && left.model.isQueueingEnabled === right.model.isQueueingEnabled
+    && left.model.threadId === right.model.threadId
+    && left.model.body.turnCount === right.model.body.turnCount
+    && left.model.body.hasAboveComposerBlocks === right.model.body.hasAboveComposerBlocks
+    && left.model.composerShell === right.model.composerShell,
+);

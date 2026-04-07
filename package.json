@@ -72,6 +72,7 @@
     "better-sqlite3": "^12.8.0",
     "electron-updater": "^6.8.3",
     "hono": "^4.12.5",
+    "immer": "^10.1.1",
     "node-pty": "^1.1.0",
     "smol-toml": "^1.4.2",
     "uuid": "^13.0.0"

@@ -13,7 +13,7 @@ import {
   buildStoryConversation,
   buildStoryConversationItem,
   buildStoryConversationTurn,
-  buildThreadStageStoryModel,
+  buildThreadStageStorySurfaceModels,
   buildThreadStageStoryScenario,
   type ThreadStageStoryControls,
 } from "./thread-stage-story-fixtures";
@@ -64,10 +64,10 @@ function buildActions(): ThreadStageActions {
 }
 
 function resolveStoryAboveComposerBlocks(
-  model: ReturnType<typeof buildThreadStageStoryModel>,
+  model: ReturnType<typeof buildThreadStageStorySurfaceModels>,
 ) {
-  const activeTurnId = model.body.activeTurnId;
-  const conversation = model.conversation;
+  const activeTurnId = model.bodyModel.body.activeTurnId;
+  const conversation = model.footerModel.conversation;
   if (!activeTurnId || !conversation) return [];
 
   const activeTurn = conversation.turns.find((turn) => turn.turnId === activeTurnId);
@@ -78,16 +78,16 @@ function resolveStoryAboveComposerBlocks(
   return buildTurnRenderModel({
     turn: activeTurn,
     requests: turnRequestsByTurnId.get(activeTurnId) ?? [],
-    isLatestTurn: model.body.latestTurnId === activeTurnId,
+    isLatestTurn: model.bodyModel.body.latestTurnId === activeTurnId,
     isStreamingTurn: true,
     canEditTurnUserPrefix: false,
     canForkTurnUserPrefix: false,
   }).aboveComposerBlocks ?? [];
 }
 
-function buildShellModel(customize?: (model: ReturnType<typeof buildThreadStageStoryModel>) => ReturnType<typeof buildThreadStageStoryModel>) {
+function buildShellModel(customize?: (model: ReturnType<typeof buildThreadStageStorySurfaceModels>) => ReturnType<typeof buildThreadStageStorySurfaceModels>) {
   const scenario = buildThreadStageStoryScenario(STORY_CONTROLS);
-  const model = buildThreadStageStoryModel(scenario, STORY_CONTROLS, scenario.runtime);
+  const model = buildThreadStageStorySurfaceModels(scenario, STORY_CONTROLS, scenario.runtime);
   return customize ? customize(model) : model;
 }
 
@@ -191,7 +191,7 @@ function buildPortalTasksAndFileChangesModel() {
     requests: [],
   });
 
-  return buildThreadStageStoryModel(scenario, controls, {
+  return buildThreadStageStorySurfaceModels(scenario, controls, {
     ...scenario.runtime,
     activeThreadId: conversation.threadId,
     activeThreadSummary: conversation,
@@ -207,7 +207,7 @@ function AboveComposerStoryFrame({
   title,
   description,
 }: {
-  model?: ReturnType<typeof buildThreadStageStoryModel>;
+  model?: ReturnType<typeof buildThreadStageStorySurfaceModels>;
   title: string;
   description: string;
 }) {
@@ -224,13 +224,13 @@ function AboveComposerStoryFrame({
           <LocalConversationAboveComposerQueuePortalHost />
           <LocalConversationAboveComposerPortal
             blocks={resolveStoryAboveComposerBlocks(model)}
-            isLatestTurn={model.body.latestTurnId === model.body.activeTurnId}
+            isLatestTurn={model.bodyModel.body.latestTurnId === model.bodyModel.body.activeTurnId}
             isStreamingTurn={true}
-            projectWorkspacePath={model.projectWorkspacePath}
-            threadCwd={model.conversation?.cwd ?? null}
+            projectWorkspacePath={model.bodyModel.projectWorkspacePath}
+            threadCwd={model.footerModel.conversation?.cwd ?? null}
           />
           <LocalConversationComposerShell
-            model={model}
+            model={model.footerModel}
             actions={buildActions()}
             errorMessage={null}
             onErrorMessage={() => { }}
@@ -243,15 +243,18 @@ function AboveComposerStoryFrame({
 function QueueRowsOnlyStory() {
   const model = buildShellModel((current) => ({
     ...current,
-    composerShell: {
-      ...current.composerShell,
-      activeRequest: null,
-      backgroundRequest: null,
-      backgroundAgentRows: [],
-      backgroundTerminalRows: [],
-      showRequestCards: false,
-      showComposer: true,
-      showApprovalMode: false,
+    footerModel: {
+      ...current.footerModel,
+      composerShell: {
+        ...current.footerModel.composerShell,
+        activeRequest: null,
+        backgroundRequest: null,
+        backgroundAgentRows: [],
+        backgroundTerminalRows: [],
+        showRequestCards: false,
+        showComposer: true,
+        showApprovalMode: false,
+      },
     },
   }));
 

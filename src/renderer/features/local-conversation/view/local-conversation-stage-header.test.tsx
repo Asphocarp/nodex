@@ -1,12 +1,14 @@
 import { describe, expect, mock, test } from "bun:test";
 import { Fragment, createElement, type ReactNode } from "react";
-import { render, textContent } from "../../../test/dom";
-import type { ThreadStageActions, ThreadStageModel } from "../thread-stage-types";
+import { render, settleAsyncRender, textContent } from "../../../test/dom";
+import type { ThreadStageActions, ThreadStageHeaderModel } from "../thread-stage-types";
+
+let connectionBadgeRenderCount = 0;
 
 mock.module("./local-conversation-stage-header-deps", () => ({
   CardInfoHoverCard: ({ children }: { children: ReactNode }) => createElement(Fragment, null, children),
   invoke: async () => null,
-  AuthPopover: ({ account }: { account: ThreadStageModel["account"] }) => (
+  AuthPopover: ({ account }: { account: ThreadStageHeaderModel["account"] }) => (
     account !== null && account.account === null
       ? createElement("div", null, "Sign in")
       : null
@@ -15,68 +17,31 @@ mock.module("./local-conversation-stage-header-deps", () => ({
     connection,
     rateLimits,
   }: {
-    connection: ThreadStageModel["connection"];
-    rateLimits?: NonNullable<ThreadStageModel["account"]>["rateLimits"];
-  }) =>
-    createElement(
+    connection: ThreadStageHeaderModel["connection"];
+    rateLimits?: NonNullable<ThreadStageHeaderModel["account"]>["rateLimits"];
+  }) => {
+    connectionBadgeRenderCount += 1;
+    return createElement(
       "div",
       null,
       connection.status === "connected"
         ? (rateLimits ? "82% · 61%" : "Connected")
         : connection.status,
-    ),
+    );
+  },
   renderConnectionAccountTooltipContent: () => null,
 }));
 
-function buildModel(overrides?: Partial<ThreadStageModel>): ThreadStageModel {
+function buildModel(overrides?: Partial<ThreadStageHeaderModel>): ThreadStageHeaderModel {
   return {
     projectId: "project_1",
-    projectWorkspacePath: "/tmp/project",
-    conversation: null,
-    resumeState: null,
-    activeTurn: null,
-    isThreadRunning: false,
-    isNewThreadTab: false,
-    isCloudNewThreadTarget: false,
-    newThreadTarget: null,
-    threadStartProgress: null,
-    connection: { status: "connected", retries: 0 },
-    account: null,
-    availableModels: [],
-    collaborationModes: [],
-    selectedCollaborationMode: "default",
-    selectedModel: "gpt-5.3-codex",
-    selectedReasoningEffort: "high",
-    reasoningEffortOptions: [],
-    permissionMode: "sandbox",
-    isQueueingEnabled: false,
-    composerEnterBehavior: "enter",
-    searchOpenTick: 0,
-    composerIntent: null,
+    threadId: "thread_1",
+    cardId: "card_1",
     title: "Thread title",
     openCardTarget: null,
     activeThreadCardColumnId: null,
-    body: {
-      threadId: "thread_1",
-      turnCount: 0,
-      hasAboveComposerBlocks: false,
-      isThreadRunning: false,
-      activeTurnId: null,
-      latestTurnId: null,
-      emptyState: { type: "none" },
-      showThreadStartProgressPanel: false,
-    },
-    composerShell: {
-      activeRequest: null,
-      backgroundRequest: null,
-      pendingSteerRows: [],
-      queuedFollowUpRows: [],
-      backgroundAgentRows: [],
-      backgroundTerminalRows: [],
-      showRequestCards: false,
-      showComposer: true,
-      showApprovalMode: false,
-    },
+    connection: { status: "connected", retries: 0 },
+    account: null,
     ...overrides,
   };
 }
@@ -122,6 +87,43 @@ function buildActions(): ThreadStageActions {
 }
 
 describe("ThreadStageHeader auth chrome", () => {
+  test("does not rerender for body-only turn updates", async () => {
+    connectionBadgeRenderCount = 0;
+    const { ThreadStageHeader } = await import("./local-conversation-stage-header");
+    const actions = buildActions();
+    const account = {
+      account: { type: "chatgpt" as const, email: "dev@example.com", planType: "Plus" as const },
+      requiresOpenAiAuth: false,
+      pendingLogin: null,
+      rateLimits: null,
+    };
+    const baseModel = buildModel({ account });
+    const onErrorMessage = () => {};
+    const { rerender } = render(
+      <ThreadStageHeader
+        model={baseModel}
+        actions={actions}
+        onErrorMessage={onErrorMessage}
+      />,
+    );
+    await settleAsyncRender();
+    const renderCountAfterMount = connectionBadgeRenderCount;
+
+    rerender(
+      <ThreadStageHeader
+        model={{
+          ...baseModel,
+          title: "Thread title",
+        }}
+        actions={actions}
+        onErrorMessage={onErrorMessage}
+      />,
+    );
+    await settleAsyncRender();
+
+    expect(String(connectionBadgeRenderCount)).toBe(String(renderCountAfterMount));
+  });
+
   test("does not show sign-in or connected badge before the account snapshot hydrates", async () => {
     const { ThreadStageHeader } = await import("./local-conversation-stage-header");
     const { container } = render(

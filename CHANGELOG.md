@@ -9,6 +9,11 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 ### Fixed
+- Fixed local-thread renderer churn so the active thread route now reads narrow conversation slices instead of a whole conversation snapshot, and the mounted transcript body now renders from stable visible-turn entries with parent-turn de-duplication and memoized row measurement.
+- Fixed resumed helper-thread ownership so child threads now carry a canonical `parentThreadId` in their thread summary/snapshot source metadata, letting the mounted body de-duplicate against the parent thread without scanning every renderer-side conversation manager.
+- Fixed local-thread streaming update cost again so hot assistant-text and command-output flushes now patch the materialized conversation state directly instead of rebuilding a full serialized conversation snapshot on every flush.
+- Fixed remaining local-thread patch churn so queued follow-ups, pending steers, request ingress/resolution, and patch-capable turn/item updates now mutate the broadcast conversation cache directly instead of falling back to full conversation reconciliation.
+- Fixed active local-thread parity gaps so streaming turn text and command output now stay on patch-based updates, request ownership follows Codex's newest-turn scan, thread search highlighting is DOM-driven instead of prop-driven, and programmatic find scrolling now settles without forcing full-thread rerenders.
 - Fixed Codex plan-mode follow-ups so clicking `Yes, implement this plan` now immediately switches the active thread back to `Default` mode before sending the follow-up, preventing plan-mode threads from getting stuck read-only.
 - Fixed proposed-plan request cards so `Yes, implement this plan` now reappears reliably after plan generation, reopen, resume, and reconnect by making plan-implementation requests main-owned conversation state instead of renderer-local hidden state.
 - Fixed NFM editor link editing so absolute local paths like `/Users/...` no longer get rewritten to malformed `https:///Users/...` URLs.
@@ -61,6 +66,7 @@ All notable changes to this project will be documented in this file.
 - Fixed mounted and reopened thread reliability issues around resume, replay, duplication, compaction markers, streaming updates, and canonical turn ordering.
 - Fixed thread transcript polish issues across command cards, patch rows, diff banners, message actions, reasoning/todo rows, collapse behavior, and inline message editing.
 - Fixed Kanban drag-and-drop edge cases for sorted columns and auto-collapsed empty lanes.
+- Fixed active thread parity gaps so implement-plan cards now follow the Codex `planImplementation` ownership rule, request-priority selection matches Codex's composer ordering, command-output streams stay bounded with truncation markers, and header/footer surfaces stop re-rendering on plain turn-text streaming.
 
 ## [0.1.7] - 2026-03-19
 

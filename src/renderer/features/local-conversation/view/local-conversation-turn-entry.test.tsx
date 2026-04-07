@@ -100,7 +100,6 @@ describe("LocalConversationTurnEntry", () => {
           isMostRecentTurn: false,
           canEditTurnUserPrefix: false,
           canForkTurnUserPrefix: true,
-          isMatched: false,
           onRendered: recordRender,
         }),
         createElement(LocalConversationTurnEntry, {
@@ -112,7 +111,6 @@ describe("LocalConversationTurnEntry", () => {
           isMostRecentTurn: true,
           canEditTurnUserPrefix: true,
           canForkTurnUserPrefix: true,
-          isMatched: false,
           onRendered: recordRender,
         }),
       );

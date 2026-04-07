@@ -105,6 +105,7 @@ function makeThreadDetail(threadId: string): CodexThreadDetail {
     threadId,
     projectId: "project-1",
     cardId: "card-1",
+    source: null,
     threadName: "Thread",
     threadPreview: "",
     modelProvider: "openai",
@@ -3354,6 +3355,7 @@ describe("codex-service startThreadForCard", () => {
         threadId: "thr_plan_mode",
         projectId: "codex",
         cardId: card.id,
+        source: null,
         threadName: null,
         threadPreview: "",
         modelProvider: "openai",
@@ -3471,6 +3473,7 @@ describe("codex-service startThreadForCard", () => {
         threadId: "thr_auto_title",
         projectId: "codex",
         cardId: card.id,
+        source: null,
         threadName: null,
         threadPreview: "",
         modelProvider: "openai",
@@ -3555,6 +3558,7 @@ describe("codex-service startThreadForCard", () => {
         threadId: "thr_explicit_name",
         projectId: "codex",
         cardId: card.id,
+        source: null,
         threadName: "My explicit thread",
         threadPreview: "",
         modelProvider: "openai",
@@ -3601,6 +3605,7 @@ describe("codex-service startThreadForCard", () => {
         threadId: "thr_created",
         projectId: "codex",
         cardId: card.id,
+        source: null,
         threadName: "Thread",
         threadPreview: "",
         modelProvider: "openai",
@@ -3761,6 +3766,7 @@ describe("codex-service startThreadForCard", () => {
         threadId: "thr_local_override",
         projectId: "codex",
         cardId: card.id,
+        source: null,
         threadName: "Thread",
         threadPreview: "",
         modelProvider: "openai",
@@ -3843,6 +3849,7 @@ describe("codex-service startThreadForCard", () => {
         threadId: "thr_reuse_worktree",
         projectId: "codex",
         cardId: card.id,
+        source: null,
         threadName: "Thread",
         threadPreview: "",
         modelProvider: "openai",
@@ -3955,6 +3962,7 @@ describe("codex-service startThreadForCard", () => {
           threadId,
           projectId: "worktree-project",
           cardId: card.id,
+          source: null,
           threadName: "Thread",
           threadPreview: "",
           modelProvider: "openai",
@@ -4077,6 +4085,7 @@ describe("codex-service startThreadForCard", () => {
           threadId,
           projectId: "env-setup-project",
           cardId: card.id,
+          source: null,
           threadName: "Thread",
           threadPreview: "",
           modelProvider: "openai",
@@ -4199,6 +4208,7 @@ describe("codex-service startThreadForCard", () => {
           threadId,
           projectId: "env-large-output-project",
           cardId: card.id,
+          source: null,
           threadName: "Thread",
           threadPreview: "",
           modelProvider: "openai",
@@ -4465,6 +4475,7 @@ describe("codex-service startThreadForCard", () => {
         threadId: "thr_reuse_env_setup",
         projectId: "codex",
         cardId: card.id,
+        source: null,
         threadName: "Thread",
         threadPreview: "",
         modelProvider: "openai",
@@ -4812,7 +4823,7 @@ describe("codex-service approval fallback", () => {
 });
 
 describe("codex-service streaming notification parity", () => {
-  test("builds plan items incrementally from item/plan/delta", async () => {
+  test("ignores item/plan/delta updates until the canonical item lifecycle inserts the plan item", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       getConversationRecord: (threadId: string) => {
@@ -4853,9 +4864,7 @@ describe("codex-service streaming notification parity", () => {
 
       const planItem = getRecordedItem(serviceInternals, "thr_plan_delta", "turn_plan_delta", "plan_item");
 
-      expect(planItem?.type).toBe("plan");
-      expect(planItem?.normalizedKind).toBe("plan");
-      expect(planItem?.markdownText).toBe("1. Clarify requirements\n2. Implement changes");
+      expect(Boolean(planItem)).toBeFalse();
     } finally {
       await service.shutdown();
     }
@@ -6230,6 +6239,90 @@ describe("codex-service terminal turn reconciliation", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("avoids full conversation serialization during assistant delta flushes once the broadcast cache is primed", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Streaming assistant delta hot path" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_streaming_delta_hot_path",
+        threadName: "Streaming delta hot path",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        serializeConversationSnapshot: (threadId: string) => CodexConversationSnapshot | null;
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") {
+          hostMessages.push(message);
+        }
+      });
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_streaming_delta_hot_path"),
+        turns: [
+          {
+            threadId: "thr_streaming_delta_hot_path",
+            turnId: "turn_streaming_delta_hot_path",
+            status: "inProgress",
+            itemIds: ["assistant_streaming_delta_hot_path"],
+          },
+        ],
+        transcript: [{
+          threadId: "thr_streaming_delta_hot_path",
+          turnId: "turn_streaming_delta_hot_path",
+          itemId: "assistant_streaming_delta_hot_path",
+          type: "assistant_message",
+          kind: "assistantMessage",
+          semanticKind: "assistantMessage",
+          markdownText: "",
+          role: "assistant",
+          createdAt: 1,
+          updatedAt: 1,
+        }],
+      });
+
+      try {
+        await service.requestConversationSnapshot("thr_streaming_delta_hot_path");
+        hostMessages.length = 0;
+
+        const originalSerializeConversationSnapshot = serviceInternals.serializeConversationSnapshot.bind(serviceInternals);
+        let serializeConversationSnapshotCallCount = 0;
+        serviceInternals.serializeConversationSnapshot = ((threadId: string) => {
+          serializeConversationSnapshotCallCount += 1;
+          return originalSerializeConversationSnapshot(threadId);
+        });
+
+        await serviceInternals.handleNotification("item/agentMessage/delta", {
+          threadId: "thr_streaming_delta_hot_path",
+          turnId: "turn_streaming_delta_hot_path",
+          itemId: "assistant_streaming_delta_hot_path",
+          delta: "hello",
+        });
+        await new Promise((resolve) => setTimeout(resolve, 30));
+
+        expect(String(serializeConversationSnapshotCallCount)).toBe("0");
+        expect(hostMessages.length > 0).toBeTrue();
+        const firstHostMessage = hostMessages[0];
+        expect(firstHostMessage?.type).toBe("threadStreamStateChanged");
+        expect(
+          firstHostMessage?.type === "threadStreamStateChanged"
+            ? firstHostMessage.change.type
+            : "snapshot",
+        ).toBe("patches");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("streams command output deltas through thread stream patch updates", async () => {
     const ran = await withTempDatabase(async () => {
       const card = await createCard("codex", "in_progress", { title: "Streaming command output" });
@@ -6293,6 +6386,266 @@ describe("codex-service terminal turn reconciliation", () => {
         expect(latest?.turns[0]?.items[0]?.aggregatedOutput).toBe("1340 pass\n");
         expect(typeof latest?.turns[0]?.items[0]?.toolCall?.result).toBe("string");
         expect(latest?.turns[0]?.items[0]?.toolCall?.result).toBe("1340 pass\n");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("avoids full conversation serialization during command-output delta flushes once the broadcast cache is primed", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Streaming command output hot path" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_streaming_output_hot_path",
+        threadName: "Streaming output hot path",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        serializeConversationSnapshot: (threadId: string) => CodexConversationSnapshot | null;
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") {
+          hostMessages.push(message);
+        }
+      });
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_streaming_output_hot_path"),
+        turns: [
+          {
+            threadId: "thr_streaming_output_hot_path",
+            turnId: "turn_streaming_output_hot_path",
+            status: "inProgress",
+            itemIds: ["exec_streaming_output_hot_path"],
+          },
+        ],
+        transcript: [],
+      });
+
+      try {
+        await serviceInternals.handleNotification("item/started", {
+          threadId: "thr_streaming_output_hot_path",
+          turnId: "turn_streaming_output_hot_path",
+          item: {
+            id: "exec_streaming_output_hot_path",
+            type: "commandExecution",
+            command: "bun test",
+            cwd: "/tmp",
+            status: "in_progress",
+          },
+        });
+        await service.requestConversationSnapshot("thr_streaming_output_hot_path");
+        hostMessages.length = 0;
+
+        const originalSerializeConversationSnapshot = serviceInternals.serializeConversationSnapshot.bind(serviceInternals);
+        let serializeConversationSnapshotCallCount = 0;
+        serviceInternals.serializeConversationSnapshot = ((threadId: string) => {
+          serializeConversationSnapshotCallCount += 1;
+          return originalSerializeConversationSnapshot(threadId);
+        });
+
+        await serviceInternals.handleNotification("item/commandExecution/outputDelta", {
+          threadId: "thr_streaming_output_hot_path",
+          turnId: "turn_streaming_output_hot_path",
+          itemId: "exec_streaming_output_hot_path",
+          delta: "1340 pass\n",
+        });
+        await new Promise((resolve) => setTimeout(resolve, 70));
+
+        expect(String(serializeConversationSnapshotCallCount)).toBe("0");
+        expect(hostMessages.length > 0).toBeTrue();
+        const firstHostMessage = hostMessages[0];
+        expect(firstHostMessage?.type).toBe("threadStreamStateChanged");
+        expect(
+          firstHostMessage?.type === "threadStreamStateChanged"
+            ? firstHostMessage.change.type
+            : "snapshot",
+        ).toBe("patches");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("skips frame-text deltas that arrive before the canonical item exists", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Streaming missing assistant item" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_streaming_missing_item",
+        threadName: "Streaming missing assistant item",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") {
+          hostMessages.push(message);
+        }
+      });
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_streaming_missing_item"),
+        turns: [
+          {
+            threadId: "thr_streaming_missing_item",
+            turnId: "turn_streaming_missing_item",
+            status: "inProgress",
+            itemIds: [],
+          },
+        ],
+        transcript: [],
+      });
+
+      try {
+        await serviceInternals.handleNotification("item/agentMessage/delta", {
+          threadId: "thr_streaming_missing_item",
+          turnId: "turn_streaming_missing_item",
+          itemId: "assistant_missing_item",
+          delta: "hello",
+        });
+        await new Promise((resolve) => setTimeout(resolve, 30));
+
+        expect(hostMessages.length).toBe(0);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("skips command output deltas that arrive before the canonical item exists", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Streaming missing command item" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_streaming_missing_output",
+        threadName: "Streaming missing command item",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") {
+          hostMessages.push(message);
+        }
+      });
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_streaming_missing_output"),
+        turns: [
+          {
+            threadId: "thr_streaming_missing_output",
+            turnId: "turn_streaming_missing_output",
+            status: "inProgress",
+            itemIds: [],
+          },
+        ],
+        transcript: [],
+      });
+
+      try {
+        await serviceInternals.handleNotification("item/commandExecution/outputDelta", {
+          threadId: "thr_streaming_missing_output",
+          turnId: "turn_streaming_missing_output",
+          itemId: "exec_missing_output",
+          delta: "1340 pass\n",
+        });
+        await new Promise((resolve) => setTimeout(resolve, 70));
+
+        expect(hostMessages.length).toBe(0);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("bounds streamed command output and marks truncation in thread stream snapshots", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Streaming command output truncation" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_streaming_output_truncated",
+        threadName: "Streaming output truncated",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") {
+          hostMessages.push(message);
+        }
+      });
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_streaming_output_truncated"),
+        turns: [
+          {
+            threadId: "thr_streaming_output_truncated",
+            turnId: "turn_streaming_output_truncated",
+            status: "inProgress",
+            itemIds: ["exec_streaming_output_truncated"],
+          },
+        ],
+        transcript: [],
+      });
+
+      try {
+        await serviceInternals.handleNotification("item/started", {
+          threadId: "thr_streaming_output_truncated",
+          turnId: "turn_streaming_output_truncated",
+          item: {
+            id: "exec_streaming_output_truncated",
+            type: "commandExecution",
+            command: "bun test",
+            cwd: "/tmp",
+            status: "in_progress",
+          },
+        });
+        await serviceInternals.handleNotification("item/commandExecution/outputDelta", {
+          threadId: "thr_streaming_output_truncated",
+          turnId: "turn_streaming_output_truncated",
+          itemId: "exec_streaming_output_truncated",
+          delta: "a".repeat(25_000),
+        });
+        await new Promise((resolve) => setTimeout(resolve, 70));
+
+        const latest = projectConversationFromHostMessages(hostMessages);
+        const output = latest?.turns[0]?.items[0]?.aggregatedOutput ?? "";
+        expect(output.startsWith("[output truncated]\n")).toBeTrue();
+        expect(output.length <= 20_020).toBeTrue();
       } finally {
         await service.shutdown();
       }
@@ -6508,6 +6861,255 @@ describe("codex-service terminal turn reconciliation", () => {
         const turnDiffRawItem = latest?.turns[0]?.items[1]?.rawItem as { cwd?: unknown } | undefined;
         expect(typeof turnDiffRawItem?.cwd).toBe("string");
         expect(turnDiffRawItem?.cwd).toBe("/tmp");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("queues follow-up rows through direct broadcast-cache patches once the cache is primed", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Queued follow-up direct patch" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_queue_direct_patch",
+        threadName: "Queue direct patch",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        serializeConversationSnapshot: (threadId: string) => CodexConversationSnapshot | null;
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") {
+          hostMessages.push(message);
+        }
+      });
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_queue_direct_patch"),
+        turns: [
+          {
+            threadId: "thr_queue_direct_patch",
+            turnId: "turn_queue_direct_patch",
+            status: "completed",
+            itemIds: [],
+          },
+        ],
+        transcript: [],
+      });
+
+      try {
+        await service.requestConversationSnapshot("thr_queue_direct_patch");
+        hostMessages.length = 0;
+
+        const originalSerializeConversationSnapshot = serviceInternals.serializeConversationSnapshot.bind(serviceInternals);
+        let serializeConversationSnapshotCallCount = 0;
+        serviceInternals.serializeConversationSnapshot = ((threadId: string) => {
+          serializeConversationSnapshotCallCount += 1;
+          return originalSerializeConversationSnapshot(threadId);
+        });
+
+        await service.enqueueQueuedFollowUpPrompt("thr_queue_direct_patch", "Queue this next");
+
+        expect(String(serializeConversationSnapshotCallCount)).toBe("0");
+        expect(hostMessages.length > 0).toBeTrue();
+        expect(hostMessages[0]?.type).toBe("threadStreamStateChanged");
+        expect(
+          hostMessages[0]?.type === "threadStreamStateChanged"
+            ? hostMessages[0].change.type
+            : "snapshot",
+        ).toBe("patches");
+
+        const latest = projectConversationFromHostMessages(hostMessages);
+        expect(latest).not.toBeNull();
+        expect(latest?.queuedFollowUps.length).toBe(1);
+        expect(latest?.queuedFollowUps[0]?.prompt).toBe("Queue this next");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("streams user-input request ingress through direct request patches once the cache is primed", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "User input direct patch" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_user_input_direct_patch",
+        threadName: "User input direct patch",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        serializeConversationSnapshot: (threadId: string) => CodexConversationSnapshot | null;
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleRequestUserInput: (requestId: string, params: {
+          threadId: string;
+          turnId: string;
+          itemId: string;
+          questions: Array<{
+            id: string;
+            header: string;
+            question: string;
+            isOther: boolean;
+            isSecret: boolean;
+            options?: Array<{ label: string; description: string }>;
+          }>;
+        }) => Promise<unknown>;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") {
+          hostMessages.push(message);
+        }
+      });
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_user_input_direct_patch"),
+        turns: [
+          {
+            threadId: "thr_user_input_direct_patch",
+            turnId: "turn_user_input_direct_patch",
+            status: "inProgress",
+            itemIds: ["tool_user_input_direct_patch"],
+          },
+        ],
+        transcript: [],
+      });
+
+      try {
+        await service.requestConversationSnapshot("thr_user_input_direct_patch");
+        hostMessages.length = 0;
+
+        const originalSerializeConversationSnapshot = serviceInternals.serializeConversationSnapshot.bind(serviceInternals);
+        let serializeConversationSnapshotCallCount = 0;
+        serviceInternals.serializeConversationSnapshot = ((threadId: string) => {
+          serializeConversationSnapshotCallCount += 1;
+          return originalSerializeConversationSnapshot(threadId);
+        });
+
+        const pendingPromise = serviceInternals.handleRequestUserInput("req_user_input_direct_patch", {
+          threadId: "thr_user_input_direct_patch",
+          turnId: "turn_user_input_direct_patch",
+          itemId: "tool_user_input_direct_patch",
+          questions: [{
+            id: "q1",
+            header: "Question",
+            question: "Pick one",
+            isOther: false,
+            isSecret: false,
+            options: [{ label: "A", description: "Option A" }],
+          }],
+        });
+
+        expect(String(serializeConversationSnapshotCallCount)).toBe("0");
+        expect(hostMessages.length > 0).toBeTrue();
+        expect(hostMessages[0]?.type).toBe("threadStreamStateChanged");
+        expect(
+          hostMessages[0]?.type === "threadStreamStateChanged"
+            ? hostMessages[0].change.type
+            : "snapshot",
+        ).toBe("patches");
+
+        const latest = projectConversationFromHostMessages(hostMessages);
+        expect(latest).not.toBeNull();
+        expect(latest?.requests.length).toBe(1);
+        expect(latest?.requests[0]?.type).toBe("userInput");
+
+        await service.respondToUserInput("req_user_input_direct_patch", { q1: ["A"] });
+        await pendingPromise;
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("avoids full conversation serialization during item lifecycle patches once the cache is primed", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Item lifecycle direct patch" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_item_started_direct_patch",
+        threadName: "Item lifecycle direct patch",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        serializeConversationSnapshot: (threadId: string) => CodexConversationSnapshot | null;
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") {
+          hostMessages.push(message);
+        }
+      });
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_item_started_direct_patch"),
+        turns: [
+          {
+            threadId: "thr_item_started_direct_patch",
+            turnId: "turn_item_started_direct_patch",
+            status: "inProgress",
+            itemIds: [],
+          },
+        ],
+        transcript: [],
+      });
+
+      try {
+        await service.requestConversationSnapshot("thr_item_started_direct_patch");
+        hostMessages.length = 0;
+
+        const originalSerializeConversationSnapshot = serviceInternals.serializeConversationSnapshot.bind(serviceInternals);
+        let serializeConversationSnapshotCallCount = 0;
+        serviceInternals.serializeConversationSnapshot = ((threadId: string) => {
+          serializeConversationSnapshotCallCount += 1;
+          return originalSerializeConversationSnapshot(threadId);
+        });
+
+        await serviceInternals.handleNotification("item/started", {
+          threadId: "thr_item_started_direct_patch",
+          turnId: "turn_item_started_direct_patch",
+          item: {
+            id: "assistant_item_started_direct_patch",
+            type: "agentMessage",
+            text: "hello",
+            status: "in_progress",
+          },
+        });
+
+        expect(String(serializeConversationSnapshotCallCount)).toBe("0");
+        expect(hostMessages.length > 0).toBeTrue();
+        expect(hostMessages[0]?.type).toBe("threadStreamStateChanged");
+        expect(
+          hostMessages[0]?.type === "threadStreamStateChanged"
+            ? hostMessages[0].change.type
+            : "snapshot",
+        ).toBe("patches");
+
+        const latest = projectConversationFromHostMessages(hostMessages);
+        expect(latest).not.toBeNull();
+        expect(latest?.turns.length).toBe(1);
+        expect(latest?.turns[0]?.items.length).toBe(1);
+        expect(latest?.turns[0]?.items[0]?.itemId).toBe("assistant_item_started_direct_patch");
       } finally {
         await service.shutdown();
       }

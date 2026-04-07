@@ -16,11 +16,15 @@ import type {
   CodexTranscriptEntry,
   CodexUserInputRequest,
 } from "@/lib/types";
-import { buildThreadStageModel } from "../projection/build-thread-stage-model";
+import { buildComposerShellModel } from "../projection/build-composer-shell-model";
+import { buildThreadBodyModel } from "../projection/build-thread-body-model";
+import { selectPrimaryConversationRequest } from "../conversation-request-helpers";
 import type {
+  ThreadBodySurfaceModel,
   ThreadBodyUiStateOverrides,
-  ThreadStageModel,
-  ThreadStageModelInput,
+  ThreadFooterModel,
+  ThreadStageHeaderModel,
+  ThreadStageRouteInput,
 } from "../thread-stage-types";
 
 export type ThreadStageStoryPresetId =
@@ -57,15 +61,21 @@ export interface ThreadStageStoryPreset {
 
 export interface ThreadStageStoryRuntimeState {
   isNewThreadTab: boolean;
-  newThreadTarget: ThreadStageModelInput["newThreadTarget"];
+  newThreadTarget: ThreadStageRouteInput["newThreadTarget"];
   activeThreadId: string | null;
   activeThreadSummary: CodexThreadSummary | null;
   conversation: CodexConversationSnapshot | null;
   knownConversationsById: Record<string, CodexConversationSnapshot>;
   searchOpenTick: number;
   composerIntent: CodexComposerIntent | null;
-  threadStartProgress: ThreadStageModelInput["threadStartProgress"];
+  threadStartProgress: ThreadStageRouteInput["threadStartProgress"];
   logs: string[];
+}
+
+export interface ThreadStageStorySurfaceModels {
+  headerModel: ThreadStageHeaderModel;
+  bodyModel: ThreadBodySurfaceModel;
+  footerModel: ThreadFooterModel;
 }
 
 export interface ThreadStageStoryScenario {
@@ -106,7 +116,7 @@ const STORY_CARD_ID = "card-thread-storybook";
 const STORY_COLUMN_ID = "in-progress";
 const STORY_WORKSPACE_PATH = "/workspace/nodex";
 const STORY_THREAD_ID = "thread_storybook";
-const STORY_NEW_THREAD_TARGET: NonNullable<ThreadStageModelInput["newThreadTarget"]> = {
+const STORY_NEW_THREAD_TARGET: NonNullable<ThreadStageRouteInput["newThreadTarget"]> = {
   projectId: STORY_PROJECT_ID,
   projectName: "Nodex",
   cardId: STORY_CARD_ID,
@@ -315,6 +325,7 @@ export function buildStoryConversation(
     threadId: STORY_THREAD_ID,
     projectId: STORY_PROJECT_ID,
     cardId: STORY_CARD_ID,
+    source: overrides?.source ?? null,
     threadName: "Thread Storybook rollout",
     threadPreview: "Cover tool calls, request lanes, edit flow, and fork flow.",
     modelProvider: "openai",
@@ -648,7 +659,7 @@ function buildImplementPlanConversation(): CodexConversationSnapshot {
       turnId: "turn_story_plan",
       itemId: "implement-plan:turn_story_plan",
       planContent: [
-        "1. Add story fixtures on top of buildThreadStageModel.",
+        "1. Add story fixtures on top of the split header/body/footer surfaces.",
         "2. Cover tool-call families and request cards with focused stories.",
         "3. Extract the threadSection row for editor and Storybook reuse.",
       ].join("\n"),
@@ -677,7 +688,7 @@ function buildImplementPlanConversation(): CodexConversationSnapshot {
             kind: "plan",
             semanticKind: "proposedPlan",
             markdownText: [
-              "1. Add story fixtures on top of buildThreadStageModel.",
+              "1. Add story fixtures on top of the split header/body/footer surfaces.",
               "2. Cover tool-call families and request cards with focused stories.",
               "3. Extract the threadSection row for editor and Storybook reuse.",
               "4. Extract the threadSection row for editor and Storybook reuse.",
@@ -699,7 +710,7 @@ function buildImplementPlanConversation(): CodexConversationSnapshot {
             kind: "planImplementation",
             semanticKind: "planImplementation",
             markdownText: [
-              "1. Add story fixtures on top of buildThreadStageModel.",
+              "1. Add story fixtures on top of the split header/body/footer surfaces.",
               "2. Cover tool-call families and request cards with focused stories.",
               "3. Extract the threadSection row for editor and Storybook reuse.",
             ].join("\n"),
@@ -1880,38 +1891,162 @@ export function buildThreadStageStoryScenario(controls: ThreadStageStoryControls
   return buildScenarioRuntime(controls);
 }
 
-export function buildThreadStageStoryModel(
+function resolveStoryThreadTitle(
+  runtime: ThreadStageStoryRuntimeState,
+): string {
+  return (
+    runtime.conversation?.threadName ||
+    runtime.conversation?.threadPreview ||
+    runtime.activeThreadSummary?.threadName ||
+    runtime.activeThreadSummary?.threadPreview ||
+    (runtime.isNewThreadTab ? "New thread" : "No thread")
+  );
+}
+
+function resolveStoryOpenCardTarget(
+  runtime: ThreadStageStoryRuntimeState,
+): ThreadStageHeaderModel["openCardTarget"] {
+  if (runtime.conversation?.cardId) {
+    return {
+      cardId: runtime.conversation.cardId,
+      title: runtime.conversation.threadName?.trim() || runtime.conversation.threadPreview || runtime.conversation.cardId,
+      columnId: STORY_COLUMN_ID,
+    };
+  }
+
+  if (runtime.activeThreadSummary) {
+    return {
+      cardId: runtime.activeThreadSummary.cardId,
+      title:
+        runtime.activeThreadSummary.threadName?.trim()
+        || runtime.activeThreadSummary.threadPreview
+        || runtime.activeThreadSummary.cardId,
+      columnId: STORY_COLUMN_ID,
+    };
+  }
+
+  if (runtime.isNewThreadTab && runtime.newThreadTarget) {
+    return {
+      cardId: runtime.newThreadTarget.cardId,
+      title: runtime.newThreadTarget.cardTitle,
+      columnId: runtime.newThreadTarget.columnId,
+    };
+  }
+
+  return null;
+}
+
+export function buildThreadStageStorySurfaceModels(
   scenario: ThreadStageStoryScenario,
   controls: ThreadStageStoryControls,
   runtime: ThreadStageStoryRuntimeState,
-): ThreadStageModel {
-  const input: ThreadStageModelInput = {
-    projectId: STORY_PROJECT_ID,
-    projectWorkspacePath: STORY_WORKSPACE_PATH,
+): ThreadStageStorySurfaceModels {
+  void scenario;
+  const activeThreadId = runtime.isNewThreadTab ? null : runtime.activeThreadId;
+  const conversation = runtime.conversation;
+  const turns = conversation?.turns ?? [];
+  const requests = conversation?.requests ?? [];
+  const resumeState = conversation?.resumeState ?? null;
+  const statusType = conversation?.statusType ?? null;
+  const capabilityFlags = conversation?.capabilityFlags ?? {
+    canEditLastUserTurn: false,
+    canForkFromTurn: false,
+    canSearch: false,
+    canCollapseTurns: false,
+  };
+  const parentTurns: readonly CodexConversationTurn[] = [];
+  const body = buildThreadBodyModel({
+    activeThreadId,
+    threadId: activeThreadId,
+    turns,
+    requests,
+    resumeState,
+    statusType,
+    capabilityFlags,
+    parentTurns,
     isNewThreadTab: runtime.isNewThreadTab,
     newThreadTarget: runtime.newThreadTarget,
-    activeThreadCardColumnId: STORY_COLUMN_ID,
+    isCloudNewThreadTarget: Boolean(
+      runtime.isNewThreadTab && runtime.newThreadTarget?.runInTarget === "cloud",
+    ),
     threadStartProgress: runtime.threadStartProgress,
-    activeThreadId: runtime.activeThreadId,
-    activeThreadSummary: runtime.activeThreadSummary,
-    conversation: runtime.conversation,
-    knownConversationsById: runtime.knownConversationsById,
+  });
+
+  const headerModel: ThreadStageHeaderModel = {
+    projectId: conversation?.projectId ?? runtime.activeThreadSummary?.projectId ?? STORY_PROJECT_ID,
+    threadId: conversation?.threadId ?? runtime.activeThreadSummary?.threadId ?? activeThreadId,
+    cardId: conversation?.cardId ?? runtime.activeThreadSummary?.cardId ?? runtime.newThreadTarget?.cardId ?? null,
+    title: resolveStoryThreadTitle(runtime),
+    openCardTarget: resolveStoryOpenCardTarget(runtime),
+    activeThreadCardColumnId: STORY_COLUMN_ID,
     connection: DEFAULT_CONNECTION,
     account: controls.authenticatedAccount ? DEFAULT_ACCOUNT_AUTHENTICATED : DEFAULT_ACCOUNT_SIGNED_OUT,
-    availableModels: DEFAULT_MODELS,
+  };
+
+  const primaryRequest = selectPrimaryConversationRequest(conversation);
+  const composerShell = buildComposerShellModel({
+    threadId: activeThreadId,
+    turns,
+    requests,
+    pendingSteers: conversation?.pendingSteers ?? [],
+    queuedFollowUps: conversation?.queuedFollowUps ?? [],
+    backgroundTerminalRows: conversation?.backgroundTerminalRows ?? [],
+    childMemberships: conversation?.childMemberships ?? [],
+    statusType,
+    statusActiveFlags: conversation?.statusActiveFlags ?? [],
+    knownConversationsById: runtime.knownConversationsById,
+    primaryRequest,
+  });
+
+  const activeTurn = [...turns].reverse().find((turn) => turn.status === "inProgress") ?? null;
+  const footerModel: ThreadFooterModel = {
+    projectId: STORY_PROJECT_ID,
+    projectWorkspacePath: STORY_WORKSPACE_PATH,
+    threadId: activeThreadId,
+    cwd: conversation?.cwd ?? null,
+    conversation,
+    resumeState,
+    activeTurn,
+    isThreadRunning: Boolean(activeTurn || statusType === "active"),
+    isNewThreadTab: runtime.isNewThreadTab,
+    isCloudNewThreadTarget: Boolean(
+      runtime.isNewThreadTab && runtime.newThreadTarget?.runInTarget === "cloud",
+    ),
+    newThreadTarget: runtime.newThreadTarget,
+    composerShell,
+    body,
     collaborationModes: DEFAULT_COLLABORATION_MODES,
     selectedCollaborationMode: "default",
     selectedModel: DEFAULT_MODELS[0]?.model ?? "gpt-5.3-codex",
+    availableModels: DEFAULT_MODELS,
     selectedReasoningEffort: "high",
     reasoningEffortOptions: DEFAULT_REASONING_OPTIONS,
     permissionMode: controls.permissionMode,
     isQueueingEnabled: controls.isQueueingEnabled,
     composerEnterBehavior: "enter",
-    searchOpenTick: runtime.searchOpenTick,
     composerIntent: runtime.composerIntent,
   };
 
-  return buildThreadStageModel(input);
+  const bodyModel: ThreadBodySurfaceModel = {
+    threadId: activeThreadId,
+    cwd: conversation?.cwd ?? null,
+    turns,
+    requests,
+    resumeState,
+    statusType,
+    capabilityFlags,
+    body,
+    parentTurns,
+    projectWorkspacePath: STORY_WORKSPACE_PATH,
+    searchOpenTick: runtime.searchOpenTick,
+    threadStartProgress: runtime.threadStartProgress,
+  };
+
+  return {
+    headerModel,
+    bodyModel,
+    footerModel,
+  };
 }
 
 type StorybookBridge = Window["api"];

@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import { StringDecoder } from "node:string_decoder";
+import { produceWithPatches } from "immer";
 import { parse as parseToml } from "smol-toml";
 import type { CollaborationModeListResponse } from "@nodex/codex-app-server-protocol/v2/CollaborationModeListResponse";
 import type { CommandExecutionRequestApprovalParams } from "@nodex/codex-app-server-protocol/v2/CommandExecutionRequestApprovalParams";
@@ -139,8 +140,13 @@ import {
   resolveThreadPreviewFromTranscript,
 } from "./codex-transcript-projection";
 import { shouldTerminalizeItemWithTurn } from "../../shared/codex-turn-terminalization";
-import { buildCodexConversationSnapshot } from "./codex-conversation-snapshot";
-import { buildCodexConversationStateUpdates } from "../../shared/codex-conversation-patches";
+import {
+  buildCodexConversationSnapshot,
+  buildCodexConversationTurn,
+} from "./codex-conversation-snapshot";
+import {
+  convertImmerPatchesToCodexConversationStateUpdates,
+} from "../../shared/codex-conversation-patches";
 import { resolveCodexRuntime, type ResolvedCodexRuntime } from "./codex-runtime";
 import { CodexThreadTitleStateStore } from "./thread-title-state";
 import {
@@ -216,6 +222,18 @@ interface CodexPermissionConfigSnapshot {
   sandboxMode: string | null;
   approvalPolicy: string | null;
   parseError: string | null;
+}
+
+interface BroadcastConversationSyncOptions {
+  turnId?: string;
+  syncDetail?: boolean;
+  syncRequests?: boolean;
+  syncQueuedFollowUps?: boolean;
+  syncPendingSteers?: boolean;
+  syncLatestCollaborationMode?: boolean;
+  syncCapabilityFlags?: boolean;
+  syncBackgroundTerminalRows?: boolean;
+  syncChildMemberships?: boolean;
 }
 
 type CodexApprovalPolicy = "on-request" | "never";
@@ -308,15 +326,80 @@ interface OutputDeltaUpdate {
   turnId: string;
   itemId: string;
   delta: string;
+  truncated?: boolean;
 }
 
 const FRAME_TEXT_DELTA_FLUSH_MS = 16;
 const OUTPUT_DELTA_FLUSH_MS = 50;
+const MAX_COMMAND_OUTPUT_CHARS = 20_000;
+const TRUNCATED_OUTPUT_PREFIX = "[output truncated]\n";
 const RATE_LIMITS_POLL_INTERVAL_MS = 60_000;
+
+function isVisibleDocumentAvailable(): boolean {
+  const browserGlobals = globalThis as typeof globalThis & {
+    document?: { visibilityState?: string };
+  };
+  return browserGlobals.document?.visibilityState === "visible";
+}
+
+function truncateBufferedOutput(input: {
+  existingText: string;
+  nextDelta: string;
+  maxChars?: number;
+}): { text: string; truncated: boolean } {
+  const maxChars = input.maxChars ?? MAX_COMMAND_OUTPUT_CHARS;
+  if (maxChars <= 0) {
+    return { text: "", truncated: true };
+  }
+
+  if (input.nextDelta.length >= maxChars) {
+    return {
+      text: input.nextDelta.slice(-maxChars),
+      truncated: true,
+    };
+  }
+
+  const combined = `${input.existingText}${input.nextDelta}`;
+  if (combined.length <= maxChars) {
+    return {
+      text: combined,
+      truncated: false,
+    };
+  }
+
+  return {
+    text: combined.slice(-maxChars),
+    truncated: true,
+  };
+}
+
+function parseStoredAggregatedOutput(
+  value: string | null | undefined,
+): { text: string; truncated: boolean } {
+  if (!value) {
+    return { text: "", truncated: false };
+  }
+
+  if (!value.startsWith(TRUNCATED_OUTPUT_PREFIX)) {
+    return { text: value, truncated: false };
+  }
+
+  return {
+    text: value.slice(TRUNCATED_OUTPUT_PREFIX.length),
+    truncated: true,
+  };
+}
+
+function formatStoredAggregatedOutput(
+  value: { text: string; truncated: boolean },
+): string {
+  return value.truncated ? `${TRUNCATED_OUTPUT_PREFIX}${value.text}` : value.text;
+}
 
 class FrameTextDeltaQueue {
   private readonly buffers = new Map<string, FrameTextDeltaUpdate>();
   private flushHandle: ReturnType<typeof setTimeout> | null = null;
+  private frameHandle: number | null = null;
 
   constructor(
     private readonly onFlush: (updates: FrameTextDeltaUpdate[]) => void,
@@ -347,7 +430,18 @@ class FrameTextDeltaQueue {
   }
 
   private scheduleFlush(): void {
-    if (this.flushHandle !== null) return;
+    if (this.flushHandle !== null || this.frameHandle !== null) return;
+    const browserGlobals = globalThis as typeof globalThis & {
+      requestAnimationFrame?: (callback: (timestamp: number) => void) => number;
+    };
+    if (typeof browserGlobals.requestAnimationFrame === "function" && isVisibleDocumentAvailable()) {
+      this.frameHandle = browserGlobals.requestAnimationFrame(() => {
+        this.frameHandle = null;
+        this.flushNow();
+      });
+      return;
+    }
+
     this.flushHandle = setTimeout(() => {
       this.flushHandle = null;
       this.flushNow();
@@ -355,9 +449,17 @@ class FrameTextDeltaQueue {
   }
 
   private cancelScheduledFlush(): void {
-    if (this.flushHandle === null) return;
-    clearTimeout(this.flushHandle);
-    this.flushHandle = null;
+    if (this.flushHandle !== null) {
+      clearTimeout(this.flushHandle);
+      this.flushHandle = null;
+    }
+    if (this.frameHandle !== null) {
+      const browserGlobals = globalThis as typeof globalThis & {
+        cancelAnimationFrame?: (handle: number) => void;
+      };
+      browserGlobals.cancelAnimationFrame?.(this.frameHandle);
+      this.frameHandle = null;
+    }
   }
 
   private buildKey(update: FrameTextDeltaUpdate): string {
@@ -385,9 +487,14 @@ class OutputDeltaQueue {
   enqueue(update: OutputDeltaUpdate): void {
     const key = `${update.threadId}:${update.turnId}:${update.itemId}`;
     const existing = this.buffers.get(key);
+    const merged = truncateBufferedOutput({
+      existingText: existing?.delta ?? "",
+      nextDelta: update.delta,
+    });
     this.buffers.set(key, {
       ...update,
-      delta: `${existing?.delta ?? ""}${update.delta}`,
+      delta: merged.text,
+      truncated: Boolean(existing?.truncated) || merged.truncated,
     });
     this.scheduleFlush();
   }
@@ -423,15 +530,6 @@ class OutputDeltaQueue {
 function isUnavailableSqliteBindingError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return message.includes("better-sqlite3") && message.includes("not yet supported");
-}
-
-function resolveThreadIdFromCodexEvent(event: CodexEvent): string | null {
-  if (event.type === "threadStatus") return event.threadId;
-  if (event.type === "threadArchivedState") return event.threadId;
-  if (event.type === "turn") return event.turn.threadId;
-  if (event.type === "approvalRequested") return event.request.threadId;
-  if (event.type === "userInputRequested") return event.request.threadId;
-  return null;
 }
 
 type DefaultCodexRuntimeOptions = {
@@ -538,6 +636,33 @@ function parseThreadStatus(status: unknown): ParsedThreadStatus {
   }
 
   return { statusType: "notLoaded", statusActiveFlags: [] };
+}
+
+function parseThreadSourceParentThreadId(source: unknown): string | null {
+  if (typeof source !== "object" || source === null) {
+    return null;
+  }
+
+  const candidate = source as Record<string, unknown>;
+  if ("subAgent" in candidate) {
+    return parseThreadSourceParentThreadId(candidate.subAgent);
+  }
+  if ("subagent" in candidate) {
+    return parseThreadSourceParentThreadId(candidate.subagent);
+  }
+  if (!("thread_spawn" in candidate)) {
+    return null;
+  }
+
+  const threadSpawn = candidate.thread_spawn;
+  if (typeof threadSpawn !== "object" || threadSpawn === null) {
+    return null;
+  }
+
+  const parentThreadId = (threadSpawn as Record<string, unknown>).parent_thread_id;
+  return typeof parentThreadId === "string" && parentThreadId.trim().length > 0
+    ? parentThreadId
+    : null;
 }
 
 function isRolloutMaterializationError(error: unknown): boolean {
@@ -1109,22 +1234,78 @@ export class CodexService extends EventEmitter {
     return nextVersion;
   }
 
+  private emitThreadStreamSnapshot(
+    threadId: string,
+    conversation: CodexConversationSnapshot,
+  ): void {
+    this.lastBroadcastConversationById.set(threadId, conversation);
+    this.emitHostMessage({
+      type: "threadStreamStateChanged",
+      hostId: DEFAULT_CODEX_HOST_ID,
+      conversationId: threadId,
+      change: {
+        type: "snapshot",
+        conversationState: conversation,
+      },
+      version: this.getNextConversationVersion(threadId),
+      sourceClientId: null,
+    });
+  }
+
+  private emitThreadStreamPatches(
+    threadId: string,
+    conversation: CodexConversationSnapshot,
+    patches: ReturnType<typeof convertImmerPatchesToCodexConversationStateUpdates>,
+  ): void {
+    if (patches.length === 0) {
+      return;
+    }
+
+    this.lastBroadcastConversationById.set(threadId, conversation);
+    this.emitHostMessage({
+      type: "threadStreamStateChanged",
+      hostId: DEFAULT_CODEX_HOST_ID,
+      conversationId: threadId,
+      change: {
+        type: "patches",
+        patches,
+      },
+      version: this.getNextConversationVersion(threadId),
+      sourceClientId: null,
+    });
+  }
+
+  private mutateBroadcastConversationState(
+    threadId: string,
+    recipe: (draft: CodexConversationSnapshot) => void | CodexConversationSnapshot,
+  ): void {
+    const currentConversation = this.lastBroadcastConversationById.get(threadId);
+    if (!currentConversation) {
+      this.emitThreadStreamSnapshotFromRecord(threadId);
+      return;
+    }
+
+    try {
+      const [nextConversation, patches] = produceWithPatches(currentConversation, recipe);
+      this.emitThreadStreamPatches(
+        threadId,
+        nextConversation,
+        convertImmerPatchesToCodexConversationStateUpdates(patches),
+      );
+    } catch (error) {
+      this.logger.warn("Could not mutate broadcast conversation cache directly", {
+        threadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      this.emitThreadStreamSnapshotFromRecord(threadId);
+    }
+  }
+
   private emitThreadStreamSnapshotFromRecord(threadId: string): void {
     try {
       const conversation = this.serializeConversationSnapshot(threadId);
       if (!conversation) return;
-      this.lastBroadcastConversationById.set(threadId, conversation);
-      this.emitHostMessage({
-        type: "threadStreamStateChanged",
-        hostId: DEFAULT_CODEX_HOST_ID,
-        conversationId: threadId,
-        change: {
-          type: "snapshot",
-          conversationState: conversation,
-        },
-        version: this.getNextConversationVersion(threadId),
-        sourceClientId: null,
-      });
+      this.emitThreadStreamSnapshot(threadId, conversation);
     } catch (error) {
       this.logger.warn("Could not serialize conversation snapshot for host message", {
         threadId,
@@ -1133,52 +1314,143 @@ export class CodexService extends EventEmitter {
     }
   }
 
-  private emitThreadStreamStateChange(threadId: string): void {
-    try {
-      const conversation = this.serializeConversationSnapshot(threadId);
-      if (!conversation) return;
+  private applyBroadcastConversationSummary(
+    draft: CodexConversationSnapshot,
+    detail: CodexThreadDetail,
+  ): void {
+    draft.projectId = detail.projectId;
+    draft.cardId = detail.cardId;
+    draft.threadName = detail.threadName;
+    draft.threadPreview = detail.threadPreview;
+    draft.modelProvider = detail.modelProvider;
+    draft.cwd = detail.cwd;
+    draft.statusType = detail.statusType;
+    draft.statusActiveFlags = [...detail.statusActiveFlags];
+    draft.archived = detail.archived;
+    draft.createdAt = detail.createdAt;
+    draft.updatedAt = detail.updatedAt;
+    draft.linkedAt = detail.linkedAt;
+    draft.latestCollaborationMode = detail.latestCollaborationMode;
+    draft.resumeState = this.resolveConversationResumeState(detail.threadId);
+  }
 
-      const previousConversation = this.lastBroadcastConversationById.get(threadId);
-      if (!previousConversation) {
-        this.lastBroadcastConversationById.set(threadId, conversation);
-        this.emitHostMessage({
-          type: "threadStreamStateChanged",
-          hostId: DEFAULT_CODEX_HOST_ID,
-          conversationId: threadId,
-          change: {
-            type: "snapshot",
-            conversationState: conversation,
-          },
-          version: this.getNextConversationVersion(threadId),
-          sourceClientId: null,
-        });
-        return;
+  private replaceBroadcastConversationTurn(
+    draft: CodexConversationSnapshot,
+    turnId: string,
+    nextTurn: CodexConversationSnapshot["turns"][number] | null,
+  ): void {
+    const existingIndex = draft.turns.findIndex((turn) => turn.turnId === turnId);
+    if (!nextTurn) {
+      if (existingIndex >= 0) {
+        draft.turns.splice(existingIndex, 1);
       }
-
-      const patches = buildCodexConversationStateUpdates(previousConversation, conversation);
-      if (patches.length === 0) {
-        return;
-      }
-
-      this.lastBroadcastConversationById.set(threadId, conversation);
-      this.emitHostMessage({
-        type: "threadStreamStateChanged",
-        hostId: DEFAULT_CODEX_HOST_ID,
-        conversationId: threadId,
-        change: {
-          type: "patches",
-          patches,
-        },
-        version: this.getNextConversationVersion(threadId),
-        sourceClientId: null,
-      });
-    } catch (error) {
-      this.logger.warn("Could not compute conversation patch update for host message", {
-        threadId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      this.emitThreadStreamSnapshotFromRecord(threadId);
+      return;
     }
+
+    if (existingIndex >= 0) {
+      draft.turns[existingIndex] = nextTurn;
+      return;
+    }
+
+    draft.turns.push(nextTurn);
+  }
+
+  private syncBroadcastConversation(threadId: string, options: BroadcastConversationSyncOptions): void {
+    const requiresDetail = Boolean(
+      options.turnId
+      || options.syncDetail
+      || options.syncCapabilityFlags
+      || options.syncChildMemberships,
+    );
+    const detail = requiresDetail ? this.serializeThreadDetail(threadId) : null;
+    if (requiresDetail && !detail) {
+      this.emitThreadStreamSnapshotFromRecord(threadId);
+      return;
+    }
+
+    const requests = options.syncRequests || options.syncCapabilityFlags
+      ? this.listPendingConversationRequests(threadId)
+      : null;
+    const queuedFollowUps = options.syncQueuedFollowUps ? this.listQueuedFollowUps(threadId) : null;
+    const pendingSteers = options.syncPendingSteers ? this.listPendingSteers(threadId) : null;
+    const nextTurn = options.turnId && detail
+      ? (() => {
+          const turn = detail.turns.find((candidate) => candidate.turnId === options.turnId);
+          return turn ? buildCodexConversationTurn(detail, turn) : null;
+        })()
+      : null;
+    const latestCollaborationMode = options.syncLatestCollaborationMode
+      ? this.getConversationRecord(threadId).latestCollaborationMode
+      : null;
+
+    this.mutateBroadcastConversationState(threadId, (draft) => {
+      if (detail && (options.syncDetail || options.turnId)) {
+        this.applyBroadcastConversationSummary(draft, detail);
+      }
+      if (options.turnId) {
+        this.replaceBroadcastConversationTurn(draft, options.turnId, nextTurn);
+      }
+      if (requests) {
+        draft.requests = requests;
+      }
+      if (queuedFollowUps) {
+        draft.queuedFollowUps = queuedFollowUps;
+      }
+      if (pendingSteers) {
+        draft.pendingSteers = pendingSteers;
+      }
+      if (latestCollaborationMode) {
+        draft.latestCollaborationMode = latestCollaborationMode;
+      }
+      if (detail && options.syncCapabilityFlags) {
+        draft.capabilityFlags = this.buildConversationCapabilityFlags(detail, requests ?? draft.requests);
+      }
+      if (options.syncBackgroundTerminalRows) {
+        draft.backgroundTerminalRows = this.deriveConversationBackgroundTerminalRows(draft);
+      }
+      if (options.syncChildMemberships) {
+        draft.childMemberships = this.deriveConversationChildMemberships(draft, new Set([threadId]));
+      }
+    });
+  }
+
+  private syncBroadcastConversationSummary(
+    threadId: string,
+    options?: { syncCapabilityFlags?: boolean },
+  ): void {
+    this.syncBroadcastConversation(threadId, {
+      syncDetail: true,
+      syncCapabilityFlags: options?.syncCapabilityFlags ?? false,
+    });
+  }
+
+  private syncBroadcastConversationRequests(
+    threadId: string,
+    options?: { syncCapabilityFlags?: boolean },
+  ): void {
+    this.syncBroadcastConversation(threadId, {
+      syncRequests: true,
+      syncCapabilityFlags: options?.syncCapabilityFlags ?? false,
+    });
+  }
+
+  private syncBroadcastConversationTurnState(
+    threadId: string,
+    turnId: string,
+    options?: {
+      syncRequests?: boolean;
+      syncCapabilityFlags?: boolean;
+      syncBackgroundTerminalRows?: boolean;
+      syncChildMemberships?: boolean;
+    },
+  ): void {
+    this.syncBroadcastConversation(threadId, {
+      turnId,
+      syncRequests: options?.syncRequests ?? false,
+      syncCapabilityFlags: options?.syncCapabilityFlags ?? false,
+      syncBackgroundTerminalRows: options?.syncBackgroundTerminalRows ?? false,
+      syncChildMemberships: options?.syncChildMemberships ?? false,
+    });
   }
 
   private emitHostMessagesForEvent(event: CodexEvent): void {
@@ -1228,7 +1500,6 @@ export class CodexService extends EventEmitter {
           value: event.thread,
         },
       });
-      this.emitThreadStreamStateChange(event.thread.threadId);
       return;
     }
 
@@ -1252,10 +1523,6 @@ export class CodexService extends EventEmitter {
         },
       });
     }
-
-    const threadId = resolveThreadIdFromCodexEvent(event);
-    if (!threadId) return;
-    this.emitThreadStreamStateChange(threadId);
   }
 
   private emitThreadStreamSnapshots(threadIds?: string[]): void {
@@ -1382,6 +1649,7 @@ export class CodexService extends EventEmitter {
           threadId,
           projectId: "",
           cardId: "",
+          source: null,
           threadName: null,
           threadPreview: "",
           modelProvider: "",
@@ -1478,7 +1746,7 @@ export class CodexService extends EventEmitter {
       .sort((left, right) => left.createdAt - right.createdAt);
   }
 
-  private clearPausedQueuedFollowUps(threadId: string): void {
+  private clearPausedQueuedFollowUps(threadId: string, broadcast = true): void {
     const existing = this.listQueuedFollowUps(threadId);
     if (existing.length === 0) return;
 
@@ -1494,7 +1762,10 @@ export class CodexService extends EventEmitter {
 
     if (!changed) return;
     this.ensureConversationRecord(threadId).queuedFollowUps = nextEntries;
-    this.emitThreadStreamStateChange(threadId);
+    if (!broadcast) return;
+    this.syncBroadcastConversation(threadId, {
+      syncQueuedFollowUps: true,
+    });
   }
 
   private hasActiveTurn(threadId: string): boolean {
@@ -1557,7 +1828,9 @@ export class CodexService extends EventEmitter {
       },
     ];
     this.ensureConversationRecord(threadId).queuedFollowUps = nextEntries;
-    this.emitThreadStreamStateChange(threadId);
+    this.syncBroadcastConversation(threadId, {
+      syncQueuedFollowUps: true,
+    });
     return followUpId;
   }
 
@@ -1568,7 +1841,9 @@ export class CodexService extends EventEmitter {
     } else {
       this.ensureConversationRecord(threadId).queuedFollowUps = nextEntries;
     }
-    this.emitThreadStreamStateChange(threadId);
+    this.syncBroadcastConversation(threadId, {
+      syncQueuedFollowUps: true,
+    });
   }
 
   private getQueuedFollowUp(threadId: string, followUpId: string): CodexQueuedFollowUp | null {
@@ -1588,7 +1863,9 @@ export class CodexService extends EventEmitter {
       },
       ...existing,
     ];
-    this.emitThreadStreamStateChange(threadId);
+    this.syncBroadcastConversation(threadId, {
+      syncQueuedFollowUps: true,
+    });
   }
 
   removeQueuedFollowUp(threadId: string, followUpId: string): void {
@@ -1608,7 +1885,9 @@ export class CodexService extends EventEmitter {
     const nextEntries = [...ordered, ...existing.filter((followUp) => !seen.has(followUp.followUpId))];
 
     this.ensureConversationRecord(threadId).queuedFollowUps = nextEntries;
-    this.emitThreadStreamStateChange(threadId);
+    this.syncBroadcastConversation(threadId, {
+      syncQueuedFollowUps: true,
+    });
   }
 
   async enqueueQueuedFollowUpPrompt(
@@ -1637,7 +1916,9 @@ export class CodexService extends EventEmitter {
       },
     ];
     this.ensureConversationRecord(threadId).pendingSteers = nextEntries;
-    this.emitThreadStreamStateChange(threadId);
+    this.syncBroadcastConversation(threadId, {
+      syncPendingSteers: true,
+    });
     return steerId;
   }
 
@@ -1648,7 +1929,9 @@ export class CodexService extends EventEmitter {
     } else {
       this.ensureConversationRecord(threadId).pendingSteers = nextEntries;
     }
-    this.emitThreadStreamStateChange(threadId);
+    this.syncBroadcastConversation(threadId, {
+      syncPendingSteers: true,
+    });
   }
 
   private clearPendingSteerForConsumedPrompt(threadId: string, turnId: string, prompt: string): void {
@@ -1663,14 +1946,19 @@ export class CodexService extends EventEmitter {
 
     nextEntries.splice(matchIndex, 1);
     this.ensureConversationRecord(threadId).pendingSteers = nextEntries;
-    this.emitThreadStreamStateChange(threadId);
+    this.syncBroadcastConversation(threadId, {
+      syncPendingSteers: true,
+    });
   }
 
-  private clearPendingSteersForTurn(threadId: string, turnId: string): void {
+  private clearPendingSteersForTurn(threadId: string, turnId: string, broadcast = true): void {
     const nextEntries = this.listPendingSteers(threadId).filter((steer) => steer.turnId !== turnId);
     if (nextEntries.length === this.listPendingSteers(threadId).length) return;
     this.ensureConversationRecord(threadId).pendingSteers = nextEntries;
-    this.emitThreadStreamStateChange(threadId);
+    if (!broadcast) return;
+    this.syncBroadcastConversation(threadId, {
+      syncPendingSteers: true,
+    });
   }
 
   private async submitQueuedFollowUp(threadId: string, followUp: CodexQueuedFollowUp): Promise<void> {
@@ -3092,6 +3380,7 @@ export class CodexService extends EventEmitter {
       projectId: link.projectId,
       cardId: link.cardId,
       threadId,
+      source: link.source,
       threadName: reconciledDetail.threadName ?? link.threadName,
       threadPreview: reconciledDetail.threadPreview || link.threadPreview,
       cwd: reconciledDetail.cwd ?? link.cwd,
@@ -3327,10 +3616,12 @@ export class CodexService extends EventEmitter {
 
     const parsedStatus = parseThreadStatus(candidate.status);
 
+    const parentThreadId = parseThreadSourceParentThreadId(candidate.source);
     const summary = upsertCodexCardThreadLink({
       projectId: ref.projectId,
       cardId: ref.cardId,
       threadId: candidate.id,
+      source: parentThreadId ? { parentThreadId } : null,
       threadName: typeof candidate.name === "string" ? candidate.name : null,
       threadPreview: typeof candidate.preview === "string" ? candidate.preview : "",
       modelProvider: typeof candidate.modelProvider === "string" ? candidate.modelProvider : "",
@@ -3829,6 +4120,7 @@ export class CodexService extends EventEmitter {
         });
       }
       this.markThreadAsActive(link.threadId);
+      this.emitThreadStreamSnapshotFromRecord(link.threadId);
 
       const detail = this.serializeThreadDetail(link.threadId);
       if (!detail) {
@@ -4042,13 +4334,12 @@ export class CodexService extends EventEmitter {
     } catch (error) {
       if (summary) {
         this.emitEvent({ type: "threadSummary", thread: summary });
-      } else {
-        this.emitThreadStreamStateChange(threadId);
       }
+      this.emitThreadStreamSnapshotFromRecord(threadId);
       throw error;
     }
 
-    this.emitThreadStreamStateChange(threadId);
+    this.emitThreadStreamSnapshotFromRecord(threadId);
 
     return {
       threadId,
@@ -4115,9 +4406,8 @@ export class CodexService extends EventEmitter {
 
     if (summary) {
       this.emitEvent({ type: "threadSummary", thread: summary });
-    } else {
-      this.emitThreadStreamStateChange(detail.threadId);
     }
+    this.emitThreadStreamSnapshotFromRecord(detail.threadId);
 
     return {
       threadId: detail.threadId,
@@ -4143,6 +4433,7 @@ export class CodexService extends EventEmitter {
     if (updated) {
       this.emitEvent({ type: "threadSummary", thread: updated });
     }
+    this.syncBroadcastConversationSummary(threadId, { syncCapabilityFlags: true });
     return true;
   }
 
@@ -4151,6 +4442,7 @@ export class CodexService extends EventEmitter {
     await this.client.request("thread/archive", { threadId });
     updateCodexThreadArchived(threadId, true);
     this.emitEvent({ type: "threadArchivedState", threadId, archived: true });
+    this.syncBroadcastConversationSummary(threadId, { syncCapabilityFlags: true });
     return true;
   }
 
@@ -4163,6 +4455,7 @@ export class CodexService extends EventEmitter {
       this.emitEvent({ type: "threadSummary", thread: summary });
       this.emitEvent({ type: "threadArchivedState", threadId, archived: false });
     }
+    this.syncBroadcastConversationSummary(threadId, { syncCapabilityFlags: true });
 
     return summary;
   }
@@ -4177,7 +4470,9 @@ export class CodexService extends EventEmitter {
       fallback: this.getConversationRecord(threadId).latestCollaborationMode,
     });
     this.setLatestCollaborationModeForThread(threadId, nextMode);
-    this.emitThreadStreamStateChange(threadId);
+    this.syncBroadcastConversation(threadId, {
+      syncLatestCollaborationMode: true,
+    });
     return nextMode;
   }
 
@@ -4257,8 +4552,9 @@ export class CodexService extends EventEmitter {
     if (startedTurn) {
       this.mergeTurn(threadId, startedTurn);
       this.seedTurnWithOptimisticUserMessage(threadId, startedTurn.turnId, promptText);
-      this.clearPausedQueuedFollowUps(threadId);
+      this.clearPausedQueuedFollowUps(threadId, false);
       this.markThreadAsActive(threadId);
+      this.emitThreadStreamSnapshotFromRecord(threadId);
       this.logger.info("Started Codex turn", {
         threadId,
         turnId: startedTurn.turnId,
@@ -4268,7 +4564,8 @@ export class CodexService extends EventEmitter {
     }
 
     this.markThreadAsActive(threadId);
-    this.clearPausedQueuedFollowUps(threadId);
+    this.clearPausedQueuedFollowUps(threadId, false);
+    this.emitThreadStreamSnapshotFromRecord(threadId);
     const detail = this.serializeThreadDetail(threadId);
     if (!detail || detail.turns.length === 0) return null;
     this.logger.info("Started Codex turn from canonical conversation state", {
@@ -4377,6 +4674,7 @@ export class CodexService extends EventEmitter {
     this.syncThreadStatusFromKnownTurns(threadId);
     this.reconcileTurnItemsToTerminalStatus(threadId, resolvedTurnId, "interrupted");
     this.emitEvent({ type: "turn", turn: interruptedTurn });
+    this.emitThreadStreamSnapshotFromRecord(threadId);
     this.maybeDispatchQueuedFollowUp(threadId);
     return true;
   }
@@ -4428,7 +4726,10 @@ export class CodexService extends EventEmitter {
       requestId,
     );
     this.emitEvent({ type: "approvalResolved", requestId, decision });
-    this.emitThreadStreamStateChange(pending.request.threadId);
+    this.syncBroadcastConversationTurnState(pending.request.threadId, pending.request.turnId, {
+      syncRequests: true,
+      syncCapabilityFlags: true,
+    });
     return true;
   }
 
@@ -4469,7 +4770,10 @@ export class CodexService extends EventEmitter {
     const resolvedEntry = this.upsertResolvedUserInputItem(pending.request, transcriptAnswers);
     void resolvedEntry;
     this.emitEvent({ type: "userInputResolved", requestId });
-    this.emitThreadStreamStateChange(pending.request.threadId);
+    this.syncBroadcastConversationTurnState(pending.request.threadId, pending.request.turnId, {
+      syncRequests: true,
+      syncCapabilityFlags: true,
+    });
     return true;
   }
 
@@ -4497,7 +4801,10 @@ export class CodexService extends EventEmitter {
       completed: true,
       action,
     });
-    this.emitThreadStreamStateChange(pending.request.threadId);
+    this.syncBroadcastConversationTurnState(pending.request.threadId, pending.request.turnId, {
+      syncRequests: true,
+      syncCapabilityFlags: true,
+    });
     return true;
   }
 
@@ -4639,7 +4946,10 @@ export class CodexService extends EventEmitter {
       }));
     }
 
-    this.emitThreadStreamStateChange(threadId);
+    this.syncBroadcastConversationTurnState(threadId, turnId, {
+      syncRequests: true,
+      syncCapabilityFlags: true,
+    });
     return true;
   }
 
@@ -4779,6 +5089,14 @@ export class CodexService extends EventEmitter {
         resolve,
         reject,
       });
+      if (kind === "command") {
+        this.syncBroadcastConversationTurnState(threadId, turnId, {
+          syncRequests: true,
+          syncCapabilityFlags: true,
+        });
+      } else {
+        this.syncBroadcastConversationRequests(threadId, { syncCapabilityFlags: true });
+      }
       this.emitEvent({ type: "approvalRequested", request: payload });
     });
   }
@@ -4847,7 +5165,6 @@ export class CodexService extends EventEmitter {
     }
 
     this.mergeItem(next);
-    this.emitThreadStreamStateChange(params.threadId);
   }
 
   private clearCommandExecutionApprovalRequestAttachment(
@@ -4924,6 +5241,7 @@ export class CodexService extends EventEmitter {
         resolve,
         reject,
       });
+      this.syncBroadcastConversationRequests(threadId, { syncCapabilityFlags: true });
       this.emitEvent({ type: "userInputRequested", request: payload });
     });
   }
@@ -4977,14 +5295,17 @@ export class CodexService extends EventEmitter {
         resolve,
         reject,
       });
-      this.emitThreadStreamStateChange(threadId);
+      this.syncBroadcastConversationTurnState(threadId, payload.turnId, {
+        syncRequests: true,
+        syncCapabilityFlags: true,
+      });
     });
   }
 
   private applyFrameTextDeltas(updates: FrameTextDeltaUpdate[]): void {
     if (updates.length === 0) return;
 
-    const touchedThreadIds = new Set<string>();
+    const updatesByThreadId = new Map<string, FrameTextDeltaUpdate[]>();
     for (const update of updates) {
       this.ensureConversationDetail(update.threadId);
       const record = this.ensureConversationRecord(update.threadId);
@@ -4996,26 +5317,24 @@ export class CodexService extends EventEmitter {
       const existing = byItem.get(itemKey);
       const now = Date.now();
 
+      if (!existing) {
+        this.logger.warn("Skipping frame-text delta for unknown conversation item", {
+          threadId: update.threadId,
+          turnId: update.turnId,
+          itemId: update.itemId,
+          target: update.target.type,
+          deltaPreview: previewText(update.delta),
+        });
+        continue;
+      }
+
       if (update.target.type === "agentMessage" || update.target.type === "plan") {
-        const nextText = `${existing?.markdownText ?? ""}${update.delta}`;
-        const next: CodexItemView = existing
-          ? {
-              ...existing,
-              markdownText: nextText,
-              updatedAt: now,
-            }
-          : {
-              threadId: update.threadId,
-              turnId: update.turnId,
-              itemId: update.itemId,
-              type: update.target.type,
-              role: "assistant",
-              normalizedKind: update.target.type === "plan" ? "plan" : "assistantMessage",
-              semanticKind: update.target.type === "plan" ? "todoList" : "assistantMessage",
-              markdownText: update.delta,
-              createdAt: now,
-              updatedAt: now,
-            };
+        const nextText = `${existing.markdownText ?? ""}${update.delta}`;
+        const next: CodexItemView = {
+          ...existing,
+          markdownText: nextText,
+          updatedAt: now,
+        };
 
         byItem.set(itemKey, next);
         record.itemsByTurn.set(update.turnId, byItem);
@@ -5032,11 +5351,16 @@ export class CodexService extends EventEmitter {
             entry,
           }),
         );
-        touchedThreadIds.add(update.threadId);
+        const threadUpdates = updatesByThreadId.get(update.threadId);
+        if (threadUpdates) {
+          threadUpdates.push(update);
+        } else {
+          updatesByThreadId.set(update.threadId, [update]);
+        }
         continue;
       }
 
-      const existingBuffers = existing ? this.parseReasoningBuffers(existing) : { summary: [], content: [] };
+      const existingBuffers = this.parseReasoningBuffers(existing);
       const nextSummary = [...existingBuffers.summary];
       const nextContent = [...existingBuffers.content];
       if (update.target.type === "reasoningSummary") {
@@ -5049,37 +5373,18 @@ export class CodexService extends EventEmitter {
         continue;
       }
 
-      const next: CodexItemView = existing
-        ? {
-            ...existing,
-            markdownText: projectCodexReasoningSummary(nextSummary),
-            rawItem: {
-              ...(asRecord(existing.rawItem) ?? {}),
-              id: update.itemId,
-              type: "reasoning",
-              summary: nextSummary,
-              content: nextContent,
-            },
-            updatedAt: now,
-          }
-        : {
-            threadId: update.threadId,
-            turnId: update.turnId,
-            itemId: update.itemId,
-            type: "reasoning",
-            normalizedKind: "reasoning",
-            semanticKind: "reasoning",
-            status: "inProgress",
-            markdownText: projectCodexReasoningSummary(nextSummary),
-            rawItem: {
-              id: update.itemId,
-              type: "reasoning",
-              summary: nextSummary,
-              content: nextContent,
-            },
-            createdAt: now,
-            updatedAt: now,
-          };
+      const next: CodexItemView = {
+        ...existing,
+        markdownText: projectCodexReasoningSummary(nextSummary),
+        rawItem: {
+          ...(asRecord(existing.rawItem) ?? {}),
+          id: update.itemId,
+          type: "reasoning",
+          summary: nextSummary,
+          content: nextContent,
+        },
+        updatedAt: now,
+      };
 
       byItem.set(itemKey, next);
       record.itemsByTurn.set(update.turnId, byItem);
@@ -5096,17 +5401,72 @@ export class CodexService extends EventEmitter {
           entry,
         }),
       );
-      touchedThreadIds.add(update.threadId);
+      const threadUpdates = updatesByThreadId.get(update.threadId);
+      if (threadUpdates) {
+        threadUpdates.push(update);
+      } else {
+        updatesByThreadId.set(update.threadId, [update]);
+      }
     }
 
-    if (touchedThreadIds.size === 0) return;
-    this.emitThreadStreamSnapshots(Array.from(touchedThreadIds));
+    if (updatesByThreadId.size === 0) return;
+    for (const [threadId, threadUpdates] of updatesByThreadId.entries()) {
+      this.mutateBroadcastConversationState(threadId, (draft) => {
+        for (const update of threadUpdates) {
+          const turn = draft.turns.find((candidate) => candidate.turnId === update.turnId);
+          if (!turn) {
+            throw new Error(`Missing broadcast turn for frame-text delta: ${update.turnId}`);
+          }
+
+          const item = turn.items.find((candidate) => candidate.itemId === update.itemId);
+          if (!item) {
+            throw new Error(`Missing broadcast item for frame-text delta: ${update.itemId}`);
+          }
+
+          switch (update.target.type) {
+            case "agentMessage":
+            case "plan":
+              item.markdownText = `${item.markdownText ?? ""}${update.delta}`;
+              break;
+            case "reasoningSummary": {
+              const rawItem = item.rawItem && typeof item.rawItem === "object"
+                ? { ...(item.rawItem as Record<string, unknown>) }
+                : {};
+              const existingSummary = Array.isArray(rawItem.summary)
+                ? rawItem.summary.map((value) => String(value ?? ""))
+                : [];
+              while (existingSummary.length <= update.target.summaryIndex) existingSummary.push("");
+              existingSummary[update.target.summaryIndex] =
+                `${existingSummary[update.target.summaryIndex] ?? ""}${update.delta}`;
+              rawItem.summary = existingSummary;
+              item.rawItem = rawItem;
+              item.markdownText = projectCodexReasoningSummary(existingSummary);
+              break;
+            }
+            case "reasoningContent": {
+              const rawItem = item.rawItem && typeof item.rawItem === "object"
+                ? { ...(item.rawItem as Record<string, unknown>) }
+                : {};
+              const existingContent = Array.isArray(rawItem.content)
+                ? rawItem.content.map((value) => String(value ?? ""))
+                : [];
+              while (existingContent.length <= update.target.contentIndex) existingContent.push("");
+              existingContent[update.target.contentIndex] =
+                `${existingContent[update.target.contentIndex] ?? ""}${update.delta}`;
+              rawItem.content = existingContent;
+              item.rawItem = rawItem;
+              break;
+            }
+          }
+        }
+      });
+    }
   }
 
   private applyOutputDeltas(updates: OutputDeltaUpdate[]): void {
     if (updates.length === 0) return;
 
-    const touchedThreadIds = new Set<string>();
+    const updatesByThreadId = new Map<string, OutputDeltaUpdate[]>();
     for (const update of updates) {
       this.ensureConversationDetail(update.threadId);
       const record = this.ensureConversationRecord(update.threadId);
@@ -5117,53 +5477,46 @@ export class CodexService extends EventEmitter {
       });
       const existing = byItem.get(itemKey);
       const now = Date.now();
-      const currentOutput = existing?.aggregatedOutput ?? "";
-      const nextOutput = `${currentOutput}${update.delta}`;
-      const next: CodexItemView = existing
-        ? {
-            ...existing,
-            command: existing.command ?? "",
-            cwd: existing.cwd ?? null,
-            processId: existing.processId ?? null,
-            commandActions: existing.commandActions ?? [],
-            aggregatedOutput: nextOutput,
-            exitCode: existing.exitCode ?? null,
-            durationMs: existing.durationMs ?? null,
-            toolCall: existing.toolCall
-              ? {
-                  ...existing.toolCall,
-                  result: nextOutput,
-                }
-              : existing.toolCall,
-            rawItem: {
-              ...(asRecord(existing.rawItem) ?? {}),
-              aggregatedOutput: nextOutput,
-            },
-            updatedAt: now,
-          }
-        : {
-            threadId: update.threadId,
-            turnId: update.turnId,
-            itemId: update.itemId,
-            type: "commandExecution",
-            normalizedKind: "commandExecution",
-            semanticKind: "exec",
-            status: "inProgress",
-            command: "",
-            cwd: null,
-            processId: null,
-            commandActions: [],
-            aggregatedOutput: nextOutput,
-            exitCode: null,
-            durationMs: null,
-            toolCall: {
-              subtype: "command",
-              toolName: "bash",
+      if (!existing) {
+        this.logger.warn("Skipping command output delta for unknown conversation item", {
+          threadId: update.threadId,
+          turnId: update.turnId,
+          itemId: update.itemId,
+          deltaPreview: previewText(update.delta),
+        });
+        continue;
+      }
+
+      const currentOutput = parseStoredAggregatedOutput(existing?.aggregatedOutput);
+      const mergedOutput = truncateBufferedOutput({
+        existingText: currentOutput.text,
+        nextDelta: update.delta,
+      });
+      const nextOutput = formatStoredAggregatedOutput({
+        text: mergedOutput.text,
+        truncated: currentOutput.truncated || Boolean(update.truncated) || mergedOutput.truncated,
+      });
+      const next: CodexItemView = {
+        ...existing,
+        command: existing.command ?? "",
+        cwd: existing.cwd ?? null,
+        processId: existing.processId ?? null,
+        commandActions: existing.commandActions ?? [],
+        aggregatedOutput: nextOutput,
+        exitCode: existing.exitCode ?? null,
+        durationMs: existing.durationMs ?? null,
+        toolCall: existing.toolCall
+          ? {
+              ...existing.toolCall,
               result: nextOutput,
-            },
-            createdAt: now,
-            updatedAt: now,
-          };
+            }
+          : existing.toolCall,
+        rawItem: {
+          ...(asRecord(existing.rawItem) ?? {}),
+          aggregatedOutput: nextOutput,
+        },
+        updatedAt: now,
+      };
 
       byItem.set(itemKey, next);
       record.itemsByTurn.set(update.turnId, byItem);
@@ -5180,11 +5533,53 @@ export class CodexService extends EventEmitter {
           entry,
         }),
       );
-      touchedThreadIds.add(update.threadId);
+      const threadUpdates = updatesByThreadId.get(update.threadId);
+      if (threadUpdates) {
+        threadUpdates.push(update);
+      } else {
+        updatesByThreadId.set(update.threadId, [update]);
+      }
     }
 
-    if (touchedThreadIds.size === 0) return;
-    this.emitThreadStreamSnapshots(Array.from(touchedThreadIds));
+    if (updatesByThreadId.size === 0) return;
+    for (const [threadId, threadUpdates] of updatesByThreadId.entries()) {
+      this.mutateBroadcastConversationState(threadId, (draft) => {
+        for (const update of threadUpdates) {
+          const turn = draft.turns.find((candidate) => candidate.turnId === update.turnId);
+          if (!turn) {
+            throw new Error(`Missing broadcast turn for output delta: ${update.turnId}`);
+          }
+
+          const item = turn.items.find((candidate) => candidate.itemId === update.itemId);
+          if (!item) {
+            throw new Error(`Missing broadcast item for output delta: ${update.itemId}`);
+          }
+
+          const currentOutput = parseStoredAggregatedOutput(item.aggregatedOutput);
+          const mergedOutput = truncateBufferedOutput({
+            existingText: currentOutput.text,
+            nextDelta: update.delta,
+          });
+          const nextOutput = formatStoredAggregatedOutput({
+            text: mergedOutput.text,
+            truncated: currentOutput.truncated || Boolean(update.truncated) || mergedOutput.truncated,
+          });
+          item.aggregatedOutput = nextOutput;
+          if (item.toolCall) {
+            item.toolCall = {
+              ...item.toolCall,
+              result: nextOutput,
+            };
+          }
+          if (item.rawItem && typeof item.rawItem === "object") {
+            item.rawItem = {
+              ...(item.rawItem as Record<string, unknown>),
+              aggregatedOutput: nextOutput,
+            };
+          }
+        }
+      });
+    }
   }
 
   private resolvePendingServerRequest(requestId: string): void {
@@ -5209,7 +5604,10 @@ export class CodexService extends EventEmitter {
         String(requestId),
       );
       this.emitEvent({ type: "approvalResolved", requestId, decision: "cancel" });
-      this.emitThreadStreamStateChange(pendingApproval.request.threadId);
+      this.syncBroadcastConversationTurnState(pendingApproval.request.threadId, pendingApproval.request.turnId, {
+        syncRequests: true,
+        syncCapabilityFlags: true,
+      });
       emittedApprovalResolved = true;
     }
 
@@ -5218,7 +5616,7 @@ export class CodexService extends EventEmitter {
       pendingUserInput.resolve({ answers: {} });
       this.pendingUserInputs.delete(requestId);
       this.emitEvent({ type: "userInputResolved", requestId });
-      this.emitThreadStreamStateChange(pendingUserInput.request.threadId);
+      this.syncBroadcastConversationRequests(pendingUserInput.request.threadId, { syncCapabilityFlags: true });
       emittedUserInputResolved = true;
     }
 
@@ -5226,7 +5624,7 @@ export class CodexService extends EventEmitter {
     if (pendingMcpElicitation) {
       pendingMcpElicitation.resolve({ action: "cancel", content: null, _meta: null });
       this.pendingMcpElicitations.delete(requestId);
-      this.emitThreadStreamStateChange(pendingMcpElicitation.request.threadId);
+      this.syncBroadcastConversationRequests(pendingMcpElicitation.request.threadId, { syncCapabilityFlags: true });
     }
 
     if (!emittedApprovalResolved) {
@@ -5271,6 +5669,7 @@ export class CodexService extends EventEmitter {
           cardId: summary.cardId,
         });
         this.emitEvent({ type: "threadSummary", thread: summary });
+        this.emitThreadStreamSnapshotFromRecord(summary.threadId);
       }
       return;
     }
@@ -5293,6 +5692,7 @@ export class CodexService extends EventEmitter {
       if (updated) {
         this.emitEvent({ type: "threadSummary", thread: updated });
       }
+      this.syncBroadcastConversationSummary(payload.threadId, { syncCapabilityFlags: true });
       this.emitEvent({
         type: "threadStatus",
         threadId: payload.threadId,
@@ -5317,6 +5717,7 @@ export class CodexService extends EventEmitter {
       if (updated) {
         this.emitEvent({ type: "threadSummary", thread: updated });
       }
+      this.syncBroadcastConversationSummary(payload.threadId, { syncCapabilityFlags: true });
       this.emitEvent({ type: "threadArchivedState", threadId: payload.threadId, archived });
       return;
     }
@@ -5332,6 +5733,7 @@ export class CodexService extends EventEmitter {
       if (updated) {
         this.emitEvent({ type: "threadSummary", thread: updated });
       }
+      this.syncBroadcastConversationSummary(payload.threadId, { syncCapabilityFlags: true });
       return;
     }
 
@@ -5356,6 +5758,7 @@ export class CodexService extends EventEmitter {
 
       this.mergeTurn(payload.threadId, nextTurn);
       this.emitEvent({ type: "turn", turn: nextTurn });
+      this.syncBroadcastConversationTurnState(payload.threadId, payload.turnId);
       return;
     }
 
@@ -5424,9 +5827,10 @@ export class CodexService extends EventEmitter {
       this.syncThreadStatusFromKnownTurns(threadId);
       this.reconcileTurnItemsToTerminalStatus(threadId, turn.turnId, turn.status);
       if (turn.status !== "inProgress") {
-        this.clearPendingSteersForTurn(threadId, turn.turnId);
+        this.clearPendingSteersForTurn(threadId, turn.turnId, false);
       }
       this.emitEvent({ type: "turn", turn });
+      this.emitThreadStreamSnapshotFromRecord(threadId);
       if (turn.status !== "inProgress") {
         this.maybeDispatchQueuedFollowUp(threadId);
       }
@@ -5452,7 +5856,10 @@ export class CodexService extends EventEmitter {
       });
       this.upsertCanonicalTurnItem(payload.threadId, payload.turnId, item.itemId, "inProgress");
       this.mergeItem(item);
-      this.emitThreadStreamStateChange(payload.threadId);
+      this.syncBroadcastConversationTurnState(payload.threadId, payload.turnId, {
+        syncBackgroundTerminalRows: true,
+        syncCapabilityFlags: true,
+      });
       return;
     }
 
@@ -5471,7 +5878,10 @@ export class CodexService extends EventEmitter {
       if (!item) return;
       this.upsertCanonicalTurnItem(payload.threadId, turnId, item.itemId, "inProgress");
       this.mergeItem(item);
-      this.emitThreadStreamStateChange(payload.threadId);
+      this.syncBroadcastConversationTurnState(payload.threadId, turnId, {
+        syncBackgroundTerminalRows: true,
+        syncCapabilityFlags: true,
+      });
       return;
     }
 
@@ -5493,7 +5903,11 @@ export class CodexService extends EventEmitter {
       this.mergeTurn(payload.threadId, nextTurn);
       this.syncTurnDiffItem(payload.threadId, payload.turnId, diff, nextTurn.status);
       this.emitEvent({ type: "turn", turn: nextTurn });
-      this.emitThreadStreamStateChange(payload.threadId);
+      this.syncBroadcastConversationTurnState(payload.threadId, payload.turnId, {
+        syncBackgroundTerminalRows: true,
+        syncChildMemberships: true,
+        syncCapabilityFlags: true,
+      });
       return;
     }
 
@@ -5503,7 +5917,10 @@ export class CodexService extends EventEmitter {
       const lifecycleStatus = method === "item/autoApprovalReview/started" ? "inProgress" as const : "completed" as const;
       const entry = this.upsertAutomaticApprovalReviewItem(payload, lifecycleStatus);
       if (!entry) return;
-      this.emitThreadStreamStateChange(entry.threadId);
+      this.syncBroadcastConversationTurnState(entry.threadId, entry.turnId, {
+        syncBackgroundTerminalRows: true,
+        syncCapabilityFlags: true,
+      });
       return;
     }
 
@@ -5531,7 +5948,11 @@ export class CodexService extends EventEmitter {
             };
       this.upsertCanonicalTurnItem(payload.threadId, payload.turnId, item.itemId, "inProgress");
       this.mergeItem(item);
-      this.emitThreadStreamStateChange(payload.threadId);
+      this.syncBroadcastConversationTurnState(payload.threadId, payload.turnId, {
+        syncBackgroundTerminalRows: true,
+        syncChildMemberships: true,
+        syncCapabilityFlags: true,
+      });
       return;
     }
 
@@ -5689,7 +6110,10 @@ export class CodexService extends EventEmitter {
           additionalDetails,
           willRetry,
         });
-        this.emitThreadStreamStateChange(threadId);
+        this.syncBroadcastConversationTurnState(threadId, turnId, {
+          syncBackgroundTerminalRows: true,
+          syncCapabilityFlags: true,
+        });
       }
 
       this.emitEvent({ type: "error", message, detail: additionalDetails ?? undefined });

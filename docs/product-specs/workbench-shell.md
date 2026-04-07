@@ -31,7 +31,7 @@ The sidebar `Projects` section controls the DB stage datasource, while Cards/Thr
 - View: existing board/list/toggle-list/canvas/calendar host with one shared sticky toolbar for view switching, task search, and supported view-local filter/sort controls.
 - Card: Card Stage editor session tabs; history opens as a card-specific overlay from Card Stage, and the sidebar mirrors card navigation with collapsible current DB-project status groups plus a `Recent` session subsection. Status groups start collapsed by default, and a collapsed status group may still keep its active card row visible under the header.
 - Thread: Codex app-server-backed thread workspace with account/auth controls, a permission mode selector, streaming turn/item feed, reverse navigation to owning card, and stage-local project context (`threadsProjectId`).
-- Thread stage uses a layered renderer model: `WorkbenchShell` passes a renderer-facing `ThreadStageModel` plus bound actions into the stage instead of raw transcript queues and shell state.
+- Thread stage uses independently connected renderer surfaces: `WorkbenchShell` passes route inputs and bound actions into the thread route shell, and the mounted thread header/body/footer subscribe to their own narrow manager-backed selectors instead of one broad renderer model.
 - Diff: interactive mock placeholder for diff previews.
 - Terminal panel: mixed tabs (`project` and `card` bound), globally docked at bottom, with per-tab project routing.
 

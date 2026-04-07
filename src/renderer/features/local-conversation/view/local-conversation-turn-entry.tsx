@@ -15,9 +15,6 @@ interface LocalConversationTurnEntryProps {
   onSetCollapsed?: (collapsed: boolean) => void;
   canEditTurnUserPrefix: boolean;
   canForkTurnUserPrefix: boolean;
-  matchedSearchUnitKeys?: ReadonlySet<string>;
-  activeSearchUnitKey?: string | null;
-  isMatched: boolean;
   projectWorkspacePath?: string | null;
   threadCwd?: string | null;
   onEditLastTurnMessage?: (input: {
@@ -44,9 +41,6 @@ function LocalConversationTurnEntryComponent({
   onSetCollapsed,
   canEditTurnUserPrefix,
   canForkTurnUserPrefix,
-  matchedSearchUnitKeys,
-  activeSearchUnitKey,
-  isMatched,
   projectWorkspacePath,
   threadCwd,
   onEditLastTurnMessage,
@@ -85,9 +79,6 @@ function LocalConversationTurnEntryComponent({
           persistedCollapsed ?? turnModel.defaultAgentBodyCollapsed
         }
         hasPersistedAgentBodyCollapsedState={persistedCollapsed !== undefined}
-        isMatched={isMatched}
-        matchedSearchUnitKeys={matchedSearchUnitKeys}
-        activeSearchUnitKey={activeSearchUnitKey}
         onAgentBodyCollapsedChange={(turnId, collapsed) => {
           if (turnId !== turn.turnId) return;
           onSetCollapsed?.(collapsed);
@@ -115,9 +106,6 @@ export const LocalConversationTurnEntry = memo(
     && left.onSetCollapsed === right.onSetCollapsed
     && left.canEditTurnUserPrefix === right.canEditTurnUserPrefix
     && left.canForkTurnUserPrefix === right.canForkTurnUserPrefix
-    && left.matchedSearchUnitKeys === right.matchedSearchUnitKeys
-    && left.activeSearchUnitKey === right.activeSearchUnitKey
-    && left.isMatched === right.isMatched
     && left.projectWorkspacePath === right.projectWorkspacePath
     && left.threadCwd === right.threadCwd
     && left.onEditLastTurnMessage === right.onEditLastTurnMessage

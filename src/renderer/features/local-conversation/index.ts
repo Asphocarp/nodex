@@ -31,7 +31,6 @@ export {
 export { LocalConversationStageScreen as StageThreads } from "./view/local-conversation-stage-screen";
 export { ConnectedThreadStage } from "./view/connected-thread-stage";
 export { ConnectedReviewDiffPanel } from "./view/connected-review-diff-panel";
-export { useThreadStageModel } from "./use-thread-stage-model";
 export {
   selectBlockedTurnIds,
   selectConversationLiveRequests,
@@ -42,6 +41,5 @@ export {
 } from "./selectors";
 export type {
   ThreadStageActions,
-  ThreadStageModel,
-  ThreadStageModelInput,
+  ThreadStageRouteInput,
 } from "./thread-stage-types";

@@ -16,9 +16,6 @@ interface ThreadTurnProps {
   turn: ThreadTurnModel;
   agentBodyCollapsed: boolean;
   hasPersistedAgentBodyCollapsedState: boolean;
-  isMatched: boolean;
-  matchedSearchUnitKeys?: ReadonlySet<string>;
-  activeSearchUnitKey?: string | null;
   onAgentBodyCollapsedChange: (turnId: string, collapsed: boolean) => void;
   projectWorkspacePath?: string | null;
   threadCwd?: string | null;
@@ -101,9 +98,6 @@ export function ThreadTurn({
   turn,
   agentBodyCollapsed,
   hasPersistedAgentBodyCollapsedState,
-  isMatched,
-  matchedSearchUnitKeys,
-  activeSearchUnitKey,
   onAgentBodyCollapsedChange,
   projectWorkspacePath,
   threadCwd,
@@ -127,8 +121,6 @@ export function ThreadTurn({
       block={block}
       isLatestTurn={turn.isLatestTurn}
       isStreamingTurn={turn.isStreamingTurn}
-      isSearchMatch={Boolean("searchUnitKey" in block && block.searchUnitKey && matchedSearchUnitKeys?.has(block.searchUnitKey))}
-      isActiveSearchMatch={Boolean("searchUnitKey" in block && block.searchUnitKey && activeSearchUnitKey === block.searchUnitKey)}
       projectWorkspacePath={projectWorkspacePath}
       threadCwd={threadCwd}
       onEditLastUserTurn={onEditLastUserTurn}
@@ -153,7 +145,7 @@ export function ThreadTurn({
 
   return (
     <div>
-      <div className={cn("flex flex-col gap-0", isMatched && "rounded-2xl bg-token-foreground/3")}>
+      <div className="flex flex-col gap-0">
         <div className="flex flex-col">
           {renderSpacedBlocks(turn.leadingBlocks, renderBlock)}
         </div>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { columnStyles } from "@/components/kanban/column";
 import { cn } from "../../../lib/utils";
 import { CardIcon } from "../../../components/workbench/card-icon";
@@ -12,15 +12,15 @@ import {
 import { shouldRefreshAccountOnConnectionTooltipOpen } from "./shared/account-tooltip-refresh";
 import { resolveThreadCardResult } from "./shared/thread-card-fetch";
 import type { Card } from "../../../lib/types";
-import type { ThreadStageActions, ThreadStageModel } from "../thread-stage-types";
+import type { ThreadStageActions, ThreadStageHeaderModel } from "../thread-stage-types";
 
 interface ThreadStageHeaderProps {
-  model: ThreadStageModel;
+  model: ThreadStageHeaderModel;
   actions: ThreadStageActions;
   onErrorMessage: (message: string | null) => void;
 }
 
-export function ThreadStageHeader({ model, actions, onErrorMessage }: ThreadStageHeaderProps) {
+function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadStageHeaderProps) {
   const [busyAction, setBusyAction] = useState<"login" | "logout" | null>(null);
   const [openCardData, setOpenCardData] = useState<Card | null>(null);
   const accountRefreshInFlightRef = useRef(false);
@@ -28,7 +28,7 @@ export function ThreadStageHeader({ model, actions, onErrorMessage }: ThreadStag
   const hasAuthenticatedAccount = authenticatedAccount !== null;
 
   useEffect(() => {
-    const cardId = model.conversation?.cardId;
+    const cardId = model.cardId;
     if (!cardId) {
       setOpenCardData(null);
       return;
@@ -52,7 +52,7 @@ export function ThreadStageHeader({ model, actions, onErrorMessage }: ThreadStag
     return () => {
       cancelled = true;
     };
-  }, [model.activeThreadCardColumnId, model.conversation?.cardId, model.projectId]);
+  }, [model.activeThreadCardColumnId, model.cardId, model.projectId]);
 
   const handleChatGptLogin = useCallback(async () => {
     setBusyAction("login");
@@ -167,3 +167,25 @@ export function ThreadStageHeader({ model, actions, onErrorMessage }: ThreadStag
     </div>
   );
 }
+
+export const ThreadStageHeader = memo(
+  ThreadStageHeaderComponent,
+  (left, right) => {
+    const leftOpenCardTarget = left.model.openCardTarget;
+    const rightOpenCardTarget = right.model.openCardTarget;
+    return (
+      left.actions === right.actions
+      && left.onErrorMessage === right.onErrorMessage
+      && left.model.title === right.model.title
+      && left.model.projectId === right.model.projectId
+      && left.model.threadId === right.model.threadId
+      && left.model.activeThreadCardColumnId === right.model.activeThreadCardColumnId
+      && left.model.connection === right.model.connection
+      && left.model.account === right.model.account
+      && left.model.cardId === right.model.cardId
+      && leftOpenCardTarget?.cardId === rightOpenCardTarget?.cardId
+      && leftOpenCardTarget?.title === rightOpenCardTarget?.title
+      && leftOpenCardTarget?.columnId === rightOpenCardTarget?.columnId
+    );
+  },
+);

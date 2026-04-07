@@ -1,29 +1,52 @@
 import { useEffect, useMemo, useState } from "react";
-import { useThreadStageModel } from "../use-thread-stage-model";
+import { invoke } from "@/lib/api";
+import { buildComposerShellModel } from "../projection/build-composer-shell-model";
+import { buildThreadBodyModel } from "../projection/build-thread-body-model";
 import type {
+  ThreadBodySurfaceModel,
   ThreadBodyUiStateOverrides,
+  ThreadFooterModel,
+  ThreadOpenCardTarget,
   ThreadStageActions,
-  ThreadStageModelInput,
+  ThreadStageHeaderModel,
+  ThreadStageRouteInput,
 } from "../thread-stage-types";
 import {
   requestLocalConversationResume,
   useComposerIntent,
-  useConversation,
+  useConversationBackgroundTerminalRows,
+  useConversationCapabilityFlags,
+  useConversationChildMemberships,
+  useConversationCwd,
+  useConversationPendingSteers,
+  useConversationPrimaryRequest,
+  useConversationQueuedFollowUps,
+  useConversationRequests,
+  useConversationResumeState,
+  useConversationStatusActiveFlags,
+  useConversationStatusType,
   useConversationSubset,
+  useConversationSummaryFields,
+  useConversationTurns,
+  useConversationParentThreadId,
   useLocalConversationAccount,
   useLocalConversationConnection,
 } from "../local-conversation-store";
-import { invoke } from "@/lib/api";
-import { resolveThreadCardStatus } from "./shared/thread-card-fetch";
+import { LocalConversationFooter } from "./local-conversation-footer";
 import { LocalConversationStageScreen } from "./local-conversation-stage-screen";
+import { ThreadStageHeader } from "./local-conversation-stage-header";
+import { LocalConversationThreadBody } from "./local-conversation-thread-body";
+import { resolveThreadCardStatus } from "./shared/thread-card-fetch";
 
 type ConnectedThreadStageInput = Omit<
-  ThreadStageModelInput,
+  ThreadStageRouteInput,
   | "conversation"
+  | "parentTurns"
   | "knownConversationsById"
   | "connection"
   | "account"
   | "composerIntent"
+  | "primaryRequest"
   | "activeThreadCardColumnId"
 >;
 
@@ -32,60 +55,66 @@ interface ConnectedThreadStageProps extends ConnectedThreadStageInput {
   initialUiState?: ThreadBodyUiStateOverrides;
 }
 
-export function ConnectedThreadStage({
+function resolveThreadTitle(input: ConnectedThreadStageInput, summary: ReturnType<typeof useConversationSummaryFields>): string {
+  return (
+    summary.threadName ||
+    summary.threadPreview ||
+    input.activeThreadSummary?.threadName ||
+    input.activeThreadSummary?.threadPreview ||
+    (input.isNewThreadTab ? "New thread" : "No thread")
+  );
+}
+
+function resolveOpenCardTarget(input: ConnectedThreadStageInput, summary: ReturnType<typeof useConversationSummaryFields>, activeThreadCardColumnId: string | null): ThreadOpenCardTarget | null {
+  if (summary.cardId) {
+    return {
+      cardId: summary.cardId,
+      title: summary.threadName?.trim() || summary.threadPreview || summary.cardId,
+      columnId: activeThreadCardColumnId,
+    };
+  }
+
+  if (input.activeThreadSummary) {
+    return {
+      cardId: input.activeThreadSummary.cardId,
+      title:
+        input.activeThreadSummary.threadName?.trim()
+        || input.activeThreadSummary.threadPreview
+        || input.activeThreadSummary.cardId,
+      columnId: activeThreadCardColumnId,
+    };
+  }
+
+  if (input.isNewThreadTab && input.newThreadTarget) {
+    return {
+      cardId: input.newThreadTarget.cardId,
+      title: input.newThreadTarget.cardTitle,
+      columnId: input.newThreadTarget.columnId,
+    };
+  }
+
+  return null;
+}
+
+function ConnectedThreadStageHeader({
+  activeThreadId,
+  input,
   actions,
-  initialUiState,
-  ...input
-}: ConnectedThreadStageProps) {
+  onErrorMessage,
+}: {
+  activeThreadId: string | null;
+  input: ConnectedThreadStageInput;
+  actions: ThreadStageActions;
+  onErrorMessage: (message: string | null) => void;
+}) {
   const connection = useLocalConversationConnection();
   const account = useLocalConversationAccount();
-  const conversation = useConversation(
-    input.activeThreadId && !input.isNewThreadTab ? input.activeThreadId : null,
-  );
-  const composerIntent = useComposerIntent(
-    input.activeThreadId && !input.isNewThreadTab ? input.activeThreadId : null,
-  );
-
-  const mergedConversation = useMemo(() => {
-    if (!conversation) {
-      return null;
-    }
-
-    if (!input.activeThreadSummary) {
-      return conversation;
-    }
-
-    return {
-      ...conversation,
-      statusType: input.activeThreadSummary.statusType,
-      statusActiveFlags: input.activeThreadSummary.statusActiveFlags,
-      updatedAt: Math.max(conversation.updatedAt, input.activeThreadSummary.updatedAt),
-    };
-  }, [conversation, input.activeThreadSummary]);
-
-  const childThreadIds = useMemo(
-    () => mergedConversation?.childMemberships.map((membership) => membership.threadId) ?? [],
-    [mergedConversation],
-  );
-  const knownConversationsById = useConversationSubset(childThreadIds);
+  const summaryFields = useConversationSummaryFields(activeThreadId);
   const [activeThreadCardColumnId, setActiveThreadCardColumnId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!input.activeThreadId || input.isNewThreadTab) {
-      return;
-    }
-
-    const resumeState = mergedConversation?.resumeState ?? "needs_resume";
-    if (resumeState === "resuming" || resumeState === "resumed") {
-      return;
-    }
-
-    void requestLocalConversationResume(input.activeThreadId).catch(() => {});
-  }, [input.activeThreadId, input.isNewThreadTab, mergedConversation?.resumeState]);
-
-  useEffect(() => {
-    const activeThreadCardId = mergedConversation?.cardId;
-    const activeThreadProjectId = mergedConversation?.projectId ?? input.projectId;
+    const activeThreadCardId = summaryFields.cardId;
+    const activeThreadProjectId = summaryFields.projectId ?? input.projectId;
     if (!activeThreadCardId || !activeThreadProjectId) {
       setActiveThreadCardColumnId(null);
       return;
@@ -105,33 +134,380 @@ export function ConnectedThreadStage({
     return () => {
       cancelled = true;
     };
-  }, [input.projectId, mergedConversation?.cardId, mergedConversation?.projectId]);
+  }, [input.projectId, summaryFields.cardId, summaryFields.projectId]);
 
-  const threadStageInput = useMemo<ThreadStageModelInput>(() => ({
-    ...input,
-    activeThreadCardColumnId,
-    conversation: mergedConversation,
-    knownConversationsById,
-    connection,
-    account,
-    composerIntent,
-  }), [
-    account,
-    activeThreadCardColumnId,
-    composerIntent,
-    connection,
-    input,
-    knownConversationsById,
-    mergedConversation,
-  ]);
+  const model = useMemo<ThreadStageHeaderModel>(
+    () => ({
+      projectId: summaryFields.projectId ?? input.projectId,
+      threadId: summaryFields.threadId ?? input.activeThreadSummary?.threadId ?? activeThreadId,
+      cardId: summaryFields.cardId ?? input.activeThreadSummary?.cardId ?? input.newThreadTarget?.cardId ?? null,
+      title: resolveThreadTitle(input, summaryFields),
+      openCardTarget: resolveOpenCardTarget(input, summaryFields, activeThreadCardColumnId),
+      activeThreadCardColumnId,
+      connection,
+      account,
+    }),
+    [
+      account,
+      activeThreadCardColumnId,
+      activeThreadId,
+      connection,
+      input,
+      summaryFields,
+    ],
+  );
 
-  const { model } = useThreadStageModel(threadStageInput, actions);
+  return <ThreadStageHeader model={model} actions={actions} onErrorMessage={onErrorMessage} />;
+}
+
+function ConnectedThreadStageBody({
+  activeThreadId,
+  input,
+  actions,
+  onErrorMessage,
+  initialUiState,
+}: {
+  activeThreadId: string | null;
+  input: ConnectedThreadStageInput;
+  actions: ThreadStageActions;
+  onErrorMessage: (message: string | null) => void;
+  initialUiState?: ThreadBodyUiStateOverrides;
+}) {
+  const turns = useConversationTurns(activeThreadId);
+  const requests = useConversationRequests(activeThreadId);
+  const cwd = useConversationCwd(activeThreadId);
+  const resumeState = useConversationResumeState(activeThreadId);
+  const statusType = useConversationStatusType(activeThreadId);
+  const capabilityFlags = useConversationCapabilityFlags(activeThreadId);
+  const parentThreadId = useConversationParentThreadId(activeThreadId);
+  const parentTurns = useConversationTurns(parentThreadId);
+
+  const body = useMemo(
+    () =>
+      buildThreadBodyModel({
+        activeThreadId,
+        threadId: activeThreadId,
+        turns,
+        requests,
+        resumeState,
+        statusType,
+        capabilityFlags,
+        parentTurns,
+        isNewThreadTab: input.isNewThreadTab,
+        newThreadTarget: input.newThreadTarget,
+        isCloudNewThreadTarget: Boolean(
+          input.isNewThreadTab && input.newThreadTarget?.runInTarget === "cloud",
+        ),
+        threadStartProgress: input.threadStartProgress,
+      }),
+    [
+      activeThreadId,
+      capabilityFlags,
+      input.isNewThreadTab,
+      input.newThreadTarget,
+      input.threadStartProgress,
+      parentTurns,
+      requests,
+      resumeState,
+      statusType,
+      turns,
+    ],
+  );
+
+  const model = useMemo<ThreadBodySurfaceModel>(
+    () => ({
+      threadId: activeThreadId,
+      cwd,
+      turns,
+      requests,
+      resumeState,
+      statusType,
+      capabilityFlags,
+      body,
+      parentTurns,
+      projectWorkspacePath: input.projectWorkspacePath ?? null,
+      searchOpenTick: input.searchOpenTick,
+      threadStartProgress: input.threadStartProgress,
+    }),
+    [
+      activeThreadId,
+      body,
+      capabilityFlags,
+      cwd,
+      input.projectWorkspacePath,
+      input.searchOpenTick,
+      input.threadStartProgress,
+      parentTurns,
+      requests,
+      resumeState,
+      statusType,
+      turns,
+    ],
+  );
+
+  return (
+    <LocalConversationThreadBody
+      model={model}
+      actions={actions}
+      onErrorMessage={onErrorMessage}
+      initialUiState={initialUiState}
+    />
+  );
+}
+
+function ConnectedThreadStageFooter({
+  activeThreadId,
+  input,
+  actions,
+  errorMessage,
+  onErrorMessage,
+}: {
+  activeThreadId: string | null;
+  input: ConnectedThreadStageInput;
+  actions: ThreadStageActions;
+  errorMessage: string | null;
+  onErrorMessage: (message: string | null) => void;
+}) {
+  const turns = useConversationTurns(activeThreadId);
+  const requests = useConversationRequests(activeThreadId);
+  const cwd = useConversationCwd(activeThreadId);
+  const resumeState = useConversationResumeState(activeThreadId);
+  const statusType = useConversationStatusType(activeThreadId);
+  const statusActiveFlags = useConversationStatusActiveFlags(activeThreadId);
+  const childMemberships = useConversationChildMemberships(activeThreadId);
+  const pendingSteers = useConversationPendingSteers(activeThreadId);
+  const queuedFollowUps = useConversationQueuedFollowUps(activeThreadId);
+  const backgroundTerminalRows = useConversationBackgroundTerminalRows(activeThreadId);
+  const composerIntent = useComposerIntent(activeThreadId);
+  const primaryRequest = useConversationPrimaryRequest(activeThreadId);
+  const childThreadIds = useMemo(
+    () => childMemberships.map((membership) => membership.threadId),
+    [childMemberships],
+  );
+  const knownConversationsById = useConversationSubset(childThreadIds);
+
+  const composerShell = useMemo(
+    () =>
+      buildComposerShellModel({
+        threadId: activeThreadId,
+        turns,
+        requests,
+        pendingSteers,
+        queuedFollowUps,
+        backgroundTerminalRows,
+        childMemberships,
+        statusType,
+        statusActiveFlags,
+        knownConversationsById,
+        primaryRequest,
+      }),
+    [
+      activeThreadId,
+      backgroundTerminalRows,
+      childMemberships,
+      knownConversationsById,
+      pendingSteers,
+      primaryRequest,
+      queuedFollowUps,
+      requests,
+      statusActiveFlags,
+      statusType,
+      turns,
+    ],
+  );
+
+  const activeTurn = useMemo(
+    () => [...turns].reverse().find((turn) => turn.status === "inProgress") ?? null,
+    [turns],
+  );
+  const body = useMemo(
+    () =>
+      buildThreadBodyModel({
+        activeThreadId,
+        threadId: activeThreadId,
+        turns,
+        requests,
+        resumeState,
+        statusType,
+        capabilityFlags: {
+          canEditLastUserTurn: false,
+          canForkFromTurn: false,
+          canSearch: true,
+          canCollapseTurns: true,
+        },
+        parentTurns: [],
+        isNewThreadTab: input.isNewThreadTab,
+        newThreadTarget: input.newThreadTarget,
+        isCloudNewThreadTarget: Boolean(
+          input.isNewThreadTab && input.newThreadTarget?.runInTarget === "cloud",
+        ),
+        threadStartProgress: input.threadStartProgress,
+      }),
+    [
+      activeThreadId,
+      input.isNewThreadTab,
+      input.newThreadTarget,
+      input.threadStartProgress,
+      requests,
+      resumeState,
+      statusType,
+      turns,
+    ],
+  );
+  const model = useMemo<ThreadFooterModel>(
+    () => ({
+      projectId: input.projectId,
+      projectWorkspacePath: input.projectWorkspacePath ?? null,
+      threadId: activeThreadId,
+      cwd,
+      conversation: activeThreadId
+        ? {
+            threadId: activeThreadId,
+            projectId: input.projectId,
+            cardId: input.activeThreadSummary?.cardId ?? input.newThreadTarget?.cardId ?? "",
+            source: null,
+            threadName: input.activeThreadSummary?.threadName ?? null,
+            threadPreview: input.activeThreadSummary?.threadPreview ?? "",
+            modelProvider: input.activeThreadSummary?.modelProvider ?? "",
+            cwd,
+            statusType: statusType ?? "notLoaded",
+            statusActiveFlags,
+            archived: input.activeThreadSummary?.archived ?? false,
+            createdAt: input.activeThreadSummary?.createdAt ?? 0,
+            updatedAt: input.activeThreadSummary?.updatedAt ?? 0,
+            linkedAt: input.activeThreadSummary?.linkedAt ?? "",
+            latestCollaborationMode: undefined,
+            resumeState: resumeState ?? "needs_resume",
+            turns,
+            requests,
+            queuedFollowUps,
+            pendingSteers,
+            backgroundTerminalRows,
+            childMemberships,
+            capabilityFlags: {
+              canEditLastUserTurn: false,
+              canForkFromTurn: false,
+              canSearch: true,
+              canCollapseTurns: true,
+            },
+          }
+        : null,
+      resumeState,
+      activeTurn,
+      isThreadRunning: Boolean(activeTurn || statusType === "active"),
+      isNewThreadTab: input.isNewThreadTab,
+      isCloudNewThreadTarget: Boolean(
+        input.isNewThreadTab && input.newThreadTarget?.runInTarget === "cloud",
+      ),
+      newThreadTarget: input.newThreadTarget,
+      composerShell,
+      body,
+      collaborationModes: input.collaborationModes,
+      selectedCollaborationMode: input.selectedCollaborationMode,
+      selectedModel: input.selectedModel,
+      availableModels: input.availableModels,
+      selectedReasoningEffort: input.selectedReasoningEffort,
+      reasoningEffortOptions: input.reasoningEffortOptions,
+      permissionMode: input.permissionMode,
+      isQueueingEnabled: input.isQueueingEnabled,
+      composerEnterBehavior: input.composerEnterBehavior,
+      composerIntent,
+    }),
+    [
+      activeThreadId,
+      activeTurn,
+      body,
+      backgroundTerminalRows,
+      childMemberships,
+      composerIntent,
+      composerShell,
+      cwd,
+      input.availableModels,
+      input.collaborationModes,
+      input.composerEnterBehavior,
+      input.activeThreadSummary,
+      input.isNewThreadTab,
+      input.isQueueingEnabled,
+      input.newThreadTarget,
+      input.permissionMode,
+      input.projectId,
+      input.projectWorkspacePath,
+      input.reasoningEffortOptions,
+      input.selectedCollaborationMode,
+      input.selectedModel,
+      input.selectedReasoningEffort,
+      pendingSteers,
+      queuedFollowUps,
+      requests,
+      resumeState,
+      statusActiveFlags,
+      statusType,
+      turns,
+    ],
+  );
+
+  return (
+    <LocalConversationFooter
+      model={model}
+      actions={actions}
+      errorMessage={errorMessage}
+      onErrorMessage={onErrorMessage}
+    />
+  );
+}
+
+export function ConnectedThreadStage({
+  actions,
+  initialUiState,
+  ...input
+}: ConnectedThreadStageProps) {
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const activeThreadId = input.activeThreadId && !input.isNewThreadTab
+    ? input.activeThreadId
+    : null;
+  const resumeState = useConversationResumeState(activeThreadId);
+
+  useEffect(() => {
+    if (!input.activeThreadId || input.isNewThreadTab) {
+      return;
+    }
+
+    const nextResumeState = resumeState ?? "needs_resume";
+    if (nextResumeState === "resuming" || nextResumeState === "resumed") {
+      return;
+    }
+
+    void requestLocalConversationResume(input.activeThreadId).catch(() => {});
+  }, [resumeState, input.activeThreadId, input.isNewThreadTab]);
 
   return (
     <LocalConversationStageScreen
-      model={model}
-      actions={actions}
-      initialUiState={initialUiState}
+      header={(
+        <ConnectedThreadStageHeader
+          activeThreadId={activeThreadId}
+          input={input}
+          actions={actions}
+          onErrorMessage={setErrorMessage}
+        />
+      )}
+      body={(
+        <ConnectedThreadStageBody
+          activeThreadId={activeThreadId}
+          input={input}
+          actions={actions}
+          onErrorMessage={setErrorMessage}
+          initialUiState={initialUiState}
+        />
+      )}
+      footer={(
+        <ConnectedThreadStageFooter
+          activeThreadId={activeThreadId}
+          input={input}
+          actions={actions}
+          errorMessage={errorMessage}
+          onErrorMessage={setErrorMessage}
+        />
+      )}
     />
   );
 }

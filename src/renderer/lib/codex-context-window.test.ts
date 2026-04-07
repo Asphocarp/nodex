@@ -7,6 +7,7 @@ function makeConversation(): CodexConversationSnapshot {
     threadId: "thr_context",
     projectId: "project-1",
     cardId: "card-1",
+    source: null,
     threadName: "Context thread",
     threadPreview: "",
     modelProvider: "openai",

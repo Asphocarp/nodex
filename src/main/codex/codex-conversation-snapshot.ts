@@ -53,7 +53,7 @@ function sortTurnItemsByCanonicalOrder(
   });
 }
 
-function buildConversationTurn(
+export function buildCodexConversationTurn(
   detail: CodexThreadDetail,
   turn: CodexThreadDetail["turns"][number],
 ): CodexConversationTurn {
@@ -87,7 +87,7 @@ export function buildCodexConversationSnapshot(input: {
     ...detail,
     latestCollaborationMode: input.detail.latestCollaborationMode ?? DEFAULT_COLLABORATION_MODE_STATE,
     resumeState: input.resumeState,
-    turns: input.detail.turns.map((turn) => buildConversationTurn(input.detail, turn)),
+    turns: input.detail.turns.map((turn) => buildCodexConversationTurn(input.detail, turn)),
     requests: [...input.requests].sort((left, right) => left.createdAt - right.createdAt),
     queuedFollowUps: [...(input.queuedFollowUps ?? [])].sort((left, right) => left.createdAt - right.createdAt),
     pendingSteers: [...(input.pendingSteers ?? [])].sort((left, right) => left.createdAt - right.createdAt),

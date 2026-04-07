@@ -3,7 +3,7 @@ import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip
 import type { ThreadStageActions } from "../../thread-stage-types";
 import { render, settleAsyncRender, textContent } from "../../../../test/dom";
 import {
-  buildThreadStageStoryModel,
+  buildThreadStageStorySurfaceModels,
   buildThreadStageStoryScenario,
   type ThreadStageStoryControls,
 } from "../thread-stage-story-fixtures";
@@ -23,7 +23,7 @@ const STORY_CONTROLS: ThreadStageStoryControls = {
 
 function buildComposerShellModel() {
   const scenario = buildThreadStageStoryScenario(STORY_CONTROLS);
-  return buildThreadStageStoryModel(scenario, STORY_CONTROLS, scenario.runtime);
+  return buildThreadStageStorySurfaceModels(scenario, STORY_CONTROLS, scenario.runtime).footerModel;
 }
 
 function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActions {

@@ -12,15 +12,25 @@ import {
 import type {
   CodexAccountSnapshot,
   CodexApprovalDecision,
+  CodexBackgroundTerminalRow,
+  CodexConversationSource,
+  CodexConversationCapabilityFlags,
+  CodexConversationChildMembership,
+  CodexConversationResumeState,
   CodexCollaborationModeKind,
   CodexCollaborationModeState,
   CodexCollaborationModePreset,
   CodexComposerIntent,
   CodexConnectionState,
+  CodexConversationServerRequest,
   CodexConversationSnapshot,
+  CodexConversationTurn,
+  CodexConversationLiveRequest,
   CodexMcpServerElicitationAction,
   CodexModelOption,
+  CodexPendingSteer,
   CodexPermissionMode,
+  CodexQueuedFollowUp,
   CodexThreadDetail,
   CodexReasoningEffortOption,
   CodexSharedObject,
@@ -55,6 +65,10 @@ import {
   __resetLocalConversationHostBridgeForTests,
   startLocalConversationHostBridge,
 } from "./local-conversation-host-bridge";
+import {
+  areConversationLiveRequestsEqual,
+  selectPrimaryConversationRequest,
+} from "./conversation-request-helpers";
 
 const INITIAL_CONNECTION: CodexConnectionState = {
   status: "disconnected",
@@ -64,6 +78,32 @@ const INITIAL_CONNECTION: CodexConnectionState = {
 const EMPTY_THREADS: CodexThreadSummary[] = [];
 const EMPTY_CONVERSATION_MAP: Record<string, CodexConversationSnapshot> = {};
 const EMPTY_MODELS: CodexModelOption[] = [];
+const EMPTY_TURNS: CodexConversationTurn[] = [];
+const EMPTY_REQUESTS: CodexConversationServerRequest[] = [];
+const EMPTY_PENDING_STEERS: CodexPendingSteer[] = [];
+const EMPTY_QUEUED_FOLLOW_UPS: CodexQueuedFollowUp[] = [];
+const EMPTY_BACKGROUND_TERMINAL_ROWS: CodexBackgroundTerminalRow[] = [];
+const EMPTY_CHILD_MEMBERSHIPS: CodexConversationChildMembership[] = [];
+const EMPTY_STATUS_ACTIVE_FLAGS: CodexConversationSnapshot["statusActiveFlags"] = [];
+const EMPTY_CONVERSATION_SUMMARY_FIELDS = {
+  threadId: null,
+  projectId: null,
+  cardId: null,
+  threadName: null,
+  threadPreview: "",
+  modelProvider: null,
+  cwd: null,
+  archived: false,
+  createdAt: 0,
+  updatedAt: 0,
+  linkedAt: "",
+};
+const EMPTY_CONVERSATION_CAPABILITY_FLAGS: CodexConversationCapabilityFlags = {
+  canEditLastUserTurn: false,
+  canForkFromTurn: false,
+  canSearch: false,
+  canCollapseTurns: false,
+};
 const DEFAULT_COLLABORATION_MODE_STATE: CodexCollaborationModeState = {
   mode: "default",
   settings: {
@@ -134,6 +174,7 @@ function areThreadSummariesStructurallyEqual(
     left.threadId === right.threadId
     && left.projectId === right.projectId
     && left.cardId === right.cardId
+    && left.source?.parentThreadId === right.source?.parentThreadId
     && left.threadName === right.threadName
     && left.threadPreview === right.threadPreview
     && left.modelProvider === right.modelProvider
@@ -243,41 +284,214 @@ function applyTerminalOutputDelta(input: {
   };
 }
 
-function cloneArray<T>(value: readonly T[]): T[] {
-  return value.slice();
+function areStringArraysEqual(left: readonly string[], right: readonly string[]): boolean {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) {
+      return false;
+    }
+  }
+  return true;
 }
 
-function buildConversationAnySnapshotKey(conversation: CodexConversationSnapshot): string {
-  return JSON.stringify({
+interface ConversationAnyProjection {
+  id: string;
+  requestsRef: readonly unknown[];
+  turnsLength: number;
+  lastTurnId: string | null;
+  lastTurnStatus: string | null;
+  createdAtMs: number;
+  updatedAtMs: number;
+  title: string | null;
+  resumeState: CodexConversationSnapshot["resumeState"];
+  statusType: CodexConversationSnapshot["statusType"];
+  statusActiveFlags: readonly string[];
+  cwd: string | null;
+}
+
+interface ConversationMetaProjection {
+  id: string;
+  projectId: string;
+  cardId: string;
+  archived: boolean;
+  createdAtMs: number;
+  updatedAtMs: number;
+  title: string | null;
+  threadPreview: string;
+  resumeState: CodexConversationSnapshot["resumeState"];
+  statusType: CodexConversationSnapshot["statusType"];
+  statusActiveFlags: readonly string[];
+}
+
+interface ConversationSummaryFields {
+  threadId: string | null;
+  projectId: string | null;
+  cardId: string | null;
+  threadName: string | null;
+  threadPreview: string;
+  modelProvider: string | null;
+  cwd: string | null;
+  archived: boolean;
+  createdAt: number;
+  updatedAt: number;
+  linkedAt: string;
+}
+
+function buildConversationAnyProjection(conversation: CodexConversationSnapshot): ConversationAnyProjection {
+  const lastTurn = conversation.turns[conversation.turns.length - 1] ?? null;
+  return {
     id: conversation.threadId,
-    updatedAt: conversation.updatedAt,
+    requestsRef: conversation.requests,
+    turnsLength: conversation.turns.length,
+    lastTurnId: lastTurn?.turnId ?? null,
+    lastTurnStatus: lastTurn?.status ?? null,
+    createdAtMs: conversation.createdAt,
+    updatedAtMs: conversation.updatedAt,
+    title: conversation.threadName?.trim() || conversation.threadPreview?.trim() || null,
     resumeState: conversation.resumeState,
     statusType: conversation.statusType,
-    statusActiveFlags: cloneArray(conversation.statusActiveFlags),
-    requests: conversation.requests.map((request) => request.requestId),
-    pendingSteers: conversation.pendingSteers.map((steer) => steer.steerId),
-    queuedFollowUps: conversation.queuedFollowUps.map((followUp) => followUp.followUpId),
-    turns: conversation.turns.map((turn) => ({
-      turnId: turn.turnId,
-      status: turn.status,
-    })),
-  });
+    statusActiveFlags: conversation.statusActiveFlags,
+    cwd: conversation.cwd,
+  };
 }
 
-function buildConversationMetaSnapshotKey(conversation: CodexConversationSnapshot): string {
-  return JSON.stringify({
+function buildConversationMetaProjection(conversation: CodexConversationSnapshot): ConversationMetaProjection {
+  return {
     id: conversation.threadId,
     projectId: conversation.projectId,
     cardId: conversation.cardId,
     archived: conversation.archived,
-    updatedAt: conversation.updatedAt,
-    createdAt: conversation.createdAt,
-    threadName: conversation.threadName,
+    createdAtMs: conversation.createdAt,
+    updatedAtMs: conversation.updatedAt,
+    title: conversation.threadName?.trim() || null,
     threadPreview: conversation.threadPreview,
-    statusType: conversation.statusType,
-    statusActiveFlags: cloneArray(conversation.statusActiveFlags),
     resumeState: conversation.resumeState,
-  });
+    statusType: conversation.statusType,
+    statusActiveFlags: conversation.statusActiveFlags,
+  };
+}
+
+function areConversationAnyProjectionsEqual(
+  left: ConversationAnyProjection,
+  right: ConversationAnyProjection,
+): boolean {
+  return (
+    left.id === right.id
+    && left.requestsRef === right.requestsRef
+    && left.turnsLength === right.turnsLength
+    && left.lastTurnId === right.lastTurnId
+    && left.lastTurnStatus === right.lastTurnStatus
+    && left.createdAtMs === right.createdAtMs
+    && left.updatedAtMs === right.updatedAtMs
+    && left.title === right.title
+    && left.resumeState === right.resumeState
+    && left.statusType === right.statusType
+    && areStringArraysEqual(left.statusActiveFlags, right.statusActiveFlags)
+    && left.cwd === right.cwd
+  );
+}
+
+function areConversationMetaProjectionsEqual(
+  left: ConversationMetaProjection,
+  right: ConversationMetaProjection,
+): boolean {
+  return (
+    left.id === right.id
+    && left.projectId === right.projectId
+    && left.cardId === right.cardId
+    && left.archived === right.archived
+    && left.createdAtMs === right.createdAtMs
+    && left.updatedAtMs === right.updatedAtMs
+    && left.title === right.title
+    && left.threadPreview === right.threadPreview
+    && left.resumeState === right.resumeState
+    && left.statusType === right.statusType
+    && areStringArraysEqual(left.statusActiveFlags, right.statusActiveFlags)
+  );
+}
+
+function areConversationSummaryFieldsEqual(
+  left: ConversationSummaryFields,
+  right: ConversationSummaryFields,
+): boolean {
+  return (
+    left.threadId === right.threadId
+    && left.projectId === right.projectId
+    && left.cardId === right.cardId
+    && left.threadName === right.threadName
+    && left.threadPreview === right.threadPreview
+    && left.modelProvider === right.modelProvider
+    && left.cwd === right.cwd
+    && left.archived === right.archived
+    && left.createdAt === right.createdAt
+    && left.updatedAt === right.updatedAt
+    && left.linkedAt === right.linkedAt
+  );
+}
+
+function normalizeConversationSnapshot(
+  conversation: CodexConversationSnapshot,
+): CodexConversationSnapshot {
+  const nextTurns = Array.isArray(conversation.turns) ? conversation.turns : [];
+  const nextRequests = Array.isArray(conversation.requests) ? conversation.requests : [];
+  const nextPendingSteers = Array.isArray(conversation.pendingSteers) ? conversation.pendingSteers : [];
+  const nextQueuedFollowUps = Array.isArray(conversation.queuedFollowUps) ? conversation.queuedFollowUps : [];
+  const nextBackgroundTerminalRows = Array.isArray(conversation.backgroundTerminalRows)
+    ? conversation.backgroundTerminalRows
+    : [];
+  const nextChildMemberships = Array.isArray(conversation.childMemberships)
+    ? conversation.childMemberships
+    : [];
+  const nextStatusActiveFlags = Array.isArray(conversation.statusActiveFlags)
+    ? conversation.statusActiveFlags
+    : [];
+  const nextThreadName = typeof conversation.threadName === "string" ? conversation.threadName : "";
+  const nextThreadPreview = typeof conversation.threadPreview === "string" ? conversation.threadPreview : "";
+  const nextCreatedAt = Number.isFinite(conversation.createdAt) ? conversation.createdAt : 0;
+  const nextUpdatedAt = Number.isFinite(conversation.updatedAt) ? conversation.updatedAt : nextCreatedAt;
+  const nextSource = typeof conversation.source === "object" && conversation.source !== null
+    ? {
+        parentThreadId:
+          typeof conversation.source.parentThreadId === "string" && conversation.source.parentThreadId.trim().length > 0
+            ? conversation.source.parentThreadId
+            : null,
+      }
+    : null;
+
+  const didChange =
+    nextTurns !== conversation.turns
+    || nextRequests !== conversation.requests
+    || nextPendingSteers !== conversation.pendingSteers
+    || nextQueuedFollowUps !== conversation.queuedFollowUps
+    || nextBackgroundTerminalRows !== conversation.backgroundTerminalRows
+    || nextChildMemberships !== conversation.childMemberships
+    || nextStatusActiveFlags !== conversation.statusActiveFlags
+    || nextSource?.parentThreadId !== conversation.source?.parentThreadId
+    || nextThreadName !== conversation.threadName
+    || nextThreadPreview !== conversation.threadPreview
+    || nextCreatedAt !== conversation.createdAt
+    || nextUpdatedAt !== conversation.updatedAt;
+
+  if (!didChange) {
+    return conversation;
+  }
+
+  return {
+    ...conversation,
+    source: nextSource,
+    threadName: nextThreadName,
+    threadPreview: nextThreadPreview,
+    createdAt: nextCreatedAt,
+    updatedAt: nextUpdatedAt,
+    turns: nextTurns,
+    requests: nextRequests,
+    pendingSteers: nextPendingSteers,
+    queuedFollowUps: nextQueuedFollowUps,
+    backgroundTerminalRows: nextBackgroundTerminalRows,
+    childMemberships: nextChildMemberships,
+    statusActiveFlags: nextStatusActiveFlags,
+  };
 }
 
 function buildRecentConversationOrderKey(conversations: readonly CodexConversationSnapshot[]): string {
@@ -308,6 +522,7 @@ export class CodexAppServerManager {
   private readonly loadedThreadSummariesByProject = new Set<string>();
   private readonly threadSummaryLoadsInFlightByProject = new Map<string, Promise<CodexThreadSummary[]>>();
   private readonly conversationsById = new Map<string, CodexConversationSnapshot>();
+  private readonly primaryConversationRequestByThread = new Map<string, CodexConversationLiveRequest | null>();
   private readonly conversationVersionById = new Map<string, number>();
   private readonly composerIntentsByThread = new Map<string, CodexComposerIntent>();
   private readonly permissionModeByProject = new Map<string, CodexPermissionMode>();
@@ -324,8 +539,8 @@ export class CodexAppServerManager {
   private readonly conversationCallbacks = new Map<string, Set<ConversationListener>>();
   private anyConversationCallbacks = new Set<AnyConversationListener>();
   private anyConversationMetaCallbacks = new Set<AnyConversationListener>();
-  private readonly lastAnySnapshotById = new Map<string, string>();
-  private readonly lastMetaSnapshotById = new Map<string, string>();
+  private readonly lastAnySnapshotById = new Map<string, ConversationAnyProjection>();
+  private readonly lastMetaSnapshotById = new Map<string, ConversationMetaProjection>();
   private lastAnyOrderKey: string | null = null;
   private lastMetaOrderKey: string | null = null;
 
@@ -402,6 +617,10 @@ export class CodexAppServerManager {
 
   readConversation(threadId: string): CodexConversationSnapshot | null {
     return this.conversationsById.get(threadId) ?? null;
+  }
+
+  readPrimaryConversationRequest(threadId: string): CodexConversationLiveRequest | null {
+    return this.primaryConversationRequestByThread.get(threadId) ?? null;
   }
 
   readConversationCollaborationMode(threadId: string): CodexCollaborationModeState | null {
@@ -1170,7 +1389,9 @@ export class CodexAppServerManager {
     conversation: CodexConversationSnapshot,
     version?: number,
   ): void {
-    const nextConversation = this.withCachedConversationTitle(conversation);
+    const nextConversation = this.withCachedConversationTitle(
+      normalizeConversationSnapshot(conversation),
+    );
     const currentConversation = this.conversationsById.get(threadId);
     if (currentConversation === nextConversation) {
       return;
@@ -1181,6 +1402,14 @@ export class CodexAppServerManager {
     }
 
     this.conversationsById.set(threadId, nextConversation);
+    const previousPrimaryRequest = this.primaryConversationRequestByThread.get(threadId) ?? null;
+    const nextPrimaryRequest = selectPrimaryConversationRequest(nextConversation);
+    this.primaryConversationRequestByThread.set(
+      threadId,
+      areConversationLiveRequestsEqual(previousPrimaryRequest, nextPrimaryRequest)
+        ? previousPrimaryRequest
+        : nextPrimaryRequest,
+    );
     this.ensureRecentConversationId(threadId);
     if (isConversationStreaming(nextConversation)) {
       this.streamingConversationIds.add(threadId);
@@ -1249,12 +1478,16 @@ export class CodexAppServerManager {
       }
     }
 
-    const anySnapshot = buildConversationAnySnapshotKey(conversation);
-    const anyChanged = this.lastAnySnapshotById.get(threadId) !== anySnapshot;
+    const anySnapshot = buildConversationAnyProjection(conversation);
+    const previousAnySnapshot = this.lastAnySnapshotById.get(threadId);
+    const anyChanged = !previousAnySnapshot
+      || !areConversationAnyProjectionsEqual(previousAnySnapshot, anySnapshot);
     this.lastAnySnapshotById.set(threadId, anySnapshot);
 
-    const metaSnapshot = buildConversationMetaSnapshotKey(conversation);
-    const metaChanged = this.lastMetaSnapshotById.get(threadId) !== metaSnapshot;
+    const metaSnapshot = buildConversationMetaProjection(conversation);
+    const previousMetaSnapshot = this.lastMetaSnapshotById.get(threadId);
+    const metaChanged = !previousMetaSnapshot
+      || !areConversationMetaProjectionsEqual(previousMetaSnapshot, metaSnapshot);
     this.lastMetaSnapshotById.set(threadId, metaSnapshot);
 
     if (anyChanged || metaChanged) {
@@ -1671,6 +1904,168 @@ export function useProjectThreadSummaries(projectId: string): CodexThreadSummary
 
 export function useConversation(threadId: string | null): CodexConversationSnapshot | null {
   return useCodexConversationValue(threadId, (conversation) => conversation);
+}
+
+export function useConversationSummaryFields(
+  threadId: string | null,
+): ConversationSummaryFields {
+  return useCodexConversationValue(
+    threadId,
+    (conversation) => {
+      if (!conversation) {
+        return EMPTY_CONVERSATION_SUMMARY_FIELDS;
+      }
+
+      return {
+        threadId: conversation.threadId,
+        projectId: conversation.projectId,
+        cardId: conversation.cardId,
+        threadName: conversation.threadName,
+        threadPreview: conversation.threadPreview,
+        modelProvider: conversation.modelProvider,
+        cwd: conversation.cwd,
+        archived: conversation.archived,
+        createdAt: conversation.createdAt,
+        updatedAt: conversation.updatedAt,
+        linkedAt: conversation.linkedAt,
+      };
+    },
+    areConversationSummaryFieldsEqual,
+  );
+}
+
+export function useConversationTurns(
+  threadId: string | null,
+): CodexConversationTurn[] {
+  return useCodexConversationValue(
+    threadId,
+    (conversation) => conversation?.turns ?? EMPTY_TURNS,
+  );
+}
+
+export function useConversationRequests(
+  threadId: string | null,
+): CodexConversationServerRequest[] {
+  return useCodexConversationValue(
+    threadId,
+    (conversation) => conversation?.requests ?? EMPTY_REQUESTS,
+  );
+}
+
+export function useConversationCwd(
+  threadId: string | null,
+): string | null {
+  return useCodexConversationValue(
+    threadId,
+    (conversation) => conversation?.cwd ?? null,
+  );
+}
+
+export function useConversationResumeState(
+  threadId: string | null,
+): CodexConversationResumeState | null {
+  return useCodexConversationValue(
+    threadId,
+    (conversation) => conversation?.resumeState ?? null,
+  );
+}
+
+export function useConversationStatusType(
+  threadId: string | null,
+): CodexConversationSnapshot["statusType"] | null {
+  return useCodexConversationValue(
+    threadId,
+    (conversation) => conversation?.statusType ?? null,
+  );
+}
+
+export function useConversationStatusActiveFlags(
+  threadId: string | null,
+): CodexConversationSnapshot["statusActiveFlags"] {
+  return useCodexConversationValue(
+    threadId,
+    (conversation) => conversation?.statusActiveFlags ?? EMPTY_STATUS_ACTIVE_FLAGS,
+  );
+}
+
+export function useConversationCapabilityFlags(
+  threadId: string | null,
+): CodexConversationCapabilityFlags {
+  return useCodexConversationValue(
+    threadId,
+    (conversation) => conversation?.capabilityFlags ?? EMPTY_CONVERSATION_CAPABILITY_FLAGS,
+  );
+}
+
+export function useConversationChildMemberships(
+  threadId: string | null,
+): CodexConversationChildMembership[] {
+  return useCodexConversationValue(
+    threadId,
+    (conversation) => conversation?.childMemberships ?? EMPTY_CHILD_MEMBERSHIPS,
+  );
+}
+
+export function useConversationPendingSteers(
+  threadId: string | null,
+): CodexPendingSteer[] {
+  return useCodexConversationValue(
+    threadId,
+    (conversation) => conversation?.pendingSteers ?? EMPTY_PENDING_STEERS,
+  );
+}
+
+export function useConversationQueuedFollowUps(
+  threadId: string | null,
+): CodexQueuedFollowUp[] {
+  return useCodexConversationValue(
+    threadId,
+    (conversation) => conversation?.queuedFollowUps ?? EMPTY_QUEUED_FOLLOW_UPS,
+  );
+}
+
+export function useConversationBackgroundTerminalRows(
+  threadId: string | null,
+): CodexBackgroundTerminalRow[] {
+  return useCodexConversationValue(
+    threadId,
+    (conversation) => conversation?.backgroundTerminalRows ?? EMPTY_BACKGROUND_TERMINAL_ROWS,
+  );
+}
+
+export function useConversationSource(
+  threadId: string | null,
+): CodexConversationSource | null {
+  return useCodexConversationValue(
+    threadId,
+    (conversation) => conversation?.source ?? null,
+    (left, right) => left?.parentThreadId === right?.parentThreadId,
+  );
+}
+
+export function useConversationParentThreadId(
+  threadId: string | null,
+): string | null {
+  return useCodexConversationValue(
+    threadId,
+    (conversation) => conversation?.source?.parentThreadId ?? null,
+  );
+}
+
+export function useConversationPrimaryRequest(
+  threadId: string | null,
+): CodexConversationLiveRequest | null {
+  const manager = useCodexAppServerManagerForConversationId(threadId);
+  return useExternalSelector(
+    (listener) =>
+      threadId
+        ? manager.addConversationCallback(threadId, () => {
+            listener();
+          })
+        : () => {},
+    () => (threadId ? manager.readPrimaryConversationRequest(threadId) : null),
+    areConversationLiveRequestsEqual,
+  );
 }
 
 export function useConversationCollaborationMode(

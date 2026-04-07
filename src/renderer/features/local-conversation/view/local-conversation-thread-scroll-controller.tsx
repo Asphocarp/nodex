@@ -89,7 +89,13 @@ export function resolveThreadScrollModeForScrollEvent({
   userScrollGraceUntilMs,
   programmaticScrollSettledUntilMs,
 }: ThreadScrollModeResolutionInput): ThreadScrollMode {
-  if (currentMode === "programmaticFind") return "programmaticFind";
+  if (currentMode === "programmaticFind") {
+    if (isNearBottom) return "stickToBottom";
+    if (nowMs <= programmaticScrollSettledUntilMs) {
+      return "programmaticFind";
+    }
+    return "user";
+  }
   if (isNearBottom) return "stickToBottom";
   if (nowMs > programmaticScrollSettledUntilMs && nowMs <= userScrollGraceUntilMs) {
     return "user";
@@ -122,6 +128,7 @@ function LocalConversationThreadScrollControllerProvider({
   const scrollModeRef = useRef<ThreadScrollMode>("stickToBottom");
   const userScrollGraceUntilRef = useRef(0);
   const programmaticScrollSettledUntilRef = useRef(0);
+  const programmaticFindSettleTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     scrollElementRef.current = scrollElement;
@@ -130,6 +137,31 @@ function LocalConversationThreadScrollControllerProvider({
   const setScrollMode = useCallback((mode: ThreadScrollMode) => {
     if (scrollModeRef.current === mode) return;
     scrollModeRef.current = mode;
+
+    if (programmaticFindSettleTimeoutRef.current !== null) {
+      window.clearTimeout(programmaticFindSettleTimeoutRef.current);
+      programmaticFindSettleTimeoutRef.current = null;
+    }
+
+    if (mode !== "programmaticFind") {
+      return;
+    }
+
+    programmaticFindSettleTimeoutRef.current = window.setTimeout(() => {
+      programmaticFindSettleTimeoutRef.current = null;
+      if (scrollModeRef.current !== "programmaticFind") {
+        return;
+      }
+
+      const element = scrollElementRef.current;
+      if (!element) {
+        scrollModeRef.current = "user";
+        return;
+      }
+
+      scrollModeRef.current = isThreadScrollNearBottom(element) ? "stickToBottom" : "user";
+      setIsScrolledFromBottom(!isThreadScrollNearBottom(element));
+    }, PROGRAMMATIC_SCROLL_SETTLE_WINDOW_MS);
   }, []);
 
   const getScrollMode = useCallback(() => scrollModeRef.current, []);
@@ -250,6 +282,15 @@ function LocalConversationThreadScrollControllerProvider({
       scrollElement.removeEventListener("scroll", handleScroll);
     };
   }, [maybeStickToBottom, scrollElement, setScrollMode]);
+
+  useEffect(
+    () => () => {
+      if (programmaticFindSettleTimeoutRef.current !== null) {
+        window.clearTimeout(programmaticFindSettleTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   const controller = useMemo<LocalConversationThreadScrollControllerContextValue>(() => ({
     adjustForMeasuredTurnHeightDelta,
