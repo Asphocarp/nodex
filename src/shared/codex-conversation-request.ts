@@ -4,6 +4,7 @@ import type {
   CodexConversationItem,
   CodexConversationSnapshot,
   CodexConversationServerRequest,
+  CodexConversationTurn,
   CodexMcpServerElicitationRequest,
   CodexPlanImplementationServerRequest,
   CodexPlanImplementationRequest,
@@ -32,6 +33,7 @@ interface DerivedConversationRequestSelection {
 }
 
 interface DerivedConversationRequestCacheEntry extends DerivedConversationRequestSelection {
+  turnsRef: readonly CodexConversationTurn[];
   latestPlanItemRef: CodexConversationItem | null;
   latestPlanTurnId: string | null;
 }
@@ -196,7 +198,8 @@ function resolveDerivedConversationRequestSelection(
   const latestPlanTurnId = latestPlanSelection?.turnId ?? null;
   const cachedEntries = derivedRequestSelectionsByServerRequestRef.get(conversation.requests);
   const cached = cachedEntries?.find((entry) =>
-    entry.latestPlanItemRef === latestPlanItemRef
+    entry.turnsRef === conversation.turns
+    && entry.latestPlanItemRef === latestPlanItemRef
     && entry.latestPlanTurnId === latestPlanTurnId,
   );
   if (cached) {
@@ -206,6 +209,7 @@ function resolveDerivedConversationRequestSelection(
   const derived = deriveConversationRequestSelection(conversation);
   const entry: DerivedConversationRequestCacheEntry = {
     ...derived,
+    turnsRef: conversation.turns,
     latestPlanItemRef,
     latestPlanTurnId,
   };

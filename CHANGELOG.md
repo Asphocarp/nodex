@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 ### Fixed
+- Fixed local-thread request-card ordering after turn-only updates so approval, user-input, and implement-plan selection now invalidates when turn order changes even if the raw request array is unchanged.
 - Fixed local-thread renderer churn so the active thread route now reads narrow conversation slices instead of a whole conversation snapshot, and the mounted transcript body now renders from stable visible-turn entries with parent-turn de-duplication and memoized row measurement.
 - Fixed resumed helper-thread ownership so child threads now carry a canonical `parentThreadId` in their thread summary/snapshot source metadata, letting the mounted body de-duplicate against the parent thread without scanning every renderer-side conversation manager.
 - Fixed local-thread streaming update cost again so hot assistant-text and command-output flushes now patch the materialized conversation state directly instead of rebuilding a full serialized conversation snapshot on every flush.

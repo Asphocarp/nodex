@@ -452,6 +452,58 @@ describe("local-conversation selectors", () => {
     expect((firstSelection.get("turn_2") ?? null) === (secondSelection.get("turn_2") ?? null)).toBeTrue();
   });
 
+  test("invalidates request selection when turns reorder under the same requests array", () => {
+    const sharedRequests = [
+      {
+        type: "userInput" as const,
+        requestId: "user_input_1",
+        projectId: "project_1",
+        cardId: "card_1",
+        threadId: "thread_1",
+        turnId: "turn_1",
+        itemId: "item_1",
+        createdAt: 2,
+        questions: [],
+      },
+      {
+        type: "approval" as const,
+        requestId: "approval_2",
+        kind: "command" as const,
+        projectId: "project_1",
+        cardId: "card_1",
+        threadId: "thread_1",
+        turnId: "turn_2",
+        itemId: "item_2",
+        createdAt: 1,
+      },
+    ];
+    const firstConversation = buildConversation({
+      turns: [
+        buildTurn({ turnId: "turn_1" }),
+        buildTurn({ turnId: "turn_2" }),
+      ],
+      requests: sharedRequests,
+    });
+    const secondConversation = buildConversation({
+      turns: [
+        buildTurn({ turnId: "turn_2" }),
+        buildTurn({ turnId: "turn_1" }),
+      ],
+      requests: sharedRequests,
+    });
+
+    const firstPrimary = selectPrimaryConversationRequest(firstConversation);
+    const secondPrimary = selectPrimaryConversationRequest(secondConversation);
+    const firstLiveRequests = selectConversationLiveRequests(firstConversation);
+    const secondLiveRequests = selectConversationLiveRequests(secondConversation);
+
+    expect(firstPrimary?.type).toBe("approval");
+    expect(secondPrimary?.type).toBe("userInput");
+    expect(firstLiveRequests[0]?.type).toBe("approval");
+    expect(secondLiveRequests[0]?.type).toBe("userInput");
+    expect(firstLiveRequests === secondLiveRequests).toBeFalse();
+  });
+
   test("builds searchable user and assistant units from visible turns", () => {
     const conversation = buildConversation({
       turns: [
