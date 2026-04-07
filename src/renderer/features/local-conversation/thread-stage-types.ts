@@ -47,7 +47,6 @@ export interface ThreadStageModelInput {
   activeThreadSummary: CodexThreadSummary | null;
   conversation: CodexConversationSnapshot | null;
   knownConversationsById: Record<string, CodexConversationSnapshot>;
-  dismissedPlanImplementationTurnIdByThread?: Record<string, string>;
   connection: CodexConnectionState;
   account: CodexAccountSnapshot | null;
   availableModels: CodexModelOption[];
@@ -81,7 +80,7 @@ export interface ThreadStageActions {
   onRespondApproval: (requestId: string, decision: CodexApprovalDecision) => Promise<void>;
   onRespondUserInput: (requestId: string, answers: Record<string, string[]>) => Promise<void>;
   onRespondMcpElicitation: (requestId: string, action: CodexMcpServerElicitationAction) => Promise<void>;
-  onResolvePlanImplementationRequest: (threadId: string, turnId: string) => void;
+  onResolvePlanImplementationRequest: (threadId: string, turnId: string) => Promise<void>;
   onEnqueueQueuedFollowUp: (
     threadId: string,
     prompt: string,
@@ -262,7 +261,6 @@ export interface ThreadBodyModel {
   threadId: string | null;
   turnCount: number;
   hasAboveComposerBlocks: boolean;
-  dismissedPlanImplementationTurnId: string | null;
   isThreadRunning: boolean;
   activeTurnId: string | null;
   latestTurnId: string | null;

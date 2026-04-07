@@ -884,7 +884,7 @@ export interface CodexUserInputRequest {
   createdAt: number;
 }
 
-export interface CodexPlanImplementationRequest {
+export interface CodexPlanImplementationServerRequest {
   type: "implementPlan";
   requestId: string;
   projectId: string | null;
@@ -895,6 +895,8 @@ export interface CodexPlanImplementationRequest {
   planContent: string;
   createdAt: number;
 }
+
+export type CodexPlanImplementationRequest = CodexPlanImplementationServerRequest;
 
 export interface CodexMcpElicitationOption {
   value: string;
@@ -1039,11 +1041,10 @@ export interface CodexConversationCapabilityFlags {
 export type CodexConversationServerRequest =
   | CodexApprovalRequest
   | CodexUserInputRequest
-  | CodexMcpServerElicitationRequest;
+  | CodexMcpServerElicitationRequest
+  | CodexPlanImplementationServerRequest;
 
-export type CodexConversationLiveRequest =
-  | CodexConversationServerRequest
-  | CodexPlanImplementationRequest;
+export type CodexConversationLiveRequest = CodexConversationServerRequest;
 
 export interface CodexConversationSnapshot extends CodexThreadSummary {
   latestCollaborationMode?: CodexCollaborationModeState;

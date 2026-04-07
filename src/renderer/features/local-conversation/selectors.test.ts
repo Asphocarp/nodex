@@ -70,8 +70,19 @@ function buildConversation(
 }
 
 describe("local-conversation selectors", () => {
-  test("derives implement-plan requests from the latest incomplete planImplementation item", () => {
+  test("derives implement-plan requests from matching request and item state", () => {
     const conversation = buildConversation({
+      requests: [{
+        type: "implementPlan",
+        requestId: "implement-plan:turn_1",
+        projectId: "project_1",
+        cardId: "card_1",
+        threadId: "thread_1",
+        turnId: "turn_1",
+        itemId: "implement-plan:turn_1",
+        planContent: "- step 1\n- step 2",
+        createdAt: 10,
+      }],
       turns: [
         buildTurn({
           turnId: "turn_1",
@@ -94,6 +105,63 @@ describe("local-conversation selectors", () => {
     expect(request?.type).toBe("implementPlan");
     expect(request?.turnId).toBe("turn_1");
     expect(request?.planContent).toBe("- step 1\n- step 2");
+  });
+
+  test("does not synthesize an implement-plan request from an item without a request-plane entry", () => {
+    const conversation = buildConversation({
+      turns: [
+        buildTurn({
+          turnId: "turn_1",
+          items: [
+            buildItem({
+              itemId: "implement-plan:turn_1",
+              type: "planImplementation",
+              kind: "planImplementation",
+              semanticKind: "planImplementation",
+              markdownText: "- step 1\n- step 2",
+              updatedAt: 10,
+              status: "inProgress",
+            }),
+          ],
+        }),
+      ],
+    });
+
+    expect(selectPlanImplementationRequest(conversation)).toBe(null);
+  });
+
+  test("does not surface an implement-plan request once the backing item is completed", () => {
+    const conversation = buildConversation({
+      requests: [{
+        type: "implementPlan",
+        requestId: "implement-plan:turn_1",
+        projectId: "project_1",
+        cardId: "card_1",
+        threadId: "thread_1",
+        turnId: "turn_1",
+        itemId: "implement-plan:turn_1",
+        planContent: "- step 1\n- step 2",
+        createdAt: 10,
+      }],
+      turns: [
+        buildTurn({
+          turnId: "turn_1",
+          items: [
+            buildItem({
+              itemId: "implement-plan:turn_1",
+              type: "planImplementation",
+              kind: "planImplementation",
+              semanticKind: "planImplementation",
+              markdownText: "- step 1\n- step 2",
+              updatedAt: 10,
+              status: "completed",
+            }),
+          ],
+        }),
+      ],
+    });
+
+    expect(selectPlanImplementationRequest(conversation)).toBe(null);
   });
 
   test("marks approval and elicitation turns as blocked", () => {

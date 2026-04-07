@@ -70,7 +70,7 @@ function createActions(log: string[]): ThreadStageActions {
     onRespondApproval: async () => {},
     onRespondUserInput: async () => {},
     onRespondMcpElicitation: async () => {},
-    onResolvePlanImplementationRequest: (threadId, turnId) => {
+    onResolvePlanImplementationRequest: async (threadId, turnId) => {
       log.push(`resolve:${threadId}:${turnId}`);
     },
     onEnqueueQueuedFollowUp: async () => {},

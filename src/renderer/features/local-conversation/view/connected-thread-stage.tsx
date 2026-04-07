@@ -10,7 +10,6 @@ import {
   useComposerIntent,
   useConversation,
   useConversationSubset,
-  useDismissedPlanImplementationTurnIds,
   useLocalConversationAccount,
   useLocalConversationConnection,
 } from "../local-conversation-store";
@@ -22,7 +21,6 @@ type ConnectedThreadStageInput = Omit<
   ThreadStageModelInput,
   | "conversation"
   | "knownConversationsById"
-  | "dismissedPlanImplementationTurnIdByThread"
   | "connection"
   | "account"
   | "composerIntent"
@@ -70,11 +68,6 @@ export function ConnectedThreadStage({
     [mergedConversation],
   );
   const knownConversationsById = useConversationSubset(childThreadIds);
-  const dismissedPlanImplementationTurnIdByThread = useDismissedPlanImplementationTurnIds(
-    input.activeThreadId
-      ? [input.activeThreadId, ...childThreadIds]
-      : childThreadIds,
-  );
   const [activeThreadCardColumnId, setActiveThreadCardColumnId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -119,7 +112,6 @@ export function ConnectedThreadStage({
     activeThreadCardColumnId,
     conversation: mergedConversation,
     knownConversationsById,
-    dismissedPlanImplementationTurnIdByThread,
     connection,
     account,
     composerIntent,
@@ -128,7 +120,6 @@ export function ConnectedThreadStage({
     activeThreadCardColumnId,
     composerIntent,
     connection,
-    dismissedPlanImplementationTurnIdByThread,
     input,
     knownConversationsById,
     mergedConversation,

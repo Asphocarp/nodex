@@ -173,6 +173,36 @@ function removeConversationRequest(
   }));
 }
 
+function removePlanImplementationRequest(
+  runtime: ThreadStageStoryRuntimeState,
+  threadId: string,
+  turnId: string,
+): ThreadStageStoryRuntimeState {
+  return updateConversationForThread(runtime, threadId, (conversation) => ({
+    ...conversation,
+    requests: conversation.requests.filter((request) =>
+      request.type !== "implementPlan" || request.turnId !== turnId
+    ),
+    turns: conversation.turns.map((turn) => {
+      if (turn.turnId !== turnId) {
+        return turn;
+      }
+
+      return {
+        ...turn,
+        items: turn.items.map((item) =>
+          item.itemId !== `implement-plan:${turnId}`
+            ? item
+            : {
+                ...item,
+                status: "completed",
+              }),
+      };
+    }),
+    updatedAt: getNextTimestamp(conversation),
+  }));
+}
+
 function updateUserMessage(
   conversation: CodexConversationSnapshot,
   turnId: string,
@@ -407,14 +437,9 @@ export function ThreadStageDevStoryPage({
     onRespondMcpElicitation: async (requestId: string, action: CodexMcpServerElicitationAction) => {
       setRuntime((current) => setStoryLog(removeConversationRequest(current, requestId), `MCP elicitation: ${action}`));
     },
-    onResolvePlanImplementationRequest: (threadId: string, turnId: string) => {
-      setRuntime((current) => ({
-        ...current,
-        dismissedPlanImplementationTurnIdByThread: {
-          ...current.dismissedPlanImplementationTurnIdByThread,
-          [threadId]: turnId,
-        },
-      }));
+    onResolvePlanImplementationRequest: async (threadId: string, turnId: string) => {
+      setRuntime((current) =>
+        setStoryLog(removePlanImplementationRequest(current, threadId, turnId), "Resolved plan implementation request"));
     },
     onEnqueueQueuedFollowUp: async (threadId: string, prompt: string) => {
       setRuntime((current) => {

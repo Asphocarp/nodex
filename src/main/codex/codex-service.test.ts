@@ -97,6 +97,7 @@ interface TestableCodexService {
     threadId: string,
     collaborationMode: "default" | "plan",
   ) => Promise<import("../../shared/types").CodexCollaborationModeState>;
+  removePlanImplementationRequest: (threadId: string, turnId: string) => Promise<boolean>;
 }
 
 function makeThreadDetail(threadId: string): CodexThreadDetail {
@@ -5806,7 +5807,9 @@ describe("codex-service item lifecycle status fallback", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       handleNotification: (method: string, params: unknown) => Promise<void>;
+      listPendingConversationRequests: (threadId: string) => Array<{ type: string; turnId: string }>;
       mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
       persistThreadSnapshot: (threadId: string) => void;
       syncThreadStatusFromKnownTurns: (threadId: string) => void;
     };
@@ -5815,6 +5818,12 @@ describe("codex-service item lifecycle status fallback", () => {
     serviceInternals.syncThreadStatusFromKnownTurns = () => {};
 
     try {
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_plan_impl"),
+        turns: [],
+        transcript: [],
+      });
+
       serviceInternals.mergeTurn("thr_plan_impl", {
         threadId: "thr_plan_impl",
         turnId: "turn_plan_impl",
@@ -5856,6 +5865,159 @@ describe("codex-service item lifecycle status fallback", () => {
       expect(item?.semanticKind).toBe("planImplementation");
       expect(item?.status).toBe("inProgress");
       expect(item?.markdownText).toBe("1. Ship the fix\n2. Verify the behavior");
+
+      const requests = serviceInternals.listPendingConversationRequests("thr_plan_impl");
+      expect(requests.length).toBe(1);
+      expect(requests[0]?.type).toBe("implementPlan");
+      expect(requests[0]?.turnId).toBe("turn_plan_impl");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("creates a planImplementation request from a completed proposed plan even without todo-list updates", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+      mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      listPendingConversationRequests: (threadId: string) => Array<{ type: string; turnId: string }>;
+      persistThreadSnapshot: (threadId: string) => void;
+      syncThreadStatusFromKnownTurns: (threadId: string) => void;
+    };
+
+    serviceInternals.persistThreadSnapshot = () => {};
+    serviceInternals.syncThreadStatusFromKnownTurns = () => {};
+
+    try {
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_plan_impl_no_todo"),
+        turns: [],
+        transcript: [],
+      });
+
+      serviceInternals.mergeTurn("thr_plan_impl_no_todo", {
+        threadId: "thr_plan_impl_no_todo",
+        turnId: "turn_plan_impl_no_todo",
+        status: "inProgress",
+        itemIds: [],
+      });
+
+      await serviceInternals.handleNotification("item/completed", {
+        threadId: "thr_plan_impl_no_todo",
+        turnId: "turn_plan_impl_no_todo",
+        item: {
+          id: "plan_text",
+          type: "plan",
+          text: "1. Ship the fix\n2. Verify the behavior",
+        },
+      });
+
+      await serviceInternals.handleNotification("turn/completed", {
+        threadId: "thr_plan_impl_no_todo",
+        turnId: "turn_plan_impl_no_todo",
+      });
+
+      const requests = serviceInternals.listPendingConversationRequests("thr_plan_impl_no_todo");
+      expect(requests.length).toBe(1);
+      expect(requests[0]?.type).toBe("implementPlan");
+      expect(requests[0]?.turnId).toBe("turn_plan_impl_no_todo");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("removing a planImplementation request completes the item and removes the request-plane entry", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      listPendingConversationRequests: (threadId: string) => Array<{ type: string }>;
+      mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
+      mergeItem: (entry: CodexItemView) => void;
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      syncPlanImplementationForTurn: (threadId: string, turnId: string) => void;
+      persistThreadSnapshot: (threadId: string) => void;
+      syncThreadStatusFromKnownTurns: (threadId: string) => void;
+    };
+
+    serviceInternals.persistThreadSnapshot = () => {};
+    serviceInternals.syncThreadStatusFromKnownTurns = () => {};
+
+    try {
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_plan_impl_remove"),
+        turns: [],
+        transcript: [],
+      });
+
+      serviceInternals.mergeTurn("thr_plan_impl_remove", {
+        threadId: "thr_plan_impl_remove",
+        turnId: "turn_plan_impl_remove",
+        status: "completed",
+        itemIds: ["plan_text", "todo-list:turn_plan_impl_remove", "implement-plan:turn_plan_impl_remove"],
+      });
+
+      serviceInternals.mergeItem({
+        threadId: "thr_plan_impl_remove",
+        turnId: "turn_plan_impl_remove",
+        itemId: "plan_text",
+        type: "plan",
+        normalizedKind: "plan",
+        semanticKind: "proposedPlan",
+        markdownText: "1. Ship the fix\n2. Verify the behavior",
+        createdAt: 10,
+        updatedAt: 10,
+      });
+      serviceInternals.mergeItem({
+        threadId: "thr_plan_impl_remove",
+        turnId: "turn_plan_impl_remove",
+        itemId: "todo-list:turn_plan_impl_remove",
+        type: "todo-list",
+        normalizedKind: "plan",
+        semanticKind: "todoList",
+        markdownText: "1. [x] Ship the fix\n2. [ ] Verify the behavior",
+        rawItem: {
+          id: "todo-list:turn_plan_impl_remove",
+          type: "todo-list",
+          explanation: null,
+          plan: [
+            { step: "Ship the fix", status: "completed" },
+            { step: "Verify the behavior", status: "in_progress" },
+          ],
+        },
+        status: "inProgress",
+        createdAt: 20,
+        updatedAt: 20,
+      });
+
+      serviceInternals.syncPlanImplementationForTurn(
+        "thr_plan_impl_remove",
+        "turn_plan_impl_remove",
+      );
+
+      let requests = serviceInternals.listPendingConversationRequests("thr_plan_impl_remove");
+      expect(requests.length).toBe(1);
+      expect(requests[0]?.type).toBe("implementPlan");
+
+      const removed = await service.removePlanImplementationRequest(
+        "thr_plan_impl_remove",
+        "turn_plan_impl_remove",
+      );
+      expect(removed).toBeTrue();
+
+      requests = serviceInternals.listPendingConversationRequests("thr_plan_impl_remove");
+      expect(requests.length).toBe(0);
+
+      const item = getRecordedItem(
+        serviceInternals as unknown as {
+          getConversationRecord: (threadId: string) => {
+            itemsByTurn: Map<string, Map<string, CodexItemView>>;
+          };
+        },
+        "thr_plan_impl_remove",
+        "turn_plan_impl_remove",
+        "implement-plan:turn_plan_impl_remove",
+      );
+      expect(item?.status).toBe("completed");
     } finally {
       await service.shutdown();
     }

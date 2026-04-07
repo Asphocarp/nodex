@@ -1,6 +1,7 @@
 import type {
   CodexConversationLiveRequest,
   CodexConversationSnapshot,
+  CodexPlanImplementationServerRequest,
   CodexPlanImplementationRequest,
 } from "./types";
 
@@ -16,41 +17,44 @@ export type CodexTurnScopedConversationRequest = Exclude<
   { type: "mcpServerElicitation" }
 >;
 
-interface ConversationRequestSelectionOptions {
-  dismissedPlanImplementationTurnId?: string | null;
-}
-
 export function buildPlanImplementationRequestId(turnId: string): string {
   return `implement-plan:${turnId}`;
 }
 
+function selectPlanImplementationItem(
+  conversation: CodexConversationSnapshot,
+  request: CodexPlanImplementationServerRequest,
+) {
+  const turn = conversation.turns.find((candidate) => candidate.turnId === request.turnId);
+  if (!turn) return null;
+
+  return turn.items.find((item) =>
+    item.itemId === request.itemId
+    && item.semanticKind === "planImplementation"
+    && item.status !== "completed"
+    && (item.markdownText ?? "").trim().length > 0,
+  ) ?? null;
+}
+
 export function selectPlanImplementationRequest(
   conversation: CodexConversationSnapshot | null,
-  options?: ConversationRequestSelectionOptions,
 ): CodexPlanImplementationRequest | null {
   if (!conversation) return null;
 
-  for (let index = conversation.turns.length - 1; index >= 0; index -= 1) {
-    const turn = conversation.turns[index];
-    if (!turn) continue;
-    if (options?.dismissedPlanImplementationTurnId === turn.turnId) continue;
+  const requests = conversation.requests
+    .filter((request): request is CodexPlanImplementationServerRequest => request.type === "implementPlan")
+    .sort((left, right) => right.createdAt - left.createdAt);
 
-    const planImplementationItem = turn.items.find((item) =>
-      item.semanticKind === "planImplementation"
-      && item.status !== "completed"
-      && (item.markdownText ?? "").trim().length > 0);
-    if (!planImplementationItem) continue;
+  for (const request of requests) {
+    const item = selectPlanImplementationItem(conversation, request);
+    if (!item) {
+      continue;
+    }
 
     return {
-      type: "implementPlan",
-      requestId: buildPlanImplementationRequestId(turn.turnId),
-      projectId: conversation.projectId,
-      cardId: conversation.cardId,
-      threadId: conversation.threadId,
-      turnId: turn.turnId,
-      itemId: planImplementationItem.itemId,
-      planContent: (planImplementationItem.markdownText ?? "").trim(),
-      createdAt: planImplementationItem.updatedAt,
+      ...request,
+      planContent: (item.markdownText ?? "").trim(),
+      createdAt: request.createdAt,
     };
   }
 
@@ -59,14 +63,24 @@ export function selectPlanImplementationRequest(
 
 export function selectConversationLiveRequests(
   conversation: CodexConversationSnapshot | null,
-  options?: ConversationRequestSelectionOptions,
 ): CodexConversationLiveRequest[] {
   if (!conversation) return [];
 
-  const planRequest = selectPlanImplementationRequest(conversation, options);
-  const requests = planRequest
-    ? [...conversation.requests, planRequest]
-    : [...conversation.requests];
+  const requests: CodexConversationLiveRequest[] = [];
+  for (const request of conversation.requests) {
+    if (request.type !== "implementPlan") {
+      requests.push(request);
+      continue;
+    }
+
+    const selected = selectPlanImplementationRequest({
+      ...conversation,
+      requests: [request],
+    });
+    if (selected) {
+      requests.push(selected);
+    }
+  }
 
   return requests.sort((left, right) =>
     LIVE_REQUEST_PRIORITY[left.type] - LIVE_REQUEST_PRIORITY[right.type]
@@ -76,16 +90,14 @@ export function selectConversationLiveRequests(
 
 export function selectPrimaryConversationRequest(
   conversation: CodexConversationSnapshot | null,
-  options?: ConversationRequestSelectionOptions,
 ): CodexConversationLiveRequest | null {
-  return selectConversationLiveRequests(conversation, options)[0] ?? null;
+  return selectConversationLiveRequests(conversation)[0] ?? null;
 }
 
 export function selectConversationTurnRequestsByTurnId(
   conversation: CodexConversationSnapshot | null,
-  options?: ConversationRequestSelectionOptions,
 ): Map<string, CodexTurnScopedConversationRequest[]> {
-  const requests = selectConversationLiveRequests(conversation, options).filter(
+  const requests = selectConversationLiveRequests(conversation).filter(
     (request): request is CodexTurnScopedConversationRequest =>
       request.type === "approval"
       || request.type === "userInput"

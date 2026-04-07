@@ -563,6 +563,11 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     (_, threadId: string, collaborationMode: "default" | "plan") =>
       codexService.setConversationCollaborationMode(threadId, collaborationMode),
   );
+  registerHandle(
+    "codex:thread:plan-implementation:remove",
+    (_, threadId: string, turnId: string) =>
+      codexService.removePlanImplementationRequest(threadId, turnId),
+  );
 
   registerHandle(
     "codex:turn:start",

@@ -6,7 +6,6 @@ import { buildTurnRenderModel } from "./build-turn-render-model";
 interface BuildThreadBodyModelInput {
   activeThreadId: string | null;
   conversation: CodexConversationSnapshot | null;
-  dismissedPlanImplementationTurnIdByThread?: Record<string, string>;
   isNewThreadTab: boolean;
   newThreadTarget: {
     projectId: string;
@@ -43,17 +42,13 @@ function resolveHasAboveComposerBlocks(
   conversation: CodexConversationSnapshot,
   activeTurnId: string | null,
   latestTurnId: string | null,
-  dismissedPlanImplementationTurnIdByThread: Record<string, string>,
 ): boolean {
   if (!activeTurnId) return false;
 
   const activeTurn = conversation.turns.find((turn) => turn.turnId === activeTurnId);
   if (!activeTurn) return false;
 
-  const turnRequestsByTurnId = selectConversationTurnRequestsByTurnId(conversation, {
-    dismissedPlanImplementationTurnId:
-      dismissedPlanImplementationTurnIdByThread[conversation.threadId] ?? null,
-  });
+  const turnRequestsByTurnId = selectConversationTurnRequestsByTurnId(conversation);
   const renderedTurn = buildTurnRenderModel({
     turn: activeTurn,
     requests: turnRequestsByTurnId.get(activeTurnId) ?? [],
@@ -69,8 +64,6 @@ function resolveHasAboveComposerBlocks(
 export function buildThreadBodyModel(input: BuildThreadBodyModelInput): ThreadBodyModel {
   const conversation = input.conversation;
   const resumeState = conversation?.resumeState ?? null;
-  const dismissedPlanImplementationTurnIdByThread =
-    input.dismissedPlanImplementationTurnIdByThread ?? {};
   const showThreadStartProgressPanel = Boolean(
     input.isNewThreadTab && !conversation && input.newThreadTarget && input.threadStartProgress,
   );
@@ -81,7 +74,6 @@ export function buildThreadBodyModel(input: BuildThreadBodyModelInput): ThreadBo
         threadId: input.activeThreadId,
         turnCount: 0,
         hasAboveComposerBlocks: false,
-        dismissedPlanImplementationTurnId: null,
         isThreadRunning: false,
         activeTurnId: null,
         latestTurnId: null,
@@ -103,7 +95,6 @@ export function buildThreadBodyModel(input: BuildThreadBodyModelInput): ThreadBo
         threadId: null,
         turnCount: 0,
         hasAboveComposerBlocks: false,
-        dismissedPlanImplementationTurnId: null,
         isThreadRunning: false,
         activeTurnId: null,
         latestTurnId: null,
@@ -124,7 +115,6 @@ export function buildThreadBodyModel(input: BuildThreadBodyModelInput): ThreadBo
       threadId: null,
       turnCount: 0,
       hasAboveComposerBlocks: false,
-      dismissedPlanImplementationTurnId: null,
       isThreadRunning: false,
       activeTurnId: null,
       latestTurnId: null,
@@ -142,8 +132,6 @@ export function buildThreadBodyModel(input: BuildThreadBodyModelInput): ThreadBo
       threadId: conversation.threadId,
       turnCount: 0,
       hasAboveComposerBlocks: false,
-      dismissedPlanImplementationTurnId:
-        dismissedPlanImplementationTurnIdByThread[conversation.threadId] ?? null,
       isThreadRunning: false,
       activeTurnId: null,
       latestTurnId: null,
@@ -173,8 +161,6 @@ export function buildThreadBodyModel(input: BuildThreadBodyModelInput): ThreadBo
       threadId: conversation.threadId,
       turnCount: 0,
       hasAboveComposerBlocks: false,
-      dismissedPlanImplementationTurnId:
-        dismissedPlanImplementationTurnIdByThread[conversation.threadId] ?? null,
       isThreadRunning,
       activeTurnId,
       latestTurnId,
@@ -194,10 +180,7 @@ export function buildThreadBodyModel(input: BuildThreadBodyModelInput): ThreadBo
       conversation,
       activeTurnId,
       latestTurnId,
-      dismissedPlanImplementationTurnIdByThread,
     ),
-    dismissedPlanImplementationTurnId:
-      dismissedPlanImplementationTurnIdByThread[conversation.threadId] ?? null,
     isThreadRunning,
     activeTurnId,
     latestTurnId,

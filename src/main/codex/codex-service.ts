@@ -57,6 +57,7 @@ import type {
   CodexMcpServerElicitationAction,
   CodexMcpServerElicitationRequest,
   CodexModelOption,
+  CodexPlanImplementationServerRequest,
   CodexPendingSteer,
   CodexPermissionMode,
   CodexQueuedFollowUp,
@@ -280,6 +281,7 @@ type CodexConversationStreamRole = "owner" | "follower" | null;
 interface CodexConversationRecord {
   detail: CodexThreadDetail | null;
   itemsByTurn: Map<string, Map<string, CodexItemView>>;
+  planImplementationRequestsByTurnId: Map<string, CodexPlanImplementationServerRequest>;
   queuedFollowUps: CodexQueuedFollowUp[];
   pendingSteers: CodexPendingSteer[];
   latestCollaborationMode: CodexCollaborationModeState;
@@ -1326,6 +1328,7 @@ export class CodexService extends EventEmitter {
     return {
       detail: null,
       itemsByTurn: new Map<string, Map<string, CodexItemView>>(),
+      planImplementationRequestsByTurnId: new Map<string, CodexPlanImplementationServerRequest>(),
       queuedFollowUps: [],
       pendingSteers: [],
       latestCollaborationMode: this.buildDefaultCollaborationModeState(),
@@ -2553,6 +2556,86 @@ export class CodexService extends EventEmitter {
 
   private buildMcpServerElicitationItemId(requestId: string): string {
     return `mcp-server-elicitation-${requestId}`;
+  }
+
+  private buildPlanImplementationServerRequest(
+    threadId: string,
+    turnId: string,
+    itemId: string,
+    planContent: string,
+    createdAt: number,
+  ): CodexPlanImplementationServerRequest {
+    const detail = this.ensureConversationDetail(threadId);
+
+    return {
+      type: "implementPlan",
+      requestId: buildPlanImplementationRequestId(turnId),
+      projectId: detail?.projectId ?? null,
+      cardId: detail?.cardId ?? null,
+      threadId,
+      turnId,
+      itemId,
+      planContent,
+      createdAt,
+    };
+  }
+
+  private upsertPlanImplementationRequest(
+    threadId: string,
+    turnId: string,
+    planContent: string,
+    itemCreatedAt: number,
+  ): CodexPlanImplementationServerRequest {
+    const record = this.ensureConversationRecord(threadId);
+    const itemId = buildPlanImplementationRequestId(turnId);
+    const existing = record.planImplementationRequestsByTurnId.get(turnId);
+    const request = this.buildPlanImplementationServerRequest(
+      threadId,
+      turnId,
+      itemId,
+      planContent,
+      existing?.createdAt ?? itemCreatedAt,
+    );
+    record.planImplementationRequestsByTurnId.set(turnId, request);
+    return request;
+  }
+
+  private removePlanImplementationRequestFromRecord(threadId: string, turnId: string): void {
+    this.ensureConversationRecord(threadId).planImplementationRequestsByTurnId.delete(turnId);
+  }
+
+  private syncPlanImplementationRequestFromRecordedItem(threadId: string, turnId: string): void {
+    const item = this.getRecordedItem(threadId, turnId, buildPlanImplementationRequestId(turnId));
+    const planContent = item?.markdownText?.trim() ?? "";
+    if (!item || item.status === "completed" || planContent.length === 0) {
+      this.removePlanImplementationRequestFromRecord(threadId, turnId);
+      return;
+    }
+
+    this.upsertPlanImplementationRequest(
+      threadId,
+      turnId,
+      planContent,
+      item.createdAt,
+    );
+  }
+
+  private reconcilePlanImplementationRequests(threadId: string): void {
+    const record = this.getMaybeConversationRecord(threadId);
+    if (!record?.detail) {
+      return;
+    }
+
+    const knownTurnIds = new Set(record.detail.turns.map((turn) => turn.turnId));
+    for (const turnId of Array.from(record.planImplementationRequestsByTurnId.keys())) {
+      if (!knownTurnIds.has(turnId)) {
+        record.planImplementationRequestsByTurnId.delete(turnId);
+      }
+    }
+
+    for (const turn of record.detail.turns) {
+      this.syncPlanImplementationRequestFromRecordedItem(threadId, turn.turnId);
+    }
   }
 
   private buildUserInputResponseItemId(requestId: string): string {
@@ -4495,27 +4578,15 @@ export class CodexService extends EventEmitter {
     if (!byItem || byItem.size === 0) return;
 
     const items = Array.from(byItem.values());
-    const latestTodoList = items
-      .filter((item) => item.semanticKind === "todoList")
-      .sort((left, right) => left.updatedAt - right.updatedAt)
-      .at(-1);
     const latestPlan = items
       .filter((item) => item.type === "plan" && (item.markdownText?.trim().length ?? 0) > 0)
       .sort((left, right) => left.updatedAt - right.updatedAt)
       .at(-1);
-    const rawTodo = asRecord(latestTodoList?.rawItem);
-    const planSteps = Array.isArray(rawTodo?.plan)
-      ? rawTodo.plan.flatMap((candidate) => {
-          const parsed = asRecord(candidate);
-          if (!parsed || typeof parsed.step !== "string" || typeof parsed.status !== "string") return [];
-          return [{ step: parsed.step, status: parsed.status }];
-        })
-      : [];
-    const hasIncompletePlan = planSteps.some((step) => step.status !== "completed");
     const planContent = latestPlan?.markdownText?.trim() ?? "";
     const existing = this.getRecordedItem(threadId, turnId, buildPlanImplementationRequestId(turnId));
 
-    if (!hasIncompletePlan || planContent.length === 0) {
+    if (planContent.length === 0) {
+      this.removePlanImplementationRequestFromRecord(threadId, turnId);
       if (!existing) return;
       this.mergeItem(this.buildPlanImplementationItemView({
         threadId,
@@ -4527,18 +4598,21 @@ export class CodexService extends EventEmitter {
     }
 
     this.upsertCanonicalTurnItem(threadId, turnId, buildPlanImplementationRequestId(turnId), "completed");
-    this.mergeItem(this.buildPlanImplementationItemView({
+    const item = this.buildPlanImplementationItemView({
       threadId,
       turnId,
       planContent,
       isCompleted: false,
-    }));
+    });
+    this.mergeItem(item);
+    this.upsertPlanImplementationRequest(threadId, turnId, planContent, item.createdAt);
   }
 
   private completeStalePlanImplementationItems(threadId: string, activeTurnId: string): void {
     const turns = this.listKnownTurns(threadId);
     for (const turn of turns) {
       if (turn.turnId === activeTurnId) continue;
+      this.removePlanImplementationRequestFromRecord(threadId, turn.turnId);
       const existing = this.getRecordedItem(threadId, turn.turnId, buildPlanImplementationRequestId(turn.turnId));
       if (!existing || existing.status === "completed") continue;
       this.mergeItem(this.buildPlanImplementationItemView({
@@ -4548,6 +4622,25 @@ export class CodexService extends EventEmitter {
         isCompleted: true,
       }));
     }
+  }
+
+  async removePlanImplementationRequest(threadId: string, turnId: string): Promise<boolean> {
+    await this.ensureClientReady();
+
+    const existing = this.getRecordedItem(threadId, turnId, buildPlanImplementationRequestId(turnId));
+    this.removePlanImplementationRequestFromRecord(threadId, turnId);
+
+    if (existing && existing.status !== "completed") {
+      this.mergeItem(this.buildPlanImplementationItemView({
+        threadId,
+        turnId,
+        planContent: existing.markdownText ?? "",
+        isCompleted: true,
+      }));
+    }
+
+    this.emitThreadStreamStateChange(threadId);
+    return true;
   }
 
   private async handleServerRequest(request: CodexServerRequest): Promise<unknown> {
@@ -5145,6 +5238,7 @@ export class CodexService extends EventEmitter {
   }
 
   private listPendingConversationRequests(threadId: string): CodexConversationServerRequest[] {
+    this.reconcilePlanImplementationRequests(threadId);
     const approvals = Array.from(this.pendingApprovals.values())
       .map((pending) => pending.request)
       .filter((request) => request.threadId === threadId);
@@ -5154,8 +5248,12 @@ export class CodexService extends EventEmitter {
     const mcpElicitations = Array.from(this.pendingMcpElicitations.values())
       .map((pending) => pending.request)
       .filter((request) => request.threadId === threadId);
+    const planImplementationRequests = Array.from(
+      this.getConversationRecord(threadId).planImplementationRequestsByTurnId.values(),
+    );
 
-    return [...approvals, ...userInputs, ...mcpElicitations].sort((left, right) => left.createdAt - right.createdAt);
+    return [...approvals, ...userInputs, ...mcpElicitations, ...planImplementationRequests]
+      .sort((left, right) => left.createdAt - right.createdAt);
   }
 
   private async handleNotification(method: string, params: unknown): Promise<void> {

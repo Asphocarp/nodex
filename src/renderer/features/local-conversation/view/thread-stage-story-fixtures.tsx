@@ -62,7 +62,6 @@ export interface ThreadStageStoryRuntimeState {
   activeThreadSummary: CodexThreadSummary | null;
   conversation: CodexConversationSnapshot | null;
   knownConversationsById: Record<string, CodexConversationSnapshot>;
-  dismissedPlanImplementationTurnIdByThread: Record<string, string>;
   searchOpenTick: number;
   composerIntent: CodexComposerIntent | null;
   threadStartProgress: ThreadStageModelInput["threadStartProgress"];
@@ -640,6 +639,21 @@ function buildUserInputRequestConversation(): CodexConversationSnapshot {
 function buildImplementPlanConversation(): CodexConversationSnapshot {
   return buildStoryConversation({
     updatedAt: 30_000,
+    requests: [{
+      type: "implementPlan",
+      requestId: "implement-plan:turn_story_plan",
+      projectId: STORY_PROJECT_ID,
+      cardId: STORY_CARD_ID,
+      threadId: STORY_THREAD_ID,
+      turnId: "turn_story_plan",
+      itemId: "implement-plan:turn_story_plan",
+      planContent: [
+        "1. Add story fixtures on top of buildThreadStageModel.",
+        "2. Cover tool-call families and request cards with focused stories.",
+        "3. Extract the threadSection row for editor and Storybook reuse.",
+      ].join("\n"),
+      createdAt: 29_500,
+    }],
     turns: [
       buildStoryConversationTurn({
         turnId: "turn_story_plan",
@@ -1623,7 +1637,6 @@ function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageSt
     knownConversationsById: {
       [STORY_THREAD_ID]: completedConversation,
     },
-    dismissedPlanImplementationTurnIdByThread: {},
     searchOpenTick: 0,
     composerIntent: null,
     threadStartProgress: null,
@@ -1883,7 +1896,6 @@ export function buildThreadStageStoryModel(
     activeThreadSummary: runtime.activeThreadSummary,
     conversation: runtime.conversation,
     knownConversationsById: runtime.knownConversationsById,
-    dismissedPlanImplementationTurnIdByThread: runtime.dismissedPlanImplementationTurnIdByThread,
     connection: DEFAULT_CONNECTION,
     account: controls.authenticatedAccount ? DEFAULT_ACCOUNT_AUTHENTICATED : DEFAULT_ACCOUNT_SIGNED_OUT,
     availableModels: DEFAULT_MODELS,

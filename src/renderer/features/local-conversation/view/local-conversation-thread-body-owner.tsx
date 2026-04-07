@@ -230,12 +230,9 @@ export function LocalConversationThreadBodyOwner({
   const turnRequestsByTurnId = useMemo(
     () =>
       conversation
-        ? selectConversationTurnRequestsByTurnId(conversation, {
-            dismissedPlanImplementationTurnId:
-              body.dismissedPlanImplementationTurnId,
-          })
+        ? selectConversationTurnRequestsByTurnId(conversation)
         : new Map(),
-    [body.dismissedPlanImplementationTurnId, conversation],
+    [conversation],
   );
   const latestTurnId = body.latestTurnId;
   const editableTurnId =

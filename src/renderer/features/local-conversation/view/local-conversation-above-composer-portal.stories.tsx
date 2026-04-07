@@ -47,7 +47,7 @@ function buildActions(): ThreadStageActions {
     onRespondApproval: async () => { },
     onRespondUserInput: async () => { },
     onRespondMcpElicitation: async () => { },
-    onResolvePlanImplementationRequest: () => { },
+    onResolvePlanImplementationRequest: async () => { },
     onEnqueueQueuedFollowUp: async () => { },
     onRemoveQueuedFollowUp: async () => { },
     onReorderQueuedFollowUps: async () => { },
@@ -73,9 +73,7 @@ function resolveStoryAboveComposerBlocks(
   const activeTurn = conversation.turns.find((turn) => turn.turnId === activeTurnId);
   if (!activeTurn) return [];
 
-  const turnRequestsByTurnId = selectConversationTurnRequestsByTurnId(conversation, {
-    dismissedPlanImplementationTurnId: model.body.dismissedPlanImplementationTurnId,
-  });
+  const turnRequestsByTurnId = selectConversationTurnRequestsByTurnId(conversation);
 
   return buildTurnRenderModel({
     turn: activeTurn,

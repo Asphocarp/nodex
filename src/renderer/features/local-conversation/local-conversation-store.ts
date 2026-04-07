@@ -62,7 +62,6 @@ const INITIAL_CONNECTION: CodexConnectionState = {
 };
 
 const EMPTY_THREADS: CodexThreadSummary[] = [];
-const EMPTY_DISMISSED_TURN_IDS: Record<string, string> = {};
 const EMPTY_CONVERSATION_MAP: Record<string, CodexConversationSnapshot> = {};
 const EMPTY_MODELS: CodexModelOption[] = [];
 const DEFAULT_COLLABORATION_MODE_STATE: CodexCollaborationModeState = {
@@ -151,25 +150,6 @@ function areThreadSummariesStructurallyEqual(
 function areConversationMapSelectionsEqual(
   left: Record<string, CodexConversationSnapshot>,
   right: Record<string, CodexConversationSnapshot>,
-): boolean {
-  const leftKeys = Object.keys(left);
-  const rightKeys = Object.keys(right);
-  if (leftKeys.length !== rightKeys.length) {
-    return false;
-  }
-
-  for (const key of leftKeys) {
-    if (left[key] !== right[key]) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-function areDismissedTurnIdsEqual(
-  left: Record<string, string>,
-  right: Record<string, string>,
 ): boolean {
   const leftKeys = Object.keys(left);
   const rightKeys = Object.keys(right);
@@ -330,7 +310,6 @@ export class CodexAppServerManager {
   private readonly conversationsById = new Map<string, CodexConversationSnapshot>();
   private readonly conversationVersionById = new Map<string, number>();
   private readonly composerIntentsByThread = new Map<string, CodexComposerIntent>();
-  private readonly dismissedPlanImplementationTurnIdByThread = new Map<string, string>();
   private readonly permissionModeByProject = new Map<string, CodexPermissionMode>();
   private readonly threadStartProgressByTarget = new Map<string, CodexThreadStartProgressState>();
   private readonly threadTitlesById = new Map<string, string>();
@@ -431,10 +410,6 @@ export class CodexAppServerManager {
 
   readComposerIntent(threadId: string): CodexComposerIntent | null {
     return this.composerIntentsByThread.get(threadId) ?? null;
-  }
-
-  readDismissedPlanImplementationTurnId(threadId: string): string | null {
-    return this.dismissedPlanImplementationTurnIdByThread.get(threadId) ?? null;
   }
 
   readPermissionMode(projectId: string): CodexPermissionMode {
@@ -768,13 +743,47 @@ export class CodexAppServerManager {
     this.notifyConversationCallbacks(threadId);
   }
 
-  resolvePlanImplementation(threadId: string, turnId: string): void {
-    if (this.dismissedPlanImplementationTurnIdByThread.get(threadId) === turnId) {
-      return;
+  async removePlanImplementationRequest(threadId: string, turnId: string): Promise<boolean> {
+    const currentConversation = this.conversationsById.get(threadId);
+    if (currentConversation) {
+      const nextTurns = currentConversation.turns.map((turn) => {
+        if (turn.turnId !== turnId) {
+          return turn;
+        }
+
+        return {
+          ...turn,
+          items: turn.items.map((item) =>
+            item.itemId !== `implement-plan:${turnId}`
+              ? item
+              : {
+                  ...item,
+                  status: "completed" as const,
+                  rawItem: typeof item.rawItem === "object" && item.rawItem !== null
+                    ? {
+                        ...item.rawItem,
+                        isCompleted: true,
+                      }
+                    : item.rawItem,
+                }),
+        };
+      });
+      this.applyConversationSnapshot(threadId, {
+        ...currentConversation,
+        turns: nextTurns,
+        requests: currentConversation.requests.filter((request) =>
+          request.type !== "implementPlan" || request.turnId !== turnId
+        ),
+      });
+      this.streamRoles.set(threadId, "owner");
     }
 
-    this.dismissedPlanImplementationTurnIdByThread.set(threadId, turnId);
-    this.notifyConversationCallbacks(threadId);
+    try {
+      return (await invoke("codex:thread:plan-implementation:remove", threadId, turnId)) as boolean;
+    } catch (error) {
+      this.resyncConversation(threadId);
+      throw error;
+    }
   }
 
   resetForTests(): void {
@@ -788,7 +797,6 @@ export class CodexAppServerManager {
     this.conversationsById.clear();
     this.conversationVersionById.clear();
     this.composerIntentsByThread.clear();
-    this.dismissedPlanImplementationTurnIdByThread.clear();
     this.permissionModeByProject.clear();
     this.threadStartProgressByTarget.clear();
     this.threadTitlesById.clear();
@@ -1632,8 +1640,8 @@ export function consumeLocalConversationComposerIntent(threadId: string, focusNo
   getDefaultLocalConversationManager().consumeComposerIntent(threadId, focusNonce);
 }
 
-export function resolveLocalConversationPlanImplementation(threadId: string, turnId: string): void {
-  getDefaultLocalConversationManager().resolvePlanImplementation(threadId, turnId);
+export function removeLocalConversationPlanImplementationRequest(threadId: string, turnId: string): Promise<boolean> {
+  return getDefaultLocalConversationManager().removePlanImplementationRequest(threadId, turnId);
 }
 
 export function setLocalConversationCollaborationMode(
@@ -1728,53 +1736,6 @@ export function useComposerIntent(threadId: string | null): CodexComposerIntent 
           })
         : () => {},
     () => (threadId ? manager.readComposerIntent(threadId) : null),
-  );
-}
-
-export function useDismissedPlanImplementationTurnIds(threadIds: readonly string[]): Record<string, string> {
-  const registry = useCodexAppServerRegistry();
-  return useExternalSelector(
-    (listener) => {
-      if (threadIds.length === 0) {
-        return () => {};
-      }
-
-      const unsubs = threadIds.map((threadId) => {
-        const manager = registry.getMaybeForConversationId(threadId) ?? registry.getDefault();
-        return manager.addConversationCallback(threadId, () => {
-          listener();
-        });
-      });
-
-      const unsubscribeRegistry = registry.addRegistryCallback(listener);
-      return () => {
-        unsubscribeRegistry();
-        for (const unsubscribe of unsubs) {
-          unsubscribe();
-        }
-      };
-    },
-    () => {
-      if (threadIds.length === 0) {
-        return EMPTY_DISMISSED_TURN_IDS;
-      }
-
-      let hasDismissedTurnId = false;
-      const turnIds: Record<string, string> = {};
-      for (const threadId of threadIds) {
-        const manager = registry.getMaybeForConversationId(threadId) ?? registry.getDefault();
-        const turnId = manager.readDismissedPlanImplementationTurnId(threadId);
-        if (!turnId) {
-          continue;
-        }
-
-        turnIds[threadId] = turnId;
-        hasDismissedTurnId = true;
-      }
-
-      return hasDismissedTurnId ? turnIds : EMPTY_DISMISSED_TURN_IDS;
-    },
-    areDismissedTurnIdsEqual,
   );
 }
 

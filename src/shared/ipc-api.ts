@@ -428,6 +428,10 @@ export interface IpcApi {
     args: [threadId: string, collaborationMode: "default" | "plan"];
     result: CodexCollaborationModeState;
   };
+  "codex:thread:plan-implementation:remove": {
+    args: [threadId: string, turnId: string];
+    result: boolean;
+  };
   "codex:turn:start": {
     args: [threadId: string, prompt: string, opts?: CodexTurnStartOptions];
     result: CodexTurnSummary | null;

@@ -14,12 +14,10 @@ export function buildThreadStageModel(input: ThreadStageModelInput): ThreadStage
   const composerShell = buildComposerShellModel({
     conversation: input.conversation,
     knownConversationsById: input.knownConversationsById,
-    dismissedPlanImplementationTurnIdByThread: input.dismissedPlanImplementationTurnIdByThread,
   });
   const body = buildThreadBodyModel({
     activeThreadId: input.activeThreadId,
     conversation: input.conversation,
-    dismissedPlanImplementationTurnIdByThread: input.dismissedPlanImplementationTurnIdByThread,
     isNewThreadTab: input.isNewThreadTab,
     newThreadTarget: input.newThreadTarget,
     isCloudNewThreadTarget,

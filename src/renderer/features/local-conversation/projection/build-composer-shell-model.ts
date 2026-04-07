@@ -8,12 +8,14 @@ import {
   buildComposerPendingSteerRows,
   buildComposerQueuedFollowUpRows,
 } from "./build-composer-follow-up-lane-model";
-import { selectPrimaryConversationRequest } from "../conversation-request-helpers";
+import {
+  isBlockingConversationRequest,
+  selectPrimaryConversationRequest,
+} from "../conversation-request-helpers";
 
 interface BuildComposerShellModelInput {
   conversation: CodexConversationSnapshot | null;
   knownConversationsById: Record<string, CodexConversationSnapshot>;
-  dismissedPlanImplementationTurnIdByThread?: Record<string, string>;
 }
 
 function resolveRequestItem(
@@ -29,13 +31,10 @@ function resolveRequestItem(
 function resolveBackgroundRequest(
   conversation: CodexConversationSnapshot,
   knownConversationsById: Record<string, CodexConversationSnapshot>,
-  dismissedPlanImplementationTurnIdByThread: Record<string, string>,
 ): ThreadComposerShellPendingRequestModel | null {
   for (const membership of conversation.childMemberships) {
     const childConversation = knownConversationsById[membership.threadId];
-    const request = selectPrimaryConversationRequest(childConversation ?? null, {
-      dismissedPlanImplementationTurnId: dismissedPlanImplementationTurnIdByThread[membership.threadId] ?? null,
-    });
+    const request = selectPrimaryConversationRequest(childConversation ?? null);
     if (!request || request.type !== "approval") {
       continue;
     }
@@ -55,9 +54,12 @@ function resolveBackgroundRequest(
 function resolveBackgroundAgentStatus(
   conversation: CodexConversationSnapshot,
 ): ThreadComposerShellBackgroundAgentRowModel["status"] {
+  const hasBlockingRequest = conversation.requests.some((request) =>
+    isBlockingConversationRequest(request),
+  );
   const isWaiting = conversation.statusActiveFlags.includes("waitingOnApproval")
     || conversation.statusActiveFlags.includes("waitingOnUserInput")
-    || conversation.requests.length > 0;
+    || hasBlockingRequest;
   if (isWaiting) {
     return "waiting";
   }
@@ -99,7 +101,6 @@ export function buildComposerShellModel(
   input: BuildComposerShellModelInput,
 ): ThreadComposerShellModel {
   const conversation = input.conversation;
-  const dismissedPlanImplementationTurnIdByThread = input.dismissedPlanImplementationTurnIdByThread ?? {};
   if (!conversation) {
     return {
       activeRequest: null,
@@ -114,13 +115,10 @@ export function buildComposerShellModel(
     };
   }
 
-  const activeRequest = selectPrimaryConversationRequest(conversation, {
-    dismissedPlanImplementationTurnId: dismissedPlanImplementationTurnIdByThread[conversation.threadId] ?? null,
-  });
+  const activeRequest = selectPrimaryConversationRequest(conversation);
   const backgroundRequest = resolveBackgroundRequest(
     conversation,
     input.knownConversationsById,
-    dismissedPlanImplementationTurnIdByThread,
   );
 
   const showRequestCards = activeRequest !== null || backgroundRequest !== null;

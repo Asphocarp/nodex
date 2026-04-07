@@ -49,8 +49,8 @@ import {
   readStripSmartPrefixFromTitleEnabled,
   readWorktreeAutoBranchPrefix,
   readWorktreeStartMode,
+  removeLocalConversationPlanImplementationRequest,
   resolveExpandedStages,
-  resolveLocalConversationPlanImplementation,
   resolveSlidingWindowFocusIntent,
   requestLocalConversationSnapshot,
   SettingsOverlay,
@@ -1359,8 +1359,8 @@ export function WorkbenchShell({
     onRespondMcpElicitation: async (requestId, action) => {
       await respondMcpElicitation(requestId, action);
     },
-    onResolvePlanImplementationRequest: (threadId, turnId) => {
-      resolveLocalConversationPlanImplementation(threadId, turnId);
+    onResolvePlanImplementationRequest: async (threadId, turnId) => {
+      await removeLocalConversationPlanImplementationRequest(threadId, turnId);
     },
     onEnqueueQueuedFollowUp: async (threadId, prompt, opts) => {
       await threadFollowerClient.enqueueQueuedFollowUp(threadId, prompt, {
@@ -1421,7 +1421,7 @@ export function WorkbenchShell({
     logout,
     navigateToThreadTab,
     refreshAccount,
-    resolveLocalConversationPlanImplementation,
+    removeLocalConversationPlanImplementationRequest,
     respondApproval,
     respondMcpElicitation,
     respondUserInput,

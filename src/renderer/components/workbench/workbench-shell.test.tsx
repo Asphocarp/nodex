@@ -209,7 +209,7 @@ mock.module("./workbench-shell-deps", () => ({
       __mockRequestConversationSnapshot?: (...args: unknown[]) => Promise<unknown>;
     }).__mockRequestConversationSnapshot?.(...args) ?? null
   ),
-  resolveLocalConversationPlanImplementation: () => undefined,
+  removeLocalConversationPlanImplementationRequest: async () => true,
   setLocalConversationCollaborationMode: async (threadId: string, mode: "default" | "plan") => {
     const globalState = globalThis as {
       __mockConversationModesById?: Record<string, { mode: "default" | "plan"; settings: { model: string; reasoning_effort: "high"; developer_instructions: null } }>;

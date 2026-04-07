@@ -47,7 +47,7 @@ function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActio
     onRespondApproval: async () => { },
     onRespondUserInput: async () => { },
     onRespondMcpElicitation: async () => { },
-    onResolvePlanImplementationRequest: () => { },
+    onResolvePlanImplementationRequest: async () => { },
     onEnqueueQueuedFollowUp: async () => { },
     onRemoveQueuedFollowUp: async () => { },
     onReorderQueuedFollowUps: async () => { },
