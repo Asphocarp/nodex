@@ -460,6 +460,8 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   registerHandle("codex:account:read", () => codexService.readAccountSnapshot());
 
+  registerHandle("codex:dictation:state:read", () => codexService.readDictationStateSnapshot());
+
   registerHandle("codex:account:login:start", (_, input) => codexService.startAccountLogin(input));
 
   registerHandle("codex:account:login:cancel", (_, loginId: string) =>

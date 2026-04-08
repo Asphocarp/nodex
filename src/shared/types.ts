@@ -510,6 +510,13 @@ export interface CodexAccountSnapshot {
   rateLimits?: CodexRateLimitsSnapshot | null;
 }
 
+export interface CodexDictationStateSnapshot {
+  isEnabled: boolean;
+  authMethod: "chatgpt" | "apiKey" | null;
+  isRealtimeVoiceActive: boolean;
+  shortcutLabel: string;
+}
+
 export interface CodexThreadSummary {
   threadId: string;
   projectId: string;

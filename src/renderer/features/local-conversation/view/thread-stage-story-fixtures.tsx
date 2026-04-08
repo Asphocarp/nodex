@@ -6,6 +6,7 @@ import type {
   CodexCommandAction,
   CodexComposerIntent,
   CodexConnectionState,
+  CodexDictationStateSnapshot,
   CodexConversationItem,
   CodexConversationSnapshot,
   CodexConversationTurn,
@@ -175,6 +176,13 @@ const DEFAULT_REASONING_OPTIONS: CodexReasoningEffortOption[] = [
   { reasoningEffort: "medium", description: "Balanced" },
   { reasoningEffort: "high", description: "Thorough" },
 ];
+
+const DEFAULT_DICTATION_STATE: CodexDictationStateSnapshot = {
+  isEnabled: true,
+  authMethod: "chatgpt",
+  isRealtimeVoiceActive: false,
+  shortcutLabel: "Ctrl+M",
+};
 
 type StoryUserInputQuestion = CodexUserInputRequest["questions"][number];
 
@@ -2265,6 +2273,7 @@ export function buildThreadStageStorySurfaceModels(
     isQueueingEnabled: controls.isQueueingEnabled,
     composerEnterBehavior: "enter",
     composerIntent: runtime.composerIntent,
+    dictation: DEFAULT_DICTATION_STATE,
   };
 
   const bodyModel: ThreadBodySurfaceModel = {

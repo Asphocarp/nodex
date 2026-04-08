@@ -25,6 +25,7 @@ import type {
   CodexConversationServerRequest,
   CodexConversationSnapshot,
   CodexConversationTurn,
+  CodexDictationStateSnapshot,
   CodexConversationLiveRequest,
   CodexMcpServerElicitationAction,
   CodexModelOption,
@@ -111,6 +112,13 @@ const DEFAULT_COLLABORATION_MODE_STATE: CodexCollaborationModeState = {
     reasoning_effort: "medium",
     developer_instructions: null,
   },
+};
+
+const DEFAULT_CODEX_DICTATION_STATE: CodexDictationStateSnapshot = {
+  isEnabled: false,
+  authMethod: null,
+  isRealtimeVoiceActive: false,
+  shortcutLabel: "Ctrl+M",
 };
 
 type StoreListener = () => void;
@@ -516,6 +524,7 @@ function resolveProjectPermissionMode(
 export class CodexAppServerManager {
   private connection: CodexConnectionState = INITIAL_CONNECTION;
   private account: CodexAccountSnapshot | null = null;
+  private dictationState: CodexDictationStateSnapshot = DEFAULT_CODEX_DICTATION_STATE;
   private availableModels: CodexModelOption[] = EMPTY_MODELS;
   private readonly threadSummariesByProject = new Map<string, CodexThreadSummary[]>();
   private readonly threadSummariesById = new Map<string, CodexThreadSummary>();
@@ -580,6 +589,7 @@ export class CodexAppServerManager {
 
     this.bootstrapStarted = true;
     void this.bootstrapAccountAndConnection();
+    void this.bootstrapDictationState();
     void this.bootstrapAvailableModels();
     void this.bootstrapPermissionModes();
   }
@@ -605,6 +615,10 @@ export class CodexAppServerManager {
 
   readAvailableModels(): CodexModelOption[] {
     return this.availableModels;
+  }
+
+  readDictationState(): CodexDictationStateSnapshot {
+    return this.dictationState;
   }
 
   readProjectThreadSummaries(projectId: string): CodexThreadSummary[] {
@@ -777,6 +791,12 @@ export class CodexAppServerManager {
     const models = (await invoke("codex:model:list")) as CodexModelOption[];
     this.setAvailableModels(models);
     return models;
+  }
+
+  async loadDictationState(): Promise<CodexDictationStateSnapshot> {
+    const nextState = (await invoke("codex:dictation:state:read")) as CodexDictationStateSnapshot;
+    this.setDictationState(nextState);
+    return nextState;
   }
 
   async listCollaborationModes(): Promise<CodexCollaborationModePreset[]> {
@@ -1008,6 +1028,7 @@ export class CodexAppServerManager {
   resetForTests(): void {
     this.connection = INITIAL_CONNECTION;
     this.account = null;
+    this.dictationState = DEFAULT_CODEX_DICTATION_STATE;
     this.availableModels = EMPTY_MODELS;
     this.threadSummariesByProject.clear();
     this.threadSummariesById.clear();
@@ -1063,6 +1084,14 @@ export class CodexAppServerManager {
     }
   }
 
+  private async bootstrapDictationState(): Promise<void> {
+    try {
+      await this.loadDictationState();
+    } catch {
+      this.setDictationState(DEFAULT_CODEX_DICTATION_STATE);
+    }
+  }
+
   private async bootstrapAvailableModels(): Promise<void> {
     try {
       await this.loadAvailableModels();
@@ -1100,6 +1129,20 @@ export class CodexAppServerManager {
     this.notifyControlCallbacks();
   }
 
+  private setDictationState(nextState: CodexDictationStateSnapshot): void {
+    if (
+      this.dictationState.isEnabled === nextState.isEnabled
+      && this.dictationState.authMethod === nextState.authMethod
+      && this.dictationState.isRealtimeVoiceActive === nextState.isRealtimeVoiceActive
+      && this.dictationState.shortcutLabel === nextState.shortcutLabel
+    ) {
+      return;
+    }
+
+    this.dictationState = nextState;
+    this.notifyControlCallbacks();
+  }
+
   private handleSharedObjectUpdated(event: CodexSharedObjectUpdatedEvent): void {
     if (event.hostId !== this.hostId) {
       return;
@@ -1121,6 +1164,7 @@ export class CodexAppServerManager {
 
       this.account = sharedObject.value;
       this.notifyListeners(this.accountCallbacks);
+      void this.loadDictationState().catch(() => {});
       return;
     }
 
@@ -1152,6 +1196,7 @@ export class CodexAppServerManager {
       return;
     }
 
+    void this.loadDictationState().catch(() => {});
     for (const threadId of this.streamingConversationIds) {
       void this.requestThreadStreamSnapshot(threadId).catch(() => {});
     }
@@ -2152,6 +2197,17 @@ export function useLocalConversationAccount(): CodexAccountSnapshot | null {
 
 export function useCodexAvailableModels(): CodexModelOption[] {
   return useManagerControlSelection((manager) => manager.readAvailableModels(), areModelsEqual);
+}
+
+export function useCodexDictationState(): CodexDictationStateSnapshot {
+  return useManagerControlSelection(
+    (manager) => manager.readDictationState(),
+    (left, right) =>
+      left.isEnabled === right.isEnabled
+      && left.authMethod === right.authMethod
+      && left.isRealtimeVoiceActive === right.isRealtimeVoiceActive
+      && left.shortcutLabel === right.shortcutLabel,
+  );
 }
 
 export function useCodexPermissionMode(projectId: string): CodexPermissionMode {

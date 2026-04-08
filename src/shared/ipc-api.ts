@@ -10,6 +10,7 @@ import type {
   CodexThreadActionResult,
   CodexConversationSnapshot,
   CodexConnectionState,
+  CodexDictationStateSnapshot,
   CodexCollaborationModePreset,
   CodexCollaborationModeState,
   CodexEvent,
@@ -369,6 +370,7 @@ export interface IpcApi {
   // Codex
   "codex:connection:status": { args: []; result: CodexConnectionState };
   "codex:account:read": { args: []; result: CodexAccountSnapshot };
+  "codex:dictation:state:read": { args: []; result: CodexDictationStateSnapshot };
   "codex:account:login:start": {
     args: [input: { type: "chatgpt" } | { type: "apiKey"; apiKey: string }];
     result: { type: "apiKey" } | { type: "chatgpt"; loginId: string; authUrl: string };

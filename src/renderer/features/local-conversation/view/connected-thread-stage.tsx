@@ -28,6 +28,7 @@ import {
   useConversationSubset,
   useConversationSummaryFields,
   useConversationTurns,
+  useCodexDictationState,
   useConversationParentThreadId,
   useLocalConversationAccount,
   useLocalConversationConnection,
@@ -281,6 +282,7 @@ function ConnectedThreadStageFooter({
   const composerIntent = useComposerIntent(activeThreadId);
   const primaryRequest = useConversationPrimaryRequest(activeThreadId);
   const account = useLocalConversationAccount();
+  const dictation = useCodexDictationState();
   const childThreadIds = useMemo(
     () => childMemberships.map((membership) => membership.threadId),
     [childMemberships],
@@ -414,6 +416,7 @@ function ConnectedThreadStageFooter({
       isQueueingEnabled: input.isQueueingEnabled,
       composerEnterBehavior: input.composerEnterBehavior,
       composerIntent,
+      dictation,
     }),
     [
       activeThreadId,
@@ -423,6 +426,7 @@ function ConnectedThreadStageFooter({
       backgroundTerminalRows,
       childMemberships,
       composerIntent,
+      dictation,
       composerShell,
       cwd,
       input.availableModels,

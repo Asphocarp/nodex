@@ -1,5 +1,5 @@
 import { useForm, useStore } from "@tanstack/react-form";
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { handleFormSubmit } from "@/lib/forms";
 import { formatCodexModelLabel, formatCodexReasoningEffortLabel } from "@/lib/codex-thread-settings";
 import { resolveContextWindowIndicatorState } from "@/lib/codex-context-window";
@@ -39,6 +39,12 @@ import {
 import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-types";
 import { ComposerActionTooltipContent } from "./composer-submit-tooltip";
 import {
+  formatComposerDictationDuration,
+  isComposerDictationShortcut,
+  isComposerDictationShortcutTargetBlocked,
+  useComposerDictation,
+} from "./use-composer-dictation";
+import {
   BranchSelectorPopover,
   ContextWindowIndicator,
   invoke,
@@ -57,12 +63,26 @@ interface ThreadComposerProps {
   onErrorMessage: (message: string | null) => void;
 }
 
+function isElectronLikeComposerEnvironment(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  if (window.api) {
+    return true;
+  }
+
+  return document.documentElement.dataset.codexWindowType === "electron";
+}
+
 export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }: ThreadComposerProps) {
   const [busyAction, setBusyAction] = useState<StageThreadsBusyAction>(null);
   const [branchState, setBranchState] = useState<BranchSelectorState>(EMPTY_BRANCH_SELECTOR_STATE);
   const [isBranchBusy, setIsBranchBusy] = useState(false);
   const [customPermissionDescription, setCustomPermissionDescription] = useState<string | null>(null);
+  const [dictationToastMessage, setDictationToastMessage] = useState<string | null>(null);
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const dictationShortcutActiveRef = useRef(false);
   const branchCwd = useMemo(
     () => resolveBranchSelectorCwd(model.conversation?.cwd, model.projectWorkspacePath),
     [model.conversation?.cwd, model.projectWorkspacePath],
@@ -145,6 +165,100 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     },
   });
   const prompt = useStore(promptForm.store, (state) => state.values.prompt);
+  const isDictationSupported = useMemo(
+    () =>
+      model.dictation.isEnabled
+      && isElectronLikeComposerEnvironment()
+      && typeof navigator !== "undefined"
+      && typeof navigator.mediaDevices?.getUserMedia === "function"
+      && typeof MediaRecorder !== "undefined",
+    [model.dictation.isEnabled],
+  );
+
+  const insertDictationTranscript = useCallback((transcript: string): string => {
+    const textarea = promptTextareaRef.current;
+    const normalizedTranscript = transcript.trim();
+    if (normalizedTranscript.length === 0) {
+      return prompt;
+    }
+
+    if (textarea) {
+      const selectionStart = textarea.selectionStart ?? prompt.length;
+      const selectionEnd = textarea.selectionEnd ?? selectionStart;
+      const nextPrompt = `${prompt.slice(0, selectionStart)}${normalizedTranscript}${prompt.slice(selectionEnd)}`;
+      promptForm.setFieldValue("prompt", nextPrompt);
+      requestAnimationFrame(() => {
+        textarea.focus();
+        const nextSelection = selectionStart + normalizedTranscript.length;
+        textarea.setSelectionRange(nextSelection, nextSelection);
+      });
+      return nextPrompt;
+    }
+
+    const nextPrompt = `${prompt}${normalizedTranscript}`;
+    promptForm.setFieldValue("prompt", nextPrompt);
+    return nextPrompt;
+  }, [prompt, promptForm]);
+
+  const showDictationToast = useCallback((message: string) => {
+    setDictationToastMessage(message);
+  }, []);
+
+  const {
+    isDictating,
+    isTranscribing,
+    recordingDurationMs,
+    waveformCanvasRef,
+    startDictation,
+    stopDictation,
+  } = useComposerDictation({
+    enabled: isDictationSupported,
+    onTranscriptInsert: (transcript) => {
+      insertDictationTranscript(transcript);
+    },
+    onTranscriptSend: (transcript) => {
+      const nextPrompt = insertDictationTranscript(transcript);
+      window.setTimeout(() => {
+        void submitPrompt({
+          prompt: nextPrompt,
+          reset: () => {
+            promptForm.reset();
+          },
+        });
+      }, 0);
+    },
+    onStartError: (error) => {
+      console.error("[composer-dictation:start]", error);
+      showDictationToast("Unable to start dictation");
+    },
+    onTranscribeError: (error) => {
+      console.error("[composer-dictation:transcribe]", error);
+      showDictationToast("Unable to transcribe audio");
+    },
+    onUnsupported: () => {
+      showDictationToast("Dictation is not available on this device");
+    },
+  });
+  const startDictationRef = useRef(startDictation);
+  const stopDictationRef = useRef(stopDictation);
+
+  useEffect(() => {
+    if (!dictationToastMessage) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setDictationToastMessage(null);
+    }, 4000);
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [dictationToastMessage]);
+
+  useEffect(() => {
+    startDictationRef.current = startDictation;
+    stopDictationRef.current = stopDictation;
+  }, [startDictation, stopDictation]);
 
   const resizePromptTextarea = useCallback(() => {
     const textarea = promptTextareaRef.current;
@@ -161,6 +275,60 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   useEffect(() => {
     resizePromptTextarea();
   }, [prompt, resizePromptTextarea]);
+
+  useEffect(() => {
+    if (!isDictationSupported || model.dictation.isRealtimeVoiceActive) {
+      dictationShortcutActiveRef.current = false;
+      return;
+    }
+
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.repeat || !isComposerDictationShortcut(event)) {
+        return;
+      }
+      if (isComposerDictationShortcutTargetBlocked(event.target)) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      if (dictationShortcutActiveRef.current) {
+        return;
+      }
+
+      dictationShortcutActiveRef.current = true;
+      void startDictationRef.current();
+    };
+
+    const handleKeyUp = (event: globalThis.KeyboardEvent) => {
+      if (!isComposerDictationShortcut(event)) {
+        return;
+      }
+      if (isComposerDictationShortcutTargetBlocked(event.target)) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      if (!dictationShortcutActiveRef.current) {
+        return;
+      }
+
+      dictationShortcutActiveRef.current = false;
+      stopDictationRef.current("insert");
+    };
+
+    document.addEventListener("keydown", handleKeyDown, true);
+    document.addEventListener("keyup", handleKeyUp, true);
+    return () => {
+      dictationShortcutActiveRef.current = false;
+      document.removeEventListener("keydown", handleKeyDown, true);
+      document.removeEventListener("keyup", handleKeyUp, true);
+    };
+  }, [
+    isDictationSupported,
+    model.dictation.isRealtimeVoiceActive,
+  ]);
 
   useEffect(() => {
     const composerIntent = model.composerIntent;
@@ -328,7 +496,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     }
   }, [actions, model.activeTurn?.turnId, model.conversation, model.isThreadRunning, onErrorMessage]);
 
-  const handleKeyDown = useCallback((event: KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = useCallback((event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     const hasMultilinePrompt = prompt.includes("\n");
 
     if (shouldInvertThreadInProgressFollowUpModeFromKeyDown({
@@ -408,10 +576,21 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
 
   return (
     <>
-      <form
-        className="border-token-border bg-token-input-background relative overflow-hidden rounded-3xl border bg-clip-padding shadow-card-md electron:shadow-md electron:focus-within:shadow-lg electron:dark:bg-token-dropdown-background/50"
-        onSubmit={(event) => handleFormSubmit(event, promptForm.handleSubmit)}
-      >
+      <div className="relative">
+        {dictationToastMessage ? (
+          <button
+            type="button"
+            onClick={() => setDictationToastMessage(null)}
+            className="absolute inset-x-0 -top-10 z-20 mx-auto inline-flex w-fit max-w-[min(24rem,100%)] items-center rounded-full border border-(--destructive)/30 bg-(--destructive)/10 px-3 py-1 text-xs font-medium text-(--destructive)"
+            title={dictationToastMessage}
+          >
+            {dictationToastMessage}
+          </button>
+        ) : null}
+        <form
+          className="border-token-border bg-token-input-background relative overflow-hidden rounded-3xl border bg-clip-padding shadow-card-md electron:shadow-md electron:focus-within:shadow-lg electron:dark:bg-token-dropdown-background/50"
+          onSubmit={(event) => handleFormSubmit(event, promptForm.handleSubmit)}
+        >
         <div className="relative z-10">
           <div className="px-2 py-1.5">
             <div className="flex w-full flex-wrap items-center justify-start gap-1" />
@@ -446,105 +625,170 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
 
           {errorMessage && <div className="px-3 pb-2 text-xs text-(--destructive)">{errorMessage}</div>}
 
-          <div className="mb-2 grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1.25 px-2">
-            <div className="flex w-full min-w-0 flex-nowrap items-center justify-start gap-1.25">
+          {isDictating ? (
+            <div className="mb-2 flex items-center gap-2 px-2">
               <button
                 type="button"
-                className="inline-flex size-7 items-center justify-center rounded-full border border-transparent px-0 text-(--foreground-tertiary) transition-colors duration-100 hover:bg-(--background-tertiary) hover:text-(--foreground-secondary)"
+                className="inline-flex size-7 items-center justify-center rounded-full border border-transparent px-0 text-(--foreground-tertiary) opacity-50"
                 aria-label="Add files and more"
                 title="Add files and more"
+                disabled
               >
                 <PlusIcon className="size-4" />
               </button>
-
-              <div className="flex min-w-0 items-center gap-1">
-                <StageThreadsCollaborationModeDropdown
-                  collaborationModes={model.collaborationModes}
-                  selectedMode={model.selectedCollaborationMode}
-                  onSelect={actions.onCollaborationModeChange}
-                />
-                <ToolbarDropdownMenu
-                  label={formatCodexModelLabel(model.selectedModel, model.availableModels)}
-                  title="Select model"
-                  ariaLabel="Select Codex model"
-                  className="min-w-0"
-                  items={model.availableModels.filter((candidate) => !candidate.hidden).map((candidate) => ({
-                    value: candidate.id,
-                    label: formatCodexModelLabel(candidate.id, model.availableModels),
-                    description: candidate.description,
-                  }))}
-                  selectedValue={model.selectedModel}
-                  onSelect={actions.onModelChange}
-                  emptyLabel="No Codex models available"
-                />
-                <ToolbarDropdownMenu
-                  label={formatCodexReasoningEffortLabel(model.selectedReasoningEffort)}
-                  title="Select reasoning"
-                  ariaLabel="Select reasoning effort"
-                  items={model.reasoningEffortOptions.map((option) => ({
-                    value: option.reasoningEffort,
-                    label: formatCodexReasoningEffortLabel(option.reasoningEffort),
-                    description: option.description,
-                  }))}
-                  selectedValue={model.selectedReasoningEffort}
-                  selectedItemDataAttribute="data-reasoning-selected"
-                  onSelect={(value) => actions.onReasoningEffortChange(value as CodexReasoningEffort)}
-                  renderItemIcon={(value) => (
-                    <ReasoningEffortIcon effort={value as CodexReasoningEffort} className="icon-2xs" />
-                  )}
+              <div className="flex h-7 min-w-0 flex-1 items-center">
+                <canvas
+                  ref={waveformCanvasRef}
+                  className="h-7 w-full text-(--foreground)"
                 />
               </div>
-            </div>
-
-            <div className="flex items-center" />
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="inline-flex size-7 items-center justify-center rounded-full border border-transparent px-0 text-(--foreground-tertiary) transition-colors duration-100 hover:bg-(--background-tertiary) hover:text-(--foreground-secondary)"
-                aria-label="Dictate"
-                title="Dictate"
-              >
-                <MicIcon className="size-4" />
-              </button>
-
-              <NodexTooltip
-                tooltipContent={composerActionTooltip}
-                side="top"
-                tooltipBodyClassName={cn(
-                  composerActionState.action === "stop" || !model.isThreadRunning
-                    ? "text-center text-pretty"
-                    : "max-w-none",
-                )}
-              >
-                <span className="inline-flex">
-                  <button
-                    type={composerActionState.action === "stop" ? "button" : "submit"}
-                    className={cn(
-                      "inline-flex size-7 items-center justify-center rounded-full p-0.5 focus-visible:outline-2 focus-visible:outline-(--ring)",
-                      "bg-(--foreground) text-(--background)",
-                      (composerActionState.disabled || (composerActionState.action !== "stop" && !canRunPrimaryAction)) && !isSendPending && "opacity-50",
-                      isSendPending && "cursor-wait",
-                    )}
-                    onClick={composerActionState.action === "stop" ? () => void handleInterrupt() : undefined}
-                    disabled={composerActionState.action === "stop"
-                      ? composerActionState.disabled
-                      : composerActionState.disabled || !canRunPrimaryAction}
-                    aria-label={composerActionState.label}
-                  >
-                    {isSendPending ? (
-                      <SpinnerIcon className="size-5" />
-                    ) : composerActionState.action === "stop" ? (
-                      <StopIcon className="size-4" />
-                    ) : (
-                      <UpArrowIcon className="size-5" />
-                    )}
-                  </button>
-                </span>
+              <span className="text-sm tabular-nums text-(--foreground-secondary)">
+                {formatComposerDictationDuration(recordingDurationMs)}
+              </span>
+              <NodexTooltip tooltipContent={<span className="text-token-foreground">Stop dictation</span>} side="top" sideOffset={4}>
+                <button
+                  type="button"
+                  className="inline-flex size-7 items-center justify-center rounded-full border border-transparent px-0 text-(--foreground-secondary) transition-colors duration-100 hover:bg-(--background-tertiary) hover:text-(--foreground)"
+                  aria-label="Stop dictation"
+                  onClick={() => stopDictation("insert")}
+                  disabled={isTranscribing}
+                >
+                  <StopIcon className="size-4" />
+                </button>
+              </NodexTooltip>
+              <NodexTooltip tooltipContent={<span className="text-token-foreground">Transcribe and send</span>} side="top" sideOffset={4}>
+                <button
+                  type="button"
+                  className={cn(
+                    "inline-flex size-7 items-center justify-center rounded-full bg-(--foreground) p-0.5 text-(--background) focus-visible:outline-2 focus-visible:outline-(--ring)",
+                    isTranscribing && "opacity-50",
+                  )}
+                  aria-label="Transcribe and send"
+                  onClick={() => stopDictation("send")}
+                  disabled={isTranscribing}
+                >
+                  <UpArrowIcon className="size-5" />
+                </button>
               </NodexTooltip>
             </div>
-          </div>
+          ) : (
+            <div className="mb-2 grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1.25 px-2">
+              <div className="flex w-full min-w-0 flex-nowrap items-center justify-start gap-1.25">
+                <button
+                  type="button"
+                  className="inline-flex size-7 items-center justify-center rounded-full border border-transparent px-0 text-(--foreground-tertiary) transition-colors duration-100 hover:bg-(--background-tertiary) hover:text-(--foreground-secondary)"
+                  aria-label="Add files and more"
+                  title="Add files and more"
+                >
+                  <PlusIcon className="size-4" />
+                </button>
+
+                <div className="flex min-w-0 items-center gap-1">
+                  <StageThreadsCollaborationModeDropdown
+                    collaborationModes={model.collaborationModes}
+                    selectedMode={model.selectedCollaborationMode}
+                    onSelect={actions.onCollaborationModeChange}
+                  />
+                  <ToolbarDropdownMenu
+                    label={formatCodexModelLabel(model.selectedModel, model.availableModels)}
+                    title="Select model"
+                    ariaLabel="Select Codex model"
+                    className="min-w-0"
+                    items={model.availableModels.filter((candidate) => !candidate.hidden).map((candidate) => ({
+                      value: candidate.id,
+                      label: formatCodexModelLabel(candidate.id, model.availableModels),
+                      description: candidate.description,
+                    }))}
+                    selectedValue={model.selectedModel}
+                    onSelect={actions.onModelChange}
+                    emptyLabel="No Codex models available"
+                  />
+                  <ToolbarDropdownMenu
+                    label={formatCodexReasoningEffortLabel(model.selectedReasoningEffort)}
+                    title="Select reasoning"
+                    ariaLabel="Select reasoning effort"
+                    items={model.reasoningEffortOptions.map((option) => ({
+                      value: option.reasoningEffort,
+                      label: formatCodexReasoningEffortLabel(option.reasoningEffort),
+                      description: option.description,
+                    }))}
+                    selectedValue={model.selectedReasoningEffort}
+                    selectedItemDataAttribute="data-reasoning-selected"
+                    onSelect={(value) => actions.onReasoningEffortChange(value as CodexReasoningEffort)}
+                    renderItemIcon={(value) => (
+                      <ReasoningEffortIcon effort={value as CodexReasoningEffort} className="icon-2xs" />
+                    )}
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center" />
+              <div className="flex items-center gap-2">
+                {isDictationSupported ? (
+                  <NodexTooltip
+                    tooltipContent={<span className="text-token-foreground">Click to dictate or hold</span>}
+                    shortcut={model.dictation.shortcutLabel}
+                    side="top"
+                    sideOffset={4}
+                  >
+                    <button
+                      type="button"
+                      className="inline-flex size-7 items-center justify-center rounded-full border border-transparent px-0 text-(--foreground-tertiary) transition-colors duration-100 hover:bg-(--background-tertiary) hover:text-(--foreground-secondary)"
+                      aria-label="Dictate"
+                      onClick={() => {
+                        void startDictation();
+                      }}
+                      disabled={model.dictation.isRealtimeVoiceActive}
+                    >
+                      {isTranscribing ? (
+                        <SpinnerIcon className="size-4" />
+                      ) : (
+                        <MicIcon className="size-4" />
+                      )}
+                    </button>
+                  </NodexTooltip>
+                ) : null}
+
+                <NodexTooltip
+                  tooltipContent={composerActionTooltip}
+                  side="top"
+                  tooltipBodyClassName={cn(
+                    composerActionState.action === "stop" || !model.isThreadRunning
+                      ? "text-center text-pretty"
+                      : "max-w-none",
+                  )}
+                >
+                  <span className="inline-flex">
+                    <button
+                      type={composerActionState.action === "stop" ? "button" : "submit"}
+                      className={cn(
+                        "inline-flex size-7 items-center justify-center rounded-full p-0.5 focus-visible:outline-2 focus-visible:outline-(--ring)",
+                        "bg-(--foreground) text-(--background)",
+                        (composerActionState.disabled || (composerActionState.action !== "stop" && !canRunPrimaryAction)) && !isSendPending && "opacity-50",
+                        isSendPending && "cursor-wait",
+                      )}
+                      onClick={composerActionState.action === "stop" ? () => void handleInterrupt() : undefined}
+                      disabled={composerActionState.action === "stop"
+                        ? composerActionState.disabled
+                        : composerActionState.disabled || !canRunPrimaryAction}
+                      aria-label={composerActionState.label}
+                    >
+                      {isSendPending ? (
+                        <SpinnerIcon className="size-5" />
+                      ) : composerActionState.action === "stop" ? (
+                        <StopIcon className="size-4" />
+                      ) : (
+                        <UpArrowIcon className="size-5" />
+                      )}
+                    </button>
+                  </span>
+                </NodexTooltip>
+              </div>
+            </div>
+          )}
         </div>
-      </form>
+        </form>
+      </div>
 
       <div className="flex flex-wrap items-center gap-2 overflow-visible px-2 py-1.5">
         <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1">

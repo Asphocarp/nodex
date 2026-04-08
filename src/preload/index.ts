@@ -74,6 +74,9 @@ contextBridge.exposeInMainWorld("api", {
       ipcRenderer.removeListener("db:migration-progress", listener);
     };
   },
+  requestMicrophonePermission: () => {
+    ipcRenderer.send("electron-request-microphone-permission");
+  },
   serverUrl,
   assetPathPrefix,
   inspectPasteClipboard: () => inspectClipboardPasteItems(),

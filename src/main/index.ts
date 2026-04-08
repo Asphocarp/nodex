@@ -7,6 +7,7 @@ import {
   nativeImage,
   powerMonitor,
   shell,
+  systemPreferences,
   type MenuItemConstructorOptions,
 } from "electron";
 import { join, resolve } from "path";
@@ -63,6 +64,7 @@ let appInitializationStep: AppInitializationStep = { phase: "app_waiting" };
 let latestDatabaseMigrationProgress: DatabaseMigrationProgress | null = null;
 let appInitializationPromise: Promise<void> = Promise.resolve();
 let appUpdateService: AppUpdateService | null = null;
+let mediaPermissionHandlersRegistered = false;
 const logger = getLogger({ subsystem: "app" });
 
 function resolveUnsupportedAppUpdateStatus(): AppUpdateStatus {
@@ -117,6 +119,25 @@ function openNewWindow(): BrowserWindow | null {
   window.show();
   window.focus();
   return window;
+}
+
+async function requestHostMicrophonePermission(): Promise<void> {
+  if (process.platform !== "darwin") {
+    return;
+  }
+
+  const currentStatus = systemPreferences.getMediaAccessStatus("microphone");
+  if (currentStatus === "granted") {
+    return;
+  }
+
+  try {
+    await systemPreferences.askForMediaAccess("microphone");
+  } catch (error) {
+    logger.warn("Could not request macOS microphone permission", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 function configureMacWindowMenus(): void {
@@ -353,6 +374,18 @@ function createWindow(
       ],
     },
   });
+
+  if (!mediaPermissionHandlersRegistered) {
+    const electronSession = window.webContents.session;
+    electronSession.setPermissionCheckHandler((_webContents, permission) => {
+      if (permission === "media") return true;
+      return false;
+    });
+    electronSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+      callback(permission === "media");
+    });
+    mediaPermissionHandlersRegistered = true;
+  }
 
   // Open external links in the system browser
   window.webContents.setWindowOpenHandler(({ url }) => {
@@ -613,6 +646,10 @@ if (hasSingleInstanceLock) {
         const resolve = pendingCloseResolvers.get(webContentsId);
         if (!resolve) return;
         resolve();
+      });
+      ipcMain.removeAllListeners("electron-request-microphone-permission");
+      ipcMain.on("electron-request-microphone-permission", () => {
+        void requestHostMicrophonePermission();
       });
 
       appInitializationPromise = initializeDesktopApp(serverPort);

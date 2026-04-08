@@ -7,7 +7,10 @@ import * as path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { produceWithPatches } from "immer";
 import { parse as parseToml } from "smol-toml";
+import type { GetAuthStatusResponse } from "@nodex/codex-app-server-protocol";
 import type { CollaborationModeListResponse } from "@nodex/codex-app-server-protocol/v2/CollaborationModeListResponse";
+import type { ConfigReadParams } from "@nodex/codex-app-server-protocol/v2/ConfigReadParams";
+import type { ConfigReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigReadResponse";
 import type { CommandExecutionRequestApprovalParams } from "@nodex/codex-app-server-protocol/v2/CommandExecutionRequestApprovalParams";
 import type { CommandExecutionRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/CommandExecutionRequestApprovalResponse";
 import type { GetAccountRateLimitsResponse } from "@nodex/codex-app-server-protocol/v2/GetAccountRateLimitsResponse";
@@ -52,6 +55,7 @@ import type {
   CodexCollaborationModeState,
   CodexCollaborationModePreset,
   CodexConnectionState,
+  CodexDictationStateSnapshot,
   CodexEvent,
   CodexHostMessage,
   CodexItemView,
@@ -166,6 +170,8 @@ import {
 } from "./worktree-environment-service";
 import { getLogger } from "../logging/logger";
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
+import { CodexDictationService } from "./dictation-service";
+import { requestChatGptDesktop } from "./chatgpt-desktop-request";
 
 const codexLogger = getLogger({ subsystem: "codex", component: "service" });
 const require = createRequire(import.meta.url);
@@ -1163,6 +1169,18 @@ export class CodexService extends EventEmitter {
     this.applyOutputDeltas(updates);
   });
   private readonly threadTitleState = new CodexThreadTitleStateStore(getKanbanDir());
+  private readonly dictationService = new CodexDictationService({
+    readConfig: async () => await this.readConfigForDictation(),
+    readAuthStatus: async (input) => await this.readAuthStatusForDictation(input),
+    requestChatGptDesktop: async (input) => {
+      const electron = await import("electron");
+      return await requestChatGptDesktop({
+        readAuthStatus: async (requestInput) => await this.readAuthStatusForDictation(requestInput),
+        fetchImpl: async (url, init) => await electron.net.fetch(url, init),
+        getAppVersion: () => electron.app.getVersion(),
+      }, input);
+    },
+  });
 
   private accountSnapshot: CodexAccountSnapshot = emptyAccountSnapshot();
   private syntheticItemIdCounter = 0;
@@ -2364,6 +2382,19 @@ export class CodexService extends EventEmitter {
     return true;
   }
 
+  async readDictationStateSnapshot(): Promise<CodexDictationStateSnapshot> {
+    await this.ensureClientReady();
+    return await this.dictationService.readState();
+  }
+
+  async transcribeDictation(input: {
+    contentType: string;
+    base64Payload: string;
+  }): Promise<string> {
+    await this.ensureClientReady();
+    return await this.dictationService.transcribe(input);
+  }
+
   async listProjectThreads(
     projectId: string,
     opts?: { cardId?: string; includeArchived?: boolean },
@@ -2506,6 +2537,19 @@ export class CodexService extends EventEmitter {
     return result.data
       .map(parseModelOption)
       .filter((option): option is CodexModelOption => option !== null);
+  }
+
+  private async readConfigForDictation(): Promise<ConfigReadResponse> {
+    return await this.client.request<"config/read", ConfigReadResponse>("config/read", {
+      includeLayers: false,
+    } satisfies ConfigReadParams);
+  }
+
+  private async readAuthStatusForDictation(input: {
+    includeToken: boolean;
+    refreshToken: boolean;
+  }): Promise<GetAuthStatusResponse> {
+    return await this.client.request<"getAuthStatus", GetAuthStatusResponse>("getAuthStatus", input);
   }
 
   async listCollaborationModes(): Promise<CodexCollaborationModePreset[]> {

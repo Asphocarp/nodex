@@ -69,6 +69,12 @@ function buildModel(overrides?: Partial<ThreadFooterModel>): ThreadFooterModel {
     isQueueingEnabled: false,
     composerEnterBehavior: "enter",
     composerIntent: null,
+    dictation: {
+      isEnabled: true,
+      authMethod: "chatgpt",
+      isRealtimeVoiceActive: false,
+      shortcutLabel: "Ctrl+M",
+    },
     body: {
       threadId: "thread_1",
       turnCount: 1,

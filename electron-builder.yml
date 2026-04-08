@@ -54,6 +54,8 @@ mac:
   - "^.*\\/Contents\\/Resources\\/bin\\/codex$"
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist
+  extendInfo:
+    NSMicrophoneUsageDescription: Nodex uses your microphone for thread composer dictation.
   notarize: true
 
 dmg:

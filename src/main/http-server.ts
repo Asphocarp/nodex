@@ -48,6 +48,7 @@ import {
   HttpCardMoveDropBodySchema,
   parseOptionalCardStatus,
 } from "../shared/schemas/http";
+import { codexService } from "./codex/codex-service";
 
 /** SSE keep-alive ping interval (ms) */
 const SSE_PING_INTERVAL_MS = 30_000;
@@ -70,6 +71,16 @@ const cardWriteBodyLimit = bodyLimit({
     ),
 });
 const logger = getLogger({ subsystem: "http" });
+
+interface HttpServerDependencies {
+  transcribeDictation: (input: { contentType: string; base64Payload: string }) => Promise<string>;
+}
+
+const defaultHttpServerDependencies: HttpServerDependencies = {
+  transcribeDictation: async (input) => await codexService.transcribeDictation(input),
+};
+
+let httpServerDependencies: HttpServerDependencies = defaultHttpServerDependencies;
 
 function isTrustedBrowserOrigin(originHeader: string | undefined): boolean {
   if (!originHeader || originHeader.trim().length === 0) return false;
@@ -159,6 +170,35 @@ app.onError((error, c) => {
   });
   return c.json({ error: error instanceof Error ? error.message : String(error) }, 500);
 });
+
+app.post(
+  "/transcribe",
+  bodyLimit({
+    maxSize: MAX_RESOURCE_UPLOAD_BYTES,
+    onError: (c) => c.json({ error: "Audio exceeds 64MB upload limit" }, 413),
+  }),
+  async (c) => {
+    const contentType = c.req.header("content-type")?.trim() ?? "";
+    if (contentType.length === 0) {
+      return c.json({ error: "Missing Content-Type header" }, 400);
+    }
+
+    const base64Payload = (await c.req.text()).trim();
+    if (base64Payload.length === 0) {
+      return c.json({ error: "Missing transcription payload" }, 400);
+    }
+
+    try {
+      const text = await httpServerDependencies.transcribeDictation({
+        contentType,
+        base64Payload,
+      });
+      return c.json({ text });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : "Unable to transcribe audio" }, 502);
+    }
+  },
+);
 
 // === Backup routes ===
 
@@ -1004,6 +1044,19 @@ export function getHttpServerOptions(port: number): {
     port,
     hostname: LOOPBACK_HOST,
   };
+}
+
+export function __setHttpServerDependenciesForTests(
+  overrides: Partial<HttpServerDependencies>,
+): void {
+  httpServerDependencies = {
+    ...defaultHttpServerDependencies,
+    ...overrides,
+  };
+}
+
+export function __resetHttpServerDependenciesForTests(): void {
+  httpServerDependencies = defaultHttpServerDependencies;
 }
 
 export function startHttpServer(port: number): void {

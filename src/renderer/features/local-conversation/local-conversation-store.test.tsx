@@ -134,7 +134,9 @@ describe("local-conversation-store", () => {
     const { container } = render(createElement(LocalConversationProvider, null, createElement(Probe)));
     await settleAsyncRender();
 
-    expect([...invokeCalls].sort().join(",")).toBe("codex:account:read,codex:connection:status,codex:model:list");
+    expect([...invokeCalls].sort().join(",")).toBe(
+      "codex:account:read,codex:connection:status,codex:dictation:state:read,codex:dictation:state:read,codex:model:list",
+    );
     expect(textContent(container)).toBe("connected:dev@example.com:gpt-5.3-codex");
   });
 

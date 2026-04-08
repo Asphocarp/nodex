@@ -21,6 +21,7 @@ declare global {
       onDatabaseMigrationProgress?: (
         callback: (progress: DatabaseMigrationProgress) => void,
       ) => () => void;
+      requestMicrophonePermission?: () => void;
       serverUrl?: string;
       assetPathPrefix?: string;
       inspectPasteClipboard?: () => ClipboardPasteInspectionResult;

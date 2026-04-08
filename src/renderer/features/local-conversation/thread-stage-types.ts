@@ -9,6 +9,7 @@ import type {
   CodexComposerIntent,
   CodexCollaborationModePreset,
   CodexConnectionState,
+  CodexDictationStateSnapshot,
   CodexConversationCapabilityFlags,
   CodexConversationItem,
   CodexConversationLiveRequest,
@@ -390,6 +391,7 @@ export interface ThreadFooterModel {
   isQueueingEnabled: boolean;
   composerEnterBehavior: ComposerEnterBehavior;
   composerIntent: CodexComposerIntent | null;
+  dictation: CodexDictationStateSnapshot;
 }
 
 export interface ThreadStageScreenProps {

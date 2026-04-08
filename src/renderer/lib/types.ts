@@ -35,6 +35,7 @@ export type {
   ProjectInput,
   CodexConnectionState,
   CodexAccountSnapshot,
+  CodexDictationStateSnapshot,
   CodexModelOption,
   CodexCollaborationModeKind,
   CodexCollaborationModeState,

@@ -11,7 +11,11 @@ import { useLocalConversationThreadScrollController } from "./local-conversation
 
 function areFooterTooltipInputsEqual(left: ThreadFooterModel, right: ThreadFooterModel): boolean {
   return left.account?.account?.type === right.account?.account?.type
-    && left.conversation?.modelProvider === right.conversation?.modelProvider;
+    && left.conversation?.modelProvider === right.conversation?.modelProvider
+    && left.dictation.isEnabled === right.dictation.isEnabled
+    && left.dictation.authMethod === right.dictation.authMethod
+    && left.dictation.isRealtimeVoiceActive === right.dictation.isRealtimeVoiceActive
+    && left.dictation.shortcutLabel === right.dictation.shortcutLabel;
 }
 
 interface LocalConversationFooterProps {
