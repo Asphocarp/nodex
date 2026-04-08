@@ -9,6 +9,7 @@ import type {
   CodexConversationItem,
   CodexConversationSnapshot,
   CodexConversationTurn,
+  CodexMcpToolCallView,
   CodexModelOption,
   CodexPermissionMode,
   CodexReasoningEffortOption,
@@ -854,6 +855,24 @@ function buildToolItemBase(overrides: Partial<CodexTranscriptEntry>): CodexTrans
   };
 }
 
+function buildMcpToolCallView(overrides: Partial<CodexMcpToolCallView>): CodexMcpToolCallView {
+  const invocation = overrides.invocation ?? {
+    server: "context7",
+    tool: "resolve-library-id",
+    arguments: {},
+  };
+
+  return {
+    callId: "call_story_mcp",
+    functionName: `${invocation.server}__${invocation.tool}`,
+    invocation,
+    durationMs: 0,
+    completed: true,
+    result: null,
+    ...overrides,
+  };
+}
+
 export const THREAD_TOOL_CALL_STORY_ITEMS = {
   command: buildToolItemBase({
     itemId: "tool_story_command",
@@ -1186,6 +1205,84 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
         },
       },
     },
+    mcpToolCall: buildMcpToolCallView({
+      callId: "call_9L9LUlz6nkg1Jp2LA4mrAL8o",
+      functionName: "context7__resolve-library-id",
+      invocation: {
+        server: "context7",
+        tool: "resolve-library-id",
+        arguments: {
+          libraryName: "storybook",
+          query:
+            "React Vite Storybook best practices for component stories using args vs loaders, decorators, controls, docs, and play functions for interactive stateful UI.",
+        },
+      },
+      durationMs: 2957,
+      completed: true,
+      result: {
+        type: "success",
+        content: [
+          {
+            type: "text",
+            text: [
+              "Available Libraries:",
+              "",
+              "- Title: Storybook",
+              "- Context7-compatible library ID: /storybookjs/storybook",
+              "- Description: Storybook is a frontend workshop for building UI components and pages in isolation, used by thousands of teams for development, testing, and documentation.",
+              "- Code Snippets: 4341",
+              "- Source Reputation: High",
+              "- Benchmark Score: 68.34",
+              "- Versions: v9.0.15, v8_6_14, v6_5_9, v10.2.9",
+              "----------",
+              "- Title: Storybook",
+              "- Context7-compatible library ID: /websites/storybook_js",
+              "- Description: Storybook is a frontend workshop for building UI components and pages in isolation, used for UI development, testing, and documentation.",
+              "- Code Snippets: 5561",
+              "- Source Reputation: High",
+              "- Benchmark Score: 83.09",
+              "----------",
+              "- Title: Storybook",
+              "- Context7-compatible library ID: /storybookjs/web",
+              "- Description: The main website and documentation for Storybook, built with Next.js, Tailwind, Turborepo, and Storybook.",
+              "- Code Snippets: 77",
+              "- Source Reputation: High",
+              "- Benchmark Score: 30.56",
+              "----------",
+              "- Title: Storybook React Native",
+              "- Context7-compatible library ID: /storybookjs/react-native",
+              "- Description: Storybook for React Native allows you to design and develop individual React Native components without running your entire application.",
+              "- Code Snippets: 263",
+              "- Source Reputation: High",
+              "- Benchmark Score: 69.27",
+              "- Versions: v9.1.4",
+              "----------",
+              "- Title: Storybook Rsbuild",
+              "- Context7-compatible library ID: /rspack-contrib/storybook-rsbuild",
+              "- Description: This repository contains the Storybook Rsbuild builder and UI framework integrations for various JavaScript frameworks.",
+              "- Code Snippets: 62",
+              "- Source Reputation: High",
+              "- Benchmark Score: 75.56",
+            ].join("\n"),
+          },
+        ],
+        structuredContent: null,
+        raw: {
+          content: [
+            {
+              type: "text",
+              text: [
+                "Available Libraries:",
+                "",
+                "- Title: Storybook",
+                "- Context7-compatible library ID: /storybookjs/storybook",
+              ].join("\n"),
+            },
+          ],
+          structuredContent: null,
+        },
+      },
+    }),
     rawItem: {
       callId: "call_9L9LUlz6nkg1Jp2LA4mrAL8o",
       invocation: {
@@ -1303,6 +1400,148 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
         },
       },
     },
+    mcpToolCall: buildMcpToolCallView({
+      callId: "call_jvUwWwXkT6ZG1Upbgd6V7gZX",
+      functionName: "context7__query_docs",
+      invocation: {
+        server: "context7",
+        tool: "query_docs",
+        arguments: {
+          libraryId: "/storybookjs/storybook",
+          query: "args and play functions",
+        },
+      },
+      durationMs: 1284,
+      completed: true,
+      result: {
+        type: "success",
+        content: [],
+        structuredContent: {
+          snippetCount: 3,
+          section: "args",
+        },
+        raw: {
+          content: [],
+          structuredContent: {
+            snippetCount: 3,
+            section: "args",
+          },
+        },
+      },
+    }),
+  }),
+  mcpInProgress: buildToolItemBase({
+    itemId: "tool_story_mcp_in_progress",
+    type: "mcp_tool_call",
+    semanticKind: "mcpToolCall",
+    status: "inProgress",
+    toolCall: {
+      subtype: "mcp",
+      server: "context7",
+      toolName: "resolve-library-id",
+      args: {
+        libraryName: "storybook",
+      },
+    },
+    mcpToolCall: buildMcpToolCallView({
+      callId: "call_mcp_in_progress",
+      functionName: "context7__resolve-library-id",
+      invocation: {
+        server: "context7",
+        tool: "resolve-library-id",
+        arguments: {
+          libraryName: "storybook",
+        },
+      },
+      durationMs: null,
+      completed: false,
+      result: null,
+    }),
+  }),
+  mcpProtocolError: buildToolItemBase({
+    itemId: "tool_story_mcp_error",
+    type: "mcp_tool_call",
+    semanticKind: "mcpToolCall",
+    status: "failed",
+    toolCall: {
+      subtype: "mcp",
+      server: "context7",
+      toolName: "resolve-library-id",
+      args: {
+        libraryName: "storybook",
+      },
+      error: "Authentication required",
+    },
+    mcpToolCall: buildMcpToolCallView({
+      callId: "call_mcp_error",
+      functionName: "context7__resolve-library-id",
+      invocation: {
+        server: "context7",
+        tool: "resolve-library-id",
+        arguments: {
+          libraryName: "storybook",
+        },
+      },
+      durationMs: 812,
+      completed: true,
+      result: {
+        type: "error",
+        kind: "protocol",
+        error: "Authentication required",
+        rawError: {
+          message: "Authentication required",
+        },
+      },
+    }),
+  }),
+  mcpUnknownBlock: buildToolItemBase({
+    itemId: "tool_story_mcp_unknown",
+    type: "mcp_tool_call",
+    semanticKind: "mcpToolCall",
+    status: "completed",
+    toolCall: {
+      subtype: "mcp",
+      server: "context7",
+      toolName: "resolve-library-id",
+      args: {
+        libraryName: "storybook",
+      },
+    },
+    mcpToolCall: buildMcpToolCallView({
+      callId: "call_mcp_unknown",
+      functionName: "context7__resolve-library-id",
+      invocation: {
+        server: "context7",
+        tool: "resolve-library-id",
+        arguments: {
+          libraryName: "storybook",
+        },
+      },
+      durationMs: 531,
+      completed: true,
+      result: {
+        type: "success",
+        content: [
+          {
+            type: "unknown",
+            raw: {
+              type: "not_real",
+              foo: "bar",
+            },
+          },
+        ],
+        structuredContent: null,
+        raw: {
+          content: [
+            {
+              type: "not_real",
+              foo: "bar",
+            },
+          ],
+          structuredContent: null,
+        },
+      },
+    }),
   }),
 };
 

@@ -1,6 +1,22 @@
 import { describe, expect, test } from "bun:test";
 import { buildTurnErrorItemView, normalizeThreadItem } from "./codex-item-normalizer";
 
+function normalizeMcpItem(overrides: Record<string, unknown>) {
+  return normalizeThreadItem(
+    {
+      id: "item-mcp",
+      type: "mcpToolCall",
+      server: "docs",
+      tool: "search",
+      status: "completed",
+      arguments: { query: "thread item schema" },
+      ...overrides,
+    },
+    "thread-1",
+    "turn-1",
+  );
+}
+
 describe("codex-item-normalizer", () => {
   test("normalizes commandExecution items with structured tool metadata", () => {
     const item = normalizeThreadItem(
@@ -121,22 +137,14 @@ describe("codex-item-normalizer", () => {
     expect(diffs[1]?.includes("-export const removed = true;") ?? false).toBeTrue();
   });
 
-  test("normalizes mcpToolCall items into canonical tool payloads", () => {
-    const item = normalizeThreadItem(
-      {
-        id: "item-mcp",
-        type: "mcpToolCall",
-        server: "docs",
-        tool: "search",
-        status: "in_progress",
-        arguments: { query: "thread item schema" },
-        result: {
-          content: [{ type: "text", text: "ok" }],
-        },
+  test("normalizes mcpToolCall items into canonical tool payloads and derived MCP renderer state", () => {
+    const item = normalizeMcpItem({
+      status: "in_progress",
+      result: {
+        content: [{ type: "text", text: "ok" }],
+        structuredContent: null,
       },
-      "thread-1",
-      "turn-1",
-    );
+    });
 
     expect(item).not.toBeNull();
     expect(item?.normalizedKind).toBe("toolCall");
@@ -145,6 +153,84 @@ describe("codex-item-normalizer", () => {
     expect(item?.toolCall?.server).toBe("docs");
     expect((item?.toolCall?.args as { query?: string }).query).toBe("thread item schema");
     expect(((item?.toolCall?.result as { content?: unknown[] } | undefined)?.content?.length ?? 0) > 0).toBeTrue();
+    expect(item?.mcpToolCall?.functionName).toBe("docs__search");
+    expect(item?.mcpToolCall?.completed).toBeFalse();
+    expect(item?.mcpToolCall?.result?.type).toBe("success");
+    expect(item?.mcpToolCall?.result?.type === "success" ? item.mcpToolCall.result.content.length : -1).toBe(1);
+  });
+
+  test("normalizes protocol MCP errors as completed expandable error results", () => {
+    const item = normalizeMcpItem({
+      status: "failed",
+      result: null,
+      error: {
+        message: "Authentication required",
+      },
+    });
+
+    expect(item?.status).toBe("failed");
+    expect(item?.mcpToolCall?.completed).toBeTrue();
+    expect(item?.mcpToolCall?.result?.type).toBe("error");
+    expect(item?.mcpToolCall?.result?.type === "error" ? item.mcpToolCall.result.error : "").toBe("Authentication required");
+  });
+
+  test("normalizes empty MCP success results without inferring content", () => {
+    const item = normalizeMcpItem({
+      result: {
+        content: [],
+        structuredContent: null,
+      },
+    });
+
+    expect(item?.mcpToolCall?.result?.type).toBe("success");
+    expect(item?.mcpToolCall?.result?.type === "success" ? item.mcpToolCall.result.content.length : -1).toBe(0);
+    expect(item?.mcpToolCall?.result?.type === "success" ? item.mcpToolCall.result.structuredContent : "missing").toBe(null);
+  });
+
+  test("normalizes structured-only MCP successes and preserves structuredContent separately", () => {
+    const item = normalizeMcpItem({
+      result: {
+        content: [],
+        structuredContent: {
+          snippetCount: 3,
+        },
+      },
+    });
+
+    expect(item?.mcpToolCall?.result?.type).toBe("success");
+    expect(item?.mcpToolCall?.result?.type === "success" ? item.mcpToolCall.result.content.length : -1).toBe(0);
+    expect(
+      item?.mcpToolCall?.result?.type === "success"
+        ? (item.mcpToolCall.result.structuredContent as { snippetCount?: number } | null)?.snippetCount ?? null
+        : null,
+    ).toBe(3);
+  });
+
+  test("normalizes malformed blocks as unknown and aliases resource blocks to embedded_resource", () => {
+    const item = normalizeMcpItem({
+      result: {
+        content: [
+          { type: "not_real", foo: "bar" },
+          {
+            type: "resource",
+            uri: "file:///tmp/example.txt",
+            mimeType: "text/plain",
+            text: "hello",
+          },
+        ],
+        structuredContent: null,
+      },
+    });
+
+    expect(item?.mcpToolCall?.result?.type).toBe("success");
+    const content = item?.mcpToolCall?.result?.type === "success" ? item.mcpToolCall.result.content : [];
+    expect(content[0]?.type ?? "").toBe("unknown");
+    expect(content[1]?.type ?? "").toBe("embedded_resource");
+    expect(
+      content[1]?.type === "embedded_resource"
+        ? content[1].resource.uri
+        : "",
+    ).toBe("file:///tmp/example.txt");
   });
 
   test("normalizes automatic approval review items into dedicated transcript events", () => {

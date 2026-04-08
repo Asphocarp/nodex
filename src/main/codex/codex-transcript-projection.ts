@@ -40,6 +40,7 @@ function projectItemToTranscriptEntry(
     source,
     sequence,
     toolCall: item.toolCall,
+    mcpToolCall: item.mcpToolCall,
     command: item.command,
     cwd: item.cwd,
     processId: item.processId,

@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 ### Fixed
+- Fixed MCP tool-call transcript parity so MCP rows now render from a canonical normalized result model, match Codex's `Calling`/`Called` summary and expanded branch order, keep `structuredContent` append-only, and hide same-server in-progress MCP rows while an incomplete elicitation for that server is already visible.
 - Fixed local-thread turn ordering parity so later tool-like rows now keep the latest assistant inline when Codex does, while thread search still follows the raw latest assistant message even without a dedicated final-assistant slot.
 - Fixed local-thread request-card ordering after turn-only updates so approval, user-input, and implement-plan selection now invalidates when turn order changes even if the raw request array is unchanged.
 - Fixed local-thread renderer churn so the active thread route now reads narrow conversation slices instead of a whole conversation snapshot, and the mounted transcript body now renders from stable visible-turn entries with parent-turn de-duplication and memoized row measurement.

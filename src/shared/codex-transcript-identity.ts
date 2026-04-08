@@ -76,6 +76,7 @@ export function mergeCodexTranscriptEntry(
     semanticKind: incoming.semanticKind ?? existing.semanticKind,
     role: incoming.role ?? existing.role,
     toolCall: incoming.toolCall ?? existing.toolCall,
+    mcpToolCall: incoming.mcpToolCall ?? existing.mcpToolCall,
     markdownText: incoming.markdownText ?? existing.markdownText,
     command: incoming.command !== undefined ? incoming.command : existing.command,
     cwd: incoming.cwd !== undefined ? incoming.cwd : existing.cwd,

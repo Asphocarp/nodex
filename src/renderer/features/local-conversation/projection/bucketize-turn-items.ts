@@ -79,6 +79,27 @@ function isRenderableAgentItem(item: ThreadTranscriptBlockModel): boolean {
   }
 }
 
+function normalizeMcpServerName(value: string | undefined): string | null {
+  const normalized = value?.trim().toLowerCase() ?? "";
+  return normalized.length > 0 ? normalized : null;
+}
+
+function resolveMcpToolCallServer(item: ThreadTranscriptBlockModel): string | null {
+  if (item.type !== "mcpToolCall") return null;
+  return normalizeMcpServerName(item.entry.mcpToolCall?.invocation.server ?? item.entry.toolCall?.server);
+}
+
+function resolveMcpElicitationServer(item: ThreadTranscriptBlockModel): string | null {
+  if (item.type !== "mcpServerElicitation" || item.status === "completed") return null;
+  const rawItem = item.entry.rawItem;
+  if (typeof rawItem !== "object" || rawItem === null) return null;
+
+  const serverName = "serverName" in rawItem && typeof rawItem.serverName === "string"
+    ? rawItem.serverName
+    : null;
+  return normalizeMcpServerName(serverName ?? undefined);
+}
+
 function shouldPushHookToAgentItems(
   items: ThreadRendererItemModel[],
   currentIndex: number,
@@ -95,6 +116,7 @@ function shouldPushHookToAgentItems(
 export function bucketizeTurnItems(input: BucketizeTurnItemsInput): ThreadTurnRenderBuckets {
   const buckets = createEmptyBuckets();
   const agentCandidates: ThreadTranscriptBlockModel[] = [];
+  const pendingMcpElicitationServers = new Set<string>();
   let beforeAgentSequence = true;
 
   for (const [index, item] of input.items.entries()) {
@@ -168,6 +190,8 @@ export function bucketizeTurnItems(input: BucketizeTurnItemsInput): ThreadTurnRe
     }
 
     if (item.type === "mcpServerElicitation" && item.status !== "completed") {
+      const serverName = resolveMcpElicitationServer(item);
+      if (serverName) pendingMcpElicitationServers.add(serverName);
       buckets.mcpServerElicitationItems.push(item);
       continue;
     }
@@ -194,6 +218,13 @@ export function bucketizeTurnItems(input: BucketizeTurnItemsInput): ThreadTurnRe
       buckets.latestAssistantMessage = item;
       agentCandidates.push(item);
       continue;
+    }
+
+    if (item.type === "mcpToolCall" && item.status === "inProgress") {
+      const serverName = resolveMcpToolCallServer(item);
+      if (serverName && pendingMcpElicitationServers.has(serverName)) {
+        continue;
+      }
     }
 
     if (isRenderableAgentItem(item)) {

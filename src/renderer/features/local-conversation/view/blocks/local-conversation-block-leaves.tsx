@@ -502,7 +502,13 @@ export function ThreadToolSurfaceBlock({
   projectWorkspacePath,
   threadCwd,
 }: ThreadLeafBlockProps) {
+  const { settings } = useCodexThreadSettings();
   const item = block.entry;
+  const threadDetailLevel = resolveCodexThreadDetailLevel(settings.detailLevel);
+  if (item.semanticKind === "mcpToolCall" && threadDetailLevel === "STEPS_PROSE") {
+    return null;
+  }
+
   const ToolComponent = getToolComponent(item);
   if (!ToolComponent) return null;
 

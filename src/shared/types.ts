@@ -2,6 +2,8 @@ import type {
   CommandAction as CodexAppServerCommandAction,
   CommandExecutionRequestApprovalParams as CodexAppServerCommandExecutionRequestApprovalParams,
   ExecPolicyAmendment as CodexAppServerExecPolicyAmendment,
+  McpToolCallError as CodexAppServerMcpToolCallError,
+  McpToolCallResult as CodexAppServerMcpToolCallResult,
   NetworkApprovalContext as CodexAppServerNetworkApprovalContext,
   ThreadItem as CodexAppServerThreadItem,
 } from "@nodex/codex-app-server-protocol/v2";
@@ -685,7 +687,10 @@ export type CodexFileChangeKind = "add" | "delete" | "update";
 
 export type ProtocolThreadItem = CodexAppServerThreadItem;
 export type ProtocolCommandExecutionItem = Extract<ProtocolThreadItem, { type: "commandExecution" }>;
+export type ProtocolMcpToolCallItem = Extract<ProtocolThreadItem, { type: "mcpToolCall" }>;
 export type ProtocolCommandAction = CodexAppServerCommandAction;
+export type ProtocolMcpToolCallResult = CodexAppServerMcpToolCallResult;
+export type ProtocolMcpToolCallError = CodexAppServerMcpToolCallError;
 export type ProtocolCommandExecutionApprovalParams = CodexAppServerCommandExecutionRequestApprovalParams;
 export type ProtocolExecPolicyAmendment = CodexAppServerExecPolicyAmendment;
 export type ProtocolNetworkApprovalContext = CodexAppServerNetworkApprovalContext;
@@ -750,6 +755,85 @@ export interface CodexToolCallView {
   subtype: CodexToolCallSubtype;
 }
 
+export interface CodexMcpToolCallInvocation {
+  server: ProtocolMcpToolCallItem["server"];
+  tool: ProtocolMcpToolCallItem["tool"];
+  arguments: unknown;
+}
+
+export type CodexMcpToolCallContentBlock =
+  | {
+      type: "text";
+      text: string;
+      annotations?: unknown;
+    }
+  | {
+      type: "image";
+      data: string;
+      mimeType: string;
+      annotations?: unknown;
+    }
+  | {
+      type: "audio";
+      data: string;
+      mimeType: string;
+      annotations?: unknown;
+    }
+  | {
+      type: "resource_link";
+      uri: string;
+      name?: string;
+      title?: string;
+      description?: string;
+      mimeType?: string;
+      annotations?: unknown;
+    }
+  | {
+      type: "embedded_resource";
+      resource: {
+        uri: string;
+        name?: string;
+        title?: string;
+        description?: string;
+        mimeType?: string;
+        text?: string;
+        blob?: string;
+        annotations?: unknown;
+      };
+    }
+  | {
+      type: "unknown";
+      raw: unknown;
+    };
+
+export type CodexMcpToolCallNormalizedResult =
+  | null
+  | {
+      type: "success";
+      content: CodexMcpToolCallContentBlock[];
+      structuredContent: unknown;
+      raw: {
+        content: unknown[];
+        structuredContent: unknown;
+      };
+    }
+  | {
+      type: "error";
+      kind: "protocol";
+      error: string;
+      rawError: ProtocolMcpToolCallError;
+    };
+
+// Renderer-facing normalized MCP state derived from protocol-owned raw tool-call payloads.
+export interface CodexMcpToolCallView {
+  callId: ProtocolMcpToolCallItem["id"];
+  functionName: string;
+  invocation: CodexMcpToolCallInvocation;
+  result: CodexMcpToolCallNormalizedResult;
+  durationMs: ProtocolMcpToolCallItem["durationMs"];
+  completed: boolean;
+}
+
 export interface CodexItemView extends CodexCommandExecutionAttachmentFields {
   threadId: string;
   turnId: string;
@@ -762,6 +846,7 @@ export interface CodexItemView extends CodexCommandExecutionAttachmentFields {
   status?: CodexItemStatus;
   role?: "user" | "assistant";
   toolCall?: CodexToolCallView;
+  mcpToolCall?: CodexMcpToolCallView;
   fileChange?: CodexFileChangeView;
   markdownText?: string;
   additionalDetails?: string | null;
@@ -788,6 +873,7 @@ export interface CodexTranscriptEntry extends CodexCommandExecutionAttachmentFie
   source?: CodexTranscriptEntrySource;
   sequence?: number;
   toolCall?: CodexToolCallView;
+  mcpToolCall?: CodexMcpToolCallView;
   fileChange?: CodexFileChangeView;
   markdownText?: string;
   additionalDetails?: string | null;

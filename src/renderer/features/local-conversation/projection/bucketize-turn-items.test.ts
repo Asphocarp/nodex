@@ -279,7 +279,33 @@ describe("bucketizeTurnItems", () => {
             markdownText: "Done",
           },
         }),
-        buildItem({ id: "mcp", type: "mcpToolCall" }),
+        buildItem({
+          id: "mcp",
+          type: "mcpToolCall",
+          status: "inProgress",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "mcp",
+            type: "mcp_tool_call",
+            kind: "toolCall",
+            semanticKind: "mcpToolCall",
+            createdAt: 2,
+            updatedAt: 2,
+            mcpToolCall: {
+              callId: "mcp",
+              functionName: "docs__search",
+              invocation: {
+                server: "docs",
+                tool: "search",
+                arguments: { query: "search docs" },
+              },
+              durationMs: null,
+              completed: false,
+              result: null,
+            },
+          },
+        }),
         buildItem({ id: "web", type: "webSearch", searchableText: "search docs" }),
       ],
       turnStatus: "inProgress",
@@ -288,6 +314,117 @@ describe("bucketizeTurnItems", () => {
     expect(buckets.assistantItem).toBe(null);
     expect(buckets.latestAssistantMessage?.id ?? "").toBe("assistant");
     expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("assistant,mcp,web");
+  });
+
+  test("suppresses in-progress MCP rows when an incomplete same-server elicitation is present", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({
+          id: "elicitation",
+          type: "mcpServerElicitation",
+          status: "inProgress",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "elicitation",
+            type: "mcpServerElicitation",
+            kind: "systemEvent",
+            semanticKind: "mcpServerElicitation",
+            createdAt: 1,
+            updatedAt: 1,
+            rawItem: {
+              serverName: "Docs",
+            },
+          },
+        }),
+        buildItem({
+          id: "mcp",
+          type: "mcpToolCall",
+          status: "inProgress",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "mcp",
+            type: "mcp_tool_call",
+            kind: "toolCall",
+            semanticKind: "mcpToolCall",
+            createdAt: 2,
+            updatedAt: 2,
+            mcpToolCall: {
+              callId: "mcp",
+              functionName: "docs__search",
+              invocation: {
+                server: "docs",
+                tool: "search",
+                arguments: { query: "search docs" },
+              },
+              durationMs: null,
+              completed: false,
+              result: null,
+            },
+          },
+        }),
+      ],
+      turnStatus: "inProgress",
+    });
+
+    expect(buckets.mcpServerElicitationItems.map((item) => item.id).join(",")).toBe("elicitation");
+    expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("");
+  });
+
+  test("does not suppress MCP rows for a different elicitation server", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({
+          id: "elicitation",
+          type: "mcpServerElicitation",
+          status: "inProgress",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "elicitation",
+            type: "mcpServerElicitation",
+            kind: "systemEvent",
+            semanticKind: "mcpServerElicitation",
+            createdAt: 1,
+            updatedAt: 1,
+            rawItem: {
+              serverName: "context7",
+            },
+          },
+        }),
+        buildItem({
+          id: "mcp",
+          type: "mcpToolCall",
+          status: "inProgress",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "mcp",
+            type: "mcp_tool_call",
+            kind: "toolCall",
+            semanticKind: "mcpToolCall",
+            createdAt: 2,
+            updatedAt: 2,
+            mcpToolCall: {
+              callId: "mcp",
+              functionName: "docs__search",
+              invocation: {
+                server: "docs",
+                tool: "search",
+                arguments: { query: "search docs" },
+              },
+              durationMs: null,
+              completed: false,
+              result: null,
+            },
+          },
+        }),
+      ],
+      turnStatus: "inProgress",
+    });
+
+    expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("mcp");
   });
 
   test("builds search units from user and assistant items only", () => {

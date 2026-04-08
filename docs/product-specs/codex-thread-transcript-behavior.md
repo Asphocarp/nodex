@@ -166,6 +166,13 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
 - Running-thread activity uses verb-led summaries: contiguous exploration actions coalesce into `Exploring` / `Explored` groups, generic commands render as `Running …` while active and `Ran …` once settled, and MCP calls render as `Calling …` / `Called …`.
 - Command execution headers show `in <cwd>` only when the command ran outside the active project workspace path.
 - Patch rows own their expand/collapse state per file row. MCP tool calls own a local completed-only toggle. Neither surface uses a conversation-level collapsed-tool map.
+- MCP tool-call rows follow Codex Electron's normalized-result contract instead of renderer-local raw fallbacks:
+  - the primary expanded branch order is `success.content.length > 0` -> protocol error -> `Tool returned no content`
+  - `structuredContent` is append-only and never replaces the primary branch
+  - structured-only success still shows `Tool returned no content` before the JSON panel
+  - malformed MCP content blocks render as visible JSON fallback blocks instead of disappearing
+  - the raw-output dialog remains a separate expanded-only debug view
+  - in-progress rows stay collapsed and same-server incomplete MCP elicitation suppresses only the matching in-progress MCP row from `agentItems`
 - Patch-row expansion uses a per-file Motion-based measured-height animation model. Expanded rows keep their body height on continuously measured pixel values instead of switching back to `height: auto`, so inline diff expansion does not hand layout authority back to the scroll container mid-transition.
 
 ## Composer Shell

@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ChevronRightIcon, CodeBracketsIcon } from "@/components/shared/icons";
 import {
   NodexDialog as Dialog,
@@ -8,7 +8,11 @@ import {
   NodexDialogTitle as DialogTitle,
 } from "../../../../../components/ui/dialog";
 import { NodexTooltip } from "../../../../../components/ui/tooltip";
-import type { CodexTranscriptEntry } from "../../../../../lib/types";
+import type {
+  CodexMcpToolCallContentBlock,
+  CodexMcpToolCallView,
+  CodexTranscriptEntry,
+} from "../../../../../lib/types";
 import { cn } from "../../../../../lib/utils";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
 import { useMeasuredElementHeight } from "../use-measured-element-height";
@@ -16,8 +20,6 @@ import { CopyMessageActionButton } from "../thread-message-actions";
 import { ToolErrorDetail } from "./tool-primitives";
 import {
   asRecord,
-  getNumber,
-  getString,
   humanizeIdentifier,
 } from "./tool-call-utils";
 
@@ -29,32 +31,9 @@ interface McpToolCallProps {
   onRawDialogOpenChange?: (open: boolean) => void;
 }
 
-interface McpInvocation {
-  server: string;
-  tool: string;
-  arguments?: unknown;
-}
-
-interface McpResultPayload {
-  type?: string;
-  content?: unknown[];
-  structuredContent?: unknown;
-  error?: string;
-  raw?: unknown;
-}
-
-interface McpPayload {
-  callId?: string;
-  durationMs?: number;
-  invocation: McpInvocation;
-  result?: McpResultPayload;
-  completed: boolean;
-}
-
 function formatServerName(server: string): string {
   const humanized = humanizeIdentifier(server);
-  if (humanized.length === 0) return "MCP";
-  return `${humanized} MCP`;
+  return humanized.length > 0 ? humanized : "MCP";
 }
 
 function stringifyMcpValue(value: unknown, spacing = 2): string {
@@ -97,86 +76,6 @@ function appendAnnotations(text: string, annotations: unknown): string {
   const formatted = formatAnnotations(annotations);
   if (!formatted) return text;
   return `${text}\nAnnotations: ${formatted}`;
-}
-
-function normalizeResult(
-  rawResult: unknown,
-  fallbackResult: unknown,
-  fallbackError: string | undefined,
-): McpResultPayload | undefined {
-  const rawResultRecord = asRecord(rawResult);
-  if (rawResultRecord) {
-    return {
-      type: getString(rawResultRecord, "type"),
-      content: Array.isArray(rawResultRecord.content) ? rawResultRecord.content : undefined,
-      structuredContent: rawResultRecord.structuredContent,
-      error: getString(rawResultRecord, "error") ?? fallbackError,
-      raw: rawResultRecord.raw,
-    };
-  }
-
-  const fallbackResultRecord = asRecord(fallbackResult);
-  if (fallbackResultRecord && (
-    typeof fallbackResultRecord.type === "string"
-    || Array.isArray(fallbackResultRecord.content)
-    || Object.prototype.hasOwnProperty.call(fallbackResultRecord, "structuredContent")
-    || Object.prototype.hasOwnProperty.call(fallbackResultRecord, "raw")
-  )) {
-    return {
-      type: getString(fallbackResultRecord, "type"),
-      content: Array.isArray(fallbackResultRecord.content) ? fallbackResultRecord.content : undefined,
-      structuredContent: fallbackResultRecord.structuredContent,
-      error: getString(fallbackResultRecord, "error") ?? fallbackError,
-      raw: fallbackResultRecord.raw,
-    };
-  }
-
-  if (fallbackError) {
-    return {
-      type: "error",
-      error: fallbackError,
-    };
-  }
-
-  if (typeof fallbackResult === "string" && fallbackResult.trim().length > 0) {
-    return {
-      type: "success",
-      content: [{ type: "text", text: fallbackResult }],
-    };
-  }
-
-  if (fallbackResult !== undefined) {
-    return {
-      type: "success",
-      structuredContent: fallbackResult,
-    };
-  }
-
-  return undefined;
-}
-
-function normalizePayload(item: CodexTranscriptEntry): McpPayload {
-  const rawItem = asRecord(item.rawItem);
-  const rawInvocation = asRecord(rawItem?.invocation);
-  const tool = item.toolCall;
-  const completed = item.status !== "inProgress";
-
-  const server = getString(rawInvocation, "server") ?? tool?.server ?? "";
-  const invokedTool = getString(rawInvocation, "tool") ?? tool?.toolName ?? "";
-  const args = rawInvocation?.arguments ?? tool?.args;
-  const result = normalizeResult(rawItem?.result, tool?.result, tool?.error);
-
-  return {
-    callId: getString(rawItem, "callId"),
-    durationMs: getNumber(rawItem, "durationMs"),
-    invocation: {
-      server,
-      tool: invokedTool,
-      arguments: args,
-    },
-    result,
-    completed,
-  };
 }
 
 function McpCodePanel({
@@ -226,22 +125,26 @@ function McpCodePanel({
   );
 }
 
-function McpEmbeddedResourceBlock({ block }: { block: Record<string, unknown> }) {
-  const resource = asRecord(block.resource);
-  const content = getString(resource, "text") ?? getString(resource, "blob") ?? "";
+function McpEmbeddedResourceBlock({
+  block,
+}: {
+  block: Extract<CodexMcpToolCallContentBlock, { type: "embedded_resource" }>;
+}) {
+  const resource = block.resource;
+  const content = resource.text ?? resource.blob ?? "";
   const hasContent = content.length > 0;
-  const annotations = formatAnnotations(resource?.annotations);
+  const annotations = formatAnnotations(resource.annotations);
 
   return (
     <div className="text-size-chat flex flex-col gap-0.5 text-token-description-foreground/80">
       <div className="flex gap-1">
         <span className="font-medium text-token-foreground">URI</span>
-        <span className="break-all">{getString(resource, "uri") ?? ""}</span>
+        <span className="break-all">{resource.uri}</span>
       </div>
-      {getString(resource, "mimeType") ? (
+      {resource.mimeType ? (
         <div className="flex gap-1">
           <span className="font-medium text-token-foreground">MIME type</span>
-          <span className="break-all">{getString(resource, "mimeType")}</span>
+          <span className="break-all">{resource.mimeType}</span>
         </div>
       ) : null}
       {annotations ? (
@@ -270,25 +173,20 @@ function McpUnknownBlock({ value }: { value: unknown }) {
   );
 }
 
-function McpContentBlock({ block }: { block: unknown }) {
-  const candidate = asRecord(block);
-  if (!candidate) return <McpUnknownBlock value={block} />;
-
-  const type = getString(candidate, "type");
-  if (type === "text") {
-    const text = getString(candidate, "text") ?? "";
+function McpContentBlock({ block }: { block: CodexMcpToolCallContentBlock }) {
+  if (block.type === "text") {
     return (
       <McpCodePanel
         title="plaintext"
-        content={appendAnnotations(text, candidate.annotations)}
+        content={appendAnnotations(block.text, block.annotations)}
         preClassName="[&_*]:text-token-foreground/50 text-token-description-foreground/80 m-0 whitespace-pre-wrap break-words font-sans text-size-chat leading-relaxed extension:leading-normal"
       />
     );
   }
 
-  if (type === "resource_link") {
-    const name = getString(candidate, "title") ?? getString(candidate, "name") ?? getString(candidate, "uri") ?? "";
-    const annotations = formatAnnotations(candidate.annotations);
+  if (block.type === "resource_link") {
+    const name = block.title ?? block.name ?? block.uri;
+    const annotations = formatAnnotations(block.annotations);
 
     return (
       <div className="text-size-chat flex flex-col gap-0.5">
@@ -302,20 +200,18 @@ function McpContentBlock({ block }: { block: unknown }) {
     );
   }
 
-  if (type === "embedded_resource") {
-    return <McpEmbeddedResourceBlock block={candidate} />;
+  if (block.type === "embedded_resource") {
+    return <McpEmbeddedResourceBlock block={block} />;
   }
 
-  if (type === "image") {
-    const mimeType = getString(candidate, "mimeType") ?? "image/png";
-    const data = getString(candidate, "data") ?? "";
-    const annotations = formatAnnotations(candidate.annotations);
+  if (block.type === "image") {
+    const annotations = formatAnnotations(block.annotations);
 
     return (
       <div className="flex flex-col gap-0.5">
         <img
           className="max-h-48 w-max max-w-full rounded-md object-contain"
-          src={`data:${mimeType};base64,${data}`}
+          src={`data:${block.mimeType};base64,${block.data}`}
           alt=""
         />
         {annotations ? (
@@ -327,14 +223,12 @@ function McpContentBlock({ block }: { block: unknown }) {
     );
   }
 
-  if (type === "audio") {
-    const mimeType = getString(candidate, "mimeType") ?? "audio/wav";
-    const data = getString(candidate, "data") ?? "";
-    const annotations = formatAnnotations(candidate.annotations);
+  if (block.type === "audio") {
+    const annotations = formatAnnotations(block.annotations);
 
     return (
       <div className="flex flex-col gap-0.5">
-        <audio className="w-full" controls src={`data:${mimeType};base64,${data}`} preload="metadata" />
+        <audio className="w-full" controls src={`data:${block.mimeType};base64,${block.data}`} preload="metadata" />
         {annotations ? (
           <p className="text-size-chat whitespace-pre-wrap text-token-description-foreground/80">
             Annotations: {annotations}
@@ -344,7 +238,7 @@ function McpContentBlock({ block }: { block: unknown }) {
     );
   }
 
-  return <McpUnknownBlock value={candidate.raw ?? block} />;
+  return <McpUnknownBlock value={block.raw} />;
 }
 
 function McpRawOutputDialog({
@@ -435,13 +329,13 @@ function McpResultBody({
   rawDialogOpen,
   onRawDialogOpenChange,
 }: {
-  payload: McpPayload;
+  payload: CodexMcpToolCallView;
   rawOutput: string;
   rawDialogOpen: boolean;
   onRawDialogOpenChange: (open: boolean) => void;
 }) {
   const result = payload.result;
-  const successContent = result?.type === "success" ? result.content ?? [] : [];
+  const successContent = result?.type === "success" ? result.content : [];
   const errorText = result?.type === "error" ? result.error : null;
   const structuredContent = result?.type === "success" && result.structuredContent != null
     ? stringifyMcpValue(result.structuredContent, 2)
@@ -510,19 +404,21 @@ export function McpToolCall({
   onRawDialogOpenChange,
 }: McpToolCallProps) {
   const bodyId = useId();
-  const payload = useMemo(() => normalizePayload(item), [item]);
+  const payload = item.mcpToolCall ?? null;
   const [isExpanded, setIsExpanded] = useState(false);
   const [isRawDialogOpen, setIsRawDialogOpen] = useControllableBoolean(rawDialogOpen, onRawDialogOpenChange);
   const { elementHeightPx, elementRef } = useMeasuredElementHeight();
 
+  if (!payload) return null;
+
   const toolName = humanizeIdentifier(payload.invocation.tool);
   const serverName = formatServerName(payload.invocation.server);
-  const rawOutput = useMemo(() => stringifyMcpValue({
+  const rawOutput = stringifyMcpValue({
     callId: payload.callId,
     invocation: payload.invocation,
     durationMs: payload.durationMs,
     result: payload.result,
-  }, 2), [payload]);
+  }, 2);
 
   const summaryVerb = payload.completed ? "Called" : "Calling";
   const summaryDetail = `${toolName} tool from ${serverName}`;

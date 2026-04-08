@@ -4,7 +4,12 @@ import type {
   CodexFileChangeKind,
   CodexFileChangeView,
   CodexItemStatus,
+  CodexMcpToolCallContentBlock,
+  CodexMcpToolCallView,
   CodexItemView,
+  ProtocolMcpToolCallError,
+  ProtocolMcpToolCallItem,
+  ProtocolMcpToolCallResult,
   CodexToolCallSubtype,
   CodexToolCallView,
   CodexUserInputQuestion,
@@ -220,6 +225,183 @@ function buildToolCall(
     args: extras?.args,
     result: extras?.result,
     error: extras?.error,
+  };
+}
+
+function resolveMcpToolCallError(candidate: Record<string, unknown>): ProtocolMcpToolCallError | null {
+  const errorRecord = asRecord(candidate.error);
+  if (!errorRecord) return null;
+
+  const message = getString(errorRecord, ["message"]);
+  if (!message) return null;
+
+  return { message };
+}
+
+function normalizeMcpToolCallContentBlock(
+  value: ProtocolMcpToolCallResult["content"][number],
+): CodexMcpToolCallContentBlock {
+  const candidate = asRecord(value);
+  if (!candidate) {
+    return {
+      type: "unknown",
+      raw: value,
+    };
+  }
+
+  const type = getString(candidate, ["type"]);
+  if (type === "text") {
+    const text = getString(candidate, ["text"]);
+    if (text === undefined) {
+      return {
+        type: "unknown",
+        raw: value,
+      };
+    }
+
+    return {
+      type: "text",
+      text,
+      annotations: candidate.annotations as ProtocolMcpToolCallItem["arguments"] | undefined,
+    };
+  }
+
+  if (type === "image") {
+    const data = getString(candidate, ["data"]);
+    if (!data) {
+      return {
+        type: "unknown",
+        raw: value,
+      };
+    }
+
+    return {
+      type: "image",
+      data,
+      mimeType: getString(candidate, ["mimeType"]) ?? "image/png",
+      annotations: candidate.annotations as ProtocolMcpToolCallItem["arguments"] | undefined,
+    };
+  }
+
+  if (type === "audio") {
+    const data = getString(candidate, ["data"]);
+    if (!data) {
+      return {
+        type: "unknown",
+        raw: value,
+      };
+    }
+
+    return {
+      type: "audio",
+      data,
+      mimeType: getString(candidate, ["mimeType"]) ?? "audio/wav",
+      annotations: candidate.annotations as ProtocolMcpToolCallItem["arguments"] | undefined,
+    };
+  }
+
+  if (type === "resource_link") {
+    const uri = getString(candidate, ["uri"]);
+    if (!uri) {
+      return {
+        type: "unknown",
+        raw: value,
+      };
+    }
+
+    return {
+      type: "resource_link",
+      uri,
+      name: getString(candidate, ["name"]),
+      title: getString(candidate, ["title"]),
+      description: getString(candidate, ["description"]),
+      mimeType: getString(candidate, ["mimeType"]),
+      annotations: candidate.annotations as ProtocolMcpToolCallItem["arguments"] | undefined,
+    };
+  }
+
+  if (type === "embedded_resource" || type === "resource") {
+    const resource = type === "embedded_resource"
+      ? asRecord(candidate.resource)
+      : candidate;
+    const uri = resource ? getString(resource, ["uri"]) : undefined;
+    if (!resource || !uri) {
+      return {
+        type: "unknown",
+        raw: value,
+      };
+    }
+
+    return {
+      type: "embedded_resource",
+      resource: {
+        uri,
+        name: getString(resource, ["name"]),
+        title: getString(resource, ["title"]),
+        description: getString(resource, ["description"]),
+        mimeType: getString(resource, ["mimeType"]),
+        text: getString(resource, ["text"]),
+        blob: getString(resource, ["blob"]),
+        annotations: resource.annotations as ProtocolMcpToolCallItem["arguments"] | undefined,
+      },
+    };
+  }
+
+  return {
+    type: "unknown",
+    raw: value,
+  };
+}
+
+function normalizeMcpToolCallResult(
+  result: ProtocolMcpToolCallItem["result"],
+  error: ProtocolMcpToolCallError | null,
+): CodexMcpToolCallView["result"] {
+  if (!result && !error) return null;
+
+  if (error) {
+    return {
+      type: "error",
+      kind: "protocol",
+      error: error.message,
+      rawError: error,
+    };
+  }
+
+  const content = Array.isArray(result?.content) ? result.content : [];
+
+  return {
+    type: "success",
+    content: content.map(normalizeMcpToolCallContentBlock),
+    structuredContent: result?.structuredContent ?? null,
+    raw: {
+      content,
+      structuredContent: result?.structuredContent ?? null,
+    },
+  };
+}
+
+function buildMcpToolCallView(
+  candidate: Record<string, unknown>,
+  status: CodexItemStatus | undefined,
+  itemId: string,
+): CodexMcpToolCallView {
+  const server = getString(candidate, ["server"]) ?? "";
+  const tool = getString(candidate, ["tool"]) ?? "mcp_tool";
+  const error = resolveMcpToolCallError(candidate);
+  const result = candidate.result as ProtocolMcpToolCallItem["result"];
+
+  return {
+    callId: getString(candidate, ["id"]) ?? itemId,
+    functionName: `${server}__${tool}`,
+    invocation: {
+      server,
+      tool,
+      arguments: (candidate.arguments ?? null) as ProtocolMcpToolCallItem["arguments"],
+    },
+    result: normalizeMcpToolCallResult(result, error),
+    durationMs: getNumber(candidate, ["durationMs", "duration_ms"]) ?? null,
+    completed: status === "completed" || status === "failed",
   };
 }
 
@@ -525,16 +707,18 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
     const server = getString(candidate, ["server"]);
     const tool = getString(candidate, ["tool"]) ?? "mcp_tool";
     const error = resolveToolCallError(candidate);
+    const status = normalizeItemStatus(getUnknown(candidate, ["status"]));
 
     result.normalizedKind = "toolCall";
     result.semanticKind = "mcpToolCall";
-    result.status = normalizeItemStatus(getUnknown(candidate, ["status"]));
+    result.status = status;
     result.toolCall = buildToolCall("mcp", tool, {
       server,
       args: candidate.arguments,
       result: candidate.result,
       error,
     });
+    result.mcpToolCall = buildMcpToolCallView(candidate, status, result.itemId);
     return applyFallbackContent(result, itemType);
   }
 

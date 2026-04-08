@@ -656,6 +656,50 @@ export const McpRawOutputDialog: Story = {
   ),
 };
 
+export const McpToolCallInProgress: Story = {
+  render: () => (
+    <StorySurface
+      title="MCP Tool Call In Progress"
+      description="In-progress MCP calls stay collapsed, shimmer, and do not expose the expanded detail body."
+    >
+      <McpToolCall item={THREAD_TOOL_CALL_STORY_ITEMS.mcpInProgress} />
+    </StorySurface>
+  ),
+};
+
+export const McpToolCallProtocolError: Story = {
+  render: () => (
+    <StorySurface
+      title="MCP Tool Call Protocol Error"
+      description="Completed protocol errors render the error branch instead of the no-content fallback."
+    >
+      <AutoOpenMcpToolCall item={THREAD_TOOL_CALL_STORY_ITEMS.mcpProtocolError} />
+    </StorySurface>
+  ),
+};
+
+export const McpToolCallStructuredOnly: Story = {
+  render: () => (
+    <StorySurface
+      title="MCP Tool Call Structured Only"
+      description="Structured-only success still shows the no-content fallback before appending the JSON panel."
+    >
+      <AutoOpenMcpToolCall item={THREAD_TOOL_CALL_STORY_ITEMS.mcpQueryDocs} />
+    </StorySurface>
+  ),
+};
+
+export const McpToolCallUnknownBlock: Story = {
+  render: () => (
+    <StorySurface
+      title="MCP Tool Call Unknown Block"
+      description="Malformed content blocks fall back to visible JSON instead of disappearing."
+    >
+      <AutoOpenMcpToolCall item={THREAD_TOOL_CALL_STORY_ITEMS.mcpUnknownBlock} />
+    </StorySurface>
+  ),
+};
+
 export const ExplorationGroup: Story = {
   render: () => <ExplorationGroupStory />,
 };
