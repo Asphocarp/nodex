@@ -35,6 +35,10 @@ It ships as an Electron desktop app plus a CLI/HTTP API backed by SQLite.
 ## Code Style
 - **DRY**: Always keep code DRY. Extract shared hooks, helpers, and patterns instead of duplicating.
 - **Tailwind over custom CSS**: Use Tailwind utility classes. Avoid inflating `globals.css` with new custom class rules.
+- Before defining any new protocol-facing type, first check `packages/codex-app-server-protocol/src/v2`.
+- Treat `packages/codex-app-server-protocol/src/v2` as the source of truth for Codex app server request/response/notification/thread shapes.
+- Prefer importing protocol types directly, or re-exporting them as aliases when a local name is needed.
+- Do not hand-write parallel protocol field definitions in `src/shared/types.ts` unless the local type is intentionally a derived or view-model shape.
 - Keep data validation at boundaries (`src/main/http-server.ts`, `src/main/kanban/card-input-validation.ts`).
 - Prefer pure helpers in `src/renderer/lib/` for reusable behavior.
 - Keep renderer transport-agnostic by going through `src/renderer/lib/api.ts`.
