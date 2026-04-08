@@ -1,0 +1,137 @@
+import { describe, expect, test } from "bun:test";
+import { fireEvent } from "@testing-library/react";
+import { AppProviders } from "@/app-providers";
+import { makeDefaultSidebarTopLevelSectionsPrefs } from "@/lib/sidebar-section-prefs";
+import { render, settleAsyncRender } from "@/test/dom";
+import { installWindowApi } from "@/test/browser-globals";
+import { SettingsOverlay } from "./workbench-settings-overlay";
+import { buildSettingsPath } from "./workbench-settings-routes";
+
+const PROJECTS = [
+  {
+    id: "default",
+    name: "Nodex",
+    description: "",
+    workspacePath: "/Users/asc/repo/nodex",
+    created: new Date("2026-03-01T00:00:00.000Z"),
+  },
+];
+
+const storageMap = new Map<string, string>();
+
+const mockStorage = {
+  getItem(key: string): string | null {
+    return storageMap.has(key) ? storageMap.get(key) ?? null : null;
+  },
+  setItem(key: string, value: string): void {
+    storageMap.set(key, value);
+  },
+  removeItem(key: string): void {
+    storageMap.delete(key);
+  },
+};
+
+if (!(globalThis as { localStorage?: unknown }).localStorage) {
+  (globalThis as { localStorage: typeof mockStorage }).localStorage = mockStorage;
+}
+
+const localStorageRef = (globalThis as { localStorage: typeof mockStorage }).localStorage;
+
+function resetStorage(): void {
+  storageMap.clear();
+  localStorageRef.removeItem("nodex-codex-default-service-tier-v1");
+}
+
+function renderOverlay() {
+  return render(
+    <AppProviders>
+      <SettingsOverlay
+        open={true}
+        onOpenChange={() => {}}
+        path={buildSettingsPath("general-settings")}
+        onPathChange={() => {}}
+        onRequestProjectPickerOpen={() => {}}
+        projects={PROJECTS}
+        activeProjectId="default"
+        sidebarTopLevelSectionOrder={["recents", "cards", "threads", "files"]}
+        sidebarTopLevelSections={makeDefaultSidebarTopLevelSectionsPrefs()}
+        onSidebarTopLevelSectionVisibleChange={() => {}}
+        stageRailLayoutMode="sliding-window"
+        onStageRailLayoutModeChange={() => {}}
+        nextPanelPeekPx={32}
+        onNextPanelPeekPxChange={() => {}}
+        threadQueueFollowUpsEnabled={false}
+        onThreadQueueFollowUpsEnabledChange={() => {}}
+        composerEnterBehavior="enter"
+        onComposerEnterBehaviorChange={() => {}}
+        worktreeStartMode="autoBranch"
+        onWorktreeStartModeChange={() => {}}
+        worktreeAutoBranchPrefix="codex/"
+        onWorktreeAutoBranchPrefixChange={() => {}}
+        smartPrefixParsingEnabled={true}
+        onSmartPrefixParsingEnabledChange={() => {}}
+        stripSmartPrefixFromTitleEnabled={true}
+        onStripSmartPrefixFromTitleEnabledChange={() => {}}
+      />
+    </AppProviders>,
+  );
+}
+
+describe("SettingsOverlay service tier", () => {
+  test("reads the stored tier and writes Standard/Fast through the shared setting", async () => {
+    resetStorage();
+    localStorageRef.setItem("nodex-codex-default-service-tier-v1", "fast");
+
+    installWindowApi({
+      invoke: async (channel: string) => {
+        switch (channel) {
+          case "settings:thread-notifications:get":
+            return { threadCompletionEnabled: true };
+          case "settings:app-updates:get":
+            return { automaticChecksEnabled: true };
+          case "app:update:status":
+            return {
+              status: "idle",
+              supported: true,
+              currentVersion: "0.1.0",
+              availableVersion: null,
+              releaseName: null,
+              releaseDate: null,
+              releaseNotes: null,
+              progressPercent: null,
+              transferredBytes: null,
+              totalBytes: null,
+              checkedAt: null,
+              message: null,
+            };
+          case "worktrees:managed:list":
+            return [];
+          default:
+            return null;
+        }
+      },
+      on: () => () => {},
+    });
+
+    const view = renderOverlay();
+    await settleAsyncRender();
+
+    const fastButton = view.getByRole("button", { name: "Fast" });
+    const standardButton = view.getByRole("button", { name: "Standard" });
+
+    expect(fastButton.getAttribute("aria-pressed")).toBe("true");
+    expect(standardButton.getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(standardButton);
+    await settleAsyncRender();
+
+    expect(localStorageRef.getItem("nodex-codex-default-service-tier-v1")).toBe(null);
+    expect(standardButton.getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(fastButton);
+    await settleAsyncRender();
+
+    expect(localStorageRef.getItem("nodex-codex-default-service-tier-v1")).toBe("fast");
+    expect(fastButton.getAttribute("aria-pressed")).toBe("true");
+  });
+});

@@ -167,6 +167,10 @@ function truncatePreview(value: string, maxLength = 160): string {
   return `${value.slice(0, Math.max(0, maxLength - 1))}…`;
 }
 
+function formatServiceTierForReporting(value: unknown): "standard" | "fast" {
+  return value === "fast" ? "fast" : "standard";
+}
+
 function summarizeRpcParams(method: string, params: unknown): Record<string, unknown> | undefined {
   if (typeof params !== "object" || params === null) return undefined;
   const candidate = params as Record<string, unknown>;
@@ -175,6 +179,7 @@ function summarizeRpcParams(method: string, params: unknown): Record<string, unk
     return {
       cwd: typeof candidate.cwd === "string" ? candidate.cwd : null,
       model: typeof candidate.model === "string" ? candidate.model : null,
+      serviceTier: formatServiceTierForReporting(candidate.serviceTier),
     };
   }
 
@@ -189,6 +194,7 @@ function summarizeRpcParams(method: string, params: unknown): Record<string, unk
       threadId: typeof candidate.threadId === "string" ? candidate.threadId : null,
       cwd: typeof candidate.cwd === "string" ? candidate.cwd : null,
       model: typeof candidate.model === "string" ? candidate.model : null,
+      serviceTier: formatServiceTierForReporting(candidate.serviceTier),
       effort: typeof candidate.effort === "string" ? candidate.effort : null,
       promptLength: prompt.length,
       promptPreview: prompt ? truncatePreview(prompt) : null,

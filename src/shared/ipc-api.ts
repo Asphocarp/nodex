@@ -14,6 +14,7 @@ import type {
   CodexCollaborationModePreset,
   CodexCollaborationModeState,
   CodexEvent,
+  CodexServiceTier,
   GitApplyPatchInput,
   GitApplyPatchResult,
   GitReviewFileContents,
@@ -443,7 +444,7 @@ export interface IpcApi {
     result: void;
   };
   "codex:thread:edit-last-user-turn": {
-    args: [threadId: string, turnId: string, message: string];
+    args: [threadId: string, turnId: string, message: string, opts?: { serviceTier?: CodexServiceTier }];
     result: CodexThreadActionResult;
   };
   "codex:thread:fork-from-turn": {

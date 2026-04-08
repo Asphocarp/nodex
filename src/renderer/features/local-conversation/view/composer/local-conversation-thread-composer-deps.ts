@@ -1,5 +1,13 @@
 export { invoke, subscribeGitBranchChanges } from "@/lib/api";
 export { NodexTooltip } from "@/components/ui/tooltip";
+export {
+  NodexDropdownFlyoutSubmenuItem,
+  NodexDropdownItem,
+  NodexDropdownMenu,
+  NodexDropdownSection,
+  NodexDropdownSelectedIcon,
+  NodexDropdownTitle,
+} from "@/components/ui/dropdown";
 export { BranchSelectorPopover } from "../shared/branch-selector-popover";
 export {
   ContextWindowIndicator,

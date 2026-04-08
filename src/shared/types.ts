@@ -7,6 +7,7 @@ import type {
   NetworkApprovalContext as CodexAppServerNetworkApprovalContext,
   ThreadItem as CodexAppServerThreadItem,
 } from "@nodex/codex-app-server-protocol/v2";
+import type { ServiceTier as CodexAppServerServiceTier } from "@nodex/codex-app-server-protocol";
 
 export type Priority = "p0-critical" | "p1-high" | "p2-medium" | "p3-low" | "p4-later";
 
@@ -542,6 +543,7 @@ export interface CodexConversationSource {
 
 export type CodexReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
 export type CodexThreadDetailLevel = "STEPS_PROSE" | "STEPS_COMMANDS" | "STEPS_EXECUTION";
+export type CodexServiceTier = Extract<CodexAppServerServiceTier, "fast"> | null;
 
 export type CodexCollaborationModeKind = "default" | "plan";
 
@@ -589,6 +591,7 @@ export interface CodexThreadStartForCardInput {
   prompt: string;
   threadName?: string;
   model?: string;
+  serviceTier?: CodexServiceTier;
   permissionMode?: CodexPermissionMode;
   reasoningEffort?: CodexReasoningEffort;
   collaborationMode?: CodexCollaborationModeKind;
@@ -598,6 +601,7 @@ export interface CodexThreadStartForCardInput {
 
 export interface CodexTurnStartOptions {
   model?: string;
+  serviceTier?: CodexServiceTier;
   reasoningEffort?: CodexReasoningEffort;
   permissionMode?: CodexPermissionMode;
   collaborationMode?: CodexCollaborationModeKind;
@@ -1037,6 +1041,7 @@ export interface CodexQueuedFollowUp {
   prompt: string;
   createdAt: number;
   collaborationMode?: CodexCollaborationModeKind | null;
+  serviceTier: CodexServiceTier;
   pausedReason?: string | null;
 }
 

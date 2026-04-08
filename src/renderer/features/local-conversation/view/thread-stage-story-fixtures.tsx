@@ -782,6 +782,7 @@ function buildBackgroundConversation(): {
         prompt: "Run final validation once the stories are in place.",
         createdAt: 28_000,
         collaborationMode: "default",
+        serviceTier: null,
       },
     ],
     backgroundTerminalRows: [

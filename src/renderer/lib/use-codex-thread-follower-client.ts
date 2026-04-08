@@ -4,10 +4,16 @@ import type {
   CodexCollaborationModeKind,
   CodexPermissionMode,
   CodexReasoningEffort,
+  CodexServiceTier,
   CodexThreadActionResult,
   CodexTurnStartOptions,
   CodexTurnSummary,
 } from "./types";
+import {
+  buildCodexServiceTierRequestOverride,
+  resolveCodexRequestServiceTier,
+} from "./codex-service-tier-settings";
+import { useCodexServiceTierSettings } from "./use-codex-service-tier-settings";
 
 interface UseCodexThreadFollowerClientInput {
   projectId: string;
@@ -17,36 +23,47 @@ interface UseCodexThreadFollowerClientInput {
 }
 
 export function useCodexThreadFollowerClient(input: UseCodexThreadFollowerClientInput) {
-  const buildTurnStartOptions = useCallback((collaborationMode?: CodexCollaborationModeKind | null): CodexTurnStartOptions => ({
-    permissionMode: input.permissionMode,
-    model: input.model,
-    reasoningEffort: input.reasoningEffort,
-    collaborationMode: collaborationMode ?? undefined,
-  }), [input.model, input.permissionMode, input.reasoningEffort]);
+  const { serviceTierSettings } = useCodexServiceTierSettings();
+
+  const buildTurnStartOptions = useCallback((
+    overrides?: {
+      collaborationMode?: CodexCollaborationModeKind | null;
+      serviceTier?: CodexServiceTier;
+    },
+  ): CodexTurnStartOptions => {
+    const effectiveServiceTier = resolveCodexRequestServiceTier(overrides, serviceTierSettings.serviceTier);
+    return {
+      permissionMode: input.permissionMode,
+      model: input.model,
+      reasoningEffort: input.reasoningEffort,
+      collaborationMode: overrides?.collaborationMode ?? undefined,
+      ...buildCodexServiceTierRequestOverride(effectiveServiceTier),
+    };
+  }, [input.model, input.permissionMode, input.reasoningEffort, serviceTierSettings.serviceTier]);
 
   const startTurn = useCallback(async (
     threadId: string,
     prompt: string,
-    opts?: { collaborationMode?: CodexCollaborationModeKind | null },
+    opts?: { collaborationMode?: CodexCollaborationModeKind | null; serviceTier?: CodexServiceTier },
   ) => {
     return (await invoke(
       "codex:turn:start",
       threadId,
       prompt,
-      buildTurnStartOptions(opts?.collaborationMode),
+      buildTurnStartOptions(opts),
     )) as CodexTurnSummary | null;
   }, [buildTurnStartOptions]);
 
   const enqueueQueuedFollowUp = useCallback(async (
     threadId: string,
     prompt: string,
-    opts?: { collaborationMode?: CodexCollaborationModeKind | null },
+    opts?: { collaborationMode?: CodexCollaborationModeKind | null; serviceTier?: CodexServiceTier },
   ) => {
     return (await invoke(
       "codex:thread:follow-up:enqueue",
       threadId,
       prompt,
-      buildTurnStartOptions(opts?.collaborationMode),
+      buildTurnStartOptions(opts),
     )) as void;
   }, [buildTurnStartOptions]);
 
@@ -75,8 +92,15 @@ export function useCodexThreadFollowerClient(input: UseCodexThreadFollowerClient
   }, []);
 
   const editLastUserTurn = useCallback(async (threadId: string, turnId: string, message: string) => {
-    return (await invoke("codex:thread:edit-last-user-turn", threadId, turnId, message)) as CodexThreadActionResult;
-  }, []);
+    const effectiveServiceTier = resolveCodexRequestServiceTier(undefined, serviceTierSettings.serviceTier);
+    return (await invoke(
+      "codex:thread:edit-last-user-turn",
+      threadId,
+      turnId,
+      message,
+      buildCodexServiceTierRequestOverride(effectiveServiceTier),
+    )) as CodexThreadActionResult;
+  }, [serviceTierSettings.serviceTier]);
 
   const forkConversationFromTurn = useCallback(async (threadId: string, turnId: string, message: string) => {
     return (await invoke("codex:thread:fork-from-turn", threadId, turnId, message)) as CodexThreadActionResult;

@@ -79,6 +79,7 @@ describe("buildComposerShellModel", () => {
             prompt: "Run validation next.",
             createdAt: 30,
             collaborationMode: "default",
+            serviceTier: null,
           },
         ],
         backgroundTerminalRows: [

@@ -492,6 +492,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         prompt: string;
         threadName?: string;
         model?: string;
+        serviceTier?: null | "fast";
         permissionMode?: "sandbox" | "full-access" | "custom";
         reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
         collaborationMode?: "default" | "plan";
@@ -579,6 +580,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       prompt: string,
       opts?: {
         model?: string;
+        serviceTier?: null | "fast";
         reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
         permissionMode?: "sandbox" | "full-access" | "custom";
         collaborationMode?: "default" | "plan";
@@ -595,6 +597,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       prompt: string,
       opts?: {
         model?: string;
+        serviceTier?: null | "fast";
         reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
         permissionMode?: "sandbox" | "full-access" | "custom";
         collaborationMode?: "default" | "plan";
@@ -623,8 +626,8 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   registerHandle(
     "codex:thread:edit-last-user-turn",
-    (_, threadId: string, turnId: string, message: string) =>
-      codexService.editLastUserTurn(threadId, turnId, message),
+    (_, threadId: string, turnId: string, message: string, opts?: { serviceTier?: null | "fast" }) =>
+      codexService.editLastUserTurn(threadId, turnId, message, opts),
   );
 
   registerHandle(

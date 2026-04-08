@@ -3,6 +3,7 @@
 | Spec | Status | Last Updated | Summary |
 |------|--------|--------------|---------|
 | nodex-product-spec.md | Active | 2026-02-13 | Full product contract: goals, features, API, CLI, config, architecture |
+| codex-fast-mode-core-enablement.md | Active | 2026-04-09 | Detailed global Fast-mode preference contract covering persistence, shared renderer ownership, UI surfaces, request fallback, queue freezing, and reporting normalization |
 | codex-thread-transcript-behavior.md | Active | 2026-03-20 | Source of truth for visible Codex Threads transcript projection, rendering, optimistic prompts, tool/reasoning rows, and restart recovery |
 | kanban-drag-and-drop-behavior.md | Active | 2026-03-17 | Detailed Kanban DnD contract covering same-column reorder, filtered/sorted behavior, editor interop, and persistence invariants |
 | command-palette-behavior.md | Active | 2026-03-14 | Detailed command-palette launch, mode switching, ranking, previews, highlights, and execution behavior |

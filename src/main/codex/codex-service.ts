@@ -69,6 +69,7 @@ import type {
   CodexRateLimitsSnapshot,
   CodexReasoningEffort,
   CodexReasoningEffortOption,
+  CodexServiceTier,
   CodexTranscriptEntry,
   CodexTranscriptEntrySource,
   CodexThreadActiveFlag,
@@ -713,6 +714,19 @@ function truncateLastLines(value: string, maxLines = 12): string {
 function previewText(value: string, maxLength = 160): string {
   if (value.length <= maxLength) return value;
   return `${value.slice(0, Math.max(0, maxLength - 1))}…`;
+}
+
+function normalizeCodexServiceTier(value: unknown): CodexServiceTier {
+  return value === "fast" ? "fast" : null;
+}
+
+function formatServiceTierForReporting(value: unknown): "standard" | "fast" {
+  return normalizeCodexServiceTier(value) ?? "standard";
+}
+
+function buildServiceTierParams(value: unknown): { serviceTier?: "fast" } {
+  const normalized = normalizeCodexServiceTier(value);
+  return normalized === "fast" ? { serviceTier: normalized } : {};
 }
 
 function createTextUserInput(text: string): TurnStartParams["input"][number] {
@@ -1832,6 +1846,7 @@ export class CodexService extends EventEmitter {
     threadId: string,
     prompt: string,
     collaborationMode?: CodexCollaborationModeKind | null,
+    serviceTier?: CodexServiceTier,
   ): string {
     const followUpId = `follow-up:${threadId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
     const nextEntries = [
@@ -1842,6 +1857,7 @@ export class CodexService extends EventEmitter {
         prompt,
         createdAt: Date.now(),
         collaborationMode: collaborationMode ?? null,
+        serviceTier: normalizeCodexServiceTier(serviceTier),
         pausedReason: null,
       },
     ];
@@ -1918,7 +1934,12 @@ export class CodexService extends EventEmitter {
       throw new Error("Queued follow-up requires a non-empty prompt");
     }
 
-    this.enqueueQueuedFollowUp(threadId, promptText, overrides?.collaborationMode);
+    this.enqueueQueuedFollowUp(
+      threadId,
+      promptText,
+      overrides?.collaborationMode,
+      overrides?.serviceTier,
+    );
   }
 
   private recordPendingSteer(threadId: string, turnId: string, prompt: string): string {
@@ -1997,6 +2018,7 @@ export class CodexService extends EventEmitter {
 
       await this.startTurn(threadId, followUp.prompt, {
         collaborationMode: followUp.collaborationMode ?? undefined,
+        serviceTier: followUp.serviceTier,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -4043,6 +4065,7 @@ export class CodexService extends EventEmitter {
       projectId: input.projectId,
       cardId: input.cardId,
       model: input.model ?? null,
+      serviceTier: formatServiceTierForReporting(input.serviceTier),
       permissionMode: input.permissionMode ?? this.getPermissionMode(input.projectId),
       reasoningEffort: input.reasoningEffort ?? null,
       collaborationMode: input.collaborationMode ?? null,
@@ -4097,6 +4120,7 @@ export class CodexService extends EventEmitter {
       const threadStartParams: ThreadStartParams = {
         cwd: runLocation.cwd,
         model: input.model ?? null,
+        ...buildServiceTierParams(input.serviceTier),
         experimentalRawEvents: THREAD_START_EXPERIMENTAL_RAW_EVENTS,
         persistExtendedHistory: THREAD_START_PERSIST_EXTENDED_HISTORY,
       };
@@ -4149,6 +4173,7 @@ export class CodexService extends EventEmitter {
         cwd: runLocation.cwd,
         ...turnPermissionOverrides,
         ...(input.model ? { model: input.model } : {}),
+        ...buildServiceTierParams(input.serviceTier),
         ...(input.reasoningEffort ? { effort: input.reasoningEffort } : {}),
         ...(collaborationMode ? { collaborationMode } : {}),
       };
@@ -4348,6 +4373,7 @@ export class CodexService extends EventEmitter {
     threadId: string,
     turnId: string,
     message: string,
+    opts?: { serviceTier?: CodexServiceTier },
   ): Promise<CodexThreadActionResult> {
     await this.ensureClientReady();
 
@@ -4374,7 +4400,9 @@ export class CodexService extends EventEmitter {
     this.setConversationRecordDetail(detail);
 
     try {
-      await this.startTurn(threadId, message);
+      await this.startTurn(threadId, message, {
+        serviceTier: opts?.serviceTier,
+      });
     } catch (error) {
       if (summary) {
         this.emitEvent({ type: "threadSummary", thread: summary });
@@ -4559,6 +4587,7 @@ export class CodexService extends EventEmitter {
       cwd: workspacePath,
       permissionMode,
       model: overrides?.model ?? null,
+      serviceTier: formatServiceTierForReporting(overrides?.serviceTier),
       reasoningEffort: overrides?.reasoningEffort ?? null,
       collaborationMode: overrides?.collaborationMode ?? null,
       promptLength: promptText.length,
@@ -4571,6 +4600,7 @@ export class CodexService extends EventEmitter {
         ...(workspacePath ? { cwd: workspacePath } : {}),
         ...turnPermissionOverrides,
         ...(overrides?.model ? { model: overrides.model } : {}),
+        ...buildServiceTierParams(overrides?.serviceTier),
         ...(overrides?.reasoningEffort ? { effort: overrides.reasoningEffort } : {}),
         ...(collaborationMode ? { collaborationMode } : {}),
         input: [createTextUserInput(promptText)],

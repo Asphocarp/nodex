@@ -43,6 +43,7 @@ export type {
   CodexRateLimitsSnapshot,
   CodexReasoningEffort,
   CodexReasoningEffortOption,
+  CodexServiceTier,
   CodexThreadDetailLevel,
   CodexThreadSettings,
   CodexThreadStartForCardInput,

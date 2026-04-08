@@ -12,7 +12,7 @@ import {
 const ToolbarDropdown = forwardRef<
   HTMLButtonElement,
   ComponentPropsWithoutRef<"button"> & {
-    label: string;
+    label: ReactNode;
     ariaLabel?: string;
   }
 >(function ToolbarDropdown(
@@ -36,7 +36,7 @@ const ToolbarDropdown = forwardRef<
         className,
       )}
     >
-      <span>{label}</span>
+      <span className="min-w-0">{label}</span>
       <ChevronDownIcon />
     </button>
   );
@@ -55,7 +55,7 @@ export function ToolbarDropdownMenu({
   showDescriptions = false,
   selectedItemDataAttribute,
 }: {
-  label: string;
+  label: ReactNode;
   title: string;
   ariaLabel: string;
   className?: string;

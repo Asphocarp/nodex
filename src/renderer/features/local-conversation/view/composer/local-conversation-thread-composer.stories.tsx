@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
+import { CODEX_DEFAULT_SERVICE_TIER_STORAGE_KEY } from "@/lib/codex-service-tier-settings";
 import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-types";
 import {
   buildThreadStageStorySurfaceModels,
@@ -12,6 +13,7 @@ interface ComposerSendButtonStoryProps {
   isQueueingEnabled: boolean;
   composerEnterBehavior: "enter" | "cmdIfMultiline";
   draftPrompt: string;
+  initialServiceTier: "standard" | "fast";
 }
 
 function buildModel(args: ComposerSendButtonStoryProps): ThreadFooterModel {
@@ -76,6 +78,14 @@ function buildActions(): ThreadStageActions {
 }
 
 function ComposerSendButtonStory(args: ComposerSendButtonStoryProps) {
+  if (typeof localStorage !== "undefined") {
+    if (args.initialServiceTier === "fast") {
+      localStorage.setItem(CODEX_DEFAULT_SERVICE_TIER_STORAGE_KEY, "fast");
+    } else {
+      localStorage.removeItem(CODEX_DEFAULT_SERVICE_TIER_STORAGE_KEY);
+    }
+  }
+
   return (
     <div className="min-h-[320px] rounded-[24px] border border-(--border) bg-(--background) p-5 shadow-[0_18px_48px_rgba(0,0,0,0.16)]">
       <div className="mb-4 max-w-2xl">
@@ -103,6 +113,7 @@ const meta = {
     isQueueingEnabled: false,
     composerEnterBehavior: "enter",
     draftPrompt: "",
+    initialServiceTier: "standard",
   },
   argTypes: {
     isQueueingEnabled: {
@@ -114,6 +125,10 @@ const meta = {
     },
     draftPrompt: {
       control: "text",
+    },
+    initialServiceTier: {
+      control: "radio",
+      options: ["standard", "fast"],
     },
   },
   parameters: {
@@ -175,5 +190,23 @@ export const RunningSteerMultilineCmdEnter: Story = {
     isQueueingEnabled: false,
     composerEnterBehavior: "cmdIfMultiline",
     draftPrompt: "Steer the current run toward the MCP transcript cleanup.\nPrefer deduping the approval rows.",
+  },
+};
+
+export const RunningQueueFastTier: Story = {
+  args: {
+    isQueueingEnabled: true,
+    composerEnterBehavior: "enter",
+    draftPrompt: "Queue this after the current tool-call batch finishes.",
+    initialServiceTier: "fast",
+  },
+};
+
+export const FastModelIndicator: Story = {
+  args: {
+    isQueueingEnabled: false,
+    composerEnterBehavior: "enter",
+    draftPrompt: "",
+    initialServiceTier: "fast",
   },
 };

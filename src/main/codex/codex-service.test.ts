@@ -44,13 +44,19 @@ interface TestableCodexService {
   serializeThreadDetail: (threadId: string) => CodexThreadDetail | null;
   serializeConversationSnapshot: (threadId: string) => CodexConversationSnapshot | null;
   resumeThread: (threadId: string) => Promise<CodexThreadDetail | null>;
-  editLastUserTurn: (threadId: string, turnId: string, message: string) => Promise<CodexThreadActionResult>;
+  editLastUserTurn: (
+    threadId: string,
+    turnId: string,
+    message: string,
+    opts?: { serviceTier?: null | "fast" },
+  ) => Promise<CodexThreadActionResult>;
   forkConversationFromTurn: (threadId: string, turnId: string, message: string) => Promise<CodexThreadActionResult>;
   startTurn: (
     threadId: string,
     prompt: string,
     opts?: {
       model?: string;
+      serviceTier?: null | "fast";
       reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
       permissionMode?: CodexPermissionMode;
       collaborationMode?: "default" | "plan";
@@ -66,6 +72,7 @@ interface TestableCodexService {
     prompt: string,
     opts?: {
       model?: string;
+      serviceTier?: null | "fast";
       reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
       permissionMode?: CodexPermissionMode;
       collaborationMode?: "default" | "plan";
@@ -79,6 +86,7 @@ interface TestableCodexService {
     prompt: string;
     threadName?: string;
     model?: string;
+    serviceTier?: null | "fast";
     permissionMode?: CodexPermissionMode;
     reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
     collaborationMode?: "default" | "plan";
@@ -1785,6 +1793,125 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("forwards the effective service tier when edit-last-user-turn starts the replacement turn", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Editable fast conversation" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_edit_fast",
+        threadName: "Editable fast thread",
+        cwd: "/tmp/edit-fast-thread",
+      });
+
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "thread/rollback") {
+          return {
+            thread: {
+              id: "thr_edit_fast",
+              modelProvider: "openai",
+              createdAt: 1,
+              updatedAt: 10,
+              turns: [
+                {
+                  id: "turn_older",
+                  status: "completed",
+                  items: [
+                    {
+                      id: "user_older",
+                      type: "userMessage",
+                      content: [{ type: "text", text: "Older prompt" }],
+                    },
+                  ],
+                },
+              ],
+            },
+          };
+        }
+        if (method === "turn/start") {
+          return {
+            turn: {
+              id: "turn_edited_fast",
+              status: "in_progress",
+              transcript: [],
+            },
+          };
+        }
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+
+      service.readThread = async () => ({
+        ...makeThreadDetail("thr_edit_fast"),
+        projectId: "codex",
+        cardId: card.id,
+        threadName: "Editable fast thread",
+        cwd: "/tmp/edit-fast-thread",
+        turns: [
+          {
+            threadId: "thr_edit_fast",
+            turnId: "turn_older",
+            status: "completed",
+            itemIds: ["user_older"],
+          },
+          {
+            threadId: "thr_edit_fast",
+            turnId: "turn_latest",
+            status: "completed",
+            itemIds: ["user_latest"],
+          },
+        ],
+        transcript: [
+          {
+            threadId: "thr_edit_fast",
+            turnId: "turn_older",
+            itemId: "user_older",
+            type: "user_message",
+            kind: "userMessage",
+            semanticKind: "userMessage",
+            role: "user",
+            sequence: 1,
+            markdownText: "Older prompt",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          {
+            threadId: "thr_edit_fast",
+            turnId: "turn_latest",
+            itemId: "user_latest",
+            type: "user_message",
+            kind: "userMessage",
+            semanticKind: "userMessage",
+            role: "user",
+            sequence: 2,
+            markdownText: "Latest prompt",
+            createdAt: 2,
+            updatedAt: 2,
+          },
+        ],
+      });
+
+      try {
+        await service.editLastUserTurn("thr_edit_fast", "turn_latest", "Rewrite quickly", { serviceTier: "fast" });
+
+        expect(requests[1]?.method).toBe("turn/start");
+        expect((requests[1]?.params as { serviceTier?: unknown })?.serviceTier).toBe("fast");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("forks from an older turn by rolling back the new thread to the selected branch point", async () => {
     const ran = await withTempDatabase(async () => {
       const card = await createCard("codex", "in_progress", { title: "Forkable conversation" });
@@ -2241,6 +2368,89 @@ describe("codex-service startTurn", () => {
     }
   });
 
+  test("forwards an explicit fast service tier to turn/start", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      parseThreadRef: (threadId: string) => { projectId: string; cardId: string; cwd: string | null } | null;
+      markThreadAsActive: (threadId: string) => void;
+      persistThreadSnapshot: (threadId: string) => void;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+
+    serviceInternals.parseThreadRef = () => null;
+    serviceInternals.markThreadAsActive = () => {};
+    serviceInternals.persistThreadSnapshot = () => {};
+    client.start = async () => undefined;
+    client.request = async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      if (method === "turn/start") {
+        return {
+          turn: {
+            id: "turn_fast",
+            status: "in_progress",
+            transcript: [],
+          },
+        };
+      }
+      throw new Error(`Unexpected method: ${method}`);
+    };
+
+    try {
+      await service.startTurn("thr_fast", "Ship it faster", { serviceTier: "fast" });
+
+      expect(requests.length).toBe(1);
+      expect((requests[0]?.params as { serviceTier?: unknown })?.serviceTier).toBe("fast");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("omits serviceTier from turn/start when standard is requested explicitly", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      parseThreadRef: (threadId: string) => { projectId: string; cardId: string; cwd: string | null } | null;
+      markThreadAsActive: (threadId: string) => void;
+      persistThreadSnapshot: (threadId: string) => void;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+
+    serviceInternals.parseThreadRef = () => null;
+    serviceInternals.markThreadAsActive = () => {};
+    serviceInternals.persistThreadSnapshot = () => {};
+    client.start = async () => undefined;
+    client.request = async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      if (method === "turn/start") {
+        return {
+          turn: {
+            id: "turn_standard",
+            status: "in_progress",
+            transcript: [],
+          },
+        };
+      }
+      throw new Error(`Unexpected method: ${method}`);
+    };
+
+    try {
+      await service.startTurn("thr_standard", "Use the default tier", { serviceTier: null });
+
+      const params = (requests[0]?.params as Record<string, unknown>) ?? {};
+      expect(requests.length).toBe(1);
+      expect(Object.prototype.hasOwnProperty.call(params, "serviceTier")).toBeFalse();
+    } finally {
+      await service.shutdown();
+    }
+  });
+
   test("retries turn/start once after resuming a cold persisted thread", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
@@ -2465,6 +2675,71 @@ describe("codex-service startTurn", () => {
         ).toBe("null");
         expect(afterSendSnapshot?.queuedFollowUps.length).toBe(0);
         expect(afterSendSnapshot?.turns[afterSendSnapshot.turns.length - 1]?.turnId).toBe("turn_queue_prompt_auto_1");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("queueing a fast follow-up preserves the effective service tier until dispatch", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Queued fast prompt" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_queue_fast",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+
+      serviceInternals.mergeTurn("thr_queue_fast", {
+        threadId: "thr_queue_fast",
+        turnId: "turn_queue_fast",
+        status: "inProgress",
+        itemIds: [],
+      });
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "turn/start") {
+          return {
+            turn: {
+              id: "turn_queue_fast_auto_1",
+              threadId: "thr_queue_fast",
+              status: "inProgress",
+            },
+          };
+        }
+        throw new Error(`Unexpected method: ${method}`);
+      };
+
+      try {
+        await service.enqueueQueuedFollowUpPrompt("thr_queue_fast", "Queue this fast", { serviceTier: "fast" });
+        const snapshot = service.serializeConversationSnapshot("thr_queue_fast");
+
+        expect(snapshot?.queuedFollowUps[0]?.serviceTier).toBe("fast");
+
+        await serviceInternals.handleNotification("turn/completed", {
+          threadId: "thr_queue_fast",
+          turnId: "turn_queue_fast",
+          status: "completed",
+        });
+        await flushAsyncWork();
+
+        expect(requests.length).toBe(1);
+        expect((requests[0]?.params as { serviceTier?: unknown })?.serviceTier).toBe("fast");
       } finally {
         await service.shutdown();
       }
@@ -3419,6 +3694,86 @@ describe("codex-service startThreadForCard", () => {
             },
           }),
         );
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("forwards a fast service tier to both thread/start and the first turn/start", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Fast mode thread" });
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+
+      service.serializeThreadDetail = () => ({
+        threadId: "thr_fast_mode",
+        projectId: "codex",
+        cardId: card.id,
+        source: null,
+        threadName: "Fast mode thread",
+        threadPreview: "",
+        modelProvider: "openai",
+        cwd: "/tmp/codex",
+        statusType: "active",
+        statusActiveFlags: [],
+        archived: false,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        linkedAt: new Date().toISOString(),
+        turns: [],
+        transcript: [],
+      });
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "thread/start") {
+          return {
+            thread: {
+              id: "thr_fast_mode",
+              modelProvider: "openai",
+              cwd: "/tmp/codex",
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            },
+          };
+        }
+        if (method === "turn/start") {
+          return {
+            turn: {
+              id: "turn_fast_mode",
+              status: "in_progress",
+              transcript: [],
+            },
+          };
+        }
+        return {};
+      };
+
+      try {
+        await service.startThreadForCard({
+          projectId: "codex",
+          cardId: card.id,
+          prompt: "Use the fast tier",
+          threadName: "Fast mode thread",
+          model: "gpt-5.3-codex",
+          permissionMode: "sandbox",
+          reasoningEffort: "high",
+          serviceTier: "fast",
+        });
+
+        const threadStartRequest = requests.find((request) => request.method === "thread/start");
+        const turnStartRequest = requests.find((request) => request.method === "turn/start");
+
+        expect((threadStartRequest?.params as { serviceTier?: unknown })?.serviceTier).toBe("fast");
+        expect((turnStartRequest?.params as { serviceTier?: unknown })?.serviceTier).toBe("fast");
       } finally {
         await service.shutdown();
       }

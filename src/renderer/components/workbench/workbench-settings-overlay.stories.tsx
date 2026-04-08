@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
+import { CODEX_DEFAULT_SERVICE_TIER_STORAGE_KEY } from "@/lib/codex-service-tier-settings";
 import type {
   Project,
   UpdateWorktreeEnvironmentConfigInput,
@@ -171,8 +172,10 @@ function ensureStorybookElectronBridge({
 
 function SettingsOverlayStory({
   initialPath,
+  initialServiceTier = "standard",
 }: {
   initialPath: string;
+  initialServiceTier?: "standard" | "fast";
 }) {
   const [open, setOpen] = useState(true);
   const [path, setPath] = useState(initialPath);
@@ -209,6 +212,14 @@ function SettingsOverlayStory({
       return nextSnapshot;
     },
   });
+
+  if (typeof localStorage !== "undefined") {
+    if (initialServiceTier === "fast") {
+      localStorage.setItem(CODEX_DEFAULT_SERVICE_TIER_STORAGE_KEY, "fast");
+    } else {
+      localStorage.removeItem(CODEX_DEFAULT_SERVICE_TIER_STORAGE_KEY);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-(--background)">
@@ -274,6 +285,15 @@ type Story = StoryObj<typeof meta>;
 
 export const General: Story = {
   render: () => <SettingsOverlayStory initialPath={buildSettingsPath("general-settings")} />,
+};
+
+export const GeneralFastTier: Story = {
+  render: () => (
+    <SettingsOverlayStory
+      initialPath={buildSettingsPath("general-settings")}
+      initialServiceTier="fast"
+    />
+  ),
 };
 
 export const LocalEnvironments: Story = {

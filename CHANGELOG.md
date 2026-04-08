@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Added real Codex-style thread-composer dictation in Electron for ChatGPT-authenticated sessions, including the `Dictate` mic button, `Ctrl+M` hold-to-dictate shortcut, buffered `/transcribe` upload path, and the recording footer with `Stop dictation` plus `Transcribe and send`.
+- Added a global Codex-style `Service tier` preference with `Standard` and `Fast` controls in Settings and the thread composer, plus the Codex-style lightning indicator before the composer model selector while Fast is active, so new thread and turn requests can inherit and send the persisted fast tier without per-thread configuration.
 
 ### Changed
 - Thread-composer dictation no longer depends on a rollout-token gate; it is now available in supported ChatGPT-authenticated Electron sessions by default.

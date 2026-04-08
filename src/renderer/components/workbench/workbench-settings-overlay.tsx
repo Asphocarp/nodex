@@ -74,6 +74,7 @@ import { useSansFontSize } from "../../lib/use-sans-font-size";
 import type { ComposerEnterBehavior } from "../../lib/composer-enter-behavior";
 import { useSpellcheck } from "../../lib/use-spellcheck";
 import { useTheme } from "../../lib/use-theme";
+import { useCodexServiceTierSettings } from "../../lib/use-codex-service-tier-settings";
 import { useCodexThreadSettings } from "../../lib/use-codex-thread-settings";
 import { formatCodexThreadDetailLevelLabel } from "../../lib/codex-thread-settings";
 import type {
@@ -360,6 +361,24 @@ function ThreadNotificationSettingControl({ open }: { open: boolean }) {
         </span>
       ) : null}
     </div>
+  );
+}
+
+function ServiceTierSettingControl() {
+  const { serviceTierSettings, setServiceTier } = useCodexServiceTierSettings();
+  const selectedValue = serviceTierSettings.serviceTier === "fast" ? "fast" : "standard";
+
+  return (
+    <SegmentedControl<"standard" | "fast">
+      value={selectedValue}
+      onChange={(value) => {
+        setServiceTier(value === "fast" ? "fast" : null, "settings");
+      }}
+      options={[
+        { value: "standard", label: "Standard" },
+        { value: "fast", label: "Fast" },
+      ]}
+    />
   );
 }
 
@@ -1608,6 +1627,12 @@ function GeneralSettingsPage({
           description="Show a desktop notification when a Codex thread settles."
         >
           <ThreadNotificationSettingControl open={open} />
+        </SettingRow>
+        <SettingRow
+          label="Service tier"
+          description="Choose the default speed for new thread requests. Standard is the default; Fast opts into the faster tier."
+        >
+          <ServiceTierSettingControl />
         </SettingRow>
         <SettingRow
           label="App updates"

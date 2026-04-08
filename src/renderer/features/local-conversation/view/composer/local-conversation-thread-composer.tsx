@@ -5,6 +5,7 @@ import { formatCodexModelLabel, formatCodexReasoningEffortLabel } from "@/lib/co
 import { resolveContextWindowIndicatorState } from "@/lib/codex-context-window";
 import type { CodexReasoningEffort } from "@/lib/types";
 import { shouldSubmitComposerPromptFromKeyDown } from "@/lib/composer-enter-behavior";
+import { useCodexServiceTierSettings } from "@/lib/use-codex-service-tier-settings";
 import {
   resolveThreadInProgressFollowUpMode,
   resolveShortcutKeycapTokens,
@@ -27,6 +28,7 @@ import {
 import { resolvePromptTextareaSize } from "../shared/prompt-textarea-size";
 import { cn } from "../../../../lib/utils";
 import {
+  CodexFastModeIcon,
   ChevronDownIcon,
   LocalStatusIcon,
   MicIcon,
@@ -48,6 +50,12 @@ import {
   BranchSelectorPopover,
   ContextWindowIndicator,
   invoke,
+  NodexDropdownFlyoutSubmenuItem,
+  NodexDropdownItem,
+  NodexDropdownMenu,
+  NodexDropdownSection,
+  NodexDropdownSelectedIcon,
+  NodexDropdownTitle,
   NodexTooltip,
   PermissionModeDropdown,
   resolvePromptTextareaMaxHeightPx,
@@ -63,6 +71,19 @@ interface ThreadComposerProps {
   onErrorMessage: (message: string | null) => void;
 }
 
+const SERVICE_TIER_OPTIONS = [
+  {
+    value: null,
+    label: "Standard",
+    description: "Use the default service tier.",
+  },
+  {
+    value: "fast" as const,
+    label: "Fast",
+    description: "Use the faster service tier for new requests.",
+  },
+];
+
 function isElectronLikeComposerEnvironment(): boolean {
   if (typeof window === "undefined") {
     return false;
@@ -73,6 +94,26 @@ function isElectronLikeComposerEnvironment(): boolean {
   }
 
   return document.documentElement.dataset.codexWindowType === "electron";
+}
+
+function renderModelSelectorLabel(input: {
+  availableModels: ThreadFooterModel["availableModels"];
+  selectedModel: string;
+  serviceTier: null | "fast";
+}) {
+  const label = formatCodexModelLabel(input.selectedModel, input.availableModels);
+  const showFastModeIndicator = input.serviceTier === "fast";
+
+  return (
+    <span className="flex min-w-0 items-center gap-1 tabular-nums">
+      {showFastModeIndicator ? (
+        <span data-fast-mode-indicator="true">
+          <CodexFastModeIcon className="text-token-link-foreground" />
+        </span>
+      ) : null}
+      <span className="truncate whitespace-nowrap">{label}</span>
+    </span>
+  );
 }
 
 export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }: ThreadComposerProps) {
@@ -90,6 +131,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const branchCwdRef = useRef<string | null>(branchCwd);
   const branchMutationRequestIdRef = useRef(0);
   branchCwdRef.current = branchCwd;
+  const { serviceTierSettings, setServiceTier } = useCodexServiceTierSettings();
 
   const submitPrompt = useCallback(async (
     input: {
@@ -674,14 +716,41 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
           ) : (
             <div className="mb-2 grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1.25 px-2">
               <div className="flex w-full min-w-0 flex-nowrap items-center justify-start gap-1.25">
-                <button
-                  type="button"
-                  className="inline-flex size-7 items-center justify-center rounded-full border border-transparent px-0 text-(--foreground-tertiary) transition-colors duration-100 hover:bg-(--background-tertiary) hover:text-(--foreground-secondary)"
-                  aria-label="Add files and more"
-                  title="Add files and more"
+                <NodexDropdownMenu
+                  triggerButton={(
+                    <button
+                      type="button"
+                      className="inline-flex size-7 items-center justify-center rounded-full border border-transparent px-0 text-(--foreground-tertiary) transition-colors duration-100 hover:bg-(--background-tertiary) hover:text-(--foreground-secondary)"
+                      aria-label="Add files and more"
+                      title="Add files and more"
+                    >
+                      <PlusIcon className="size-4" />
+                    </button>
+                  )}
+                  side="top"
+                  align="start"
+                  contentWidth="sm"
                 >
-                  <PlusIcon className="size-4" />
-                </button>
+                  <NodexDropdownSection className="flex min-w-40 flex-col overflow-hidden pt-1">
+                    <NodexDropdownTitle>Add files and more</NodexDropdownTitle>
+                    <NodexDropdownFlyoutSubmenuItem label="Speed">
+                      <NodexDropdownSection className="flex min-w-52 flex-col overflow-hidden pt-1">
+                        <NodexDropdownTitle>Speed</NodexDropdownTitle>
+                        {SERVICE_TIER_OPTIONS.map((option) => (
+                          <NodexDropdownItem
+                            key={option.label}
+                            onSelect={() => setServiceTier(option.value, "composer_menu")}
+                            rightSlot={option.value === serviceTierSettings.serviceTier ? <NodexDropdownSelectedIcon /> : null}
+                            subText={option.description}
+                            allowWrap
+                          >
+                            {option.label}
+                          </NodexDropdownItem>
+                        ))}
+                      </NodexDropdownSection>
+                    </NodexDropdownFlyoutSubmenuItem>
+                  </NodexDropdownSection>
+                </NodexDropdownMenu>
 
                 <div className="flex min-w-0 items-center gap-1">
                   <StageThreadsCollaborationModeDropdown
@@ -690,7 +759,11 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
                     onSelect={actions.onCollaborationModeChange}
                   />
                   <ToolbarDropdownMenu
-                    label={formatCodexModelLabel(model.selectedModel, model.availableModels)}
+                    label={renderModelSelectorLabel({
+                      selectedModel: model.selectedModel,
+                      availableModels: model.availableModels,
+                      serviceTier: serviceTierSettings.serviceTier,
+                    })}
                     title="Select model"
                     ariaLabel="Select Codex model"
                     className="min-w-0"

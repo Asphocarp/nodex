@@ -9,6 +9,7 @@ import { CardStageCollapsedPropertiesProvider } from "./lib/use-card-stage-colla
 import { SansFontSizeProvider } from "./lib/use-sans-font-size";
 import { SpellcheckProvider } from "./lib/use-spellcheck";
 import { ThreadSectionSendSettingsProvider } from "./lib/use-thread-section-send-settings";
+import { CodexServiceTierSettingsProvider } from "./lib/use-codex-service-tier-settings";
 import { CodexThreadSettingsProvider } from "./lib/use-codex-thread-settings";
 import { ThemeProvider } from "./lib/use-theme";
 import "./globals.css";
@@ -58,17 +59,19 @@ export function AppProviders({ children }: AppProvidersProps) {
             <NfmAutolinkSettingsProvider>
               <PasteResourceSettingsProvider>
                 <SpellcheckProvider>
-                  <CodexThreadSettingsProvider>
-                    <ThreadSectionSendSettingsProvider>
-                      <CardStageCollapsedPropertiesProvider>
-                        <CardPropertyPositionProvider>
-                          <NodexTooltipProvider>
-                            {children}
-                          </NodexTooltipProvider>
-                        </CardPropertyPositionProvider>
-                      </CardStageCollapsedPropertiesProvider>
-                    </ThreadSectionSendSettingsProvider>
-                  </CodexThreadSettingsProvider>
+                  <CodexServiceTierSettingsProvider>
+                    <CodexThreadSettingsProvider>
+                      <ThreadSectionSendSettingsProvider>
+                        <CardStageCollapsedPropertiesProvider>
+                          <CardPropertyPositionProvider>
+                            <NodexTooltipProvider>
+                              {children}
+                            </NodexTooltipProvider>
+                          </CardPropertyPositionProvider>
+                        </CardStageCollapsedPropertiesProvider>
+                      </ThreadSectionSendSettingsProvider>
+                    </CodexThreadSettingsProvider>
+                  </CodexServiceTierSettingsProvider>
                 </SpellcheckProvider>
               </PasteResourceSettingsProvider>
             </NfmAutolinkSettingsProvider>

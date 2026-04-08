@@ -456,6 +456,7 @@ export function ThreadStageDevStoryPage({
               prompt,
               createdAt: getNextTimestamp(conversation),
               collaborationMode: null,
+              serviceTier: null,
               pausedReason: null,
             },
           ],

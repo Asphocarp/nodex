@@ -34,6 +34,7 @@ import type {
   CodexQueuedFollowUp,
   CodexThreadDetail,
   CodexReasoningEffortOption,
+  CodexServiceTier,
   CodexSharedObject,
   CodexThreadSettings,
   CodexThreadStartForCardInput,
@@ -51,7 +52,12 @@ import {
   resolveCodexReasoningEffortOptions,
   resolveCodexThreadSettings,
 } from "../../lib/codex-thread-settings";
+import {
+  buildCodexServiceTierRequestOverride,
+  resolveCodexRequestServiceTier,
+} from "../../lib/codex-service-tier-settings";
 import { useCodexThreadSettings } from "../../lib/use-codex-thread-settings";
+import { useCodexServiceTierSettings } from "../../lib/use-codex-service-tier-settings";
 import { invoke } from "./local-conversation-deps";
 import {
   subscribeCodexAppServerMessage,
@@ -2254,6 +2260,7 @@ export function useCodexAppServerControl(activeProjectId: string) {
     settings: storedThreadSettings,
     updateSettings: updateStoredThreadSettings,
   } = useCodexThreadSettings();
+  const { serviceTierSettings } = useCodexServiceTierSettings();
 
   const threadSettings = useMemo(
     () => resolveCodexThreadSettings(storedThreadSettings, availableModels),
@@ -2279,15 +2286,17 @@ export function useCodexAppServerControl(activeProjectId: string) {
     },
   ) => {
     const resolvedSettings = resolveCodexThreadSettings(storedThreadSettings, availableModels);
+    const effectiveServiceTier = resolveCodexRequestServiceTier(input, serviceTierSettings.serviceTier);
     const detail = await manager.startThreadForCard({
       ...input,
       permissionMode: manager.readPermissionMode(input.projectId),
       model: input.model ?? resolvedSettings.model,
       reasoningEffort: resolvedSettings.reasoningEffort,
+      ...buildCodexServiceTierRequestOverride(effectiveServiceTier),
     });
     await manager.loadThreads(input.projectId);
     return detail;
-  }, [availableModels, manager, storedThreadSettings]);
+  }, [availableModels, manager, serviceTierSettings.serviceTier, storedThreadSettings]);
 
   const setThreadName = useCallback(
     async (threadId: string, name: string, projectId: string) => manager.setThreadName(threadId, name, projectId),
@@ -2305,34 +2314,38 @@ export function useCodexAppServerControl(activeProjectId: string) {
   const startTurn = useCallback(async (
     threadId: string,
     prompt: string,
-    opts?: { projectId?: string; collaborationMode?: CodexCollaborationModeKind },
+    opts?: { projectId?: string; collaborationMode?: CodexCollaborationModeKind; serviceTier?: CodexServiceTier },
   ) => {
     const resolvedSettings = resolveCodexThreadSettings(storedThreadSettings, availableModels);
     const resolvedProjectId = opts?.projectId ?? activeProjectId;
+    const effectiveServiceTier = resolveCodexRequestServiceTier(opts, serviceTierSettings.serviceTier);
     const turnOpts: CodexTurnStartOptions = {
       permissionMode: manager.readPermissionMode(resolvedProjectId),
       model: resolvedSettings.model,
       reasoningEffort: resolvedSettings.reasoningEffort,
       collaborationMode: opts?.collaborationMode,
+      ...buildCodexServiceTierRequestOverride(effectiveServiceTier),
     };
     return manager.startTurn(threadId, prompt, turnOpts);
-  }, [activeProjectId, availableModels, manager, storedThreadSettings]);
+  }, [activeProjectId, availableModels, manager, serviceTierSettings.serviceTier, storedThreadSettings]);
 
   const enqueueQueuedFollowUp = useCallback(async (
     threadId: string,
     prompt: string,
-    opts?: { projectId?: string; collaborationMode?: CodexCollaborationModeKind | null },
+    opts?: { projectId?: string; collaborationMode?: CodexCollaborationModeKind | null; serviceTier?: CodexServiceTier },
   ) => {
     const resolvedSettings = resolveCodexThreadSettings(storedThreadSettings, availableModels);
     const resolvedProjectId = opts?.projectId ?? activeProjectId;
+    const effectiveServiceTier = resolveCodexRequestServiceTier(opts, serviceTierSettings.serviceTier);
     const turnOpts: CodexTurnStartOptions = {
       permissionMode: manager.readPermissionMode(resolvedProjectId),
       model: resolvedSettings.model,
       reasoningEffort: resolvedSettings.reasoningEffort,
       collaborationMode: opts?.collaborationMode ?? undefined,
+      ...buildCodexServiceTierRequestOverride(effectiveServiceTier),
     };
     await manager.enqueueQueuedFollowUp(threadId, prompt, turnOpts);
-  }, [activeProjectId, availableModels, manager, storedThreadSettings]);
+  }, [activeProjectId, availableModels, manager, serviceTierSettings.serviceTier, storedThreadSettings]);
 
   const steerTurn = useCallback(
     async (threadId: string, turnId: string, prompt: string) => manager.steerTurn(threadId, turnId, prompt),
