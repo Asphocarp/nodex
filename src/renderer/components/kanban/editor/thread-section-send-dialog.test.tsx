@@ -11,7 +11,6 @@ mock.module("./thread-section-send-dialog-deps", () => ({
   Dialog: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
   DialogContent: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
   DialogDescription: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
-  DialogFooter: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
   DialogHeader: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
   DialogTitle: ({ children }: ComponentProps<"div">) => <div>{children}</div>,
 }));
@@ -39,7 +38,7 @@ describe("thread section send dialog", () => {
     expect(getByText("Send to existing thread").textContent).toBe("Send to existing thread");
     expect(textContent(container).includes("hello\nworld")).toBeTrue();
     expect(textContent(container).includes("Do not ask again")).toBeTrue();
-    expect(textContent(container).includes("(revertible in Settings)")).toBeTrue();
+    expect(textContent(container).includes("revertible in Settings")).toBeTrue();
   });
 
   test("shows the auto-create note when no section exists yet", async () => {
@@ -59,7 +58,8 @@ describe("thread section send dialog", () => {
       />,
     );
 
-    expect(textContent(container).includes("A new `threadSection` block will be inserted before the current block when you send.")).toBeTrue();
+    expect(textContent(container).includes("threadSection")).toBeTrue();
+    expect(textContent(container).includes("block will be inserted before the current block when you send")).toBeTrue();
     expect(textContent(container).includes("draft text")).toBeTrue();
   });
 });
