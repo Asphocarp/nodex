@@ -85,65 +85,63 @@ export function PlanMessage({
   };
 
   return (
-    <div className="px-2.5">
-      <div className="relative overflow-clip rounded-lg bg-token-foreground/5">
-        <div className="relative flex flex-wrap items-center justify-between gap-2 px-3 py-2">
-          <span className={cn("text-base/tight font-semibold text-token-foreground", !completed && "loading-shimmer-pure-text")}>
-            {completed ? "Plan" : "Writing plan"}
-          </span>
-          <div className="flex items-center gap-1">
-            <ThreadActionIconButton label="Download plan" onClick={handleDownload}>
-              <DownloadIcon />
-            </ThreadActionIconButton>
-            <CopyMessageActionButton text={content} label="Copy" copiedLabel="Copied" />
-            <ThreadActionIconButton
-              label={collapsed ? "Expand plan summary" : "Collapse plan summary"}
-              aria-controls={contentId}
-              aria-expanded={!collapsed}
-              state={collapsed ? "closed" : "open"}
-              onClick={() => {
-                setCollapsed((current) => !current);
-              }}
-            >
-              <ChevronDownIcon className={cn("transition-transform duration-200", collapsed ? "rotate-180" : "rotate-0")} />
-            </ThreadActionIconButton>
-          </div>
+    <div className="relative overflow-clip rounded-lg bg-token-foreground/5">
+      <div className="relative flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+        <span className={cn("text-base/tight font-semibold text-token-foreground", !completed && "loading-shimmer-pure-text")}>
+          {completed ? "Plan" : "Writing plan"}
+        </span>
+        <div className="flex items-center gap-1">
+          <ThreadActionIconButton label="Download plan" onClick={handleDownload}>
+            <DownloadIcon />
+          </ThreadActionIconButton>
+          <CopyMessageActionButton text={content} label="Copy" copiedLabel="Copied" />
+          <ThreadActionIconButton
+            label={collapsed ? "Expand plan summary" : "Collapse plan summary"}
+            aria-controls={contentId}
+            aria-expanded={!collapsed}
+            state={collapsed ? "closed" : "open"}
+            onClick={() => {
+              setCollapsed((current) => !current);
+            }}
+          >
+            <ChevronDownIcon className={cn("transition-transform duration-200", collapsed ? "rotate-180" : "rotate-0")} />
+          </ThreadActionIconButton>
+        </div>
+      </div>
+
+      <motion.div
+        id={contentId}
+        className="relative overflow-hidden"
+        initial={false}
+        animate={{ height: collapsed ? COLLAPSED_PLAN_MAX_HEIGHT_PX : "auto" }}
+        transition={CODEX_THREAD_ACCORDION_TRANSITION}
+      >
+        <div className="px-4 py-3">
+          <MarkdownRenderer
+            content={content}
+            parseIncompleteMarkdown={parseIncompleteMarkdown}
+            animateStreamingText={!completed && parseIncompleteMarkdown}
+            className="codex-markdown-plan"
+          />
         </div>
 
-        <motion.div
-          id={contentId}
-          className="relative overflow-hidden"
-          initial={false}
-          animate={{ height: collapsed ? COLLAPSED_PLAN_MAX_HEIGHT_PX : "auto" }}
-          transition={CODEX_THREAD_ACCORDION_TRANSITION}
-        >
-          <div className="px-4 py-3">
-            <MarkdownRenderer
-              content={content}
-              parseIncompleteMarkdown={parseIncompleteMarkdown}
-              animateStreamingText={!completed && parseIncompleteMarkdown}
-              className="codex-markdown-plan"
-            />
-          </div>
-
-          {collapsed && (
-            <>
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-linear-to-t from-token-input-background to-transparent" />
-              <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
-                <button
-                  type="button"
-                  className="pointer-events-auto flex cursor-interaction items-center gap-1 rounded-full border border-token-border bg-token-foreground px-2 py-0.5 text-sm leading-[18px] text-token-dropdown-background transition-colors select-none no-drag hover:bg-token-foreground/80"
-                  onClick={() => {
-                    setCollapsed(false);
-                  }}
-                >
-                  Expand plan
-                </button>
-              </div>
-            </>
-          )}
-        </motion.div>
-      </div>
+        {collapsed && (
+          <>
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-linear-to-t from-token-input-background to-transparent" />
+            <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
+              <button
+                type="button"
+                className="pointer-events-auto flex cursor-interaction items-center gap-1 rounded-full border border-token-border bg-token-foreground px-2 py-0.5 text-sm leading-[18px] text-token-dropdown-background transition-colors select-none no-drag hover:bg-token-foreground/80"
+                onClick={() => {
+                  setCollapsed(false);
+                }}
+              >
+                Expand plan
+              </button>
+            </div>
+          </>
+        )}
+      </motion.div>
     </div>
   );
 }
