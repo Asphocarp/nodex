@@ -7,6 +7,7 @@ import type {
   BackupSettings,
   HistorySettings,
   ThreadNotificationSettings,
+  ThreadNotificationTurnMode,
   UpdateAppUpdateSettingsInput,
   UpdateBackupSettingsInput,
   UpdateHistorySettingsInput,
@@ -21,7 +22,9 @@ interface ServerTomlConfig {
   backup_auto_enabled?: boolean;
   backup_interval_hours?: number;
   backup_retention?: number;
-  thread_completion_notifications_enabled?: boolean;
+  thread_notifications_turn_mode?: ThreadNotificationTurnMode;
+  thread_notifications_permissions_enabled?: boolean;
+  thread_notifications_questions_enabled?: boolean;
   history_retention?: number;
   app_updates_auto_check_enabled?: boolean;
 }
@@ -33,7 +36,9 @@ interface RootTomlConfig extends Record<string, unknown> {
 const BACKUP_AUTO_DEFAULT = false;
 const BACKUP_INTERVAL_DEFAULT = 6;
 const BACKUP_RETENTION_DEFAULT = 28;
-const THREAD_COMPLETION_NOTIFICATIONS_DEFAULT = true;
+const THREAD_NOTIFICATIONS_TURN_MODE_DEFAULT: ThreadNotificationTurnMode = "unfocused";
+const THREAD_NOTIFICATIONS_PERMISSIONS_ENABLED_DEFAULT = true;
+const THREAD_NOTIFICATIONS_QUESTIONS_ENABLED_DEFAULT = true;
 const APP_UPDATES_AUTO_CHECK_DEFAULT = true;
 
 function readServerSection(configPath: string): ServerTomlConfig | null {
@@ -206,10 +211,20 @@ function backupSettingsFromConfig(config: ServerTomlConfig): Omit<BackupSettings
 
 function threadNotificationSettingsFromConfig(config: ServerTomlConfig): ThreadNotificationSettings {
   return {
-    threadCompletionEnabled:
-      typeof config.thread_completion_notifications_enabled === "boolean"
-        ? config.thread_completion_notifications_enabled
-        : THREAD_COMPLETION_NOTIFICATIONS_DEFAULT,
+    turnMode:
+      config.thread_notifications_turn_mode === "off"
+      || config.thread_notifications_turn_mode === "unfocused"
+      || config.thread_notifications_turn_mode === "always"
+        ? config.thread_notifications_turn_mode
+        : THREAD_NOTIFICATIONS_TURN_MODE_DEFAULT,
+    permissionsEnabled:
+      typeof config.thread_notifications_permissions_enabled === "boolean"
+        ? config.thread_notifications_permissions_enabled
+        : THREAD_NOTIFICATIONS_PERMISSIONS_ENABLED_DEFAULT,
+    questionsEnabled:
+      typeof config.thread_notifications_questions_enabled === "boolean"
+        ? config.thread_notifications_questions_enabled
+        : THREAD_NOTIFICATIONS_QUESTIONS_ENABLED_DEFAULT,
   };
 }
 
@@ -324,19 +339,29 @@ export function getThreadNotificationSettings(): ThreadNotificationSettings {
 export function updateThreadNotificationSettings(
   input: UpdateThreadNotificationSettingsInput,
 ): ThreadNotificationSettings {
-  if (typeof input.threadCompletionEnabled !== "boolean") {
-    throw new Error("threadCompletionEnabled must be a boolean");
+  if (input.turnMode !== "off" && input.turnMode !== "unfocused" && input.turnMode !== "always") {
+    throw new Error("turnMode must be one of off, unfocused, or always");
+  }
+  if (typeof input.permissionsEnabled !== "boolean") {
+    throw new Error("permissionsEnabled must be a boolean");
+  }
+  if (typeof input.questionsEnabled !== "boolean") {
+    throw new Error("questionsEnabled must be a boolean");
   }
 
   const nextSettings = {
-    threadCompletionEnabled: input.threadCompletionEnabled,
+    turnMode: input.turnMode,
+    permissionsEnabled: input.permissionsEnabled,
+    questionsEnabled: input.questionsEnabled,
   };
 
   const userConfigPath = getUserConfigPath();
   const nextToml = readTomlConfig(userConfigPath);
   const nextServer = {
     ...(nextToml.server ?? {}),
-    thread_completion_notifications_enabled: nextSettings.threadCompletionEnabled,
+    thread_notifications_turn_mode: nextSettings.turnMode,
+    thread_notifications_permissions_enabled: nextSettings.permissionsEnabled,
+    thread_notifications_questions_enabled: nextSettings.questionsEnabled,
   };
 
   nextToml.server = nextServer;
@@ -379,10 +404,6 @@ export function updateAppUpdateSettings(
   serverToml = loadServerTomlConfig();
 
   return getAppUpdateSettings();
-}
-
-export function getThreadCompletionNotificationsEnabled(): boolean {
-  return getThreadNotificationSettings().threadCompletionEnabled;
 }
 
 export function getBackupAutoEnabled(): boolean {

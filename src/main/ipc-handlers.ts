@@ -19,6 +19,7 @@ import { parseAssetSource } from "../shared/assets";
 import { codexService } from "./codex/codex-service";
 import { openFileLinkTarget } from "./file-link-opener";
 import type { WorkbenchResumeSnapshot } from "../shared/workbench-resume";
+import type { DesktopNotificationManager } from "./desktop-notification-manager";
 import {
   checkoutGitBranch,
   createAndCheckoutGitBranch,
@@ -47,6 +48,7 @@ interface RegisterIpcHandlersOptions {
   onCreateWindow?: () => void;
   onConsumeWorkbenchResume?: (webContentsId: number) => WorkbenchResumeSnapshot | null;
   onSaveWorkbenchResume?: (webContentsId: number, snapshot: WorkbenchResumeSnapshot) => boolean;
+  desktopNotificationManager?: DesktopNotificationManager;
   onGetAppUpdateStatus?: () => AppUpdateStatus;
   onCheckForAppUpdate?: () => Promise<AppUpdateStatus>;
   onInstallAppUpdate?: () => boolean;
@@ -56,6 +58,17 @@ interface RegisterIpcHandlersOptions {
 export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): void {
   const gitBranchWatches = new Map<number, { cwd: string; dispose: () => void }>();
   const gitBranchWatchCleanupBound = new Set<number>();
+
+  const focusNotificationOriginWindow = (window: BrowserWindow | null): void => {
+    if (!window || window.isDestroyed()) {
+      return;
+    }
+    if (window.isMinimized()) {
+      window.restore();
+    }
+    window.show();
+    window.focus();
+  };
 
   const stopGitBranchWatch = (webContentsId: number) => {
     const activeWatch = gitBranchWatches.get(webContentsId);
@@ -240,6 +253,35 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerHandle("settings:thread-notifications:update", (_, input) =>
     updateThreadNotificationSettings(input)
   );
+
+  registerHandle("desktop-notification:show", (event, notification) => {
+    if (!options.desktopNotificationManager) {
+      return;
+    }
+
+    const originWindow = BrowserWindow.fromWebContents(event.sender);
+    options.desktopNotificationManager.showNotification(notification, event.sender, (action) => {
+      if (action.actionType === "open") {
+        focusNotificationOriginWindow(originWindow);
+      }
+
+      if (!event.sender.isDestroyed()) {
+        event.sender.send("desktop-notification:action", {
+          ...action,
+          conversationId: notification.conversationId ?? null,
+          requestId: notification.requestId ?? null,
+        });
+      }
+    });
+  });
+
+  registerHandle("desktop-notification:hide", (_, conversationId: string) => {
+    options.desktopNotificationManager?.dismissByConversationId(conversationId ?? null);
+  });
+
+  registerHandle("electron-window:focus:get", (event) => {
+    return BrowserWindow.fromWebContents(event.sender)?.isFocused() ?? false;
+  });
 
   registerHandle("settings:app-updates:get", () => getAppUpdateSettings());
 

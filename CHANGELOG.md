@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 - Thread-composer dictation no longer depends on a rollout-token gate; it is now available in supported ChatGPT-authenticated Electron sessions by default.
 
 ### Fixed
+- Fixed desktop notification parity for local Codex threads so turn-complete, approval, and question notifications now follow Codex Desktop settings, focus suppression, reply/action handling, and interrupted-turn filtering.
 - Fixed NFM ordered-list round-tripping so numbered list markers now persist exactly through editor save/reload, plain-text copy, and raw NFM rendering instead of collapsing every item to `1.`.
 - Fixed thread-composer dictation transcription in ChatGPT-authenticated Electron sessions by mirroring Codex Desktop's authenticated `/transcribe` request envelope and retry behavior.
 - Fixed MCP tool-call transcript parity so MCP rows now render from a canonical normalized result model, match Codex's `Calling`/`Called` summary and expanded branch order, keep `structuredContent` append-only, and hide same-server in-progress MCP rows while an incomplete elicitation for that server is already visible.

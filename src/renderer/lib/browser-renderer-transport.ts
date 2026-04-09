@@ -366,7 +366,11 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       return res.json();
     }
     case "settings:thread-notifications:update": {
-      const [input] = args as [{ threadCompletionEnabled: boolean }];
+      const [input] = args as [{
+        turnMode: "off" | "unfocused" | "always";
+        permissionsEnabled: boolean;
+        questionsEnabled: boolean;
+      }];
       const res = await fetch(toApiUrl("/api/settings/thread-notifications"), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -810,6 +814,16 @@ function subscribeCodexHostMessages(
   return () => { };
 }
 
+function subscribeDesktopNotificationActions(
+  callback: (payload: import("./types").DesktopNotificationActionPayload & {
+    conversationId: string | null;
+    requestId: string | null;
+  }) => void,
+): () => void {
+  void callback;
+  return () => {};
+}
+
 function subscribeGitBranchChanges(callback: (event: { cwd: string }) => void): () => void {
   void callback;
   return () => { };
@@ -820,11 +834,38 @@ function subscribeAppUpdateStatus(callback: (status: AppUpdateStatus) => void): 
   return () => { };
 }
 
+async function getWindowFocusState(): Promise<boolean> {
+  return typeof document !== "undefined" ? document.visibilityState !== "hidden" : true;
+}
+
+function subscribeWindowFocusChanges(callback: (isFocused: boolean) => void): () => void {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    void callback;
+    return () => {};
+  }
+
+  const emit = () => {
+    callback(document.visibilityState !== "hidden");
+  };
+
+  window.addEventListener("focus", emit);
+  window.addEventListener("blur", emit);
+  document.addEventListener("visibilitychange", emit);
+  return () => {
+    window.removeEventListener("focus", emit);
+    window.removeEventListener("blur", emit);
+    document.removeEventListener("visibilitychange", emit);
+  };
+}
+
 export const browserRendererTransport = {
   kind: "browser" as const,
   invoke,
   subscribeBoardChanges,
   subscribeCodexHostMessages,
+  subscribeDesktopNotificationActions,
   subscribeGitBranchChanges,
   subscribeAppUpdateStatus,
+  getWindowFocusState,
+  subscribeWindowFocusChanges,
 };

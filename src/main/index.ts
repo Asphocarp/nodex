@@ -15,7 +15,7 @@ import type {
   AppInitializationStep,
   DatabaseMigrationProgress,
 } from "../shared/app-startup";
-import type { AppUpdateStatus, CodexTurnSummary } from "../shared/types";
+import type { AppUpdateStatus } from "../shared/types";
 import { registerIpcHandlers } from "./ipc-handlers";
 import { startHttpServer } from "./http-server";
 import { findCardLocationById, initializeDatabase } from "./kanban/db-service";
@@ -31,12 +31,10 @@ import {
   getAppUpdateSettings,
   getBackupSettings,
   getKanbanDir,
-  getThreadNotificationSettings,
   getPort,
 } from "./kanban/config";
 import { codexService } from "./codex/codex-service";
-import { getCodexCardThreadLink } from "./codex/codex-link-repository";
-import { resolveThreadCompletionNotificationContent } from "./codex/thread-completion-notification";
+import { DesktopNotificationManager } from "./desktop-notification-manager";
 import { configureInstanceScopePaths } from "./instance-scope";
 import { parseCardDeepLink } from "../shared/card-deeplink";
 import { WorkbenchResumeState } from "./workbench-resume-state";
@@ -65,6 +63,7 @@ let latestDatabaseMigrationProgress: DatabaseMigrationProgress | null = null;
 let appInitializationPromise: Promise<void> = Promise.resolve();
 let appUpdateService: AppUpdateService | null = null;
 let mediaPermissionHandlersRegistered = false;
+const desktopNotificationManager = new DesktopNotificationManager();
 const logger = getLogger({ subsystem: "app" });
 
 function resolveUnsupportedAppUpdateStatus(): AppUpdateStatus {
@@ -328,24 +327,6 @@ function registerDeepLinkProtocol(): void {
   app.setAsDefaultProtocolClient("nodex");
 }
 
-function showThreadCompletionNotification(turn: CodexTurnSummary): void {
-  if (!Notification.isSupported()) return;
-  if (!getThreadNotificationSettings().threadCompletionEnabled) return;
-
-  const content = resolveThreadCompletionNotificationContent({
-    thread: getCodexCardThreadLink(turn.threadId),
-    detail: codexService.serializeThreadDetail(turn.threadId),
-    turn,
-  });
-  if (!content) return;
-
-  const notification = new Notification(content);
-  notification.on("click", () => {
-    focusLastWindow();
-  });
-  notification.show();
-}
-
 function createWindow(
   serverUrl: string,
   options: { restoreEligible: boolean },
@@ -443,6 +424,14 @@ function createWindow(
   window.on("close", closeHandler);
   window.on("focus", () => {
     lastFocusedWindowId = webContentsId;
+    if (!window.isDestroyed()) {
+      window.webContents.send("electron-window:focus-changed", { isFocused: true });
+    }
+  });
+  window.on("blur", () => {
+    if (!window.isDestroyed()) {
+      window.webContents.send("electron-window:focus-changed", { isFocused: false });
+    }
   });
   window.webContents.on("did-finish-load", () => {
     const appUpdateStatus = appUpdateService?.getStatus();
@@ -539,12 +528,6 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
     });
   });
 
-  codexService.on("event", (event) => {
-    if (event.type !== "turn") return;
-    if (event.turn.status === "inProgress") return;
-    showThreadCompletionNotification(event.turn);
-  });
-
   dbNotifier.on("board-changed", (event) => {
     broadcastToWindows("board-changed", event);
   });
@@ -618,6 +601,7 @@ if (hasSingleInstanceLock) {
       configureMacWindowMenus();
       registerInitializationIpcHandlers();
       registerIpcHandlers({
+        desktopNotificationManager,
         onCreateWindow: () => {
           openNewWindow();
         },

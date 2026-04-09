@@ -107,7 +107,11 @@ function ensureStorybookElectronBridge({
     invoke: async (channel: string, ...args: unknown[]) => {
       switch (channel) {
         case "settings:thread-notifications:get":
-          return { threadCompletionEnabled: true };
+          return {
+            turnMode: "unfocused",
+            permissionsEnabled: true,
+            questionsEnabled: true,
+          };
         case "settings:app-updates:get":
           return { automaticChecksEnabled: true };
         case "app:update:status":

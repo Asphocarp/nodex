@@ -86,7 +86,11 @@ describe("SettingsOverlay service tier", () => {
       invoke: async (channel: string) => {
         switch (channel) {
           case "settings:thread-notifications:get":
-            return { threadCompletionEnabled: true };
+            return {
+              turnMode: "unfocused",
+              permissionsEnabled: true,
+              questionsEnabled: true,
+            };
           case "settings:app-updates:get":
             return { automaticChecksEnabled: true };
           case "app:update:status":

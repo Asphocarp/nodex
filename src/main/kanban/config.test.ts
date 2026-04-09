@@ -135,25 +135,34 @@ describe("backup settings config", () => {
 });
 
 describe("thread notification settings config", () => {
-  test("defaults to enabled and persists updates to user config", async () => {
+  test("defaults to codex parity values and persists updates to user config", async () => {
     await withTempConfigFixture(async ({ tempHome }) => {
       const config = await importConfigModule();
 
-      expect(config.getThreadNotificationSettings().threadCompletionEnabled).toBeTrue();
+      expect(config.getThreadNotificationSettings().turnMode).toBe("unfocused");
+      expect(config.getThreadNotificationSettings().permissionsEnabled).toBeTrue();
+      expect(config.getThreadNotificationSettings().questionsEnabled).toBeTrue();
 
       const updated = config.updateThreadNotificationSettings({
-        threadCompletionEnabled: false,
+        turnMode: "always",
+        permissionsEnabled: false,
+        questionsEnabled: false,
       });
 
-      expect(updated.threadCompletionEnabled).toBeFalse();
-      expect(config.getThreadCompletionNotificationsEnabled()).toBeFalse();
+      expect(updated.turnMode).toBe("always");
+      expect(updated.permissionsEnabled).toBeFalse();
+      expect(updated.questionsEnabled).toBeFalse();
 
       const configPath = path.join(tempHome, ".nodex", "config.toml");
       const written = fs.readFileSync(configPath, "utf8");
-      expect(written.includes("thread_completion_notifications_enabled = false")).toBeTrue();
+      expect(written.includes("thread_notifications_turn_mode = \"always\"")).toBeTrue();
+      expect(written.includes("thread_notifications_permissions_enabled = false")).toBeTrue();
+      expect(written.includes("thread_notifications_questions_enabled = false")).toBeTrue();
 
       const reloaded = await importConfigModule();
-      expect(reloaded.getThreadNotificationSettings().threadCompletionEnabled).toBeFalse();
+      expect(reloaded.getThreadNotificationSettings().turnMode).toBe("always");
+      expect(reloaded.getThreadNotificationSettings().permissionsEnabled).toBeFalse();
+      expect(reloaded.getThreadNotificationSettings().questionsEnabled).toBeFalse();
     });
   });
 
@@ -163,19 +172,31 @@ describe("thread notification settings config", () => {
       fs.mkdirSync(projectConfigDir, { recursive: true });
       fs.writeFileSync(
         path.join(projectConfigDir, "config.toml"),
-        ["[server]", "thread_completion_notifications_enabled = true", ""].join("\n"),
+        [
+          "[server]",
+          "thread_notifications_turn_mode = \"off\"",
+          "thread_notifications_permissions_enabled = false",
+          "thread_notifications_questions_enabled = false",
+          "",
+        ].join("\n"),
         "utf8",
       );
 
       const config = await importConfigModule();
       const updated = config.updateThreadNotificationSettings({
-        threadCompletionEnabled: false,
+        turnMode: "always",
+        permissionsEnabled: true,
+        questionsEnabled: true,
       });
 
-      expect(updated.threadCompletionEnabled).toBeFalse();
+      expect(updated.turnMode).toBe("always");
+      expect(updated.permissionsEnabled).toBeTrue();
+      expect(updated.questionsEnabled).toBeTrue();
 
       const reloaded = await importConfigModule();
-      expect(reloaded.getThreadNotificationSettings().threadCompletionEnabled).toBeFalse();
+      expect(reloaded.getThreadNotificationSettings().turnMode).toBe("always");
+      expect(reloaded.getThreadNotificationSettings().permissionsEnabled).toBeTrue();
+      expect(reloaded.getThreadNotificationSettings().questionsEnabled).toBeTrue();
     });
   });
 });

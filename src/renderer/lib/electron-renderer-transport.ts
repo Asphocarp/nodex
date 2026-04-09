@@ -1,4 +1,8 @@
-import type { AppUpdateStatus, CodexHostMessage } from "./types";
+import type {
+  AppUpdateStatus,
+  CodexHostMessage,
+  DesktopNotificationActionPayload,
+} from "./types";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 
 export type ElectronRendererBridge = NonNullable<Window["api"]>;
@@ -23,6 +27,27 @@ export function createElectronRendererTransport(bridge: ElectronRendererBridge) 
         callback(payload);
       });
     },
+    subscribeDesktopNotificationActions(
+      callback: (message: DesktopNotificationActionPayload & {
+        conversationId: string | null;
+        requestId: string | null;
+      }) => void,
+    ) {
+      return bridge.on("desktop-notification:action", (...args: unknown[]) => {
+        const payload = args[0] as (DesktopNotificationActionPayload & {
+          conversationId?: string | null;
+          requestId?: string | null;
+        }) | undefined;
+        if (!payload || typeof payload.notificationId !== "string" || typeof payload.actionType !== "string") {
+          return;
+        }
+        callback({
+          ...payload,
+          conversationId: payload.conversationId ?? null,
+          requestId: payload.requestId ?? null,
+        });
+      });
+    },
     subscribeGitBranchChanges(callback: (event: { cwd: string }) => void) {
       return bridge.on("git:branch:changed", (...args: unknown[]) => {
         const payload = args[0] as { cwd?: string } | undefined;
@@ -35,6 +60,15 @@ export function createElectronRendererTransport(bridge: ElectronRendererBridge) 
         const payload = args[0] as AppUpdateStatus | undefined;
         if (!payload || typeof payload.status !== "string") return;
         callback(payload);
+      });
+    },
+    getWindowFocusState() {
+      return bridge.invoke("electron-window:focus:get") as Promise<boolean>;
+    },
+    subscribeWindowFocusChanges(callback: (isFocused: boolean) => void) {
+      return bridge.on("electron-window:focus-changed", (...args: unknown[]) => {
+        const payload = args[0] as { isFocused?: boolean } | undefined;
+        callback(payload?.isFocused === true);
       });
     },
   };

@@ -297,7 +297,9 @@ app.put("/api/settings/thread-notifications", async (c) => {
 
   try {
     const settings = updateThreadNotificationSettings({
-      threadCompletionEnabled: body.threadCompletionEnabled,
+      turnMode: body.turnMode,
+      permissionsEnabled: body.permissionsEnabled,
+      questionsEnabled: body.questionsEnabled,
     });
     return c.json(settings);
   } catch (error) {

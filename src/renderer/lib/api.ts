@@ -26,6 +26,17 @@ export function subscribeCodexHostMessages(
   return resolveRendererTransport().subscribeCodexHostMessages(callback);
 }
 
+export function subscribeDesktopNotificationActions(
+  callback: (
+    payload: import("./types").DesktopNotificationActionPayload & {
+      conversationId: string | null;
+      requestId: string | null;
+    },
+  ) => void,
+): () => void {
+  return resolveRendererTransport().subscribeDesktopNotificationActions(callback);
+}
+
 export function subscribeGitBranchChanges(
   callback: (event: { cwd: string }) => void,
 ): () => void {
@@ -36,4 +47,14 @@ export function subscribeAppUpdateStatus(
   callback: (status: import("./types").AppUpdateStatus) => void,
 ): () => void {
   return resolveRendererTransport().subscribeAppUpdateStatus(callback);
+}
+
+export function getWindowFocusState(): Promise<boolean> {
+  return resolveRendererTransport().getWindowFocusState();
+}
+
+export function subscribeWindowFocusChanges(
+  callback: (isFocused: boolean) => void,
+): () => void {
+  return resolveRendererTransport().subscribeWindowFocusChanges(callback);
 }

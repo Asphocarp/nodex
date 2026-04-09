@@ -6,8 +6,16 @@ export interface RendererTransport {
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
   subscribeBoardChanges: (projectId: string, callback: () => void) => () => void;
   subscribeCodexHostMessages: (callback: (message: import("./types").CodexHostMessage) => void) => () => void;
+  subscribeDesktopNotificationActions: (
+    callback: (payload: import("./types").DesktopNotificationActionPayload & {
+      conversationId: string | null;
+      requestId: string | null;
+    }) => void,
+  ) => () => void;
   subscribeGitBranchChanges: (callback: (event: { cwd: string }) => void) => () => void;
   subscribeAppUpdateStatus: (callback: (status: import("./types").AppUpdateStatus) => void) => () => void;
+  getWindowFocusState: () => Promise<boolean>;
+  subscribeWindowFocusChanges: (callback: (isFocused: boolean) => void) => () => void;
 }
 
 const BROWSER_ONLY_INVOKE_CHANNELS = new Set<string>([

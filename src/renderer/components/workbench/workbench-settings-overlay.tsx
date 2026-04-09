@@ -76,6 +76,7 @@ import { useSpellcheck } from "../../lib/use-spellcheck";
 import { useTheme } from "../../lib/use-theme";
 import { useCodexServiceTierSettings } from "../../lib/use-codex-service-tier-settings";
 import { useCodexThreadSettings } from "../../lib/use-codex-thread-settings";
+import { useThreadNotificationSettings } from "../../lib/use-thread-notification-settings";
 import { formatCodexThreadDetailLevelLabel } from "../../lib/codex-thread-settings";
 import type {
   BackupRecord,
@@ -83,9 +84,9 @@ import type {
   HistorySettings,
   ManagedWorktreeRecord,
   Project,
-  ThreadNotificationSettings,
   WorktreeStartMode,
   CodexThreadDetailLevel,
+  ThreadNotificationTurnMode,
 } from "../../lib/types";
 import { cn } from "../../lib/utils";
 import {
@@ -281,82 +282,87 @@ function ThemeSettingControl() {
 }
 
 function ThreadNotificationSettingControl({ open }: { open: boolean }) {
-  const [settings, setSettings] = useState<ThreadNotificationSettings>({
-    threadCompletionEnabled: true,
-  });
+  const { settings, isLoading, reloadSettings, updateSettings } = useThreadNotificationSettings();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setBusy(true);
-    setError(null);
-
-    try {
-      const result = await invoke("settings:thread-notifications:get");
-      const nextValue =
-        typeof result === "object" &&
-          result !== null &&
-          typeof (result as ThreadNotificationSettings).threadCompletionEnabled === "boolean"
-          ? (result as ThreadNotificationSettings)
-          : null;
-      if (!nextValue) {
-        throw new Error("Could not load thread notification settings.");
-      }
-      setSettings(nextValue);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load thread notification settings.");
-    } finally {
-      setBusy(false);
-    }
-  }, []);
-
   useEffect(() => {
     if (!open) return;
-    void load();
-  }, [load, open]);
+    void reloadSettings().catch((err) => {
+      setError(err instanceof Error ? err.message : "Could not load thread notification settings.");
+    });
+  }, [open, reloadSettings]);
 
   const handleChange = useCallback(
-    async (threadCompletionEnabled: boolean) => {
-      const previous = settings;
-      setSettings({ threadCompletionEnabled });
+    async (nextSettings: {
+      turnMode: ThreadNotificationTurnMode;
+      permissionsEnabled: boolean;
+      questionsEnabled: boolean;
+    }) => {
       setBusy(true);
       setError(null);
 
       try {
-        const result = await invoke("settings:thread-notifications:update", {
-          threadCompletionEnabled,
-        });
-        const nextValue =
-          typeof result === "object" &&
-            result !== null &&
-            typeof (result as ThreadNotificationSettings).threadCompletionEnabled === "boolean"
-            ? (result as ThreadNotificationSettings)
-            : null;
-        if (!nextValue) {
-          throw new Error("Could not save thread notification settings.");
-        }
-        setSettings(nextValue);
+        await updateSettings(nextSettings);
       } catch (err) {
-        setSettings(previous);
         setError(err instanceof Error ? err.message : "Could not save thread notification settings.");
       } finally {
         setBusy(false);
       }
     },
-    [settings],
+    [updateSettings],
   );
 
   return (
-    <div className="flex flex-col items-end gap-1">
-      <TogglePill
-        value={settings.threadCompletionEnabled}
-        onChange={(value) => {
-          void handleChange(value);
+    <div className="flex min-w-72 flex-col items-end gap-3">
+      <SegmentedControl<ThreadNotificationTurnMode>
+        value={settings.turnMode}
+        onChange={(turnMode) => {
+          void handleChange({
+            ...settings,
+            turnMode,
+          });
         }}
-        disabled={busy}
+        options={[
+          { value: "off", label: "Never" },
+          { value: "unfocused", label: "Only when unfocused" },
+          { value: "always", label: "Always" },
+        ]}
       />
+      <div className="flex w-full max-w-80 flex-col gap-2">
+        <div className="flex items-center justify-between gap-4">
+          <span className="text-right text-sm text-(--foreground-secondary)">
+            Approval requests
+          </span>
+          <TogglePill
+            value={settings.permissionsEnabled}
+            onChange={(permissionsEnabled) => {
+              void handleChange({
+                ...settings,
+                permissionsEnabled,
+              });
+            }}
+            disabled={busy || isLoading}
+          />
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <span className="text-right text-sm text-(--foreground-secondary)">
+            Questions
+          </span>
+          <TogglePill
+            value={settings.questionsEnabled}
+            onChange={(questionsEnabled) => {
+              void handleChange({
+                ...settings,
+                questionsEnabled,
+              });
+            }}
+            disabled={busy || isLoading}
+          />
+        </div>
+      </div>
       {error ? (
-        <span className="max-w-48 text-right text-xs text-(--red-text)">
+        <span className="max-w-80 text-right text-xs text-(--red-text)">
           {error}
         </span>
       ) : null}
@@ -1623,8 +1629,8 @@ function GeneralSettingsPage({
           />
         </SettingRow>
         <SettingRow
-          label="Thread finished notifications"
-          description="Show a desktop notification when a Codex thread settles."
+          label="Desktop notifications"
+          description="Configure turn-complete, approval, and request-user-input notifications."
         >
           <ThreadNotificationSettingControl open={open} />
         </SettingRow>

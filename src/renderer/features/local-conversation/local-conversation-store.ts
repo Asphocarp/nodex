@@ -131,6 +131,24 @@ type StoreListener = () => void;
 type ConversationListener = (conversation: CodexConversationSnapshot) => void;
 type AnyConversationListener = (conversations: CodexConversationSnapshot[]) => void;
 type ControlListener = () => void;
+type TurnCompletedListener = (payload: {
+  conversationId: string;
+  turnId: string;
+  lastAgentMessage: string | null;
+}) => void;
+type ApprovalRequestListener = (payload: {
+  conversationId: string;
+  requestId: string;
+  kind: "command" | "file";
+  reason: string | null;
+}) => void;
+type UserInputRequestListener = (payload: {
+  conversationId: string;
+  requestId: string;
+  turnId: string;
+  questionCount: number;
+  firstQuestion: string | null;
+}) => void;
 
 interface CodexThreadStartProgressState {
   projectId: string;
@@ -508,6 +526,15 @@ function normalizeConversationSnapshot(
   };
 }
 
+function normalizeDesktopNotificationText(value: string | null | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
 function buildRecentConversationOrderKey(conversations: readonly CodexConversationSnapshot[]): string {
   return conversations
     .map((conversation) =>
@@ -543,6 +570,7 @@ export class CodexAppServerManager {
   private readonly permissionModeByProject = new Map<string, CodexPermissionMode>();
   private readonly threadStartProgressByTarget = new Map<string, CodexThreadStartProgressState>();
   private readonly threadTitlesById = new Map<string, string>();
+  private readonly interruptedTurnIdsByThread = new Map<string, Set<string>>();
   private readonly recentConversationIds: string[] = [];
   private readonly streamingConversationIds = new Set<string>();
   private readonly streamRoles = new Map<string, "owner" | "follower">();
@@ -554,6 +582,9 @@ export class CodexAppServerManager {
   private readonly conversationCallbacks = new Map<string, Set<ConversationListener>>();
   private anyConversationCallbacks = new Set<AnyConversationListener>();
   private anyConversationMetaCallbacks = new Set<AnyConversationListener>();
+  private readonly turnCompletedListeners = new Set<TurnCompletedListener>();
+  private readonly approvalRequestListeners = new Set<ApprovalRequestListener>();
+  private readonly userInputRequestListeners = new Set<UserInputRequestListener>();
   private readonly lastAnySnapshotById = new Map<string, ConversationAnyProjection>();
   private readonly lastMetaSnapshotById = new Map<string, ConversationMetaProjection>();
   private lastAnyOrderKey: string | null = null;
@@ -732,6 +763,21 @@ export class CodexAppServerManager {
   addAnyConversationMetaCallback(listener: AnyConversationListener): () => void {
     this.start();
     return subscribeSet(this.anyConversationMetaCallbacks, listener);
+  }
+
+  addTurnCompletedListener(listener: TurnCompletedListener): () => void {
+    this.start();
+    return subscribeSet(this.turnCompletedListeners, listener);
+  }
+
+  addApprovalRequestListener(listener: ApprovalRequestListener): () => void {
+    this.start();
+    return subscribeSet(this.approvalRequestListeners, listener);
+  }
+
+  addUserInputRequestListener(listener: UserInputRequestListener): () => void {
+    this.start();
+    return subscribeSet(this.userInputRequestListeners, listener);
   }
 
   removeAnyConversationMetaCallback(listener: AnyConversationListener): void {
@@ -937,7 +983,23 @@ export class CodexAppServerManager {
   }
 
   async interruptTurn(threadId: string, turnId?: string): Promise<boolean> {
-    return (await invoke("codex:turn:interrupt", threadId, turnId)) as boolean;
+    const interruptedTurnId = this.resolveInterruptTurnId(threadId, turnId);
+    if (interruptedTurnId) {
+      this.markTurnInterrupted(threadId, interruptedTurnId);
+    }
+
+    try {
+      const interrupted = (await invoke("codex:turn:interrupt", threadId, turnId)) as boolean;
+      if (!interrupted && interruptedTurnId) {
+        this.unmarkTurnInterrupted(threadId, interruptedTurnId);
+      }
+      return interrupted;
+    } catch (error) {
+      if (interruptedTurnId) {
+        this.unmarkTurnInterrupted(threadId, interruptedTurnId);
+      }
+      throw error;
+    }
   }
 
   async respondApproval(requestId: string, decision: CodexApprovalDecision): Promise<boolean> {
@@ -1046,6 +1108,7 @@ export class CodexAppServerManager {
     this.permissionModeByProject.clear();
     this.threadStartProgressByTarget.clear();
     this.threadTitlesById.clear();
+    this.interruptedTurnIdsByThread.clear();
     this.projectSummaryCallbacksByProject.clear();
     this.recentConversationIds.length = 0;
     this.streamingConversationIds.clear();
@@ -1435,6 +1498,157 @@ export class CodexAppServerManager {
     void this.loadThreads(projectId).catch(() => {});
   }
 
+  private emitNotificationEvents(
+    currentConversation: CodexConversationSnapshot,
+    nextConversation: CodexConversationSnapshot,
+  ): void {
+    this.emitTurnCompletedEvents(currentConversation, nextConversation);
+    this.emitRequestNotificationEvents(currentConversation, nextConversation);
+  }
+
+  private emitTurnCompletedEvents(
+    currentConversation: CodexConversationSnapshot,
+    nextConversation: CodexConversationSnapshot,
+  ): void {
+    if (this.turnCompletedListeners.size === 0) {
+      return;
+    }
+
+    const currentTurnsById = new Map(
+      currentConversation.turns.map((turn) => [turn.turnId, turn] as const),
+    );
+    for (const nextTurn of nextConversation.turns) {
+      const previousTurn = currentTurnsById.get(nextTurn.turnId);
+      if (!previousTurn || previousTurn.status !== "inProgress" || nextTurn.status === previousTurn.status) {
+        continue;
+      }
+      if (this.wasTurnInterrupted(nextConversation.threadId, nextTurn.turnId)) {
+        this.unmarkTurnInterrupted(nextConversation.threadId, nextTurn.turnId);
+        continue;
+      }
+      if (nextTurn.status !== "completed" && nextTurn.status !== "failed") {
+        continue;
+      }
+
+      const lastAgentMessage = this.findLastAgentMessageForTurn(nextTurn);
+      for (const listener of this.turnCompletedListeners) {
+        listener({
+          conversationId: nextConversation.threadId,
+          turnId: nextTurn.turnId,
+          lastAgentMessage,
+        });
+      }
+    }
+  }
+
+  private findLastAgentMessageForTurn(turn: CodexConversationTurn): string | null {
+    for (let index = turn.items.length - 1; index >= 0; index -= 1) {
+      const item = turn.items[index];
+      if (!item) {
+        continue;
+      }
+      if (item.role !== "assistant" && item.semanticKind !== "assistantMessage") {
+        continue;
+      }
+
+      const message = normalizeDesktopNotificationText(item.markdownText);
+      if (message) {
+        return message;
+      }
+    }
+
+    return null;
+  }
+
+  private resolveInterruptTurnId(threadId: string, turnId?: string): string | null {
+    if (typeof turnId === "string" && turnId.trim().length > 0) {
+      return turnId;
+    }
+
+    const conversation = this.conversationsById.get(threadId);
+    if (!conversation) {
+      return null;
+    }
+
+    for (let index = conversation.turns.length - 1; index >= 0; index -= 1) {
+      const turn = conversation.turns[index];
+      if (turn?.status === "inProgress") {
+        return turn.turnId;
+      }
+    }
+
+    return null;
+  }
+
+  private markTurnInterrupted(threadId: string, turnId: string): void {
+    const existing = this.interruptedTurnIdsByThread.get(threadId);
+    if (existing) {
+      existing.add(turnId);
+      return;
+    }
+
+    this.interruptedTurnIdsByThread.set(threadId, new Set([turnId]));
+  }
+
+  private unmarkTurnInterrupted(threadId: string, turnId: string): void {
+    const interruptedTurnIds = this.interruptedTurnIdsByThread.get(threadId);
+    if (!interruptedTurnIds) {
+      return;
+    }
+
+    interruptedTurnIds.delete(turnId);
+    if (interruptedTurnIds.size === 0) {
+      this.interruptedTurnIdsByThread.delete(threadId);
+    }
+  }
+
+  private wasTurnInterrupted(threadId: string, turnId: string): boolean {
+    return this.interruptedTurnIdsByThread.get(threadId)?.has(turnId) ?? false;
+  }
+
+  private emitRequestNotificationEvents(
+    currentConversation: CodexConversationSnapshot,
+    nextConversation: CodexConversationSnapshot,
+  ): void {
+    if (this.approvalRequestListeners.size === 0 && this.userInputRequestListeners.size === 0) {
+      return;
+    }
+
+    const seenRequestIds = new Set(currentConversation.requests.map((request) => request.requestId));
+    for (const request of nextConversation.requests) {
+      if (seenRequestIds.has(request.requestId)) {
+        continue;
+      }
+
+      if (request.type === "approval") {
+        for (const listener of this.approvalRequestListeners) {
+          listener({
+            conversationId: nextConversation.threadId,
+            requestId: request.requestId,
+            kind: request.kind,
+            reason: request.reason ?? null,
+          });
+        }
+        continue;
+      }
+
+      if (request.type !== "userInput") {
+        continue;
+      }
+
+      const firstQuestion = normalizeDesktopNotificationText(request.questions[0]?.question ?? null);
+      for (const listener of this.userInputRequestListeners) {
+        listener({
+          conversationId: nextConversation.threadId,
+          requestId: request.requestId,
+          turnId: request.turnId,
+          questionCount: request.questions.length,
+          firstQuestion,
+        });
+      }
+    }
+  }
+
   private applyConversationSnapshot(
     threadId: string,
     conversation: CodexConversationSnapshot,
@@ -1450,6 +1664,16 @@ export class CodexAppServerManager {
 
     if (nextConversation.threadName?.trim()) {
       this.threadTitlesById.set(threadId, nextConversation.threadName);
+    }
+
+    if (currentConversation) {
+      this.emitNotificationEvents(currentConversation, nextConversation);
+    }
+
+    for (const turn of nextConversation.turns) {
+      if (turn.status === "interrupted") {
+        this.unmarkTurnInterrupted(threadId, turn.turnId);
+      }
     }
 
     this.conversationsById.set(threadId, nextConversation);

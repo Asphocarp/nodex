@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { WorkbenchShell } from "@/components/workbench/workbench-shell";
 import { LocalConversationProvider } from "@/features/local-conversation";
+import { DesktopNotificationController } from "@/features/local-conversation/desktop-notification-controller";
 import { useProjects } from "@/lib/use-projects";
 import {
   resolveCardsStageSelectionForCard,
@@ -904,6 +905,14 @@ function WorkbenchApp({ initialResumeSnapshot }: { initialResumeSnapshot: Workbe
 
   return (
     <LocalConversationProvider>
+      <DesktopNotificationController
+      activeThreadId={activeThreadsTabId}
+      focusedStage={focusedStage}
+      threadsProjectId={threadsProjectId}
+      onOpenThread={(projectId, threadId) => {
+        navigateToThreadTab(projectId, threadId);
+      }}
+      />
       <WorkbenchShell
       projects={projects}
       dbProjectId={resolvedDbProjectId}

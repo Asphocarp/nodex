@@ -60,10 +60,12 @@ import type {
   RestoreBackupInput,
   RestoreBackupResult,
   ThreadNotificationSettings,
+  DesktopNotificationPayload,
   UpdateBackupSettingsInput,
   UpdateAppUpdateSettingsInput,
   UpdateHistorySettingsInput,
   UpdateThreadNotificationSettingsInput,
+  DesktopNotificationActionPayload,
 } from "./types";
 import type { WorkbenchResumeSnapshot } from "./workbench-resume";
 import type {
@@ -319,6 +321,15 @@ export interface IpcApi {
     args: [input: UpdateThreadNotificationSettingsInput];
     result: ThreadNotificationSettings;
   };
+  "desktop-notification:show": {
+    args: [notification: DesktopNotificationPayload];
+    result: void;
+  };
+  "desktop-notification:hide": {
+    args: [conversationId: string];
+    result: void;
+  };
+  "electron-window:focus:get": { args: []; result: boolean };
   "settings:app-updates:get": { args: []; result: AppUpdateSettings };
   "settings:app-updates:update": {
     args: [input: UpdateAppUpdateSettingsInput];
@@ -496,4 +507,9 @@ export interface IpcEvents {
   "pty:exit": { sessionId: string; exitCode: number };
   "codex:event": CodexEvent;
   "codex:host-message": CodexHostMessage;
+  "desktop-notification:action": DesktopNotificationActionPayload & {
+    conversationId: string | null;
+    requestId: string | null;
+  };
+  "electron-window:focus-changed": { isFocused: boolean };
 }

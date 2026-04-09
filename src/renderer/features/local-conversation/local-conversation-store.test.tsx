@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { act } from "@testing-library/react";
 import type {
   CodexConnectionState,
+  CodexConversationItem,
   CodexConversationSnapshot,
   CodexHostMessage,
   CodexThreadSummary,
@@ -13,6 +14,35 @@ import { render, settleAsyncRender, textContent } from "../../test/dom";
 let invokeCalls: string[] = [];
 let hostMessageListener: ((message: CodexHostMessage) => void) | null = null;
 let threadListByProject: Record<string, CodexThreadSummary[]> = {};
+
+interface NotificationTestManager {
+  addTurnCompletedListener: (listener: (payload: {
+    conversationId: string;
+    turnId: string;
+    lastAgentMessage: string | null;
+  }) => void) => () => void;
+  addApprovalRequestListener: (listener: (payload: {
+    conversationId: string;
+    requestId: string;
+    kind: "command" | "file";
+    reason: string | null;
+  }) => void) => () => void;
+  addUserInputRequestListener: (listener: (payload: {
+    conversationId: string;
+    requestId: string;
+    turnId: string;
+    questionCount: number;
+    firstQuestion: string | null;
+  }) => void) => () => void;
+  interruptTurn: (threadId: string, turnId?: string) => Promise<boolean>;
+}
+
+function requireNotificationTestManager(value: NotificationTestManager | null): NotificationTestManager {
+  if (!value) {
+    throw new Error("Expected manager");
+  }
+  return value;
+}
 
 mock.module("./local-conversation-deps", () => ({
   invoke: async (channel: string, threadId?: string) => {
@@ -55,6 +85,10 @@ mock.module("./local-conversation-deps", () => ({
 
     if (channel === "codex:threads:list" && typeof threadId === "string") {
       return threadListByProject[threadId] ?? [];
+    }
+
+    if (channel === "codex:turn:interrupt") {
+      return true;
     }
 
     return null;
@@ -105,6 +139,31 @@ function buildConversation(threadId: string, projectId: string): CodexConversati
       canCollapseTurns: true,
     },
   };
+}
+
+function buildAssistantMessage(
+  threadId: string,
+  turnId: string,
+  itemId: string,
+  markdownText: string,
+): CodexConversationItem {
+  return {
+    threadId,
+    turnId,
+    itemId,
+    type: "message",
+    kind: "assistantMessage",
+    semanticKind: "assistantMessage",
+    status: "completed",
+    role: "assistant",
+    markdownText,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+}
+
+function dispatchThreadSnapshot(message: CodexHostMessage): void {
+  hostMessageListener?.(message);
 }
 
 describe("local-conversation-store", () => {
@@ -412,5 +471,317 @@ describe("local-conversation-store", () => {
     await settleAsyncRender();
 
     expect(String(invokeCalls.filter((call) => call === "codex:threads:list").length)).toBe("1");
+  });
+
+  test("emits notification events only for live updates and suppresses interrupted turns", async () => {
+    invokeCalls = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    const {
+      __resetLocalConversationStoreForTests,
+      LocalConversationProvider,
+      useDefaultCodexAppServerManager,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    let managerRef: NotificationTestManager | null = null;
+
+    function Probe() {
+      managerRef = useDefaultCodexAppServerManager();
+      return createElement("div");
+    }
+
+    render(createElement(LocalConversationProvider, null, createElement(Probe)));
+    await settleAsyncRender();
+
+    expect(managerRef === null).toBeFalse();
+    const manager = requireNotificationTestManager(managerRef);
+
+    const completedTurns: Array<{ turnId: string; lastAgentMessage: string | null }> = [];
+    const approvals: string[] = [];
+    const questions: string[] = [];
+    const stopTurnCompleted = manager.addTurnCompletedListener((payload: {
+      conversationId: string;
+      turnId: string;
+      lastAgentMessage: string | null;
+    }) => {
+      completedTurns.push({
+        turnId: payload.turnId,
+        lastAgentMessage: payload.lastAgentMessage,
+      });
+    });
+    const stopApprovals = manager.addApprovalRequestListener((payload: {
+      conversationId: string;
+      requestId: string;
+      kind: "command" | "file";
+      reason: string | null;
+    }) => {
+      approvals.push(payload.requestId);
+    });
+    const stopQuestions = manager.addUserInputRequestListener((payload: {
+      conversationId: string;
+      requestId: string;
+      turnId: string;
+      questionCount: number;
+      firstQuestion: string | null;
+    }) => {
+      questions.push(payload.requestId);
+    });
+
+    const initialConversation: CodexConversationSnapshot = {
+      ...buildConversation("thread-1", "project-1"),
+      turns: [
+        {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          status: "completed",
+          itemIds: ["item-1"],
+          items: [
+            buildAssistantMessage("thread-1", "turn-1", "item-1", "Initial bootstrap response"),
+          ],
+        },
+      ],
+      requests: [
+        {
+          type: "approval",
+          requestId: "approval-bootstrap",
+          kind: "command",
+          projectId: "project-1",
+          cardId: "card-thread-1",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "item-approval-bootstrap",
+          createdAt: 1,
+        },
+        {
+          type: "userInput",
+          requestId: "question-bootstrap",
+          projectId: "project-1",
+          cardId: "card-thread-1",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "item-question-bootstrap",
+          createdAt: 1,
+          questions: [
+            {
+              id: "q-bootstrap",
+              header: "Input",
+              question: "Need your input",
+              isOther: false,
+              isSecret: false,
+            },
+          ],
+        },
+      ],
+    };
+
+    await act(async () => {
+      dispatchThreadSnapshot({
+        type: "threadStreamStateChanged",
+        hostId: "default",
+        conversationId: "thread-1",
+        change: {
+          type: "snapshot",
+          conversationState: initialConversation,
+        },
+        version: 1,
+        sourceClientId: null,
+      });
+    });
+    await settleAsyncRender();
+
+    expect(String(completedTurns.length)).toBe("0");
+    expect(String(approvals.length)).toBe("0");
+    expect(String(questions.length)).toBe("0");
+
+    const liveInProgressConversation: CodexConversationSnapshot = {
+      ...initialConversation,
+      turns: [
+        ...initialConversation.turns,
+        {
+          threadId: "thread-1",
+          turnId: "turn-2",
+          status: "inProgress",
+          itemIds: ["item-2"],
+          items: [
+            buildAssistantMessage("thread-1", "turn-2", "item-2", "Working"),
+          ],
+        },
+      ],
+      requests: [],
+    };
+
+    await act(async () => {
+      dispatchThreadSnapshot({
+        type: "threadStreamStateChanged",
+        hostId: "default",
+        conversationId: "thread-1",
+        change: {
+          type: "patches",
+          patches: buildCodexConversationStateUpdates(initialConversation, liveInProgressConversation),
+        },
+        version: 2,
+        sourceClientId: null,
+      });
+    });
+    await settleAsyncRender();
+
+    const completedConversation: CodexConversationSnapshot = {
+      ...liveInProgressConversation,
+      turns: [
+        initialConversation.turns[0]!,
+        {
+          ...liveInProgressConversation.turns[1]!,
+          status: "completed",
+          items: [
+            buildAssistantMessage(
+              "thread-1",
+              "turn-2",
+              "item-2",
+              "::code-comment{title=\"One\" body=\"Issue\" file=\"/tmp/a.ts\"}",
+            ),
+          ],
+        },
+      ],
+      requests: [
+        {
+          type: "approval",
+          requestId: "approval-live",
+          kind: "file",
+          projectId: "project-1",
+          cardId: "card-thread-1",
+          threadId: "thread-1",
+          turnId: "turn-2",
+          itemId: "item-approval-live",
+          reason: "Approve the patch",
+          createdAt: 2,
+        },
+        {
+          type: "userInput",
+          requestId: "question-live",
+          projectId: "project-1",
+          cardId: "card-thread-1",
+          threadId: "thread-1",
+          turnId: "turn-2",
+          itemId: "item-question-live",
+          createdAt: 2,
+          questions: [
+            {
+              id: "q-live",
+              header: "Confirm",
+              question: "What should I do next?",
+              isOther: false,
+              isSecret: false,
+            },
+          ],
+        },
+      ],
+    };
+
+    await act(async () => {
+      dispatchThreadSnapshot({
+        type: "threadStreamStateChanged",
+        hostId: "default",
+        conversationId: "thread-1",
+        change: {
+          type: "patches",
+          patches: buildCodexConversationStateUpdates(liveInProgressConversation, completedConversation),
+        },
+        version: 3,
+        sourceClientId: null,
+      });
+    });
+    await settleAsyncRender();
+
+    expect(String(completedTurns.length)).toBe("1");
+    expect(completedTurns[0]?.turnId).toBe("turn-2");
+    expect(completedTurns[0]?.lastAgentMessage).toBe("::code-comment{title=\"One\" body=\"Issue\" file=\"/tmp/a.ts\"}");
+    expect(String(approvals.length)).toBe("1");
+    expect(approvals[0]).toBe("approval-live");
+    expect(String(questions.length)).toBe("1");
+    expect(questions[0]).toBe("question-live");
+
+    await act(async () => {
+      dispatchThreadSnapshot({
+        type: "threadStreamStateChanged",
+        hostId: "default",
+        conversationId: "thread-1",
+        change: {
+          type: "snapshot",
+          conversationState: completedConversation,
+        },
+        version: 4,
+        sourceClientId: null,
+      });
+    });
+    await settleAsyncRender();
+
+    expect(String(approvals.length)).toBe("1");
+    expect(String(questions.length)).toBe("1");
+
+    const interruptedBaseConversation: CodexConversationSnapshot = {
+      ...completedConversation,
+      turns: [
+        ...completedConversation.turns,
+        {
+          threadId: "thread-1",
+          turnId: "turn-3",
+          status: "inProgress",
+          itemIds: ["item-3"],
+          items: [
+            buildAssistantMessage("thread-1", "turn-3", "item-3", "Finishing up"),
+          ],
+        },
+      ],
+    };
+
+    await act(async () => {
+      dispatchThreadSnapshot({
+        type: "threadStreamStateChanged",
+        hostId: "default",
+        conversationId: "thread-1",
+        change: {
+          type: "patches",
+          patches: buildCodexConversationStateUpdates(completedConversation, interruptedBaseConversation),
+        },
+        version: 5,
+        sourceClientId: null,
+      });
+      await manager.interruptTurn("thread-1", "turn-3");
+    });
+    await settleAsyncRender();
+
+    const interruptedTerminalConversation: CodexConversationSnapshot = {
+      ...interruptedBaseConversation,
+      turns: [
+        interruptedBaseConversation.turns[0]!,
+        interruptedBaseConversation.turns[1]!,
+        {
+          ...interruptedBaseConversation.turns[2]!,
+          status: "failed",
+        },
+      ],
+    };
+
+    await act(async () => {
+      dispatchThreadSnapshot({
+        type: "threadStreamStateChanged",
+        hostId: "default",
+        conversationId: "thread-1",
+        change: {
+          type: "patches",
+          patches: buildCodexConversationStateUpdates(interruptedBaseConversation, interruptedTerminalConversation),
+        },
+        version: 6,
+        sourceClientId: null,
+      });
+    });
+    await settleAsyncRender();
+
+    expect(String(completedTurns.length)).toBe("1");
+
+    stopTurnCompleted();
+    stopApprovals();
+    stopQuestions();
   });
 });

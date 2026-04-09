@@ -406,12 +406,44 @@ export interface UpdateHistorySettingsInput {
   retentionCount: number;
 }
 
+export type ThreadNotificationTurnMode = "off" | "unfocused" | "always";
+
 export interface ThreadNotificationSettings {
-  threadCompletionEnabled: boolean;
+  turnMode: ThreadNotificationTurnMode;
+  permissionsEnabled: boolean;
+  questionsEnabled: boolean;
 }
 
 export interface UpdateThreadNotificationSettingsInput {
-  threadCompletionEnabled: boolean;
+  turnMode: ThreadNotificationTurnMode;
+  permissionsEnabled: boolean;
+  questionsEnabled: boolean;
+}
+
+export type DesktopNotificationKind = "turn-complete" | "permission" | "question";
+
+export interface DesktopNotificationAction {
+  id: string;
+  title: string;
+  actionType: "approve" | "approve-for-session" | "decline";
+}
+
+export interface DesktopNotificationPayload {
+  id: string;
+  kind: DesktopNotificationKind;
+  title: string;
+  body: string;
+  conversationId?: string;
+  requestId?: string;
+  actions?: DesktopNotificationAction[];
+  replyPlaceholder?: string;
+}
+
+export interface DesktopNotificationActionPayload {
+  notificationId: string;
+  actionId: string | null;
+  actionType: "open" | "reply" | "approve" | "approve-for-session" | "decline";
+  reply?: string;
 }
 
 export interface AppUpdateSettings {
