@@ -658,6 +658,7 @@ export function ThreadStageDevStoryPage({
           {renderPreview ? (
             <StorybookElectronTransportBoundary
               card={scenario.transportCard}
+              permissionMode={surfaceModels.footerModel.permissionMode}
               permissionDescription={scenario.permissionDescription}
             >
               <div ref={previewRef} className="min-h-[760px]">

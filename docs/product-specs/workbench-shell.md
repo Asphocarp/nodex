@@ -4,6 +4,8 @@
 The workbench shell presents project work as a staged horizontal pipeline inspired by niri-like focus movement.
 The sidebar `Projects` section controls the DB stage datasource, while Cards/Threads/Terminal keep stage-local project context and remain mounted in one horizontal shell.
 
+Detailed Guardian approvals preset, config, and approval-lifecycle rules are specified in [Guardian Approvals Behavior](./guardian-approvals-behavior.md).
+
 ## Layout
 - Left sidebar: a top-level `Projects` section for DB datasource selection plus the global stage map (`View`, `Card`, `Thread`, `Diff`).
 - The `Projects` section is collapsible, keeps the active DB project highlighted, lists each project as a row while expanded, and still leaves the active project row visible for context when collapsed.
@@ -30,7 +32,7 @@ The sidebar `Projects` section controls the DB stage datasource, while Cards/Thr
 ## Stage Semantics
 - View: existing board/list/toggle-list/canvas/calendar host with one shared sticky toolbar for view switching, task search, and supported view-local filter/sort controls.
 - Card: Card Stage editor session tabs; history opens as a card-specific overlay from Card Stage, and the sidebar mirrors card navigation with collapsible current DB-project status groups plus a `Recent` session subsection. Status groups start collapsed by default, and a collapsed status group may still keep its active card row visible under the header.
-- Thread: Codex app-server-backed thread workspace with account/auth controls, a permission mode selector, streaming turn/item feed, reverse navigation to owning card, and stage-local project context (`threadsProjectId`).
+- Thread: Codex app-server-backed thread workspace with account/auth controls, a config-backed permission mode selector, streaming turn/item feed, reverse navigation to owning card, and stage-local project context (`threadsProjectId`).
 - Thread stage uses independently connected renderer surfaces: `WorkbenchShell` passes route inputs and bound actions into the thread route shell, and the mounted thread header/body/footer subscribe to their own narrow manager-backed selectors instead of one broad renderer model.
 - Diff: interactive mock placeholder for diff previews.
 - Terminal panel: mixed tabs (`project` and `card` bound), globally docked at bottom, with per-tab project routing.
@@ -41,10 +43,18 @@ The sidebar `Projects` section controls the DB stage datasource, while Cards/Thr
 - Threads use follow/read modes: if the viewport is near the bottom, new items auto-scroll into view; if the user scrolls up, auto-scroll pauses and a floating catch-up button appears above the composer to jump back to latest.
 - Threads render by turns, not flat transcript rows. The scroll body groups each turn into ordered blocks (`user messages -> activity -> system events -> assistant -> plan -> answered user input`) and virtualizes that turn list.
 - Unresolved live approvals, request-user-input cards, and implement-plan prompts render in a dedicated pending-request surface above the composer. Historical answered artifacts remain in the transcript.
+- Approval requests stay attached to the matching transcript work item instead of opening a separate approval screen: command approvals decorate existing exec rows, file approvals decorate existing file-change rows, and automatic approval review rows render as trailing transcript items.
 - Running thread tabs render a live indicator dot in the tab strip.
 - Sidebar thread items replace their default thread glyph with a live running indicator while active; the Thread stage group icon also reflects running state.
 - The composer footer’s bottom-right context ring uses live `thread/tokenUsage/updated` data from Codex. It shows the active thread’s current context-window fill level, and hovering the ring reveals percent-full plus `used / window` token details when available.
 - Visual styling layers Streamdown's base styles under `.codex-markdown` and `codex-tool-*` token overrides in `src/renderer/globals.css`.
+- The permission selector matches Codex Electron's visible labels and behavior:
+  - `Default permissions`
+  - `Guardian approvals`
+  - `Full access`
+  - `Custom (config.toml)`
+- `Guardian approvals` is reviewer-only parity, not a different sandbox preset: it shares `workspace-write + on-request` with `Default permissions` and only changes `approvalsReviewer` from `user` to `guardian_subagent`.
+- If the current config/requirements disable `guardian_approval`, the Guardian mode is unavailable and any resolved `guardian_subagent` reviewer collapses back to `user`.
 
 ## Focus and Navigation
 - Focusing a stage scrolls only as needed so the focused stage is fully visible.
@@ -79,9 +89,10 @@ The sidebar `Projects` section controls the DB stage datasource, while Cards/Thr
 - Bottom terminal panel persists open/closed + panel height globally.
 - Terminal tabs persist mixed `project`/`card` mode state.
 - Back/forward history is persisted only for the current window session and is not included in cold-launch resume snapshots.
-- Codex permission mode preference (`sandbox`/`full-access`/`custom`) is persisted in renderer localStorage per project and mirrored to main process.
-- In Threads stage, the permission selector defaults to `Custom (config.toml)` when no project-specific preference has been set yet.
-- The Threads permission menu shows hover tooltips for each mode; the `Custom (config.toml)` tooltip reflects the parsed effective `sandbox_mode` and `approval_policy` from the resolved Codex config file when available.
+- Thread permission state is main-owned and config-backed. Renderer reads/writes it through IPC, while the main process resolves effective values from app-server config and requirements plus the current config-key origin layer.
+- The thread footer and Settings -> `Agent` write preset changes back to the active config origin when present, or to the user config file when no explicit origin exists.
+- In Threads stage, the permission selector defaults to the resolved effective preset from config. `Custom (config.toml)` is shown only when the active raw config state does not round-trip to one of the fixed visible presets.
+- The Threads permission menu shows hover tooltips for each mode; the `Custom (config.toml)` tooltip reflects the resolved config source, path, `sandbox_mode`, `approval_policy`, and `approvals_reviewer` values when available.
 
 ## Keyboard Model
 - `Ctrl+Tab` / `Ctrl+Shift+Tab`: next/previous stage.

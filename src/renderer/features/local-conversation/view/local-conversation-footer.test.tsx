@@ -65,7 +65,7 @@ function buildModel(overrides?: Partial<ThreadFooterModel>): ThreadFooterModel {
     selectedModel: "gpt-5.3-codex",
     selectedReasoningEffort: "high",
     reasoningEffortOptions: [],
-    permissionMode: "sandbox",
+    permissionMode: "auto",
     isQueueingEnabled: false,
     composerEnterBehavior: "enter",
     composerIntent: null,

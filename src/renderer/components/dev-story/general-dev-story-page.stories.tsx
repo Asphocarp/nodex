@@ -16,7 +16,7 @@ const meta = {
   },
   args: {
     density: "balanced",
-    permissionMode: "sandbox",
+    permissionMode: "auto",
   },
   argTypes: {
     density: {
@@ -25,7 +25,7 @@ const meta = {
     },
     permissionMode: {
       control: "inline-radio",
-      options: ["sandbox", "full-access", "custom"],
+      options: ["auto", "guardian-approvals", "full-access", "custom"],
     },
   },
 } satisfies Meta<typeof GeneralDevStoryPage>;

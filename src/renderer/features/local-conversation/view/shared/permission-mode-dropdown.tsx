@@ -12,34 +12,44 @@ import {
 } from "@/components/ui/dropdown";
 
 const PERMISSION_MODE_ITEMS: Array<{ value: CodexPermissionMode; label: string }> = [
-  { value: "sandbox", label: "Workspace sandbox" },
+  { value: "auto", label: "Default permissions" },
+  { value: "guardian-approvals", label: "Guardian approvals" },
   { value: "full-access", label: "Full access" },
   { value: "custom", label: "Custom (config.toml)" },
 ];
 
-const PERMISSION_MODE_DEFAULT_TOOLTIP =
-  "Codex automatically runs commands in a workspace sandbox and asks before protected actions.";
-const PERMISSION_MODE_FULL_ACCESS_TOOLTIP =
+const DEFAULT_PERMISSIONS_TOOLTIP =
+  "Codex automatically runs commands in a sandbox and asks before elevated requests.";
+const GUARDIAN_APPROVALS_TOOLTIP =
+  "Codex automatically runs commands in a sandbox and uses Guardian approvals for elevated requests";
+const GUARDIAN_APPROVALS_DISABLED_TOOLTIP =
+  "Guardian approvals requires default sandboxed permissions to be available in this workspace.";
+const FULL_ACCESS_TOOLTIP =
   "Codex has full access over your computer and bypasses approval prompts (elevated risk).";
-const PERMISSION_MODE_CUSTOM_TOOLTIP_FALLBACK =
+const CUSTOM_TOOLTIP_FALLBACK =
   "Codex uses the permission defined in config.toml.";
+const FULL_ACCESS_CONFIRM_TITLE = "Enable full access?";
 
 function formatPermissionModeLabel(mode: CodexPermissionMode): string {
   const match = PERMISSION_MODE_ITEMS.find((item) => item.value === mode);
-  return match?.label ?? "Workspace sandbox";
+  return match?.label ?? "Default permissions";
 }
 
-function resolvePermissionModeTooltip(
-  mode: CodexPermissionMode,
-  customDescription: string | null,
-): string {
-  if (mode === "sandbox") return PERMISSION_MODE_DEFAULT_TOOLTIP;
-  if (mode === "full-access") return PERMISSION_MODE_FULL_ACCESS_TOOLTIP;
-  return customDescription?.trim() || PERMISSION_MODE_CUSTOM_TOOLTIP_FALLBACK;
+function resolvePermissionModeTooltip(input: {
+  mode: CodexPermissionMode;
+  customDescription: string | null;
+  guardianDisabled: boolean;
+}): string {
+  if (input.mode === "auto") return DEFAULT_PERMISSIONS_TOOLTIP;
+  if (input.mode === "guardian-approvals") {
+    return input.guardianDisabled ? GUARDIAN_APPROVALS_DISABLED_TOOLTIP : GUARDIAN_APPROVALS_TOOLTIP;
+  }
+  if (input.mode === "full-access") return FULL_ACCESS_TOOLTIP;
+  return input.customDescription?.trim() || CUSTOM_TOOLTIP_FALLBACK;
 }
 
 function PermissionModeMenuIcon({ mode }: { mode: CodexPermissionMode }) {
-  if (mode === "sandbox") return <PermissionDefaultIcon className="shrink-0" />;
+  if (mode === "auto" || mode === "guardian-approvals") return <PermissionDefaultIcon className="shrink-0" />;
   if (mode === "full-access") return <PermissionFullAccessIcon className="shrink-0" />;
   return <ConfigStatusIcon className="shrink-0" />;
 }
@@ -47,12 +57,18 @@ function PermissionModeMenuIcon({ mode }: { mode: CodexPermissionMode }) {
 export function PermissionModeDropdown({
   selectedMode,
   customDescription,
+  availableModes,
+  guardianApprovalEnabled = false,
   onSelect,
 }: {
   selectedMode: CodexPermissionMode;
   customDescription: string | null;
+  availableModes?: CodexPermissionMode[];
+  guardianApprovalEnabled?: boolean;
   onSelect: (mode: CodexPermissionMode) => void;
 }) {
+  const allowedModes = new Set(availableModes ?? ["auto", "full-access", "custom"]);
+
   return (
     <NodexDropdownMenu
       triggerButton={(
@@ -71,17 +87,46 @@ export function PermissionModeDropdown({
       side="top"
       align="start"
     >
-      {PERMISSION_MODE_ITEMS.map((item) => (
-        <NodexDropdownItem
-          key={item.value}
-          onSelect={() => onSelect(item.value)}
-          leftSlot={<PermissionModeMenuIcon mode={item.value} />}
-          rightSlot={item.value === selectedMode ? <CheckmarkIcon className="shrink-0 text-token-foreground" /> : null}
-          tooltipText={resolvePermissionModeTooltip(item.value, customDescription)}
-        >
-          {item.label}
-        </NodexDropdownItem>
-      ))}
+      {PERMISSION_MODE_ITEMS
+        .filter((item) =>
+          item.value === "custom"
+          || item.value === "guardian-approvals"
+          || allowedModes.has(item.value)
+          || item.value === selectedMode,
+        )
+        .map((item) => {
+          const guardianDisabled = item.value === "guardian-approvals"
+            && (!guardianApprovalEnabled || !allowedModes.has("guardian-approvals"));
+          const disabled = guardianDisabled;
+
+          return (
+            <NodexDropdownItem
+              key={item.value}
+              disabled={disabled}
+              onSelect={() => {
+                if (disabled) {
+                  return;
+                }
+                if (item.value === "full-access" && typeof globalThis.confirm === "function") {
+                  const accepted = globalThis.confirm(FULL_ACCESS_CONFIRM_TITLE);
+                  if (!accepted) {
+                    return;
+                  }
+                }
+                onSelect(item.value);
+              }}
+              leftSlot={<PermissionModeMenuIcon mode={item.value} />}
+              rightSlot={item.value === selectedMode ? <CheckmarkIcon className="shrink-0 text-token-foreground" /> : null}
+              tooltipText={resolvePermissionModeTooltip({
+                mode: item.value,
+                customDescription,
+                guardianDisabled,
+              })}
+            >
+              {item.label}
+            </NodexDropdownItem>
+          );
+        })}
     </NodexDropdownMenu>
   );
 }

@@ -12,6 +12,7 @@ import {
 export type SettingsSectionId =
   | "general-settings"
   | "appearance"
+  | "agent"
   | "editor"
   | "card"
   | "worktrees"
@@ -31,6 +32,7 @@ export interface SettingsSectionDefinition {
 export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
   { id: "general-settings", label: "General", icon: Settings2 },
   { id: "appearance", label: "Appearance", icon: Palette },
+  { id: "agent", label: "Agent", icon: Shield },
   { id: "editor", label: "Editor", icon: Type },
   { id: "card", label: "Card", icon: LayoutTemplate },
   { id: "worktrees", label: "Worktrees", icon: FolderGit2 },

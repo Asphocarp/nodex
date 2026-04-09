@@ -722,7 +722,7 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
     return applyFallbackContent(result, itemType);
   }
 
-  if (isType(itemType, ["automaticApprovalReview", "automatic_approval_review", "guardianApprovalReview"])) {
+  if (isType(itemType, ["automaticApprovalReview", "automatic_approval_review", "automatic-approval-review", "guardianApprovalReview"])) {
     const review = normalizeAutomaticApprovalReviewPayload(candidate);
     if (!review) return applyFallbackContent(result, itemType);
 

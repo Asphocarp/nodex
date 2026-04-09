@@ -779,6 +779,34 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       }
       return null;
     }
+    case "codex:permission:state:get":
+    case "codex:permission:mode:set":
+    case "codex:permission:config-value:set": {
+      return {
+        mode: "auto",
+        effectivePreset: "auto",
+        availableModes: ["auto", "guardian-approvals", "full-access", "custom"],
+        approvalPolicy: "on-request",
+        approvalsReviewer: "user",
+        sandboxMode: "workspace-write",
+        sandbox: {
+          type: "workspaceWrite",
+          writableRoots: ["/tmp/storybook"],
+          readOnlyAccess: {
+            type: "fullAccess",
+          },
+          networkAccess: false,
+          excludeTmpdirEnvVar: false,
+          excludeSlashTmp: false,
+        },
+        guardianApprovalEnabled: true,
+        configTarget: {
+          source: "user",
+          filePath: "/tmp/storybook/config.toml",
+        },
+        customDescription: "Uses the permission policy defined in your local Codex config.",
+      };
+    }
     case "pty:pick-cwd": {
       return null;
     }

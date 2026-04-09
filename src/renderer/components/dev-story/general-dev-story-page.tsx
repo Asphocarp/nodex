@@ -230,7 +230,7 @@ export interface GeneralDevStoryPageProps {
 
 export function GeneralDevStoryPage({
   density: initialDensity = "balanced",
-  permissionMode: initialPermissionMode = "sandbox",
+  permissionMode: initialPermissionMode = "auto",
 }: GeneralDevStoryPageProps) {
   const [density, setDensity] = useState<GeneralDevStoryDensity>(initialDensity);
   const [permissionMode, setPermissionMode] = useState<CodexPermissionMode>(initialPermissionMode);

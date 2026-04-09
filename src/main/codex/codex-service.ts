@@ -1,16 +1,17 @@
 import { EventEmitter } from "node:events";
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { produceWithPatches } from "immer";
-import { parse as parseToml } from "smol-toml";
 import type { GetAuthStatusResponse } from "@nodex/codex-app-server-protocol";
 import type { CollaborationModeListResponse } from "@nodex/codex-app-server-protocol/v2/CollaborationModeListResponse";
+import type { ConfigBatchWriteParams } from "@nodex/codex-app-server-protocol/v2/ConfigBatchWriteParams";
 import type { ConfigReadParams } from "@nodex/codex-app-server-protocol/v2/ConfigReadParams";
 import type { ConfigReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigReadResponse";
+import type { ConfigRequirementsReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigRequirementsReadResponse";
 import type { CommandExecutionRequestApprovalParams } from "@nodex/codex-app-server-protocol/v2/CommandExecutionRequestApprovalParams";
 import type { CommandExecutionRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/CommandExecutionRequestApprovalResponse";
 import type { GetAccountRateLimitsResponse } from "@nodex/codex-app-server-protocol/v2/GetAccountRateLimitsResponse";
@@ -65,6 +66,7 @@ import type {
   CodexPlanImplementationServerRequest,
   CodexPendingSteer,
   CodexPermissionMode,
+  CodexPermissionState,
   CodexQueuedFollowUp,
   CodexRateLimitsSnapshot,
   CodexReasoningEffort,
@@ -92,6 +94,12 @@ import type {
   WorktreeStartMode,
 } from "../../shared/types";
 import { parseCodexThreadTokenUsage } from "../../shared/schemas/codex";
+import {
+  buildPermissionModeConfigEdits,
+  buildThreadPermissionOverrides,
+  buildTurnPermissionOverrides,
+  resolveCodexPermissionState,
+} from "./codex-permission-resolver";
 import {
   buildPlanImplementationRequestId,
   selectPrimaryConversationRequest,
@@ -222,15 +230,6 @@ interface ThreadStartProgressUpdate {
   clearOutput?: boolean;
 }
 
-interface CodexPermissionConfigSnapshot {
-  source: "project" | "user" | "none";
-  configPath: string | null;
-  displayPath: string | null;
-  sandboxMode: string | null;
-  approvalPolicy: string | null;
-  parseError: string | null;
-}
-
 interface BroadcastConversationSyncOptions {
   turnId?: string;
   syncDetail?: boolean;
@@ -242,27 +241,6 @@ interface BroadcastConversationSyncOptions {
   syncBackgroundTerminalRows?: boolean;
   syncChildMemberships?: boolean;
 }
-
-type CodexApprovalPolicy = "on-request" | "never";
-
-type CodexSandboxPolicy =
-  | { type: "dangerFullAccess" }
-  | {
-      type: "workspaceWrite";
-      writableRoots: string[];
-      readOnlyAccess:
-        | {
-            type: "restricted";
-            includePlatformDefaults: boolean;
-            readableRoots: string[];
-          }
-        | {
-            type: "fullAccess";
-          };
-      networkAccess: boolean;
-      excludeTmpdirEnvVar: boolean;
-      excludeSlashTmp: boolean;
-    };
 
 interface StructuredThreadTitleClient {
   startThread: (params: Record<string, unknown>) => Promise<unknown>;
@@ -341,6 +319,9 @@ const OUTPUT_DELTA_FLUSH_MS = 50;
 const MAX_COMMAND_OUTPUT_CHARS = 20_000;
 const TRUNCATED_OUTPUT_PREFIX = "[output truncated]\n";
 const RATE_LIMITS_POLL_INTERVAL_MS = 60_000;
+const THREAD_FOLLOWER_COMMAND_APPROVAL_DECISION_METHOD = "thread-follower-command-approval-decision";
+const THREAD_FOLLOWER_FILE_APPROVAL_DECISION_METHOD = "thread-follower-file-approval-decision";
+const AUTOMATIC_APPROVAL_REVIEW_ITEM_TYPE = "automatic-approval-review";
 
 function isVisibleDocumentAvailable(): boolean {
   const browserGlobals = globalThis as typeof globalThis & {
@@ -1167,7 +1148,7 @@ export class CodexService extends EventEmitter {
   private readonly client: CodexAppServerClient;
   private readonly rateLimitsPollIntervalMs: number;
 
-  private readonly projectPermissionMode = new Map<string, CodexPermissionMode>();
+  private readonly permissionStateByProject = new Map<string, CodexPermissionState>();
   private readonly collaborationModePresets = new Map<CodexCollaborationModeKind, CodexCollaborationModePreset>();
   private readonly pendingApprovals = new Map<string, PendingApproval>();
   private readonly pendingUserInputs = new Map<string, PendingUserInput>();
@@ -1623,6 +1604,44 @@ export class CodexService extends EventEmitter {
     };
   }
 
+  private setThreadPermissionFields(
+    threadId: string,
+    fields: Pick<CodexThreadSummary, "approvalPolicy" | "approvalsReviewer" | "sandbox">,
+  ): void {
+    const record = this.ensureConversationRecord(threadId);
+    const nextFields = {
+      approvalPolicy: fields.approvalPolicy ?? null,
+      approvalsReviewer: fields.approvalsReviewer ?? null,
+      sandbox: fields.sandbox ?? null,
+    };
+
+    if (record.detail) {
+      record.detail = {
+        ...record.detail,
+        ...nextFields,
+      };
+      return;
+    }
+
+    const detail = this.ensureConversationDetail(threadId);
+    if (!detail) return;
+    record.detail = {
+      ...detail,
+      ...nextFields,
+    };
+  }
+
+  private applyThreadPermissionState(
+    threadId: string,
+    permissionState: CodexPermissionState,
+  ): void {
+    this.setThreadPermissionFields(threadId, {
+      approvalPolicy: permissionState.approvalPolicy,
+      approvalsReviewer: permissionState.approvalsReviewer,
+      sandbox: permissionState.sandbox,
+    });
+  }
+
   private createConversationRecord(): CodexConversationRecord {
     return {
       detail: null,
@@ -2049,159 +2068,211 @@ export class CodexService extends EventEmitter {
     });
   }
 
-  private getPermissionMode(projectId: string | null): CodexPermissionMode {
-    if (!projectId) return "custom";
-    return this.projectPermissionMode.get(projectId) ?? "custom";
-  }
-
-  private buildTurnPermissionOverrides(
-    mode: CodexPermissionMode,
-    workspacePath: string | null,
-  ): { approvalPolicy?: CodexApprovalPolicy; sandboxPolicy?: CodexSandboxPolicy } {
-    if (mode === "custom") {
-      return {};
-    }
-
-    if (mode === "full-access") {
+  private async readPermissionState(projectId: string | null): Promise<CodexPermissionState> {
+    if (!projectId) {
       return {
-        approvalPolicy: "never",
-        sandboxPolicy: {
-          type: "dangerFullAccess",
-        },
-      };
-    }
-
-    if (!workspacePath) {
-      return {
-        approvalPolicy: "on-request",
-      };
-    }
-
-    return {
-      approvalPolicy: "on-request",
-      sandboxPolicy: {
-        type: "workspaceWrite",
-        writableRoots: [workspacePath],
-        readOnlyAccess: {
-          type: "fullAccess",
-        },
-        networkAccess: false,
-        excludeTmpdirEnvVar: false,
-        excludeSlashTmp: false,
-      },
-    };
-  }
-
-  private findProjectCodexConfig(projectId: string): { configPath: string; displayPath: string } | null {
-    const project = dbService.getProject(projectId);
-    const workspacePath = project?.workspacePath?.trim();
-    if (!workspacePath) return null;
-
-    const workspaceConfigPath = path.join(workspacePath, "config.toml");
-    if (existsSync(workspaceConfigPath)) {
-      return {
-        configPath: workspaceConfigPath,
-        displayPath: "config.toml",
-      };
-    }
-
-    let currentDir = workspacePath;
-    for (;;) {
-      const candidate = path.join(currentDir, ".codex", "config.toml");
-      if (existsSync(candidate)) {
-        const relativePath = path.relative(workspacePath, candidate);
-        return {
-          configPath: candidate,
-          displayPath: relativePath.length > 0 ? relativePath : ".codex/config.toml",
-        };
-      }
-
-      const parent = path.dirname(currentDir);
-      if (parent === currentDir) {
-        return null;
-      }
-      currentDir = parent;
-    }
-  }
-
-  private readCodexPermissionConfig(projectId: string): CodexPermissionConfigSnapshot {
-    const projectConfig = this.findProjectCodexConfig(projectId);
-    const userConfigPath = path.join(resolveCodexHomeDir(), "config.toml");
-    const isExplicitCodexHome = Boolean(process.env.CODEX_HOME?.trim());
-    const normalizedUserConfigPath = path.resolve(userConfigPath);
-    const projectConfigPath = projectConfig?.configPath ? path.resolve(projectConfig.configPath) : null;
-    const effectiveProjectConfig =
-      projectConfigPath !== null && projectConfigPath === normalizedUserConfigPath ? null : projectConfig;
-    const configPath = effectiveProjectConfig?.configPath ?? (existsSync(userConfigPath) ? userConfigPath : null);
-    const displayPath = effectiveProjectConfig?.displayPath ??
-      (configPath ? (isExplicitCodexHome ? "$CODEX_HOME/config.toml" : "~/.codex/config.toml") : null);
-
-    if (!configPath) {
-      return {
-        source: "none",
-        configPath: null,
-        displayPath: null,
-        sandboxMode: null,
+        mode: "custom",
+        effectivePreset: "custom",
+        availableModes: ["auto", "guardian-approvals", "full-access", "custom"],
         approvalPolicy: null,
-        parseError: null,
+        approvalsReviewer: "user",
+        sandboxMode: null,
+        sandbox: null,
+        guardianApprovalEnabled: false,
+        configTarget: {
+          source: "none",
+          filePath: null,
+        },
+        customDescription: "Codex will use its built-in permission defaults.",
       };
+    }
+
+    const cached = this.permissionStateByProject.get(projectId);
+    if (cached) {
+      return cached;
+    }
+
+    await this.ensureClientReady();
+
+    let workspacePath: string | null = null;
+    try {
+      const project = dbService.getProject(projectId);
+      workspacePath = project?.workspacePath?.trim() || null;
+    } catch (error) {
+      if (!isUnavailableSqliteBindingError(error)) {
+        throw error;
+      }
     }
 
     try {
-      const raw = readFileSync(configPath, "utf8");
-      const parsed = parseToml(raw) as Record<string, unknown>;
-      const sandboxMode = typeof parsed.sandbox_mode === "string" ? parsed.sandbox_mode : null;
-      const approvalPolicy = typeof parsed.approval_policy === "string" ? parsed.approval_policy : null;
+      const [configResult, requirementsResult] = await Promise.all([
+        this.client.request<"config/read", ConfigReadResponse>("config/read", {
+          includeLayers: true,
+        } satisfies ConfigReadParams),
+        this.client.request<"configRequirements/read", ConfigRequirementsReadResponse>("configRequirements/read", undefined),
+      ]);
 
+      const nextState = resolveCodexPermissionState({
+        config: configResult.config,
+        origins: configResult.origins,
+        requirements: requirementsResult.requirements,
+        defaultUserConfigPath: path.join(resolveCodexHomeDir(), "config.toml"),
+        workspacePath,
+      });
+      this.permissionStateByProject.set(projectId, nextState);
+      return nextState;
+    } catch {
+      const fallbackState = this.buildFallbackPermissionState(
+        this.permissionStateByProject.get(projectId)?.mode ?? "auto",
+        workspacePath,
+        this.permissionStateByProject.get(projectId) ?? null,
+      );
+      this.permissionStateByProject.set(projectId, fallbackState);
+      return fallbackState;
+    }
+  }
+
+  private buildFallbackPermissionState(
+    mode: CodexPermissionMode,
+    workspacePath: string | null,
+    previous: CodexPermissionState | null,
+  ): CodexPermissionState {
+    const configTarget = previous?.configTarget ?? {
+      source: "user" as const,
+      filePath: path.join(resolveCodexHomeDir(), "config.toml"),
+    };
+
+    if (mode === "custom") {
       return {
-        source: effectiveProjectConfig ? "project" : "user",
-        configPath,
-        displayPath,
-        sandboxMode,
-        approvalPolicy,
-        parseError: null,
-      };
-    } catch (error) {
-      return {
-        source: effectiveProjectConfig ? "project" : "user",
-        configPath,
-        displayPath,
-        sandboxMode: null,
-        approvalPolicy: null,
-        parseError: error instanceof Error ? error.message : "Unknown parse error",
+        mode: "custom",
+        effectivePreset: "custom",
+        availableModes: ["auto", "guardian-approvals", "full-access", "custom"],
+        approvalPolicy: previous?.approvalPolicy ?? null,
+        approvalsReviewer: previous?.approvalsReviewer ?? "user",
+        sandboxMode: previous?.sandboxMode ?? null,
+        sandbox: previous?.sandbox ?? null,
+        guardianApprovalEnabled: previous?.guardianApprovalEnabled ?? false,
+        configTarget,
+        customDescription: previous?.customDescription ?? "Codex will use its built-in permission defaults.",
       };
     }
+
+    const guardianApprovalEnabled = previous?.guardianApprovalEnabled ?? true;
+    const approvalsReviewer = mode === "guardian-approvals" && guardianApprovalEnabled
+      ? "guardian_subagent"
+      : "user";
+    const sandbox = mode === "full-access"
+      ? { type: "dangerFullAccess" as const }
+      : workspacePath
+        ? {
+            type: "workspaceWrite" as const,
+            writableRoots: [workspacePath],
+            readOnlyAccess: { type: "fullAccess" as const },
+            networkAccess: previous?.sandbox?.type === "workspaceWrite"
+              ? previous.sandbox.networkAccess
+              : false,
+            excludeTmpdirEnvVar: previous?.sandbox?.type === "workspaceWrite"
+              ? previous.sandbox.excludeTmpdirEnvVar
+              : false,
+            excludeSlashTmp: previous?.sandbox?.type === "workspaceWrite"
+              ? previous.sandbox.excludeSlashTmp
+              : false,
+          }
+        : null;
+
+    return {
+      mode,
+      effectivePreset: mode === "guardian-approvals" && !guardianApprovalEnabled ? "auto" : mode,
+      availableModes: ["auto", "guardian-approvals", "full-access", "custom"],
+      approvalPolicy: mode === "full-access" ? "never" : "on-request",
+      approvalsReviewer,
+      sandboxMode: mode === "full-access" ? "danger-full-access" : "workspace-write",
+      sandbox,
+      guardianApprovalEnabled,
+      configTarget,
+      customDescription: previous?.customDescription ?? "Codex will use its built-in permission defaults.",
+    };
   }
 
-  getCustomPermissionModeDescription(projectId: string): string {
-    const snapshot = this.readCodexPermissionConfig(projectId);
-    const sourceLabel = snapshot.source === "project" ? "Project config" : "User config";
-    const pathLabel = snapshot.displayPath ?? "config.toml";
-
-    if (snapshot.parseError) {
-      return `Could not parse ${sourceLabel} (${pathLabel}): ${snapshot.parseError}. Codex will fall back to its built-in permission defaults.`;
+  private resolvePermissionStateForRequest(
+    permissionState: CodexPermissionState,
+    mode: CodexPermissionMode | undefined,
+    workspacePath: string | null,
+  ): CodexPermissionState {
+    if (!mode || mode === permissionState.mode) {
+      return permissionState;
     }
 
-    if (snapshot.source === "none") {
-      return "No project or user Codex config was found. Codex will fall back to its built-in permission defaults.";
-    }
-
-    const sandboxLabel = snapshot.sandboxMode ?? "unset";
-    const approvalLabel = snapshot.approvalPolicy ?? "unset";
-
-    if (!snapshot.sandboxMode && !snapshot.approvalPolicy) {
-      return `${sourceLabel} (${pathLabel}) sets neither sandbox_mode nor approval_policy, so Codex will use its built-in permission defaults.`;
-    }
-
-    return `${sourceLabel} (${pathLabel}): sandbox_mode=${sandboxLabel}; approval_policy=${approvalLabel}.`;
+    return this.buildFallbackPermissionState(mode, workspacePath, permissionState);
   }
 
-  setProjectPermissionMode(projectId: string, mode: CodexPermissionMode): void {
-    this.projectPermissionMode.set(projectId, mode);
+  private invalidatePermissionState(projectId: string | null): void {
+    if (!projectId) return;
+    this.permissionStateByProject.delete(projectId);
   }
 
-  getProjectPermissionMode(projectId: string): CodexPermissionMode {
-    return this.getPermissionMode(projectId);
+  async getPermissionState(projectId: string): Promise<CodexPermissionState> {
+    return await this.readPermissionState(projectId);
+  }
+
+  async getCustomPermissionModeDescription(projectId: string): Promise<string> {
+    const state = await this.readPermissionState(projectId);
+    return state.customDescription ?? "Codex will use its built-in permission defaults.";
+  }
+
+  async setProjectPermissionMode(projectId: string, mode: CodexPermissionMode): Promise<CodexPermissionState> {
+    const current = await this.readPermissionState(projectId);
+    const edits = buildPermissionModeConfigEdits(mode);
+    if (edits.length === 0) {
+      const nextState = this.buildFallbackPermissionState(mode, null, current);
+      this.permissionStateByProject.set(projectId, nextState);
+      return nextState;
+    }
+
+    const params: ConfigBatchWriteParams = {
+      edits,
+      filePath: current.configTarget.filePath,
+      reloadUserConfig: current.configTarget.source === "user",
+    };
+    try {
+      await this.client.request("config/batchWrite", params);
+    } catch {
+      const nextState = this.buildFallbackPermissionState(mode, null, current);
+      this.permissionStateByProject.set(projectId, nextState);
+      return nextState;
+    }
+    this.invalidatePermissionState(projectId);
+    const nextState = await this.readPermissionState(projectId);
+    if (mode !== "custom" && nextState.mode !== mode) {
+      const fallbackState = this.buildFallbackPermissionState(mode, null, nextState);
+      this.permissionStateByProject.set(projectId, fallbackState);
+      return fallbackState;
+    }
+    return nextState;
+  }
+
+  async setPermissionConfigValue(
+    projectId: string,
+    keyPath: string,
+    value: unknown,
+  ): Promise<CodexPermissionState> {
+    const current = await this.readPermissionState(projectId);
+    try {
+      await this.client.request("config/value/write", {
+        keyPath,
+        value,
+        filePath: current.configTarget.filePath,
+        reloadUserConfig: current.configTarget.source === "user",
+      });
+    } catch {
+      return current;
+    }
+    this.invalidatePermissionState(projectId);
+    return await this.readPermissionState(projectId);
+  }
+
+  async getProjectPermissionMode(projectId: string): Promise<CodexPermissionMode> {
+    return (await this.readPermissionState(projectId)).mode;
   }
 
   getConnectionState() {
@@ -3481,21 +3552,21 @@ export class CodexService extends EventEmitter {
     const review = normalizeAutomaticApprovalReviewPayload(payload, targetItemId);
     if (!review) return null;
 
-    const itemId = `${targetItemId}:automaticApprovalReview`;
+    const itemId = `${AUTOMATIC_APPROVAL_REVIEW_ITEM_TYPE}:${targetItemId}`;
     const now = Date.now();
     this.upsertCanonicalTurnItem(threadId, turnId, itemId, "inProgress");
     return this.mergeItem({
       threadId,
       turnId,
       itemId,
-      type: "automaticApprovalReview",
+      type: AUTOMATIC_APPROVAL_REVIEW_ITEM_TYPE,
       normalizedKind: "systemEvent",
       semanticKind: "automaticApprovalReview",
       status: review.status === "inProgress" ? "inProgress" : fallbackStatus,
       markdownText: buildAutomaticApprovalReviewSummary(review),
       rawItem: {
         id: itemId,
-        type: "automaticApprovalReview",
+        type: AUTOMATIC_APPROVAL_REVIEW_ITEM_TYPE,
         targetItemId,
         review: {
           status: review.status,
@@ -3577,8 +3648,12 @@ export class CodexService extends EventEmitter {
     this.clearThreadPendingRequestsForRemovedTurns(detail.threadId, retainedTurnIds);
     this.pruneThreadTransientState(detail.threadId, retainedTurnIds);
     record.latestCollaborationMode = detail.latestCollaborationMode ?? record.latestCollaborationMode;
+    const previousDetail = record.detail;
     record.detail = {
       ...detail,
+      approvalPolicy: detail.approvalPolicy ?? previousDetail?.approvalPolicy ?? null,
+      approvalsReviewer: detail.approvalsReviewer ?? previousDetail?.approvalsReviewer ?? null,
+      sandbox: detail.sandbox ?? previousDetail?.sandbox ?? null,
       latestCollaborationMode: record.latestCollaborationMode,
       turns: [...detail.turns],
       transcript: [...detail.transcript],
@@ -3654,6 +3729,9 @@ export class CodexService extends EventEmitter {
     const existingRecord = this.getMaybeConversationRecord(threadId);
     return {
       ...link,
+      approvalPolicy: existingRecord?.detail?.approvalPolicy ?? null,
+      approvalsReviewer: existingRecord?.detail?.approvalsReviewer ?? null,
+      sandbox: existingRecord?.detail?.sandbox ?? null,
       latestCollaborationMode: existingRecord?.latestCollaborationMode ?? this.buildDefaultCollaborationModeState(),
       turns: turnSummaries,
       transcript,
@@ -4060,13 +4138,20 @@ export class CodexService extends EventEmitter {
     }
     const explicitThreadName = input.threadName?.trim() || null;
     const startedAt = Date.now();
+    const resolvedPermissionState = await this.readPermissionState(input.projectId);
+    const permissionState = this.resolvePermissionStateForRequest(
+      resolvedPermissionState,
+      input.permissionMode,
+      null,
+    );
+    const permissionMode = permissionState.mode;
 
     this.logger.info("Starting Codex thread for card", {
       projectId: input.projectId,
       cardId: input.cardId,
       model: input.model ?? null,
       serviceTier: formatServiceTierForReporting(input.serviceTier),
-      permissionMode: input.permissionMode ?? this.getPermissionMode(input.projectId),
+      permissionMode,
       reasoningEffort: input.reasoningEffort ?? null,
       collaborationMode: input.collaborationMode ?? null,
       worktreeStartMode: input.worktreeStartMode ?? null,
@@ -4096,8 +4181,18 @@ export class CodexService extends EventEmitter {
           });
         },
       });
-      const permissionMode = input.permissionMode ?? this.getPermissionMode(input.projectId);
-      const turnPermissionOverrides = this.buildTurnPermissionOverrides(permissionMode, runLocation.cwd);
+      const effectivePermissionState = this.resolvePermissionStateForRequest(
+        permissionState,
+        input.permissionMode,
+        runLocation.cwd,
+      );
+      const turnPermissionOverrides = buildTurnPermissionOverrides({
+        permissionState: effectivePermissionState,
+        workspacePath: runLocation.cwd,
+      });
+      const threadPermissionOverrides = buildThreadPermissionOverrides({
+        permissionState: effectivePermissionState,
+      });
       this.logger.info("Resolved Codex thread run location", {
         projectId: input.projectId,
         cardId: input.cardId,
@@ -4123,6 +4218,7 @@ export class CodexService extends EventEmitter {
         ...buildServiceTierParams(input.serviceTier),
         experimentalRawEvents: THREAD_START_EXPERIMENTAL_RAW_EVENTS,
         persistExtendedHistory: THREAD_START_PERSIST_EXTENDED_HISTORY,
+        ...threadPermissionOverrides,
       };
       const threadStart = await this.client.request<"thread/start", ThreadStartResponse>("thread/start", threadStartParams);
 
@@ -4135,6 +4231,11 @@ export class CodexService extends EventEmitter {
       if (!link) {
         throw new Error("Codex thread/start returned an invalid thread payload");
       }
+      this.setThreadPermissionFields(link.threadId, {
+        approvalPolicy: threadStart.approvalPolicy,
+        approvalsReviewer: threadStart.approvalsReviewer,
+        sandbox: threadStart.sandbox,
+      });
 
       this.logger.info("Created Codex thread", {
         projectId: input.projectId,
@@ -4282,14 +4383,24 @@ export class CodexService extends EventEmitter {
       return this.serializeThreadDetail(threadId);
     }
 
+    const threadRef = this.parseThreadRef(threadId);
+    const permissionState = await this.readPermissionState(threadRef?.projectId ?? null);
     const resumeParams: ThreadResumeParams = {
       threadId,
       persistExtendedHistory: THREAD_RESUME_PERSIST_EXTENDED_HISTORY,
+      ...buildThreadPermissionOverrides({
+        permissionState,
+      }),
     };
     const result = await this.client.request<"thread/resume", ThreadResumeResponse>("thread/resume", resumeParams);
     this.upsertLinkFromThread(result.thread);
     const liveDetail = this.buildThreadDetailFromRead(result.thread);
     if (!liveDetail) return null;
+    this.setThreadPermissionFields(threadId, {
+      approvalPolicy: result.approvalPolicy,
+      approvalsReviewer: result.approvalsReviewer,
+      sandbox: result.sandbox,
+    });
 
     const detail = this.reconcileDetailTranscriptToTerminalTurnStatus(liveDetail);
     this.setConversationRecordDetail(detail);
@@ -4563,8 +4674,18 @@ export class CodexService extends EventEmitter {
     const threadRef = this.parseThreadRef(threadId);
     const workspacePath = threadRef?.cwd?.trim()
       || (threadRef ? this.parseWorkspacePath(threadRef.projectId) : null);
-    const permissionMode = overrides?.permissionMode ?? this.getPermissionMode(threadRef?.projectId ?? null);
-    const turnPermissionOverrides = this.buildTurnPermissionOverrides(permissionMode, workspacePath);
+    const resolvedPermissionState = await this.readPermissionState(threadRef?.projectId ?? null);
+    const permissionState = this.resolvePermissionStateForRequest(
+      resolvedPermissionState,
+      overrides?.permissionMode,
+      workspacePath,
+    );
+    const permissionMode = permissionState.mode;
+    const turnPermissionOverrides = buildTurnPermissionOverrides({
+      permissionState,
+      workspacePath,
+    });
+    this.applyThreadPermissionState(threadId, permissionState);
     const collaborationMode = this.buildCollaborationModePayload({
       collaborationMode: overrides?.collaborationMode,
       model: overrides?.model,
@@ -4618,6 +4739,9 @@ export class CodexService extends EventEmitter {
       await this.client.request("thread/resume", {
         threadId,
         persistExtendedHistory: THREAD_RESUME_PERSIST_EXTENDED_HISTORY,
+        ...buildThreadPermissionOverrides({
+          permissionState,
+        }),
       });
       turnStartResult = await startTurnRequest();
     }
@@ -4783,6 +4907,7 @@ export class CodexService extends EventEmitter {
   async respondToApproval(requestId: string, decision: CodexApprovalDecision): Promise<boolean> {
     const pending = this.pendingApprovals.get(requestId);
     if (!pending) return false;
+    const record = this.getConversationRecord(pending.request.threadId);
 
     this.logger.info("Resolving Codex approval request", {
       requestId,
@@ -4790,10 +4915,25 @@ export class CodexService extends EventEmitter {
       kind: pending.request.kind,
       threadId: pending.request.threadId,
       turnId: pending.request.turnId,
+      streamRole: record.streamRole,
     });
-    pending.resolve({ decision });
-    this.pendingApprovals.delete(requestId);
-    this.clearCommandExecutionApprovalRequestAttachment(
+    if (record.streamRole === "follower") {
+      await this.client.request(
+        pending.request.kind === "command"
+          ? THREAD_FOLLOWER_COMMAND_APPROVAL_DECISION_METHOD
+          : THREAD_FOLLOWER_FILE_APPROVAL_DECISION_METHOD,
+        {
+          conversationId: pending.request.threadId,
+          requestId,
+          decision,
+        },
+      );
+      this.pendingApprovals.delete(requestId);
+    } else {
+      pending.resolve({ decision });
+      this.pendingApprovals.delete(requestId);
+    }
+    this.clearApprovalRequestAttachment(
       pending.request.threadId,
       pending.request.turnId,
       pending.request.itemId,
@@ -5128,7 +5268,8 @@ export class CodexService extends EventEmitter {
       createdAt: Date.now(),
     };
 
-    const mode = this.getPermissionMode(ref?.projectId ?? null);
+    const permissionState = await this.readPermissionState(ref?.projectId ?? null);
+    const mode = permissionState.mode;
     this.logger.info("Received Codex approval request", {
       requestId,
       kind,
@@ -5142,7 +5283,7 @@ export class CodexService extends EventEmitter {
       cwd: payload.cwd ?? null,
       reason: payload.reason ?? null,
     });
-    if (mode === "full-access") {
+    if (permissionState.effectivePreset === "full-access") {
       this.logger.warn("Auto-accepting Codex approval request due to full-access mode", {
         requestId,
         kind,
@@ -5155,6 +5296,8 @@ export class CodexService extends EventEmitter {
 
     if (kind === "command") {
       this.attachCommandExecutionApprovalRequest(requestId, params as CommandExecutionRequestApprovalParams);
+    } else {
+      this.attachFileChangeApprovalRequest(requestId, params as FileChangeRequestApprovalParams);
     }
 
     return await new Promise<CommandExecutionRequestApprovalResponse | FileChangeRequestApprovalResponse>((resolve, reject) => {
@@ -5241,7 +5384,29 @@ export class CodexService extends EventEmitter {
     this.mergeItem(next);
   }
 
-  private clearCommandExecutionApprovalRequestAttachment(
+  private attachFileChangeApprovalRequest(
+    requestId: string,
+    params: FileChangeRequestApprovalParams,
+  ): void {
+    const existing = this.getRecordedItem(params.threadId, params.turnId, params.itemId);
+    if (!existing) {
+      return;
+    }
+
+    this.mergeItem({
+      ...existing,
+      approvalRequestId: requestId,
+      grantRoot: params.grantRoot ?? existing.grantRoot ?? null,
+      rawItem: {
+        ...(asRecord(existing.rawItem) ?? {}),
+        approvalRequestId: requestId,
+        grantRoot: params.grantRoot ?? existing.grantRoot ?? null,
+      },
+      updatedAt: Date.now(),
+    });
+  }
+
+  private clearApprovalRequestAttachment(
     threadId: string,
     turnId: string,
     itemId: string,
@@ -5671,7 +5836,7 @@ export class CodexService extends EventEmitter {
     if (pendingApproval) {
       pendingApproval.resolve({ decision: "cancel" });
       this.pendingApprovals.delete(requestId);
-      this.clearCommandExecutionApprovalRequestAttachment(
+      this.clearApprovalRequestAttachment(
         pendingApproval.request.threadId,
         pendingApproval.request.turnId,
         pendingApproval.request.itemId,
@@ -6211,6 +6376,9 @@ export class CodexService extends EventEmitter {
         link.threadPreview,
       ),
       cwd: link.cwd,
+      approvalPolicy: detail?.approvalPolicy ?? null,
+      approvalsReviewer: detail?.approvalsReviewer ?? null,
+      sandbox: detail?.sandbox ?? null,
       latestCollaborationMode: detail?.latestCollaborationMode ?? record?.latestCollaborationMode ?? this.buildDefaultCollaborationModeState(),
       updatedAt: Math.max(link.updatedAt, transcriptUpdatedAt),
       turns,

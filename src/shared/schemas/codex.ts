@@ -40,7 +40,8 @@ export const CodexCollaborationModeKindSchema = z.enum([
 ]) satisfies z.ZodType<CodexCollaborationModeKind>;
 
 export const CodexPermissionModeSchema = z.enum([
-  "sandbox",
+  "auto",
+  "guardian-approvals",
   "full-access",
   "custom",
 ]) satisfies z.ZodType<CodexPermissionMode>;

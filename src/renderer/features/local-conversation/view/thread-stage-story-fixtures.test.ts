@@ -8,7 +8,7 @@ describe("thread stage story fixtures", () => {
   test("builds the new-thread preset on the real empty-state path", () => {
     const scenario = buildThreadStageStoryScenario({
       preset: "new-thread",
-      permissionMode: "sandbox",
+      permissionMode: "auto",
       authenticatedAccount: true,
       isQueueingEnabled: false,
       collapseAgentBody: true,
@@ -16,7 +16,7 @@ describe("thread stage story fixtures", () => {
 
     const { bodyModel } = buildThreadStageStorySurfaceModels(scenario, {
       preset: "new-thread",
-      permissionMode: "sandbox",
+      permissionMode: "auto",
       authenticatedAccount: true,
       isQueueingEnabled: false,
       collapseAgentBody: true,
@@ -29,7 +29,7 @@ describe("thread stage story fixtures", () => {
   test("surfaces the synthesized implement-plan request for the plan preset", () => {
     const scenario = buildThreadStageStoryScenario({
       preset: "implement-plan",
-      permissionMode: "sandbox",
+      permissionMode: "auto",
       authenticatedAccount: true,
       isQueueingEnabled: false,
       collapseAgentBody: true,
@@ -37,7 +37,7 @@ describe("thread stage story fixtures", () => {
 
     const { footerModel } = buildThreadStageStorySurfaceModels(scenario, {
       preset: "implement-plan",
-      permissionMode: "sandbox",
+      permissionMode: "auto",
       authenticatedAccount: true,
       isQueueingEnabled: false,
       collapseAgentBody: true,
@@ -53,7 +53,7 @@ describe("thread stage story fixtures", () => {
   test("keeps the composer hidden when background approval is present", () => {
     const scenario = buildThreadStageStoryScenario({
       preset: "background-activity",
-      permissionMode: "sandbox",
+      permissionMode: "auto",
       authenticatedAccount: true,
       isQueueingEnabled: false,
       collapseAgentBody: false,
@@ -61,7 +61,7 @@ describe("thread stage story fixtures", () => {
 
     const { footerModel } = buildThreadStageStorySurfaceModels(scenario, {
       preset: "background-activity",
-      permissionMode: "sandbox",
+      permissionMode: "auto",
       authenticatedAccount: true,
       isQueueingEnabled: false,
       collapseAgentBody: false,

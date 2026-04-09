@@ -18,7 +18,7 @@ const meta = {
   },
   args: {
     preset: THREAD_STAGE_STORY_DEFAULT_PRESET.id,
-    permissionMode: "sandbox",
+    permissionMode: "auto",
     authenticatedAccount: true,
     isQueueingEnabled: false,
     collapseAgentBody: true,
@@ -26,7 +26,7 @@ const meta = {
   argTypes: {
     permissionMode: {
       control: "inline-radio",
-      options: ["sandbox", "full-access", "custom"],
+      options: ["auto", "guardian-approvals", "full-access", "custom"],
     },
     authenticatedAccount: {
       control: "boolean",

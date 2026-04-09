@@ -26,6 +26,7 @@ import type {
   CodexHostMessage,
   CodexModelOption,
   CodexPermissionMode,
+  CodexPermissionState,
   CodexThreadStartForCardInput,
   CodexThreadDetail,
   CodexThreadSummary,
@@ -488,11 +489,19 @@ export interface IpcApi {
   };
   "codex:permission:mode:set": {
     args: [projectId: string, mode: CodexPermissionMode];
-    result: void;
+    result: CodexPermissionState;
   };
   "codex:permission:mode:get": {
     args: [projectId: string];
     result: CodexPermissionMode;
+  };
+  "codex:permission:state:get": {
+    args: [projectId: string];
+    result: CodexPermissionState;
+  };
+  "codex:permission:config-value:set": {
+    args: [projectId: string, keyPath: string, value: unknown];
+    result: CodexPermissionState;
   };
   "codex:permission:custom-description:get": {
     args: [projectId: string];

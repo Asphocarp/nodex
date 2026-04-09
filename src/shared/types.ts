@@ -1,10 +1,14 @@
 import type {
+  ApprovalsReviewer as CodexAppServerApprovalsReviewer,
+  AskForApproval as CodexAppServerAskForApproval,
   CommandAction as CodexAppServerCommandAction,
   CommandExecutionRequestApprovalParams as CodexAppServerCommandExecutionRequestApprovalParams,
   ExecPolicyAmendment as CodexAppServerExecPolicyAmendment,
   McpToolCallError as CodexAppServerMcpToolCallError,
   McpToolCallResult as CodexAppServerMcpToolCallResult,
   NetworkApprovalContext as CodexAppServerNetworkApprovalContext,
+  SandboxMode as CodexAppServerSandboxMode,
+  SandboxPolicy as CodexAppServerSandboxPolicy,
   ThreadItem as CodexAppServerThreadItem,
 } from "@nodex/codex-app-server-protocol/v2";
 import type { ServiceTier as CodexAppServerServiceTier } from "@nodex/codex-app-server-protocol";
@@ -559,6 +563,9 @@ export interface CodexThreadSummary {
   threadPreview: string;
   modelProvider: string;
   cwd: string | null;
+  approvalPolicy?: CodexApprovalPolicy | null;
+  approvalsReviewer?: CodexApprovalsReviewer | null;
+  sandbox?: CodexSandboxPolicy | null;
   statusType: CodexThreadStatusType;
   statusActiveFlags: CodexThreadActiveFlag[];
   archived: boolean;
@@ -576,6 +583,10 @@ export interface CodexConversationSource {
 export type CodexReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
 export type CodexThreadDetailLevel = "STEPS_PROSE" | "STEPS_COMMANDS" | "STEPS_EXECUTION";
 export type CodexServiceTier = Extract<CodexAppServerServiceTier, "fast"> | null;
+export type CodexApprovalPolicy = CodexAppServerAskForApproval;
+export type CodexApprovalsReviewer = CodexAppServerApprovalsReviewer;
+export type CodexSandboxMode = CodexAppServerSandboxMode;
+export type CodexSandboxPolicy = CodexAppServerSandboxPolicy;
 
 export type CodexCollaborationModeKind = "default" | "plan";
 
@@ -649,7 +660,26 @@ export interface CodexThreadActionResult {
   composerIntent: CodexComposerIntent;
 }
 
-export type CodexPermissionMode = "sandbox" | "full-access" | "custom";
+export type CodexPermissionPreset = "read-only" | "auto" | "guardian-approvals" | "full-access";
+export type CodexPermissionMode = "auto" | "guardian-approvals" | "full-access" | "custom";
+
+export interface CodexPermissionConfigTarget {
+  source: "user" | "project" | "none";
+  filePath: string | null;
+}
+
+export interface CodexPermissionState {
+  mode: CodexPermissionMode;
+  effectivePreset: CodexPermissionPreset | "custom";
+  availableModes: CodexPermissionMode[];
+  approvalPolicy: CodexApprovalPolicy | null;
+  approvalsReviewer: CodexApprovalsReviewer;
+  sandboxMode: CodexSandboxMode | null;
+  sandbox: CodexSandboxPolicy | null;
+  guardianApprovalEnabled: boolean;
+  configTarget: CodexPermissionConfigTarget;
+  customDescription: string | null;
+}
 
 export type CodexTurnStatus = "inProgress" | "completed" | "interrupted" | "failed";
 

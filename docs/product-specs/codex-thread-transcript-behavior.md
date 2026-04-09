@@ -5,6 +5,7 @@ This document is the source of truth for visible Codex Threads transcript behavi
 It defines what appears in chat, what stays internal, how transcript state is projected, and how live and restarted threads stay consistent.
 
 Other product specs should link here instead of restating transcript behavior.
+Detailed Guardian approvals preset and approval-lifecycle rules are specified in [Guardian Approvals Behavior](./guardian-approvals-behavior.md).
 
 ## Scope
 This spec covers:

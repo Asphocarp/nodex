@@ -58,7 +58,7 @@ class StoryAudioContext {
 function buildModel(state: DictationStoryState): ThreadFooterModel {
   const controls: ThreadStageStoryControls = {
     preset: "existing-empty",
-    permissionMode: "sandbox",
+    permissionMode: "auto",
     authenticatedAccount: true,
     isQueueingEnabled: false,
     collapseAgentBody: false,

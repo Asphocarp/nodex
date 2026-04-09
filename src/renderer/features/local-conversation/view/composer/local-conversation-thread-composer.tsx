@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent a
 import { handleFormSubmit } from "@/lib/forms";
 import { formatCodexModelLabel, formatCodexReasoningEffortLabel } from "@/lib/codex-thread-settings";
 import { resolveContextWindowIndicatorState } from "@/lib/codex-context-window";
-import type { CodexReasoningEffort } from "@/lib/types";
+import type { CodexPermissionState, CodexReasoningEffort } from "@/lib/types";
 import { shouldSubmitComposerPromptFromKeyDown } from "@/lib/composer-enter-behavior";
 import { useCodexServiceTierSettings } from "@/lib/use-codex-service-tier-settings";
 import {
@@ -120,7 +120,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const [busyAction, setBusyAction] = useState<StageThreadsBusyAction>(null);
   const [branchState, setBranchState] = useState<BranchSelectorState>(EMPTY_BRANCH_SELECTOR_STATE);
   const [isBranchBusy, setIsBranchBusy] = useState(false);
-  const [customPermissionDescription, setCustomPermissionDescription] = useState<string | null>(null);
+  const [permissionState, setPermissionState] = useState<CodexPermissionState | null>(null);
   const [dictationToastMessage, setDictationToastMessage] = useState<string | null>(null);
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
   const dictationShortcutActiveRef = useRef(false);
@@ -391,20 +391,20 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   useEffect(() => {
     let cancelled = false;
 
-    void invoke("codex:permission:custom-description:get", model.projectId)
+    void invoke("codex:permission:state:get", model.projectId)
       .then((result) => {
         if (cancelled) return;
-        setCustomPermissionDescription(typeof result === "string" ? result : null);
+        setPermissionState(result as CodexPermissionState);
       })
       .catch(() => {
         if (cancelled) return;
-        setCustomPermissionDescription(null);
+        setPermissionState(null);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [model.projectId]);
+  }, [model.permissionMode, model.projectId]);
 
   const handleRefreshBranchState = useCallback(async () => {
     const requestedCwd = branchCwdRef.current;
@@ -877,7 +877,9 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
 
             <PermissionModeDropdown
               selectedMode={model.permissionMode}
-              customDescription={customPermissionDescription}
+              availableModes={permissionState?.availableModes}
+              guardianApprovalEnabled={permissionState?.guardianApprovalEnabled ?? false}
+              customDescription={permissionState?.customDescription ?? null}
               onSelect={actions.onPermissionModeChange}
             />
           </div>

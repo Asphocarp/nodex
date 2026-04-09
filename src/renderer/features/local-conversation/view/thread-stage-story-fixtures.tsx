@@ -2303,6 +2303,7 @@ type StorybookBridge = Window["api"];
 
 function createStorybookElectronBridge(input: {
   card: Card;
+  permissionMode: CodexPermissionMode;
   permissionDescription: string;
 }): StorybookBridge {
   const listeners: StorybookElectronBridgeListenerMap = {
@@ -2330,6 +2331,33 @@ function createStorybookElectronBridge(input: {
         }
         case "codex:permission:custom-description:get":
           return input.permissionDescription;
+        case "codex:permission:state:get":
+        case "codex:permission:mode:set":
+        case "codex:permission:config-value:set":
+          return {
+            mode: input.permissionMode,
+            effectivePreset: input.permissionMode === "custom" ? "custom" : input.permissionMode,
+            availableModes: ["auto", "guardian-approvals", "full-access", "custom"],
+            approvalPolicy: "on-request",
+            approvalsReviewer: input.permissionMode === "guardian-approvals" ? "guardian_subagent" : "user",
+            sandboxMode: input.permissionMode === "full-access" ? "danger-full-access" : "workspace-write",
+            sandbox: input.permissionMode === "full-access"
+              ? { type: "dangerFullAccess" }
+              : {
+                  type: "workspaceWrite",
+                  writableRoots: ["/tmp/project"],
+                  readOnlyAccess: { type: "fullAccess" },
+                  networkAccess: false,
+                  excludeTmpdirEnvVar: false,
+                  excludeSlashTmp: false,
+                },
+            guardianApprovalEnabled: true,
+            configTarget: {
+              source: "user",
+              filePath: "/tmp/project/.codex/config.toml",
+            },
+            customDescription: input.permissionDescription,
+          };
         case "git:branch:state":
           return branchState;
         case "git:branch:watch:start":
@@ -2380,16 +2408,18 @@ function createStorybookElectronBridge(input: {
 
 export function StorybookElectronTransportBoundary({
   card,
+  permissionMode,
   permissionDescription,
   children,
 }: {
   card: Card;
+  permissionMode: CodexPermissionMode;
   permissionDescription: string;
   children: ReactNode;
 }) {
   const bridge = useMemo(
-    () => createStorybookElectronBridge({ card, permissionDescription }),
-    [card, permissionDescription],
+    () => createStorybookElectronBridge({ card, permissionMode, permissionDescription }),
+    [card, permissionDescription, permissionMode],
   );
 
   useEffect(() => {

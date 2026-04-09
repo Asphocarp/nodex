@@ -8,7 +8,7 @@ import { LocalConversationResumeLoader } from "./local-conversation-resume-loade
 
 const RESUMING_STORY_CONTROLS: ThreadStageStoryControls = {
   preset: "resuming",
-  permissionMode: "sandbox",
+  permissionMode: "auto",
   authenticatedAccount: true,
   isQueueingEnabled: false,
   collapseAgentBody: true,

@@ -118,7 +118,7 @@ mock.module("./workbench-shell-deps", () => ({
         reasoningEffort: "high",
       },
       reasoningEffortOptions: [],
-      permissionMode: "sandbox" as const,
+      permissionMode: "auto" as const,
       loadThreads: async () => [],
       loadModels: async () => [],
       listCollaborationModes: async () => [],

@@ -15,7 +15,7 @@ import { LocalConversationComposerShell } from "./local-conversation-composer-sh
 
 const STORY_CONTROLS: ThreadStageStoryControls = {
   preset: "background-activity",
-  permissionMode: "sandbox",
+  permissionMode: "auto",
   authenticatedAccount: true,
   isQueueingEnabled: false,
   collapseAgentBody: false,

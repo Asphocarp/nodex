@@ -38,8 +38,29 @@ function installComposerWindowApi(): void {
   installWindowApi({
     invoke: async (channel: string) => {
       switch (channel) {
-        case "codex:permission:custom-description:get":
-          return null;
+        case "codex:permission:state:get":
+          return {
+            mode: "auto",
+            effectivePreset: "auto",
+            availableModes: ["auto", "guardian-approvals", "full-access", "custom"],
+            approvalPolicy: "on-request",
+            approvalsReviewer: "user",
+            sandboxMode: "workspace-write",
+            sandbox: {
+              type: "workspaceWrite",
+              writableRoots: ["/tmp/project"],
+              readOnlyAccess: { type: "fullAccess" },
+              networkAccess: false,
+              excludeTmpdirEnvVar: false,
+              excludeSlashTmp: false,
+            },
+            guardianApprovalEnabled: true,
+            configTarget: {
+              source: "user",
+              filePath: "/tmp/project/.codex/config.toml",
+            },
+            customDescription: null,
+          };
         case "git:branch:state":
           return {
             currentBranch: "main",
@@ -114,7 +135,7 @@ function buildModel(overrides?: Partial<ThreadFooterModel>): ThreadFooterModel {
     selectedModel: "gpt-5.3-codex",
     selectedReasoningEffort: "high",
     reasoningEffortOptions: [],
-    permissionMode: "sandbox",
+    permissionMode: "auto",
     isQueueingEnabled: false,
     composerEnterBehavior: "enter",
     composerIntent: null,

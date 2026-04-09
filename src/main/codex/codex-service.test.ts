@@ -3046,17 +3046,17 @@ describe("codex-service startTurn", () => {
     try {
       const startedTurn = await service.startTurn("thr_start", "Ship the fix", {
         model: "gpt-5.3-codex",
-        permissionMode: "sandbox",
+        permissionMode: "auto",
         reasoningEffort: "high",
       });
+      const turnStartRequests = requests.filter((request) => request.method === "turn/start");
       expect(startedTurn?.turnId).toBe("turn_override");
-      expect(requests.length).toBe(1);
-      expect(requests[0]?.method).toBe("turn/start");
-      expect((requests[0]?.params as { model?: string })?.model).toBe("gpt-5.3-codex");
-      expect((requests[0]?.params as { effort?: string })?.effort).toBe("high");
-      expect((requests[0]?.params as { approvalPolicy?: string })?.approvalPolicy).toBe("on-request");
-      expect((requests[0]?.params as { cwd?: string })?.cwd).toBe("/tmp/codex");
-      expect(JSON.stringify((requests[0]?.params as {
+      expect(turnStartRequests.length).toBe(1);
+      expect((turnStartRequests[0]?.params as { model?: string })?.model).toBe("gpt-5.3-codex");
+      expect((turnStartRequests[0]?.params as { effort?: string })?.effort).toBe("high");
+      expect((turnStartRequests[0]?.params as { approvalPolicy?: string })?.approvalPolicy).toBe("on-request");
+      expect((turnStartRequests[0]?.params as { cwd?: string })?.cwd).toBe("/tmp/codex");
+      expect(JSON.stringify((turnStartRequests[0]?.params as {
         sandboxPolicy?: {
           type?: string;
           writableRoots?: string[];
@@ -3118,12 +3118,13 @@ describe("codex-service startTurn", () => {
       const startedTurn = await service.startTurn("thr_start", "Plan this task", {
         model: "gpt-5.3-codex",
         reasoningEffort: "high",
-        permissionMode: "sandbox",
+        permissionMode: "auto",
         collaborationMode: "plan",
       });
+      const turnStartRequests = requests.filter((request) => request.method === "turn/start");
       expect(startedTurn?.turnId).toBe("turn_plan_mode");
-      expect(requests.length).toBe(1);
-      expect(JSON.stringify((requests[0]?.params as { collaborationMode?: unknown })?.collaborationMode)).toBe(
+      expect(turnStartRequests.length).toBe(1);
+      expect(JSON.stringify((turnStartRequests[0]?.params as { collaborationMode?: unknown })?.collaborationMode)).toBe(
         JSON.stringify({
           mode: "plan",
           settings: {
@@ -3180,11 +3181,12 @@ describe("codex-service startTurn", () => {
 
     try {
       const startedTurn = await service.startTurn("thr_start", "Continue in worktree", {
-        permissionMode: "sandbox",
+        permissionMode: "auto",
       });
+      const turnStartRequests = requests.filter((request) => request.method === "turn/start");
       expect(startedTurn?.turnId).toBe("turn_worktree");
-      expect(requests.length).toBe(1);
-      expect((requests[0]?.params as { cwd?: string })?.cwd).toBe("/tmp/codex/worktrees/abcd/codex");
+      expect(turnStartRequests.length).toBe(1);
+      expect((turnStartRequests[0]?.params as { cwd?: string })?.cwd).toBe("/tmp/codex/worktrees/abcd/codex");
     } finally {
       await service.shutdown();
     }
@@ -3226,10 +3228,11 @@ describe("codex-service startTurn", () => {
       const startedTurn = await service.startTurn("thr_start", "Ship the fix", {
         permissionMode: "full-access",
       });
+      const turnStartRequests = requests.filter((request) => request.method === "turn/start");
       expect(startedTurn?.turnId).toBe("turn_full_access");
-      expect(requests.length).toBe(1);
-      expect((requests[0]?.params as { approvalPolicy?: string })?.approvalPolicy).toBe("never");
-      expect(JSON.stringify((requests[0]?.params as { sandboxPolicy?: { type?: string } })?.sandboxPolicy)).toBe(JSON.stringify({
+      expect(turnStartRequests.length).toBe(1);
+      expect((turnStartRequests[0]?.params as { approvalPolicy?: string })?.approvalPolicy).toBe("never");
+      expect(JSON.stringify((turnStartRequests[0]?.params as { sandboxPolicy?: { type?: string } })?.sandboxPolicy)).toBe(JSON.stringify({
         type: "dangerFullAccess",
       }));
     } finally {
@@ -3679,7 +3682,7 @@ describe("codex-service startThreadForCard", () => {
           model: "gpt-5.3-codex",
           reasoningEffort: "medium",
           collaborationMode: "plan",
-          permissionMode: "sandbox",
+          permissionMode: "auto",
         });
 
         const turnStartRequest = requests.find((request) => request.method === "turn/start");
@@ -3764,7 +3767,7 @@ describe("codex-service startThreadForCard", () => {
           prompt: "Use the fast tier",
           threadName: "Fast mode thread",
           model: "gpt-5.3-codex",
-          permissionMode: "sandbox",
+          permissionMode: "auto",
           reasoningEffort: "high",
           serviceTier: "fast",
         });
@@ -3848,7 +3851,7 @@ describe("codex-service startThreadForCard", () => {
           projectId: "codex",
           cardId: card.id,
           prompt: "Generate a title for this thread",
-          permissionMode: "sandbox",
+          permissionMode: "auto",
         });
         expect(queued.length).toBe(1);
         expect(queued[0]?.threadId).toBe("thr_auto_title");
@@ -3934,7 +3937,7 @@ describe("codex-service startThreadForCard", () => {
           cardId: card.id,
           prompt: "Thread prompt",
           threadName: "My explicit thread",
-          permissionMode: "sandbox",
+          permissionMode: "auto",
         });
         expect(requestMethods.includes("thread/name/set")).toBeTrue();
         expect(queuedCount).toBe(0);
@@ -4169,7 +4172,7 @@ describe("codex-service startThreadForCard", () => {
           cardId: card.id,
           prompt: "Build it",
           threadName: "Thread",
-          permissionMode: "sandbox",
+          permissionMode: "auto",
         });
         expect(detail).toBe(expectedDetail);
         expect((requests[0]?.params as { cwd?: string })?.cwd).toBe(localRunPath);
@@ -5060,7 +5063,7 @@ describe("codex-service approval fallback", () => {
     };
 
     serviceInternals.parseThreadRef = () => ({ projectId: "codex", cardId: "card-1", cwd: null });
-    service.setProjectPermissionMode("codex", "full-access");
+    await service.setProjectPermissionMode("codex", "full-access");
 
     try {
       const result = await serviceInternals.handleServerRequest({
@@ -5094,7 +5097,7 @@ describe("codex-service approval fallback", () => {
     };
 
     serviceInternals.parseThreadRef = () => ({ projectId: "codex", cardId: "card-1", cwd: null });
-    service.setProjectPermissionMode("codex", "sandbox");
+    await service.setProjectPermissionMode("codex", "auto");
 
     try {
       const requestPromise = serviceInternals.handleServerRequest({
@@ -5140,7 +5143,7 @@ describe("codex-service approval fallback", () => {
     const events: CodexEvent[] = [];
 
     serviceInternals.parseThreadRef = () => ({ projectId: "codex", cardId: "card-1", cwd: null });
-    service.setProjectPermissionMode("codex", "sandbox");
+    await service.setProjectPermissionMode("codex", "auto");
     serviceInternals.on("event", (event) => {
       events.push(event);
     });
@@ -5238,7 +5241,7 @@ describe("codex-service streaming notification parity", () => {
     const events: CodexEvent[] = [];
 
     serviceInternals.parseThreadRef = () => ({ projectId: "codex", cardId: "card-1", cwd: null });
-    service.setProjectPermissionMode("codex", "sandbox");
+    await service.setProjectPermissionMode("codex", "auto");
     serviceInternals.on("event", (event) => {
       events.push(event);
     });
@@ -5388,6 +5391,9 @@ describe("codex-service custom permission descriptions", () => {
     const serviceInternals = service as unknown as {
       findProjectCodexConfig: (projectId: string) => { configPath: string; displayPath: string } | null;
     };
+    const client = Reflect.get(service as object, "client") as {
+      request: (method: string, params?: unknown) => Promise<unknown>;
+    };
     const originalCodexHome = process.env.CODEX_HOME;
     const tempCodexHome = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-codex-home-"));
     const configPath = path.join(tempCodexHome, "config.toml");
@@ -5403,11 +5409,47 @@ describe("codex-service custom permission descriptions", () => {
     );
     process.env.CODEX_HOME = tempCodexHome;
     serviceInternals.findProjectCodexConfig = () => null;
+    client.request = async (method: string) => {
+      if (method === "config/read") {
+        return {
+          config: {
+            sandbox_mode: "workspace-write",
+            approval_policy: "on-request",
+            approvals_reviewer: "user",
+          },
+          origins: {
+            sandbox_mode: {
+              name: {
+                type: "user",
+                file: configPath,
+              },
+            },
+            approval_policy: {
+              name: {
+                type: "user",
+                file: configPath,
+              },
+            },
+            approvals_reviewer: {
+              name: {
+                type: "user",
+                file: configPath,
+              },
+            },
+            sandbox_workspace_write: undefined,
+          },
+        };
+      }
+      if (method === "configRequirements/read") {
+        return { requirements: null };
+      }
+      return {};
+    };
 
     try {
-      const description = service.getCustomPermissionModeDescription("codex");
+      const description = await service.getCustomPermissionModeDescription("codex");
       expect(description).toBe(
-        "User config ($CODEX_HOME/config.toml): sandbox_mode=workspace-write; approval_policy=on-request.",
+        `User config (${configPath}): sandbox_mode=workspace-write; approval_policy=on-request; approvals_reviewer=user.`,
       );
     } finally {
       if (originalCodexHome === undefined) {
@@ -5423,6 +5465,9 @@ describe("codex-service custom permission descriptions", () => {
   test("reports parsed workspace config values for custom mode", async () => {
     const service = createService();
     const ran = await withTempDatabase(async () => {
+      const client = Reflect.get(service as object, "client") as {
+        request: (method: string, params?: unknown) => Promise<unknown>;
+      };
       const workspacePath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-codex-workspace-config-"));
       const projectId = "codex-workspace-config";
 
@@ -5438,9 +5483,45 @@ describe("codex-service custom permission descriptions", () => {
       );
 
       try {
-        const description = service.getCustomPermissionModeDescription(projectId);
+        client.request = async (method: string) => {
+          if (method === "config/read") {
+            return {
+              config: {
+                sandbox_mode: "workspace-write",
+                approval_policy: "on-request",
+                approvals_reviewer: "user",
+              },
+              origins: {
+                sandbox_mode: {
+                  name: {
+                    type: "project",
+                    dotCodexFolder: workspacePath,
+                  },
+                },
+                approval_policy: {
+                  name: {
+                    type: "project",
+                    dotCodexFolder: workspacePath,
+                  },
+                },
+                approvals_reviewer: {
+                  name: {
+                    type: "project",
+                    dotCodexFolder: workspacePath,
+                  },
+                },
+                sandbox_workspace_write: undefined,
+              },
+            };
+          }
+          if (method === "configRequirements/read") {
+            return { requirements: null };
+          }
+          return {};
+        };
+        const description = await service.getCustomPermissionModeDescription(projectId);
         expect(description).toBe(
-          "Project config (config.toml): sandbox_mode=workspace-write; approval_policy=on-request.",
+          `Project config (${path.join(workspacePath, "config.toml")}): sandbox_mode=workspace-write; approval_policy=on-request; approvals_reviewer=user.`,
         );
       } finally {
         fs.rmSync(workspacePath, { recursive: true, force: true });
@@ -5456,6 +5537,9 @@ describe("codex-service custom permission descriptions", () => {
 
   test("prefers user-config display path when walk-up finds ~/.codex/config.toml", async () => {
     const service = createService();
+    const client = Reflect.get(service as object, "client") as {
+      request: (method: string, params?: unknown) => Promise<unknown>;
+    };
     const originalHome = process.env.HOME;
     const originalCodexHome = process.env.CODEX_HOME;
     const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-codex-home-walkup-"));
@@ -5479,9 +5563,46 @@ describe("codex-service custom permission descriptions", () => {
       process.env.HOME = tempHome;
       delete process.env.CODEX_HOME;
 
-      const description = service.getCustomPermissionModeDescription(projectId);
+      client.request = async (method: string) => {
+        if (method === "config/read") {
+          return {
+            config: {
+              sandbox_mode: "workspace-write",
+              approval_policy: "on-request",
+              approvals_reviewer: "user",
+            },
+            origins: {
+              sandbox_mode: {
+                name: {
+                  type: "user",
+                  file: path.join(userCodexDir, "config.toml"),
+                },
+              },
+              approval_policy: {
+                name: {
+                  type: "user",
+                  file: path.join(userCodexDir, "config.toml"),
+                },
+              },
+              approvals_reviewer: {
+                name: {
+                  type: "user",
+                  file: path.join(userCodexDir, "config.toml"),
+                },
+              },
+              sandbox_workspace_write: undefined,
+            },
+          };
+        }
+        if (method === "configRequirements/read") {
+          return { requirements: null };
+        }
+        return {};
+      };
+
+      const description = await service.getCustomPermissionModeDescription(projectId);
       expect(description).toBe(
-        "User config (~/.codex/config.toml): sandbox_mode=workspace-write; approval_policy=on-request.",
+        `User config (${path.join(userCodexDir, "config.toml")}): sandbox_mode=workspace-write; approval_policy=on-request; approvals_reviewer=user.`,
       );
     });
 
@@ -6028,7 +6149,7 @@ describe("codex-service item lifecycle status fallback", () => {
         serviceInternals,
         "thr_auto_review",
         "turn_auto_review",
-        "item_command:automaticApprovalReview",
+        "automatic-approval-review:item_command",
       );
       expect(item?.semanticKind).toBe("automaticApprovalReview");
       expect(item?.status).toBe("inProgress");
@@ -6053,7 +6174,7 @@ describe("codex-service item lifecycle status fallback", () => {
         serviceInternals,
         "thr_auto_review",
         "turn_auto_review",
-        "item_command:automaticApprovalReview",
+        "automatic-approval-review:item_command",
       );
       expect(item?.status).toBe("completed");
       expect((item?.rawItem as { review?: { status?: string } } | undefined)?.review?.status).toBe("approved");

@@ -85,6 +85,7 @@ import type {
   ManagedWorktreeRecord,
   Project,
   WorktreeStartMode,
+  CodexPermissionState,
   CodexThreadDetailLevel,
   ThreadNotificationTurnMode,
 } from "../../lib/types";
@@ -115,6 +116,7 @@ import {
   NodexSettingsRow as SettingRow,
   NodexSettingsPageSurface as SettingsPageSurface,
 } from "../ui/settings";
+import { PermissionModeDropdown } from "@/features/local-conversation/view/shared/permission-mode-dropdown";
 import { SettingsSidebar } from "./workbench-settings-sidebar";
 import {
   buildSettingsPath,
@@ -262,6 +264,49 @@ function TogglePill({
         />
       </span>
     </button>
+  );
+}
+
+function formatApprovalPolicyLabel(value: CodexPermissionState["approvalPolicy"]): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  return "granular";
+}
+
+function formatSandboxModeLabel(value: CodexPermissionState["sandboxMode"]): string {
+  return value ?? "unset";
+}
+
+function ConfigValueDropdown({
+  value,
+  options,
+  onSelect,
+  disabled = false,
+}: {
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onSelect: (value: string) => void;
+  disabled?: boolean;
+}) {
+  const selectedLabel = options.find((option) => option.value === value)?.label ?? value;
+
+  return (
+    <NodexDropdownMenu
+      disabled={disabled}
+      triggerButton={<NodexDropdownButtonTrigger>{selectedLabel}</NodexDropdownButtonTrigger>}
+      align="end"
+    >
+      {options.map((option) => (
+        <NodexDropdownItem
+          key={option.value}
+          onSelect={() => onSelect(option.value)}
+          rightSlot={option.value === value ? <CheckmarkIcon className="size-4" /> : null}
+        >
+          {option.label}
+        </NodexDropdownItem>
+      ))}
+    </NodexDropdownMenu>
   );
 }
 
@@ -1702,6 +1747,186 @@ function AppearanceSettingsPage() {
   );
 }
 
+function AgentSettingsPage({
+  activeProjectId,
+  open,
+}: SettingsSectionPageProps) {
+  const [permissionState, setPermissionState] = useState<CodexPermissionState | null>(null);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadPermissionState = useCallback(async () => {
+    if (!activeProjectId) {
+      setPermissionState(null);
+      return;
+    }
+
+    const nextState = (await invoke("codex:permission:state:get", activeProjectId)) as CodexPermissionState;
+    setPermissionState(nextState);
+  }, [activeProjectId]);
+
+  useEffect(() => {
+    if (!open || !activeProjectId) {
+      return;
+    }
+
+    void loadPermissionState().catch((err) => {
+      setError(err instanceof Error ? err.message : "Could not load agent settings.");
+    });
+  }, [activeProjectId, loadPermissionState, open]);
+
+  const writeConfigValue = useCallback(async (keyPath: string, value: unknown) => {
+    if (!activeProjectId) {
+      return;
+    }
+
+    setBusyKey(keyPath);
+    setError(null);
+    try {
+      const nextState = (await invoke(
+        "codex:permission:config-value:set",
+        activeProjectId,
+        keyPath,
+        value,
+      )) as CodexPermissionState;
+      setPermissionState(nextState);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save config setting.");
+    } finally {
+      setBusyKey(null);
+    }
+  }, [activeProjectId]);
+
+  const handlePermissionModeChange = useCallback(async (mode: "auto" | "guardian-approvals" | "full-access" | "custom") => {
+    if (!activeProjectId) {
+      return;
+    }
+
+    setBusyKey("permission-mode");
+    setError(null);
+    try {
+      const nextState = (await invoke("codex:permission:mode:set", activeProjectId, mode)) as CodexPermissionState;
+      setPermissionState(nextState);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save permission mode.");
+    } finally {
+      setBusyKey(null);
+    }
+  }, [activeProjectId]);
+
+  const openConfigToml = useCallback(async () => {
+    const configPath = permissionState?.configTarget.filePath?.trim();
+    if (!configPath) {
+      return;
+    }
+
+    await invoke("shell:open-file-link", { path: configPath }, "fileManager");
+  }, [permissionState?.configTarget.filePath]);
+
+  if (!activeProjectId) {
+    return (
+      <SettingsPageSurface
+        title="Agent"
+        subtitle="Permissions presets and raw config.toml settings."
+      >
+        <SectionBlock title="Agent">
+          <div className="p-3 text-sm text-token-text-secondary">
+            Open a project workspace to edit agent permissions.
+          </div>
+        </SectionBlock>
+      </SettingsPageSurface>
+    );
+  }
+
+  const approvalPolicyValue = formatApprovalPolicyLabel(permissionState?.approvalPolicy ?? null);
+  const sandboxModeValue = formatSandboxModeLabel(permissionState?.sandboxMode ?? null);
+  const networkAccessValue = permissionState?.sandbox?.type === "workspaceWrite"
+    ? permissionState.sandbox.networkAccess
+    : false;
+
+  return (
+    <SettingsPageSurface
+      title="Agent"
+      subtitle="Permissions presets and raw config.toml settings."
+    >
+      <SectionBlock title="Permissions modes">
+        <SettingRow
+          label="Default permissions mode"
+          description="Choose the preset used for new local Codex threads."
+        >
+          <PermissionModeDropdown
+            selectedMode={permissionState?.mode ?? "custom"}
+            customDescription={permissionState?.customDescription ?? null}
+            availableModes={permissionState?.availableModes}
+            guardianApprovalEnabled={permissionState?.guardianApprovalEnabled ?? false}
+            onSelect={(mode) => {
+              void handlePermissionModeChange(mode);
+            }}
+          />
+        </SettingRow>
+      </SectionBlock>
+
+      <SectionBlock title="Custom config.toml settings">
+        <SettingRow label="Approval policy" description="Raw `approval_policy` value for this config target.">
+          <ConfigValueDropdown
+            value={approvalPolicyValue}
+            disabled={busyKey !== null}
+            onSelect={(value) => {
+              void writeConfigValue("approval_policy", value);
+            }}
+            options={[
+              { value: "untrusted", label: "untrusted" },
+              { value: "on-failure", label: "on-failure" },
+              { value: "on-request", label: "on-request" },
+              { value: "never", label: "never" },
+            ]}
+          />
+        </SettingRow>
+        <SettingRow label="Sandbox settings" description="Raw `sandbox_mode` value for this config target.">
+          <ConfigValueDropdown
+            value={sandboxModeValue}
+            disabled={busyKey !== null}
+            onSelect={(value) => {
+              void writeConfigValue("sandbox_mode", value);
+            }}
+            options={[
+              { value: "read-only", label: "read-only" },
+              { value: "workspace-write", label: "workspace-write" },
+              { value: "danger-full-access", label: "danger-full-access" },
+            ]}
+          />
+        </SettingRow>
+        <SettingRow label="Allow network access" description="Controls `sandbox_workspace_write.network_access`.">
+          <TogglePill
+            value={networkAccessValue}
+            disabled={busyKey !== null || permissionState?.sandboxMode !== "workspace-write"}
+            onChange={(value) => {
+              void writeConfigValue("sandbox_workspace_write.network_access", value);
+            }}
+          />
+        </SettingRow>
+        <SettingRow label="config.toml" description={permissionState?.configTarget.filePath ?? "No writable config target"}>
+          <NodexButton
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={!permissionState?.configTarget.filePath}
+            onClick={() => {
+              void openConfigToml();
+            }}
+          >
+            Reveal
+          </NodexButton>
+        </SettingRow>
+      </SectionBlock>
+
+      {error ? (
+        <div className="text-sm text-[var(--red-text)]">{error}</div>
+      ) : null}
+    </SettingsPageSurface>
+  );
+}
+
 function EditorSettingsPage({
   composerEnterBehavior,
   isMacPlatform,
@@ -1943,6 +2168,7 @@ function SettingsPlaceholderPage({
 const SETTINGS_SECTION_COMPONENTS: Record<SettingsSectionId, ComponentType<SettingsSectionPageProps>> = {
   "general-settings": GeneralSettingsPage,
   appearance: AppearanceSettingsPage,
+  agent: AgentSettingsPage,
   editor: EditorSettingsPage,
   card: CardSettingsPage,
   worktrees: WorktreesSettingsPage,

@@ -103,7 +103,7 @@ function buildModel(overrides?: Partial<ThreadFooterModel>): ThreadFooterModel {
     selectedModel: "gpt-5.3-codex",
     selectedReasoningEffort: "high",
     reasoningEffortOptions: [],
-    permissionMode: "sandbox",
+    permissionMode: "auto",
     isQueueingEnabled: false,
     composerEnterBehavior: "enter",
     composerIntent: null,
@@ -179,6 +179,28 @@ function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActio
   };
 }
 
+async function renderThreadComposer(input?: {
+  model?: Partial<ThreadFooterModel>;
+  actions?: Partial<ThreadStageActions>;
+}) {
+  const rendered = render(
+    <TooltipProvider>
+      <ThreadComposer
+        model={buildModel(input?.model)}
+        actions={buildActions(input?.actions)}
+        errorMessage={null}
+        onErrorMessage={() => {}}
+      />
+    </TooltipProvider>,
+  );
+
+  await act(async () => {
+    await Promise.resolve();
+  });
+
+  return rendered;
+}
+
 describe("ThreadComposer dictation", () => {
   const nativeFetch = globalThis.fetch;
   const nativeMediaRecorder = globalThis.MediaRecorder;
@@ -232,46 +254,32 @@ describe("ThreadComposer dictation", () => {
     });
   });
 
-  test("hides dictation when dictation support is unavailable", () => {
-    const { queryByLabelText } = render(
-      <TooltipProvider>
-        <ThreadComposer
-          model={buildModel({
-            dictation: {
-              isEnabled: false,
-              authMethod: null,
-              isRealtimeVoiceActive: false,
-              shortcutLabel: "Ctrl+M",
-            },
-          })}
-          actions={buildActions()}
-          errorMessage={null}
-          onErrorMessage={() => {}}
-        />
-      </TooltipProvider>,
-    );
+  test("hides dictation when dictation support is unavailable", async () => {
+    const { queryByLabelText } = await renderThreadComposer({
+      model: {
+        dictation: {
+          isEnabled: false,
+          authMethod: null,
+          isRealtimeVoiceActive: false,
+          shortcutLabel: "Ctrl+M",
+        },
+      },
+    });
 
     expect(queryByLabelText("Dictate")).toBe(null);
   });
 
-  test("disables the dictation button while realtime voice is active", () => {
-    const { getByLabelText } = render(
-      <TooltipProvider>
-        <ThreadComposer
-          model={buildModel({
-            dictation: {
-              isEnabled: true,
-              authMethod: "chatgpt",
-              isRealtimeVoiceActive: true,
-              shortcutLabel: "Ctrl+M",
-            },
-          })}
-          actions={buildActions()}
-          errorMessage={null}
-          onErrorMessage={() => {}}
-        />
-      </TooltipProvider>,
-    );
+  test("disables the dictation button while realtime voice is active", async () => {
+    const { getByLabelText } = await renderThreadComposer({
+      model: {
+        dictation: {
+          isEnabled: true,
+          authMethod: "chatgpt",
+          isRealtimeVoiceActive: true,
+          shortcutLabel: "Ctrl+M",
+        },
+      },
+    });
 
     expect((getByLabelText("Dictate") as HTMLButtonElement).disabled).toBeTrue();
   });
@@ -286,16 +294,7 @@ describe("ThreadComposer dictation", () => {
       });
     }) as typeof fetch;
 
-    const { getByLabelText, getByPlaceholderText } = render(
-      <TooltipProvider>
-        <ThreadComposer
-          model={buildModel()}
-          actions={buildActions()}
-          errorMessage={null}
-          onErrorMessage={() => {}}
-        />
-      </TooltipProvider>,
-    );
+    const { getByLabelText, getByPlaceholderText } = await renderThreadComposer();
 
     await act(async () => {
       fireEvent.click(getByLabelText("Dictate"));
@@ -328,16 +327,7 @@ describe("ThreadComposer dictation", () => {
       });
     }) as typeof fetch;
 
-    const { getByPlaceholderText } = render(
-      <TooltipProvider>
-        <ThreadComposer
-          model={buildModel()}
-          actions={buildActions()}
-          errorMessage={null}
-          onErrorMessage={() => {}}
-        />
-      </TooltipProvider>,
-    );
+    const { getByPlaceholderText } = await renderThreadComposer();
 
     await act(async () => {
       fireEvent.keyDown(document, { key: "m", ctrlKey: true });
@@ -370,20 +360,13 @@ describe("ThreadComposer dictation", () => {
       })) as typeof fetch;
 
     const onSendPromptCalls: string[] = [];
-    const { getByLabelText } = render(
-      <TooltipProvider>
-        <ThreadComposer
-          model={buildModel()}
-          actions={buildActions({
-            onSendPrompt: async (prompt) => {
-              onSendPromptCalls.push(prompt);
-            },
-          })}
-          errorMessage={null}
-          onErrorMessage={() => {}}
-        />
-      </TooltipProvider>,
-    );
+    const { getByLabelText } = await renderThreadComposer({
+      actions: {
+        onSendPrompt: async (prompt) => {
+          onSendPromptCalls.push(prompt);
+        },
+      },
+    });
 
     await act(async () => {
       fireEvent.click(getByLabelText("Dictate"));

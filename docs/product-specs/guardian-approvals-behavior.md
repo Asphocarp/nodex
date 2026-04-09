@@ -1,0 +1,250 @@
+# Guardian Approvals Behavior
+
+## Intent
+This document is the source of truth for Guardian approvals behavior in Nodex.
+It defines the config-backed permission model, visible preset semantics, approval request lifecycle, and the transport literals required for Codex parity.
+
+Other product specs should link here instead of restating Guardian approval behavior in detail.
+
+## Scope
+This spec covers:
+- preset resolution from Codex app-server config and config requirements
+- Guardian gate behavior and reviewer fallback
+- visible Thread-stage and Settings UI for permission modes
+- raw config editing rules for permission-related keys
+- approval request attachment, forwarding, and resolution
+- transcript effects that are specific to Guardian approvals parity
+
+This spec does not cover:
+- general thread transcript rendering outside approval-specific rows
+- worktree creation, account/auth, or model selection
+- backend Guardian adjudication implementation beyond the confirmed frontend contract
+
+## Canonical Model
+- Guardian approvals is a permissions feature, not a cosmetic UI label.
+- Permission state is main-owned and config-backed.
+- Renderer does not keep a per-project localStorage source of truth for permission mode.
+- The main process resolves permission state from:
+  - `config/read`
+  - `configRequirements/read`
+- The resolved permission state is exposed to renderer as one canonical `CodexPermissionState`.
+- New thread start, turn start, queued follow-ups, and thread resume all inherit their effective permission fields from that resolved state.
+
+## Internal Presets
+The resolver understands these internal preset ids:
+- `read-only`
+- `auto`
+- `guardian-approvals`
+- `full-access`
+
+The normal visible picker exposes these visible modes:
+- `auto`
+- `guardian-approvals`
+- `full-access`
+- `custom`
+
+`read-only` remains an internal fallback preset for requirements-constrained environments and is not part of the normal footer picker.
+
+## Exact Preset Semantics
+- `auto`
+  - `sandbox_mode=workspace-write`
+  - `approval_policy=on-request`
+  - `approvals_reviewer=user`
+- `guardian-approvals`
+  - `sandbox_mode=workspace-write`
+  - `approval_policy=on-request`
+  - `approvals_reviewer=guardian_subagent`
+- `full-access`
+  - `sandbox_mode=danger-full-access`
+  - `approval_policy=never`
+  - `approvals_reviewer=user`
+- `read-only`
+  - `sandbox_mode=read-only`
+  - `approval_policy=on-request`
+  - `approvals_reviewer=user`
+
+The only behavioral difference between `auto` and `guardian-approvals` is the reviewer.
+They intentionally share the same sandbox and approval policy.
+
+## Required Literals
+Before claiming parity, these exact literals must exist in the implementation:
+- `guardian_approval`
+- `approvals_reviewer`
+- `guardian_subagent`
+- `item/commandExecution/requestApproval`
+- `item/fileChange/requestApproval`
+- `thread-follower-command-approval-decision`
+- `thread-follower-file-approval-decision`
+- `automatic-approval-review`
+
+## Guardian Gate
+- `features.guardian_approval` is a hard gate.
+- If `guardian_approval` is disabled, `guardian_subagent` must collapse back to `user`.
+- When the gate is disabled:
+  - Guardian is not offered as an available preset.
+  - Any raw config that still says `approvals_reviewer=guardian_subagent` is normalized to `user` in the effective permission state.
+  - Fallback preset selection prefers the nearest allowed non-Guardian preset.
+
+This fallback is behavioral, not cosmetic.
+The resolver must not surface an effective Guardian reviewer when the gate is off.
+
+## Requirements Filtering
+- Available presets are filtered by `configRequirements/read`.
+- Allowed approval policies constrain which presets are valid.
+- Allowed sandbox modes constrain which presets are valid.
+- If the active raw config does not round-trip to one of the representable fixed presets, the UI must surface `custom`.
+- If the current raw config is representable and allowed, the resolver prefers the matching preset over a fallback.
+- If no explicit config matches, the resolver chooses the nearest allowed fallback preset.
+
+Preferred fallback order is:
+- when Guardian is enabled: `auto` -> `guardian-approvals` -> `full-access` -> `read-only`
+- when Guardian is disabled: `auto` -> `full-access` -> `read-only`
+
+## Custom Escape Hatch
+- `custom` is a visible mode, not an internal preset.
+- It exists for raw config states that are explicit and representable enough to describe, but do not round-trip to one of the fixed visible presets.
+- `custom` must remain visible when the current raw config is outside the fixed preset set.
+- Switching away from `custom` writes a fixed preset back through the config APIs.
+- Staying on `custom` does not invent a synthetic preset behind the scenes.
+
+The tooltip/description for `custom` should reflect the resolved config source, file path, `sandbox_mode`, `approval_policy`, and `approvals_reviewer` when available.
+
+## Config Keys
+Permission parity depends on these raw config keys:
+- `approval_policy`
+- `sandbox_mode`
+- `approvals_reviewer`
+- `sandbox_workspace_write.network_access`
+- `features.guardian_approval`
+
+## Write Behavior
+- Reads use app-server config APIs, not manual TOML parsing as the source of truth.
+- Writes use app-server config write APIs, not renderer-local persistence.
+- The writable target is the current key-origin layer when present.
+- If there is no existing origin for the key, Nodex writes to the user config file.
+- The thread footer must not silently create a project config override just because the user changed the mode there.
+
+## Effective State Shape
+The resolved permission state should carry:
+- selected visible `mode`
+- effective internal preset
+- available visible modes
+- effective `approvalPolicy`
+- effective `approvalsReviewer`
+- effective `sandboxMode`
+- effective `sandbox`
+- whether Guardian is enabled
+- the writable config target
+- the `custom` description when relevant
+
+Thread summaries/snapshots should also carry the effective permission fields needed to preserve parity across resume and projection:
+- `approvalPolicy`
+- `sandbox`
+- `approvalsReviewer`
+
+## UI Surfaces
+Guardian approvals parity is split across multiple surfaces.
+
+### Thread Footer Picker
+The Thread-stage permission dropdown must use these exact visible labels:
+- `Default permissions`
+- `Guardian approvals`
+- `Full access`
+- `Custom (config.toml)`
+
+Tooltip copy:
+- Default permissions:
+  - `Codex automatically runs commands in a sandbox and asks before elevated requests.`
+- Guardian approvals:
+  - `Codex automatically runs commands in a sandbox and uses Guardian approvals for elevated requests`
+- Guardian disabled:
+  - `Guardian approvals requires default sandboxed permissions to be available in this workspace.`
+- Full access:
+  - `Codex has full access over your computer and bypasses approval prompts (elevated risk).`
+
+`Full access` requires a confirmation step before writing that preset:
+- `Enable full access?`
+
+### Settings -> Agent
+The settings shell exposes a dedicated `Agent` section.
+
+It mirrors Codex's split:
+- `Permissions modes`
+  - `Default permissions mode`
+- `Custom config.toml settings`
+  - `Approval policy`
+  - `Sandbox settings`
+  - `Allow network access`
+  - `config.toml`
+
+These settings are config-backed views into the same resolved permission state, not a second preference model.
+
+## Start/Resume Propagation
+The resolved permission state must be applied consistently in all main-owned thread lifecycle paths:
+- `thread/start`
+- initial `turn/start`
+- later `turn/start`
+- `thread/resume`
+- queued follow-ups / send-now
+- main-owned fallback or prewarm start-turn helper paths
+
+The parity requirement is that all of those paths carry the same effective:
+- `approvalPolicy`
+- `sandbox`
+- `approvalsReviewer`
+
+## Approval Request Attachment
+- Approval requests remain part of the canonical conversation request plane.
+- They do not open a standalone approval screen.
+- Command approvals attach to existing exec rows.
+- File approvals attach to existing patch/file-change rows.
+- Automatic approval review rows are transcript items, not separate settings or approval pages.
+
+This attachment behavior is required for parity with Codex's transcript model.
+
+## Request Types
+The relevant request ingress literals are:
+- `item/commandExecution/requestApproval`
+- `item/fileChange/requestApproval`
+
+Renderer and main-process request handling must treat these as item-attached requests tied to the originating transcript row.
+
+## Automatic Approval Review Rows
+- Automatic approval review uses the canonical synthetic id form:
+  - `automatic-approval-review:{targetItemId}`
+- The item type literal is:
+  - `automatic-approval-review`
+- These rows render after the main assistant/tool activity lane as trailing approval-specific transcript rows.
+- Compatibility shims may still accept older camelCase incoming item types, but the canonical literal remains hyphenated.
+
+## Approval Decision Flow
+There are two distinct decision paths.
+
+### Owner Thread
+- The owner-thread path resolves pending approval requests locally in the main conversation manager.
+- Request cleanup and transcript updates happen against the canonical owner conversation state.
+
+### Follower Thread
+- Follower/child-thread forwarding matters.
+- Follower decisions must not reuse only the owner-thread local-resolve path.
+- When the stream role is follower, Nodex forwards the decision using these exact methods:
+  - `thread-follower-command-approval-decision`
+  - `thread-follower-file-approval-decision`
+
+Payloads should include the conversation/thread identity, request identity, and decision.
+
+## Child and Background Approval Behavior
+- Background child approval cards remain part of the composer shell ordering.
+- Their transport must still be follower-aware when the request belongs to a follower conversation.
+- Child approvals are not owner-only special cases.
+- The first background child approval renders before the active-thread request card when both are present.
+
+## Auto-Accept Behavior
+- Automatic acceptance is allowed only when the effective preset is `full-access`.
+- `auto` and `guardian-approvals` still require approval handling because both use `approval_policy=on-request`.
+- Guardian approvals changes who reviews an elevated action, not whether approval is bypassed.
+
+## Non-Goals
+- Nodex does not implement a local Guardian adjudicator.
+- Nodex only forwards `approvalsReviewer=guardian_subagent` as part of the confirmed frontend contract.
+- Backend Guardian internals beyond that forwarding behavior remain inferred and should not be over-claimed.

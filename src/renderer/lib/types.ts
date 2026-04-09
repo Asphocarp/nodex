@@ -49,6 +49,7 @@ export type {
   CodexThreadStartForCardInput,
   CodexTurnStartOptions,
   CodexPermissionMode,
+  CodexPermissionState,
   CodexThreadSummary,
   CodexThreadDetail,
   CodexConversationItem,

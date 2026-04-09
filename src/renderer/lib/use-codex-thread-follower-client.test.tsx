@@ -50,7 +50,7 @@ describe("use-codex-thread-follower-client", () => {
     function Probe() {
       const client = useCodexThreadFollowerClient({
         projectId: "project-1",
-        permissionMode: "sandbox",
+        permissionMode: "auto",
         model: "gpt-5.3-codex",
         reasoningEffort: "high",
       });
@@ -72,7 +72,7 @@ describe("use-codex-thread-follower-client", () => {
     expect(invokeCalls.length).toBe(1);
     expect(invokeCalls[0]?.[0]).toBe("codex:turn:start");
     expect(JSON.stringify(invokeCalls[0]?.[3])).toBe(JSON.stringify({
-      permissionMode: "sandbox",
+      permissionMode: "auto",
       model: "gpt-5.3-codex",
       reasoningEffort: "high",
       collaborationMode: undefined,
@@ -90,7 +90,7 @@ describe("use-codex-thread-follower-client", () => {
     function Probe() {
       const client = useCodexThreadFollowerClient({
         projectId: "project-1",
-        permissionMode: "sandbox",
+        permissionMode: "auto",
         model: "gpt-5.3-codex",
         reasoningEffort: "high",
       });
@@ -111,7 +111,7 @@ describe("use-codex-thread-follower-client", () => {
 
     expect(invokeCalls.length).toBe(1);
     expect(JSON.stringify(invokeCalls[0]?.[3])).toBe(JSON.stringify({
-      permissionMode: "sandbox",
+      permissionMode: "auto",
       model: "gpt-5.3-codex",
       reasoningEffort: "high",
       collaborationMode: undefined,
@@ -127,7 +127,7 @@ describe("use-codex-thread-follower-client", () => {
     function Probe() {
       const client = useCodexThreadFollowerClient({
         projectId: "project-1",
-        permissionMode: "sandbox",
+        permissionMode: "auto",
         model: "gpt-5.3-codex",
         reasoningEffort: "high",
       });
@@ -149,7 +149,7 @@ describe("use-codex-thread-follower-client", () => {
     expect(invokeCalls.length).toBe(1);
     expect(invokeCalls[0]?.[0]).toBe("codex:thread:follow-up:enqueue");
     expect(JSON.stringify(invokeCalls[0]?.[3])).toBe(JSON.stringify({
-      permissionMode: "sandbox",
+      permissionMode: "auto",
       model: "gpt-5.3-codex",
       reasoningEffort: "high",
       collaborationMode: undefined,

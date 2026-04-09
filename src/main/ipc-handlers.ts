@@ -535,7 +535,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         threadName?: string;
         model?: string;
         serviceTier?: null | "fast";
-        permissionMode?: "sandbox" | "full-access" | "custom";
+        permissionMode?: "auto" | "guardian-approvals" | "full-access" | "custom";
         reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
         collaborationMode?: "default" | "plan";
         worktreeStartMode?: "autoBranch" | "detachedHead";
@@ -624,7 +624,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         model?: string;
         serviceTier?: null | "fast";
         reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
-        permissionMode?: "sandbox" | "full-access" | "custom";
+        permissionMode?: "auto" | "guardian-approvals" | "full-access" | "custom";
         collaborationMode?: "default" | "plan";
       },
     ) =>
@@ -641,7 +641,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         model?: string;
         serviceTier?: null | "fast";
         reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
-        permissionMode?: "sandbox" | "full-access" | "custom";
+        permissionMode?: "auto" | "guardian-approvals" | "full-access" | "custom";
         collaborationMode?: "default" | "plan";
       },
     ) =>
@@ -708,15 +708,27 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     codexService.respondToMcpServerElicitation(requestId, action)
   );
 
-  registerHandle("codex:permission:mode:set", (_, projectId: string, mode: "sandbox" | "full-access" | "custom") => {
-    codexService.setProjectPermissionMode(projectId, mode);
+  registerHandle("codex:permission:mode:set", async (
+    _,
+    projectId: string,
+    mode: "auto" | "guardian-approvals" | "full-access" | "custom",
+  ) => {
+    return await codexService.setProjectPermissionMode(projectId, mode);
   });
 
-  registerHandle("codex:permission:mode:get", (_, projectId: string) => {
-    return codexService.getProjectPermissionMode(projectId);
+  registerHandle("codex:permission:mode:get", async (_, projectId: string) => {
+    return await codexService.getProjectPermissionMode(projectId);
   });
 
-  registerHandle("codex:permission:custom-description:get", (_, projectId: string) => {
-    return codexService.getCustomPermissionModeDescription(projectId);
+  registerHandle("codex:permission:state:get", async (_, projectId: string) => {
+    return await codexService.getPermissionState(projectId);
+  });
+
+  registerHandle("codex:permission:config-value:set", async (_, projectId: string, keyPath: string, value: unknown) => {
+    return await codexService.setPermissionConfigValue(projectId, keyPath, value);
+  });
+
+  registerHandle("codex:permission:custom-description:get", async (_, projectId: string) => {
+    return await codexService.getCustomPermissionModeDescription(projectId);
   });
 }

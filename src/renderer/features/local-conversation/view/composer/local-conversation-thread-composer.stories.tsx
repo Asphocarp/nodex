@@ -19,7 +19,7 @@ interface ComposerSendButtonStoryProps {
 function buildModel(args: ComposerSendButtonStoryProps): ThreadFooterModel {
   const controls: ThreadStageStoryControls = {
     preset: "streaming",
-    permissionMode: "sandbox",
+    permissionMode: "auto",
     authenticatedAccount: true,
     isQueueingEnabled: args.isQueueingEnabled,
     collapseAgentBody: false,
