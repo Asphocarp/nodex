@@ -234,6 +234,50 @@ describe("blocknote adapter", () => {
     expect(serializeNfm(blocks)).toBe("```\nplain text\n```");
   });
 
+  test("numbered list starts round-trip between NFM and BlockNote", () => {
+    const nfm = "3. third\n4. fourth";
+    const blocks = parseNfm(nfm);
+    const bnBlocks = nfmToBlockNote(blocks);
+
+    expect(bnBlocks.length).toBe(2);
+    expect(bnBlocks[0]?.type).toBe("numberedListItem");
+    expect(bnBlocks[1]?.type).toBe("numberedListItem");
+    expect(bnBlocks[0]?.props.start).toBe(3);
+    expect(bnBlocks[1]?.props.start).toBe(4);
+
+    const roundTripped = blockNoteToNfm(asDoc(bnBlocks));
+    expect(serializeNfm(roundTripped)).toBe(nfm);
+  });
+
+  test("implicit BlockNote numbered lists stay implicit in NFM and serialize sequentially", () => {
+    const blocks = blockNoteToNfm(
+      asDoc([
+        {
+          type: "numberedListItem",
+          props: {},
+          content: [{ type: "text", text: "first", styles: {} }],
+          children: [],
+        },
+        {
+          type: "numberedListItem",
+          props: {},
+          content: [{ type: "text", text: "second", styles: {} }],
+          children: [],
+        },
+      ]),
+    );
+
+    expect(blocks.length).toBe(2);
+    expect(blocks[0]?.type).toBe("numberedListItem");
+    expect(blocks[1]?.type).toBe("numberedListItem");
+    if (blocks[0]?.type !== "numberedListItem") return;
+    if (blocks[1]?.type !== "numberedListItem") return;
+
+    expect(blocks[0].start).toBe(undefined);
+    expect(blocks[1].start).toBe(undefined);
+    expect(serializeNfm(blocks)).toBe("1. first\n2. second");
+  });
+
   test("parse toggle heading level 1", () => {
     const blocks = parseNfm("▶# Toggle Heading 1");
     expect(blocks.length).toBe(1);

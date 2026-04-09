@@ -95,4 +95,35 @@ describe("NfmRenderer", () => {
     expect(link?.getAttribute("aria-disabled") === null).toBeTrue();
     expect(link?.getAttribute("title") === null).toBeTrue();
   });
+
+  test("renders consecutive numbered list items in one ordered list with preserved numbering", async () => {
+    const { container } = render(
+      <NfmRenderer content={"1. first\n2. second\n3. third"} />,
+    );
+
+    await settleAsyncRender();
+
+    const orderedLists = Array.from(container.querySelectorAll("ol"));
+    const listItems = Array.from(container.querySelectorAll("li"));
+
+    expect(orderedLists.length).toBe(1);
+    expect(orderedLists[0]?.getAttribute("start")).toBe("1");
+    expect(listItems.length).toBe(3);
+  });
+
+  test("groups numbered lists by digit width and preserves ol start markers", async () => {
+    const { container } = render(
+      <NfmRenderer content={"99. Ninety-nine\n100. One hundred\n101. One hundred one"} />,
+    );
+
+    await settleAsyncRender();
+
+    const orderedLists = Array.from(container.querySelectorAll("ol"));
+
+    expect(orderedLists.length).toBe(2);
+    expect(orderedLists[0]?.getAttribute("start")).toBe("99");
+    expect(orderedLists[1]?.getAttribute("start")).toBe("100");
+    expect(Boolean(orderedLists[0]?.className.includes("pl-8"))).toBeTrue();
+    expect(Boolean(orderedLists[1]?.className.includes("pl-10"))).toBeTrue();
+  });
 });

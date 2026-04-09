@@ -17,6 +17,12 @@ import {
 import { ChevronRightIcon } from "@/components/shared/icons";
 import { FileLinkAnchor } from "@/components/shared/file-link-anchor";
 import { parseLocalFileLinkHref } from "../../shared/file-link-openers";
+import {
+  groupOrderedListItems,
+  type OrderedListGroup,
+  resolveOrderedListMargin,
+  resolveOrderedListPadding,
+} from "./ordered-list-groups";
 import { NFM_CODE_THEME_PAIR } from "./syntax-highlighting";
 import { cn } from "./utils";
 
@@ -105,48 +111,9 @@ function createHeadingComponent(
   };
 }
 
-function resolveOrderedListPadding(digits: number): string {
-  if (digits <= 2) return "pl-8";
-  if (digits === 3) return "pl-10";
-  if (digits === 4) return "pl-12";
-  return "pl-14";
-}
-
-function resolveOrderedListMargin(index: number, total: number): string {
-  if (total <= 1) return "mt-1.5 mb-3";
-  if (index === 0) return "mt-1.5 mb-0";
-  if (index === total - 1) return "mt-0 mb-3";
-  return "my-0";
-}
-
-interface OrderedListGroup {
-  digits: number;
-  items: ReactNode[];
-  start: number;
-}
-
-function groupOrderedListChildren(children: ReactNode, start = 1): OrderedListGroup[] {
+function groupOrderedListChildren(children: ReactNode, start = 1): OrderedListGroup<ReactNode>[] {
   const items = Children.toArray(children).filter((child) => isValidElement(child));
-  const groups: OrderedListGroup[] = [];
-
-  items.forEach((child, index) => {
-    const value = start + index;
-    const digits = String(value).length;
-    const previousGroup = groups.at(-1);
-
-    if (!previousGroup || previousGroup.digits !== digits) {
-      groups.push({
-        digits,
-        items: [child],
-        start: value,
-      });
-      return;
-    }
-
-    previousGroup.items.push(child);
-  });
-
-  return groups;
+  return groupOrderedListItems(items, (_child, index) => start + index);
 }
 
 export const streamdownComponents: Components = {

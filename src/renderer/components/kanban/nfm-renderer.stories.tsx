@@ -41,3 +41,9 @@ export const RelativeFileLink: Story = {
     projectWorkspacePath: "/Users/asc/repo/nodex2",
   },
 };
+
+export const OrderedListNumbering: Story = {
+  args: {
+    content: "99. Ninety-nine\n100. One hundred\n101. One hundred one",
+  },
+};

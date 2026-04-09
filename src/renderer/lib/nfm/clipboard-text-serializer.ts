@@ -1,5 +1,6 @@
 import type { NfmBlock, NfmColor, NfmInlineContent } from "./types";
 import { isChildlessNfmBlockType } from "./childless";
+import { resolveOrderedListStarts } from "../../../shared/nfm/ordered-list";
 
 /**
  * Serialize NFM blocks into structure-preserving plain text for clipboard
@@ -12,8 +13,9 @@ export function serializeClipboardText(blocks: NfmBlock[]): string {
 function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
   const lines: string[] = [];
   const prefix = "\t".repeat(indent);
+  const orderedListStarts = resolveOrderedListStarts(blocks);
 
-  for (const block of blocks) {
+  for (const [index, block] of blocks.entries()) {
     switch (block.type) {
       case "paragraph": {
         const text = serializeInlinePlainText(block.content);
@@ -47,7 +49,8 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
 
       case "numberedListItem": {
         const text = serializeInlinePlainText(block.content);
-        pushPrefixedMultiline(lines, prefix + "1. ", text + colorSuffix(block.color), prefix);
+        const start = orderedListStarts[index] ?? 1;
+        pushPrefixedMultiline(lines, prefix + `${start}. `, text + colorSuffix(block.color), prefix);
         break;
       }
 

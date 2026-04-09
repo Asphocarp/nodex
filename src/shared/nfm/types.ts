@@ -140,6 +140,7 @@ export interface NfmBulletListItem extends NfmBlockBase {
 
 export interface NfmNumberedListItem extends NfmBlockBase {
   type: "numberedListItem";
+  start?: number;
   content: NfmInlineContent[];
 }
 

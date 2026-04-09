@@ -11,6 +11,7 @@ import type {
 } from "./types";
 import { NFM_COLORS } from "./types";
 import { isChildlessNfmBlockType } from "./childless";
+import { normalizeOrderedListStart } from "./ordered-list";
 import { parseInlineContent } from "./parser-inline";
 import { getXmlAttr } from "./xml-attributes";
 
@@ -246,12 +247,14 @@ export function parseNfm(input: string): NfmBlock[] {
     }
 
     // Numbered list: N. text
-    const numMatch = stripped.match(/^\d+\.\s+(.*)$/);
+    const numMatch = stripped.match(/^(\d+)\.\s+(.*)$/);
     if (numMatch) {
+      const start = normalizeOrderedListStart(Number.parseInt(numMatch[1], 10));
       addBlock(
         {
           type: "numberedListItem",
-          content: parseInlineContent(numMatch[1]),
+          ...(start !== undefined ? { start } : {}),
+          content: parseInlineContent(numMatch[2]),
           color,
           children: [],
         },

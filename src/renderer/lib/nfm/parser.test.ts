@@ -66,4 +66,69 @@ describe("NFM code fences", () => {
     expect(legacyBlocks[0]?.type).toBe("paragraph");
     expect(serializeNfm(legacyBlocks)).toBe('\\<resource kind="file" mode="link" source="/tmp/report.txt" name="report.txt" /\\>');
   });
+
+  test("ordered list markers round-trip exactly and plain-text copy preserves numbering", () => {
+    const input = "1. first\n2. second\n3. third";
+    const blocks = parseNfm(input);
+
+    expect(blocks.length).toBe(3);
+    expect(blocks[0]?.type).toBe("numberedListItem");
+    expect(blocks[1]?.type).toBe("numberedListItem");
+    expect(blocks[2]?.type).toBe("numberedListItem");
+
+    if (blocks[0]?.type !== "numberedListItem") return;
+    if (blocks[1]?.type !== "numberedListItem") return;
+    if (blocks[2]?.type !== "numberedListItem") return;
+
+    expect(blocks[0].start).toBe(1);
+    expect(blocks[1].start).toBe(2);
+    expect(blocks[2].start).toBe(3);
+    expect(serializeNfm(blocks)).toBe(input);
+    expect(serializeClipboardText(blocks)).toBe(input);
+  });
+
+  test("ordered list numbering restarts after a non-list block", () => {
+    const input = "3. third\n4. fourth\nParagraph break\n1. reset";
+    const blocks = parseNfm(input);
+
+    expect(blocks.length).toBe(4);
+    expect(blocks[0]?.type).toBe("numberedListItem");
+    expect(blocks[1]?.type).toBe("numberedListItem");
+    expect(blocks[2]?.type).toBe("paragraph");
+    expect(blocks[3]?.type).toBe("numberedListItem");
+
+    if (blocks[0]?.type !== "numberedListItem") return;
+    if (blocks[1]?.type !== "numberedListItem") return;
+    if (blocks[3]?.type !== "numberedListItem") return;
+
+    expect(blocks[0].start).toBe(3);
+    expect(blocks[1].start).toBe(4);
+    expect(blocks[3].start).toBe(1);
+    expect(serializeNfm(blocks)).toBe(input);
+    expect(serializeClipboardText(blocks)).toBe(input);
+  });
+
+  test("nested ordered list numbering stays independent per sibling run", () => {
+    const input = "1. parent\n\t3. child three\n\t4. child four\n2. parent two";
+    const blocks = parseNfm(input);
+
+    expect(blocks.length).toBe(2);
+    expect(blocks[0]?.type).toBe("numberedListItem");
+    expect(blocks[1]?.type).toBe("numberedListItem");
+    if (blocks[0]?.type !== "numberedListItem") return;
+    if (blocks[1]?.type !== "numberedListItem") return;
+
+    expect(blocks[0].start).toBe(1);
+    expect(blocks[1].start).toBe(2);
+    expect(blocks[0].children.length).toBe(2);
+    expect(blocks[0].children[0]?.type).toBe("numberedListItem");
+    expect(blocks[0].children[1]?.type).toBe("numberedListItem");
+    if (blocks[0].children[0]?.type !== "numberedListItem") return;
+    if (blocks[0].children[1]?.type !== "numberedListItem") return;
+
+    expect(blocks[0].children[0].start).toBe(3);
+    expect(blocks[0].children[1].start).toBe(4);
+    expect(serializeNfm(blocks)).toBe(input);
+    expect(serializeClipboardText(blocks)).toBe(input);
+  });
 });

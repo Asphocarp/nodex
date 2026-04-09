@@ -1,5 +1,6 @@
 import type { NfmBlock, NfmColor } from "./types";
 import { isChildlessNfmBlockType } from "./childless";
+import { resolveOrderedListStarts } from "./ordered-list";
 import { serializeInlineContent } from "./serializer-inline";
 import { escapeXmlAttr } from "./xml-attributes";
 
@@ -12,8 +13,9 @@ export function serializeNfm(blocks: NfmBlock[]): string {
 function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
   const lines: string[] = [];
   const prefix = "\t".repeat(indent);
+  const orderedListStarts = resolveOrderedListStarts(blocks);
 
-  for (const block of blocks) {
+  for (const [index, block] of blocks.entries()) {
     switch (block.type) {
       case "paragraph": {
         const text = serializeInlineContent(block.content);
@@ -36,7 +38,8 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
         break;
       }
       case "numberedListItem": {
-        lines.push(prefix + "1. " + serializeInlineContent(block.content) + colorSuffix(block.color));
+        const start = orderedListStarts[index] ?? 1;
+        lines.push(prefix + `${start}. ` + serializeInlineContent(block.content) + colorSuffix(block.color));
         break;
       }
       case "checkListItem": {

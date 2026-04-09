@@ -4,6 +4,9 @@ Status: Verified
 
 This file captures high-signal implementation discoveries that have caused regressions or costly debugging in the past.
 
+### Ordered-list round-trip fidelity depends on preserving BlockNote `numberedListItem.props.start`
+BlockNote's numbered-list model is more specific than generic Markdown serialization: each `numberedListItem` can carry a `props.start`, and if it is omitted BlockNote derives the value from the previous sibling item. In Nodex, the regression came from dropping that field in the NFM AST and then hardcoding `1.` during shared serialization, which made persisted descriptions, clipboard plain text, and raw NFM rendering disagree with the editor. Keep ordered-list numbering in the shared NFM block model, map it through the BlockNote adapter, and resolve implicit sequential numbers only inside the shared serializer/clipboard path for each contiguous sibling run.
+
 ### Final assistant ownership in a turn must be semantic, not positional
 Codex does not decide the turn's final assistant lane by taking "the last generic renderable item if it happens to be assistant". The latest assistant message has a dedicated `assistantItem` slot, and later tool/exploration rows stay in `agentItems` instead of stealing assistant ownership. In Nodex, the blink/re-slide regression came from treating the assistant as whichever generic item happened to be last, so appending `exec`, exploration, MCP, or web-search items after an already visible assistant moved that assistant into the collapsible agent-body subtree and remounted it. Keep final-assistant selection explicit, keep `agentItems` excluding the chosen final assistant by identity, and keep completion-only `worked-for` UI as adjacent adornment rather than transcript ownership input.
 

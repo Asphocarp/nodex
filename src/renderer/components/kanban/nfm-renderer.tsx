@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { FileCode2, FileText, Folder, Link2 } from "lucide-react";
 import { Streamdown } from "streamdown";
 import {
@@ -5,10 +6,17 @@ import {
   INLINE_MARKDOWN_HEADING_CLASS_NAME,
   MARKDOWN_CONTENT_CLASS_NAME,
 } from "@/components/shared/inline-markdown-code";
+import {
+  groupOrderedListItems,
+  resolveOrderedListMargin,
+  resolveOrderedListPadding,
+} from "@/lib/ordered-list-groups";
+import { resolveOrderedListStarts } from "../../../shared/nfm/ordered-list";
 import type {
   NfmBlock,
   NfmInlineContent,
   NfmColor,
+  NfmNumberedListItem,
   NfmStyleSet,
 } from "@/lib/nfm/types";
 import { FileLinkAnchor } from "../shared/file-link-anchor";
@@ -45,15 +53,60 @@ function BlockList({
   blocks: NfmBlock[];
   projectWorkspacePath?: string | null;
 }) {
-  return (
-    <>
-      {blocks.map((block, i) => (
+  const children: ReactNode[] = [];
+
+  for (let index = 0; index < blocks.length; index += 1) {
+    const block = blocks[index];
+
+    if (block.type !== "numberedListItem") {
+      children.push(
         <BlockComponent
-          key={i}
+          key={index}
           block={block}
           projectWorkspacePath={projectWorkspacePath}
-        />
-      ))}
+        />,
+      );
+      continue;
+    }
+
+    const orderedBlocks: NfmNumberedListItem[] = [block];
+    while (index + 1 < blocks.length && blocks[index + 1]?.type === "numberedListItem") {
+      orderedBlocks.push(blocks[index + 1] as NfmNumberedListItem);
+      index += 1;
+    }
+
+    const starts = resolveOrderedListStarts(orderedBlocks);
+    const groups = groupOrderedListItems(
+      orderedBlocks,
+      (_orderedBlock, orderedIndex) => starts[orderedIndex] ?? 1,
+    );
+
+    groups.forEach((group, groupIndex) => {
+      children.push(
+        <ol
+          key={`${index}-${group.start}-${groupIndex}`}
+          start={group.start}
+          className={cn(
+            "list-decimal",
+            resolveOrderedListMargin(groupIndex, groups.length),
+            resolveOrderedListPadding(group.digits),
+          )}
+        >
+          {group.items.map((orderedBlock, orderedItemIndex) => (
+            <NumberedListItemContent
+              key={`${group.start}-${orderedItemIndex}`}
+              block={orderedBlock}
+              projectWorkspacePath={projectWorkspacePath}
+            />
+          ))}
+        </ol>,
+      );
+    });
+  }
+
+  return (
+    <>
+      {children}
     </>
   );
 }
@@ -119,16 +172,6 @@ function BlockComponent({
             <ChildBlocks children={block.children} projectWorkspacePath={projectWorkspacePath} />
           </li>
         </ul>
-      );
-
-    case "numberedListItem":
-      return (
-        <ol className="my-0.5 list-decimal pl-6">
-          <li className={colorClass}>
-            <InlineList items={block.content} projectWorkspacePath={projectWorkspacePath} />
-            <ChildBlocks children={block.children} projectWorkspacePath={projectWorkspacePath} />
-          </li>
-        </ol>
       );
 
     case "checkListItem":
@@ -287,6 +330,23 @@ function BlockComponent({
     case "emptyBlock":
       return <div className="h-[1em]" />;
   }
+}
+
+function NumberedListItemContent({
+  block,
+  projectWorkspacePath,
+}: {
+  block: NfmNumberedListItem;
+  projectWorkspacePath?: string | null;
+}) {
+  const colorClass = block.color ? nfmColorClass(block.color) : undefined;
+
+  return (
+    <li className={cn("mb-1.5", colorClass)}>
+      <InlineList items={block.content} projectWorkspacePath={projectWorkspacePath} />
+      <ChildBlocks children={block.children} projectWorkspacePath={projectWorkspacePath} />
+    </li>
+  );
 }
 
 function HighlightedCodeBlock({

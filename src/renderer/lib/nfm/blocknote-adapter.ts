@@ -10,6 +10,7 @@ import type {
   NfmTextColor,
 } from "./types";
 import { NFM_BG_COLORS, NFM_TEXT_COLORS } from "./types";
+import { normalizeOrderedListStart } from "../../../shared/nfm/ordered-list";
 import { parseInlineContent } from "./parser-inline";
 import { serializeInlineContent } from "./serializer-inline";
 
@@ -80,12 +81,18 @@ function nfmBlockToBN(
       };
 
     case "numberedListItem":
-      return {
-        type: "numberedListItem",
-        props,
-        content: nfmInlineToBN(block.content),
-        children,
-      };
+      {
+        const start = normalizeOrderedListStart(block.start);
+        return {
+          type: "numberedListItem",
+          props: {
+            ...props,
+            ...(start !== undefined ? { start } : {}),
+          },
+          content: nfmInlineToBN(block.content),
+          children,
+        };
+      }
 
     case "checkListItem":
       return {
@@ -333,12 +340,16 @@ function bnBlockToNfm(block: BNBlock): NfmBlock | null {
       };
 
     case "numberedListItem":
-      return {
-        type: "numberedListItem",
-        content: bnInlineToNfm(block.content),
-        color,
-        children,
-      };
+      {
+        const start = normalizeOrderedListStart(block.props?.start);
+        return {
+          type: "numberedListItem",
+          ...(start !== undefined ? { start } : {}),
+          content: bnInlineToNfm(block.content),
+          color,
+          children,
+        };
+      }
 
     case "checkListItem":
       return {
