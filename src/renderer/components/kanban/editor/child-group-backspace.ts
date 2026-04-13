@@ -1,10 +1,15 @@
 /**
  * Backspace handler for child blocks inside any inline parent with child blocks.
  *
- * When Backspace is pressed at the start of a child block (empty or not),
- * merges its content into the previous sibling (if one exists), otherwise into
- * the parent block's content. This prevents BlockNote's default unindent for
- * nested child groups.
+ * When Backspace is pressed at the start of a child block:
+ * - nested classic list items and toggle list items exit list formatting in
+ *   place by resetting to a paragraph
+ * - all other leaf child blocks merge into the previous sibling (if one
+ *   exists), otherwise into the parent block's content
+ *
+ * This preserves root-level list-item Backspace semantics for nested list-like
+ * children while still preventing BlockNote's default unindent/lift for the
+ * general nested child-group case.
  */
 
 interface BlockCursor {
@@ -40,6 +45,10 @@ export interface EditorForChildGroupBackspace {
   getBlock: (id: string) => BlockWithChildren | undefined;
   getParentBlock: (id: string) => BlockWithChildren | undefined;
   getPrevBlock: (id: string) => BlockWithChildren | undefined;
+  updateBlock: (
+    block: BlockWithChildren,
+    update: { type: "paragraph"; props: Record<string, never> },
+  ) => BlockWithChildren;
   /** Merge source block's content into target block, position cursor at join point, remove source. */
   mergeIntoBlock: (targetId: string, sourceId: string) => void;
   focus: () => void;
@@ -65,6 +74,13 @@ function isCursorAtBlockStart(editor: EditorForChildGroupBackspace): boolean {
   });
 }
 
+function shouldResetToParagraphAtBlockStart(type: string): boolean {
+  return type === "bulletListItem"
+    || type === "numberedListItem"
+    || type === "checkListItem"
+    || type === "toggleListItem";
+}
+
 export function handleChildGroupBackspace(
   editor: EditorForChildGroupBackspace,
 ): boolean {
@@ -77,6 +93,12 @@ export function handleChildGroupBackspace(
   if (!parent) return false;
   if (!isInlineParentBlock(editor, parent)) return false;
   if (!isCursorAtBlockStart(editor)) return false;
+
+  if (shouldResetToParagraphAtBlockStart(currentBlock.type)) {
+    editor.updateBlock(currentBlock, { type: "paragraph", props: {} });
+    editor.focus();
+    return true;
+  }
 
   // Merge target: previous sibling if exists, otherwise parent.
   const previousSibling = editor.getPrevBlock(currentBlock.id);

@@ -20,6 +20,7 @@ function makeEditor(
     atBlockStart?: boolean;
     currentContent?: unknown;
     targetContent?: unknown;
+    currentContentSize?: number;
   } = {},
 ) {
   const {
@@ -37,6 +38,7 @@ function makeEditor(
     atBlockStart = true,
     currentContent = [],
     targetContent = ["Hello"],
+    currentContentSize = Array.isArray(currentContent) ? currentContent.length : 8,
   } = overrides;
 
   const parentId = "parent-1";
@@ -45,6 +47,7 @@ function makeEditor(
   let focused = false;
   let mergedTarget: string | undefined;
   let mergedSource: string | undefined;
+  let updatedType: string | undefined;
 
   const parentChildren = [
     ...(hasPreviousSibling ? [{ id: previousSiblingId }] : []),
@@ -109,6 +112,16 @@ function makeEditor(
       hasParent && id === blockId ? parentBlock : undefined,
     getPrevBlock: (id: string) =>
       hasPreviousSibling && id === blockId ? previousSibling : undefined,
+    updateBlock: (block, update) => {
+      if (block.id === blockId) {
+        updatedType = update.type;
+      }
+      return {
+        ...block,
+        type: update.type,
+        props: update.props,
+      };
+    },
     mergeIntoBlock: (targetId: string, sourceId: string) => {
       mergedTarget = targetId;
       mergedSource = sourceId;
@@ -126,7 +139,7 @@ function makeEditor(
             head,
             $anchor: {
               parentOffset: atBlockStart ? 0 : 3,
-              parent: { content: { size: 8 } },
+              parent: { content: { size: currentContentSize } },
             },
           },
         });
@@ -140,10 +153,130 @@ function makeEditor(
     _focused: () => focused,
     _mergedTarget: () => mergedTarget,
     _mergedSource: () => mergedSource,
+    _updatedType: () => updatedType,
   });
 }
 
 describe("handleChildGroupBackspace", () => {
+  test("resets empty nested checklist tail child to paragraph in place", () => {
+    const editor = makeEditor({
+      currentType: "checkListItem",
+      hasPreviousSibling: true,
+      hasNextSibling: false,
+      currentContent: [],
+    });
+
+    expect(handleChildGroupBackspace(editor)).toBeTrue();
+    expect(editor._updatedType()).toBe("paragraph");
+    expect(editor._mergedTarget()).toBe(undefined);
+    expect(editor._focused()).toBeTrue();
+  });
+
+  test("resets empty nested bullet-list middle child to paragraph in place", () => {
+    const editor = makeEditor({
+      currentType: "bulletListItem",
+      hasPreviousSibling: true,
+      hasNextSibling: true,
+      currentContent: [],
+    });
+
+    expect(handleChildGroupBackspace(editor)).toBeTrue();
+    expect(editor._updatedType()).toBe("paragraph");
+    expect(editor._mergedTarget()).toBe(undefined);
+  });
+
+  test("resets empty nested numbered-list first child to paragraph in place", () => {
+    const editor = makeEditor({
+      currentType: "numberedListItem",
+      hasPreviousSibling: false,
+      hasNextSibling: true,
+      currentContent: [],
+    });
+
+    expect(handleChildGroupBackspace(editor)).toBeTrue();
+    expect(editor._updatedType()).toBe("paragraph");
+    expect(editor._mergedTarget()).toBe(undefined);
+  });
+
+  test("resets non-empty nested checklist middle child to paragraph in place", () => {
+    const editor = makeEditor({
+      currentType: "checkListItem",
+      hasPreviousSibling: true,
+      hasNextSibling: true,
+      currentContent: ["childB"],
+    });
+
+    expect(handleChildGroupBackspace(editor)).toBeTrue();
+    expect(editor._updatedType()).toBe("paragraph");
+    expect(editor._mergedTarget()).toBe(undefined);
+  });
+
+  test("resets non-empty nested bullet-list tail child to paragraph in place", () => {
+    const editor = makeEditor({
+      currentType: "bulletListItem",
+      hasPreviousSibling: true,
+      hasNextSibling: false,
+      currentContent: ["childB"],
+    });
+
+    expect(handleChildGroupBackspace(editor)).toBeTrue();
+    expect(editor._updatedType()).toBe("paragraph");
+    expect(editor._mergedTarget()).toBe(undefined);
+  });
+
+  test("resets non-empty nested numbered-list first child to paragraph in place", () => {
+    const editor = makeEditor({
+      currentType: "numberedListItem",
+      hasPreviousSibling: false,
+      hasNextSibling: true,
+      currentContent: ["childB"],
+    });
+
+    expect(handleChildGroupBackspace(editor)).toBeTrue();
+    expect(editor._updatedType()).toBe("paragraph");
+    expect(editor._mergedTarget()).toBe(undefined);
+  });
+
+  test("resets empty nested toggle-list child to paragraph in place", () => {
+    const editor = makeEditor({
+      currentType: "toggleListItem",
+      hasPreviousSibling: true,
+      hasNextSibling: true,
+      currentContent: [],
+    });
+
+    expect(handleChildGroupBackspace(editor)).toBeTrue();
+    expect(editor._updatedType()).toBe("paragraph");
+    expect(editor._mergedTarget()).toBe(undefined);
+  });
+
+  test("resets non-empty nested toggle-list child to paragraph in place", () => {
+    const editor = makeEditor({
+      currentType: "toggleListItem",
+      hasPreviousSibling: true,
+      hasNextSibling: true,
+      currentContent: ["childB"],
+    });
+
+    expect(handleChildGroupBackspace(editor)).toBeTrue();
+    expect(editor._updatedType()).toBe("paragraph");
+    expect(editor._mergedTarget()).toBe(undefined);
+  });
+
+  test("still merges empty nested non-list child upward", () => {
+    const editor = makeEditor({
+      currentType: "paragraph",
+      hasPreviousSibling: true,
+      currentContent: [],
+      targetContent: ["childA"],
+    });
+
+    expect(handleChildGroupBackspace(editor)).toBeTrue();
+    expect(editor._updatedType()).toBe(undefined);
+    expect(editor._mergedTarget()).toBe("child-0");
+    expect(editor._mergedSource()).toBe("child-1");
+  });
+
   test("merges child into previous sibling for non-toggle inline parent", () => {
     const editor = makeEditor({
       parentType: "paragraph",

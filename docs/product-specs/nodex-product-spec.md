@@ -1181,7 +1181,7 @@ nodex query "SELECT * FROM cards WHERE title LIKE ?" "%bug%"
 - **Broader consistency**: One Enter/Backspace policy works for all inline parent blocks with children, not just toggle-type parents
 - **Safer scope**: Schema-gating (`content: "inline"`) avoids applying text merge/split semantics to non-inline wrappers
 - **Deterministic precedence**: Enter extension declares `runsBefore` list-item shortcut extensions so custom child-group behavior intercepts before built-in list item Enter handlers
-- **Consistent child merge**: Backspace at the start of any leaf child under an inline parent always merges that child upward, regardless of whether it is the tail child
+- **Consistent child Backspace policy**: Nested list-like children (`bullet` / `numbered` / `check` / `toggle`) exit list formatting in place at block start, while other leaf-child Backspace cases still merge upward under inline parents, including tail children
 - **Stable caret behavior**: ProseMirror-level split/merge helpers set cursor positions in one transaction, avoiding cursor drift from multi-step high-level updates
 
 ### Why TOML for Server Config?
