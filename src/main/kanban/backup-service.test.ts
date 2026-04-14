@@ -132,6 +132,21 @@ describe("backup service", () => {
     expect(safety?.trigger).toBe("pre-restore");
   });
 
+  test("deletes an existing backup", async () => {
+    resetState();
+    const backup = await backupService.createBackup({ trigger: "manual", label: "delete-me" });
+
+    const result = await backupService.deleteBackup(backup.id);
+    expect(result.success).toBeTrue();
+    expect(result.deletedBackupId).toBe(backup.id);
+
+    const backupDir = path.join(fixtureRoot, "backups", backup.id);
+    expect(fs.existsSync(backupDir)).toBeFalse();
+
+    const backups = await backupService.listBackups();
+    expect(backups.length).toBe(0);
+  });
+
   test("prunes only auto backups beyond retention", async () => {
     resetState();
 
@@ -189,5 +204,18 @@ describe("backup service", () => {
     }
 
     expect(message.includes("Invalid backup id")).toBeTrue();
+  });
+
+  test("delete rejects missing backup ids", async () => {
+    resetState();
+
+    let message = "";
+    try {
+      await backupService.deleteBackup("missing-backup");
+    } catch (error) {
+      message = (error as Error).message;
+    }
+
+    expect(message.includes("Backup not found")).toBeTrue();
   });
 });

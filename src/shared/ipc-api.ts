@@ -312,6 +312,7 @@ export interface IpcApi {
   "db:query": { args: [projectId: string, sql: string, params?: unknown[]]; result: QueryResult };
   "backup:list": { args: []; result: BackupRecord[] };
   "backup:create": { args: [input?: CreateBackupInput]; result: BackupRecord };
+  "backup:delete": { args: [backupId: string]; result: { success: true; deletedBackupId: string } };
   "backup:restore": { args: [input: RestoreBackupInput]; result: RestoreBackupResult };
   "settings:backup:get": { args: []; result: BackupSettings };
   "settings:backup:update": { args: [input: UpdateBackupSettingsInput]; result: BackupSettings };

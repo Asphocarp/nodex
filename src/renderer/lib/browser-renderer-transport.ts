@@ -317,6 +317,23 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(input ?? {}),
       });
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        const message = typeof error.error === "string" ? error.error : `Request failed: ${res.status}`;
+        throw new Error(message);
+      }
+      return res.json();
+    }
+    case "backup:delete": {
+      const [backupId] = args as [string];
+      const res = await fetch(toApiUrl(`/api/backups/${encodeURIComponent(backupId)}`), {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        const message = typeof error.error === "string" ? error.error : `Request failed: ${res.status}`;
+        throw new Error(message);
+      }
       return res.json();
     }
     case "backup:restore": {
@@ -329,6 +346,11 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
           createSafetyBackup: input.createSafetyBackup,
         }),
       });
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        const message = typeof error.error === "string" ? error.error : `Request failed: ${res.status}`;
+        throw new Error(message);
+      }
       return res.json();
     }
     case "settings:backup:get": {

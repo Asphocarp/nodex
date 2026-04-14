@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import { CODEX_DEFAULT_SERVICE_TIER_STORAGE_KEY } from "@/lib/codex-service-tier-settings";
 import type {
+  BackupRecord,
   Project,
   UpdateWorktreeEnvironmentConfigInput,
   WorktreeEnvironmentSettingsSnapshot,
@@ -97,9 +98,15 @@ function buildEnvironmentSnapshot(
 function ensureStorybookElectronBridge({
   snapshots,
   onSaveSnapshot,
+  backups,
+  onDeleteBackup,
+  onCreateBackup,
 }: {
   snapshots: Record<string, WorktreeEnvironmentSettingsSnapshot>;
   onSaveSnapshot: (input: UpdateWorktreeEnvironmentConfigInput) => WorktreeEnvironmentSettingsSnapshot;
+  backups: BackupRecord[];
+  onDeleteBackup: (backupId: string) => void;
+  onCreateBackup: (label: string | null) => BackupRecord;
 }) {
   if (typeof window === "undefined") return;
 
@@ -131,20 +138,37 @@ function ensureStorybookElectronBridge({
           };
         case "worktrees:managed:list":
           return [];
-        case "backups:list":
-          return [];
-        case "backups:settings:get":
+        case "backup:list":
+          return backups;
+        case "backup:delete": {
+          const backupId = typeof args[0] === "string" ? args[0] : "";
+          onDeleteBackup(backupId);
           return {
-            scheduleEnabled: false,
-            scheduleHours: 24,
-            retentionLimit: 25,
-            maxManualSnapshots: 10,
-            lastRunAt: null,
+            success: true,
+            deletedBackupId: backupId,
           };
-        case "history:settings:get":
+        }
+        case "backup:create":
+          return onCreateBackup(typeof args[0] === "object" && args[0] && "label" in (args[0] as Record<string, unknown>)
+            ? typeof (args[0] as { label?: unknown }).label === "string"
+              ? (args[0] as { label?: string }).label ?? null
+              : null
+            : null);
+        case "settings:backup:get":
+          return {
+            autoEnabled: false,
+            intervalHours: 24,
+            retentionCount: 25,
+            envOverrides: {
+              autoEnabled: false,
+              intervalHours: false,
+              retentionCount: false,
+            },
+          };
+        case "settings:history:get":
           return {
             retentionCount: 1000,
-            envOverrides: {},
+            envOverrides: { retentionCount: false },
           };
         case "worktrees:environments:config:read": {
           const projectId = typeof args[0] === "string" ? args[0] : PROJECTS[0].id;
@@ -186,6 +210,30 @@ function SettingsOverlayStory({
   const [environmentSnapshots, setEnvironmentSnapshots] = useState<Record<string, WorktreeEnvironmentSettingsSnapshot>>({
     default: buildEnvironmentSnapshot("default"),
   });
+  const [backups, setBackups] = useState<BackupRecord[]>([
+    {
+      version: 1,
+      id: "2026-04-15T09-00-00-000Z-story-a",
+      createdAt: "2026-04-15T09:00:00.000Z",
+      trigger: "manual",
+      label: "Before schema cleanup",
+      includesAssets: true,
+      dbBytes: 2_400_000,
+      assetsBytes: 320_000,
+      totalBytes: 2_720_000,
+    },
+    {
+      version: 1,
+      id: "2026-04-14T18-15-00-000Z-story-b",
+      createdAt: "2026-04-14T18:15:00.000Z",
+      trigger: "pre-restore",
+      label: null,
+      includesAssets: true,
+      dbBytes: 2_100_000,
+      assetsBytes: 300_000,
+      totalBytes: 2_400_000,
+    },
+  ]);
   ensureStorybookElectronBridge({
     snapshots: environmentSnapshots,
     onSaveSnapshot: (input) => {
@@ -214,6 +262,25 @@ function SettingsOverlayStory({
         [input.projectId]: nextSnapshot,
       }));
       return nextSnapshot;
+    },
+    backups,
+    onDeleteBackup: (backupId) => {
+      setBackups((current) => current.filter((backup) => backup.id !== backupId));
+    },
+    onCreateBackup: (label) => {
+      const backup = {
+        version: 1,
+        id: `storybook-${backups.length + 1}`,
+        createdAt: "2026-04-15T10:30:00.000Z",
+        trigger: "manual" as const,
+        label,
+        includesAssets: true,
+        dbBytes: 1024 * 1024,
+        assetsBytes: 256 * 1024,
+        totalBytes: 1280 * 1024,
+      };
+      setBackups((current) => [backup, ...current]);
+      return backup;
     },
   });
 

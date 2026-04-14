@@ -12,6 +12,7 @@ import {
   Moon,
   RotateCcw,
   Sun,
+  Trash2,
 } from "lucide-react";
 import { CheckmarkIcon } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
@@ -1219,7 +1220,8 @@ function BackupSettingsControl({ open }: { open: boolean }) {
   const [backups, setBackups] = useState<BackupRecord[]>([]);
   const [createSafetyBackup, setCreateSafetyBackup] = useState(true);
   const [confirmRestoreId, setConfirmRestoreId] = useState<string | null>(null);
-  const [busyAction, setBusyAction] = useState<"refresh" | "save" | "create" | "restore" | null>(
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [busyAction, setBusyAction] = useState<"refresh" | "save" | "create" | "restore" | "delete" | null>(
     null,
   );
   const [status, setStatus] = useState<string | null>(null);
@@ -1358,6 +1360,7 @@ function BackupSettingsControl({ open }: { open: boolean }) {
     try {
       await Promise.all([loadBackupSettings(), loadHistorySettings(), loadBackups()]);
       setConfirmRestoreId(null);
+      setConfirmDeleteId(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load backups.");
     } finally {
@@ -1375,12 +1378,14 @@ function BackupSettingsControl({ open }: { open: boolean }) {
     setStatus(null);
     setError(null);
     setConfirmRestoreId(null);
+    setConfirmDeleteId(null);
     snapshotForm.reset();
   }, [historyForm, open, snapshotForm]);
 
   const handleRestoreBackup = useCallback(
     async (backupId: string) => {
       if (confirmRestoreId !== backupId) {
+        setConfirmDeleteId(null);
         setConfirmRestoreId(backupId);
         setStatus("Click Restore again to confirm.");
         return;
@@ -1406,6 +1411,34 @@ function BackupSettingsControl({ open }: { open: boolean }) {
       }
     },
     [confirmRestoreId, createSafetyBackup, loadBackups],
+  );
+
+  const handleDeleteBackup = useCallback(
+    async (backupId: string) => {
+      if (confirmDeleteId !== backupId) {
+        setConfirmRestoreId(null);
+        setConfirmDeleteId(backupId);
+        setStatus(null);
+        setError(null);
+        return;
+      }
+
+      setBusyAction("delete");
+      setError(null);
+      setStatus(null);
+
+      try {
+        await invoke("backup:delete", backupId);
+        await loadBackups();
+        setConfirmDeleteId(null);
+        setStatus("Snapshot deleted.");
+      } catch (err) {
+        setError(resolveFormErrorMessage(err) ?? "Could not delete backup.");
+      } finally {
+        setBusyAction(null);
+      }
+    },
+    [confirmDeleteId, loadBackups],
   );
 
   const hasBackupEnvOverrides =
@@ -1564,14 +1597,49 @@ function BackupSettingsControl({ open }: { open: boolean }) {
                     </span>
                   </div>
                 </div>
-                <NodexButton
-                  variant={confirmRestoreId === backup.id ? "destructive" : "secondary"}
-                  size="sm"
-                  onClick={() => void handleRestoreBackup(backup.id)}
-                  disabled={busyAction !== null}
-                >
-                  {confirmRestoreId === backup.id ? "Confirm restore" : "Restore"}
-                </NodexButton>
+                <div className="flex items-center gap-1.5">
+                  {confirmDeleteId === backup.id ? (
+                    <>
+                      <NodexButton
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => void handleDeleteBackup(backup.id)}
+                        disabled={busyAction !== null}
+                      >
+                        Confirm delete
+                      </NodexButton>
+                      <NodexButton
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setConfirmDeleteId(null)}
+                        disabled={busyAction !== null}
+                      >
+                        Cancel
+                      </NodexButton>
+                    </>
+                  ) : (
+                    <>
+                      <NodexButton
+                        variant={confirmRestoreId === backup.id ? "destructive" : "secondary"}
+                        size="sm"
+                        onClick={() => void handleRestoreBackup(backup.id)}
+                        disabled={busyAction !== null}
+                      >
+                        {confirmRestoreId === backup.id ? "Confirm restore" : "Restore"}
+                      </NodexButton>
+                      <NodexButton
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() => void handleDeleteBackup(backup.id)}
+                        disabled={busyAction !== null}
+                        aria-label={`Delete snapshot ${backup.label?.trim() || backup.id}`}
+                        title="Delete snapshot"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </NodexButton>
+                    </>
+                  )}
+                </div>
               </div>
             ))
           )}

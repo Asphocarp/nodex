@@ -395,6 +395,23 @@ export async function restoreBackup(input: RestoreBackupInput): Promise<RestoreB
   return enqueueBackupOperation(() => restoreBackupInternal(input));
 }
 
+export async function deleteBackup(backupId: string): Promise<{ success: true; deletedBackupId: string }> {
+  logger.warn("Queueing backup delete", { backupId });
+  return enqueueBackupOperation(async () => {
+    const backupPath = getBackupPath(backupId);
+    if (!fs.existsSync(backupPath)) {
+      throw new BackupNotFoundError(backupId);
+    }
+
+    removePathIfExists(backupPath);
+    logger.warn("Backup deleted", { backupId });
+    return {
+      success: true,
+      deletedBackupId: backupId,
+    };
+  });
+}
+
 export async function pruneAutoBackups(retentionCount: number): Promise<{ removed: string[] }> {
   return enqueueBackupOperation(async () => {
     const normalizedRetention = Math.max(0, retentionCount);

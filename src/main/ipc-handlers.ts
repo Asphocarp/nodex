@@ -226,6 +226,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     backupService.createBackup({ trigger: "manual", label: input?.label })
   );
 
+  registerHandle("backup:delete", (_, backupId: string) =>
+    backupService.deleteBackup(backupId)
+  );
+
   registerHandle("backup:restore", (_, input) =>
     backupService.restoreBackup(input)
   );

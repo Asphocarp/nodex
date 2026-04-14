@@ -220,6 +220,23 @@ app.post("/api/backups", async (c) => {
   }
 });
 
+app.delete("/api/backups/:backupId", async (c) => {
+  const backupId = c.req.param("backupId");
+
+  try {
+    const result = await backupService.deleteBackup(backupId);
+    return c.json(result);
+  } catch (err) {
+    if (err instanceof backupService.InvalidBackupIdError) {
+      return c.json({ error: err.message }, 400);
+    }
+    if (err instanceof backupService.BackupNotFoundError) {
+      return c.json({ error: err.message }, 404);
+    }
+    return c.json({ error: (err as Error).message }, 500);
+  }
+});
+
 app.post("/api/backups/:backupId/restore", async (c) => {
   const backupId = c.req.param("backupId");
   const body = await c.req.json().catch(() => ({}));
