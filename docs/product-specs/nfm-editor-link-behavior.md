@@ -35,6 +35,27 @@ Manual link creation and editing happen through the BlockNote-based editor UI:
 - the link toolbar shown for an existing selected/hovered link
 
 Both flows use the same Nodex-local submit-time normalizer.
+Both flows now also use the same compact Nodex-owned popover/dialog visual language instead of BlockNote's default form-popover chrome.
+
+## Hover Toolbar Affordance
+
+For an existing selected or hovered link, the NFM editor shows a compact hover toolbar anchored to the link.
+The hover pill is positioned above the link.
+
+The toolbar is intentionally concise:
+- the left URL pill is the primary open action
+- a trailing `Copy link` icon copies the stored raw `href` exactly as authored and flips to the shared `Copied` checkmark feedback state on success
+- a trailing `Edit` button swaps the hover pill into a single anchored edit dialog
+
+The hover toolbar no longer shows a separate inline unlink button.
+
+Instead:
+- unlink remains supported inside the edit dialog as `Remove link`
+- the edit dialog pushes URL/title edits back through the current card draft description on every change while preserving dialog focus, using the same trim-only normalizer and stored-link semantics
+- opening still uses the same open-time link classification rules described below
+- blocked or unresolved links keep the same failure reason and render the URL pill as non-opening
+
+This affordance change is visual and interaction-level only; it does not change how manual link targets are stored.
 
 ## Behavior Model
 

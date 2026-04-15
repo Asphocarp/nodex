@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FormattingToolbarController, LinkToolbarController, SideMenuController, useCreateBlockNote } from "@blocknote/react";
+import { FormattingToolbarController, type LinkToolbarProps, SideMenuController, useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
@@ -50,6 +50,7 @@ import {
 } from "./card-drop-indicator";
 import { NfmFormattingToolbar } from "./nfm-formatting-toolbar";
 import { NfmLinkToolbar } from "./nfm-link-toolbar";
+import { NfmLinkToolbarController } from "./nfm-link-toolbar-controller";
 import { ImagePreviewDialog } from "./image-preview-dialog";
 import {
   isSpaceShortcut,
@@ -994,6 +995,12 @@ export function ToggleListCardEditor({
       });
     }
   }, [reconcileInbound]);
+  const renderLinkToolbar = useCallback((linkToolbarProps: LinkToolbarProps) => (
+    <NfmLinkToolbar
+      {...linkToolbarProps}
+      projectWorkspacePath={projectWorkspacePath}
+    />
+  ), [projectWorkspacePath]);
 
   return (
     <div ref={containerRef} className={cn("nfm-editor", className)} spellCheck={spellcheck}>
@@ -1011,13 +1018,16 @@ export function ToggleListCardEditor({
           floatingUIOptions={sideMenuFloatingOptions}
         />
         <FormattingToolbarController formattingToolbar={NfmFormattingToolbar} />
-        <LinkToolbarController
-          linkToolbar={(props) => (
-            <NfmLinkToolbar
-              {...props}
-              projectWorkspacePath={projectWorkspacePath}
-            />
-          )}
+        <NfmLinkToolbarController
+          linkToolbar={renderLinkToolbar}
+          floatingUIOptions={{
+            useTransitionStylesProps: {
+              duration: 0,
+            },
+            useTransitionStatusProps: {
+              duration: 0,
+            },
+          }}
         />
         <NfmSlashMenu projectId={projectId} />
       </BlockNoteView>

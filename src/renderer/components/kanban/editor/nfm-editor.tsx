@@ -1,8 +1,8 @@
 import { useEffect, useRef, useMemo, useCallback, useState } from "react";
 import {
   FormattingToolbarController,
-  LinkToolbarController,
   SideMenuController,
+  type LinkToolbarProps,
   useCreateBlockNote,
 } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
@@ -23,6 +23,7 @@ import {
 } from "./notion-paste";
 import { NfmFormattingToolbar } from "./nfm-formatting-toolbar";
 import { NfmLinkToolbar } from "./nfm-link-toolbar";
+import { NfmLinkToolbarController } from "./nfm-link-toolbar-controller";
 import { ChipPropertyEditor } from "./chip-property-editor";
 import { useEditorDragBehaviors } from "./use-editor-drag-behaviors";
 import type { Card } from "@/lib/types";
@@ -462,6 +463,12 @@ export function NfmEditor({
   const [pasteResourcePending, setPasteResourcePending] = useState(false);
   const [pasteResourceError, setPasteResourceError] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<{ source: string; alt: string } | null>(null);
+  const renderLinkToolbar = useCallback((linkToolbarProps: LinkToolbarProps) => (
+    <NfmLinkToolbar
+      {...linkToolbarProps}
+      projectWorkspacePath={projectWorkspacePath}
+    />
+  ), [projectWorkspacePath]);
   const [threadSectionPendingBlockIds, setThreadSectionPendingBlockIds] = useState<Set<string>>(() => new Set());
   const [threadSectionHint, setThreadSectionHint] = useState<ThreadSectionHintState | null>(null);
   const [threadSectionThreadsByOwnerKey, setThreadSectionThreadsByOwnerKey] = useState<
@@ -2328,14 +2335,17 @@ export function NfmEditor({
             floatingUIOptions={sideMenuFloatingOptions}
           />
           <FormattingToolbarController formattingToolbar={NfmFormattingToolbar} />
-          <LinkToolbarController
-            linkToolbar={(props) => (
-              <NfmLinkToolbar
-                {...props}
-                projectWorkspacePath={projectWorkspacePath}
-              />
-            )}
-          />
+        <NfmLinkToolbarController
+          linkToolbar={renderLinkToolbar}
+          floatingUIOptions={{
+            useTransitionStylesProps: {
+              duration: 0,
+            },
+            useTransitionStatusProps: {
+              duration: 0,
+            },
+          }}
+        />
           <NfmSlashMenu projectId={projectId} />
         </BlockNoteView>
       </ThreadSectionRuntimeProvider>
