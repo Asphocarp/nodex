@@ -111,6 +111,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Thread stage project context is stage-local (`threadsProjectId`) and remains stable when DB datasource changes
 - Desktop notifications follow the Codex Desktop three-layer split: a renderer-side local-thread producer emits normalized `turn-complete`, approval, and request-user-input events; a renderer-side controller suppresses/shapes them from focus plus settings; and the main process owns the actual Electron `Notification` objects, OS callbacks, and dismissal by conversation.
 - Detailed desktop-notification rules, payloads, suppression semantics, and action routing live in [Desktop Notification Behavior](./desktop-notification-behavior.md).
+- Desktop notifications remain separate from the in-app global toast system: desktop notifications are OS-level and main-owned, while in-app toasts are renderer-local, transient, and shown in one top-centered global overlay.
 - Settings -> General -> `Desktop notifications` exposes three independent controls: `Turn complete` (`Never`, `Only when unfocused`, `Always`), `Approval requests` (boolean), and `Questions` (boolean). Defaults are `Only when unfocused`, approvals enabled, and questions enabled.
 - Turn-complete notifications are governed only by the turn-complete mode and current window focus. Approval-request and request-user-input notifications ignore the turn-complete mode and are suppressed only when the focused stage is `threads`, the active thread tab matches that conversation, and the app window is focused.
 - Turn-complete notifications may include inline reply, use the thread title or `Turn complete` as the title, and summarize code-review outputs as `Code review finished. No findings.`, `1 finding.`, or `N findings.` when the final assistant message contains inline review findings. Approval and question notifications are open-only; approvals expose `Approve`, `Approve for session`, and `Decline` actions, while question notifications do not expose reply or approval buttons.
@@ -282,7 +283,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Drag-hovering collapsed toggle headers (`toggleListItem`, toggle headings, and `cardToggle` rows including projected rows under `cardRef` / `toggleListInlineView`) keeps a stable, Notion-style overlay highlight with pointer-coordinate hit-testing plus drop-time active-target fallback for side-menu retargeting (no rapid flicker), and supports diagnostics via `window.__TOGGLE_DND_DEBUG__ = true`
 - Image blocks are supported in NFM (`<image source="...">Caption</image>`) and render in both editor and read-only previews
 - Mouse drag/range selections that span image blocks show a blue-tinted image-block highlight/outline so inclusion is visually explicit
-- Image block floating toolbar includes `Copy image` (copies actual image content through the native desktop clipboard, does not fall back to copying the URL, and shows an in-editor error toast when native copy fails)
+- Image block floating toolbar includes `Copy image` (copies actual image content through the native desktop clipboard, does not fall back to copying the URL, and shows a global in-app success/error toast for the result)
 - Pressing `Space` while an image block is focused opens a larger centered modal preview; pressing `Space` again closes it (Esc/click outside also close)
 - Double-clicking an image block opens the same large preview modal
 - Image preview modal includes zoom controls (`+`, `-`, reset) with a visible zoom percentage
@@ -341,7 +342,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - **Restore to point**: Time-travel a card to any historical state by reconstructing from creation snapshot + forward deltas; applies field updates and column moves as needed
 - Action buttons shown in entry detail view with inline confirmation flow; disabled for undo meta-entries
 - Card stage auto-refreshes card state after history mutations via `onCardMutated` callback
-- Toast notifications after undo/redo actions
+- Global in-app toast notifications after undo/redo actions and other transient editor/review feedback
 
 #### 9. Whole-Store Backups
 - Manual backup creation via CLI/API (`kanban.db` + `assets/`)
@@ -546,7 +547,8 @@ nodex/
 │       │   │   ├── card-stage.tsx          # Card editor panel
 │       │   │   ├── nfm-renderer.tsx       # Read-only NFM block renderer
 │       │   │   ├── history-panel.tsx      # Card edit history timeline
-│       │   │   ├── undo-toast.tsx         # Undo/redo notification
+│       │   ├── ui/
+│       │   │   ├── toast.tsx              # Global renderer toast system
 │       │   │   └── editor/
 │       │   │       ├── nfm-editor.tsx     # BlockNote-based NFM editor
 │       │   │       ├── nfm-editor-extensions.ts # Shared BlockNote extension/paste setup

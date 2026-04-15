@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
+import {
+  __resetNodexToastStoreForTests,
+  NodexToastProvider,
+} from "../../../../components/ui/toast";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../components/ui/tooltip";
 import { installAsyncRequestAnimationFrame, installWindowApi } from "../../../../test/browser-globals";
 import { render, settleAsyncRender } from "../../../../test/dom";
@@ -76,6 +80,7 @@ function buildSpanHeavyTurnDiffEntry(): CodexTranscriptEntry {
 describe("TurnDiffSurface", () => {
   beforeEach(() => {
     installAsyncRequestAnimationFrame();
+    __resetNodexToastStoreForTests();
     installWindowApi({
       invoke: async () => true,
       on: () => () => { },
@@ -231,39 +236,41 @@ describe("TurnDiffSurface", () => {
       on: () => () => { },
     });
 
-    const { container } = render(
-      <TooltipProvider>
-        <TurnDiffSurface
-          item={buildTurnDiffEntry({
-            rawItem: {
-              type: "turn-diff",
-              cwd: "/tmp/project",
-              unifiedDiff: [
-                "--- a/src/one.ts",
-                "+++ b/src/one.ts",
-                "@@ -1 +1 @@",
-                "-old",
-                "+new",
-              ].join("\n"),
-              showRevertButton: true,
-            },
-          })}
-          isInProgress={false}
-          threadCwd="/tmp/project"
-        />
-      </TooltipProvider>,
+    const view = render(
+      <NodexToastProvider>
+        <TooltipProvider>
+          <TurnDiffSurface
+            item={buildTurnDiffEntry({
+              rawItem: {
+                type: "turn-diff",
+                cwd: "/tmp/project",
+                unifiedDiff: [
+                  "--- a/src/one.ts",
+                  "+++ b/src/one.ts",
+                  "@@ -1 +1 @@",
+                  "-old",
+                  "+new",
+                ].join("\n"),
+                showRevertButton: true,
+              },
+            })}
+            isInProgress={false}
+            threadCwd="/tmp/project"
+          />
+        </TooltipProvider>
+      </NodexToastProvider>,
     );
 
-    const revertButton = container.querySelector('button[aria-label="Revert changes"]');
+    const revertButton = view.container.querySelector('button[aria-label="Revert changes"]');
     expect(Boolean(revertButton)).toBeTrue();
     fireEvent.click(revertButton as HTMLElement);
     await settleAsyncRender();
 
     expect(invokeCalls[0]?.[0] ?? null).toBe("git:apply-patch");
     expect(Boolean(String(JSON.stringify(invokeCalls[0]?.[1] ?? {})).includes("\"revert\":true"))).toBeTrue();
-    expect(Boolean(container.textContent?.includes("Reverted thread changes."))).toBeTrue();
+    expect(Boolean(view.baseElement.textContent?.includes("Reverted thread changes."))).toBeTrue();
 
-    const reapplyButton = container.querySelector('button[aria-label="Reapply changes"]');
+    const reapplyButton = view.container.querySelector('button[aria-label="Reapply changes"]');
     expect(Boolean(reapplyButton)).toBeTrue();
     fireEvent.click(reapplyButton as HTMLElement);
     await settleAsyncRender();

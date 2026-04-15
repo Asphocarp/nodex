@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, FolderGit2, Settings2, Shield, Sparkles } from "lucide-react";
 import { ConfigStatusIcon, EstimatePickerIcon } from "@/components/shared/icons";
 import { NodexButton } from "./button";
@@ -35,6 +35,7 @@ import {
   NodexSettingsRow,
   NodexSettingsSection,
 } from "./settings";
+import { NodexToastProvider, toast } from "./toast";
 import { NodexTooltip, NodexTooltipProvider } from "./tooltip";
 
 function StorySurface({ children }: { children: React.ReactNode }) {
@@ -349,6 +350,72 @@ function SettingsDemo() {
   );
 }
 
+function ToastDemo() {
+  useEffect(() => {
+    toast.closeAll();
+    toast.info("Workspace indexed", {
+      description: "Nodex finished scanning 148 files.",
+      duration: 0,
+    });
+    toast.success("Managed worktree ready", {
+      description: "Environment setup completed successfully.",
+      duration: 0,
+    });
+    toast.warning("Review snapshot is stale", {
+      description: "Refresh review state before applying more hunks.",
+      duration: 0,
+    });
+    toast.danger("Could not start the helper thread", {
+      description: "The selected environment script exited with code 1.",
+      duration: 0,
+    });
+    toast.info("Syncing OAuth callback", {
+      id: "oauth-flow",
+      duration: 0,
+    });
+    toast.success("Connected to GitHub", {
+      id: "oauth-flow",
+      description: "The keyed toast replaced the earlier pending state.",
+      duration: 0,
+    });
+    toast.custom({
+      level: "danger",
+      duration: 0,
+      hasCloseButton: false,
+      content: ({ close }) => (
+        <div className="flex items-start gap-3 p-3">
+          <div className="mt-0.5 size-2.5 rounded-full bg-token-charts-red" />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium text-token-foreground">
+              Git push failed
+            </div>
+            <div className="text-sm text-token-description-foreground">
+              Non-fast-forward update rejected. Review the remote branch before retrying.
+            </div>
+          </div>
+          <NodexButton variant="secondary" size="xs" onClick={close}>
+            Dismiss
+          </NodexButton>
+        </div>
+      ),
+    });
+
+    return () => {
+      toast.closeAll();
+    };
+  }, []);
+
+  return (
+    <NodexToastProvider>
+      <StorySurface>
+        <div className="text-sm text-token-description-foreground">
+          Global toast stack preview
+        </div>
+      </StorySurface>
+    </NodexToastProvider>
+  );
+}
+
 const meta = {
   title: "Workbench/Shared/UI",
   parameters: {
@@ -398,4 +465,8 @@ export const DialogSurface: Story = {
 
 export const SettingsPrimitives: Story = {
   render: () => <SettingsDemo />,
+};
+
+export const ToastGlobalStack: Story = {
+  render: () => <ToastDemo />,
 };

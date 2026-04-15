@@ -2,6 +2,7 @@ import { parsePatchFiles } from "@pierre/diffs";
 import { FileDiff, type FileDiffMetadata } from "@pierre/diffs/react";
 import { motion } from "motion/react";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { toast } from "@/components/ui/toast";
 import {
   NODEX_DIFF_HOST_CLASS,
   getNodexDiffHostStyle,
@@ -48,11 +49,6 @@ interface TurnDiffRowModel {
   additions: number;
   deletions: number;
   isTooLarge: boolean;
-}
-
-interface TurnDiffNotice {
-  tone: "success" | "error";
-  text: string;
 }
 
 function extractTurnDiffPayload(item: CodexTranscriptEntry): TurnDiffPayload | null {
@@ -406,13 +402,11 @@ export function TurnDiffSurface({
   const diffHostClassName = NODEX_DIFF_HOST_CLASS;
   const [isPatchApplied, setIsPatchApplied] = useState(true);
   const [patchActionInFlight, setPatchActionInFlight] = useState(false);
-  const [notice, setNotice] = useState<TurnDiffNotice | null>(null);
   const patchTransport = useMemo(() => resolveInvokeTransport("git:apply-patch"), []);
 
   useEffect(() => {
     setIsPatchApplied(true);
     setPatchActionInFlight(false);
-    setNotice(null);
   }, [reviewTarget?.entryId, reviewTarget?.patch]);
 
   if (!payload || (summary.fileCount === 0 && summary.additions === 0 && summary.deletions === 0)) {
@@ -438,23 +432,23 @@ export function TurnDiffSurface({
 
           if (result.status === "success") {
             setIsPatchApplied((current) => !current);
-            setNotice({
-              tone: "success",
-              text: isPatchApplied ? "Reverted thread changes." : "Reapplied thread changes.",
+            toast.success(isPatchApplied ? "Reverted thread changes." : "Reapplied thread changes.", {
+              id: "turn-diff-notice",
             });
             return;
           }
 
-          setNotice({
-            tone: "error",
-            text: result.status === "partial-success"
+          toast.danger(
+            result.status === "partial-success"
               ? "Partially applied thread patch. Review the workspace before continuing."
               : (result.errorMessage ?? "Could not apply thread patch."),
-          });
+            {
+              id: "turn-diff-notice",
+            },
+          );
         } catch (error) {
-          setNotice({
-            tone: "error",
-            text: error instanceof Error ? error.message : "Could not apply thread patch.",
+          toast.danger(error instanceof Error ? error.message : "Could not apply thread patch.", {
+            id: "turn-diff-notice",
           });
         } finally {
           setPatchActionInFlight(false);
@@ -490,20 +484,6 @@ export function TurnDiffSurface({
           ) : null}
         </div>
       </div>
-      {notice ? (
-        <div className="px-3 pb-2">
-          <div
-            className={cn(
-              "rounded-lg px-3 py-2 text-sm",
-              notice.tone === "success"
-                ? "bg-token-charts-green/10 text-token-charts-green"
-                : "bg-token-charts-red/10 text-token-charts-red",
-            )}
-          >
-            {notice.text}
-          </div>
-        </div>
-      ) : null}
       <div className="flex flex-col divide-y-[0.5px] divide-token-border">
         {rows.map((row) => (
           <TurnDiffEmbeddedRow

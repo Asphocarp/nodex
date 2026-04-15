@@ -38,6 +38,7 @@ import {
   saveWorkbenchResumeSnapshot,
 } from "@/lib/workbench-resume";
 import { AppStartupScreen } from "@/components/app-startup-screen";
+import { NodexToastProvider } from "@/components/ui/toast";
 import type { CardStageSessionSnapshot } from "@/components/kanban/card-stage/types";
 import type { WorkbenchResumeSnapshot } from "@/lib/types";
 import type {
@@ -1072,12 +1073,18 @@ export default function App() {
 
   if (!bootstrapState.ready) {
     return (
-      <AppStartupScreen
-        step={bootstrapState.step}
-        migrationProgress={bootstrapState.migrationProgress}
-      />
+      <NodexToastProvider>
+        <AppStartupScreen
+          step={bootstrapState.step}
+          migrationProgress={bootstrapState.migrationProgress}
+        />
+      </NodexToastProvider>
     );
   }
 
-  return <WorkbenchApp initialResumeSnapshot={bootstrapState.snapshot} />;
+  return (
+    <NodexToastProvider>
+      <WorkbenchApp initialResumeSnapshot={bootstrapState.snapshot} />
+    </NodexToastProvider>
+  );
 }

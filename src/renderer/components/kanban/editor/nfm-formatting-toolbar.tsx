@@ -23,7 +23,6 @@ import {
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { CopyImageButton } from "./copy-image-button";
-import type { ShowEditorNotice } from "./editor-notice";
 import { NfmCreateLinkButton } from "./nfm-link-toolbar";
 
 function keepEditorSelection(event: MouseEvent | React.MouseEvent) {
@@ -535,17 +534,13 @@ function FilePanelFileInput({
   );
 }
 
-export function NfmFormattingToolbar({
-  onShowNotice,
-}: {
-  onShowNotice?: ShowEditorNotice;
-} = {}) {
+export function NfmFormattingToolbar() {
   const baseComponents = useComponentsContext()!;
 
   const toolbarItems = useMemo(() => {
     const items = getFormattingToolbarItems().map((item) =>
       item.key === "createLinkButton" ? <NfmCreateLinkButton key="createLinkButton" /> : item);
-    const copyImageButton = <CopyImageButton key="copyImageButton" onShowNotice={onShowNotice} />;
+    const copyImageButton = <CopyImageButton key="copyImageButton" />;
     const fileDownloadButtonIndex = items.findIndex((item) => item.key === "fileDownloadButton");
 
     if (fileDownloadButtonIndex < 0) {
@@ -555,7 +550,7 @@ export function NfmFormattingToolbar({
     const itemsWithCopy = [...items];
     itemsWithCopy.splice(fileDownloadButtonIndex + 1, 0, copyImageButton);
     return itemsWithCopy;
-  }, [onShowNotice]);
+  }, []);
 
   const components = useMemo(
     () => ({

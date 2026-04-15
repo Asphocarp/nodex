@@ -9,7 +9,6 @@ import {
   toggleCardSelection,
   type CardSelectionState,
 } from "./card-selection";
-import { UndoToast } from "./undo-toast";
 import { computeNativeDropIndexFromSurface } from "./native-drop-index";
 import { KanbanBoardScrollContainer } from "./view-scroll-containers";
 import {
@@ -121,11 +120,9 @@ export function KanbanBoard({
   // History hooks
   const {
     sessionId,
-    lastAction,
     undo,
     redo,
     refreshState: refreshHistoryState,
-    clearLastAction,
   } = useHistory(projectId);
 
   // Pass sessionId to kanban hook so all mutations are tracked
@@ -1002,13 +999,6 @@ export function KanbanBoard({
           ))}
         </div>
       </KanbanBoardScrollContainer>
-
-      {/* Undo/Redo toast notification */}
-      <UndoToast
-        action={lastAction?.type || null}
-        description={lastAction?.description || null}
-        onDismiss={clearLastAction}
-      />
     </div>
   );
 }

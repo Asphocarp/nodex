@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { UndoRedoResult, UndoRedoState } from "../../shared/ipc-api";
+import { toast } from "@/components/ui/toast";
 import { invoke } from "./api";
-import { TOAST_CLEANUP_MS } from "./timing";
 
 export type { UndoRedoState };
 
@@ -21,11 +21,6 @@ export function useHistory(projectId: string) {
     undoDescription: null,
     redoDescription: null,
   });
-
-  const [lastAction, setLastAction] = useState<{
-    type: "undo" | "redo";
-    description: string;
-  } | null>(null);
 
   // Track if we're currently performing an undo/redo to prevent double actions
   const isActingRef = useRef(false);
@@ -67,9 +62,8 @@ export function useHistory(projectId: string) {
       });
 
       if (data.success && data.entry) {
-        setLastAction({
-          type: "undo",
-          description: getActionDescription("undo", data.entry.operation),
+        toast.info(getActionDescription("undo", data.entry.operation), {
+          id: "history-action",
         });
       }
 
@@ -101,9 +95,8 @@ export function useHistory(projectId: string) {
       });
 
       if (data.success && data.entry) {
-        setLastAction({
-          type: "redo",
-          description: getActionDescription("redo", data.entry.operation),
+        toast.info(getActionDescription("redo", data.entry.operation), {
+          id: "history-action",
         });
       }
 
@@ -116,14 +109,6 @@ export function useHistory(projectId: string) {
     }
   }, [projectId, sessionId, state.canRedo]);
 
-  // Clear last action after a timeout (for toast dismissal)
-  useEffect(() => {
-    if (lastAction) {
-      const timer = setTimeout(() => setLastAction(null), TOAST_CLEANUP_MS);
-      return () => clearTimeout(timer);
-    }
-  }, [lastAction]);
-
   // Refresh state on mount
   useEffect(() => {
     refreshState();
@@ -135,11 +120,9 @@ export function useHistory(projectId: string) {
     canRedo: state.canRedo,
     undoDescription: state.undoDescription,
     redoDescription: state.redoDescription,
-    lastAction,
     undo,
     redo,
     refreshState,
-    clearLastAction: () => setLastAction(null),
   };
 }
 

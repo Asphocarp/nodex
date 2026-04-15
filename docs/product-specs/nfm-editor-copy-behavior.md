@@ -442,7 +442,8 @@ On success, the editor is focused again.
 - copies real image content through the native desktop clipboard
 - does not fall back to copying the resolved image URL text
 - does not write BlockNote HTML or structure-preserving `text/plain`
-- shows an editor-local error toast when native image copy fails
+- shows a global in-app success toast when native image copy succeeds
+- shows a global in-app error toast when native image copy fails
 
 ## Known Intentional Limits Of The Current Behavior
 

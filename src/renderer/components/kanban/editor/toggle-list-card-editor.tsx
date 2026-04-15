@@ -48,7 +48,6 @@ import {
   clearCardDropIndicator,
   renderCardDropIndicator,
 } from "./card-drop-indicator";
-import { EditorNoticeSurface, useTransientEditorNotice } from "./editor-notice";
 import { NfmFormattingToolbar } from "./nfm-formatting-toolbar";
 import { NfmLinkToolbar } from "./nfm-link-toolbar";
 import { NfmLinkToolbarController } from "./nfm-link-toolbar-controller";
@@ -1002,13 +1001,6 @@ export function ToggleListCardEditor({
       projectWorkspacePath={projectWorkspacePath}
     />
   ), [projectWorkspacePath]);
-  const {
-    notice: editorNotice,
-    showNotice: showEditorNotice,
-  } = useTransientEditorNotice();
-  const renderFormattingToolbar = useCallback(() => (
-    <NfmFormattingToolbar onShowNotice={showEditorNotice} />
-  ), [showEditorNotice]);
 
   return (
     <div ref={containerRef} className={cn("nfm-editor", className)} spellCheck={spellcheck}>
@@ -1025,7 +1017,7 @@ export function ToggleListCardEditor({
           sideMenu={NfmSideMenu}
           floatingUIOptions={sideMenuFloatingOptions}
         />
-        <FormattingToolbarController formattingToolbar={renderFormattingToolbar} />
+        <FormattingToolbarController formattingToolbar={NfmFormattingToolbar} />
         <NfmLinkToolbarController
           linkToolbar={renderLinkToolbar}
           floatingUIOptions={{
@@ -1063,7 +1055,6 @@ export function ToggleListCardEditor({
           }}
         />
       )}
-      <EditorNoticeSurface notice={editorNotice} />
     </div>
   );
 }

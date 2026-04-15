@@ -24,6 +24,7 @@ import {
   NodexDropdownMenu,
   NodexDropdownSeparator,
 } from "../ui/dropdown";
+import { toast } from "../ui/toast";
 import { writeTextToClipboard } from "@/lib/clipboard";
 import {
   NODEX_DIFF_HOST_CLASS,
@@ -145,11 +146,6 @@ interface ReviewSnapshot {
 
 type ReviewGitFileAction = "stage" | "unstage" | "revert";
 type ReviewGitPatchScope = "file" | "hunk";
-
-interface ReviewNotice {
-  tone: "success" | "error";
-  text: string;
-}
 
 const REVIEW_FILE_TREE_DEFAULT_WIDTH_PX = 280;
 const REVIEW_FILE_TREE_MIN_WIDTH_PX = 220;
@@ -466,11 +462,11 @@ function actionResultMessage(
   displayPath: string,
   status: GitApplyPatchResult["status"],
   scope: ReviewGitPatchScope = "file",
-): ReviewNotice {
+): { level: "success" | "danger"; text: string } {
   const actionTarget = scope === "hunk" ? `a hunk in ${displayPath}` : displayPath;
   if (status === "success") {
     return {
-      tone: "success",
+      level: "success",
       text: action === "stage"
         ? `Staged ${actionTarget}.`
         : action === "unstage"
@@ -481,13 +477,13 @@ function actionResultMessage(
 
   if (status === "partial-success") {
     return {
-      tone: "error",
+      level: "danger",
       text: `Partially reverted ${actionTarget}. Refresh review state before continuing.`,
     };
   }
 
   return {
-    tone: "error",
+    level: "danger",
     text: action === "revert"
       ? `Could not revert ${actionTarget}.`
       : `Could not update ${actionTarget}.`,
@@ -1267,7 +1263,6 @@ export function ReviewDiffPanel({
   const [reviewSearchResult, setReviewSearchResult] = useState<GitReviewSearchResult | null>(null);
   const [gitLoading, setGitLoading] = useState(false);
   const [gitActionKey, setGitActionKey] = useState<string | null>(null);
-  const [notice, setNotice] = useState<ReviewNotice | null>(null);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [fullContentsByPath, setFullContentsByPath] = useState<Record<string, GitReviewFileContents>>({});
   const [fullContentsLoadingPaths, setFullContentsLoadingPaths] = useState<Record<string, boolean>>({});
@@ -1735,9 +1730,8 @@ export function ReviewDiffPanel({
         setGitSnapshot(result);
       });
     } catch (error) {
-      setNotice({
-        tone: "error",
-        text: error instanceof Error ? error.message : "Could not refresh review.",
+      toast.danger(error instanceof Error ? error.message : "Could not refresh review.", {
+        id: "review-diff-notice",
       });
     } finally {
       setGitLoading(false);
@@ -1819,9 +1813,8 @@ export function ReviewDiffPanel({
       startTransition(() => {
         setGitSnapshot(result);
       });
-      setNotice({
-        tone: "success",
-        text: "Created a Git repository for this workspace.",
+      toast.success("Created a Git repository for this workspace.", {
+        id: "review-diff-notice",
       });
     } finally {
       setGitLoading(false);
@@ -1831,11 +1824,19 @@ export function ReviewDiffPanel({
   const handleCopyGitApplyCommand = async () => {
     if (!snapshot.patch.trim()) return;
     const copied = await writeTextToClipboard(buildGitApplyCommand(snapshot.patch));
-    setNotice({
-      tone: copied ? "success" : "error",
-      text: copied
-        ? "Copied git apply command to the clipboard."
-        : "Could not copy the git apply command.",
+    const message = copied
+      ? "Copied git apply command to the clipboard."
+      : "Could not copy the git apply command.";
+
+    if (copied) {
+      toast.success(message, {
+        id: "review-diff-notice",
+      });
+      return;
+    }
+
+    toast.danger(message, {
+      id: "review-diff-notice",
     });
   };
 
@@ -1891,7 +1892,16 @@ export function ReviewDiffPanel({
         };
       }
 
-      setNotice(actionResultMessage(action, entry.displayPath, result.status));
+      const message = actionResultMessage(action, entry.displayPath, result.status);
+      if (message.level === "success") {
+        toast.success(message.text, {
+          id: "review-diff-notice",
+        });
+      } else {
+        toast.danger(message.text, {
+          id: "review-diff-notice",
+        });
+      }
       if (result.status !== "error") {
         await refreshGitSnapshot();
       }
@@ -1959,7 +1969,16 @@ export function ReviewDiffPanel({
         };
       }
 
-      setNotice(actionResultMessage(action, entry.displayPath, result.status, "hunk"));
+      const message = actionResultMessage(action, entry.displayPath, result.status, "hunk");
+      if (message.level === "success") {
+        toast.success(message.text, {
+          id: "review-diff-notice",
+        });
+      } else {
+        toast.danger(message.text, {
+          id: "review-diff-notice",
+        });
+      }
       if (result.status !== "error") {
         await refreshGitSnapshot();
       }
@@ -2160,20 +2179,6 @@ export function ReviewDiffPanel({
                 <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-token-description-foreground">
                   {searchQuery.trim().length > 0 ? `${reviewSearchMatchCount} matches` : null}
                 </div>
-              </div>
-            </div>
-          ) : null}
-          {notice ? (
-            <div className="px-3 pb-2">
-              <div
-                className={cn(
-                  "rounded-lg px-3 py-2 text-sm",
-                  notice.tone === "success"
-                    ? "bg-token-charts-green/10 text-token-charts-green"
-                    : "bg-token-charts-red/10 text-token-charts-red",
-                )}
-              >
-                {notice.text}
               </div>
             </div>
           ) : null}

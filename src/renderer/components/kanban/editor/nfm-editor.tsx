@@ -25,7 +25,7 @@ import { NfmFormattingToolbar } from "./nfm-formatting-toolbar";
 import { NfmLinkToolbar } from "./nfm-link-toolbar";
 import { NfmLinkToolbarController } from "./nfm-link-toolbar-controller";
 import { ChipPropertyEditor } from "./chip-property-editor";
-import { EditorNoticeSurface, useTransientEditorNotice } from "./editor-notice";
+import { toast } from "@/components/ui/toast";
 import { useEditorDragBehaviors } from "./use-editor-drag-behaviors";
 import type { Card } from "@/lib/types";
 import { useCardImportDropTarget } from "./use-card-import-drop-target";
@@ -459,19 +459,12 @@ export function NfmEditor({
   const [pasteResourcePending, setPasteResourcePending] = useState(false);
   const [pasteResourceError, setPasteResourceError] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<{ source: string; alt: string } | null>(null);
-  const {
-    notice: editorNotice,
-    showNotice: showThreadSectionHint,
-  } = useTransientEditorNotice();
   const renderLinkToolbar = useCallback((linkToolbarProps: LinkToolbarProps) => (
     <NfmLinkToolbar
       {...linkToolbarProps}
       projectWorkspacePath={projectWorkspacePath}
     />
   ), [projectWorkspacePath]);
-  const renderFormattingToolbar = useCallback(() => (
-    <NfmFormattingToolbar onShowNotice={showThreadSectionHint} />
-  ), [showThreadSectionHint]);
   const [threadSectionPendingBlockIds, setThreadSectionPendingBlockIds] = useState<Set<string>>(() => new Set());
   const [threadSectionThreadsByOwnerKey, setThreadSectionThreadsByOwnerKey] = useState<
     Record<string, Record<string, ThreadSectionLinkedThreadState>>
@@ -877,7 +870,9 @@ export function NfmEditor({
     }
 
     if (!markerBlockId) {
-      showThreadSectionHint("error", "Could not resolve a thread section to send.");
+      toast.danger("Could not resolve a thread section to send.", {
+        id: "nfm-thread-section",
+      });
       restoreEditorFocus();
       return false;
     }
@@ -910,7 +905,9 @@ export function NfmEditor({
       restoreEditorFocus();
       return true;
     } catch (error) {
-      showThreadSectionHint("error", error instanceof Error ? error.message : "Could not send thread section.");
+      toast.danger(error instanceof Error ? error.message : "Could not send thread section.", {
+        id: "nfm-thread-section",
+      });
       restoreEditorFocus();
       return false;
     }
@@ -920,7 +917,6 @@ export function NfmEditor({
     onStartThreadSection,
     projectId,
     restoreEditorFocus,
-    showThreadSectionHint,
     sourceCardContext,
     withPendingThreadSection,
   ]);
@@ -953,12 +949,16 @@ export function NfmEditor({
 
       const sendRequest = await prepareThreadSectionSend(blockId);
       if (!sendRequest) {
-        showThreadSectionHint("error", "Could not resolve content to send.");
+        toast.danger("Could not resolve content to send.", {
+          id: "nfm-thread-section",
+        });
         return;
       }
 
       if (sendRequest.prompt.length === 0) {
-        showThreadSectionHint("info", "This thread section is empty.");
+        toast.info("This thread section is empty.", {
+          id: "nfm-thread-section",
+        });
         return;
       }
 
@@ -978,7 +978,6 @@ export function NfmEditor({
     performThreadSectionSend,
     projectId,
     prepareThreadSectionSend,
-    showThreadSectionHint,
     sourceCardContext,
     threadSectionSendSettings.confirmBeforeSend,
     ensureThreadSectionOwnerThreadsLoaded,
@@ -1500,7 +1499,9 @@ export function NfmEditor({
             return;
           }
         } else {
-          showThreadSectionHint("info", "Insert /thread section to send notebook-style prompts.");
+          toast.info("Insert /thread section to send notebook-style prompts.", {
+            id: "nfm-thread-section",
+          });
           event.preventDefault();
           return;
         }
@@ -1544,7 +1545,6 @@ export function NfmEditor({
     navigateSearch,
     openSearch,
     searchOpen,
-    showThreadSectionHint,
   ]);
 
   useEffect(() => {
@@ -2316,7 +2316,7 @@ export function NfmEditor({
             sideMenu={customSideMenu}
             floatingUIOptions={sideMenuFloatingOptions}
           />
-          <FormattingToolbarController formattingToolbar={renderFormattingToolbar} />
+          <FormattingToolbarController formattingToolbar={NfmFormattingToolbar} />
         <NfmLinkToolbarController
           linkToolbar={renderLinkToolbar}
           floatingUIOptions={{
@@ -2372,7 +2372,6 @@ export function NfmEditor({
           }}
         />
       )}
-      <EditorNoticeSurface notice={editorNotice} />
       {pasteResourceDialog && (
         <PasteResourceDialog
           open={pasteResourceDialog !== null}

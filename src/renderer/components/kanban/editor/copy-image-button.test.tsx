@@ -1,6 +1,10 @@
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
 import { render, settleAsyncRender } from "../../../test/dom";
+import {
+  __resetNodexToastStoreForTests,
+  NodexToastProvider,
+} from "../../ui/toast";
 
 let copyResult:
   | { ok: true }
@@ -43,47 +47,47 @@ mock.module("@blocknote/react", () => ({
 }));
 
 describe("CopyImageButton", () => {
+  beforeEach(() => {
+    __resetNodexToastStoreForTests();
+  });
+
   test("restores editor focus after a successful native image copy", async () => {
     copyResult = { ok: true };
     focusCalls = 0;
 
     const { CopyImageButton } = await import("./copy-image-button");
-    const notices: string[] = [];
     const view = render(
-      <CopyImageButton
-        copyImageToClipboardImpl={async () => copyResult}
-        onShowNotice={(_type, message) => {
-          notices.push(message);
-        }}
-      />,
+      <NodexToastProvider>
+        <CopyImageButton
+          copyImageToClipboardImpl={async () => copyResult}
+        />
+      </NodexToastProvider>,
     );
 
     fireEvent.click(view.getByRole("button", { name: "Copy image" }));
     await settleAsyncRender();
 
     expect(focusCalls).toBe(1);
-    expect(notices.length).toBe(0);
+    expect(Boolean(view.baseElement.textContent?.includes("Copied image to clipboard."))).toBeTrue();
   });
 
-  test("shows an editor error notice when native image copy fails", async () => {
+  test("shows a global danger toast when native image copy fails", async () => {
     copyResult = { ok: false, message: "Could not load the image file." };
     focusCalls = 0;
 
     const { CopyImageButton } = await import("./copy-image-button");
-    const notices: string[] = [];
     const view = render(
-      <CopyImageButton
-        copyImageToClipboardImpl={async () => copyResult}
-        onShowNotice={(_type, message) => {
-          notices.push(message);
-        }}
-      />,
+      <NodexToastProvider>
+        <CopyImageButton
+          copyImageToClipboardImpl={async () => copyResult}
+        />
+      </NodexToastProvider>,
     );
 
     fireEvent.click(view.getByRole("button", { name: "Copy image" }));
     await settleAsyncRender();
 
     expect(focusCalls).toBe(0);
-    expect(notices[0]).toBe("Could not load the image file.");
+    expect(Boolean(view.baseElement.textContent?.includes("Could not load the image file."))).toBeTrue();
   });
 });

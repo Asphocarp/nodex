@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { createElement, type ComponentProps } from "react";
 import { fireEvent, waitFor } from "@testing-library/react";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
+import {
+  __resetNodexToastStoreForTests,
+  NodexToastProvider,
+} from "../ui/toast";
 import { NodexTooltipProvider } from "../ui/tooltip";
 import type { CodexConversationSnapshot } from "@/lib/types";
 import { ReviewDiffPanel } from "./review-diff-panel";
@@ -185,6 +189,13 @@ function buildGitSummary(path: string, status: "modified" | "added" | "deleted" 
 beforeEach(() => {
   invokeCalls.length = 0;
   mockInvokeImpl = null;
+  __resetNodexToastStoreForTests();
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText: async () => undefined,
+    },
+  });
 });
 
 async function loadReviewDiffPanelModule() {
@@ -665,6 +676,61 @@ describe("review diff panel", () => {
     await settleAsyncRender();
 
     expect(invokeCalls.some((call) => call[0] === "git:review:snapshot")).toBeTrue();
+  });
+
+  test("emits a global toast after copying the git apply command", async () => {
+    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
+
+    const copiedTexts: string[] = [];
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (value: string) => {
+          copiedTexts.push(value);
+        },
+      },
+    });
+
+    mockInvokeImpl = async (channel: unknown) => {
+      if (channel !== "git:review:snapshot") return null;
+      return {
+        cwd: "/tmp/codex",
+        source: "unstaged",
+        patch: "diff --git a/src/git.ts b/src/git.ts\nindex 1111111..2222222 100644\n--- a/src/git.ts\n+++ b/src/git.ts\n@@ -1 +1,2 @@\n export const git = 1;\n+export const diff = true;\n",
+        files: [],
+        isGitRepository: true,
+        baseRef: null,
+        currentBranch: "feature",
+        defaultBranch: "main",
+        errorMessage: null,
+      };
+    };
+
+    const view = render(
+      <NodexToastProvider>
+        <NodexTooltipProvider>
+          <ReviewDiffPanel
+            conversation={buildConversation()}
+            projectWorkspacePath="/tmp/codex"
+            initialSource="unstaged"
+          />
+        </NodexTooltipProvider>
+      </NodexToastProvider>,
+    );
+
+    await settleAsyncRender();
+    fireEvent.pointerDown(view.getByLabelText("Review options"), {
+      button: 0,
+      ctrlKey: false,
+    });
+    await settleAsyncRender();
+
+    const copyItem = await waitForMenuItem(view.baseElement as HTMLElement, "Copy git apply command");
+    fireEvent.click(copyItem);
+    await settleAsyncRender();
+
+    expect(copiedTexts.length).toBe(1);
+    expect(Boolean(view.baseElement.textContent?.includes("Copied git apply command to the clipboard."))).toBeTrue();
   });
 
   test("prefers the explicit project workspace path for git-backed review sources", async () => {

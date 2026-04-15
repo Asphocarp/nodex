@@ -11,15 +11,13 @@ import {
 } from "@blocknote/react";
 import { Copy } from "lucide-react";
 import { useCallback } from "react";
+import { toast } from "@/components/ui/toast";
 
 import { copyImageToClipboard } from "./copy-image";
-import type { ShowEditorNotice } from "./editor-notice";
 
 export function CopyImageButton({
-  onShowNotice,
   copyImageToClipboardImpl = copyImageToClipboard,
 }: {
-  onShowNotice?: ShowEditorNotice;
   copyImageToClipboardImpl?: typeof copyImageToClipboard;
 }) {
   const Components = useComponentsContext()!;
@@ -59,13 +57,18 @@ export function CopyImageButton({
     void copyImageToClipboardImpl(block.props.url)
       .then((result) => {
         if (!result.ok) {
-          onShowNotice?.("error", result.message);
+          toast.danger(result.message, {
+            id: "editor-copy-image",
+          });
           return;
         }
 
+        toast.success("Copied image to clipboard.", {
+          id: "editor-copy-image",
+        });
         editor.focus();
       });
-  }, [block, copyImageToClipboardImpl, editor, onShowNotice]);
+  }, [block, copyImageToClipboardImpl, editor]);
 
   if (!block) return null;
 
