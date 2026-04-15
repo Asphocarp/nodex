@@ -15,14 +15,16 @@ import {
   useExtension,
 } from "@blocknote/react";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { Link } from "lucide-react";
+import { FormattingToolbarLinkIcon } from "@/components/shared/icons";
 import {
   NodexPopover,
   NodexPopoverContent,
   NodexPopoverTrigger,
 } from "@/components/ui/popover";
+import { ShortcutKeycaps } from "@/components/ui/shortcut-keycaps";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { writeTextToClipboard } from "@/lib/clipboard";
+import { cn } from "@/lib/utils";
 import {
   openNfmResolvedLinkAction,
   resolveNfmLinkAction,
@@ -48,6 +50,121 @@ function hasLinkInSchema(editor: { schema: { inlineContentSchema: Record<string,
   );
 }
 
+interface NfmCreateLinkSelectionState {
+  url?: string;
+  text: string;
+  range: {
+    from: number;
+    to: number;
+  };
+}
+
+function NfmCreateLinkPopover({
+  dict,
+  formattingToolbar,
+  showPopover,
+  setShowPopover,
+  state,
+}: {
+  dict: ReturnType<typeof useDictionary>;
+  formattingToolbar: ReturnType<typeof useExtension<typeof FormattingToolbarExtension>>;
+  showPopover: boolean;
+  setShowPopover: (open: boolean | ((current: boolean) => boolean)) => void;
+  state: NfmCreateLinkSelectionState;
+}) {
+  const {
+    currentUrl,
+    setCurrentUrl,
+    submit,
+  } = useNfmLinkEditorState({
+    ...state,
+    url: state.url || "",
+    setToolbarOpen: (open: boolean) => {
+      formattingToolbar.store.setState(open);
+      if (!open) {
+        setShowPopover(false);
+      }
+    },
+  });
+
+  const handleSubmit = () => {
+    submit();
+    setShowPopover(false);
+  };
+
+  const handleUrlKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setShowPopover(false);
+      return;
+    }
+
+    if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    handleSubmit();
+  };
+
+  return (
+    <NodexPopover
+      open={showPopover}
+      onOpenChange={setShowPopover}
+    >
+      <NodexTooltip
+        tooltipContent={dict.formatting_toolbar.link.tooltip}
+        shortcut={(
+          <ShortcutKeycaps
+            keys={[
+              formatKeyboardShortcut(
+                dict.formatting_toolbar.link.secondary_tooltip,
+                dict.generic.ctrl_shortcut,
+              ),
+            ]}
+          />
+        )}
+        side="top"
+        delayDuration={0}
+      >
+        <NodexPopoverTrigger asChild>
+          <button
+            type="button"
+            data-test="createLink"
+            aria-label={dict.formatting_toolbar.link.tooltip}
+            title={dict.formatting_toolbar.link.tooltip}
+            className={cn(
+              "inline-flex h-7 min-w-7 shrink-0 items-center justify-center gap-1 rounded-[9px] px-2 text-[12px] leading-4 text-token-text-secondary outline-hidden transition-colors",
+              "hover:bg-token-foreground/6 hover:text-token-foreground focus-visible:ring-1 focus-visible:ring-token-focus-border",
+            )}
+            onMouseDown={(event) => {
+              if (event.button !== 0) return;
+              event.preventDefault();
+            }}
+            onClick={() => setShowPopover((open) => !open)}
+          >
+            <span className="shrink-0 [&_svg]:size-4">
+              <FormattingToolbarLinkIcon />
+            </span>
+          </button>
+        </NodexPopoverTrigger>
+      </NodexTooltip>
+      <NodexPopoverContent
+        sideOffset={6}
+        collisionPadding={8}
+        className="w-[16.5rem] gap-0 p-0 overflow-hidden"
+      >
+        <NfmCreateLinkDialogSurface
+          urlLabel={"Page or URL"}
+          urlPlaceholder={dict.link_toolbar.form.url_placeholder}
+          urlValue={currentUrl}
+          submitLabel={dict.formatting_toolbar.link.tooltip}
+          onUrlChange={setCurrentUrl}
+          onUrlKeyDown={handleUrlKeyDown}
+          onSubmit={handleSubmit}
+        />
+      </NodexPopoverContent>
+    </NodexPopover>
+  );
+}
+
 function NfmCreateLinkButton() {
   const editor = useBlockNoteEditor();
   const dict = useDictionary();
@@ -60,7 +177,7 @@ function NfmCreateLinkButton() {
     return () => showSelection(false, "createLinkButton");
   }, [showPopover, showSelection]);
 
-  const state = useEditorState({
+  const state = useEditorState<NfmCreateLinkSelectionState | undefined>({
     editor,
     selector: ({ editor: currentEditor }) => {
       if (
@@ -110,80 +227,14 @@ function NfmCreateLinkButton() {
     return null;
   }
 
-  const {
-    currentUrl,
-    setCurrentUrl,
-    submit,
-  } = useNfmLinkEditorState({
-    ...state,
-    url: state.url || "",
-    setToolbarOpen: (open: boolean) => {
-      formattingToolbar.store.setState(open);
-      if (!open) {
-        setShowPopover(false);
-      }
-    },
-  });
-
-  const handleSubmit = () => {
-    submit();
-    setShowPopover(false);
-  };
-
-  const handleUrlKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      setShowPopover(false);
-      return;
-    }
-
-    if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
-    event.preventDefault();
-    handleSubmit();
-  };
-
   return (
-    <NodexPopover
-      open={showPopover}
-      onOpenChange={setShowPopover}
-    >
-      <NodexTooltip
-        tooltipContent={formatKeyboardShortcut(
-          dict.formatting_toolbar.link.secondary_tooltip,
-          dict.generic.ctrl_shortcut,
-        )}
-        side="top"
-        delayDuration={0}
-      >
-        <NodexPopoverTrigger asChild>
-          <button
-            type="button"
-            className="bn-button"
-          data-test="createLink"
-          onClick={() => setShowPopover((open) => !open)}
-          aria-label={dict.formatting_toolbar.link.tooltip}
-          title={dict.formatting_toolbar.link.tooltip}
-        >
-          <Link className="size-4" />
-        </button>
-        </NodexPopoverTrigger>
-      </NodexTooltip>
-      <NodexPopoverContent
-        sideOffset={6}
-        collisionPadding={8}
-        className="w-[16.5rem] gap-0 p-0 overflow-hidden"
-      >
-        <NfmCreateLinkDialogSurface
-          urlLabel={"Page or URL"}
-          urlPlaceholder={dict.link_toolbar.form.url_placeholder}
-          urlValue={currentUrl}
-          submitLabel={dict.formatting_toolbar.link.tooltip}
-          onUrlChange={setCurrentUrl}
-          onUrlKeyDown={handleUrlKeyDown}
-          onSubmit={handleSubmit}
-        />
-      </NodexPopoverContent>
-    </NodexPopover>
+    <NfmCreateLinkPopover
+      dict={dict}
+      formattingToolbar={formattingToolbar}
+      showPopover={showPopover}
+      setShowPopover={setShowPopover}
+      state={state}
+    />
   );
 }
 

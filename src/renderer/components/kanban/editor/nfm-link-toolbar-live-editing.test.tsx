@@ -160,6 +160,7 @@ mock.module("./nfm-link-toolbar-surface", () => ({
       </button>
     </div>
   ),
+  NfmCreateLinkDialogSurface: () => <div data-testid="nfm-create-link-dialog" />,
 }));
 
 describe("NfmLinkToolbar live editing", () => {

@@ -5,6 +5,21 @@ import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { render, settleAsyncRender } from "../../../test/dom";
 
 const deleteLink = () => {};
+const editLink = () => {};
+const showSelection = () => {};
+const formattingToolbarStore = {
+  setState: () => {},
+};
+let createLinkButtonState:
+  | {
+      url?: string;
+      text: string;
+      range: {
+        from: number;
+        to: number;
+      };
+    }
+  | undefined;
 
 mock.module("@/lib/use-file-link-opener", () => ({
   useFileLinkOpener: () => ({
@@ -52,14 +67,49 @@ mock.module("@blocknote/react", () => ({
       },
     },
   }),
-  useEditorState: () => undefined,
+  useEditorState: () => createLinkButtonState,
   useExtension: () => ({
     deleteLink,
+    editLink,
+    showSelection,
+    store: formattingToolbarStore,
   }),
 }));
 
 describe("NfmLinkToolbar", () => {
+  test("does not crash when the create-link button becomes unavailable for a node selection", async () => {
+    createLinkButtonState = {
+      url: "https://example.com",
+      text: "Example",
+      range: { from: 1, to: 8 },
+    };
+
+    const { NfmCreateLinkButton } = await import("./nfm-link-toolbar");
+
+    const view = render(
+      <NodexTooltipProvider>
+        <NfmCreateLinkButton />
+      </NodexTooltipProvider>,
+    );
+
+    expect(Boolean(view.getByRole("button", { name: "Add link" }))).toBeTrue();
+
+    createLinkButtonState = undefined;
+
+    await act(async () => {
+      view.rerender(
+        <NodexTooltipProvider>
+          <NfmCreateLinkButton />
+        </NodexTooltipProvider>,
+      );
+      await settleAsyncRender();
+    });
+
+    expect(view.queryByRole("button", { name: "Add link" }) === null).toBeTrue();
+  });
+
   test("keeps the edit dialog open for the current link after clicking edit", async () => {
+    createLinkButtonState = undefined;
     const { NfmLinkToolbar } = await import("./nfm-link-toolbar");
 
     const view = render(
@@ -85,6 +135,7 @@ describe("NfmLinkToolbar", () => {
   });
 
   test("keeps the edit dialog mounted across parent rerenders when the wrapper component identity is stable", async () => {
+    createLinkButtonState = undefined;
     const { NfmLinkToolbar } = await import("./nfm-link-toolbar");
 
     function Host() {
