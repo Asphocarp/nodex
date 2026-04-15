@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { writeImageToClipboard } from "./clipboard-image-writer";
 import { inspectClipboardPasteItems } from "./clipboard-paste-inspector";
 import * as dbService from "./kanban/db-service";
 import * as backupService from "./kanban/backup-service";
@@ -463,6 +464,14 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     } catch {
       return null;
     }
+  });
+
+  registerHandle("clipboard:write-image", async (_, input: { source?: string }) => {
+    if (typeof input?.source !== "string") {
+      return { ok: false, message: "Could not copy image." } as const;
+    }
+
+    return writeImageToClipboard(input.source);
   });
 
   registerHandle("clipboard:inspect-paste", () =>

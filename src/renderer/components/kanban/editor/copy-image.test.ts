@@ -1,84 +1,43 @@
 import { describe, expect, test } from "bun:test";
 
-import { copyImageToClipboard, resolveImageCopyUrl } from "./copy-image";
+import { copyImageToClipboardWithInvoke } from "./copy-image";
 
-const BASE_HREF = "http://localhost:51284/editor";
+describe("copy image helper", () => {
+  test("invokes the native clipboard image channel with the raw source", async () => {
+    const invokeCalls: unknown[][] = [];
+    const result = await copyImageToClipboardWithInvoke(
+      "nodex://assets/diagram.png",
+      async (...args: unknown[]) => {
+        invokeCalls.push(args);
+        return { ok: true };
+      },
+    );
 
-class FakeClipboardItem {
-  static supports(mimeType: string): boolean {
-    return mimeType === "image/png";
-  }
-
-  readonly items: Record<string, Blob>;
-
-  constructor(items: Record<string, Blob>) {
-    this.items = items;
-  }
-}
-
-describe("copy image helpers", () => {
-  test("resolveImageCopyUrl resolves source with resolver and normalizes to absolute URL", async () => {
-    const resolvedUrl = await resolveImageCopyUrl("nodex://assets/a.png", {
-      resolveFileUrl: async () => "/api/assets/a.png",
-      baseHref: BASE_HREF,
-    });
-
-    expect(resolvedUrl).toBe("http://localhost:51284/api/assets/a.png");
+    expect(result.ok).toBeTrue();
+    expect(JSON.stringify(invokeCalls)).toBe(JSON.stringify([
+      ["clipboard:write-image", { source: "nodex://assets/diagram.png" }],
+    ]));
   });
 
-  test("copyImageToClipboard writes image bytes when clipboard image write is supported", async () => {
-    const writes: ClipboardItem[][] = [];
-    const clipboard = {
-      write: async (items: ClipboardItem[]) => {
-        writes.push(items);
-      },
-    };
+  test("returns the structured failure result from the native clipboard path", async () => {
+    const result = await copyImageToClipboardWithInvoke(
+      "https://example.com/image.png",
+      async () => ({ ok: false, message: "Could not load the image file." }),
+    );
 
-    const mode = await copyImageToClipboard({
-      source: "http://localhost:51283/api/assets/a.png",
-      fetchImpl: async () =>
-        ({
-          ok: true,
-          status: 200,
-          blob: async () => new Blob(["png"], { type: "image/png" }),
-        }) as Response,
-      clipboard,
-      clipboardItemCtor: FakeClipboardItem as unknown as typeof ClipboardItem,
-      baseHref: BASE_HREF,
-    });
-
-    expect(mode).toBe("image");
-    expect(writes.length).toBe(1);
-    const firstWrite = writes[0][0] as unknown as FakeClipboardItem;
-    expect(firstWrite.items["image/png"] instanceof Blob).toBeTrue();
+    expect(result.ok).toBeFalse();
+    expect("message" in result ? result.message : "").toBe("Could not load the image file.");
   });
 
-  test("copyImageToClipboard falls back to URL text when image mime is not supported", async () => {
-    const writtenTexts: string[] = [];
-    const clipboard = {
-      write: async () => {
-        throw new Error("should not use image write path");
+  test("normalizes unexpected invoke failures to a user-facing copy error", async () => {
+    const result = await copyImageToClipboardWithInvoke(
+      "nodex://assets/diagram.png",
+      async () => {
+        throw new Error("boom");
       },
-      writeText: async (text: string) => {
-        writtenTexts.push(text);
-      },
-    };
+    );
 
-    const mode = await copyImageToClipboard({
-      source: "/api/assets/a.webp",
-      fetchImpl: async () =>
-        ({
-          ok: true,
-          status: 200,
-          blob: async () => new Blob(["webp"], { type: "image/webp" }),
-        }) as Response,
-      clipboard,
-      clipboardItemCtor: FakeClipboardItem as unknown as typeof ClipboardItem,
-      baseHref: BASE_HREF,
-    });
-
-    expect(mode).toBe("url");
-    expect(writtenTexts.length).toBe(1);
-    expect(writtenTexts[0]).toBe("http://localhost:51284/api/assets/a.webp");
+    expect(result.ok).toBeFalse();
+    expect("message" in result ? result.message : "").toBe("boom");
   });
 });

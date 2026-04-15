@@ -13,8 +13,15 @@ import { Copy } from "lucide-react";
 import { useCallback } from "react";
 
 import { copyImageToClipboard } from "./copy-image";
+import type { ShowEditorNotice } from "./editor-notice";
 
-export function CopyImageButton() {
+export function CopyImageButton({
+  onShowNotice,
+  copyImageToClipboardImpl = copyImageToClipboard,
+}: {
+  onShowNotice?: ShowEditorNotice;
+  copyImageToClipboardImpl?: typeof copyImageToClipboard;
+}) {
   const Components = useComponentsContext()!;
   const editor = useBlockNoteEditor<
     BlockSchema,
@@ -49,17 +56,16 @@ export function CopyImageButton() {
   const onClick = useCallback(() => {
     if (!block) return;
 
-    void copyImageToClipboard({
-      source: block.props.url,
-      resolveFileUrl: editor.resolveFileUrl?.bind(editor),
-    })
-      .then(() => {
+    void copyImageToClipboardImpl(block.props.url)
+      .then((result) => {
+        if (!result.ok) {
+          onShowNotice?.("error", result.message);
+          return;
+        }
+
         editor.focus();
-      })
-      .catch((error) => {
-        console.error("Failed to copy image", error);
       });
-  }, [block, editor]);
+  }, [block, copyImageToClipboardImpl, editor, onShowNotice]);
 
   if (!block) return null;
 

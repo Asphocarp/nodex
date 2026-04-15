@@ -282,7 +282,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Drag-hovering collapsed toggle headers (`toggleListItem`, toggle headings, and `cardToggle` rows including projected rows under `cardRef` / `toggleListInlineView`) keeps a stable, Notion-style overlay highlight with pointer-coordinate hit-testing plus drop-time active-target fallback for side-menu retargeting (no rapid flicker), and supports diagnostics via `window.__TOGGLE_DND_DEBUG__ = true`
 - Image blocks are supported in NFM (`<image source="...">Caption</image>`) and render in both editor and read-only previews
 - Mouse drag/range selections that span image blocks show a blue-tinted image-block highlight/outline so inclusion is visually explicit
-- Image block floating toolbar includes `Copy image` (copies image bytes when supported, otherwise copies resolved image URL text)
+- Image block floating toolbar includes `Copy image` (copies actual image content through the native desktop clipboard, does not fall back to copying the URL, and shows an in-editor error toast when native copy fails)
 - Pressing `Space` while an image block is focused opens a larger centered modal preview; pressing `Space` again closes it (Esc/click outside also close)
 - Double-clicking an image block opens the same large preview modal
 - Image preview modal includes zoom controls (`+`, `-`, reset) with a visible zoom percentage

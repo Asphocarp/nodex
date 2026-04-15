@@ -108,6 +108,10 @@ export interface HistoryPanelSnapshotField {
   value: unknown;
 }
 
+export type ClipboardWriteImageResult =
+  | { ok: true }
+  | { ok: false; message: string };
+
 export interface HistoryPanelDescriptionDeltaBlock {
   changeType: "added" | "removed" | "replaced";
   blockType: string;
@@ -347,6 +351,7 @@ export interface IpcApi {
   "canvas:get": { args: [projectId: string]; result: CanvasData | null };
   "canvas:save": { args: [projectId: string, data: CanvasData]; result: void };
   "asset:resolve-path": { args: [source: string]; result: string | null };
+  "clipboard:write-image": { args: [input: { source: string }]; result: ClipboardWriteImageResult };
   "clipboard:inspect-paste": { args: []; result: ClipboardPasteInspectionResult };
   "window:show-emoji-panel": { args: []; result: boolean };
   "window:new": { args: []; result: boolean };

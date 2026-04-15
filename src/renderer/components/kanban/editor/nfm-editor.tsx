@@ -25,6 +25,7 @@ import { NfmFormattingToolbar } from "./nfm-formatting-toolbar";
 import { NfmLinkToolbar } from "./nfm-link-toolbar";
 import { NfmLinkToolbarController } from "./nfm-link-toolbar-controller";
 import { ChipPropertyEditor } from "./chip-property-editor";
+import { EditorNoticeSurface, useTransientEditorNotice } from "./editor-notice";
 import { useEditorDragBehaviors } from "./use-editor-drag-behaviors";
 import type { Card } from "@/lib/types";
 import { useCardImportDropTarget } from "./use-card-import-drop-target";
@@ -243,11 +244,6 @@ interface SendBlocksDialogState {
   blocks: DragSessionBlock[];
 }
 
-interface ThreadSectionHintState {
-  type: "info" | "error";
-  message: string;
-}
-
 interface PreparedThreadSectionSendDialogState extends ThreadSectionSendDialogState {
   prompt: string;
   markerBlockId: string | null;
@@ -463,14 +459,20 @@ export function NfmEditor({
   const [pasteResourcePending, setPasteResourcePending] = useState(false);
   const [pasteResourceError, setPasteResourceError] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<{ source: string; alt: string } | null>(null);
+  const {
+    notice: editorNotice,
+    showNotice: showThreadSectionHint,
+  } = useTransientEditorNotice();
   const renderLinkToolbar = useCallback((linkToolbarProps: LinkToolbarProps) => (
     <NfmLinkToolbar
       {...linkToolbarProps}
       projectWorkspacePath={projectWorkspacePath}
     />
   ), [projectWorkspacePath]);
+  const renderFormattingToolbar = useCallback(() => (
+    <NfmFormattingToolbar onShowNotice={showThreadSectionHint} />
+  ), [showThreadSectionHint]);
   const [threadSectionPendingBlockIds, setThreadSectionPendingBlockIds] = useState<Set<string>>(() => new Set());
-  const [threadSectionHint, setThreadSectionHint] = useState<ThreadSectionHintState | null>(null);
   const [threadSectionThreadsByOwnerKey, setThreadSectionThreadsByOwnerKey] = useState<
     Record<string, Record<string, ThreadSectionLinkedThreadState>>
   >({});
@@ -482,7 +484,6 @@ export function NfmEditor({
   const suppressExternalDropRef = useRef(false);
   const suppressExternalContentSyncRef = useRef(false);
   const { moveCardDropToEditor } = useKanban({ projectId });
-  const threadSectionHintTimeoutRef = useRef<number | null>(null);
 
   // Use refs to avoid stale closures
   const onChangeRef = useRef(onChange);
@@ -494,25 +495,6 @@ export function NfmEditor({
   useEffect(() => {
     onBlurRef.current = onBlur;
   }, [onBlur]);
-
-  const showThreadSectionHint = useCallback((type: ThreadSectionHintState["type"], message: string) => {
-    if (threadSectionHintTimeoutRef.current !== null) {
-      window.clearTimeout(threadSectionHintTimeoutRef.current);
-    }
-    setThreadSectionHint({ type, message });
-    threadSectionHintTimeoutRef.current = window.setTimeout(() => {
-      setThreadSectionHint(null);
-      threadSectionHintTimeoutRef.current = null;
-    }, 2800);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (threadSectionHintTimeoutRef.current !== null) {
-        window.clearTimeout(threadSectionHintTimeoutRef.current);
-      }
-    };
-  }, []);
 
   const threadSectionThreadMap = useMemo(
     () => buildThreadSectionThreadMap(
@@ -2334,7 +2316,7 @@ export function NfmEditor({
             sideMenu={customSideMenu}
             floatingUIOptions={sideMenuFloatingOptions}
           />
-          <FormattingToolbarController formattingToolbar={NfmFormattingToolbar} />
+          <FormattingToolbarController formattingToolbar={renderFormattingToolbar} />
         <NfmLinkToolbarController
           linkToolbar={renderLinkToolbar}
           floatingUIOptions={{
@@ -2390,20 +2372,7 @@ export function NfmEditor({
           }}
         />
       )}
-      {threadSectionHint && (
-        <div className="pointer-events-none absolute right-3 bottom-3 z-30">
-          <div
-            className={cn(
-              "max-w-80 rounded-lg border px-3 py-2 text-xs shadow-card-md",
-              threadSectionHint.type === "error"
-                ? "border-(--red-border) bg-(--red-bg) text-(--red-text)"
-                : "border-(--border) bg-(--background) text-(--foreground-secondary)",
-            )}
-          >
-            {threadSectionHint.message}
-          </div>
-        </div>
-      )}
+      <EditorNoticeSurface notice={editorNotice} />
       {pasteResourceDialog && (
         <PasteResourceDialog
           open={pasteResourceDialog !== null}

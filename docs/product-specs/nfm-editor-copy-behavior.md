@@ -439,13 +439,13 @@ On success, the editor is focused again.
 ### Image toolbar copy
 
 - block-toolbar action, not selection copy
-- copies image bytes when possible
-- otherwise copies the resolved image URL text
+- copies real image content through the native desktop clipboard
+- does not fall back to copying the resolved image URL text
 - does not write BlockNote HTML or structure-preserving `text/plain`
+- shows an editor-local error toast when native image copy fails
 
 ## Known Intentional Limits Of The Current Behavior
 
 - There is no dedicated ProseMirror `clipboardTextSerializer` hook in use; text handling lives inside the editor's custom copy helper
 - Continuation lines inside structured text keep indentation depth but do not repeat list markers
 - Image conversion during selection copy is line-pattern based, not a full structured image AST pass
-- The image toolbar copy path has no visible success/error toast

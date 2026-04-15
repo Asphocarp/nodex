@@ -730,6 +730,12 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       const data = await res.json();
       return data.path ?? null;
     }
+    case "clipboard:write-image": {
+      return {
+        ok: false as const,
+        message: "Copy image is unavailable outside the desktop app.",
+      };
+    }
     case "clipboard:inspect-paste": {
       return { items: [] };
     }
