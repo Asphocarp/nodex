@@ -1341,6 +1341,10 @@ function BackupSettingsControl({ open }: { open: boolean }) {
 
   const loadBackups = useCallback(async () => {
     const list = await invoke("backup:list") as BackupRecord[];
+    if (!Array.isArray(list)) {
+      setBackups([]);
+      return;
+    }
     setBackups(list);
   }, []);
 

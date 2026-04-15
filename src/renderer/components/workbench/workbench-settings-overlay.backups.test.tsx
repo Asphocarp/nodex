@@ -1,11 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
 import { AppProviders } from "@/app-providers";
 import { makeDefaultSidebarTopLevelSectionsPrefs } from "@/lib/sidebar-section-prefs";
 import { render, settleAsyncRender } from "@/test/dom";
-import { installWindowApi } from "@/test/browser-globals";
 import type { BackupRecord } from "@/lib/types";
-import { SettingsOverlay } from "./workbench-settings-overlay";
 import { buildSettingsPath } from "./workbench-settings-routes";
 
 const PROJECTS = [
@@ -18,7 +16,17 @@ const PROJECTS = [
   },
 ];
 
-function renderOverlay() {
+let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
+
+mock.module("../../lib/api", () => ({
+  invoke: async (channel: string, ...args: unknown[]) => {
+    if (!mockInvokeImpl) return null;
+    return mockInvokeImpl(channel, ...args);
+  },
+}));
+
+async function renderOverlay() {
+  const { SettingsOverlay } = await import("./workbench-settings-overlay");
   return render(
     <AppProviders>
       <SettingsOverlay
@@ -54,6 +62,40 @@ function renderOverlay() {
 }
 
 describe("SettingsOverlay backups", () => {
+  test("treats a malformed backup list response as empty state", async () => {
+    mockInvokeImpl = async (channel: string) => {
+      switch (channel) {
+        case "settings:backup:get":
+          return {
+            autoEnabled: false,
+            intervalHours: 24,
+            retentionCount: 10,
+            envOverrides: {
+              autoEnabled: false,
+              intervalHours: false,
+              retentionCount: false,
+            },
+          };
+        case "settings:history:get":
+          return {
+            retentionCount: 1000,
+            envOverrides: {
+              retentionCount: false,
+            },
+          };
+        case "backup:list":
+          return null;
+        default:
+          return null;
+      }
+    };
+
+    const view = await renderOverlay();
+    await settleAsyncRender();
+
+    view.getByText("No snapshots yet.");
+  });
+
   test("deletes a snapshot through inline row confirmation", async () => {
     const backups: BackupRecord[] = [
       {
@@ -70,49 +112,46 @@ describe("SettingsOverlay backups", () => {
     ];
     const deletedBackupIds: string[] = [];
 
-    installWindowApi({
-      invoke: async (channel: string, ...args: unknown[]) => {
-        switch (channel) {
-          case "settings:backup:get":
-            return {
+    mockInvokeImpl = async (channel: string, ...args: unknown[]) => {
+      switch (channel) {
+        case "settings:backup:get":
+          return {
+            autoEnabled: false,
+            intervalHours: 24,
+            retentionCount: 10,
+            envOverrides: {
               autoEnabled: false,
-              intervalHours: 24,
-              retentionCount: 10,
-              envOverrides: {
-                autoEnabled: false,
-                intervalHours: false,
-                retentionCount: false,
-              },
-            };
-          case "settings:history:get":
-            return {
-              retentionCount: 1000,
-              envOverrides: {
-                retentionCount: false,
-              },
-            };
-          case "backup:list":
-            return [...backups];
-          case "backup:delete": {
-            const [backupId] = args as [string];
-            deletedBackupIds.push(backupId);
-            const index = backups.findIndex((backup) => backup.id === backupId);
-            if (index >= 0) {
-              backups.splice(index, 1);
-            }
-            return {
-              success: true,
-              deletedBackupId: backupId,
-            };
+              intervalHours: false,
+              retentionCount: false,
+            },
+          };
+        case "settings:history:get":
+          return {
+            retentionCount: 1000,
+            envOverrides: {
+              retentionCount: false,
+            },
+          };
+        case "backup:list":
+          return [...backups];
+        case "backup:delete": {
+          const [backupId] = args as [string];
+          deletedBackupIds.push(backupId);
+          const index = backups.findIndex((backup) => backup.id === backupId);
+          if (index >= 0) {
+            backups.splice(index, 1);
           }
-          default:
-            return null;
+          return {
+            success: true,
+            deletedBackupId: backupId,
+          };
         }
-      },
-      on: () => () => {},
-    });
+        default:
+          return null;
+      }
+    };
 
-    const view = renderOverlay();
+    const view = await renderOverlay();
     await settleAsyncRender();
 
     fireEvent.click(view.getByRole("button", { name: "Delete snapshot Before risky change" }));
