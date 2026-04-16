@@ -74,7 +74,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Projects with no recent card sessions do not auto-select the History overlay in the Card stage
 - Sidebar rows use consistent nested indentation, with quiet top-level section labels for `Recents`, `Cards`, `Threads`, and `Diffs`, plus collapsible status subheaders in `Cards` that start collapsed by default
 - Each top-level sidebar section header includes a `more actions` menu for changing its default row limit (`5`, `10`, `15`, or `20` items), moving the section up/down among visible top-level sections, and hiding the section
-- The sidebar `Cards` stage group shows the current DB project's cards grouped by non-empty, collapsible status sections in canonical board order (`Ideas` -> `Done`), using title-only rows and per-section counts; status sections start collapsed by default, and collapsed sections may still surface their active card row so the current selection stays visible
+- The sidebar `Cards` stage group shows the current DB project's cards grouped by non-empty, collapsible status sections in reverse workflow order (`Done` -> `Draft`), using title-only rows and per-section counts; status sections start collapsed by default, and collapsed sections may still surface their active card row so the current selection stays visible
 - Sidebar stage sections show at most each section's configured default row limit per subsection/list by default, with clickable `Show more` / `Show less` controls for longer lists
 - Sidebar status-subheader collapse state and per-section `Show more` / `Show less` state persist per project across reloads
 - Sidebar stage collapse/expand and show-more/show-less interactions animate list height and row visibility

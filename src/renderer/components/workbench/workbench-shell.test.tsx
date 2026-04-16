@@ -240,6 +240,38 @@ mock.module("./workbench-shell-deps", () => ({
     board: {
       columns: [
         {
+          id: "draft",
+          name: "Draft",
+          cards: [
+            {
+              id: "card-draft-1",
+              title: "Draft Card",
+              description: "",
+              priority: "p2-medium",
+              tags: [],
+              created: new Date("2026-02-25T00:00:00.000Z"),
+              order: 0,
+              runInTarget: "newWorktree",
+            },
+          ],
+        },
+        {
+          id: "backlog",
+          name: "Backlog",
+          cards: [
+            {
+              id: "card-backlog-1",
+              title: "Backlog Card",
+              description: "",
+              priority: "p2-medium",
+              tags: [],
+              created: new Date("2026-02-25T00:00:00.000Z"),
+              order: 0,
+              runInTarget: "newWorktree",
+            },
+          ],
+        },
+        {
           id: "in_progress",
           name: "In Progress",
           cards: [
@@ -261,6 +293,38 @@ mock.module("./workbench-shell-deps", () => ({
               tags: [],
               created: new Date("2026-02-25T00:00:00.000Z"),
               order: 1,
+              runInTarget: "newWorktree",
+            },
+          ],
+        },
+        {
+          id: "in_review",
+          name: "In Review",
+          cards: [
+            {
+              id: "card-review-1",
+              title: "Review Card",
+              description: "",
+              priority: "p2-medium",
+              tags: [],
+              created: new Date("2026-02-25T00:00:00.000Z"),
+              order: 0,
+              runInTarget: "newWorktree",
+            },
+          ],
+        },
+        {
+          id: "done",
+          name: "Done",
+          cards: [
+            {
+              id: "card-done-1",
+              title: "Done Card",
+              description: "",
+              priority: "p2-medium",
+              tags: [],
+              created: new Date("2026-02-25T00:00:00.000Z"),
+              order: 0,
               runInTarget: "newWorktree",
             },
           ],
@@ -311,7 +375,11 @@ mock.module("./workbench-shell-deps", () => ({
     skipOccurrence: async () => true,
   }),
   KANBAN_STATUS_LABELS: {
+    draft: "Draft",
+    backlog: "Backlog",
     in_progress: "In Progress",
+    in_review: "In Review",
+    done: "Done",
   },
   SharedStatusIcon: ({ className }: { className?: string }) =>
     createElement("span", { className, "data-status-icon": "true" }, "S"),
@@ -1131,7 +1199,13 @@ describe("WorkbenchShell", () => {
     const sectionIds = cardsGroup?.sections?.map((section) => section.id).join(",");
     const statusSection = cardsGroup?.sections?.find((section) => section.id === "cards:status:in_progress");
 
-    expect(sectionIds).toBe("cards:status:in_progress");
+    expect(sectionIds).toBe([
+      "cards:status:done",
+      "cards:status:in_review",
+      "cards:status:in_progress",
+      "cards:status:backlog",
+      "cards:status:draft",
+    ].join(","));
     expect(statusSection?.label).toBe("In Progress");
     expect(statusSection?.count).toBe(2);
     expect(statusSection?.collapsible).toBeTrue();
@@ -1592,7 +1666,7 @@ describe("WorkbenchShell", () => {
     expect(openCardStageCalls.length).toBe(1);
     expect(navigateToFilesTabCalls.length).toBe(1);
     expect(openCardStageCalls[0]?.[0]).toBe("default");
-    expect(openCardStageCalls[0]?.[1]).toBe("card-1");
+    expect(openCardStageCalls[0]?.[1]).toBe("card-done-1");
     expect(navigateToStageCalls.length).toBe(3);
     expect(resolveSlidingWindowFocusIntentCalls.length).toBe(3);
   });

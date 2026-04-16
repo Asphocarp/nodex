@@ -115,6 +115,8 @@ import type {
 } from "@/lib/use-workbench-state";
 import type { CardStageSessionSnapshot } from "@/components/kanban/card-stage/types";
 
+const CARDS_SIDEBAR_STATUS_ORDER = [...TOGGLE_LIST_STATUS_ORDER].reverse();
+
 interface WorkbenchShellProps {
   projects: Project[];
   dbProjectId: string;
@@ -998,7 +1000,7 @@ export function WorkbenchShell({
   }));
 
   const cardsSidebarSections = useMemo<StageSidebarSection[]>(() => {
-    const statusSections = TOGGLE_LIST_STATUS_ORDER.flatMap<StageSidebarSection>((statusId) => {
+    const statusSections = CARDS_SIDEBAR_STATUS_ORDER.flatMap<StageSidebarSection>((statusId) => {
       const column = activeProjectBoard?.columns.find((candidate) => candidate.id === statusId);
       if (!column || column.cards.length === 0) return [];
 

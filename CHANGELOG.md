@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 - Added a global Nodex toast system with a single top-centered renderer overlay, Codex-style deduping/custom-toast support, and immediate migration of undo/history, editor, and review transient feedback onto the shared toaster.
 
 ### Changed
+- Cards sidebar status groups now list completed work first, from `Done` back to `Draft`, while board and filter ordering stay unchanged.
 - Thread-composer dictation no longer depends on a rollout-token gate; it is now available in supported ChatGPT-authenticated Electron sessions by default.
 
 ### Fixed

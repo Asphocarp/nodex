@@ -98,6 +98,97 @@ function SidebarSectionMenuHarness() {
   );
 }
 
+function StatusGroupOrderHarness() {
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    "cards:status:done": true,
+    "cards:status:in_review": true,
+    "cards:status:in_progress": true,
+  });
+  const [showAllItemsBySection, setShowAllItemsBySection] = useState<Record<string, boolean>>({});
+
+  const groups: StageSidebarGroup[] = [
+    {
+      id: "cards",
+      label: "Cards",
+      active: true,
+      expanded: true,
+      onFocus: () => {},
+      onToggleExpanded: () => {},
+      sections: [
+        {
+          id: "cards:status:done",
+          label: "Done",
+          count: 2,
+          collapsible: true,
+          items: [
+            { id: "done-1", label: "Release notarized build", onSelect: () => {}, active: true },
+            { id: "done-2", label: "Archive completed sync job", onSelect: () => {} },
+          ],
+        },
+        {
+          id: "cards:status:in_review",
+          label: "In Review",
+          count: 1,
+          collapsible: true,
+          items: [{ id: "review-1", label: "Check thread transcript parity", onSelect: () => {} }],
+        },
+        {
+          id: "cards:status:in_progress",
+          label: "In Progress",
+          count: 2,
+          collapsible: true,
+          items: [
+            { id: "progress-1", label: "Tune sidebar density", onSelect: () => {} },
+            { id: "progress-2", label: "Wire card search filters", onSelect: () => {} },
+          ],
+        },
+        {
+          id: "cards:status:backlog",
+          label: "Backlog",
+          count: 1,
+          collapsible: true,
+          items: [{ id: "backlog-1", label: "Investigate branch selector", onSelect: () => {} }],
+        },
+        {
+          id: "cards:status:draft",
+          label: "Draft",
+          count: 1,
+          collapsible: true,
+          items: [{ id: "draft-1", label: "Sketch dependency audit", onSelect: () => {} }],
+        },
+      ],
+    },
+  ];
+
+  return (
+    <div className="min-h-screen bg-(--background)">
+      <LeftSidebar
+        projects={PROJECTS}
+        spaces={SPACES}
+        activeProjectId="default"
+        stageGroups={groups}
+        collapsed={false}
+        width={280}
+        expandedSections={expandedSections}
+        showAllItemsBySection={showAllItemsBySection}
+        onResizeWidth={() => {}}
+        onSetSectionExpanded={(sectionId, expanded) => {
+          setExpandedSections((current) => ({ ...current, [sectionId]: expanded }));
+        }}
+        onSetSectionShowAll={(sectionId, showAll) => {
+          setShowAllItemsBySection((current) => ({ ...current, [sectionId]: showAll }));
+        }}
+        onSelectSpace={() => {}}
+        onOpenSettings={() => {}}
+        projectPickerOpenTick={0}
+        onCreateProject={async () => PROJECTS[0]}
+        onDeleteProject={async () => true}
+        onRenameProject={async () => PROJECTS[0]}
+      />
+    </div>
+  );
+}
+
 function ProjectManagerHarness() {
   return (
     <div className="min-h-screen bg-(--background) p-8">
@@ -137,6 +228,10 @@ type Story = StoryObj<typeof meta>;
 
 export const SectionMenuOpen: Story = {
   render: () => <SidebarSectionMenuHarness />,
+};
+
+export const StatusGroupsReversed: Story = {
+  render: () => <StatusGroupOrderHarness />,
 };
 
 export const ProjectManagerOpen: Story = {
