@@ -2092,8 +2092,6 @@ export class CodexService extends EventEmitter {
       return cached;
     }
 
-    await this.ensureClientReady();
-
     let workspacePath: string | null = null;
     try {
       const project = dbService.getProject(projectId);
@@ -2105,6 +2103,8 @@ export class CodexService extends EventEmitter {
     }
 
     try {
+      await this.ensureClientReady();
+
       const [configResult, requirementsResult] = await Promise.all([
         this.client.request<"config/read", ConfigReadResponse>("config/read", {
           includeLayers: true,
@@ -5150,8 +5150,6 @@ export class CodexService extends EventEmitter {
   }
 
   async removePlanImplementationRequest(threadId: string, turnId: string): Promise<boolean> {
-    await this.ensureClientReady();
-
     const existing = this.getRecordedItem(threadId, turnId, buildPlanImplementationRequestId(turnId));
     this.removePlanImplementationRequestFromRecord(threadId, turnId);
 

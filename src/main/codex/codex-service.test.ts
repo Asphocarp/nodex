@@ -5445,6 +5445,7 @@ describe("codex-service custom permission descriptions", () => {
       findProjectCodexConfig: (projectId: string) => { configPath: string; displayPath: string } | null;
     };
     const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
       request: (method: string, params?: unknown) => Promise<unknown>;
     };
     const originalCodexHome = process.env.CODEX_HOME;
@@ -5462,6 +5463,7 @@ describe("codex-service custom permission descriptions", () => {
     );
     process.env.CODEX_HOME = tempCodexHome;
     serviceInternals.findProjectCodexConfig = () => null;
+    client.start = async () => undefined;
     client.request = async (method: string) => {
       if (method === "config/read") {
         return {
@@ -5519,6 +5521,7 @@ describe("codex-service custom permission descriptions", () => {
     const service = createService();
     const ran = await withTempDatabase(async () => {
       const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
         request: (method: string, params?: unknown) => Promise<unknown>;
       };
       const workspacePath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-codex-workspace-config-"));
@@ -5536,6 +5539,7 @@ describe("codex-service custom permission descriptions", () => {
       );
 
       try {
+        client.start = async () => undefined;
         client.request = async (method: string) => {
           if (method === "config/read") {
             return {
@@ -5591,6 +5595,7 @@ describe("codex-service custom permission descriptions", () => {
   test("prefers user-config display path when walk-up finds ~/.codex/config.toml", async () => {
     const service = createService();
     const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
       request: (method: string, params?: unknown) => Promise<unknown>;
     };
     const originalHome = process.env.HOME;
@@ -5616,6 +5621,7 @@ describe("codex-service custom permission descriptions", () => {
       process.env.HOME = tempHome;
       delete process.env.CODEX_HOME;
 
+      client.start = async () => undefined;
       client.request = async (method: string) => {
         if (method === "config/read") {
           return {

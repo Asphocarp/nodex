@@ -52,6 +52,7 @@
 - Packaged builds ship a pinned Codex runtime inside `Contents/Resources/bin`, and dev/unpackaged runs use the staged pinned runtime under `.generated/codex-runtime/bin`.
 - macOS packaging preserves the upstream OpenAI signature on `Contents/Resources/bin/codex` instead of re-signing that binary under the app's identity, so existing `Codex MCP Credentials` Keychain ACL entries that trust OpenAI's Codex team continue to match packaged Nodex builds.
 - Nodex never falls back to a system `codex` binary from `PATH`, so the runtime CLI version stays aligned with the committed `@nodex/codex-app-server-protocol` package in both packaged and local development flows.
+- Permission-state reads degrade to a local fallback when the pinned Codex app-server runtime cannot start, so settings and approval fallback logic do not crash before the missing-runtime connection state can be surfaced.
 - `codex:*` API calls in browser mode fail fast with explicit unsupported errors.
 - App-update IPC/status calls in browser mode, unpackaged builds, and non-macOS builds return explicit `unsupported` status and do not attempt network update checks.
 - Approval/user-input pending requests are rejected on Codex service shutdown to prevent hung renderer promises.

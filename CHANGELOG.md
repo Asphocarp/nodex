@@ -53,6 +53,7 @@ All notable changes to this project will be documented in this file.
 - Fixed remaining Codex thread control-plane invalidation so permission modes, thread-start progress, model bootstrap, thread summaries, and active conversations now share one manager/registry substrate instead of flowing through a second renderer reducer.
 - Fixed Kanban board horizontal overflow so the board keeps a visible thin scrollbar instead of hiding the only obvious horizontal scroll affordance.
 - Fixed active thread exploration rows so live read/search/list-file sequences now stay in Codex-style `Exploring` preview mode instead of immediately falling back to `Explored`.
+- Fixed release validation for Codex approval and permission unit tests so they no longer require a staged local Codex runtime on CI.
 - Fixed thread-body and tool-call accordion motion timing so transcript reveals now use the same shared easing and duration as Codex instead of a slower misidentified transition.
 - Fixed streaming proposed-plan cards so active plans now render as `Writing plan` in the collapsed preview state instead of expanding immediately under an extra `Proposed plan` label.
 - Fixed thread tool-call expand/collapse scroll anchoring so opening a visible tool body no longer drags the surrounding turn header and transcript position.
