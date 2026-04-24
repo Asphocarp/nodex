@@ -87,6 +87,20 @@ describe("WindowSessionState", () => {
     });
   });
 
+  test("resolves the assigned session for a window", () => {
+    withTempUserData((userDataPath) => {
+      const workspaceBootstrap = new WorkspaceState(userDataPath).bootstrap();
+      const state = new WindowSessionState(userDataPath);
+      const session = state.createSession(workspaceBootstrap.catalog);
+
+      state.assignWindow(7, session.id);
+      expect(state.getSessionForWindow(7)?.id).toBe(session.id);
+
+      state.clearWindow(7);
+      expect(state.getSessionForWindow(7)).toBe(null);
+    });
+  });
+
   test("retains only open sessions when shutdown state is persisted", () => {
     withTempUserData((userDataPath) => {
       const workspaceBootstrap = new WorkspaceState(userDataPath).bootstrap();

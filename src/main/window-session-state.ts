@@ -251,6 +251,14 @@ export class WindowSessionState {
     return this.webContentsToSessionId.get(webContentsId) ?? null;
   }
 
+  getSessionForWindow(webContentsId: number): WindowSessionRecord | null {
+    const sessionId = this.webContentsToSessionId.get(webContentsId);
+    if (!sessionId) return null;
+    const catalog = this.readCatalog();
+    if (!catalog) return null;
+    return catalog.sessions.find((session) => session.id === sessionId) ?? null;
+  }
+
   readCatalog(): WindowSessionCatalog | null {
     try {
       const raw = readFileSync(this.statePath, "utf8");

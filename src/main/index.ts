@@ -157,6 +157,32 @@ function captureWindowSessionBounds(window: BrowserWindow): WindowSessionBounds 
   };
 }
 
+function resolveMacWindowTitle(session: WindowSessionRecord): string {
+  const workspaceBootstrap = workspaceState?.bootstrap();
+  const workspaceName = workspaceBootstrap?.catalog.workspaces
+    .find((workspace) => workspace.id === session.workspaceId)
+    ?.name
+    .trim()
+    || workspaceBootstrap?.activeWorkspace.name.trim();
+  return workspaceName || "Nodex";
+}
+
+function syncMacWindowTitle(window: BrowserWindow, session?: WindowSessionRecord | null): void {
+  if (process.platform !== "darwin") return;
+  if (window.isDestroyed()) return;
+
+  const resolvedSession = session ?? windowSessionState?.getSessionForWindow(window.webContents.id);
+  window.setTitle(resolvedSession ? resolveMacWindowTitle(resolvedSession) : "Nodex");
+}
+
+function syncAllMacWindowTitles(): void {
+  if (process.platform !== "darwin") return;
+
+  for (const window of openWindows.values()) {
+    syncMacWindowTitle(window);
+  }
+}
+
 async function requestHostMicrophonePermission(): Promise<void> {
   if (process.platform !== "darwin") {
     return;
@@ -380,6 +406,7 @@ function createWindow(
     height: savedBounds?.height ?? 900,
     minWidth: 800,
     minHeight: 600,
+    ...(process.platform === "darwin" ? { title: resolveMacWindowTitle(options.session) } : {}),
     ...(process.platform === "darwin" ? {} : { icon: appIconPath }),
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 16, y: 16 },
@@ -428,6 +455,7 @@ function createWindow(
   const webContentsId = window.webContents.id;
   openWindows.set(webContentsId, window);
   windowSessionState?.assignWindow(webContentsId, options.session.id);
+  syncMacWindowTitle(window, options.session);
   lastFocusedWindowId = webContentsId;
   if (options.restoreEligible) {
     workbenchResumeState?.markWindowEligible(webContentsId);
@@ -499,6 +527,7 @@ function createWindow(
     }
   });
   window.webContents.on("did-finish-load", () => {
+    syncMacWindowTitle(window);
     const appUpdateStatus = appUpdateService?.getStatus();
     if (appUpdateStatus) {
       window.webContents.send("app:update-status", appUpdateStatus);
@@ -713,15 +742,21 @@ if (hasSingleInstanceLock) {
         },
         onCreateWorkspace: (_webContentsId, name, layout, icon) => {
           if (!workspaceState) throw new Error("Workspace state is unavailable");
-          return workspaceState.createWorkspace(name, layout, icon);
+          const bootstrap = workspaceState.createWorkspace(name, layout, icon);
+          syncAllMacWindowTitles();
+          return bootstrap;
         },
         onRenameWorkspace: (_webContentsId, workspaceId, name, icon) => {
           if (!workspaceState) throw new Error("Workspace state is unavailable");
-          return workspaceState.renameWorkspace(workspaceId, name, icon);
+          const bootstrap = workspaceState.renameWorkspace(workspaceId, name, icon);
+          syncAllMacWindowTitles();
+          return bootstrap;
         },
         onDeleteWorkspace: (_webContentsId, workspaceId) => {
           if (!workspaceState) throw new Error("Workspace state is unavailable");
-          return workspaceState.deleteWorkspace(workspaceId);
+          const bootstrap = workspaceState.deleteWorkspace(workspaceId);
+          syncAllMacWindowTitles();
+          return bootstrap;
         },
         onSaveWorkspaceLayout: (webContentsId, workspaceId, layout) => {
           if (!workspaceState) throw new Error("Workspace state is unavailable");
@@ -743,6 +778,10 @@ if (hasSingleInstanceLock) {
           }
           const workspaceBootstrap = workspaceState.bootstrap();
           const session = windowSessionState.bootstrap(webContentsId, workspaceBootstrap.catalog);
+          const window = openWindows.get(webContentsId);
+          if (window) {
+            syncMacWindowTitle(window, session);
+          }
           const activeWorkspace = workspaceBootstrap.catalog.workspaces.find((workspace) => workspace.id === session.workspaceId)
             ?? workspaceBootstrap.activeWorkspace;
           return {
@@ -773,6 +812,9 @@ if (hasSingleInstanceLock) {
             : workspaceState.bootstrap();
           const activeWorkspace = nextWorkspaceBootstrap.catalog.workspaces.find((workspace) => workspace.id === session.workspaceId)
             ?? nextWorkspaceBootstrap.activeWorkspace;
+          if (window) {
+            syncMacWindowTitle(window, session);
+          }
           return {
             catalog: nextWorkspaceBootstrap.catalog,
             activeWorkspace,
