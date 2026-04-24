@@ -4,7 +4,7 @@
 The workbench shell presents project work as a staged horizontal pipeline inspired by niri-like focus movement.
 The sidebar `Projects` section controls the DB stage datasource, while Cards/Threads/Terminal keep stage-local project context and remain mounted in one horizontal shell.
 
-Detailed Guardian approvals preset, config, and approval-lifecycle rules are specified in [Guardian Approvals Behavior](./guardian-approvals-behavior.md).
+Detailed Auto-review preset, config, and approval-lifecycle rules are specified in [Auto-review Behavior](./auto-review-behavior.md).
 
 ## Layout
 - Left sidebar: a top-level `Projects` section for DB datasource selection plus the global stage map (`View`, `Card`, `Thread`, `Diff`).
@@ -50,11 +50,11 @@ Detailed Guardian approvals preset, config, and approval-lifecycle rules are spe
 - Visual styling layers Streamdown's base styles under `.codex-markdown` and `codex-tool-*` token overrides in `src/renderer/globals.css`.
 - The permission selector matches Codex Electron's visible labels and behavior:
   - `Default permissions`
-  - `Guardian approvals`
+  - `Auto-review`
   - `Full access`
   - `Custom (config.toml)`
-- `Guardian approvals` is reviewer-only parity, not a different sandbox preset: it shares `workspace-write + on-request` with `Default permissions` and only changes `approvalsReviewer` from `user` to `guardian_subagent`.
-- If the current config/requirements disable `guardian_approval`, the Guardian mode is unavailable and any resolved `guardian_subagent` reviewer collapses back to `user`.
+- `Auto-review` is reviewer-only parity, not a different sandbox preset: it shares `workspace-write + on-request` with `Default permissions` and only changes `approvalsReviewer` from `user` to `auto_review`.
+- If the current config/requirements disable `guardian_approval` or disallow the `auto_review` reviewer, the Auto-review mode is unavailable and any resolved automatic reviewer collapses back to `user`.
 
 ## Focus and Navigation
 - Focusing a stage scrolls only as needed so the focused stage is fully visible.

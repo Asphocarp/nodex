@@ -16,7 +16,7 @@ import type {
 const GUARDIAN_APPROVAL_FEATURE_KEY = "guardian_approval";
 const APPROVALS_REVIEWER_KEY = "approvals_reviewer";
 const DEFAULT_APPROVALS_REVIEWER: CodexApprovalsReviewer = "user";
-const GUARDIAN_APPROVALS_REVIEWER: CodexApprovalsReviewer = "guardian_subagent";
+const AUTO_REVIEW_APPROVALS_REVIEWER: CodexApprovalsReviewer = "auto_review";
 const DEFAULT_CUSTOM_DESCRIPTION =
   "No project or user Codex config was found. Codex will fall back to its built-in permission defaults.";
 
@@ -50,7 +50,7 @@ const GUARDIAN_PRESET: ResolvedPreset = {
   preset: "guardian-approvals",
   sandboxMode: "workspace-write",
   approvalPolicy: "on-request",
-  approvalsReviewer: GUARDIAN_APPROVALS_REVIEWER,
+  approvalsReviewer: AUTO_REVIEW_APPROVALS_REVIEWER,
 };
 
 const FULL_ACCESS_PRESET: ResolvedPreset = {
@@ -78,7 +78,7 @@ function isBoolean(value: unknown): value is boolean {
   return typeof value === "boolean";
 }
 
-function resolveGuardianApprovalGate(config: ConfigReadResponse["config"]): boolean {
+function resolveAutoReviewGate(config: ConfigReadResponse["config"]): boolean {
   const featuresValue = config.features;
   if (!featuresValue || typeof featuresValue !== "object" || Array.isArray(featuresValue)) {
     return false;
@@ -94,8 +94,10 @@ function normalizeApprovalsReviewer(
   reviewer: unknown,
   guardianApprovalEnabled: boolean,
 ): CodexApprovalsReviewer {
-  if (reviewer !== GUARDIAN_APPROVALS_REVIEWER) return DEFAULT_APPROVALS_REVIEWER;
-  return guardianApprovalEnabled ? GUARDIAN_APPROVALS_REVIEWER : DEFAULT_APPROVALS_REVIEWER;
+  if (reviewer !== AUTO_REVIEW_APPROVALS_REVIEWER) {
+    return DEFAULT_APPROVALS_REVIEWER;
+  }
+  return guardianApprovalEnabled ? AUTO_REVIEW_APPROVALS_REVIEWER : DEFAULT_APPROVALS_REVIEWER;
 }
 
 function buildWorkspaceWriteSandboxPolicy(
@@ -154,6 +156,11 @@ function isPresetAllowed(
     return false;
   }
 
+  const allowedApprovalsReviewers = requirements?.allowedApprovalsReviewers ?? null;
+  if (allowedApprovalsReviewers && !allowedApprovalsReviewers.includes(preset.approvalsReviewer)) {
+    return false;
+  }
+
   return true;
 }
 
@@ -180,6 +187,7 @@ function listVisibleModes(
 function isRepresentableCustomState(
   sandboxMode: CodexSandboxMode | null,
   approvalPolicy: CodexApprovalPolicy | null,
+  approvalsReviewer: CodexApprovalsReviewer,
   requirements: ConfigRequirements | null,
 ): boolean {
   if (!sandboxMode || !approvalPolicy) return false;
@@ -191,6 +199,11 @@ function isRepresentableCustomState(
 
   const allowedSandboxModes = requirements?.allowedSandboxModes ?? null;
   if (allowedSandboxModes && !allowedSandboxModes.includes(sandboxMode)) {
+    return false;
+  }
+
+  const allowedApprovalsReviewers = requirements?.allowedApprovalsReviewers ?? null;
+  if (allowedApprovalsReviewers && !allowedApprovalsReviewers.includes(approvalsReviewer)) {
     return false;
   }
 
@@ -211,7 +224,7 @@ function resolvePresetFromEffectiveState(input: {
   }
 
   if (input.sandboxMode === "workspace-write" && input.approvalPolicy === "on-request") {
-    return input.approvalsReviewer === GUARDIAN_APPROVALS_REVIEWER ? "guardian-approvals" : "auto";
+    return input.approvalsReviewer === AUTO_REVIEW_APPROVALS_REVIEWER ? "guardian-approvals" : "auto";
   }
 
   return null;
@@ -308,7 +321,7 @@ export function resolveCodexPermissionState(input: {
   defaultUserConfigPath: string;
   workspacePath: string | null;
 }): CodexPermissionState {
-  const guardianApprovalEnabled = resolveGuardianApprovalGate(input.config);
+  const guardianApprovalEnabled = resolveAutoReviewGate(input.config);
   const sandboxMode = input.config.sandbox_mode ?? null;
   const approvalPolicy = input.config.approval_policy ?? null;
   const approvalsReviewer = normalizeApprovalsReviewer(
@@ -329,17 +342,21 @@ export function resolveCodexPermissionState(input: {
   const isCustom = Boolean(explicitKeys) && isRepresentableCustomState(
     sandboxMode,
     approvalPolicy,
+    approvalsReviewer,
     input.requirements,
   );
   const fallbackPreset = resolveFallbackPreset(input.requirements, guardianApprovalEnabled);
+  const matchedResolvedPreset = matchedPreset
+    ? INTERNAL_PRESETS.find((preset) => preset.preset === matchedPreset) ?? null
+    : null;
   const effectivePreset = isCustom
     ? "custom"
-    : (matchedPreset && isPresetAllowed(
-      INTERNAL_PRESETS.find((preset) => preset.preset === matchedPreset) ?? fallbackPreset,
-      input.requirements,
-    )
-      ? matchedPreset
+    : (matchedResolvedPreset && isPresetAllowed(matchedResolvedPreset, input.requirements)
+      ? matchedResolvedPreset.preset
       : fallbackPreset.preset);
+  const effectiveResolvedPreset = effectivePreset === "custom"
+    ? null
+    : INTERNAL_PRESETS.find((preset) => preset.preset === effectivePreset) ?? fallbackPreset;
 
   const visibleMode: CodexPermissionMode = isCustom
     ? "custom"
@@ -354,10 +371,14 @@ export function resolveCodexPermissionState(input: {
     mode: visibleMode,
     effectivePreset,
     availableModes: nextAvailableModes,
-    approvalPolicy,
-    approvalsReviewer,
-    sandboxMode,
-    sandbox: buildSandboxPolicy(sandboxMode, input.workspacePath, input.config.sandbox_workspace_write),
+    approvalPolicy: effectiveResolvedPreset?.approvalPolicy ?? approvalPolicy,
+    approvalsReviewer: effectiveResolvedPreset?.approvalsReviewer ?? approvalsReviewer,
+    sandboxMode: effectiveResolvedPreset?.sandboxMode ?? sandboxMode,
+    sandbox: buildSandboxPolicy(
+      effectiveResolvedPreset?.sandboxMode ?? sandboxMode,
+      input.workspacePath,
+      input.config.sandbox_workspace_write,
+    ),
     guardianApprovalEnabled,
     configTarget,
     customDescription: buildCustomDescription({

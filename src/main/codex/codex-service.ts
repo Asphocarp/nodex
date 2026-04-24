@@ -2159,7 +2159,7 @@ export class CodexService extends EventEmitter {
 
     const guardianApprovalEnabled = previous?.guardianApprovalEnabled ?? true;
     const approvalsReviewer = mode === "guardian-approvals" && guardianApprovalEnabled
-      ? "guardian_subagent"
+      ? "auto_review"
       : "user";
     const sandbox = mode === "full-access"
       ? { type: "dangerFullAccess" as const }
@@ -2222,6 +2222,10 @@ export class CodexService extends EventEmitter {
 
   async setProjectPermissionMode(projectId: string, mode: CodexPermissionMode): Promise<CodexPermissionState> {
     const current = await this.readPermissionState(projectId);
+    if (!current.availableModes.includes(mode)) {
+      return current;
+    }
+
     const edits = buildPermissionModeConfigEdits(mode);
     if (edits.length === 0) {
       const nextState = this.buildFallbackPermissionState(mode, null, current);

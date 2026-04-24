@@ -13,17 +13,17 @@ import {
 
 const PERMISSION_MODE_ITEMS: Array<{ value: CodexPermissionMode; label: string }> = [
   { value: "auto", label: "Default permissions" },
-  { value: "guardian-approvals", label: "Guardian approvals" },
+  { value: "guardian-approvals", label: "Auto-review" },
   { value: "full-access", label: "Full access" },
   { value: "custom", label: "Custom (config.toml)" },
 ];
 
 const DEFAULT_PERMISSIONS_TOOLTIP =
   "Codex automatically runs commands in a sandbox and asks before elevated requests.";
-const GUARDIAN_APPROVALS_TOOLTIP =
-  "Codex automatically runs commands in a sandbox and uses Guardian approvals for elevated requests";
-const GUARDIAN_APPROVALS_DISABLED_TOOLTIP =
-  "Guardian approvals requires default sandboxed permissions to be available in this workspace.";
+const AUTO_REVIEW_TOOLTIP =
+  "Codex automatically runs commands in a sandbox and uses Auto-review for elevated requests";
+const AUTO_REVIEW_DISABLED_TOOLTIP =
+  "Auto-review requires default sandboxed permissions to be available in this workspace.";
 const FULL_ACCESS_TOOLTIP =
   "Codex has full access over your computer and bypasses approval prompts (elevated risk).";
 const CUSTOM_TOOLTIP_FALLBACK =
@@ -38,11 +38,11 @@ function formatPermissionModeLabel(mode: CodexPermissionMode): string {
 function resolvePermissionModeTooltip(input: {
   mode: CodexPermissionMode;
   customDescription: string | null;
-  guardianDisabled: boolean;
+  autoReviewDisabled: boolean;
 }): string {
   if (input.mode === "auto") return DEFAULT_PERMISSIONS_TOOLTIP;
   if (input.mode === "guardian-approvals") {
-    return input.guardianDisabled ? GUARDIAN_APPROVALS_DISABLED_TOOLTIP : GUARDIAN_APPROVALS_TOOLTIP;
+    return input.autoReviewDisabled ? AUTO_REVIEW_DISABLED_TOOLTIP : AUTO_REVIEW_TOOLTIP;
   }
   if (input.mode === "full-access") return FULL_ACCESS_TOOLTIP;
   return input.customDescription?.trim() || CUSTOM_TOOLTIP_FALLBACK;
@@ -95,9 +95,9 @@ export function PermissionModeDropdown({
           || item.value === selectedMode,
         )
         .map((item) => {
-          const guardianDisabled = item.value === "guardian-approvals"
+          const autoReviewDisabled = item.value === "guardian-approvals"
             && (!guardianApprovalEnabled || !allowedModes.has("guardian-approvals"));
-          const disabled = guardianDisabled;
+          const disabled = autoReviewDisabled;
 
           return (
             <NodexDropdownItem
@@ -120,7 +120,7 @@ export function PermissionModeDropdown({
               tooltipText={resolvePermissionModeTooltip({
                 mode: item.value,
                 customDescription,
-                guardianDisabled,
+                autoReviewDisabled,
               })}
             >
               {item.label}

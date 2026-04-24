@@ -3,7 +3,7 @@
 | Spec | Status | Last Updated | Summary |
 |------|--------|--------------|---------|
 | nodex-product-spec.md | Active | 2026-02-13 | Full product contract: goals, features, API, CLI, config, architecture |
-| guardian-approvals-behavior.md | Active | 2026-04-09 | Detailed Guardian approvals parity contract covering config-backed preset resolution, hard-gate reviewer fallback, UI surfaces, and approval request lifecycle |
+| auto-review-behavior.md | Active | 2026-04-09 | Detailed Auto-review parity contract covering config-backed preset resolution, hard-gate reviewer fallback, UI surfaces, and approval request lifecycle |
 | desktop-notification-behavior.md | Active | 2026-04-09 | Detailed Electron desktop notification contract for thread turn-complete, approval, and question notifications, including suppression, payloads, and action routing |
 | codex-fast-mode-core-enablement.md | Active | 2026-04-09 | Detailed global Fast-mode preference contract covering persistence, shared renderer ownership, UI surfaces, request fallback, queue freezing, and reporting normalization |
 | codex-thread-transcript-behavior.md | Active | 2026-03-20 | Source of truth for visible Codex Threads transcript projection, rendering, optimistic prompts, tool/reasoning rows, and restart recovery |

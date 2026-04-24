@@ -2339,7 +2339,7 @@ function createStorybookElectronBridge(input: {
             effectivePreset: input.permissionMode === "custom" ? "custom" : input.permissionMode,
             availableModes: ["auto", "guardian-approvals", "full-access", "custom"],
             approvalPolicy: "on-request",
-            approvalsReviewer: input.permissionMode === "guardian-approvals" ? "guardian_subagent" : "user",
+            approvalsReviewer: input.permissionMode === "guardian-approvals" ? "auto_review" : "user",
             sandboxMode: input.permissionMode === "full-access" ? "danger-full-access" : "workspace-write",
             sandbox: input.permissionMode === "full-access"
               ? { type: "dangerFullAccess" }

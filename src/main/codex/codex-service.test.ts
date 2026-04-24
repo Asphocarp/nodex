@@ -10,6 +10,7 @@ import type {
   CodexItemView,
   CodexCollaborationModePreset,
   CodexPermissionMode,
+  CodexPermissionState,
   CodexThreadActionResult,
   CodexThreadDetail,
   CodexTranscriptEntry,
@@ -97,7 +98,7 @@ interface TestableCodexService {
   interruptTurn: (threadId: string, turnId?: string) => Promise<boolean>;
   cleanBackgroundTerminals: (threadId: string) => Promise<boolean>;
   respondToUserInput: (requestId: string, answers: Record<string, string[]>) => Promise<boolean>;
-  setProjectPermissionMode: (projectId: string, mode: CodexPermissionMode) => void;
+  setProjectPermissionMode: (projectId: string, mode: CodexPermissionMode) => Promise<CodexPermissionState>;
   getCustomPermissionModeDescription: (projectId: string) => string;
   listManagedWorktrees: () => Promise<ManagedWorktreeRecord[]>;
   deleteManagedWorktree: (threadId: string) => Promise<boolean>;
@@ -5055,6 +5056,47 @@ describe("codex-service startThreadForCard", () => {
 });
 
 describe("codex-service approval fallback", () => {
+  test("does not write permission modes disallowed by current requirements", async () => {
+    const service = createService();
+    const stateByProject = Reflect.get(service as object, "permissionStateByProject") as Map<string, CodexPermissionState>;
+    const client = Reflect.get(service as object, "client") as {
+      request: (method: string, params?: unknown) => Promise<unknown>;
+    };
+    let wroteConfig = false;
+
+    stateByProject.set("codex", {
+      mode: "auto",
+      effectivePreset: "auto",
+      availableModes: ["auto", "full-access", "custom"],
+      approvalPolicy: "on-request",
+      approvalsReviewer: "user",
+      sandboxMode: "workspace-write",
+      sandbox: null,
+      guardianApprovalEnabled: true,
+      configTarget: {
+        source: "user",
+        filePath: "/Users/test/.codex/config.toml",
+      },
+      customDescription: null,
+    });
+    client.request = async (method: string) => {
+      if (method === "config/batchWrite") {
+        wroteConfig = true;
+      }
+      return {};
+    };
+
+    try {
+      const state = await service.setProjectPermissionMode("codex", "guardian-approvals");
+
+      expect(wroteConfig).toBeFalse();
+      expect(state.mode).toBe("auto");
+      expect(state.availableModes.includes("guardian-approvals")).toBeFalse();
+    } finally {
+      await service.shutdown();
+    }
+  });
+
   test("auto-accepts approval requests in full-access mode", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {

@@ -420,13 +420,13 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Sidebar thread entries (and the Threads group icon) switch to a running indicator while execution is active.
 - In-app account UX supports account read, ChatGPT/API-key login, login cancel, logout, and an authenticated quota chip that shows concise remaining primary/secondary percentages in the header (for example `82% · 61%`), refreshes account data on reveal, keeps the detailed remaining windows in the tooltip when available, and refreshes quota data in the background every 60 seconds while the Codex connection is live and authenticated.
 - Thread permissions are resolved from Codex app-server config (`config/read`) plus config requirements (`configRequirements/read`), not from renderer-local per-project preferences.
-- Thread stage and Settings -> `Agent` expose the same preset-backed permission selector with the exact visible modes `Default permissions`, `Guardian approvals`, `Full access`, and `Custom (config.toml)`.
+- Thread stage and Settings -> `Agent` expose the same preset-backed permission selector with the exact visible modes `Default permissions`, `Auto-review`, `Full access`, and `Custom (config.toml)`.
 - Preset semantics follow Codex Electron exactly:
   - `Default permissions` resolves to `sandbox_mode=workspace-write`, `approval_policy=on-request`, `approvals_reviewer=user`.
-  - `Guardian approvals` resolves to the same sandbox/policy pair, but with `approvals_reviewer=guardian_subagent`.
+  - `Auto-review` resolves to the same sandbox/policy pair, but with `approvals_reviewer=auto_review`.
   - `Full access` resolves to `sandbox_mode=danger-full-access`, `approval_policy=never`, `approvals_reviewer=user`.
   - `Custom (config.toml)` remains visible whenever the effective raw config does not round-trip to a fixed preset.
-- `features.guardian_approval` is a hard gate for `Guardian approvals`. When it is unavailable, any resolved `approvals_reviewer=guardian_subagent` collapses back to `user`, the Guardian preset is disabled/hidden from available modes, and the selector falls back to the nearest allowed non-Guardian preset.
+- `features.guardian_approval` and `configRequirements/read.allowedApprovalsReviewers` are hard gates for `Auto-review`. When Auto-review is unavailable or `auto_review` is disallowed, any resolved automatic reviewer collapses back to `user`, the Auto-review preset is disabled/hidden from available modes, and the selector falls back to the nearest allowed non-Auto-review preset.
 - Permission writes target the current config key origin when available; otherwise Nodex writes to the user config file instead of silently creating a project override from the thread footer.
 - Settings -> `Agent` mirrors Codex's split surface:
   - `Permissions modes` contains `Default permissions mode`.
