@@ -12,6 +12,9 @@ import type {
   UpdateBackupSettingsInput,
   UpdateHistorySettingsInput,
   UpdateThreadNotificationSettingsInput,
+  UpdateWindowRestoreSettingsInput,
+  WindowRestorePolicy,
+  WindowRestoreSettings,
 } from "../../shared/types";
 
 // ─── TOML [server] config (user-level + CWD walk-up for project-level) ───
@@ -27,6 +30,7 @@ interface ServerTomlConfig {
   thread_notifications_questions_enabled?: boolean;
   history_retention?: number;
   app_updates_auto_check_enabled?: boolean;
+  window_restore_policy?: WindowRestorePolicy;
 }
 
 interface RootTomlConfig extends Record<string, unknown> {
@@ -40,6 +44,7 @@ const THREAD_NOTIFICATIONS_TURN_MODE_DEFAULT: ThreadNotificationTurnMode = "unfo
 const THREAD_NOTIFICATIONS_PERMISSIONS_ENABLED_DEFAULT = true;
 const THREAD_NOTIFICATIONS_QUESTIONS_ENABLED_DEFAULT = true;
 const APP_UPDATES_AUTO_CHECK_DEFAULT = true;
+const WINDOW_RESTORE_POLICY_DEFAULT: WindowRestorePolicy = "all";
 
 function readServerSection(configPath: string): ServerTomlConfig | null {
   try {
@@ -237,6 +242,17 @@ function appUpdateSettingsFromConfig(config: ServerTomlConfig): AppUpdateSetting
   };
 }
 
+function windowRestoreSettingsFromConfig(config: ServerTomlConfig): WindowRestoreSettings {
+  return {
+    policy:
+      config.window_restore_policy === "all"
+      || config.window_restore_policy === "last-window"
+      || config.window_restore_policy === "none"
+        ? config.window_restore_policy
+        : WINDOW_RESTORE_POLICY_DEFAULT,
+  };
+}
+
 export function getBackupSettings(): BackupSettings {
   const fromToml = backupSettingsFromConfig(serverToml);
   const envOverrides = {
@@ -404,6 +420,36 @@ export function updateAppUpdateSettings(
   serverToml = loadServerTomlConfig();
 
   return getAppUpdateSettings();
+}
+
+export function getWindowRestoreSettings(): WindowRestoreSettings {
+  return windowRestoreSettingsFromConfig(userServerToml);
+}
+
+export function updateWindowRestoreSettings(
+  input: UpdateWindowRestoreSettingsInput,
+): WindowRestoreSettings {
+  if (input.policy !== "all" && input.policy !== "last-window" && input.policy !== "none") {
+    throw new Error("policy must be one of all, last-window, or none");
+  }
+
+  const userConfigPath = getUserConfigPath();
+  const nextToml = readTomlConfig(userConfigPath);
+  const nextServer = {
+    ...(nextToml.server ?? {}),
+    window_restore_policy: input.policy,
+  };
+
+  nextToml.server = nextServer;
+
+  const configDirectory = path.dirname(userConfigPath);
+  mkdirSync(configDirectory, { recursive: true });
+  writeFileSync(userConfigPath, stringifyToml(nextToml as Record<string, unknown>), "utf8");
+
+  userServerToml = loadUserServerTomlConfig();
+  serverToml = loadServerTomlConfig();
+
+  return getWindowRestoreSettings();
 }
 
 export function getBackupAutoEnabled(): boolean {

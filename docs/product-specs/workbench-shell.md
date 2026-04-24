@@ -79,6 +79,9 @@ Detailed Auto-review preset, config, and approval-lifecycle rules are specified 
 - A workspace does not own project/card data, Codex thread transcripts, Codex runtime state, or terminal process output beyond tab layout.
 - A default workspace is always present. New workspaces start from the current layout snapshot, become active immediately, and diverge from that point forward. Workspace names and optional icons are layout-catalog metadata, not project data.
 - Workspace catalogs are profile-local Electron state under `userData`; when no catalog exists, legacy workbench resume data seeds the default workspace if available.
+- Electron window sessions are the cold-launch restore unit. Each open window persists its own selected workspace, layout snapshot, focus time, and saved window bounds in profile-local `window-sessions-v1.json`, so duplicate windows for the same workspace can reopen with independent layouts.
+- Settings -> General -> `Restore windows` controls restart behavior: `All` restores every retained window session, `Last` restores only the last focused session, and `None` starts one fresh session from the active workspace.
+- Closing one window while other windows remain open does not immediately rewrite the restore catalog; on app quit, Nodex rewrites the retained session set from the windows still open, matching VS Code's shutdown snapshot behavior. Closing the last window records it as the last closed session for macOS-style reactivation/reopen.
 - Stage focus is persisted globally (not keyed by DB datasource project).
 - Sidebar stage section expansion (including the top-level `Recents` group) and stage tab selections are persisted per project.
 - Sidebar card-status subgroup expansion and per-section overflow expansion (`Show more` / `Show less`) are persisted per project.

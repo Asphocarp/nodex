@@ -245,6 +245,46 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     case "workspaces:set-active": {
       return invoke("workspaces:bootstrap");
     }
+    case "window-sessions:bootstrap": {
+      const bootstrap = await invoke("workspaces:bootstrap") as {
+        catalog: { lastActiveWorkspaceId: string };
+        activeWorkspace: { id: string; layout: object };
+      };
+      const timestamp = new Date().toISOString();
+      return {
+        ...bootstrap,
+        session: {
+          id: "browser-window-session",
+          workspaceId: bootstrap.activeWorkspace.id,
+          layout: bootstrap.activeWorkspace.layout,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          focusedAt: timestamp,
+        },
+      };
+    }
+    case "window-sessions:save-layout": {
+      const [workspaceId, layout] = args as [string, object];
+      const bootstrap = await invoke("workspaces:bootstrap") as {
+        catalog: object;
+        activeWorkspace: object;
+      };
+      const timestamp = new Date().toISOString();
+      return {
+        ...bootstrap,
+        session: {
+          id: "browser-window-session",
+          workspaceId,
+          layout,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          focusedAt: timestamp,
+        },
+      };
+    }
+    case "window-sessions:update-bounds": {
+      return undefined;
+    }
     case "card:import-block-drop": {
       const [projectId, input, sessionId] = args as [string, object, string?];
       const res = await fetch(toApiUrl(`/api/projects/${projectId}/card-import-block-drop`), {
@@ -483,6 +523,15 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     case "settings:app-updates:update": {
       const [input] = args as [{ automaticChecksEnabled?: boolean }];
       return { automaticChecksEnabled: input.automaticChecksEnabled !== false };
+    }
+    case "settings:window-restore:get": {
+      return { policy: "all" };
+    }
+    case "settings:window-restore:update": {
+      const [input] = args as [{ policy?: string }];
+      return {
+        policy: input.policy === "last-window" || input.policy === "none" ? input.policy : "all",
+      };
     }
     case "app:update:status":
     case "app:update:check": {

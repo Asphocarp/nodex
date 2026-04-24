@@ -4,6 +4,7 @@ import { AppProviders } from "@/app-providers";
 import { makeDefaultSidebarTopLevelSectionsPrefs } from "@/lib/sidebar-section-prefs";
 import { render, settleAsyncRender } from "@/test/dom";
 import { installWindowApi } from "@/test/browser-globals";
+import { __resetWindowRestoreSettingsForTests } from "@/lib/use-window-restore-settings";
 import { SettingsOverlay } from "./workbench-settings-overlay";
 import { buildSettingsPath } from "./workbench-settings-routes";
 
@@ -36,9 +37,12 @@ if (!(globalThis as { localStorage?: unknown }).localStorage) {
 }
 
 const localStorageRef = (globalThis as { localStorage: typeof mockStorage }).localStorage;
+const invokedChannels: Array<{ channel: string; args: unknown[] }> = [];
 
 function resetStorage(): void {
   storageMap.clear();
+  invokedChannels.splice(0);
+  __resetWindowRestoreSettingsForTests();
   localStorageRef.removeItem("nodex-codex-default-service-tier-v1");
 }
 
@@ -83,7 +87,8 @@ describe("SettingsOverlay service tier", () => {
     localStorageRef.setItem("nodex-codex-default-service-tier-v1", "fast");
 
     installWindowApi({
-      invoke: async (channel: string) => {
+      invoke: async (channel: string, ...args: unknown[]) => {
+        invokedChannels.push({ channel, args });
         switch (channel) {
           case "settings:thread-notifications:get":
             return {
@@ -93,6 +98,10 @@ describe("SettingsOverlay service tier", () => {
             };
           case "settings:app-updates:get":
             return { automaticChecksEnabled: true };
+          case "settings:window-restore:get":
+            return { policy: "all" };
+          case "settings:window-restore:update":
+            return args[0];
           case "app:update:status":
             return {
               status: "idle",
@@ -138,4 +147,5 @@ describe("SettingsOverlay service tier", () => {
     expect(localStorageRef.getItem("nodex-codex-default-service-tier-v1")).toBe("fast");
     expect(fastButton.getAttribute("aria-pressed")).toBe("true");
   });
+
 });

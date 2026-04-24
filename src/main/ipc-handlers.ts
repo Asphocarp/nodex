@@ -10,10 +10,12 @@ import {
   getBackupSettings,
   getHistorySettings,
   getThreadNotificationSettings,
+  getWindowRestoreSettings,
   updateAppUpdateSettings,
   updateBackupSettings,
   updateHistorySettings,
   updateThreadNotificationSettings,
+  updateWindowRestoreSettings,
 } from "./kanban/config";
 import { resolveAssetPath } from "./kanban/asset-service";
 import { parseAssetSource } from "../shared/assets";
@@ -24,6 +26,11 @@ import type {
   WorkbenchLayoutSnapshot,
   WorkspaceBootstrap,
 } from "../shared/workspace";
+import type {
+  WindowSessionBootstrap,
+  WindowSessionBounds,
+  WindowSessionSeed,
+} from "../shared/window-session";
 import type { DesktopNotificationManager } from "./desktop-notification-manager";
 import {
   checkoutGitBranch,
@@ -50,7 +57,7 @@ function registerHandle(
 }
 
 interface RegisterIpcHandlersOptions {
-  onCreateWindow?: () => void;
+  onCreateWindow?: (seed?: WindowSessionSeed) => void;
   onConsumeWorkbenchResume?: (webContentsId: number) => WorkbenchResumeSnapshot | null;
   onSaveWorkbenchResume?: (webContentsId: number, snapshot: WorkbenchResumeSnapshot) => boolean;
   onBootstrapWorkspaces?: (webContentsId: number) => WorkspaceBootstrap;
@@ -63,6 +70,13 @@ interface RegisterIpcHandlersOptions {
     layout: WorkbenchLayoutSnapshot,
   ) => WorkspaceBootstrap;
   onSetActiveWorkspace?: (webContentsId: number, workspaceId: string) => WorkspaceBootstrap;
+  onBootstrapWindowSession?: (webContentsId: number) => WindowSessionBootstrap;
+  onSaveWindowSessionLayout?: (
+    webContentsId: number,
+    workspaceId: string,
+    layout: WorkbenchLayoutSnapshot,
+  ) => WindowSessionBootstrap;
+  onUpdateWindowSessionBounds?: (webContentsId: number, bounds: WindowSessionBounds) => void;
   desktopNotificationManager?: DesktopNotificationManager;
   onGetAppUpdateStatus?: () => AppUpdateStatus;
   onCheckForAppUpdate?: () => Promise<AppUpdateStatus>;
@@ -310,6 +324,12 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     return settings;
   });
 
+  registerHandle("settings:window-restore:get", () => getWindowRestoreSettings());
+
+  registerHandle("settings:window-restore:update", (_, input) =>
+    updateWindowRestoreSettings(input)
+  );
+
   registerHandle("app:update:status", () =>
     options.onGetAppUpdateStatus?.() ?? {
       status: "unsupported",
@@ -365,9 +385,9 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     return true;
   });
 
-  registerHandle("window:new", () => {
+  registerHandle("window:new", (_, seed?: WindowSessionSeed) => {
     if (!options.onCreateWindow) return false;
-    options.onCreateWindow();
+    options.onCreateWindow(seed);
     return true;
   });
 
@@ -425,6 +445,28 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       throw new Error("Workspace state is unavailable");
     }
     return options.onSetActiveWorkspace(event.sender.id, workspaceId);
+  });
+
+  registerHandle("window-sessions:bootstrap", (event) => {
+    if (!options.onBootstrapWindowSession) {
+      throw new Error("Window session state is unavailable");
+    }
+    return options.onBootstrapWindowSession(event.sender.id);
+  });
+
+  registerHandle("window-sessions:save-layout", (
+    event,
+    workspaceId: string,
+    layout: WorkbenchLayoutSnapshot,
+  ) => {
+    if (!options.onSaveWindowSessionLayout) {
+      throw new Error("Window session state is unavailable");
+    }
+    return options.onSaveWindowSessionLayout(event.sender.id, workspaceId, layout);
+  });
+
+  registerHandle("window-sessions:update-bounds", (event, bounds: WindowSessionBounds) => {
+    options.onUpdateWindowSessionBounds?.(event.sender.id, bounds);
   });
 
   registerHandle("git:branch:state", (_, cwd: string) => {

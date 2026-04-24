@@ -30,8 +30,9 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `kanban/schema.ts`: latest-schema bootstrap and the future-ready schema version/migration framework.
 - `kanban/card-input-validation.ts`: shared write validation used by all mutation paths.
 - `logging/logger.ts`: structured backend logger with child scopes, sensitive-field redaction, bounded payload serialization, and profile-scoped JSONL file persistence under `${KANBAN_DIR}/logs`.
-- `workbench-resume-state.ts`: profile-scoped persisted last-window snapshot store under Electron `userData`, plus restore-eligible window gating for app reopen.
+- `workbench-resume-state.ts`: legacy profile-scoped last-window snapshot store retained for migration/default seeding.
 - `workspace-state.ts`: profile-scoped workspace catalog store under Electron `userData`, including default workspace seeding, legacy workbench-resume migration, active-workspace tracking, and layout snapshot persistence.
+- `window-session-state.ts`: profile-scoped persisted Electron window-session catalog with per-window layout snapshots, restore-policy selection support, focus recency, and saved window bounds.
 - `pty-manager.ts`: PTY process lifecycle management for per-card terminals (spawn, write, resize, kill).
 - `codex/codex-app-server-client.ts`: global JSON-RPC client for `codex app-server` stdio lifecycle, handshake, request correlation, reconnect/backoff, and wire-level typing against the committed `@nodex/codex-app-server-protocol` workspace package.
 - `codex/codex-service.ts`: domain facade for account/auth, thread/turn actions, approval + request-user-input handling, packaged-vs-dev Codex runtime resolution, canonical per-thread conversation-manager state, and main-process transcript/snapshot projection + `codex:event` / host-message emission.
@@ -108,10 +109,11 @@ Codex Threads flow:
 
 Workbench reopen flow:
 1. Main process keeps a profile-local workspace catalog in `workspaces-v1.json` under Electron `userData`, with a default workspace always present.
-2. Renderer bootstrap consumes the active workspace layout through IPC before mounting the shell; existing legacy workbench-resume snapshots seed the default workspace when no catalog exists.
-3. Live workbench state continues to persist window-locally in `sessionStorage` as an in-session fallback, but workspace layout snapshots are the cold-launch restore source.
-4. On workspace switch or close, renderer flushes the current layout snapshot, card draft state, and registered close flushers before applying the next layout or sending the final close ack.
-5. Main process accepts active-workspace and layout saves only from the last-focused window when multiple windows are open, matching the previous last-window resume policy.
+2. Main process also keeps a profile-local window session catalog in `window-sessions-v1.json`; this is the cold-launch restore source for window count, selected workspace, layout snapshot, focus recency, and saved window bounds.
+3. Renderer bootstrap consumes its assigned window session through IPC before mounting the shell. Existing legacy workbench-resume snapshots only seed the default workspace/session when no newer catalog exists.
+4. Live workbench state continues to persist window-locally in `sessionStorage` as an in-session fallback, while durable reopen flows through window sessions.
+5. On workspace switch or close, renderer flushes the current layout snapshot, card draft state, and registered close flushers before applying the next layout or sending the final close ack.
+6. Each window saves its own session layout. Only the focused window updates the named workspace template/last-active workspace used for future new-window seeds.
 
 ## Invariants
 - Persistent truth is split by ownership: Nodex-owned board/link metadata lives in SQLite, while Codex-owned thread history now lives in the main-process conversation manager plus explicit resume operations; the active renderer caches canonical conversation snapshots plus flat UI-only shell state rather than maintaining a second transcript-authority store, a second `resumeState` truth, or a second recovery layer.

@@ -246,6 +246,42 @@ describe("app update settings config", () => {
   });
 });
 
+describe("window restore settings config", () => {
+  test("defaults to restoring all windows and persists updates to user config", async () => {
+    await withTempConfigFixture(async ({ tempHome }) => {
+      const config = await importConfigModule();
+
+      expect(config.getWindowRestoreSettings().policy).toBe("all");
+
+      const updated = config.updateWindowRestoreSettings({
+        policy: "last-window",
+      });
+
+      expect(updated.policy).toBe("last-window");
+
+      const configPath = path.join(tempHome, ".nodex", "config.toml");
+      const written = fs.readFileSync(configPath, "utf8");
+      expect(written.includes('window_restore_policy = "last-window"')).toBeTrue();
+
+      const reloaded = await importConfigModule();
+      expect(reloaded.getWindowRestoreSettings().policy).toBe("last-window");
+    });
+  });
+
+  test("rejects invalid window restore policies", async () => {
+    await withTempConfigFixture(async () => {
+      const config = await importConfigModule();
+      let threw = false;
+      try {
+        config.updateWindowRestoreSettings({ policy: "invalid" });
+      } catch {
+        threw = true;
+      }
+      expect(threw).toBeTrue();
+    });
+  });
+});
+
 describe("history settings config", () => {
   test("persists updated history retention to user config", async () => {
     await withTempConfigFixture(async ({ tempHome }) => {

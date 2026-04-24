@@ -78,6 +78,7 @@ import { useTheme } from "../../lib/use-theme";
 import { useCodexServiceTierSettings } from "../../lib/use-codex-service-tier-settings";
 import { useCodexThreadSettings } from "../../lib/use-codex-thread-settings";
 import { useThreadNotificationSettings } from "../../lib/use-thread-notification-settings";
+import { useWindowRestoreSettings } from "../../lib/use-window-restore-settings";
 import { formatCodexThreadDetailLevelLabel } from "../../lib/codex-thread-settings";
 import type {
   BackupRecord,
@@ -89,6 +90,7 @@ import type {
   CodexPermissionState,
   CodexThreadDetailLevel,
   ThreadNotificationTurnMode,
+  WindowRestorePolicy,
 } from "../../lib/types";
 import { cn } from "../../lib/utils";
 import {
@@ -429,6 +431,25 @@ function ServiceTierSettingControl() {
       options={[
         { value: "standard", label: "Standard" },
         { value: "fast", label: "Fast" },
+      ]}
+    />
+  );
+}
+
+function WindowRestoreSettingControl() {
+  const { settings, isLoading, updateSettings } = useWindowRestoreSettings();
+  const selectedValue = isLoading ? "all" : settings.policy;
+
+  return (
+    <SegmentedControl<WindowRestorePolicy>
+      value={selectedValue}
+      onChange={(policy) => {
+        void updateSettings({ policy });
+      }}
+      options={[
+        { value: "all", label: "All" },
+        { value: "last-window", label: "Last" },
+        { value: "none", label: "None" },
       ]}
     />
   );
@@ -1744,6 +1765,12 @@ function GeneralSettingsPage({
             value={stageRailLayoutMode}
             onChange={onStageRailLayoutModeChange}
           />
+        </SettingRow>
+        <SettingRow
+          label="Restore windows"
+          description="Choose which workbench windows reopen after quitting Nodex."
+        >
+          <WindowRestoreSettingControl />
         </SettingRow>
         <SettingRow
           label="Desktop notifications"

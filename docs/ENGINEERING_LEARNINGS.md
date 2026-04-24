@@ -305,6 +305,12 @@ The sidebar project switcher is DB-stage datasource selection only. Re-coupling 
 ### Shared `localStorage` is the wrong restart-resume boundary for independent Electron windows
 Electron windows in the same session share origin `localStorage`, so moving workbench restore state there would make restart persistence work at the cost of collapsing independent multi-window sessions into one shared shell state. Keep live window state in `sessionStorage`, and persist only one explicit last-window snapshot through the main process under profile-scoped `userData`.
 
+### Window-session restore must stay separate from named workspaces
+
+Named workspaces are reusable layout contexts/templates, not the exact reopen unit. VS Code-grade reopening needs a separate main-process window-session catalog keyed by window session id, otherwise duplicate windows for the same workspace collapse into one layout through last-writer-wins. Session saves should update the session every time, while named workspace templates should only be refreshed from the focused window so future new-window seeds remain predictable.
+
+Do not treat an individual non-last window close as the durable removal point. VS Code rewrites its restore state from the windows still open during shutdown, while keeping a last-closed fallback for the zero-window quit/reactivation case. Nodex should follow that pattern: keep closed sessions in the catalog until quit-time retention rewrites the open set.
+
 ### Toggle-list editors need the same toggle-state bridge as Card Stage (IDs + localStorage + DOM-readback)
 `ToggleListCardEditor` (used by both Toggle List tab and `toggleListInlineView`) serializes child descriptions through a separate mapping/sync path, so Card Stage-only fixes are insufficient. To preserve `▼`/`▶` state end-to-end, this path must: assign explicit IDs when converting NFM→BlockNote children, pre-populate `localStorage` before `replaceBlocks`/`updateBlock`, read `data-show-children` from DOM before BN→NFM serialization, and observe `data-show-children` mutations because toggle clicks can skip ProseMirror transactions.
 

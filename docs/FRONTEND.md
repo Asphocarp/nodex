@@ -24,7 +24,7 @@
 - Project lifecycle: `use-projects.ts`.
 - SSE/IPC updates are centralized in API subscription helpers.
 - Live workbench navigation/session state is window-local (`sessionStorage`) for in-session continuity, while shared non-layout preferences remain in `localStorage`.
-- Cold-launch resume is workspace-owned in Electron: the main process stores a profile-local workspace catalog under `userData`, renderer bootstrap applies the active workspace layout before mounting, and legacy last-window snapshots only seed the default workspace during migration.
+- Cold-launch resume is window-session-owned in Electron: the main process stores profile-local workspace and window-session catalogs under `userData`, renderer bootstrap applies the assigned session layout before mounting, and legacy last-window snapshots only seed the default workspace/session during migration.
 - Terminal: `use-terminal.ts` manages ghostty-web lifecycle, fit/resize behavior, and PTY IPC.
 - Active conversation UI: keep Codex host-message ingestion in the singleton external store under `features/local-conversation/`, subscribe through per-thread selectors, then derive renderer-only projection data in `features/local-conversation/projection/*`. Keep transcript projection, composer-shell aggregation, search-unit derivation, turn-request stitching, and background-activity ordering upstream of JSX.
 - Keep active conversation UI ownership inside `features/local-conversation/view/*` and `features/local-conversation/view/shared/*`. Do not reintroduce a second workbench thread renderer path outside that feature.

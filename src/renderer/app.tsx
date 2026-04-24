@@ -37,13 +37,15 @@ import {
   saveWorkbenchResumeSnapshot,
 } from "@/lib/workbench-resume";
 import {
-  bootstrapWorkspaces,
   createWorkspace,
   deleteWorkspace,
   renameWorkspace,
-  saveWorkspaceLayout,
   setActiveWorkspace,
 } from "@/lib/workspaces";
+import {
+  bootstrapWindowSession,
+  saveWindowSessionLayout,
+} from "@/lib/window-sessions";
 import { AppStartupScreen } from "@/components/app-startup-screen";
 import { NodexToastProvider } from "@/components/ui/toast";
 import type { CardStageSessionSnapshot } from "@/components/kanban/card-stage/types";
@@ -52,6 +54,7 @@ import type {
   WorkspaceBootstrap,
   WorkspaceCatalog,
   WorkspaceRecord,
+  WindowSessionBootstrap,
 } from "@/lib/types";
 import type {
   AppInitializationStep,
@@ -68,10 +71,10 @@ function readWorkbenchV2Flag(): boolean {
   }
 }
 
-function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap: WorkspaceBootstrap }) {
+function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap: WindowSessionBootstrap }) {
   const workbenchV2Enabled = readWorkbenchV2Flag();
   const [stageRailLayoutMode, setStageRailLayoutModeState] = useState<StageRailLayoutMode>(() =>
-    initialWorkspaceBootstrap.activeWorkspace.layout.stageRailLayoutMode ?? readStageRailLayoutMode(),
+    initialWorkspaceBootstrap.session.layout.stageRailLayoutMode ?? readStageRailLayoutMode(),
   );
   const { projects, loading, createProject, deleteProject, renameProject, refresh } = useProjects();
   const [workspaceCatalog, setWorkspaceCatalog] = useState<WorkspaceCatalog>(initialWorkspaceBootstrap.catalog);
@@ -142,7 +145,7 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
     replaceLayoutSnapshot,
   } = useWorkbenchState(projects, {
     stageCollapseEnabled: stageRailLayoutMode === "full-rail",
-    initialLayoutSnapshot: initialWorkspaceBootstrap.activeWorkspace.layout,
+    initialLayoutSnapshot: initialWorkspaceBootstrap.session.layout,
   });
   const [projectPickerOpenTick, setProjectPickerOpenTick] = useState(0);
   const [taskSearchOpenTick, setTaskSearchOpenTick] = useState(0);
@@ -162,7 +165,7 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
     openCardStage: openCardStageState,
     closeCardStage: closeCardStageState,
     cardStageCardId,
-  } = useCardStageState(initialWorkspaceBootstrap.activeWorkspace.layout.cardStage ?? null);
+  } = useCardStageState(initialWorkspaceBootstrap.session.layout.cardStage ?? null);
   const cardStageCloseRef = useRef<(() => Promise<void>) | null>(null);
   const cardStagePersistRef = useRef<(() => Promise<void>) | null>(null);
   const cardStageSessionSnapshotRef = useRef<CardStageSessionSnapshot | null>(null);
@@ -181,7 +184,7 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
   const [navigationHistory, setNavigationHistory] = useState<NavigationHistoryState>(() => readNavigationHistoryState());
   const activeWorkspaceRef = useRef(activeWorkspace);
   const latestWorkspaceLayoutRef = useRef<WorkbenchLayoutSnapshot>(
-    initialWorkspaceBootstrap.activeWorkspace.layout,
+    initialWorkspaceBootstrap.session.layout,
   );
   const workspaceSaveTimerRef = useRef<number | null>(null);
 
@@ -226,7 +229,7 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
   const flushWorkspaceLayout = useCallback(async () => {
     const workspaceId = activeWorkspaceRef.current.id;
     const layout = latestWorkspaceLayoutRef.current;
-    const bootstrap = await saveWorkspaceLayout(workspaceId, layout);
+    const bootstrap = await saveWindowSessionLayout(workspaceId, layout);
     if (activeWorkspaceRef.current.id !== workspaceId) return;
     setWorkspaceCatalog(bootstrap.catalog);
     setActiveWorkspaceState(bootstrap.activeWorkspace);
@@ -343,7 +346,7 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
     if (loading) return;
     if (resumeValidationStartedRef.current) return;
     resumeValidationStartedRef.current = true;
-    const initialLayout = initialWorkspaceBootstrap.activeWorkspace.layout;
+    const initialLayout = initialWorkspaceBootstrap.session.layout;
 
     let cancelled = false;
     void (async () => {
@@ -403,7 +406,7 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
     return () => {
       cancelled = true;
     };
-  }, [closeCardStageState, closeRecentCardSession, initialWorkspaceBootstrap.activeWorkspace.layout, loading]);
+  }, [closeCardStageState, closeRecentCardSession, initialWorkspaceBootstrap.session.layout, loading]);
 
   const handleCreateProject = useCallback(
     async (
@@ -455,6 +458,7 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
     await flushWorkspaceLayout();
     const bootstrap = await setActiveWorkspace(workspaceId);
     applyWorkspaceBootstrap(bootstrap);
+    await saveWindowSessionLayout(bootstrap.activeWorkspace.id, bootstrap.activeWorkspace.layout);
   }, [applyWorkspaceBootstrap, flushWorkspaceLayout]);
 
   const handleCreateWorkspace = useCallback(async (name: string, icon?: string | null) => {
@@ -467,6 +471,7 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
     const layout = latestWorkspaceLayoutRef.current;
     const bootstrap = await createWorkspace(name, layout, icon);
     applyWorkspaceBootstrap(bootstrap);
+    await saveWindowSessionLayout(bootstrap.activeWorkspace.id, bootstrap.activeWorkspace.layout);
   }, [applyWorkspaceBootstrap]);
 
   const handleRenameWorkspace = useCallback(async (workspaceId: string, name: string, icon?: string | null) => {
@@ -478,6 +483,7 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
     if (workspaceCatalog.workspaces.length <= 1) return;
     const bootstrap = await deleteWorkspace(workspaceId);
     applyWorkspaceBootstrap(bootstrap);
+    await saveWindowSessionLayout(bootstrap.activeWorkspace.id, bootstrap.activeWorkspace.layout);
   }, [applyWorkspaceBootstrap, workspaceCatalog.workspaces.length]);
 
   const recordCardLeave = useCallback((snapshot: CardStageSessionSnapshot) => {
@@ -974,6 +980,19 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
     setSettingsToggleTick((tick) => tick + 1);
   }, []);
 
+  const handleRequestNewWindow = useCallback(async () => {
+    if (workspaceSaveTimerRef.current !== null) {
+      window.clearTimeout(workspaceSaveTimerRef.current);
+      workspaceSaveTimerRef.current = null;
+    }
+    await cardStagePersistRef.current?.();
+    await flushWorkspaceLayout();
+    await invoke("window:new", {
+      workspaceId: activeWorkspaceRef.current.id,
+      layout: latestWorkspaceLayoutRef.current,
+    });
+  }, [flushWorkspaceLayout]);
+
   const handleOpenCommandPalette = useCallback((initialQuery = "") => {
     setCommandPaletteInitialQuery(initialQuery);
     setCommandPaletteOpenTick((tick) => tick + 1);
@@ -989,7 +1008,7 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
     switchToProjectIndex: navigateToProjectIndex,
     toggleTerminalPanel,
     onRequestNewWindow: () => {
-      void invoke("window:new");
+      void handleRequestNewWindow();
     },
     onRequestCommandPalette: handleOpenCommandPalette,
     onRequestProjectPicker: handleOpenProjectPicker,
@@ -1134,6 +1153,9 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
       onNavigateForward={() => {
         void navigateForward();
       }}
+      onRequestNewWindow={() => {
+        void handleRequestNewWindow();
+      }}
       />
     </LocalConversationProvider>
   );
@@ -1142,7 +1164,7 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
 export default function App() {
   const [bootstrapState, setBootstrapState] = useState<{
     ready: boolean;
-    workspaces: WorkspaceBootstrap | null;
+    workspaces: WindowSessionBootstrap | null;
     step: AppInitializationStep;
     migrationProgress: DatabaseMigrationProgress | null;
   }>({
@@ -1175,8 +1197,8 @@ export default function App() {
     }
 
     const bootstrapPromise = window.api?.awaitInitialization
-      ? window.api.awaitInitialization().then(() => bootstrapWorkspaces())
-      : bootstrapWorkspaces();
+      ? window.api.awaitInitialization().then(() => bootstrapWindowSession())
+      : bootstrapWindowSession();
 
     void bootstrapPromise
       .then((workspaces) => {

@@ -66,6 +66,8 @@ import type {
   UpdateAppUpdateSettingsInput,
   UpdateHistorySettingsInput,
   UpdateThreadNotificationSettingsInput,
+  UpdateWindowRestoreSettingsInput,
+  WindowRestoreSettings,
   DesktopNotificationActionPayload,
 } from "./types";
 import type { WorkbenchResumeSnapshot } from "./workbench-resume";
@@ -73,6 +75,11 @@ import type {
   WorkbenchLayoutSnapshot,
   WorkspaceBootstrap,
 } from "./workspace";
+import type {
+  WindowSessionBootstrap,
+  WindowSessionBounds,
+  WindowSessionSeed,
+} from "./window-session";
 import type {
   FileLinkOpenerId,
   FileLinkTarget,
@@ -345,6 +352,11 @@ export interface IpcApi {
     args: [input: UpdateAppUpdateSettingsInput];
     result: AppUpdateSettings;
   };
+  "settings:window-restore:get": { args: []; result: WindowRestoreSettings };
+  "settings:window-restore:update": {
+    args: [input: UpdateWindowRestoreSettingsInput];
+    result: WindowRestoreSettings;
+  };
   "app:update:status": { args: []; result: AppUpdateStatus };
   "app:update:check": { args: []; result: AppUpdateStatus };
   "app:update:install": { args: []; result: boolean };
@@ -358,7 +370,7 @@ export interface IpcApi {
   "clipboard:write-image": { args: [input: { source: string }]; result: ClipboardWriteImageResult };
   "clipboard:inspect-paste": { args: []; result: ClipboardPasteInspectionResult };
   "window:show-emoji-panel": { args: []; result: boolean };
-  "window:new": { args: []; result: boolean };
+  "window:new": { args: [seed?: WindowSessionSeed]; result: boolean };
   "workbench:resume:consume": { args: []; result: WorkbenchResumeSnapshot | null };
   "workbench:resume:save": { args: [snapshot: WorkbenchResumeSnapshot]; result: boolean };
   "workspaces:bootstrap": { args: []; result: WorkspaceBootstrap };
@@ -370,6 +382,15 @@ export interface IpcApi {
     result: WorkspaceBootstrap;
   };
   "workspaces:set-active": { args: [workspaceId: string]; result: WorkspaceBootstrap };
+  "window-sessions:bootstrap": { args: []; result: WindowSessionBootstrap };
+  "window-sessions:save-layout": {
+    args: [workspaceId: string, layout: WorkbenchLayoutSnapshot];
+    result: WindowSessionBootstrap;
+  };
+  "window-sessions:update-bounds": {
+    args: [bounds: WindowSessionBounds];
+    result: void;
+  };
   // Internal app lifecycle handshake used to flush renderer state before window close.
   "app:flush-before-close:done": { args: [webContentsId: number]; result: void };
 

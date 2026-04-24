@@ -163,6 +163,16 @@ export type {
   WorkspaceCatalog,
   WorkspaceRecord,
 } from "../../shared/workspace";
+export type {
+  UpdateWindowRestoreSettingsInput,
+  WindowRestorePolicy,
+  WindowRestoreSettings,
+  WindowSessionBootstrap,
+  WindowSessionBounds,
+  WindowSessionCatalog,
+  WindowSessionRecord,
+  WindowSessionSeed,
+} from "../../shared/window-session";
 
 import type { Estimate, CardUpdateResult } from "../../shared/types";
 

@@ -243,6 +243,7 @@ interface WorkbenchShellProps {
   canNavigateForward: boolean;
   onNavigateBack: () => void;
   onNavigateForward: () => void;
+  onRequestNewWindow?: () => void;
 }
 
 const DB_VIEW_TABS: Array<{ id: WorkbenchView; label: string }> = [
@@ -394,6 +395,7 @@ export function WorkbenchShell({
   canNavigateForward,
   onNavigateBack,
   onNavigateForward,
+  onRequestNewWindow,
 }: WorkbenchShellProps) {
   const isMac = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
   const canRequestNewWindow = typeof window !== "undefined" && Boolean(window.api);
@@ -1719,9 +1721,7 @@ export function WorkbenchShell({
         onOpenSettings={() => {
           openSettings();
         }}
-        onRequestNewWindow={canRequestNewWindow ? () => {
-          void invoke("window:new");
-        } : undefined}
+        onRequestNewWindow={canRequestNewWindow ? onRequestNewWindow : undefined}
       />
       {sidebar.collapsed ? (
         <div

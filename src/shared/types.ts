@@ -458,6 +458,12 @@ export interface UpdateAppUpdateSettingsInput {
   automaticChecksEnabled: boolean;
 }
 
+export type {
+  UpdateWindowRestoreSettingsInput,
+  WindowRestorePolicy,
+  WindowRestoreSettings,
+} from "./window-session";
+
 export type AppUpdateStatusKind =
   | "unsupported"
   | "idle"
