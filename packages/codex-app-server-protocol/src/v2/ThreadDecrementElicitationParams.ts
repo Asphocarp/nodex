@@ -5,7 +5,7 @@
 /**
  * Parameters for `thread/decrement_elicitation`.
  */
-export type ThreadDecrementElicitationParams = { 
+export type ThreadDecrementElicitationParams = {
 /**
  * Thread whose out-of-band elicitation counter should be decremented.
  */

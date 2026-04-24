@@ -5,11 +5,11 @@
 /**
  * Response for `thread/increment_elicitation`.
  */
-export type ThreadIncrementElicitationResponse = { 
+export type ThreadIncrementElicitationResponse = {
 /**
  * Current out-of-band elicitation count after the increment.
  */
-count: bigint, 
+count: bigint,
 /**
  * Whether timeout accounting is paused after applying the increment.
  */

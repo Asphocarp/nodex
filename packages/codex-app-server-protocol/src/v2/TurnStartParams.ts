@@ -9,52 +9,67 @@ import type { ServiceTier } from "../ServiceTier";
 import type { JsonValue } from "../serde_json/JsonValue";
 import type { ApprovalsReviewer } from "./ApprovalsReviewer";
 import type { AskForApproval } from "./AskForApproval";
+import type { PermissionProfile } from "./PermissionProfile";
 import type { SandboxPolicy } from "./SandboxPolicy";
+import type { TurnEnvironmentParams } from "./TurnEnvironmentParams";
 import type { UserInput } from "./UserInput";
 
-export type TurnStartParams = { threadId: string, input: Array<UserInput>, 
+export type TurnStartParams = { threadId: string, input: Array<UserInput>,
+/**
+ * Optional turn-scoped Responses API client metadata.
+ */
+responsesapiClientMetadata?: { [key in string]?: string } | null,
+/**
+ * Optional turn-scoped environment selections.
+ */
+environments?: Array<TurnEnvironmentParams> | null,
 /**
  * Override the working directory for this turn and subsequent turns.
  */
-cwd?: string | null, 
+cwd?: string | null,
 /**
  * Override the approval policy for this turn and subsequent turns.
  */
-approvalPolicy?: AskForApproval | null, 
+approvalPolicy?: AskForApproval | null,
 /**
  * Override where approval requests are routed for review on this turn and
  * subsequent turns.
  */
-approvalsReviewer?: ApprovalsReviewer | null, 
+approvalsReviewer?: ApprovalsReviewer | null,
 /**
  * Override the sandbox policy for this turn and subsequent turns.
  */
-sandboxPolicy?: SandboxPolicy | null, 
+sandboxPolicy?: SandboxPolicy | null,
+/**
+ * Override the full permissions profile for this turn and subsequent
+ * turns. Cannot be combined with `sandboxPolicy`.
+ */
+permissionProfile?: PermissionProfile | null,
 /**
  * Override the model for this turn and subsequent turns.
  */
-model?: string | null, 
+model?: string | null,
 /**
  * Override the service tier for this turn and subsequent turns.
  */
-serviceTier?: ServiceTier | null | null, 
+serviceTier?: ServiceTier | null | null,
 /**
  * Override the reasoning effort for this turn and subsequent turns.
  */
-effort?: ReasoningEffort | null, 
+effort?: ReasoningEffort | null,
 /**
  * Override the reasoning summary for this turn and subsequent turns.
  */
-summary?: ReasoningSummary | null, 
+summary?: ReasoningSummary | null,
 /**
  * Override the personality for this turn and subsequent turns.
  */
-personality?: Personality | null, 
+personality?: Personality | null,
 /**
  * Optional JSON Schema used to constrain the final assistant message for
  * this turn.
  */
-outputSchema?: JsonValue | null, 
+outputSchema?: JsonValue | null,
 /**
  * EXPERIMENTAL - Set a pre-set collaboration mode.
  * Takes precedence over model, reasoning_effort, and developer instructions if set.
