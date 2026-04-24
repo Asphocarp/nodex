@@ -1,94 +1,73 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import type { CalendarRangeState } from "@/lib/calendar-range";
+import { formatCalendarToolbarMonthYear } from "@/lib/calendar-view-state";
 import { cn } from "@/lib/utils";
+import { CalendarRangeDropdown } from "./calendar-range-dropdown";
 
-interface CalendarToolbarProps {
-  visibleDays: Date[];
-  dayCount: number;
+interface CalendarToolbarControlsProps {
+  range: CalendarRangeState;
+  onRangeChange: (range: CalendarRangeState) => void;
+  onCreate: () => void;
   onToday: () => void;
   onPrev: () => void;
   onNext: () => void;
-  onSetDayCount: (count: number) => void;
 }
 
-function formatDateRange(days: Date[]): string {
-  if (days.length === 0) return "";
-  const first = days[0];
-  const last = days[days.length - 1];
-  const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
-  const yearOpts: Intl.DateTimeFormatOptions = { ...opts, year: "numeric" };
-
-  if (first.getMonth() === last.getMonth()) {
-    return `${first.toLocaleDateString(undefined, { month: "long" })} ${first.getDate()} – ${last.getDate()}, ${first.getFullYear()}`;
-  }
-  if (first.getFullYear() === last.getFullYear()) {
-    return `${first.toLocaleDateString(undefined, opts)} – ${last.toLocaleDateString(undefined, yearOpts)}`;
-  }
-  return `${first.toLocaleDateString(undefined, yearOpts)} – ${last.toLocaleDateString(undefined, yearOpts)}`;
+export function CalendarToolbarMonthLabel({ visibleDays }: { visibleDays: Date[] }) {
+  return (
+    <span className="hidden max-w-40 shrink-0 truncate text-left text-sm font-medium text-token-foreground select-none sm:block">
+      {formatCalendarToolbarMonthYear(visibleDays)}
+    </span>
+  );
 }
 
-export function CalendarToolbar({
-  visibleDays,
-  dayCount,
+export function CalendarToolbarControls({
+  range,
+  onRangeChange,
+  onCreate,
   onToday,
   onPrev,
   onNext,
-  onSetDayCount,
-}: CalendarToolbarProps) {
-  const btnBase =
-    "h-7 px-2.5 text-base font-medium rounded-md transition-colors";
-  const btnSecondary = cn(
-    btnBase,
-    `
-      text-(--foreground-secondary)
-      hover:bg-(--background-tertiary)
-      dark:hover:bg-[rgba(255,255,255,0.06)]
-    `,
-  );
-  const toggleBase =
-    "h-7 px-2.5 text-base font-medium rounded-md transition-colors";
+}: CalendarToolbarControlsProps) {
+  const iconButton =
+    "flex size-8 items-center justify-center rounded-full text-token-description-foreground hover:bg-token-foreground/5 hover:text-token-foreground focus-visible:ring-token-focus focus-visible:ring-2 focus-visible:outline-hidden";
+  const groupedButton =
+    "flex h-8 items-center justify-center border-l border-token-border px-3 text-sm font-medium text-token-foreground first:border-l-0 hover:bg-token-foreground/5 focus-visible:ring-token-focus focus-visible:ring-2 focus-visible:outline-hidden";
 
   return (
-    <div className="flex items-center gap-2 px-0 py-2">
-      <h2 className="mr-2 text-sm font-semibold text-(--foreground) select-none">
-        {formatDateRange(visibleDays)}
-      </h2>
-
-      <button onClick={onToday} className={btnSecondary}>
-        Today
+    <div className="flex shrink-0 items-center gap-2">
+      <button
+        type="button"
+        onClick={onCreate}
+        className={iconButton}
+        aria-label="Create calendar task"
+        title="Create calendar task"
+      >
+        <Plus className="size-4" />
       </button>
 
-      <div className="flex items-center">
+      <CalendarRangeDropdown range={range} onRangeChange={onRangeChange} />
+
+      <div className="flex overflow-hidden rounded-full border border-token-border bg-token-foreground/3">
         <button
+          type="button"
           onClick={onPrev}
-          className="flex size-7 items-center justify-center rounded-md text-(--foreground-secondary) transition-colors hover:bg-(--background-tertiary) dark:hover:bg-[rgba(255,255,255,0.06)]"
+          className={cn(groupedButton, "w-8 px-0")}
           aria-label="Previous"
         >
           <ChevronLeft className="size-4" />
         </button>
+        <button type="button" onClick={onToday} className={groupedButton}>
+          Today
+        </button>
         <button
+          type="button"
           onClick={onNext}
-          className="flex size-7 items-center justify-center rounded-md text-(--foreground-secondary) transition-colors hover:bg-(--background-tertiary) dark:hover:bg-[rgba(255,255,255,0.06)]"
+          className={cn(groupedButton, "w-8 px-0")}
           aria-label="Next"
         >
           <ChevronRight className="size-4" />
         </button>
-      </div>
-
-      <div className="ml-auto flex items-center gap-0.5 rounded-lg bg-(--background-tertiary) p-0.5 dark:bg-[rgba(255,255,255,0.06)]">
-        {[4, 7].map((count) => (
-          <button
-            key={count}
-            onClick={() => onSetDayCount(count)}
-            className={cn(
-              toggleBase,
-              dayCount === count
-                ? "bg-(--background) text-(--foreground) shadow-sm dark:bg-[rgba(255,255,255,0.1)]"
-                : "text-(--foreground-secondary) hover:text-(--foreground)",
-            )}
-          >
-            {count === 4 ? "4 Days" : "Week"}
-          </button>
-        ))}
       </div>
     </div>
   );

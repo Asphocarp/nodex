@@ -1,4 +1,4 @@
-import { useState, type ComponentType, type RefObject } from "react";
+import { useState, type ComponentType, type ReactNode, type RefObject } from "react";
 import {
   ArrowUpDown,
   ListFilter,
@@ -44,6 +44,9 @@ interface DbViewToolbarProps {
   rulesView: SupportedDbView | null;
   dbViewPrefs: DbViewPrefs | null;
   availableTags: string[];
+  viewContextLabel?: ReactNode;
+  calendarControls?: ReactNode;
+  showSearchControls?: boolean;
   onUpdateDbViewPrefs: ((update: (prev: DbViewPrefs) => DbViewPrefs) => void) | null;
   onSearchQueryChange: (value: string) => void;
   onOpenTaskSearch: (selectQuery?: boolean) => void;
@@ -76,6 +79,9 @@ export function DbViewToolbar({
   rulesView,
   dbViewPrefs,
   availableTags,
+  viewContextLabel,
+  calendarControls,
+  showSearchControls = true,
   onUpdateDbViewPrefs,
   onSearchQueryChange,
   onOpenTaskSearch,
@@ -86,7 +92,7 @@ export function DbViewToolbar({
   if (!activeItem) return null;
 
   const hasActiveSearchQuery = activeSearchQuery.trim().length > 0;
-  const showSearchField = taskSearchOpen || hasActiveSearchQuery;
+  const showSearchField = showSearchControls && (taskSearchOpen || hasActiveSearchQuery);
   const filterActive = rulesView && dbViewPrefs ? hasActiveDbViewFilters(rulesView, dbViewPrefs.rules) : false;
   const sortActive = rulesView && dbViewPrefs ? hasActiveDbViewSorts(rulesView, dbViewPrefs.rules) : false;
   const summaryVisible = Boolean(
@@ -110,7 +116,9 @@ export function DbViewToolbar({
     });
   };
 
-  const rulesButtons = rulesView && dbViewPrefs && onUpdateDbViewPrefs ? (
+  const rulesButtons = calendarControls ? (
+    <>{calendarControls}</>
+  ) : rulesView && dbViewPrefs && onUpdateDbViewPrefs ? (
     <>
       <DbViewFilterPopover
         open={openPanel === "filter"}
@@ -189,7 +197,7 @@ export function DbViewToolbar({
       data-testid={DB_VIEW_TOOLBAR_TEST_ID}
     >
       <div className="pl-4 pr-2 pb-2">
-        <div className="flex min-h-11 items-center gap-4">
+        <div className="flex min-h-11 items-center gap-2">
           <TabsPrimitive.Root
             value={activeItem.id}
             onValueChange={(value) => {
@@ -247,68 +255,74 @@ export function DbViewToolbar({
             </TabsPrimitive.List>
           </TabsPrimitive.Root>
 
+          {viewContextLabel ? (
+            <div className="flex min-w-0 shrink items-center">{viewContextLabel}</div>
+          ) : null}
+
           <div className="ml-auto flex h-full items-center justify-end gap-0.5">
             {rulesButtons}
 
-            <div className="flex items-center">
-              <NodexIconButton
-                icon={Search}
-                size="sm"
-                ariaLabel="Search"
-                title={`Task search (${searchShortcutLabel})`}
-                onClick={() => onOpenTaskSearch(true)}
-              />
+            {showSearchControls ? (
+              <div className="flex items-center">
+                <NodexIconButton
+                  icon={Search}
+                  size="sm"
+                  ariaLabel="Search"
+                  title={`Task search (${searchShortcutLabel})`}
+                  onClick={() => onOpenTaskSearch(true)}
+                />
 
-              <div
-                aria-hidden={!showSearchField}
-                className={cn(
-                  "overflow-hidden transition-[width,opacity,margin] duration-200 ease-out",
-                  showSearchField ? "ml-1 w-[150px] opacity-100" : "ml-0 w-0 opacity-0",
-                )}
-              >
-                <div className="flex items-center overflow-hidden">
-                  <div className="mb-px flex w-full items-center pr-1 text-sm text-(--foreground)">
-                    <input
-                      ref={taskSearchInputRef}
-                      type="text"
-                      value={activeSearchQuery}
-                      onChange={(event) => onSearchQueryChange(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key !== "Escape") return;
-                        event.preventDefault();
-                        onCloseTaskSearch();
-                      }}
-                      placeholder="Type to search..."
-                      aria-label="Search tasks"
-                      tabIndex={showSearchField ? 0 : -1}
-                      className={cn(
-                        "w-full border-none bg-transparent p-0 text-sm text-(--foreground) outline-none",
-                        "placeholder:text-(--foreground-tertiary)",
-                      )}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const nextAction = resolveDbViewToolbarClearAction(hasActiveSearchQuery);
-                        if (nextAction.shouldClear) {
-                          onSearchQueryChange("");
-                        }
-                        if (nextAction.shouldClose) {
+                <div
+                  aria-hidden={!showSearchField}
+                  className={cn(
+                    "overflow-hidden transition-[width,opacity,margin] duration-200 ease-out",
+                    showSearchField ? "ml-1 w-[150px] opacity-100" : "ml-0 w-0 opacity-0",
+                  )}
+                >
+                  <div className="flex items-center overflow-hidden">
+                    <div className="mb-px flex w-full items-center pr-1 text-sm text-(--foreground)">
+                      <input
+                        ref={taskSearchInputRef}
+                        type="text"
+                        value={activeSearchQuery}
+                        onChange={(event) => onSearchQueryChange(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Escape") return;
+                          event.preventDefault();
                           onCloseTaskSearch();
-                        }
-                      }}
-                      aria-label={hasActiveSearchQuery ? "Clear search" : "Close search"}
-                      className={cn(
-                        "inline-flex size-6 shrink-0 items-center justify-center rounded-full",
-                        "text-(--foreground-tertiary) hover:bg-[color-mix(in_srgb,var(--foreground)_5%,transparent)] hover:text-(--foreground-secondary)",
-                      )}
-                    >
-                      <XCircle className="size-4" />
-                    </button>
+                        }}
+                        placeholder="Type to search..."
+                        aria-label="Search tasks"
+                        tabIndex={showSearchField ? 0 : -1}
+                        className={cn(
+                          "w-full border-none bg-transparent p-0 text-sm text-(--foreground) outline-none",
+                          "placeholder:text-(--foreground-tertiary)",
+                        )}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextAction = resolveDbViewToolbarClearAction(hasActiveSearchQuery);
+                          if (nextAction.shouldClear) {
+                            onSearchQueryChange("");
+                          }
+                          if (nextAction.shouldClose) {
+                            onCloseTaskSearch();
+                          }
+                        }}
+                        aria-label={hasActiveSearchQuery ? "Clear search" : "Close search"}
+                        className={cn(
+                          "inline-flex size-6 shrink-0 items-center justify-center rounded-full",
+                          "text-(--foreground-tertiary) hover:bg-[color-mix(in_srgb,var(--foreground)_5%,transparent)] hover:text-(--foreground-secondary)",
+                        )}
+                      >
+                        <XCircle className="size-4" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            ) : null}
           </div>
         </div>
         {rulesView && dbViewPrefs && summaryVisible ? (

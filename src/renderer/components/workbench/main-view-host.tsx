@@ -4,6 +4,7 @@ import { ListView } from "@/components/kanban/list-view";
 import { ToggleListView } from "@/components/kanban/toggle-list-view";
 import { CanvasView } from "@/components/kanban/canvas-view";
 import type { DbViewPrefs } from "../../lib/db-view-prefs";
+import type { CalendarViewState } from "@/lib/calendar-view-state";
 import type { Project } from "@/lib/types";
 import type { WorkbenchView } from "@/lib/use-workbench-state";
 
@@ -21,6 +22,10 @@ interface MainViewHostProps {
     cardId: string;
     occurrenceStart: string;
   } | null;
+  calendarState: CalendarViewState;
+  calendarVisibleDays: Date[];
+  calendarCreateRequestId: number;
+  onCalendarAnchorDateChange: (update: (anchorDate: Date) => Date) => void;
   onReminderHandled?: (payload: {
     projectId: string;
     cardId: string;
@@ -43,6 +48,10 @@ export function MainViewHost({
   cardStageCardId,
   cardStageCloseRef,
   pendingReminderOpen,
+  calendarState,
+  calendarVisibleDays,
+  calendarCreateRequestId,
+  onCalendarAnchorDateChange,
   onReminderHandled,
   openCardStage,
 }: MainViewHostProps) {
@@ -94,6 +103,10 @@ export function MainViewHost({
         cardStageCardId={cardStageCardId}
         cardStageCloseRef={cardStageCloseRef}
         pendingReminderOpen={pendingReminderOpen?.projectId === projectId ? pendingReminderOpen : null}
+        calendarState={calendarState}
+        visibleDays={calendarVisibleDays}
+        createRequestId={calendarCreateRequestId}
+        onCalendarAnchorDateChange={onCalendarAnchorDateChange}
         onReminderHandled={onReminderHandled}
       />
     );

@@ -5,11 +5,13 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added Calendar controls to the View-stage toolbar, with Day, Week, custom Multi-Day, custom Multi-Week, inline range steppers, navigation, a create action, and no unrelated search/filter/sort chrome.
 
 ### Changed
 - macOS window titles now follow the active workspace name for each restored window session.
 
 ### Fixed
+- Fixed the Calendar toolbar month label so it sits beside the active Calendar selector, uses primary text contrast, and leaves the action cluster consistently sized with the selector.
 
 ## [0.1.9] - 2026-04-24
 

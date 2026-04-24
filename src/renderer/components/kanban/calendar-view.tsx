@@ -1,11 +1,12 @@
 import { useState, useMemo, useCallback, useDeferredValue, useEffect, useRef } from "react";
 import { useKanban } from "@/lib/use-kanban";
-import { getVisibleDays, resolveShiftWheelDirection } from "@/lib/calendar-utils";
+import { resolveShiftWheelDirection } from "@/lib/calendar-utils";
+import { resolveCalendarVisibleDayCount } from "@/lib/calendar-range";
+import type { CalendarViewState } from "@/lib/calendar-view-state";
 import {
   CALENDAR_SHIFT_WHEEL_SCOPE_ATTR,
   CALENDAR_SHIFT_WHEEL_SCOPE_VALUE,
 } from "@/lib/stage-wheel-navigation";
-import { CalendarToolbar } from "./calendar/calendar-toolbar";
 import { CalendarGrid } from "./calendar/calendar-grid";
 import {
   type CalendarOccurrence,
@@ -36,52 +37,14 @@ interface CalendarViewProps {
   onReminderHandled?: (
     payload: { projectId: string; cardId: string; occurrenceStart: string },
   ) => void;
+  calendarState: CalendarViewState;
+  visibleDays: Date[];
+  createRequestId: number;
+  onCalendarAnchorDateChange: (update: (anchorDate: Date) => Date) => void;
 }
 
-const STORAGE_KEY = "nodex-calendar-prefs";
 const ALL_DAY_HEIGHT_STORAGE_KEY = "nodex-calendar-all-day-heights";
 const DEFAULT_ALL_DAY_LANE_HEIGHT = 72;
-
-function todayKey(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-}
-
-interface CalendarPrefs {
-  dayCount: 4 | 7;
-  anchorDate?: string; // ISO date string, only valid for savedOn
-  savedOn?: string;    // todayKey() at save time
-}
-
-function loadPrefs(): { dayCount: number; anchorDate: Date } {
-  const today = normalizeAnchorDate(new Date());
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed: CalendarPrefs = JSON.parse(stored);
-      const dayCount = parsed.dayCount === 4 || parsed.dayCount === 7 ? parsed.dayCount : 7;
-      if (parsed.anchorDate && parsed.savedOn === todayKey()) {
-        const restored = new Date(parsed.anchorDate);
-        if (!Number.isNaN(restored.getTime())) {
-          return { dayCount, anchorDate: normalizeAnchorDate(restored) };
-        }
-      }
-      return { dayCount, anchorDate: today };
-    }
-  } catch { /* ignore */ }
-  return { dayCount: 7, anchorDate: today };
-}
-
-function savePrefs(dayCount: number, anchorDate: Date): void {
-  try {
-    const prefs: CalendarPrefs = {
-      dayCount: dayCount as 4 | 7,
-      anchorDate: anchorDate.toISOString(),
-      savedOn: todayKey(),
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
-  } catch { /* ignore */ }
-}
 
 function loadAllDayLaneHeight(projectId: string, dayCount: number): number {
   try {
@@ -108,15 +71,16 @@ function saveAllDayLaneHeight(projectId: string, dayCount: number, height: numbe
   }
 }
 
-function normalizeAnchorDate(value: Date): Date {
+function shiftAnchorDateByDays(value: Date, days: number): Date {
   const next = new Date(value);
   next.setHours(0, 0, 0, 0);
+  next.setDate(next.getDate() + days);
   return next;
 }
 
-function shiftAnchorDateByDays(value: Date, days: number): Date {
-  const next = normalizeAnchorDate(value);
-  next.setDate(next.getDate() + days);
+function normalizeRenderWindowDate(value: Date): Date {
+  const next = new Date(value);
+  next.setHours(0, 0, 0, 0);
   return next;
 }
 
@@ -125,10 +89,10 @@ function resolveCalendarRenderWindow(
 ): { start: Date; endExclusive: Date } | null {
   if (visibleDays.length === 0) return null;
 
-  const start = normalizeAnchorDate(new Date(visibleDays[0]));
+  const start = normalizeRenderWindowDate(new Date(visibleDays[0]));
   start.setDate(start.getDate() - 1);
 
-  const endExclusive = normalizeAnchorDate(new Date(visibleDays[visibleDays.length - 1]));
+  const endExclusive = normalizeRenderWindowDate(new Date(visibleDays[visibleDays.length - 1]));
   endExclusive.setDate(endExclusive.getDate() + 2);
 
   return { start, endExclusive };
@@ -159,6 +123,10 @@ export function CalendarView({
   cardStageCardId,
   pendingReminderOpen,
   onReminderHandled,
+  calendarState,
+  visibleDays,
+  createRequestId,
+  onCalendarAnchorDateChange,
 }: CalendarViewProps) {
   const {
     board,
@@ -173,17 +141,11 @@ export function CalendarView({
     projectId,
   });
 
-  const [anchorDate, setAnchorDate] = useState(() => loadPrefs().anchorDate);
-  const [dayCount, setDayCount] = useState(() => loadPrefs().dayCount);
+  const { range } = calendarState;
+  const dayCount = resolveCalendarVisibleDayCount(range);
   const [allDayLaneHeight, setAllDayLaneHeight] = useState(() =>
-    loadAllDayLaneHeight(projectId, loadPrefs().dayCount),
+    loadAllDayLaneHeight(projectId, dayCount),
   );
-
-  const visibleDays = useMemo(() => {
-    // For 4-day view, offset start by -1 so the window is [today-1, today+2].
-    const effectiveAnchor = dayCount === 4 ? shiftAnchorDateByDays(anchorDate, -1) : anchorDate;
-    return getVisibleDays(effectiveAnchor, dayCount);
-  }, [anchorDate, dayCount]);
   const renderWindow = useMemo(() => resolveCalendarRenderWindow(visibleDays), [visibleDays]);
   const [scheduledCards, setScheduledCards] = useState<ScheduledOccurrence[]>([]);
   type OccurrenceOverlay =
@@ -221,24 +183,13 @@ export function CalendarView({
     scheduledCardsRef.current = scheduledCards;
   }, [scheduledCards]);
 
-  const handleToday = useCallback(() => setAnchorDate(normalizeAnchorDate(new Date())), []);
-  const handlePrev = useCallback(
-    () =>
-      setAnchorDate((prev) => shiftAnchorDateByDays(prev, -dayCount)),
-    [dayCount],
-  );
-  const handleNext = useCallback(
-    () =>
-      setAnchorDate((prev) => shiftAnchorDateByDays(prev, dayCount)),
-    [dayCount],
-  );
   const handleShiftWheelPrev = useCallback(
-    () => setAnchorDate((prev) => shiftAnchorDateByDays(prev, -1)),
-    [],
+    () => onCalendarAnchorDateChange((anchorDate) => shiftAnchorDateByDays(anchorDate, -1)),
+    [onCalendarAnchorDateChange],
   );
   const handleShiftWheelNext = useCallback(
-    () => setAnchorDate((prev) => shiftAnchorDateByDays(prev, 1)),
-    [],
+    () => onCalendarAnchorDateChange((anchorDate) => shiftAnchorDateByDays(anchorDate, 1)),
+    [onCalendarAnchorDateChange],
   );
   const handleCalendarWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
     const direction = resolveShiftWheelDirection({
@@ -263,20 +214,12 @@ export function CalendarView({
     handleShiftWheelPrev();
   }, [handleShiftWheelNext, handleShiftWheelPrev]);
   useEffect(() => {
-    savePrefs(dayCount, anchorDate);
-  }, [dayCount, anchorDate]);
-
-  useEffect(() => {
     setAllDayLaneHeight(loadAllDayLaneHeight(projectId, dayCount));
   }, [dayCount, projectId]);
 
   useEffect(() => {
     saveAllDayLaneHeight(projectId, dayCount, allDayLaneHeight);
   }, [allDayLaneHeight, dayCount, projectId]);
-
-  const handleSetDayCount = useCallback((count: number) => {
-    setDayCount(count);
-  }, []);
 
   const handleAllDayLaneHeightChange = useCallback((height: number) => {
     setAllDayLaneHeight(height);
@@ -572,16 +515,9 @@ export function CalendarView({
       onWheel={handleCalendarWheel}
       {...{ [CALENDAR_SHIFT_WHEEL_SCOPE_ATTR]: CALENDAR_SHIFT_WHEEL_SCOPE_VALUE }}
     >
-      <CalendarToolbar
-        visibleDays={visibleDays}
-        dayCount={dayCount}
-        onToday={handleToday}
-        onPrev={handlePrev}
-        onNext={handleNext}
-        onSetDayCount={handleSetDayCount}
-      />
       <CalendarGrid
         visibleDays={visibleDays}
+        createRequestId={createRequestId}
         scheduledCards={displayScheduledCards}
         cardStageCardId={cardStageCardId}
         onClickCard={handleClickCard}

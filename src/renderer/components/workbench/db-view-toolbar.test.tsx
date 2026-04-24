@@ -115,6 +115,22 @@ describe("DbViewToolbar", () => {
     expect(filteredRender.getByDisplayValue("bugfix").getAttribute("value")).toBe("bugfix");
   });
 
+  test("hides search controls when the active view owns the toolbar cluster", async () => {
+    const { DbViewToolbar } = await import("./db-view-toolbar");
+    const { container } = render(
+      <DbViewToolbar
+        {...BASE_PROPS}
+        activeSearchQuery="bugfix"
+        taskSearchOpen
+        showSearchControls={false}
+      />,
+    );
+
+    expect(container.querySelector('[aria-label="Search"]') === null).toBeTrue();
+    expect(container.querySelector('[aria-label="Search tasks"]') === null).toBeTrue();
+    expect(textContent(container).includes("bugfix")).toBeFalse();
+  });
+
   test("renders the active rules summary row for supported views", async () => {
     const { DbViewToolbar } = await import("./db-view-toolbar");
     const { getDefaultDbViewPrefs } = await import("../../lib/db-view-prefs");

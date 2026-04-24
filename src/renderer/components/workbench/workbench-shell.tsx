@@ -10,7 +10,20 @@ import {
 } from "lucide-react";
 import { subscribeAppUpdateStatus } from "../../lib/api";
 import { AppUpdateRestartNotice } from "./app-update-restart-notice";
+import {
+  CalendarToolbarControls,
+  CalendarToolbarMonthLabel,
+} from "@/components/kanban/calendar/calendar-toolbar";
 import { DbViewToolbar } from "./db-view-toolbar";
+import {
+  loadCalendarViewState,
+  normalizeCalendarAnchorDate,
+  resolveCalendarVisibleDays,
+  saveCalendarViewState,
+  shiftCalendarAnchorDateByDays,
+} from "@/lib/calendar-view-state";
+import type { CalendarRangeState } from "@/lib/calendar-range";
+import { resolveCalendarVisibleDayCount } from "@/lib/calendar-range";
 import {
   type DbViewPrefs,
   type SupportedDbView,
@@ -496,6 +509,10 @@ export function WorkbenchShell({
     projectId: dbProjectId,
   });
   const [mutationErrorToast, setMutationErrorToast] = useState<string | null>(null);
+  const [calendarState, setCalendarState] = useState(loadCalendarViewState);
+  const [calendarCreateRequestId, setCalendarCreateRequestId] = useState(0);
+  const calendarVisibleDays = useMemo(() => resolveCalendarVisibleDays(calendarState), [calendarState]);
+  const calendarDayCount = resolveCalendarVisibleDayCount(calendarState.range);
   const activeDbRulesView = viewSupportsDbViewPrefs(activeView) ? activeView : null;
   const activeProjectTags = useMemo(() => {
     if (!activeProjectBoard) return [];
@@ -506,6 +523,40 @@ export function WorkbenchShell({
   const updateActiveDbViewPrefs = activeDbRulesView
     ? (update: (prev: DbViewPrefs) => DbViewPrefs) => setDbViewPrefs(dbProjectId, activeDbRulesView, update)
     : null;
+
+  useEffect(() => {
+    saveCalendarViewState(calendarState);
+  }, [calendarState]);
+
+  const handleCalendarRangeChange = useCallback((range: CalendarRangeState) => {
+    setCalendarState((current) => ({ ...current, range }));
+  }, []);
+
+  const handleCalendarAnchorDateChange = useCallback((update: (anchorDate: Date) => Date) => {
+    setCalendarState((current) => ({
+      ...current,
+      anchorDate: normalizeCalendarAnchorDate(update(current.anchorDate)),
+    }));
+  }, []);
+
+  const handleCalendarToday = useCallback(() => {
+    setCalendarState((current) => ({
+      ...current,
+      anchorDate: normalizeCalendarAnchorDate(new Date()),
+    }));
+  }, []);
+
+  const handleCalendarPrev = useCallback(() => {
+    handleCalendarAnchorDateChange((anchorDate) => shiftCalendarAnchorDateByDays(anchorDate, -calendarDayCount));
+  }, [calendarDayCount, handleCalendarAnchorDateChange]);
+
+  const handleCalendarNext = useCallback(() => {
+    handleCalendarAnchorDateChange((anchorDate) => shiftCalendarAnchorDateByDays(anchorDate, calendarDayCount));
+  }, [calendarDayCount, handleCalendarAnchorDateChange]);
+
+  const handleCalendarCreate = useCallback(() => {
+    setCalendarCreateRequestId((current) => current + 1);
+  }, []);
 
   const setNextPanelPeekPx = useCallback((value: number) => {
     const normalized = writeNextPanelPeekPx(value);
@@ -1013,6 +1064,19 @@ export function WorkbenchShell({
     active: activeView === tab.id,
     onSelect: () => navigateToDbView(dbProjectId, tab.id),
   }));
+  const calendarToolbarControls = activeView === "calendar" ? (
+    <CalendarToolbarControls
+      range={calendarState.range}
+      onRangeChange={handleCalendarRangeChange}
+      onCreate={handleCalendarCreate}
+      onToday={handleCalendarToday}
+      onPrev={handleCalendarPrev}
+      onNext={handleCalendarNext}
+    />
+  ) : null;
+  const calendarToolbarContextLabel = activeView === "calendar" ? (
+    <CalendarToolbarMonthLabel visibleDays={calendarVisibleDays} />
+  ) : null;
 
   const cardsSidebarSections = useMemo<StageSidebarSection[]>(() => {
     const statusSections = CARDS_SIDEBAR_STATUS_ORDER.flatMap<StageSidebarSection>((statusId) => {
@@ -1469,11 +1533,14 @@ export function WorkbenchShell({
             items={dbSidebarItems}
             activeSearchQuery={activeSearchQuery}
             taskSearchOpen={taskSearchOpen}
+            showSearchControls={activeView !== "calendar"}
             searchShortcutLabel={isMac ? "⌘F" : "Ctrl+F"}
             taskSearchInputRef={taskSearchInputRef}
             rulesView={activeDbRulesView}
             dbViewPrefs={activeDbViewPrefs}
             availableTags={activeProjectTags}
+            viewContextLabel={calendarToolbarContextLabel}
+            calendarControls={calendarToolbarControls}
             onUpdateDbViewPrefs={updateActiveDbViewPrefs}
             onSearchQueryChange={(value) => setSearchQuery(dbProjectId, value)}
             onOpenTaskSearch={openTaskSearch}
@@ -1490,6 +1557,10 @@ export function WorkbenchShell({
               cardStageCardId={cardStageCardId}
               cardStageCloseRef={cardStageCloseRef}
               pendingReminderOpen={pendingReminderOpen}
+              calendarState={calendarState}
+              calendarVisibleDays={calendarVisibleDays}
+              calendarCreateRequestId={calendarCreateRequestId}
+              onCalendarAnchorDateChange={handleCalendarAnchorDateChange}
               onReminderHandled={onReminderHandled}
               openCardStage={handleOpenCardStageFromView}
             />

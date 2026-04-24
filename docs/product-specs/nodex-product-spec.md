@@ -53,11 +53,11 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Sliding-window mode includes resizable separators between adjacent panes; separator drag updates pane widths in real time and persists per-stage widths globally
 - Sliding-window mode auto-caps effective visible panes by available width while preserving requested pane count
 - Workbench top toolbar includes sidebar collapse plus sliding-window pane-count controls flanking the minimap; `-` sits to the left of the minimap and always removes the current right-most pane, while `+` sits to the right and tries to append the next pane on the right before falling back to prepending the left pane at the right edge
-- The View stage has its own sticky top toolbar; it keeps the DB view selector pinned above board, list, toggle-list, canvas, and calendar content, task search expands inline inside the toolbar's trailing action cluster, and `kanban` / `list` / `toggle-list` expose shared view-local filter and sort popovers there
+- The View stage has its own sticky top toolbar; it keeps the DB view selector pinned above board, list, toggle-list, canvas, and calendar content, task search expands inline inside the toolbar's trailing action cluster for searchable DB views, and `kanban` / `list` / `toggle-list` expose shared view-local filter and sort popovers there
 - The main DB views keep a consistent inner gutter under the sticky View-stage toolbar so list, calendar, and canvas align with the existing board/toggle-list spacing instead of sitting flush against the stage edge
 - URL sync: `/?project=<id>`, persisted to localStorage
 - Sidebar project switcher selects the DB-stage datasource only; it does not reset Card/Thread/Terminal stage contexts
-- Task search query is persisted per project and restored on space switching; search lives in the sticky View-stage toolbar alongside the DB view selector
+- Task search query is persisted per project and restored on space switching; search lives in the sticky View-stage toolbar alongside the DB view selector for searchable DB views, while Calendar hides that search chrome
 - `Cmd/Ctrl+K` and `Cmd/Ctrl+P` open a global command palette that searches cards across projects by default; typing a `>` prefix switches the palette into command mode for shell actions such as opening settings, task search, project picker, terminal, stage focus, and view switches, and `Cmd/Ctrl+Shift+P` opens that same palette with `>` already prefilled. Card results use fuzzy full-text ranking across title, description, tags, assignee, agent status, column, project name, and card id; card mode also exposes a trailing `Filter` popover plus a compact active-filter row beneath the input, using the same status/priority/tag/project-style pill language as the View-stage toolbar while persisting those filter selections across reopen/reload and still rendering three-line contextual previews for matching description text
 - `Cmd/Ctrl+[` and `Cmd/Ctrl+]` navigate backward/forward through durable workbench context (active DB project/view, focused stage, selected card session or history tab, selected thread tab, selected diff tab) without including transient overlays such as settings, command palette, task search, or terminal chrome
 - The command palette always includes `Go back` and `Go forward` commands with matching keyboard hints; those commands are shown disabled when there is no history in that direction
@@ -358,7 +358,9 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Canvas saves are flushed on page lifecycle transitions and during app-window close handshake to reduce lost edits when quitting.
 
 #### 11. Calendar View
-- Calendar tab shows scheduled cards in a day-grid timeline (4-day or week view).
+- Calendar tab shows scheduled cards in a day-grid timeline with Day, Week, custom Multi-Day, and custom Multi-Week ranges.
+- The Calendar controls live in the View-stage global toolbar instead of a separate in-calendar toolbar; the compact primary month/year label sits beside the active Calendar selector, while the trailing cluster omits search/filter/sort/display chrome and shows create, range selector, and previous/today/next navigation.
+- Multi-Day and Multi-Week range rows reveal inline `- number +` controls on hover/focus so users can adjust the actual custom span without leaving the menu.
 - Calendar has a dedicated all-day lane above the timed grid, and all-day cards render only in that lane.
 - Multi-day all-day cards render as one horizontal span across covered day columns using end-exclusive day range semantics.
 - All-day lane overflow is vertical-scrollable.

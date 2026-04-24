@@ -117,6 +117,7 @@ interface PendingScopedUpdate {
 
 interface CalendarGridProps {
   visibleDays: Date[];
+  createRequestId: number;
   scheduledCards: ScheduledCard[];
   cardStageCardId: string | undefined;
   onClickCard: (card: ScheduledCard) => void;
@@ -147,6 +148,7 @@ const ALL_DAY_EVENT_GAP = 4;
 const ALL_DAY_LANE_MIN_HEIGHT = 40;
 const ALL_DAY_LANE_MAX_HEIGHT = 220;
 const ALL_DAY_SEPARATOR_HEIGHT = 1;
+const MIN_LARGE_RANGE_DAY_COLUMN_WIDTH = 104;
 type EventInteractionFinishReason = "pointer-up" | "pointer-cancel" | "lost-pointer-capture";
 type MoveDropRegion = "timed" | "all-day" | "outside";
 const CALENDAR_EVENT_DRAG_MIME = "application/x-nodex-calendar-event";
@@ -260,6 +262,7 @@ function hasCalendarEventDragMime(dataTransfer: DataTransfer | null): boolean {
 
 export function CalendarGrid({
   visibleDays,
+  createRequestId,
   scheduledCards,
   cardStageCardId,
   onClickCard,
@@ -291,6 +294,7 @@ export function CalendarGrid({
   const eventPreviewRef = useRef<CalendarEventPreviewState | null>(null);
   const pendingDropPreviewEventIdRef = useRef<string | null>(null);
   const pendingDropPreviewTimeoutRef = useRef<number | null>(null);
+  const handledCreateRequestIdRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const allDayRef = useRef<HTMLDivElement>(null);
@@ -428,10 +432,15 @@ export function CalendarGrid({
   const hourHeight = resolveHourHeight(timelineViewportHeight ?? Number.NaN);
   const slotHeight = hourHeight / 4;
 
-  // dayColWidth: width of one visible day column in pixels
-  const dayColWidth = containerWidth > 0
+  const rawDayColWidth = containerWidth > 0 && visibleDays.length > 0
     ? (containerWidth - GUTTER_WIDTH) / visibleDays.length
     : 0;
+  const dayColWidth = visibleDays.length > 7
+    ? Math.max(rawDayColWidth, MIN_LARGE_RANGE_DAY_COLUMN_WIDTH)
+    : rawDayColWidth;
+  const calendarContentWidth = dayColWidth > 0
+    ? GUTTER_WIDTH + dayColWidth * visibleDays.length
+    : undefined;
 
   useEffect(() => {
     dayColWidthRef.current = dayColWidth;
@@ -448,6 +457,30 @@ export function CalendarGrid({
     if (dayWidth <= 0) return;
     applySlideTransform(0, dayWidth);
   }, [applySlideTransform]);
+
+  useEffect(() => {
+    if (createRequestId <= 0) return;
+    if (handledCreateRequestIdRef.current === createRequestId) return;
+    if (visibleDays.length === 0) return;
+    handledCreateRequestIdRef.current = createRequestId;
+
+    const firstDay = visibleDays[0]!;
+    const now = new Date();
+    const roundedMinute = Math.ceil(now.getMinutes() / 15) * 15;
+    const currentSlot = now.getHours() * 4 + Math.floor(roundedMinute / 15);
+    const fallbackSlot = 9 * 4;
+    const startSlot = Math.max(
+      0,
+      Math.min(isSameDay(firstDay, now) ? currentSlot : fallbackSlot, TOTAL_SLOTS - 4),
+    );
+
+    setDragState(null);
+    setCreatorState({
+      dayIndex: 0,
+      startSlot,
+      endSlot: startSlot + 3,
+    });
+  }, [createRequestId, visibleDays]);
 
   // Synchronize post-commit transform ownership:
   // - shift+wheel navigation keeps RAF ownership
@@ -1424,7 +1457,11 @@ export function CalendarGrid({
         <div
           ref={headerRef}
           className="sticky top-0 z-30 flex border-b border-(--border)"
-          style={{ backgroundColor: "var(--background)" }}
+          style={{
+            backgroundColor: "var(--background)",
+            width: calendarContentWidth,
+            minWidth: "100%",
+          }}
         >
           {/* Gutter spacer — aligns with time gutter in grid body */}
           <div style={{ width: GUTTER_WIDTH, flexShrink: 0 }} />
@@ -1481,7 +1518,11 @@ export function CalendarGrid({
           ref={allDayRef}
           id="calendar-all-day-lane"
           className="flex"
-          style={{ height: allDayLaneHeight }}
+          style={{
+            height: allDayLaneHeight,
+            width: calendarContentWidth,
+            minWidth: "100%",
+          }}
         >
           <div
             className="shrink-0 px-2 py-1 text-xs text-(--foreground-tertiary)"
@@ -1578,12 +1619,24 @@ export function CalendarGrid({
           aria-valuemax={ALL_DAY_LANE_MAX_HEIGHT}
           aria-valuenow={allDayLaneHeight}
           className="relative h-px cursor-row-resize bg-(--border)/60 after:absolute after:inset-x-0 after:-top-2 after:h-5 after:content-[''] hover:bg-(--accent-blue)/70 focus-visible:ring-2 focus-visible:ring-(--accent-blue) focus-visible:outline-none"
+          style={{
+            width: calendarContentWidth,
+            minWidth: "100%",
+          }}
           onPointerDown={handleAllDayResizeStart}
           onKeyDown={handleAllDaySeparatorKeyDown}
         />
 
         {/* Grid body */}
-        <div ref={gridBodyRef} className="flex" style={{ height: gridHeight }}>
+        <div
+          ref={gridBodyRef}
+          className="flex"
+          style={{
+            height: gridHeight,
+            width: calendarContentWidth,
+            minWidth: "100%",
+          }}
+        >
           {/* Time gutter — fixed, not affected by slide */}
           <div
             className="relative shrink-0"
