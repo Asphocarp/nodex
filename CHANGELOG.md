@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+## [0.1.9] - 2026-04-24
+
+### Added
 - Added VS Code-style window session reopening, with profile-local per-window layout snapshots, saved window bounds, and a Settings -> General restore policy for reopening all windows, the last window, or a fresh window.
 - Added profile-local workspaces for restoring named workbench layouts across app restarts, with a default workspace, optional workspace icons, footer workspace dots plus a `+` editor trigger, and workspace create/rename/delete controls.
 - Added real Codex-style thread-composer dictation in Electron for ChatGPT-authenticated sessions, including the `Dictate` mic button, `Ctrl+M` hold-to-dictate shortcut, buffered `/transcribe` upload path, and the recording footer with `Stop dictation` plus `Transcribe and send`.
@@ -356,3 +364,4 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - Fixed SSE controller shutdown handling, optimistic card updates, toggle drag/drop stability, editor newline and empty-line persistence, inline creator dropdowns, tag and estimate edge cases, and a long run of early UI fit-and-finish issues.
+
