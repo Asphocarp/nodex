@@ -17,7 +17,6 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Cards sidebar status groups now list completed work first, from `Done` back to `Draft`, while board and filter ordering stay unchanged.
-- Thread-composer dictation no longer depends on a rollout-token gate; it is now available in supported ChatGPT-authenticated Electron sessions by default.
 
 ### Fixed
 - Fixed nested NFM editor Backspace for bullet, numbered, checklist, and toggle-list child items at block start so they now exit list formatting in place like root-level lists instead of merging into the previous sibling text.
