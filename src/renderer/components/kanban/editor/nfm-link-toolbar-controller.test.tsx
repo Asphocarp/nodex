@@ -23,7 +23,7 @@ let currentHoveredLink:
     }
   | undefined;
 
-mock.module("@blocknote/react", () => ({
+mock.module("./nfm-link-toolbar-controller-deps", () => ({
   useBlockNoteEditor: () => ({
     domElement: editorDomElement,
     isEditable: true,
@@ -46,9 +46,6 @@ mock.module("@blocknote/react", () => ({
     getLinkAtElement: () => currentHoveredLink,
     getLinkElementAtPos: () => anchorElement,
   }),
-}));
-
-mock.module("./nfm-floating-popover", () => ({
   NfmFloatingPopover: ({ children }: { children: ReactNode }) => (
     <div data-testid="nfm-floating-popover">{children}</div>
   ),

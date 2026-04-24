@@ -1,7 +1,9 @@
 import { LinkToolbarExtension } from "@blocknote/core/extensions";
 import { KeyboardEvent, useCallback, useEffect, useState } from "react";
-import { useExtension } from "@blocknote/react";
-import type { LinkToolbarProps } from "@blocknote/react";
+import {
+  useExtension,
+  type LinkToolbarProps,
+} from "./nfm-link-toolbar-deps";
 import { normalizeNfmEditorLinkUrl } from "./nfm-link-url";
 
 export type NfmLinkEditorProps = Pick<

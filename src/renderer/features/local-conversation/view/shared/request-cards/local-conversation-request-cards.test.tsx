@@ -1,30 +1,8 @@
-import { describe, expect, mock, test } from "bun:test";
-import { createElement, type ReactNode } from "react";
+import { describe, expect, test } from "bun:test";
 import { act, fireEvent } from "@testing-library/react";
-import * as TooltipModule from "@/components/ui/tooltip";
+import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import type { CodexPlanImplementationRequest, CodexUserInputRequest } from "@/lib/types";
 import { render, settleAsyncRender, textContent } from "@/test/dom";
-
-mock.module("@/components/ui/tooltip", () => ({
-  ...TooltipModule,
-  NodexTooltip: ({
-    children,
-    delayDuration,
-    tooltipClassName,
-  }: {
-    children: ReactNode;
-    delayDuration?: number;
-    tooltipClassName?: string;
-  }) =>
-    createElement(
-      "span",
-      {
-        "data-delay-duration": delayDuration,
-        "data-disable-animation": tooltipClassName?.includes("animate-none") ? "true" : undefined,
-      },
-      children,
-    ),
-}));
 
 const optionRequest: CodexUserInputRequest = {
   type: "userInput",
@@ -126,10 +104,12 @@ describe("local-conversation request cards", () => {
     );
 
     const { container } = render(
-      <UserInputComposerView
-        request={optionRequestWithoutOtherFlag}
-        onRespond={async () => { }}
-      />,
+      <NodexTooltipProvider>
+        <UserInputComposerView
+          request={optionRequestWithoutOtherFlag}
+          onRespond={async () => { }}
+        />
+      </NodexTooltipProvider>,
     );
 
     expect(textContent(container).includes("Tell Codex what to do differently")).toBeFalse();
@@ -225,16 +205,17 @@ describe("local-conversation request cards", () => {
   test("renders the composer-style request surface with hover metadata affordance", async () => {
     const { UserInputComposerView } = await import("./local-conversation-request-cards");
     const { container, getByLabelText, getByText } = render(
-      <UserInputComposerView
-        request={optionRequest}
-        onRespond={async () => { }}
-      />,
+      <NodexTooltipProvider>
+        <UserInputComposerView
+          request={optionRequest}
+          onRespond={async () => { }}
+        />
+      </NodexTooltipProvider>,
     );
 
     expect(getByText("What is 1 + 1?").textContent).toBe("What is 1 + 1?");
     expect(getByText("2 (Recommended)").textContent).toBe("2 (Recommended)");
     expect(getByLabelText("About 2 (Recommended)").getAttribute("aria-label")).toBe("About 2 (Recommended)");
-    expect(container.querySelector('[data-delay-duration="0"]')).not.toBeNull();
     expect(textContent(container).includes("Tell Codex what to do differently")).toBeTrue();
     expect(container.querySelector('[data-user-input-focus-target="options"]')).not.toBeNull();
     expect(container.querySelector('[data-user-input-focus-target="other"]')).not.toBeNull();

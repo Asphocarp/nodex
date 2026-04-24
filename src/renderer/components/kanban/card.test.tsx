@@ -6,7 +6,7 @@ import { render, textContent } from "../../test/dom";
 
 let mockCardPropertyPosition: CardPropertyPosition = "inline";
 
-mock.module("@/lib/use-card-property-position", () => ({
+mock.module("./card-deps", () => ({
   useCardPropertyPosition: () => ({ position: mockCardPropertyPosition }),
 }));
 

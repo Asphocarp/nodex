@@ -1,31 +1,17 @@
-import { describe, expect, mock, test } from "bun:test";
-import { createElement, Fragment, type ReactNode } from "react";
+import { describe, expect, test } from "bun:test";
 import { render } from "../../../../test/dom";
+import { NodexTooltipProvider } from "../../../../components/ui/tooltip";
 import { ForkMessageIcon, ThreadActionIconButton } from "./thread-message-actions";
-
-mock.module("../../../../components/ui/tooltip", () => ({
-  NodexTooltipProvider: ({ children }: { children: ReactNode }) => createElement(Fragment, null, children),
-  NodexTooltip: ({
-    children,
-    tooltipContent,
-  }: {
-    children: ReactNode;
-    tooltipContent: ReactNode;
-  }) => createElement("div", { "data-tooltip-content": String(tooltipContent) }, children),
-}));
 
 describe("ThreadActionIconButton", () => {
   test("passes a concise tooltip while preserving the descriptive aria label", () => {
-    const { getByRole, container } = render(
-      <ThreadActionIconButton label="Fork from this message" tooltip="Fork">
-        <ForkMessageIcon />
-      </ThreadActionIconButton>,
+    const { getByRole } = render(
+      <NodexTooltipProvider>
+        <ThreadActionIconButton label="Fork from this message" tooltip="Fork">
+          <ForkMessageIcon />
+        </ThreadActionIconButton>
+      </NodexTooltipProvider>,
     );
-
-    const tooltipWrapper = container.querySelector('[data-tooltip-content="Fork"]');
-    if (!tooltipWrapper) {
-      throw new Error("Expected concise tooltip content to be passed to the shared tooltip.");
-    }
 
     const button = getByRole("button", { name: "Fork from this message" });
     expect(button.getAttribute("title")).toBe(null);

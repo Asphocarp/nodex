@@ -22,7 +22,7 @@ import {
   NodexDropdownMenu,
 } from "@/components/ui/dropdown";
 import { Input } from "../ui/input";
-import { invoke } from "../../lib/api";
+import { invoke } from "./workbench-settings-overlay-deps";
 import {
   handleFormSubmit,
   resolveFormErrorMessage,

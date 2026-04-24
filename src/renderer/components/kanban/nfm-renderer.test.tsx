@@ -82,10 +82,12 @@ describe("NfmRenderer", () => {
 
   test("passes project workspace context to relative file-like links", async () => {
     const { container } = render(
-      <NfmRenderer
-        content={"[spec](folder/abc/file)"}
-        projectWorkspacePath="/workspace/project"
-      />,
+      <NodexTooltipProvider>
+        <NfmRenderer
+          content={"[spec](folder/abc/file)"}
+          projectWorkspacePath="/workspace/project"
+        />
+      </NodexTooltipProvider>,
     );
 
     await settleAsyncRender();

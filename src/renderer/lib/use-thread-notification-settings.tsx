@@ -48,7 +48,9 @@ function getSnapshot(): ThreadNotificationSettingsSnapshot {
 
 async function loadSettings(): Promise<void> {
   const result = await invoke("settings:thread-notifications:get");
-  const nextSettings = result as ThreadNotificationSettings;
+  const nextSettings = isThreadNotificationSettings(result)
+    ? result
+    : DEFAULT_SETTINGS;
   snapshotCache = {
     settings: nextSettings,
     isLoading: false,
@@ -112,6 +114,22 @@ export function useThreadNotificationSettings(): {
     updateSettings,
     reloadSettings,
   };
+}
+
+function isThreadNotificationSettings(value: unknown): value is ThreadNotificationSettings {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<ThreadNotificationSettings>;
+  if (
+    candidate.turnMode !== "off"
+    && candidate.turnMode !== "unfocused"
+    && candidate.turnMode !== "always"
+  ) {
+    return false;
+  }
+  return (
+    typeof candidate.permissionsEnabled === "boolean"
+    && typeof candidate.questionsEnabled === "boolean"
+  );
 }
 
 export function __resetThreadNotificationSettingsForTests(): void {

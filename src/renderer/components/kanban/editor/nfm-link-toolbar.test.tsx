@@ -21,21 +21,18 @@ let createLinkButtonState:
     }
   | undefined;
 
-mock.module("@/lib/use-file-link-opener", () => ({
+mock.module("./nfm-link-toolbar-deps", () => ({
   useFileLinkOpener: () => ({
     opener: () => undefined,
   }),
-}));
-
-mock.module("@/lib/nfm-link-actions", () => ({
-  openNfmResolvedLinkAction: async () => undefined,
+  writeTextToClipboard: async () => true,
+  openNfmResolvedLinkAction: async () => true,
   resolveNfmLinkAction: () => ({
-    kind: "external-url",
+    kind: "web-url",
+    href: "https://community.openai.com/t/example",
+    url: "https://community.openai.com/t/example",
   }),
-  resolveNfmLinkTooltipLabel: () => "Open in new tab",
-}));
-
-mock.module("@blocknote/react", () => ({
+  resolveNfmLinkTooltipLabel: () => null,
   useBlockNoteEditor: () => ({
     domElement: null,
     isEditable: true,
@@ -74,6 +71,19 @@ mock.module("@blocknote/react", () => ({
     showSelection,
     store: formattingToolbarStore,
   }),
+  NfmCompactLinkToolbar: ({
+    editLabel,
+    onEditLink,
+  }: {
+    editLabel: string;
+    onEditLink: () => void;
+  }) => (
+    <div data-testid="nfm-compact-link-toolbar">
+      <button type="button" onClick={onEditLink}>{editLabel}</button>
+    </div>
+  ),
+  NfmCreateLinkDialogSurface: () => <div data-testid="nfm-create-link-dialog" />,
+  NfmLinkEditDialogSurface: () => <div data-testid="nfm-link-edit-dialog" />,
 }));
 
 describe("NfmLinkToolbar", () => {

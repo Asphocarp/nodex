@@ -240,6 +240,7 @@ export function resolveNfmLinkTooltipLabel(
 export async function openNfmResolvedLinkAction(
   action: NfmResolvedLinkAction,
   opener: FileLinkOpenerId = readFileLinkOpener(),
+  invokeImpl: typeof invoke = invoke,
 ): Promise<boolean> {
   if (action.kind === "blocked" || action.kind === "unresolved-file-like") {
     return false;
@@ -256,7 +257,7 @@ export async function openNfmResolvedLinkAction(
   }
 
   try {
-    const opened = await invoke("shell:open-file-link", action.target, opener) as boolean;
+    const opened = await invokeImpl("shell:open-file-link", action.target, opener) as boolean;
     if (opened) return true;
   } catch {
     // Fall through to file URL handoff below.

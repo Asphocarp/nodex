@@ -5,6 +5,7 @@ import { makeDefaultSidebarTopLevelSectionsPrefs } from "@/lib/sidebar-section-p
 import { render, settleAsyncRender } from "@/test/dom";
 import { installWindowApi } from "@/test/browser-globals";
 import { __resetWindowRestoreSettingsForTests } from "@/lib/use-window-restore-settings";
+import { __resetThreadNotificationSettingsForTests } from "@/lib/use-thread-notification-settings";
 import { SettingsOverlay } from "./workbench-settings-overlay";
 import { buildSettingsPath } from "./workbench-settings-routes";
 
@@ -43,6 +44,7 @@ function resetStorage(): void {
   storageMap.clear();
   invokedChannels.splice(0);
   __resetWindowRestoreSettingsForTests();
+  __resetThreadNotificationSettingsForTests();
   localStorageRef.removeItem("nodex-codex-default-service-tier-v1");
 }
 

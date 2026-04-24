@@ -1,7 +1,6 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import { createElement, useEffect } from "react";
 import { render, settleAsyncRender } from "../test/dom";
-import { installWindowApi } from "../test/browser-globals";
 import { CODEX_DEFAULT_SERVICE_TIER_STORAGE_KEY } from "./codex-service-tier-settings";
 
 let invokeCalls: unknown[][] = [];
@@ -26,17 +25,17 @@ if (!(globalThis as { localStorage?: unknown }).localStorage) {
 
 const localStorageRef = (globalThis as { localStorage: typeof mockStorage }).localStorage;
 
+mock.module("./use-codex-thread-follower-client-deps", () => ({
+  invoke: async (...args: unknown[]) => {
+    invokeCalls.push(args);
+    return null;
+  },
+}));
+
 function resetStorage(): void {
   invokeCalls = [];
   storageMap.clear();
   localStorageRef.removeItem(CODEX_DEFAULT_SERVICE_TIER_STORAGE_KEY);
-  installWindowApi({
-    invoke: async (...args: unknown[]) => {
-      invokeCalls.push(args);
-      return null;
-    },
-    on: () => () => {},
-  });
 }
 
 describe("use-codex-thread-follower-client", () => {

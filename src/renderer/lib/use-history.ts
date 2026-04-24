@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { UndoRedoResult, UndoRedoState } from "../../shared/ipc-api";
 import { toast } from "@/components/ui/toast";
-import { invoke } from "./api";
+import { invoke } from "./use-history-deps";
 
 export type { UndoRedoState };
 

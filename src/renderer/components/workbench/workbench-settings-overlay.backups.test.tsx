@@ -18,7 +18,7 @@ const PROJECTS = [
 
 let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
 
-mock.module("../../lib/api", () => ({
+mock.module("./workbench-settings-overlay-deps", () => ({
   invoke: async (channel: string, ...args: unknown[]) => {
     if (!mockInvokeImpl) return null;
     return mockInvokeImpl(channel, ...args);

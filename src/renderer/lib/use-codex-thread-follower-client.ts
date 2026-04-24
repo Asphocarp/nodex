@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { invoke } from "./api";
+import { invoke } from "./use-codex-thread-follower-client-deps";
 import type {
   CodexCollaborationModeKind,
   CodexPermissionMode,

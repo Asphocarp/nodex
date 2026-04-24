@@ -8,7 +8,7 @@ import {
   useBlockNoteEditor,
   useComponentsContext,
   useEditorState,
-} from "@blocknote/react";
+} from "./copy-image-button-deps";
 import { Copy } from "lucide-react";
 import { useCallback } from "react";
 import { toast } from "@/components/ui/toast";

@@ -97,7 +97,7 @@ const mockManager = {
   },
 };
 
-mock.module("../../lib/api", () => ({
+mock.module("./desktop-notification-controller-deps", () => ({
   invoke: async (channel: string, ...args: unknown[]) => {
     invokeCalls.push([channel, ...args]);
     if (channel === "electron-window:focus:get") {
@@ -122,18 +122,12 @@ mock.module("../../lib/api", () => ({
       }
     };
   },
-}));
-
-mock.module("../../lib/use-thread-notification-settings", () => ({
   useThreadNotificationSettings: () => ({
     settings: threadNotificationSettings,
     isLoading: false,
     updateSettings: async () => threadNotificationSettings,
     reloadSettings: async () => undefined,
   }),
-}));
-
-mock.module("./index", () => ({
   useDefaultCodexAppServerManager: () => mockManager,
 }));
 

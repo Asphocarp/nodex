@@ -140,6 +140,17 @@ async function flushAsyncWork(ticks = 2): Promise<void> {
   }
 }
 
+async function waitForCondition(
+  predicate: () => boolean,
+  timeoutMs: number,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 function projectConversationFromHostMessages(
   messages: readonly CodexHostMessage[],
 ): CodexConversationSnapshot | null {
@@ -280,7 +291,7 @@ describe("codex-service rate limit polling", () => {
 
     client.emit("connection", { status: "connected", retries: 0 });
     await service.readAccountSnapshot();
-    await new Promise((resolve) => setTimeout(resolve, 55));
+    await waitForCondition(() => rateLimitsReadCount >= 3, 250);
     await service.shutdown();
 
     expect(accountReadCount).toBe(1);

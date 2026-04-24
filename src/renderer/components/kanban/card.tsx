@@ -13,7 +13,7 @@ import { resolveKanbanPriorityOption } from "../../lib/kanban-options";
 import { EMPTY_DISPLAY_VALUE_TOKEN, getMetaChipClassName } from "../../lib/toggle-list/meta-chips";
 import { estimateStyles } from "@/lib/types";
 import type { Card as CardType, Priority } from "@/lib/types";
-import { useCardPropertyPosition } from "@/lib/use-card-property-position";
+import { useCardPropertyPosition } from "./card-deps";
 import { useActiveTerminals } from "@/lib/terminal-sessions";
 import { useTheme } from "@/lib/use-theme";
 import { cn } from "@/lib/utils";

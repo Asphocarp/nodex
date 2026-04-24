@@ -13,7 +13,7 @@ import {
 } from "react";
 import { motion } from "motion/react";
 import { ChevronDownIcon, ChevronRightIcon } from "@/components/shared/icons";
-import { NodexTooltip } from "../../../../../components/ui/tooltip";
+import { NodexTooltip } from "./local-conversation-request-cards-deps";
 import {
   handleFormSubmit,
   resolveFormErrorMessage,

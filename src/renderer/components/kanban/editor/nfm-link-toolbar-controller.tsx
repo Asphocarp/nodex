@@ -1,13 +1,14 @@
 import { LinkToolbarExtension } from "@blocknote/core/extensions";
 import type { Range } from "@tiptap/core";
+import { useEffect, useMemo, useState, type FC } from "react";
 import {
-  type LinkToolbarProps,
-  type FloatingUIOptions,
+  NfmFloatingPopover,
   useBlockNoteEditor,
   useExtension,
-} from "@blocknote/react";
-import { useEffect, useMemo, useState, type FC } from "react";
-import { NfmFloatingPopover, type NfmPopoverReference } from "./nfm-floating-popover";
+  type FloatingUIOptions,
+  type LinkToolbarProps,
+  type NfmPopoverReference,
+} from "./nfm-link-toolbar-controller-deps";
 
 interface LinkToolbarSnapshot {
   cursorType: "text" | "mouse";

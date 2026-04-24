@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
-import { NodexTooltip } from "../../../../components/ui/tooltip";
+import { NodexTooltip } from "./thread-message-actions-deps";
 import { CheckmarkIcon } from "../../../../components/shared/icons";
 import { cn } from "../../../../lib/utils";
 import { writeTextToClipboard } from "../../../../lib/clipboard";

@@ -9,20 +9,14 @@ const markCalls: Array<{ from: number; to: number; href: string }> = [];
 const clipboardWrites: string[] = [];
 let focusCalls = 0;
 
-mock.module("@/lib/use-file-link-opener", () => ({
+mock.module("./nfm-link-toolbar-deps", () => ({
   useFileLinkOpener: () => ({
     opener: () => undefined,
   }),
-}));
-
-mock.module("@/lib/clipboard", () => ({
   writeTextToClipboard: async (text: string) => {
     clipboardWrites.push(text);
     return true;
   },
-}));
-
-mock.module("@blocknote/react", () => ({
   useBlockNoteEditor: () => ({
     domElement: null,
     isEditable: true,
@@ -95,17 +89,11 @@ mock.module("@blocknote/react", () => ({
     deleteLink: () => {},
     editLink: () => {},
   }),
-}));
-
-mock.module("@/lib/nfm-link-actions", () => ({
   openNfmResolvedLinkAction: async () => undefined,
   resolveNfmLinkAction: () => ({
     kind: "external-url",
   }),
   resolveNfmLinkTooltipLabel: () => "Open in new tab",
-}));
-
-mock.module("./nfm-link-toolbar-surface", () => ({
   NfmCompactLinkToolbar: ({
     copyLabel,
     copyState,

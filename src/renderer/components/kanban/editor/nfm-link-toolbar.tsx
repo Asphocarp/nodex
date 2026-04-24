@@ -7,13 +7,6 @@ import {
   LinkToolbarExtension,
   ShowSelectionExtension,
 } from "@blocknote/core/extensions";
-import type { LinkToolbarProps } from "@blocknote/react";
-import {
-  useBlockNoteEditor,
-  useDictionary,
-  useEditorState,
-  useExtension,
-} from "@blocknote/react";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { FormattingToolbarLinkIcon } from "@/components/shared/icons";
 import {
@@ -23,23 +16,26 @@ import {
 } from "@/components/ui/popover";
 import { ShortcutKeycaps } from "@/components/ui/shortcut-keycaps";
 import { NodexTooltip } from "@/components/ui/tooltip";
-import { writeTextToClipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
-import {
-  openNfmResolvedLinkAction,
-  resolveNfmLinkAction,
-  resolveNfmLinkTooltipLabel,
-  type NfmResolvedLinkAction,
-} from "@/lib/nfm-link-actions";
-import { useFileLinkOpener } from "@/lib/use-file-link-opener";
-import {
-  useNfmLinkEditorState,
-} from "./nfm-edit-link-menu-items";
 import {
   NfmCompactLinkToolbar,
   NfmCreateLinkDialogSurface,
   NfmLinkEditDialogSurface,
-} from "./nfm-link-toolbar-surface";
+  openNfmResolvedLinkAction,
+  resolveNfmLinkAction,
+  resolveNfmLinkTooltipLabel,
+  useBlockNoteEditor,
+  useDictionary,
+  useEditorState,
+  useExtension,
+  useFileLinkOpener,
+  writeTextToClipboard,
+  type LinkToolbarProps,
+  type NfmResolvedLinkAction,
+} from "./nfm-link-toolbar-deps";
+import {
+  useNfmLinkEditorState,
+} from "./nfm-edit-link-menu-items";
 import { applyNfmLinkEditAtRange } from "./nfm-link-editing";
 import { normalizeNfmEditorLinkUrl } from "./nfm-link-url";
 

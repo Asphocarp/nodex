@@ -126,7 +126,10 @@ describe("nfm link actions", () => {
 
   test("opens file links through the desktop bridge", async () => {
     const action = resolveNfmLinkAction("/Users/asc/repo/abc");
-    await openNfmResolvedLinkAction(action!);
+    await openNfmResolvedLinkAction(action!, "vscode", async (...args: unknown[]) => {
+      invokeCalls.push(args);
+      return true;
+    });
 
     expect(JSON.stringify(invokeCalls)).toBe(JSON.stringify([
       ["shell:open-file-link", { path: "/Users/asc/repo/abc" }, "vscode"],

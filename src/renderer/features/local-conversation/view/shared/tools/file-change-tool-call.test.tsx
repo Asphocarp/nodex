@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { fireEvent } from "@testing-library/react";
+import { fireEvent, waitFor } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../../components/ui/tooltip";
 import {
   installAsyncRequestAnimationFrame,
@@ -287,10 +287,14 @@ describe("FileChangeToolCall", () => {
     const toggles = Array.from(container.querySelectorAll<HTMLElement>('[role="button"][aria-expanded="false"]'));
     expect(toggles.length).toBe(2);
 
+    await waitFor(() => {
+      expect(toggles[0]?.getAttribute("aria-expanded")).toBe("false");
+    });
     fireEvent.click(toggles[0]!);
-    await settleAsyncRender();
 
-    expect(container.querySelectorAll('[role="button"][aria-expanded="true"]').length).toBe(1);
+    await waitFor(() => {
+      expect(container.querySelectorAll('[role="button"][aria-expanded="true"]').length).toBe(1);
+    });
     expect(Boolean(textContent(container).includes("Edited file"))).toBeTrue();
 
     const diffHost = container.querySelector<HTMLElement>(".nodex-inline-diff");
@@ -361,7 +365,9 @@ describe("FileChangeToolCall", () => {
     expect(Boolean(textContent(container).includes("local-conversation-resume-loader.tsx"))).toBeTrue();
     const diffHost = container.querySelector<HTMLElement>(".nodex-inline-diff");
     expect(Boolean(diffHost)).toBeTrue();
-    expect(Boolean(diffHost?.shadowRoot?.textContent?.includes("NodexLogoMarkIcon"))).toBeTrue();
+    await waitFor(() => {
+      expect(Boolean(diffHost?.shadowRoot?.textContent?.includes("NodexLogoMarkIcon"))).toBeTrue();
+    });
   });
 
   test("never falls back to raw patch text", async () => {

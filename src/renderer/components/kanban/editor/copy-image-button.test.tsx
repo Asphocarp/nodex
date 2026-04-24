@@ -11,7 +11,7 @@ let copyResult:
   | { ok: false; message: string } = { ok: true };
 let focusCalls = 0;
 
-mock.module("@blocknote/react", () => ({
+mock.module("./copy-image-button-deps", () => ({
   useBlockNoteEditor: () => ({
     focus: () => {
       focusCalls += 1;

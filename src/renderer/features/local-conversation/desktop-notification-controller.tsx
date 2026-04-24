@@ -8,14 +8,14 @@ import {
   invoke,
   subscribeDesktopNotificationActions,
   subscribeWindowFocusChanges,
-} from "../../lib/api";
+  useDefaultCodexAppServerManager,
+  useThreadNotificationSettings,
+} from "./desktop-notification-controller-deps";
 import type {
   DesktopNotificationPayload,
   ThreadNotificationTurnMode,
 } from "../../lib/types";
-import { useThreadNotificationSettings } from "../../lib/use-thread-notification-settings";
 import { NEW_THREAD_STAGE_TAB_ID, type StageId } from "../../lib/use-workbench-state";
-import { useDefaultCodexAppServerManager } from "./index";
 
 const APPROVAL_NOTIFICATION_ACTIONS = [
   {
