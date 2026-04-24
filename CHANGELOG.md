@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added profile-local workspaces for restoring named workbench layouts across app restarts, with a default workspace, optional workspace icons, footer workspace dots plus a `+` editor trigger, and workspace create/rename/delete controls.
 - Added real Codex-style thread-composer dictation in Electron for ChatGPT-authenticated sessions, including the `Dictate` mic button, `Ctrl+M` hold-to-dictate shortcut, buffered `/transcribe` upload path, and the recording footer with `Stop dictation` plus `Transcribe and send`.
 - Added a global Codex-style `Service tier` preference with `Standard` and `Fast` controls in Settings and the thread composer, plus the Codex-style lightning indicator before the composer model selector while Fast is active, so new thread and turn requests can inherit and send the persisted fast tier without per-thread configuration.
 - Added Codex Electron-style Auto-review parity for local threads: permissions now resolve from Codex config/requirements, reviewer allow-lists are honored, the Thread stage and new `Agent` settings page expose `Default permissions`, `Auto-review`, `Full access`, and `Custom (config.toml)`, Auto-review falls back to the normal reviewer when `guardian_approval` is unavailable, and approval requests stay attached to the matching exec/file-change transcript rows.

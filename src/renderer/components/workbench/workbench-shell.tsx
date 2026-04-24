@@ -98,6 +98,7 @@ import type {
   CodexCollaborationModePreset,
   CodexTurnDiffReviewTarget,
   Project,
+  WorkspaceRecord,
 } from "@/lib/types";
 import type { CardStageState } from "@/lib/use-card-stage";
 import type {
@@ -125,6 +126,8 @@ interface WorkbenchShellProps {
   activeSearchQuery: string;
   activeDbViewPrefs: DbViewPrefs | null;
   spaces: SpaceRef[];
+  workspaces: WorkspaceRecord[];
+  activeWorkspaceId: string;
   recentCardSessions: RecentCardSession[];
   activeRecentSessionId: string | null;
   sidebar: {
@@ -226,6 +229,10 @@ interface WorkbenchShellProps {
     icon?: string,
     workspacePath?: string | null,
   ) => Promise<Project | null>;
+  onSelectWorkspace: (workspaceId: string) => void;
+  onCreateWorkspace: (name: string, icon?: string | null) => Promise<void>;
+  onRenameWorkspace: (workspaceId: string, name: string, icon?: string | null) => Promise<void>;
+  onDeleteWorkspace: (workspaceId: string) => Promise<void>;
   navigateToStage: (projectId: string, stageId: StageId, fallbackDirection?: StageNavDirection) => void;
   navigateToDbView: (projectId: string, view: WorkbenchView) => void;
   navigateToRecentSession: (sessionId: string) => void | Promise<void>;
@@ -307,6 +314,8 @@ export function WorkbenchShell({
   activeSearchQuery,
   activeDbViewPrefs,
   spaces,
+  workspaces,
+  activeWorkspaceId,
   recentCardSessions,
   activeRecentSessionId,
   sidebar,
@@ -371,6 +380,10 @@ export function WorkbenchShell({
   onCreateProject,
   onDeleteProject,
   onRenameProject,
+  onSelectWorkspace,
+  onCreateWorkspace,
+  onRenameWorkspace,
+  onDeleteWorkspace,
   navigateToStage,
   navigateToDbView,
   navigateToRecentSession,
@@ -1734,7 +1747,9 @@ export function WorkbenchShell({
           <LeftSidebar
             projects={projects}
             spaces={spaces}
+            workspaces={workspaces}
             activeProjectId={dbProjectId}
+            activeWorkspaceId={activeWorkspaceId}
             stageGroups={stageGroups}
             collapsed={false}
             width={sidebar.width}
@@ -1746,11 +1761,15 @@ export function WorkbenchShell({
             onSetSectionShowAll={(sectionId, showAll) =>
               setSidebarSectionShowAll(dbProjectId, sectionId, showAll)}
             onSelectSpace={setDbProject}
+            onSelectWorkspace={onSelectWorkspace}
             onOpenSettings={() => openSettings()}
             projectPickerOpenTick={projectPickerOpenTick}
             onCreateProject={onCreateProject}
             onDeleteProject={onDeleteProject}
             onRenameProject={onRenameProject}
+            onCreateWorkspace={onCreateWorkspace}
+            onRenameWorkspace={onRenameWorkspace}
+            onDeleteWorkspace={onDeleteWorkspace}
           />
         </div>
       ) : null}
@@ -1777,7 +1796,9 @@ export function WorkbenchShell({
             <LeftSidebar
               projects={projects}
               spaces={spaces}
+              workspaces={workspaces}
               activeProjectId={dbProjectId}
+              activeWorkspaceId={activeWorkspaceId}
               stageGroups={stageGroups}
               collapsed={false}
               width={sidebar.width}
@@ -1789,11 +1810,15 @@ export function WorkbenchShell({
               onSetSectionShowAll={(sectionId, showAll) =>
                 setSidebarSectionShowAll(dbProjectId, sectionId, showAll)}
               onSelectSpace={setDbProject}
+              onSelectWorkspace={onSelectWorkspace}
               onOpenSettings={() => openSettings()}
               projectPickerOpenTick={projectPickerOpenTick}
               onCreateProject={onCreateProject}
               onDeleteProject={onDeleteProject}
               onRenameProject={onRenameProject}
+              onCreateWorkspace={onCreateWorkspace}
+              onRenameWorkspace={onRenameWorkspace}
+              onDeleteWorkspace={onDeleteWorkspace}
             />
           </div>
         </div>

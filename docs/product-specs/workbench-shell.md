@@ -2,13 +2,15 @@
 
 ## Intent
 The workbench shell presents project work as a staged horizontal pipeline inspired by niri-like focus movement.
-The sidebar `Projects` section controls the DB stage datasource, while Cards/Threads/Terminal keep stage-local project context and remain mounted in one horizontal shell.
+The sidebar `Projects` section controls the DB stage datasource, while top-level Workspaces persist named workbench layouts across app restarts.
+Cards/Threads/Terminal keep stage-local project context and remain mounted in one horizontal shell.
 
 Detailed Auto-review preset, config, and approval-lifecycle rules are specified in [Auto-review Behavior](./auto-review-behavior.md).
 
 ## Layout
 - Left sidebar: a top-level `Projects` section for DB datasource selection plus the global stage map (`View`, `Card`, `Thread`, `Diff`).
 - The `Projects` section is collapsible, keeps the active DB project highlighted, lists each project as a row while expanded, and still leaves the active project row visible for context when collapsed.
+- Sidebar footer: workspace dots for switching named workbench layouts, plus a `+` workspace editor trigger for creating, renaming, and deleting workspaces. Workspaces may define an optional icon; when absent, the footer and editor show the same colored dot fallback used by projects. The last remaining workspace cannot be deleted.
 - The DB stage owns a sticky top toolbar across all board/list/toggle-list/canvas/calendar views.
 - The sticky DB toolbar contains the view selector as a horizontal top-edge tab strip plus a Notion-like trailing action cluster; task search expands inline inside that right-side cluster.
 - The primary DB views keep a consistent inner gutter under that toolbar: kanban, toggle-list, list, calendar, and canvas all inset their content away from the stage edge instead of running flush to the shell chrome.
@@ -73,6 +75,10 @@ Detailed Auto-review preset, config, and approval-lifecycle rules are specified 
 - Current-project card groups in the sidebar ignore the View-stage search query and remain a stable navigator for the selected DB datasource project.
 
 ## Persistence
+- A workspace owns the serializable workbench layout: active DB project, active view/search/filter/sort/display prefs, focused stage, stage direction, rail mode, pane count, panel widths/collapse state, open card stage state, recent card sessions, Thread project/tabs, files tab, terminal tabs/open state/height, sidebar state, and dock layout.
+- A workspace does not own project/card data, Codex thread transcripts, Codex runtime state, or terminal process output beyond tab layout.
+- A default workspace is always present. New workspaces start from the current layout snapshot, become active immediately, and diverge from that point forward. Workspace names and optional icons are layout-catalog metadata, not project data.
+- Workspace catalogs are profile-local Electron state under `userData`; when no catalog exists, legacy workbench resume data seeds the default workspace if available.
 - Stage focus is persisted globally (not keyed by DB datasource project).
 - Sidebar stage section expansion (including the top-level `Recents` group) and stage tab selections are persisted per project.
 - Sidebar card-status subgroup expansion and per-section overflow expansion (`Show more` / `Show less`) are persisted per project.

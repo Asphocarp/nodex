@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/api";
 import type { Project } from "../../lib/types";
 import type { SpaceRef } from "../../lib/use-workbench-state";
@@ -9,10 +9,12 @@ import {
   ProjectMark,
   type SidebarProjectManagerDataProps,
 } from "./left-sidebar-project-manager";
+import { shouldOpenProjectManagerForRequest } from "./left-sidebar-project-manager-open-request";
 
 interface SidebarProjectsSectionProps extends SidebarProjectManagerDataProps {
   expanded: boolean;
   onToggleExpanded: () => void;
+  projectPickerOpenTick: number;
 }
 
 function resolveOrderedProjects(projects: Project[], spaces: SpaceRef[]) {
@@ -46,8 +48,10 @@ export function SidebarProjectsSection({
   onCreateProject,
   onDeleteProject,
   onRenameProject,
+  projectPickerOpenTick,
 }: SidebarProjectsSectionProps) {
   const [manageOpen, setManageOpen] = useState(false);
+  const lastHandledProjectPickerOpenTickRef = useRef(projectPickerOpenTick);
   const orderedProjects = useMemo(
     () => resolveOrderedProjects(projects, spaces),
     [projects, spaces],
@@ -66,6 +70,15 @@ export function SidebarProjectsSection({
       // Keep the manager popover as the fallback path editor.
     }
   };
+
+  useEffect(() => {
+    if (!shouldOpenProjectManagerForRequest(projectPickerOpenTick, lastHandledProjectPickerOpenTickRef.current)) {
+      return;
+    }
+
+    lastHandledProjectPickerOpenTickRef.current = projectPickerOpenTick;
+    setManageOpen(true);
+  }, [projectPickerOpenTick]);
 
   return (
     <section className="mb-2">

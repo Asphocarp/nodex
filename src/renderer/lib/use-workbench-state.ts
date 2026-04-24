@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   Project,
+  WorkbenchLayoutSnapshot,
   WorkbenchRecentCardSession,
   WorkbenchResumeSnapshot,
 } from "./types";
@@ -481,6 +482,7 @@ function makeSpaceRef(projectId: string): SpaceRef {
 
 interface LoadInitialStateOptions {
   resumeSnapshot?: WorkbenchResumeSnapshot | null;
+  layoutSnapshot?: WorkbenchLayoutSnapshot | null;
 }
 
 function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState {
@@ -491,106 +493,128 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
   const persistedDbViewPrefs = readJson<WorkbenchPrefs["dbViewPrefsByProject"]>(DB_VIEW_PREFS_STORAGE_KEY);
   const parsedDockPrefs = parseDockPrefs(persistedDock);
   const resumeSnapshot = options.resumeSnapshot ?? null;
+  const layoutSnapshot = options.layoutSnapshot ?? null;
   const dbProjectId =
+    layoutSnapshot?.dbProjectId ||
     resumeSnapshot?.dbProjectId ||
     (typeof persistedWorkbench?.dbProjectId === "string" && persistedWorkbench.dbProjectId) ||
     "default";
   const threadsProjectId =
+    layoutSnapshot?.threadsProjectId ||
     resumeSnapshot?.threadsProjectId ||
     (typeof persistedWorkbench?.threadsProjectId === "string" && persistedWorkbench.threadsProjectId) ||
     dbProjectId;
   const terminalTabs = ensureTerminalTabs(
     dbProjectId,
-    normalizeTerminalTabs(persistedWorkbench?.terminalTabs, dbProjectId),
+    normalizeTerminalTabs(layoutSnapshot?.terminalTabs ?? persistedWorkbench?.terminalTabs, dbProjectId),
   );
-  const threadsTabs = ensureThreadsTabs(normalizeThreadsTabs(persistedWorkbench?.threadsTabs));
-  const filesTabs = ensureFilesTabs(normalizeFilesTabs(persistedWorkbench?.filesTabs));
+  const threadsTabs = ensureThreadsTabs(normalizeThreadsTabs(layoutSnapshot?.threadsTabs ?? persistedWorkbench?.threadsTabs));
+  const filesTabs = ensureFilesTabs(normalizeFilesTabs(layoutSnapshot?.filesTabs ?? persistedWorkbench?.filesTabs));
   const focusedStage =
+    (layoutSnapshot && isStageId(layoutSnapshot.focusedStage) && layoutSnapshot.focusedStage) ||
     (resumeSnapshot && isStageId(resumeSnapshot.focusedStage) && resumeSnapshot.focusedStage) ||
     (isStageId(persistedWorkbench?.focusedStage) && persistedWorkbench.focusedStage) ||
     "db";
   const stageNavDirection =
+    parseStageNavDirection(layoutSnapshot?.stageNavDirection) ||
     parseStageNavDirection(resumeSnapshot?.stageNavDirection) ||
     parseStageNavDirection(persistedWorkbench?.stageNavDirection) ||
     "right";
   const activeTerminalTabId =
+    (typeof layoutSnapshot?.activeTerminalTabId === "string" && layoutSnapshot.activeTerminalTabId) ||
     (typeof persistedWorkbench?.activeTerminalTabId === "string" && persistedWorkbench.activeTerminalTabId) ||
     terminalTabs[0]?.id ||
     "";
   const activeThreadsTabId =
+    (typeof layoutSnapshot?.activeThreadsTabId === "string" && layoutSnapshot.activeThreadsTabId) ||
     (typeof resumeSnapshot?.activeThreadsTabId === "string" && resumeSnapshot.activeThreadsTabId) ||
     (typeof persistedWorkbench?.activeThreadsTabId === "string" && persistedWorkbench.activeThreadsTabId) ||
     threadsTabs[0]?.id ||
     "";
   const activeFilesTabId =
+    (typeof layoutSnapshot?.activeFilesTabId === "string" && layoutSnapshot.activeFilesTabId) ||
     (typeof persistedWorkbench?.activeFilesTabId === "string" && persistedWorkbench.activeFilesTabId) ||
     filesTabs[0]?.id ||
     "diff";
   const activeCardsTabId =
+    (typeof layoutSnapshot?.activeCardsTabId === "string" && layoutSnapshot.activeCardsTabId) ||
     (typeof resumeSnapshot?.activeCardsTabId === "string" && resumeSnapshot.activeCardsTabId) ||
     (typeof persistedWorkbench?.activeCardsTabId === "string" && persistedWorkbench.activeCardsTabId) ||
     "";
-  const activeRecentSessionId = resumeSnapshot
+  const activeRecentSessionId = layoutSnapshot
+    ? (typeof layoutSnapshot.activeRecentSessionId === "string" ? layoutSnapshot.activeRecentSessionId : null)
+    : resumeSnapshot
     ? (typeof resumeSnapshot.activeRecentSessionId === "string" ? resumeSnapshot.activeRecentSessionId : null)
     : ((typeof persistedWorkbench?.activeRecentSessionId === "string" &&
       persistedWorkbench.activeRecentSessionId) ||
       null);
-  const stagePanelWidths = normalizeStagePanelWidths(persistedWorkbench?.stagePanelWidths);
-  const normalizedStageCollapsed = normalizeStageCollapsedState(persistedWorkbench?.stageCollapsed);
+  const stagePanelWidths = normalizeStagePanelWidths(layoutSnapshot?.stagePanelWidths ?? persistedWorkbench?.stagePanelWidths);
+  const normalizedStageCollapsed = normalizeStageCollapsedState(layoutSnapshot?.stageCollapsed ?? persistedWorkbench?.stageCollapsed);
   const stageCollapsed = Object.keys(normalizedStageCollapsed).length > 0
     ? normalizedStageCollapsed
     : makeDefaultStageCollapsedState();
   const slidingWindowPaneCount = resolvePersistedSlidingWindowPaneCount(
-    persistedWorkbench?.slidingWindowPaneCount,
+    layoutSnapshot?.slidingWindowPaneCount ?? persistedWorkbench?.slidingWindowPaneCount,
   );
-  const terminalPanelOpen = normalizeBoolean(persistedWorkbench?.terminalPanelOpen) ?? false;
+  const terminalPanelOpen = normalizeBoolean(layoutSnapshot?.terminalPanelOpen ?? persistedWorkbench?.terminalPanelOpen) ?? false;
   const terminalPanelHeight =
-    normalizeTerminalPanelHeight(persistedWorkbench?.terminalPanelHeight) ??
+    normalizeTerminalPanelHeight(layoutSnapshot?.terminalPanelHeight ?? persistedWorkbench?.terminalPanelHeight) ??
     TERMINAL_PANEL_DEFAULT_HEIGHT;
 
   return {
     dbProjectId,
     threadsProjectId,
-    viewsByProject: resumeSnapshot
+    viewsByProject: layoutSnapshot
+      ? normalizeViewMap(layoutSnapshot.viewsByProject)
+      : resumeSnapshot
       ? normalizeViewMap(resumeSnapshot.viewsByProject)
       : normalizeViewMap(persistedWorkbench?.viewsByProject),
-    searchByProject: normalizeSearchMap(persistedWorkbench?.searchByProject),
+    searchByProject: normalizeSearchMap(layoutSnapshot?.searchByProject ?? persistedWorkbench?.searchByProject),
     dbViewPrefsByProject: normalizeDbViewPrefsMap(
-      persistedDbViewPrefs ?? persistedWorkbench?.dbViewPrefsByProject,
+      layoutSnapshot?.dbViewPrefsByProject ?? persistedDbViewPrefs ?? persistedWorkbench?.dbViewPrefsByProject,
     ),
-    spaceOrder: normalizeSpaceOrder(persistedWorkbench?.spaceOrder),
+    spaceOrder: normalizeSpaceOrder(layoutSnapshot?.spaceOrder ?? persistedWorkbench?.spaceOrder),
     sidebar: {
-      collapsed: Boolean(persistedSidebar?.collapsed),
+      collapsed: Boolean(layoutSnapshot?.sidebar?.collapsed ?? persistedSidebar?.collapsed),
       width: clamp(
-        typeof persistedSidebar?.width === "number" ? persistedSidebar.width : DEFAULT_SIDEBAR_WIDTH,
+        typeof layoutSnapshot?.sidebar?.width === "number"
+          ? layoutSnapshot.sidebar.width
+          : typeof persistedSidebar?.width === "number" ? persistedSidebar.width : DEFAULT_SIDEBAR_WIDTH,
         SIDEBAR_MIN_WIDTH,
         SIDEBAR_MAX_WIDTH,
       ),
-      topLevelSectionOrder: normalizeSidebarTopLevelSectionOrder(persistedSidebar?.topLevelSectionOrder),
-      topLevelSections: normalizeSidebarTopLevelSectionsPrefs(persistedSidebar?.topLevelSections),
+      topLevelSectionOrder: normalizeSidebarTopLevelSectionOrder(
+        layoutSnapshot?.sidebar?.topLevelSectionOrder ?? persistedSidebar?.topLevelSectionOrder,
+      ),
+      topLevelSections: normalizeSidebarTopLevelSectionsPrefs(
+        layoutSnapshot?.sidebar?.topLevelSections ?? persistedSidebar?.topLevelSections,
+      ),
     },
     dock: {
       width: clamp(
-        parsedDockPrefs.width ?? DEFAULT_DOCK_WIDTH,
+        (typeof layoutSnapshot?.dock?.width === "number" ? layoutSnapshot.dock.width : parsedDockPrefs.width)
+          ?? DEFAULT_DOCK_WIDTH,
         DOCK_MIN_WIDTH,
         DOCK_MAX_WIDTH,
       ),
-      tree: parsedDockPrefs.tree,
+      tree: parseDockPrefs(layoutSnapshot?.dock).tree ?? parsedDockPrefs.tree,
     },
-    recentCardSessions: resumeSnapshot
+    recentCardSessions: layoutSnapshot
+      ? normalizeRecentSessions(layoutSnapshot.recentCardSessions).slice(0, MAX_RECENT_CARD_SESSIONS)
+      : resumeSnapshot
       ? normalizeRecentSessions(resumeSnapshot.recentCardSessions).slice(0, MAX_RECENT_CARD_SESSIONS)
       : normalizeRecentSessions(persistedRecent).slice(0, MAX_RECENT_CARD_SESSIONS),
     activeRecentSessionId,
     focusedStage,
     stageNavDirection,
     sidebarStageExpandedByProject: normalizeSidebarStageExpanded(
-      persistedWorkbench?.sidebarStageExpandedByProject,
+      layoutSnapshot?.sidebarStageExpandedByProject ?? persistedWorkbench?.sidebarStageExpandedByProject,
     ),
     sidebarSectionExpandedByProject: normalizeSidebarSectionStateByProject(
-      persistedWorkbench?.sidebarSectionExpandedByProject,
+      layoutSnapshot?.sidebarSectionExpandedByProject ?? persistedWorkbench?.sidebarSectionExpandedByProject,
     ),
     sidebarSectionShowAllByProject: normalizeSidebarSectionStateByProject(
-      persistedWorkbench?.sidebarSectionShowAllByProject,
+      layoutSnapshot?.sidebarSectionShowAllByProject ?? persistedWorkbench?.sidebarSectionShowAllByProject,
     ),
     activeCardsTabId,
     threadsTabs,
@@ -972,6 +996,7 @@ function makeCardsStageTabs(
 interface UseWorkbenchStateOptions {
   stageCollapseEnabled?: boolean;
   initialResumeSnapshot?: WorkbenchResumeSnapshot | null;
+  initialLayoutSnapshot?: WorkbenchLayoutSnapshot | null;
 }
 
 export function useWorkbenchState(
@@ -980,7 +1005,10 @@ export function useWorkbenchState(
 ) {
   const stageCollapseEnabled = options.stageCollapseEnabled ?? true;
   const [state, setState] = useState<WorkbenchState>(() =>
-    loadInitialState({ resumeSnapshot: options.initialResumeSnapshot }),
+    loadInitialState({
+      resumeSnapshot: options.initialResumeSnapshot,
+      layoutSnapshot: options.initialLayoutSnapshot,
+    }),
   );
 
   useEffect(() => {
@@ -1899,6 +1927,46 @@ export function useWorkbenchState(
     [stageCollapseEnabled, state.stageCollapsed],
   );
 
+  const buildLayoutSnapshot = useCallback((
+    cardStage: WorkbenchLayoutSnapshot["cardStage"],
+    stageRailLayoutMode: WorkbenchLayoutSnapshot["stageRailLayoutMode"],
+  ): WorkbenchLayoutSnapshot => ({
+    version: 1,
+    dbProjectId: state.dbProjectId,
+    threadsProjectId: state.threadsProjectId,
+    viewsByProject: state.viewsByProject,
+    searchByProject: state.searchByProject,
+    dbViewPrefsByProject: state.dbViewPrefsByProject,
+    spaceOrder: state.spaceOrder,
+    focusedStage: state.focusedStage,
+    stageNavDirection: state.stageNavDirection,
+    stageRailLayoutMode,
+    sidebar: state.sidebar,
+    dock: state.dock,
+    sidebarStageExpandedByProject: state.sidebarStageExpandedByProject as Record<string, Record<string, boolean>>,
+    sidebarSectionExpandedByProject: state.sidebarSectionExpandedByProject,
+    sidebarSectionShowAllByProject: state.sidebarSectionShowAllByProject,
+    activeCardsTabId: state.activeCardsTabId,
+    activeRecentSessionId: state.activeRecentSessionId,
+    recentCardSessions: state.recentCardSessions,
+    cardStage,
+    threadsTabs: state.threadsTabs,
+    activeThreadsTabId: state.activeThreadsTabId,
+    terminalTabs: state.terminalTabs,
+    activeTerminalTabId: state.activeTerminalTabId,
+    filesTabs: state.filesTabs,
+    activeFilesTabId: state.activeFilesTabId,
+    stagePanelWidths: state.stagePanelWidths as Record<string, number>,
+    stageCollapsed: state.stageCollapsed as Record<string, boolean>,
+    slidingWindowPaneCount: state.slidingWindowPaneCount,
+    terminalPanelOpen: state.terminalPanelOpen,
+    terminalPanelHeight: state.terminalPanelHeight,
+  }), [state]);
+
+  const replaceLayoutSnapshot = useCallback((layoutSnapshot: WorkbenchLayoutSnapshot) => {
+    setState(loadInitialState({ layoutSnapshot }));
+  }, []);
+
   return {
     dbProjectId: state.dbProjectId,
     activeProjectId: state.dbProjectId,
@@ -1973,6 +2041,8 @@ export function useWorkbenchState(
     selectRecentCardSession,
     setActiveRecentCardSession,
     closeRecentCardSession,
+    buildLayoutSnapshot,
+    replaceLayoutSnapshot,
   };
 }
 

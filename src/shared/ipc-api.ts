@@ -70,6 +70,10 @@ import type {
 } from "./types";
 import type { WorkbenchResumeSnapshot } from "./workbench-resume";
 import type {
+  WorkbenchLayoutSnapshot,
+  WorkspaceBootstrap,
+} from "./workspace";
+import type {
   FileLinkOpenerId,
   FileLinkTarget,
 } from "./file-link-openers";
@@ -357,6 +361,15 @@ export interface IpcApi {
   "window:new": { args: []; result: boolean };
   "workbench:resume:consume": { args: []; result: WorkbenchResumeSnapshot | null };
   "workbench:resume:save": { args: [snapshot: WorkbenchResumeSnapshot]; result: boolean };
+  "workspaces:bootstrap": { args: []; result: WorkspaceBootstrap };
+  "workspaces:create": { args: [name: string, layout: WorkbenchLayoutSnapshot, icon?: string | null]; result: WorkspaceBootstrap };
+  "workspaces:rename": { args: [workspaceId: string, name: string, icon?: string | null]; result: WorkspaceBootstrap };
+  "workspaces:delete": { args: [workspaceId: string]; result: WorkspaceBootstrap };
+  "workspaces:save-layout": {
+    args: [workspaceId: string, layout: WorkbenchLayoutSnapshot];
+    result: WorkspaceBootstrap;
+  };
+  "workspaces:set-active": { args: [workspaceId: string]; result: WorkspaceBootstrap };
   // Internal app lifecycle handshake used to flush renderer state before window close.
   "app:flush-before-close:done": { args: [webContentsId: number]; result: void };
 

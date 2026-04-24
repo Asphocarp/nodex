@@ -38,6 +38,7 @@ import { DesktopNotificationManager } from "./desktop-notification-manager";
 import { configureInstanceScopePaths } from "./instance-scope";
 import { parseCardDeepLink } from "../shared/card-deeplink";
 import { WorkbenchResumeState } from "./workbench-resume-state";
+import { WorkspaceState } from "./workspace-state";
 import { getLogger, shutdownBackendLogger } from "./logging/logger";
 import { AppUpdateService } from "./app-update-service";
 // macOS uses the packaged bundle icon from the app resources.
@@ -58,6 +59,7 @@ const pendingCloseResolvers = new Map<number, () => void>();
 const allowImmediateWindowClose = new Set<number>();
 const WINDOW_CLOSE_FLUSH_TIMEOUT_MS = 1500;
 let workbenchResumeState: WorkbenchResumeState | null = null;
+let workspaceState: WorkspaceState | null = null;
 let appInitializationStep: AppInitializationStep = { phase: "app_waiting" };
 let latestDatabaseMigrationProgress: DatabaseMigrationProgress | null = null;
 let appInitializationPromise: Promise<void> = Promise.resolve();
@@ -584,6 +586,9 @@ if (hasSingleInstanceLock) {
         app.dock?.setIcon(appDockIcon);
       }
       workbenchResumeState = new WorkbenchResumeState(app.getPath("userData"));
+      workspaceState = new WorkspaceState(app.getPath("userData"), () =>
+        workbenchResumeState?.readSnapshot() ?? null
+      );
       appUpdateService = new AppUpdateService({
         currentVersion: app.getVersion(),
         isPackaged: app.isPackaged,
@@ -614,6 +619,36 @@ if (hasSingleInstanceLock) {
             openWindows.size,
             snapshot,
           ) ?? false,
+        onBootstrapWorkspaces: () => {
+          if (!workspaceState) throw new Error("Workspace state is unavailable");
+          return workspaceState.bootstrap();
+        },
+        onCreateWorkspace: (_webContentsId, name, layout, icon) => {
+          if (!workspaceState) throw new Error("Workspace state is unavailable");
+          return workspaceState.createWorkspace(name, layout, icon);
+        },
+        onRenameWorkspace: (_webContentsId, workspaceId, name, icon) => {
+          if (!workspaceState) throw new Error("Workspace state is unavailable");
+          return workspaceState.renameWorkspace(workspaceId, name, icon);
+        },
+        onDeleteWorkspace: (_webContentsId, workspaceId) => {
+          if (!workspaceState) throw new Error("Workspace state is unavailable");
+          return workspaceState.deleteWorkspace(workspaceId);
+        },
+        onSaveWorkspaceLayout: (webContentsId, workspaceId, layout) => {
+          if (!workspaceState) throw new Error("Workspace state is unavailable");
+          if (openWindows.size > 1 && webContentsId !== lastFocusedWindowId) {
+            return workspaceState.bootstrap();
+          }
+          return workspaceState.saveLayout(workspaceId, layout);
+        },
+        onSetActiveWorkspace: (webContentsId, workspaceId) => {
+          if (!workspaceState) throw new Error("Workspace state is unavailable");
+          if (openWindows.size > 1 && webContentsId !== lastFocusedWindowId) {
+            return workspaceState.bootstrap();
+          }
+          return workspaceState.setActive(workspaceId);
+        },
         onGetAppUpdateStatus: () =>
           appUpdateService?.getStatus() ?? resolveUnsupportedAppUpdateStatus(),
         onCheckForAppUpdate: async () =>

@@ -1,9 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useState } from "react";
-import type { Project } from "@/lib/types";
+import type { Project, WorkspaceRecord } from "@/lib/types";
 import type { SpaceRef } from "@/lib/use-workbench-state";
 import { LeftSidebar, type StageSidebarGroup } from "./left-sidebar";
 import { ProjectManagerPopover } from "./left-sidebar-project-manager";
+import { LeftSidebarWorkspaceManager } from "./left-sidebar-workspace-manager";
 
 const PROJECTS: Project[] = [
   {
@@ -25,6 +26,24 @@ const PROJECTS: Project[] = [
 const SPACES: SpaceRef[] = [
   { projectId: "default", colorToken: "var(--accent-blue)", initial: "N" },
   { projectId: "bundle", colorToken: "var(--accent-green)", initial: "C" },
+];
+
+const WORKSPACES: WorkspaceRecord[] = [
+  {
+    id: "default",
+    name: "Default",
+    createdAt: "2026-03-01T00:00:00.000Z",
+    updatedAt: "2026-03-01T00:00:00.000Z",
+    layout: {} as WorkspaceRecord["layout"],
+  },
+  {
+    id: "review",
+    name: "Review lane",
+    icon: "🧭",
+    createdAt: "2026-03-02T00:00:00.000Z",
+    updatedAt: "2026-03-02T00:00:00.000Z",
+    layout: {} as WorkspaceRecord["layout"],
+  },
 ];
 
 function SidebarSectionMenuHarness() {
@@ -74,7 +93,9 @@ function SidebarSectionMenuHarness() {
       <LeftSidebar
         projects={PROJECTS}
         spaces={SPACES}
+        workspaces={WORKSPACES}
         activeProjectId="default"
+        activeWorkspaceId="default"
         stageGroups={groups}
         collapsed={false}
         width={280}
@@ -88,11 +109,15 @@ function SidebarSectionMenuHarness() {
           setShowAllItemsBySection((current) => ({ ...current, [sectionId]: showAll }));
         }}
         onSelectSpace={() => {}}
+        onSelectWorkspace={() => {}}
         onOpenSettings={() => {}}
         projectPickerOpenTick={0}
         onCreateProject={async () => PROJECTS[0]}
         onDeleteProject={async () => true}
         onRenameProject={async () => PROJECTS[0]}
+        onCreateWorkspace={async () => {}}
+        onRenameWorkspace={async () => {}}
+        onDeleteWorkspace={async () => {}}
       />
     </div>
   );
@@ -165,7 +190,9 @@ function StatusGroupOrderHarness() {
       <LeftSidebar
         projects={PROJECTS}
         spaces={SPACES}
+        workspaces={WORKSPACES}
         activeProjectId="default"
+        activeWorkspaceId="default"
         stageGroups={groups}
         collapsed={false}
         width={280}
@@ -179,11 +206,15 @@ function StatusGroupOrderHarness() {
           setShowAllItemsBySection((current) => ({ ...current, [sectionId]: showAll }));
         }}
         onSelectSpace={() => {}}
+        onSelectWorkspace={() => {}}
         onOpenSettings={() => {}}
         projectPickerOpenTick={0}
         onCreateProject={async () => PROJECTS[0]}
         onDeleteProject={async () => true}
         onRenameProject={async () => PROJECTS[0]}
+        onCreateWorkspace={async () => {}}
+        onRenameWorkspace={async () => {}}
+        onDeleteWorkspace={async () => {}}
       />
     </div>
   );
@@ -215,6 +246,41 @@ function ProjectManagerHarness() {
   );
 }
 
+function WorkspaceFooterHarness({
+  activeWorkspaceId = "default",
+  workspaces = WORKSPACES,
+  openManager = false,
+}: {
+  activeWorkspaceId?: string;
+  workspaces?: WorkspaceRecord[];
+  openManager?: boolean;
+}) {
+  useEffect(() => {
+    if (!openManager) return;
+    const frameId = window.requestAnimationFrame(() => {
+      const trigger = document.querySelector<HTMLElement>("[title='Manage workspaces']");
+      trigger?.click();
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [openManager]);
+
+  return (
+    <div className="flex min-h-screen items-end bg-(--background) p-8">
+      <div className="w-[280px] bg-(--background-secondary)">
+        <LeftSidebarWorkspaceManager
+          workspaces={workspaces}
+          activeWorkspaceId={activeWorkspaceId}
+          onSelectWorkspace={() => {}}
+          onCreateWorkspace={async () => {}}
+          onRenameWorkspace={async () => {}}
+          onDeleteWorkspace={async () => {}}
+          onOpenSettings={() => {}}
+        />
+      </div>
+    </div>
+  );
+}
+
 const meta = {
   title: "Workbench/Sidebar",
   parameters: {
@@ -236,4 +302,30 @@ export const StatusGroupsReversed: Story = {
 
 export const ProjectManagerOpen: Story = {
   render: () => <ProjectManagerHarness />,
+};
+
+export const WorkspaceFooter: Story = {
+  render: () => <WorkspaceFooterHarness />,
+};
+
+export const WorkspaceFooterLongNames: Story = {
+  render: () => (
+    <WorkspaceFooterHarness
+      activeWorkspaceId="very-long"
+      workspaces={[
+        ...WORKSPACES,
+        {
+          id: "very-long",
+          name: "A very long workspace name for context-heavy review",
+          createdAt: "2026-03-03T00:00:00.000Z",
+          updatedAt: "2026-03-03T00:00:00.000Z",
+          layout: {} as WorkspaceRecord["layout"],
+        },
+      ]}
+    />
+  ),
+};
+
+export const WorkspaceManagerOpen: Story = {
+  render: () => <WorkspaceFooterHarness openManager />,
 };

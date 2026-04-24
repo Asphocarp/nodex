@@ -168,6 +168,83 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     case "workbench:resume:save": {
       return false;
     }
+    case "workspaces:bootstrap": {
+      const timestamp = new Date().toISOString();
+      const workspace = {
+        id: "default",
+        name: "Default",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        layout: {
+          version: 1,
+          dbProjectId: "default",
+          threadsProjectId: "default",
+          viewsByProject: {},
+          searchByProject: {},
+          dbViewPrefsByProject: {},
+          spaceOrder: [],
+          focusedStage: "db",
+          stageNavDirection: "right",
+          stageRailLayoutMode: "sliding-window",
+          sidebar: {
+            collapsed: false,
+            width: 280,
+            topLevelSectionOrder: [],
+            topLevelSections: {},
+          },
+          dock: {
+            width: 560,
+            tree: {
+              type: "leaf",
+              id: "storybook-dock",
+              tabs: [
+                { id: "cardstage", kind: "cardstage", title: "Card" },
+                { id: "terminal", kind: "terminal", title: "Terminal" },
+                { id: "history", kind: "history", title: "History" },
+              ],
+              activeTabId: "cardstage",
+            },
+          },
+          sidebarStageExpandedByProject: {},
+          sidebarSectionExpandedByProject: {},
+          sidebarSectionShowAllByProject: {},
+          activeCardsTabId: "",
+          activeRecentSessionId: null,
+          recentCardSessions: [],
+          cardStage: {
+            open: false,
+            projectId: "",
+            cardId: null,
+          },
+          threadsTabs: [],
+          activeThreadsTabId: "thread:new",
+          terminalTabs: [],
+          activeTerminalTabId: "",
+          filesTabs: [{ id: "diff", title: "Diffs" }],
+          activeFilesTabId: "diff",
+          stagePanelWidths: {},
+          stageCollapsed: { files: true },
+          slidingWindowPaneCount: 2,
+          terminalPanelOpen: false,
+          terminalPanelHeight: 260,
+        },
+      };
+      return {
+        catalog: {
+          version: 1,
+          lastActiveWorkspaceId: workspace.id,
+          workspaces: [workspace],
+        },
+        activeWorkspace: workspace,
+      };
+    }
+    case "workspaces:create":
+    case "workspaces:rename":
+    case "workspaces:delete":
+    case "workspaces:save-layout":
+    case "workspaces:set-active": {
+      return invoke("workspaces:bootstrap");
+    }
     case "card:import-block-drop": {
       const [projectId, input, sessionId] = args as [string, object, string?];
       const res = await fetch(toApiUrl(`/api/projects/${projectId}/card-import-block-drop`), {

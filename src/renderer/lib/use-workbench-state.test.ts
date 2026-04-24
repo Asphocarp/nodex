@@ -6,6 +6,7 @@ import {
   workbenchStorageKeys,
   workbenchTestHelpers,
 } from "./use-workbench-state";
+import type { WorkbenchLayoutSnapshot } from "./types";
 import { render, settleAsyncRender } from "../test/dom";
 
 const storageMap = new Map<string, string>();
@@ -37,6 +38,11 @@ const localStorageRef =
   (globalThis as { localStorage?: typeof mockStorage }).localStorage ?? mockStorage;
 const sessionStorageRef =
   (globalThis as { sessionStorage?: typeof mockStorage }).sessionStorage ?? mockStorage;
+
+const PROJECTS = [
+  { id: "default", name: "Default", description: "", created: new Date() },
+  { id: "ops", name: "Ops", description: "", created: new Date() },
+];
 
 function resetStorage(): void {
   for (const storage of [localStorageRef, sessionStorageRef]) {
@@ -772,6 +778,86 @@ describe("use-workbench-state helpers", () => {
     });
 
     expect(JSON.stringify(normalized)).toBe(JSON.stringify({ beta: "threads" }));
+  });
+
+  test("replaces workbench state from a workspace layout snapshot", async () => {
+    resetStorage();
+    type CapturedWorkbenchState = {
+      replaceLayoutSnapshot: (layout: WorkbenchLayoutSnapshot) => void;
+      dbProjectId: string;
+      activeView: string;
+      activeSearchQuery: string;
+      focusedStage: string;
+      terminalPanelOpen: boolean;
+      terminalPanelHeight: number;
+    };
+    const capturedRef: { current: CapturedWorkbenchState | null } = { current: null };
+
+    function Harness() {
+      capturedRef.current = useWorkbenchState(PROJECTS);
+      return null;
+    }
+
+    render(createElement(Harness));
+    await settleAsyncRender();
+
+    const layout: WorkbenchLayoutSnapshot = {
+      version: 1,
+      dbProjectId: "ops",
+      threadsProjectId: "ops",
+      viewsByProject: { ops: "calendar" },
+      searchByProject: { ops: "release" },
+      dbViewPrefsByProject: {},
+      spaceOrder: ["ops", "default"],
+      focusedStage: "threads",
+      stageNavDirection: "left",
+      stageRailLayoutMode: "full-rail",
+      sidebar: {
+        collapsed: false,
+        width: 300,
+        topLevelSectionOrder: [],
+        topLevelSections: {},
+      },
+      dock: {
+        width: 560,
+        tree: { type: "leaf", id: "dock", tabs: [], activeTabId: null },
+      },
+      sidebarStageExpandedByProject: {},
+      sidebarSectionExpandedByProject: {},
+      sidebarSectionShowAllByProject: {},
+      activeCardsTabId: "",
+      activeRecentSessionId: null,
+      recentCardSessions: [],
+      cardStage: {
+        open: false,
+        projectId: "",
+        cardId: null,
+      },
+      threadsTabs: [{ id: "thread:new", title: "New thread", preview: "" }],
+      activeThreadsTabId: "thread:new",
+      terminalTabs: [],
+      activeTerminalTabId: "",
+      filesTabs: [{ id: "diff", title: "Diffs" }],
+      activeFilesTabId: "diff",
+      stagePanelWidths: {},
+      stageCollapsed: { files: true },
+      slidingWindowPaneCount: 3,
+      terminalPanelOpen: true,
+      terminalPanelHeight: 320,
+    };
+
+    await act(async () => {
+      capturedRef.current?.replaceLayoutSnapshot(layout);
+    });
+
+    if (!capturedRef.current) throw new Error("missing workbench state");
+    const nextState = capturedRef.current;
+    expect(nextState.dbProjectId).toBe("ops");
+    expect(nextState.activeView).toBe("calendar");
+    expect(nextState.activeSearchQuery).toBe("release");
+    expect(nextState.focusedStage).toBe("threads");
+    expect(nextState.terminalPanelOpen).toBeTrue();
+    expect(nextState.terminalPanelHeight).toBe(320);
   });
 
   resetStorage();

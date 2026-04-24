@@ -7,9 +7,10 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 
 ### Shared Contracts (`src/shared`)
 - `types.ts`: canonical domain model (`Card`, `Board`, `Project`, input payloads, block-drop import payloads).
+- `workspace.ts`: canonical profile-local workspace catalog and serializable workbench layout snapshot types.
 - `ipc-api.ts`: typed IPC channel surface between preload/renderer/main.
 - `codex-thread-title.ts`: shared thread-title sanitization and bounded cache helpers used by both main and renderer.
-- `schemas/*`: runtime boundary schemas for persisted renderer state, Codex settings, HTTP bodies, Codex session replay JSONL lines, and transcript special-item/raw JSON payload families.
+- `schemas/*`: runtime boundary schemas for persisted renderer state, workspace layout catalogs, Codex settings, HTTP bodies, Codex session replay JSONL lines, and transcript special-item/raw JSON payload families.
 - `card-limits.ts`: centralized payload and field size constraints.
 - `assets.ts`: stable `nodex://assets/` URI helpers.
 - `nfm/*`: shared Notion-flavored Markdown parser/serializer core used by both main-process storage logic and renderer editor adapters.
@@ -30,6 +31,7 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `kanban/card-input-validation.ts`: shared write validation used by all mutation paths.
 - `logging/logger.ts`: structured backend logger with child scopes, sensitive-field redaction, bounded payload serialization, and profile-scoped JSONL file persistence under `${KANBAN_DIR}/logs`.
 - `workbench-resume-state.ts`: profile-scoped persisted last-window snapshot store under Electron `userData`, plus restore-eligible window gating for app reopen.
+- `workspace-state.ts`: profile-scoped workspace catalog store under Electron `userData`, including default workspace seeding, legacy workbench-resume migration, active-workspace tracking, and layout snapshot persistence.
 - `pty-manager.ts`: PTY process lifecycle management for per-card terminals (spawn, write, resize, kill).
 - `codex/codex-app-server-client.ts`: global JSON-RPC client for `codex app-server` stdio lifecycle, handshake, request correlation, reconnect/backoff, and wire-level typing against the committed `@nodex/codex-app-server-protocol` workspace package.
 - `codex/codex-service.ts`: domain facade for account/auth, thread/turn actions, approval + request-user-input handling, packaged-vs-dev Codex runtime resolution, canonical per-thread conversation-manager state, and main-process transcript/snapshot projection + `codex:event` / host-message emission.
@@ -47,7 +49,7 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `index.ts`: minimal `window.api` bridge that exposes `invoke`, event subscription, runtime server URL, and the cached Electron asset-path prefix used for synchronous local asset-path resolution.
 
 ### Renderer Application (`src/renderer`)
-- `app.tsx`: workbench orchestration, Electron startup-gating screen, reminder deep-link handling, and feature-flagged shell entry.
+- `app.tsx`: workbench orchestration, workspace bootstrap/switching, Electron startup-gating screen, reminder deep-link handling, and feature-flagged shell entry.
 - `styles/theme-source.css`: author-maintained renderer token source, including Tailwind theme declarations, window-type/theme-scoped root tokens, and the CSS-side `--vscode-*` contract consumed by renderer surfaces.
 - `styles/theme-codex-foundation.generated.css`: generated renderer foundation layer synced from Codex Electron for radius math, toolbar spacing, and window-scoped runtime overrides.
 - `styles/theme-codex-utilities.generated.css`: generated renderer utility contract synced from Codex Electron for exact shipped utility selectors and Codex-specific arbitrary/container utility coverage.
@@ -65,10 +67,11 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `lib/codex-theme-variant.ts`: Codex Electron-style runtime theme bridge that derives semantic color variables from the active light/dark theme variant and injects them onto `document.documentElement` before renderer surfaces read the token bridge.
 - `lib/kanban-store.ts`: shared per-project board store with one realtime subscription, deduped fetches, optimistic journal rebase (`baseBoard + pending/local ops`), LWW conflict superseding, typed conflict resolution (`updated|conflict|not_found`), and O(1) `cardIndex` lookup map.
 - `lib/use-kanban.ts`, `lib/use-history.ts`, `lib/use-projects.ts`: stateful hooks over API channels (`use-kanban` is store-backed via `useSyncExternalStore`).
-- `lib/use-workbench-state.ts`: persisted workbench shell state with explicit project-context slices: `dbProjectId` (DB stage datasource), `threadsProjectId` (Thread stage context), entity-driven card context, and terminal per-tab project identity; DB view/search remain keyed by `dbProjectId` while focus/panel/sliding-window-pane-count/terminal shell UI is global.
+- `lib/use-workbench-state.ts`: persisted workbench shell state with explicit project-context slices: `dbProjectId` (DB stage datasource), `threadsProjectId` (Thread stage context), entity-driven card context, and terminal per-tab project identity; it can build and replace full workspace layout snapshots, while DB view/search remain keyed by `dbProjectId`.
 - `lib/workbench-persisted-schemas.ts`: renderer-side persisted-state schema/parsing layer for workbench/session history maps, tabs, panel widths, and restart-friendly shell snapshots.
 - `lib/app-close-flush.ts`: renderer-side close-flush coordinator so all registered async flushers complete before one final Electron close ack is sent.
 - `lib/workbench-resume.ts`: renderer helpers for consuming/saving the durable last-window snapshot and building snapshot payloads from live shell state.
+- `lib/workspaces.ts`: renderer helpers for workspace bootstrap, workspace catalog mutations, active-workspace changes, and layout saves through IPC.
 - `lib/dock-layout.ts`: dock split-tree helpers for the current persisted shell layout model.
 - `lib/use-workbench-shortcuts.ts`: app-wide stage-first keyboard shortcut mapping.
 - `lib/use-terminal.ts`: ghostty-web terminal lifecycle hook with cached instances, fit/resize handling, IPC wiring, and theme sync.
@@ -104,11 +107,11 @@ Codex Threads flow:
 15. The Diff stage is a workbench-owned review surface, not a transcript diff card. `Last turn` review comes from the active conversation turn diff, while `unstaged` / `staged` / `branch` review data flows through dedicated main-process Git snapshot IPC.
 
 Workbench reopen flow:
-1. Main process marks only windows created from zero-open-window state as restore-eligible.
-2. Renderer bootstrap consumes the last saved workbench snapshot through IPC before mounting the shell.
-3. Live workbench state continues to persist window-locally in `sessionStorage`.
-4. On close, renderer flush coordinator runs registered flushers (canvas, workbench/card snapshot) and sends one final close ack.
-5. Main process saves only the last-focused window snapshot, under the profile-scoped Electron `userData` path.
+1. Main process keeps a profile-local workspace catalog in `workspaces-v1.json` under Electron `userData`, with a default workspace always present.
+2. Renderer bootstrap consumes the active workspace layout through IPC before mounting the shell; existing legacy workbench-resume snapshots seed the default workspace when no catalog exists.
+3. Live workbench state continues to persist window-locally in `sessionStorage` as an in-session fallback, but workspace layout snapshots are the cold-launch restore source.
+4. On workspace switch or close, renderer flushes the current layout snapshot, card draft state, and registered close flushers before applying the next layout or sending the final close ack.
+5. Main process accepts active-workspace and layout saves only from the last-focused window when multiple windows are open, matching the previous last-window resume policy.
 
 ## Invariants
 - Persistent truth is split by ownership: Nodex-owned board/link metadata lives in SQLite, while Codex-owned thread history now lives in the main-process conversation manager plus explicit resume operations; the active renderer caches canonical conversation snapshots plus flat UI-only shell state rather than maintaining a second transcript-authority store, a second `resumeState` truth, or a second recovery layer.

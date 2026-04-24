@@ -38,6 +38,7 @@ describe("SidebarProjectsSection", () => {
         onCreateProject={async () => null}
         onDeleteProject={async () => false}
         onRenameProject={async () => null}
+        projectPickerOpenTick={0}
       />,
     );
 
@@ -67,6 +68,7 @@ describe("SidebarProjectsSection", () => {
         onCreateProject={async () => null}
         onDeleteProject={async () => false}
         onRenameProject={async () => null}
+        projectPickerOpenTick={0}
       />,
     );
 

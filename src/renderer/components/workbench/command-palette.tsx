@@ -152,7 +152,7 @@ function buildCommands(input: {
       kind: "command",
       id: "open-project-picker",
       title: "Open project picker",
-      subtitle: "Switch spaces or edit the current project",
+      subtitle: "Switch the active datasource project or edit projects",
       keywords: ["project", "space", "switch"],
       priority: 480,
     },

@@ -20,6 +20,10 @@ import { parseAssetSource } from "../shared/assets";
 import { codexService } from "./codex/codex-service";
 import { openFileLinkTarget } from "./file-link-opener";
 import type { WorkbenchResumeSnapshot } from "../shared/workbench-resume";
+import type {
+  WorkbenchLayoutSnapshot,
+  WorkspaceBootstrap,
+} from "../shared/workspace";
 import type { DesktopNotificationManager } from "./desktop-notification-manager";
 import {
   checkoutGitBranch,
@@ -49,6 +53,16 @@ interface RegisterIpcHandlersOptions {
   onCreateWindow?: () => void;
   onConsumeWorkbenchResume?: (webContentsId: number) => WorkbenchResumeSnapshot | null;
   onSaveWorkbenchResume?: (webContentsId: number, snapshot: WorkbenchResumeSnapshot) => boolean;
+  onBootstrapWorkspaces?: (webContentsId: number) => WorkspaceBootstrap;
+  onCreateWorkspace?: (webContentsId: number, name: string, layout: WorkbenchLayoutSnapshot, icon?: string | null) => WorkspaceBootstrap;
+  onRenameWorkspace?: (webContentsId: number, workspaceId: string, name: string, icon?: string | null) => WorkspaceBootstrap;
+  onDeleteWorkspace?: (webContentsId: number, workspaceId: string) => WorkspaceBootstrap;
+  onSaveWorkspaceLayout?: (
+    webContentsId: number,
+    workspaceId: string,
+    layout: WorkbenchLayoutSnapshot,
+  ) => WorkspaceBootstrap;
+  onSetActiveWorkspace?: (webContentsId: number, workspaceId: string) => WorkspaceBootstrap;
   desktopNotificationManager?: DesktopNotificationManager;
   onGetAppUpdateStatus?: () => AppUpdateStatus;
   onCheckForAppUpdate?: () => Promise<AppUpdateStatus>;
@@ -365,6 +379,52 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerHandle("workbench:resume:save", (event, snapshot: WorkbenchResumeSnapshot) => {
     if (!options.onSaveWorkbenchResume) return false;
     return options.onSaveWorkbenchResume(event.sender.id, snapshot);
+  });
+
+  registerHandle("workspaces:bootstrap", (event) => {
+    if (!options.onBootstrapWorkspaces) {
+      throw new Error("Workspace state is unavailable");
+    }
+    return options.onBootstrapWorkspaces(event.sender.id);
+  });
+
+  registerHandle("workspaces:create", (event, name: string, layout: WorkbenchLayoutSnapshot, icon?: string | null) => {
+    if (!options.onCreateWorkspace) {
+      throw new Error("Workspace state is unavailable");
+    }
+    return options.onCreateWorkspace(event.sender.id, name, layout, icon);
+  });
+
+  registerHandle("workspaces:rename", (event, workspaceId: string, name: string, icon?: string | null) => {
+    if (!options.onRenameWorkspace) {
+      throw new Error("Workspace state is unavailable");
+    }
+    return options.onRenameWorkspace(event.sender.id, workspaceId, name, icon);
+  });
+
+  registerHandle("workspaces:delete", (event, workspaceId: string) => {
+    if (!options.onDeleteWorkspace) {
+      throw new Error("Workspace state is unavailable");
+    }
+    return options.onDeleteWorkspace(event.sender.id, workspaceId);
+  });
+
+  registerHandle("workspaces:save-layout", (
+    event,
+    workspaceId: string,
+    layout: WorkbenchLayoutSnapshot,
+  ) => {
+    if (!options.onSaveWorkspaceLayout) {
+      throw new Error("Workspace state is unavailable");
+    }
+    return options.onSaveWorkspaceLayout(event.sender.id, workspaceId, layout);
+  });
+
+  registerHandle("workspaces:set-active", (event, workspaceId: string) => {
+    if (!options.onSetActiveWorkspace) {
+      throw new Error("Workspace state is unavailable");
+    }
+    return options.onSetActiveWorkspace(event.sender.id, workspaceId);
   });
 
   registerHandle("git:branch:state", (_, cwd: string) => {

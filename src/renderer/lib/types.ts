@@ -157,6 +157,12 @@ export type {
   WorkbenchResumeStageNavDirection,
   WorkbenchResumeView,
 } from "../../shared/workbench-resume";
+export type {
+  WorkbenchLayoutSnapshot,
+  WorkspaceBootstrap,
+  WorkspaceCatalog,
+  WorkspaceRecord,
+} from "../../shared/workspace";
 
 import type { Estimate, CardUpdateResult } from "../../shared/types";
 
