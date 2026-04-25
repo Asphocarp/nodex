@@ -1,102 +1,69 @@
 import { describe, expect, test } from "bun:test";
-import { stepShiftScroll } from "./calendar-shift-scroll";
+import {
+  normalizeShiftWheelDelta,
+  resolveShiftScrollBufferDays,
+  resolveShiftScrollSettleDays,
+  scaleShiftWheelDelta,
+} from "./calendar-shift-scroll";
 
-describe("stepShiftScroll", () => {
-  test("triggers navigation once crossing half-day threshold", () => {
-    const beforeHalf = stepShiftScroll({
-      currentPx: 0,
-      targetPx: 49,
-      dayWidthPx: 100,
-      deltaTimeMs: 1000 / 60,
-      isInputIdle: false,
-      followLerpPerFrame: 1,
-    });
-    expect(beforeHalf.navigateDays).toBe(0);
+describe("normalizeShiftWheelDelta", () => {
+  test("normalizes shift wheel deltas", () => {
+    expect(normalizeShiftWheelDelta({
+      shiftKey: false,
+      deltaX: 0,
+      deltaY: 120,
+      deltaMode: 0,
+      pageHeight: 600,
+    })).toBe(0);
 
-    const atHalf = stepShiftScroll({
-      currentPx: 0,
-      targetPx: 50,
-      dayWidthPx: 100,
-      deltaTimeMs: 1000 / 60,
-      isInputIdle: false,
-      followLerpPerFrame: 1,
-    });
-    expect(atHalf.navigateDays).toBe(1);
+    expect(normalizeShiftWheelDelta({
+      shiftKey: true,
+      deltaX: 40,
+      deltaY: 120,
+      deltaMode: 0,
+      pageHeight: 600,
+    })).toBe(40);
+
+    expect(normalizeShiftWheelDelta({
+      shiftKey: true,
+      deltaX: 0,
+      deltaY: 3,
+      deltaMode: 1,
+      pageHeight: 600,
+    })).toBe(48);
+
+    expect(normalizeShiftWheelDelta({
+      shiftKey: true,
+      deltaX: 0,
+      deltaY: 1,
+      deltaMode: 2,
+      pageHeight: 600,
+    })).toBe(600);
   });
+});
 
-  test("preserves residual offset after boundary crossing without hard reset", () => {
-    const result = stepShiftScroll({
-      currentPx: 119,
-      targetPx: 180,
-      dayWidthPx: 120,
-      deltaTimeMs: 1000 / 60,
-      isInputIdle: false,
-    });
-
-    expect(result.navigateDays).toBe(1);
-    expect(result.currentPx > 0).toBeTrue();
-    expect(result.currentPx < 120).toBeTrue();
-    expect(result.targetPx > 0).toBeTrue();
-    expect(result.shouldStop).toBe(false);
+describe("resolveShiftScrollSettleDays", () => {
+  test("rounds accumulated wheel distance to any day count", () => {
+    expect(resolveShiftScrollSettleDays(49, 100)).toBe(0);
+    expect(resolveShiftScrollSettleDays(50, 100)).toBe(1);
+    expect(resolveShiftScrollSettleDays(-50, 100)).toBe(-1);
+    expect(resolveShiftScrollSettleDays(260, 100)).toBe(3);
+    expect(resolveShiftScrollSettleDays(-260, 100)).toBe(-3);
   });
+});
 
-  test("can emit multiple day navigations in one frame", () => {
-    const result = stepShiftScroll({
-      currentPx: 0,
-      targetPx: 350,
-      dayWidthPx: 100,
-      deltaTimeMs: 1000 / 60,
-      isInputIdle: false,
-      followLerpPerFrame: 1,
-    });
-
-    expect(result.navigateDays).toBe(4);
-    expect(result.currentPx).toBe(-50);
-    expect(result.targetPx).toBe(-50);
-    expect(result.shouldStop).toBe(false);
+describe("scaleShiftWheelDelta", () => {
+  test("reduces a raw wheel tick before accumulating visual offset", () => {
+    expect(scaleShiftWheelDelta(100)).toBe(35);
+    expect(scaleShiftWheelDelta(-100)).toBe(-35);
   });
+});
 
-  test("can suppress navigation wrapping while waiting for view commit", () => {
-    const result = stepShiftScroll({
-      currentPx: 95,
-      targetPx: 140,
-      dayWidthPx: 100,
-      deltaTimeMs: 1000 / 60,
-      isInputIdle: false,
-      allowNavigation: false,
-      followLerpPerFrame: 1,
-    });
-
-    expect(result.navigateDays).toBe(0);
-    expect(result.currentPx).toBe(140);
-    expect(result.targetPx).toBe(140);
-    expect(result.shouldStop).toBe(false);
-  });
-
-  test("only settles to stop when input is idle", () => {
-    const active = stepShiftScroll({
-      currentPx: 0.2,
-      targetPx: 0.2,
-      dayWidthPx: 120,
-      deltaTimeMs: 1000 / 60,
-      isInputIdle: false,
-      followLerpPerFrame: 1,
-      settleEpsilonPx: 0.3,
-    });
-    expect(active.shouldStop).toBe(false);
-
-    const idle = stepShiftScroll({
-      currentPx: 0.2,
-      targetPx: 0.2,
-      dayWidthPx: 120,
-      deltaTimeMs: 1000 / 60,
-      isInputIdle: true,
-      followLerpPerFrame: 1,
-      idleTargetLerpPerFrame: 1,
-      settleEpsilonPx: 0.3,
-    });
-    expect(idle.shouldStop).toBe(true);
-    expect(idle.currentPx).toBe(0);
-    expect(idle.targetPx).toBe(0);
+describe("resolveShiftScrollBufferDays", () => {
+  test("keeps enough visual day columns around the active range", () => {
+    expect(resolveShiftScrollBufferDays(0, 100)).toBe(1);
+    expect(resolveShiftScrollBufferDays(99, 100)).toBe(2);
+    expect(resolveShiftScrollBufferDays(260, 100)).toBe(4);
+    expect(resolveShiftScrollBufferDays(-260, 100)).toBe(4);
   });
 });

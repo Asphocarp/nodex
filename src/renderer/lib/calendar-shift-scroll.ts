@@ -1,108 +1,56 @@
-export interface ShiftScrollStepInput {
-  currentPx: number;
-  targetPx: number;
-  dayWidthPx: number;
-  deltaTimeMs: number;
-  isInputIdle: boolean;
-  allowNavigation?: boolean;
-  snapTriggerFraction?: number;
-  followLerpPerFrame?: number;
-  idleTargetLerpPerFrame?: number;
-  settleEpsilonPx?: number;
+export interface ShiftWheelDeltaInput {
+  shiftKey: boolean;
+  deltaX: number;
+  deltaY: number;
+  deltaMode: number;
+  pageHeight: number;
 }
 
-export interface ShiftScrollStepResult {
-  currentPx: number;
-  targetPx: number;
-  navigateDays: number;
-  shouldStop: boolean;
+const WHEEL_LINE_HEIGHT_PX = 16;
+
+export const SHIFT_SCROLL_IDLE_SETTLE_DELAY_MS = 500;
+export const SHIFT_SCROLL_SETTLE_ANIMATION_MS = 160;
+export const SHIFT_SCROLL_WHEEL_DELTA_SCALE = 0.35;
+
+export function normalizeShiftWheelDelta({
+  shiftKey,
+  deltaX,
+  deltaY,
+  deltaMode,
+  pageHeight,
+}: ShiftWheelDeltaInput): number {
+  if (!shiftKey) return 0;
+
+  const rawDelta = deltaX !== 0 ? deltaX : deltaY;
+  if (rawDelta === 0) return 0;
+
+  if (deltaMode === 1) return rawDelta * WHEEL_LINE_HEIGHT_PX;
+  if (deltaMode === 2 && pageHeight > 0) return rawDelta * pageHeight;
+  return rawDelta;
 }
 
-const FRAME_MS = 1000 / 60;
-const DEFAULT_FOLLOW_LERP = 0.12;
-const DEFAULT_IDLE_TARGET_LERP = 0.2;
-const DEFAULT_SETTLE_EPSILON_PX = 0.3;
-const DEFAULT_SNAP_TRIGGER_FRACTION = 0.5;
-
-function resolveLerpAlpha(lerpPerFrame: number, deltaTimeMs: number): number {
-  if (!Number.isFinite(lerpPerFrame)) return 0;
-  if (lerpPerFrame <= 0) return 0;
-  if (lerpPerFrame >= 1) return 1;
-
-  const normalizedDelta = Number.isFinite(deltaTimeMs) && deltaTimeMs > 0
-    ? deltaTimeMs / FRAME_MS
-    : 1;
-
-  return 1 - Math.pow(1 - lerpPerFrame, normalizedDelta);
+export function scaleShiftWheelDelta(deltaPx: number): number {
+  if (!Number.isFinite(deltaPx)) return 0;
+  return deltaPx * SHIFT_SCROLL_WHEEL_DELTA_SCALE;
 }
 
-export function stepShiftScroll({
-  currentPx,
-  targetPx,
-  dayWidthPx,
-  deltaTimeMs,
-  isInputIdle,
-  allowNavigation = true,
-  snapTriggerFraction = DEFAULT_SNAP_TRIGGER_FRACTION,
-  followLerpPerFrame = DEFAULT_FOLLOW_LERP,
-  idleTargetLerpPerFrame = DEFAULT_IDLE_TARGET_LERP,
-  settleEpsilonPx = DEFAULT_SETTLE_EPSILON_PX,
-}: ShiftScrollStepInput): ShiftScrollStepResult {
-  if (!Number.isFinite(dayWidthPx) || dayWidthPx <= 0) {
-    return {
-      currentPx: 0,
-      targetPx: 0,
-      navigateDays: 0,
-      shouldStop: true,
-    };
-  }
+export function resolveShiftScrollSettleDays(
+  targetPx: number,
+  dayWidthPx: number,
+): number {
+  if (!Number.isFinite(targetPx) || targetPx === 0) return 0;
+  if (!Number.isFinite(dayWidthPx) || dayWidthPx <= 0) return 0;
 
-  const followAlpha = resolveLerpAlpha(followLerpPerFrame, deltaTimeMs);
-  const idleAlpha = resolveLerpAlpha(idleTargetLerpPerFrame, deltaTimeMs);
+  const direction = targetPx > 0 ? 1 : -1;
+  return direction * Math.round(Math.abs(targetPx) / dayWidthPx);
+}
 
-  let nextTarget = targetPx;
-  if (isInputIdle) {
-    nextTarget = nextTarget + (0 - nextTarget) * idleAlpha;
-  }
+export function resolveShiftScrollBufferDays(
+  targetPx: number,
+  dayWidthPx: number,
+): number {
+  if (!Number.isFinite(targetPx)) return 1;
+  if (!Number.isFinite(dayWidthPx) || dayWidthPx <= 0) return 1;
 
-  let nextCurrent = currentPx + (nextTarget - currentPx) * followAlpha;
-  let navigateDays = 0;
-
-  if (allowNavigation) {
-    const clampedFraction = Math.max(0, Math.min(snapTriggerFraction, 1));
-    const triggerPx = dayWidthPx * clampedFraction;
-    const offsetToFirstTrigger = dayWidthPx - triggerPx;
-
-    if (nextCurrent >= triggerPx) {
-      const forwardSteps = Math.floor((nextCurrent + offsetToFirstTrigger) / dayWidthPx);
-      navigateDays += forwardSteps;
-      nextCurrent -= forwardSteps * dayWidthPx;
-      nextTarget -= forwardSteps * dayWidthPx;
-    } else if (nextCurrent <= -triggerPx) {
-      const backwardSteps = Math.floor(((-nextCurrent) + offsetToFirstTrigger) / dayWidthPx);
-      navigateDays -= backwardSteps;
-      nextCurrent += backwardSteps * dayWidthPx;
-      nextTarget += backwardSteps * dayWidthPx;
-    }
-  }
-
-  const shouldStop = isInputIdle &&
-    Math.abs(nextCurrent) <= settleEpsilonPx &&
-    Math.abs(nextTarget) <= settleEpsilonPx;
-
-  if (shouldStop) {
-    return {
-      currentPx: 0,
-      targetPx: 0,
-      navigateDays,
-      shouldStop: true,
-    };
-  }
-
-  return {
-    currentPx: nextCurrent,
-    targetPx: nextTarget,
-    navigateDays,
-    shouldStop: false,
-  };
+  return Math.max(1, Math.ceil(Math.abs(targetPx) / dayWidthPx) + 1);
 }

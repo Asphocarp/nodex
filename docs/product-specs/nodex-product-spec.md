@@ -367,8 +367,8 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - A draggable separator between all-day lane and timed grid resizes lane height; height preference persists per project and day-count view in localStorage.
 - The separator is keyboard-accessible (`ArrowUp`/`ArrowDown` with `Home`/`End` bounds) and exposed as an ARIA horizontal separator.
 - Timeline hour height auto-fits to available panel height with a minimum readable hour height.
-- `Shift + mouse wheel` navigates by one day per step as a smooth rolling window (including week view), without requiring toolbar clicks.
-- In Calendar view, `Shift + mouse wheel` is handled by the calendar surface first (including the calendar toolbar), and does not trigger stage switching or stage-rail horizontal scrolling.
+- `Shift + mouse wheel` navigates the Calendar with immediate horizontal visual movement and a delayed commit: wheel deltas accumulate during the gesture, settle after a 500ms idle pause to the nearest day count, and can move across multiple days in one gesture.
+- In Calendar view, `Shift + mouse wheel` is owned by the calendar grid while the calendar surface scope blocks stage switching and stage-rail horizontal scrolling, including from the calendar toolbar area.
 - Users can drag existing calendar cards to move them across visible days and times while preserving duration.
 - Calendar move-drag uses native drag lifecycle, so the drag ghost follows the pointer across the desktop (including when leaving the app window).
 - Dragging supports timed/all-day conversion:

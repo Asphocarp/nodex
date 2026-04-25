@@ -8,7 +8,6 @@ import {
   isSameDay,
   resolveNowY,
   resolveHourHeight,
-  resolveShiftWheelDelta,
   resolveTimelineViewportHeight,
   slotRangeFromDates,
   slotRangeToDates,
@@ -20,7 +19,14 @@ import {
   packAllDaySegments,
   resolveAllDaySpanDays,
 } from "@/lib/calendar-all-day-utils";
-import { stepShiftScroll } from "@/lib/calendar-shift-scroll";
+import {
+  SHIFT_SCROLL_IDLE_SETTLE_DELAY_MS,
+  SHIFT_SCROLL_SETTLE_ANIMATION_MS,
+  normalizeShiftWheelDelta,
+  resolveShiftScrollBufferDays,
+  resolveShiftScrollSettleDays,
+  scaleShiftWheelDelta,
+} from "@/lib/calendar-shift-scroll";
 import { columnStyles } from "../column";
 import { CalendarEventBlock } from "./calendar-event-block";
 import { CalendarInlineCreator } from "./calendar-inline-creator";
@@ -141,7 +147,6 @@ interface CalendarGridProps {
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const DEFAULT_CREATE_SLOTS = 2; // 30 minutes
-const SHIFT_WHEEL_IDLE_MS = 72;
 const DROP_PREVIEW_TIMEOUT_MS = 2000;
 const ALL_DAY_EVENT_HEIGHT = 24;
 const ALL_DAY_EVENT_GAP = 4;
@@ -298,24 +303,15 @@ export function CalendarGrid({
   const scrollRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const allDayRef = useRef<HTMLDivElement>(null);
-  const allDaySlideRef = useRef<HTMLDivElement>(null);
   const gridBodyRef = useRef<HTMLDivElement>(null);
   const scrollInitRef = useRef(false);
-  // Smooth shift+wheel scroll
-  const headerSlideRef = useRef<HTMLDivElement>(null);
-  const dayColumnsSlideRef = useRef<HTMLDivElement>(null);
-  const shiftTargetPxRef = useRef(0);
-  const shiftCurrentPxRef = useRef(0);
-  const shiftRafRef = useRef<number | null>(null);
+  const shiftWheelAccumulatedPxRef = useRef(0);
+  const shiftWheelSettleTimeoutRef = useRef<number | null>(null);
+  const shiftWheelSettleRafRef = useRef<number | null>(null);
+  const visualOffsetPxRef = useRef(0);
   const dayColWidthRef = useRef(0);
-  const lastWheelInputTsRef = useRef(Number.NEGATIVE_INFINITY);
-  const lastFrameTsRef = useRef<number | null>(null);
-  const pendingWheelNavDaysRef = useRef(0);
-  const previousVisibleDaysRef = useRef(visibleDays);
-  // Flag: true when the current visibleDays change was initiated by the RAF (shift+wheel),
-  // false when it came from toolbar navigation. Prevents the layout effect from
-  // cancelling the RAF or resetting transforms mid-animation.
-  const shiftWheelNavigatingRef = useRef(false);
+  const [visualOffsetPx, setVisualOffsetPx] = useState(0);
+  const [visualBufferDays, setVisualBufferDays] = useState(1);
 
   const setEventPreviewSynced = useCallback((nextPreview: CalendarEventPreviewState | null) => {
     eventPreviewRef.current = nextPreview;
@@ -360,12 +356,16 @@ export function CalendarGrid({
     eventPreviewRef.current = eventPreview;
   }, [eventPreview]);
 
-  // Cancel RAF on unmount
+  // Cancel delayed shift+wheel navigation on unmount.
   useEffect(() => {
     return () => {
-      if (shiftRafRef.current !== null) {
-        cancelAnimationFrame(shiftRafRef.current);
-        shiftRafRef.current = null;
+      if (shiftWheelSettleTimeoutRef.current !== null) {
+        window.clearTimeout(shiftWheelSettleTimeoutRef.current);
+        shiftWheelSettleTimeoutRef.current = null;
+      }
+      if (shiftWheelSettleRafRef.current !== null) {
+        cancelAnimationFrame(shiftWheelSettleRafRef.current);
+        shiftWheelSettleRafRef.current = null;
       }
       if (pendingDropPreviewTimeoutRef.current !== null) {
         window.clearTimeout(pendingDropPreviewTimeoutRef.current);
@@ -442,21 +442,33 @@ export function CalendarGrid({
     ? GUTTER_WIDTH + dayColWidth * visibleDays.length
     : undefined;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     dayColWidthRef.current = dayColWidth;
   }, [dayColWidth]);
 
-  const applySlideTransform = useCallback((shiftPx: number, dayWidth: number) => {
-    const tx = `translateX(${-(dayWidth + shiftPx)}px)`;
-    if (headerSlideRef.current) headerSlideRef.current.style.transform = tx;
-    if (allDaySlideRef.current) allDaySlideRef.current.style.transform = tx;
-    if (dayColumnsSlideRef.current) dayColumnsSlideRef.current.style.transform = tx;
+  const setVisualOffset = useCallback((nextOffsetPx: number) => {
+    visualOffsetPxRef.current = nextOffsetPx;
+    setVisualOffsetPx(nextOffsetPx);
   }, []);
 
-  const applyRestTransform = useCallback((dayWidth: number) => {
-    if (dayWidth <= 0) return;
-    applySlideTransform(0, dayWidth);
-  }, [applySlideTransform]);
+  const resetShiftWheelVisualState = useCallback(() => {
+    shiftWheelAccumulatedPxRef.current = 0;
+    visualOffsetPxRef.current = 0;
+    setVisualOffsetPx(0);
+    setVisualBufferDays(1);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (shiftWheelSettleTimeoutRef.current !== null) {
+      window.clearTimeout(shiftWheelSettleTimeoutRef.current);
+      shiftWheelSettleTimeoutRef.current = null;
+    }
+    if (shiftWheelSettleRafRef.current !== null) {
+      cancelAnimationFrame(shiftWheelSettleRafRef.current);
+      shiftWheelSettleRafRef.current = null;
+    }
+    resetShiftWheelVisualState();
+  }, [resetShiftWheelVisualState, visibleDays]);
 
   useEffect(() => {
     if (createRequestId <= 0) return;
@@ -481,54 +493,6 @@ export function CalendarGrid({
       endSlot: startSlot + 3,
     });
   }, [createRequestId, visibleDays]);
-
-  // Synchronize post-commit transform ownership:
-  // - shift+wheel navigation keeps RAF ownership
-  // - toolbar navigation resets to centered rest transform
-  useLayoutEffect(() => {
-    const visibleDaysChanged = previousVisibleDaysRef.current !== visibleDays;
-    previousVisibleDaysRef.current = visibleDays;
-
-    if (dayColWidth <= 0) return;
-
-    if (shiftWheelNavigatingRef.current) {
-      shiftWheelNavigatingRef.current = false;
-      const pendingNavDays = pendingWheelNavDaysRef.current;
-      if (pendingNavDays !== 0) {
-        const wrapPx = dayColWidth * pendingNavDays;
-        shiftCurrentPxRef.current -= wrapPx;
-        shiftTargetPxRef.current -= wrapPx;
-        pendingWheelNavDaysRef.current = 0;
-        applySlideTransform(shiftCurrentPxRef.current, dayColWidth);
-      }
-      return;
-    }
-
-    if (visibleDaysChanged && shiftRafRef.current !== null) {
-      cancelAnimationFrame(shiftRafRef.current);
-      shiftRafRef.current = null;
-      lastFrameTsRef.current = null;
-    }
-
-    if (visibleDaysChanged) {
-      shiftTargetPxRef.current = 0;
-      shiftCurrentPxRef.current = 0;
-      pendingWheelNavDaysRef.current = 0;
-    }
-
-    if (shiftRafRef.current !== null) return;
-    applyRestTransform(dayColWidth);
-  }, [applyRestTransform, dayColWidth, visibleDays]);
-
-  // displayDays: visibleDays with 1 buffer day on each side for seamless sliding
-  const displayDays = useMemo(() => {
-    if (visibleDays.length === 0) return visibleDays;
-    const before = new Date(visibleDays[0]);
-    before.setDate(before.getDate() - 1);
-    const after = new Date(visibleDays[visibleDays.length - 1]);
-    after.setDate(after.getDate() + 1);
-    return [before, ...visibleDays, after];
-  }, [visibleDays]);
 
   const cardById = useMemo(
     () => new Map(scheduledCards.map((card) => [card.id, card])),
@@ -604,7 +568,7 @@ export function CalendarGrid({
         const dayAreaWidth = dayAreaRight - dayAreaLeft;
         if (dayAreaWidth <= 0) return null;
         const dayWidth = dayAreaWidth / visibleDays.length;
-        const relativeX = clientX - dayAreaLeft + shiftCurrentPxRef.current;
+        const relativeX = clientX - dayAreaLeft + visualOffsetPxRef.current;
         return Math.max(0, Math.min(Math.floor(relativeX / dayWidth), visibleDays.length - 1));
       };
 
@@ -1283,86 +1247,93 @@ export function CalendarGrid({
 
   const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
     if (!e.shiftKey) return;
+    if (e.ctrlKey || e.metaKey) return;
 
     const container = scrollRef.current;
     if (!container) return;
+    const dayW = dayColWidthRef.current;
+    if (dayW <= 0) return;
 
-    const delta = resolveShiftWheelDelta({
+    const delta = scaleShiftWheelDelta(normalizeShiftWheelDelta({
       shiftKey: e.shiftKey,
       deltaX: e.deltaX,
       deltaY: e.deltaY,
       deltaMode: e.deltaMode,
       pageHeight: container.clientHeight,
-    });
+    }));
     if (delta === 0) return;
 
     e.stopPropagation();
     if (e.cancelable) e.preventDefault();
 
-    shiftTargetPxRef.current += delta;
-    lastWheelInputTsRef.current = performance.now();
+    if (shiftWheelSettleRafRef.current !== null) {
+      cancelAnimationFrame(shiftWheelSettleRafRef.current);
+      shiftWheelSettleRafRef.current = null;
+    }
 
-    if (shiftRafRef.current !== null) return; // RAF loop already running
-    lastFrameTsRef.current = null;
+    const nextAccumulatedPx = shiftWheelAccumulatedPxRef.current + delta;
+    shiftWheelAccumulatedPxRef.current = nextAccumulatedPx;
+    setVisualBufferDays(resolveShiftScrollBufferDays(nextAccumulatedPx, dayW));
+    setVisualOffset(nextAccumulatedPx);
 
-    const animate = (nowTs: number) => {
-      const dayW = dayColWidthRef.current;
-      if (dayW <= 0) {
-        shiftRafRef.current = null;
-        lastFrameTsRef.current = null;
+    if (shiftWheelSettleTimeoutRef.current !== null) {
+      window.clearTimeout(shiftWheelSettleTimeoutRef.current);
+    }
+
+    shiftWheelSettleTimeoutRef.current = window.setTimeout(() => {
+      const dayWidthAtSettle = dayColWidthRef.current;
+      if (dayWidthAtSettle <= 0) {
+        shiftWheelSettleTimeoutRef.current = null;
+        resetShiftWheelVisualState();
         return;
       }
 
-      const previousFrameTs = lastFrameTsRef.current ?? nowTs;
-      const deltaTimeMs = Math.max(0, nowTs - previousFrameTs);
-      lastFrameTsRef.current = nowTs;
+      const settleDays = resolveShiftScrollSettleDays(
+        shiftWheelAccumulatedPxRef.current,
+        dayWidthAtSettle,
+      );
+      const startOffsetPx = visualOffsetPxRef.current;
+      const endOffsetPx = settleDays * dayWidthAtSettle;
+      const startedAt = performance.now();
 
-      const waitingForNavCommit = pendingWheelNavDaysRef.current !== 0;
-      const stepResult = stepShiftScroll({
-        currentPx: shiftCurrentPxRef.current,
-        targetPx: shiftTargetPxRef.current,
-        dayWidthPx: dayW,
-        deltaTimeMs,
-        isInputIdle: nowTs - lastWheelInputTsRef.current >= SHIFT_WHEEL_IDLE_MS,
-        allowNavigation: !waitingForNavCommit,
-      });
+      const commitNavigation = () => {
+        shiftWheelSettleTimeoutRef.current = null;
+        shiftWheelSettleRafRef.current = null;
 
-      shiftCurrentPxRef.current = stepResult.currentPx;
-      shiftTargetPxRef.current = stepResult.targetPx;
-
-      if (!waitingForNavCommit && stepResult.navigateDays > 0) {
-        pendingWheelNavDaysRef.current = stepResult.navigateDays;
-        shiftWheelNavigatingRef.current = true;
-        for (let i = 0; i < pendingWheelNavDaysRef.current; i++) {
-          onNavigateNext();
+        if (settleDays > 0) {
+          for (let i = 0; i < settleDays; i += 1) {
+            onNavigateNext();
+          }
+        } else {
+          for (let i = 0; i < Math.abs(settleDays); i += 1) {
+            onNavigatePrev();
+          }
         }
-        const wrapPx = dayW * pendingWheelNavDaysRef.current;
-        shiftCurrentPxRef.current += wrapPx;
-        shiftTargetPxRef.current += wrapPx;
-      } else if (!waitingForNavCommit && stepResult.navigateDays < 0) {
-        pendingWheelNavDaysRef.current = stepResult.navigateDays;
-        shiftWheelNavigatingRef.current = true;
-        for (let i = 0; i < Math.abs(pendingWheelNavDaysRef.current); i++) {
-          onNavigatePrev();
-        }
-        const wrapPx = dayW * pendingWheelNavDaysRef.current;
-        shiftCurrentPxRef.current += wrapPx;
-        shiftTargetPxRef.current += wrapPx;
-      }
 
-      applySlideTransform(shiftCurrentPxRef.current, dayW);
+        resetShiftWheelVisualState();
+      };
 
-      if (stepResult.shouldStop && pendingWheelNavDaysRef.current === 0) {
-        shiftRafRef.current = null;
-        lastFrameTsRef.current = null;
-        applyRestTransform(dayW);
+      if (Math.abs(startOffsetPx - endOffsetPx) < 0.5) {
+        commitNavigation();
         return;
       }
 
-      shiftRafRef.current = requestAnimationFrame(animate);
-    };
-    shiftRafRef.current = requestAnimationFrame(animate);
-  }, [applyRestTransform, applySlideTransform, onNavigateNext, onNavigatePrev]);
+      const animateSettle = (nowTs: number) => {
+        const progress = Math.min(1, (nowTs - startedAt) / SHIFT_SCROLL_SETTLE_ANIMATION_MS);
+        const easedProgress = 1 - Math.pow(1 - progress, 3);
+        setVisualOffset(startOffsetPx + (endOffsetPx - startOffsetPx) * easedProgress);
+
+        if (progress >= 1) {
+          commitNavigation();
+          return;
+        }
+
+        shiftWheelSettleRafRef.current = requestAnimationFrame(animateSettle);
+      };
+
+      shiftWheelSettleRafRef.current = requestAnimationFrame(animateSettle);
+    }, SHIFT_SCROLL_IDLE_SETTLE_DELAY_MS);
+  }, [onNavigateNext, onNavigatePrev, resetShiftWheelVisualState, setVisualOffset]);
 
   const now = new Date();
   const nowY = resolveNowY(now, hourHeight);
@@ -1388,12 +1359,32 @@ export function CalendarGrid({
     });
   }, [hourHeight]);
 
-  // Carousel is active once the container has been measured
-  const carouselActive = dayColWidth > 0;
-  // When carousel is active, render buffer days on each side; otherwise render visibleDays directly
-  const renderDays = carouselActive ? displayDays : visibleDays;
-  // Slide wrapper spans all rendered columns
-  const slideWrapperWidth = carouselActive ? dayColWidth * displayDays.length : undefined;
+  const renderBufferDays = dayColWidth > 0 ? visualBufferDays : 0;
+  const renderDays = useMemo(() => {
+    if (visibleDays.length === 0 || renderBufferDays === 0) return visibleDays;
+
+    const firstVisibleDay = visibleDays[0]!;
+    const lastVisibleDay = visibleDays[visibleDays.length - 1]!;
+    const beforeDays = Array.from({ length: renderBufferDays }, (_, index) => {
+      const day = new Date(firstVisibleDay);
+      day.setDate(firstVisibleDay.getDate() - renderBufferDays + index);
+      return day;
+    });
+    const afterDays = Array.from({ length: renderBufferDays }, (_, index) => {
+      const day = new Date(lastVisibleDay);
+      day.setDate(lastVisibleDay.getDate() + index + 1);
+      return day;
+    });
+
+    return [...beforeDays, ...visibleDays, ...afterDays];
+  }, [renderBufferDays, visibleDays]);
+  const slideWrapperWidth = renderBufferDays > 0 ? dayColWidth * renderDays.length : undefined;
+  const slideTransform = renderBufferDays > 0
+    ? `translateX(${-(renderBufferDays * dayColWidth + visualOffsetPx)}px)`
+    : undefined;
+  const renderDayStyle = renderBufferDays > 0
+    ? { width: dayColWidth, flexShrink: 0 }
+    : { flex: 1 };
   const timedCardsByRenderDay = useMemo(() => {
     const byDay = new Map<string, GroupedScheduledCard[]>();
     const timedCards = previewedCards.filter((card) => !card.isAllDay);
@@ -1426,9 +1417,8 @@ export function CalendarGrid({
     const sourceEvent = cardById.get(allDayMovePreview.eventId);
     if (!sourceEvent) return null;
 
-    const renderOffset = carouselActive ? 1 : 0;
-    const startDayIndex = allDayMovePreview.startDayIndex + renderOffset;
-    const endDayIndex = allDayMovePreview.endDayIndex + renderOffset;
+    const startDayIndex = allDayMovePreview.startDayIndex + renderBufferDays;
+    const endDayIndex = allDayMovePreview.endDayIndex + renderBufferDays;
     const clippedStartDayIndex = Math.max(0, startDayIndex);
     const clippedEndDayIndex = Math.min(renderDays.length, endDayIndex);
 
@@ -1439,12 +1429,13 @@ export function CalendarGrid({
       startDayIndex: clippedStartDayIndex,
       endDayIndex: clippedEndDayIndex,
     };
-  }, [allDayMovePreview, cardById, carouselActive, renderDays.length]);
+  }, [allDayMovePreview, cardById, renderBufferDays, renderDays.length]);
 
   return (
     <>
       <div
         ref={setScrollRef}
+        data-testid="calendar-grid-scroll"
         className="relative min-h-0 flex-1 overflow-auto"
         onWheel={handleWheel}
       >
@@ -1468,9 +1459,10 @@ export function CalendarGrid({
           {/* Sliding day header cells */}
           <div style={{ flex: 1, overflow: "hidden" }}>
             <div
-              ref={headerSlideRef}
+              data-testid="calendar-header-slide"
               style={{
                 display: "flex",
+                transform: slideTransform,
                 width: slideWrapperWidth,
                 willChange: "transform",
               }}
@@ -1482,7 +1474,7 @@ export function CalendarGrid({
                 return (
                   <div
                     key={renderIdx}
-                    style={carouselActive ? { width: dayColWidth, flexShrink: 0 } : { flex: 1 }}
+                    style={renderDayStyle}
                     className="flex items-center justify-center gap-1.5 border-l border-(--border) py-2 text-center first:border-l-0"
                   >
                     <span
@@ -1534,23 +1526,21 @@ export function CalendarGrid({
             <div className="relative h-full overflow-x-hidden overflow-y-auto">
               <div style={{ height: Math.max(allDayContentHeight + 8, allDayLaneHeight) }}>
                 <div
-                  ref={allDaySlideRef}
+                  data-testid="calendar-all-day-slide"
                   style={{
                     display: "flex",
                     height: "100%",
+                    position: "relative",
+                    transform: slideTransform,
                     width: slideWrapperWidth,
                     willChange: "transform",
-                    position: "relative",
                   }}
                 >
                   {renderDays.map((_, renderIdx) => (
                     <div
                       key={`all-day-col-${renderIdx}`}
                       className="h-full border-l border-(--border) first:border-l-0"
-                      style={carouselActive
-                        ? { width: dayColWidth, flexShrink: 0 }
-                        : { flex: 1 }
-                      }
+                      style={renderDayStyle}
                     />
                   ))}
                   {packedAllDaySegments.map((segment) => {
@@ -1656,22 +1646,22 @@ export function CalendarGrid({
           {/* Day columns — clips overflow, slides horizontally */}
           <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
             <div
-              ref={dayColumnsSlideRef}
+              data-testid="calendar-day-columns-slide"
               style={{
                 display: "flex",
                 height: "100%",
+                transform: slideTransform,
                 width: slideWrapperWidth,
                 willChange: "transform",
               }}
             >
               {renderDays.map((day, renderIdx) => {
-                const visibleIdx = carouselActive ? renderIdx - 1 : renderIdx;
-                const isBuffer = carouselActive && (visibleIdx < 0 || visibleIdx >= visibleDays.length);
+                const visibleIdx = renderIdx - renderBufferDays;
+                const isBuffer = visibleIdx < 0 || visibleIdx >= visibleDays.length;
                 const isToday = isSameDay(day, now);
                 const events = timedCardsByRenderDay.get(toDayKey(day)) ?? [];
                 const moveOverlayForDay =
-                  !isBuffer &&
-                    movePreviewOverlay &&
+                  movePreviewOverlay &&
                     isSameDay(movePreviewOverlay.scheduledStart, day)
                     ? movePreviewOverlay
                     : null;
@@ -1685,10 +1675,7 @@ export function CalendarGrid({
                   <div
                     key={renderIdx}
                     className="relative border-l border-(--border) first:border-l-0"
-                    style={carouselActive
-                      ? { width: dayColWidth, flexShrink: 0, height: gridHeight }
-                      : { flex: 1, height: gridHeight }
-                    }
+                    style={{ ...renderDayStyle, height: gridHeight }}
                     onPointerDown={isBuffer ? undefined : (e) => handlePointerDown(e, visibleIdx)}
                     onPointerMove={isBuffer ? undefined : (e) => handlePointerMove(e, visibleIdx)}
                     onPointerUp={isBuffer ? undefined : (e) => handlePointerUp(e, visibleIdx)}

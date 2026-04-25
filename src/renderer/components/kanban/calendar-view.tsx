@@ -1,6 +1,5 @@
 import { useState, useMemo, useCallback, useDeferredValue, useEffect, useRef } from "react";
 import { useKanban } from "@/lib/use-kanban";
-import { resolveShiftWheelDirection } from "@/lib/calendar-utils";
 import { resolveCalendarVisibleDayCount } from "@/lib/calendar-range";
 import type { CalendarViewState } from "@/lib/calendar-view-state";
 import {
@@ -191,28 +190,6 @@ export function CalendarView({
     () => onCalendarAnchorDateChange((anchorDate) => shiftAnchorDateByDays(anchorDate, 1)),
     [onCalendarAnchorDateChange],
   );
-  const handleCalendarWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
-    const direction = resolveShiftWheelDirection({
-      shiftKey: event.shiftKey,
-      ctrlKey: event.ctrlKey,
-      metaKey: event.metaKey,
-      deltaX: event.deltaX,
-      deltaY: event.deltaY,
-      deltaMode: event.deltaMode,
-      pageHeight: event.currentTarget.clientHeight,
-    });
-    if (direction === 0) return;
-
-    event.stopPropagation();
-    if (event.cancelable) event.preventDefault();
-
-    if (direction > 0) {
-      handleShiftWheelNext();
-      return;
-    }
-
-    handleShiftWheelPrev();
-  }, [handleShiftWheelNext, handleShiftWheelPrev]);
   useEffect(() => {
     setAllDayLaneHeight(loadAllDayLaneHeight(projectId, dayCount));
   }, [dayCount, projectId]);
@@ -512,7 +489,6 @@ export function CalendarView({
   return (
     <div
       className="flex h-full min-h-0 flex-col px-4 pb-4"
-      onWheel={handleCalendarWheel}
       {...{ [CALENDAR_SHIFT_WHEEL_SCOPE_ATTR]: CALENDAR_SHIFT_WHEEL_SCOPE_VALUE }}
     >
       <CalendarGrid

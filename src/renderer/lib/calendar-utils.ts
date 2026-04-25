@@ -1,12 +1,16 @@
 /** Calendar view helper utilities — pure functions, no side effects. */
 
+import {
+  normalizeShiftWheelDelta,
+  type ShiftWheelDeltaInput,
+} from "./calendar-shift-scroll";
+
 export const HOUR_HEIGHT = 60;
 export const MIN_HOUR_HEIGHT = 32;
 export const SLOT_MINUTES = 15;
 export const SLOTS_PER_HOUR = 60 / SLOT_MINUTES;
 export const TOTAL_SLOTS = 24 * SLOTS_PER_HOUR;
 export const GUTTER_WIDTH = 56;
-const WHEEL_LINE_HEIGHT_PX = 16;
 
 /**
  * Calculate the hour height so the full 24h timeline fits in the visible panel
@@ -50,13 +54,7 @@ export function resolveTimelineViewportHeight({
   );
 }
 
-export interface ShiftWheelDeltaInput {
-  shiftKey: boolean;
-  deltaX: number;
-  deltaY: number;
-  deltaMode: number;
-  pageHeight: number;
-}
+export type { ShiftWheelDeltaInput };
 
 export interface ShiftWheelDirectionInput extends ShiftWheelDeltaInput {
   ctrlKey: boolean;
@@ -76,14 +74,13 @@ export function resolveShiftWheelDelta({
   deltaMode,
   pageHeight,
 }: ShiftWheelDeltaInput): number {
-  if (!shiftKey) return 0;
-
-  const rawDelta = deltaX !== 0 ? deltaX : deltaY;
-  if (rawDelta === 0) return 0;
-
-  if (deltaMode === 1) return rawDelta * WHEEL_LINE_HEIGHT_PX; // delta in lines
-  if (deltaMode === 2 && pageHeight > 0) return rawDelta * pageHeight; // delta in pages
-  return rawDelta; // delta in pixels (or fallback)
+  return normalizeShiftWheelDelta({
+    shiftKey,
+    deltaX,
+    deltaY,
+    deltaMode,
+    pageHeight,
+  });
 }
 
 export function resolveShiftWheelDirection({
