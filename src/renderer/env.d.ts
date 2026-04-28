@@ -4,6 +4,7 @@ import type {
 } from "../shared/app-startup";
 import type {
   AppUpdateStatus,
+  ClipboardPastePayload,
   ClipboardPasteInspectionItem,
   ClipboardPasteInspectionResult,
 } from "../shared/types";
@@ -25,6 +26,7 @@ declare global {
       serverUrl?: string;
       assetPathPrefix?: string;
       inspectPasteClipboard?: () => ClipboardPasteInspectionResult;
+      readPasteClipboard?: () => ClipboardPastePayload;
       getPathInfoForFile?: (file: File) => ClipboardPasteInspectionItem | null;
       getPathForFile?: (file: File) => string;
     };

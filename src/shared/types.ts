@@ -279,6 +279,13 @@ export interface ClipboardPasteInspectionResult {
   items: ClipboardPasteInspectionItem[];
 }
 
+export interface ClipboardPastePayload {
+  blocknoteHtml?: string;
+  html?: string;
+  markdown?: string;
+  text?: string;
+}
+
 export type BackupTrigger = "manual" | "auto" | "pre-restore";
 
 export interface BackupRecord {

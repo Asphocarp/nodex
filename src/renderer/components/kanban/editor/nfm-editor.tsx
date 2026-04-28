@@ -84,6 +84,7 @@ import {
   getSideMenuSelectionGuardFloatingOptions,
   useSideMenuSelectionGuard,
 } from "./side-menu-selection-guard";
+import { NfmEditorContextMenu } from "./nfm-editor-context-menu";
 import { ImagePreviewDialog } from "./image-preview-dialog";
 import {
   isSpaceShortcut,
@@ -2368,34 +2369,36 @@ export function NfmEditor({
         </div>
       )}
       <ThreadSectionRuntimeProvider value={threadSectionRuntimeValue}>
-        <BlockNoteView
-          editor={editor}
-          onChange={handleChange}
-          theme={themeMode}
-          formattingToolbar={false}
-          linkToolbar={false}
-          slashMenu={false}
-          sideMenu={false}
-          data-theming-css-variables-demo
-        >
-          <SideMenuController
-            sideMenu={customSideMenu}
-            floatingUIOptions={sideMenuFloatingOptions}
-          />
-          <FormattingToolbarController formattingToolbar={NfmFormattingToolbar} />
-        <NfmLinkToolbarController
-          linkToolbar={renderLinkToolbar}
-          floatingUIOptions={{
-            useTransitionStylesProps: {
-              duration: 0,
-            },
-            useTransitionStatusProps: {
-              duration: 0,
-            },
-          }}
-        />
-          <NfmSlashMenu projectId={projectId} />
-        </BlockNoteView>
+        <NfmEditorContextMenu editor={editor}>
+          <BlockNoteView
+            editor={editor}
+            onChange={handleChange}
+            theme={themeMode}
+            formattingToolbar={false}
+            linkToolbar={false}
+            slashMenu={false}
+            sideMenu={false}
+            data-theming-css-variables-demo
+          >
+            <SideMenuController
+              sideMenu={customSideMenu}
+              floatingUIOptions={sideMenuFloatingOptions}
+            />
+            <FormattingToolbarController formattingToolbar={NfmFormattingToolbar} />
+            <NfmLinkToolbarController
+              linkToolbar={renderLinkToolbar}
+              floatingUIOptions={{
+                useTransitionStylesProps: {
+                  duration: 0,
+                },
+                useTransitionStatusProps: {
+                  duration: 0,
+                },
+              }}
+            />
+            <NfmSlashMenu projectId={projectId} />
+          </BlockNoteView>
+        </NfmEditorContextMenu>
       </ThreadSectionRuntimeProvider>
       {activeChipEdit && (
         <ChipPropertyEditor

@@ -5,7 +5,7 @@ import type {
   AppInitializationStep,
   DatabaseMigrationProgress,
 } from "../shared/app-startup";
-import { inspectClipboardPasteItems } from "../main/clipboard-paste-inspector";
+import { inspectClipboardPasteItems, readClipboardPastePayload } from "../main/clipboard-paste-inspector";
 
 const SERVER_URL_ARG_PREFIX = "--nodex-server-url=";
 const ASSET_PATH_PREFIX_ARG_PREFIX = "--nodex-asset-path-prefix=";
@@ -80,6 +80,7 @@ contextBridge.exposeInMainWorld("api", {
   serverUrl,
   assetPathPrefix,
   inspectPasteClipboard: () => inspectClipboardPasteItems(),
+  readPasteClipboard: () => readClipboardPastePayload(),
   getPathInfoForFile: (file: File) => {
     try {
       const absolutePath = webUtils.getPathForFile(file);

@@ -4,6 +4,7 @@ import * as path from "node:path";
 
 import { parseLocalFileLinkHref } from "../shared/file-link-openers";
 import type {
+  ClipboardPastePayload,
   ClipboardPasteInspectionItem,
   ClipboardPasteInspectionResult,
 } from "../shared/types";
@@ -75,4 +76,58 @@ export function inspectClipboardPasteItems(): ClipboardPasteInspectionResult {
   }
 
   return inspectClipboardPasteItemsFromStrings(values);
+}
+
+function readClipboardFormat(
+  clipboard: typeof import("electron").clipboard,
+  format: string,
+): string | undefined {
+  try {
+    const value = clipboard.read(format);
+    return value.trim().length > 0 ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readClipboardHtml(
+  clipboard: typeof import("electron").clipboard,
+): string | undefined {
+  try {
+    const value = clipboard.readHTML();
+    return value.trim().length > 0 ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readClipboardText(
+  clipboard: typeof import("electron").clipboard,
+): string | undefined {
+  try {
+    const value = clipboard.readText();
+    return value.length > 0 ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function readClipboardPastePayload(): ClipboardPastePayload {
+  const electron = require("electron") as typeof import("electron");
+  const clipboard = electron.clipboard;
+  const availableFormats = new Set(clipboard.availableFormats());
+  const payload: ClipboardPastePayload = {};
+
+  if (availableFormats.has("blocknote/html")) {
+    payload.blocknoteHtml = readClipboardFormat(clipboard, "blocknote/html");
+  }
+
+  if (availableFormats.has("text/markdown")) {
+    payload.markdown = readClipboardFormat(clipboard, "text/markdown");
+  }
+
+  payload.html = readClipboardHtml(clipboard);
+  payload.text = readClipboardText(clipboard);
+
+  return payload;
 }

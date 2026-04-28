@@ -27,6 +27,7 @@ import { cn } from "@/lib/utils";
 import { EDITOR_SYNC_DEBOUNCE_MS } from "@/lib/timing";
 import { useProjects } from "@/lib/use-projects";
 import { createNfmEditorExtensions, createNfmPasteHandler, NFM_DISABLED_EXTENSIONS } from "./nfm-editor-extensions";
+import { NfmEditorContextMenu } from "./nfm-editor-context-menu";
 import { createNfmLinkExtension } from "./nfm-link-extension";
 import { NfmSideMenu } from "./nfm-side-menu";
 import {
@@ -1004,33 +1005,35 @@ export function ToggleListCardEditor({
 
   return (
     <div ref={containerRef} className={cn("nfm-editor", className)} spellCheck={spellcheck}>
-      <BlockNoteView
-        editor={editor}
-        theme={themeMode}
-        formattingToolbar={false}
-        linkToolbar={false}
-        slashMenu={false}
-        sideMenu={false}
-        data-theming-css-variables-demo
-      >
-        <SideMenuController
-          sideMenu={NfmSideMenu}
-          floatingUIOptions={sideMenuFloatingOptions}
-        />
-        <FormattingToolbarController formattingToolbar={NfmFormattingToolbar} />
-        <NfmLinkToolbarController
-          linkToolbar={renderLinkToolbar}
-          floatingUIOptions={{
-            useTransitionStylesProps: {
-              duration: 0,
-            },
-            useTransitionStatusProps: {
-              duration: 0,
-            },
-          }}
-        />
-        <NfmSlashMenu projectId={projectId} />
-      </BlockNoteView>
+      <NfmEditorContextMenu editor={editor}>
+        <BlockNoteView
+          editor={editor}
+          theme={themeMode}
+          formattingToolbar={false}
+          linkToolbar={false}
+          slashMenu={false}
+          sideMenu={false}
+          data-theming-css-variables-demo
+        >
+          <SideMenuController
+            sideMenu={NfmSideMenu}
+            floatingUIOptions={sideMenuFloatingOptions}
+          />
+          <FormattingToolbarController formattingToolbar={NfmFormattingToolbar} />
+          <NfmLinkToolbarController
+            linkToolbar={renderLinkToolbar}
+            floatingUIOptions={{
+              useTransitionStylesProps: {
+                duration: 0,
+              },
+              useTransitionStatusProps: {
+                duration: 0,
+              },
+            }}
+          />
+          <NfmSlashMenu projectId={projectId} />
+        </BlockNoteView>
+      </NfmEditorContextMenu>
       {activeChipEdit && (
         <ChipPropertyEditor
           propertyType={activeChipEdit.propertyType}
