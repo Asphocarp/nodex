@@ -298,6 +298,25 @@ const FALLBACK_COLLABORATION_MODE_PRESETS: CodexCollaborationModePreset[] = [
   },
 ];
 
+interface WorkbenchStageToolbarProps {
+  showDivider: boolean;
+  children: React.ReactNode;
+}
+
+export function WorkbenchStageToolbar({ showDivider, children }: WorkbenchStageToolbarProps) {
+  return (
+    <section
+      className={cn(
+        "grid h-toolbar shrink-0 grid-cols-[1fr_auto_1fr] items-center px-2",
+        showDivider && "border-b border-(--border)",
+      )}
+      style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+    >
+      {children}
+    </section>
+  );
+}
+
 function RunningThreadSpinnerIcon({ className }: { className?: string }) {
   return (
     <span className={cn("inline-flex size-3.5 items-center justify-center text-[color-mix(in_srgb,var(--sidebar-foreground)_70%,transparent)]", className)}>
@@ -750,6 +769,10 @@ export function WorkbenchShell({
     () => resolveExpandedStages(focusedStage, stageNavDirection, slidingWindowPaneCount, false),
     [focusedStage, slidingWindowPaneCount, stageNavDirection],
   );
+  const visibleStageCount = stageRailLayoutMode === "sliding-window"
+    ? slidingWindowVisibleStages.length
+    : STAGE_ORDER.length;
+  const showStageToolbarDivider = visibleStageCount >= 2;
   const sidebarVisibleStageSet = useMemo(() => {
     if (stageRailLayoutMode !== "sliding-window") {
       return new Set<StageId>(STAGE_ORDER);
@@ -1896,10 +1919,7 @@ export function WorkbenchShell({
       ) : null}
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl bg-(--background)">
-        <section
-          className="grid h-toolbar shrink-0 grid-cols-[1fr_auto_1fr] items-center px-2"
-          style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
-        >
+        <WorkbenchStageToolbar showDivider={showStageToolbarDivider}>
           <div className="flex items-center">
             {/* Non-Mac collapse control when sidebar is hidden */}
             {!isMacPlatform && showCollapsedTitlebarCollapseControl ? (
@@ -1978,7 +1998,7 @@ export function WorkbenchShell({
               </svg>
             </button>
           </div>
-        </section>
+        </WorkbenchStageToolbar>
 
         <StageRail
           stages={stages}

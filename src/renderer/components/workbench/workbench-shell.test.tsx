@@ -1496,6 +1496,33 @@ describe("WorkbenchShell", () => {
     expect(shell.container.querySelector('[data-terminal-panel="true"]')).not.toBeNull();
   });
 
+  test("shows a toolbar divider when multiple stages are visible", async () => {
+    const shell = await renderShell(false, "sliding-window");
+    const toolbar = shell.container.querySelector("main > section");
+    const toolbarClassName = toolbar?.getAttribute("class") ?? "";
+
+    expect(toolbar).not.toBeNull();
+    expect(Boolean(toolbarClassName.includes("border-b"))).toBeTrue();
+    expect(Boolean(toolbarClassName.includes("border-(--border)"))).toBeTrue();
+  });
+
+  test("hides the toolbar divider when only one stage is visible", async () => {
+    const shell = await renderShell(
+      false,
+      "sliding-window",
+      {},
+      [],
+      null,
+      ["db"],
+    );
+    const toolbar = shell.container.querySelector("main > section");
+    const toolbarClassName = toolbar?.getAttribute("class") ?? "";
+
+    expect(toolbar).not.toBeNull();
+    expect(Boolean(toolbarClassName.includes("border-b"))).toBeFalse();
+    expect(Boolean(toolbarClassName.includes("border-(--border)"))).toBeFalse();
+  });
+
   test("wires stage rail layout mode into settings modal", async () => {
     await renderShell(false, "full-rail");
     const props = (globalThis as { __lastSettingsOverlayProps?: Record<string, unknown> }).__lastSettingsOverlayProps;
