@@ -1,47 +1,15 @@
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { render, textContent } from "../../test/dom";
+import type { Card } from "@/lib/types";
+import { writeCardStageShowRawContentPreference } from "@/lib/card-stage-layout";
 
-const mockController: Record<string, unknown> = {
-  card: { id: "card-1" },
-  saving: false,
-  historyPanelActive: false,
-  limitMainContentWidth: true,
-  showRawContent: false,
-  handleClose: async () => undefined,
-  handleDelete: async () => undefined,
-  handleToggleContentWidth: () => undefined,
-  handleToggleShowRawContent: () => undefined,
-  onOpenHistoryPanel: undefined,
-  updateConflict: null,
-  scrollContainerRef: { current: null },
-  handleScroll: () => undefined,
-  contentGutterClassName: "",
-  contentShellClassName: "",
-  title: "Task",
-  handleTitleChange: () => undefined,
-  handleTitleBlur: () => undefined,
-  priority: undefined,
-  estimate: "none",
-  dueDate: "",
-  currentColumnId: "in_progress",
-  currentColumnName: "In progress",
-  handlePriorityChange: () => undefined,
-  handleEstimateChange: () => undefined,
-  handleDueDateChange: () => undefined,
-  handleClearDueDate: () => undefined,
-  handleSetDueDateToday: () => undefined,
-  handleColumnChange: async () => undefined,
-  description: "# Raw card\n\n- item",
-  handleDescriptionChange: () => undefined,
-  handleDescriptionBlur: () => undefined,
-};
-
-mock.module("./card-stage/use-card-stage-controller", () => ({
-  useCardStageController: () => mockController,
-}));
+let lastNfmEditorProps: Record<string, unknown> | null = null;
 
 mock.module("./editor/nfm-editor", () => ({
-  NfmEditor: () => <div>Mock editor</div>,
+  NfmEditor: (props: Record<string, unknown>) => {
+    lastNfmEditorProps = props;
+    return <div>Mock editor</div>;
+  },
 }));
 
 mock.module("./card-stage/inline-property-strip", () => ({
@@ -56,14 +24,34 @@ mock.module("./card-stage/toolbar", () => ({
   CardStageToolbar: () => <div>Toolbar</div>,
 }));
 
+function buildCard(overrides: Partial<Card> = {}): Card {
+  return {
+    id: "card-1",
+    status: "in_progress",
+    archived: false,
+    title: "Task",
+    description: "# Raw card\n\n- item",
+    tags: [],
+    agentBlocked: false,
+    created: new Date("2026-01-01T00:00:00.000Z"),
+    order: 1,
+    ...overrides,
+  };
+}
+
 describe("card stage", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    lastNfmEditorProps = null;
+  });
+
   test("renders the rich editor when raw mode is disabled", async () => {
-    mockController.showRawContent = false;
+    writeCardStageShowRawContentPreference(false);
     const { CardStage } = await import("./card-stage");
     const { getByText, queryByText } = render(
       <CardStage
         onClose={() => undefined}
-        card={null}
+        card={buildCard()}
         columnId="in_progress"
         columnName="In progress"
         projectId="default"
@@ -77,15 +65,17 @@ describe("card stage", () => {
 
     expect(getByText("Mock editor").textContent).toBe("Mock editor");
     expect(queryByText("Raw format")).toBe(null);
+    const editorProps = lastNfmEditorProps as { flushHandleRef?: unknown } | null;
+    expect(typeof editorProps?.flushHandleRef).toBe("object");
   });
 
   test("renders read-only raw content when raw mode is enabled", async () => {
-    mockController.showRawContent = true;
+    writeCardStageShowRawContentPreference(true);
     const { CardStage } = await import("./card-stage");
     const { container, getByText, queryByText } = render(
       <CardStage
         onClose={() => undefined}
-        card={null}
+        card={buildCard()}
         columnId="in_progress"
         columnName="In progress"
         projectId="default"

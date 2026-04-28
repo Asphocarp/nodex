@@ -120,6 +120,7 @@ export function CalendarView({
   searchQuery,
   openCardStage,
   cardStageCardId,
+  cardStageCloseRef,
   pendingReminderOpen,
   onReminderHandled,
   calendarState,
@@ -219,19 +220,22 @@ export function CalendarView({
       const cached = masterCardsById.get(masterCardId);
 
       if (cached) {
+        await cardStageCloseRef?.current?.();
         openCardStage(projectId, cached.card.id, cached.card.title);
         return;
       }
 
       const loaded = await getCard(masterCardId, card.status);
       if (loaded) {
+        await cardStageCloseRef?.current?.();
         openCardStage(projectId, loaded.id, loaded.title);
         return;
       }
 
+      await cardStageCloseRef?.current?.();
       openCardStage(projectId, masterCardId, card.title);
     },
-    [getCard, masterCardsById, openCardStage, projectId],
+    [cardStageCloseRef, getCard, masterCardsById, openCardStage, projectId],
   );
 
   const handleCreateCard = useCallback(

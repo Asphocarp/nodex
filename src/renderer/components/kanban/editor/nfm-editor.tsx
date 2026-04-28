@@ -1,4 +1,4 @@
-import { useEffect, useRef, useMemo, useCallback, useState } from "react";
+import { useEffect, useRef, useMemo, useCallback, useState, type MutableRefObject } from "react";
 import {
   FormattingToolbarController,
   SideMenuController,
@@ -27,6 +27,7 @@ import { NfmLinkToolbarController } from "./nfm-link-toolbar-controller";
 import { ChipPropertyEditor } from "./chip-property-editor";
 import { toast } from "@/components/ui/toast";
 import { useEditorDragBehaviors } from "./use-editor-drag-behaviors";
+import { createNfmSerializedChangeEmitter } from "./nfm-serialized-change-emitter";
 import type { Card } from "@/lib/types";
 import { useCardImportDropTarget } from "./use-card-import-drop-target";
 import { NfmSlashMenu } from "./nfm-slash-menu";
@@ -137,8 +138,9 @@ import {
   type ThreadSectionRuntimeValue,
 } from "./thread-section-runtime";
 import { isBlockWithinOwnerTree } from "./use-projected-card-embed-sync";
-import type { CardStageLinkedThread } from "@/components/kanban/card-stage/types";
+import type { CardStageDescriptionFlushHandle, CardStageLinkedThread } from "@/components/kanban/card-stage/types";
 import { invoke } from "@/lib/api";
+import { EDITOR_DRAFT_SERIALIZE_DEBOUNCE_MS } from "@/lib/timing";
 import { parseNfm, serializeNfm, nfmToBlockNote, blockNoteToNfm, applyToggleStatesFromDom } from "@/lib/nfm";
 import {
   parseToggleListInlineViewSettings,
@@ -179,6 +181,7 @@ interface NfmEditorProps {
   content: string;
   onChange: (nfm: string) => void;
   onBlur: () => void;
+  flushHandleRef?: MutableRefObject<CardStageDescriptionFlushHandle | null>;
   sourceCardContext?: {
     cardId: string;
     columnId: string;
@@ -209,6 +212,18 @@ interface NfmEditorChange {
   type: "insert" | "delete" | "move" | "update";
   block: NfmEditorChangeBlock;
   prevBlock?: NfmEditorChangeBlock;
+}
+
+function isNfmEditorDocumentEmpty(
+  doc: Array<{ type?: string; content?: unknown[]; children?: unknown[] }>,
+): boolean {
+  return doc.length === 0
+    || (
+      doc.length === 1
+      && doc[0]?.type === "paragraph"
+      && (!doc[0].content || doc[0].content.length === 0)
+      && (!doc[0].children || doc[0].children.length === 0)
+    );
 }
 
 interface InlineViewHostContextRuntimeEditor {
@@ -433,6 +448,7 @@ export function NfmEditor({
   content,
   onChange,
   onBlur,
+  flushHandleRef,
   sourceCardContext,
   linkedCodexThreads = [],
   onOpenCodexThread,
@@ -755,6 +771,61 @@ export function NfmEditor({
     }
     return serializeNfm(nfmBlocks);
   }, [editor]);
+
+  const serializeCurrentEditorContent = useCallback((): string => {
+    if (!editor) return "";
+    if (isNfmEditorDocumentEmpty(editor.document)) return "";
+    return serializeEditorToNfm();
+  }, [editor, serializeEditorToNfm]);
+
+  const serializeCurrentEditorContentRef = useRef(serializeCurrentEditorContent);
+  useEffect(() => {
+    serializeCurrentEditorContentRef.current = serializeCurrentEditorContent;
+  }, [serializeCurrentEditorContent]);
+
+  const serializedChangeEmitterRef = useRef<ReturnType<typeof createNfmSerializedChangeEmitter> | null>(null);
+  if (!serializedChangeEmitterRef.current) {
+    serializedChangeEmitterRef.current = createNfmSerializedChangeEmitter({
+      debounceMs: EDITOR_DRAFT_SERIALIZE_DEBOUNCE_MS,
+      serialize: () => serializeCurrentEditorContentRef.current(),
+      emit: (value) => onChangeRef.current(value),
+      getLastEmitted: () => lastEmittedRef.current,
+      setLastEmitted: (value) => {
+        lastEmittedRef.current = value;
+      },
+    });
+  }
+
+  const flushSerializedEmit = useCallback(() => (
+    serializedChangeEmitterRef.current?.flush() ?? null
+  ), []);
+
+  const scheduleSerializedEmit = useCallback(() => {
+    serializedChangeEmitterRef.current?.schedule();
+  }, []);
+
+  const cancelScheduledSerializedEmit = useCallback(() => {
+    serializedChangeEmitterRef.current?.cancel();
+  }, []);
+
+  useEffect(() => {
+    if (!flushHandleRef) return;
+
+    flushHandleRef.current = {
+      flushPendingChange: flushSerializedEmit,
+      hasPendingChange: () => serializedChangeEmitterRef.current?.hasPendingChange() ?? false,
+    };
+
+    return () => {
+      if (flushHandleRef.current?.flushPendingChange === flushSerializedEmit) {
+        flushHandleRef.current = null;
+      }
+    };
+  }, [flushHandleRef, flushSerializedEmit]);
+
+  useEffect(() => () => {
+    serializedChangeEmitterRef.current?.cancel();
+  }, []);
 
   const restoreEditorFocus = useCallback(() => {
     requestAnimationFrame(() => {
@@ -1163,28 +1234,13 @@ export function NfmEditor({
   // Handle content changes from the editor
   const handleChange = useCallback(() => {
     if (!editor) return;
-    const doc = editor.document;
-    // Check if document is empty (single empty paragraph)
-    const isEmpty =
-      doc.length === 0 ||
-      (doc.length === 1 &&
-        doc[0].type === "paragraph" &&
-        (!doc[0].content || (doc[0].content as unknown[]).length === 0) &&
-        (!doc[0].children || doc[0].children.length === 0));
-
-    if (isEmpty) {
-      lastEmittedRef.current = "";
-      if (!suppressExternalDropRef.current && !suppressExternalContentSyncRef.current) {
-        onChangeRef.current("");
-      }
+    if (suppressExternalDropRef.current || suppressExternalContentSyncRef.current) {
+      cancelScheduledSerializedEmit();
       return;
     }
 
-    const nfmString = serializeEditorToNfm();
-    lastEmittedRef.current = nfmString;
-    if (suppressExternalDropRef.current || suppressExternalContentSyncRef.current) return;
-    onChangeRef.current(nfmString);
-  }, [editor, serializeEditorToNfm]);
+    scheduleSerializedEmit();
+  }, [cancelScheduledSerializedEmit, editor, scheduleSerializedEmit]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -1270,6 +1326,7 @@ export function NfmEditor({
     if (!editor) return;
     if (content === prevContentRef.current) return;
     prevContentRef.current = content;
+    cancelScheduledSerializedEmit();
 
     // Skip if this is a value we just emitted (avoids fighting with our own onChange)
     if (content === lastEmittedRef.current) return;
@@ -1326,7 +1383,7 @@ export function NfmEditor({
     return () => {
       cancelled = true;
     };
-  }, [content, editor]);
+  }, [cancelScheduledSerializedEmit, content, editor]);
 
   useEffect(() => {
     if (!editor) return;
@@ -1366,7 +1423,10 @@ export function NfmEditor({
           handleChange();
           // Toggle clicks are discrete actions — flush save immediately
           // (queueMicrotask defers until after React's batched state update)
-          queueMicrotask(() => onBlurRef.current());
+          queueMicrotask(() => {
+            flushSerializedEmit();
+            onBlurRef.current();
+          });
           return;
         }
       }
@@ -1379,7 +1439,7 @@ export function NfmEditor({
     });
 
     return () => observer.disconnect();
-  }, [editor, handleChange]);
+  }, [editor, flushSerializedEmit, handleChange]);
 
   // Clean up toggle localStorage entries on unmount
   useEffect(() => {
@@ -1731,6 +1791,7 @@ export function NfmEditor({
       }
 
       const dropEditor = editor as unknown as EditorForExternalBlockDrop;
+      cancelScheduledSerializedEmit();
       const sourceSnapshot = snapshotEditorDocument(dropEditor);
       const baselineSourceDescription = serializeEditorToNfm();
       const targetBlocks = parseNfm(targetCard.description ?? "");
@@ -1781,7 +1842,7 @@ export function NfmEditor({
         suppressExternalDropRef.current = false;
       }
     },
-    [editor, projectId, sendBlocksDialog, serializeEditorToNfm, sourceCardContext],
+    [cancelScheduledSerializedEmit, editor, projectId, sendBlocksDialog, serializeEditorToNfm, sourceCardContext],
   );
 
   const handleSendBlocksToProject = useCallback(
@@ -1803,6 +1864,7 @@ export function NfmEditor({
       }
 
       const dropEditor = editor as unknown as EditorForExternalBlockDrop;
+      cancelScheduledSerializedEmit();
       const sourceSnapshot = snapshotEditorDocument(dropEditor);
       const baselineSourceDescription = serializeEditorToNfm();
 
@@ -1843,7 +1905,7 @@ export function NfmEditor({
         suppressExternalDropRef.current = false;
       }
     },
-    [editor, projectId, sendBlocksDialog, serializeEditorToNfm, sourceCardContext],
+    [cancelScheduledSerializedEmit, editor, projectId, sendBlocksDialog, serializeEditorToNfm, sourceCardContext],
   );
 
   const externalDropAdapter = useMemo(() => {
@@ -1880,8 +1942,9 @@ export function NfmEditor({
       const container = containerRef.current;
       if (!container) return null;
 
-      const baselineDescription = serializeEditorToNfm();
       const dropEditor = editor as unknown as EditorForExternalBlockDrop;
+      cancelScheduledSerializedEmit();
+      const baselineDescription = serializeEditorToNfm();
       const snapshot = snapshotEditorDocument(dropEditor);
       const droppedBlocks = payload.cards.map((entry) =>
         mapCardToDroppedCardToggleBlock(
@@ -1935,7 +1998,7 @@ export function NfmEditor({
         return null;
       }
     },
-    [editor, projectId, serializeEditorToNfm, sourceCardContext],
+    [cancelScheduledSerializedEmit, editor, projectId, serializeEditorToNfm, sourceCardContext],
   );
 
   const handleCardImportHover = useCallback(
@@ -2006,6 +2069,7 @@ export function NfmEditor({
           event.preventDefault();
           event.stopPropagation();
 
+          cancelScheduledSerializedEmit();
           const baselineDescription = serializeEditorToNfm();
           const snapshot = snapshotEditorDocument(dropEditor);
           const droppedBlock = materializeProjectedCardToggleBlock(draggedBlock, dropSource);
@@ -2101,6 +2165,7 @@ export function NfmEditor({
       });
       if (inferredDrop.cards.length === 0) return;
 
+      cancelScheduledSerializedEmit();
       const baselineDescription = serializeEditorToNfm();
       const snapshot = snapshotEditorDocument(dropEditor);
 
@@ -2147,6 +2212,7 @@ export function NfmEditor({
       editor,
       moveCardDropToEditor,
       projectId,
+      cancelScheduledSerializedEmit,
       serializeEditorToNfm,
       sourceCardContext,
     ],

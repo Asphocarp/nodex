@@ -22,6 +22,11 @@ export interface CardStageSessionSnapshot {
   titleSnapshot: string;
 }
 
+export interface CardStageDescriptionFlushHandle {
+  flushPendingChange: () => string | null;
+  hasPendingChange: () => boolean;
+}
+
 export interface CardStageProps {
   onClose: () => void;
   onLeaveCard?: (snapshot: CardStageSessionSnapshot) => void;

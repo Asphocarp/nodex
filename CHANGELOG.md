@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 - macOS window titles now follow the active workspace name for each restored window session.
 
 ### Fixed
+- Fixed Card Stage rich-editor typing latency under CPU pressure by deferring full NFM serialization and Kanban preview updates until draft flush points instead of doing them on every editor transaction.
 - Fixed the Calendar toolbar month label so it sits beside the active Calendar selector, uses primary text contrast, and leaves the action cluster consistently sized with the selector.
 - Fixed Calendar `Shift+Wheel` navigation so wheel input shows a horizontal visual roll immediately, settles after a 500ms idle pause, and accumulated gestures can move across multiple days without the old one-day cap.
 

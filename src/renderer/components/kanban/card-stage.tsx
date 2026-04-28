@@ -118,6 +118,7 @@ export function CardStage(props: CardStageProps) {
                   content={controller.description}
                   onChange={controller.handleDescriptionChange}
                   onBlur={controller.handleDescriptionBlur}
+                  flushHandleRef={controller.descriptionFlushHandleRef}
                   sourceCardContext={{
                     cardId: controller.card.id,
                     columnId: controller.currentColumnId,

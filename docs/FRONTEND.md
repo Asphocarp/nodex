@@ -39,6 +39,7 @@
 - Keep schema and extension composition centralized (`nfm-schema`, `toggle-list-schema`, extension helpers).
 - Add behavior regression tests next to editor helpers (`*.test.ts`).
 - Preserve NFM round-trip compatibility when changing parser/serializer/adapters.
+- For Card Stage rich-editor typing performance, follow `docs/card-stage-rich-editor-performance.md`.
 
 ## Styling Conventions
 - Global styles in `src/renderer/globals.css`.

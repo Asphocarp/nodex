@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   EMPTY_BRANCH_SELECTOR_STATE,
   parseBranchSelectorState,
@@ -35,7 +35,7 @@ import {
   shouldPublishCardStagePatch,
 } from "./card-stage-draft-sync";
 import { normalizeRunInTarget, resolveDefaultRunInBaseBranch } from "./options";
-import type { CardStageProps, CardStageSessionSnapshot } from "./types";
+import type { CardStageDescriptionFlushHandle, CardStageProps, CardStageSessionSnapshot } from "./types";
 
 interface UseCardStageControllerResult {
   card: Card | null;
@@ -88,6 +88,7 @@ interface UseCardStageControllerResult {
   contentGutterClassName: string;
   contentShellClassName: string;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+  descriptionFlushHandleRef: React.MutableRefObject<CardStageDescriptionFlushHandle | null>;
   tagInputRef: React.RefObject<HTMLInputElement | null>;
   tagDropdownRef: React.RefObject<HTMLDivElement | null>;
   schedule: ReturnType<typeof useScheduleState>;
@@ -234,6 +235,7 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState(card?.description ?? "");
+  const latestDescriptionRef = useRef(card?.description ?? "");
   const [priority, setPriority] = useState<Priority | undefined>(undefined);
   const [estimate, setEstimate] = useState<string>("none");
   const [dueDate, setDueDate] = useState("");
@@ -276,6 +278,7 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
   const assigneeSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const agentStatusSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const descriptionFlushHandleRef = useRef<CardStageDescriptionFlushHandle | null>(null);
   const prevRestoreCardRef = useRef<string | null>(null);
   const scrollSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const draftDirtyRef = useRef<DraftDirtyState>({
@@ -332,6 +335,16 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
     draftDirtyRef.current.agentStatus = false;
   }, []);
 
+  const flushDescriptionEditorChange = useCallback(() => {
+    const flushed = descriptionFlushHandleRef.current?.flushPendingChange();
+    if (typeof flushed === "string") {
+      latestDescriptionRef.current = flushed;
+      formStateRef.current.description = flushed;
+      setDescription(flushed);
+    }
+    return latestDescriptionRef.current;
+  }, []);
+
   const runUpdate = useCallback(
     async (
       nextColumnId: string,
@@ -382,6 +395,7 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
 
   const applyCardToDraftState = useCallback((nextCard: Card, nextColumnId: string) => {
     clearAllDraftDirty();
+    latestDescriptionRef.current = nextCard.description ?? "";
     setTitle(nextCard.title);
     setDescription(nextCard.description ?? "");
     setPriority(nextCard.priority);
@@ -404,7 +418,7 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
   useEffect(() => {
     formStateRef.current = {
       title,
-      description,
+      description: latestDescriptionRef.current,
       priority,
       estimate,
       dueDate,
@@ -464,6 +478,7 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
       }
       if (!descriptionDirty || state.description === card.description) {
         draftDirtyRef.current.description = false;
+        latestDescriptionRef.current = card.description ?? "";
         setDescription((current) => (current === card.description ? current : card.description));
       }
       setPriority((current) => (current === card.priority ? current : card.priority));
@@ -540,6 +555,7 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
     currentCardIdRef.current = cardId;
 
     if (card) {
+      latestDescriptionRef.current = card.description ?? "";
       setTitle(card.title);
       setDescription(card.description ?? "");
       setPriority(card.priority);
@@ -619,9 +635,10 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
 
   const hasChanges = useCallback(() => {
     if (!card) return false;
+    const latestDescription = latestDescriptionRef.current;
     const cardDueDate = card.dueDate ? card.dueDate.toISOString().split("T")[0] : "";
     return title !== card.title
-      || description !== card.description
+      || latestDescription !== (card.description ?? "")
       || priority !== card.priority
       || estimate !== (card.estimate || "none")
       || dueDate !== cardDueDate
@@ -629,7 +646,7 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
       || agentStatus !== (card.agentStatus || "")
       || agentBlocked !== card.agentBlocked
       || JSON.stringify(tags) !== JSON.stringify(card.tags);
-  }, [card, title, description, priority, estimate, dueDate, assignee, agentStatus, agentBlocked, tags]);
+  }, [card, title, priority, estimate, dueDate, assignee, agentStatus, agentBlocked, tags]);
 
   const handleTitleChange = useCallback(
     (value: string) => {
@@ -754,7 +771,11 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
   const handleDescriptionChange = useCallback(
     (value: string) => {
       markDraftDirty("description");
-      setDescription(value);
+      latestDescriptionRef.current = value;
+      formStateRef.current.description = value;
+      startTransition(() => {
+        setDescription(value);
+      });
 
       if (card && shouldPublishCardStagePatch({ description: value })) {
         onPatch(columnId, card.id, { description: value });
@@ -792,16 +813,17 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
   }, [card, clearDraftDirty, columnId, runUpdate]);
 
   const handleDescriptionBlur = useCallback(() => {
-    flushDescriptionSave(description);
-  }, [description, flushDescriptionSave]);
+    flushDescriptionSave(flushDescriptionEditorChange());
+  }, [flushDescriptionEditorChange, flushDescriptionSave]);
 
   const handleSave = useCallback(async () => {
+    const latestDescription = flushDescriptionEditorChange();
     if (!card || !title.trim() || !hasChanges()) return;
     setSaving(true);
     try {
       await runUpdate(columnId, card.id, {
         title,
-        description,
+        description: latestDescription,
         ...toPriorityUpdate(priority, card.priority),
         estimate: estimate === "none" ? null : (estimate as Estimate),
         dueDate: dueDate ? new Date(dueDate) : undefined,
@@ -817,9 +839,9 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
     card,
     title,
     hasChanges,
+    flushDescriptionEditorChange,
     runUpdate,
     columnId,
-    description,
     priority,
     estimate,
     dueDate,
@@ -838,6 +860,7 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
   }, []);
 
   const handlePersist = useCallback(async () => {
+    flushDescriptionEditorChange();
     cancelPendingFieldSaves();
 
     if (card && scrollContainerRef.current) {
@@ -846,7 +869,7 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
 
     if (!hasChanges()) return;
     await handleSave();
-  }, [cancelPendingFieldSaves, card, projectId, hasChanges, handleSave]);
+  }, [cancelPendingFieldSaves, card, flushDescriptionEditorChange, projectId, hasChanges, handleSave]);
 
   const handleClose = useCallback(async () => {
     await handlePersist();
@@ -928,12 +951,13 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
   }, []);
 
   const handleToggleShowRawContent = useCallback(() => {
+    flushDescriptionEditorChange();
     setShowRawContent((current) => {
       const next = !current;
       writeCardStageShowRawContentPreference(next);
       return next;
     });
-  }, []);
+  }, [flushDescriptionEditorChange]);
 
   const refreshRunInBranchState = useCallback(async () => {
     const requestedCwd = projectWorkspacePath?.trim();
@@ -1094,7 +1118,7 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
     (base: Partial<CardInput>): Partial<CardInput> => {
       const next: Partial<CardInput> = { ...base };
       if (Object.hasOwn(base, "title")) next.title = title;
-      if (Object.hasOwn(base, "description")) next.description = description;
+      if (Object.hasOwn(base, "description")) next.description = flushDescriptionEditorChange();
       if (Object.hasOwn(base, "priority")) next.priority = priority ?? null;
       if (Object.hasOwn(base, "estimate")) {
         next.estimate = estimate === "none" ? null : (estimate as Estimate);
@@ -1117,9 +1141,9 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
       agentBlocked,
       agentStatus,
       assignee,
-      description,
       dueDate,
       estimate,
+      flushDescriptionEditorChange,
       priority,
       runInBaseBranch,
       runInEnvironmentPath,
@@ -1236,6 +1260,7 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
     contentGutterClassName,
     contentShellClassName,
     scrollContainerRef,
+    descriptionFlushHandleRef,
     tagInputRef,
     tagDropdownRef,
     schedule,
