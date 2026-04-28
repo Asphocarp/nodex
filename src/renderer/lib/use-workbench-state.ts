@@ -329,6 +329,28 @@ function recordRecentCardLeaveInList(
   }, ...recentSessions].slice(0, MAX_RECENT_CARD_SESSIONS);
 }
 
+function reorderRecentCardSessionsInList(
+  recentSessions: readonly RecentCardSession[],
+  orderedSessionIds: readonly string[],
+): RecentCardSession[] {
+  if (orderedSessionIds.length === 0) return [...recentSessions];
+
+  const sessionById = new Map(recentSessions.map((session) => [session.id, session]));
+  const selectedIds = new Set<string>();
+  const reordered = orderedSessionIds.flatMap((sessionId) => {
+    if (selectedIds.has(sessionId)) return [];
+    const session = sessionById.get(sessionId);
+    if (!session) return [];
+    selectedIds.add(sessionId);
+    return [session];
+  });
+
+  if (reordered.length === 0) return [...recentSessions];
+
+  const preserved = recentSessions.filter((session) => !selectedIds.has(session.id));
+  return [...reordered, ...preserved];
+}
+
 function normalizeStageMap(value: unknown): Record<string, StageId> {
   return parseWorkbenchStageMap(value);
 }
@@ -1911,6 +1933,20 @@ export function useWorkbenchState(
     });
   }, []);
 
+  const reorderRecentCardSessions = useCallback((orderedSessionIds: string[]) => {
+    setState((prev) => {
+      const nextRecent = reorderRecentCardSessionsInList(prev.recentCardSessions, orderedSessionIds);
+      if (JSON.stringify(nextRecent.map((session) => session.id)) === JSON.stringify(prev.recentCardSessions.map((session) => session.id))) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        recentCardSessions: nextRecent,
+      };
+    });
+  }, []);
+
   const isSidebarStageExpanded = useCallback(
     (projectId: string, stageId: SidebarGroupId): boolean => {
       const value = state.sidebarStageExpandedByProject[projectId]?.[stageId];
@@ -2041,6 +2077,7 @@ export function useWorkbenchState(
     selectRecentCardSession,
     setActiveRecentCardSession,
     closeRecentCardSession,
+    reorderRecentCardSessions,
     buildLayoutSnapshot,
     replaceLayoutSnapshot,
   };
@@ -2065,6 +2102,7 @@ export const workbenchTestHelpers = {
   findRecentCardSession,
   resolveCardsStageSelectionForCard,
   recordRecentCardLeaveInList,
+  reorderRecentCardSessionsInList,
   normalizeStageMap,
   normalizeStageCollapsedState,
   clampSlidingWindowPaneCount,

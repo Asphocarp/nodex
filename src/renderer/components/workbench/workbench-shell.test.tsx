@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import { createElement } from "react";
+import type { ReactNode } from "react";
 import { act } from "@testing-library/react";
 import type { Project } from "@/lib/types";
 import { resetCardDraftStoreForTest, setCardDraftOverlay } from "../../lib/card-draft-store";
@@ -46,6 +47,18 @@ type StageTabStripProps = {
   activeTabId?: string;
   onSelect?: (tabId: string) => void;
 };
+type AppShellTabsProps = {
+  tabs?: Array<{
+    id: string;
+    title?: string;
+    isLabel?: boolean;
+    tooltip?: ReactNode;
+    renderPanel?: (closeTab: () => void) => ReactNode;
+  }>;
+  activeTabId?: string;
+  onCloseTab?: (tabId: string) => void;
+  onReorderTab?: (activeId: string, overId: string) => void;
+};
 
 mock.module("./workbench-shell-deps", () => ({
   CardIcon: ({ className }: { className?: string }) => createElement("span", { className }, "C"),
@@ -75,6 +88,18 @@ mock.module("./workbench-shell-deps", () => ({
     globalState.__stageTabStripProps ??= [];
     globalState.__stageTabStripProps.push(props);
     return createElement("div", { "data-stage-tab-strip": "true" });
+  },
+  AppShellTabs: (props: AppShellTabsProps) => {
+    (globalThis as { __lastAppShellTabsProps?: AppShellTabsProps }).__lastAppShellTabsProps = props;
+    const tabs = props.tabs ?? [];
+    const activeTab = tabs.find((tab) => tab.id === props.activeTabId) ?? tabs[0] ?? null;
+    return createElement(
+      "div",
+      { "data-app-shell-tabs": "true" },
+      activeTab?.renderPanel?.(() => {
+        props.onCloseTab?.(activeTab.id);
+      }) ?? null,
+    );
   },
   HistoryPanel: (props: Record<string, unknown>) => {
     (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> }).__lastHistoryPanelProps = props;
@@ -547,6 +572,7 @@ async function renderShell(
     closeTerminalTab: () => undefined,
     selectRecentCardSession: () => undefined,
     closeRecentCardSession: () => undefined,
+    reorderRecentCardSessions: () => undefined,
     closeCardStage: () => undefined,
     onLeaveCardStageCard: () => undefined,
     cardStageSessionSnapshotRef: { current: null },
@@ -623,27 +649,71 @@ describe("WorkbenchShell", () => {
     expect(shell.container.querySelector("[data-stage-groups]")).not.toBeNull();
   });
 
-  test("opens history as an overlay for the active card-stage card", async () => {
+  test("opens history as a second state of the active card-stage tab", async () => {
+    const cardsTabNavigations: unknown[][] = [];
     const shell = await renderShell(false, "sliding-window", {
       cardsTabs: [{ id: "session:s-1", kind: "session", title: "Card 1", sessionId: "s-1" }],
       activeCardsTabId: "history",
+      activeRecentSessionId: "s-1",
+      recentCardSessions: [{
+        id: "s-1",
+        projectId: "default",
+        cardId: "card-1",
+        titleSnapshot: "Card 1",
+        lastOpenedAt: "2026-02-26T12:00:00.000Z",
+      }],
       cardStageState: {
         open: true,
         projectId: "default",
         cardId: "card-1",
       },
+      navigateToCardsTab: (...args: unknown[]) => {
+        cardsTabNavigations.push(args);
+      },
     });
 
-    expect(shell.container.querySelector('[data-card-stage="true"]')).not.toBeNull();
+    expect(shell.container.querySelector('[data-app-shell-tabs="true"]')).not.toBeNull();
     expect(shell.container.querySelector('[data-history-panel="true"]')).not.toBeNull();
 
     const historyPanelProps = (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> }).__lastHistoryPanelProps;
-    const cardStageProps = (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps;
+    const appShellTabsProps = (globalThis as { __lastAppShellTabsProps?: AppShellTabsProps }).__lastAppShellTabsProps;
     expect(historyPanelProps?.projectId).toBe("default");
     expect(historyPanelProps?.cardId).toBe("card-1");
     expect(historyPanelProps?.open).toBeTrue();
-    expect(historyPanelProps?.mode).toBe(undefined);
-    expect(cardStageProps?.historyPanelActive).toBeTrue();
+    expect(historyPanelProps?.mode).toBe("embedded");
+    expect(appShellTabsProps?.activeTabId).toBe("session:s-1");
+    expect(appShellTabsProps?.tabs?.some((tab) => tab.id === "history")).toBeFalse();
+    const historyTab = appShellTabsProps?.tabs?.find((tab) => tab.id === "session:s-1");
+    expect(historyTab?.title).toBe("History");
+    const tooltipView = render(createElement("div", null, historyTab?.tooltip));
+    const tooltipText = textContent(tooltipView.container);
+    expect(tooltipText.includes("History | Card 1")).toBeTrue();
+    expect(tooltipText.includes("Default")).toBeTrue();
+    expect(tooltipText.includes("card-1")).toBeTrue();
+    expect(tooltipText.includes("Timeline")).toBeFalse();
+    expect(tooltipText.includes("Drag to place")).toBeFalse();
+
+    appShellTabsProps?.onCloseTab?.("session:s-1");
+    expect(cardsTabNavigations.map((args) => args.join(":")).join(",")).toBe("default:session:s-1:s-1");
+  });
+
+  test("resolves card-stage tab reorder through displayed tabs while persisting sessions only", async () => {
+    const { resolveCardStageSessionTabOrder } = await import("./workbench-shell");
+
+    const nextSessionOrder = resolveCardStageSessionTabOrder([
+      { id: "session:s-1" },
+      { id: "session:s-2" },
+      { id: "current:default:card-3", isLabel: true },
+    ], "session:s-1", "current:default:card-3");
+
+    expect(nextSessionOrder?.join(",")).toBe("s-2,s-1");
+    expect(resolveCardStageSessionTabOrder([
+      { id: "session:s-1" },
+      { id: "current:default:card-3", isLabel: true },
+    ], "current:default:card-3", "session:s-1")).toBe(null);
+    expect(resolveCardStageSessionTabOrder([
+      { id: "session:s-1" },
+    ], "current:default:card-3", "session:s-1")).toBe(null);
   });
 
   test("keeps the current card visible when active project differs and resolves history by card project", async () => {
@@ -671,7 +741,7 @@ describe("WorkbenchShell", () => {
       },
     });
 
-    expect(shell.container.querySelector('[data-card-stage="true"]')).not.toBeNull();
+    expect(shell.container.querySelector('[data-app-shell-tabs="true"]')).not.toBeNull();
     expect(shell.container.querySelector('[data-history-panel="true"]')).not.toBeNull();
 
     const historyPanelProps = (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> }).__lastHistoryPanelProps;

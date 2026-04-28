@@ -20,7 +20,7 @@ Detailed Auto-review preset, config, and approval-lifecycle rules are specified 
 - The `Cards` sidebar stage group contains current DB-project cards grouped by non-empty status in reverse workflow order plus a `Recent` subsection for persisted cross-project card sessions.
 - When collapsed, the sidebar can be temporarily revealed by hovering the left window edge; it floats above the stage rail instead of reflowing it.
 - Top toolbar actions: sidebar collapse/expand and sliding-window pane-count decrease/increase.
-- Stage rail: horizontal panel rail with stage-specific tab groups.
+- Stage rail: horizontal panel rail with stage-specific tab groups. Card Stage is the exception that also renders a Codex-style top tab bar inside the stage for open card sessions; card history is a state of the active card tab, not a separate tab, and tab-title hover reveals card/project context.
 - Stage rail supports two modes:
   - `Sliding window` (default): a sliding 1-4 stage window with resizable separators between adjacent panes.
   - `Full rail`: all stages rendered in one horizontal strip.
@@ -34,7 +34,7 @@ Detailed Auto-review preset, config, and approval-lifecycle rules are specified 
 
 ## Stage Semantics
 - View: existing board/list/toggle-list/canvas/calendar host with one shared sticky toolbar for view switching, task search, and supported view-local filter/sort controls.
-- Card: Card Stage editor session tabs; history opens as a card-specific overlay from Card Stage, and the sidebar mirrors card navigation with collapsible current DB-project status groups plus a `Recent` session subsection. Status groups start collapsed by default, and a collapsed status group may still keep its active card row visible under the header.
+- Card: Card Stage editor session tabs render in a Codex-style top tab bar; card history replaces the active card tab's title/icon/content with an embedded `History` state, tab-title hover tooltips summarize title, project, and card id, and the sidebar mirrors card navigation with collapsible current DB-project status groups plus a `Recent` session subsection. Status groups start collapsed by default, and a collapsed status group may still keep its active card row visible under the header.
 - Thread: Codex app-server-backed thread workspace with account/auth controls, a config-backed permission mode selector, streaming turn/item feed, reverse navigation to owning card, and stage-local project context (`threadsProjectId`).
 - Thread stage uses independently connected renderer surfaces: `WorkbenchShell` passes route inputs and bound actions into the thread route shell, and the mounted thread header/body/footer subscribe to their own narrow manager-backed selectors instead of one broad renderer model.
 - Diff: interactive mock placeholder for diff previews.
@@ -90,7 +90,7 @@ Detailed Auto-review preset, config, and approval-lifecycle rules are specified 
 - Full-rail stage panel widths are persisted globally after panel border resize.
 - Sliding-window requested pane count (1-4) is persisted globally.
 - Sliding-window pane widths are persisted globally by stage id.
-- Card stage tabs derive from persisted recent card sessions.
+- Card stage tabs derive from persisted recent card sessions, can be closed from the tab chrome, reveal rich hover tooltips from the tab title, and can be reordered with Codex-style pointer-only drag without changing their recency timestamps; a transient current-card label tab remains a drop target but not a drag source.
 - The `Recents` sidebar group is driven by persisted cross-project recent card sessions, capped at 10 items and updated only when the current card is left; leaving inserts only cards that are not already present, so existing entries keep a stable order.
 - The Cards sidebar's grouped current-project rows are derived from the shared `useKanban` board snapshot for `dbProjectId`; they do not create separate persisted tab state.
 - Thread stage tabs always include a persistent `New thread` tab, plus linked Codex thread tabs derived from persisted metadata in SQLite (`codex_card_threads`) and refreshed from runtime events.

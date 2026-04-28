@@ -3,6 +3,18 @@
  * Electron utility contract.
  */
 
+:root {
+  --height-toolbar-pane: 40px;
+}
+
+@utility h-toolbar-pane {
+  height: var(--height-toolbar-pane);
+}
+
+@utility contain-content {
+  contain: content;
+}
+
 @utility user-select-none {
   -webkit-user-select: none;
   user-select: none;

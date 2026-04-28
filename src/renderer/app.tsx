@@ -141,6 +141,7 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
     selectRecentCardSession: selectRecentCardSessionState,
     setActiveRecentCardSession: setActiveRecentCardSessionState,
     closeRecentCardSession,
+    reorderRecentCardSessions,
     buildLayoutSnapshot,
     replaceLayoutSnapshot,
   } = useWorkbenchState(projects, {
@@ -546,6 +547,7 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
   const handleCloseRecentSession = useCallback(
     (sessionId: string) => {
       const closing = recentCardSessions.find((session) => session.id === sessionId);
+      const nextSession = recentCardSessions.find((session) => session.id !== sessionId) ?? null;
       closeRecentCardSession(sessionId);
 
       if (!closing) return;
@@ -553,9 +555,14 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
       if (cardStageState.projectId !== closing.projectId) return;
       if (cardStageState.cardId !== closing.cardId) return;
 
+      if (nextSession) {
+        openCardStageState(nextSession.projectId, nextSession.cardId);
+        return;
+      }
+
       closeCardStageState();
     },
-    [closeCardStageState, closeRecentCardSession, cardStageState, recentCardSessions],
+    [closeCardStageState, closeRecentCardSession, cardStageState, openCardStageState, recentCardSessions],
   );
 
   const prevActiveProjectIdRef = useRef<string | null>(null);
@@ -1119,6 +1126,7 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
       openCardTerminalTab={openCardTerminalTab}
       closeTerminalTab={closeTerminalTab}
       closeRecentCardSession={handleCloseRecentSession}
+      reorderRecentCardSessions={reorderRecentCardSessions}
       closeCardStage={closeCardStageState}
       onLeaveCardStageCard={recordCardLeave}
       cardStageSessionSnapshotRef={cardStageSessionSnapshotRef}

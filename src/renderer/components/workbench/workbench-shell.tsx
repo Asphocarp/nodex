@@ -3,6 +3,7 @@ import {
   CalendarDays,
   ChevronDown,
   FileText,
+  History,
   LayoutGrid,
   PenLine,
   SquareKanban,
@@ -48,6 +49,7 @@ import {
   CardStage,
   CardIcon,
   CommandPalette,
+  AppShellTabs,
   HistoryPanel,
   invoke,
   KANBAN_STATUS_LABELS,
@@ -91,6 +93,7 @@ import {
   writeWorktreeStartMode,
   DEFAULT_CODEX_COLLABORATION_MODE,
   consumeLocalConversationComposerIntent,
+  type AppShellTabItem,
 } from "./workbench-shell-deps";
 import { type ThreadStageActions } from "@/features/local-conversation";
 import type { StageRailLayoutMode } from "@/lib/stage-rail-layout-mode";
@@ -216,6 +219,7 @@ interface WorkbenchShellProps {
   openCardTerminalTab: (projectId: string, sessionRefId: string, cardId: string, title: string) => string;
   closeTerminalTab: (projectId: string, tabId: string) => void;
   closeRecentCardSession: (sessionId: string) => void;
+  reorderRecentCardSessions: (orderedSessionIds: string[]) => void;
   closeCardStage: () => void;
   onLeaveCardStageCard: (snapshot: CardStageSessionSnapshot) => void;
   cardStageSessionSnapshotRef?: React.MutableRefObject<CardStageSessionSnapshot | null>;
@@ -297,6 +301,59 @@ const FALLBACK_COLLABORATION_MODE_PRESETS: CodexCollaborationModePreset[] = [
     reasoningEffort: undefined,
   },
 ];
+
+export function resolveCardStageSessionTabOrder(
+  tabs: readonly Pick<AppShellTabItem, "id" | "isLabel">[],
+  activeId: string,
+  overId: string,
+): string[] | null {
+  if (!activeId.startsWith("session:")) return null;
+  if (activeId === overId) return null;
+
+  const activeIndex = tabs.findIndex((tab) => tab.id === activeId);
+  const overIndex = tabs.findIndex((tab) => tab.id === overId);
+  if (activeIndex < 0 || overIndex < 0) return null;
+  if (tabs[activeIndex]?.isLabel === true) return null;
+
+  const nextTabs = [...tabs];
+  const [movedTab] = nextTabs.splice(activeIndex, 1);
+  if (!movedTab) return null;
+
+  nextTabs.splice(overIndex, 0, movedTab);
+
+  const orderedSessionIds = nextTabs.flatMap((tab) => (
+    tab.id.startsWith("session:") ? [tab.id.slice("session:".length)] : []
+  ));
+  return orderedSessionIds.length > 0 ? orderedSessionIds : null;
+}
+
+interface CardStageTabTooltipProps {
+  title: string;
+  projectName: string;
+  cardId: string;
+}
+
+function CardStageTabTooltip({
+  title,
+  projectName,
+  cardId,
+}: CardStageTabTooltipProps) {
+  return (
+    <div className="flex max-w-80 flex-col gap-1">
+      <div className="min-w-0 truncate font-medium">{title}</div>
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-token-description-foreground">
+        <span className="min-w-0 truncate">{projectName}</span>
+        <span aria-hidden="true">/</span>
+        <span>{formatCardStageTooltipCardId(cardId)}</span>
+      </div>
+    </div>
+  );
+}
+
+function formatCardStageTooltipCardId(cardId: string): string {
+  if (cardId.length <= 12) return cardId;
+  return `${cardId.slice(0, 6)}...${cardId.slice(-4)}`;
+}
 
 interface WorkbenchStageToolbarProps {
   showDivider: boolean;
@@ -399,6 +456,7 @@ export function WorkbenchShell({
   openCardTerminalTab,
   closeTerminalTab,
   closeRecentCardSession,
+  reorderRecentCardSessions,
   closeCardStage,
   onLeaveCardStageCard,
   cardStageSessionSnapshotRef,
@@ -1544,6 +1602,245 @@ export function WorkbenchShell({
     worktreeStartMode,
   ]);
 
+  const closeHistoryTab = useCallback(() => {
+    const fallbackSessionId = currentCardStageSession?.id ?? null;
+    const fallbackTabId = fallbackSessionId
+      ? `session:${fallbackSessionId}`
+      : cardStageState.open && cardStageState.cardId
+        ? `current:${cardStageState.projectId}:${cardStageState.cardId}`
+        : "";
+    navigateToCardsTab(
+      dbProjectId,
+      fallbackTabId,
+      fallbackSessionId,
+    );
+  }, [
+    cardStageState.cardId,
+    cardStageState.open,
+    cardStageState.projectId,
+    currentCardStageSession,
+    dbProjectId,
+    navigateToCardsTab,
+  ]);
+
+  const cardStageEditorPanel = activeCardStageCard ? (
+    <CardStage
+      onClose={closeCardStage}
+      onLeaveCard={onLeaveCardStageCard}
+      closeRef={cardStageCloseRef}
+      persistRef={cardStagePersistRef}
+      sessionSnapshotRef={cardStageSessionSnapshotRef}
+      card={activeCardStageCard}
+      columnId={activeCardStageColumnId}
+      columnName={cardStageColumnName}
+      projectId={cardStageState.projectId}
+      projectWorkspacePath={projects.find((project) => project.id === cardStageState.projectId)?.workspacePath ?? null}
+      availableTags={cardStageAvailableTags}
+      onUpdate={handleCardStageUpdate}
+      onPatch={handleCardStagePatch}
+      onDelete={handleCardStageDelete}
+      onMove={handleCardStageMove}
+      onCompleteOccurrence={handleCardStageCompleteOccurrence}
+      onSkipOccurrence={handleCardStageSkipOccurrence}
+      onOpenHistoryPanel={() => {
+        navigateToCardsTab(
+          dbProjectId,
+          "history",
+          currentCardStageSession?.id ?? activeRecentSessionId,
+        );
+      }}
+      onOpenTerminalPanel={() => {
+        const sessionRefId = currentCardStageSession?.id ?? activeRecentSessionId ?? `ephemeral:${activeCardStageCard.id}`;
+        openCardTerminalTab(cardStageState.projectId, sessionRefId, activeCardStageCard.id, activeCardStageCard.title);
+        setTerminalPanelOpen(cardStageState.projectId, true);
+      }}
+      linkedCodexThreads={linkedThreadsForCardStageCard}
+      onOpenCodexThread={async (threadId) => {
+        navigateToThreadTab(cardStageState.projectId, threadId);
+      }}
+      onOpenNewCodexThread={() => {
+        navigateToThreadTab(cardStageState.projectId, NEW_THREAD_STAGE_TAB_ID);
+      }}
+      onOpenLocalEnvironmentSettings={({ projectId, configPath }) => {
+        openSettings({
+          section: "local-environments",
+          localEnvironmentProjectId: projectId,
+          localEnvironmentConfigPath: configPath,
+        });
+      }}
+      onStartThreadSection={async ({ projectId, cardId, prompt }) => {
+        const detail = await startThreadForCard({
+          projectId,
+          cardId,
+          prompt,
+          collaborationMode: selectedCollaborationMode,
+          worktreeStartMode,
+          worktreeBranchPrefix: worktreeAutoBranchPrefix,
+        });
+        await loadCodexThreads(projectId);
+        return { threadId: detail.threadId };
+      }}
+      onSendThreadSectionPrompt={async ({ projectId, threadId, prompt }) => {
+        const conversation = readLocalConversation(threadId);
+        const activeTurn = conversation
+          ? [...conversation.turns].reverse().find((turn) => turn.status === "inProgress") ?? null
+          : null;
+        if (activeTurn) {
+          await steerTurn(threadId, activeTurn.turnId, prompt);
+        } else {
+          await startTurn(threadId, prompt, {
+            projectId,
+            collaborationMode: selectedCollaborationMode,
+          });
+        }
+        await loadCodexThreads(projectId);
+      }}
+      terminalPanelActive={
+        terminalPanelOpen &&
+        activeTerminalTab?.kind === "card" &&
+        activeTerminalTab.cardId === activeCardStageCard.id
+      }
+      historyPanelActive={historyOverlayOpen}
+    />
+  ) : cardStageState.open && cardStageState.cardId && cardStageBoardLoading ? (
+    <div className="flex h-full items-center justify-center text-sm text-(--foreground-tertiary)">
+      Loading card...
+    </div>
+  ) : (
+    <div className="flex h-full items-center justify-center text-sm text-(--foreground-tertiary)">
+      Select a card session to open the editor.
+    </div>
+  );
+
+  const projectNameById = useMemo(
+    () => new Map(projects.map((project) => [project.id, project.name])),
+    [projects],
+  );
+
+  const cardStageTabs = useMemo<AppShellTabItem[]>(() => {
+    const historyPanel = historyOverlayOpen && activeCardStageCard
+      ? (
+          <HistoryPanel
+            projectId={cardStageState.projectId}
+            cardId={activeCardStageCard.id}
+            open={true}
+            mode="embedded"
+            onClose={closeHistoryTab}
+          />
+      )
+      : null;
+
+    const sessionTabs = recentCardSessions.map<AppShellTabItem>((session) => {
+      const isHistoryState = historyPanel && currentCardStageSession?.id === session.id;
+      const tabTitle = isHistoryState ? "History" : session.titleSnapshot || session.cardId;
+      const cardTitle = session.titleSnapshot || session.cardId;
+      const tooltipTitle = isHistoryState ? `History | ${cardTitle}` : tabTitle;
+      const projectName = projectNameById.get(session.projectId) ?? session.projectId;
+
+      return {
+        id: `session:${session.id}`,
+        title: tabTitle,
+        titleLabel: tabTitle,
+        icon: isHistoryState ? History : CardIcon,
+        closable: true,
+        reorderable: true,
+        tooltip: (
+          <CardStageTabTooltip
+            title={tooltipTitle}
+            projectName={projectName}
+            cardId={session.cardId}
+          />
+        ),
+        renderPanel: () => (
+          isHistoryState
+            ? historyPanel
+            : cardStageEditorPanel
+        ),
+      };
+    });
+
+    const hasActiveSessionTab =
+      currentCardStageSession
+      && recentCardSessions.some((session) => session.id === currentCardStageSession.id);
+
+    const currentCardTab = cardStageState.open && cardStageState.cardId && !hasActiveSessionTab
+      ? (() => {
+          const tabTitle = historyPanel ? "History" : activeCardStageCard?.title || cardStageState.cardId;
+          const cardTitle = activeCardStageCard?.title || cardStageState.cardId;
+          const tooltipTitle = historyPanel ? `History | ${cardTitle}` : tabTitle;
+          const projectName = projectNameById.get(cardStageState.projectId) ?? cardStageState.projectId;
+
+          return [{
+            id: `current:${cardStageState.projectId}:${cardStageState.cardId}`,
+            title: tabTitle,
+            titleLabel: tabTitle,
+            icon: historyPanel ? History : CardIcon,
+            closable: true,
+            reorderable: false,
+            isLabel: true,
+            tooltip: (
+              <CardStageTabTooltip
+                title={tooltipTitle}
+                projectName={projectName}
+                cardId={cardStageState.cardId}
+              />
+            ),
+            renderPanel: () => historyPanel ?? cardStageEditorPanel,
+          } satisfies AppShellTabItem];
+        })()
+      : [];
+
+    return [...sessionTabs, ...currentCardTab];
+  }, [
+    activeCardStageCard,
+    cardStageEditorPanel,
+    cardStageState.cardId,
+    cardStageState.open,
+    cardStageState.projectId,
+    closeHistoryTab,
+    currentCardStageSession,
+    historyOverlayOpen,
+    projectNameById,
+    recentCardSessions,
+  ]);
+
+  const activeCardStageTabId = (() => {
+    if (activeCardsTabId && cardStageTabs.some((tab) => tab.id === activeCardsTabId)) return activeCardsTabId;
+    if (currentCardStageSession && cardStageTabs.some((tab) => tab.id === `session:${currentCardStageSession.id}`)) {
+      return `session:${currentCardStageSession.id}`;
+    }
+    const currentTab = cardStageTabs.find((tab) => tab.id.startsWith("current:"));
+    return currentTab?.id ?? cardStageTabs[0]?.id ?? "";
+  })();
+
+  const selectCardStageTab = useCallback((tabId: string) => {
+    if (tabId.startsWith("session:")) {
+      const sessionId = tabId.slice("session:".length);
+      void navigateToRecentSession(sessionId);
+    }
+  }, [navigateToRecentSession]);
+
+  const closeCardStageTab = useCallback((tabId: string) => {
+    if (historyOverlayOpen && tabId === activeCardStageTabId) {
+      closeHistoryTab();
+      return;
+    }
+    if (tabId.startsWith("session:")) {
+      closeRecentCardSession(tabId.slice("session:".length));
+      return;
+    }
+    if (tabId.startsWith("current:")) {
+      closeCardStage();
+    }
+  }, [activeCardStageTabId, closeCardStage, closeHistoryTab, closeRecentCardSession, historyOverlayOpen]);
+
+  const reorderCardStageTab = useCallback((activeId: string, overId: string) => {
+    const orderedSessionIds = resolveCardStageSessionTabOrder(cardStageTabs, activeId, overId);
+    if (!orderedSessionIds) return;
+
+    reorderRecentCardSessions(orderedSessionIds);
+  }, [cardStageTabs, reorderRecentCardSessions]);
+
   const stages: StageRailStage[] = [
     {
       id: "db",
@@ -1597,113 +1894,21 @@ export function WorkbenchShell({
       icon: STAGE_ICONS.cards,
       hideHeader: true,
       content: (
-        <div className="h-full min-h-0 bg-(--background)">
-          {activeCardStageCard ? (
-            <CardStage
-              onClose={closeCardStage}
-              onLeaveCard={onLeaveCardStageCard}
-              closeRef={cardStageCloseRef}
-              persistRef={cardStagePersistRef}
-              sessionSnapshotRef={cardStageSessionSnapshotRef}
-              card={activeCardStageCard}
-              columnId={activeCardStageColumnId}
-              columnName={cardStageColumnName}
-              projectId={cardStageState.projectId}
-              projectWorkspacePath={projects.find((project) => project.id === cardStageState.projectId)?.workspacePath ?? null}
-              availableTags={cardStageAvailableTags}
-              onUpdate={handleCardStageUpdate}
-              onPatch={handleCardStagePatch}
-              onDelete={handleCardStageDelete}
-              onMove={handleCardStageMove}
-              onCompleteOccurrence={handleCardStageCompleteOccurrence}
-              onSkipOccurrence={handleCardStageSkipOccurrence}
-              onOpenHistoryPanel={() => {
-                navigateToCardsTab(
-                  dbProjectId,
-                  "history",
-                  currentCardStageSession?.id ?? activeRecentSessionId,
-                );
-              }}
-              onOpenTerminalPanel={() => {
-                const sessionRefId = currentCardStageSession?.id ?? activeRecentSessionId ?? `ephemeral:${activeCardStageCard.id}`;
-                openCardTerminalTab(cardStageState.projectId, sessionRefId, activeCardStageCard.id, activeCardStageCard.title);
-                setTerminalPanelOpen(cardStageState.projectId, true);
-              }}
-              linkedCodexThreads={linkedThreadsForCardStageCard}
-              onOpenCodexThread={async (threadId) => {
-                navigateToThreadTab(cardStageState.projectId, threadId);
-              }}
-              onOpenNewCodexThread={() => {
-                navigateToThreadTab(cardStageState.projectId, NEW_THREAD_STAGE_TAB_ID);
-              }}
-              onOpenLocalEnvironmentSettings={({ projectId, configPath }) => {
-                openSettings({
-                  section: "local-environments",
-                  localEnvironmentProjectId: projectId,
-                  localEnvironmentConfigPath: configPath,
-                });
-              }}
-              onStartThreadSection={async ({ projectId, cardId, prompt }) => {
-                const detail = await startThreadForCard({
-                  projectId,
-                  cardId,
-                  prompt,
-                  collaborationMode: selectedCollaborationMode,
-                  worktreeStartMode,
-                  worktreeBranchPrefix: worktreeAutoBranchPrefix,
-                });
-                await loadCodexThreads(projectId);
-                return { threadId: detail.threadId };
-              }}
-              onSendThreadSectionPrompt={async ({ projectId, threadId, prompt }) => {
-                const conversation = readLocalConversation(threadId);
-                const activeTurn = conversation
-                  ? [...conversation.turns].reverse().find((turn) => turn.status === "inProgress") ?? null
-                  : null;
-                if (activeTurn) {
-                  await steerTurn(threadId, activeTurn.turnId, prompt);
-                } else {
-                  await startTurn(threadId, prompt, {
-                    projectId,
-                    collaborationMode: selectedCollaborationMode,
-                  });
-                }
-                await loadCodexThreads(projectId);
-              }}
-              terminalPanelActive={
-                terminalPanelOpen &&
-                activeTerminalTab?.kind === "card" &&
-                activeTerminalTab.cardId === activeCardStageCard.id
-              }
-              historyPanelActive={historyOverlayOpen}
+        <div className="h-full min-h-0 bg-token-main-surface-primary">
+          {cardStageTabs.length > 0 ? (
+            <AppShellTabs
+              tabs={cardStageTabs}
+              activeTabId={activeCardStageTabId}
+              controllerId="cards"
+              onSelect={selectCardStageTab}
+              onCloseTab={closeCardStageTab}
+              onReorderTab={reorderCardStageTab}
             />
-          ) : cardStageState.open && cardStageState.cardId && cardStageBoardLoading ? (
-            <div className="flex h-full items-center justify-center text-sm text-(--foreground-tertiary)">
-              Loading card...
-            </div>
           ) : (
             <div className="flex h-full items-center justify-center text-sm text-(--foreground-tertiary)">
               Select a card session to open the editor.
             </div>
           )}
-          {activeCardStageCard ? (
-            <HistoryPanel
-              projectId={cardStageState.projectId}
-              cardId={activeCardStageCard.id}
-              open={historyOverlayOpen}
-              onClose={() => {
-                const fallbackSessionId =
-                  currentCardStageSession?.projectId === cardStageState.projectId
-                    ? currentCardStageSession?.id
-                    : activeRecentSessionId;
-                navigateToCardsTab(
-                  dbProjectId,
-                  fallbackSessionId ? `session:${fallbackSessionId}` : "",
-                  fallbackSessionId ?? null,
-                );
-              }}
-            />
-          ) : null}
         </div>
       ),
     },

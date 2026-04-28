@@ -337,6 +337,43 @@ describe("use-workbench-state helpers", () => {
     expect(next[1]?.titleSnapshot).toBe("Card 2 renamed");
   });
 
+  test("reorderRecentCardSessionsInList ignores unknown ids and preserves omitted sessions", () => {
+    resetStorage();
+    const recentSessions = [
+      {
+        id: "session-1",
+        projectId: "default",
+        cardId: "card-1",
+        titleSnapshot: "Card 1",
+        lastOpenedAt: "2026-03-01T00:00:00.000Z",
+      },
+      {
+        id: "session-2",
+        projectId: "default",
+        cardId: "card-2",
+        titleSnapshot: "Card 2",
+        lastOpenedAt: "2026-03-02T00:00:00.000Z",
+      },
+      {
+        id: "session-3",
+        projectId: "default",
+        cardId: "card-3",
+        titleSnapshot: "Card 3",
+        lastOpenedAt: "2026-03-03T00:00:00.000Z",
+      },
+    ];
+
+    const next = workbenchTestHelpers.reorderRecentCardSessionsInList(
+      recentSessions,
+      ["missing", "session-3", "session-1"],
+    );
+
+    expect(next.map((session) => session.id).join(",")).toBe("session-3,session-1,session-2");
+    expect(next[0]?.lastOpenedAt).toBe("2026-03-03T00:00:00.000Z");
+    expect(next[1]?.lastOpenedAt).toBe("2026-03-01T00:00:00.000Z");
+    expect(next[2]?.lastOpenedAt).toBe("2026-03-02T00:00:00.000Z");
+  });
+
   test("recordRecentCardLeave updates recents without overwriting the active destination session", async () => {
     resetStorage();
 

@@ -5,6 +5,7 @@ export { SettingsOverlay } from "./workbench-settings-overlay";
 export { LeftSidebar } from "./left-sidebar";
 export { ReviewDiffPanel } from "./review-diff-panel";
 export { StageTabStrip } from "./workbench-stage-tab-strip";
+export { AppShellTabs, type AppShellTabItem } from "./app-shell-tabs";
 export { HistoryPanel } from "./workbench-history-panel";
 export { CardStage } from "./workbench-card-stage";
 export { TerminalPanel } from "./workbench-terminal-panel";
