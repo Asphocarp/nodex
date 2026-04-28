@@ -744,7 +744,7 @@ export function StageRail({
                   >
                     <div
                       aria-hidden
-                      className="pointer-events-none m-auto h-full w-px bg-linear-to-b from-transparent via-(--border) to-transparent transition-colors group-hover:via-(--foreground-tertiary) group-focus-visible:via-(--accent-blue) group-active:via-(--foreground-tertiary)"
+                      className="pointer-events-none m-auto h-full w-px bg-(--border) group-hover:bg-(--foreground-tertiary) group-focus-visible:bg-(--accent-blue) group-active:bg-(--foreground-tertiary)"
                     />
                   </div>
                 ) : null}

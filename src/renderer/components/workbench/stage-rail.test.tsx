@@ -131,6 +131,28 @@ describe("StageRail", () => {
     expect(container.querySelectorAll('[role="separator"]').length).toBe(2);
   });
 
+  test("sliding-window resize boundaries use plain divider lines", () => {
+    const { container } = render(
+      <StageRail
+        stages={STAGES}
+        layoutMode="sliding-window"
+        focusedStage="cards"
+        slidingWindowPaneCount={2}
+        onFocusStage={() => undefined}
+      />,
+    );
+
+    const boundary = container.querySelector('[role="separator"][aria-label^="Resize boundary between"]');
+    expect(boundary).not.toBeNull();
+    const divider = boundary?.querySelector("[aria-hidden='true']");
+    const dividerClassName = divider?.getAttribute("class") ?? "";
+
+    expect(Boolean(dividerClassName.includes("bg-(--border)"))).toBeTrue();
+    expect(Boolean(dividerClassName.includes("bg-linear"))).toBeFalse();
+    expect(Boolean(dividerClassName.includes("from-transparent"))).toBeFalse();
+    expect(Boolean(dividerClassName.includes("to-transparent"))).toBeFalse();
+  });
+
   test("sliding-window mode supports single-pane layout", () => {
     const { container } = render(
       <StageRail
