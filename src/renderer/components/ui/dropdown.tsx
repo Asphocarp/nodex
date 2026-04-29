@@ -567,14 +567,18 @@ export function NodexDropdownScrollList({
   );
 }
 
-export function NodexDropdownActionRow({
+export const NodexDropdownActionRow = forwardRef<
+  HTMLButtonElement,
+  ComponentPropsWithoutRef<"button">
+>(function NodexDropdownActionRow({
   children,
   className,
   disabled = false,
   ...props
-}: ComponentPropsWithoutRef<"button">) {
+}, ref) {
   return (
     <button
+      ref={ref}
       type="button"
       disabled={disabled}
       className={cn(
@@ -590,7 +594,7 @@ export function NodexDropdownActionRow({
       {children}
     </button>
   );
-}
+});
 
 export function NodexDropdownSectionLabel({
   children,

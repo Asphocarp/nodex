@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
 - Added Calendar controls to the View-stage toolbar, with Day, Week, custom Multi-Day, custom Multi-Week, inline range steppers, navigation, a create action, and no unrelated search/filter/sort chrome.
 
 ### Changed
+- NFM slash commands and card mentions now use a compact Nodex-native suggestion menu with right-aligned syntax hints and item descriptions shown on hover instead of inline secondary text.
 - Card Stage now uses a top tab bar for card sessions, with card history rendered as a second state of the active card tab instead of a separate tab and rich hover tooltips for card/project context.
 - macOS window titles now follow the active workspace name for each restored window session.
 
