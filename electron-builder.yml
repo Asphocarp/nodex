@@ -31,6 +31,8 @@ npmRebuild: true
 extraResources:
 - from: resources/icon.png
   to: icon.png
+- from: resources/nodex-notification.aiff
+  to: nodex-notification.aiff
 - from: .generated/codex-runtime/bin
   to: bin
 extraMetadata:

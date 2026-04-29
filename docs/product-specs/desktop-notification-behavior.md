@@ -354,7 +354,7 @@ Turn-complete notifications do not force `timeoutType: "never"`.
 
 ### Sound behavior
 
-On macOS, the host may stage a packaged notification sound once and reference it by name for delivery. If staging fails, delivery still proceeds without a custom sound.
+On macOS, the host stages the packaged `nodex-notification.aiff` sound once and references it by the `nodex-notification` sound name for delivery. If staging fails, delivery still proceeds without a custom sound.
 
 ## Action Routing
 

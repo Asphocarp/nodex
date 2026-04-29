@@ -8,7 +8,7 @@ import type {
 } from "../shared/types";
 
 const MAX_ACTIONS = 4;
-const MACOS_NOTIFICATION_SOUND_FILENAME = "Nodex Notification.aiff";
+const MACOS_NOTIFICATION_SOUND_FILENAME = "nodex-notification.aiff";
 
 type NotificationEventName = "action" | "click" | "close" | "reply";
 
