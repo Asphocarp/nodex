@@ -20,7 +20,11 @@ export type TurnStartParams = { threadId: string, input: Array<UserInput>,
  */
 responsesapiClientMetadata?: { [key in string]?: string } | null,
 /**
- * Optional turn-scoped environment selections.
+ * Optional turn-scoped environments.
+ *
+ * Omitted uses the thread sticky environments. Empty disables
+ * environment access for this turn. Non-empty selects the first
+ * environment as the current turn environment for this turn.
  */
 environments?: Array<TurnEnvironmentParams> | null,
 /**

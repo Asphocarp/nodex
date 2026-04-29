@@ -38,6 +38,12 @@ approvalsReviewer?: ApprovalsReviewer | null, sandbox?: SandboxMode | null,
  */
 permissionProfile?: PermissionProfile | null, config?: { [key in string]?: JsonValue } | null, baseInstructions?: string | null, developerInstructions?: string | null, ephemeral?: boolean,
 /**
+ * When true, return only thread metadata and live fork state without
+ * populating `thread.turns`. This is useful when the client plans to call
+ * `thread/turns/list` immediately after forking.
+ */
+excludeTurns?: boolean,
+/**
  * If true, persist additional rollout EventMsg variants required to
  * reconstruct a richer thread history on subsequent resume/fork/read.
  */

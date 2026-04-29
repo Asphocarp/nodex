@@ -10,6 +10,7 @@ import type { DynamicToolSpec } from "./DynamicToolSpec";
 import type { PermissionProfile } from "./PermissionProfile";
 import type { SandboxMode } from "./SandboxMode";
 import type { ThreadStartSource } from "./ThreadStartSource";
+import type { TurnEnvironmentParams } from "./TurnEnvironmentParams";
 
 export type ThreadStartParams = { model?: string | null, modelProvider?: string | null, serviceTier?: ServiceTier | null | null, cwd?: string | null, approvalPolicy?: AskForApproval | null,
 /**
@@ -21,7 +22,16 @@ approvalsReviewer?: ApprovalsReviewer | null, sandbox?: SandboxMode | null,
  * Full permissions override for this thread. Cannot be combined with
  * `sandbox`.
  */
-permissionProfile?: PermissionProfile | null, config?: { [key in string]?: JsonValue } | null, serviceName?: string | null, baseInstructions?: string | null, developerInstructions?: string | null, personality?: Personality | null, ephemeral?: boolean | null, sessionStartSource?: ThreadStartSource | null, dynamicTools?: Array<DynamicToolSpec> | null,
+permissionProfile?: PermissionProfile | null, config?: { [key in string]?: JsonValue } | null, serviceName?: string | null, baseInstructions?: string | null, developerInstructions?: string | null, personality?: Personality | null, ephemeral?: boolean | null, sessionStartSource?: ThreadStartSource | null,
+/**
+ * Optional sticky environments for this thread.
+ *
+ * Omitted selects the default environment when environment access is
+ * enabled. Empty disables environment access for turns that do not
+ * provide a turn override. Non-empty selects the first environment as the
+ * current turn environment.
+ */
+environments?: Array<TurnEnvironmentParams> | null, dynamicTools?: Array<DynamicToolSpec> | null,
 /**
  * Test-only experimental field used to validate experimental gating and
  * schema filtering behavior in a stable way.
