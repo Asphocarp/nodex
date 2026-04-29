@@ -220,6 +220,13 @@ function serializeInlinePlainText(items: NfmInlineContent[]): string {
         const label = item.name.trim() || "Untitled attachment";
         return `[Attachment: ${label}]`;
       }
+      if (item.type === "agentConfig") {
+        const attrs: string[] = [];
+        if (item.mode) attrs.push(`mode="${item.mode}"`);
+        if (item.model) attrs.push(`model="${item.model}"`);
+        if (item.reasoning) attrs.push(`reasoning="${item.reasoning}"`);
+        return attrs.length > 0 ? `<agent-config ${attrs.join(" ")} />` : "<agent-config />";
+      }
       if (item.type === "link") {
         const inner = applyStyleMarkers(item.text, item.styles);
         return `[${inner}](${item.href})`;

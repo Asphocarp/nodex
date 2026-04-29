@@ -20,6 +20,7 @@ import type {
   CodexConversationTurn,
   CodexModelOption,
   CodexPermissionMode,
+  CodexPromptInput,
   CodexThreadStatusType,
   CodexThreadSummary,
   CodexReasoningEffort,
@@ -80,7 +81,7 @@ export interface ThreadStageActions {
   onStartApiKeyLogin: (apiKey: string) => Promise<{ type: "apiKey" } | { type: "chatgpt"; loginId: string; authUrl: string }>;
   onCancelLogin: (loginId: string) => Promise<void>;
   onLogout: () => Promise<void>;
-  onStartThreadForCard: (input: { projectId: string; cardId: string; prompt: string }) => Promise<void>;
+  onStartThreadForCard: (input: { projectId: string; cardId: string; prompt: string; promptInput?: CodexPromptInput }) => Promise<void>;
   onSendPrompt: (prompt: string, opts?: { collaborationMode?: CodexCollaborationModeKind }) => Promise<void>;
   onSteerPrompt: (turnId: string, prompt: string) => Promise<void>;
   onInterruptTurn: (turnId?: string) => Promise<void>;
@@ -91,7 +92,7 @@ export interface ThreadStageActions {
   onEnqueueQueuedFollowUp: (
     threadId: string,
     prompt: string,
-    opts?: { collaborationMode?: CodexCollaborationModeKind | null },
+    opts?: { collaborationMode?: CodexCollaborationModeKind | null; promptInput?: CodexPromptInput },
   ) => Promise<void>;
   onRemoveQueuedFollowUp: (threadId: string, followUpId: string) => Promise<void>;
   onReorderQueuedFollowUps: (threadId: string, orderedFollowUpIds: string[]) => Promise<void>;

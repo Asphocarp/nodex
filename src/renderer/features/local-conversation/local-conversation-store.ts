@@ -2600,7 +2600,7 @@ export function useCodexAppServerControl(activeProjectId: string) {
   const startTurn = useCallback(async (
     threadId: string,
     prompt: string,
-    opts?: { projectId?: string; collaborationMode?: CodexCollaborationModeKind; serviceTier?: CodexServiceTier },
+    opts?: { projectId?: string; collaborationMode?: CodexCollaborationModeKind; serviceTier?: CodexServiceTier; promptInput?: CodexTurnStartOptions["promptInput"] },
   ) => {
     const resolvedSettings = resolveCodexThreadSettings(storedThreadSettings, availableModels);
     const resolvedProjectId = opts?.projectId ?? activeProjectId;
@@ -2611,6 +2611,7 @@ export function useCodexAppServerControl(activeProjectId: string) {
       model: resolvedSettings.model,
       reasoningEffort: resolvedSettings.reasoningEffort,
       collaborationMode: opts?.collaborationMode,
+      ...(opts?.promptInput ? { promptInput: opts.promptInput } : {}),
       ...buildCodexServiceTierRequestOverride(effectiveServiceTier),
     };
     return manager.startTurn(threadId, prompt, turnOpts);
@@ -2619,7 +2620,7 @@ export function useCodexAppServerControl(activeProjectId: string) {
   const enqueueQueuedFollowUp = useCallback(async (
     threadId: string,
     prompt: string,
-    opts?: { projectId?: string; collaborationMode?: CodexCollaborationModeKind | null; serviceTier?: CodexServiceTier },
+    opts?: { projectId?: string; collaborationMode?: CodexCollaborationModeKind | null; serviceTier?: CodexServiceTier; promptInput?: CodexTurnStartOptions["promptInput"] },
   ) => {
     const resolvedSettings = resolveCodexThreadSettings(storedThreadSettings, availableModels);
     const resolvedProjectId = opts?.projectId ?? activeProjectId;
@@ -2630,6 +2631,7 @@ export function useCodexAppServerControl(activeProjectId: string) {
       model: resolvedSettings.model,
       reasoningEffort: resolvedSettings.reasoningEffort,
       collaborationMode: opts?.collaborationMode ?? undefined,
+      ...(opts?.promptInput ? { promptInput: opts.promptInput } : {}),
       ...buildCodexServiceTierRequestOverride(effectiveServiceTier),
     };
     await manager.enqueueQueuedFollowUp(threadId, prompt, turnOpts);

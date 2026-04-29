@@ -86,6 +86,8 @@ import type {
   CodexThreadStartForCardInput,
   CodexTurnSummary,
   CodexUserInputRequest,
+  CodexPromptAgentConfigInput,
+  CodexPromptInput,
   ManagedWorktreeRecord,
   UpdateWorktreeEnvironmentConfigInput,
   WorktreeEnvironmentConfigRecord,
@@ -93,6 +95,8 @@ import type {
   WorktreeEnvironmentSettingsSnapshot,
   WorktreeStartMode,
 } from "../../shared/types";
+import { parseAssetSource } from "../../shared/assets";
+import { parseInlineContent } from "../../shared/nfm";
 import { parseCodexThreadTokenUsage } from "../../shared/schemas/codex";
 import {
   buildPermissionModeConfigEdits,
@@ -115,6 +119,7 @@ import {
 } from "../../shared/codex-item-identity";
 import { mergeOrderedStringIds, upsertOrderedStringId } from "../../shared/codex-turn-order";
 import * as dbService from "../kanban/db-service";
+import { resolveAssetPath } from "../kanban/asset-service";
 import { getKanbanDir } from "../kanban/config";
 import {
   getCodexCardThreadLink,
@@ -716,6 +721,66 @@ function createTextUserInput(text: string): TurnStartParams["input"][number] {
     text,
     text_elements: [],
   };
+}
+
+type CodexUserInputItem = TurnStartParams["input"][number];
+
+interface PreparedPromptForTurn {
+  promptText: string;
+  inputItems: CodexUserInputItem[];
+  agentConfigOverrides: {
+    collaborationMode?: CodexCollaborationModeKind;
+    model?: string;
+    reasoningEffort?: CodexReasoningEffort;
+  };
+}
+
+function isSupportedImageUrl(source: string): boolean {
+  return source.startsWith("http://") || source.startsWith("https://");
+}
+
+function parsePromptAgentConfigLine(line: string): CodexPromptAgentConfigInput | null {
+  const trimmed = line.trim();
+  const parsed = parseInlineContent(trimmed);
+  if (parsed.length !== 1) return null;
+  const [item] = parsed;
+  if (item?.type !== "agentConfig") return null;
+  return {
+    ...(item.mode ? { mode: item.mode } : {}),
+    ...(item.model ? { model: item.model } : {}),
+    ...(item.reasoning ? { reasoning: item.reasoning } : {}),
+    ...(item.unknownAttributes?.length ? { unknownAttributes: item.unknownAttributes } : {}),
+  };
+}
+
+function splitPromptTextAndAgentConfigLines(prompt: string): {
+  text: string;
+  agentConfigs: CodexPromptAgentConfigInput[];
+} {
+  const agentConfigs: CodexPromptAgentConfigInput[] = [];
+  const textLines: string[] = [];
+
+  for (const line of prompt.replace(/\r\n/g, "\n").split("\n")) {
+    const agentConfig = parsePromptAgentConfigLine(line);
+    if (!agentConfig) {
+      textLines.push(line);
+      continue;
+    }
+    agentConfigs.push(agentConfig);
+  }
+
+  return {
+    text: textLines.join("\n").trim(),
+    agentConfigs,
+  };
+}
+
+function validateReasoningEffortInput(value: string): CodexReasoningEffort | null {
+  return parseReasoningEffort(value);
+}
+
+function validateCollaborationModeInput(value: string): CodexCollaborationModeKind | null {
+  return parseCollaborationModeKind(value);
 }
 
 function normalizeTypeName(type: string | undefined): string {
@@ -2676,14 +2741,12 @@ export class CodexService extends EventEmitter {
     if (!selectedMode) return null;
 
     const preset = this.collaborationModePresets.get(selectedMode);
-    const modelCandidate = preset?.model ?? input.model ?? null;
+    const modelCandidate = input.model ?? preset?.model ?? null;
     const model = typeof modelCandidate === "string" && modelCandidate.trim().length > 0
       ? modelCandidate.trim()
       : null;
     if (!model) return null;
-    const reasoningEffort = preset?.reasoningEffort !== undefined
-      ? preset.reasoningEffort
-      : (input.reasoningEffort ?? null);
+    const reasoningEffort = input.reasoningEffort ?? preset?.reasoningEffort ?? null;
 
     return {
       mode: selectedMode,
@@ -2692,6 +2755,99 @@ export class CodexService extends EventEmitter {
         reasoning_effort: reasoningEffort,
         developer_instructions: null,
       },
+    };
+  }
+
+  private async resolveAgentConfigOverrides(
+    agentConfigs: CodexPromptAgentConfigInput[],
+  ): Promise<PreparedPromptForTurn["agentConfigOverrides"]> {
+    const overrides: PreparedPromptForTurn["agentConfigOverrides"] = {};
+    let requestedModel: string | null = null;
+
+    for (const config of agentConfigs) {
+      const unknownAttributes = config.unknownAttributes ?? [];
+      if (unknownAttributes.length > 0) {
+        throw new Error(`Unsupported agent config ${unknownAttributes.length === 1 ? "attribute" : "attributes"}: ${unknownAttributes.join(", ")}`);
+      }
+
+      if (config.mode !== undefined) {
+        const mode = validateCollaborationModeInput(config.mode);
+        if (!mode) {
+          throw new Error(`Unsupported agent config mode: ${config.mode}`);
+        }
+        overrides.collaborationMode = mode;
+      }
+
+      if (config.reasoning !== undefined) {
+        const reasoningEffort = validateReasoningEffortInput(config.reasoning);
+        if (!reasoningEffort) {
+          throw new Error(`Unsupported agent config reasoning: ${config.reasoning}`);
+        }
+        overrides.reasoningEffort = reasoningEffort;
+      }
+
+      if (config.model !== undefined) {
+        requestedModel = config.model;
+      }
+    }
+
+    if (requestedModel !== null) {
+      const models = await this.listModels();
+      const visibleModel = models.find((model) =>
+        !model.hidden && (model.id === requestedModel || model.model === requestedModel)
+      );
+      if (!visibleModel) {
+        throw new Error(`Unsupported agent config model: ${requestedModel}`);
+      }
+      overrides.model = visibleModel.id;
+    }
+
+    return overrides;
+  }
+
+  private resolvePromptImageInput(source: string): CodexUserInputItem {
+    const normalizedSource = source.trim();
+    if (isSupportedImageUrl(normalizedSource)) {
+      return { type: "image", url: normalizedSource };
+    }
+
+    const parsedAsset = parseAssetSource(normalizedSource);
+    if (parsedAsset) {
+      return { type: "localImage", path: resolveAssetPath(parsedAsset.fileName) };
+    }
+
+    if (path.isAbsolute(normalizedSource)) {
+      return { type: "localImage", path: normalizedSource };
+    }
+
+    throw new Error(`Unsupported image source: ${normalizedSource}`);
+  }
+
+  private async preparePromptForTurn(
+    prompt: string,
+    promptInput?: CodexPromptInput,
+  ): Promise<PreparedPromptForTurn> {
+    const parsedPrompt = promptInput
+      ? {
+        text: promptInput.text.trim(),
+        agentConfigs: promptInput.agentConfigs ?? [],
+      }
+      : splitPromptTextAndAgentConfigLines(prompt);
+    const promptText = parsedPrompt.text.trim();
+    const imageItems = (promptInput?.images ?? []).map((image) => this.resolvePromptImageInput(image.source));
+    const inputItems: CodexUserInputItem[] = [
+      ...(promptText ? [createTextUserInput(promptText)] : []),
+      ...imageItems,
+    ];
+
+    if (inputItems.length === 0) {
+      throw new Error("Prompt requires non-empty text or at least one image");
+    }
+
+    return {
+      promptText,
+      inputItems,
+      agentConfigOverrides: await this.resolveAgentConfigOverrides(parsedPrompt.agentConfigs),
     };
   }
 
@@ -4136,10 +4292,11 @@ export class CodexService extends EventEmitter {
   async startThreadForCard(input: CodexThreadStartForCardInput): Promise<CodexThreadDetail> {
     await this.ensureClientReady();
 
-    const prompt = input.prompt.trim();
-    if (!prompt) {
-      throw new Error("Thread start requires a non-empty prompt");
-    }
+    const preparedPrompt = await this.preparePromptForTurn(input.prompt, input.promptInput);
+    const prompt = preparedPrompt.promptText;
+    const effectiveModel = preparedPrompt.agentConfigOverrides.model ?? input.model;
+    const effectiveReasoningEffort = preparedPrompt.agentConfigOverrides.reasoningEffort ?? input.reasoningEffort;
+    const effectiveCollaborationMode = preparedPrompt.agentConfigOverrides.collaborationMode ?? input.collaborationMode;
     const explicitThreadName = input.threadName?.trim() || null;
     const startedAt = Date.now();
     const resolvedPermissionState = await this.readPermissionState(input.projectId);
@@ -4153,11 +4310,11 @@ export class CodexService extends EventEmitter {
     this.logger.info("Starting Codex thread for card", {
       projectId: input.projectId,
       cardId: input.cardId,
-      model: input.model ?? null,
+      model: effectiveModel ?? null,
       serviceTier: formatServiceTierForReporting(input.serviceTier),
       permissionMode,
-      reasoningEffort: input.reasoningEffort ?? null,
-      collaborationMode: input.collaborationMode ?? null,
+      reasoningEffort: effectiveReasoningEffort ?? null,
+      collaborationMode: effectiveCollaborationMode ?? null,
       worktreeStartMode: input.worktreeStartMode ?? null,
       hasExplicitThreadName: Boolean(explicitThreadName),
       promptLength: prompt.length,
@@ -4218,7 +4375,7 @@ export class CodexService extends EventEmitter {
 
       const threadStartParams: ThreadStartParams = {
         cwd: runLocation.cwd,
-        model: input.model ?? null,
+        model: effectiveModel ?? null,
         ...buildServiceTierParams(input.serviceTier),
         experimentalRawEvents: THREAD_START_EXPERIMENTAL_RAW_EVENTS,
         persistExtendedHistory: THREAD_START_PERSIST_EXTENDED_HISTORY,
@@ -4261,9 +4418,9 @@ export class CodexService extends EventEmitter {
       }
 
       const collaborationMode = this.buildCollaborationModePayload({
-        collaborationMode: input.collaborationMode,
-        model: input.model,
-        reasoningEffort: input.reasoningEffort,
+        collaborationMode: effectiveCollaborationMode,
+        model: effectiveModel,
+        reasoningEffort: effectiveReasoningEffort,
       });
       this.setLatestCollaborationModeForThread(link.threadId, this.buildCollaborationModeState({
         collaborationMode: input.collaborationMode ?? null,
@@ -4274,12 +4431,12 @@ export class CodexService extends EventEmitter {
 
       const turnStartParams: TurnStartParams = {
         threadId: link.threadId,
-        input: [createTextUserInput(prompt)],
+        input: preparedPrompt.inputItems,
         cwd: runLocation.cwd,
         ...turnPermissionOverrides,
-        ...(input.model ? { model: input.model } : {}),
+        ...(effectiveModel ? { model: effectiveModel } : {}),
         ...buildServiceTierParams(input.serviceTier),
-        ...(input.reasoningEffort ? { effort: input.reasoningEffort } : {}),
+        ...(effectiveReasoningEffort ? { effort: effectiveReasoningEffort } : {}),
         ...(collaborationMode ? { collaborationMode } : {}),
       };
       const turnStart = await this.client.request<"turn/start", TurnStartResponse>("turn/start", turnStartParams);
@@ -4670,10 +4827,11 @@ export class CodexService extends EventEmitter {
   ): Promise<CodexTurnSummary | null> {
     await this.ensureClientReady();
 
-    const promptText = prompt.trim();
-    if (!promptText) {
-      throw new Error("Turn start requires a non-empty prompt");
-    }
+    const preparedPrompt = await this.preparePromptForTurn(prompt, overrides?.promptInput);
+    const promptText = preparedPrompt.promptText;
+    const effectiveModel = preparedPrompt.agentConfigOverrides.model ?? overrides?.model;
+    const effectiveReasoningEffort = preparedPrompt.agentConfigOverrides.reasoningEffort ?? overrides?.reasoningEffort;
+    const effectiveCollaborationMode = preparedPrompt.agentConfigOverrides.collaborationMode ?? overrides?.collaborationMode;
 
     const threadRef = this.parseThreadRef(threadId);
     const workspacePath = threadRef?.cwd?.trim()
@@ -4691,9 +4849,9 @@ export class CodexService extends EventEmitter {
     });
     this.applyThreadPermissionState(threadId, permissionState);
     const collaborationMode = this.buildCollaborationModePayload({
-      collaborationMode: overrides?.collaborationMode,
-      model: overrides?.model,
-      reasoningEffort: overrides?.reasoningEffort,
+      collaborationMode: effectiveCollaborationMode,
+      model: effectiveModel,
+      reasoningEffort: effectiveReasoningEffort,
     });
     if (overrides?.collaborationMode) {
       this.setLatestCollaborationModeForThread(threadId, this.buildCollaborationModeState({
@@ -4711,10 +4869,10 @@ export class CodexService extends EventEmitter {
       cardId: threadRef?.cardId ?? null,
       cwd: workspacePath,
       permissionMode,
-      model: overrides?.model ?? null,
+      model: effectiveModel ?? null,
       serviceTier: formatServiceTierForReporting(overrides?.serviceTier),
-      reasoningEffort: overrides?.reasoningEffort ?? null,
-      collaborationMode: overrides?.collaborationMode ?? null,
+      reasoningEffort: effectiveReasoningEffort ?? null,
+      collaborationMode: effectiveCollaborationMode ?? null,
       promptLength: promptText.length,
       promptPreview: previewText(promptText),
     });
@@ -4724,11 +4882,11 @@ export class CodexService extends EventEmitter {
         threadId,
         ...(workspacePath ? { cwd: workspacePath } : {}),
         ...turnPermissionOverrides,
-        ...(overrides?.model ? { model: overrides.model } : {}),
+        ...(effectiveModel ? { model: effectiveModel } : {}),
         ...buildServiceTierParams(overrides?.serviceTier),
-        ...(overrides?.reasoningEffort ? { effort: overrides.reasoningEffort } : {}),
+        ...(effectiveReasoningEffort ? { effort: effectiveReasoningEffort } : {}),
         ...(collaborationMode ? { collaborationMode } : {}),
-        input: [createTextUserInput(promptText)],
+        input: preparedPrompt.inputItems,
       };
       return this.client.request<"turn/start", TurnStartResponse>("turn/start", turnStartParams);
     };
@@ -4800,7 +4958,11 @@ export class CodexService extends EventEmitter {
   ): Promise<{ turnId: string } | null> {
     await this.ensureClientReady();
 
-    const promptText = prompt.trim();
+    const parsedPrompt = splitPromptTextAndAgentConfigLines(prompt);
+    if (parsedPrompt.agentConfigs.length > 0) {
+      throw new Error("Agent config cannot be steered into a running turn. Wait for the turn to finish or queue a follow-up.");
+    }
+    const promptText = parsedPrompt.text.trim();
     if (!promptText) {
       throw new Error("Turn steer requires a non-empty prompt");
     }

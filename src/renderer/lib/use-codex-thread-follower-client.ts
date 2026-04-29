@@ -29,6 +29,7 @@ export function useCodexThreadFollowerClient(input: UseCodexThreadFollowerClient
     overrides?: {
       collaborationMode?: CodexCollaborationModeKind | null;
       serviceTier?: CodexServiceTier;
+      promptInput?: CodexTurnStartOptions["promptInput"];
     },
   ): CodexTurnStartOptions => {
     const effectiveServiceTier = resolveCodexRequestServiceTier(overrides, serviceTierSettings.serviceTier);
@@ -37,6 +38,7 @@ export function useCodexThreadFollowerClient(input: UseCodexThreadFollowerClient
       model: input.model,
       reasoningEffort: input.reasoningEffort,
       collaborationMode: overrides?.collaborationMode ?? undefined,
+      ...(overrides?.promptInput ? { promptInput: overrides.promptInput } : {}),
       ...buildCodexServiceTierRequestOverride(effectiveServiceTier),
     };
   }, [input.model, input.permissionMode, input.reasoningEffort, serviceTierSettings.serviceTier]);
@@ -44,7 +46,7 @@ export function useCodexThreadFollowerClient(input: UseCodexThreadFollowerClient
   const startTurn = useCallback(async (
     threadId: string,
     prompt: string,
-    opts?: { collaborationMode?: CodexCollaborationModeKind | null; serviceTier?: CodexServiceTier },
+    opts?: { collaborationMode?: CodexCollaborationModeKind | null; serviceTier?: CodexServiceTier; promptInput?: CodexTurnStartOptions["promptInput"] },
   ) => {
     return (await invoke(
       "codex:turn:start",
@@ -57,7 +59,7 @@ export function useCodexThreadFollowerClient(input: UseCodexThreadFollowerClient
   const enqueueQueuedFollowUp = useCallback(async (
     threadId: string,
     prompt: string,
-    opts?: { collaborationMode?: CodexCollaborationModeKind | null; serviceTier?: CodexServiceTier },
+    opts?: { collaborationMode?: CodexCollaborationModeKind | null; serviceTier?: CodexServiceTier; promptInput?: CodexTurnStartOptions["promptInput"] },
   ) => {
     return (await invoke(
       "codex:thread:follow-up:enqueue",

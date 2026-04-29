@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  buildThreadSectionPromptInput,
   deriveThreadSectionPromptBlocks,
   isToggleShortcutBlock,
   resolveShortcutBlockId,
@@ -192,6 +193,53 @@ describe("thread-section helpers", () => {
       : [];
 
     expect(serializeThreadSectionPrompt(promptBlocks)).toBe("before [Attachment: report.txt] after");
+  });
+
+  test("builds prompt input from image blocks and agent config chips", () => {
+    const blocks = [
+      createBlock({ id: "section-1", type: "threadSection" }),
+      createBlock({
+        id: "body-1",
+        type: "paragraph",
+        content: [
+          { type: "text", text: "before ", styles: {} },
+          {
+            type: "agentConfig",
+            props: {
+              mode: "plan",
+              model: "gpt-5.5",
+              reasoning: "high",
+              unknownAttributes: "",
+              rawAttributes: "",
+            },
+          },
+          { type: "text", text: " after", styles: {} },
+        ],
+      }),
+      createBlock({
+        id: "image-1",
+        type: "image",
+        props: {
+          url: "https://example.com/diagram.png",
+          caption: "System diagram",
+        },
+      }),
+    ];
+
+    const section = resolveThreadSectionForBlock(blocks, "body-1");
+    const promptBlocks = section
+      ? deriveThreadSectionPromptBlocks(section)
+      : [];
+    const promptInput = buildThreadSectionPromptInput(promptBlocks);
+
+    expect(promptInput.text).toBe("before  after\nSystem diagram");
+    expect(promptInput.images?.length ?? 0).toBe(1);
+    expect(promptInput.images?.[0]?.source).toBe("https://example.com/diagram.png");
+    expect(promptInput.images?.[0]?.caption).toBe("System diagram");
+    expect(promptInput.agentConfigs?.length ?? 0).toBe(1);
+    expect(promptInput.agentConfigs?.[0]?.mode).toBe("plan");
+    expect(promptInput.agentConfigs?.[0]?.model).toBe("gpt-5.5");
+    expect(promptInput.agentConfigs?.[0]?.reasoning).toBe("high");
   });
 
   test("creates a local send plan when no thread section exists", () => {

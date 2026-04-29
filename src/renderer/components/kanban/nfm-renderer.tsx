@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { FileCode2, FileText, Folder, Link2 } from "lucide-react";
+import { Bot, FileCode2, FileText, Folder, Link2 } from "lucide-react";
 import { Streamdown } from "streamdown";
 import {
   InlineMarkdownCode,
@@ -22,6 +22,7 @@ import type {
 import { FileLinkAnchor } from "../shared/file-link-anchor";
 import { parseNfm } from "@/lib/nfm/parser";
 import { resolveAssetSourceToHttpUrl } from "@/lib/assets";
+import { formatCodexModelLabel } from "@/lib/codex-thread-settings";
 import { cn } from "@/lib/utils";
 import { streamdownCodePlugin } from "@/lib/streamdown";
 
@@ -447,6 +448,29 @@ function InlineItem({
     );
   }
 
+  if (item.type === "agentConfig") {
+    const invalid = (item.unknownAttributes?.length ?? 0) > 0;
+    const label = invalid
+      ? "Invalid config"
+      : item.mode === "plan"
+      ? "Plan mode"
+      : item.mode === "default"
+        ? "Default mode"
+        : "Agent config";
+    const modelLabel = item.model ? formatCodexModelLabel(item.model, []) : "";
+    const detail = [modelLabel, item.reasoning].filter(Boolean).join(" · ");
+    return (
+      <span className={cn(
+        "inline-flex max-w-[18rem] items-center gap-1 rounded-full px-2 py-0.5 align-middle text-[12px] leading-5",
+        invalid ? "bg-token-foreground/8 text-token-description-foreground" : "bg-token-charts-blue/10 text-token-charts-blue",
+      )}>
+        <Bot className="size-3 shrink-0" />
+        <span className="truncate">{label}</span>
+        {detail ? <span className="truncate opacity-70">{detail}</span> : null}
+      </span>
+    );
+  }
+
   // text span
   const classes = styleClasses(item.styles, { includeCode: false });
   if (item.styles.code) {
@@ -514,6 +538,7 @@ function inlineText(items: NfmInlineContent[]): string {
     .map((item) => {
       if (item.type === "linebreak") return " ";
       if (item.type === "attachment") return item.name;
+      if (item.type === "agentConfig") return "";
       return item.text;
     })
     .join("")

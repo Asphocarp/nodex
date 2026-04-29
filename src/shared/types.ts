@@ -645,6 +645,7 @@ export interface CodexThreadStartForCardInput {
   projectId: string;
   cardId: string;
   prompt: string;
+  promptInput?: CodexPromptInput;
   threadName?: string;
   model?: string;
   serviceTier?: CodexServiceTier;
@@ -661,6 +662,25 @@ export interface CodexTurnStartOptions {
   reasoningEffort?: CodexReasoningEffort;
   permissionMode?: CodexPermissionMode;
   collaborationMode?: CodexCollaborationModeKind;
+  promptInput?: CodexPromptInput;
+}
+
+export interface CodexPromptImageInput {
+  source: string;
+  caption?: string;
+}
+
+export interface CodexPromptAgentConfigInput {
+  mode?: string;
+  model?: string;
+  reasoning?: string;
+  unknownAttributes?: string[];
+}
+
+export interface CodexPromptInput {
+  text: string;
+  images?: CodexPromptImageInput[];
+  agentConfigs?: CodexPromptAgentConfigInput[];
 }
 
 export interface CodexComposerIntent {

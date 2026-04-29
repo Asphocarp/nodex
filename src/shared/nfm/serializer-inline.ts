@@ -29,6 +29,17 @@ function serializeItem(item: NfmInlineContent): string {
     return `<attachment ${attrs.join(" ")} />`;
   }
 
+  if (item.type === "agentConfig") {
+    const attrs: string[] = [];
+    if (item.mode) attrs.push(`mode="${escapeXmlAttr(item.mode)}"`);
+    if (item.model) attrs.push(`model="${escapeXmlAttr(item.model)}"`);
+    if (item.reasoning) attrs.push(`reasoning="${escapeXmlAttr(item.reasoning)}"`);
+    if (attrs.length === 0 && item.rawAttributes?.trim()) {
+      return `<agent-config ${item.rawAttributes.trim()} />`;
+    }
+    return attrs.length > 0 ? `<agent-config ${attrs.join(" ")} />` : "<agent-config />";
+  }
+
   if (item.type === "link") {
     const inner = applyStyles(escapeNfm(item.text), item.styles);
     return `[${inner}](${item.href})`;

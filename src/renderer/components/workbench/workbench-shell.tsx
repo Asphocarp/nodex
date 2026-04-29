@@ -1489,6 +1489,7 @@ export function WorkbenchShell({
         projectId: input.projectId,
         cardId: input.cardId,
         prompt: input.prompt,
+        promptInput: input.promptInput,
         collaborationMode: selectedCollaborationMode,
         worktreeStartMode,
         worktreeBranchPrefix: worktreeAutoBranchPrefix,
@@ -1527,6 +1528,7 @@ export function WorkbenchShell({
     onEnqueueQueuedFollowUp: async (threadId, prompt, opts) => {
       await threadFollowerClient.enqueueQueuedFollowUp(threadId, prompt, {
         collaborationMode: opts?.collaborationMode ?? null,
+        promptInput: opts?.promptInput,
       });
     },
     onRemoveQueuedFollowUp: async (threadId, followUpId) => {
@@ -1668,11 +1670,12 @@ export function WorkbenchShell({
           localEnvironmentConfigPath: configPath,
         });
       }}
-      onStartThreadSection={async ({ projectId, cardId, prompt }) => {
+      onStartThreadSection={async ({ projectId, cardId, prompt, promptInput }) => {
         const detail = await startThreadForCard({
           projectId,
           cardId,
           prompt,
+          promptInput,
           collaborationMode: selectedCollaborationMode,
           worktreeStartMode,
           worktreeBranchPrefix: worktreeAutoBranchPrefix,
@@ -1680,17 +1683,21 @@ export function WorkbenchShell({
         await loadCodexThreads(projectId);
         return { threadId: detail.threadId };
       }}
-      onSendThreadSectionPrompt={async ({ projectId, threadId, prompt }) => {
+      onSendThreadSectionPrompt={async ({ projectId, threadId, prompt, promptInput }) => {
         const conversation = readLocalConversation(threadId);
         const activeTurn = conversation
           ? [...conversation.turns].reverse().find((turn) => turn.status === "inProgress") ?? null
           : null;
         if (activeTurn) {
+          if ((promptInput?.images?.length ?? 0) > 0 || (promptInput?.agentConfigs?.length ?? 0) > 0) {
+            throw new Error("Agent config and image inputs cannot be steered into a running turn. Wait for the turn to finish or queue a follow-up.");
+          }
           await steerTurn(threadId, activeTurn.turnId, prompt);
         } else {
           await startTurn(threadId, prompt, {
             projectId,
             collaborationMode: selectedCollaborationMode,
+            promptInput,
           });
         }
         await loadCodexThreads(projectId);

@@ -240,6 +240,19 @@ function nfmInlineToBN(items: NfmInlineContent[]): BNInlineContent[] {
       };
     }
 
+    if (item.type === "agentConfig") {
+      return {
+        type: "agentConfig",
+        props: {
+          mode: item.mode ?? "",
+          model: item.model ?? "",
+          reasoning: item.reasoning ?? "",
+          unknownAttributes: item.unknownAttributes?.join(",") ?? "",
+          rawAttributes: item.rawAttributes ?? "",
+        },
+      };
+    }
+
     if (item.type === "link") {
       return {
         type: "link",
@@ -600,6 +613,25 @@ function bnInlineToNfm(content: BNInlineContent[] | undefined): NfmInlineContent
         ...(mimeType ? { mimeType } : {}),
         ...(kind !== "folder" && bytes !== undefined ? { bytes } : {}),
         ...(origin ? { origin } : {}),
+      });
+    } else if (item.type === "agentConfig") {
+      const props = item.props ?? {};
+      const mode = normalizeString(props.mode);
+      const model = normalizeString(props.model);
+      const reasoning = normalizeString(props.reasoning);
+      const unknownAttributes = (normalizeString(props.unknownAttributes) ?? "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0);
+      const rawAttributes = normalizeString(props.rawAttributes);
+
+      items.push({
+        type: "agentConfig",
+        ...(mode ? { mode } : {}),
+        ...(model ? { model } : {}),
+        ...(reasoning ? { reasoning } : {}),
+        ...(unknownAttributes.length > 0 ? { unknownAttributes } : {}),
+        ...(rawAttributes ? { rawAttributes } : {}),
       });
     } else if (item.type === "link") {
       // Link content is StyledText[]. Flatten to plain text + first style set.

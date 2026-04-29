@@ -11,6 +11,7 @@ import type {
   CodexCollaborationModePreset,
   CodexPermissionMode,
   CodexPermissionState,
+  CodexPromptInput,
   CodexThreadActionResult,
   CodexThreadDetail,
   CodexTranscriptEntry,
@@ -61,6 +62,7 @@ interface TestableCodexService {
       reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
       permissionMode?: CodexPermissionMode;
       collaborationMode?: "default" | "plan";
+      promptInput?: CodexPromptInput;
     },
   ) => Promise<CodexTurnSummary | null>;
   steerTurn: (
@@ -77,6 +79,7 @@ interface TestableCodexService {
       reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
       permissionMode?: CodexPermissionMode;
       collaborationMode?: "default" | "plan";
+      promptInput?: CodexPromptInput;
     },
   ) => Promise<void>;
   sendQueuedFollowUpNow: (threadId: string, followUpId: string) => Promise<void>;
@@ -91,6 +94,7 @@ interface TestableCodexService {
     permissionMode?: CodexPermissionMode;
     reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
     collaborationMode?: "default" | "plan";
+    promptInput?: CodexPromptInput;
     worktreeStartMode?: "autoBranch" | "detachedHead";
     worktreeBranchPrefix?: string;
   }) => Promise<CodexThreadDetail>;
@@ -3146,6 +3150,133 @@ describe("codex-service startTurn", () => {
           },
         }),
       );
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("applies typed agent config lines and strips them from turn input", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      parseThreadRef: (threadId: string) => { projectId: string; cardId: string; cwd: string | null } | null;
+      parseWorkspacePath: (projectId: string) => string;
+      markThreadAsActive: (threadId: string) => void;
+      persistThreadSnapshot: (threadId: string) => void;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+
+    serviceInternals.parseThreadRef = () => ({ projectId: "codex", cardId: "card-1", cwd: null });
+    serviceInternals.parseWorkspacePath = () => "/tmp/codex";
+    serviceInternals.markThreadAsActive = () => {};
+    serviceInternals.persistThreadSnapshot = () => {};
+
+    client.start = async () => undefined;
+    client.request = async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      if (method === "turn/start") {
+        return {
+          turn: {
+            id: "turn_agent_config",
+            status: "in_progress",
+            transcript: [],
+          },
+        };
+      }
+      return {};
+    };
+
+    try {
+      await service.startTurn(
+        "thr_config",
+        '<agent-config mode="plan" reasoning="high" />\nShip the fix',
+        {
+          model: "gpt-5.3-codex",
+          permissionMode: "auto",
+          collaborationMode: "default",
+          reasoningEffort: "medium",
+        },
+      );
+      const turnStartRequest = requests.find((request) => request.method === "turn/start");
+      const params = turnStartRequest?.params as {
+        input?: Array<{ type: string; text?: string }>;
+        effort?: string;
+        collaborationMode?: unknown;
+      };
+      expect(params.input?.[0]?.text).toBe("Ship the fix");
+      expect(params.effort).toBe("high");
+      expect(JSON.stringify(params.collaborationMode)).toBe(JSON.stringify({
+        mode: "plan",
+        settings: {
+          model: "gpt-5.3-codex",
+          reasoning_effort: "high",
+          developer_instructions: null,
+        },
+      }));
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("passes prompt input images through to turn/start", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      parseThreadRef: (threadId: string) => { projectId: string; cardId: string; cwd: string | null } | null;
+      parseWorkspacePath: (projectId: string) => string;
+      markThreadAsActive: (threadId: string) => void;
+      persistThreadSnapshot: (threadId: string) => void;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+
+    serviceInternals.parseThreadRef = () => ({ projectId: "codex", cardId: "card-1", cwd: null });
+    serviceInternals.parseWorkspacePath = () => "/tmp/codex";
+    serviceInternals.markThreadAsActive = () => {};
+    serviceInternals.persistThreadSnapshot = () => {};
+
+    client.start = async () => undefined;
+    client.request = async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      if (method === "turn/start") {
+        return {
+          turn: {
+            id: "turn_image_input",
+            status: "in_progress",
+            transcript: [],
+          },
+        };
+      }
+      return {};
+    };
+
+    try {
+      await service.startTurn("thr_images", "ignored raw", {
+        model: "gpt-5.3-codex",
+        permissionMode: "auto",
+        reasoningEffort: "medium",
+        promptInput: {
+          text: "Inspect these images",
+          images: [
+            { source: "https://example.com/diagram.png", caption: "diagram" },
+            { source: "/tmp/local.png", caption: "local" },
+          ],
+        },
+      });
+      const turnStartRequest = requests.find((request) => request.method === "turn/start");
+      const params = turnStartRequest?.params as { input?: Array<Record<string, string>> };
+      expect(params.input?.length ?? 0).toBe(3);
+      expect(params.input?.[0]?.type).toBe("text");
+      expect(params.input?.[0]?.text).toBe("Inspect these images");
+      expect(params.input?.[1]?.type).toBe("image");
+      expect(params.input?.[1]?.url).toBe("https://example.com/diagram.png");
+      expect(params.input?.[2]?.type).toBe("localImage");
+      expect(params.input?.[2]?.path).toBe("/tmp/local.png");
     } finally {
       await service.shutdown();
     }

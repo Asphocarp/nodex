@@ -67,6 +67,21 @@ describe("NFM code fences", () => {
     expect(serializeNfm(legacyBlocks)).toBe('\\<resource kind="file" mode="link" source="/tmp/report.txt" name="report.txt" /\\>');
   });
 
+  test("agent config round-trips inline", () => {
+    const nfm = 'before <agent-config mode="plan" model="gpt-5.5" reasoning="high" /> after';
+    const blocks = parseNfm(nfm);
+
+    expect(blocks[0]?.type).toBe("paragraph");
+    if (blocks[0]?.type !== "paragraph") return;
+    expect(blocks[0].content[1]?.type).toBe("agentConfig");
+    if (blocks[0].content[1]?.type !== "agentConfig") return;
+    expect(blocks[0].content[1].mode).toBe("plan");
+    expect(blocks[0].content[1].model).toBe("gpt-5.5");
+    expect(blocks[0].content[1].reasoning).toBe("high");
+    expect(serializeNfm(blocks)).toBe(nfm);
+    expect(serializeClipboardText(blocks)).toBe(nfm);
+  });
+
   test("ordered list markers round-trip exactly and plain-text copy preserves numbering", () => {
     const input = "1. first\n2. second\n3. third";
     const blocks = parseNfm(input);

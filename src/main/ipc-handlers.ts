@@ -45,7 +45,7 @@ import {
   readGitReviewSnapshot,
   searchGitReview,
 } from "./git-review-service";
-import type { AppUpdateSettings, AppUpdateStatus } from "../shared/types";
+import type { AppUpdateSettings, AppUpdateStatus, CodexPromptInput } from "../shared/types";
 
 function registerHandle(
   channel: string,
@@ -647,6 +647,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         projectId: string;
         cardId: string;
         prompt: string;
+        promptInput?: CodexPromptInput;
         threadName?: string;
         model?: string;
         serviceTier?: null | "fast";
@@ -741,6 +742,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
         permissionMode?: "auto" | "guardian-approvals" | "full-access" | "custom";
         collaborationMode?: "default" | "plan";
+        promptInput?: CodexPromptInput;
       },
     ) =>
       codexService.startTurn(threadId, prompt, opts),
@@ -758,6 +760,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
         permissionMode?: "auto" | "guardian-approvals" | "full-access" | "custom";
         collaborationMode?: "default" | "plan";
+        promptInput?: CodexPromptInput;
       },
     ) =>
       codexService.enqueueQueuedFollowUpPrompt(threadId, prompt, opts),

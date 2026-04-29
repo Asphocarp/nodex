@@ -90,11 +90,21 @@ export interface NfmAttachmentInlineContent {
   origin?: string;
 }
 
+export interface NfmAgentConfigInlineContent {
+  type: "agentConfig";
+  mode?: string;
+  model?: string;
+  reasoning?: string;
+  unknownAttributes?: string[];
+  rawAttributes?: string;
+}
+
 export type NfmInlineContent =
   | NfmTextSpan
   | NfmLinkSpan
   | NfmLineBreak
-  | NfmAttachmentInlineContent;
+  | NfmAttachmentInlineContent
+  | NfmAgentConfigInlineContent;
 
 export type NfmBlockType =
   | "paragraph"

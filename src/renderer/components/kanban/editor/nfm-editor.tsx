@@ -28,7 +28,7 @@ import { ChipPropertyEditor } from "./chip-property-editor";
 import { toast } from "@/components/ui/toast";
 import { useEditorDragBehaviors } from "./use-editor-drag-behaviors";
 import { createNfmSerializedChangeEmitter } from "./nfm-serialized-change-emitter";
-import type { Card } from "@/lib/types";
+import type { Card, CodexPromptInput } from "@/lib/types";
 import { useCardImportDropTarget } from "./use-card-import-drop-target";
 import { NfmSlashMenu } from "./nfm-slash-menu";
 import {
@@ -125,12 +125,12 @@ import {
 import { shouldSuppressPreferIndentBoundaryTab } from "./prefer-indent-tab-boundary";
 import { shouldRejectProjectedOwnerStructureChange } from "./projection-structure-guard";
 import {
+  buildThreadSectionPromptInput,
   createEmptyThreadSectionBlock,
   deriveThreadSectionPromptBlocks,
   isToggleShortcutBlock,
   resolveShortcutBlockId,
   resolveThreadSectionSendPlan,
-  serializeThreadSectionPrompt,
   type ThreadSectionBlockLike,
 } from "./thread-section";
 import {
@@ -193,11 +193,13 @@ interface NfmEditorProps {
     projectId: string;
     cardId: string;
     prompt: string;
+    promptInput?: CodexPromptInput;
   }) => Promise<{ threadId: string }>;
   onSendThreadSectionPrompt?: (input: {
     projectId: string;
     threadId: string;
     prompt: string;
+    promptInput?: CodexPromptInput;
   }) => Promise<void>;
   placeholder?: string;
   className?: string;
@@ -262,6 +264,7 @@ interface SendBlocksDialogState {
 
 interface PreparedThreadSectionSendDialogState extends ThreadSectionSendDialogState {
   prompt: string;
+  promptInput: CodexPromptInput;
   markerBlockId: string | null;
   threadId: string;
   canReuseThread: boolean;
@@ -851,11 +854,11 @@ export function NfmEditor({
     }
 
     const promptBlocks = deriveThreadSectionPromptBlocks(sendPlan.section);
-    const prompt = serializeThreadSectionPrompt(promptBlocks, (nfmBlocks) => {
+    const promptInput = buildThreadSectionPromptInput(promptBlocks, (nfmBlocks) => {
       if (!containerRef.current) return;
       applyToggleStatesFromDom(promptBlocks, nfmBlocks, containerRef.current);
     });
-    const plainTextPreview = prompt;
+    const plainTextPreview = promptInput.text;
     const existingThread = sendPlan.section.threadId.length > 0
       ? ownerThreads[sendPlan.section.threadId]
       : undefined;
@@ -880,7 +883,8 @@ export function NfmEditor({
       threadLabel,
       sendActionLabel,
       autoCreateSection: sendPlan.createMarkerBeforeBlockId !== null,
-      prompt,
+      prompt: promptInput.text,
+      promptInput,
       markerBlockId: sendPlan.section.markerBlockId || null,
       threadId: sendPlan.section.threadId,
       canReuseThread,
@@ -956,6 +960,7 @@ export function NfmEditor({
             projectId: request.ownerCardContext?.projectId ?? projectId,
             threadId: request.threadId,
             prompt: request.prompt,
+            promptInput: request.promptInput,
           });
           return;
         }
@@ -964,6 +969,7 @@ export function NfmEditor({
           projectId: request.ownerCardContext?.projectId ?? projectId,
           cardId: request.ownerCardContext?.cardId ?? sourceCardContext.cardId,
           prompt: request.prompt,
+          promptInput: request.promptInput,
         });
         const markerBlock = editor.getBlock(markerBlockId);
         if (!markerBlock) return;
@@ -1027,7 +1033,7 @@ export function NfmEditor({
         return;
       }
 
-      if (sendRequest.prompt.length === 0) {
+      if (sendRequest.prompt.length === 0 && (sendRequest.promptInput.images?.length ?? 0) === 0) {
         toast.info("This thread section is empty.", {
           id: "nfm-thread-section",
         });

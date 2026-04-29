@@ -103,11 +103,19 @@ function stripMarkdownLinks(value: string): string {
   return value.replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1");
 }
 
+function stripAgentConfigLines(value: string): string {
+  return value
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .filter((line) => !/^<agent-config(?:\s+[^>]*)?\s*\/>$/.test(line.trim()))
+    .join("\n");
+}
+
 export function sanitizeCodexThreadTitlePrompt(
   prompt: string,
   maxChars = CODEX_THREAD_TITLE_PROMPT_MAX_CHARS,
 ): string {
-  const normalizedPrompt = stripMarkdownLinks(prompt).replace(/\s+/g, " ").trim();
+  const normalizedPrompt = stripMarkdownLinks(stripAgentConfigLines(prompt)).replace(/\s+/g, " ").trim();
   if (!normalizedPrompt) {
     return "";
   }

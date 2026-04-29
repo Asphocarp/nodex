@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added editable NFM `<agent-config />` chips with readable model labels and a slash-menu insertion command so prompts can apply one-send Codex mode, model, and reasoning overrides without exposing config markup to the agent.
 - Added a right-click Cut/Copy/Paste menu to the NFM editor.
 - Added Calendar controls to the View-stage toolbar, with Day, Week, custom Multi-Day, custom Multi-Week, inline range steppers, navigation, a create action, and no unrelated search/filter/sort chrome.
 
@@ -13,6 +14,7 @@ All notable changes to this project will be documented in this file.
 - macOS window titles now follow the active workspace name for each restored window session.
 
 ### Fixed
+- Fixed NFM image blocks in thread-section prompts so their image pixels are sent to Codex as image inputs instead of only contributing serialized text.
 - Fixed Card Stage rich-editor typing latency under CPU pressure by deferring full NFM serialization and Kanban preview updates until draft flush points instead of doing them on every editor transaction.
 - Fixed the Calendar toolbar month label so it sits beside the active Calendar selector, uses primary text contrast, and leaves the action cluster consistently sized with the selector.
 - Fixed Calendar `Shift+Wheel` navigation so wheel input shows a horizontal visual roll immediately, settles after a 500ms idle pause, and accumulated gestures can move across multiple days without the old one-day cap.

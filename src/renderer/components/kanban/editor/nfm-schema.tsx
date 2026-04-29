@@ -6,6 +6,7 @@ import {
   defaultStyleSpecs,
 } from "@blocknote/core";
 import { editorCodeBlockOptions } from "./code-block-options";
+import { createAgentConfigInlineContentSpec } from "./agent-config-chip";
 import { createAttachmentInlineContentSpec } from "./attachment-chip";
 import { createCalloutBlock } from "./callout-block";
 import { createCardToggleBlockSpec } from "./card-toggle-block";
@@ -34,6 +35,7 @@ export const nfmSchema = BlockNoteSchema.create({
   },
   inlineContentSpecs: {
     ...defaultInlineContentSpecs,
+    agentConfig: createAgentConfigInlineContentSpec(),
     attachment: createAttachmentInlineContentSpec(),
   },
   styleSpecs: defaultStyleSpecs,

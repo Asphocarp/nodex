@@ -98,6 +98,17 @@ describe("NfmRenderer", () => {
     expect(link?.getAttribute("title") === null).toBeTrue();
   });
 
+  test("renders agent config chip model ids as readable labels", async () => {
+    const { container } = render(
+      <NfmRenderer content={'Use <agent-config model="gpt-5.5" reasoning="high" /> now.'} />,
+    );
+
+    await settleAsyncRender();
+
+    expect(textContent(container).includes("GPT-5.5")).toBeTrue();
+    expect(textContent(container).includes("gpt-5.5 · high")).toBeFalse();
+  });
+
   test("renders consecutive numbered list items in one ordered list with preserved numbering", async () => {
     const { container } = render(
       <NfmRenderer content={"1. first\n2. second\n3. third"} />,

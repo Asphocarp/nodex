@@ -1,6 +1,8 @@
 import type { NfmInlineContent, NfmStyleSet, NfmColor } from "./types";
 import { NFM_COLORS } from "./types";
-import { getXmlAttr } from "./xml-attributes";
+import { getXmlAttr, parseXmlAttrs } from "./xml-attributes";
+
+const AGENT_CONFIG_ATTRS = new Set(["mode", "model", "reasoning"]);
 
 export function parseInlineContent(input: string): NfmInlineContent[] {
   if (!input) return [];
@@ -41,6 +43,15 @@ export function parseInlineContent(input: string): NfmInlineContent[] {
         if (attachment) {
           flushText();
           items.push(attachment);
+          continue;
+        }
+      }
+
+      if (input.startsWith("<agent-config", i)) {
+        const agentConfig = tryParseAgentConfig();
+        if (agentConfig) {
+          flushText();
+          items.push(agentConfig);
           continue;
         }
       }
@@ -213,6 +224,29 @@ export function parseInlineContent(input: string): NfmInlineContent[] {
       ...(mimeType ? { mimeType } : {}),
       ...(bytes !== undefined ? { bytes } : {}),
       ...(origin ? { origin } : {}),
+    };
+  }
+
+  function tryParseAgentConfig(): NfmInlineContent | null {
+    const match = input.slice(i).match(/^<agent-config(?:\s+([^>]*))?\s*\/>/);
+    if (!match) return null;
+
+    const rawAttributes = match[1] ?? "";
+    const attributes = parseXmlAttrs(rawAttributes);
+    const unmatchedAttributes = rawAttributes.replace(/[A-Za-z][A-Za-z0-9_-]*="[^"]*"/g, "").trim();
+    const unknownAttributes = [
+      ...Object.keys(attributes).filter((name) => !AGENT_CONFIG_ATTRS.has(name)),
+      ...(unmatchedAttributes ? ["invalid"] : []),
+    ];
+
+    i += match[0].length;
+    return {
+      type: "agentConfig",
+      ...(attributes.mode ? { mode: attributes.mode } : {}),
+      ...(attributes.model ? { model: attributes.model } : {}),
+      ...(attributes.reasoning ? { reasoning: attributes.reasoning } : {}),
+      ...(unknownAttributes.length > 0 ? { unknownAttributes } : {}),
+      ...(rawAttributes.trim().length > 0 ? { rawAttributes } : {}),
     };
   }
 

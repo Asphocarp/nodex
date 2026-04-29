@@ -1,4 +1,13 @@
-import { blockNoteToNfm, extractPlainText, serializeClipboardText, serializeNfm, type NfmBlock } from "../../../lib/nfm";
+import type { CodexPromptAgentConfigInput, CodexPromptImageInput, CodexPromptInput } from "@/lib/types";
+import {
+  blockNoteToNfm,
+  extractPlainText,
+  serializeClipboardText,
+  serializeInlineContent,
+  serializeNfm,
+  type NfmBlock,
+  type NfmInlineContent,
+} from "../../../lib/nfm";
 
 export interface ThreadSectionBlockLike {
   id?: string;
@@ -287,9 +296,93 @@ export function serializeThreadSectionPrompt(
   promptBlocks: ThreadSectionBlockLike[],
   transformNfmBlocks?: (nfmBlocks: NfmBlock[]) => void,
 ): string {
+  return buildThreadSectionPromptInput(promptBlocks, transformNfmBlocks).text;
+}
+
+export function buildThreadSectionPromptInput(
+  promptBlocks: ThreadSectionBlockLike[],
+  transformNfmBlocks?: (nfmBlocks: NfmBlock[]) => void,
+): CodexPromptInput {
   const nfmBlocks = blockNoteToNfm(promptBlocks);
   transformNfmBlocks?.(nfmBlocks);
-  return serializeClipboardText(nfmBlocks).trim();
+  return buildCodexPromptInputFromNfmBlocks(nfmBlocks);
+}
+
+function buildCodexPromptInputFromNfmBlocks(nfmBlocks: NfmBlock[]): CodexPromptInput {
+  const images: CodexPromptImageInput[] = [];
+  const agentConfigs: CodexPromptAgentConfigInput[] = [];
+  const textBlocks = stripPromptSideEffectsFromBlocks(nfmBlocks, images, agentConfigs);
+
+  return {
+    text: serializeClipboardText(textBlocks).trim(),
+    ...(images.length > 0 ? { images } : {}),
+    ...(agentConfigs.length > 0 ? { agentConfigs } : {}),
+  };
+}
+
+function stripPromptSideEffectsFromBlocks(
+  blocks: NfmBlock[],
+  images: CodexPromptImageInput[],
+  agentConfigs: CodexPromptAgentConfigInput[],
+): NfmBlock[] {
+  const result: NfmBlock[] = [];
+
+  for (const block of blocks) {
+    if (block.type === "image") {
+      const captionText = extractPlainText(serializeInlineContent(block.caption)).trim();
+      images.push({
+        source: block.source,
+        ...(captionText ? { caption: captionText } : {}),
+      });
+      if (block.caption.length > 0) {
+        result.push({
+          type: "paragraph",
+          content: stripPromptSideEffectsFromInline(block.caption, agentConfigs),
+          children: [],
+        });
+      }
+      continue;
+    }
+
+    const children = stripPromptSideEffectsFromBlocks(block.children ?? [], images, agentConfigs);
+    if ("content" in block && Array.isArray(block.content)) {
+      result.push({
+        ...block,
+        content: stripPromptSideEffectsFromInline(block.content, agentConfigs),
+        children,
+      } as NfmBlock);
+      continue;
+    }
+
+    result.push({
+      ...block,
+      children,
+    } as NfmBlock);
+  }
+
+  return result;
+}
+
+function stripPromptSideEffectsFromInline(
+  items: NfmInlineContent[],
+  agentConfigs: CodexPromptAgentConfigInput[],
+): NfmInlineContent[] {
+  const result: NfmInlineContent[] = [];
+
+  for (const item of items) {
+    if (item.type === "agentConfig") {
+      agentConfigs.push({
+        ...(item.mode ? { mode: item.mode } : {}),
+        ...(item.model ? { model: item.model } : {}),
+        ...(item.reasoning ? { reasoning: item.reasoning } : {}),
+        ...(item.unknownAttributes?.length ? { unknownAttributes: item.unknownAttributes } : {}),
+      });
+      continue;
+    }
+    result.push(item);
+  }
+
+  return result;
 }
 
 export function resolveShortcutBlockId(

@@ -368,6 +368,67 @@ describe("blocknote adapter", () => {
     expect(attachment?.props.origin).toBe("/tmp/demo.txt");
   });
 
+  test("agent config inline content round-trips between BlockNote and NFM", () => {
+    const agentConfigDoc = asDoc([
+      {
+        type: "paragraph",
+        props: {},
+        content: [
+          { type: "text", text: "Use ", styles: {} },
+          {
+            type: "agentConfig",
+            props: {
+              mode: "plan",
+              model: "gpt-5.5",
+              reasoning: "high",
+              unknownAttributes: "",
+              rawAttributes: "",
+            },
+          },
+        ],
+        children: [],
+      },
+    ]);
+
+    const nfmBlocks = blockNoteToNfm(agentConfigDoc);
+    expect(nfmBlocks[0]?.type).toBe("paragraph");
+    if (nfmBlocks[0]?.type !== "paragraph") return;
+    expect(nfmBlocks[0].content[1]?.type).toBe("agentConfig");
+    expect(serializeNfm(nfmBlocks)).toBe('Use <agent-config mode="plan" model="gpt-5.5" reasoning="high" />');
+
+    const reloaded = nfmToBlockNote(nfmBlocks);
+    const agentConfig = Array.isArray(reloaded[0]?.content) ? reloaded[0]?.content[1] : undefined;
+    expect(agentConfig?.type).toBe("agentConfig");
+    expect(agentConfig?.props.mode).toBe("plan");
+    expect(agentConfig?.props.model).toBe("gpt-5.5");
+    expect(agentConfig?.props.reasoning).toBe("high");
+  });
+
+  test("empty agent config props serialize as omitted attributes", () => {
+    const agentConfigDoc = asDoc([
+      {
+        type: "paragraph",
+        props: {},
+        content: [
+          { type: "text", text: "Use ", styles: {} },
+          {
+            type: "agentConfig",
+            props: {
+              mode: "",
+              model: "",
+              reasoning: "",
+              unknownAttributes: "",
+              rawAttributes: "",
+            },
+          },
+        ],
+        children: [],
+      },
+    ]);
+
+    expect(serializeNfm(blockNoteToNfm(agentConfigDoc))).toBe("Use <agent-config />");
+  });
+
   test("folder attachments do not persist bytes through BlockNote round-trip", () => {
     const attachmentDoc = asDoc([
       {

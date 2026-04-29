@@ -6,7 +6,7 @@ import {
   useBlockNoteEditor,
   type DefaultReactSuggestionItem,
 } from "@blocknote/react";
-import { Link2, ListTree, SendHorizontal } from "lucide-react";
+import { Link2, ListTree, SendHorizontal, Settings2 } from "lucide-react";
 import { getDefaultToggleListInlineViewProps } from "@/lib/toggle-list/inline-view-props";
 import { useAllBoards } from "@/lib/use-all-boards";
 import { createEmptyThreadSectionBlock } from "./thread-section";
@@ -17,9 +17,89 @@ interface NfmSlashMenuProps {
 
 type UnsafeEditor = Parameters<typeof insertOrUpdateBlockForSlashMenu>[0];
 type UnsafeBlock = Parameters<typeof insertOrUpdateBlockForSlashMenu>[1];
+type UnsafeInlineContentEditor = {
+  insertInlineContent: (content: unknown[], options?: { updateSelection?: boolean }) => void;
+};
 
 function insertBlock(editor: unknown, block: Record<string, unknown>) {
   insertOrUpdateBlockForSlashMenu(editor as UnsafeEditor, block as UnsafeBlock);
+}
+
+function insertInlineContent(editor: unknown, content: unknown[]) {
+  (editor as UnsafeInlineContentEditor).insertInlineContent(content, { updateSelection: true });
+}
+
+export function getNfmSlashMenuCustomItems(
+  editor: unknown,
+  projectId: string,
+): DefaultReactSuggestionItem[] {
+  const toggleListItem = {
+    key: "toggle_list_inline_view",
+    title: "Toggle List Inline View",
+    subtext: "Embed a project's toggle-list section",
+    aliases: ["toggle-list", "project view", "inline toggle"],
+    group: "Other",
+    icon: <ListTree size={18} />,
+    onItemClick: () => {
+      insertBlock(editor, {
+        type: "toggleListInlineView",
+        props: getDefaultToggleListInlineViewProps(projectId || "default"),
+      });
+    },
+  };
+
+  const cardRefItem = {
+    key: "card_reference",
+    title: "Card Reference",
+    subtext: "Embed a single card with inline editing",
+    aliases: ["card", "card-reference", "card ref", "card-ref", "embed card"],
+    group: "Other",
+    icon: <Link2 size={18} />,
+    onItemClick: () => {
+      insertBlock(editor, {
+        type: "cardRef",
+        props: { sourceProjectId: projectId || "default", cardId: "" },
+      });
+    },
+  };
+
+  const threadSectionItem = {
+    key: "thread_section",
+    title: "Thread Section",
+    subtext: "Insert a runnable notebook-style prompt boundary",
+    aliases: ["thread", "section", "prompt section", "cell"],
+    group: "Other",
+    icon: <SendHorizontal size={18} />,
+    onItemClick: () => {
+      insertBlock(editor, createEmptyThreadSectionBlock() as unknown as Record<string, unknown>);
+    },
+  };
+
+  const agentConfigItem = {
+    key: "agent_config",
+    title: "Agent Config",
+    subtext: "Insert a one-send plan-mode config chip",
+    aliases: ["agent-config", "agent config", "plan", "plan mode", "mode", "model", "reasoning"],
+    group: "Other",
+    icon: <Settings2 size={18} />,
+    onItemClick: () => {
+      insertInlineContent(editor, [
+        {
+          type: "agentConfig",
+          props: {
+            mode: "plan",
+            model: "",
+            reasoning: "",
+            unknownAttributes: "",
+            rawAttributes: "",
+          },
+        },
+        " ",
+      ]);
+    },
+  };
+
+  return [toggleListItem, cardRefItem, threadSectionItem, agentConfigItem];
 }
 
 export function NfmSlashMenu({ projectId }: NfmSlashMenuProps) {
@@ -28,50 +108,7 @@ export function NfmSlashMenu({ projectId }: NfmSlashMenuProps) {
   const getItems = useMemo(
     () => async (query: string) => {
       const defaults = getDefaultReactSlashMenuItems(editor);
-
-      const toggleListItem = {
-        key: "toggle_list_inline_view",
-        title: "Toggle List Inline View",
-        subtext: "Embed a project's toggle-list section",
-        aliases: ["toggle-list", "project view", "inline toggle"],
-        group: "Other",
-        icon: <ListTree size={18} />,
-        onItemClick: () => {
-          insertBlock(editor, {
-            type: "toggleListInlineView",
-            props: getDefaultToggleListInlineViewProps(projectId || "default"),
-          });
-        },
-      };
-
-      const cardRefItem = {
-        key: "card_reference",
-        title: "Card Reference",
-        subtext: "Embed a single card with inline editing",
-        aliases: ["card", "card-reference", "card ref", "card-ref", "embed card"],
-        group: "Other",
-        icon: <Link2 size={18} />,
-        onItemClick: () => {
-          insertBlock(editor, {
-            type: "cardRef",
-            props: { sourceProjectId: projectId || "default", cardId: "" },
-          });
-        },
-      };
-
-      const threadSectionItem = {
-        key: "thread_section",
-        title: "Thread Section",
-        subtext: "Insert a runnable notebook-style prompt boundary",
-        aliases: ["thread", "section", "prompt section", "cell"],
-        group: "Other",
-        icon: <SendHorizontal size={18} />,
-        onItemClick: () => {
-          insertBlock(editor, createEmptyThreadSectionBlock() as unknown as Record<string, unknown>);
-        },
-      };
-
-      return filterSuggestionItems([...defaults, toggleListItem, cardRefItem, threadSectionItem], query);
+      return filterSuggestionItems([...defaults, ...getNfmSlashMenuCustomItems(editor, projectId)], query);
     },
     [editor, projectId],
   );

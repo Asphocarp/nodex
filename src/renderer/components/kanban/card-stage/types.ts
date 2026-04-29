@@ -3,6 +3,7 @@ import type {
   Card,
   CardInput,
   CardUpdateMutationResult,
+  CodexPromptInput,
   CodexThreadSummary,
 } from "@/lib/types";
 
@@ -67,11 +68,13 @@ export interface CardStageProps {
     projectId: string;
     cardId: string;
     prompt: string;
+    promptInput?: CodexPromptInput;
   }) => Promise<{ threadId: string }>;
   onSendThreadSectionPrompt?: (input: {
     projectId: string;
     threadId: string;
     prompt: string;
+    promptInput?: CodexPromptInput;
   }) => Promise<void>;
   terminalPanelActive?: boolean;
   historyPanelActive?: boolean;
