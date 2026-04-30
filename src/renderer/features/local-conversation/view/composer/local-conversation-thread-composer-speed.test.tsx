@@ -7,7 +7,7 @@ import {
   installWindowApi,
 } from "@/test/browser-globals";
 import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-types";
-import { ThreadComposer } from "./local-conversation-thread-composer";
+import { ThreadComposer, __composerAddContextTestUtils } from "./local-conversation-thread-composer";
 
 const storageMap = new Map<string, string>();
 
@@ -34,9 +34,15 @@ function resetStorage(): void {
   localStorageRef.removeItem("nodex-codex-default-service-tier-v1");
 }
 
-function installComposerWindowApi(): void {
+type TestInvoke = (channel: string, ...args: unknown[]) => Promise<unknown>;
+
+function installComposerWindowApi(testInvoke?: TestInvoke): void {
   installWindowApi({
-    invoke: async (channel: string) => {
+    invoke: async (channel: string, ...args: unknown[]) => {
+      if (testInvoke) {
+        const result = await testInvoke(channel, ...args);
+        if (result !== undefined) return result;
+      }
       switch (channel) {
         case "codex:permission:state:get":
           return {
@@ -129,12 +135,44 @@ function buildModel(overrides?: Partial<ThreadFooterModel>): ThreadFooterModel {
     isNewThreadTab: false,
     isCloudNewThreadTarget: false,
     newThreadTarget: null,
-    availableModels: [],
-    collaborationModes: [],
+    collaborationModes: [
+      { mode: "default", name: "Default", model: null },
+      { mode: "plan", name: "Plan", model: null },
+    ],
     selectedCollaborationMode: "default",
+    availableModels: [
+      {
+        id: "gpt-5.3-codex",
+        model: "gpt-5.3-codex",
+        displayName: "GPT-5.3 Codex",
+        description: "Balanced Codex model.",
+        hidden: false,
+        isDefault: true,
+        defaultReasoningEffort: "high",
+        supportedReasoningEfforts: [
+          { reasoningEffort: "high", description: "Spend more time reasoning before answering." },
+          { reasoningEffort: "medium", description: "Balance speed and deeper reasoning." },
+        ],
+      },
+      {
+        id: "gpt-5.5",
+        model: "gpt-5.5",
+        displayName: "GPT-5.5",
+        description: "Latest Codex model.",
+        hidden: false,
+        isDefault: false,
+        defaultReasoningEffort: "high",
+        supportedReasoningEfforts: [
+          { reasoningEffort: "high", description: "Spend more time reasoning before answering." },
+        ],
+      },
+    ],
     selectedModel: "gpt-5.3-codex",
     selectedReasoningEffort: "high",
-    reasoningEffortOptions: [],
+    reasoningEffortOptions: [
+      { reasoningEffort: "high", description: "Spend more time reasoning before answering." },
+      { reasoningEffort: "medium", description: "Balance speed and deeper reasoning." },
+    ],
     permissionMode: "auto",
     isQueueingEnabled: false,
     composerEnterBehavior: "enter",
@@ -211,21 +249,25 @@ function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActio
   };
 }
 
-async function renderComposer(overrides?: Partial<ThreadFooterModel>) {
+async function renderComposer(
+  overrides?: Partial<ThreadFooterModel>,
+  actionOverrides?: Partial<ThreadStageActions>,
+  testInvoke?: TestInvoke,
+) {
   installAsyncRequestAnimationFrame();
   document.documentElement.dataset.codexWindowType = "electron";
-  installComposerWindowApi();
+  installComposerWindowApi(testInvoke);
 
   let view!: ReturnType<typeof render>;
   await act(async () => {
     view = render(
       <AppProviders>
-        <ThreadComposer
-          model={buildModel(overrides)}
-          actions={buildActions()}
-          errorMessage={null}
-          onErrorMessage={() => {}}
-        />
+          <ThreadComposer
+            model={buildModel(overrides)}
+            actions={buildActions(actionOverrides)}
+            errorMessage={null}
+            onErrorMessage={() => {}}
+          />
       </AppProviders>,
     );
   });
@@ -238,7 +280,7 @@ describe("ThreadComposer speed menu", () => {
     resetStorage();
 
     const standardView = await renderComposer();
-    const standardModelTrigger = standardView.getByLabelText("Select Codex model");
+    const standardModelTrigger = standardView.getByLabelText("Select Codex model and reasoning");
     expect(Boolean(standardModelTrigger.querySelector('[data-fast-mode-indicator="true"]'))).toBeFalse();
 
     standardView.unmount();
@@ -246,28 +288,30 @@ describe("ThreadComposer speed menu", () => {
     localStorageRef.setItem("nodex-codex-default-service-tier-v1", "fast");
 
     const fastView = await renderComposer();
-    const fastModelTrigger = fastView.getByLabelText("Select Codex model");
+    const fastModelTrigger = fastView.getByLabelText("Select Codex model and reasoning");
     expect(Boolean(fastModelTrigger.querySelector('[data-fast-mode-indicator="true"]'))).toBeTrue();
   });
 
-  test("writes the shared service tier setting from the add-context menu", async () => {
+  test("writes the shared service tier setting from the Intelligence menu", async () => {
     resetStorage();
     const view = await renderComposer();
 
-    const trigger = view.getByLabelText("Add files and more");
-    const modelTrigger = view.getByLabelText("Select Codex model");
+    const modelTrigger = view.getByLabelText("Select Codex model and reasoning");
 
     expect(Boolean(modelTrigger.querySelector('[data-fast-mode-indicator="true"]'))).toBeFalse();
 
     await act(async () => {
-      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
-      fireEvent.click(trigger);
+      fireEvent.pointerDown(modelTrigger, { button: 0, ctrlKey: false });
+      fireEvent.click(modelTrigger);
       await Promise.resolve();
     });
 
-    const speedTrigger = view.container.ownerDocument.body.querySelector('[data-radix-collection-item]');
+    expect(Boolean(view.container.ownerDocument.body.textContent?.includes("Intelligence"))).toBeTrue();
+
+    const speedTrigger = Array.from(view.container.ownerDocument.body.querySelectorAll('[data-radix-collection-item]'))
+      .find((node) => node.textContent?.includes("Speed"));
     if (!(speedTrigger instanceof HTMLElement)) {
-      throw new Error("Expected the composer speed submenu trigger.");
+      throw new Error("Expected the Intelligence menu to include the Speed submenu trigger.");
     }
 
     await act(async () => {
@@ -288,5 +332,398 @@ describe("ThreadComposer speed menu", () => {
 
     expect(localStorageRef.getItem("nodex-codex-default-service-tier-v1")).toBe("fast");
     expect(Boolean(modelTrigger.querySelector('[data-fast-mode-indicator="true"]'))).toBeTrue();
+  });
+
+  test("keeps Speed out of the add-context menu", async () => {
+    resetStorage();
+    const view = await renderComposer();
+
+    const trigger = view.getByLabelText("Add files and more");
+
+    await act(async () => {
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
+      await Promise.resolve();
+    });
+
+    const menuItems = Array.from(view.container.ownerDocument.body.querySelectorAll('[data-radix-collection-item]'));
+    expect(menuItems.some((node) => node.textContent?.includes("Speed"))).toBeFalse();
+  });
+
+  test("add-context menu uses Codex row order without a title row", async () => {
+    resetStorage();
+    const selectedModes: string[] = [];
+    const view = await renderComposer(undefined, {
+      onCollaborationModeChange: (mode) => {
+        selectedModes.push(mode);
+      },
+    });
+
+    const trigger = view.getByLabelText("Add files and more");
+
+    await act(async () => {
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
+      await Promise.resolve();
+    });
+
+    const bodyText = view.container.ownerDocument.body.textContent ?? "";
+    expect(Boolean(bodyText.includes("Add files and more"))).toBeFalse();
+    expect(Boolean(bodyText.includes("Add photos & files"))).toBeTrue();
+    expect(Boolean(bodyText.includes("Plan mode"))).toBeTrue();
+    expect(Boolean(bodyText.includes("Speed"))).toBeFalse();
+    expect(Boolean(bodyText.includes("Plugins"))).toBeFalse();
+
+    const planRow = view.container.ownerDocument.body.querySelector('[data-add-context-row="plan-mode"]');
+    if (!(planRow instanceof HTMLElement)) {
+      throw new Error("Expected the Plan mode row.");
+    }
+
+    await act(async () => {
+      fireEvent.click(planRow);
+      await Promise.resolve();
+    });
+
+    expect(selectedModes[0]).toBe("plan");
+  });
+
+  test("add-context prompt input keeps file mentions, images, and plugin skills distinct", () => {
+    const promptInput = __composerAddContextTestUtils.buildComposerPromptInput({
+      prompt: "Use these",
+      attachments: {
+        fileAttachments: [{ id: "file_1", label: "notes.md", path: "/tmp/notes.md", fsPath: "/tmp/notes.md" }],
+        imageAttachments: [{ id: "image_1", filename: "diagram.png", path: "/tmp/diagram.png", dataUrl: "data:image/png;base64,aW1hZ2U=" }],
+        skillMentions: [{ id: "skill_1", name: "Computer Use", path: "/plugins/computer-use" }],
+      },
+    });
+
+    expect(JSON.stringify(promptInput)).toBe(
+      "{\"text\":\"Use these\",\"images\":[{\"source\":\"data:image/png;base64,aW1hZ2U=\",\"caption\":\"diagram.png\"}],\"mentions\":[{\"name\":\"notes.md\",\"path\":\"/tmp/notes.md\"}],\"skills\":[{\"name\":\"Computer Use\",\"path\":\"/plugins/computer-use\"}]}",
+    );
+    expect(__composerAddContextTestUtils.isComposerImageFile({ label: "diagram.png", path: "/tmp/diagram.png", fsPath: "/tmp/diagram.png" })).toBeTrue();
+    expect(__composerAddContextTestUtils.isComposerImageFile({ label: "notes.md", path: "/tmp/notes.md", fsPath: "/tmp/notes.md" })).toBeFalse();
+  });
+
+  test("plugin flyout inserts a structured skill mention", async () => {
+    resetStorage();
+    const sentPromptInputs: string[] = [];
+    const view = await renderComposer(
+      {
+        composerPlugins: [{ name: "Computer Use", path: "/plugins/computer-use" }],
+      },
+      {
+        onSendPrompt: async (_prompt, opts) => {
+          sentPromptInputs.push(JSON.stringify(opts?.promptInput ?? null));
+        },
+      },
+    );
+
+    const trigger = view.getByLabelText("Add files and more");
+    await act(async () => {
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
+      await Promise.resolve();
+    });
+
+    const pluginTrigger = Array.from(view.container.ownerDocument.body.querySelectorAll('[data-radix-collection-item]'))
+      .find((node) => node.textContent?.includes("Plugins"));
+    if (!(pluginTrigger instanceof HTMLElement)) {
+      throw new Error("Expected the Plugins flyout trigger.");
+    }
+
+    await act(async () => {
+      fireEvent.click(pluginTrigger);
+      await Promise.resolve();
+    });
+
+    const pluginItem = view.container.ownerDocument.body.querySelector('[data-add-context-plugin="Computer Use"]');
+    if (!(pluginItem instanceof HTMLElement)) {
+      throw new Error("Expected the Computer Use plugin row.");
+    }
+
+    await act(async () => {
+      fireEvent.click(pluginItem);
+      await Promise.resolve();
+    });
+
+    expect(Boolean(view.container.textContent?.includes("Computer Use"))).toBeTrue();
+    const sendButton = view.getByLabelText("Send prompt");
+    await act(async () => {
+      fireEvent.click(sendButton);
+      await Promise.resolve();
+    });
+
+    expect(Boolean((sentPromptInputs[0] ?? "").includes("\"skills\":[{\"name\":\"Computer Use\",\"path\":\"/plugins/computer-use\"}]"))).toBeTrue();
+  });
+
+  test("places permissions and context inside the composer footer while the lower row keeps run target and branch", async () => {
+    resetStorage();
+    const view = await renderComposer();
+
+    const permissionTrigger = view.getByLabelText("Permission mode");
+    const contextTrigger = view.getByLabelText(/Context window/);
+    const lowerStatusRow = view.container.querySelector('[data-composer-lower-status-row="true"]');
+    const formFooter = view.container.querySelector('[data-composer-form-footer="true"]');
+
+    expect(formFooter !== null).toBeTrue();
+    expect(lowerStatusRow !== null).toBeTrue();
+    expect(formFooter?.contains(permissionTrigger)).toBeTrue();
+    expect(formFooter?.contains(contextTrigger)).toBeTrue();
+    expect(lowerStatusRow?.contains(permissionTrigger)).toBeFalse();
+    expect(lowerStatusRow?.contains(contextTrigger)).toBeFalse();
+    expect(Boolean(lowerStatusRow?.textContent?.includes("Work locally"))).toBeTrue();
+    expect(Boolean(lowerStatusRow?.querySelector('[aria-label="Select Git branch"]'))).toBeTrue();
+  });
+
+  test("keeps the composer shell chrome stable on focus", async () => {
+    resetStorage();
+    const view = await renderComposer();
+    const composerForm = view.container.querySelector("form");
+
+    expect(composerForm !== null).toBeTrue();
+    expect(Boolean(composerForm?.className.includes("focus-within"))).toBeFalse();
+    expect(Boolean(composerForm?.className.includes("ring-black/10"))).toBeTrue();
+    expect(Boolean(composerForm?.className.includes("backdrop-blur-lg"))).toBeTrue();
+  });
+
+  test("Intelligence menu preserves reasoning and model selectors", async () => {
+    resetStorage();
+    const selectedModels: string[] = [];
+    const selectedReasoning: string[] = [];
+    const modelView = await renderComposer(undefined, {
+      onModelChange: (model) => {
+        selectedModels.push(model);
+      },
+    });
+
+    const trigger = modelView.getByLabelText("Select Codex model and reasoning");
+    expect(Boolean(trigger.textContent?.includes("5.3"))).toBeTrue();
+    expect(Boolean(trigger.textContent?.includes("High"))).toBeTrue();
+
+    await act(async () => {
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
+      await Promise.resolve();
+    });
+
+    const menuItems = Array.from(modelView.container.ownerDocument.body.querySelectorAll('[data-radix-collection-item]'));
+    expect(Boolean(modelView.container.ownerDocument.body.textContent?.includes("Intelligence"))).toBeTrue();
+    expect(Boolean(modelView.container.ownerDocument.body.querySelector('[data-intelligence-option="high"]'))).toBeTrue();
+    expect(Boolean(modelView.container.ownerDocument.body.querySelector('[data-intelligence-option="medium"]'))).toBeTrue();
+    expect(Boolean(modelView.container.ownerDocument.body.querySelector('[data-intelligence-option="low"]'))).toBeFalse();
+
+    const modelTrigger = menuItems.find((node) => node.textContent?.includes("GPT-5.3 Codex"));
+    if (!(modelTrigger instanceof HTMLElement)) {
+      throw new Error("Expected the Intelligence menu to include the Model submenu trigger.");
+    }
+
+    await act(async () => {
+      fireEvent.click(modelTrigger);
+      await Promise.resolve();
+    });
+
+    const modelItem = Array.from(modelView.container.ownerDocument.body.querySelectorAll('[data-radix-collection-item]'))
+      .find((node) => node.textContent?.includes("GPT-5.5"));
+    if (!(modelItem instanceof HTMLElement)) {
+      throw new Error("Expected the Intelligence model flyout to include GPT-5.5.");
+    }
+
+    await act(async () => {
+      fireEvent.click(modelItem);
+      await Promise.resolve();
+    });
+
+    expect(selectedModels[0]).toBe("gpt-5.5");
+    modelView.unmount();
+
+    const reasoningView = await renderComposer(undefined, {
+      onReasoningEffortChange: (reasoningEffort) => {
+        selectedReasoning.push(reasoningEffort);
+      },
+    });
+    const reasoningTrigger = reasoningView.getByLabelText("Select Codex model and reasoning");
+
+    await act(async () => {
+      fireEvent.pointerDown(reasoningTrigger, { button: 0, ctrlKey: false });
+      fireEvent.click(reasoningTrigger);
+      await Promise.resolve();
+    });
+
+    const nextMenuItems = Array.from(reasoningView.container.ownerDocument.body.querySelectorAll('[data-radix-collection-item]'));
+    const reasoningItem = nextMenuItems.find((node) => node.textContent?.includes("Medium"));
+    if (!(reasoningItem instanceof HTMLElement)) {
+      throw new Error("Expected the Intelligence menu to include Medium reasoning.");
+    }
+
+    await act(async () => {
+      fireEvent.click(reasoningItem);
+      await Promise.resolve();
+    });
+
+    expect(selectedReasoning[0]).toBe("medium");
+  });
+
+  test("selecting a model coerces unsupported reasoning to that model's supported default", async () => {
+    resetStorage();
+    const selectedModels: string[] = [];
+    const selectedReasoning: string[] = [];
+    const view = await renderComposer(
+      {
+        selectedReasoningEffort: "medium",
+      },
+      {
+        onModelChange: (model) => {
+          selectedModels.push(model);
+        },
+        onReasoningEffortChange: (reasoningEffort) => {
+          selectedReasoning.push(reasoningEffort);
+        },
+      },
+    );
+
+    const trigger = view.getByLabelText("Select Codex model and reasoning");
+
+    await act(async () => {
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
+      await Promise.resolve();
+    });
+
+    const modelTrigger = Array.from(view.container.ownerDocument.body.querySelectorAll('[data-radix-collection-item]'))
+      .find((node) => node.textContent?.includes("GPT-5.3 Codex"));
+    if (!(modelTrigger instanceof HTMLElement)) {
+      throw new Error("Expected the Intelligence menu to include the current model row.");
+    }
+
+    await act(async () => {
+      fireEvent.click(modelTrigger);
+      await Promise.resolve();
+    });
+
+    const modelItem = Array.from(view.container.ownerDocument.body.querySelectorAll('[data-radix-collection-item]'))
+      .find((node) => node.textContent?.includes("GPT-5.5"));
+    if (!(modelItem instanceof HTMLElement)) {
+      throw new Error("Expected the Intelligence model flyout to include GPT-5.5.");
+    }
+
+    await act(async () => {
+      fireEvent.click(modelItem);
+      await Promise.resolve();
+    });
+
+    expect(selectedModels[0]).toBe("gpt-5.5");
+    expect(selectedReasoning[0]).toBe("high");
+  });
+
+  test("model flyout keeps rows concise and moves overflow models behind Other models", async () => {
+    resetStorage();
+    const view = await renderComposer({
+      selectedModel: "gpt-5.5",
+      availableModels: [
+        {
+          id: "gpt-5.5",
+          model: "gpt-5.5",
+          displayName: "GPT-5.5",
+          description: "Latest Codex model.",
+          hidden: false,
+          isDefault: false,
+          defaultReasoningEffort: "high",
+          supportedReasoningEfforts: [
+            { reasoningEffort: "high", description: "Spend more time reasoning before answering." },
+          ],
+        },
+        {
+          id: "gpt-5.4",
+          model: "gpt-5.4",
+          displayName: "GPT-5.4",
+          description: "Previous stable Codex model.",
+          hidden: false,
+          isDefault: false,
+          defaultReasoningEffort: "high",
+          supportedReasoningEfforts: [
+            { reasoningEffort: "high", description: "Spend more time reasoning before answering." },
+          ],
+        },
+        {
+          id: "gpt-5.4-mini",
+          model: "gpt-5.4-mini",
+          displayName: "GPT-5.4-Mini",
+          description: "Small fast Codex model.",
+          hidden: false,
+          isDefault: false,
+          defaultReasoningEffort: "medium",
+          supportedReasoningEfforts: [
+            { reasoningEffort: "medium", description: "Balance speed and deeper reasoning." },
+          ],
+        },
+        {
+          id: "gpt-5.3-codex-spark",
+          model: "gpt-5.3-codex-spark",
+          displayName: "GPT-5.3-Codex-Spark",
+          description: "Ultra fast Codex model.",
+          hidden: false,
+          isDefault: false,
+          defaultReasoningEffort: "medium",
+          supportedReasoningEfforts: [
+            { reasoningEffort: "medium", description: "Balance speed and deeper reasoning." },
+          ],
+        },
+      ],
+    });
+
+    const trigger = view.getByLabelText("Select Codex model and reasoning");
+
+    await act(async () => {
+      fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      fireEvent.click(trigger);
+      await Promise.resolve();
+    });
+
+    const modelTrigger = Array.from(view.container.ownerDocument.body.querySelectorAll('[data-radix-collection-item]'))
+      .find((node) => node.textContent?.includes("GPT-5.5"));
+    if (!(modelTrigger instanceof HTMLElement)) {
+      throw new Error("Expected the Intelligence menu to include the current model row.");
+    }
+
+    await act(async () => {
+      fireEvent.click(modelTrigger);
+      await Promise.resolve();
+    });
+
+    const modelMenuText = view.container.ownerDocument.body.textContent ?? "";
+    expect(Boolean(modelMenuText.includes("Change model"))).toBeTrue();
+    expect(Boolean(modelMenuText.includes("Other models"))).toBeTrue();
+    expect(Boolean(modelMenuText.includes("Latest Codex model"))).toBeFalse();
+    expect(Boolean(modelMenuText.includes("Previous stable Codex model"))).toBeFalse();
+  });
+
+  test("renders active Plan mode as a direct toggle chip", async () => {
+    resetStorage();
+    const selectedModes: string[] = [];
+    const view = await renderComposer(
+      { selectedCollaborationMode: "plan" },
+      {
+        onCollaborationModeChange: (mode) => {
+          selectedModes.push(mode);
+        },
+      },
+    );
+
+    const formFooter = view.container.querySelector('[data-composer-form-footer="true"]');
+    const planButton = view.getByLabelText("Plan");
+
+    expect(formFooter !== null).toBeTrue();
+    expect(formFooter?.contains(planButton)).toBeTrue();
+    expect(planButton.hasAttribute("aria-haspopup")).toBeFalse();
+    expect(planButton.getAttribute("data-slot") === "dropdown-trigger").toBeFalse();
+    expect(planButton.querySelector('[data-plan-mode-icon="plan"]') !== null).toBeTrue();
+    expect(planButton.querySelector('[data-plan-mode-icon="close"]') !== null).toBeTrue();
+
+    await act(async () => {
+      fireEvent.click(planButton);
+      await Promise.resolve();
+    });
+
+    expect(selectedModes[0]).toBe("default");
   });
 });

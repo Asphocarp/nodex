@@ -366,7 +366,7 @@ export const NodexDropdownItem = forwardRef<
         "no-drag",
         dropdownItemBaseClassName,
         !disabled && dropdownItemInteractiveClassName,
-        "flex flex-col",
+        "group flex flex-col",
         disabled && "cursor-default opacity-50",
         className,
       )}
@@ -695,7 +695,7 @@ export function NodexDropdownFlyoutSubmenuItem({
     <NodexDropdownSubmenuTrigger
       disabled={disabled}
       className={cn(
-        "flex w-full items-center",
+        "group flex w-full items-center",
         disabled && "cursor-default opacity-50",
         className,
       )}
@@ -710,7 +710,7 @@ export function NodexDropdownFlyoutSubmenuItem({
         <div className="flex w-full items-center gap-1.5">
           {leftSlot ? <span className="shrink-0">{leftSlot}</span> : null}
           <span className="min-w-0 flex-1 truncate">{label}</span>
-          <ChevronRightIcon className="icon-2xs shrink-0 text-token-input-placeholder-foreground" />
+          <ChevronRightIcon className="icon-xs shrink-0 text-token-input-placeholder-foreground opacity-75 group-focus:opacity-100 group-hover:opacity-100" />
         </div>
       )}
     </NodexDropdownSubmenuTrigger>
@@ -744,8 +744,15 @@ export function NodexDropdownFlyoutSubmenuItem({
   );
 }
 
-export function NodexDropdownSelectedIcon() {
-  return <CheckmarkIcon className="shrink-0 text-token-foreground" />;
+export function NodexDropdownSelectedIcon({ className }: { className?: string } = {}) {
+  return (
+    <CheckmarkIcon
+      className={cn(
+        "icon-xs shrink-0 text-token-foreground opacity-75 group-focus:opacity-100 group-hover:opacity-100",
+        className,
+      )}
+    />
+  );
 }
 
 export const NodexDropdown = {

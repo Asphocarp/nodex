@@ -670,6 +670,16 @@ export interface CodexPromptImageInput {
   caption?: string;
 }
 
+export interface CodexPromptMentionInput {
+  name: string;
+  path: string;
+}
+
+export interface CodexPromptSkillInput {
+  name: string;
+  path: string;
+}
+
 export interface CodexPromptAgentConfigInput {
   mode?: string;
   model?: string;
@@ -680,6 +690,8 @@ export interface CodexPromptAgentConfigInput {
 export interface CodexPromptInput {
   text: string;
   images?: CodexPromptImageInput[];
+  mentions?: CodexPromptMentionInput[];
+  skills?: CodexPromptSkillInput[];
   agentConfigs?: CodexPromptAgentConfigInput[];
 }
 

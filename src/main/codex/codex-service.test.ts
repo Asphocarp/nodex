@@ -3265,18 +3265,27 @@ describe("codex-service startTurn", () => {
           images: [
             { source: "https://example.com/diagram.png", caption: "diagram" },
             { source: "/tmp/local.png", caption: "local" },
+            { source: "data:image/png;base64,aW1hZ2U=", caption: "inline" },
           ],
+          mentions: [{ name: "notes.md", path: "/tmp/notes.md" }],
+          skills: [{ name: "Computer Use", path: "/plugins/computer-use" }],
         },
       });
       const turnStartRequest = requests.find((request) => request.method === "turn/start");
       const params = turnStartRequest?.params as { input?: Array<Record<string, string>> };
-      expect(params.input?.length ?? 0).toBe(3);
+      expect(params.input?.length ?? 0).toBe(6);
       expect(params.input?.[0]?.type).toBe("text");
       expect(params.input?.[0]?.text).toBe("Inspect these images");
       expect(params.input?.[1]?.type).toBe("image");
       expect(params.input?.[1]?.url).toBe("https://example.com/diagram.png");
       expect(params.input?.[2]?.type).toBe("localImage");
       expect(params.input?.[2]?.path).toBe("/tmp/local.png");
+      expect(params.input?.[3]?.type).toBe("image");
+      expect(params.input?.[3]?.url).toBe("data:image/png;base64,aW1hZ2U=");
+      expect(params.input?.[4]?.type).toBe("mention");
+      expect(params.input?.[4]?.path).toBe("/tmp/notes.md");
+      expect(params.input?.[5]?.type).toBe("skill");
+      expect(params.input?.[5]?.path).toBe("/plugins/computer-use");
     } finally {
       await service.shutdown();
     }

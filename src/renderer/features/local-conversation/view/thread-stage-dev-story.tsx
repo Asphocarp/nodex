@@ -18,7 +18,6 @@ import type { ThreadStageActions } from "../thread-stage-types";
 import type {
   CodexAccountSnapshot,
   CodexApprovalDecision,
-  CodexCollaborationModeKind,
   CodexConversationSnapshot,
   CodexMcpServerElicitationAction,
 } from "@/lib/types";
@@ -389,7 +388,7 @@ export function ThreadStageDevStoryPage({
         }, `Started a new story thread from the composer: ${prompt}`);
       });
     },
-    onSendPrompt: async (prompt: string, opts?: { collaborationMode?: CodexCollaborationModeKind }) => {
+    onSendPrompt: async (prompt, opts) => {
       setRuntime((current) => {
         if (!current.conversation) return current;
         return setStoryLog({

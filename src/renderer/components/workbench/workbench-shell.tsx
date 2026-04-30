@@ -1502,7 +1502,10 @@ export function WorkbenchShell({
       await threadFollowerClient.startTurn(
         activeThreadTab.id,
         prompt,
-        { collaborationMode: opts?.collaborationMode ?? selectedCollaborationMode },
+        {
+          collaborationMode: opts?.collaborationMode ?? selectedCollaborationMode,
+          promptInput: opts?.promptInput,
+        },
       );
     },
     onSteerPrompt: async (turnId, prompt) => {

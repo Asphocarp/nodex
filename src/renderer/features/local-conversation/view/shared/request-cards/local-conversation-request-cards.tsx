@@ -770,10 +770,10 @@ export function RequestComposerView({
       className={cn("flex flex-col gap-3", className)}
       onSubmit={(event) => handleFormSubmit(event, form.handleSubmit)}
     >
-      <div className="border-token-border bg-token-input-background text-token-foreground flex flex-col overflow-hidden rounded-3xl border shadow-sm focus:outline-none">
+      <div className="border-token-border bg-token-input-background/70 text-token-foreground flex flex-col overflow-hidden rounded-2xl border backdrop-blur-sm focus:outline-none">
         {(header || question.header || question.question) && (
           <div className="flex items-center justify-between border-token-border/70 pt-4 pr-3 pb-2 pl-4">
-            <div className="text-base font-medium text-(--foreground)">
+            <div className="text-base leading-tight font-medium text-(--foreground)">
               {header ?? question.question ?? question.header}
             </div>
             {isMultiQuestion && (

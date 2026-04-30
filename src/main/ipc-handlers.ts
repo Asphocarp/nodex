@@ -1,4 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { readFile } from "node:fs/promises";
+import * as path from "node:path";
 import { writeImageToClipboard } from "./clipboard-image-writer";
 import { inspectClipboardPasteItems } from "./clipboard-paste-inspector";
 import * as dbService from "./kanban/db-service";
@@ -580,6 +582,41 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     inspectClipboardPasteItems()
   );
 
+  registerHandle("composer:pick-files", async (_, input?: { imagesOnly?: boolean; title?: string }) => {
+    const imagesOnly = input?.imagesOnly === true;
+    const result = await dialog.showOpenDialog({
+      title: typeof input?.title === "string" ? input.title : imagesOnly ? "Select photos" : "Select files",
+      properties: ["openFile", "multiSelections"],
+      ...(imagesOnly
+        ? {
+            filters: [
+              {
+                name: "Images",
+                extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "tif", "heic", "heif"],
+              },
+            ],
+          }
+        : {}),
+    });
+    if (result.canceled || result.filePaths.length === 0) return [];
+    return result.filePaths.map((filePath) => ({
+      label: path.basename(filePath),
+      path: filePath,
+      fsPath: filePath,
+    }));
+  });
+
+  registerHandle("composer:read-file-binary", async (_, input?: { path?: string }) => {
+    if (typeof input?.path !== "string" || input.path.trim().length === 0) {
+      throw new Error("File path is required.");
+    }
+    const buffer = await readFile(input.path);
+    return {
+      base64: buffer.toString("base64"),
+      mimeType: resolveComposerFileMimeType(input.path),
+    };
+  });
+
   // Terminal
   registerHandle(
     "pty:spawn",
@@ -849,4 +886,17 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerHandle("codex:permission:custom-description:get", async (_, projectId: string) => {
     return await codexService.getCustomPermissionModeDescription(projectId);
   });
+}
+
+function resolveComposerFileMimeType(filePath: string): string {
+  const extension = path.extname(filePath).toLowerCase();
+  if (extension === ".jpg" || extension === ".jpeg") return "image/jpeg";
+  if (extension === ".png") return "image/png";
+  if (extension === ".gif") return "image/gif";
+  if (extension === ".webp") return "image/webp";
+  if (extension === ".bmp") return "image/bmp";
+  if (extension === ".tif" || extension === ".tiff") return "image/tiff";
+  if (extension === ".heic") return "image/heic";
+  if (extension === ".heif") return "image/heif";
+  return "application/octet-stream";
 }

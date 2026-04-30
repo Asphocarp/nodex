@@ -267,6 +267,18 @@ function QueueRowsOnlyStory() {
   );
 }
 
+function NarrowRequestCardsStory() {
+  return (
+    <div className="max-w-[390px]">
+      <AboveComposerStoryFrame
+        model={buildShellModel()}
+        title="Request Cards Narrow"
+        description="Narrow-width parity story verifying request cards replace composer controls while the lower status strip wraps cleanly instead of being covered."
+      />
+    </div>
+  );
+}
+
 const meta = {
   title: "Workbench/Threads/Above Composer",
   component: AboveComposerStoryFrame,
@@ -288,7 +300,7 @@ export const QueueLane: Story = {
   args: {
     title: "Composer Shell",
     description:
-      "Focused parity story for the unified Codex-style composer shell: queued steers, queued follow-ups, background terminals, background agents, and request cards are rendered by one shell instead of split footer surfaces.",
+      "Focused parity story for the unified Codex-style composer shell: queued steers, queued follow-ups, background terminals, background agents, request cards, and the preserved lower status strip are rendered by one shell instead of split footer surfaces.",
   },
   render: (args) => <AboveComposerStoryFrame {...args} />,
 };
@@ -310,4 +322,13 @@ export const FileChangesAndTasksInPortal: Story = {
       "Debug fixture for the Codex Electron portal shape where the active turn lifts both the todo/tasks card and the files-changed banner into the fixed above-composer portal while the queue lane stays empty.",
   },
   render: (args) => <AboveComposerStoryFrame {...args} />,
+};
+
+export const RequestCardsNarrow: Story = {
+  args: {
+    title: "Request Cards Narrow",
+    description:
+      "Narrow-width parity story verifying request cards replace composer controls while the lower status strip wraps cleanly instead of being covered.",
+  },
+  render: () => <NarrowRequestCardsStory />,
 };

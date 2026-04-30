@@ -224,6 +224,28 @@ describe("local-conversation request cards", () => {
     expect(getByText("Submit").textContent).toBe("Submit");
   });
 
+  test("dismisses user input requests through the dismiss action", async () => {
+    const { UserInputComposerView } = await import("./local-conversation-request-cards");
+    const responses: string[] = [];
+    const { getByText } = render(
+      <NodexTooltipProvider>
+        <UserInputComposerView
+          request={optionRequest}
+          onRespond={async (_requestId, answers) => {
+            responses.push(JSON.stringify(answers));
+          }}
+        />
+      </NodexTooltipProvider>,
+    );
+
+    await act(async () => {
+      fireEvent.click(getByText("Dismiss"));
+      await settleAsyncRender();
+    });
+
+    expect(responses[0]).toBe("{}");
+  });
+
   test("renders the official plan implementation composer copy", async () => {
     const { PlanImplementationComposerView } = await import("./local-conversation-request-cards");
     const { container, getByText } = render(

@@ -10,6 +10,7 @@ import {
   NodexDropdownItem,
   NodexDropdownMenu,
 } from "@/components/ui/dropdown";
+import { cn } from "@/lib/utils";
 
 const PERMISSION_MODE_ITEMS: Array<{ value: CodexPermissionMode; label: string }> = [
   { value: "auto", label: "Default permissions" },
@@ -59,15 +60,18 @@ export function PermissionModeDropdown({
   customDescription,
   availableModes,
   guardianApprovalEnabled = false,
+  accentCurrentMode = false,
   onSelect,
 }: {
   selectedMode: CodexPermissionMode;
   customDescription: string | null;
   availableModes?: CodexPermissionMode[];
   guardianApprovalEnabled?: boolean;
+  accentCurrentMode?: boolean;
   onSelect: (mode: CodexPermissionMode) => void;
 }) {
   const allowedModes = new Set(availableModes ?? ["auto", "full-access", "custom"]);
+  const accentFullAccess = accentCurrentMode && selectedMode === "full-access";
 
   return (
     <NodexDropdownMenu
@@ -75,7 +79,10 @@ export function PermissionModeDropdown({
         <button
           type="button"
           aria-label="Permission mode"
-          className="inline-flex h-7 min-w-0 items-center gap-1 rounded-full border border-transparent px-1.5 text-sm/4.5 text-token-description-foreground hover:bg-token-foreground/5 hover:text-token-foreground"
+          className={cn(
+            "inline-flex h-7 min-w-0 items-center gap-1 rounded-full border border-transparent px-1.5 text-sm/4.5 text-token-description-foreground hover:bg-token-foreground/5 hover:text-token-foreground",
+            accentFullAccess && "text-(--orange-text) hover:bg-(--orange-bg)/40 hover:text-(--orange-text)",
+          )}
         >
           <PermissionModeMenuIcon mode={selectedMode} />
           <span className="max-w-40 truncate text-left text-sm">

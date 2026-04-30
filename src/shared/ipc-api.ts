@@ -123,6 +123,17 @@ export type ClipboardWriteImageResult =
   | { ok: true }
   | { ok: false; message: string };
 
+export interface ComposerPickedFile {
+  label: string;
+  path: string;
+  fsPath: string;
+}
+
+export interface ComposerReadFileBinaryResult {
+  base64: string;
+  mimeType: string;
+}
+
 export interface HistoryPanelDescriptionDeltaBlock {
   changeType: "added" | "removed" | "replaced";
   blockType: string;
@@ -369,6 +380,14 @@ export interface IpcApi {
   "asset:resolve-path": { args: [source: string]; result: string | null };
   "clipboard:write-image": { args: [input: { source: string }]; result: ClipboardWriteImageResult };
   "clipboard:inspect-paste": { args: []; result: ClipboardPasteInspectionResult };
+  "composer:pick-files": {
+    args: [input: { imagesOnly: boolean; title: string }];
+    result: ComposerPickedFile[];
+  };
+  "composer:read-file-binary": {
+    args: [input: { path: string }];
+    result: ComposerReadFileBinaryResult;
+  };
   "window:show-emoji-panel": { args: []; result: boolean };
   "window:new": { args: [seed?: WindowSessionSeed]; result: boolean };
   "workbench:resume:consume": { args: []; result: WorkbenchResumeSnapshot | null };

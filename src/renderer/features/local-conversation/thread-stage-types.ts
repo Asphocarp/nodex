@@ -76,13 +76,14 @@ export interface ThreadStageActions {
   onReasoningEffortChange: (reasoningEffort: CodexReasoningEffort) => void;
   onPermissionModeChange: (mode: CodexPermissionMode) => void;
   onQueueingEnabledChange: (enabled: boolean) => void;
+  onComposerIdeContextEnabledChange?: (enabled: boolean) => void;
   onRefreshAccount: () => Promise<CodexAccountSnapshot>;
   onStartChatGptLogin: () => Promise<{ type: "apiKey" } | { type: "chatgpt"; loginId: string; authUrl: string }>;
   onStartApiKeyLogin: (apiKey: string) => Promise<{ type: "apiKey" } | { type: "chatgpt"; loginId: string; authUrl: string }>;
   onCancelLogin: (loginId: string) => Promise<void>;
   onLogout: () => Promise<void>;
   onStartThreadForCard: (input: { projectId: string; cardId: string; prompt: string; promptInput?: CodexPromptInput }) => Promise<void>;
-  onSendPrompt: (prompt: string, opts?: { collaborationMode?: CodexCollaborationModeKind }) => Promise<void>;
+  onSendPrompt: (prompt: string, opts?: { collaborationMode?: CodexCollaborationModeKind; promptInput?: CodexPromptInput }) => Promise<void>;
   onSteerPrompt: (turnId: string, prompt: string) => Promise<void>;
   onInterruptTurn: (turnId?: string) => Promise<void>;
   onRespondApproval: (requestId: string, decision: CodexApprovalDecision) => Promise<void>;
@@ -393,6 +394,14 @@ export interface ThreadFooterModel {
   composerEnterBehavior: ComposerEnterBehavior;
   composerIntent: CodexComposerIntent | null;
   dictation: CodexDictationStateSnapshot;
+  composerIdeContext?: {
+    isConnected: boolean;
+    isEnabled: boolean;
+  };
+  composerPlugins?: {
+    name: string;
+    path: string;
+  }[];
 }
 
 export interface ThreadStageScreenProps {

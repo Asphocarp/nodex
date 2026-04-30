@@ -26,6 +26,12 @@ mock.module("./codex-implement-plan-request-card", () => ({
         void onRespond({ type: "followUp", prompt: "Revise step 2 and retry." });
       },
     }, "follow-up"),
+    createElement("button", {
+      type: "button",
+      onClick: () => {
+        void onRespond({ type: "dismiss" });
+      },
+    }, "dismiss"),
   ),
 }));
 
@@ -138,5 +144,30 @@ describe("CodexPendingRequestCard", () => {
 
     expect(log[0]).toBe("resolve:thread_1:turn_plan");
     expect(log[1]).toBe("send:Revise step 2 and retry.:none");
+  });
+
+  test("dismissing a plan implementation request resolves without sending a follow-up", async () => {
+    const { CodexPendingRequestCard } = await import("./codex-pending-request-card");
+    const log: string[] = [];
+    const entry: ThreadComposerShellPendingRequestModel = {
+      request: PLAN_REQUEST,
+      conversationId: "thread_1",
+      surface: "activeThread",
+    };
+
+    const { getByText } = render(
+      <CodexPendingRequestCard
+        entry={entry}
+        actions={createActions(log)}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(getByText("dismiss"));
+      await settleAsyncRender();
+    });
+
+    expect(log[0]).toBe("resolve:thread_1:turn_plan");
+    expect(log.length).toBe(1);
   });
 });

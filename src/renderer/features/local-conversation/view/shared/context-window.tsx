@@ -82,12 +82,16 @@ function contextWindowAriaLabel(state: ContextWindowIndicatorState): string {
 export function ContextWindowIndicator({
   state,
   account,
+  className,
+  showFallbackLabel = true,
 }: {
   state: ContextWindowIndicatorState;
   account: CodexAccountSnapshot | null;
+  className?: string;
+  showFallbackLabel?: boolean;
 }) {
   const dashOffset = CONTEXT_RING_CIRCUMFERENCE * (1 - state.percentFull / 100);
-  const showFallbackLabel = state.status !== "ready";
+  const shouldShowFallbackLabel = showFallbackLabel && state.status !== "ready";
   const showAutoCompaction = shouldShowAutoCompactionNote(account);
 
   return (
@@ -105,6 +109,7 @@ export function ContextWindowIndicator({
         aria-label={contextWindowAriaLabel(state)}
         className={cn(
           "ml-2 inline-flex items-center gap-1 rounded-full text-token-description-foreground outline-none focus-visible:ring-2 focus-visible:ring-(--ring)",
+          className,
         )}
       >
         <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" className="shrink-0">
@@ -123,7 +128,7 @@ export function ContextWindowIndicator({
             opacity={state.status === "unavailable" ? 0 : 1}
           />
         </svg>
-        {showFallbackLabel ? (
+        {shouldShowFallbackLabel ? (
           <span className="composer-footer__label--sm select-none whitespace-nowrap text-sm text-token-input-placeholder-foreground opacity-60">
             0%
           </span>

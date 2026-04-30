@@ -1,6 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import { CODEX_DEFAULT_SERVICE_TIER_STORAGE_KEY } from "@/lib/codex-service-tier-settings";
+import type {
+  CodexCollaborationModeKind,
+  CodexModelOption,
+  CodexPermissionMode,
+  CodexReasoningEffortOption,
+} from "@/lib/types";
 import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-types";
 import {
   buildThreadStageStorySurfaceModels,
@@ -14,12 +20,91 @@ interface ComposerSendButtonStoryProps {
   composerEnterBehavior: "enter" | "cmdIfMultiline";
   draftPrompt: string;
   initialServiceTier: "standard" | "fast";
+  permissionMode: CodexPermissionMode;
+  selectedModel: string;
+  selectedModelDisplayName: string;
+  modelCatalog: "default" | "expanded";
+  selectedModelReasoningSupport: "default" | "highOnly";
+  selectedCollaborationMode: CodexCollaborationModeKind;
+  surfaceWidth: "normal" | "narrow";
+  addContextState: "default" | "ideConnected" | "plugins";
+}
+
+function resolveStoryReasoningOptions(args: ComposerSendButtonStoryProps, fallback: CodexReasoningEffortOption[]) {
+  if (args.selectedModelReasoningSupport === "highOnly") {
+    return [
+      {
+        reasoningEffort: "high" as const,
+        description: "Spend more time reasoning before answering.",
+      },
+    ];
+  }
+
+  return fallback;
+}
+
+function resolveStoryAvailableModels(input: {
+  args: ComposerSendButtonStoryProps;
+  footerModel: ThreadFooterModel;
+  selectedModelOption: CodexModelOption;
+}): CodexModelOption[] {
+  const baseModels = [
+    input.selectedModelOption,
+    ...input.footerModel.availableModels.filter((model) => model.id !== input.args.selectedModel),
+  ];
+
+  if (input.args.modelCatalog !== "expanded") {
+    return baseModels;
+  }
+
+  const expandedModels: CodexModelOption[] = [
+    {
+      id: "gpt-5.4",
+      model: "gpt-5.4",
+      displayName: "GPT-5.4",
+      description: "Previous stable Codex model.",
+      hidden: false,
+      isDefault: false,
+      defaultReasoningEffort: "high",
+      supportedReasoningEfforts: input.footerModel.reasoningEffortOptions,
+    },
+    {
+      id: "gpt-5.4-mini",
+      model: "gpt-5.4-mini",
+      displayName: "GPT-5.4-Mini",
+      description: "Small fast Codex model.",
+      hidden: false,
+      isDefault: false,
+      defaultReasoningEffort: "medium",
+      supportedReasoningEfforts: input.footerModel.reasoningEffortOptions,
+    },
+    {
+      id: "gpt-5.3-codex-spark",
+      model: "gpt-5.3-codex-spark",
+      displayName: "GPT-5.3-Codex-Spark",
+      description: "Ultra-fast Codex model.",
+      hidden: false,
+      isDefault: false,
+      defaultReasoningEffort: "medium",
+      supportedReasoningEfforts: input.footerModel.reasoningEffortOptions,
+    },
+  ];
+  const selectedAndExpandedModelIds = new Set([
+    input.selectedModelOption.id,
+    ...expandedModels.map((model) => model.id),
+  ]);
+
+  return [
+    input.selectedModelOption,
+    ...expandedModels.filter((model) => model.id !== input.selectedModelOption.id),
+    ...input.footerModel.availableModels.filter((model) => !selectedAndExpandedModelIds.has(model.id)),
+  ];
 }
 
 function buildModel(args: ComposerSendButtonStoryProps): ThreadFooterModel {
   const controls: ThreadStageStoryControls = {
     preset: "streaming",
-    permissionMode: "auto",
+    permissionMode: args.permissionMode,
     authenticatedAccount: true,
     isQueueingEnabled: args.isQueueingEnabled,
     collapseAgentBody: false,
@@ -34,8 +119,44 @@ function buildModel(args: ComposerSendButtonStoryProps): ThreadFooterModel {
         focusNonce: 1,
       },
   };
+  const footerModel = buildThreadStageStorySurfaceModels(scenario, controls, runtime).footerModel;
+  const selectedModelReasoningOptions = resolveStoryReasoningOptions(args, footerModel.reasoningEffortOptions);
+  const selectedModelOption = {
+    id: args.selectedModel,
+    model: args.selectedModel,
+    displayName: args.selectedModelDisplayName,
+    description: "Story-selected Codex model.",
+    hidden: false,
+    isDefault: false,
+    defaultReasoningEffort: selectedModelReasoningOptions[0]?.reasoningEffort ?? footerModel.selectedReasoningEffort,
+    supportedReasoningEfforts: selectedModelReasoningOptions,
+  };
+
   return {
-    ...buildThreadStageStorySurfaceModels(scenario, controls, runtime).footerModel,
+    ...footerModel,
+    availableModels: resolveStoryAvailableModels({ args, footerModel, selectedModelOption }),
+    selectedModel: args.selectedModel,
+    selectedReasoningEffort: selectedModelReasoningOptions.some((option) => option.reasoningEffort === footerModel.selectedReasoningEffort)
+      ? footerModel.selectedReasoningEffort
+      : selectedModelReasoningOptions[0]?.reasoningEffort ?? footerModel.selectedReasoningEffort,
+    reasoningEffortOptions: selectedModelReasoningOptions,
+    selectedCollaborationMode: args.selectedCollaborationMode,
+    ...(args.addContextState === "ideConnected"
+      ? {
+          composerIdeContext: {
+            isConnected: true,
+            isEnabled: false,
+          },
+        }
+      : {}),
+    ...(args.addContextState === "plugins"
+      ? {
+          composerPlugins: [
+            { name: "Computer Use", path: "/plugins/computer-use" },
+            { name: "Browser Use", path: "/plugins/browser-use" },
+          ],
+        }
+      : {}),
     composerEnterBehavior: args.composerEnterBehavior,
   };
 }
@@ -86,6 +207,8 @@ function ComposerSendButtonStory(args: ComposerSendButtonStoryProps) {
     }
   }
 
+  const surfaceWidthClassName = args.surfaceWidth === "narrow" ? "max-w-[390px]" : "max-w-3xl";
+
   return (
     <div className="min-h-[320px] rounded-[24px] border border-(--border) bg-(--background) p-5 shadow-[0_18px_48px_rgba(0,0,0,0.16)]">
       <div className="mb-4 max-w-2xl">
@@ -95,12 +218,14 @@ function ComposerSendButtonStory(args: ComposerSendButtonStoryProps) {
         </div>
       </div>
       <TooltipProvider>
-        <ThreadComposer
-          model={buildModel(args)}
-          actions={buildActions()}
-          errorMessage={null}
-          onErrorMessage={() => { }}
-        />
+        <div className={surfaceWidthClassName}>
+          <ThreadComposer
+            model={buildModel(args)}
+            actions={buildActions()}
+            errorMessage={null}
+            onErrorMessage={() => { }}
+          />
+        </div>
       </TooltipProvider>
     </div>
   );
@@ -114,6 +239,14 @@ const meta = {
     composerEnterBehavior: "enter",
     draftPrompt: "",
     initialServiceTier: "standard",
+    permissionMode: "auto",
+    selectedModel: "gpt-5.5",
+    selectedModelDisplayName: "GPT-5.5",
+    modelCatalog: "default",
+    selectedModelReasoningSupport: "default",
+    selectedCollaborationMode: "default",
+    surfaceWidth: "normal",
+    addContextState: "default",
   },
   argTypes: {
     isQueueingEnabled: {
@@ -129,6 +262,36 @@ const meta = {
     initialServiceTier: {
       control: "radio",
       options: ["standard", "fast"],
+    },
+    permissionMode: {
+      control: "radio",
+      options: ["auto", "full-access", "custom"],
+    },
+    selectedModel: {
+      control: "text",
+    },
+    selectedModelDisplayName: {
+      control: "text",
+    },
+    modelCatalog: {
+      control: "radio",
+      options: ["default", "expanded"],
+    },
+    selectedModelReasoningSupport: {
+      control: "radio",
+      options: ["default", "highOnly"],
+    },
+    selectedCollaborationMode: {
+      control: "radio",
+      options: ["default", "plan"],
+    },
+    surfaceWidth: {
+      control: "radio",
+      options: ["normal", "narrow"],
+    },
+    addContextState: {
+      control: "radio",
+      options: ["default", "ideConnected", "plugins"],
     },
   },
   parameters: {
@@ -208,5 +371,72 @@ export const FastModelIndicator: Story = {
     composerEnterBehavior: "enter",
     draftPrompt: "",
     initialServiceTier: "fast",
+  },
+};
+
+export const DefaultIntelligenceSelector: Story = {
+  args: {
+    isQueueingEnabled: false,
+    composerEnterBehavior: "enter",
+    draftPrompt: "",
+  },
+};
+
+export const ExpandedModelSubmenu: Story = {
+  args: {
+    isQueueingEnabled: false,
+    composerEnterBehavior: "enter",
+    draftPrompt: "",
+    initialServiceTier: "fast",
+    modelCatalog: "expanded",
+  },
+};
+
+export const LimitedIntelligenceSupport: Story = {
+  args: {
+    selectedModel: "gpt-5.5-high-only",
+    selectedModelDisplayName: "GPT-5.5 High Only",
+    selectedModelReasoningSupport: "highOnly",
+  },
+};
+
+export const PlanModeActive: Story = {
+  args: {
+    isQueueingEnabled: false,
+    composerEnterBehavior: "enter",
+    draftPrompt: "",
+    selectedCollaborationMode: "plan",
+  },
+};
+
+export const AddContextIdeConnected: Story = {
+  args: {
+    addContextState: "ideConnected",
+  },
+};
+
+export const AddContextPlugins: Story = {
+  args: {
+    addContextState: "plugins",
+  },
+};
+
+export const FullAccessPermissions: Story = {
+  args: {
+    permissionMode: "full-access",
+  },
+};
+
+export const CustomPermissions: Story = {
+  args: {
+    permissionMode: "custom",
+  },
+};
+
+export const NarrowLongModelLabel: Story = {
+  args: {
+    selectedModel: "gpt-5.5-codex-experimental-long-context",
+    selectedModelDisplayName: "GPT-5.5 Codex Experimental Long Context",
+    surfaceWidth: "narrow",
   },
 };

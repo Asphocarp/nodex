@@ -736,7 +736,7 @@ interface PreparedPromptForTurn {
 }
 
 function isSupportedImageUrl(source: string): boolean {
-  return source.startsWith("http://") || source.startsWith("https://");
+  return source.startsWith("http://") || source.startsWith("https://") || source.startsWith("data:image/");
 }
 
 function parsePromptAgentConfigLine(line: string): CodexPromptAgentConfigInput | null {
@@ -2823,6 +2823,24 @@ export class CodexService extends EventEmitter {
     throw new Error(`Unsupported image source: ${normalizedSource}`);
   }
 
+  private resolvePromptMentionInput(input: { name: string; path: string }): CodexUserInputItem {
+    const name = input.name.trim();
+    const mentionPath = input.path.trim();
+    if (!name || !mentionPath) {
+      throw new Error("Mention input requires a name and path");
+    }
+    return { type: "mention", name, path: mentionPath };
+  }
+
+  private resolvePromptSkillInput(input: { name: string; path: string }): CodexUserInputItem {
+    const name = input.name.trim();
+    const skillPath = input.path.trim();
+    if (!name || !skillPath) {
+      throw new Error("Skill input requires a name and path");
+    }
+    return { type: "skill", name, path: skillPath };
+  }
+
   private async preparePromptForTurn(
     prompt: string,
     promptInput?: CodexPromptInput,
@@ -2835,9 +2853,13 @@ export class CodexService extends EventEmitter {
       : splitPromptTextAndAgentConfigLines(prompt);
     const promptText = parsedPrompt.text.trim();
     const imageItems = (promptInput?.images ?? []).map((image) => this.resolvePromptImageInput(image.source));
+    const mentionItems = (promptInput?.mentions ?? []).map((mention) => this.resolvePromptMentionInput(mention));
+    const skillItems = (promptInput?.skills ?? []).map((skill) => this.resolvePromptSkillInput(skill));
     const inputItems: CodexUserInputItem[] = [
       ...(promptText ? [createTextUserInput(promptText)] : []),
       ...imageItems,
+      ...mentionItems,
+      ...skillItems,
     ];
 
     if (inputItems.length === 0) {

@@ -6,6 +6,7 @@ export {
   NodexDropdownMenu,
   NodexDropdownSection,
   NodexDropdownSelectedIcon,
+  NodexDropdownSeparator,
   NodexDropdownTitle,
 } from "@/components/ui/dropdown";
 export { BranchSelectorPopover } from "../shared/branch-selector-popover";
@@ -14,5 +15,3 @@ export {
   resolvePromptTextareaMaxHeightPx,
 } from "../shared/context-window";
 export { PermissionModeDropdown } from "../shared/permission-mode-dropdown";
-export { StageThreadsCollaborationModeDropdown } from "../shared/collaboration-mode-dropdown";
-export { ToolbarDropdownMenu } from "../shared/toolbar-dropdown-menu";

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import type { ThreadStageActions } from "../../thread-stage-types";
 import { render, settleAsyncRender, textContent } from "../../../../test/dom";
+import { installWindowApi } from "@/test/browser-globals";
 import {
   buildThreadStageStorySurfaceModels,
   buildThreadStageStoryScenario,
@@ -64,10 +65,32 @@ function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActio
   };
 }
 
+function installComposerShellWindowApi(): void {
+  installWindowApi({
+    invoke: async (channel: string) => {
+      switch (channel) {
+        case "git:branch:state":
+          return {
+            currentBranch: "main",
+            defaultBranch: "main",
+            branches: ["main"],
+          };
+        case "git:branch:watch:start":
+        case "git:branch:watch:stop":
+          return true;
+        default:
+          return null;
+      }
+    },
+    on: () => () => { },
+  });
+}
+
 describe("LocalConversationComposerShell", () => {
   test("renders queue rows, background terminals, and request cards in one shell", async () => {
+    installComposerShellWindowApi();
     const model = buildComposerShellModel();
-    render(
+    const view = render(
       <TooltipProvider>
         <div className="px-panel z-10 mx-auto flex w-full max-w-[var(--thread-composer-max-width)] flex-col pb-2">
           <LocalConversationAboveComposerPortalHost />
@@ -89,5 +112,16 @@ describe("LocalConversationComposerShell", () => {
     expect(Boolean(renderedText.includes("Running 1 terminal"))).toBeTrue();
     expect(Boolean(renderedText.includes("1 active requests"))).toBeFalse();
     expect(Boolean(renderedText.includes("Worker 1"))).toBeFalse();
+
+    const lowerStatusRow = view.container.querySelector('[data-composer-lower-status-row="true"]');
+    expect(lowerStatusRow !== null).toBeTrue();
+    expect(Boolean(lowerStatusRow?.textContent?.includes("Work locally"))).toBeTrue();
+    expect(Boolean(lowerStatusRow?.querySelector('[aria-label="Select Git branch"]'))).toBeTrue();
+    expect(view.queryByLabelText("Add files and more") === null).toBeTrue();
+    expect(view.queryByLabelText("Permission mode") === null).toBeTrue();
+    expect(view.queryByLabelText("Select Codex model and reasoning") === null).toBeTrue();
+    expect(view.queryByLabelText(/Context window/) === null).toBeTrue();
+    expect(view.queryByLabelText("Send prompt") === null).toBeTrue();
+    expect(view.queryByLabelText("Stop generating") === null).toBeTrue();
   });
 });
