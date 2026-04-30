@@ -9,15 +9,6 @@ import {
 } from "./local-conversation-above-composer-portal";
 import { useLocalConversationThreadScrollController } from "./local-conversation-thread-scroll-controller";
 
-function areFooterTooltipInputsEqual(left: ThreadFooterModel, right: ThreadFooterModel): boolean {
-  return left.account?.account?.type === right.account?.account?.type
-    && left.conversation?.modelProvider === right.conversation?.modelProvider
-    && left.dictation.isEnabled === right.dictation.isEnabled
-    && left.dictation.authMethod === right.dictation.authMethod
-    && left.dictation.isRealtimeVoiceActive === right.dictation.isRealtimeVoiceActive
-    && left.dictation.shortcutLabel === right.dictation.shortcutLabel;
-}
-
 interface LocalConversationFooterProps {
   model: ThreadFooterModel;
   actions: ThreadStageActions;
@@ -88,18 +79,4 @@ function LocalConversationFooterComponent({
   );
 }
 
-export const LocalConversationFooter = memo(
-  LocalConversationFooterComponent,
-  (left, right) =>
-    left.actions === right.actions
-    && left.errorMessage === right.errorMessage
-    && left.onErrorMessage === right.onErrorMessage
-    && left.model.resumeState === right.model.resumeState
-    && left.model.isNewThreadTab === right.model.isNewThreadTab
-    && left.model.isQueueingEnabled === right.model.isQueueingEnabled
-    && left.model.threadId === right.model.threadId
-    && left.model.body.turnCount === right.model.body.turnCount
-    && left.model.body.hasAboveComposerBlocks === right.model.body.hasAboveComposerBlocks
-    && areFooterTooltipInputsEqual(left.model, right.model)
-    && left.model.composerShell === right.model.composerShell,
-);
+export const LocalConversationFooter = memo(LocalConversationFooterComponent);

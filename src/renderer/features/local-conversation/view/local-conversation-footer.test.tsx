@@ -145,6 +145,75 @@ describe("LocalConversationFooter", () => {
     installAsyncRequestAnimationFrame();
   });
 
+  test("updates composer mode chrome when the selected collaboration mode changes", async () => {
+    const { LocalConversationFooter } = await import("./local-conversation-footer");
+    const baseModel = buildModel({
+      collaborationModes: [
+        { mode: "default", name: "Default", model: null },
+        { mode: "plan", name: "Plan", model: null },
+      ],
+    });
+    const actions = buildActions();
+    const view = render(
+      <TooltipProvider>
+        <EnsureLocalConversationThreadScrollController>
+          <LocalConversationFooter
+            model={{ ...baseModel, selectedCollaborationMode: "default" }}
+            actions={actions}
+            errorMessage={null}
+            onErrorMessage={() => {}}
+          />
+        </EnsureLocalConversationThreadScrollController>
+      </TooltipProvider>,
+    );
+
+    expect(view.queryByLabelText("Plan") === null).toBeTrue();
+
+    view.rerender(
+      <TooltipProvider>
+        <EnsureLocalConversationThreadScrollController>
+          <LocalConversationFooter
+            model={{ ...baseModel, selectedCollaborationMode: "plan" }}
+            actions={actions}
+            errorMessage={null}
+            onErrorMessage={() => {}}
+          />
+        </EnsureLocalConversationThreadScrollController>
+      </TooltipProvider>,
+    );
+
+    const planButton = view.getByLabelText("Plan");
+    const formFooter = view.container.querySelector('[data-composer-form-footer="true"]');
+    expect(formFooter !== null).toBeTrue();
+    expect(Boolean(formFooter?.contains(planButton))).toBeTrue();
+
+    fireEvent.pointerDown(view.getByLabelText("Add files and more"), { button: 0, ctrlKey: false });
+    fireEvent.click(view.getByLabelText("Add files and more"));
+
+    await waitFor(() => {
+      const planRow = view.container.ownerDocument.body.querySelector('[data-add-context-row="plan-mode"]');
+      if (!planRow) {
+        throw new Error("Expected the Plan mode row.");
+      }
+      expect(planRow.querySelector('[data-state="checked"]') !== null).toBeTrue();
+    });
+
+    view.rerender(
+      <TooltipProvider>
+        <EnsureLocalConversationThreadScrollController>
+          <LocalConversationFooter
+            model={{ ...baseModel, selectedCollaborationMode: "default" }}
+            actions={actions}
+            errorMessage={null}
+            onErrorMessage={() => {}}
+          />
+        </EnsureLocalConversationThreadScrollController>
+      </TooltipProvider>,
+    );
+
+    expect(view.queryByLabelText("Plan") === null).toBeTrue();
+  });
+
   test("renders the catch-up button inside the footer owner", async () => {
     const { LocalConversationFooter } = await import("./local-conversation-footer");
     const { container, getByLabelText } = render(

@@ -4444,12 +4444,14 @@ export class CodexService extends EventEmitter {
         model: effectiveModel,
         reasoningEffort: effectiveReasoningEffort,
       });
-      this.setLatestCollaborationModeForThread(link.threadId, this.buildCollaborationModeState({
-        collaborationMode: input.collaborationMode ?? null,
-        model: input.model ?? null,
-        reasoningEffort: input.reasoningEffort ?? null,
-        fallback: this.getConversationRecord(link.threadId).latestCollaborationMode,
-      }));
+      if (effectiveCollaborationMode) {
+        this.setLatestCollaborationModeForThread(link.threadId, this.buildCollaborationModeState({
+          collaborationMode: effectiveCollaborationMode,
+          model: effectiveModel ?? null,
+          reasoningEffort: effectiveReasoningEffort ?? null,
+          fallback: this.getConversationRecord(link.threadId).latestCollaborationMode,
+        }));
+      }
 
       const turnStartParams: TurnStartParams = {
         threadId: link.threadId,
@@ -4875,11 +4877,11 @@ export class CodexService extends EventEmitter {
       model: effectiveModel,
       reasoningEffort: effectiveReasoningEffort,
     });
-    if (overrides?.collaborationMode) {
+    if (effectiveCollaborationMode) {
       this.setLatestCollaborationModeForThread(threadId, this.buildCollaborationModeState({
-        collaborationMode: overrides.collaborationMode,
-        model: overrides.model ?? null,
-        reasoningEffort: overrides.reasoningEffort ?? null,
+        collaborationMode: effectiveCollaborationMode,
+        model: effectiveModel ?? null,
+        reasoningEffort: effectiveReasoningEffort ?? null,
         fallback: this.getConversationRecord(threadId).latestCollaborationMode,
       }));
     }

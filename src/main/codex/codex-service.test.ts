@@ -3216,6 +3216,17 @@ describe("codex-service startTurn", () => {
           developer_instructions: null,
         },
       }));
+      const record = (service as unknown as {
+        getConversationRecord: (threadId: string) => {
+          latestCollaborationMode: {
+            mode: string;
+            settings: { model: string; reasoning_effort: string | null };
+          };
+        };
+      }).getConversationRecord("thr_config");
+      expect(record.latestCollaborationMode.mode).toBe("plan");
+      expect(record.latestCollaborationMode.settings.model).toBe("gpt-5.3-codex");
+      expect(record.latestCollaborationMode.settings.reasoning_effort).toBe("high");
     } finally {
       await service.shutdown();
     }
@@ -3849,6 +3860,76 @@ describe("codex-service startThreadForCard", () => {
             },
           }),
         );
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("uses agent config collaboration mode as latest mode for the created thread", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Agent config plan start" });
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "thread/start") {
+          return {
+            thread: {
+              id: "thr_agent_config_plan_start",
+              modelProvider: "openai",
+              cwd: "/tmp/codex",
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            },
+          };
+        }
+        if (method === "turn/start") {
+          return {
+            turn: {
+              id: "turn_agent_config_plan_start",
+              status: "in_progress",
+              transcript: [],
+            },
+          };
+        }
+        return {};
+      };
+
+      try {
+        const detail = await service.startThreadForCard({
+          projectId: "codex",
+          cardId: card.id,
+          prompt: '<agent-config mode="plan" reasoning="high" />\nAsk clarifying questions first',
+          model: "gpt-5.3-codex",
+          reasoningEffort: "medium",
+          collaborationMode: "default",
+          permissionMode: "auto",
+        });
+
+        const turnStartRequest = requests.find((request) => request.method === "turn/start");
+        expect(turnStartRequest).not.toBeNull();
+        expect(JSON.stringify((turnStartRequest?.params as { collaborationMode?: unknown })?.collaborationMode)).toBe(
+          JSON.stringify({
+            mode: "plan",
+            settings: {
+              model: "gpt-5.3-codex",
+              reasoning_effort: "high",
+              developer_instructions: null,
+            },
+          }),
+        );
+        expect(detail.latestCollaborationMode?.mode).toBe("plan");
+        expect(detail.latestCollaborationMode?.settings.reasoning_effort).toBe("high");
+        expect(service.serializeConversationSnapshot("thr_agent_config_plan_start")?.latestCollaborationMode?.mode).toBe("plan");
       } finally {
         await service.shutdown();
       }
