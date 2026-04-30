@@ -93,6 +93,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - User-message transcript actions follow the Codex Electron model:
   - `Copy message` and the sent timestamp are available from user bubbles.
   - The user sent timestamp comes from the turn's `turnStartedAtMs` and renders as localized short time only.
+  - Long user-message bubbles collapse to a 20-line preview with local `Show more` / `Show less` controls; this is renderer-only UI state and does not change thread data.
   - `Edit message` is shown only on the last user message of the latest completed editable turn; activating it swaps that bubble for an inline edit prompt in place, and the actual rollback-plus-resend happens only after the user clicks `Send`.
 - Assistant-message transcript actions follow the Codex Electron model:
   - Completed final assistant messages can expose `Copy message`, `Good response`, `Bad response`, `Fork from this point`, and sent timestamp actions.

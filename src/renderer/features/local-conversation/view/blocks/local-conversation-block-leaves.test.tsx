@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
 import type { CodexConversationItem } from "../../../../lib/types";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../components/ui/tooltip";
@@ -11,7 +11,12 @@ import {
   ThreadStreamErrorBlock,
   ThreadSystemErrorBlock,
   ThreadTurnDiffBlock,
+  UserMessageBubble,
 } from "./local-conversation-block-leaves";
+import type { ThreadTranscriptBlockModel } from "../../thread-stage-types";
+
+const clientWidthDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth");
+const canvasGetContextDescriptor = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, "getContext");
 
 function buildCommandEntry(
   itemId: string,
@@ -45,6 +50,182 @@ function buildCommandEntry(
     ...overrides,
   };
 }
+
+function buildUserMessageBlock(text: string): ThreadTranscriptBlockModel {
+  return {
+    id: "user-message-1",
+    turnId: "turn-1",
+    createdAt: 1,
+    updatedAt: 1,
+    searchableText: text,
+    type: "userMessage",
+    entry: {
+      threadId: "thread-1",
+      turnId: "turn-1",
+      itemId: "user-message-1",
+      type: "user_message",
+      kind: "userMessage",
+      semanticKind: "userMessage",
+      role: "user",
+      markdownText: text,
+      createdAt: 1,
+      updatedAt: 1,
+    },
+  };
+}
+
+function installTextCollapseMeasurement({
+  clientWidth,
+  characterWidthPx,
+}: {
+  clientWidth: number;
+  characterWidthPx: number;
+}): void {
+  Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+    configurable: true,
+    get() {
+      return clientWidth;
+    },
+  });
+
+  Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+    configurable: true,
+    value: () => ({
+      font: "",
+      measureText: (value: string) => ({
+        width: Array.from(value).length * characterWidthPx,
+      }),
+    }),
+  });
+}
+
+function restoreTextCollapseMeasurement(): void {
+  if (clientWidthDescriptor) {
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", clientWidthDescriptor);
+  } else {
+    Reflect.deleteProperty(HTMLElement.prototype as HTMLElement & { clientWidth?: number }, "clientWidth");
+  }
+
+  if (canvasGetContextDescriptor) {
+    Object.defineProperty(HTMLCanvasElement.prototype, "getContext", canvasGetContextDescriptor);
+  } else {
+    Reflect.deleteProperty(HTMLCanvasElement.prototype as HTMLCanvasElement & { getContext?: unknown }, "getContext");
+  }
+}
+
+function renderUserMessageBubble(text: string) {
+  return render(
+    <TooltipProvider>
+      <UserMessageBubble
+        block={buildUserMessageBlock(text)}
+        isLatestTurn={false}
+        isStreamingTurn={false}
+      />
+    </TooltipProvider>,
+  );
+}
+
+function getUserMarkdownRoot(container: ParentNode): HTMLElement {
+  const element = container.querySelector<HTMLElement>(".codex-markdown-user");
+  if (!element) throw new Error("Expected user markdown root to render.");
+  return element;
+}
+
+function getWebkitLineClamp(element: HTMLElement): string | undefined {
+  return (element.style as CSSStyleDeclaration & { WebkitLineClamp?: string }).WebkitLineClamp;
+}
+
+describe("UserMessageBubble collapse", () => {
+  afterEach(() => {
+    restoreTextCollapseMeasurement();
+  });
+
+  test("does not render a toggle for short user messages", async () => {
+    installTextCollapseMeasurement({ clientWidth: 320, characterWidthPx: 7 });
+
+    const { queryByText } = renderUserMessageBubble("Short request");
+    await settleAsyncRender();
+
+    expect(queryByText("Show more") === null).toBeTrue();
+    expect(queryByText("Show less") === null).toBeTrue();
+  });
+
+  test("collapses long measured user messages and toggles expansion", async () => {
+    installTextCollapseMeasurement({ clientWidth: 320, characterWidthPx: 7 });
+    const longMessage = Array.from({ length: 25 }, (_value, index) => `Line ${index + 1}`).join("\n");
+
+    const { container, getByText } = renderUserMessageBubble(longMessage);
+    await settleAsyncRender();
+
+    const collapsedButton = getByText("Show more").closest("button");
+    expect(collapsedButton?.getAttribute("aria-expanded")).toBe("false");
+
+    const collapsedStyle = getUserMarkdownRoot(container).getAttribute("style") ?? "";
+    expect(collapsedStyle.includes("overflow: hidden")).toBeTrue();
+    expect(getWebkitLineClamp(getUserMarkdownRoot(container))).toBe("20");
+
+    fireEvent.click(collapsedButton as HTMLElement);
+    await settleAsyncRender();
+
+    const expandedButton = getByText("Show less").closest("button");
+    expect(expandedButton?.getAttribute("aria-expanded")).toBe("true");
+    expect(getUserMarkdownRoot(container).getAttribute("style") ?? "").toBe("");
+    expect(Boolean(expandedButton?.querySelector(".rotate-180"))).toBeTrue();
+
+    fireEvent.click(expandedButton as HTMLElement);
+    await settleAsyncRender();
+
+    expect(getByText("Show more").closest("button")?.getAttribute("aria-expanded")).toBe("false");
+    expect(getWebkitLineClamp(getUserMarkdownRoot(container))).toBe("20");
+  });
+
+  test("does not render a toggle when width or canvas measurement is unavailable", async () => {
+    installTextCollapseMeasurement({ clientWidth: 0, characterWidthPx: 7 });
+    const longMessage = Array.from({ length: 25 }, (_value, index) => `Line ${index + 1}`).join("\n");
+    const zeroWidthView = renderUserMessageBubble(longMessage);
+    await settleAsyncRender();
+
+    expect(zeroWidthView.queryByText("Show more") === null).toBeTrue();
+    zeroWidthView.unmount();
+
+    installTextCollapseMeasurement({ clientWidth: 320, characterWidthPx: 7 });
+    Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+      configurable: true,
+      value: () => null,
+    });
+
+    const missingCanvasView = renderUserMessageBubble(longMessage);
+    await settleAsyncRender();
+
+    expect(missingCanvasView.queryByText("Show more") === null).toBeTrue();
+  });
+
+  test("collapses again when expanded text changes", async () => {
+    installTextCollapseMeasurement({ clientWidth: 320, characterWidthPx: 7 });
+    const firstMessage = Array.from({ length: 25 }, (_value, index) => `First ${index + 1}`).join("\n");
+    const secondMessage = Array.from({ length: 25 }, (_value, index) => `Second ${index + 1}`).join("\n");
+
+    const view = renderUserMessageBubble(firstMessage);
+    await settleAsyncRender();
+
+    fireEvent.click(view.getByText("Show more").closest("button") as HTMLElement);
+    await settleAsyncRender();
+    expect(view.getByText("Show less").closest("button")?.getAttribute("aria-expanded")).toBe("true");
+
+    view.rerender(
+      <TooltipProvider>
+        <UserMessageBubble
+          block={buildUserMessageBlock(secondMessage)}
+          isLatestTurn={false}
+          isStreamingTurn={false}
+        />
+      </TooltipProvider>,
+    );
+    await settleAsyncRender();
+
+    expect(view.getByText("Show more").closest("button")?.getAttribute("aria-expanded")).toBe("false");
+  });
+});
 
 describe("ThreadExplorationGroupBlock", () => {
   beforeEach(() => {

@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added Show more/Show less controls for long Thread user-message bubbles.
 - Added a packaged macOS notification sound for Nodex desktop notifications.
 - Added editable NFM `<agent-config />` chips with readable model labels and a slash-menu insertion command so prompts can apply one-send Codex mode, model, and reasoning overrides without exposing config markup to the agent.
 - Added a right-click Cut/Copy/Paste menu to the NFM editor.

@@ -32,6 +32,7 @@ import { TodoListSurface } from "../shared/todo-list-surface";
 import { getToolComponent } from "../shared/tools/get-tool-component";
 import { JsonBlock } from "../shared/tools/tool-primitives";
 import { extractCommandActions } from "../shared/tools/command-actions";
+import { UserMessageText } from "../shared/user-message-collapse";
 import {
   CODEX_THREAD_ACCORDION_TRANSITION,
   CODEX_THREAD_DIVIDER_ENTER_ANIMATE,
@@ -663,7 +664,7 @@ export function UserMessageBubble({
           </form>
         ) : (
           <div className={THREAD_VISUAL_TOKENS.userBubble}>
-            <MarkdownRenderer content={content} preserveLineBreaks className="codex-markdown-user text-size-chat" />
+            <UserMessageText text={content} />
           </div>
         )}
         {content.length > 0 ? (

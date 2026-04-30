@@ -189,6 +189,76 @@ const mixedAttachmentTurn = buildStoryConversationTurn({
   ],
 });
 
+const longUserMessageTurn = buildStoryConversationTurn({
+  turnId: "turn_story_long_user_message",
+  status: "completed",
+  items: [
+    buildStoryConversationItem({
+      turnId: "turn_story_long_user_message",
+      itemId: "user_story_long_user_message",
+      type: "user_message",
+      kind: "userMessage",
+      semanticKind: "userMessage",
+      role: "user",
+      markdownText: Array.from({ length: 24 }, (_value, index) => (
+        `Review checkpoint ${index + 1}: keep the transcript bubble readable while preserving the complete prompt for copy, edit, and search.`
+      )).join("\n"),
+      createdAt: 1_000,
+      updatedAt: 1_000,
+    }),
+    buildStoryConversationItem({
+      turnId: "turn_story_long_user_message",
+      itemId: "assistant_story_long_user_message",
+      type: "assistant_message",
+      kind: "assistantMessage",
+      semanticKind: "assistantMessage",
+      role: "assistant",
+      assistantPhase: "final_answer",
+      markdownText: "The long prompt remains available behind the local Show more control.",
+      createdAt: 2_000,
+      updatedAt: 2_000,
+    }),
+  ],
+});
+
+const multilineUserMessageTurn = buildStoryConversationTurn({
+  turnId: "turn_story_multiline_user_message",
+  status: "completed",
+  items: [
+    buildStoryConversationItem({
+      turnId: "turn_story_multiline_user_message",
+      itemId: "user_story_multiline_user_message",
+      type: "user_message",
+      kind: "userMessage",
+      semanticKind: "userMessage",
+      role: "user",
+      markdownText: [
+        "Keep this formatting intact:",
+        "",
+        "1. Preserve blank lines.",
+        "2. Preserve wrapped prose inside the bubble.",
+        "3. Collapse only after real measured height exceeds the threshold.",
+        "",
+        ...Array.from({ length: 20 }, (_value, index) => `Additional preserved line ${index + 1}`),
+      ].join("\n"),
+      createdAt: 1_000,
+      updatedAt: 1_000,
+    }),
+    buildStoryConversationItem({
+      turnId: "turn_story_multiline_user_message",
+      itemId: "assistant_story_multiline_user_message",
+      type: "assistant_message",
+      kind: "assistantMessage",
+      semanticKind: "assistantMessage",
+      role: "assistant",
+      assistantPhase: "final_answer",
+      markdownText: "The multiline message keeps its spacing when expanded.",
+      createdAt: 2_000,
+      updatedAt: 2_000,
+    }),
+  ],
+});
+
 const remoteImageTurn = buildStoryConversationTurn({
   turnId: "turn_story_remote_image",
   status: "completed",
@@ -293,6 +363,20 @@ export const MixedAttachments: Story = {
   args: {
     turnSearchKey: mixedAttachmentTurn.turnId,
     turn: mixedAttachmentTurn,
+  },
+};
+
+export const LongUserMessageCollapsed: Story = {
+  args: {
+    turnSearchKey: longUserMessageTurn.turnId,
+    turn: longUserMessageTurn,
+  },
+};
+
+export const MultilineUserMessageCollapsed: Story = {
+  args: {
+    turnSearchKey: multilineUserMessageTurn.turnId,
+    turn: multilineUserMessageTurn,
   },
 };
 
