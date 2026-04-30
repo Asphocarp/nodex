@@ -14,5 +14,6 @@
 | nfm-editor-attachment-chip-behavior.md | Active | 2026-03-11 | Detailed oversized-text and native file/folder paste behavior for inline attachment chips, including prompting, NFM syntax, previews, and clipboard/plain-text rules |
 | nfm-editor-child-group-keyboard-behavior.md | Active | 2026-04-13 | Detailed `Enter` and `Backspace` behavior for nested child groups in the NFM editor, including precedence, schema gating, ProseMirror mutations, and caret placement |
 | nfm-editor-copy-behavior.md | Active | 2026-03-08 | Detailed clipboard behavior for standard copy/cut and image copy inside the NFM editor |
+| nfm-thread-section-image-inputs.md | Active | 2026-05-01 | Detailed send-time behavior for NFM image blocks in thread-section prompts, including placeholders, app-server image inputs, and source mapping |
 | nfm-editor-thread-section-behavior.md | Active | 2026-03-12 | Detailed notebook-style `threadSection` syntax, section-boundary rules, send behavior, and sticky thread binding inside the NFM editor |
 | workbench-shell.md | Active | 2026-03-02 | Workbench stage shell layout, thread rendering model, and navigation behavior |

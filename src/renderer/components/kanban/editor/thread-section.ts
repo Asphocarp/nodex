@@ -330,17 +330,19 @@ function stripPromptSideEffectsFromBlocks(
   for (const block of blocks) {
     if (block.type === "image") {
       const captionText = extractPlainText(serializeInlineContent(block.caption)).trim();
+      const imageNumber = images.length + 1;
       images.push({
         source: block.source,
         ...(captionText ? { caption: captionText } : {}),
       });
-      if (block.caption.length > 0) {
-        result.push({
-          type: "paragraph",
-          content: stripPromptSideEffectsFromInline(block.caption, agentConfigs),
-          children: [],
-        });
-      }
+      const placeholder = captionText
+        ? `[Image #${imageNumber}] (caption: ${captionText})`
+        : `[Image #${imageNumber}]`;
+      result.push({
+        type: "paragraph",
+        content: [{ type: "text", text: placeholder, styles: {} }],
+        children: [],
+      });
       continue;
     }
 

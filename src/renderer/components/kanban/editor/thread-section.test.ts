@@ -232,7 +232,7 @@ describe("thread-section helpers", () => {
       : [];
     const promptInput = buildThreadSectionPromptInput(promptBlocks);
 
-    expect(promptInput.text).toBe("before  after\nSystem diagram");
+    expect(promptInput.text).toBe("before  after\n[Image #1] (caption: System diagram)");
     expect(promptInput.images?.length ?? 0).toBe(1);
     expect(promptInput.images?.[0]?.source).toBe("https://example.com/diagram.png");
     expect(promptInput.images?.[0]?.caption).toBe("System diagram");
@@ -240,6 +240,67 @@ describe("thread-section helpers", () => {
     expect(promptInput.agentConfigs?.[0]?.mode).toBe("plan");
     expect(promptInput.agentConfigs?.[0]?.model).toBe("gpt-5.5");
     expect(promptInput.agentConfigs?.[0]?.reasoning).toBe("high");
+  });
+
+  test("numbers multiple image placeholders in prompt order", () => {
+    const blocks = [
+      createBlock({ id: "section-1", type: "threadSection" }),
+      createBlock({
+        id: "image-1",
+        type: "image",
+        props: {
+          url: "https://example.com/first.png",
+          caption: "First diagram",
+        },
+      }),
+      createBlock({
+        id: "body-1",
+        type: "paragraph",
+        content: [{ type: "text", text: "between", styles: {} }],
+      }),
+      createBlock({
+        id: "image-2",
+        type: "image",
+        props: {
+          url: "/tmp/second.png",
+          caption: "Second diagram",
+        },
+      }),
+    ];
+
+    const section = resolveThreadSectionForBlock(blocks, "image-1");
+    const promptBlocks = section
+      ? deriveThreadSectionPromptBlocks(section)
+      : [];
+    const promptInput = buildThreadSectionPromptInput(promptBlocks);
+
+    expect(promptInput.text).toBe("[Image #1] (caption: First diagram)\nbetween\n[Image #2] (caption: Second diagram)");
+    expect(promptInput.images?.map((image) => image.source).join(",")).toBe("https://example.com/first.png,/tmp/second.png");
+  });
+
+  test("uses a bare placeholder for captionless image-only sections", () => {
+    const blocks = [
+      createBlock({ id: "section-1", type: "threadSection" }),
+      createBlock({
+        id: "image-1",
+        type: "image",
+        props: {
+          url: "nodex://assets/photo.png",
+          caption: "",
+        },
+      }),
+    ];
+
+    const section = resolveThreadSectionForBlock(blocks, "image-1");
+    const promptBlocks = section
+      ? deriveThreadSectionPromptBlocks(section)
+      : [];
+    const promptInput = buildThreadSectionPromptInput(promptBlocks);
+
+    expect(promptInput.text).toBe("[Image #1]");
+    expect(promptInput.images?.length ?? 0).toBe(1);
+    expect(promptInput.images?.[0]?.source).toBe("nodex://assets/photo.png");
+    expect(promptInput.images?.[0]?.caption).toBe(undefined);
   });
 
   test("creates a local send plan when no thread section exists", () => {
