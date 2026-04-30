@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 - macOS window titles now follow the active workspace name for each restored window session.
 
 ### Fixed
+- Fixed sent image attachments in Threads so user-submitted images now appear above the user message bubble as previewable thumbnails instead of disappearing from the transcript body.
 - Fixed NFM image blocks in thread-section prompts so their image pixels are sent to Codex as image inputs instead of only contributing serialized text.
 - Fixed Card Stage rich-editor typing latency under CPU pressure by deferring full NFM serialization and Kanban preview updates until draft flush points instead of doing them on every editor transaction.
 - Fixed the Calendar toolbar month label so it sits beside the active Calendar selector, uses primary text contrast, and leaves the action cluster consistently sized with the selector.

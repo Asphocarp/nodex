@@ -85,6 +85,7 @@ import type {
   CodexTurnStatus,
   CodexThreadStartForCardInput,
   CodexTurnSummary,
+  CodexUserAttachment,
   CodexUserInputRequest,
   CodexPromptAgentConfigInput,
   CodexPromptInput,
@@ -140,6 +141,7 @@ import {
 import { readCodexSessionThreadDetail } from "./codex-session-store";
 import { createManagedWorktree, removeManagedWorktree } from "./git-worktree-service";
 import {
+  buildCodexUserAttachmentsFromContent,
   buildTurnErrorItemView,
   normalizeThreadItem,
   resolveContextCompactionMarkdown,
@@ -3539,19 +3541,22 @@ export class CodexService extends EventEmitter {
     threadId: string,
     turnId: string,
     promptText: string,
+    userAttachments?: CodexUserAttachment[],
     itemId?: string,
   ): CodexTranscriptEntry {
     const createdAt = Date.now();
+    const resolvedItemId = itemId ?? `item-${++this.syntheticItemIdCounter}`;
     const item: CodexItemView = {
       threadId,
       turnId,
-      itemId: itemId ?? `item-${++this.syntheticItemIdCounter}`,
+      itemId: resolvedItemId,
       type: "userMessage",
       normalizedKind: "userMessage",
       semanticKind: "userMessage",
       status: "completed",
       role: "user",
       markdownText: promptText,
+      userAttachments,
       createdAt,
       updatedAt: createdAt,
     };
@@ -3579,6 +3584,7 @@ export class CodexService extends EventEmitter {
         source: "optimistic",
         sequence: 0,
         markdownText: item.markdownText,
+        userAttachments: item.userAttachments,
         createdAt,
         updatedAt: createdAt,
       };
@@ -3812,6 +3818,7 @@ export class CodexService extends EventEmitter {
           turnId: nextEntry.turnId,
           entryId: nextEntry.entryId ?? nextEntry.itemId,
           promptText: nextEntry.markdownText ?? "",
+          userAttachments: nextEntry.userAttachments,
           createdAt: nextEntry.createdAt,
         })
       : nextEntry.kind === "userMessage"
@@ -4467,7 +4474,16 @@ export class CodexService extends EventEmitter {
       const startedTurn = this.asTurnSummary(link.threadId, turnStart.turn);
       if (startedTurn) {
         this.mergeTurn(link.threadId, startedTurn);
-        this.seedTurnWithOptimisticUserMessage(link.threadId, startedTurn.turnId, prompt);
+        const optimisticUserAttachments = buildCodexUserAttachmentsFromContent(
+          preparedPrompt.inputItems,
+          `optimistic:${startedTurn.turnId}`,
+        );
+        this.seedTurnWithOptimisticUserMessage(
+          link.threadId,
+          startedTurn.turnId,
+          prompt,
+          optimisticUserAttachments.length > 0 ? optimisticUserAttachments : undefined,
+        );
         this.logger.info("Started first Codex turn", {
           threadId: link.threadId,
           turnId: startedTurn.turnId,
@@ -4935,7 +4951,16 @@ export class CodexService extends EventEmitter {
     const startedTurn = this.asTurnSummary(threadId, turnStartResult.turn);
     if (startedTurn) {
       this.mergeTurn(threadId, startedTurn);
-      this.seedTurnWithOptimisticUserMessage(threadId, startedTurn.turnId, promptText);
+      const optimisticUserAttachments = buildCodexUserAttachmentsFromContent(
+        preparedPrompt.inputItems,
+        `optimistic:${startedTurn.turnId}`,
+      );
+      this.seedTurnWithOptimisticUserMessage(
+        threadId,
+        startedTurn.turnId,
+        promptText,
+        optimisticUserAttachments.length > 0 ? optimisticUserAttachments : undefined,
+      );
       this.clearPausedQueuedFollowUps(threadId, false);
       this.markThreadAsActive(threadId);
       this.emitThreadStreamSnapshotFromRecord(threadId);

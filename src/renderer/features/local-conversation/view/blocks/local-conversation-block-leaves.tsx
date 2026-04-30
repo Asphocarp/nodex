@@ -35,6 +35,7 @@ import {
 } from "../shared/thread-motion";
 import { useMeasuredElementHeight } from "../shared/use-measured-element-height";
 import { AnsweredUserInputBlock } from "../composer/request-cards/answered-user-input-block";
+import { UserAttachmentStrip } from "../shared/user-message-attachments";
 import type { CodexCommandAction } from "../../../../lib/types";
 import type { CodexConversationItem, CodexTurnDiffReviewTarget } from "../../../../lib/types";
 import { resolveCodexThreadDetailLevel } from "../../../../lib/codex-thread-settings";
@@ -549,7 +550,12 @@ export function ThreadMultiAgentActionBlock({ block }: ThreadLeafBlockProps) {
   return <MultiAgentActionSurface items={[block.entry]} />;
 }
 
-export function ThreadUserBubbleBlock({
+export function ThreadUserAttachmentStripBlock({ block }: ThreadSpecialBlockProps) {
+  if (block.type !== "userAttachmentStrip") return null;
+  return <UserAttachmentStrip attachments={block.attachments} />;
+}
+
+export function UserMessageBubble({
   block,
   isLatestTurn,
   isSearchMatch = false,
@@ -696,6 +702,10 @@ export function ThreadUserBubbleBlock({
       </div>
     </div>
   );
+}
+
+export function ThreadUserBubbleBlock(props: ThreadLeafBlockProps) {
+  return <UserMessageBubble {...props} />;
 }
 
 export function ThreadReasoningBlock({

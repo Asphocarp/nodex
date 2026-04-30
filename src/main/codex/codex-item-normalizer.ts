@@ -7,6 +7,7 @@ import type {
   CodexMcpToolCallContentBlock,
   CodexMcpToolCallView,
   CodexItemView,
+  CodexUserAttachment,
   ProtocolMcpToolCallError,
   ProtocolMcpToolCallItem,
   ProtocolMcpToolCallResult,
@@ -124,6 +125,84 @@ function parseUserMessageText(candidate: Record<string, unknown>): string {
     })
     .filter((value) => value.length > 0);
   return textParts.join("\n");
+}
+
+function buildUserAttachmentId(itemId: string, kind: string, index: number): string {
+  return `${itemId}:attachment:${kind}:${index}`;
+}
+
+function normalizeRemotePointerId(value: string): string {
+  return value
+    .replace(/^file-service:\/\//, "")
+    .replace(/^sediment:\/\//, "");
+}
+
+export function buildCodexUserAttachmentsFromContent(
+  content: unknown[],
+  itemId: string,
+): CodexUserAttachment[] {
+  const fileAttachments: CodexUserAttachment[] = [];
+  const imageAttachments: CodexUserAttachment[] = [];
+
+  content.forEach((entry, index) => {
+    const input = asRecord(entry);
+    if (!input) return;
+
+    const type = getString(input, ["type"]) ?? "";
+    if (isType(type, ["image"])) {
+      const source = getString(input, ["url", "source"]);
+      if (!source) return;
+      imageAttachments.push({
+        type: "image",
+        id: buildUserAttachmentId(itemId, "image", index),
+        source,
+        sourceKind: "local",
+        caption: getString(input, ["caption", "name"]),
+      });
+      return;
+    }
+
+    if (isType(type, ["localImage"])) {
+      const source = getString(input, ["path", "source"]);
+      if (!source) return;
+      imageAttachments.push({
+        type: "image",
+        id: buildUserAttachmentId(itemId, "local-image", index),
+        source,
+        sourceKind: "local",
+        caption: getString(input, ["caption", "name"]),
+      });
+      return;
+    }
+
+    if (isType(type, ["image_asset_pointer", "imageAssetPointer", "assetPointer"])) {
+      const pointer = getString(input, ["asset_pointer", "assetPointer", "pointer", "file_id", "fileId"]);
+      if (!pointer) return;
+      imageAttachments.push({
+        type: "image",
+        id: buildUserAttachmentId(itemId, "remote-image", index),
+        source: normalizeRemotePointerId(pointer),
+        sourceKind: "remote",
+        caption: getString(input, ["caption", "name"]),
+      });
+      return;
+    }
+
+    if (isType(type, ["mention", "skill"])) {
+      const name = getString(input, ["name"])?.trim();
+      const attachmentPath = getString(input, ["path"])?.trim();
+      if (!name || !attachmentPath) return;
+      fileAttachments.push({
+        type: "file",
+        id: buildUserAttachmentId(itemId, normalizeTypeName(type), index),
+        label: name,
+        path: attachmentPath,
+        sourceKind: isType(type, ["skill"]) ? "skill" : "mention",
+      });
+    }
+  });
+
+  return [...fileAttachments, ...imageAttachments];
 }
 
 function parseUserInputQuestions(value: unknown): CodexUserInputQuestion[] {
@@ -606,11 +685,16 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
   };
 
   if (isType(itemType, ["userMessage"])) {
+    const content = Array.isArray(candidate.content) ? candidate.content : [];
     const text = parseUserMessageText(candidate);
+    const userAttachments = buildCodexUserAttachmentsFromContent(content, itemId);
     result.normalizedKind = "userMessage";
     result.semanticKind = "userMessage";
     result.role = "user";
     result.markdownText = text;
+    if (userAttachments.length > 0) {
+      result.userAttachments = userAttachments;
+    }
     return applyFallbackContent(result, itemType);
   }
 

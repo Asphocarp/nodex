@@ -803,6 +803,26 @@ export type CodexTranscriptEntryStatus = CodexItemStatus;
 export type CodexTranscriptEntrySource = "live" | "bootstrap" | "replay" | "optimistic";
 export type CodexFileChangeKind = "add" | "delete" | "update";
 
+export interface CodexUserFileAttachment {
+  type: "file";
+  id: string;
+  label: string;
+  path: string;
+  sourceKind: "mention" | "skill";
+}
+
+export interface CodexUserImageAttachment {
+  type: "image";
+  id: string;
+  source: string;
+  sourceKind: "local" | "remote";
+  caption?: string;
+}
+
+export type CodexUserAttachment =
+  | CodexUserFileAttachment
+  | CodexUserImageAttachment;
+
 export type ProtocolThreadItem = CodexAppServerThreadItem;
 export type ProtocolCommandExecutionItem = Extract<ProtocolThreadItem, { type: "commandExecution" }>;
 export type ProtocolMcpToolCallItem = Extract<ProtocolThreadItem, { type: "mcpToolCall" }>;
@@ -967,6 +987,7 @@ export interface CodexItemView extends CodexCommandExecutionAttachmentFields {
   mcpToolCall?: CodexMcpToolCallView;
   fileChange?: CodexFileChangeView;
   markdownText?: string;
+  userAttachments?: CodexUserAttachment[];
   additionalDetails?: string | null;
   willRetry?: boolean;
   userInputQuestions?: CodexUserInputQuestion[];
@@ -994,6 +1015,7 @@ export interface CodexTranscriptEntry extends CodexCommandExecutionAttachmentFie
   mcpToolCall?: CodexMcpToolCallView;
   fileChange?: CodexFileChangeView;
   markdownText?: string;
+  userAttachments?: CodexUserAttachment[];
   additionalDetails?: string | null;
   willRetry?: boolean;
   userInputQuestions?: CodexUserInputQuestion[];

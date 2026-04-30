@@ -121,6 +121,7 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
 - Reasoning items stay visible while in progress and remain visible after completion; the turn-bottom `Thinking` placeholder is a separate turn-body state, not a reasoning row.
 - User transcript bubbles expose hover/focus message actions under the bubble: `Copy message` and a mock-only `Edit message` control.
 - `Edit message` and `Fork from here` only attach to the turn's leading contiguous `userMessage` prefix. Later steer or follow-up `userMessage` items in the same turn do not get those actions, because turn-level rollback and fork targets are owned by that leading user prefix only.
+- User-sent images and context/file attachments render as a separate right-aligned strip immediately before the owning user bubble. They are derived from non-text `userMessage.content` inputs, not from markdown, so thumbnails are excluded from copy/edit text and from `Find in thread` searchable units. Local images render as 64px cropped thumbnails; remote image pointers render through the same strip slot with 64px contained thumbnails when their file source resolves.
 - Assistant copy only appears on the turn's bucketized final-assistant lane. Earlier assistant commentary rows, agent-body assistant rows, or settled assistant rows displaced by later follow-up items do not get transcript message actions. Running turns expose no assistant transcript message actions until that final-assistant lane settles with non-empty content.
 
 ## Tool and Activity Rendering

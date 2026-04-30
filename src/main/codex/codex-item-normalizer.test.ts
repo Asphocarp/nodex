@@ -468,6 +468,38 @@ describe("codex-item-normalizer", () => {
     }
   });
 
+  test("normalizes user-message images and context attachments separately from markdown text", () => {
+    const item = normalizeThreadItem(
+      {
+        id: "item-user-images",
+        type: "userMessage",
+        content: [
+          { type: "text", text: "Inspect these" },
+          { type: "image", url: "https://example.com/diagram.png", caption: "diagram" },
+          { type: "localImage", path: "/tmp/local.png", name: "local" },
+          { type: "mention", name: "notes.md", path: "/tmp/notes.md" },
+          { type: "skill", name: "Computer Use", path: "/plugins/computer-use" },
+          {
+            type: "image_asset_pointer",
+            asset_pointer: "file-service://remote-image",
+            caption: "remote",
+          },
+        ],
+      },
+      "thread-1",
+      "turn-1",
+    );
+
+    expect(item?.markdownText).toBe("Inspect these");
+    expect(item?.userAttachments?.length ?? 0).toBe(5);
+    expect(item?.userAttachments?.map((attachment) => attachment.type).join(",")).toBe("file,file,image,image,image");
+    expect(item?.userAttachments?.[0]?.type === "file" ? item.userAttachments[0].label : "").toBe("notes.md");
+    expect(item?.userAttachments?.[1]?.type === "file" ? item.userAttachments[1].sourceKind : "").toBe("skill");
+    expect(item?.userAttachments?.[2]?.type === "image" ? item.userAttachments[2].sourceKind : "").toBe("local");
+    expect(item?.userAttachments?.[4]?.type === "image" ? item.userAttachments[4].source : "").toBe("remote-image");
+    expect(item?.markdownText?.includes("diagram.png") ?? true).toBeFalse();
+  });
+
   test("normalizes request_user_input items with transcript answers", () => {
     const item = normalizeThreadItem(
       {

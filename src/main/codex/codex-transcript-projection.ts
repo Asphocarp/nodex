@@ -54,6 +54,7 @@ function projectItemToTranscriptEntry(
     grantRoot: item.grantRoot,
     fileChange: item.fileChange,
     markdownText: item.markdownText,
+    userAttachments: item.userAttachments,
     additionalDetails: item.additionalDetails,
     willRetry: item.willRetry,
     userInputQuestions: item.userInputQuestions,
@@ -107,6 +108,7 @@ export function applyOptimisticUserPrompt(input: {
   turnId: string;
   entryId: string;
   promptText: string;
+  userAttachments?: CodexTranscriptEntry["userAttachments"];
   createdAt?: number;
 }): CodexTranscriptEntry[] {
   const createdAt = input.createdAt ?? Date.now();
@@ -125,6 +127,7 @@ export function applyOptimisticUserPrompt(input: {
       source: "optimistic",
       sequence: input.transcript.length,
       markdownText: input.promptText,
+      userAttachments: input.userAttachments,
       createdAt,
       updatedAt: createdAt,
     },

@@ -71,6 +71,7 @@ export function mergeCodexItemView(existing: CodexItemView, incoming: CodexItemV
     toolCall: incoming.toolCall ?? existing.toolCall,
     mcpToolCall: incoming.mcpToolCall ?? existing.mcpToolCall,
     markdownText: incoming.markdownText ?? existing.markdownText,
+    userAttachments: incoming.userAttachments ?? existing.userAttachments,
     command: incoming.command !== undefined ? incoming.command : existing.command,
     cwd: incoming.cwd !== undefined ? incoming.cwd : existing.cwd,
     processId: incoming.processId !== undefined ? incoming.processId : existing.processId,

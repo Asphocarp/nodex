@@ -12,6 +12,7 @@ import type {
   CodexDictationStateSnapshot,
   CodexConversationCapabilityFlags,
   CodexConversationItem,
+  CodexUserAttachment,
   CodexConversationLiveRequest,
   CodexConversationResumeState,
   CodexConversationServerRequest,
@@ -168,6 +169,16 @@ export interface ThreadTranscriptBlockModel {
   searchUnitKey?: string;
 }
 
+export interface ThreadUserAttachmentStripBlockModel {
+  id: string;
+  turnId: string;
+  createdAt: number;
+  updatedAt: number;
+  searchableText: string;
+  type: "userAttachmentStrip";
+  attachments: CodexUserAttachment[];
+}
+
 export interface ThreadWorkedForAdornmentModel {
   id: string;
   turnId: string;
@@ -222,6 +233,7 @@ export type ThreadAgentEntryModel =
 
 export type ThreadBlockModel =
   | ThreadTranscriptBlockModel
+  | ThreadUserAttachmentStripBlockModel
   | ThreadExplorationGroupBlockModel
   | ThreadMultiAgentGroupBlockModel
   | ThreadThinkingPlaceholderBlockModel;

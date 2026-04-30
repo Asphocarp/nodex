@@ -9,6 +9,7 @@ import type {
   ThreadTranscriptBlockModel,
   ThreadTurnModel,
   ThreadTurnRenderBuckets,
+  ThreadUserAttachmentStripBlockModel,
   ThreadWorkedForAdornmentModel,
 } from "../thread-stage-types";
 
@@ -127,6 +128,32 @@ function applyUserMessageActions(
       canFork: Boolean(input.canForkTurnUserPrefix),
     },
   }));
+}
+
+function buildUserAttachmentStripBlock(
+  block: ThreadTranscriptBlockModel,
+): ThreadUserAttachmentStripBlockModel | null {
+  const attachments = block.entry.userAttachments ?? [];
+  if (attachments.length === 0) return null;
+
+  return {
+    id: `${block.id}:attachments`,
+    turnId: block.turnId,
+    createdAt: block.createdAt,
+    updatedAt: block.updatedAt,
+    searchableText: "",
+    type: "userAttachmentStrip",
+    attachments,
+  };
+}
+
+function expandUserBlocksWithAttachmentStrips(
+  userItems: ThreadTranscriptBlockModel[],
+): ThreadBlockModel[] {
+  return userItems.flatMap((block) => {
+    const strip = buildUserAttachmentStripBlock(block);
+    return strip ? [strip, block] : [block];
+  });
 }
 
 function applyAssistantMessageActions(
@@ -333,7 +360,7 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
   const leadingBlocks: ThreadBlockModel[] = [
     ...buckets.modelChangedItems,
     ...buckets.preUserItems,
-    ...buckets.userItems,
+    ...expandUserBlocksWithAttachmentStrips(buckets.userItems),
     ...buckets.modelReroutedItems,
   ];
   const aboveComposerBlocks = resolveAboveComposerBlocks(buckets, input);

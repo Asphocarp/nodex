@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import { fireEvent } from "@testing-library/react";
 import { createElement } from "react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
 import { render } from "../../../test/dom";
@@ -138,6 +139,75 @@ describe("LocalConversationTurnEntry", () => {
 
     expect(renderCounts.get("turn_older")).toBe(1);
     expect(renderCounts.get("turn_latest")).toBe(2);
+  });
+
+  test("renders user image attachments in a strip before the message bubble", async () => {
+    const stableRequests: [] = [];
+    const { LocalConversationTurnEntry } = await import("./local-conversation-turn-entry");
+    const turn: CodexConversationTurn = {
+      threadId: "thread_1",
+      turnId: "turn_images",
+      status: "completed",
+      itemIds: ["user_images", "assistant_images"],
+      items: [
+        {
+          ...buildUserEntry("turn_images", "user_images", "Inspect these images"),
+          userAttachments: [
+            {
+              type: "file",
+              id: "user_images:file:0",
+              label: "notes.md",
+              path: "/tmp/notes.md",
+              sourceKind: "mention",
+            },
+            {
+              type: "image",
+              id: "user_images:image:0",
+              source: "data:image/png;base64,aW1hZ2U=",
+              sourceKind: "local",
+              caption: "diagram",
+            },
+          ],
+        },
+        buildAssistantEntry("turn_images", "assistant_images", "Done"),
+      ],
+    };
+
+    const view = render(
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(LocalConversationTurnEntry, {
+          conversationId: "thread_1",
+          turnSearchKey: turn.turnId,
+          turn,
+          requests: stableRequests,
+          cwd: "/tmp/project",
+          isMostRecentTurn: true,
+          canEditTurnUserPrefix: true,
+          canForkTurnUserPrefix: true,
+        }),
+      ),
+    );
+
+    const strip = view.container.querySelector("[data-user-attachment-strip]");
+    const bubble = view.container.querySelector('[data-content-search-unit-key="turn_images:user:0"]');
+    if (!(strip instanceof HTMLElement) || !(bubble instanceof HTMLElement)) {
+      throw new Error("expected attachment strip and user bubble");
+    }
+
+    expect(Boolean(strip.textContent?.includes("notes.md"))).toBeTrue();
+    expect(Boolean(bubble.textContent?.includes("Inspect these images"))).toBeTrue();
+    expect(Boolean(strip.compareDocumentPosition(bubble) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
+    expect(strip.querySelector("img")?.className.includes("object-cover") ?? false).toBeTrue();
+
+    const previewTrigger = view.getByLabelText("Open image preview");
+    fireEvent.click(previewTrigger);
+    const preview = document.body.querySelector('[data-slot="codex-dialog-content"] img');
+    if (!(preview instanceof HTMLImageElement)) {
+      throw new Error("expected image preview dialog");
+    }
+    expect(preview.src.startsWith("data:image/png;base64")).toBeTrue();
   });
 
   test("renders assistant before later exec rows inside the agent body when exec arrives after it", async () => {

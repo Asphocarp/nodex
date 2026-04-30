@@ -15,6 +15,7 @@ import {
   ThreadThinkingPlaceholderBlock,
   ThreadSystemBannerBlock,
   ThreadTurnDiffBlock,
+  ThreadUserAttachmentStripBlock,
   ThreadToolSurfaceBlock,
   ThreadUserInputResponseCard,
   ThreadUserBubbleBlock,
@@ -73,6 +74,10 @@ export function ThreadBlockRenderer({
 
   if (block.type === "thinkingPlaceholder") {
     return <ThreadThinkingPlaceholderBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
+  }
+
+  if (block.type === "userAttachmentStrip") {
+    return <ThreadUserAttachmentStripBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
   }
 
   if (

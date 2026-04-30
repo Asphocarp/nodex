@@ -51,10 +51,12 @@ export function NodexDialogContent({
   overlayClassName,
   children,
   showCloseButton = true,
+  closeButtonAriaLabel = "Close",
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean;
   overlayClassName?: string;
+  closeButtonAriaLabel?: string;
 }) {
   return (
     <NodexDialogPortal>
@@ -78,7 +80,7 @@ export function NodexDialogContent({
               variant="ghost"
               size="icon-xs"
               className="absolute right-4 top-4 text-token-description-foreground hover:text-token-foreground"
-              aria-label="Close"
+              aria-label={closeButtonAriaLabel}
             >
               <XIcon />
             </NodexButton>
