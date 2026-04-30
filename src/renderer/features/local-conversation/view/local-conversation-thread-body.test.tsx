@@ -362,7 +362,7 @@ describe("LocalConversationThreadBody", () => {
       </TooltipProvider>,
     );
 
-    fireEvent.click(getAllByLabelText("Fork from this message")[0]!);
+    fireEvent.click(getAllByLabelText("Fork from this point")[0]!);
     await settleAsyncRender();
     expect(Boolean(queryByText("Fork thread"))).toBeTrue();
 

@@ -46,7 +46,7 @@ export function createLocalConversationSearchSource(input: LocalConversationSear
             isLatestTurn: false,
             isStreamingTurn: turn.status === "inProgress",
             canEditTurnUserPrefix: false,
-            canForkTurnUserPrefix: false,
+            canForkTurn: false,
           }).searchUnits;
           cachedUnitsByTurnKey.set(turnKey, { turn, requests, units });
         }

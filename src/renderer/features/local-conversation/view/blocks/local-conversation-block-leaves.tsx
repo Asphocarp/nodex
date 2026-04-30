@@ -18,11 +18,15 @@ import { PlanMessage } from "../shared/plan-message";
 import { ReasoningSurface } from "../shared/reasoning-surface";
 import { TurnDiffSurface } from "../shared/turn-diff-surface";
 import {
+  AssistantRatingButton,
   CopyMessageActionButton,
   EditMessageIcon,
   ForkMessageIcon,
+  MessageTimestamp,
   ThreadActionIconButton,
   ThreadMessageActionRow,
+  USER_COPY_FEEDBACK_MS,
+  type AssistantMessageRating,
 } from "../shared/thread-message-actions";
 import { TodoListSurface } from "../shared/todo-list-surface";
 import { getToolComponent } from "../shared/tools/get-tool-component";
@@ -557,15 +561,12 @@ export function ThreadUserAttachmentStripBlock({ block }: ThreadSpecialBlockProp
 
 export function UserMessageBubble({
   block,
-  isLatestTurn,
   isSearchMatch = false,
   isActiveSearchMatch = false,
   onEditLastUserTurn,
-  onForkFromTurn,
 }: ThreadLeafBlockProps) {
   const content = block.entry.markdownText ?? "";
   const userActions = block.userMessageActions;
-  const canFork = userActions?.canFork ?? false;
   const canEdit = userActions?.canEdit ?? false;
   const [isEditing, setIsEditing] = useState(false);
   const [draftMessage, setDraftMessage] = useState(content);
@@ -669,32 +670,23 @@ export function UserMessageBubble({
           <div className="flex flex-row-reverse items-center gap-1">
             {isEditing ? null : (
               <ThreadMessageActionRow align="end">
-                <CopyMessageActionButton text={content} />
-                {canFork ? (
-                  <ThreadActionIconButton
-                    label="Fork from this message"
-                    tooltip="Fork"
-                    onClick={() => {
-                      void onForkFromTurn?.({
-                        threadId: block.entry.threadId,
-                        turnId: block.turnId,
-                        message: content,
-                        isLatestTurn,
-                      });
-                    }}
-                  >
-                    <ForkMessageIcon />
-                  </ThreadActionIconButton>
-                ) : null}
-                {canEdit ? (
-                  <ThreadActionIconButton
-                    label="Edit message"
-                    tooltip="Edit"
-                    onClick={openInlineEditor}
-                  >
-                    <EditMessageIcon />
-                  </ThreadActionIconButton>
-                ) : null}
+                <MessageTimestamp sentAtMs={userActions?.sentAtMs ?? null} />
+                <div className="flex items-center gap-1">
+                  <CopyMessageActionButton
+                    text={content}
+                    feedbackMs={USER_COPY_FEEDBACK_MS}
+                    disabledWhenCopied
+                  />
+                  {canEdit ? (
+                    <ThreadActionIconButton
+                      label="Edit message"
+                      tooltip="Edit"
+                      onClick={openInlineEditor}
+                    >
+                      <EditMessageIcon />
+                    </ThreadActionIconButton>
+                  ) : null}
+                </div>
               </ThreadMessageActionRow>
             )}
           </div>
@@ -858,9 +850,15 @@ export function ThreadAssistantBodyBlock({
   isStreamingTurn,
   isSearchMatch = false,
   isActiveSearchMatch = false,
+  onForkFromTurn,
 }: ThreadLeafBlockProps) {
   const markdownText = block.entry.markdownText ?? "";
   const isStreamingAssistantText = isStreamingTurn && (block.entry.status === "inProgress" || isLatestTurn);
+  const assistantActions = block.assistantMessageActions;
+  const [selectedRating, setSelectedRating] = useState<AssistantMessageRating | null>(null);
+  const shouldShowActions =
+    assistantActions !== undefined
+    && (assistantActions.copyText !== null || assistantActions.canFork);
 
   return (
     <div
@@ -870,7 +868,7 @@ export function ThreadAssistantBodyBlock({
       )}
       data-content-search-unit-key={block.searchUnitKey}
     >
-      <div className="group flex flex-col gap-1">
+      <div className="group flex min-w-0 flex-col">
         <div className={THREAD_VISUAL_TOKENS.assistantBody}>
           <MarkdownRenderer
             content={markdownText}
@@ -878,12 +876,49 @@ export function ThreadAssistantBodyBlock({
             animateStreamingText={isStreamingAssistantText}
           />
         </div>
-        {block.showAssistantMessageActions ? (
-          <div className={THREAD_VISUAL_TOKENS.actionRow}>
-            <ThreadMessageActionRow align="start">
-              <CopyMessageActionButton text={markdownText} />
-            </ThreadMessageActionRow>
-          </div>
+        {shouldShowActions ? (
+          <ThreadMessageActionRow align="start">
+            {assistantActions.copyText !== null ? (
+              <>
+                <CopyMessageActionButton
+                  text={assistantActions.copyText}
+                  stopPropagation
+                />
+                {assistantActions.canRate ? (
+                  <>
+                    <AssistantRatingButton
+                      rating="thumbs_up"
+                      selectedRating={selectedRating}
+                      onSelect={setSelectedRating}
+                    />
+                    <AssistantRatingButton
+                      rating="thumbs_down"
+                      selectedRating={selectedRating}
+                      onSelect={setSelectedRating}
+                    />
+                  </>
+                ) : null}
+              </>
+            ) : null}
+            {assistantActions.canFork ? (
+              <ThreadActionIconButton
+                label="Fork from this point"
+                tooltip="Fork"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void onForkFromTurn?.({
+                    threadId: block.entry.threadId,
+                    turnId: block.turnId,
+                    message: "",
+                    isLatestTurn,
+                  });
+                }}
+              >
+                <ForkMessageIcon />
+              </ThreadActionIconButton>
+            ) : null}
+            <MessageTimestamp sentAtMs={assistantActions.sentAtMs} />
+          </ThreadMessageActionRow>
         ) : null}
       </div>
     </div>

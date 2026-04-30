@@ -161,6 +161,7 @@ export function ThreadBlockRenderer({
         isStreamingTurn={isStreamingTurn}
         isSearchMatch={isSearchMatch}
         isActiveSearchMatch={isActiveSearchMatch}
+        onForkFromTurn={onForkFromTurn}
       />
     );
   }

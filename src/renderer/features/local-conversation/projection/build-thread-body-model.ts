@@ -161,7 +161,7 @@ function resolveHasAboveComposerBlocks(
     isLatestTurn: latestTurnId === activeTurnId,
     isStreamingTurn: true,
     canEditTurnUserPrefix: false,
-    canForkTurnUserPrefix: false,
+    canForkTurn: false,
   });
 
   return (renderedTurn.aboveComposerBlocks?.length ?? 0) > 0;

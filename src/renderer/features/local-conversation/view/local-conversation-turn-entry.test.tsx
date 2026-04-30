@@ -50,7 +50,12 @@ function buildAssistantEntry(
   };
 }
 
-function buildTurn(turnId: string, userText: string, assistantText: string): CodexConversationTurn {
+function buildTurn(
+  turnId: string,
+  userText: string,
+  assistantText: string,
+  overrides: Partial<CodexConversationTurn> = {},
+): CodexConversationTurn {
   const userId = `${turnId}_user`;
   const assistantId = `${turnId}_assistant`;
   return {
@@ -62,12 +67,160 @@ function buildTurn(turnId: string, userText: string, assistantText: string): Cod
       buildUserEntry(turnId, userId, userText),
       buildAssistantEntry(turnId, assistantId, assistantText),
     ],
+    ...overrides,
   };
 }
 
 describe("LocalConversationTurnEntry", () => {
   beforeEach(() => {
     renderCounts.clear();
+  });
+
+  test("renders user copy time and optional edit without a user fork action", async () => {
+    const stableRequests: [] = [];
+    const { LocalConversationTurnEntry } = await import("./local-conversation-turn-entry");
+    const sentAtMs = 180_000;
+    const staleStartedAtMs = 999_000;
+    const turn = buildTurn("turn_actions", "Copy this request", "Done", {
+      turnStartedAtMs: sentAtMs,
+      startedAt: staleStartedAtMs,
+      completedAt: 999_000,
+    });
+    const expectedTime = new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date(sentAtMs));
+    const staleStartedTime = new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date(staleStartedAtMs));
+    const view = render(
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(LocalConversationTurnEntry, {
+          conversationId: "thread_1",
+          turnSearchKey: turn.turnId,
+          turn,
+          requests: stableRequests,
+          cwd: "/tmp/project",
+          isMostRecentTurn: true,
+          canEditTurnUserPrefix: true,
+          canForkTurn: true,
+        }),
+      ),
+    );
+
+    expect(view.getAllByLabelText("Copy message").length > 0).toBeTrue();
+    expect(Boolean(view.getByLabelText("Edit message"))).toBeTrue();
+    expect(view.queryByLabelText("Fork from this message") === null).toBeTrue();
+    expect(Boolean(view.container.textContent?.includes(expectedTime))).toBeTrue();
+    expect(Boolean(view.container.textContent?.includes(staleStartedTime))).toBeFalse();
+  });
+
+  test("renders assistant actions in Codex order and forks with an empty composer draft", async () => {
+    const stableRequests: [] = [];
+    const forkInputs: Array<{ threadId: string; turnId: string; message: string; isLatestTurn: boolean }> = [];
+    const { LocalConversationTurnEntry } = await import("./local-conversation-turn-entry");
+    const sentAtMs = 180_000;
+    const staleCompletedAtMs = 999_000;
+    const turn = buildTurn("turn_assistant_actions", "Request", "Assistant reply", {
+      turnStartedAtMs: 90_000,
+      finalAssistantStartedAtMs: sentAtMs,
+      completedAt: staleCompletedAtMs,
+    });
+    const expectedTime = new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date(sentAtMs));
+    const staleCompletedTime = new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date(staleCompletedAtMs));
+    const view = render(
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(LocalConversationTurnEntry, {
+          conversationId: "thread_1",
+          turnSearchKey: turn.turnId,
+          turn,
+          requests: stableRequests,
+          cwd: "/tmp/project",
+          isMostRecentTurn: false,
+          canEditTurnUserPrefix: false,
+          canForkTurn: true,
+          onForkTurnMessage: (input) => {
+            forkInputs.push(input);
+          },
+        }),
+      ),
+    );
+
+    const labels = Array.from(view.container.querySelectorAll("button[aria-label]"))
+      .map((button) => button.getAttribute("aria-label") ?? "");
+    const assistantCopyIndex = labels.lastIndexOf("Copy message");
+    const thumbsUpIndex = labels.indexOf("Good response");
+    const thumbsDownIndex = labels.indexOf("Bad response");
+    const forkIndex = labels.indexOf("Fork from this point");
+
+    expect(assistantCopyIndex >= 0).toBeTrue();
+    expect(thumbsUpIndex > assistantCopyIndex).toBeTrue();
+    expect(thumbsDownIndex > thumbsUpIndex).toBeTrue();
+    expect(forkIndex > thumbsDownIndex).toBeTrue();
+    expect(Boolean(view.container.textContent?.includes(expectedTime))).toBeTrue();
+    expect(Boolean(view.container.textContent?.includes(staleCompletedTime))).toBeFalse();
+
+    fireEvent.click(view.getByLabelText("Fork from this point"));
+    expect(forkInputs.length).toBe(1);
+    expect(forkInputs[0]?.turnId).toBe("turn_assistant_actions");
+    expect(forkInputs[0]?.message).toBe("");
+    expect(forkInputs[0]?.isLatestTurn).toBeFalse();
+  });
+
+  test("suppresses assistant copy and rating while streaming or empty", async () => {
+    const stableRequests: [] = [];
+    const { LocalConversationTurnEntry } = await import("./local-conversation-turn-entry");
+    const streamingTurn: CodexConversationTurn = {
+      ...buildTurn("turn_streaming", "Request", "Streaming reply"),
+      status: "inProgress",
+      items: [
+        buildUserEntry("turn_streaming", "turn_streaming_user", "Request"),
+        buildAssistantEntry("turn_streaming", "turn_streaming_assistant", "Streaming reply", {
+          status: "inProgress",
+        }),
+      ],
+    };
+    const emptyTurn = buildTurn("turn_empty", "Request", "");
+    const view = render(
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(LocalConversationTurnEntry, {
+          conversationId: "thread_1",
+          turnSearchKey: streamingTurn.turnId,
+          turn: streamingTurn,
+          requests: stableRequests,
+          cwd: "/tmp/project",
+          isMostRecentTurn: true,
+          canEditTurnUserPrefix: false,
+          canForkTurn: true,
+        }),
+      ),
+    );
+
+    expect(view.queryByLabelText("Good response") === null).toBeTrue();
+    expect(view.queryByLabelText("Bad response") === null).toBeTrue();
+    expect(view.queryByLabelText("Fork from this point") === null).toBeTrue();
+
+    view.rerender(
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(LocalConversationTurnEntry, {
+          conversationId: "thread_1",
+          turnSearchKey: emptyTurn.turnId,
+          turn: emptyTurn,
+          requests: stableRequests,
+          cwd: "/tmp/project",
+          isMostRecentTurn: true,
+          canEditTurnUserPrefix: false,
+          canForkTurn: true,
+        }),
+      ),
+    );
+
+    expect(view.queryByLabelText("Good response") === null).toBeTrue();
+    expect(view.queryByLabelText("Bad response") === null).toBeTrue();
+    expect(Boolean(view.getByLabelText("Fork from this point"))).toBeTrue();
   });
 
   test("does not rerender unchanged older turns when a different turn updates", async () => {
@@ -102,7 +255,7 @@ describe("LocalConversationTurnEntry", () => {
           cwd: "/tmp/project",
           isMostRecentTurn: false,
           canEditTurnUserPrefix: false,
-          canForkTurnUserPrefix: true,
+          canForkTurn: true,
           onRendered: recordRender,
         }),
         createElement(LocalConversationTurnEntry, {
@@ -113,7 +266,7 @@ describe("LocalConversationTurnEntry", () => {
           cwd: "/tmp/project",
           isMostRecentTurn: true,
           canEditTurnUserPrefix: true,
-          canForkTurnUserPrefix: true,
+          canForkTurn: true,
           onRendered: recordRender,
         }),
       );
@@ -185,7 +338,7 @@ describe("LocalConversationTurnEntry", () => {
           cwd: "/tmp/project",
           isMostRecentTurn: true,
           canEditTurnUserPrefix: true,
-          canForkTurnUserPrefix: true,
+          canForkTurn: true,
         }),
       ),
     );
@@ -260,7 +413,7 @@ describe("LocalConversationTurnEntry", () => {
           cwd: "/tmp/project",
           isMostRecentTurn: true,
           canEditTurnUserPrefix: true,
-          canForkTurnUserPrefix: true,
+          canForkTurn: true,
         }),
       ),
     );
@@ -277,7 +430,7 @@ describe("LocalConversationTurnEntry", () => {
           cwd: "/tmp/project",
           isMostRecentTurn: true,
           canEditTurnUserPrefix: true,
-          canForkTurnUserPrefix: true,
+          canForkTurn: true,
         }),
       ),
     );
@@ -362,7 +515,7 @@ describe("LocalConversationTurnEntry", () => {
           cwd: "/tmp/project",
           isMostRecentTurn: true,
           canEditTurnUserPrefix: true,
-          canForkTurnUserPrefix: true,
+          canForkTurn: true,
         }),
       ),
     );
@@ -379,7 +532,7 @@ describe("LocalConversationTurnEntry", () => {
           cwd: "/tmp/project",
           isMostRecentTurn: true,
           canEditTurnUserPrefix: true,
-          canForkTurnUserPrefix: true,
+          canForkTurn: true,
         }),
       ),
     );

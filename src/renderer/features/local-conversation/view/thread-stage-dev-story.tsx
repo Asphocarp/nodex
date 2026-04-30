@@ -593,12 +593,12 @@ export function ThreadStageDevStoryPage({
       }
 
       if (scenario.autoAction === "openOlderFork") {
-        (root.querySelector('[aria-label="Fork from this message"]') as HTMLButtonElement | null)?.click();
+        (root.querySelector('[aria-label="Fork from this point"]') as HTMLButtonElement | null)?.click();
         return;
       }
 
       if (scenario.autoAction === "triggerLatestFork") {
-        (root.querySelector('[aria-label="Fork from this message"]') as HTMLButtonElement | null)?.click();
+        (root.querySelector('[aria-label="Fork from this point"]') as HTMLButtonElement | null)?.click();
       }
     };
 

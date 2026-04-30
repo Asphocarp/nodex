@@ -19,6 +19,11 @@ export function mergeCodexTurnSummary(
     ...existing,
     ...incoming,
     errorMessage: incoming.errorMessage ?? existing.errorMessage,
+    turnStartedAtMs: incoming.turnStartedAtMs ?? existing.turnStartedAtMs,
+    finalAssistantStartedAtMs: incoming.finalAssistantStartedAtMs ?? existing.finalAssistantStartedAtMs,
+    startedAt: incoming.startedAt ?? existing.startedAt,
+    completedAt: incoming.completedAt ?? existing.completedAt,
+    durationMs: incoming.durationMs ?? existing.durationMs,
     itemIds: mergeOrderedStringIds(existing.itemIds, incoming.itemIds),
     interruptedCommandExecutionItemIds: mergeOrderedStringIds(
       existing.interruptedCommandExecutionItemIds ?? [],

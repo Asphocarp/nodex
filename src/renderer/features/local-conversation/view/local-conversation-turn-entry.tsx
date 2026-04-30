@@ -14,7 +14,7 @@ interface LocalConversationTurnEntryProps {
   persistedCollapsed?: boolean;
   onSetCollapsed?: (collapsed: boolean) => void;
   canEditTurnUserPrefix: boolean;
-  canForkTurnUserPrefix: boolean;
+  canForkTurn: boolean;
   projectWorkspacePath?: string | null;
   threadCwd?: string | null;
   onEditLastTurnMessage?: (input: {
@@ -40,7 +40,7 @@ function LocalConversationTurnEntryComponent({
   persistedCollapsed,
   onSetCollapsed,
   canEditTurnUserPrefix,
-  canForkTurnUserPrefix,
+  canForkTurn,
   projectWorkspacePath,
   threadCwd,
   onEditLastTurnMessage,
@@ -57,11 +57,11 @@ function LocalConversationTurnEntryComponent({
         isLatestTurn: isMostRecentTurn,
         isStreamingTurn: turn.status === "inProgress",
         canEditTurnUserPrefix,
-        canForkTurnUserPrefix,
+        canForkTurn,
       }),
     [
       canEditTurnUserPrefix,
-      canForkTurnUserPrefix,
+      canForkTurn,
       isMostRecentTurn,
       requests,
       turn,
@@ -105,7 +105,7 @@ export const LocalConversationTurnEntry = memo(
     && left.persistedCollapsed === right.persistedCollapsed
     && left.onSetCollapsed === right.onSetCollapsed
     && left.canEditTurnUserPrefix === right.canEditTurnUserPrefix
-    && left.canForkTurnUserPrefix === right.canForkTurnUserPrefix
+    && left.canForkTurn === right.canForkTurn
     && left.projectWorkspacePath === right.projectWorkspacePath
     && left.threadCwd === right.threadCwd
     && left.onEditLastTurnMessage === right.onEditLastTurnMessage

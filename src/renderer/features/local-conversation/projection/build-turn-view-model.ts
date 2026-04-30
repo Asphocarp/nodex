@@ -22,7 +22,7 @@ interface BuildTurnViewModelInput {
   isStreamingTurn: boolean;
   isBlocked: boolean;
   canEditTurnUserPrefix?: boolean;
-  canForkTurnUserPrefix?: boolean;
+  canForkTurn?: boolean;
 }
 
 function buildThinkingPlaceholderItem(turnId: string): ThreadThinkingPlaceholderBlockModel {
@@ -115,9 +115,24 @@ function withSearchUnitKey<TBlock extends ThreadBlockModel | null>(
   return nextBlock as TBlock;
 }
 
+function resolveTimestampMs(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function resolveUserMessageSentAt(turn: CodexConversationTurn | null, index: number): number | null {
+  if (index !== 0) return null;
+  return resolveTimestampMs(turn?.turnStartedAtMs);
+}
+
+function resolveAssistantMessageSentAt(
+  turn: CodexConversationTurn | null,
+): number | null {
+  return resolveTimestampMs(turn?.finalAssistantStartedAtMs);
+}
+
 function applyUserMessageActions(
   userItems: ThreadTranscriptBlockModel[],
-  input: Pick<BuildTurnViewModelInput, "canEditTurnUserPrefix" | "canForkTurnUserPrefix">,
+  input: Pick<BuildTurnViewModelInput, "canEditTurnUserPrefix" | "turn">,
 ): ThreadTranscriptBlockModel[] {
   if (userItems.length === 0) return userItems;
 
@@ -125,7 +140,7 @@ function applyUserMessageActions(
     ...block,
     userMessageActions: {
       canEdit: Boolean(input.canEditTurnUserPrefix) && index === userItems.length - 1,
-      canFork: Boolean(input.canForkTurnUserPrefix),
+      sentAtMs: resolveUserMessageSentAt(input.turn, index),
     },
   }));
 }
@@ -158,16 +173,26 @@ function expandUserBlocksWithAttachmentStrips(
 
 function applyAssistantMessageActions(
   assistantItem: ThreadTranscriptBlockModel | null,
-  input: Pick<BuildTurnViewModelInput, "isStreamingTurn">,
+  input: Pick<BuildTurnViewModelInput, "canForkTurn" | "isStreamingTurn" | "turn">,
 ): ThreadTranscriptBlockModel | null {
   if (!assistantItem || assistantItem.type !== "assistantMessage") return assistantItem;
 
-  const hasCopyableContent = (assistantItem.entry.markdownText?.trim().length ?? 0) > 0;
-  const showAssistantMessageActions = !input.isStreamingTurn && hasCopyableContent;
+  const copyText = assistantItem.entry.markdownText?.trim() ?? "";
+  const hasCopyableContent = copyText.length > 0;
+  const isCompleted = !input.isStreamingTurn && assistantItem.status !== "inProgress";
+  const canFork = isCompleted && Boolean(input.canForkTurn);
+  const canRate = isCompleted && hasCopyableContent;
+
+  if (!canFork && !(isCompleted && hasCopyableContent)) return assistantItem;
 
   return {
     ...assistantItem,
-    showAssistantMessageActions,
+    assistantMessageActions: {
+      copyText: hasCopyableContent && isCompleted ? copyText : null,
+      sentAtMs: resolveAssistantMessageSentAt(input.turn),
+      canRate,
+      canFork,
+    },
   };
 }
 
@@ -300,7 +325,7 @@ function decorateAssistantBlock(
   block: ThreadTranscriptBlockModel,
   latestAssistantId: string | null,
   assistantSearchUnitKey: string,
-  input: Pick<BuildTurnViewModelInput, "isStreamingTurn">,
+  input: Pick<BuildTurnViewModelInput, "canForkTurn" | "isStreamingTurn" | "turn">,
 ): ThreadTranscriptBlockModel {
   if (block.type !== "assistantMessage") return block;
   if (latestAssistantId === null || block.id !== latestAssistantId) return block;

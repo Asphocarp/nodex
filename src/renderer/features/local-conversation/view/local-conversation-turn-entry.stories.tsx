@@ -239,7 +239,7 @@ const meta = {
     cwd: "/workspace/nodex",
     isMostRecentTurn: true,
     canEditTurnUserPrefix: true,
-    canForkTurnUserPrefix: true,
+    canForkTurn: true,
     projectWorkspacePath: "/workspace/nodex",
     threadCwd: "/workspace/nodex",
     onRendered: () => {},
@@ -260,6 +260,26 @@ export const AssistantThenExecInline: Story = {
     turnSearchKey: assistantThenExecTurn.turnId,
     turn: assistantThenExecTurn,
   },
+};
+
+export const ActionStripParity: Story = {
+  args: {
+    turnSearchKey: longThreadTurn.turnId,
+    turn: longThreadTurn,
+    isMostRecentTurn: false,
+    canEditTurnUserPrefix: true,
+    canForkTurn: true,
+  },
+  decorators: [
+    (Story) => (
+      <div className="thread-action-strip-story">
+        <style>
+          {".thread-action-strip-story .opacity-0{opacity:1!important}"}
+        </style>
+        <Story />
+      </div>
+    ),
+  ],
 };
 
 export const SingleLocalImage: Story = {

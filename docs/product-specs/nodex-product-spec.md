@@ -91,10 +91,14 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Thread stage is a live Codex workspace in Electron (auth, linked threads, streaming events, approvals)
 - Detailed visible transcript behavior for Threads lives in [Codex Thread Transcript Behavior](./codex-thread-transcript-behavior.md), including answered `request_user_input` rows, plan-implementation follow-up flow, optimistic prompt dedupe, tool/reasoning rendering, and restart recovery rules.
 - User-message transcript actions follow the Codex Electron model:
-  - `Copy message` is available from user bubbles.
+  - `Copy message` and the sent timestamp are available from user bubbles.
+  - The user sent timestamp comes from the turn's `turnStartedAtMs` and renders as localized short time only.
   - `Edit message` is shown only on the last user message of the latest completed editable turn; activating it swaps that bubble for an inline edit prompt in place, and the actual rollback-plus-resend happens only after the user clicks `Send`.
-  - `Fork from here` is shown on eligible completed user-message blocks; latest-turn forks execute immediately, while older-turn forks open a confirmation dialog unless the user has opted out of that confirmation.
-  - Forking opens a new thread tab backed by the forked conversation snapshot and prefills the composer in the new thread.
+- Assistant-message transcript actions follow the Codex Electron model:
+  - Completed final assistant messages can expose `Copy message`, `Good response`, `Bad response`, `Fork from this point`, and sent timestamp actions.
+  - The assistant sent timestamp comes from `finalAssistantStartedAtMs`, refreshed from live agent-message event timing; protocol `completedAt` is only an archived/read fallback and is not the renderer's display source.
+  - `Fork from this point` is shown on eligible completed final assistant messages; latest-turn forks execute immediately, while older-turn forks open a confirmation dialog unless the user has opted out of that confirmation.
+  - Forking opens a new thread tab backed by the forked conversation snapshot and focuses the composer in the new thread.
 - Mounted thread turn rendering follows the Codex Electron turn pipeline:
   - each visible turn is projected from an ordered item stream into semantic render buckets, then rendered in a fixed order instead of category-priority reshuffling
   - visible order is `model changed -> user -> model reroute -> agent/exploration body -> system event -> assistant -> post-assistant artifacts -> MCP elicitation -> proposed plan / todo -> in-progress placeholder -> unified diff -> provenance markers`

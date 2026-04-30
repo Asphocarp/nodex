@@ -42,18 +42,20 @@ export function LocalConversationForkFromTurnDialog({
         <DialogHeader>
           <DialogTitle>Fork from this turn?</DialogTitle>
           <DialogDescription>
-            This will open a new thread starting from the selected historical turn instead of the current latest turn.
+            This will open a new thread from the selected point in the conversation.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="rounded-xl border border-(--border) bg-(--background-secondary) px-3 py-2.5">
-          <div className="text-xs font-medium tracking-wide text-(--foreground-tertiary) uppercase">
-            Prefill prompt
+        {message.trim().length > 0 ? (
+          <div className="rounded-xl border border-(--border) bg-(--background-secondary) px-3 py-2.5">
+            <div className="text-xs font-medium tracking-wide text-(--foreground-tertiary) uppercase">
+              Composer draft
+            </div>
+            <div className="mt-1 text-sm whitespace-pre-wrap text-(--foreground-secondary)">
+              {message.trim()}
+            </div>
           </div>
-          <div className="mt-1 text-sm whitespace-pre-wrap text-(--foreground-secondary)">
-            {message.trim() || "Empty prompt"}
-          </div>
-        </div>
+        ) : null}
 
         <label className="flex items-start gap-3 rounded-lg px-1 py-1 text-sm text-(--foreground-secondary)">
           <input

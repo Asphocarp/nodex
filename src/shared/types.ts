@@ -749,6 +749,11 @@ export interface CodexTurnSummary {
   errorMessage?: string;
   diff?: string;
   itemIds: string[];
+  turnStartedAtMs?: number | null;
+  finalAssistantStartedAtMs?: number | null;
+  startedAt?: number | null;
+  completedAt?: number | null;
+  durationMs?: number | null;
   interruptedCommandExecutionItemIds?: string[];
   tokenUsage?: CodexThreadTokenUsage;
 }

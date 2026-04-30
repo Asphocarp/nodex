@@ -11,7 +11,7 @@ export interface BuildTurnRenderModelInput {
   isLatestTurn: boolean;
   isStreamingTurn: boolean;
   canEditTurnUserPrefix?: boolean;
-  canForkTurnUserPrefix?: boolean;
+  canForkTurn?: boolean;
 }
 
 function hasIncompleteElicitation(
@@ -54,6 +54,6 @@ export function buildTurnRenderModel(
     isStreamingTurn: input.isStreamingTurn,
     isBlocked,
     canEditTurnUserPrefix: input.canEditTurnUserPrefix,
-    canForkTurnUserPrefix: input.canForkTurnUserPrefix,
+    canForkTurn: input.canForkTurn,
   });
 }

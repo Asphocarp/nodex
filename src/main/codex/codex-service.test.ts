@@ -477,6 +477,9 @@ describe("codex-service readThread fallback", () => {
               {
                 id: "turn_file_change_diff",
                 status: "completed",
+                startedAt: 1,
+                completedAt: 2,
+                durationMs: 1000,
                 diff: turnDiff,
                 items: [
                   {
@@ -501,6 +504,11 @@ describe("codex-service readThread fallback", () => {
         const detail = await service.readThread("thr_file_change_diff", true);
         expect(detail).not.toBeNull();
         expect(detail?.turns[0]?.diff).toBe(turnDiff);
+        expect(detail?.turns[0]?.startedAt).toBe(1_000);
+        expect(detail?.turns[0]?.completedAt).toBe(2_000);
+        expect(detail?.turns[0]?.turnStartedAtMs).toBe(1_000);
+        expect(detail?.turns[0]?.finalAssistantStartedAtMs).toBe(2_000);
+        expect(detail?.turns[0]?.durationMs).toBe(1000);
         expect(detail?.transcript.length).toBe(2);
         expect(`${detail?.transcript[0]?.kind}:${detail?.transcript[0]?.semanticKind}`).toBe("fileChange:patch");
         expect(`${detail?.transcript[1]?.kind}:${detail?.transcript[1]?.semanticKind}`).toBe("systemEvent:diff");
@@ -2375,6 +2383,8 @@ describe("codex-service startTurn", () => {
       const startedTurn = await service.startTurn("thr_start", "Ship the fix");
       expect(startedTurn?.turnId).toBe("turn_new");
       expect(startedTurn?.status).toBe("inProgress");
+      expect(typeof startedTurn?.turnStartedAtMs).toBe("number");
+      expect((startedTurn?.turnStartedAtMs ?? 0) > 0).toBeTrue();
       expect(requests.length).toBe(1);
       expect(requests[0]?.method).toBe("turn/start");
       expect(markedActive.length).toBe(1);
@@ -6985,8 +6995,132 @@ describe("codex-service terminal turn reconciliation", () => {
         const latest = projectConversationFromHostMessages(hostMessages);
         expect(latest).not.toBeNull();
         expect(latest?.turns.length).toBe(1);
+        expect(typeof latest?.turns[0]?.turnStartedAtMs).toBe("number");
+        expect(typeof latest?.turns[0]?.finalAssistantStartedAtMs).toBe("number");
         expect(latest?.turns[0]?.items.length).toBe(1);
         expect(latest?.turns[0]?.items[0]?.markdownText).toBe("hello");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("refreshes assistant display timestamp when a completed agent message arrives", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Completed assistant timestamp" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_agent_message_completed",
+        threadName: "Completed assistant timestamp",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") {
+          hostMessages.push(message);
+        }
+      });
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_agent_message_completed"),
+        turns: [
+          {
+            threadId: "thr_agent_message_completed",
+            turnId: "turn_agent_message_completed",
+            status: "inProgress",
+            itemIds: [],
+          },
+        ],
+        transcript: [],
+      });
+
+      try {
+        await serviceInternals.handleNotification("item/completed", {
+          threadId: "thr_agent_message_completed",
+          turnId: "turn_agent_message_completed",
+          item: {
+            id: "assistant_agent_message_completed",
+            type: "agentMessage",
+            text: "Done",
+          },
+        });
+
+        const latest = projectConversationFromHostMessages(hostMessages);
+        expect(latest).not.toBeNull();
+        expect(latest?.turns[0]?.items[0]?.markdownText).toBe("Done");
+        expect(typeof latest?.turns[0]?.turnStartedAtMs).toBe("number");
+        expect(typeof latest?.turns[0]?.finalAssistantStartedAtMs).toBe("number");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("keeps live assistant timestamp when turn completion carries completedAt fallback", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Completion timestamp fallback" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_completion_timestamp_fallback",
+        threadName: "Completion timestamp fallback",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") {
+          hostMessages.push(message);
+        }
+      });
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_completion_timestamp_fallback"),
+        turns: [
+          {
+            threadId: "thr_completion_timestamp_fallback",
+            turnId: "turn_completion_timestamp_fallback",
+            status: "inProgress",
+            itemIds: [],
+            turnStartedAtMs: 100,
+            finalAssistantStartedAtMs: 200,
+          },
+        ],
+        transcript: [],
+      });
+
+      try {
+        await serviceInternals.handleNotification("turn/completed", {
+          threadId: "thr_completion_timestamp_fallback",
+          turn: {
+            id: "turn_completion_timestamp_fallback",
+            status: "completed",
+            completedAt: 999,
+            items: [],
+          },
+        });
+
+        const latest = projectConversationFromHostMessages(hostMessages);
+        expect(latest?.turns[0]?.status).toBe("completed");
+        expect(latest?.turns[0]?.turnStartedAtMs).toBe(100);
+        expect(latest?.turns[0]?.finalAssistantStartedAtMs).toBe(200);
+        expect(latest?.turns[0]?.completedAt).toBe(999_000);
       } finally {
         await service.shutdown();
       }
@@ -7071,6 +7205,8 @@ describe("codex-service terminal turn reconciliation", () => {
             ? firstHostMessage.change.type
             : "snapshot",
         ).toBe("patches");
+        const latest = projectConversationFromHostMessages(hostMessages);
+        expect(typeof latest?.turns[0]?.finalAssistantStartedAtMs).toBe("number");
       } finally {
         await service.shutdown();
       }

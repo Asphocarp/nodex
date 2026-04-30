@@ -316,7 +316,7 @@ export function LocalConversationThreadBodyOwner({
         isLatestTurn: latestTurnId === activeEntry.turnId,
         isStreamingTurn: true,
         canEditTurnUserPrefix: editableTurnId === activeEntry.turnId,
-        canForkTurnUserPrefix:
+        canForkTurn:
           canForkFromTurn && activeEntry.turn.status !== "inProgress",
       });
     },

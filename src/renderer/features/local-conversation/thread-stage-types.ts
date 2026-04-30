@@ -111,6 +111,13 @@ export interface ThreadStageActions {
 
 export interface ThreadUserMessageActionsModel {
   canEdit: boolean;
+  sentAtMs: number | null;
+}
+
+export interface ThreadAssistantMessageActionsModel {
+  copyText: string | null;
+  sentAtMs: number | null;
+  canRate: boolean;
   canFork: boolean;
 }
 
@@ -165,7 +172,7 @@ export interface ThreadTranscriptBlockModel {
   entry: CodexConversationItem;
   status?: CodexConversationItem["status"];
   userMessageActions?: ThreadUserMessageActionsModel;
-  showAssistantMessageActions?: boolean;
+  assistantMessageActions?: ThreadAssistantMessageActionsModel;
   searchUnitKey?: string;
 }
 

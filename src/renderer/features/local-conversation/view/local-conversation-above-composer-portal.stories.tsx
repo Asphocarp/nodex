@@ -81,7 +81,7 @@ function resolveStoryAboveComposerBlocks(
     isLatestTurn: model.bodyModel.body.latestTurnId === activeTurnId,
     isStreamingTurn: true,
     canEditTurnUserPrefix: false,
-    canForkTurnUserPrefix: false,
+    canForkTurn: false,
   }).aboveComposerBlocks ?? [];
 }
 

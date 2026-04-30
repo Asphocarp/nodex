@@ -311,6 +311,7 @@ interface FrameTextDeltaUpdate {
   itemId: string;
   target: FrameTextDeltaTarget;
   delta: string;
+  observedAtMs: number;
 }
 
 interface OutputDeltaUpdate {
@@ -543,6 +544,15 @@ function normalizeTimestamp(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return Date.now();
   if (value > 10_000_000_000) return Math.floor(value);
   return Math.floor(value * 1000);
+}
+
+function normalizeOptionalTimestamp(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return normalizeTimestamp(value);
+}
+
+function getFiniteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -3068,6 +3078,13 @@ export class CodexService extends EventEmitter {
       : Array.isArray(candidate.interrupted_command_execution_item_ids)
         ? candidate.interrupted_command_execution_item_ids.filter((value): value is string => typeof value === "string")
         : [];
+    const startedAt = normalizeOptionalTimestamp(candidate.startedAt ?? candidate.started_at);
+    const completedAt = normalizeOptionalTimestamp(candidate.completedAt ?? candidate.completed_at);
+    const turnStartedAtMs =
+      normalizeOptionalTimestamp(candidate.turnStartedAtMs ?? candidate.turn_started_at_ms) ?? startedAt;
+    const finalAssistantStartedAtMs =
+      normalizeOptionalTimestamp(candidate.finalAssistantStartedAtMs ?? candidate.final_assistant_started_at_ms)
+      ?? completedAt;
 
     return {
       threadId,
@@ -3076,12 +3093,21 @@ export class CodexService extends EventEmitter {
       errorMessage,
       diff: parseTurnDiff(candidate),
       itemIds,
+      turnStartedAtMs,
+      finalAssistantStartedAtMs,
+      startedAt,
+      completedAt,
+      durationMs: getFiniteNumber(candidate.durationMs ?? candidate.duration_ms) ?? null,
       interruptedCommandExecutionItemIds,
       tokenUsage,
     };
   }
 
-  private mergeTurn(threadId: string, turn: CodexTurnSummary): void {
+  private mergeTurn(
+    threadId: string,
+    turn: CodexTurnSummary,
+    options?: { preferIncomingFinalAssistantStartedAtMs?: boolean },
+  ): void {
     const detail = this.ensureConversationDetail(threadId);
     if (!detail) return;
 
@@ -3096,16 +3122,46 @@ export class CodexService extends EventEmitter {
       existing.interruptedCommandExecutionItemIds ?? [],
       turn.interruptedCommandExecutionItemIds ?? [],
     );
-    detail.turns = detail.turns.map((candidate) => candidate.turnId !== turn.turnId
-      ? candidate
-      : {
-          ...existing,
-          ...turn,
-          errorMessage: turn.errorMessage ?? existing.errorMessage,
-          itemIds: mergedItemIds,
-          interruptedCommandExecutionItemIds: mergedInterruptedCommandExecutionItemIds,
-          tokenUsage: turn.tokenUsage ?? existing.tokenUsage,
-        });
+    detail.turns = detail.turns.map((candidate) =>
+      candidate.turnId !== turn.turnId
+        ? candidate
+        : {
+            ...existing,
+            ...turn,
+            errorMessage: turn.errorMessage ?? existing.errorMessage,
+            turnStartedAtMs: turn.turnStartedAtMs ?? existing.turnStartedAtMs,
+            finalAssistantStartedAtMs: options?.preferIncomingFinalAssistantStartedAtMs
+              ? turn.finalAssistantStartedAtMs ?? existing.finalAssistantStartedAtMs
+              : existing.finalAssistantStartedAtMs ?? turn.finalAssistantStartedAtMs,
+            startedAt: turn.startedAt ?? existing.startedAt,
+            completedAt: turn.completedAt ?? existing.completedAt,
+            durationMs: turn.durationMs ?? existing.durationMs,
+            itemIds: mergedItemIds,
+            interruptedCommandExecutionItemIds: mergedInterruptedCommandExecutionItemIds,
+            tokenUsage: turn.tokenUsage ?? existing.tokenUsage,
+          });
+  }
+
+  private markFinalAssistantStartedAt(
+    threadId: string,
+    turnId: string,
+    observedAtMs = Date.now(),
+  ): CodexTurnSummary | null {
+    const existing = this.getKnownTurn(threadId, turnId);
+    const nextTurn: CodexTurnSummary = {
+      ...(existing ?? {
+        threadId,
+        turnId,
+        status: "inProgress" as const,
+        itemIds: [],
+      }),
+      turnStartedAtMs: existing?.turnStartedAtMs ?? observedAtMs,
+      finalAssistantStartedAtMs: observedAtMs,
+    };
+    this.mergeTurn(threadId, nextTurn, {
+      preferIncomingFinalAssistantStartedAtMs: true,
+    });
+    return this.getKnownTurn(threadId, turnId) ?? nextTurn;
   }
 
   private upsertCanonicalTurnItem(
@@ -4473,20 +4529,24 @@ export class CodexService extends EventEmitter {
       const turnStart = await this.client.request<"turn/start", TurnStartResponse>("turn/start", turnStartParams);
       const startedTurn = this.asTurnSummary(link.threadId, turnStart.turn);
       if (startedTurn) {
-        this.mergeTurn(link.threadId, startedTurn);
+        const observedTurn: CodexTurnSummary = {
+          ...startedTurn,
+          turnStartedAtMs: startedTurn.turnStartedAtMs ?? Date.now(),
+        };
+        this.mergeTurn(link.threadId, observedTurn);
         const optimisticUserAttachments = buildCodexUserAttachmentsFromContent(
           preparedPrompt.inputItems,
-          `optimistic:${startedTurn.turnId}`,
+          `optimistic:${observedTurn.turnId}`,
         );
         this.seedTurnWithOptimisticUserMessage(
           link.threadId,
-          startedTurn.turnId,
+          observedTurn.turnId,
           prompt,
           optimisticUserAttachments.length > 0 ? optimisticUserAttachments : undefined,
         );
         this.logger.info("Started first Codex turn", {
           threadId: link.threadId,
-          turnId: startedTurn.turnId,
+          turnId: observedTurn.turnId,
           durationMs: Date.now() - startedAt,
         });
       }
@@ -4950,14 +5010,18 @@ export class CodexService extends EventEmitter {
 
     const startedTurn = this.asTurnSummary(threadId, turnStartResult.turn);
     if (startedTurn) {
-      this.mergeTurn(threadId, startedTurn);
+      const observedTurn: CodexTurnSummary = {
+        ...startedTurn,
+        turnStartedAtMs: startedTurn.turnStartedAtMs ?? Date.now(),
+      };
+      this.mergeTurn(threadId, observedTurn);
       const optimisticUserAttachments = buildCodexUserAttachmentsFromContent(
         preparedPrompt.inputItems,
-        `optimistic:${startedTurn.turnId}`,
+        `optimistic:${observedTurn.turnId}`,
       );
       this.seedTurnWithOptimisticUserMessage(
         threadId,
-        startedTurn.turnId,
+        observedTurn.turnId,
         promptText,
         optimisticUserAttachments.length > 0 ? optimisticUserAttachments : undefined,
       );
@@ -4966,10 +5030,10 @@ export class CodexService extends EventEmitter {
       this.emitThreadStreamSnapshotFromRecord(threadId);
       this.logger.info("Started Codex turn", {
         threadId,
-        turnId: startedTurn.turnId,
+        turnId: observedTurn.turnId,
         durationMs: Date.now() - startedAt,
       });
-      return startedTurn;
+      return this.getKnownTurn(threadId, observedTurn.turnId) ?? observedTurn;
     }
 
     this.markThreadAsActive(threadId);
@@ -5781,6 +5845,9 @@ export class CodexService extends EventEmitter {
       }
 
       if (update.target.type === "agentMessage" || update.target.type === "plan") {
+        if (update.target.type === "agentMessage") {
+          this.markFinalAssistantStartedAt(update.threadId, update.turnId, update.observedAtMs);
+        }
         const nextText = `${existing.markdownText ?? ""}${update.delta}`;
         const next: CodexItemView = {
           ...existing,
@@ -5877,6 +5944,10 @@ export class CodexService extends EventEmitter {
 
           switch (update.target.type) {
             case "agentMessage":
+              turn.turnStartedAtMs = turn.turnStartedAtMs ?? update.observedAtMs;
+              turn.finalAssistantStartedAtMs = update.observedAtMs;
+              item.markdownText = `${item.markdownText ?? ""}${update.delta}`;
+              break;
             case "plan":
               item.markdownText = `${item.markdownText ?? ""}${update.delta}`;
               break;
@@ -6261,29 +6332,36 @@ export class CodexService extends EventEmitter {
 
       const turn = this.asTurnSummary(threadId, turnRecord);
       if (!turn) return;
+      const observedTurn: CodexTurnSummary = method === "turn/started"
+        ? {
+            ...turn,
+            turnStartedAtMs: turn.turnStartedAtMs ?? Date.now(),
+          }
+        : turn;
       this.logger.info("Received Codex turn lifecycle notification", {
         threadId,
-        turnId: turn.turnId,
-        status: turn.status,
+        turnId: observedTurn.turnId,
+        status: observedTurn.status,
       });
-      this.mergeTurn(threadId, turn);
+      this.mergeTurn(threadId, observedTurn);
+      const mergedTurn = this.getKnownTurn(threadId, observedTurn.turnId) ?? observedTurn;
       if (method === "turn/started") {
-        this.completeStalePlanImplementationItems(threadId, turn.turnId);
+        this.completeStalePlanImplementationItems(threadId, mergedTurn.turnId);
       }
       if (Object.prototype.hasOwnProperty.call(turnRecord, "diff")) {
-        this.syncTurnDiffItem(threadId, turn.turnId, turn.diff, turn.status);
+        this.syncTurnDiffItem(threadId, mergedTurn.turnId, mergedTurn.diff, mergedTurn.status);
       }
-      if (turn.status === "completed") {
-        this.syncPlanImplementationForTurn(threadId, turn.turnId);
+      if (mergedTurn.status === "completed") {
+        this.syncPlanImplementationForTurn(threadId, mergedTurn.turnId);
       }
       this.syncThreadStatusFromKnownTurns(threadId);
-      this.reconcileTurnItemsToTerminalStatus(threadId, turn.turnId, turn.status);
-      if (turn.status !== "inProgress") {
-        this.clearPendingSteersForTurn(threadId, turn.turnId, false);
+      this.reconcileTurnItemsToTerminalStatus(threadId, mergedTurn.turnId, mergedTurn.status);
+      if (mergedTurn.status !== "inProgress") {
+        this.clearPendingSteersForTurn(threadId, mergedTurn.turnId, false);
       }
-      this.emitEvent({ type: "turn", turn });
+      this.emitEvent({ type: "turn", turn: mergedTurn });
       this.emitThreadStreamSnapshotFromRecord(threadId);
-      if (turn.status !== "inProgress") {
+      if (mergedTurn.status !== "inProgress") {
         this.maybeDispatchQueuedFollowUp(threadId);
       }
       return;
@@ -6400,6 +6478,9 @@ export class CodexService extends EventEmitter {
             };
       this.upsertCanonicalTurnItem(payload.threadId, payload.turnId, item.itemId, "inProgress");
       this.mergeItem(item);
+      if (item.normalizedKind === "assistantMessage" || item.semanticKind === "assistantMessage") {
+        this.markFinalAssistantStartedAt(payload.threadId, payload.turnId);
+      }
       this.syncBroadcastConversationTurnState(payload.threadId, payload.turnId, {
         syncBackgroundTerminalRows: true,
         syncChildMemberships: true,
@@ -6427,12 +6508,17 @@ export class CodexService extends EventEmitter {
       ) {
         return;
       }
+      const observedAtMs = Date.now();
       if (method === "item/agentMessage/delta" || method === "item/plan/delta") {
+        if (method === "item/agentMessage/delta") {
+          this.markFinalAssistantStartedAt(payload.threadId, payload.turnId, observedAtMs);
+        }
         this.frameTextDeltaQueue.enqueue({
           threadId: payload.threadId,
           turnId: payload.turnId,
           itemId: payload.itemId,
           delta: payload.delta,
+          observedAtMs,
           target: {
             type: method === "item/plan/delta" ? "plan" : "agentMessage",
           },
@@ -6447,6 +6533,7 @@ export class CodexService extends EventEmitter {
           turnId: payload.turnId,
           itemId: payload.itemId,
           delta: payload.delta,
+          observedAtMs,
           target: {
             type: "reasoningSummary",
             summaryIndex: payload.summaryIndex,
@@ -6461,6 +6548,7 @@ export class CodexService extends EventEmitter {
         turnId: payload.turnId,
         itemId: payload.itemId,
         delta: payload.delta,
+        observedAtMs,
         target: {
           type: "reasoningContent",
           contentIndex: payload.contentIndex,

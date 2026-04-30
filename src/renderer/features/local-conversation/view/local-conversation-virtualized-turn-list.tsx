@@ -81,7 +81,7 @@ interface MeasuredTurnProps {
   projectWorkspacePath?: string | null;
   persistedCollapsed?: boolean;
   canEditTurnUserPrefix: boolean;
-  canForkTurnUserPrefix: boolean;
+  canForkTurn: boolean;
   onSetTurnCollapsed: (turnId: string, collapsed: boolean) => void;
   onEditLastTurnMessage?: (input: {
     threadId: string;
@@ -106,7 +106,7 @@ function MeasuredTurnComponent({
   projectWorkspacePath,
   persistedCollapsed,
   canEditTurnUserPrefix,
-  canForkTurnUserPrefix,
+  canForkTurn,
   onSetTurnCollapsed,
   onEditLastTurnMessage,
   onForkTurnMessage,
@@ -168,7 +168,7 @@ function MeasuredTurnComponent({
           onSetTurnCollapsed(entry.turnId, collapsed);
         }}
         canEditTurnUserPrefix={canEditTurnUserPrefix}
-        canForkTurnUserPrefix={canForkTurnUserPrefix}
+        canForkTurn={canForkTurn}
         projectWorkspacePath={projectWorkspacePath}
         threadCwd={threadCwd}
         onEditLastTurnMessage={onEditLastTurnMessage}
@@ -189,7 +189,7 @@ const MeasuredTurn = memo(
     && left.projectWorkspacePath === right.projectWorkspacePath
     && left.persistedCollapsed === right.persistedCollapsed
     && left.canEditTurnUserPrefix === right.canEditTurnUserPrefix
-    && left.canForkTurnUserPrefix === right.canForkTurnUserPrefix
+    && left.canForkTurn === right.canForkTurn
     && left.onSetTurnCollapsed === right.onSetTurnCollapsed
     && left.onEditLastTurnMessage === right.onEditLastTurnMessage
     && left.onForkTurnMessage === right.onForkTurnMessage
@@ -482,7 +482,7 @@ export function LocalConversationVirtualizedTurnList({
               projectWorkspacePath={projectWorkspacePath}
               persistedCollapsed={collapsedAgentBodyByTurnId[entry.turnId]}
               canEditTurnUserPrefix={editableTurnId === entry.turnId}
-              canForkTurnUserPrefix={
+              canForkTurn={
                 canForkFromTurn && entry.turn.status !== "inProgress"
               }
               onSetTurnCollapsed={onSetTurnCollapsed}
