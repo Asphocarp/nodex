@@ -126,12 +126,9 @@ export type ClipboardWriteImageResult =
 export interface ComposerPickedFile {
   label: string;
   path: string;
-  fsPath: string;
-}
-
-export interface ComposerReadFileBinaryResult {
-  base64: string;
-  mimeType: string;
+  bytes?: number;
+  mimeType?: string;
+  imageDataUrl?: string;
 }
 
 export interface HistoryPanelDescriptionDeltaBlock {
@@ -383,10 +380,6 @@ export interface IpcApi {
   "composer:pick-files": {
     args: [input: { imagesOnly: boolean; title: string }];
     result: ComposerPickedFile[];
-  };
-  "composer:read-file-binary": {
-    args: [input: { path: string }];
-    result: ComposerReadFileBinaryResult;
   };
   "window:show-emoji-panel": { args: []; result: boolean };
   "window:new": { args: [seed?: WindowSessionSeed]; result: boolean };

@@ -868,9 +868,6 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     case "composer:pick-files": {
       return [];
     }
-    case "composer:read-file-binary": {
-      throw new Error("File attachments are only available in the desktop app.");
-    }
     case "window:show-emoji-panel": {
       return false;
     }

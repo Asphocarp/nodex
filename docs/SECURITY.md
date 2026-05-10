@@ -11,6 +11,7 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
 - Read-only guard on SQL query endpoint.
 - Read-only SQL result-size cap to avoid large memory responses.
 - Electron preload bridge limits renderer access to a typed API surface.
+- Renderer file attachment previews are scoped to native picker results; no generic renderer IPC channel returns arbitrary local file bytes.
 - Stable asset URI scheme avoids embedding brittle absolute local URLs.
 - Codex approvals are explicit protocol responses (`accept`/`decline`/etc) and are gated by the per-project Threads permission mode.
 - Codex user-input requests are never auto-answered and require explicit renderer interaction.

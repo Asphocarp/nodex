@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { render, settleAsyncRender, textContent } from "../../../../test/dom";
+import { installWindowApi } from "../../../../test/browser-globals";
 import { UserAttachmentStrip } from "./user-message-attachments";
 
 describe("UserAttachmentStrip", () => {
@@ -46,5 +47,38 @@ describe("UserAttachmentStrip", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+
+  test("does not read arbitrary absolute local paths for previews", async () => {
+    let invokeCount = 0;
+    installWindowApi({
+      invoke: async () => {
+        invokeCount += 1;
+        return {
+          base64: "aW1hZ2U=",
+          mimeType: "image/png",
+        };
+      },
+      on: () => () => {},
+    });
+
+    const view = render(
+      <UserAttachmentStrip
+        attachments={[
+          {
+            type: "image",
+            id: "local-image",
+            source: "/Users/example/secret.png",
+            sourceKind: "local",
+          },
+        ]}
+      />,
+    );
+
+    await settleAsyncRender();
+
+    expect(invokeCount).toBe(0);
+    expect(Boolean(view.container.querySelector('[aria-label="Image unavailable"]'))).toBeTrue();
+    expect(Boolean(view.container.querySelector('[aria-label="Open image preview"]'))).toBeFalse();
   });
 });

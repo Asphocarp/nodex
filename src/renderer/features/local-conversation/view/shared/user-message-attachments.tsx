@@ -7,38 +7,18 @@ import {
   NodexDialogTitle as DialogTitle,
 } from "@/components/ui/dialog";
 import type { CodexUserAttachment, CodexUserImageAttachment } from "@/lib/types";
-import { invoke } from "@/lib/api";
 import { resolveAssetSourceToHttpUrl } from "@/lib/assets";
 import { toApiUrl } from "@/lib/http-base";
 import { cn } from "@/lib/utils";
 
-interface ReadFileBinaryResult {
-  base64: string;
-  mimeType: string;
-}
-
 function isDirectImageSource(source: string): boolean {
   return source.startsWith("data:image/") || source.startsWith("http://") || source.startsWith("https://");
-}
-
-function isAbsoluteLocalPath(source: string): boolean {
-  return source.startsWith("/") || /^[A-Za-z]:[\\/]/.test(source);
 }
 
 function normalizeFilePointerId(value: string): string {
   return value
     .replace(/^file-service:\/\//, "")
     .replace(/^sediment:\/\//, "");
-}
-
-function readFileBinaryResult(value: unknown): ReadFileBinaryResult | null {
-  if (typeof value !== "object" || value === null) return null;
-  const candidate = value as { base64?: unknown; mimeType?: unknown };
-  if (typeof candidate.base64 !== "string" || typeof candidate.mimeType !== "string") return null;
-  return {
-    base64: candidate.base64,
-    mimeType: candidate.mimeType,
-  };
 }
 
 export function useLocalImageSource(source: string): {
@@ -55,8 +35,8 @@ export function useLocalImageSource(source: string): {
     isError: boolean;
   }>({
     src: directSource,
-    isLoading: directSource === null && isAbsoluteLocalPath(source),
-    isError: false,
+    isLoading: false,
+    isError: directSource === null,
   });
 
   useEffect(() => {
@@ -65,35 +45,7 @@ export function useLocalImageSource(source: string): {
       return;
     }
 
-    if (!isAbsoluteLocalPath(source)) {
-      setState({ src: null, isLoading: false, isError: true });
-      return;
-    }
-
-    let ignore = false;
-    setState({ src: null, isLoading: true, isError: false });
-
-    void invoke("composer:read-file-binary", { path: source })
-      .then((result) => {
-        if (ignore) return;
-        const binary = readFileBinaryResult(result);
-        if (!binary) {
-          setState({ src: null, isLoading: false, isError: true });
-          return;
-        }
-        setState({
-          src: `data:${binary.mimeType};base64,${binary.base64}`,
-          isLoading: false,
-          isError: false,
-        });
-      })
-      .catch(() => {
-        if (!ignore) setState({ src: null, isLoading: false, isError: true });
-      });
-
-    return () => {
-      ignore = true;
-    };
+    setState({ src: null, isLoading: false, isError: true });
   }, [directSource, source]);
 
   return state;

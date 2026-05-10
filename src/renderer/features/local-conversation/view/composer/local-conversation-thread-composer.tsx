@@ -8,7 +8,7 @@ import {
 } from "@/lib/codex-thread-settings";
 import { resolveContextWindowIndicatorState } from "@/lib/codex-context-window";
 import type { CodexCollaborationModeKind, CodexPermissionState, CodexPromptInput, CodexReasoningEffort } from "@/lib/types";
-import type { ComposerPickedFile, ComposerReadFileBinaryResult } from "../../../../../shared/ipc-api";
+import type { ComposerPickedFile } from "../../../../../shared/ipc-api";
 import { shouldSubmitComposerPromptFromKeyDown } from "@/lib/composer-enter-behavior";
 import { useCodexServiceTierSettings } from "@/lib/use-codex-service-tier-settings";
 import {
@@ -147,7 +147,6 @@ interface ComposerFileAttachment {
   id: string;
   label: string;
   path: string;
-  fsPath: string;
 }
 
 interface ComposerImageAttachment {
@@ -866,21 +865,17 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
               id: createComposerAttachmentId("file"),
               label: getComposerPickedFileName(pickedFile),
               path: pickedFile.path,
-              fsPath: pickedFile.fsPath,
             });
           }
           continue;
         }
 
-        const binary = await invoke("composer:read-file-binary", { path: pickedFile.fsPath }) as ComposerReadFileBinaryResult;
-        if (attachmentGenerationRef.current !== generation) {
-          return;
-        }
+        if (!pickedFile.imageDataUrl) continue;
         nextImageAttachments.push({
           id: createComposerAttachmentId("image"),
           filename: getComposerPickedFileName(pickedFile),
           path: pickedFile.path,
-          dataUrl: `data:${binary.mimeType};base64,${binary.base64}`,
+          dataUrl: pickedFile.imageDataUrl,
         });
       }
 

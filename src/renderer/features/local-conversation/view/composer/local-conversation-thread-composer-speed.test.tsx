@@ -391,7 +391,7 @@ describe("ThreadComposer speed menu", () => {
     const promptInput = __composerAddContextTestUtils.buildComposerPromptInput({
       prompt: "Use these",
       attachments: {
-        fileAttachments: [{ id: "file_1", label: "notes.md", path: "/tmp/notes.md", fsPath: "/tmp/notes.md" }],
+        fileAttachments: [{ id: "file_1", label: "notes.md", path: "/tmp/notes.md" }],
         imageAttachments: [{ id: "image_1", filename: "diagram.png", path: "/tmp/diagram.png", dataUrl: "data:image/png;base64,aW1hZ2U=" }],
         skillMentions: [{ id: "skill_1", name: "Computer Use", path: "/plugins/computer-use" }],
       },
@@ -400,8 +400,8 @@ describe("ThreadComposer speed menu", () => {
     expect(JSON.stringify(promptInput)).toBe(
       "{\"text\":\"Use these\",\"images\":[{\"source\":\"data:image/png;base64,aW1hZ2U=\",\"caption\":\"diagram.png\"}],\"mentions\":[{\"name\":\"notes.md\",\"path\":\"/tmp/notes.md\"}],\"skills\":[{\"name\":\"Computer Use\",\"path\":\"/plugins/computer-use\"}]}",
     );
-    expect(__composerAddContextTestUtils.isComposerImageFile({ label: "diagram.png", path: "/tmp/diagram.png", fsPath: "/tmp/diagram.png" })).toBeTrue();
-    expect(__composerAddContextTestUtils.isComposerImageFile({ label: "notes.md", path: "/tmp/notes.md", fsPath: "/tmp/notes.md" })).toBeFalse();
+    expect(__composerAddContextTestUtils.isComposerImageFile({ label: "diagram.png", path: "/tmp/diagram.png" })).toBeTrue();
+    expect(__composerAddContextTestUtils.isComposerImageFile({ label: "notes.md", path: "/tmp/notes.md" })).toBeFalse();
   });
 
   test("plugin flyout inserts a structured skill mention", async () => {
