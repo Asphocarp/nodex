@@ -93,7 +93,7 @@ function collectSearchableText(blocks: ThreadBlockModel[]): string {
         return [
           block.summary,
           ...block.entries.flatMap((entry) =>
-            entry.type === "explorationGroup" || entry.type === "multiAgentGroup"
+            entry.type === "explorationGroup"
               ? [entry.summary, ...entry.entries.map((item) => item.markdownText ?? ""), ...entry.entries.map((item) => stringifyToolCall(item))]
               : [entry.searchableText],
           ),

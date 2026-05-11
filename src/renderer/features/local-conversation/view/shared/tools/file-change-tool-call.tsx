@@ -1,11 +1,8 @@
 import { parsePatchFiles } from "@pierre/diffs";
-import { FileDiff, type FileDiffMetadata } from "@pierre/diffs/react";
+import type { FileDiffMetadata } from "@pierre/diffs/react";
 import { motion } from "motion/react";
 import {
-  createElement,
-  useEffect,
   useMemo,
-  useRef,
   useState,
   type CSSProperties,
 } from "react";
@@ -34,11 +31,7 @@ import {
   summarizeDiff,
   summarizeFileDiffMetadata,
 } from "./diff-file-shared";
-import {
-  applyFileChangeGutters,
-  buildLineMarkers,
-  groupMarkersByLine,
-} from "./diff-gutter-markers";
+import { InlineFileDiff } from "./inline-file-diff";
 import { ToolActivityIcon, semanticToolIcon } from "./tool-call-icons";
 
 interface FileChangeToolCallProps {
@@ -286,31 +279,14 @@ function PatchFrame({
   onOpenFile: (() => void) | null;
   isShortView: boolean;
 }) {
-  const diffContainerRef = useRef<HTMLElement | null>(null);
-  const markersByLine = useMemo(() => {
-    if (row.preview.kind !== "diff") return null;
-    return groupMarkersByLine(buildLineMarkers(row.preview.fileDiff));
-  }, [row.preview]);
-
-  useEffect(() => {
-    if (!diffContainerRef.current || !markersByLine) return;
-    applyFileChangeGutters(diffContainerRef.current, markersByLine);
-  }, [markersByLine]);
-
   const preview = row.preview.kind === "diff" ? (
-    createElement(
-      "diffs-container",
-      {
-        ref: diffContainerRef,
-        "data-file": row.displayPath,
-      },
-      <FileDiff
-        fileDiff={row.preview.fileDiff}
-        className={cn(diffHostClassName, isShortView ? "max-h-25" : "max-h-60")}
-        style={diffHostStyle}
-        options={diffOptions}
-      />,
-    )
+    <InlineFileDiff
+      fileDiff={row.preview.fileDiff}
+      className={cn(diffHostClassName, isShortView ? "max-h-25" : "max-h-60")}
+      style={diffHostStyle}
+      options={diffOptions}
+      displayPath={row.displayPath}
+    />
   ) : (
     <SemanticChangePreview row={row} isShortView={isShortView} />
   );

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { fireEvent } from "@testing-library/react";
+import { fireEvent, waitFor } from "@testing-library/react";
 import {
   __resetNodexToastStoreForTests,
   NodexToastProvider,
@@ -133,7 +133,14 @@ describe("TurnDiffSurface", () => {
     await settleAsyncRender();
 
     expect(container.querySelectorAll('[role="button"][aria-expanded="true"]').length).toBe(1);
-    expect(Boolean(container.querySelector(".nodex-inline-diff"))).toBeTrue();
+    const expandedRow = container.querySelector<HTMLElement>('[role="button"][aria-expanded="true"]')?.parentElement ?? null;
+    expect(Boolean(expandedRow)).toBeTrue();
+    expect(expandedRow?.querySelectorAll("diffs-container").length ?? 0).toBe(1);
+    const diffHost = expandedRow?.querySelector<HTMLElement>("diffs-container.nodex-inline-diff") ?? null;
+    expect(Boolean(diffHost)).toBeTrue();
+    await waitFor(() => {
+      expect(Boolean(diffHost?.shadowRoot?.textContent?.includes("new"))).toBeTrue();
+    });
   });
 
   test("shows the compact streaming banner above the composer without inline rows", () => {

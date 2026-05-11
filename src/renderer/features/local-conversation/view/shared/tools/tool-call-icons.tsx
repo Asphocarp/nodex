@@ -475,10 +475,18 @@ function resolveTranscriptEntryIcon(block: Extract<ThreadBlockModel, { type: "co
 export function resolveCollapsedToolActivityIcon(
   entries: Extract<ThreadBlockModel, { type: "collapsedToolActivity" }>["entries"],
 ): ToolActivityIconDescriptor | null {
-  const activeEntry = entries.find((entry) => entry.status === "inProgress");
-  if (activeEntry) {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const activeEntry = entries[index];
+    if (!activeEntry || activeEntry.status !== "inProgress") continue;
     const activeIcon = resolveTranscriptEntryIcon(activeEntry);
     if (activeIcon) return activeIcon;
+  }
+
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (!entry) continue;
+    const explicitIcon = resolveTranscriptEntryIcon(entry);
+    if (explicitIcon) return explicitIcon;
   }
 
   const priority: Array<(entry: (typeof entries)[number]) => ToolActivityIconDescriptor | null> = [

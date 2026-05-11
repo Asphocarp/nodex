@@ -337,7 +337,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
     installMeasuredResizeObserver({ blockSize: 120, inlineSize: 320 });
   });
 
-  test("starts collapsed and expands a measured Motion body with original entries", async () => {
+  test("starts collapsed and expands a Codex-style body with original flat entries", async () => {
     const block = {
       id: "activity-1",
       turnId: "turn-1",
@@ -345,7 +345,7 @@ describe("ThreadCollapsedToolActivityBlock", () => {
       updatedAt: 2,
       searchableText: "activity",
       type: "collapsedToolActivity" as const,
-      summary: "Completed 2 actions",
+      summary: "Explored 1 file",
       status: "completed" as const,
       entries: [
         {
@@ -374,15 +374,16 @@ describe("ThreadCollapsedToolActivityBlock", () => {
       />,
     );
 
-    const summaryButton = getByRole("button", { name: /Completed 2 actions/i });
+    const summaryButton = getByRole("button", { name: /Explored 1 file/i });
     expect(summaryButton.getAttribute("aria-expanded") ?? "").toBe("false");
-    expect(Boolean(container.querySelector("[data-thread-find-skip='true']"))).toBeTrue();
+    expect(Boolean(container.querySelector("[data-testid='collapsed-tool-activity-body']"))).toBeFalse();
 
     fireEvent.click(summaryButton);
     await settleAsyncRender();
 
     expect(summaryButton.getAttribute("aria-expanded") ?? "").toBe("true");
     expect(Boolean(textContent(container).includes("Read src/a.ts"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Exploration"))).toBeFalse();
   });
 });
 

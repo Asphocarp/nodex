@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type FormEvent,
 } from "react";
 import { motion } from "motion/react";
@@ -30,6 +31,7 @@ import {
 } from "../shared/thread-message-actions";
 import { TodoListSurface } from "../shared/todo-list-surface";
 import { getToolComponent } from "../shared/tools/get-tool-component";
+import { getWebSearchSummaryDetail } from "../shared/tools/web-search-tool-call";
 import { JsonBlock } from "../shared/tools/tool-primitives";
 import { extractCommandActions } from "../shared/tools/command-actions";
 import {
@@ -65,6 +67,7 @@ export interface ThreadLeafBlockProps {
   block: ThreadTranscriptBlockModel;
   isLatestTurn: boolean;
   isStreamingTurn: boolean;
+  nestedInCollapsedActivity?: boolean;
   isSearchMatch?: boolean;
   isActiveSearchMatch?: boolean;
   projectWorkspacePath?: string | null;
@@ -451,6 +454,31 @@ function ThreadExplorationAccordion({ entries, status }: { entries: CodexConvers
   );
 }
 
+function ThreadExplorationBodyOnly({ entries }: { entries: CodexConversationItem[] }) {
+  const model = useMemo(() => buildExplorationAccordionModel(entries), [entries]);
+
+  if (model.lines.length === 0) return null;
+
+  return (
+    <div className="pt-0 text-token-foreground/60 [&_*]:text-token-foreground/50">
+      <div className="-mx-2.5 mt-1">
+        <div className="text-size-chat rounded-none border-0 px-2.5 font-sans text-token-description-foreground/80 [&_*]:text-token-description-foreground/80">
+          <div className="flex flex-col gap-1">
+            {model.lines.map((line) => (
+              <div key={line.key} className="truncate">
+                <div className="flex min-w-0 items-center gap-1.5 truncate">
+                  <ToolActivityIcon descriptor={line.icon} className="icon-2xs" />
+                  <span className="min-w-0 truncate">{line.label}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function humanizeBlockType(type: ThreadBlockModel["type"]): string {
   switch (type) {
     case "streamError":
@@ -544,19 +572,65 @@ function renderCollapsedActivityEntry({
     onOpenTurnDiffReview,
   };
 
-  if (entry.type === "explorationGroup") return <ThreadExplorationGroupBlock block={entry} {...sharedProps} />;
-  if (entry.type === "multiAgentGroup") return <ThreadMultiAgentGroupBlock block={entry} {...sharedProps} />;
+  if (entry.type === "explorationGroup") return <ThreadExplorationBodyOnly entries={entry.entries} />;
   if (entry.type === "automaticApprovalReview") return <ThreadAutomaticApprovalReviewBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
-  if (entry.type === "multiAgentAction") return <ThreadMultiAgentActionBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
-  if (entry.type === "userInputResponse") return <ThreadUserInputResponseCard block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
-  if (entry.type === "mcpServerElicitation") return <ThreadMcpServerElicitationBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
   if (entry.type === "streamError") return <ThreadStreamErrorBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
   if (entry.type === "systemError") return <ThreadSystemErrorBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
   if (entry.type === "contextCompaction") return <ThreadContextCompactionBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
   if (entry.type === "exec" || entry.type === "fileChange" || entry.type === "mcpToolCall" || entry.type === "webSearch") {
-    return <ThreadToolSurfaceBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
+    return <ThreadToolSurfaceBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} nestedInCollapsedActivity />;
+  }
+  if (entry.type === "hook") {
+    return <ThreadHookBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} nestedInCollapsedActivity />;
   }
 
+  return null;
+}
+
+function resolveCollapsedExplorationActiveSummary(entries: CodexConversationItem[]): string | null {
+  for (let entryIndex = entries.length - 1; entryIndex >= 0; entryIndex -= 1) {
+    const entry = entries[entryIndex];
+    if (!entry || entry.status !== "inProgress") continue;
+    const actions = extractCommandActions(entry);
+    for (let actionIndex = actions.length - 1; actionIndex >= 0; actionIndex -= 1) {
+      const action = actions[actionIndex];
+      if (!action) continue;
+      const label = formatExplorationLine(action, extractCommandCwd(entry));
+      if (action.type === "read") return label.replace(/^Read\b/, "Reading");
+      if (action.type === "search") return label.replace(/^Searched\b/, "Searching");
+      if (action.type === "listFiles") return label.replace(/^Listed\b/, "Listing");
+    }
+  }
+  return null;
+}
+
+function resolveCollapsedFileChangeActiveSummary(entry: CodexConversationItem): string | null {
+  const change = entry.fileChange?.changes.at(-1);
+  if (!change) return null;
+  if (change.type === "add") return `Creating ${change.path}`;
+  if (change.type === "delete") return `Deleting ${change.path}`;
+  return `Editing ${change.path}`;
+}
+
+function resolveCollapsedActivityActiveSummary(
+  entries: Extract<ThreadBlockModel, { type: "collapsedToolActivity" }>["entries"],
+): string | null {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (!entry || entry.status !== "inProgress") continue;
+
+    if (entry.type === "explorationGroup") return resolveCollapsedExplorationActiveSummary(entry.entries);
+    if (entry.type === "fileChange") return resolveCollapsedFileChangeActiveSummary(entry.entry);
+    if (entry.type === "webSearch") {
+      const detail = getWebSearchSummaryDetail(entry.entry);
+      return detail.length > 0 ? `Searching the web for ${detail}` : "Searching the web";
+    }
+    if (entry.type === "exec") {
+      const command = entry.entry.command?.trim();
+      return command && command.length > 0 ? `Running ${command}` : "Running command";
+    }
+    if (entry.type === "hook") return "Running hook";
+  }
   return null;
 }
 
@@ -569,58 +643,93 @@ export function ThreadCollapsedToolActivityBlock({
   onOpenTurnDiffReview,
 }: ThreadSpecialBlockProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const { elementHeightPx, elementRef } = useMeasuredElementHeight();
+  const [isBodyMounted, setIsBodyMounted] = useState(false);
 
   if (block.type !== "collapsedToolActivity") return null;
   const icon = resolveCollapsedToolActivityIcon(block.entries);
+  const activeSummary = isLatestTurn && isStreamingTurn
+    ? resolveCollapsedActivityActiveSummary(block.entries)
+    : null;
+  const displayedSummary = activeSummary ?? block.summary;
+
+  const handleToggle = () => {
+    if (isExpanded) {
+      setIsExpanded(false);
+      return;
+    }
+    if (isBodyMounted) {
+      setIsExpanded(true);
+      return;
+    }
+    setIsBodyMounted(true);
+    requestAnimationFrame(() => {
+      setIsExpanded(true);
+    });
+  };
 
   return (
-    <div className="group/collapsed-tool-activity flex min-w-0 flex-col">
+    <div className="flex min-w-0 flex-col">
       <button
         type="button"
-        className="group/summary inline-flex w-fit max-w-full cursor-interaction items-center gap-1 self-start text-left"
+        className="group/collapsed-tool-activity group/summary inline-flex w-fit max-w-full cursor-interaction items-center gap-1 self-start text-left"
         aria-expanded={isExpanded}
-        onClick={() => setIsExpanded((current) => !current)}
+        onClick={handleToggle}
       >
-        {icon ? <ToolActivityIcon descriptor={icon} /> : null}
-        <span className="text-size-chat truncate text-token-description-foreground/90 group-hover/summary:text-token-foreground">
-          {block.summary}
+        <span className="inline-flex max-w-full min-w-0 items-center gap-1.5 overflow-hidden">
+          {icon ? <ToolActivityIcon descriptor={icon} /> : null}
+          <span className="text-token-foreground/40 block min-w-0 max-w-full truncate shrink overflow-hidden [mask-image:linear-gradient(to_right,black_calc(100%_-_0.25rem),transparent)] [mask-repeat:no-repeat] pr-1 group-hover/collapsed-tool-activity:text-token-foreground">
+            {displayedSummary}
+          </span>
         </span>
-        <ChevronRightIcon
+        <span
           className={cn(
-            "text-token-input-placeholder-foreground icon-2xs flex-shrink-0 transition-[opacity,rotate] duration-300 opacity-0 group-hover/summary:opacity-100",
-            isExpanded && "rotate-90 opacity-100",
+            "inline-chevron flex-shrink-0 text-token-input-placeholder-foreground opacity-0 group-hover/summary:opacity-100",
+            isExpanded && "opacity-100",
           )}
-        />
+        >
+          <ChevronRightIcon
+            className={cn(
+              "icon-2xs text-current transition-transform duration-300",
+              isExpanded && "rotate-90",
+            )}
+          />
+        </span>
       </button>
-      <motion.div
-        initial={false}
-        animate={{
-          height: isExpanded ? elementHeightPx : 0,
-          opacity: isExpanded ? 1 : 0,
-        }}
-        transition={CODEX_THREAD_ACCORDION_TRANSITION}
-        className={cn(isExpanded ? "overflow-visible" : "overflow-hidden")}
-        data-thread-find-skip={isExpanded ? undefined : true}
-        style={{
-          pointerEvents: isExpanded ? "auto" : "none",
-        }}
-      >
-        <div ref={elementRef} className="flex flex-col gap-[var(--conversation-tool-assistant-gap,8px)] pt-1">
-          {block.entries.map((entry) => (
-            <div key={entry.id}>
-              {renderCollapsedActivityEntry({
-                entry,
-                isLatestTurn,
-                isStreamingTurn,
-                projectWorkspacePath,
-                threadCwd,
-                onOpenTurnDiffReview,
-              })}
-            </div>
-          ))}
-        </div>
-      </motion.div>
+      {isBodyMounted ? (
+        <motion.div
+          initial={false}
+          animate={isExpanded ? { height: "auto", opacity: 1 } : { height: 0, opacity: 0 }}
+          transition={CODEX_THREAD_ACCORDION_TRANSITION}
+          data-testid="collapsed-tool-activity-body"
+          data-thread-find-skip={isExpanded ? undefined : true}
+          style={{
+            overflow: "hidden",
+            pointerEvents: isExpanded ? "auto" : "none",
+          }}
+          onAnimationComplete={() => {
+            if (!isExpanded) setIsBodyMounted(false);
+          }}
+        >
+          <div
+            className="flex flex-col"
+            style={{ "--conversation-patch-file-gap": "4px" } as CSSProperties}
+          >
+            {block.entries.map((entry) => (
+              <div key={entry.id}>
+                <div style={{ height: "var(--conversation-patch-file-gap)" }} />
+                {renderCollapsedActivityEntry({
+                  entry,
+                  isLatestTurn,
+                  isStreamingTurn,
+                  projectWorkspacePath,
+                  threadCwd,
+                  onOpenTurnDiffReview,
+                })}
+              </div>
+            ))}
+          </div>
+        </motion.div>
+      ) : null}
     </div>
   );
 }
@@ -643,6 +752,7 @@ export function ThreadToolSurfaceBlock({
   block,
   projectWorkspacePath,
   threadCwd,
+  nestedInCollapsedActivity = false,
 }: ThreadLeafBlockProps) {
   const { settings } = useCodexThreadSettings();
   const item = block.entry;
@@ -659,6 +769,10 @@ export function ThreadToolSurfaceBlock({
       item={item}
       projectWorkspacePath={projectWorkspacePath ?? undefined}
       threadCwd={threadCwd ?? undefined}
+      defaultExpandExecShell={nestedInCollapsedActivity && threadDetailLevel !== "STEPS_PROSE"}
+      execSummaryTone={nestedInCollapsedActivity ? "muted" : "default"}
+      hideHeader={nestedInCollapsedActivity && block.type === "webSearch"}
+      showExecSummaryIcon={!nestedInCollapsedActivity}
     />
   );
 }

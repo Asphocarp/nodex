@@ -1,0 +1,140 @@
+import { describe, expect, test } from "bun:test";
+import type { CodexCommandAction, CodexConversationItem, CodexSemanticItemKind } from "../../../lib/types";
+import type { ThreadTranscriptBlockModel } from "../thread-stage-types";
+import {
+  buildCollapsedToolActivitySummary,
+  collectCollapsedToolActivitySummaryStats,
+  groupAgentEntries,
+} from "./group-exploration-blocks";
+
+function buildEntry(
+  id: string,
+  overrides: Partial<CodexConversationItem>,
+): CodexConversationItem {
+  return {
+    threadId: "thread-1",
+    turnId: "turn-1",
+    itemId: id,
+    entryId: id,
+    type: "commandExecution",
+    kind: "commandExecution",
+    status: "completed",
+    createdAt: 1,
+    updatedAt: 1,
+    ...overrides,
+  };
+}
+
+function buildBlock(
+  id: string,
+  type: ThreadTranscriptBlockModel["type"],
+  overrides: Partial<CodexConversationItem> = {},
+): ThreadTranscriptBlockModel {
+  const semanticKind: CodexSemanticItemKind | undefined = type === "exec"
+    ? "exec"
+    : type === "webSearch"
+      ? "webSearch"
+      : type === "mcpServerElicitation"
+        ? "mcpServerElicitation"
+        : undefined;
+  const entry = buildEntry(id, {
+    semanticKind,
+    ...overrides,
+  });
+
+  return {
+    id,
+    turnId: "turn-1",
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+    searchableText: entry.markdownText ?? "",
+    type,
+    status: entry.status,
+    entry,
+  };
+}
+
+function readAction(name: string): CodexCommandAction {
+  return { type: "read", command: `cat ${name}`, name, path: name };
+}
+
+describe("groupAgentEntries collapsed tool activity", () => {
+  test("formats the Codex mixed exploration, command, and web summary", () => {
+    const grouped = groupAgentEntries([
+      buildBlock("explore", "exec", {
+        commandActions: [
+          readAction("ARCHITECTURE.md"),
+          readAction("FRONTEND.md"),
+          readAction("README.md"),
+          readAction("src/a.ts"),
+          readAction("src/b.ts"),
+          { type: "search", command: "rg Codex", query: "Codex", path: null },
+        ],
+      }),
+      buildBlock("cmd-1", "exec", { command: "node scripts/check.js", commandActions: [] }),
+      buildBlock("cmd-2", "exec", { command: "curl https://developers.openai.com", commandActions: [] }),
+      buildBlock("web-1", "webSearch", {
+        kind: "toolCall",
+        semanticKind: "webSearch",
+        toolCall: { toolName: "web", subtype: "webSearch", result: { type: "search", query: "Codex app-server" } },
+      }),
+    ]);
+
+    const group = grouped[0];
+    expect(grouped.map((entry) => entry.type).join(",")).toBe("collapsedToolActivity");
+    expect(group?.type === "collapsedToolActivity" ? group.summary : "").toBe(
+      "Explored 5 files, 1 search, ran 2 commands, searched web 1 time",
+    );
+    expect(group?.type === "collapsedToolActivity" ? group.entries.map((entry) => entry.type).join(",") : "").toBe(
+      "explorationGroup,exec,exec,webSearch",
+    );
+  });
+
+  test("does not create a generic completed-actions group for unsupported rows", () => {
+    const grouped = groupAgentEntries([
+      buildBlock("cmd-1", "exec", { command: "true", commandActions: [] }),
+      buildBlock("elicitation", "mcpServerElicitation", { semanticKind: "mcpServerElicitation" }),
+      buildBlock("cmd-2", "exec", { command: "false", commandActions: [] }),
+    ]);
+
+    expect(grouped.map((entry) => entry.type).join(",")).toBe("exec,mcpServerElicitation,exec");
+  });
+
+  test("formats file and list-only summaries without Completed actions fallback", () => {
+    const fileStats = collectCollapsedToolActivitySummaryStats([
+      buildBlock("create", "fileChange", {
+        kind: "fileChange",
+        semanticKind: "patch",
+        fileChange: { paths: ["new.ts"], diffs: [], changes: [{ type: "add", path: "new.ts", content: "" }] },
+      }),
+      buildBlock("delete", "fileChange", {
+        kind: "fileChange",
+        semanticKind: "patch",
+        fileChange: { paths: ["old.ts"], diffs: [], changes: [{ type: "delete", path: "old.ts", content: "" }] },
+      }),
+    ]);
+    const fileSummary = buildCollapsedToolActivitySummary(fileStats);
+
+    const listStats = collectCollapsedToolActivitySummaryStats([
+      {
+        id: "exploration",
+        turnId: "turn-1",
+        createdAt: 1,
+        updatedAt: 1,
+        searchableText: "",
+        type: "explorationGroup",
+        summary: "Exploration",
+        status: "completed",
+        entries: [
+          buildEntry("list", {
+            commandActions: [{ type: "listFiles", command: "ls", path: null }],
+          }),
+        ],
+      },
+    ]);
+    const listSummary = buildCollapsedToolActivitySummary(listStats);
+
+    expect(fileSummary?.summary ?? "").toBe("Created 1 file, deleted 1 file");
+    expect(listSummary?.summary ?? "").toBe("Listed files");
+  });
+});

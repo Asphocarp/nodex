@@ -1,6 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useRef, type ReactNode } from "react";
 import type { CodexFileChange, CodexTranscriptEntry } from "@/lib/types";
+import type {
+  ThreadCollapsedToolActivityBlockModel,
+  ThreadCollapsedToolActivityEntryModel,
+} from "../../../thread-stage-types";
 import { buildCodexFileChangeUnifiedDiff } from "../../../../../../shared/codex-file-change";
 import {
   ThreadCollapsedToolActivityBlock,
@@ -89,6 +93,31 @@ function ConversationStorySurface({ children }: { children: ReactNode }) {
   );
 }
 
+function AutoOpenCollapsedActivity({ block }: { block: ThreadCollapsedToolActivityBlockModel }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const root = containerRef.current;
+    if (!root) return;
+    const frameId = requestAnimationFrame(() => {
+      root.querySelector<HTMLButtonElement>('button[aria-expanded="false"]')?.click();
+    });
+    return () => cancelAnimationFrame(frameId);
+  }, []);
+
+  return (
+    <div ref={containerRef}>
+      <ThreadCollapsedToolActivityBlock
+        block={block}
+        isLatestTurn={false}
+        isStreamingTurn={false}
+        projectWorkspacePath="/workspace/nodex"
+        threadCwd="/workspace/nodex"
+      />
+    </div>
+  );
+}
+
 function ToolCallStory({
   item,
   title,
@@ -155,6 +184,106 @@ function ToolCallStory({
       </ConversationStorySurface>
     </StorySurface>
   );
+}
+
+function buildMixedCollapsedActivityStoryBlock(): ThreadCollapsedToolActivityBlockModel {
+  const readCommand = {
+    ...THREAD_TOOL_CALL_STORY_ITEMS.command,
+    itemId: "collapsed_story_explore",
+    entryId: "collapsed_story_explore",
+    command: "cat ARCHITECTURE.md && cat FRONTEND.md && rg Codex",
+    commandActions: [
+      { type: "read" as const, command: "cat ARCHITECTURE.md", name: "ARCHITECTURE.md", path: "ARCHITECTURE.md" },
+      { type: "read" as const, command: "cat FRONTEND.md", name: "FRONTEND.md", path: "FRONTEND.md" },
+      { type: "read" as const, command: "cat README.md", name: "README.md", path: "README.md" },
+      { type: "read" as const, command: "cat src/a.ts", name: "src/a.ts", path: "src/a.ts" },
+      { type: "read" as const, command: "cat src/b.ts", name: "src/b.ts", path: "src/b.ts" },
+      { type: "search" as const, command: "rg Codex", query: "Codex", path: null },
+    ],
+  };
+  const commandOne = {
+    ...THREAD_TOOL_CALL_STORY_ITEMS.command,
+    itemId: "collapsed_story_cmd_1",
+    entryId: "collapsed_story_cmd_1",
+    command: "node scripts/verify-readable-docs.mjs",
+    commandActions: [],
+    toolCall: {
+      subtype: "command" as const,
+      toolName: "exec_command",
+      args: {},
+      result: "ok",
+    },
+  };
+  const commandTwo = {
+    ...THREAD_TOOL_CALL_STORY_ITEMS.command,
+    itemId: "collapsed_story_cmd_2",
+    entryId: "collapsed_story_cmd_2",
+    command: "curl https://developers.openai.com/codex/app-server.md",
+    commandActions: [],
+    toolCall: {
+      subtype: "command" as const,
+      toolName: "exec_command",
+      args: {},
+      result: "HTTP 403",
+    },
+  };
+
+  const entries: ThreadCollapsedToolActivityEntryModel[] = [
+    {
+      id: "collapsed_story_exploration_group",
+      turnId: "turn_tool_story",
+      createdAt: 1,
+      updatedAt: 1,
+      searchableText: "Read ARCHITECTURE.md",
+      type: "explorationGroup",
+      summary: "Exploration",
+      status: "completed",
+      entries: [readCommand],
+    },
+    {
+      id: commandOne.entryId ?? commandOne.itemId,
+      turnId: commandOne.turnId,
+      createdAt: commandOne.createdAt,
+      updatedAt: commandOne.updatedAt,
+      searchableText: "",
+      type: "exec",
+      entry: commandOne,
+      status: commandOne.status,
+    },
+    {
+      id: THREAD_TOOL_CALL_STORY_ITEMS.webSearch.entryId ?? THREAD_TOOL_CALL_STORY_ITEMS.webSearch.itemId,
+      turnId: THREAD_TOOL_CALL_STORY_ITEMS.webSearch.turnId,
+      createdAt: THREAD_TOOL_CALL_STORY_ITEMS.webSearch.createdAt,
+      updatedAt: THREAD_TOOL_CALL_STORY_ITEMS.webSearch.updatedAt,
+      searchableText: "",
+      type: "webSearch",
+      entry: THREAD_TOOL_CALL_STORY_ITEMS.webSearch,
+      status: THREAD_TOOL_CALL_STORY_ITEMS.webSearch.status,
+    },
+    {
+      id: commandTwo.entryId ?? commandTwo.itemId,
+      turnId: commandTwo.turnId,
+      createdAt: commandTwo.createdAt,
+      updatedAt: commandTwo.updatedAt,
+      searchableText: "",
+      type: "exec",
+      entry: commandTwo,
+      status: commandTwo.status,
+    },
+  ];
+
+  return {
+    id: "collapsed-activity-story",
+    turnId: "turn_tool_story",
+    createdAt: 1,
+    updatedAt: 2,
+    searchableText: "Explored files, ran commands, searched web",
+    type: "collapsedToolActivity",
+    summary: "Explored 5 files, 1 search, ran 2 commands, searched web 1 time",
+    summaryParts: ["Explored 5 files, 1 search", "ran 2 commands", "searched web 1 time"],
+    status: "completed",
+    entries,
+  };
 }
 
 function AutoOpenMcpToolCall({
@@ -835,37 +964,29 @@ export const CollapsedActivityGroup: Story = {
   render: () => (
     <StorySurface
       title="Collapsed Activity Group"
-      description="Codex-style grouped activity row preserves the original mounted tool units inside a measured Motion body."
+      description="Codex-style grouped activity row preserves original tool units inside a flat Motion body."
     >
       <ConversationStorySurface>
         <ThreadCollapsedToolActivityBlock
-          block={{
-            id: "collapsed-activity-story",
-            turnId: "turn_tool_story",
-            createdAt: 1,
-            updatedAt: 2,
-            searchableText: "Ran command and edited file",
-            type: "collapsedToolActivity",
-            summary: "Completed 2 actions",
-            status: "completed",
-            entries: [
-              THREAD_TOOL_CALL_STORY_ITEMS.command,
-              THREAD_TOOL_CALL_STORY_ITEMS.fileChange,
-            ].map((entry) => ({
-              id: entry.entryId ?? entry.itemId,
-              turnId: entry.turnId,
-              createdAt: entry.createdAt,
-              updatedAt: entry.updatedAt,
-              searchableText: "",
-              type: entry.semanticKind === "patch" ? "fileChange" : "exec",
-              entry,
-            })),
-          }}
+          block={buildMixedCollapsedActivityStoryBlock()}
           isLatestTurn={false}
           isStreamingTurn={false}
           projectWorkspacePath="/workspace/nodex"
           threadCwd="/workspace/nodex"
         />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const CollapsedActivityGroupExpanded: Story = {
+  render: () => (
+    <StorySurface
+      title="Collapsed Activity Group Expanded"
+      description="Expanded Codex-style activity groups show direct read, web, and muted command rows without nested subgroup headers."
+    >
+      <ConversationStorySurface>
+        <AutoOpenCollapsedActivity block={buildMixedCollapsedActivityStoryBlock()} />
       </ConversationStorySurface>
     </StorySurface>
   ),

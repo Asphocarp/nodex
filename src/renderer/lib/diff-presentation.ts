@@ -159,6 +159,7 @@ export const NODEX_DIFF_UNSAFE_CSS = `
   margin-inline: 1ch;
   border-top: 1px solid color-mix(in srgb, var(--diffs-fg) 18%, transparent);
 }
+
 `;
 
 export function getNodexDiffHostStyle(themeType: DiffThemeType): CSSProperties {

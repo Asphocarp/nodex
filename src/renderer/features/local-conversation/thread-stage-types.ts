@@ -223,8 +223,33 @@ export interface ThreadMultiAgentGroupBlockModel {
 
 export type ThreadCollapsedToolActivityEntryModel =
   | ThreadTranscriptBlockModel
-  | ThreadExplorationGroupBlockModel
-  | ThreadMultiAgentGroupBlockModel;
+  | ThreadExplorationGroupBlockModel;
+
+export interface ThreadCollapsedToolActivitySummaryStats {
+  createdFileCount: number;
+  runningCreatedFileCount: number;
+  stoppedCreatedFileCount: number;
+  editedFileCount: number;
+  runningEditedFileCount: number;
+  deletedFileCount: number;
+  runningDeletedFileCount: number;
+  exploredFileCount: number;
+  runningExploredFileCount: number;
+  searchCount: number;
+  runningSearchCount: number;
+  listCount: number;
+  runningListCount: number;
+  commandCount: number;
+  runningCommandCount: number;
+  approvedRequestCount: number;
+  deniedRequestCount: number;
+  hookCount: number;
+  runningHookCount: number;
+  mcpToolCallCount: number;
+  mcpToolCallSources: Array<{ name: string; count: number }>;
+  webSearchCount: number;
+  runningWebSearchCount: number;
+}
 
 export interface ThreadCollapsedToolActivityBlockModel {
   id: string;
@@ -235,6 +260,8 @@ export interface ThreadCollapsedToolActivityBlockModel {
   type: "collapsedToolActivity";
   entries: ThreadCollapsedToolActivityEntryModel[];
   summary: string;
+  summaryStats?: ThreadCollapsedToolActivitySummaryStats;
+  summaryParts?: string[];
   status?: CodexConversationItem["status"];
 }
 

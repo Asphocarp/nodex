@@ -152,6 +152,15 @@ describe("FileChangeToolCall", () => {
     expect(Boolean(container.textContent?.includes("+2"))).toBeTrue();
     expect(Boolean(container.textContent?.includes("-0"))).toBeTrue();
     expect(Boolean(container.querySelector('button[aria-label="Copy diff"]'))).toBeTrue();
+
+    const body = container.querySelector<HTMLElement>("[data-file-change-row-body]");
+    expect(Boolean(body)).toBeTrue();
+    expect(body?.querySelectorAll("diffs-container").length ?? 0).toBe(1);
+    const diffHost = body?.querySelector<HTMLElement>("diffs-container.nodex-inline-diff") ?? null;
+    expect(Boolean(diffHost)).toBeTrue();
+    await waitFor(() => {
+      expect(Boolean(diffHost?.shadowRoot?.textContent?.includes("StoryShell"))).toBeTrue();
+    });
   });
 
   test("renders live file-change stats with the animated digit wheel", () => {
@@ -382,6 +391,59 @@ describe("FileChangeToolCall", () => {
     expect(Boolean(diffHost)).toBeTrue();
     await waitFor(() => {
       expect(Boolean(diffHost?.shadowRoot?.textContent?.includes("NodexLogoMarkIcon"))).toBeTrue();
+    });
+    const body = container.querySelector<HTMLElement>("[data-file-change-row-body]");
+    expect(body?.querySelectorAll("diffs-container").length ?? 0).toBe(1);
+  });
+
+  test("renders multi-file created rows with visible diff content under the expanded frame header", async () => {
+    const changes: CodexFileChange[] = [
+      {
+        path: "tools/extract-thread-floating-activity-card-artifacts.mjs",
+        type: "add",
+        content: "export const extractor = true;\nexport function extractArtifacts() {\n  return extractor;\n}\n",
+      },
+      {
+        path: "tools/verify-thread-floating-activity-card-artifacts.mjs",
+        type: "add",
+        content: "export const verifier = true;\n",
+      },
+    ];
+    const fileChange = buildFileChangeView(changes);
+    const { container } = render(
+      <TooltipProvider>
+        <FileChangeToolCall
+          item={buildFileChangeEntry({
+            fileChange,
+            toolCall: {
+              subtype: "fileChange",
+              toolName: "file_change",
+              args: {
+                label: undefined,
+              },
+              result: {
+                diffs: fileChange.diffs,
+              },
+            },
+          })}
+          threadCwd="/tmp/project"
+        />
+      </TooltipProvider>,
+    );
+
+    const toggles = Array.from(container.querySelectorAll<HTMLElement>('[role="button"][aria-expanded="false"]'));
+    expect(toggles.length).toBe(2);
+    fireEvent.click(toggles[0]!);
+    await settleAsyncRender();
+
+    expect(Boolean(textContent(container).includes("Created file"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("extract-thread-floating-activity-card-artifacts.mjs"))).toBeTrue();
+    const body = container.querySelector<HTMLElement>("[data-file-change-row-body]");
+    expect(body?.querySelectorAll("diffs-container").length ?? 0).toBe(1);
+    const diffHost = body?.querySelector<HTMLElement>("diffs-container.nodex-inline-diff") ?? null;
+    expect(Boolean(diffHost)).toBeTrue();
+    await waitFor(() => {
+      expect(Boolean(diffHost?.shadowRoot?.textContent?.includes("extractArtifacts"))).toBeTrue();
     });
   });
 

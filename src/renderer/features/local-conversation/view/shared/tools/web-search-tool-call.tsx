@@ -5,6 +5,7 @@ import { ToolActivityIcon, resolveWebSearchIcon } from "./tool-call-icons";
 
 interface WebSearchToolCallProps {
   item: CodexTranscriptEntry;
+  hideHeader?: boolean;
 }
 
 interface WebSearchActionSnapshot {
@@ -98,10 +99,23 @@ export function getWebSearchSummaryDetail(item: CodexTranscriptEntry): string {
   return describeWebSearchAction(extractAction(item), extractFallbackQuery(item)).trim();
 }
 
-export function WebSearchToolCall({ item }: WebSearchToolCallProps) {
+export function WebSearchToolCall({ item, hideHeader = false }: WebSearchToolCallProps) {
   const completed = item.status !== "inProgress";
   const summaryVerb = completed ? "Searched web" : "Searching web";
   const summaryDetail = getWebSearchSummaryDetail(item);
+
+  if (hideHeader) {
+    return (
+      <div className="-mx-2.5 mt-1">
+        <div className="text-size-chat rounded-none border-0 px-2.5 font-sans text-token-description-foreground/80 [&_*]:text-token-description-foreground/80">
+          <div className="text-size-chat flex items-start gap-1.5 font-sans text-token-description-foreground/80">
+            <ToolActivityIcon descriptor={resolveWebSearchIcon(item)} className="mt-[3px] size-3.5 text-token-text-secondary" />
+            <span className="min-w-0 break-words">{summaryDetail.length > 0 ? summaryDetail : summaryVerb}</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-w-0 text-size-chat relative overflow-visible py-0">

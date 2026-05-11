@@ -7,8 +7,11 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 ### Changed
+- Thread collapsed tool activity groups now match Codex Electron's synthesized summaries and flat expanded row hierarchy instead of showing generic completed-action labels or nested exploration subgroups.
 
 ### Fixed
+- Fixed completed Thread file-edit rows so expanding a file shows the rendered inline diff body again instead of only the patch-frame header.
+- Removed the redundant extra colored gutter line from inline Thread diffs so the diff body relies on the native add/delete indicators.
 - Fixed Threads composer file attachment handling so renderer code can no longer request arbitrary local file bytes; image previews are now read only from files selected through the native picker.
 - Fixed active-turn steering parity so steers now render as optimistic steering user messages, accept against the matching backend user message, show the separate `Steered conversation` divider, and restore unaccepted steers as queued follow-ups.
 

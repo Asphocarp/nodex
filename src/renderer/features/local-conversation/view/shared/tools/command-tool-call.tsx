@@ -22,6 +22,9 @@ import { ThreadCommandShellBlock } from "./thread-command-shell-block";
 interface CommandToolCallProps {
   item: CodexTranscriptEntry;
   threadCwd?: string;
+  defaultExpandExecShell?: boolean;
+  execSummaryTone?: "default" | "muted";
+  showExecSummaryIcon?: boolean;
 }
 
 interface CommandToolArgs {
@@ -178,6 +181,7 @@ function SummaryText({
   commandCwd,
   threadCwd,
   isExpanded,
+  tone,
 }: {
   command: string;
   summaryLabel: string;
@@ -185,14 +189,18 @@ function SummaryText({
   commandCwd?: string;
   threadCwd?: string;
   isExpanded: boolean;
+  tone: "default" | "muted";
 }) {
   const metaParts: string[] = [];
   if (elapsedLabel) metaParts.push(`for ${elapsedLabel}`);
   if (shouldShowCwdSubtitle(commandCwd, threadCwd) && commandCwd) metaParts.push(`in ${commandCwd}`);
+  const labelClassName = tone === "muted"
+    ? "text-token-foreground/40 group-hover:text-token-foreground"
+    : "text-token-description-foreground group-hover:text-token-foreground";
 
   return (
     <div className="min-w-0 flex-1 text-size-chat truncate text-token-foreground/40 group-hover:text-token-foreground">
-      <span className="font-sans text-token-description-foreground group-hover:text-token-foreground">
+      <span className={cn("font-sans", labelClassName)}>
         {summaryLabel}
       </span>
       {metaParts.length > 0 ? (
@@ -240,6 +248,9 @@ function CommandFooter({
 export function CommandToolCall({
   item,
   threadCwd,
+  defaultExpandExecShell,
+  execSummaryTone = "default",
+  showExecSummaryIcon = true,
 }: CommandToolCallProps) {
   const { settings } = useCodexThreadSettings();
   const threadDetailLevel = resolveCodexThreadDetailLevel(settings.detailLevel);
@@ -261,7 +272,7 @@ export function CommandToolCall({
   const elapsedLabel = useElapsedLabel(effectiveStatus);
   const commandActions = extractCommandActions(item);
   const isExploration = commandActions.length > 0 && commandActions.every(isExplorationAction);
-  const prefersExpandedWhenSettled = threadDetailLevel === "STEPS_EXECUTION";
+  const prefersExpandedWhenSettled = defaultExpandExecShell ?? threadDetailLevel === "STEPS_EXECUTION";
   const [viewState, setViewState] = useState<CommandViewState>(() => (
     prefersExpandedWhenSettled && !isInProgress ? "expanded" : "collapsed"
   ));
@@ -343,7 +354,7 @@ export function CommandToolCall({
       onClick={handleToggle}
     >
       <div className="flex min-w-0 items-center gap-1">
-        <ToolActivityIcon descriptor={resolveCommandHeaderIcon(commandActions, isExploration)} />
+        {showExecSummaryIcon ? <ToolActivityIcon descriptor={resolveCommandHeaderIcon(commandActions, isExploration)} /> : null}
         <SummaryText
           command={command}
           summaryLabel={summaryLabel}
@@ -351,6 +362,7 @@ export function CommandToolCall({
           commandCwd={item.cwd ?? undefined}
           threadCwd={threadCwd}
           isExpanded={isExpanded}
+          tone={execSummaryTone}
         />
         {!isInProgress ? (
           <span className={cn("inline-chevron flex-shrink-0 text-token-input-placeholder-foreground transition-opacity duration-200 opacity-0 group-hover:opacity-100", isExpanded && "opacity-100")}>

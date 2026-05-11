@@ -9,6 +9,10 @@ export interface ToolComponentProps {
   item: CodexTranscriptEntry;
   projectWorkspacePath?: string;
   threadCwd?: string;
+  defaultExpandExecShell?: boolean;
+  execSummaryTone?: "default" | "muted";
+  hideHeader?: boolean;
+  showExecSummaryIcon?: boolean;
 }
 
 type ToolComponent = ComponentType<ToolComponentProps>;
