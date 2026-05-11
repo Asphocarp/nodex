@@ -7761,6 +7761,208 @@ describe("codex-service terminal turn reconciliation", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("patchUpdated creates an in-progress fileChange item", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Patch updated creates fileChange" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_patch_updated_create",
+        threadName: "Patch updated create",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") hostMessages.push(message);
+      });
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_patch_updated_create"),
+        turns: [{
+          threadId: "thr_patch_updated_create",
+          turnId: "turn_patch_updated_create",
+          status: "inProgress",
+          itemIds: [],
+        }],
+        transcript: [],
+      });
+
+      try {
+        await serviceInternals.handleNotification("item/fileChange/patchUpdated", {
+          threadId: "thr_patch_updated_create",
+          turnId: "turn_patch_updated_create",
+          itemId: "patch_live",
+          changes: [{
+            path: "src/app.ts",
+            kind: { type: "update" },
+            diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new",
+          }],
+        });
+
+        const latest = projectConversationFromHostMessages(hostMessages);
+        const item = latest?.turns[0]?.items[0] ?? null;
+        expect(item?.itemId ?? "").toBe("patch_live");
+        expect(item?.status ?? "").toBe("inProgress");
+        expect(`${item?.kind}:${item?.semanticKind}`).toBe("fileChange:patch");
+        expect(item?.fileChange?.changes[0]?.type ?? "").toBe("update");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("patchUpdated replaces the existing fileChange changes", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Patch updated replaces fileChange" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_patch_updated_replace",
+        threadName: "Patch updated replace",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") hostMessages.push(message);
+      });
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_patch_updated_replace"),
+        turns: [{
+          threadId: "thr_patch_updated_replace",
+          turnId: "turn_patch_updated_replace",
+          status: "inProgress",
+          itemIds: [],
+        }],
+        transcript: [],
+      });
+
+      try {
+        await serviceInternals.handleNotification("item/fileChange/patchUpdated", {
+          threadId: "thr_patch_updated_replace",
+          turnId: "turn_patch_updated_replace",
+          itemId: "patch_live",
+          changes: [{
+            path: "src/old.ts",
+            kind: { type: "update" },
+            diff: "--- a/src/old.ts\n+++ b/src/old.ts\n@@ -1 +1 @@\n-old\n+new",
+          }],
+        });
+        await serviceInternals.handleNotification("item/fileChange/patchUpdated", {
+          threadId: "thr_patch_updated_replace",
+          turnId: "turn_patch_updated_replace",
+          itemId: "patch_live",
+          changes: [{
+            path: "src/new.ts",
+            kind: { type: "update" },
+            diff: "--- a/src/new.ts\n+++ b/src/new.ts\n@@ -1 +1 @@\n-before\n+after",
+          }],
+        });
+
+        const latest = projectConversationFromHostMessages(hostMessages);
+        const items = latest?.turns[0]?.items ?? [];
+        expect(items.length).toBe(1);
+        expect(items[0]?.fileChange?.paths.join(",") ?? "").toBe("src/new.ts");
+        expect((items[0]?.fileChange?.diffs[0] ?? "").includes("after")).toBeTrue();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("completed fileChange items synthesize turn-diff payloads with patch batches and cwd", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Completed patch batch turn diff" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_completed_patch_batches",
+        threadName: "Completed patch batches",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") hostMessages.push(message);
+      });
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_completed_patch_batches"),
+        cwd: "/tmp/patch-project",
+        turns: [{
+          threadId: "thr_completed_patch_batches",
+          turnId: "turn_completed_patch_batches",
+          status: "inProgress",
+          itemIds: ["patch_done"],
+        }],
+        transcript: [],
+      });
+
+      try {
+        await serviceInternals.handleNotification("item/completed", {
+          threadId: "thr_completed_patch_batches",
+          turnId: "turn_completed_patch_batches",
+          item: {
+            id: "patch_done",
+            type: "fileChange",
+            status: "completed",
+            changes: [{
+              path: "src/app.ts",
+              kind: { type: "update" },
+              diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new",
+            }],
+          },
+        });
+        await serviceInternals.handleNotification("turn/completed", {
+          threadId: "thr_completed_patch_batches",
+          turnId: "turn_completed_patch_batches",
+        });
+
+        const latest = projectConversationFromHostMessages(hostMessages);
+        const turnDiff = latest?.turns[0]?.items.find((item) => item.itemId === "turn-diff:turn_completed_patch_batches");
+        const rawItem = turnDiff?.rawItem as {
+          unifiedDiff?: string;
+          patchBatches?: Array<{ cwd: string | null; changes: unknown[] }>;
+          cwd?: string;
+          showRevertButton?: boolean;
+        } | undefined;
+
+        expect(`${turnDiff?.kind}:${turnDiff?.semanticKind}`).toBe("systemEvent:diff");
+        expect(rawItem?.cwd ?? "").toBe("/tmp/patch-project");
+        expect(rawItem?.showRevertButton === true).toBeTrue();
+        expect(rawItem?.patchBatches?.length ?? 0).toBe(1);
+        expect(rawItem?.patchBatches?.[0]?.cwd ?? "").toBe("/tmp/patch-project");
+        expect(rawItem?.patchBatches?.[0]?.changes.length ?? 0).toBe(1);
+        expect((rawItem?.unifiedDiff ?? "").includes("src/app.ts")).toBeTrue();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("queues follow-up rows through direct broadcast-cache patches once the cache is primed", async () => {
     const ran = await withTempDatabase(async () => {
       const card = await createCard("codex", "in_progress", { title: "Queued follow-up direct patch" });

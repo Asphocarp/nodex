@@ -2,7 +2,10 @@ import { parsePatchFiles } from "@pierre/diffs";
 import { FileDiff, type FileDiffMetadata } from "@pierre/diffs/react";
 import { motion } from "motion/react";
 import {
+  createElement,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
 } from "react";
@@ -23,6 +26,7 @@ import { CopyMessageActionButton } from "../thread-message-actions";
 import { CodeBlock, ToolErrorDetail } from "./tool-primitives";
 import {
   Chevron,
+  AnimatedDiffStats,
   DiffStats,
   FilenameButton,
   type DiffSummary,
@@ -30,6 +34,11 @@ import {
   summarizeDiff,
   summarizeFileDiffMetadata,
 } from "./diff-file-shared";
+import {
+  applyFileChangeGutters,
+  buildLineMarkers,
+  groupMarkersByLine,
+} from "./diff-gutter-markers";
 
 interface FileChangeToolCallProps {
   item: CodexTranscriptEntry;
@@ -276,13 +285,31 @@ function PatchFrame({
   onOpenFile: (() => void) | null;
   isShortView: boolean;
 }) {
+  const diffContainerRef = useRef<HTMLElement | null>(null);
+  const markersByLine = useMemo(() => {
+    if (row.preview.kind !== "diff") return null;
+    return groupMarkersByLine(buildLineMarkers(row.preview.fileDiff));
+  }, [row.preview]);
+
+  useEffect(() => {
+    if (!diffContainerRef.current || !markersByLine) return;
+    applyFileChangeGutters(diffContainerRef.current, markersByLine);
+  }, [markersByLine]);
+
   const preview = row.preview.kind === "diff" ? (
-    <FileDiff
-      fileDiff={row.preview.fileDiff}
-      className={cn(diffHostClassName, isShortView ? "max-h-25" : "max-h-60")}
-      style={diffHostStyle}
-      options={diffOptions}
-    />
+    createElement(
+      "diffs-container",
+      {
+        ref: diffContainerRef,
+        "data-file": row.displayPath,
+      },
+      <FileDiff
+        fileDiff={row.preview.fileDiff}
+        className={cn(diffHostClassName, isShortView ? "max-h-25" : "max-h-60")}
+        style={diffHostStyle}
+        options={diffOptions}
+      />,
+    )
   ) : (
     <SemanticChangePreview row={row} isShortView={isShortView} />
   );
@@ -376,7 +403,9 @@ function FileChangeRow({
               />
             ) : null}
             {showCollapsedStats ? (
-              <DiffStats additions={row.summary.additions} deletions={row.summary.deletions} />
+              row.state === "pending"
+                ? <AnimatedDiffStats additions={row.summary.additions} deletions={row.summary.deletions} />
+                : <DiffStats additions={row.summary.additions} deletions={row.summary.deletions} />
             ) : null}
             {showCollapsedIndicator ? (
               <DiffSummaryIndicator action={row.action} summary={row.summary} />

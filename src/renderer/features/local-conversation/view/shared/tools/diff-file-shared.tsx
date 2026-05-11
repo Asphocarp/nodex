@@ -103,6 +103,88 @@ export function DiffStats({
   );
 }
 
+function formatDiffNumber(value: number): string {
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(Math.max(0, value));
+}
+
+function AnimatedDiffNumber({ value }: { value: number }) {
+  const formatted = formatDiffNumber(value);
+  let digitPlace = 0;
+  const parts = Array.from(formatted).reverse().map((char, indexFromRight) => {
+    if (!/\d/.test(char)) {
+      return {
+        key: `separator-${indexFromRight}-${char}`,
+        char,
+        digit: null,
+      };
+    }
+
+    const part = {
+      key: `digit-${digitPlace}`,
+      char,
+      digit: Number(char),
+    };
+    digitPlace += 1;
+    return part;
+  }).reverse();
+
+  return (
+    <>
+      {parts.map((part) => {
+        if (part.digit === null) {
+          return <span key={part.key}>{part.char}</span>;
+        }
+
+        return (
+          <span
+            key={part.key}
+            className="diff-stat-digit-column"
+            data-diff-stat-digit-place={part.key.startsWith("digit-") ? part.key.slice("digit-".length) : undefined}
+            aria-hidden="true"
+          >
+            <span className={`diff-stat-digit-stack diff-stat-digit-stack-${part.digit}`}>
+              {Array.from({ length: 10 }, (_, digit) => (
+                <span key={digit}>{digit}</span>
+              ))}
+            </span>
+          </span>
+        );
+      })}
+      <span className="sr-only">{formatted}</span>
+    </>
+  );
+}
+
+export function AnimatedDiffStats({
+  additions,
+  deletions,
+  className,
+}: DiffSummary & {
+  className?: string;
+}) {
+  if (additions === 0 && deletions === 0) return null;
+
+  return (
+    <span
+      data-thread-find-skip="true"
+      className={cn("inline-flex items-center gap-1 disambiguated-digits tabular-nums tracking-tight", className)}
+    >
+      <span
+        className="flex flex-shrink-0 items-center text-token-git-decoration-added-resource-foreground"
+        data-diff-stat-kind="additions"
+      >
+        +<AnimatedDiffNumber value={additions} />
+      </span>
+      <span
+        className="flex flex-shrink-0 items-center text-token-git-decoration-deleted-resource-foreground"
+        data-diff-stat-kind="deletions"
+      >
+        -<AnimatedDiffNumber value={deletions} />
+      </span>
+    </span>
+  );
+}
+
 export function Chevron({ expanded, className }: { expanded: boolean; className?: string }) {
   return (
     <span

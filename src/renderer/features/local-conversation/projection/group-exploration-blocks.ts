@@ -1,6 +1,8 @@
 import type { CodexConversationItem } from "../../../lib/types";
 import { extractCommandActions, isExplorationAction } from "../view/shared/tools/command-actions";
 import type {
+  ThreadCollapsedToolActivityBlockModel,
+  ThreadCollapsedToolActivityEntryModel,
   ThreadAgentEntryModel,
   ThreadMultiAgentGroupBlockModel,
   ThreadTranscriptBlockModel,
@@ -42,6 +44,19 @@ function buildSearchableText(entries: CodexConversationItem[]): string {
     .join("\n");
 }
 
+function buildSearchableTextFromActivityEntries(entries: ThreadCollapsedToolActivityEntryModel[]): string {
+  return entries
+    .flatMap((entry) => {
+      if (entry.type === "explorationGroup" || entry.type === "multiAgentGroup") {
+        return [entry.summary, ...entry.entries.map((item) => item.markdownText ?? item.toolCall?.toolName ?? "")];
+      }
+      return [entry.searchableText];
+    })
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0)
+    .join("\n");
+}
+
 function resolveExplorationSummary(entries: CodexConversationItem[]): string {
   const commandCount = entries.filter((entry) => entry.kind === "commandExecution").length;
   if (commandCount <= 1) return "Exploration";
@@ -78,6 +93,73 @@ function buildMultiAgentGroup(entries: CodexConversationItem[], seed: ThreadTran
     entries,
     summary: resolveMultiAgentSummary(entries),
     status: mergeStatus(entries),
+  };
+}
+
+function isCollapsedActivityEntry(block: ThreadAgentEntryModel): block is ThreadCollapsedToolActivityEntryModel {
+  if (block.type === "explorationGroup" || block.type === "multiAgentGroup") {
+    return block.status !== "inProgress";
+  }
+
+  if (block.status === "inProgress") return false;
+
+  switch (block.type) {
+    case "exec":
+    case "fileChange":
+    case "mcpToolCall":
+    case "webSearch":
+    case "automaticApprovalReview":
+    case "multiAgentAction":
+    case "userInputResponse":
+    case "mcpServerElicitation":
+      return true;
+    default:
+      return false;
+  }
+}
+
+function mergeActivityStatus(entries: ThreadCollapsedToolActivityEntryModel[]): CodexConversationItem["status"] {
+  const statuses = entries
+    .map((entry) => entry.status)
+    .filter((status): status is NonNullable<CodexConversationItem["status"]> => status !== undefined);
+  if (statuses.length === 0) return undefined;
+  if (statuses.includes("failed")) return "failed";
+  if (statuses.includes("interrupted")) return "interrupted";
+  if (statuses.includes("declined")) return "declined";
+  return "completed";
+}
+
+function resolveCollapsedActivitySummary(entries: ThreadCollapsedToolActivityEntryModel[]): string {
+  const fileCount = entries.filter((entry) => entry.type === "fileChange").length;
+  const commandCount = entries.filter((entry) => entry.type === "exec" || entry.type === "explorationGroup").length;
+  const mcpCount = entries.filter((entry) => entry.type === "mcpToolCall").length;
+
+  if (fileCount > 0 && entries.length === fileCount) {
+    return fileCount === 1 ? "Edited 1 file" : `Edited ${fileCount} files`;
+  }
+  if (commandCount > 0 && mcpCount === 0 && fileCount === 0) {
+    return commandCount === 1 ? "Ran 1 command" : `Ran ${commandCount} commands`;
+  }
+  if (mcpCount > 0 && entries.length === mcpCount) {
+    return mcpCount === 1 ? "Called 1 tool" : `Called ${mcpCount} tools`;
+  }
+  return entries.length === 1 ? "Completed 1 action" : `Completed ${entries.length} actions`;
+}
+
+function buildCollapsedActivityGroup(
+  entries: ThreadCollapsedToolActivityEntryModel[],
+  seed: ThreadCollapsedToolActivityEntryModel,
+): ThreadCollapsedToolActivityBlockModel {
+  return {
+    id: `${seed.id}::collapsed-tool-activity`,
+    turnId: seed.turnId,
+    createdAt: entries[0]?.createdAt ?? seed.createdAt,
+    updatedAt: Math.max(...entries.map((entry) => entry.updatedAt)),
+    searchableText: buildSearchableTextFromActivityEntries(entries),
+    type: "collapsedToolActivity",
+    entries,
+    summary: resolveCollapsedActivitySummary(entries),
+    status: mergeActivityStatus(entries),
   };
 }
 
@@ -128,5 +210,33 @@ export function groupAgentEntries(agentBlocks: ThreadTranscriptBlockModel[]): Th
     index = cursor;
   }
 
-  return grouped;
+  const collapsed: ThreadAgentEntryModel[] = [];
+  let collapsedIndex = 0;
+  while (collapsedIndex < grouped.length) {
+    const current = grouped[collapsedIndex];
+    if (!current) break;
+    if (!isCollapsedActivityEntry(current)) {
+      collapsed.push(current);
+      collapsedIndex += 1;
+      continue;
+    }
+
+    const entries = [current];
+    let cursor = collapsedIndex + 1;
+    while (cursor < grouped.length) {
+      const candidate = grouped[cursor];
+      if (!candidate || !isCollapsedActivityEntry(candidate)) break;
+      entries.push(candidate);
+      cursor += 1;
+    }
+
+    if (entries.length === 1) {
+      collapsed.push(current);
+    } else {
+      collapsed.push(buildCollapsedActivityGroup(entries, current));
+    }
+    collapsedIndex = cursor;
+  }
+
+  return collapsed;
 }

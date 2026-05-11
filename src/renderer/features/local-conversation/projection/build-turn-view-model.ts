@@ -89,6 +89,16 @@ function collectSearchableText(blocks: ThreadBlockModel[]): string {
           ...block.entries.map((entry) => stringifyToolCall(entry)),
         ];
       }
+      if (block.type === "collapsedToolActivity") {
+        return [
+          block.summary,
+          ...block.entries.flatMap((entry) =>
+            entry.type === "explorationGroup" || entry.type === "multiAgentGroup"
+              ? [entry.summary, ...entry.entries.map((item) => item.markdownText ?? ""), ...entry.entries.map((item) => stringifyToolCall(item))]
+              : [entry.searchableText],
+          ),
+        ];
+      }
       if ("entry" in block) {
         return [block.searchableText];
       }
@@ -104,7 +114,12 @@ function withSearchUnitKey<TBlock extends ThreadBlockModel | null>(
   searchUnitKey: string,
 ): TBlock {
   if (!block) return block;
-  if (block.type === "explorationGroup" || block.type === "multiAgentGroup" || block.type === "thinkingPlaceholder") return block;
+  if (
+    block.type === "explorationGroup"
+    || block.type === "multiAgentGroup"
+    || block.type === "collapsedToolActivity"
+    || block.type === "thinkingPlaceholder"
+  ) return block;
   if (block.type !== "userMessage" && block.type !== "assistantMessage") return block;
 
   const nextBlock = {
@@ -231,7 +246,7 @@ function isIncompleteBlock(
 }
 
 function isTrailingReasoningEntryInProgress(entry: ThreadAgentEntryModel | undefined): boolean {
-  if (!entry || entry.type === "explorationGroup" || entry.type === "multiAgentGroup") return false;
+  if (!entry || entry.type === "explorationGroup" || entry.type === "multiAgentGroup" || entry.type === "collapsedToolActivity") return false;
   if (entry.type !== "reasoning") return false;
   return entry.status === "inProgress";
 }

@@ -154,6 +154,20 @@ describe("FileChangeToolCall", () => {
     expect(Boolean(container.querySelector('button[aria-label="Copy diff"]'))).toBeTrue();
   });
 
+  test("renders live file-change stats with the animated digit wheel", () => {
+    const { container } = render(
+      <TooltipProvider>
+        <FileChangeToolCall
+          item={buildFileChangeEntry({ status: "inProgress" })}
+          threadCwd="/tmp/project"
+        />
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(container.querySelector(".diff-stat-digit-column"))).toBeTrue();
+    expect(Boolean(container.querySelector(".diff-stat-digit-stack-2"))).toBeTrue();
+  });
+
   test("resolves the Codex-style open-file target and keeps filename clicks from toggling the row", async () => {
     const rows = fileChangeToolCallTestHelpers.buildFileChangeRows(
       buildFileChangeEntry(),

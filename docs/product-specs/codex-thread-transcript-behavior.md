@@ -147,14 +147,19 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
   - agent-body collapse is a separate presence animation contract and does not reuse the measured-height transcript-body model
 - `fileChange` and turn-level unified diff are separate surfaces, matching Codex Electron exactly:
   - raw `fileChange` items always stay visible as `patch` tool rows (`Edited …`)
+  - live `item/fileChange/patchUpdated` notifications own the visible in-progress patch state; `item/fileChange/outputDelta` burst bytes are not projected into the display transcript
   - turn-level aggregated `turn.diff` renders as a separate `turn-diff` surface
+  - completed patch/file-change items synthesize the separate `turn-diff` payload from patch batches before falling back to a turn-level `diff`
   - active in-progress turn diffs surface as a compact above-composer `files changed` banner instead of a generic inline diff viewer
   - the above-composer diff banner is caller-owned `in progress` UI, not an item-status heuristic: it renders as the summary-only `Review changes` banner with no embedded per-file rows
   - completed turn diffs render as a dedicated files-changed card with per-file collapsed embedded diff rows
   - the unified diff card is never allowed to replace or swallow the underlying `Edited file` tool row
   - patch rows expand inline to reveal their own unified diff frame instead of delegating expansion to the separate turn-level diff card
+  - live patch labels and in-progress turn-diff banners animate `+N` / `-N` through Codex's CSS digit-wheel contract, while accordion body expansion still uses Motion measured-height transitions
+  - inline diff previews preserve the Codex DOM hook contract for `diffs-container`, `data-file`, `data-column-number`, `data-file-change-gutter`, marker kind, placement, and run-boundary attributes
   - patch headers split the status label and filename into separate elements; the filename is clickable and opens the local file target without toggling the row
   - embedded per-file patch previews suppress the diff library's built-in file header because the surrounding thread row already owns the filename and line-count summary
+- Contiguous completed activity units can coalesce into a `collapsedToolActivity` group after bucketization. That group owns only its header/body toggle and mounts the original tool/activity units inside the animated body instead of flattening them into summary text.
 - Tool-call expansion is subtype-owned local UI state; the mounted thread persists collapsed turns, not collapsed tool rows.
 - Tool-call header labels use a scan-friendly two-tone hierarchy where the leading action phrase is visually emphasized over trailing detail text.
 - Command execution cards consume parsed `commandActions` metadata (`read`, `listFiles`, `search`) to show exploration summaries and per-action transcript rows.

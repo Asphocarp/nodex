@@ -1,7 +1,7 @@
 import { parsePatchFiles } from "@pierre/diffs";
 import { FileDiff, type FileDiffMetadata } from "@pierre/diffs/react";
 import { motion } from "motion/react";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { createElement, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { toast } from "@/components/ui/toast";
 import {
   NODEX_DIFF_HOST_CLASS,
@@ -17,6 +17,7 @@ import { CODEX_THREAD_ACCORDION_TRANSITION } from "./thread-motion";
 import { useMeasuredElementHeight } from "./use-measured-element-height";
 import {
   Chevron,
+  AnimatedDiffStats,
   DiffStats,
   FilenameButton,
   normalizePathSegments,
@@ -25,6 +26,11 @@ import {
   summarizeDiff,
   summarizeFileDiffMetadata,
 } from "./tools/diff-file-shared";
+import {
+  applyFileChangeGutters,
+  buildLineMarkers,
+  groupMarkersByLine,
+} from "./tools/diff-gutter-markers";
 
 const TURN_DIFF_MAX_INLINE_LINES = 5000;
 
@@ -253,8 +259,7 @@ function TurnDiffBanner({
                   ? "Files changed"
                   : `${summary.fileCount} ${summary.fileCount === 1 ? "file" : "files"} changed`}
               </span>
-              <span className="text-token-charts-green">+{summary.additions}</span>
-              <span className="text-token-charts-red">-{summary.deletions}</span>
+              <AnimatedDiffStats additions={summary.additions} deletions={summary.deletions} />
             </div>
             {onReview ? (
               <TurnDiffActionButton label="Review changes" onClick={onReview} />
@@ -284,6 +289,16 @@ function TurnDiffEmbeddedRow({
   const [isExpanded, setIsExpanded] = useState(false);
   const { elementHeightPx, elementRef } = useMeasuredElementHeight();
   const openFileTransport = useMemo(() => resolveInvokeTransport("shell:open-file-link"), []);
+  const diffContainerRef = useRef<HTMLElement | null>(null);
+  const markersByLine = useMemo(() => {
+    if (!row.fileDiff) return null;
+    return groupMarkersByLine(buildLineMarkers(row.fileDiff));
+  }, [row.fileDiff]);
+
+  useEffect(() => {
+    if (!diffContainerRef.current || !markersByLine) return;
+    applyFileChangeGutters(diffContainerRef.current, markersByLine);
+  }, [markersByLine]);
 
   function openFile() {
     if (!row.openPath) return;
@@ -356,12 +371,19 @@ function TurnDiffEmbeddedRow({
               </div>
             ) : row.fileDiff ? (
               <div className="overflow-hidden">
-                <FileDiff
-                  fileDiff={row.fileDiff}
-                  className={cn(diffHostClassName, "max-h-[320px] overflow-y-auto")}
-                  style={diffHostStyle}
-                  options={diffOptions}
-                />
+                {createElement(
+                  "diffs-container",
+                  {
+                    ref: diffContainerRef,
+                    "data-file": row.displayPath ?? "",
+                  },
+                  <FileDiff
+                    fileDiff={row.fileDiff}
+                    className={cn(diffHostClassName, "max-h-[320px] overflow-y-auto")}
+                    style={diffHostStyle}
+                    options={diffOptions}
+                  />,
+                )}
               </div>
             ) : (
               <div className="text-token-description-foreground/80 flex items-center justify-center px-4 py-5 text-size-chat">

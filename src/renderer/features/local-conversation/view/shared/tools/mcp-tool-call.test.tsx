@@ -259,4 +259,41 @@ describe("McpToolCall", () => {
     expect(Boolean(textContent(container).includes("\"foo\": \"bar\""))).toBeTrue();
     expect(Boolean(textContent(container).includes("Tool returned no content"))).toBeFalse();
   });
+
+  test("renders resource-link content blocks", async () => {
+    const { container, getByRole } = render(
+      <TooltipProvider>
+        <McpToolCall
+          item={buildMcpEntry({
+            mcpToolCall: buildMcpView({
+              result: {
+                type: "success",
+                content: [
+                  {
+                    type: "resource_link",
+                    uri: "file:///workspace/docs.md",
+                    title: "Docs",
+                    annotations: {
+                      audience: "agent",
+                    },
+                  },
+                ],
+                structuredContent: null,
+                raw: {
+                  content: [],
+                  structuredContent: null,
+                },
+              },
+            }),
+          })}
+        />
+      </TooltipProvider>,
+    );
+
+    fireEvent.click(getByRole("button", { name: /Called Resolve Library Id tool from Context 7/i }));
+    await settleAsyncRender();
+
+    expect(Boolean(textContent(container).includes("Read Docs"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("audience=agent"))).toBeTrue();
+  });
 });

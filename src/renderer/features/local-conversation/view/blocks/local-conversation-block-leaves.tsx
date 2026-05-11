@@ -72,6 +72,7 @@ export interface ThreadSpecialBlockProps {
   isStreamingTurn: boolean;
   projectWorkspacePath?: string | null;
   threadCwd?: string | null;
+  onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
 }
 
 interface ExplorationDisplayLine {
@@ -487,6 +488,108 @@ export function ThreadMultiAgentGroupBlock({
   if (block.type !== "multiAgentGroup") return null;
 
   return <MultiAgentActionSurface items={block.entries} />;
+}
+
+function renderCollapsedActivityEntry({
+  entry,
+  isLatestTurn,
+  isStreamingTurn,
+  projectWorkspacePath,
+  threadCwd,
+  onOpenTurnDiffReview,
+}: {
+  entry: Extract<ThreadBlockModel, { type: "collapsedToolActivity" }>["entries"][number];
+  isLatestTurn: boolean;
+  isStreamingTurn: boolean;
+  projectWorkspacePath?: string | null;
+  threadCwd?: string | null;
+  onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+}) {
+  const sharedProps = {
+    isLatestTurn,
+    isStreamingTurn,
+    projectWorkspacePath,
+    threadCwd,
+    onOpenTurnDiffReview,
+  };
+
+  if (entry.type === "explorationGroup") return <ThreadExplorationGroupBlock block={entry} {...sharedProps} />;
+  if (entry.type === "multiAgentGroup") return <ThreadMultiAgentGroupBlock block={entry} {...sharedProps} />;
+  if (entry.type === "automaticApprovalReview") return <ThreadAutomaticApprovalReviewBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
+  if (entry.type === "multiAgentAction") return <ThreadMultiAgentActionBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
+  if (entry.type === "userInputResponse") return <ThreadUserInputResponseCard block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
+  if (entry.type === "mcpServerElicitation") return <ThreadMcpServerElicitationBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
+  if (entry.type === "streamError") return <ThreadStreamErrorBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
+  if (entry.type === "systemError") return <ThreadSystemErrorBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
+  if (entry.type === "contextCompaction") return <ThreadContextCompactionBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
+  if (entry.type === "exec" || entry.type === "fileChange" || entry.type === "mcpToolCall" || entry.type === "webSearch") {
+    return <ThreadToolSurfaceBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
+  }
+
+  return null;
+}
+
+export function ThreadCollapsedToolActivityBlock({
+  block,
+  isLatestTurn,
+  isStreamingTurn,
+  projectWorkspacePath,
+  threadCwd,
+  onOpenTurnDiffReview,
+}: ThreadSpecialBlockProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const { elementHeightPx, elementRef } = useMeasuredElementHeight();
+
+  if (block.type !== "collapsedToolActivity") return null;
+
+  return (
+    <div className="group/collapsed-tool-activity flex min-w-0 flex-col">
+      <button
+        type="button"
+        className="group/summary inline-flex w-fit max-w-full cursor-interaction items-center gap-1 self-start text-left"
+        aria-expanded={isExpanded}
+        onClick={() => setIsExpanded((current) => !current)}
+      >
+        <span className="text-size-chat truncate text-token-description-foreground/90 group-hover/summary:text-token-foreground">
+          {block.summary}
+        </span>
+        <ChevronRightIcon
+          className={cn(
+            "text-token-input-placeholder-foreground icon-2xs flex-shrink-0 transition-[opacity,rotate] duration-300 opacity-0 group-hover/summary:opacity-100",
+            isExpanded && "rotate-90 opacity-100",
+          )}
+        />
+      </button>
+      <motion.div
+        initial={false}
+        animate={{
+          height: isExpanded ? elementHeightPx : 0,
+          opacity: isExpanded ? 1 : 0,
+        }}
+        transition={CODEX_THREAD_ACCORDION_TRANSITION}
+        className={cn(isExpanded ? "overflow-visible" : "overflow-hidden")}
+        data-thread-find-skip={isExpanded ? undefined : true}
+        style={{
+          pointerEvents: isExpanded ? "auto" : "none",
+        }}
+      >
+        <div ref={elementRef} className="flex flex-col gap-[var(--conversation-tool-assistant-gap,8px)] pt-1">
+          {block.entries.map((entry) => (
+            <div key={entry.id}>
+              {renderCollapsedActivityEntry({
+                entry,
+                isLatestTurn,
+                isStreamingTurn,
+                projectWorkspacePath,
+                threadCwd,
+                onOpenTurnDiffReview,
+              })}
+            </div>
+          ))}
+        </div>
+      </motion.div>
+    </div>
+  );
 }
 
 export function ThreadThinkingPlaceholderBlock({ block }: ThreadSpecialBlockProps) {

@@ -70,6 +70,30 @@ describe("bucketizeTurnItems", () => {
     expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("exec,user_2");
   });
 
+  test("groups contiguous completed tool activity while preserving original units", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({ id: "exec", type: "exec", status: "completed" }),
+        buildItem({ id: "file", type: "fileChange", status: "completed" }),
+        buildItem({ id: "assistant", type: "assistantMessage" }),
+      ],
+      turnStatus: "completed",
+    });
+
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: null,
+      buckets,
+      isLatestTurn: false,
+      isStreamingTurn: false,
+      isBlocked: false,
+    });
+    const group = turn.agentBodyEntries[0];
+
+    expect(turn.agentBodyEntries.map((entry) => entry.type).join(",")).toBe("collapsedToolActivity");
+    expect(group?.type === "collapsedToolActivity" ? group.entries.map((entry) => entry.id).join(",") : "").toBe("exec,file");
+  });
+
   test("routes leading hooks into preUserItems and trailing hooks into postAssistantItems", () => {
     const buckets = bucketizeTurnItems({
       items: [

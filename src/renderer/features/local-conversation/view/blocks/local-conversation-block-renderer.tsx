@@ -1,5 +1,6 @@
 import {
   ThreadAutomaticApprovalReviewBlock,
+  ThreadCollapsedToolActivityBlock,
   ThreadMultiAgentGroupBlock,
   ThreadMultiAgentActionBlock,
   ThreadAssistantBodyBlock,
@@ -68,6 +69,19 @@ export function ThreadBlockRenderer({
         isStreamingTurn={isStreamingTurn}
         projectWorkspacePath={projectWorkspacePath}
         threadCwd={threadCwd}
+      />
+    );
+  }
+
+  if (block.type === "collapsedToolActivity") {
+    return (
+      <ThreadCollapsedToolActivityBlock
+        block={block}
+        isLatestTurn={isLatestTurn}
+        isStreamingTurn={isStreamingTurn}
+        projectWorkspacePath={projectWorkspacePath}
+        threadCwd={threadCwd}
+        onOpenTurnDiffReview={onOpenTurnDiffReview}
       />
     );
   }

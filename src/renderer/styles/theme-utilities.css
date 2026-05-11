@@ -107,3 +107,88 @@
 @utility text-token-charts-red {
   color: var(--color-token-charts-red);
 }
+
+.diff-stat-digit-column {
+  display: inline-block;
+  width: 1ch;
+  height: 1lh;
+  overflow: hidden;
+  vertical-align: top;
+}
+
+.diff-stat-digit-stack {
+  display: flex;
+  flex-direction: column;
+  transition:
+    transform var(--transition-duration-relaxed, 500ms)
+    cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform;
+}
+
+.diff-stat-digit-stack-0 { transform: translateY(0); }
+.diff-stat-digit-stack-1 { transform: translateY(-1lh); }
+.diff-stat-digit-stack-2 { transform: translateY(-2lh); }
+.diff-stat-digit-stack-3 { transform: translateY(-3lh); }
+.diff-stat-digit-stack-4 { transform: translateY(-4lh); }
+.diff-stat-digit-stack-5 { transform: translateY(-5lh); }
+.diff-stat-digit-stack-6 { transform: translateY(-6lh); }
+.diff-stat-digit-stack-7 { transform: translateY(-7lh); }
+.diff-stat-digit-stack-8 { transform: translateY(-8lh); }
+.diff-stat-digit-stack-9 { transform: translateY(-9lh); }
+
+@media (prefers-reduced-motion: reduce) {
+  .diff-stat-digit-stack {
+    transition: none;
+  }
+}
+
+diffs-container {
+  display: block;
+}
+
+[data-column-number] {
+  position: relative;
+}
+
+[data-file-change-gutter] {
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  display: flex;
+  width: 2px;
+  flex-direction: column;
+  pointer-events: none;
+}
+
+[data-file-change-gutter] > [data-file-change-kind] {
+  flex: 1 1 auto;
+  min-height: 0.625rem;
+  border-radius: 999px;
+  background: var(--color-token-charts-blue);
+}
+
+[data-file-change-gutter] > [data-file-change-kind="deletion"] {
+  background: var(--color-token-charts-red);
+}
+
+[data-file-change-gutter] > [data-file-change-kind="modification"] {
+  background: var(--color-token-charts-yellow);
+}
+
+[data-file-change-placement="before"] {
+  transform: translateY(-50%);
+}
+
+[data-file-change-placement="after"] {
+  transform: translateY(50%);
+}
+
+[data-file-change-run-start]:not([data-file-change-run-end]) {
+  border-end-start-radius: 0;
+  border-end-end-radius: 0;
+}
+
+[data-file-change-run-end]:not([data-file-change-run-start]) {
+  border-start-start-radius: 0;
+  border-start-end-radius: 0;
+}

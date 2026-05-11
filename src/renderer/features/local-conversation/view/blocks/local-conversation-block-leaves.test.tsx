@@ -6,6 +6,7 @@ import { installElementScrollHeight, installMeasuredResizeObserver } from "../..
 import { render, settleAsyncRender, textContent } from "../../../../test/dom";
 import {
   ThreadContextCompactionBlock,
+  ThreadCollapsedToolActivityBlock,
   ThreadExplorationGroupBlock,
   ThreadPlanCardBlock,
   ThreadStreamErrorBlock,
@@ -327,6 +328,61 @@ describe("ThreadExplorationGroupBlock", () => {
     const summaryText = textContent(getByRole("button"));
     expect(summaryText.includes("Exploring")).toBeTrue();
     expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeTrue();
+  });
+});
+
+describe("ThreadCollapsedToolActivityBlock", () => {
+  beforeEach(() => {
+    installElementScrollHeight(120);
+    installMeasuredResizeObserver({ blockSize: 120, inlineSize: 320 });
+  });
+
+  test("starts collapsed and expands a measured Motion body with original entries", async () => {
+    const block = {
+      id: "activity-1",
+      turnId: "turn-1",
+      createdAt: 1,
+      updatedAt: 2,
+      searchableText: "activity",
+      type: "collapsedToolActivity" as const,
+      summary: "Completed 2 actions",
+      status: "completed" as const,
+      entries: [
+        {
+          id: "exploration-1",
+          turnId: "turn-1",
+          createdAt: 1,
+          updatedAt: 2,
+          searchableText: "exploration",
+          type: "explorationGroup" as const,
+          summary: "Exploration",
+          status: "completed" as const,
+          entries: [
+            buildCommandEntry("item-1", [
+              { type: "read", command: "cat a.ts", name: "./src/a.ts", path: "./src/a.ts" },
+            ]),
+          ],
+        },
+      ],
+    };
+
+    const { container, getByRole } = render(
+      <ThreadCollapsedToolActivityBlock
+        block={block}
+        isLatestTurn={false}
+        isStreamingTurn={false}
+      />,
+    );
+
+    const summaryButton = getByRole("button", { name: /Completed 2 actions/i });
+    expect(summaryButton.getAttribute("aria-expanded") ?? "").toBe("false");
+    expect(Boolean(container.querySelector("[data-thread-find-skip='true']"))).toBeTrue();
+
+    fireEvent.click(summaryButton);
+    await settleAsyncRender();
+
+    expect(summaryButton.getAttribute("aria-expanded") ?? "").toBe("true");
+    expect(Boolean(textContent(container).includes("Read src/a.ts"))).toBeTrue();
   });
 });
 

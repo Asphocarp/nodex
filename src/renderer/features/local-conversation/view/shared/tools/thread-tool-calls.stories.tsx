@@ -2,7 +2,10 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useRef, type ReactNode } from "react";
 import type { CodexFileChange, CodexTranscriptEntry } from "@/lib/types";
 import { buildCodexFileChangeUnifiedDiff } from "../../../../../../shared/codex-file-change";
-import { ThreadExplorationGroupBlock } from "../../blocks/local-conversation-block-leaves";
+import {
+  ThreadCollapsedToolActivityBlock,
+  ThreadExplorationGroupBlock,
+} from "../../blocks/local-conversation-block-leaves";
 import { LOCAL_CONVERSATION_CONTENT_CLASS_NAME } from "../local-conversation-view-constants";
 import { TurnDiffSurface } from "../turn-diff-surface";
 import { getToolComponent } from "./get-tool-component";
@@ -247,6 +250,28 @@ function ExplorationGroupStory() {
   );
 }
 
+function buildTurnDiffItem(
+  itemId: string,
+  unifiedDiff: string,
+  showRevertButton = false,
+): CodexTranscriptEntry {
+  return {
+    ...THREAD_TOOL_CALL_STORY_ITEMS.turnDiff,
+    itemId,
+    entryId: itemId,
+    rawItem: {
+      type: "turn-diff",
+      cwd: "/workspace/nodex",
+      unifiedDiff,
+      patchBatches: [{
+        cwd: "/workspace/nodex",
+        changes: [],
+      }],
+      showRevertButton,
+    },
+  };
+}
+
 const meta = {
   title: "Workbench/Threads/Tool Calls",
   component: ToolCallStory,
@@ -428,6 +453,22 @@ export const FileChange: Story = {
   ),
 };
 
+export const FileChangeLivePatchUpdate: Story = {
+  render: () => (
+    <ToolCallStory
+      item={{
+        ...THREAD_TOOL_CALL_STORY_ITEMS.fileChange,
+        itemId: "tool-call-file-change-live-patch",
+        entryId: "tool-call-file-change-live-patch",
+        status: "inProgress",
+      }}
+      title="File Change Live Patch Update"
+      description="Live patchUpdated state uses the animated CSS digit wheel for the changing +/- counters."
+      autoOpen
+    />
+  ),
+};
+
 export const FileChangeMultiFile: Story = {
   render: () => (
     <ToolCallStory
@@ -582,6 +623,58 @@ export const TurnDiffWithRevert: Story = {
   ),
 };
 
+export const TurnDiffMultiFileCompleted: Story = {
+  render: () => (
+    <StorySurface
+      title="Turn Diff Multi-File Completed"
+      description="Completed turn-diff payload with patch batches and multiple embedded file rows."
+    >
+      <ConversationStorySurface>
+        <TurnDiffSurface
+          item={buildTurnDiffItem("turn-diff-multi-file", [
+            "--- a/src/one.ts",
+            "+++ b/src/one.ts",
+            "@@ -1 +1 @@",
+            "-console.log('one');",
+            "+console.log('ONE');",
+            "--- a/src/two.ts",
+            "+++ b/src/two.ts",
+            "@@ -1 +1 @@",
+            "-console.log('two');",
+            "+console.log('TWO');",
+          ].join("\n"))}
+          isInProgress={false}
+          projectWorkspacePath="/workspace/nodex"
+          threadCwd="/workspace/nodex"
+        />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const TurnDiffLargeDiffFallback: Story = {
+  render: () => (
+    <StorySurface
+      title="Turn Diff Large Diff Fallback"
+      description="Inline rendering switches to the large-diff fallback once the Codex threshold estimate exceeds 5000 lines."
+    >
+      <ConversationStorySurface>
+        <TurnDiffSurface
+          item={buildTurnDiffItem("turn-diff-large", [
+            "--- a/src/large.ts",
+            "+++ b/src/large.ts",
+            "@@ -1,5200 +1,5200 @@",
+            ...Array.from({ length: 5201 }, (_, index) => `+export const value${index} = ${index};`),
+          ].join("\n"))}
+          isInProgress={false}
+          projectWorkspacePath="/workspace/nodex"
+          threadCwd="/workspace/nodex"
+        />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
 export const WebSearch: Story = {
   render: () => (
     <ToolCallStory
@@ -702,4 +795,44 @@ export const McpToolCallUnknownBlock: Story = {
 
 export const ExplorationGroup: Story = {
   render: () => <ExplorationGroupStory />,
+};
+
+export const CollapsedActivityGroup: Story = {
+  render: () => (
+    <StorySurface
+      title="Collapsed Activity Group"
+      description="Codex-style grouped activity row preserves the original mounted tool units inside a measured Motion body."
+    >
+      <ConversationStorySurface>
+        <ThreadCollapsedToolActivityBlock
+          block={{
+            id: "collapsed-activity-story",
+            turnId: "turn_tool_story",
+            createdAt: 1,
+            updatedAt: 2,
+            searchableText: "Ran command and edited file",
+            type: "collapsedToolActivity",
+            summary: "Completed 2 actions",
+            status: "completed",
+            entries: [
+              THREAD_TOOL_CALL_STORY_ITEMS.command,
+              THREAD_TOOL_CALL_STORY_ITEMS.fileChange,
+            ].map((entry) => ({
+              id: entry.entryId ?? entry.itemId,
+              turnId: entry.turnId,
+              createdAt: entry.createdAt,
+              updatedAt: entry.updatedAt,
+              searchableText: "",
+              type: entry.semanticKind === "patch" ? "fileChange" : "exec",
+              entry,
+            })),
+          }}
+          isLatestTurn={false}
+          isStreamingTurn={false}
+          projectWorkspacePath="/workspace/nodex"
+          threadCwd="/workspace/nodex"
+        />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
 };

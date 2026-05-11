@@ -219,6 +219,23 @@ export interface ThreadMultiAgentGroupBlockModel {
   status?: CodexConversationItem["status"];
 }
 
+export type ThreadCollapsedToolActivityEntryModel =
+  | ThreadTranscriptBlockModel
+  | ThreadExplorationGroupBlockModel
+  | ThreadMultiAgentGroupBlockModel;
+
+export interface ThreadCollapsedToolActivityBlockModel {
+  id: string;
+  turnId: string;
+  createdAt: number;
+  updatedAt: number;
+  searchableText: string;
+  type: "collapsedToolActivity";
+  entries: ThreadCollapsedToolActivityEntryModel[];
+  summary: string;
+  status?: CodexConversationItem["status"];
+}
+
 export interface ThreadPendingTurnRequestModel {
   id: string;
   turnId: string;
@@ -236,13 +253,15 @@ export type ThreadRendererItemModel =
 export type ThreadAgentEntryModel =
   | ThreadTranscriptBlockModel
   | ThreadExplorationGroupBlockModel
-  | ThreadMultiAgentGroupBlockModel;
+  | ThreadMultiAgentGroupBlockModel
+  | ThreadCollapsedToolActivityBlockModel;
 
 export type ThreadBlockModel =
   | ThreadTranscriptBlockModel
   | ThreadUserAttachmentStripBlockModel
   | ThreadExplorationGroupBlockModel
   | ThreadMultiAgentGroupBlockModel
+  | ThreadCollapsedToolActivityBlockModel
   | ThreadThinkingPlaceholderBlockModel;
 
 export interface ThreadTurnRenderBuckets {
