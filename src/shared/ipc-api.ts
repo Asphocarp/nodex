@@ -27,6 +27,7 @@ import type {
   CodexModelOption,
   CodexPermissionMode,
   CodexPermissionState,
+  CodexSteerTurnInput,
   CodexThreadStartForCardInput,
   CodexThreadDetail,
   CodexThreadSummary,
@@ -516,7 +517,7 @@ export interface IpcApi {
     result: CodexThreadActionResult;
   };
   "codex:turn:steer": {
-    args: [threadId: string, expectedTurnId: string, prompt: string];
+    args: [input: CodexSteerTurnInput];
     result: { turnId: string } | null;
   };
   "codex:turn:interrupt": {

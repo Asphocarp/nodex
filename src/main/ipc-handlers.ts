@@ -819,12 +819,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   registerHandle(
     "codex:turn:steer",
-    (_,
-      threadId: string,
-      expectedTurnId: string,
-      prompt: string,
-    ) =>
-      codexService.steerTurn(threadId, expectedTurnId, prompt),
+    (_, input) => codexService.steerTurn(input),
   );
 
   registerHandle("codex:turn:interrupt", (_, threadId: string, turnId?: string) =>

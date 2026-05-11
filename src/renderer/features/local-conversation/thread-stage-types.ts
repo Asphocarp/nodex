@@ -22,6 +22,7 @@ import type {
   CodexModelOption,
   CodexPermissionMode,
   CodexPromptInput,
+  CodexSteerTurnInput,
   CodexThreadStatusType,
   CodexThreadSummary,
   CodexReasoningEffort,
@@ -85,7 +86,7 @@ export interface ThreadStageActions {
   onLogout: () => Promise<void>;
   onStartThreadForCard: (input: { projectId: string; cardId: string; prompt: string; promptInput?: CodexPromptInput }) => Promise<void>;
   onSendPrompt: (prompt: string, opts?: { collaborationMode?: CodexCollaborationModeKind; promptInput?: CodexPromptInput }) => Promise<void>;
-  onSteerPrompt: (turnId: string, prompt: string) => Promise<void>;
+  onSteerPrompt: (input: Omit<CodexSteerTurnInput, "threadId">) => Promise<void>;
   onInterruptTurn: (turnId?: string) => Promise<void>;
   onRespondApproval: (requestId: string, decision: CodexApprovalDecision) => Promise<void>;
   onRespondUserInput: (requestId: string, answers: Record<string, string[]>) => Promise<void>;
@@ -166,6 +167,7 @@ export interface ThreadTranscriptBlockModel {
     | "contextCompaction"
     | "automaticApprovalReview"
     | "multiAgentAction"
+    | "steered"
     | "workedFor"
     | "systemEvent"
     | "userInputResponse";

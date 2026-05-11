@@ -100,7 +100,7 @@ plus the corresponding image input.
 
 If a thread-section send targets an existing idle thread, the prompt uses `turn/start` and image inputs are allowed.
 
-If a thread-section send targets a running turn, image inputs cannot be steered into that active turn. The send must be rejected with a clear wait-or-queue message, matching the existing `turn/steer` text-only constraint.
+If a thread-section send targets a running turn, the prompt uses the same normalized `UserInput[]` preparation path as normal active-turn steering. Image inputs are not rejected in the renderer; the runtime resolves supported sources before sending `turn/steer`, and boundary validation handles unsupported sources.
 
 ## Relationship To Attachments
 
@@ -142,4 +142,4 @@ Required coverage:
 - image-only sections are sendable
 - extracted image inputs retain original source and caption metadata
 - URL, data URL, absolute local path, and `nodex://assets/...` sources become the correct app-server input items
-- running-turn sends with image inputs are rejected rather than sent through `turn/steer`
+- running-turn sends with image inputs are normalized and sent through `turn/steer` with the same ordered image inputs as `turn/start`

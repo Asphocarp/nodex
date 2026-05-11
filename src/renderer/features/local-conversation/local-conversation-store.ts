@@ -33,6 +33,7 @@ import type {
   CodexPermissionMode,
   CodexPermissionState,
   CodexQueuedFollowUp,
+  CodexSteerTurnInput,
   CodexThreadDetail,
   CodexReasoningEffortOption,
   CodexServiceTier,
@@ -1002,13 +1003,16 @@ export class CodexAppServerManager {
     await invoke("codex:thread:follow-up:enqueue", threadId, prompt, opts);
   }
 
-  async steerTurn(threadId: string, turnId: string, prompt: string): Promise<{ turnId: string } | null> {
-    const promptText = prompt.trim();
+  async steerTurn(input: CodexSteerTurnInput): Promise<{ turnId: string } | null> {
+    const promptText = input.prompt.trim();
     if (!promptText) {
       throw new Error("Turn steer requires a non-empty prompt");
     }
 
-    return (await invoke("codex:turn:steer", threadId, turnId, promptText)) as { turnId: string } | null;
+    return (await invoke("codex:turn:steer", {
+      ...input,
+      prompt: promptText,
+    })) as { turnId: string } | null;
   }
 
   async interruptTurn(threadId: string, turnId?: string): Promise<boolean> {
@@ -2638,8 +2642,14 @@ export function useCodexAppServerControl(activeProjectId: string) {
   }, [activeProjectId, availableModels, manager, serviceTierSettings.serviceTier, storedThreadSettings]);
 
   const steerTurn = useCallback(
-    async (threadId: string, turnId: string, prompt: string) => manager.steerTurn(threadId, turnId, prompt),
-    [manager],
+    async (input: CodexSteerTurnInput) => {
+      const effectiveServiceTier = resolveCodexRequestServiceTier(input, serviceTierSettings.serviceTier);
+      return manager.steerTurn({
+        ...input,
+        ...buildCodexServiceTierRequestOverride(effectiveServiceTier),
+      });
+    },
+    [manager, serviceTierSettings.serviceTier],
   );
   const interruptTurn = useCallback(
     async (threadId: string, turnId?: string) => manager.interruptTurn(threadId, turnId),

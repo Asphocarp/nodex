@@ -1,7 +1,7 @@
 export const THREAD_VISUAL_TOKENS = {
   stackGap: "gap-[var(--conversation-tool-assistant-gap,8px)]",
   userBubble:
-    "max-w-[77%] rounded-2xl bg-token-foreground/5 px-3 py-2 text-size-chat wrap-break-word [&_.contain-inline-size]:contain-[initial]",
+    "bg-token-foreground/5 max-w-[77%] break-words rounded-2xl px-3 py-2 [&_.contain-inline-size]:[contain:initial]",
   assistantBody: "text-size-chat leading-relaxed text-token-foreground",
   subtleLabel:
     "text-[11px] font-medium tracking-wide text-token-description-foreground uppercase",

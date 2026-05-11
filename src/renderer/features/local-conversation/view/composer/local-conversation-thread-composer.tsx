@@ -724,15 +724,16 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
             promptInput,
           });
         } else {
-          if (hasPromptAttachments) {
-            onErrorMessage("Attachments can’t be steered into a running turn. Queue the follow-up instead.");
-            return;
-          }
           if (!model.activeTurn) {
             onErrorMessage("Codex is already running. Wait for the active turn to load or queue the follow-up instead.");
             return;
           }
-          await actions.onSteerPrompt(model.activeTurn.turnId, nextPrompt);
+          await actions.onSteerPrompt({
+            expectedTurnId: model.activeTurn.turnId,
+            prompt: nextPrompt,
+            promptInput,
+            collaborationMode: model.selectedCollaborationMode,
+          });
         }
       } else {
         await actions.onSendPrompt(nextPrompt, {

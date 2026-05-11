@@ -100,6 +100,8 @@ function resolveRendererType(entry: CodexConversationItem): ThreadTranscriptBloc
       return "automaticApprovalReview";
     case "multiAgentAction":
       return "multiAgentAction";
+    case "steered":
+      return "steered";
     case "workedFor":
       return "workedFor";
     case "userInputResponse":

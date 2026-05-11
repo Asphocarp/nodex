@@ -46,6 +46,13 @@ describe("buildRendererItemStream", () => {
           markdownText: "Rerouted to gpt-5.4",
         }),
         buildEntry({
+          itemId: "steered_1",
+          type: "steered",
+          kind: "systemEvent",
+          semanticKind: "steered",
+          markdownText: "Steered conversation",
+        }),
+        buildEntry({
           itemId: "tool_1",
           type: "web_search",
           kind: "toolCall",
@@ -61,7 +68,7 @@ describe("buildRendererItemStream", () => {
       turnStatus: "completed",
     });
 
-    expect(items.map((item) => item.type).join(",")).toBe("todoList,turnDiff,modelRerouted,webSearch");
+    expect(items.map((item) => item.type).join(",")).toBe("todoList,turnDiff,modelRerouted,steered,webSearch");
   });
 
   test("maps bundle-native hook, planImplementation, and userInputResponse families", () => {

@@ -67,6 +67,7 @@ function isRenderableAgentItem(item: ThreadTranscriptBlockModel): boolean {
     case "streamError":
     case "systemError":
     case "contextCompaction":
+    case "steered":
     case "reasoning":
     case "userInputResponse":
     case "mcpServerElicitation":

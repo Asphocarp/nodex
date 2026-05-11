@@ -402,23 +402,42 @@ export function ThreadStageDevStoryPage({
         }, `Sent a follow-up prompt: ${prompt}`);
       });
     },
-    onSteerPrompt: async (turnId: string, prompt: string) => {
+    onSteerPrompt: async (input) => {
       setRuntime((current) => {
         if (!current.conversation) return current;
+        const turnId = input.expectedTurnId;
+        if (!turnId) return current;
+        const createdAt = getNextTimestamp(current.conversation);
+        const steerId = `steer_${Date.now()}`;
         return setStoryLog(updateConversationForThread(current, current.conversation.threadId, (conversation) => ({
           ...conversation,
-          pendingSteers: [
-            ...conversation.pendingSteers,
-            {
-              steerId: `steer_${Date.now()}`,
-              threadId: conversation.threadId,
-              turnId,
-              prompt,
-              createdAt: getNextTimestamp(conversation),
-            },
-          ],
+          turns: conversation.turns.map((turn) => turn.turnId === turnId
+            ? {
+                ...turn,
+                items: [
+                  ...turn.items,
+                  {
+                    threadId: conversation.threadId,
+                    turnId,
+                    entryId: steerId,
+                    itemId: steerId,
+                    type: "steeringUserMessage",
+                    kind: "userMessage",
+                    semanticKind: "userMessage",
+                    status: "completed",
+                    role: "user",
+                    source: "optimistic",
+                    sequence: turn.items.length,
+                    markdownText: input.prompt,
+                    steeringStatus: "pending",
+                    createdAt,
+                    updatedAt: createdAt,
+                  },
+                ],
+              }
+            : turn),
           updatedAt: getNextTimestamp(conversation),
-        })), `Queued a steer for ${turnId}: ${prompt}`);
+        })), `Queued a steer for ${turnId}: ${input.prompt}`);
       });
     },
     onInterruptTurn: async () => {

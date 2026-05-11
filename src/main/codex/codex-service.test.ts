@@ -12,6 +12,7 @@ import type {
   CodexPermissionMode,
   CodexPermissionState,
   CodexPromptInput,
+  CodexSteerTurnInput,
   CodexThreadActionResult,
   CodexThreadDetail,
   CodexTranscriptEntry,
@@ -65,11 +66,7 @@ interface TestableCodexService {
       promptInput?: CodexPromptInput;
     },
   ) => Promise<CodexTurnSummary | null>;
-  steerTurn: (
-    threadId: string,
-    expectedTurnId: string,
-    prompt: string,
-  ) => Promise<{ turnId: string } | null>;
+  steerTurn: (input: CodexSteerTurnInput) => Promise<{ turnId: string } | null>;
   enqueueQueuedFollowUpPrompt: (
     threadId: string,
     prompt: string,
@@ -1650,8 +1647,7 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         request: (method: string, params: unknown) => Promise<unknown>;
       };
       const serviceInternals = service as unknown as {
-        queuedFollowUpsByThread: Map<string, unknown[]>;
-        pendingSteersByThread: Map<string, Array<{ threadId: string; turnId: string; prompt: string; createdAt: number }>>;
+        ensureConversationRecord: (threadId: string) => { queuedFollowUps: unknown[]; pendingSteers: unknown[] };
         pendingApprovals: Map<string, { request: { threadId: string; turnId: string }; reject: (error: Error) => void }>;
       };
       const requests: Array<{ method: string; params: unknown }> = [];
@@ -1776,10 +1772,11 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         ],
       });
 
-      serviceInternals.queuedFollowUpsByThread.set("thr_edit", [{ followUpId: "followup_1" }]);
-      serviceInternals.pendingSteersByThread.set("thr_edit", [
+      const conversationRecord = serviceInternals.ensureConversationRecord("thr_edit");
+      conversationRecord.queuedFollowUps = [{ followUpId: "followup_1" }];
+      conversationRecord.pendingSteers = [
         { threadId: "thr_edit", turnId: "turn_latest", prompt: "Continue", createdAt: 5 },
-      ]);
+      ];
       serviceInternals.pendingApprovals.set("approval_1", {
         request: {
           threadId: "thr_edit",
@@ -1806,8 +1803,8 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         expect(detail?.turns.length).toBe(2);
         expect(detail?.turns[1]?.turnId).toBe("turn_edited");
         expect(detail?.transcript[detail.transcript.length - 1]?.markdownText).toBe("Rewrite the latest prompt");
-        expect(Boolean(serviceInternals.queuedFollowUpsByThread.get("thr_edit"))).toBeFalse();
-        expect(Boolean(serviceInternals.pendingSteersByThread.get("thr_edit"))).toBeFalse();
+        expect(conversationRecord.queuedFollowUps.length).toBe(0);
+        expect(conversationRecord.pendingSteers.length).toBe(0);
         expect(clearedApprovalMessage).toBe("Approval request cleared after thread history changed");
       } finally {
         await service.shutdown();
@@ -2580,7 +2577,7 @@ describe("codex-service startTurn", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
-  test("keeps steer prompts in pending-steer state until the authoritative user message arrives", async () => {
+  test("keeps steer prompts as optimistic transcript items until the authoritative user message arrives", async () => {
     const ran = await withTempDatabase(async () => {
       const card = await createCard("codex", "in_progress", { title: "Optimistic steering prompt" });
       upsertCodexCardThreadLink({
@@ -2612,20 +2609,22 @@ describe("codex-service startTurn", () => {
       };
 
       try {
-        const steeredTurn = await service.steerTurn(
-          "thr_steer_prompt",
-          "turn_steer_prompt",
-          "Tighten the layout.",
-        );
+        const steeredTurn = await service.steerTurn({
+          threadId: "thr_steer_prompt",
+          expectedTurnId: "turn_steer_prompt",
+          prompt: "Tighten the layout.",
+        });
         const detail = service.serializeThreadDetail("thr_steer_prompt");
         const snapshot = service.serializeConversationSnapshot("thr_steer_prompt");
 
         expect(steeredTurn?.turnId).toBe("turn_steer_prompt");
         expect(detail).not.toBeNull();
         expect(detail?.turns[0]?.itemIds.length).toBe(0);
-        expect(detail?.transcript.length).toBe(0);
-        expect(snapshot?.pendingSteers.length).toBe(1);
-        expect(snapshot?.pendingSteers[0]?.prompt).toBe("Tighten the layout.");
+        expect(detail?.transcript.length).toBe(1);
+        expect(detail?.transcript[0]?.type).toBe("steeringUserMessage");
+        expect(detail?.transcript[0]?.steeringStatus).toBe("pending");
+        expect(snapshot?.pendingSteers.length).toBe(0);
+        expect(snapshot?.turns[0]?.items[0]?.markdownText).toBe("Tighten the layout.");
       } finally {
         await service.shutdown();
       }
@@ -2823,8 +2822,9 @@ describe("codex-service startTurn", () => {
         expect(requests.length).toBe(1);
         expect(requests[0]?.method).toBe("turn/steer");
         expect(afterSendSnapshot?.queuedFollowUps.length).toBe(0);
-        expect(afterSendSnapshot?.pendingSteers.length).toBe(1);
-        expect(afterSendSnapshot?.pendingSteers[0]?.prompt).toBe("Queue this without interrupting");
+        expect(afterSendSnapshot?.pendingSteers.length).toBe(0);
+        expect(afterSendSnapshot?.turns[0]?.items[0]?.type).toBe("steeringUserMessage");
+        expect(afterSendSnapshot?.turns[0]?.items[0]?.markdownText).toBe("Queue this without interrupting");
       } finally {
         await service.shutdown();
       }
@@ -3010,23 +3010,30 @@ describe("codex-service startTurn", () => {
       };
 
       try {
-        await service.steerTurn("thr_pending_clear", "turn_pending_clear", "Tighten the spacing.");
+        await service.steerTurn({
+          threadId: "thr_pending_clear",
+          expectedTurnId: "turn_pending_clear",
+          prompt: "Tighten the spacing.",
+        });
         let snapshot = service.serializeConversationSnapshot("thr_pending_clear");
-        expect(snapshot?.pendingSteers.length).toBe(1);
+        expect(snapshot?.pendingSteers.length).toBe(0);
+        expect(snapshot?.turns[0]?.items[0]?.steeringStatus).toBe("pending");
 
         await serviceInternals.handleNotification("item/completed", {
           threadId: "thr_pending_clear",
           turnId: "turn_pending_clear",
           item: {
             id: "user_msg_1",
-            type: "user_message",
+            type: "userMessage",
             role: "user",
-            text: "Tighten the spacing.",
+            content: [{ type: "text", text: "Tighten the spacing.", text_elements: [] }],
           },
         });
 
         snapshot = service.serializeConversationSnapshot("thr_pending_clear");
         expect(snapshot?.pendingSteers.length).toBe(0);
+        expect(snapshot?.turns[0]?.items[0]?.steeringStatus).toBe("accepted");
+        expect(snapshot?.turns[0]?.items[1]?.semanticKind).toBe("steered");
       } finally {
         await service.shutdown();
       }

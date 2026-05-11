@@ -1508,9 +1508,12 @@ export function WorkbenchShell({
         },
       );
     },
-    onSteerPrompt: async (turnId, prompt) => {
+    onSteerPrompt: async (input) => {
       if (!activeThreadTab || activeThreadTab.id === NEW_THREAD_STAGE_TAB_ID) return;
-      await threadFollowerClient.steerTurn(activeThreadTab.id, turnId, prompt);
+      await threadFollowerClient.steerTurn({
+        ...input,
+        threadId: activeThreadTab.id,
+      });
     },
     onInterruptTurn: async (turnId) => {
       if (!activeThreadTab || activeThreadTab.id === NEW_THREAD_STAGE_TAB_ID) return;
@@ -1692,10 +1695,16 @@ export function WorkbenchShell({
           ? [...conversation.turns].reverse().find((turn) => turn.status === "inProgress") ?? null
           : null;
         if (activeTurn) {
-          if ((promptInput?.images?.length ?? 0) > 0 || (promptInput?.agentConfigs?.length ?? 0) > 0) {
-            throw new Error("Agent config and image inputs cannot be steered into a running turn. Wait for the turn to finish or queue a follow-up.");
+          if ((promptInput?.agentConfigs?.length ?? 0) > 0) {
+            throw new Error("Agent config cannot be steered into a running turn. Wait for the turn to finish or queue a follow-up.");
           }
-          await steerTurn(threadId, activeTurn.turnId, prompt);
+          await steerTurn({
+            threadId,
+            expectedTurnId: activeTurn.turnId,
+            prompt,
+            promptInput,
+            collaborationMode: selectedCollaborationMode,
+          });
         } else {
           await startTurn(threadId, prompt, {
             projectId,

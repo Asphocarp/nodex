@@ -61,9 +61,9 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
 - Sending from `New thread` creates the thread and switches focus to the newly created thread tab.
 - As soon as a turn starts, the transcript shows the submitted user prompt optimistically and keeps that bubble visible above the pending turn-body `Thinking` state until live response items arrive.
 - When the live user-message item later arrives, it is deduped instead of rendering twice.
-- Follow-up prompts sent to an already-running turn do not insert an optimistic transcript bubble on submit. They remain in the pending-steer lane above the composer until the authoritative user-message item arrives from the host manager, and only that authoritative item becomes a transcript row.
+- Follow-up prompts steered into an already-running turn insert an optimistic `steeringUserMessage` transcript bubble labeled `Steering conversation`. When the matching authoritative backend `userMessage` arrives for the same target turn and equivalent input, that bubble becomes `Steered conversation` and the runtime appends a separate `steered` divider row, also labeled `Steered conversation`.
 - While a turn is already running, composer submit mode resolves exactly like Codex Electron: empty draft keeps `Stop`, non-empty draft submits as `Steer` or `Queue` based on the queue-follow-ups preference, and the alternate shortcut temporarily inverts that mode for one submit.
-- `Queue` does not start a turn immediately. It appends a queued follow-up entry above the composer, then the manager-owned drain loop tries to submit that entry through the same non-interrupting follow-up path Codex Electron uses. If a queued entry is sent manually or drained successfully, it disappears from the queued list and any accepted steer shows up in the pending-steer lane until the authoritative user-message item arrives.
+- `Queue` does not start a turn immediately. It appends a queued follow-up entry above the composer, then the manager-owned drain loop tries to submit that entry through the same non-interrupting follow-up path Codex Electron uses. If a queued entry is sent manually or drained successfully, it disappears from the queued list and any unaccepted steer is restored to that queue if the active turn ends before acceptance.
 - Dictation is a separate Electron-only composer path, not realtime voice. In ChatGPT-authenticated Electron sessions, the footer shows a `Dictate` mic button with tooltip `Click to dictate or hold` and shortcut label `Ctrl+M`; click starts buffered `MediaRecorder` capture, `Ctrl+M` keydown starts and keyup stops with `insert`, recordings shorter than `250ms` are discarded locally, and the active dictation footer preserves the two stop modes: `insert` and `send` before one `/transcribe` POST appends or submits the returned text.
 - If a turn is active and no visible response item has arrived yet, the transcript may show a pending `Thinking` placeholder at the bottom of that turn.
 
@@ -196,8 +196,8 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
 
 ## Composer Shell
 - The composer shell is owned outside the transcript scroll container and sits above the input editor.
-- It owns queued follow-ups, pending steers, background terminal rows, background child-agent rows, and unresolved live request cards.
-- Background terminal rows and queued/pending-follow-up rows remain visible as stacked shell sections above the request/editor branch.
+- It owns queued follow-ups, background terminal rows, background child-agent rows, and unresolved live request cards. Pending steering messages belong to the transcript as `steeringUserMessage` items, not to the composer shell.
+- Background terminal rows and queued follow-up rows remain visible as stacked shell sections above the request/editor branch.
 - Background child-agent rows are shown only when the shell is not in approval mode.
 - When a background child approval exists, its request card renders before the active-thread request card.
 - Background child approvals do not add a separate worker-name header above the card; when the approval prompt needs an actor, that child identity is injected inline into the approval prompt itself.

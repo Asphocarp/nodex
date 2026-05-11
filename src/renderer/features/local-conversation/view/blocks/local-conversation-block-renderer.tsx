@@ -12,6 +12,7 @@ import {
   ThreadPlanImplementationBlock,
   ThreadReasoningBlock,
   ThreadStreamErrorBlock,
+  ThreadSteeredDividerBlock,
   ThreadSystemErrorBlock,
   ThreadThinkingPlaceholderBlock,
   ThreadSystemBannerBlock,
@@ -163,6 +164,18 @@ export function ThreadBlockRenderer({
         block={block}
         isLatestTurn={isLatestTurn}
         isStreamingTurn={isStreamingTurn}
+      />
+    );
+  }
+
+  if (block.type === "steered") {
+    return (
+      <ThreadSteeredDividerBlock
+        block={block}
+        isLatestTurn={isLatestTurn}
+        isStreamingTurn={isStreamingTurn}
+        isSearchMatch={isSearchMatch}
+        isActiveSearchMatch={isActiveSearchMatch}
       />
     );
   }

@@ -10,6 +10,7 @@ import type {
   SandboxMode as CodexAppServerSandboxMode,
   SandboxPolicy as CodexAppServerSandboxPolicy,
   ThreadItem as CodexAppServerThreadItem,
+  UserInput as CodexAppServerUserInput,
 } from "@nodex/codex-app-server-protocol/v2";
 import type { ServiceTier as CodexAppServerServiceTier } from "@nodex/codex-app-server-protocol";
 
@@ -695,6 +696,26 @@ export interface CodexPromptInput {
   agentConfigs?: CodexPromptAgentConfigInput[];
 }
 
+export type CodexSteeringStatus = "pending" | "accepted";
+
+export type CodexSteeringUserInput = CodexAppServerUserInput;
+
+export interface CodexSteeringRestoreMessage {
+  prompt: string;
+  promptInput?: CodexPromptInput;
+  collaborationMode?: CodexCollaborationModeKind | null;
+  serviceTier?: CodexServiceTier;
+}
+
+export interface CodexSteerTurnInput {
+  threadId: string;
+  expectedTurnId?: string;
+  prompt: string;
+  promptInput?: CodexPromptInput;
+  collaborationMode?: CodexCollaborationModeKind | null;
+  serviceTier?: CodexServiceTier;
+}
+
 export interface CodexComposerIntent {
   prompt: string;
   focusNonce: number;
@@ -796,6 +817,7 @@ export type CodexSemanticItemKind =
   | "contextCompaction"
   | "automaticApprovalReview"
   | "multiAgentAction"
+  | "steered"
   | "userInputResponse"
   | "hook"
   | "planImplementation"
@@ -993,6 +1015,13 @@ export interface CodexItemView extends CodexCommandExecutionAttachmentFields {
   fileChange?: CodexFileChangeView;
   markdownText?: string;
   userAttachments?: CodexUserAttachment[];
+  steeringStatus?: CodexSteeringStatus;
+  steeringInput?: CodexSteeringUserInput[];
+  steeringCompareKey?: string;
+  steeringRestoreMessage?: CodexSteeringRestoreMessage;
+  steeringTargetTurnId?: string | null;
+  steeringTargetTurnStartedAtMs?: number | null;
+  acceptedUserMessageItemId?: string;
   additionalDetails?: string | null;
   willRetry?: boolean;
   userInputQuestions?: CodexUserInputQuestion[];
@@ -1021,6 +1050,13 @@ export interface CodexTranscriptEntry extends CodexCommandExecutionAttachmentFie
   fileChange?: CodexFileChangeView;
   markdownText?: string;
   userAttachments?: CodexUserAttachment[];
+  steeringStatus?: CodexSteeringStatus;
+  steeringInput?: CodexSteeringUserInput[];
+  steeringCompareKey?: string;
+  steeringRestoreMessage?: CodexSteeringRestoreMessage;
+  steeringTargetTurnId?: string | null;
+  steeringTargetTurnStartedAtMs?: number | null;
+  acceptedUserMessageItemId?: string;
   additionalDetails?: string | null;
   willRetry?: boolean;
   userInputQuestions?: CodexUserInputQuestion[];
@@ -1173,6 +1209,7 @@ export interface CodexQueuedFollowUp {
   followUpId: string;
   threadId: string;
   prompt: string;
+  promptInput?: CodexPromptInput;
   createdAt: number;
   collaborationMode?: CodexCollaborationModeKind | null;
   serviceTier: CodexServiceTier;

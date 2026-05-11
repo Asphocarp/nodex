@@ -71,6 +71,9 @@ import type {
   CodexRateLimitsSnapshot,
   CodexReasoningEffort,
   CodexReasoningEffortOption,
+  CodexSteerTurnInput,
+  CodexSteeringRestoreMessage,
+  CodexSteeringUserInput,
   CodexServiceTier,
   CodexTranscriptEntry,
   CodexTranscriptEntrySource,
@@ -695,6 +698,25 @@ function isThreadNotFoundError(error: unknown): boolean {
   return message.includes("thread not found") || (message.includes("thread") && message.includes("not found"));
 }
 
+function isSteerTurnInactiveError(error: unknown): boolean {
+  if (!(error instanceof CodexRpcError)) return false;
+  const data = error.data;
+  const codexErrorInfo = typeof data === "object" && data !== null
+    ? (data as Record<string, unknown>).codexErrorInfo
+    : null;
+  if (
+    typeof codexErrorInfo === "object" &&
+    codexErrorInfo !== null &&
+    "activeTurnNotSteerable" in codexErrorInfo
+  ) {
+    return true;
+  }
+  const message = error.message.toLowerCase();
+  return message.includes("steerturninactiveerror")
+    || message.includes("active turn not steerable")
+    || (message.includes("active turn") && message.includes("not") && message.includes("steer"));
+}
+
 function isPathWithin(parentDir: string, candidatePath: string): boolean {
   const relative = path.relative(parentDir, candidatePath);
   return relative.length > 0 && !relative.startsWith("..") && !path.isAbsolute(relative);
@@ -736,6 +758,106 @@ function createTextUserInput(text: string): TurnStartParams["input"][number] {
 }
 
 type CodexUserInputItem = TurnStartParams["input"][number];
+
+function normalizeSteeringInputValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeSteeringInputValue(entry));
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, entry]) => entry !== undefined)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, normalizeSteeringInputValue(entry)]),
+    );
+  }
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  return value;
+}
+
+function buildSteeringCompareKey(inputItems: readonly CodexSteeringUserInput[]): string {
+  return JSON.stringify(normalizeSteeringInputValue(inputItems));
+}
+
+function buildSteeringUserAttachments(inputItems: readonly CodexSteeringUserInput[]): CodexUserAttachment[] {
+  return inputItems.flatMap((item, index): CodexUserAttachment[] => {
+    if (item.type === "mention") {
+      return [{
+        type: "file",
+        id: `steer-mention-${index}`,
+        label: item.name,
+        path: item.path,
+        sourceKind: "mention",
+      }];
+    }
+    if (item.type === "skill") {
+      return [{
+        type: "file",
+        id: `steer-skill-${index}`,
+        label: item.name,
+        path: item.path,
+        sourceKind: "skill",
+      }];
+    }
+    if (item.type === "image") {
+      return [{
+        type: "image",
+        id: `steer-image-${index}`,
+        source: item.url,
+        sourceKind: "remote",
+      }];
+    }
+    if (item.type === "localImage") {
+      return [{
+        type: "image",
+        id: `steer-local-image-${index}`,
+        source: item.path,
+        sourceKind: "local",
+      }];
+    }
+    return [];
+  });
+}
+
+function buildUserMessageInputFallback(markdownText: string | undefined): CodexSteeringUserInput[] {
+  const text = markdownText?.trim() ?? "";
+  return text ? [createTextUserInput(text)] : [];
+}
+
+function buildUserMessageInputFromItem(item: CodexItemView): CodexSteeringUserInput[] {
+  const rawItem = asRecord(item.rawItem);
+  const content = Array.isArray(rawItem?.content) ? rawItem.content : [];
+  const parsed = content.flatMap((entry): CodexSteeringUserInput[] => {
+    const input = asRecord(entry);
+    const type = typeof input?.type === "string" ? input.type : "";
+    if (type === "text") {
+      const text = typeof input?.text === "string" ? input.text.trim() : "";
+      return text ? [createTextUserInput(text)] : [];
+    }
+    if (type === "image") {
+      const url = typeof input?.url === "string" ? input.url : "";
+      return url ? [{ type: "image", url }] : [];
+    }
+    if (type === "localImage") {
+      const pathValue = typeof input?.path === "string" ? input.path : "";
+      return pathValue ? [{ type: "localImage", path: pathValue }] : [];
+    }
+    if (type === "mention") {
+      const name = typeof input?.name === "string" ? input.name.trim() : "";
+      const pathValue = typeof input?.path === "string" ? input.path.trim() : "";
+      return name && pathValue ? [{ type: "mention", name, path: pathValue }] : [];
+    }
+    if (type === "skill") {
+      const name = typeof input?.name === "string" ? input.name.trim() : "";
+      const pathValue = typeof input?.path === "string" ? input.path.trim() : "";
+      return name && pathValue ? [{ type: "skill", name, path: pathValue }] : [];
+    }
+    return [];
+  });
+  return parsed.length > 0 ? parsed : buildUserMessageInputFallback(item.markdownText);
+}
 
 interface PreparedPromptForTurn {
   promptText: string;
@@ -1943,6 +2065,8 @@ export class CodexService extends EventEmitter {
     prompt: string,
     collaborationMode?: CodexCollaborationModeKind | null,
     serviceTier?: CodexServiceTier,
+    pausedReason?: string | null,
+    promptInput?: CodexPromptInput,
   ): string {
     const followUpId = `follow-up:${threadId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
     const nextEntries = [
@@ -1951,10 +2075,11 @@ export class CodexService extends EventEmitter {
         followUpId,
         threadId,
         prompt,
+        ...(promptInput ? { promptInput } : {}),
         createdAt: Date.now(),
         collaborationMode: collaborationMode ?? null,
         serviceTier: normalizeCodexServiceTier(serviceTier),
-        pausedReason: null,
+        pausedReason: pausedReason ?? null,
       },
     ];
     this.ensureConversationRecord(threadId).queuedFollowUps = nextEntries;
@@ -2035,6 +2160,8 @@ export class CodexService extends EventEmitter {
       promptText,
       overrides?.collaborationMode,
       overrides?.serviceTier,
+      null,
+      overrides?.promptInput,
     );
   }
 
@@ -2108,13 +2235,21 @@ export class CodexService extends EventEmitter {
 
     try {
       if (activeTurnId) {
-        await this.steerTurn(threadId, activeTurnId, followUp.prompt);
+        await this.steerTurn({
+          threadId,
+          expectedTurnId: activeTurnId,
+          prompt: followUp.prompt,
+          ...(followUp.promptInput ? { promptInput: followUp.promptInput } : {}),
+          collaborationMode: followUp.collaborationMode,
+          serviceTier: followUp.serviceTier,
+        });
         return;
       }
 
       await this.startTurn(threadId, followUp.prompt, {
         collaborationMode: followUp.collaborationMode ?? undefined,
         serviceTier: followUp.serviceTier,
+        ...(followUp.promptInput ? { promptInput: followUp.promptInput } : {}),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -3688,6 +3823,151 @@ export class CodexService extends EventEmitter {
       };
   }
 
+  private buildSteeringUserMessageEntry(input: {
+    threadId: string;
+    turnId: string;
+    steerId: string;
+    promptText: string;
+    inputItems: CodexSteeringUserInput[];
+    restoreMessage: CodexSteeringRestoreMessage;
+    targetTurnStartedAtMs?: number | null;
+  }): CodexTranscriptEntry {
+    const createdAt = Date.now();
+    const userAttachments = buildSteeringUserAttachments(input.inputItems);
+    return {
+      threadId: input.threadId,
+      turnId: input.turnId,
+      entryId: input.steerId,
+      itemId: input.steerId,
+      type: "steeringUserMessage",
+      kind: "userMessage",
+      semanticKind: "userMessage",
+      status: "completed",
+      role: "user",
+      source: "optimistic",
+      sequence: this.getThreadTranscript(input.threadId).length,
+      markdownText: input.promptText,
+      ...(userAttachments.length > 0 ? { userAttachments } : {}),
+      steeringStatus: "pending",
+      steeringInput: input.inputItems,
+      steeringCompareKey: buildSteeringCompareKey(input.inputItems),
+      steeringRestoreMessage: input.restoreMessage,
+      steeringTargetTurnId: input.turnId,
+      steeringTargetTurnStartedAtMs: input.targetTurnStartedAtMs ?? null,
+      rawItem: {
+        id: input.steerId,
+        type: "steeringUserMessage",
+        input: input.inputItems,
+        restoreMessage: input.restoreMessage,
+        targetTurnId: input.turnId,
+        targetTurnStartedAtMs: input.targetTurnStartedAtMs ?? null,
+      },
+      createdAt,
+      updatedAt: createdAt,
+    };
+  }
+
+  private upsertSteeringUserMessageEntry(entry: CodexTranscriptEntry): void {
+    this.setThreadTranscript(
+      entry.threadId,
+      applyLiveTranscriptMutation(this.getThreadTranscript(entry.threadId), {
+        type: "upsert",
+        entry,
+      }),
+    );
+  }
+
+  private removeSteeringUserMessage(threadId: string, steerId: string): void {
+    this.removeTranscriptEntry(threadId, steerId);
+  }
+
+  private listPendingSteeringEntries(threadId: string, turnId?: string): CodexTranscriptEntry[] {
+    return this.getThreadTranscript(threadId).filter((entry) =>
+      entry.type === "steeringUserMessage"
+      && entry.steeringStatus === "pending"
+      && (!turnId || entry.turnId === turnId)
+    );
+  }
+
+  private restoreUnacceptedSteeringEntriesForTurn(
+    threadId: string,
+    turnId: string,
+    reason: string,
+  ): void {
+    const pendingEntries = this.listPendingSteeringEntries(threadId, turnId);
+    if (pendingEntries.length === 0) return;
+
+    for (const entry of pendingEntries) {
+      const restoreMessage = entry.steeringRestoreMessage;
+      this.removeSteeringUserMessage(threadId, entry.entryId ?? entry.itemId);
+      if (!restoreMessage?.prompt.trim()) continue;
+      this.enqueueQueuedFollowUp(
+        threadId,
+        restoreMessage.prompt,
+        restoreMessage.collaborationMode,
+        restoreMessage.serviceTier,
+        reason,
+        restoreMessage.promptInput,
+      );
+    }
+  }
+
+  private acceptPendingSteeringMessage(
+    item: CodexItemView,
+  ): CodexTranscriptEntry | null {
+    if (item.normalizedKind !== "userMessage") return null;
+
+    const completedInput = buildUserMessageInputFromItem(item);
+    const completedCompareKey = buildSteeringCompareKey(completedInput);
+    const pending = this.listPendingSteeringEntries(item.threadId, item.turnId)
+      .find((entry) => entry.steeringCompareKey === completedCompareKey);
+    if (!pending) return null;
+
+    const acceptedAt = Date.now();
+    const acceptedEntry: CodexTranscriptEntry = {
+      ...pending,
+      steeringStatus: "accepted",
+      acceptedUserMessageItemId: item.itemId,
+      source: "live",
+      updatedAt: acceptedAt,
+      rawItem: {
+        ...(typeof pending.rawItem === "object" && pending.rawItem !== null ? pending.rawItem : {}),
+        status: "accepted",
+        acceptedUserMessageItemId: item.itemId,
+      },
+    };
+    const steeredEntry: CodexTranscriptEntry = {
+      threadId: item.threadId,
+      turnId: item.turnId,
+      entryId: `${item.itemId}:steered`,
+      itemId: `${item.itemId}:steered`,
+      type: "steered",
+      kind: "systemEvent",
+      semanticKind: "steered",
+      status: "completed",
+      source: "live",
+      sequence: (pending.sequence ?? this.getThreadTranscript(item.threadId).length) + 0.1,
+      markdownText: "Steered conversation",
+      rawItem: {
+        id: `${item.itemId}:steered`,
+        type: "steered",
+        acceptedUserMessageItemId: item.itemId,
+      },
+      createdAt: acceptedAt,
+      updatedAt: acceptedAt,
+    };
+    const withoutPending = this.getThreadTranscript(item.threadId)
+      .filter((entry) => (entry.entryId ?? entry.itemId) !== (pending.entryId ?? pending.itemId));
+    this.setThreadTranscript(
+      item.threadId,
+      buildTranscriptFromBootstrapEvents({
+        transcript: [...withoutPending, acceptedEntry, steeredEntry],
+        source: "live",
+      }),
+    );
+    return acceptedEntry;
+  }
+
   private syncThreadStatusFromKnownTurns(threadId: string): void {
     const hasInProgressTurn = this.listKnownTurns(threadId).some((turn) => turn.status === "inProgress");
     const statusType: CodexThreadStatusType = hasInProgressTurn ? "active" : "idle";
@@ -3909,6 +4189,12 @@ export class CodexService extends EventEmitter {
       currentTranscript,
       this.getKnownTurn(item.threadId, item.turnId)?.itemIds,
     );
+    const acceptedSteerEntry = source !== "optimistic" && nextEntry.kind === "userMessage"
+      ? this.acceptPendingSteeringMessage(mergedItem)
+      : null;
+    if (acceptedSteerEntry) {
+      return acceptedSteerEntry;
+    }
     const nextTranscript = source === "optimistic" && nextEntry.kind === "userMessage"
       ? applyOptimisticUserPrompt({
           transcript: currentTranscript,
@@ -5113,20 +5399,24 @@ export class CodexService extends EventEmitter {
     }
   }
 
-  async steerTurn(
-    threadId: string,
-    expectedTurnId: string,
-    prompt: string,
-  ): Promise<{ turnId: string } | null> {
+  async steerTurn(input: CodexSteerTurnInput): Promise<{ turnId: string } | null> {
     await this.ensureClientReady();
 
-    const parsedPrompt = splitPromptTextAndAgentConfigLines(prompt);
-    if (parsedPrompt.agentConfigs.length > 0) {
+    const threadId = input.threadId;
+    const preparedPrompt = await this.preparePromptForTurn(input.prompt, input.promptInput);
+    if (preparedPrompt.agentConfigOverrides.collaborationMode || preparedPrompt.agentConfigOverrides.model || preparedPrompt.agentConfigOverrides.reasoningEffort) {
       throw new Error("Agent config cannot be steered into a running turn. Wait for the turn to finish or queue a follow-up.");
     }
-    const promptText = parsedPrompt.text.trim();
+    const promptText = preparedPrompt.promptText.trim();
     if (!promptText) {
       throw new Error("Turn steer requires a non-empty prompt");
+    }
+    const activeTurn = input.expectedTurnId
+      ? this.getKnownTurn(threadId, input.expectedTurnId)
+      : [...this.listKnownTurns(threadId)].reverse().find((turn) => turn.status === "inProgress") ?? null;
+    const expectedTurnId = input.expectedTurnId ?? activeTurn?.turnId ?? null;
+    if (!expectedTurnId) {
+      throw new Error("Codex is already running. Wait for the active turn to load or queue the follow-up instead.");
     }
 
     this.logger.info("Steering Codex turn", {
@@ -5139,19 +5429,48 @@ export class CodexService extends EventEmitter {
     const steerParams: TurnSteerParams = {
       threadId,
       expectedTurnId,
-      input: [createTextUserInput(promptText)],
+      input: preparedPrompt.inputItems,
     };
-    const steerId = this.recordPendingSteer(threadId, expectedTurnId, promptText);
+    const steerId = `steer:${threadId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+    this.upsertSteeringUserMessageEntry(this.buildSteeringUserMessageEntry({
+      threadId,
+      turnId: expectedTurnId,
+      steerId,
+      promptText,
+      inputItems: preparedPrompt.inputItems,
+      restoreMessage: {
+        prompt: input.prompt,
+        ...(input.promptInput ? { promptInput: input.promptInput } : {}),
+        collaborationMode: input.collaborationMode ?? null,
+        serviceTier: normalizeCodexServiceTier(input.serviceTier),
+      },
+      targetTurnStartedAtMs: activeTurn?.turnStartedAtMs ?? activeTurn?.startedAt ?? null,
+    }));
+    this.syncBroadcastConversationTurnState(threadId, expectedTurnId, {
+      syncBackgroundTerminalRows: true,
+      syncCapabilityFlags: true,
+    });
     let result: TurnSteerResponse;
     try {
       result = await this.client.request<"turn/steer", TurnSteerResponse>("turn/steer", steerParams);
     } catch (error) {
-      this.clearPendingSteer(threadId, steerId);
+      this.removeSteeringUserMessage(threadId, steerId);
+      this.syncBroadcastConversationTurnState(threadId, expectedTurnId, {
+        syncBackgroundTerminalRows: true,
+        syncCapabilityFlags: true,
+      });
+      if (isSteerTurnInactiveError(error)) {
+        return this.startTurn(threadId, input.prompt, {
+          collaborationMode: input.collaborationMode ?? undefined,
+          serviceTier: input.serviceTier,
+          ...(input.promptInput ? { promptInput: input.promptInput } : {}),
+        });
+      }
       throw error;
     }
 
     if (typeof result.turnId !== "string") {
-      this.clearPendingSteer(threadId, steerId);
+      this.removeSteeringUserMessage(threadId, steerId);
       this.logger.warn("Codex turn steer returned no turn id", { threadId, expectedTurnId });
       return null;
     }
@@ -6409,7 +6728,11 @@ export class CodexService extends EventEmitter {
       this.syncThreadStatusFromKnownTurns(threadId);
       this.reconcileTurnItemsToTerminalStatus(threadId, mergedTurn.turnId, mergedTurn.status);
       if (mergedTurn.status !== "inProgress") {
-        this.clearPendingSteersForTurn(threadId, mergedTurn.turnId, false);
+        this.restoreUnacceptedSteeringEntriesForTurn(
+          threadId,
+          mergedTurn.turnId,
+          mergedTurn.status === "interrupted" ? "Turn was interrupted before the steer was accepted" : "Turn ended before the steer was accepted",
+        );
       }
       this.emitEvent({ type: "turn", turn: mergedTurn });
       this.emitThreadStreamSnapshotFromRecord(threadId);

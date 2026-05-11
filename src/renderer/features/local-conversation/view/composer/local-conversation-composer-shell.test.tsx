@@ -107,7 +107,7 @@ describe("LocalConversationComposerShell", () => {
     await settleAsyncRender();
 
     const renderedText = textContent(document.body);
-    expect(Boolean(renderedText.includes("Keep the stage stories on the real projection path."))).toBeTrue();
+    expect(Boolean(renderedText.includes("Keep the stage stories on the real projection path."))).toBeFalse();
     expect(Boolean(renderedText.includes("Run final validation once the stories are in place."))).toBeTrue();
     expect(Boolean(renderedText.includes("Running 1 terminal"))).toBeTrue();
     expect(Boolean(renderedText.includes("1 active requests"))).toBeFalse();

@@ -5,6 +5,7 @@ import type {
   CodexPermissionMode,
   CodexReasoningEffort,
   CodexServiceTier,
+  CodexSteerTurnInput,
   CodexThreadActionResult,
   CodexTurnStartOptions,
   CodexTurnSummary,
@@ -81,9 +82,13 @@ export function useCodexThreadFollowerClient(input: UseCodexThreadFollowerClient
     return (await invoke("codex:thread:follow-up:send-now", threadId, followUpId)) as void;
   }, []);
 
-  const steerTurn = useCallback(async (threadId: string, turnId: string, prompt: string) => {
-    return (await invoke("codex:turn:steer", threadId, turnId, prompt)) as { turnId: string } | null;
-  }, []);
+  const steerTurn = useCallback(async (input: CodexSteerTurnInput) => {
+    const effectiveServiceTier = resolveCodexRequestServiceTier(input, serviceTierSettings.serviceTier);
+    return (await invoke("codex:turn:steer", {
+      ...input,
+      ...buildCodexServiceTierRequestOverride(effectiveServiceTier),
+    })) as { turnId: string } | null;
+  }, [serviceTierSettings.serviceTier]);
 
   const interruptTurn = useCallback(async (threadId: string, turnId?: string) => {
     return (await invoke("codex:turn:interrupt", threadId, turnId)) as boolean;

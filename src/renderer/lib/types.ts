@@ -51,6 +51,8 @@ export type {
   CodexPromptAgentConfigInput,
   CodexPromptImageInput,
   CodexPromptInput,
+  CodexSteerTurnInput,
+  CodexSteeringStatus,
   CodexUserAttachment,
   CodexUserFileAttachment,
   CodexUserImageAttachment,

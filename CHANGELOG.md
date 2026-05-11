@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - Fixed Threads composer file attachment handling so renderer code can no longer request arbitrary local file bytes; image previews are now read only from files selected through the native picker.
+- Fixed active-turn steering parity so steers now render as optimistic steering user messages, accept against the matching backend user message, show the separate `Steered conversation` divider, and restore unaccepted steers as queued follow-ups.
 
 ## [0.1.10] - 2026-05-03
 

@@ -50,6 +50,45 @@ function buildAssistantEntry(
   };
 }
 
+function buildSteeringEntry(
+  turnId: string,
+  itemId: string,
+  markdownText: string,
+  steeringStatus: "pending" | "accepted",
+): CodexConversationItem {
+  return {
+    threadId: "thread_1",
+    turnId,
+    itemId,
+    entryId: itemId,
+    type: "steeringUserMessage",
+    kind: "userMessage",
+    semanticKind: "userMessage",
+    status: "completed",
+    role: "user",
+    markdownText,
+    steeringStatus,
+    createdAt: 3,
+    updatedAt: 3,
+  };
+}
+
+function buildSteeredEntry(turnId: string, itemId: string): CodexConversationItem {
+  return {
+    threadId: "thread_1",
+    turnId,
+    itemId,
+    entryId: itemId,
+    type: "steered",
+    kind: "systemEvent",
+    semanticKind: "steered",
+    status: "completed",
+    markdownText: "Steered conversation",
+    createdAt: 4,
+    updatedAt: 4,
+  };
+}
+
 function buildTurn(
   turnId: string,
   userText: string,
@@ -110,6 +149,45 @@ describe("LocalConversationTurnEntry", () => {
     expect(view.queryByLabelText("Fork from this message") === null).toBeTrue();
     expect(Boolean(view.container.textContent?.includes(expectedTime))).toBeTrue();
     expect(Boolean(view.container.textContent?.includes(staleStartedTime))).toBeFalse();
+  });
+
+  test("renders pending and accepted steering surfaces separately", async () => {
+    const stableRequests: [] = [];
+    const { LocalConversationTurnEntry } = await import("./local-conversation-turn-entry");
+    const turn: CodexConversationTurn = {
+      ...buildTurn("turn_steer", "Initial request", "Working"),
+      status: "inProgress",
+      itemIds: ["turn_steer_user", "turn_steer_assistant", "steer_pending", "steer_accepted", "steered_accepted"],
+      items: [
+        buildUserEntry("turn_steer", "turn_steer_user", "Initial request"),
+        buildAssistantEntry("turn_steer", "turn_steer_assistant", "Working", { status: "inProgress" }),
+        buildSteeringEntry("turn_steer", "steer_pending", "Try the compact path.", "pending"),
+        buildSteeringEntry("turn_steer", "steer_accepted", "Tighten the layout.", "accepted"),
+        buildSteeredEntry("turn_steer", "steered_accepted"),
+      ],
+    };
+
+    const view = render(
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(LocalConversationTurnEntry, {
+          conversationId: "thread_1",
+          turnSearchKey: turn.turnId,
+          turn,
+          requests: stableRequests,
+          cwd: "/tmp/project",
+          isMostRecentTurn: true,
+          canEditTurnUserPrefix: false,
+          canForkTurn: false,
+        }),
+      ),
+    );
+
+    expect(Boolean(view.container.textContent?.includes("Steering conversation"))).toBeTrue();
+    expect(Boolean(view.container.textContent?.includes("Try the compact path."))).toBeTrue();
+    expect(Boolean(view.container.textContent?.includes("Tighten the layout."))).toBeTrue();
+    expect(view.getAllByText("Steered conversation").length).toBe(2);
   });
 
   test("renders assistant actions in Codex order and forks with an empty composer draft", async () => {

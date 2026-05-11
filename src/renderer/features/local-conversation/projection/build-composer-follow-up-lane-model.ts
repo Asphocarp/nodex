@@ -14,13 +14,8 @@ function resolveComposerFollowUpDisplayText(prompt: string): string {
 export function buildComposerPendingSteerRows(
   pendingSteers: CodexPendingSteer[],
 ): ThreadComposerShellPendingSteerRowModel[] {
-  return pendingSteers.map((entry) => ({
-    steerId: entry.steerId,
-    threadId: entry.threadId,
-    turnId: entry.turnId,
-    prompt: entry.prompt,
-    displayText: resolveComposerFollowUpDisplayText(entry.prompt),
-  }));
+  void pendingSteers;
+  return [];
 }
 
 export function buildComposerQueuedFollowUpRows(

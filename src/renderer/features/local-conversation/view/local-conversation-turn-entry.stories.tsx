@@ -298,6 +298,76 @@ const remoteImageTurn = buildStoryConversationTurn({
   ],
 });
 
+const steeringParityTurn = buildStoryConversationTurn({
+  turnId: "turn_story_steering_parity",
+  status: "inProgress",
+  items: [
+    buildStoryConversationItem({
+      turnId: "turn_story_steering_parity",
+      itemId: "user_story_steering_parity",
+      type: "user_message",
+      kind: "userMessage",
+      semanticKind: "userMessage",
+      role: "user",
+      markdownText: "Refine the thread composer steering behavior.",
+      createdAt: 1_000,
+      updatedAt: 1_000,
+    }),
+    buildStoryConversationItem({
+      turnId: "turn_story_steering_parity",
+      itemId: "assistant_story_steering_parity",
+      type: "assistant_message",
+      kind: "assistantMessage",
+      semanticKind: "assistantMessage",
+      role: "assistant",
+      status: "inProgress",
+      markdownText: "I am updating the active turn.",
+      createdAt: 2_000,
+      updatedAt: 2_000,
+    }),
+    buildStoryConversationItem({
+      turnId: "turn_story_steering_parity",
+      itemId: "steer_story_pending",
+      entryId: "steer_story_pending",
+      type: "steeringUserMessage",
+      kind: "userMessage",
+      semanticKind: "userMessage",
+      status: "completed",
+      role: "user",
+      markdownText: "Use the same queue/steer decision as Codex Electron.",
+      steeringStatus: "pending",
+      createdAt: 3_000,
+      updatedAt: 3_000,
+    }),
+    buildStoryConversationItem({
+      turnId: "turn_story_steering_parity",
+      itemId: "steer_story_accepted",
+      entryId: "steer_story_accepted",
+      type: "steeringUserMessage",
+      kind: "userMessage",
+      semanticKind: "userMessage",
+      status: "completed",
+      role: "user",
+      markdownText: "After acceptance, show the separate divider too.",
+      steeringStatus: "accepted",
+      createdAt: 4_000,
+      updatedAt: 4_000,
+    }),
+    buildStoryConversationItem({
+      turnId: "turn_story_steering_parity",
+      itemId: "steered_story_accepted",
+      entryId: "steered_story_accepted",
+      type: "steered",
+      kind: "systemEvent",
+      semanticKind: "steered",
+      status: "completed",
+      markdownText: "Steered conversation",
+      createdAt: 4_100,
+      updatedAt: 4_100,
+    }),
+  ],
+});
+
 const meta = {
   title: "Workbench/Threads/Turn Entry",
   component: LocalConversationTurnEntry,
@@ -384,5 +454,15 @@ export const RemoteImageLoading: Story = {
   args: {
     turnSearchKey: remoteImageTurn.turnId,
     turn: remoteImageTurn,
+  },
+};
+
+export const SteeringParity: Story = {
+  args: {
+    turnSearchKey: steeringParityTurn.turnId,
+    turn: steeringParityTurn,
+    isMostRecentTurn: true,
+    canEditTurnUserPrefix: false,
+    canForkTurn: false,
   },
 };

@@ -107,16 +107,16 @@
   - Keep the Codex-style utility contract in the generated Codex utility layer so exact shipped selectors remain available even when Tailwind would not regenerate them from the local source graph alone.
   - Reserve `theme-utilities.css` for Nodex-local additions, not for reconstructed copies of Codex Electron utility families.
 - Treat `--tw-*` property registrations as build-output contract: values such as `--tw-leading` or `--tw-contain-layout` come from Tailwind's compiled property layer, not from manual theme-token declarations.
-- For Threads, keep the scroll body and composer separate: unresolved live request cards belong to the composer shell, not the scroll body. The composer shell also owns queued follow-ups, pending steers, background terminal rows, and background child-agent rows; the scroll body only renders turn blocks plus hidden turn-scoped request semantics (`approval`, `userInput`, `implementPlan`) injected into the item stream before bucketization.
+- For Threads, keep the scroll body and composer separate: unresolved live request cards belong to the composer shell, not the scroll body. The composer shell owns queued follow-ups, background terminal rows, and background child-agent rows; optimistic steering belongs to the scroll body as `steeringUserMessage` transcript items that can later accept into a separate `steered` divider.
 - Codex-style background terminals are not child-thread metadata. Derive them from the current conversation's older still-running `commandExecution` items, skip the newest in-progress turn, and render them as tooltip-backed mono rows (`command` plus optional `previewLine`) inside the composer shell's running-terminals panel.
 - Keep thread-footer width ownership outside the composer shell:
   - the footer/screen wrapper owns `max-w-[var(--thread-composer-max-width)]` and `px-panel`
   - the fixed above-composer block host (`above-composer-portal`) and the queue/background lane host (`above-composer-queue-portal`) both stay in that footer wrapper as siblings directly above `LocalConversationComposerShell`; do not move either host into the scroll body or a separate overlay layer
   - `LocalConversationComposerShell` should stay a pure stack/layout switcher
   - `ThreadComposer` should render the composer form itself, not re-wrap the whole footer width a second time
-- Keep the queue/pending-steer lane on the Codex Electron row family:
-  - project raw queued follow-ups and pending steers into dedicated row models before JSX
-  - render pending steers and queued follow-ups in one shared above-composer lane panel instead of separate cards or footer widgets
+- Keep the queue lane on the Codex Electron row family:
+  - project raw queued follow-ups into dedicated row models before JSX
+  - render queued follow-ups in the shared above-composer lane panel instead of separate cards or footer widgets
   - keep queued follow-up reorder on the same sortable/dnd row contract as Codex Electron rather than native HTML drag/drop
   - keep row copy/tooltips/actions source-derived and lane-owned instead of rebuilding those strings or affordances inside generic shell wrappers
 - Keep composer request cards in the Codex Electron family shape:
