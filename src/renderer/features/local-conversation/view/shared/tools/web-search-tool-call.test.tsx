@@ -111,4 +111,53 @@ describe("WebSearchToolCall", () => {
 
     expect(Boolean(textContent(container).includes("Searching web"))).toBeTrue();
   });
+
+  test("renders favicon-only detail rows inside collapsed activity bodies", () => {
+    const { container } = render(
+      <WebSearchToolCall
+        hideHeader
+        item={buildWebSearchEntry({
+          rawItem: {
+            action: {
+              type: "search",
+              query: "site:github.com/openai/codex renderer",
+            },
+          },
+        })}
+      />,
+    );
+
+    expect(Boolean(textContent(container).includes("site:github.com/openai/codex renderer"))).toBeTrue();
+    expect(Boolean(container.querySelector("[data-tool-activity-icon='favicon']"))).toBeTrue();
+  });
+
+  test("omits the semantic globe in detail rows when no favicon URL exists", () => {
+    const { container } = render(
+      <WebSearchToolCall
+        hideHeader
+        item={buildWebSearchEntry({
+          toolCall: {
+            subtype: "webSearch",
+            toolName: "web_search",
+            args: {
+              query: "no domain here",
+            },
+            result: {
+              type: "search",
+              query: "no domain here",
+            },
+          },
+          rawItem: {
+            action: {
+              type: "search",
+              query: "no domain here",
+            },
+          },
+        })}
+      />,
+    );
+
+    expect(Boolean(textContent(container).includes("no domain here"))).toBeTrue();
+    expect(Boolean(container.querySelector("[data-tool-activity-icon]"))).toBeFalse();
+  });
 });

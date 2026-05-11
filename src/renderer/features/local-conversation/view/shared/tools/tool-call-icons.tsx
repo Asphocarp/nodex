@@ -64,6 +64,8 @@ export type ToolActivityIconDescriptor =
       fallbackIcon: ToolActivityIconId;
     };
 
+export type ToolActivityFaviconDescriptor = Extract<ToolActivityIconDescriptor, { kind: "favicon" }>;
+
 const ACTIVITY_ICON_CLASS_NAME = "icon-xs shrink-0 text-token-input-placeholder-foreground";
 const SOURCE_ICON_CLASS_NAME = "icon-xs shrink-0 rounded-2xs bg-token-main-surface-primary object-contain text-token-text-secondary";
 
@@ -155,6 +157,46 @@ function LogoImageWithFallback({
   );
 }
 
+function FaviconImageWithFallback({
+  className,
+  fallback,
+  showFallbackWhileLoading = true,
+  src,
+}: {
+  className: string;
+  fallback: ReactNode;
+  showFallbackWhileLoading?: boolean;
+  src: string;
+}) {
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const hasFailed = failedSrc === src;
+  const hasLoaded = loadedSrc === src;
+  const fallbackNode = hasFailed || (showFallbackWhileLoading && !hasLoaded) ? fallback : null;
+
+  return (
+    <span className={cn("relative flex shrink-0 items-center justify-center", className)}>
+      {fallbackNode}
+      {hasFailed ? null : (
+        <img
+          alt=""
+          className={cn("absolute h-full w-full rounded-2xs object-contain", hasLoaded ? "opacity-100" : "opacity-0")}
+          decoding="async"
+          draggable={false}
+          referrerPolicy="no-referrer"
+          src={src}
+          onError={() => {
+            setFailedSrc(src);
+          }}
+          onLoad={() => {
+            setLoadedSrc(src);
+          }}
+        />
+      )}
+    </span>
+  );
+}
+
 export function selectConnectorLogoUrl({
   isDarkTheme,
   logoDarkUrl,
@@ -208,9 +250,11 @@ export function ConnectorLogo({
 export function ToolActivityIcon({
   className,
   descriptor,
+  showFallbackWhileLoading,
 }: {
   className?: string;
   descriptor: ToolActivityIconDescriptor;
+  showFallbackWhileLoading?: boolean;
 }) {
   if (descriptor.kind === "semantic") {
     return (
@@ -224,11 +268,11 @@ export function ToolActivityIcon({
     const fallback = <SemanticToolIcon icon={descriptor.fallbackIcon} className={className} />;
     return (
       <span data-tool-activity-icon="favicon" data-tool-source-icon={descriptor.hostname} className="inline-flex shrink-0">
-        <LogoImageWithFallback
-          alt={`${descriptor.hostname} icon`}
-          className={withCodexIconClass("icon-xs shrink-0 rounded-2xs object-contain", className)}
+        <FaviconImageWithFallback
+          className={withCodexIconClass("icon-xs shrink-0", className)}
           src={descriptor.src}
           fallback={fallback}
+          showFallbackWhileLoading={showFallbackWhileLoading}
         />
       </span>
     );
@@ -366,7 +410,13 @@ function extractFallbackQuery(item: CodexTranscriptEntry): string | null {
 }
 
 export function resolveWebSearchIcon(item: CodexTranscriptEntry): ToolActivityIconDescriptor {
-  return resolveWebFaviconDescriptor(extractAction(item), extractFallbackQuery(item)) ?? semanticToolIcon("web-search");
+  return resolveWebSearchFavicon(item) ?? semanticToolIcon("web-search");
+}
+
+export function resolveWebSearchFavicon(item: CodexTranscriptEntry): ToolActivityFaviconDescriptor | null {
+  const descriptor = resolveWebFaviconDescriptor(extractAction(item), extractFallbackQuery(item));
+  if (descriptor?.kind !== "favicon") return null;
+  return descriptor;
 }
 
 function extractLogoMetadata(value: unknown): { logoUrl: string | null; logoDarkUrl: string | null; nativeIconPath: string | null } {

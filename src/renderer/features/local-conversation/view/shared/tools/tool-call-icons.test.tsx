@@ -8,6 +8,7 @@ import {
   resolveCollapsedToolActivityIcon,
   resolveMcpElicitationIcon,
   resolveMcpSourceIcon,
+  resolveWebSearchFavicon,
   resolveWebSearchIcon,
   semanticToolIcon,
   toolCallIconTestHelpers,
@@ -61,6 +62,52 @@ describe("tool-call icon helpers", () => {
     expect(openPage?.kind === "favicon" ? openPage.hostname : "").toBe("js.org");
     expect(siteQuery?.kind).toBe("favicon");
     expect(siteQuery?.kind === "favicon" ? siteQuery.hostname : "").toBe("github.com");
+  });
+
+  test("renders Codex-style decorative favicon images", () => {
+    const { container } = render(
+      <ToolActivityIcon
+        descriptor={{
+          kind: "favicon",
+          hostname: "github.com",
+          src: "https://www.google.com/s2/favicons?domain=github.com&sz=32",
+          fallbackIcon: "web-search",
+        }}
+      />,
+    );
+
+    const image = container.querySelector("img");
+    expect(image?.getAttribute("alt")).toBe("");
+    expect(image?.getAttribute("decoding")).toBe("async");
+    expect(image?.getAttribute("draggable")).toBe("false");
+    expect(image?.getAttribute("referrerpolicy")).toBe("no-referrer");
+    expect(Boolean(image?.getAttribute("class")?.includes("opacity-0"))).toBeTrue();
+    expect(Boolean(container.querySelector("svg"))).toBeTrue();
+
+    fireEvent.load(image as HTMLImageElement);
+    expect(Boolean(container.querySelector("img")?.getAttribute("class")?.includes("opacity-100"))).toBeTrue();
+  });
+
+  test("can suppress the favicon fallback while the image is loading", () => {
+    const { container } = render(
+      <ToolActivityIcon
+        descriptor={{
+          kind: "favicon",
+          hostname: "github.com",
+          src: "https://www.google.com/s2/favicons?domain=github.com&sz=32",
+          fallbackIcon: "web-search",
+        }}
+        showFallbackWhileLoading={false}
+      />,
+    );
+
+    const image = container.querySelector("img");
+    expect(Boolean(image)).toBeTrue();
+    expect(Boolean(container.querySelector("svg"))).toBeFalse();
+
+    fireEvent.error(image as HTMLImageElement);
+    expect(Boolean(container.querySelector("img"))).toBeFalse();
+    expect(Boolean(container.querySelector("svg"))).toBeTrue();
   });
 
   test("uses theme-specific connector logo URLs and falls back on image failure", () => {
@@ -194,5 +241,18 @@ describe("tool-call icon helpers", () => {
     }));
 
     expect(descriptor.kind === "semantic" ? descriptor.icon : "").toBe("web-search");
+  });
+
+  test("web search favicon resolver returns null instead of the semantic globe", () => {
+    const descriptor = resolveWebSearchFavicon(buildEntry({
+      semanticKind: "webSearch",
+      toolCall: {
+        subtype: "webSearch",
+        toolName: "web_search",
+        args: { query: "no domain here" },
+      },
+    }));
+
+    expect(descriptor).toBe(null);
   });
 });

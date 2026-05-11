@@ -1,7 +1,7 @@
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
 import { cn } from "../../../../../lib/utils";
 import { asRecord, getString } from "./tool-call-utils";
-import { ToolActivityIcon, resolveWebSearchIcon } from "./tool-call-icons";
+import { ToolActivityIcon, resolveWebSearchFavicon, resolveWebSearchIcon } from "./tool-call-icons";
 
 interface WebSearchToolCallProps {
   item: CodexTranscriptEntry;
@@ -105,11 +105,14 @@ export function WebSearchToolCall({ item, hideHeader = false }: WebSearchToolCal
   const summaryDetail = getWebSearchSummaryDetail(item);
 
   if (hideHeader) {
+    const favicon = resolveWebSearchFavicon(item);
     return (
       <div className="-mx-2.5 mt-1">
         <div className="text-size-chat rounded-none border-0 px-2.5 font-sans text-token-description-foreground/80 [&_*]:text-token-description-foreground/80">
           <div className="text-size-chat flex items-start gap-1.5 font-sans text-token-description-foreground/80">
-            <ToolActivityIcon descriptor={resolveWebSearchIcon(item)} className="mt-[3px] size-3.5 text-token-text-secondary" />
+            {favicon ? (
+              <ToolActivityIcon descriptor={favicon} className="mt-[3px] size-3.5 text-token-text-secondary" />
+            ) : null}
             <span className="min-w-0 break-words">{summaryDetail.length > 0 ? summaryDetail : summaryVerb}</span>
           </div>
         </div>
@@ -120,7 +123,7 @@ export function WebSearchToolCall({ item, hideHeader = false }: WebSearchToolCal
   return (
     <div className="min-w-0 text-size-chat relative overflow-visible py-0">
       <div className="group flex min-w-0 items-center gap-2">
-        <ToolActivityIcon descriptor={resolveWebSearchIcon(item)} />
+        <ToolActivityIcon descriptor={resolveWebSearchIcon(item)} showFallbackWhileLoading={false} />
         <span className={cn("min-w-0 truncate text-size-chat", !completed && "loading-shimmer-pure-text")}>
           <span className="text-token-description-foreground/90 group-hover:text-token-foreground">
             {summaryVerb}

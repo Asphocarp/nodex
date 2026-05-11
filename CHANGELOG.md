@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
 - Thread tool-call icons now match Codex Electron's surface-specific behavior: collapsed activity headers keep their aggregate icon, while nested exploration, command, and file-edit rows stay text-first.
 
 ### Fixed
+- Fixed Thread web-search favicon parity so expanded detail rows no longer show a generic globe when Codex Electron would render no favicon, and favicon images now use the same decorative async/no-referrer loading contract.
 - Fixed completed Thread file-edit rows so expanding a file shows the rendered inline diff body again instead of only the patch-frame header.
 - Removed the redundant extra colored gutter line from inline Thread diffs so the diff body relies on the native add/delete indicators.
 - Fixed Threads composer file attachment handling so renderer code can no longer request arbitrary local file bytes; image previews are now read only from files selected through the native picker.
