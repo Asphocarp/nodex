@@ -108,6 +108,16 @@ describe("McpToolCall", () => {
     expect(summary.includes("Query Docs tool from Context 7")).toBeTrue();
   });
 
+  test("renders a source icon in the summary row", () => {
+    const { container } = render(
+      <TooltipProvider>
+        <McpToolCall item={buildMcpEntry()} />
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(container.querySelector("[data-tool-activity-icon='connector']"))).toBeTrue();
+  });
+
   test("keeps in-progress MCP rows collapsed and non-expandable", async () => {
     const { getByRole } = render(
       <TooltipProvider>

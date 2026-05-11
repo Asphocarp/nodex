@@ -97,6 +97,7 @@ describe("WebSearchToolCall", () => {
     const renderedText = textContent(container);
     expect(Boolean(renderedText.includes("Searched web"))).toBeTrue();
     expect(Boolean(renderedText.includes("'decorators' in https://storybook.js.org/docs/writing-stories/decorators"))).toBeTrue();
+    expect(Boolean(container.querySelector("[data-tool-activity-icon='favicon']"))).toBeTrue();
   });
 
   test("switches the summary verb while the search is running", () => {

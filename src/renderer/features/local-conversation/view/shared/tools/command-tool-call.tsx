@@ -10,6 +10,12 @@ import { cn } from "../../../../../lib/utils";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
 import { useMeasuredElementHeight } from "../use-measured-element-height";
 import { extractCommandActions, isExplorationAction } from "./command-actions";
+import {
+  ToolActivityIcon,
+  resolveExplorationActionIcon,
+  semanticToolIcon,
+  type ToolActivityIconDescriptor,
+} from "./tool-call-icons";
 import { ToolErrorDetail } from "./tool-primitives";
 import { ThreadCommandShellBlock } from "./thread-command-shell-block";
 
@@ -155,6 +161,14 @@ function renderExplorationLine(action: CodexCommandAction): string {
     if (action.query) return `Searched for ${action.query}`;
   }
   return action.command;
+}
+
+function resolveCommandHeaderIcon(actions: CodexCommandAction[], isExploration: boolean): ToolActivityIconDescriptor {
+  if (!isExploration) return semanticToolIcon("run-command");
+  if (actions.some((action) => resolveExplorationActionIcon(action) === "skill")) return semanticToolIcon("skill");
+  if (actions.some((action) => action.type === "search")) return semanticToolIcon("code-searching");
+  if (actions.some((action) => action.type === "listFiles")) return semanticToolIcon("list-files");
+  return semanticToolIcon("run-command");
 }
 
 function SummaryText({
@@ -329,6 +343,7 @@ export function CommandToolCall({
       onClick={handleToggle}
     >
       <div className="flex min-w-0 items-center gap-1">
+        <ToolActivityIcon descriptor={resolveCommandHeaderIcon(commandActions, isExploration)} />
         <SummaryText
           command={command}
           summaryLabel={summaryLabel}
@@ -350,8 +365,12 @@ export function CommandToolCall({
     <div className="pt-2">
       <div className="flex flex-col gap-1.5 text-size-chat-sm text-token-description-foreground">
         {commandActions.map((action, index) => (
-          <div key={`${action.type}:${index}`} className="font-vscode-editor whitespace-pre-wrap break-words">
-            {renderExplorationLine(action)}
+          <div key={`${action.type}:${index}`} className="flex min-w-0 items-start gap-1.5 font-vscode-editor whitespace-pre-wrap break-words">
+            <ToolActivityIcon
+              descriptor={semanticToolIcon(resolveExplorationActionIcon(action))}
+              className="icon-2xs mt-0.5"
+            />
+            <span className="min-w-0 flex-1">{renderExplorationLine(action)}</span>
           </div>
         ))}
         {item.toolCall?.error ? <ToolErrorDetail error={item.toolCall.error} className="pt-1" /> : null}

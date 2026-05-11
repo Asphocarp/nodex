@@ -7,6 +7,10 @@ import {
   normalizeAutomaticApprovalReviewPayload,
   type CodexAutomaticApprovalReviewStatus,
 } from "../../../../../shared/codex-transcript-special-items";
+import {
+  ToolActivityIcon,
+  resolveApprovalIcon,
+} from "./tools/tool-call-icons";
 
 function getStatusLabel(status: CodexAutomaticApprovalReviewStatus): string {
   switch (status) {
@@ -48,9 +52,11 @@ export function AutomaticApprovalReviewSurface({ item }: { item: CodexConversati
   const [expanded, setExpanded] = useState(false);
   const bodyId = `automatic-approval-review-summary-${item.entryId ?? item.itemId}`;
   const isInProgress = review.status === "inProgress";
+  const statusIcon = resolveApprovalIcon(review.status);
 
   const content = (
     <div className="flex min-w-0 items-center gap-1.5">
+      {statusIcon ? <ToolActivityIcon descriptor={statusIcon} /> : null}
       <span className="text-size-chat font-medium text-token-foreground">Automatic approval review</span>
       <span
         className={cn(

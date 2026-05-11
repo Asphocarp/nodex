@@ -73,6 +73,7 @@ describe("CommandToolCall render state", () => {
     );
 
     expect(Boolean(textContent(container).includes("Running bun test"))).toBeTrue();
+    expect(Boolean(container.querySelector("[data-tool-activity-icon='run-command']"))).toBeTrue();
     const collapsedBody = container.querySelector('[data-thread-find-skip="true"]');
     expect(Boolean(collapsedBody)).toBeTrue();
     expect((collapsedBody as HTMLElement | null)?.style.height === "0px").toBeTrue();

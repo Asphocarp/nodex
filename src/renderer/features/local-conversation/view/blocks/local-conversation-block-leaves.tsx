@@ -32,6 +32,14 @@ import { TodoListSurface } from "../shared/todo-list-surface";
 import { getToolComponent } from "../shared/tools/get-tool-component";
 import { JsonBlock } from "../shared/tools/tool-primitives";
 import { extractCommandActions } from "../shared/tools/command-actions";
+import {
+  ToolActivityIcon,
+  resolveCollapsedToolActivityIcon,
+  resolveExplorationActionIcon,
+  resolveExplorationEntriesIcon,
+  semanticToolIcon,
+  type ToolActivityIconDescriptor,
+} from "../shared/tools/tool-call-icons";
 import { UserMessageText } from "../shared/user-message-collapse";
 import {
   CODEX_THREAD_ACCORDION_TRANSITION,
@@ -78,6 +86,7 @@ export interface ThreadSpecialBlockProps {
 interface ExplorationDisplayLine {
   key: string;
   label: string;
+  icon: ToolActivityIconDescriptor;
 }
 
 interface ExplorationAccordionModel {
@@ -232,6 +241,7 @@ export function buildExplorationAccordionModel(entries: CodexConversationItem[])
     lines: flattenedActions.map((flattenedAction) => ({
       key: flattenedAction.key,
       label: formatExplorationLine(flattenedAction.action, flattenedAction.cwd),
+      icon: semanticToolIcon(resolveExplorationActionIcon(flattenedAction.action)),
     })),
     uniqueReadFileCount: seenReadPaths.size,
     searchCount,
@@ -352,7 +362,8 @@ function ThreadExplorationAccordion({ entries, status }: { entries: CodexConvers
                 });
               }}
             >
-              <span className="text-token-foreground/40 group-hover:text-token-foreground min-w-0 flex-1 truncate">
+              <span className="inline-flex min-w-0 flex-1 items-center gap-1 text-token-foreground/40 group-hover:text-token-foreground">
+                <ToolActivityIcon descriptor={resolveExplorationEntriesIcon(entries)} />
                 {isExploring ? (
                   <>
                     <span className="loading-shimmer-pure-text text-token-description-foreground/90 group-hover:text-token-foreground">
@@ -405,7 +416,10 @@ function ThreadExplorationAccordion({ entries, status }: { entries: CodexConvers
                     <div className={cn("flex flex-col gap-1", viewState === "preview" && "pb-1")}>
                       {model.lines.map((line) => (
                         <div key={line.key}>
-                          <div className="truncate">{line.label}</div>
+                          <div className="flex min-w-0 items-center gap-1.5 truncate">
+                            <ToolActivityIcon descriptor={line.icon} className="icon-2xs" />
+                            <span className="min-w-0 truncate">{line.label}</span>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -541,6 +555,7 @@ export function ThreadCollapsedToolActivityBlock({
   const { elementHeightPx, elementRef } = useMeasuredElementHeight();
 
   if (block.type !== "collapsedToolActivity") return null;
+  const icon = resolveCollapsedToolActivityIcon(block.entries);
 
   return (
     <div className="group/collapsed-tool-activity flex min-w-0 flex-col">
@@ -550,6 +565,7 @@ export function ThreadCollapsedToolActivityBlock({
         aria-expanded={isExpanded}
         onClick={() => setIsExpanded((current) => !current)}
       >
+        {icon ? <ToolActivityIcon descriptor={icon} /> : null}
         <span className="text-size-chat truncate text-token-description-foreground/90 group-hover/summary:text-token-foreground">
           {block.summary}
         </span>
@@ -1060,7 +1076,8 @@ export function ThreadMcpServerElicitationBlock({ block }: ThreadLeafBlockProps)
   const summary = resolveMcpServerElicitationSummary(block.entry);
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="text-[11px] font-medium tracking-wide text-token-description-foreground uppercase">
+      <div className="flex min-w-0 items-center gap-1.5 text-[11px] font-medium tracking-wide text-token-description-foreground uppercase">
+        <ToolActivityIcon descriptor={semanticToolIcon("connector")} />
         {summary.title}
       </div>
       {summary.body ? (

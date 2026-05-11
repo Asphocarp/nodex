@@ -22,6 +22,7 @@ import {
   asRecord,
   humanizeIdentifier,
 } from "./tool-call-utils";
+import { ToolActivityIcon, resolveMcpSourceIcon } from "./tool-call-icons";
 
 const electronToolIconSizeClassName = `electron:[&>svg]:${"icon-sm"}`;
 
@@ -439,6 +440,7 @@ export function McpToolCall({
             setIsExpanded(!isExpanded);
           }}
         >
+          <ToolActivityIcon descriptor={resolveMcpSourceIcon(item)} />
           <span className={cn("text-size-chat flex min-w-0 items-center gap-1", !payload.completed && "loading-shimmer-pure-text")}>
             <span className="text-token-description-foreground/90 group-hover:text-token-foreground flex-shrink-0">
               {summaryVerb}

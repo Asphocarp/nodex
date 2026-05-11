@@ -1,6 +1,7 @@
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
 import { cn } from "../../../../../lib/utils";
 import { asRecord, getString } from "./tool-call-utils";
+import { ToolActivityIcon, resolveWebSearchIcon } from "./tool-call-icons";
 
 interface WebSearchToolCallProps {
   item: CodexTranscriptEntry;
@@ -105,6 +106,7 @@ export function WebSearchToolCall({ item }: WebSearchToolCallProps) {
   return (
     <div className="min-w-0 text-size-chat relative overflow-visible py-0">
       <div className="group flex min-w-0 items-center gap-2">
+        <ToolActivityIcon descriptor={resolveWebSearchIcon(item)} />
         <span className={cn("min-w-0 truncate text-size-chat", !completed && "loading-shimmer-pure-text")}>
           <span className="text-token-description-foreground/90 group-hover:text-token-foreground">
             {summaryVerb}

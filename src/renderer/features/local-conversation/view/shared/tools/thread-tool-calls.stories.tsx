@@ -10,6 +10,7 @@ import { LOCAL_CONVERSATION_CONTENT_CLASS_NAME } from "../local-conversation-vie
 import { TurnDiffSurface } from "../turn-diff-surface";
 import { getToolComponent } from "./get-tool-component";
 import { McpToolCall } from "./mcp-tool-call";
+import { ToolActivityIcon, semanticToolIcon } from "./tool-call-icons";
 import { THREAD_TOOL_CALL_STORY_ITEMS } from "../../thread-stage-story-fixtures";
 
 const LONG_COMMAND = [
@@ -692,6 +693,39 @@ export const WebSearchFindInPage: Story = {
       title="Web Search Find In Page"
       description="The dedicated web-search leaf also matches Codex Electron wording for find-in-page actions."
     />
+  ),
+};
+
+export const ToolCallIconography: Story = {
+  render: () => (
+    <StorySurface
+      title="Tool Call Iconography"
+      description="Licensed Codex tool glyphs shown with the thread row sizing and muted token contract."
+    >
+      <ConversationStorySurface>
+        <div className="flex flex-col gap-2 text-size-chat text-token-description-foreground">
+          {[
+            "run-command",
+            "edit-files",
+            "web-search",
+            "code-searching",
+            "list-files",
+            "approved",
+            "denied",
+            "skill",
+            "browser-use",
+            "computer-use",
+            "plugin",
+            "connector",
+          ].map((icon) => (
+            <div key={icon} className="flex items-center gap-2">
+              <ToolActivityIcon descriptor={semanticToolIcon(icon as Parameters<typeof semanticToolIcon>[0])} />
+              <span>{icon}</span>
+            </div>
+          ))}
+        </div>
+      </ConversationStorySurface>
+    </StorySurface>
   ),
 };
 

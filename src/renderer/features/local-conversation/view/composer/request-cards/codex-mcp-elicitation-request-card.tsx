@@ -1,7 +1,11 @@
 import { useState } from "react";
-import { ChevronDownIcon, CodeBracketsIcon } from "@/components/shared/icons";
+import { ChevronDownIcon } from "@/components/shared/icons";
 import type { CodexMcpServerElicitationRequest } from "../../../../../lib/types";
 import { cn } from "../../../../../lib/utils";
+import {
+  ToolActivityIcon,
+  resolveMcpElicitationIcon,
+} from "../../shared/tools/tool-call-icons";
 
 interface CodexMcpElicitationRequestCardProps {
   request: CodexMcpServerElicitationRequest;
@@ -27,7 +31,7 @@ export function CodexMcpElicitationRequestCard({
     <div className="text-size-chat border-token-border bg-token-input-background/70 flex flex-col overflow-hidden rounded-2xl border text-token-foreground backdrop-blur-sm">
       <div className="flex flex-col gap-3 p-3">
         <div className="flex items-center gap-2 text-token-description-foreground">
-          <CodeBracketsIcon className="icon-sm text-token-text-secondary" />
+          <ToolActivityIcon descriptor={resolveMcpElicitationIcon(request)} className="icon-sm text-token-text-secondary" />
           <span>{serverName}</span>
         </div>
         <div className="text-base leading-tight font-medium">{request.message}</div>

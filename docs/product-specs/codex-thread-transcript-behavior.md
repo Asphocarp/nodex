@@ -130,6 +130,14 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
 ## Tool and Activity Rendering
 - Tool activity renders as structured expandable cards instead of plain text dumps.
 - Specialized cards exist for command execution, file changes, MCP, and web search.
+- Tool and action rows use Codex Electron-style iconography from the local vendored Codex icon asset module:
+  - semantic tool glyphs cover command execution, file edits, web/search, code search, list-files, approvals, denials, skills, hooks, plugins, connectors, and generic source fallbacks
+  - decorative row glyphs are hidden from assistive technology, while favicons and source logos expose meaningful alt text
+  - row glyphs use the documented `icon-xs` muted contract, chevrons use `icon-2xs`, and source/card glyphs use `icon-sm`
+- Web rows prefer extracted site favicons through the Codex-compatible Google favicon URL helper and fall back to the semantic web-search glyph when no stable domain is available.
+- MCP, plugin, connector, and elicitation rows resolve source logos from available metadata, Browser Use / computer-use source identifiers, connector/plugin logo URLs, then the generic copied Codex source fallback.
+- Connector logos choose light or dark logo URLs from the current theme and fall back to the generic source glyph after an image load error without changing row geometry.
+- Collapsed activity group headers choose their summary icon from the original grouped render units, using the reconstructed Codex priority order: active explicit icon, web, exploration, edits, commands, approvals, hooks/skills, then the first MCP source logo. Expanded body rows keep their subtype-owned icons.
 - Automatic approval review items render as a dedicated compact status row with Codex Electron's title, status chip, optional risk label, and an expandable rationale/fallback summary.
 - Multi-agent action items render as a dedicated grouped activity surface instead of falling back to generic system banners. Running actions stay expanded, settled contiguous actions can coalesce into one grouped surface, and `wait`-only collab tool calls stay out of the mounted transcript.
 - Context compaction renders as Codex Electron's dedicated compact divider row instead of a generic system banner:
