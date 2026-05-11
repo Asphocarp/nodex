@@ -37,7 +37,6 @@ import { extractCommandActions } from "../shared/tools/command-actions";
 import {
   ToolActivityIcon,
   resolveCollapsedToolActivityIcon,
-  resolveExplorationActionIcon,
   resolveExplorationEntriesIcon,
   semanticToolIcon,
   type ToolActivityIconDescriptor,
@@ -89,7 +88,7 @@ export interface ThreadSpecialBlockProps {
 interface ExplorationDisplayLine {
   key: string;
   label: string;
-  icon: ToolActivityIconDescriptor;
+  leadingIcon?: ToolActivityIconDescriptor;
 }
 
 function SteeringStatusIcon() {
@@ -261,7 +260,6 @@ export function buildExplorationAccordionModel(entries: CodexConversationItem[])
     lines: flattenedActions.map((flattenedAction) => ({
       key: flattenedAction.key,
       label: formatExplorationLine(flattenedAction.action, flattenedAction.cwd),
-      icon: semanticToolIcon(resolveExplorationActionIcon(flattenedAction.action)),
     })),
     uniqueReadFileCount: seenReadPaths.size,
     searchCount,
@@ -437,7 +435,7 @@ function ThreadExplorationAccordion({ entries, status }: { entries: CodexConvers
                       {model.lines.map((line) => (
                         <div key={line.key}>
                           <div className="flex min-w-0 items-center gap-1.5 truncate">
-                            <ToolActivityIcon descriptor={line.icon} className="icon-2xs" />
+                            {line.leadingIcon ? <ToolActivityIcon descriptor={line.leadingIcon} className="icon-2xs" /> : null}
                             <span className="min-w-0 truncate">{line.label}</span>
                           </div>
                         </div>
@@ -467,7 +465,7 @@ function ThreadExplorationBodyOnly({ entries }: { entries: CodexConversationItem
             {model.lines.map((line) => (
               <div key={line.key} className="truncate">
                 <div className="flex min-w-0 items-center gap-1.5 truncate">
-                  <ToolActivityIcon descriptor={line.icon} className="icon-2xs" />
+                  {line.leadingIcon ? <ToolActivityIcon descriptor={line.leadingIcon} className="icon-2xs" /> : null}
                   <span className="min-w-0 truncate">{line.label}</span>
                 </div>
               </div>
@@ -675,10 +673,12 @@ export function ThreadCollapsedToolActivityBlock({
         aria-expanded={isExpanded}
         onClick={handleToggle}
       >
-        <span className="inline-flex max-w-full min-w-0 items-center gap-1.5 overflow-hidden">
-          {icon ? <ToolActivityIcon descriptor={icon} /> : null}
-          <span className="text-token-foreground/40 block min-w-0 max-w-full truncate shrink overflow-hidden [mask-image:linear-gradient(to_right,black_calc(100%_-_0.25rem),transparent)] [mask-repeat:no-repeat] pr-1 group-hover/collapsed-tool-activity:text-token-foreground">
-            {displayedSummary}
+        <span className="text-token-foreground/40 block min-w-0 max-w-full truncate shrink overflow-hidden [mask-image:linear-gradient(to_right,black_calc(100%_-_0.25rem),transparent)] [mask-repeat:no-repeat] pr-1 group-hover/collapsed-tool-activity:text-token-foreground">
+          <span className="inline-flex max-w-full min-w-0 items-center gap-1.5 overflow-hidden">
+            {icon ? <ToolActivityIcon descriptor={icon} /> : null}
+            <span className="min-w-0 flex-1 truncate">
+              {displayedSummary}
+            </span>
           </span>
         </span>
         <span

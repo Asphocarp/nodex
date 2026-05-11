@@ -130,15 +130,16 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
 ## Tool and Activity Rendering
 - Tool activity renders as structured expandable cards instead of plain text dumps.
 - Specialized cards exist for command execution, file changes, MCP, and web search.
-- Tool and action rows use Codex Electron-style iconography from the local vendored Codex icon asset module:
+- Tool and action surfaces use Codex Electron-style iconography from the local vendored Codex icon asset module:
   - semantic tool glyphs cover command execution, file edits, web/search, code search, list-files, approvals, denials, skills, hooks, plugins, connectors, and generic source fallbacks
   - decorative row glyphs are hidden from assistive technology, while favicons and source logos expose meaningful alt text
-  - row glyphs use the documented `icon-xs` muted contract, chevrons use `icon-2xs`, and source/card glyphs use `icon-sm`
+  - icon rendering is surface-specific, not universal: collapsed activity headers and top-level command/web/MCP surfaces may show glyphs, while nested collapsed-activity body rows often stay text-only
+  - visible activity glyphs use the documented `icon-xs` muted contract, chevrons use `icon-2xs`, and source/card glyphs use `icon-sm`
 - Web rows prefer extracted site favicons through the Codex-compatible Google favicon URL helper and fall back to the semantic web-search glyph when no stable domain is available.
 - MCP, plugin, connector, and elicitation rows resolve source logos from available metadata, Browser Use / computer-use source identifiers, connector/plugin logo URLs, then the generic copied Codex source fallback.
 - Connector logos choose light or dark logo URLs from the current theme and fall back to the generic source glyph after an image load error without changing row geometry.
 - Collapsed activity group headers use Codex Electron's synthesized activity sentence, never a generic `Completed N actions` fallback. Source-backed segments are ordered as file changes, exploration, approvals/denials, hooks, commands, MCP usage, then web searches; mixed groups render summaries such as `Explored 5 files, 1 search, ran 2 commands, searched web 1 time`.
-- Collapsed activity group headers choose their summary icon from the original grouped render units by scanning newest-to-oldest for an active meaningful row, then newest-to-oldest for a completed meaningful row, before falling back to the reconstructed Codex activity-family priority: web, exploration, edits, commands, approvals, hooks/skills, then the first MCP source logo. Expanded body rows keep their subtype-owned icons.
+- Collapsed activity group headers choose their summary icon from the original grouped render units by scanning newest-to-oldest for an active meaningful row, then newest-to-oldest for a completed meaningful row, before falling back to the reconstructed Codex activity-family priority: web, exploration, edits, commands, approvals, hooks/skills, then the first MCP source logo. That header icon does not imply nested row icons.
 - Automatic approval review items render as a dedicated compact status row with Codex Electron's title, status chip, optional risk label, and an expandable rationale/fallback summary.
 - Multi-agent action items render as a dedicated grouped activity surface instead of falling back to generic system banners. Running actions stay expanded, settled contiguous actions can coalesce into one grouped surface, and `wait`-only collab tool calls stay out of the mounted transcript.
 - Context compaction renders as Codex Electron's dedicated compact divider row instead of a generic system banner:
@@ -169,7 +170,7 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
   - patch headers split the status label and filename into separate elements; the filename is clickable and opens the local file target without toggling the row
   - embedded per-file patch previews suppress the diff library's built-in file header because the surrounding thread row already owns the filename and line-count summary
 - Contiguous activity units can coalesce into a `collapsedToolActivity` group after bucketization only when a source-backed Codex-style summary can be synthesized. That group owns only its header/body toggle and mounts the original tool/activity units inside the animated body instead of flattening them into summary text.
-- Expanded collapsed-activity bodies are flat: exploration groups render direct `Read`, `Searched`, and `Listed files` rows through their body-only path, web-search rows render direct favicon/detail rows, and nested command rows render muted without the leading command icon. They do not mount nested `Explored...` or `Searched web...` subgroup headers.
+- Expanded collapsed-activity bodies are flat: exploration groups render direct text-only `Read`, `Searched`, and `Listed files` rows through their body-only path, web-search rows render direct favicon/detail rows, file-change rows render `Edited`/`Created`/`Deleted` with filename/stats/chevron but no pencil glyph, and nested command rows render muted without the leading command icon. They do not mount nested `Explored...` or `Searched web...` subgroup headers.
 - Tool-call expansion is subtype-owned local UI state; the mounted thread persists collapsed turns, not collapsed tool rows.
 - Tool-call header labels use a scan-friendly two-tone hierarchy where the leading action phrase is visually emphasized over trailing detail text.
 - Command execution cards consume parsed `commandActions` metadata (`read`, `listFiles`, `search`) to show exploration summaries and per-action transcript rows.

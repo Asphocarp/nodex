@@ -52,6 +52,53 @@ function buildCommandEntry(
   };
 }
 
+function buildFileChangeEntry(itemId: string): CodexConversationItem {
+  return {
+    threadId: "thread-1",
+    turnId: "turn-1",
+    itemId,
+    entryId: itemId,
+    type: "file_change",
+    kind: "fileChange",
+    semanticKind: "patch",
+    status: "completed",
+    fileChange: {
+      label: undefined,
+      paths: ["src/edited.ts"],
+      changes: [
+        {
+          path: "src/edited.ts",
+          type: "update",
+          movePath: null,
+          unifiedDiff: [
+            "@@ -1,1 +1,1 @@",
+            "-old value",
+            "+new value",
+          ].join("\n"),
+        },
+      ],
+      diffs: [
+        [
+          "diff --git a/src/edited.ts b/src/edited.ts",
+          "--- a/src/edited.ts",
+          "+++ b/src/edited.ts",
+          "@@ -1,1 +1,1 @@",
+          "-old value",
+          "+new value",
+        ].join("\n"),
+      ],
+    },
+    toolCall: {
+      subtype: "fileChange",
+      toolName: "file_change",
+      args: {},
+      result: null,
+    },
+    createdAt: 1,
+    updatedAt: 1,
+  };
+}
+
 function buildUserMessageBlock(text: string): ThreadTranscriptBlockModel {
   return {
     id: "user-message-1",
@@ -288,6 +335,8 @@ describe("ThreadExplorationGroupBlock", () => {
     expect(content.includes("Read src/a.ts")).toBeTrue();
     expect(content.includes("Searched for thing in src")).toBeTrue();
     expect(content.includes("Listed files in src")).toBeTrue();
+    expect(container.querySelectorAll("[data-tool-activity-icon='code-searching']").length).toBe(1);
+    expect(container.querySelectorAll("[data-tool-activity-icon='list-files']").length).toBe(0);
   });
 
   test("starts in preview mode while exploration is still running", async () => {
@@ -367,11 +416,13 @@ describe("ThreadCollapsedToolActivityBlock", () => {
     };
 
     const { container, getByRole } = render(
-      <ThreadCollapsedToolActivityBlock
-        block={block}
-        isLatestTurn={false}
-        isStreamingTurn={false}
-      />,
+      <TooltipProvider>
+        <ThreadCollapsedToolActivityBlock
+          block={block}
+          isLatestTurn={false}
+          isStreamingTurn={false}
+        />
+      </TooltipProvider>,
     );
 
     const summaryButton = getByRole("button", { name: /Explored 1 file/i });
@@ -384,6 +435,91 @@ describe("ThreadCollapsedToolActivityBlock", () => {
     expect(summaryButton.getAttribute("aria-expanded") ?? "").toBe("true");
     expect(Boolean(textContent(container).includes("Read src/a.ts"))).toBeTrue();
     expect(Boolean(textContent(container).includes("Exploration"))).toBeFalse();
+  });
+
+  test("keeps the group header icon but strips default icons from nested rows", async () => {
+    const commandEntry = buildCommandEntry("item-command", [], {
+      command: "bun test",
+      commandActions: [],
+    });
+    const fileChangeEntry = buildFileChangeEntry("item-file-change");
+    const block = {
+      id: "activity-icons",
+      turnId: "turn-1",
+      createdAt: 1,
+      updatedAt: 2,
+      searchableText: "activity icons",
+      type: "collapsedToolActivity" as const,
+      summary: "Edited 1 file, explored 1 search, ran 1 command",
+      status: "completed" as const,
+      entries: [
+        {
+          id: "exploration-icons",
+          turnId: "turn-1",
+          createdAt: 1,
+          updatedAt: 1,
+          searchableText: "exploration",
+          type: "explorationGroup" as const,
+          summary: "Exploration",
+          status: "completed" as const,
+          entries: [
+            buildCommandEntry("item-explore", [
+              { type: "read", command: "cat src/a.ts", name: "src/a.ts", path: "src/a.ts" },
+              { type: "search", command: "rg thing", query: "thing", path: "src" },
+              { type: "listFiles", command: "fd", path: "src" },
+            ]),
+          ],
+        },
+        {
+          id: commandEntry.entryId ?? commandEntry.itemId,
+          turnId: commandEntry.turnId,
+          createdAt: commandEntry.createdAt,
+          updatedAt: commandEntry.updatedAt,
+          searchableText: "command",
+          type: "exec" as const,
+          entry: commandEntry,
+          status: commandEntry.status,
+        },
+        {
+          id: fileChangeEntry.entryId ?? fileChangeEntry.itemId,
+          turnId: fileChangeEntry.turnId,
+          createdAt: fileChangeEntry.createdAt,
+          updatedAt: fileChangeEntry.updatedAt,
+          searchableText: "file change",
+          type: "fileChange" as const,
+          entry: fileChangeEntry,
+          status: fileChangeEntry.status,
+        },
+      ],
+    };
+
+    const { container, getByRole } = render(
+      <TooltipProvider>
+        <ThreadCollapsedToolActivityBlock
+          block={block}
+          isLatestTurn={false}
+          isStreamingTurn={false}
+        />
+      </TooltipProvider>,
+    );
+
+    const summaryButton = getByRole("button", { name: /Edited 1 file/i });
+    expect(container.querySelectorAll("[data-tool-activity-icon='edit-files']").length).toBe(1);
+    expect(container.querySelectorAll("[data-tool-activity-icon='run-command']").length).toBe(0);
+
+    fireEvent.click(summaryButton);
+    await settleAsyncRender();
+
+    const content = textContent(container);
+    expect(content.includes("Read src/a.ts")).toBeTrue();
+    expect(content.includes("Searched for thing in src")).toBeTrue();
+    expect(content.includes("Listed files in src")).toBeTrue();
+    expect(content.includes("Ran bun test")).toBeTrue();
+    expect(content.includes("Edited")).toBeTrue();
+    expect(container.querySelectorAll("[data-tool-activity-icon='edit-files']").length).toBe(1);
+    expect(container.querySelectorAll("[data-tool-activity-icon='run-command']").length).toBe(0);
+    expect(container.querySelectorAll("[data-tool-activity-icon='code-searching']").length).toBe(0);
+    expect(container.querySelectorAll("[data-tool-activity-icon='list-files']").length).toBe(0);
   });
 });
 

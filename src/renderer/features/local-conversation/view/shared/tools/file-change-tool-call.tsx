@@ -32,7 +32,6 @@ import {
   summarizeFileDiffMetadata,
 } from "./diff-file-shared";
 import { InlineFileDiff } from "./inline-file-diff";
-import { ToolActivityIcon, semanticToolIcon } from "./tool-call-icons";
 
 interface FileChangeToolCallProps {
   item: CodexTranscriptEntry;
@@ -368,7 +367,6 @@ function FileChangeRow({
           }}
         >
           <div className="text-size-chat flex min-w-0 items-center gap-1 text-token-description-foreground/80">
-            <ToolActivityIcon descriptor={semanticToolIcon("edit-files")} />
             <span className="text-token-description-foreground/80 group-hover:text-token-foreground select-text">
               {summaryLabel}
             </span>

@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Thread collapsed tool activity groups now match Codex Electron's synthesized summaries and flat expanded row hierarchy instead of showing generic completed-action labels or nested exploration subgroups.
+- Thread tool-call icons now match Codex Electron's surface-specific behavior: collapsed activity headers keep their aggregate icon, while nested exploration, command, and file-edit rows stay text-first.
 
 ### Fixed
 - Fixed completed Thread file-edit rows so expanding a file shows the rendered inline diff body again instead of only the patch-frame header.

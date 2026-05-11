@@ -377,11 +377,7 @@ export function CommandToolCall({
     <div className="pt-2">
       <div className="flex flex-col gap-1.5 text-size-chat-sm text-token-description-foreground">
         {commandActions.map((action, index) => (
-          <div key={`${action.type}:${index}`} className="flex min-w-0 items-start gap-1.5 font-vscode-editor whitespace-pre-wrap break-words">
-            <ToolActivityIcon
-              descriptor={semanticToolIcon(resolveExplorationActionIcon(action))}
-              className="icon-2xs mt-0.5"
-            />
+          <div key={`${action.type}:${index}`} className="flex min-w-0 items-start font-vscode-editor whitespace-pre-wrap break-words">
             <span className="min-w-0 flex-1">{renderExplorationLine(action)}</span>
           </div>
         ))}

@@ -191,21 +191,26 @@ function buildMixedCollapsedActivityStoryBlock(): ThreadCollapsedToolActivityBlo
     ...THREAD_TOOL_CALL_STORY_ITEMS.command,
     itemId: "collapsed_story_explore",
     entryId: "collapsed_story_explore",
-    command: "cat ARCHITECTURE.md && cat FRONTEND.md && rg Codex",
+    command: "rg createElement|diffContainerRef|applyFileChangeGutters file-change-tool-call.tsx",
     commandActions: [
-      { type: "read" as const, command: "cat ARCHITECTURE.md", name: "ARCHITECTURE.md", path: "ARCHITECTURE.md" },
-      { type: "read" as const, command: "cat FRONTEND.md", name: "FRONTEND.md", path: "FRONTEND.md" },
-      { type: "read" as const, command: "cat README.md", name: "README.md", path: "README.md" },
-      { type: "read" as const, command: "cat src/a.ts", name: "src/a.ts", path: "src/a.ts" },
-      { type: "read" as const, command: "cat src/b.ts", name: "src/b.ts", path: "src/b.ts" },
-      { type: "search" as const, command: "rg Codex", query: "Codex", path: null },
+      {
+        type: "search" as const,
+        command: "rg createElement|diffContainerRef|applyFileChangeGutters file-change-tool-call.tsx",
+        query: "createElement|diffContainerRef|applyFileChangeGutters",
+        path: "file-change-tool-call.tsx",
+      },
     ],
   };
-  const commandOne = {
+  const commandItems = [
+    "bun test src/renderer/features/local-conversation/view/shared/tools/file-change-tool-call.test.tsx",
+    "bun test src/renderer/features/local-conversation/view/shared/turn-diff-surface.test.tsx",
+    "bun run typecheck",
+    "bun run lint",
+  ].map((command, index) => ({
     ...THREAD_TOOL_CALL_STORY_ITEMS.command,
-    itemId: "collapsed_story_cmd_1",
-    entryId: "collapsed_story_cmd_1",
-    command: "node scripts/verify-readable-docs.mjs",
+    itemId: `collapsed_story_cmd_${index + 1}`,
+    entryId: `collapsed_story_cmd_${index + 1}`,
+    command,
     commandActions: [],
     toolCall: {
       subtype: "command" as const,
@@ -213,19 +218,45 @@ function buildMixedCollapsedActivityStoryBlock(): ThreadCollapsedToolActivityBlo
       args: {},
       result: "ok",
     },
-  };
-  const commandTwo = {
-    ...THREAD_TOOL_CALL_STORY_ITEMS.command,
-    itemId: "collapsed_story_cmd_2",
-    entryId: "collapsed_story_cmd_2",
-    command: "curl https://developers.openai.com/codex/app-server.md",
-    commandActions: [],
-    toolCall: {
-      subtype: "command" as const,
-      toolName: "exec_command",
-      args: {},
-      result: "HTTP 403",
+  }));
+  const fileChanges: CodexFileChange[] = [
+    {
+      path: "src/renderer/features/local-conversation/view/shared/tools/file-change-tool-call.tsx",
+      type: "update",
+      movePath: null,
+      unifiedDiff: [
+        "@@ -1,1 +1,1 @@",
+        "-with icon",
+        "+without icon",
+      ].join("\n"),
     },
+    {
+      path: "src/renderer/features/local-conversation/view/shared/turn-diff-surface.test.tsx",
+      type: "update",
+      movePath: null,
+      unifiedDiff: [
+        "@@ -1,1 +1,1 @@",
+        "-old assertion",
+        "+new assertion",
+      ].join("\n"),
+    },
+    {
+      path: "README.md",
+      type: "update",
+      movePath: null,
+      unifiedDiff: [
+        "@@ -1,1 +1,1 @@",
+        "-Tool rows always show icons",
+        "+Tool row icons are surface-specific",
+      ].join("\n"),
+    },
+  ];
+  const fileChangeItem: CodexTranscriptEntry = {
+    ...THREAD_TOOL_CALL_STORY_ITEMS.fileChange,
+    itemId: "collapsed_story_file_change",
+    entryId: "collapsed_story_file_change",
+    fileChange: buildStoryFileChangePayload(fileChanges),
+    toolCall: buildStoryFileChangeToolCall(fileChanges),
   };
 
   const entries: ThreadCollapsedToolActivityEntryModel[] = [
@@ -240,35 +271,25 @@ function buildMixedCollapsedActivityStoryBlock(): ThreadCollapsedToolActivityBlo
       status: "completed",
       entries: [readCommand],
     },
-    {
-      id: commandOne.entryId ?? commandOne.itemId,
-      turnId: commandOne.turnId,
-      createdAt: commandOne.createdAt,
-      updatedAt: commandOne.updatedAt,
+    ...commandItems.map((entry) => ({
+      id: entry.entryId ?? entry.itemId,
+      turnId: entry.turnId,
+      createdAt: entry.createdAt,
+      updatedAt: entry.updatedAt,
       searchableText: "",
-      type: "exec",
-      entry: commandOne,
-      status: commandOne.status,
-    },
+      type: "exec" as const,
+      entry,
+      status: entry.status,
+    })),
     {
-      id: THREAD_TOOL_CALL_STORY_ITEMS.webSearch.entryId ?? THREAD_TOOL_CALL_STORY_ITEMS.webSearch.itemId,
-      turnId: THREAD_TOOL_CALL_STORY_ITEMS.webSearch.turnId,
-      createdAt: THREAD_TOOL_CALL_STORY_ITEMS.webSearch.createdAt,
-      updatedAt: THREAD_TOOL_CALL_STORY_ITEMS.webSearch.updatedAt,
+      id: fileChangeItem.entryId ?? fileChangeItem.itemId,
+      turnId: fileChangeItem.turnId,
+      createdAt: fileChangeItem.createdAt,
+      updatedAt: fileChangeItem.updatedAt,
       searchableText: "",
-      type: "webSearch",
-      entry: THREAD_TOOL_CALL_STORY_ITEMS.webSearch,
-      status: THREAD_TOOL_CALL_STORY_ITEMS.webSearch.status,
-    },
-    {
-      id: commandTwo.entryId ?? commandTwo.itemId,
-      turnId: commandTwo.turnId,
-      createdAt: commandTwo.createdAt,
-      updatedAt: commandTwo.updatedAt,
-      searchableText: "",
-      type: "exec",
-      entry: commandTwo,
-      status: commandTwo.status,
+      type: "fileChange",
+      entry: fileChangeItem,
+      status: fileChangeItem.status,
     },
   ];
 
@@ -277,10 +298,10 @@ function buildMixedCollapsedActivityStoryBlock(): ThreadCollapsedToolActivityBlo
     turnId: "turn_tool_story",
     createdAt: 1,
     updatedAt: 2,
-    searchableText: "Explored files, ran commands, searched web",
+    searchableText: "Edited files, explored search, ran commands",
     type: "collapsedToolActivity",
-    summary: "Explored 5 files, 1 search, ran 2 commands, searched web 1 time",
-    summaryParts: ["Explored 5 files, 1 search", "ran 2 commands", "searched web 1 time"],
+    summary: "Edited 3 files, explored 1 search, ran 4 commands",
+    summaryParts: ["Edited 3 files", "explored 1 search", "ran 4 commands"],
     status: "completed",
     entries,
   };
