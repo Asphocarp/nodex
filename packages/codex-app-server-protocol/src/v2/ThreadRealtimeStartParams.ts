@@ -13,4 +13,4 @@ export type ThreadRealtimeStartParams = { threadId: string,
  * Selects text or audio output for the realtime session. Transport and voice stay
  * independent so clients can choose how they connect separately from what the model emits.
  */
-outputModality: RealtimeOutputModality, prompt?: string | null | null, sessionId?: string | null, transport?: ThreadRealtimeStartTransport | null, voice?: RealtimeVoice | null, };
+outputModality: RealtimeOutputModality, prompt?: string | null | null, realtimeSessionId?: string | null, transport?: ThreadRealtimeStartTransport | null, voice?: RealtimeVoice | null, };

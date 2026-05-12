@@ -5,11 +5,10 @@ import type { CollaborationMode } from "../CollaborationMode";
 import type { Personality } from "../Personality";
 import type { ReasoningEffort } from "../ReasoningEffort";
 import type { ReasoningSummary } from "../ReasoningSummary";
-import type { ServiceTier } from "../ServiceTier";
 import type { JsonValue } from "../serde_json/JsonValue";
 import type { ApprovalsReviewer } from "./ApprovalsReviewer";
 import type { AskForApproval } from "./AskForApproval";
-import type { PermissionProfile } from "./PermissionProfile";
+import type { PermissionProfileSelectionParams } from "./PermissionProfileSelectionParams";
 import type { SandboxPolicy } from "./SandboxPolicy";
 import type { TurnEnvironmentParams } from "./TurnEnvironmentParams";
 import type { UserInput } from "./UserInput";
@@ -45,10 +44,12 @@ approvalsReviewer?: ApprovalsReviewer | null,
  */
 sandboxPolicy?: SandboxPolicy | null,
 /**
- * Override the full permissions profile for this turn and subsequent
- * turns. Cannot be combined with `sandboxPolicy`.
+ * Select a named permissions profile for this turn and subsequent turns.
+ * Cannot be combined with `sandboxPolicy`. Use bounded `modifications`
+ * for supported turn adjustments instead of replacing the full
+ * permissions profile.
  */
-permissionProfile?: PermissionProfile | null,
+permissions?: PermissionProfileSelectionParams | null,
 /**
  * Override the model for this turn and subsequent turns.
  */
@@ -56,7 +57,7 @@ model?: string | null,
 /**
  * Override the service tier for this turn and subsequent turns.
  */
-serviceTier?: ServiceTier | null | null,
+serviceTier?: string | null | null,
 /**
  * Override the reasoning effort for this turn and subsequent turns.
  */
