@@ -518,6 +518,69 @@ describe("ThreadCollapsedToolActivityBlock", () => {
     expect(Boolean(textContent(summaryButton).includes("Ran 1 command"))).toBeFalse();
   });
 
+  test("renders a live file-change active header with animated diff stats", async () => {
+    const liveFileChangeEntry = buildFileChangeEntry("item-file-live");
+    const content = Array.from({ length: 85 }, (_, index) => `line ${index + 1}`).join("\n");
+    liveFileChangeEntry.status = "inProgress";
+    liveFileChangeEntry.fileChange = {
+      label: undefined,
+      paths: ["poem.md"],
+      changes: [{ type: "add", path: "poem.md", content }],
+      diffs: [],
+    };
+
+    const block = {
+      id: "activity-file-live",
+      turnId: "turn-1",
+      createdAt: 1,
+      updatedAt: 2,
+      searchableText: "activity file live",
+      type: "collapsedToolActivity" as const,
+      summary: "Creating 1 file",
+      status: "inProgress" as const,
+      summaryStats: buildCollapsedSummaryStats({ runningCreatedFileCount: 1 }),
+      entries: [
+        {
+          id: liveFileChangeEntry.entryId ?? liveFileChangeEntry.itemId,
+          turnId: liveFileChangeEntry.turnId,
+          createdAt: liveFileChangeEntry.createdAt,
+          updatedAt: liveFileChangeEntry.updatedAt,
+          searchableText: "file change",
+          type: "fileChange" as const,
+          entry: liveFileChangeEntry,
+          status: liveFileChangeEntry.status,
+        },
+      ],
+    };
+
+    const { container, getByRole } = render(
+      <TooltipProvider>
+        <ThreadCollapsedToolActivityBlock
+          block={block}
+          isLatestTurn={true}
+          isStreamingTurn={true}
+        />
+      </TooltipProvider>,
+    );
+
+    const summaryButton = getByRole("button", { name: /Creating poem\.md \+ 85 - 0/i });
+    const shimmer = summaryButton.querySelector<HTMLElement>(".codex-cadenced-shimmer");
+    expect(Boolean(shimmer)).toBeTrue();
+    expect(shimmer?.textContent ?? "").toBe("CreatingCreating");
+    expect(shimmer?.parentElement?.className.includes("gap-1.5")).toBeTrue();
+    expect(Boolean(summaryButton.querySelector(".diff-stat-digit-stack-8"))).toBeTrue();
+    expect(Boolean(summaryButton.querySelector(".diff-stat-digit-stack-5"))).toBeTrue();
+    expect(Boolean(textContent(summaryButton).includes("Creating 1 file"))).toBeFalse();
+
+    fireEvent.click(summaryButton);
+    await settleAsyncRender();
+
+    expect(Boolean(container.querySelector("[data-file-change-row-body]"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Creating"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("poem.md"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Exploration"))).toBeFalse();
+  });
+
   test("keeps completed collapsed summaries static", () => {
     const block = {
       id: "activity-static",
@@ -916,6 +979,7 @@ describe("ThreadTurnDiffBlock", () => {
         }}
         isLatestTurn={true}
         isStreamingTurn={true}
+        allowInProgressTurnDiff={true}
         threadCwd="/tmp/project"
         onOpenTurnDiffReview={(target) => {
           selectedTurnId = target.turnId;
@@ -928,5 +992,40 @@ describe("ThreadTurnDiffBlock", () => {
     expect(container.querySelectorAll('[role="button"][aria-expanded="false"]').length).toBe(0);
     fireEvent.click(container.querySelector('button[aria-label="Review changes"]') as HTMLElement);
     expect(selectedTurnId).toBe("turn-1");
+  });
+
+  test("suppresses in-progress turn diffs in the normal thread body", () => {
+    const { container } = render(
+      <ThreadTurnDiffBlock
+        block={{
+          id: "turn-diff-body",
+          turnId: "turn-1",
+          createdAt: 1,
+          updatedAt: 1,
+          searchableText: "1 file changed",
+          type: "turnDiff",
+          entry: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            itemId: "turn-diff-body",
+            entryId: "turn-diff-body",
+            type: "turn_diff",
+            kind: "systemEvent",
+            semanticKind: "diff",
+            status: "inProgress",
+            rawItem: {
+              type: "turn-diff",
+              unifiedDiff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new\n",
+            },
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        }}
+        isLatestTurn={true}
+        isStreamingTurn={true}
+      />,
+    );
+
+    expect(container.textContent ?? "").toBe("");
   });
 });

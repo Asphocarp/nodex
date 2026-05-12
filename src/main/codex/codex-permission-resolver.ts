@@ -107,9 +107,6 @@ function buildWorkspaceWriteSandboxPolicy(
   return {
     type: "workspaceWrite",
     writableRoots: [workspacePath],
-    readOnlyAccess: {
-      type: "fullAccess",
-    },
     networkAccess: sandboxWorkspaceWrite?.network_access ?? false,
     excludeTmpdirEnvVar: sandboxWorkspaceWrite?.exclude_tmpdir_env_var ?? false,
     excludeSlashTmp: sandboxWorkspaceWrite?.exclude_slash_tmp ?? false,
@@ -128,9 +125,6 @@ function buildSandboxPolicy(
   if (sandboxMode === "read-only") {
     return {
       type: "readOnly",
-      access: {
-        type: "fullAccess",
-      },
       networkAccess: sandboxWorkspaceWrite?.network_access ?? false,
     };
   }

@@ -161,6 +161,11 @@ describe("TurnDiffSurface", () => {
     expect(Boolean(container.textContent?.includes("2 files changed"))).toBeTrue();
     expect(Boolean(container.textContent?.includes("Review"))).toBeTrue();
     expect(container.querySelectorAll('[role="button"][aria-expanded]').length).toBe(0);
+    const liveSurface = container.querySelector<HTMLElement>('[codex\\.turn_diff\\.state="in_progress"]');
+    expect(Boolean(liveSurface)).toBeTrue();
+    expect(Boolean(liveSurface?.className.includes("bg-token-input-background/70"))).toBeTrue();
+    expect(Boolean(liveSurface?.innerHTML.includes("@container"))).toBeTrue();
+    expect(Boolean(liveSurface?.querySelector(".diff-stat-digit-column"))).toBeTrue();
 
     const reviewButton = container.querySelector('button[aria-label="Review changes"]');
     expect(Boolean(reviewButton)).toBeTrue();

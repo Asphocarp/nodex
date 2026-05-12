@@ -533,4 +533,22 @@ describe("local-conversation selectors", () => {
     expect(units[0]?.key).toBe("turn_1:user_1");
     expect(units[1]?.role).toBe("assistant");
   });
+
+  test("keeps a drafting turn visible when only turn.diff has streamed", () => {
+    const entries = selectVisibleConversationTurnEntries({
+      conversation: buildConversation({
+        turns: [
+          buildTurn({
+            status: "inProgress",
+            items: [],
+            itemIds: [],
+            diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new\n",
+          }),
+        ],
+      }),
+    });
+
+    expect(entries.length).toBe(1);
+    expect(entries[0]?.turnId ?? "").toBe("turn_1");
+  });
 });

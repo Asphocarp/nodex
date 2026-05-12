@@ -31,7 +31,9 @@ import {
 } from "../shared/thread-message-actions";
 import { TodoListSurface } from "../shared/todo-list-surface";
 import { getToolComponent } from "../shared/tools/get-tool-component";
+import { buildFileChangeRows } from "../shared/tools/file-change-tool-call";
 import { getWebSearchSummaryDetail } from "../shared/tools/web-search-tool-call";
+import { AnimatedDiffStats } from "../shared/tools/diff-file-shared";
 import { JsonBlock } from "../shared/tools/tool-primitives";
 import { extractCommandActions } from "../shared/tools/command-actions";
 import {
@@ -76,6 +78,7 @@ export interface ThreadLeafBlockProps {
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  allowInProgressTurnDiff?: boolean;
 }
 
 export interface ThreadSpecialBlockProps {
@@ -604,16 +607,36 @@ function resolveCollapsedExplorationActiveSummary(entries: CodexConversationItem
   return null;
 }
 
-function resolveCollapsedFileChangeActiveSummary(entry: CodexConversationItem): string | null {
-  const change = entry.fileChange?.changes.at(-1);
-  if (!change) return null;
-  if (change.type === "add") return `Creating ${change.path}`;
-  if (change.type === "delete") return `Deleting ${change.path}`;
-  return `Editing ${change.path}`;
+interface CollapsedFileChangeActiveSummary {
+  kind: "fileChange";
+  label: string;
+  displayPath: string;
+  additions: number;
+  deletions: number;
 }
 
-interface CollapsedActivityActiveSummary {
+interface CollapsedTextActiveSummary {
+  kind: "text";
   label: string;
+}
+
+type CollapsedActivityActiveSummary = CollapsedTextActiveSummary | CollapsedFileChangeActiveSummary;
+
+function resolveCollapsedFileChangeActiveSummary(
+  entry: CodexConversationItem,
+  threadCwd: string | undefined,
+  projectWorkspacePath: string | undefined,
+): CollapsedFileChangeActiveSummary | null {
+  const rows = buildFileChangeRows(entry, threadCwd, projectWorkspacePath);
+  const row = rows.at(-1);
+  if (!row) return null;
+  return {
+    kind: "fileChange",
+    label: row.label,
+    displayPath: row.displayPath,
+    additions: row.summary.additions,
+    deletions: row.summary.deletions,
+  };
 }
 
 function getAutomaticApprovalReviewStatus(entry: CodexConversationItem): string | null {
@@ -626,6 +649,8 @@ function getAutomaticApprovalReviewStatus(entry: CodexConversationItem): string 
 function resolveCollapsedActivityActiveSummaryPass(
   entries: Extract<ThreadBlockModel, { type: "collapsedToolActivity" }>["entries"],
   inProgressOnly: boolean,
+  threadCwd: string | undefined,
+  projectWorkspacePath: string | undefined,
 ): CollapsedActivityActiveSummary | null {
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index];
@@ -634,28 +659,28 @@ function resolveCollapsedActivityActiveSummaryPass(
 
     if (entry.type === "explorationGroup") {
       const label = resolveCollapsedExplorationActiveSummary(entry.entries);
-      if (label) return { label };
+      if (label) return { kind: "text", label };
       continue;
     }
     if (entry.type === "fileChange" && entry.status === "inProgress") {
-      const label = resolveCollapsedFileChangeActiveSummary(entry.entry);
-      if (label) return { label };
+      const summary = resolveCollapsedFileChangeActiveSummary(entry.entry, threadCwd, projectWorkspacePath);
+      if (summary) return summary;
       continue;
     }
     if (entry.type === "webSearch") {
       if (entry.status !== "inProgress") continue;
       const detail = getWebSearchSummaryDetail(entry.entry);
-      return { label: detail.length > 0 ? `Searching the web for ${detail}` : "Searching the web" };
+      return { kind: "text", label: detail.length > 0 ? `Searching the web for ${detail}` : "Searching the web" };
     }
     if (entry.type === "exec") {
       if (entry.status !== "inProgress") continue;
       const command = entry.entry.command?.trim();
-      return { label: command && command.length > 0 ? `Running ${command}` : "Running command" };
+      return { kind: "text", label: command && command.length > 0 ? `Running ${command}` : "Running command" };
     }
     if (entry.type === "automaticApprovalReview" && !inProgressOnly) {
       const status = getAutomaticApprovalReviewStatus(entry.entry) ?? entry.status;
-      if (status === "approved") return { label: "Approved request" };
-      if (status === "denied") return { label: "Denied request" };
+      if (status === "approved") return { kind: "text", label: "Approved request" };
+      if (status === "denied") return { kind: "text", label: "Denied request" };
     }
   }
   return null;
@@ -663,9 +688,11 @@ function resolveCollapsedActivityActiveSummaryPass(
 
 function resolveCollapsedActivityActiveSummary(
   entries: Extract<ThreadBlockModel, { type: "collapsedToolActivity" }>["entries"],
+  threadCwd: string | undefined,
+  projectWorkspacePath: string | undefined,
 ): CollapsedActivityActiveSummary | null {
-  return resolveCollapsedActivityActiveSummaryPass(entries, true)
-    ?? resolveCollapsedActivityActiveSummaryPass(entries, false);
+  return resolveCollapsedActivityActiveSummaryPass(entries, true, threadCwd, projectWorkspacePath)
+    ?? resolveCollapsedActivityActiveSummaryPass(entries, false, threadCwd, projectWorkspacePath);
 }
 
 function shouldShimmerCollapsedActivitySummary(
@@ -710,6 +737,34 @@ function CollapsedActivitySummaryText({
   );
 }
 
+function CollapsedActivityActiveSummaryText({
+  summary,
+}: {
+  summary: CollapsedActivityActiveSummary;
+}) {
+  if (summary.kind === "fileChange") {
+    return (
+      <span className="inline-flex max-w-full min-w-0 items-center gap-1.5">
+        <CodexShimmerText
+          variant="cadenced"
+          className="shrink-0 whitespace-nowrap"
+        >
+          {summary.label}
+        </CodexShimmerText>
+        <span
+          className="max-w-full truncate text-token-text-link-foreground select-text"
+          style={{ WebkitTextFillColor: "currentColor" }}
+        >
+          {summary.displayPath}
+        </span>
+        <AnimatedDiffStats additions={summary.additions} deletions={summary.deletions} />
+      </span>
+    );
+  }
+
+  return <CodexShimmerText>{summary.label}</CodexShimmerText>;
+}
+
 export function ThreadCollapsedToolActivityBlock({
   block,
   isLatestTurn,
@@ -724,7 +779,11 @@ export function ThreadCollapsedToolActivityBlock({
   if (block.type !== "collapsedToolActivity") return null;
   const icon = resolveCollapsedToolActivityIcon(block.entries);
   const activeSummary = isLatestTurn && isStreamingTurn
-    ? resolveCollapsedActivityActiveSummary(block.entries)
+    ? resolveCollapsedActivityActiveSummary(
+        block.entries,
+        threadCwd ?? undefined,
+        projectWorkspacePath ?? undefined,
+      )
     : null;
   const shouldShimmerAggregate = !activeSummary
     && isLatestTurn
@@ -759,7 +818,7 @@ export function ThreadCollapsedToolActivityBlock({
             {icon ? <ToolActivityIcon descriptor={icon} /> : null}
             <span className="min-w-0 flex-1 truncate">
               {activeSummary ? (
-                <CodexShimmerText>{activeSummary.label}</CodexShimmerText>
+                <CollapsedActivityActiveSummaryText summary={activeSummary} />
               ) : (
                 <CollapsedActivitySummaryText summary={block.summary} shimmer={shouldShimmerAggregate} />
               )}
@@ -868,7 +927,13 @@ export function ThreadTurnDiffBlock({
   projectWorkspacePath,
   threadCwd,
   onOpenTurnDiffReview,
+  allowInProgressTurnDiff = false,
 }: ThreadLeafBlockProps) {
+  const { settings } = useCodexThreadSettings();
+  const threadDetailLevel = resolveCodexThreadDetailLevel(settings.detailLevel);
+  if (isStreamingTurn && !allowInProgressTurnDiff) return null;
+  if (isStreamingTurn && threadDetailLevel === "STEPS_PROSE") return null;
+
   return (
     <TurnDiffSurface
       item={block.entry}

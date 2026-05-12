@@ -137,4 +137,43 @@ describe("groupAgentEntries collapsed tool activity", () => {
     expect(fileSummary?.summary ?? "").toBe("Created 1 file, deleted 1 file");
     expect(listSummary?.summary ?? "").toBe("Listed files");
   });
+
+  test("wraps one in-progress file change in a collapsed activity group", () => {
+    const grouped = groupAgentEntries([
+      buildBlock("file-live", "fileChange", {
+        kind: "fileChange",
+        semanticKind: "patch",
+        status: "inProgress",
+        fileChange: {
+          paths: ["poem.md"],
+          diffs: [],
+          changes: [{ type: "add", path: "poem.md", content: "line\n" }],
+        },
+      }),
+    ]);
+
+    const group = grouped[0];
+    expect(grouped.map((entry) => entry.type).join(",")).toBe("collapsedToolActivity");
+    expect(group?.type === "collapsedToolActivity" ? group.status ?? "" : "").toBe("inProgress");
+    expect(group?.type === "collapsedToolActivity" ? group.entries.map((entry) => entry.type).join(",") : "").toBe(
+      "fileChange",
+    );
+  });
+
+  test("keeps one completed file change as a normal row", () => {
+    const grouped = groupAgentEntries([
+      buildBlock("file-done", "fileChange", {
+        kind: "fileChange",
+        semanticKind: "patch",
+        status: "completed",
+        fileChange: {
+          paths: ["poem.md"],
+          diffs: [],
+          changes: [{ type: "add", path: "poem.md", content: "line\n" }],
+        },
+      }),
+    ]);
+
+    expect(grouped.map((entry) => entry.type).join(",")).toBe("fileChange");
+  });
 });

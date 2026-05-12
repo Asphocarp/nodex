@@ -53,6 +53,72 @@ describe("bucketizeTurnItems", () => {
     );
   });
 
+  test("lifts streaming turn diffs into above-composer blocks only", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({ id: "user", type: "userMessage" }),
+        buildItem({ id: "diff", type: "turnDiff", status: "inProgress" }),
+      ],
+      turnStatus: "inProgress",
+    });
+
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: null,
+      buckets,
+      isLatestTurn: true,
+      isStreamingTurn: true,
+      isBlocked: false,
+    });
+
+    expect(turn.aboveComposerBlocks?.map((block) => block.type).join(",") ?? "").toBe("turnDiff");
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe("userMessage,thinkingPlaceholder");
+  });
+
+  test("keeps completed turn diffs in trailing thread body", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({ id: "user", type: "userMessage" }),
+        buildItem({ id: "diff", type: "turnDiff", status: "completed" }),
+      ],
+      turnStatus: "completed",
+    });
+
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: null,
+      buckets,
+      isLatestTurn: true,
+      isStreamingTurn: false,
+      isBlocked: false,
+    });
+
+    expect(turn.aboveComposerBlocks?.length ?? 0).toBe(0);
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe("userMessage,turnDiff");
+  });
+
+  test("keeps blocked streaming turn diffs out of the above-composer portal", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({ id: "user", type: "userMessage" }),
+        buildItem({ id: "diff", type: "turnDiff", status: "inProgress" }),
+      ],
+      turnStatus: "inProgress",
+    });
+
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: null,
+      buckets,
+      isLatestTurn: true,
+      isStreamingTurn: true,
+      isBlocked: true,
+    });
+
+    expect(turn.aboveComposerBlocks?.length ?? 0).toBe(0);
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe("userMessage,turnDiff");
+  });
+
   test("keeps only the leading contiguous user prefix in userItems", () => {
     const buckets = bucketizeTurnItems({
       items: [
@@ -92,6 +158,48 @@ describe("bucketizeTurnItems", () => {
 
     expect(turn.agentBodyEntries.map((entry) => entry.type).join(",")).toBe("collapsedToolActivity");
     expect(group?.type === "collapsedToolActivity" ? group.entries.map((entry) => entry.id).join(",") : "").toBe("exec,file");
+  });
+
+  test("keeps inline assistant prose before a live single-file collapsed activity group", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({ id: "assistant", type: "assistantMessage", status: "completed" }),
+        buildItem({
+          id: "file",
+          type: "fileChange",
+          status: "inProgress",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "file",
+            type: "file_change",
+            kind: "fileChange",
+            semanticKind: "patch",
+            status: "inProgress",
+            fileChange: {
+              paths: ["poem.md"],
+              changes: [{ type: "add", path: "poem.md", content: "line\n" }],
+              diffs: [],
+            },
+            createdAt: 2,
+            updatedAt: 2,
+          },
+        }),
+      ],
+      turnStatus: "inProgress",
+    });
+
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: null,
+      buckets,
+      isLatestTurn: true,
+      isStreamingTurn: true,
+      isBlocked: false,
+    });
+
+    expect(turn.agentBodyEntries.map((entry) => entry.type).join(",")).toBe("assistantMessage,collapsedToolActivity");
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe("assistantMessage,collapsedToolActivity");
   });
 
   test("routes leading hooks into preUserItems and trailing hooks into postAssistantItems", () => {

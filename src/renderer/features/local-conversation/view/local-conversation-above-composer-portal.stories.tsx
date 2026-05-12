@@ -202,6 +202,66 @@ function buildPortalTasksAndFileChangesModel() {
   });
 }
 
+function buildLiveDraftedEditDiffModel() {
+  const controls: ThreadStageStoryControls = {
+    ...STORY_CONTROLS,
+    preset: "streaming",
+  };
+  const scenario = buildThreadStageStoryScenario(controls);
+  const conversation = buildStoryConversation({
+    statusType: "active",
+    turns: [
+      buildStoryConversationTurn({
+        turnId: "turn_story_live_draft_diff",
+        status: "inProgress",
+        diff: [
+          "--- a/src/renderer/features/local-conversation/view/shared/turn-diff-surface.tsx",
+          "+++ b/src/renderer/features/local-conversation/view/shared/turn-diff-surface.tsx",
+          "@@ -240,5 +240,14 @@",
+          "-  return <div className=\"old\">Files changed</div>;",
+          "+  return (",
+          "+    <div",
+          "+      className=\"bg-token-input-background/70 text-token-foreground border-token-border/80\"",
+          "+      codex.turn_diff.state=\"in_progress\"",
+          "+    >",
+          "+      <span>1 file changed</span>",
+          "+      <AnimatedDiffStats additions={8} deletions={1} />",
+          "+    </div>",
+          "+  );",
+        ].join("\n"),
+        items: [
+          buildStoryConversationItem({
+            turnId: "turn_story_live_draft_diff",
+            itemId: "user_story_live_draft_diff",
+            type: "user_message",
+            kind: "userMessage",
+            semanticKind: "userMessage",
+            role: "user",
+            markdownText: "Draft the implementation changes and show live generated edit lines before the fileChange item starts.",
+            createdAt: 10_000,
+            updatedAt: 10_000,
+          }),
+        ],
+      }),
+    ],
+    queuedFollowUps: [],
+    pendingSteers: [],
+    backgroundTerminalRows: [],
+    childMemberships: [],
+    requests: [],
+  });
+
+  return buildThreadStageStorySurfaceModels(scenario, controls, {
+    ...scenario.runtime,
+    activeThreadId: conversation.threadId,
+    activeThreadSummary: conversation,
+    conversation,
+    knownConversationsById: {
+      [conversation.threadId]: conversation,
+    },
+  });
+}
+
 function AboveComposerStoryFrame({
   model = buildShellModel(),
   title,
@@ -220,8 +280,8 @@ function AboveComposerStoryFrame({
       <TooltipProvider>
         <div className="flex-1" />
         <div className="px-panel z-10 mx-auto flex w-full max-w-[var(--thread-composer-max-width)] flex-col pb-2">
-          <LocalConversationAboveComposerPortalHost />
-          <LocalConversationAboveComposerQueuePortalHost />
+          <LocalConversationAboveComposerPortalHost conversationId={model.footerModel.threadId} />
+          <LocalConversationAboveComposerQueuePortalHost conversationId={model.footerModel.threadId} />
           <LocalConversationAboveComposerPortal
             blocks={resolveStoryAboveComposerBlocks(model)}
             isLatestTurn={model.bodyModel.body.latestTurnId === model.bodyModel.body.activeTurnId}
@@ -320,6 +380,16 @@ export const FileChangesAndTasksInPortal: Story = {
     title: "File Changes And Tasks In Portal",
     description:
       "Debug fixture for the Codex Electron portal shape where the active turn lifts both the todo/tasks card and the files-changed banner into the fixed above-composer portal while the queue lane stays empty.",
+  },
+  render: (args) => <AboveComposerStoryFrame {...args} />,
+};
+
+export const LiveDraftedEditDiffBeforeFileChange: Story = {
+  args: {
+    model: buildLiveDraftedEditDiffModel(),
+    title: "Live Drafted Edit Diff Before FileChange",
+    description:
+      "Parity fixture for Codex Electron's pre-tool-call turn/diff/updated path: the above-composer files-changed banner is derived from turn.diff before any fileChange row exists.",
   },
   render: (args) => <AboveComposerStoryFrame {...args} />,
 };

@@ -58,8 +58,8 @@ function LocalConversationFooterComponent({
     return (
       <div className="mx-auto flex w-full max-w-[var(--thread-composer-max-width)] flex-col px-panel">
         {catchUpControl}
-        <LocalConversationAboveComposerPortalHost />
-        <LocalConversationAboveComposerQueuePortalHost />
+        <LocalConversationAboveComposerPortalHost conversationId={model.threadId} />
+        <LocalConversationAboveComposerQueuePortalHost conversationId={model.threadId} />
       </div>
     );
   }
@@ -67,8 +67,8 @@ function LocalConversationFooterComponent({
   return (
     <div className="mx-auto flex w-full max-w-[var(--thread-composer-max-width)] flex-col px-panel">
       {catchUpControl}
-      <LocalConversationAboveComposerPortalHost />
-      <LocalConversationAboveComposerQueuePortalHost />
+      <LocalConversationAboveComposerPortalHost conversationId={model.threadId} />
+      <LocalConversationAboveComposerQueuePortalHost conversationId={model.threadId} />
       <LocalConversationComposerShell
         model={model}
         actions={actions}

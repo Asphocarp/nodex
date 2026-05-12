@@ -20,6 +20,7 @@ import type { LoginAccountResponse } from "@nodex/codex-app-server-protocol/v2/L
 import type { CancelLoginAccountResponse } from "@nodex/codex-app-server-protocol/v2/CancelLoginAccountResponse";
 import type { FileChangeRequestApprovalParams } from "@nodex/codex-app-server-protocol/v2/FileChangeRequestApprovalParams";
 import type { FileChangeRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/FileChangeRequestApprovalResponse";
+import type { FileUpdateChange } from "@nodex/codex-app-server-protocol/v2/FileUpdateChange";
 import type { McpServerElicitationRequestParams } from "@nodex/codex-app-server-protocol/v2/McpServerElicitationRequestParams";
 import type { McpServerElicitationRequestResponse } from "@nodex/codex-app-server-protocol/v2/McpServerElicitationRequestResponse";
 import type { ModelListResponse } from "@nodex/codex-app-server-protocol/v2/ModelListResponse";
@@ -540,8 +541,15 @@ type DefaultCodexRuntimeOptions = {
 const THREAD_START_EXPERIMENTAL_RAW_EVENTS = false;
 const THREAD_START_PERSIST_EXTENDED_HISTORY = true;
 const THREAD_RESUME_PERSIST_EXTENDED_HISTORY = true;
+const CODEX_THREAD_CONFIG_OVERRIDES = {
+  "features.apply_patch_streaming_events": true,
+} satisfies NonNullable<ThreadStartParams["config"]>;
 const WORKTREE_SETUP_SCRIPT_TIMEOUT_MS = 10 * 60 * 1000;
 const WORKTREE_LOG_STATUS_MESSAGE = "Creating a worktree and running setup.";
+
+function buildCodexThreadConfigOverrides(): NonNullable<ThreadStartParams["config"]> {
+  return { ...CODEX_THREAD_CONFIG_OVERRIDES };
+}
 
 function normalizeTimestamp(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return Date.now();
@@ -2379,7 +2387,6 @@ export class CodexService extends EventEmitter {
         ? {
             type: "workspaceWrite" as const,
             writableRoots: [workspacePath],
-            readOnlyAccess: { type: "fullAccess" as const },
             networkAccess: previous?.sandbox?.type === "workspaceWrite"
               ? previous.sandbox.networkAccess
               : false,
@@ -3328,6 +3335,84 @@ export class CodexService extends EventEmitter {
     };
     this.mergeTurn(threadId, nextTurn);
     return this.getKnownTurn(threadId, turnId) ?? nextTurn;
+  }
+
+  private rebindLatestInProgressTurnForFileChange(
+    threadId: string,
+    targetTurnId: string,
+  ): { turnId: string; reboundFromTurnId: string | null } {
+    if (this.getKnownTurn(threadId, targetTurnId)) {
+      return { turnId: targetTurnId, reboundFromTurnId: null };
+    }
+
+    const detail = this.ensureConversationDetail(threadId);
+    if (!detail) return { turnId: targetTurnId, reboundFromTurnId: null };
+
+    const latestTurn = detail.turns[detail.turns.length - 1];
+    if (!latestTurn || latestTurn.status !== "inProgress" || latestTurn.turnId === targetTurnId) {
+      return { turnId: targetTurnId, reboundFromTurnId: null };
+    }
+
+    const record = this.ensureConversationRecord(threadId);
+    const sourceTurnId = latestTurn.turnId;
+    const reboundTurn: CodexTurnSummary = {
+      ...latestTurn,
+      threadId,
+      turnId: targetTurnId,
+      turnStartedAtMs: latestTurn.turnStartedAtMs ?? Date.now(),
+    };
+
+    detail.turns = detail.turns.map((turn) => turn.turnId === sourceTurnId ? reboundTurn : turn);
+    detail.transcript = detail.transcript.map((entry) =>
+      entry.turnId === sourceTurnId ? { ...entry, turnId: targetTurnId } : entry
+    );
+
+    const sourceItems = record.itemsByTurn.get(sourceTurnId);
+    if (sourceItems) {
+      const targetItems = record.itemsByTurn.get(targetTurnId) ?? new Map<string, CodexItemView>();
+      for (const item of sourceItems.values()) {
+        const reboundItem: CodexItemView = { ...item, turnId: targetTurnId };
+        targetItems.set(resolveCodexItemPrimaryIdentityKey(reboundItem), reboundItem);
+      }
+      record.itemsByTurn.delete(sourceTurnId);
+      record.itemsByTurn.set(targetTurnId, targetItems);
+    }
+
+    return { turnId: targetTurnId, reboundFromTurnId: sourceTurnId };
+  }
+
+  private syncLiveFileChangeItem(input: {
+    threadId: string;
+    turnId: string;
+    itemId: string;
+    changes: FileUpdateChange[];
+  }): void {
+    if (input.changes.length === 0) return;
+
+    const { turnId, reboundFromTurnId } = this.rebindLatestInProgressTurnForFileChange(
+      input.threadId,
+      input.turnId,
+    );
+
+    const normalizedItem = normalizeThreadItem({
+      id: input.itemId,
+      type: "fileChange",
+      status: "inProgress",
+      changes: input.changes,
+    }, input.threadId, turnId);
+    if (!normalizedItem) return;
+
+    this.upsertCanonicalTurnItem(input.threadId, turnId, normalizedItem.itemId, "inProgress");
+    this.mergeItem(normalizedItem);
+    if (reboundFromTurnId) {
+      this.emitThreadStreamSnapshotFromRecord(input.threadId);
+      return;
+    }
+
+    this.syncBroadcastConversationTurnState(input.threadId, turnId, {
+      syncBackgroundTerminalRows: true,
+      syncCapabilityFlags: true,
+    });
   }
 
   private listKnownTurns(threadId: string): CodexTurnSummary[] {
@@ -4796,6 +4881,7 @@ export class CodexService extends EventEmitter {
       const threadStartParams: ThreadStartParams = {
         cwd: runLocation.cwd,
         model: effectiveModel ?? null,
+        config: buildCodexThreadConfigOverrides(),
         ...buildServiceTierParams(input.serviceTier),
         experimentalRawEvents: THREAD_START_EXPERIMENTAL_RAW_EVENTS,
         persistExtendedHistory: THREAD_START_PERSIST_EXTENDED_HISTORY,
@@ -4983,6 +5069,7 @@ export class CodexService extends EventEmitter {
     const permissionState = await this.readPermissionState(threadRef?.projectId ?? null);
     const resumeParams: ThreadResumeParams = {
       threadId,
+      config: buildCodexThreadConfigOverrides(),
       persistExtendedHistory: THREAD_RESUME_PERSIST_EXTENDED_HISTORY,
       ...buildThreadPermissionOverrides({
         permissionState,
@@ -5335,6 +5422,7 @@ export class CodexService extends EventEmitter {
       this.logger.warn("Codex turn start hit missing thread; attempting resume", { threadId, error });
       await this.client.request("thread/resume", {
         threadId,
+        config: buildCodexThreadConfigOverrides(),
         persistExtendedHistory: THREAD_RESUME_PERSIST_EXTENDED_HISTORY,
         ...buildThreadPermissionOverrides({
           permissionState,
@@ -6719,7 +6807,10 @@ export class CodexService extends EventEmitter {
       const synthesizedPatchDiff = this.buildUnifiedDiffFromPatchItems(
         this.listKnownTurnItems(threadId, mergedTurn.turnId),
       );
-      if (synthesizedPatchDiff || Object.prototype.hasOwnProperty.call(turnRecord, "diff")) {
+      if (
+        mergedTurn.status !== "inProgress"
+        && (synthesizedPatchDiff || Object.prototype.hasOwnProperty.call(turnRecord, "diff"))
+      ) {
         this.syncTurnDiffItem(threadId, mergedTurn.turnId, synthesizedPatchDiff ?? mergedTurn.diff, mergedTurn.status);
       }
       if (mergedTurn.status === "completed") {
@@ -6806,7 +6897,6 @@ export class CodexService extends EventEmitter {
       };
 
       this.mergeTurn(payload.threadId, nextTurn);
-      this.syncTurnDiffItem(payload.threadId, payload.turnId, diff, nextTurn.status);
       this.emitEvent({ type: "turn", turn: nextTurn });
       this.syncBroadcastConversationTurnState(payload.threadId, payload.turnId, {
         syncBackgroundTerminalRows: true,
@@ -6967,19 +7057,11 @@ export class CodexService extends EventEmitter {
         return;
       }
 
-      const normalizedItem = normalizeThreadItem({
-        id: payload.itemId,
-        type: "fileChange",
-        status: "inProgress",
-        changes: payload.changes,
-      }, payload.threadId, payload.turnId);
-      if (!normalizedItem) return;
-
-      this.upsertCanonicalTurnItem(payload.threadId, payload.turnId, normalizedItem.itemId, "inProgress");
-      this.mergeItem(normalizedItem);
-      this.syncBroadcastConversationTurnState(payload.threadId, payload.turnId, {
-        syncBackgroundTerminalRows: true,
-        syncCapabilityFlags: true,
+      this.syncLiveFileChangeItem({
+        threadId: payload.threadId,
+        turnId: payload.turnId,
+        itemId: payload.itemId,
+        changes: payload.changes as FileUpdateChange[],
       });
       return;
     }

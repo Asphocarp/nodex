@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { CodexFileChange, CodexTranscriptEntry } from "@/lib/types";
 import type {
   ThreadCollapsedToolActivityBlockModel,
@@ -307,6 +307,111 @@ function buildMixedCollapsedActivityStoryBlock(): ThreadCollapsedToolActivityBlo
   };
 }
 
+function buildLiveFileChangeCollapsedActivityStoryBlock(lineCount = 85, itemId = "collapsed_story_live_file_change"): ThreadCollapsedToolActivityBlockModel {
+  const content = Array.from({ length: lineCount }, (_, index) => `Line ${index + 1}`).join("\n");
+  const fileChangeItem: CodexTranscriptEntry = {
+    ...THREAD_TOOL_CALL_STORY_ITEMS.fileChange,
+    itemId,
+    entryId: itemId,
+    status: "inProgress",
+    fileChange: buildStoryFileChangePayload([{ type: "add", path: "poem.md", content }]),
+    toolCall: buildStoryFileChangeToolCall([{ type: "add", path: "poem.md", content }]),
+  };
+
+  return {
+    id: "collapsed-activity-live-file-story",
+    turnId: "turn_tool_story",
+    createdAt: 1,
+    updatedAt: 2,
+    searchableText: "Creating poem.md",
+    type: "collapsedToolActivity",
+    summary: "Creating 1 file",
+    summaryParts: ["Creating 1 file"],
+    status: "inProgress",
+    summaryStats: {
+      createdFileCount: 0,
+      runningCreatedFileCount: 1,
+      stoppedCreatedFileCount: 0,
+      editedFileCount: 0,
+      runningEditedFileCount: 0,
+      deletedFileCount: 0,
+      runningDeletedFileCount: 0,
+      exploredFileCount: 0,
+      runningExploredFileCount: 0,
+      searchCount: 0,
+      runningSearchCount: 0,
+      listCount: 0,
+      runningListCount: 0,
+      approvedRequestCount: 0,
+      deniedRequestCount: 0,
+      hookCount: 0,
+      runningHookCount: 0,
+      commandCount: 0,
+      runningCommandCount: 0,
+      mcpToolCallCount: 0,
+      mcpToolCallSources: [],
+      webSearchCount: 0,
+      runningWebSearchCount: 0,
+    },
+    entries: [{
+      id: fileChangeItem.entryId ?? fileChangeItem.itemId,
+      turnId: fileChangeItem.turnId,
+      createdAt: fileChangeItem.createdAt,
+      updatedAt: fileChangeItem.updatedAt,
+      searchableText: "Creating poem.md",
+      type: "fileChange",
+      entry: fileChangeItem,
+      status: fileChangeItem.status,
+    }],
+  };
+}
+
+function buildLivePatchUpdateStoryItem(lineCount: number): CodexTranscriptEntry {
+  const content = Array.from({ length: lineCount }, (_, index) => `Generated line ${index + 1}`).join("\n");
+  const changes: CodexFileChange[] = [{ type: "add", path: "poem.md", content }];
+
+  return {
+    ...THREAD_TOOL_CALL_STORY_ITEMS.fileChange,
+    itemId: "tool-call-file-change-live-patch",
+    entryId: "tool-call-file-change-live-patch",
+    status: "inProgress",
+    fileChange: buildStoryFileChangePayload(changes),
+    toolCall: buildStoryFileChangeToolCall(changes),
+  };
+}
+
+function FileChangeLivePatchUpdateStory() {
+  const counts = [0, 1, 9, 10, 35, 85];
+  const [countIndex, setCountIndex] = useState(0);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setCountIndex((current) => (current + 1) % counts.length);
+    }, 900);
+    return () => window.clearInterval(interval);
+  }, [counts.length]);
+
+  return (
+    <StorySurface
+      title="File Change Live Patch Update"
+      description="Live draft file edits appear as a single collapsed activity group immediately, then the header digit stack grows from +0 through +85."
+    >
+      <ConversationStorySurface>
+        <ThreadCollapsedToolActivityBlock
+          block={buildLiveFileChangeCollapsedActivityStoryBlock(
+            counts[countIndex] ?? 85,
+            buildLivePatchUpdateStoryItem(counts[countIndex] ?? 85).itemId,
+          )}
+          isLatestTurn={true}
+          isStreamingTurn={true}
+          projectWorkspacePath="/workspace/nodex"
+          threadCwd="/workspace/nodex"
+        />
+      </ConversationStorySurface>
+    </StorySurface>
+  );
+}
+
 function AutoOpenMcpToolCall({
   item,
   rawDialogOpen = false,
@@ -605,19 +710,7 @@ export const FileChange: Story = {
 };
 
 export const FileChangeLivePatchUpdate: Story = {
-  render: () => (
-    <ToolCallStory
-      item={{
-        ...THREAD_TOOL_CALL_STORY_ITEMS.fileChange,
-        itemId: "tool-call-file-change-live-patch",
-        entryId: "tool-call-file-change-live-patch",
-        status: "inProgress",
-      }}
-      title="File Change Live Patch Update"
-      description="Live patchUpdated state uses the animated CSS digit wheel for the changing +/- counters."
-      autoOpen
-    />
-  ),
+  render: () => <FileChangeLivePatchUpdateStory />,
 };
 
 export const FileChangeMultiFile: Story = {
@@ -1008,6 +1101,25 @@ export const CollapsedActivityGroupExpanded: Story = {
     >
       <ConversationStorySurface>
         <AutoOpenCollapsedActivity block={buildMixedCollapsedActivityStoryBlock()} />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const CollapsedActivityGroupLiveFileChange: Story = {
+  render: () => (
+    <StorySurface
+      title="Collapsed Activity Group Live File Change"
+      description="Matches Codex Electron's live patchUpdated fixture: a single in-progress file edit owns the collapsed activity header and animated +85/-0 digit stack."
+    >
+      <ConversationStorySurface>
+        <ThreadCollapsedToolActivityBlock
+          block={buildLiveFileChangeCollapsedActivityStoryBlock()}
+          isLatestTurn={true}
+          isStreamingTurn={true}
+          projectWorkspacePath="/workspace/nodex"
+          threadCwd="/workspace/nodex"
+        />
       </ConversationStorySurface>
     </StorySurface>
   ),

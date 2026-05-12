@@ -37,6 +37,7 @@ interface ThreadBlockRendererProps {
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  allowInProgressTurnDiff?: boolean;
 }
 
 export function ThreadBlockRenderer({
@@ -50,6 +51,7 @@ export function ThreadBlockRenderer({
   onEditLastUserTurn,
   onForkFromTurn,
   onOpenTurnDiffReview,
+  allowInProgressTurnDiff = false,
 }: ThreadBlockRendererProps) {
   if (block.type === "explorationGroup") {
     return (
@@ -131,6 +133,7 @@ export function ThreadBlockRenderer({
         projectWorkspacePath={projectWorkspacePath}
         threadCwd={threadCwd}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
+        allowInProgressTurnDiff={allowInProgressTurnDiff}
       />
     );
   }

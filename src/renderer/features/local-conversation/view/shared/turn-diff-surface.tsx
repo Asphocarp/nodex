@@ -237,6 +237,24 @@ function TurnDiffActionButton({
   );
 }
 
+function TurnDiffLiveReviewButton({
+  onClick,
+}: {
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="group text-size-chat flex shrink-0 cursor-interaction items-center gap-1 text-token-input-foreground focus-visible:outline-none"
+      onClick={onClick}
+      aria-label="Review changes"
+    >
+      <span className="hidden @[320px]:inline">Review changes</span>
+      <span className="@[320px]:hidden">Review</span>
+    </button>
+  );
+}
+
 function TurnDiffBanner({
   summary,
   onReview,
@@ -245,11 +263,14 @@ function TurnDiffBanner({
   onReview: (() => void) | null;
 }) {
   return (
-    <div className="bg-token-input-background/70 text-token-foreground border-token-border/80 relative overflow-clip border-x border-t backdrop-blur-sm transition-colors first:rounded-t-2xl">
+    <div
+      className="bg-token-input-background/70 text-token-foreground border-token-border/80 relative overflow-clip border-x border-t backdrop-blur-sm transition-colors first:rounded-t-2xl"
+      {...{ "codex.turn_diff.state": "in_progress" }}
+    >
       <div className="flex flex-col">
         <div className="flex w-full items-center justify-between gap-1.5 py-1.5 pr-2 pl-3 text-sm font-normal">
-          <div className="text-size-chat flex w-full items-center justify-between">
-            <div className="flex min-w-0 items-center gap-1">
+          <div className="text-size-chat @container flex w-full min-w-0 items-center justify-between gap-2">
+            <div className="flex min-w-0 flex-1 items-center gap-1">
               <span className="block min-w-0 truncate text-token-input-placeholder-foreground">
                 {summary.fileCount <= 0
                   ? "Files changed"
@@ -258,7 +279,9 @@ function TurnDiffBanner({
               <AnimatedDiffStats additions={summary.additions} deletions={summary.deletions} />
             </div>
             {onReview ? (
-              <TurnDiffActionButton label="Review changes" onClick={onReview} />
+              <div className="flex min-w-fit shrink-0 items-center gap-1.5 select-none sm:ml-auto">
+                <TurnDiffLiveReviewButton onClick={onReview} />
+              </div>
             ) : null}
           </div>
         </div>

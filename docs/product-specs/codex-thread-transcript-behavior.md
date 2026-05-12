@@ -159,19 +159,23 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
   - agent-body collapse is a separate presence animation contract and does not reuse the measured-height transcript-body model
 - `fileChange` and turn-level unified diff are separate surfaces, matching Codex Electron exactly:
   - raw `fileChange` items always stay visible as `patch` tool rows (`Edited …`)
-  - live `item/fileChange/patchUpdated` notifications own the visible in-progress patch state; `item/fileChange/outputDelta` burst bytes are not projected into the display transcript
-  - turn-level aggregated `turn.diff` renders as a separate `turn-diff` surface
+  - Nodex starts and resumes Codex app-server threads with `features.apply_patch_streaming_events=true`; without that server-side feature, app-server withholds the drafting-time `item/fileChange/patchUpdated` notifications and only the final completed file-change row can render
+  - live `item/fileChange/patchUpdated` notifications own the canonical in-progress patch state; they create or update the in-progress `fileChange` row, may rebind the latest active turn to the notification `turnId`, and can render as a single-entry collapsed activity group while the model is drafting the edit
+  - Codex Electron's live file-edit process row is therefore source-backed as `response.custom_tool_call_input.delta` -> app-server patch parser -> `item/fileChange/patchUpdated`, not as a renderer-only animation layered over the completed row
+  - `item/fileChange/outputDelta` burst bytes are deprecated diagnostic output for this surface and do not create or update visible transcript state
+  - live `turn/diff/updated` notifications update `turn.diff` for turn-level diff surfaces only; they do not fabricate `fileChange` rows
+  - completed turn-level aggregated `turn.diff` renders as a separate `turn-diff` surface
   - completed patch/file-change items synthesize the separate `turn-diff` payload from patch batches before falling back to a turn-level `diff`
-  - active in-progress turn diffs surface as a compact above-composer `files changed` banner instead of a generic inline diff viewer
-  - the above-composer diff banner is caller-owned `in progress` UI, not an item-status heuristic: it renders as the summary-only `Review changes` banner with no embedded per-file rows
+  - active in-progress turn diffs may surface through the Codex-compatible static above-composer portal (`data-above-composer-portal`) as a compact `files changed` banner only when no live file-change row already represents that draft edit
+  - the above-composer diff banner is active-turn-owned `in progress` fixed content, not an item-status heuristic: it renders as the summary-only `Review changes` banner with no embedded per-file rows
   - completed turn diffs render as a dedicated files-changed card with per-file collapsed embedded diff rows
   - the unified diff card is never allowed to replace or swallow the underlying `Edited file` tool row
   - patch rows expand inline to reveal their own unified diff frame instead of delegating expansion to the separate turn-level diff card
-  - live patch labels and in-progress turn-diff banners animate `+N` / `-N` through Codex's CSS digit-wheel contract, while accordion body expansion still uses Motion measured-height transitions
+  - live patch labels, live collapsed activity patch headers, and in-progress turn-diff banners animate `+N` / `-N` through Codex's CSS digit-wheel contract, while accordion body expansion still uses Motion measured-height transitions
   - inline diff previews render the real `@pierre/diffs` `diffs-container` host directly, not a nested wrapper, and rely on the diff library's native line highlighting/indicators instead of adding a second left-side gutter overlay
   - patch headers split the status label and filename into separate elements; the filename is clickable and opens the local file target without toggling the row
   - embedded per-file patch previews suppress the diff library's built-in file header because the surrounding thread row already owns the filename and line-count summary
-- Contiguous activity units can coalesce into a `collapsedToolActivity` group after bucketization only when a source-backed Codex-style summary can be synthesized. That group owns only its header/body toggle and mounts the original tool/activity units inside the animated body instead of flattening them into summary text.
+- Contiguous activity units can coalesce into a `collapsedToolActivity` group after bucketization only when a source-backed Codex-style summary can be synthesized. A single in-progress file-change item may also become a collapsed activity group so the live `Creating/Editing/Deleting path +N -N` patch header matches Codex Electron while the row body remains subtype-owned.
 - Expanded collapsed-activity bodies are flat: exploration groups render direct text-only `Read`, `Searched`, and `Listed files` rows through their body-only path, web-search rows render direct detail rows with a favicon only when one was resolved, file-change rows render `Edited`/`Created`/`Deleted` with filename/stats/chevron but no pencil glyph, and nested command rows render muted without the leading command icon. They do not mount nested `Explored...` or `Searched web...` subgroup headers.
 - Tool-call expansion is subtype-owned local UI state; the mounted thread persists collapsed turns, not collapsed tool rows.
 - Tool-call header labels use a scan-friendly two-tone hierarchy where the leading action phrase is visually emphasized over trailing detail text.

@@ -118,6 +118,7 @@ function mergeActivityStatus(entries: ThreadCollapsedToolActivityEntryModel[]): 
     .map((entry) => entry.status)
     .filter((status): status is NonNullable<CodexConversationItem["status"]> => status !== undefined);
   if (statuses.length === 0) return undefined;
+  if (statuses.includes("inProgress")) return "inProgress";
   if (statuses.includes("failed")) return "failed";
   if (statuses.includes("interrupted")) return "interrupted";
   if (statuses.includes("declined")) return "declined";
@@ -439,6 +440,10 @@ function buildCollapsedActivityGroup(
   };
 }
 
+function shouldCollapseSingleActivityEntry(entry: ThreadCollapsedToolActivityEntryModel): boolean {
+  return entry.type === "fileChange" && entry.status === "inProgress";
+}
+
 export function groupAgentEntries(agentBlocks: ThreadTranscriptBlockModel[]): ThreadAgentEntryModel[] {
   if (agentBlocks.length === 0) return agentBlocks;
 
@@ -506,7 +511,7 @@ export function groupAgentEntries(agentBlocks: ThreadTranscriptBlockModel[]): Th
       cursor += 1;
     }
 
-    if (entries.length === 1) {
+    if (entries.length === 1 && !shouldCollapseSingleActivityEntry(current)) {
       collapsed.push(current);
     } else {
       const collapsedGroup = buildCollapsedActivityGroup(entries, current);

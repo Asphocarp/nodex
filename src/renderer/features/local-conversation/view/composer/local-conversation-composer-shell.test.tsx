@@ -87,14 +87,32 @@ function installComposerShellWindowApi(): void {
 }
 
 describe("LocalConversationComposerShell", () => {
+  test("renders Codex-compatible above-composer portal targets", () => {
+    const { container } = render(
+      <div>
+        <LocalConversationAboveComposerPortalHost conversationId="thread-portal" />
+        <LocalConversationAboveComposerQueuePortalHost conversationId="thread-portal" />
+      </div>,
+    );
+
+    const primary = container.querySelector<HTMLElement>("[data-above-composer-portal]");
+    const queue = container.querySelector<HTMLElement>("[data-above-composer-queue-portal]");
+
+    expect(primary?.id ?? "").toBe("above-composer-portal");
+    expect(primary?.getAttribute("data-above-composer-conversation-id") ?? "").toBe("thread-portal");
+    expect(Boolean(primary?.className.includes("relative px-5 empty:hidden"))).toBeTrue();
+    expect(queue?.id ?? "").toBe("above-composer-queue-portal");
+    expect(queue?.getAttribute("data-above-composer-conversation-id") ?? "").toBe("thread-portal");
+  });
+
   test("renders queue rows, background terminals, and request cards in one shell", async () => {
     installComposerShellWindowApi();
     const model = buildComposerShellModel();
     const view = render(
       <TooltipProvider>
         <div className="px-panel z-10 mx-auto flex w-full max-w-[var(--thread-composer-max-width)] flex-col pb-2">
-          <LocalConversationAboveComposerPortalHost />
-          <LocalConversationAboveComposerQueuePortalHost />
+          <LocalConversationAboveComposerPortalHost conversationId={model.threadId} />
+          <LocalConversationAboveComposerQueuePortalHost conversationId={model.threadId} />
           <LocalConversationComposerShell
             model={model}
             actions={buildActions()}

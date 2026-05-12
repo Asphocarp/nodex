@@ -12,7 +12,6 @@ import type {
   ThreadItem as CodexAppServerThreadItem,
   UserInput as CodexAppServerUserInput,
 } from "@nodex/codex-app-server-protocol/v2";
-import type { ServiceTier as CodexAppServerServiceTier } from "@nodex/codex-app-server-protocol";
 
 export type Priority = "p0-critical" | "p1-high" | "p2-medium" | "p3-low" | "p4-later";
 
@@ -596,7 +595,7 @@ export interface CodexConversationSource {
 
 export type CodexReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
 export type CodexThreadDetailLevel = "STEPS_PROSE" | "STEPS_COMMANDS" | "STEPS_EXECUTION";
-export type CodexServiceTier = Extract<CodexAppServerServiceTier, "fast"> | null;
+export type CodexServiceTier = "fast" | null;
 export type CodexApprovalPolicy = CodexAppServerAskForApproval;
 export type CodexApprovalsReviewer = CodexAppServerApprovalsReviewer;
 export type CodexSandboxMode = CodexAppServerSandboxMode;

@@ -1189,6 +1189,56 @@ describe("codex-service session-backed transcript recovery", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("resume sends apply-patch streaming feature override", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method !== "thread/resume") throw new Error(`Unexpected method: ${method}`);
+        return {
+          thread: {
+            id: "thr_resume_patch_streaming",
+            preview: "",
+            ephemeral: false,
+            modelProvider: "openai",
+            createdAt: 1711278000,
+            updatedAt: 1711278000,
+            status: { type: "idle" },
+            path: "/tmp/resume-patch-streaming/rollout.jsonl",
+            cwd: "/tmp/resume-patch-streaming",
+            cliVersion: "0.0.0-test",
+            source: "app_server",
+            agentNickname: null,
+            agentRole: null,
+            gitInfo: null,
+            name: "Resume patch streaming",
+            turns: [],
+          },
+        };
+      };
+
+      try {
+        const detail = await service.resumeThread("thr_resume_patch_streaming");
+        expect(detail?.threadId ?? "").toBe("thr_resume_patch_streaming");
+        expect(requests.length).toBe(1);
+        expect(requests[0]?.method).toBe("thread/resume");
+        const resumeConfig = (requests[0]?.params as { config?: Record<string, unknown> })?.config ?? {};
+        expect(resumeConfig["features.apply_patch_streaming_events"]).toBe(true);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("serializes child-thread memberships from main-owned conversation state", async () => {
     const ran = await withTempDatabase(async () => {
       const parentCard = await createCard("codex", "in_progress", { title: "Parent conversation" });
@@ -2524,6 +2574,8 @@ describe("codex-service startTurn", () => {
       expect(startedTurn?.turnId).toBe("turn_retry");
       expect(requests.map((request) => request.method).join(",")).toBe("turn/start,thread/resume,turn/start");
       expect(((requests[1]?.params as { threadId?: string }).threadId)).toBe("thr_start");
+      const resumeConfig = (requests[1]?.params as { config?: Record<string, unknown> })?.config ?? {};
+      expect(resumeConfig["features.apply_patch_streaming_events"]).toBe(true);
     } finally {
       await service.shutdown();
     }
@@ -3093,7 +3145,6 @@ describe("codex-service startTurn", () => {
         sandboxPolicy?: {
           type?: string;
           writableRoots?: string[];
-          readOnlyAccess?: { type?: string; includePlatformDefaults?: boolean; readableRoots?: string[] };
           networkAccess?: boolean;
           excludeTmpdirEnvVar?: boolean;
           excludeSlashTmp?: boolean;
@@ -3101,9 +3152,6 @@ describe("codex-service startTurn", () => {
       })?.sandboxPolicy)).toBe(JSON.stringify({
         type: "workspaceWrite",
         writableRoots: ["/tmp/codex"],
-        readOnlyAccess: {
-          type: "fullAccess",
-        },
         networkAccess: false,
         excludeTmpdirEnvVar: false,
         excludeSlashTmp: false,
@@ -4270,6 +4318,8 @@ describe("codex-service startThreadForCard", () => {
         expect(requests.length).toBe(2);
         expect(requests[0]?.method).toBe("thread/start");
         expect((requests[0]?.params as { model?: string })?.model).toBe("gpt-5.3-codex");
+        const threadStartConfig = (requests[0]?.params as { config?: Record<string, unknown> })?.config ?? {};
+        expect(threadStartConfig["features.apply_patch_streaming_events"]).toBe(true);
         expect(requests[1]?.method).toBe("turn/start");
         expect((requests[1]?.params as { model?: string })?.model).toBe("gpt-5.3-codex");
         expect((requests[1]?.params as { effort?: string })?.effort).toBe("high");
@@ -7690,7 +7740,7 @@ describe("codex-service terminal turn reconciliation", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
-  test("keeps file-edit patch rows while turn diff updates stream as a separate item", async () => {
+  test("keeps file-edit patch rows while turn diff updates stream on the turn", async () => {
     const ran = await withTempDatabase(async () => {
       const card = await createCard("codex", "in_progress", { title: "Streaming turn diff split" });
       upsertCodexCardThreadLink({
@@ -7754,12 +7804,114 @@ describe("codex-service terminal turn reconciliation", () => {
 
         const latest = projectConversationFromHostMessages(hostMessages);
         expect(latest).not.toBeNull();
-        expect(latest?.turns[0]?.items.length).toBe(2);
+        expect(String(latest?.turns[0]?.diff ?? "").includes("+new")).toBeTrue();
+        expect(latest?.turns[0]?.items.length).toBe(1);
         expect(`${latest?.turns[0]?.items[0]?.kind}:${latest?.turns[0]?.items[0]?.semanticKind}`).toBe("fileChange:patch");
-        expect(`${latest?.turns[0]?.items[1]?.kind}:${latest?.turns[0]?.items[1]?.semanticKind}`).toBe("systemEvent:diff");
-        const turnDiffRawItem = latest?.turns[0]?.items[1]?.rawItem as { cwd?: unknown } | undefined;
-        expect(typeof turnDiffRawItem?.cwd).toBe("string");
-        expect(turnDiffRawItem?.cwd).toBe("/tmp");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("turn diff updates replace turn.diff without creating a transcript item", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Pre tool-call turn diff" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_pre_tool_turn_diff",
+        threadName: "Pre tool turn diff",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") hostMessages.push(message);
+      });
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_pre_tool_turn_diff"),
+        turns: [{
+          threadId: "thr_pre_tool_turn_diff",
+          turnId: "turn_pre_tool_turn_diff",
+          status: "inProgress",
+          itemIds: [],
+        }],
+        transcript: [],
+      });
+
+      try {
+        await serviceInternals.handleNotification("turn/diff/updated", {
+          threadId: "thr_pre_tool_turn_diff",
+          turnId: "turn_pre_tool_turn_diff",
+          diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new\n",
+        });
+        await serviceInternals.handleNotification("turn/diff/updated", {
+          threadId: "thr_pre_tool_turn_diff",
+          turnId: "turn_pre_tool_turn_diff",
+          diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1,2 +1,3 @@\n-old\n+new\n+next\n",
+        });
+
+        const latest = projectConversationFromHostMessages(hostMessages);
+        const items = latest?.turns[0]?.items ?? [];
+        expect(items.length).toBe(0);
+        expect(String(latest?.turns[0]?.diff ?? "").includes("+next")).toBeTrue();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("fileChange outputDelta does not create visible transcript state", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "File output delta ignored" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_file_output_delta_ignored",
+        threadName: "File output delta ignored",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") hostMessages.push(message);
+      });
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_file_output_delta_ignored"),
+        turns: [{
+          threadId: "thr_file_output_delta_ignored",
+          turnId: "turn_file_output_delta_ignored",
+          status: "inProgress",
+          itemIds: [],
+        }],
+        transcript: [],
+      });
+
+      try {
+        await serviceInternals.handleNotification("item/fileChange/outputDelta", {
+          threadId: "thr_file_output_delta_ignored",
+          turnId: "turn_file_output_delta_ignored",
+          itemId: "patch_drafting",
+          delta: "diff --git a/poem.md b/poem.md\nnew file mode 100644\n--- /dev/null\n+++ b/poem.md\n@@ -0,0 +1 @@\n+line\n",
+        });
+
+        expect(hostMessages.length).toBe(0);
       } finally {
         await service.shutdown();
       }
@@ -7818,6 +7970,65 @@ describe("codex-service terminal turn reconciliation", () => {
         expect(item?.status ?? "").toBe("inProgress");
         expect(`${item?.kind}:${item?.semanticKind}`).toBe("fileChange:patch");
         expect(item?.fileChange?.changes[0]?.type ?? "").toBe("update");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("patchUpdated with an empty add diff still creates a visible live fileChange row", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Patch updated empty add diff" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_patch_updated_empty_add",
+        threadName: "Patch updated empty add",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") hostMessages.push(message);
+      });
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_patch_updated_empty_add"),
+        turns: [{
+          threadId: "thr_patch_updated_empty_add",
+          turnId: "turn_patch_updated_empty_add",
+          status: "inProgress",
+          itemIds: [],
+        }],
+        transcript: [],
+      });
+
+      try {
+        await serviceInternals.handleNotification("item/fileChange/patchUpdated", {
+          threadId: "thr_patch_updated_empty_add",
+          turnId: "turn_patch_updated_empty_add",
+          itemId: "patch_live",
+          changes: [{
+            path: "poem.md",
+            kind: { type: "add" },
+            diff: "",
+          }],
+        });
+
+        const latest = projectConversationFromHostMessages(hostMessages);
+        const item = latest?.turns[0]?.items[0] ?? null;
+        expect(item?.itemId ?? "").toBe("patch_live");
+        expect(item?.status ?? "").toBe("inProgress");
+        expect(`${item?.kind}:${item?.semanticKind}`).toBe("fileChange:patch");
+        expect(item?.fileChange?.paths.join(",") ?? "").toBe("poem.md");
+        expect(item?.fileChange?.changes[0]?.type ?? "").toBe("add");
       } finally {
         await service.shutdown();
       }
@@ -7885,6 +8096,79 @@ describe("codex-service terminal turn reconciliation", () => {
         expect(items.length).toBe(1);
         expect(items[0]?.fileChange?.paths.join(",") ?? "").toBe("src/new.ts");
         expect((items[0]?.fileChange?.diffs[0] ?? "").includes("after")).toBeTrue();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("patchUpdated rebinds the latest in-progress turn before adding the live fileChange", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Patch updated rebinds turn" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_patch_updated_rebind",
+        threadName: "Patch updated rebind",
+      });
+
+      const service = createService();
+      const serviceInternals = service as unknown as {
+        setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+      const hostMessages: CodexHostMessage[] = [];
+
+      service.on("hostMessage", (message) => {
+        if (message.type === "threadStreamStateChanged") hostMessages.push(message);
+      });
+
+      const now = Date.now();
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_patch_updated_rebind"),
+        turns: [{
+          threadId: "thr_patch_updated_rebind",
+          turnId: "turn_placeholder",
+          status: "inProgress",
+          itemIds: ["assistant_draft"],
+        }],
+        transcript: [{
+          threadId: "thr_patch_updated_rebind",
+          turnId: "turn_placeholder",
+          itemId: "assistant_draft",
+          type: "agent_message",
+          kind: "assistantMessage",
+          semanticKind: "assistantMessage",
+          role: "assistant",
+          status: "inProgress",
+          markdownText: "Drafting the edit",
+          createdAt: now,
+          updatedAt: now,
+        }],
+      });
+
+      try {
+        await serviceInternals.handleNotification("item/fileChange/patchUpdated", {
+          threadId: "thr_patch_updated_rebind",
+          turnId: "turn_real",
+          itemId: "patch_live",
+          changes: [{
+            path: "poem.md",
+            kind: { type: "add" },
+            content: "line\n",
+          }],
+        });
+
+        const latest = projectConversationFromHostMessages(hostMessages);
+        expect(latest?.turns.length ?? 0).toBe(1);
+        expect(latest?.turns[0]?.turnId ?? "").toBe("turn_real");
+        expect(latest?.turns[0]?.items.map((item) => item.itemId).join(",") ?? "").toBe(
+          "assistant_draft,patch_live",
+        );
+        expect(latest?.turns[0]?.items[0]?.turnId ?? "").toBe("turn_real");
+        expect(latest?.turns[0]?.items[1]?.status ?? "").toBe("inProgress");
       } finally {
         await service.shutdown();
       }

@@ -7,20 +7,38 @@ import { usePortalHost } from "./use-portal-host";
 export const LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_PORTAL_ID = "above-composer-portal";
 export const LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ID = "above-composer-queue-portal";
 
-export function LocalConversationAboveComposerPortalHost() {
+export function LocalConversationAboveComposerPortalHost({
+  conversationId,
+}: {
+  conversationId?: string | null;
+}) {
   return (
     <div className="contents" data-thread-find-composer="true">
       <div className="relative h-0" />
       <div>
-        <div id={LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_PORTAL_ID} className="relative px-5 empty:hidden" />
+        <div
+          id={LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_PORTAL_ID}
+          data-above-composer-portal="true"
+          data-above-composer-conversation-id={conversationId ?? undefined}
+          className="relative px-5 empty:hidden"
+        />
       </div>
     </div>
   );
 }
 
-export function LocalConversationAboveComposerQueuePortalHost() {
+export function LocalConversationAboveComposerQueuePortalHost({
+  conversationId,
+}: {
+  conversationId?: string | null;
+}) {
   return (
-    <div id={LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ID} className="relative px-5 empty:hidden" />
+    <div
+      id={LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_QUEUE_PORTAL_ID}
+      data-above-composer-queue-portal="true"
+      data-above-composer-conversation-id={conversationId ?? undefined}
+      className="relative px-5 empty:hidden"
+    />
   );
 }
 
@@ -56,6 +74,7 @@ export function LocalConversationAboveComposerPortal({
           projectWorkspacePath={projectWorkspacePath}
           threadCwd={threadCwd}
           onOpenTurnDiffReview={onOpenTurnDiffReview}
+          allowInProgressTurnDiff={true}
         />
       ))}
     </div>,

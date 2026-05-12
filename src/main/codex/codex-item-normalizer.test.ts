@@ -137,6 +137,33 @@ describe("codex-item-normalizer", () => {
     expect(diffs[1]?.includes("-export const removed = true;") ?? false).toBeTrue();
   });
 
+  test("normalizes empty fileChange add diffs so live patch rows can appear before lines stream", () => {
+    const item = normalizeThreadItem(
+      {
+        id: "item-empty-file-create",
+        type: "fileChange",
+        status: "inProgress",
+        changes: [
+          {
+            path: "poem.md",
+            kind: {
+              type: "add",
+            },
+            diff: "",
+          },
+        ],
+      },
+      "thread-1",
+      "turn-1",
+    );
+
+    expect(item).not.toBeNull();
+    expect(item?.normalizedKind).toBe("fileChange");
+    expect(item?.status).toBe("inProgress");
+    expect(item?.fileChange?.paths.join(",") ?? "").toBe("poem.md");
+    expect(item?.fileChange?.changes[0]?.type ?? null).toBe("add");
+  });
+
   test("normalizes mcpToolCall items into canonical tool payloads and derived MCP renderer state", () => {
     const item = normalizeMcpItem({
       status: "in_progress",

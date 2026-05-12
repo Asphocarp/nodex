@@ -505,7 +505,7 @@ function extractFileChanges(candidate: Record<string, unknown>): {
     const movePath = kind === "update"
       ? getString(asRecord(parsed.kind) ?? {}, ["move_path", "movePath"]) ?? null
       : undefined;
-    if (!path || !diff || !kind) continue;
+    if (!path || typeof diff !== "string" || !kind) continue;
 
     const materializedChange = buildCodexFileChangeFromProtocol({
       path,

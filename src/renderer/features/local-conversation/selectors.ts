@@ -51,7 +51,7 @@ function isRenderableConversationTurn(
   turn: CodexConversationTurn,
   requests: readonly CodexTurnScopedConversationRequest[],
 ): boolean {
-  return turn.items.length > 0 || requests.length > 0;
+  return turn.items.length > 0 || requests.length > 0 || (turn.diff?.trim().length ?? 0) > 0;
 }
 
 function createVisibleConversationTurnEntry(input: {
