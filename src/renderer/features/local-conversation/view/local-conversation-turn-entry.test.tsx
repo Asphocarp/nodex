@@ -627,4 +627,77 @@ describe("LocalConversationTurnEntry", () => {
     expect(Boolean(view.container.textContent?.includes("Done"))).toBeTrue();
     expect(Boolean(view.container.textContent?.includes("Final message"))).toBeFalse();
   });
+
+  test("renders stopped-turn tool groups before deferred assistant actions", async () => {
+    const stableRequests: [] = [];
+    const { LocalConversationTurnEntry } = await import("./local-conversation-turn-entry");
+    const turn: CodexConversationTurn = {
+      threadId: "thread_1",
+      turnId: "turn_stopped_order",
+      status: "completed",
+      itemIds: ["assistant_1", "exec_1"],
+      finalAssistantStartedAtMs: 180_000,
+      items: [
+        buildAssistantEntry("turn_stopped_order", "assistant_1", "Done", {
+          assistantPhase: "final_answer",
+          status: "completed",
+          createdAt: 1,
+          updatedAt: 1,
+        }),
+        {
+          threadId: "thread_1",
+          turnId: "turn_stopped_order",
+          itemId: "exec_1",
+          type: "command_execution",
+          kind: "commandExecution",
+          semanticKind: "exec",
+          createdAt: 2,
+          updatedAt: 2,
+          status: "completed",
+          commandActions: [{ type: "read", command: "", name: "read", path: "src/app.ts" }],
+          toolCall: {
+            subtype: "command",
+            toolName: "exec_command",
+            args: {},
+          },
+        },
+      ],
+    };
+
+    const view = render(
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(LocalConversationTurnEntry, {
+          conversationId: "thread_1",
+          turnSearchKey: turn.turnId,
+          turn,
+          requests: stableRequests,
+          cwd: "/tmp/project",
+          isMostRecentTurn: true,
+          canEditTurnUserPrefix: false,
+          canForkTurn: true,
+        }),
+      ),
+    );
+
+    const assistantBlock = view.container.querySelector('[data-content-search-unit-key="turn_stopped_order:assistant"]');
+    const explorationButton = view.getByRole("button", { name: /Explored 1 file/i });
+    const copyButton = view.getByLabelText("Copy message");
+    const actionAnchor = view.container.querySelector('[data-assistant-actions-anchor="assistant_1"]');
+    if (
+      !(assistantBlock instanceof HTMLElement)
+      || !(explorationButton instanceof HTMLElement)
+      || !(copyButton instanceof HTMLElement)
+      || !(actionAnchor instanceof HTMLElement)
+    ) {
+      throw new Error("expected stopped assistant, exploration group, and deferred action anchor");
+    }
+
+    expect(assistantBlock.querySelector('[aria-label="Copy message"]') === null).toBeTrue();
+    expect(Boolean(assistantBlock.compareDocumentPosition(explorationButton) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
+    expect(Boolean(explorationButton.compareDocumentPosition(actionAnchor) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
+    expect(Boolean(explorationButton.compareDocumentPosition(copyButton) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
+    expect(Boolean(view.getByLabelText("Fork from this point"))).toBeTrue();
+  });
 });

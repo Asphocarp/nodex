@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 - Thread tool-call shimmer now follows Codex Electron's generic active-label shimmer placement: completed rows stay static, command/web/MCP labels shimmer only where Codex does, and live file edits keep the digit-wheel stats motion instead of text shimmer.
 
 ### Fixed
+- Fixed stopped Thread turn ordering so a final collapsed tool/activity group renders above the assistant action toolbar, matching Codex Electron.
 - Fixed Thread web-search favicon parity so expanded detail rows no longer show a generic globe when Codex Electron would render no favicon, and favicon images now use the same decorative async/no-referrer loading contract.
 - Fixed completed Thread file-edit rows so expanding a file shows the rendered inline diff body again instead of only the patch-frame header.
 - Removed the redundant extra colored gutter line from inline Thread diffs so the diff body relies on the native add/delete indicators.

@@ -122,6 +122,17 @@ export interface ThreadAssistantMessageActionsModel {
   canFork: boolean;
 }
 
+export interface ThreadAssistantActionsBlockModel {
+  id: string;
+  turnId: string;
+  createdAt: number;
+  updatedAt: number;
+  searchableText: string;
+  type: "assistantActions";
+  entry: CodexConversationItem;
+  actions: ThreadAssistantMessageActionsModel;
+}
+
 export interface ThreadOpenCardTarget {
   cardId: string;
   title: string;
@@ -287,6 +298,7 @@ export type ThreadAgentEntryModel =
 
 export type ThreadBlockModel =
   | ThreadTranscriptBlockModel
+  | ThreadAssistantActionsBlockModel
   | ThreadUserAttachmentStripBlockModel
   | ThreadExplorationGroupBlockModel
   | ThreadMultiAgentGroupBlockModel

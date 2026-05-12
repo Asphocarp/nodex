@@ -1,6 +1,8 @@
 import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
 import { groupAgentEntries } from "./group-exploration-blocks";
 import type {
+  ThreadAssistantActionsBlockModel,
+  ThreadAssistantMessageActionsModel,
   ThreadAgentEntryModel,
   ThreadBlockModel,
   ThreadExplorationGroupBlockModel,
@@ -118,6 +120,7 @@ function withSearchUnitKey<TBlock extends ThreadBlockModel | null>(
     block.type === "explorationGroup"
     || block.type === "multiAgentGroup"
     || block.type === "collapsedToolActivity"
+    || block.type === "assistantActions"
     || block.type === "thinkingPlaceholder"
   ) return block;
   if (block.type !== "userMessage" && block.type !== "assistantMessage") return block;
@@ -186,11 +189,11 @@ function expandUserBlocksWithAttachmentStrips(
   });
 }
 
-function applyAssistantMessageActions(
+function buildAssistantMessageActionsModel(
   assistantItem: ThreadTranscriptBlockModel | null,
   input: Pick<BuildTurnViewModelInput, "canForkTurn" | "isStreamingTurn" | "turn">,
-): ThreadTranscriptBlockModel | null {
-  if (!assistantItem || assistantItem.type !== "assistantMessage") return assistantItem;
+): ThreadAssistantMessageActionsModel | null {
+  if (!assistantItem || assistantItem.type !== "assistantMessage") return null;
 
   const copyText = assistantItem.entry.markdownText?.trim() ?? "";
   const hasCopyableContent = copyText.length > 0;
@@ -198,16 +201,49 @@ function applyAssistantMessageActions(
   const canFork = isCompleted && Boolean(input.canForkTurn);
   const canRate = isCompleted && hasCopyableContent;
 
-  if (!canFork && !(isCompleted && hasCopyableContent)) return assistantItem;
+  if (!canFork && !(isCompleted && hasCopyableContent)) return null;
+
+  return {
+    copyText: hasCopyableContent && isCompleted ? copyText : null,
+    sentAtMs: resolveAssistantMessageSentAt(input.turn),
+    canRate,
+    canFork,
+  };
+}
+
+function applyAssistantMessageActions(
+  assistantItem: ThreadTranscriptBlockModel | null,
+  input: Pick<BuildTurnViewModelInput, "canForkTurn" | "isStreamingTurn" | "turn">,
+): ThreadTranscriptBlockModel | null {
+  if (!assistantItem || assistantItem.type !== "assistantMessage") return assistantItem;
+
+  const assistantMessageActions = buildAssistantMessageActionsModel(assistantItem, input);
+  if (!assistantMessageActions) return assistantItem;
 
   return {
     ...assistantItem,
-    assistantMessageActions: {
-      copyText: hasCopyableContent && isCompleted ? copyText : null,
-      sentAtMs: resolveAssistantMessageSentAt(input.turn),
-      canRate,
-      canFork,
-    },
+    assistantMessageActions,
+  };
+}
+
+function buildDeferredAssistantActionsBlock(
+  assistantItem: ThreadTranscriptBlockModel | null,
+  input: Pick<BuildTurnViewModelInput, "canForkTurn" | "isStreamingTurn" | "turn">,
+): ThreadAssistantActionsBlockModel | null {
+  if (!assistantItem || assistantItem.type !== "assistantMessage") return null;
+
+  const actions = buildAssistantMessageActionsModel(assistantItem, input);
+  if (!actions) return null;
+
+  return {
+    id: `${assistantItem.id}:actions`,
+    turnId: assistantItem.turnId,
+    createdAt: assistantItem.createdAt,
+    updatedAt: assistantItem.updatedAt,
+    searchableText: "",
+    type: "assistantActions",
+    entry: assistantItem.entry,
+    actions,
   };
 }
 
@@ -340,12 +376,17 @@ function decorateAssistantBlock(
   block: ThreadTranscriptBlockModel,
   latestAssistantId: string | null,
   assistantSearchUnitKey: string,
-  input: Pick<BuildTurnViewModelInput, "canForkTurn" | "isStreamingTurn" | "turn">,
+  input: Pick<BuildTurnViewModelInput, "canForkTurn" | "isStreamingTurn" | "turn"> & {
+    includeActions: boolean;
+  },
 ): ThreadTranscriptBlockModel {
   if (block.type !== "assistantMessage") return block;
   if (latestAssistantId === null || block.id !== latestAssistantId) return block;
 
-  return applyAssistantMessageActions(withSearchUnitKey(block, assistantSearchUnitKey), input) ?? block;
+  const blockWithSearchKey = withSearchUnitKey(block, assistantSearchUnitKey);
+  if (!input.includeActions) return blockWithSearchKey;
+
+  return applyAssistantMessageActions(blockWithSearchKey, input) ?? blockWithSearchKey;
 }
 
 export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnModel {
@@ -374,13 +415,23 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
   const nextAssistantItem =
     buckets.assistantItem === null
       ? null
-      : decorateAssistantBlock(buckets.assistantItem, latestAssistantId, assistantSearchUnitKey, input);
+      : decorateAssistantBlock(buckets.assistantItem, latestAssistantId, assistantSearchUnitKey, {
+          ...input,
+          includeActions: true,
+        });
   const nextAgentItems = buckets.agentItems.map((block) =>
-    decorateAssistantBlock(block, latestAssistantId, assistantSearchUnitKey, input));
+    decorateAssistantBlock(block, latestAssistantId, assistantSearchUnitKey, {
+      ...input,
+      includeActions: false,
+    }));
   const nextLatestAssistantMessage =
     nextAssistantItem?.id === latestAssistantId
       ? nextAssistantItem
       : nextAgentItems.find((block) => block.id === latestAssistantId) ?? buckets.latestAssistantMessage;
+  const deferredAssistantActionsBlock =
+    nextAssistantItem === null
+      ? buildDeferredAssistantActionsBlock(nextLatestAssistantMessage, input)
+      : null;
 
   buckets = {
     ...buckets,
@@ -408,6 +459,7 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
   const trailingBlocks: ThreadBlockModel[] = [
     ...(buckets.systemEventItem ? [buckets.systemEventItem] : []),
     ...(buckets.assistantItem ? [buckets.assistantItem] : []),
+    ...(deferredAssistantActionsBlock ? [deferredAssistantActionsBlock] : []),
     ...buckets.postAssistantItems,
     ...buckets.mcpServerElicitationItems,
     ...(buckets.proposedPlanItem ? [buckets.proposedPlanItem] : []),

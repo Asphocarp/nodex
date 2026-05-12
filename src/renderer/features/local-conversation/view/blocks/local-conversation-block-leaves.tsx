@@ -57,6 +57,7 @@ import { resolveCodexThreadDetailLevel } from "../../../../lib/codex-thread-sett
 import { useCodexThreadSettings } from "../../../../lib/use-codex-thread-settings";
 import { cn } from "../../../../lib/utils";
 import type {
+  ThreadAssistantMessageActionsModel,
   ThreadBlockModel,
   ThreadTranscriptBlockModel,
   ThreadWorkedForAdornmentModel,
@@ -1205,6 +1206,69 @@ export function ThreadWorkedForBlock({ adornment }: { adornment: ThreadWorkedFor
   );
 }
 
+function AssistantMessageActionsRow({
+  actions,
+  threadId,
+  turnId,
+  isLatestTurn,
+  onForkFromTurn,
+}: {
+  actions: ThreadAssistantMessageActionsModel;
+  threadId: string;
+  turnId: string;
+  isLatestTurn: boolean;
+  onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
+}) {
+  const [selectedRating, setSelectedRating] = useState<AssistantMessageRating | null>(null);
+  const shouldShowActions = actions.copyText !== null || actions.canFork;
+  if (!shouldShowActions) return null;
+
+  return (
+    <ThreadMessageActionRow align="start">
+      {actions.copyText !== null ? (
+        <>
+          <CopyMessageActionButton
+            text={actions.copyText}
+            stopPropagation
+          />
+          {actions.canRate ? (
+            <>
+              <AssistantRatingButton
+                rating="thumbs_up"
+                selectedRating={selectedRating}
+                onSelect={setSelectedRating}
+              />
+              <AssistantRatingButton
+                rating="thumbs_down"
+                selectedRating={selectedRating}
+                onSelect={setSelectedRating}
+              />
+            </>
+          ) : null}
+        </>
+      ) : null}
+      {actions.canFork ? (
+        <ThreadActionIconButton
+          label="Fork from this point"
+          tooltip="Fork"
+          onClick={(event) => {
+            event.stopPropagation();
+            void onForkFromTurn?.({
+              threadId,
+              turnId,
+              message: "",
+              isLatestTurn,
+            });
+          }}
+        >
+          <ForkMessageIcon />
+        </ThreadActionIconButton>
+      ) : null}
+      <MessageTimestamp sentAtMs={actions.sentAtMs} />
+    </ThreadMessageActionRow>
+  );
+}
+
 export function ThreadAssistantBodyBlock({
   block,
   isLatestTurn,
@@ -1216,10 +1280,6 @@ export function ThreadAssistantBodyBlock({
   const markdownText = block.entry.markdownText ?? "";
   const isStreamingAssistantText = isStreamingTurn && (block.entry.status === "inProgress" || isLatestTurn);
   const assistantActions = block.assistantMessageActions;
-  const [selectedRating, setSelectedRating] = useState<AssistantMessageRating | null>(null);
-  const shouldShowActions =
-    assistantActions !== undefined
-    && (assistantActions.copyText !== null || assistantActions.canFork);
 
   return (
     <div
@@ -1237,51 +1297,38 @@ export function ThreadAssistantBodyBlock({
             animateStreamingText={isStreamingAssistantText}
           />
         </div>
-        {shouldShowActions ? (
-          <ThreadMessageActionRow align="start">
-            {assistantActions.copyText !== null ? (
-              <>
-                <CopyMessageActionButton
-                  text={assistantActions.copyText}
-                  stopPropagation
-                />
-                {assistantActions.canRate ? (
-                  <>
-                    <AssistantRatingButton
-                      rating="thumbs_up"
-                      selectedRating={selectedRating}
-                      onSelect={setSelectedRating}
-                    />
-                    <AssistantRatingButton
-                      rating="thumbs_down"
-                      selectedRating={selectedRating}
-                      onSelect={setSelectedRating}
-                    />
-                  </>
-                ) : null}
-              </>
-            ) : null}
-            {assistantActions.canFork ? (
-              <ThreadActionIconButton
-                label="Fork from this point"
-                tooltip="Fork"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  void onForkFromTurn?.({
-                    threadId: block.entry.threadId,
-                    turnId: block.turnId,
-                    message: "",
-                    isLatestTurn,
-                  });
-                }}
-              >
-                <ForkMessageIcon />
-              </ThreadActionIconButton>
-            ) : null}
-            <MessageTimestamp sentAtMs={assistantActions.sentAtMs} />
-          </ThreadMessageActionRow>
+        {assistantActions ? (
+          <AssistantMessageActionsRow
+            actions={assistantActions}
+            threadId={block.entry.threadId}
+            turnId={block.turnId}
+            isLatestTurn={isLatestTurn}
+            onForkFromTurn={onForkFromTurn}
+          />
         ) : null}
       </div>
+    </div>
+  );
+}
+
+export function ThreadAssistantActionsBlock({
+  block,
+  isLatestTurn,
+  onForkFromTurn,
+}: ThreadSpecialBlockProps & {
+  onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
+}) {
+  if (block.type !== "assistantActions") return null;
+
+  return (
+    <div className="group flex min-w-0 flex-col" data-assistant-actions-anchor={block.entry.itemId}>
+      <AssistantMessageActionsRow
+        actions={block.actions}
+        threadId={block.entry.threadId}
+        turnId={block.turnId}
+        isLatestTurn={isLatestTurn}
+        onForkFromTurn={onForkFromTurn}
+      />
     </div>
   );
 }

@@ -3,6 +3,7 @@ import {
   ThreadCollapsedToolActivityBlock,
   ThreadMultiAgentGroupBlock,
   ThreadMultiAgentActionBlock,
+  ThreadAssistantActionsBlock,
   ThreadAssistantBodyBlock,
   ThreadContextCompactionBlock,
   ThreadExplorationGroupBlock,
@@ -188,6 +189,17 @@ export function ThreadBlockRenderer({
         isStreamingTurn={isStreamingTurn}
         isSearchMatch={isSearchMatch}
         isActiveSearchMatch={isActiveSearchMatch}
+        onForkFromTurn={onForkFromTurn}
+      />
+    );
+  }
+
+  if (block.type === "assistantActions") {
+    return (
+      <ThreadAssistantActionsBlock
+        block={block}
+        isLatestTurn={isLatestTurn}
+        isStreamingTurn={isStreamingTurn}
         onForkFromTurn={onForkFromTurn}
       />
     );

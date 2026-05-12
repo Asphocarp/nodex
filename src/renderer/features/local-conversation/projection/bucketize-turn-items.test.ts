@@ -183,6 +183,45 @@ describe("bucketizeTurnItems", () => {
     expect(buckets.postAssistantItems.length).toBe(0);
   });
 
+  test("keeps actions on the normal trailing assistant without adding an action-only block", () => {
+    const buckets = bucketizeTurnItems({
+      items: [
+        buildItem({ id: "exec", type: "exec" }),
+        buildItem({
+          id: "assistant",
+          type: "assistantMessage",
+          entry: {
+            threadId: "thread_1",
+            turnId: "turn_1",
+            itemId: "assistant",
+            type: "assistant_message",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            assistantPhase: "final_answer",
+            createdAt: 2,
+            updatedAt: 2,
+            markdownText: "Done",
+          },
+        }),
+      ],
+      turnStatus: "completed",
+    });
+
+    const turn = buildTurnViewModel({
+      turnId: "turn_1",
+      turn: null,
+      buckets,
+      isLatestTurn: false,
+      isStreamingTurn: false,
+      isBlocked: false,
+      canForkTurn: true,
+    });
+
+    expect(turn.trailingBlocks.map((block) => block.type).join(",")).toBe("assistantMessage");
+    const assistantBlock = turn.trailingBlocks[0];
+    expect(assistantBlock?.type === "assistantMessage" && assistantBlock.assistantMessageActions?.copyText).toBe("Done");
+  });
+
   test("keeps the final assistant inline in agentItems when exec arrives later in the turn", () => {
     const buckets = bucketizeTurnItems({
       items: [
@@ -212,7 +251,7 @@ describe("bucketizeTurnItems", () => {
     expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("assistant,exec");
   });
 
-  test("keeps the final assistant inline when later exploration rows are grouped", () => {
+  test("defers stopped inline assistant actions after later exploration rows", () => {
     const buckets = bucketizeTurnItems({
       items: [
         buildItem({
@@ -281,7 +320,11 @@ describe("bucketizeTurnItems", () => {
 
     expect(buckets.assistantItem).toBe(null);
     expect(turn.agentBodyEntries.map((entry) => entry.type).join(",")).toBe("assistantMessage,explorationGroup");
-    expect(turn.trailingBlocks.map((block) => block.type).join(",")).toBe("");
+    expect(turn.trailingBlocks.map((block) => block.type).join(",")).toBe("assistantActions");
+    const inlineAssistant = turn.agentBodyEntries[0];
+    expect(inlineAssistant?.type === "assistantMessage" && inlineAssistant.assistantMessageActions === undefined).toBeTrue();
+    const deferredActions = turn.trailingBlocks[0];
+    expect(deferredActions?.type === "assistantActions" && deferredActions.actions.copyText).toBe("Done");
   });
 
   test("keeps later MCP and web search items in agent lanes and leaves the latest assistant inline", () => {
@@ -514,6 +557,8 @@ describe("bucketizeTurnItems", () => {
     );
     expect(turn.agentBodyEntries.map((entry) => entry.type).join(",")).toBe("assistantMessage,exec");
     expect(turn.trailingBlocks.map((block) => block.id).join(",")).toBe("turn_1:thinking");
+    const inlineAssistant = turn.agentBodyEntries[0];
+    expect(inlineAssistant?.type === "assistantMessage" && inlineAssistant.assistantMessageActions === undefined).toBeTrue();
   });
 
   test("only allows default collapse for older completed turns with grouped agent body content", () => {
@@ -920,7 +965,7 @@ describe("bucketizeTurnItems", () => {
     expect(buckets.latestAssistantMessage?.id ?? "").toBe("assistant");
     expect(buckets.agentItems.map((item) => item.id).join(",")).toBe("assistant,compact,exec");
     expect(buckets.postAssistantItems.length).toBe(0);
-    expect(turn.blocks.map((block) => block.type).join(",")).toBe("assistantMessage,contextCompaction,exec");
+    expect(turn.blocks.map((block) => block.type).join(",")).toBe("assistantMessage,contextCompaction,exec,assistantActions");
   });
 
   test("still reserves postAssistant for trailing automatic approval reviews", () => {

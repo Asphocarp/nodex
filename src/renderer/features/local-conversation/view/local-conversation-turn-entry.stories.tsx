@@ -88,6 +88,58 @@ const assistantThenExecTurn = buildStoryConversationTurn({
   ],
 });
 
+const stoppedToolGroupBeforeActionsTurn = buildStoryConversationTurn({
+  turnId: "turn_story_stopped_tool_group_before_actions",
+  status: "completed",
+  items: [
+    buildStoryConversationItem({
+      turnId: "turn_story_stopped_tool_group_before_actions",
+      itemId: "assistant_story_stopped_tool_group_before_actions",
+      type: "assistant_message",
+      kind: "assistantMessage",
+      semanticKind: "assistantMessage",
+      role: "assistant",
+      status: "completed",
+      assistantPhase: "final_answer",
+      markdownText: "I found the relevant rendering path and stopped after checking the final files.",
+      createdAt: 2_000,
+      updatedAt: 2_000,
+    }),
+    buildStoryConversationItem({
+      turnId: "turn_story_stopped_tool_group_before_actions",
+      itemId: "exec_story_stopped_read_1",
+      type: "command_execution",
+      kind: "commandExecution",
+      semanticKind: "exec",
+      status: "completed",
+      createdAt: 3_000,
+      updatedAt: 3_000,
+      commandActions: [{ type: "read", command: "", name: "read", path: "src/renderer/features/local-conversation/projection/build-turn-view-model.ts" }],
+      toolCall: {
+        subtype: "command",
+        toolName: "exec_command",
+        args: {},
+      },
+    }),
+    buildStoryConversationItem({
+      turnId: "turn_story_stopped_tool_group_before_actions",
+      itemId: "exec_story_stopped_read_2",
+      type: "command_execution",
+      kind: "commandExecution",
+      semanticKind: "exec",
+      status: "completed",
+      createdAt: 4_000,
+      updatedAt: 4_000,
+      commandActions: [{ type: "read", command: "", name: "read", path: "src/renderer/features/local-conversation/view/local-conversation-thread-turn.tsx" }],
+      toolCall: {
+        subtype: "command",
+        toolName: "exec_command",
+        args: {},
+      },
+    }),
+  ],
+});
+
 const imageDataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
 const singleLocalImageTurn = buildStoryConversationTurn({
@@ -400,6 +452,26 @@ export const AssistantThenExecInline: Story = {
     turnSearchKey: assistantThenExecTurn.turnId,
     turn: assistantThenExecTurn,
   },
+};
+
+export const StoppedToolGroupBeforeActions: Story = {
+  args: {
+    turnSearchKey: stoppedToolGroupBeforeActionsTurn.turnId,
+    turn: stoppedToolGroupBeforeActionsTurn,
+    isMostRecentTurn: true,
+    canEditTurnUserPrefix: false,
+    canForkTurn: true,
+  },
+  decorators: [
+    (Story) => (
+      <div className="thread-stopped-tool-group-before-actions-story">
+        <style>
+          {".thread-stopped-tool-group-before-actions-story .opacity-0{opacity:1!important}"}
+        </style>
+        <Story />
+      </div>
+    ),
+  ],
 };
 
 export const ActionStripParity: Story = {
