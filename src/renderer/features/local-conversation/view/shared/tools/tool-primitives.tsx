@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { cn } from "../../../../../lib/utils";
+import { CodexShimmerText } from "../codex-shimmer-text";
 
 export type ToolRenderStatus =
   | "inProgress"
@@ -104,7 +105,7 @@ const IN_PROGRESS_LEADING_LABEL_MAP: Record<string, string> = {
   ran: "running",
   "ran command": "running command",
   edited: "editing",
-  "searched web": "searching web",
+  "searched web": "searching the web",
 };
 
 function matchLeadingLabelCase(input: string, replacement: string): string {
@@ -246,14 +247,12 @@ export function InlineToolToggle({
             monoLabel && "font-mono",
           )}
         >
-          <span
-            className={cn(
-              "codex-tool-leading-label text-token-description-foreground/90 transition-colors group-hover:text-token-foreground",
-              shouldShimmerLeadingLabel && "codex-tool-leading-label--in-progress",
-            )}
+          <CodexShimmerText
+            active={shouldShimmerLeadingLabel}
+            className="codex-tool-leading-label text-token-description-foreground/90 transition-colors group-hover:text-token-foreground"
           >
             {renderedLeadingLabel}
-          </span>
+          </CodexShimmerText>
           {hasTrailingLabel && (
             <span className="text-token-foreground/40 transition-colors group-hover:text-token-foreground">
               {" "}

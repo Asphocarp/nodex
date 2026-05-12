@@ -74,6 +74,9 @@ describe("CommandToolCall render state", () => {
 
     expect(Boolean(textContent(container).includes("Running bun test"))).toBeTrue();
     expect(Boolean(container.querySelector("[data-tool-activity-icon='run-command']"))).toBeTrue();
+    const shimmer = container.querySelector<HTMLElement>(".loading-shimmer-pure-text");
+    expect(shimmer?.textContent ?? "").toBe("Running");
+    expect(Boolean(shimmer?.textContent?.includes("bun test"))).toBeFalse();
     const collapsedBody = container.querySelector('[data-thread-find-skip="true"]');
     expect(Boolean(collapsedBody)).toBeTrue();
     expect((collapsedBody as HTMLElement | null)?.style.height === "0px").toBeTrue();
@@ -122,7 +125,7 @@ describe("CommandToolCall render state", () => {
   });
 
   test("lets in-progress commands expand but not collapse back while still running", async () => {
-    const { container, getByText } = render(
+    const { container } = render(
       <TooltipProvider>
         <CodexThreadSettingsProvider>
           <CommandToolCall
@@ -143,14 +146,17 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    fireEvent.click(getByText("Running bun test"));
+    const summaryToggle = container.querySelector<HTMLElement>("[data-command-tool-summary-toggle]");
+    expect(Boolean(summaryToggle)).toBeTrue();
+
+    fireEvent.click(summaryToggle as HTMLElement);
     await settleAsyncRender();
 
     const expandedBody = container.querySelector('[data-thread-find-skip]');
     expect(Boolean(expandedBody)).toBeFalse();
     expect(Boolean(textContent(container).includes("Shell"))).toBeTrue();
 
-    fireEvent.click(getByText("Running bun test"));
+    fireEvent.click(summaryToggle as HTMLElement);
     await settleAsyncRender();
 
     expect(Boolean(textContent(container).includes("Shell"))).toBeTrue();
@@ -173,7 +179,7 @@ describe("CommandToolCall render state", () => {
     });
     const completedEntry = buildCommandEntry();
 
-    const { container, getByText, rerender } = render(
+    const { container, rerender } = render(
       <TooltipProvider>
         <CodexThreadSettingsProvider>
           <CommandToolCall item={inProgressEntry} />
@@ -181,7 +187,10 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    fireEvent.click(getByText("Running bun test"));
+    const summaryToggle = container.querySelector<HTMLElement>("[data-command-tool-summary-toggle]");
+    expect(Boolean(summaryToggle)).toBeTrue();
+
+    fireEvent.click(summaryToggle as HTMLElement);
     await settleAsyncRender();
 
     rerender(

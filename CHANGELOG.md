@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - Thread collapsed tool activity groups now match Codex Electron's synthesized summaries and flat expanded row hierarchy instead of showing generic completed-action labels or nested exploration subgroups.
 - Thread tool-call icons now match Codex Electron's surface-specific behavior: collapsed activity headers keep their aggregate icon, while nested exploration, command, and file-edit rows stay text-first.
+- Thread tool-call shimmer now follows Codex Electron's generic active-label shimmer placement: completed rows stay static, command/web/MCP labels shimmer only where Codex does, and live file edits keep the digit-wheel stats motion instead of text shimmer.
 
 ### Fixed
 - Fixed Thread web-search favicon parity so expanded detail rows no longer show a generic globe when Codex Electron would render no favicon, and favicon images now use the same decorative async/no-referrer loading contract.

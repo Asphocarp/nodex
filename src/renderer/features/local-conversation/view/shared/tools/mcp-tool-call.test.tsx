@@ -138,6 +138,8 @@ describe("McpToolCall", () => {
 
     expect(summaryButton.getAttribute("aria-expanded") ?? "").toBe("false");
     expect(Boolean(textContent(summaryButton).includes("Calling"))).toBeTrue();
+    expect(Boolean(summaryButton.querySelector(".loading-shimmer-pure-text"))).toBeTrue();
+    expect(Boolean(summaryButton.querySelector(".loading-shimmer-pure-text [data-tool-activity-icon]"))).toBeFalse();
   });
 
   test("renders plaintext content and opens the raw output dialog", async () => {

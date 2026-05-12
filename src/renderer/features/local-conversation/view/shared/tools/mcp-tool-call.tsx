@@ -17,6 +17,7 @@ import { cn } from "../../../../../lib/utils";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
 import { useMeasuredElementHeight } from "../use-measured-element-height";
 import { CopyMessageActionButton } from "../thread-message-actions";
+import { CodexShimmerText } from "../codex-shimmer-text";
 import { ToolErrorDetail } from "./tool-primitives";
 import {
   asRecord,
@@ -441,14 +442,17 @@ export function McpToolCall({
           }}
         >
           <ToolActivityIcon descriptor={resolveMcpSourceIcon(item)} />
-          <span className={cn("text-size-chat flex min-w-0 items-center gap-1", !payload.completed && "loading-shimmer-pure-text")}>
+          <CodexShimmerText
+            active={!payload.completed}
+            className="text-size-chat flex min-w-0 items-center gap-1"
+          >
             <span className="text-token-description-foreground/90 group-hover:text-token-foreground flex-shrink-0">
               {summaryVerb}
             </span>
             <span className="text-token-foreground/40 group-hover:text-token-foreground truncate">
               {summaryDetail}
             </span>
-          </span>
+          </CodexShimmerText>
           {payload.completed ? (
             <ChevronRightIcon
               className={cn(

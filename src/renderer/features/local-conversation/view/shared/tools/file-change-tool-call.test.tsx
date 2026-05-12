@@ -176,6 +176,7 @@ describe("FileChangeToolCall", () => {
     expect(Boolean(container.querySelector(".diff-stat-digit-column"))).toBeTrue();
     expect(Boolean(container.querySelector(".diff-stat-digit-stack-2"))).toBeTrue();
     expect(Boolean(container.querySelector("[data-tool-activity-icon='edit-files']"))).toBeFalse();
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
   });
 
   test("resolves the Codex-style open-file target and keeps filename clicks from toggling the row", async () => {

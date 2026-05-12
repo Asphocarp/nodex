@@ -100,7 +100,7 @@ describe("WebSearchToolCall", () => {
     expect(Boolean(container.querySelector("[data-tool-activity-icon='favicon']"))).toBeTrue();
   });
 
-  test("switches the summary verb while the search is running", () => {
+  test("shimmers the Codex active summary verb while the search is running", () => {
     const { container } = render(
       <WebSearchToolCall
         item={buildWebSearchEntry({
@@ -109,7 +109,8 @@ describe("WebSearchToolCall", () => {
       />,
     );
 
-    expect(Boolean(textContent(container).includes("Searching web"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Searching the web"))).toBeTrue();
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeTrue();
   });
 
   test("renders favicon-only detail rows inside collapsed activity bodies", () => {
@@ -129,6 +130,7 @@ describe("WebSearchToolCall", () => {
 
     expect(Boolean(textContent(container).includes("site:github.com/openai/codex renderer"))).toBeTrue();
     expect(Boolean(container.querySelector("[data-tool-activity-icon='favicon']"))).toBeTrue();
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
   });
 
   test("omits the semantic globe in detail rows when no favicon URL exists", () => {

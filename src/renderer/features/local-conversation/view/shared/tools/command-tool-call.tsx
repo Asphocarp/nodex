@@ -9,6 +9,7 @@ import { useCodexThreadSettings } from "../../../../../lib/use-codex-thread-sett
 import { cn } from "../../../../../lib/utils";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
 import { useMeasuredElementHeight } from "../use-measured-element-height";
+import { CodexShimmerText } from "../codex-shimmer-text";
 import { extractCommandActions, isExplorationAction } from "./command-actions";
 import {
   ToolActivityIcon,
@@ -181,6 +182,7 @@ function SummaryText({
   commandCwd,
   threadCwd,
   isExpanded,
+  isInProgress,
   tone,
 }: {
   command: string;
@@ -189,6 +191,7 @@ function SummaryText({
   commandCwd?: string;
   threadCwd?: string;
   isExpanded: boolean;
+  isInProgress: boolean;
   tone: "default" | "muted";
 }) {
   const metaParts: string[] = [];
@@ -197,12 +200,22 @@ function SummaryText({
   const labelClassName = tone === "muted"
     ? "text-token-foreground/40 group-hover:text-token-foreground"
     : "text-token-description-foreground group-hover:text-token-foreground";
+  const activeLeadingLabel = resolveActiveCommandSummaryLeadingLabel(summaryLabel, isInProgress);
 
   return (
     <div className="min-w-0 flex-1 text-size-chat truncate text-token-foreground/40 group-hover:text-token-foreground">
-      <span className={cn("font-sans", labelClassName)}>
-        {summaryLabel}
-      </span>
+      {activeLeadingLabel ? (
+        <span className={cn("font-sans", labelClassName)}>
+          <CodexShimmerText>{activeLeadingLabel.leading}</CodexShimmerText>
+          {activeLeadingLabel.trailing ? (
+            <span>{activeLeadingLabel.trailing}</span>
+          ) : null}
+        </span>
+      ) : (
+        <span className={cn("font-sans", labelClassName)}>
+          {summaryLabel}
+        </span>
+      )}
       {metaParts.length > 0 ? (
         <span className="ml-1 text-token-foreground/30">
           {metaParts.join(" · ")}
@@ -211,6 +224,21 @@ function SummaryText({
       {!isExpanded ? null : <span className="sr-only">{command}</span>}
     </div>
   );
+}
+
+function resolveActiveCommandSummaryLeadingLabel(
+  summaryLabel: string,
+  isInProgress: boolean,
+): { leading: string; trailing: string | null } | null {
+  if (!isInProgress) return null;
+  const activePrefixes = ["Running command", "Running", "Exploring"];
+  for (const prefix of activePrefixes) {
+    if (summaryLabel === prefix) return { leading: prefix, trailing: null };
+    if (summaryLabel.startsWith(`${prefix} `)) {
+      return { leading: prefix, trailing: summaryLabel.slice(prefix.length) };
+    }
+  }
+  return null;
 }
 
 function CommandFooter({
@@ -362,6 +390,7 @@ export function CommandToolCall({
           commandCwd={item.cwd ?? undefined}
           threadCwd={threadCwd}
           isExpanded={isExpanded}
+          isInProgress={isInProgress}
           tone={execSummaryTone}
         />
         {!isInProgress ? (

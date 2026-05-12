@@ -12,6 +12,7 @@ import {
 } from "../../../../../shared/codex-transcript-special-items";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "./thread-motion";
 import { useMeasuredElementHeight } from "./use-measured-element-height";
+import { CodexShimmerText } from "./codex-shimmer-text";
 
 function getHeaderLabel(action: CodexMultiAgentActionName, status: CodexMultiAgentActionStatus): string {
   if (action === "spawnAgent") {
@@ -180,9 +181,12 @@ export function MultiAgentActionSurface({
           }}
         >
           <span className="text-size-chat truncate">
-            <span className={cn("text-token-description-foreground/90 group-hover:text-token-foreground", isInProgress && "loading-shimmer-pure-text")}>
+            <CodexShimmerText
+              active={isInProgress}
+              className="text-token-description-foreground/90 group-hover:text-token-foreground"
+            >
               {getHeaderLabel(primaryItem.action, resolvedStatus)}
-            </span>
+            </CodexShimmerText>
             {countLabel ? (
               <span className="text-token-foreground/40 group-hover:text-token-foreground">
                 {countLabel}

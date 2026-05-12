@@ -11,6 +11,7 @@ import {
   ToolActivityIcon,
   resolveApprovalIcon,
 } from "./tools/tool-call-icons";
+import { CodexShimmerText } from "./codex-shimmer-text";
 
 function getStatusLabel(status: CodexAutomaticApprovalReviewStatus): string {
   switch (status) {
@@ -58,16 +59,16 @@ export function AutomaticApprovalReviewSurface({ item }: { item: CodexConversati
     <div className="flex min-w-0 items-center gap-1.5">
       {statusIcon ? <ToolActivityIcon descriptor={statusIcon} /> : null}
       <span className="text-size-chat font-medium text-token-foreground">Automatic approval review</span>
-      <span
+      <CodexShimmerText
+        active={isInProgress}
         className={cn(
           "text-size-chat min-w-0 font-medium",
           !isInProgress && "rounded-full px-1.5 py-0.5",
           getStatusClasses(review.status),
-          isInProgress && "loading-shimmer-pure-text",
         )}
       >
         {getStatusLabel(review.status)}
-      </span>
+      </CodexShimmerText>
       {review.riskLevel ? (
         <span className="text-size-chat min-w-0 text-token-description-foreground">
           {getRiskLabel(review.riskLevel)}

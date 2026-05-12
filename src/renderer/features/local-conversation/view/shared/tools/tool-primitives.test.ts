@@ -47,7 +47,7 @@ describe("resolveInlineToolLeadingLabel", () => {
     expect(resolveInlineToolLeadingLabel("Ran", "inProgress")).toBe("Running");
     expect(resolveInlineToolLeadingLabel("Ran command", "inProgress")).toBe("Running command");
     expect(resolveInlineToolLeadingLabel("explored", "inProgress")).toBe("exploring");
-    expect(resolveInlineToolLeadingLabel("Searched web", "inProgress")).toBe("Searching web");
+    expect(resolveInlineToolLeadingLabel("Searched web", "inProgress")).toBe("Searching the web");
     expect(resolveInlineToolLeadingLabel("Edited", "inProgress")).toBe("Editing");
   });
 

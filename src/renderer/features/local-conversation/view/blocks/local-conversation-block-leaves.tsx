@@ -48,6 +48,7 @@ import {
   CODEX_THREAD_DIVIDER_ENTER_INITIAL,
 } from "../shared/thread-motion";
 import { useMeasuredElementHeight } from "../shared/use-measured-element-height";
+import { CodexShimmerText } from "../shared/codex-shimmer-text";
 import { AnsweredUserInputBlock } from "../composer/request-cards/answered-user-input-block";
 import { UserAttachmentStrip } from "../shared/user-message-attachments";
 import type { CodexCommandAction } from "../../../../lib/types";
@@ -384,9 +385,9 @@ function ThreadExplorationAccordion({ entries, status }: { entries: CodexConvers
                 <ToolActivityIcon descriptor={resolveExplorationEntriesIcon(entries)} />
                 {isExploring ? (
                   <>
-                    <span className="loading-shimmer-pure-text text-token-description-foreground/90 group-hover:text-token-foreground">
+                    <CodexShimmerText className="text-token-description-foreground/90 group-hover:text-token-foreground">
                       Exploring
-                    </span>
+                    </CodexShimmerText>
                     {countParts ? (
                       <>
                         <span className="text-token-description-foreground/90 group-hover:text-token-foreground"> </span>
@@ -610,26 +611,102 @@ function resolveCollapsedFileChangeActiveSummary(entry: CodexConversationItem): 
   return `Editing ${change.path}`;
 }
 
-function resolveCollapsedActivityActiveSummary(
+interface CollapsedActivityActiveSummary {
+  label: string;
+}
+
+function getAutomaticApprovalReviewStatus(entry: CodexConversationItem): string | null {
+  const raw = asRecord(entry.rawItem);
+  const review = asRecord(raw?.review);
+  const status = review?.status ?? raw?.status;
+  return typeof status === "string" ? status : null;
+}
+
+function resolveCollapsedActivityActiveSummaryPass(
   entries: Extract<ThreadBlockModel, { type: "collapsedToolActivity" }>["entries"],
-): string | null {
+  inProgressOnly: boolean,
+): CollapsedActivityActiveSummary | null {
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index];
-    if (!entry || entry.status !== "inProgress") continue;
+    if (!entry) continue;
+    if (inProgressOnly && entry.status !== "inProgress") continue;
 
-    if (entry.type === "explorationGroup") return resolveCollapsedExplorationActiveSummary(entry.entries);
-    if (entry.type === "fileChange") return resolveCollapsedFileChangeActiveSummary(entry.entry);
+    if (entry.type === "explorationGroup") {
+      const label = resolveCollapsedExplorationActiveSummary(entry.entries);
+      if (label) return { label };
+      continue;
+    }
+    if (entry.type === "fileChange" && entry.status === "inProgress") {
+      const label = resolveCollapsedFileChangeActiveSummary(entry.entry);
+      if (label) return { label };
+      continue;
+    }
     if (entry.type === "webSearch") {
+      if (entry.status !== "inProgress") continue;
       const detail = getWebSearchSummaryDetail(entry.entry);
-      return detail.length > 0 ? `Searching the web for ${detail}` : "Searching the web";
+      return { label: detail.length > 0 ? `Searching the web for ${detail}` : "Searching the web" };
     }
     if (entry.type === "exec") {
+      if (entry.status !== "inProgress") continue;
       const command = entry.entry.command?.trim();
-      return command && command.length > 0 ? `Running ${command}` : "Running command";
+      return { label: command && command.length > 0 ? `Running ${command}` : "Running command" };
     }
-    if (entry.type === "hook") return "Running hook";
+    if (entry.type === "automaticApprovalReview" && !inProgressOnly) {
+      const status = getAutomaticApprovalReviewStatus(entry.entry) ?? entry.status;
+      if (status === "approved") return { label: "Approved request" };
+      if (status === "denied") return { label: "Denied request" };
+    }
   }
   return null;
+}
+
+function resolveCollapsedActivityActiveSummary(
+  entries: Extract<ThreadBlockModel, { type: "collapsedToolActivity" }>["entries"],
+): CollapsedActivityActiveSummary | null {
+  return resolveCollapsedActivityActiveSummaryPass(entries, true)
+    ?? resolveCollapsedActivityActiveSummaryPass(entries, false);
+}
+
+function shouldShimmerCollapsedActivitySummary(
+  stats: Extract<ThreadBlockModel, { type: "collapsedToolActivity" }>["summaryStats"],
+): boolean {
+  if (!stats) return false;
+  return stats.runningCreatedFileCount > 0
+    || stats.runningEditedFileCount > 0
+    || stats.runningDeletedFileCount > 0
+    || stats.runningExploredFileCount > 0
+    || stats.runningSearchCount > 0
+    || stats.runningListCount > 0
+    || stats.runningHookCount > 0
+    || stats.runningCommandCount > 0
+    || stats.runningWebSearchCount > 0;
+}
+
+function CollapsedActivitySummaryText({
+  summary,
+  shimmer,
+}: {
+  summary: string;
+  shimmer: boolean;
+}) {
+  if (!shimmer) return summary;
+
+  const writingMatch = summary.match(/ • [^,]*writing \d+ lines?/i);
+  if (!writingMatch || writingMatch.index === undefined) {
+    return <CodexShimmerText>{summary}</CodexShimmerText>;
+  }
+
+  const start = writingMatch.index;
+  const writingText = writingMatch[0];
+  const before = summary.slice(0, start);
+  const after = summary.slice(start + writingText.length);
+  return (
+    <>
+      {before.length > 0 ? <CodexShimmerText>{before}</CodexShimmerText> : null}
+      <span>{writingText}</span>
+      {after.length > 0 ? <CodexShimmerText>{after}</CodexShimmerText> : null}
+    </>
+  );
 }
 
 export function ThreadCollapsedToolActivityBlock({
@@ -648,7 +725,10 @@ export function ThreadCollapsedToolActivityBlock({
   const activeSummary = isLatestTurn && isStreamingTurn
     ? resolveCollapsedActivityActiveSummary(block.entries)
     : null;
-  const displayedSummary = activeSummary ?? block.summary;
+  const shouldShimmerAggregate = !activeSummary
+    && isLatestTurn
+    && isStreamingTurn
+    && shouldShimmerCollapsedActivitySummary(block.summaryStats);
 
   const handleToggle = () => {
     if (isExpanded) {
@@ -677,7 +757,11 @@ export function ThreadCollapsedToolActivityBlock({
           <span className="inline-flex max-w-full min-w-0 items-center gap-1.5 overflow-hidden">
             {icon ? <ToolActivityIcon descriptor={icon} /> : null}
             <span className="min-w-0 flex-1 truncate">
-              {displayedSummary}
+              {activeSummary ? (
+                <CodexShimmerText>{activeSummary.label}</CodexShimmerText>
+              ) : (
+                <CollapsedActivitySummaryText summary={block.summary} shimmer={shouldShimmerAggregate} />
+              )}
             </span>
           </span>
         </span>
@@ -740,9 +824,9 @@ export function ThreadThinkingPlaceholderBlock({ block }: ThreadSpecialBlockProp
   return (
     <div className="min-w-0 py-0">
       <div className="flex items-center gap-1.5">
-        <span className="loading-shimmer-pure-text text-size-chat truncate text-token-foreground/30">
+        <CodexShimmerText className="text-size-chat truncate text-token-foreground/30">
           Thinking
-        </span>
+        </CodexShimmerText>
       </div>
     </div>
   );
@@ -1306,7 +1390,7 @@ export function ThreadContextCompactionBlock({ block }: ThreadLeafBlockProps) {
         {isCompleted ? (
           <span>Context automatically compacted</span>
         ) : (
-          <span className="loading-shimmer-pure-text">Automatically compacting context</span>
+          <CodexShimmerText>Automatically compacting context</CodexShimmerText>
         )}
       </div>
       <div className="flex-1 border-t border-current/20" />

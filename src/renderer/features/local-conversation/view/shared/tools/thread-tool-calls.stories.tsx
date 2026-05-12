@@ -884,7 +884,7 @@ export const WebSearchInProgress: Story = {
     <ToolCallStory
       item={THREAD_TOOL_CALL_STORY_ITEMS.webSearchInProgress}
       title="Web Search In Progress"
-      description="Running web searches shimmer and keep the same compact summary row while the tool call is still active."
+      description="Running web searches shimmer only the top-level active phrase while the detail text remains static."
     />
   ),
 };
@@ -937,7 +937,7 @@ export const McpToolCallInProgress: Story = {
   render: () => (
     <StorySurface
       title="MCP Tool Call In Progress"
-      description="In-progress MCP calls stay collapsed, shimmer, and do not expose the expanded detail body."
+      description="In-progress MCP calls stay collapsed and shimmer only the label text; source logos remain static."
     >
       <McpToolCall item={THREAD_TOOL_CALL_STORY_ITEMS.mcpInProgress} />
     </StorySurface>

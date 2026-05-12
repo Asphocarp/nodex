@@ -993,33 +993,73 @@
   line-height: 1.45;
 }
 
-@keyframes codex-leading-label-sweep {
-  0% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: -50% 50%;
-  }
+.codex-cadenced-shimmer {
+  color: var(--shimmer-text-secondary);
+  text-fill-color: currentColor;
+  -webkit-text-fill-color: currentColor;
+  background: 0 0;
+  -webkit-background-clip: border-box;
+  background-clip: border-box;
+  animation: none;
+  position: relative;
 }
 
-.codex-tool-leading-label--in-progress {
-  background: linear-gradient(
-    90deg,
-    var(--foreground-secondary) 40%,
-    var(--foreground) 50%,
-    var(--foreground-secondary) 60%
-  );
-  background-size: 300% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: codex-leading-label-sweep 2s ease-in-out infinite;
+.codex-cadenced-shimmer-sweep {
+  pointer-events: none;
+  width: 50%;
+  position: absolute;
+  inset: 0 auto 0 0;
+  overflow: hidden;
+  transform: translate(-100%);
+  -webkit-mask-image: linear-gradient(90deg, #0000 0%, #000 40% 60%, #0000 100%);
+  mask-image: linear-gradient(90deg, #0000 0%, #000 40% 60%, #0000 100%);
+}
+
+.codex-cadenced-shimmer-highlight {
+  width: 200%;
+  color: var(--shimmer-contrast);
+  text-fill-color: currentColor;
+  -webkit-text-fill-color: currentColor;
+  display: block;
+  transform: translate(50%);
+}
+
+.codex-cadenced-shimmer-active .codex-cadenced-shimmer-sweep,
+.codex-cadenced-shimmer-active .codex-cadenced-shimmer-highlight {
+  animation-duration: 1s;
+  animation-timing-function: steps(48, end);
+  animation-iteration-count: 1;
+}
+
+.codex-cadenced-shimmer-active .codex-cadenced-shimmer-sweep {
+  animation-name: codex-cadenced-loading-shimmer-sweep;
+}
+
+.codex-cadenced-shimmer-active .codex-cadenced-shimmer-highlight {
+  animation-name: codex-cadenced-loading-shimmer-highlight;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .codex-tool-leading-label--in-progress {
+  .codex-cadenced-shimmer-active .codex-cadenced-shimmer-sweep,
+  .codex-cadenced-shimmer-active .codex-cadenced-shimmer-highlight {
     animation: none;
-    background: none;
-    color: var(--foreground-secondary);
+  }
+}
+
+@keyframes codex-cadenced-loading-shimmer-sweep {
+  0% {
+    transform: translate(-100%);
+  }
+  to {
+    transform: translate(250%);
+  }
+}
+
+@keyframes codex-cadenced-loading-shimmer-highlight {
+  0% {
+    transform: translate(50%);
+  }
+  to {
+    transform: translate(-125%);
   }
 }

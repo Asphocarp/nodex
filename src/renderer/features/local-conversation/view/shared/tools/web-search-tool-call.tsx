@@ -1,5 +1,5 @@
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
-import { cn } from "../../../../../lib/utils";
+import { CodexShimmerText } from "../codex-shimmer-text";
 import { asRecord, getString } from "./tool-call-utils";
 import { ToolActivityIcon, resolveWebSearchFavicon, resolveWebSearchIcon } from "./tool-call-icons";
 
@@ -101,7 +101,7 @@ export function getWebSearchSummaryDetail(item: CodexTranscriptEntry): string {
 
 export function WebSearchToolCall({ item, hideHeader = false }: WebSearchToolCallProps) {
   const completed = item.status !== "inProgress";
-  const summaryVerb = completed ? "Searched web" : "Searching web";
+  const summaryVerb = completed ? "Searched web" : "Searching the web";
   const summaryDetail = getWebSearchSummaryDetail(item);
 
   if (hideHeader) {
@@ -124,10 +124,13 @@ export function WebSearchToolCall({ item, hideHeader = false }: WebSearchToolCal
     <div className="min-w-0 text-size-chat relative overflow-visible py-0">
       <div className="group flex min-w-0 items-center gap-2">
         <ToolActivityIcon descriptor={resolveWebSearchIcon(item)} showFallbackWhileLoading={false} />
-        <span className={cn("min-w-0 truncate text-size-chat", !completed && "loading-shimmer-pure-text")}>
-          <span className="text-token-description-foreground/90 group-hover:text-token-foreground">
+        <span className="min-w-0 truncate text-size-chat">
+          <CodexShimmerText
+            active={!completed}
+            className="text-token-description-foreground/90 group-hover:text-token-foreground"
+          >
             {summaryVerb}
-          </span>
+          </CodexShimmerText>
           {summaryDetail.length > 0 ? (
             <span className="text-token-foreground/40 group-hover:text-token-foreground">
               {" "}

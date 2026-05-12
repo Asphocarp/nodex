@@ -14,7 +14,10 @@ import {
   ThreadTurnDiffBlock,
   UserMessageBubble,
 } from "./local-conversation-block-leaves";
-import type { ThreadTranscriptBlockModel } from "../../thread-stage-types";
+import type {
+  ThreadCollapsedToolActivitySummaryStats,
+  ThreadTranscriptBlockModel,
+} from "../../thread-stage-types";
 
 const clientWidthDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth");
 const canvasGetContextDescriptor = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, "getContext");
@@ -96,6 +99,37 @@ function buildFileChangeEntry(itemId: string): CodexConversationItem {
     },
     createdAt: 1,
     updatedAt: 1,
+  };
+}
+
+function buildCollapsedSummaryStats(
+  overrides: Partial<ThreadCollapsedToolActivitySummaryStats> = {},
+): ThreadCollapsedToolActivitySummaryStats {
+  return {
+    createdFileCount: 0,
+    runningCreatedFileCount: 0,
+    stoppedCreatedFileCount: 0,
+    editedFileCount: 0,
+    runningEditedFileCount: 0,
+    deletedFileCount: 0,
+    runningDeletedFileCount: 0,
+    exploredFileCount: 0,
+    runningExploredFileCount: 0,
+    searchCount: 0,
+    runningSearchCount: 0,
+    listCount: 0,
+    runningListCount: 0,
+    commandCount: 0,
+    runningCommandCount: 0,
+    approvedRequestCount: 0,
+    deniedRequestCount: 0,
+    hookCount: 0,
+    runningHookCount: 0,
+    mcpToolCallCount: 0,
+    mcpToolCallSources: [],
+    webSearchCount: 0,
+    runningWebSearchCount: 0,
+    ...overrides,
   };
 }
 
@@ -435,6 +469,129 @@ describe("ThreadCollapsedToolActivityBlock", () => {
     expect(summaryButton.getAttribute("aria-expanded") ?? "").toBe("true");
     expect(Boolean(textContent(container).includes("Read src/a.ts"))).toBeTrue();
     expect(Boolean(textContent(container).includes("Exploration"))).toBeFalse();
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
+  });
+
+  test("shimmers only the latest streaming active summary", () => {
+    const commandEntry = buildCommandEntry("item-command-active", [], {
+      status: "inProgress",
+      command: "bun test",
+      exitCode: undefined,
+    });
+    const block = {
+      id: "activity-active",
+      turnId: "turn-1",
+      createdAt: 1,
+      updatedAt: 2,
+      searchableText: "activity active",
+      type: "collapsedToolActivity" as const,
+      summary: "Ran 1 command",
+      status: "inProgress" as const,
+      summaryStats: buildCollapsedSummaryStats({ runningCommandCount: 1 }),
+      entries: [
+        {
+          id: commandEntry.entryId ?? commandEntry.itemId,
+          turnId: commandEntry.turnId,
+          createdAt: commandEntry.createdAt,
+          updatedAt: commandEntry.updatedAt,
+          searchableText: "command",
+          type: "exec" as const,
+          entry: commandEntry,
+          status: commandEntry.status,
+        },
+      ],
+    };
+
+    const { getByRole } = render(
+      <TooltipProvider>
+        <ThreadCollapsedToolActivityBlock
+          block={block}
+          isLatestTurn={true}
+          isStreamingTurn={true}
+        />
+      </TooltipProvider>,
+    );
+
+    const summaryButton = getByRole("button", { name: /Running bun test/i });
+    const shimmer = summaryButton.querySelector<HTMLElement>(".loading-shimmer-pure-text");
+    expect(shimmer?.textContent ?? "").toBe("Running bun test");
+    expect(Boolean(textContent(summaryButton).includes("Ran 1 command"))).toBeFalse();
+  });
+
+  test("keeps completed collapsed summaries static", () => {
+    const block = {
+      id: "activity-static",
+      turnId: "turn-1",
+      createdAt: 1,
+      updatedAt: 2,
+      searchableText: "activity static",
+      type: "collapsedToolActivity" as const,
+      summary: "Explored 1 file, ran 1 command",
+      status: "completed" as const,
+      summaryStats: buildCollapsedSummaryStats({ exploredFileCount: 1, commandCount: 1 }),
+      entries: [
+        {
+          id: "exploration-static",
+          turnId: "turn-1",
+          createdAt: 1,
+          updatedAt: 1,
+          searchableText: "exploration",
+          type: "explorationGroup" as const,
+          summary: "Exploration",
+          status: "completed" as const,
+          entries: [
+            buildCommandEntry("item-explore-static", [
+              { type: "read", command: "cat src/a.ts", name: "src/a.ts", path: "src/a.ts" },
+            ]),
+          ],
+        },
+      ],
+    };
+
+    const { container, getByRole } = render(
+      <TooltipProvider>
+        <ThreadCollapsedToolActivityBlock
+          block={block}
+          isLatestTurn={true}
+          isStreamingTurn={false}
+        />
+      </TooltipProvider>,
+    );
+
+    getByRole("button", { name: /Explored 1 file, ran 1 command/i });
+    expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
+  });
+
+  test("shimmers running aggregate text without shimmering the writing-lines segment", () => {
+    const block = {
+      id: "activity-aggregate",
+      turnId: "turn-1",
+      createdAt: 1,
+      updatedAt: 2,
+      searchableText: "activity aggregate",
+      type: "collapsedToolActivity" as const,
+      summary: "Editing 1 file • writing 3 lines",
+      status: "inProgress" as const,
+      summaryStats: buildCollapsedSummaryStats({ runningEditedFileCount: 1 }),
+      entries: [],
+    };
+
+    const { container, getByRole } = render(
+      <TooltipProvider>
+        <ThreadCollapsedToolActivityBlock
+          block={block}
+          isLatestTurn={true}
+          isStreamingTurn={true}
+        />
+      </TooltipProvider>,
+    );
+
+    const summaryButton = getByRole("button", { name: /Editing 1 file/i });
+    const shimmer = summaryButton.querySelector<HTMLElement>(".loading-shimmer-pure-text");
+    expect(shimmer?.textContent ?? "").toBe("Editing 1 file");
+    expect(Boolean(textContent(summaryButton).includes("• writing 3 lines"))).toBeTrue();
+    expect(Boolean(shimmer?.textContent?.includes("writing 3 lines"))).toBeFalse();
+    expect(Boolean(container.querySelector("[data-testid='collapsed-tool-activity-body']"))).toBeFalse();
   });
 
   test("keeps the group header icon but strips default icons from nested rows", async () => {
