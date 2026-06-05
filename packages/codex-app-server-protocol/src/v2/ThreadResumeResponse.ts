@@ -6,11 +6,16 @@ import type { ReasoningEffort } from "../ReasoningEffort";
 import type { ActivePermissionProfile } from "./ActivePermissionProfile";
 import type { ApprovalsReviewer } from "./ApprovalsReviewer";
 import type { AskForApproval } from "./AskForApproval";
-import type { PermissionProfile } from "./PermissionProfile";
 import type { SandboxPolicy } from "./SandboxPolicy";
 import type { Thread } from "./Thread";
+import type { TurnsPage } from "./TurnsPage";
 
 export type ThreadResumeResponse = { thread: Thread, model: string, modelProvider: string, serviceTier: string | null, cwd: AbsolutePathBuf,
+/**
+ * Thread-scoped runtime workspace roots used to materialize
+ * `:workspace_roots`.
+ */
+runtimeWorkspaceRoots: Array<AbsolutePathBuf>,
 /**
  * Instruction source files currently loaded for this thread.
  */
@@ -21,17 +26,15 @@ instructionSources: Array<AbsolutePathBuf>, approvalPolicy: AskForApproval,
 approvalsReviewer: ApprovalsReviewer,
 /**
  * Legacy sandbox policy retained for compatibility. Experimental clients
- * should prefer `permissionProfile` when they need exact runtime
- * permissions.
+ * should prefer `activePermissionProfile` for profile provenance.
  */
 sandbox: SandboxPolicy,
-/**
- * Full active permissions for this thread. `activePermissionProfile`
- * carries display/provenance metadata for this runtime profile.
- */
-permissionProfile: PermissionProfile | null,
 /**
  * Named or implicit built-in profile that produced the active
  * permissions, when known.
  */
-activePermissionProfile: ActivePermissionProfile | null, reasoningEffort: ReasoningEffort | null, };
+activePermissionProfile: ActivePermissionProfile | null, reasoningEffort: ReasoningEffort | null,
+/**
+ * `thread/turns/list` page returned when requested by `initialTurnsPage`.
+ */
+initialTurnsPage: TurnsPage | null, };

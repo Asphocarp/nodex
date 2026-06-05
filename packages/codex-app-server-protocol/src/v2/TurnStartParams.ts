@@ -6,18 +6,22 @@ import type { Personality } from "../Personality";
 import type { ReasoningEffort } from "../ReasoningEffort";
 import type { ReasoningSummary } from "../ReasoningSummary";
 import type { JsonValue } from "../serde_json/JsonValue";
+import type { AdditionalContextEntry } from "./AdditionalContextEntry";
 import type { ApprovalsReviewer } from "./ApprovalsReviewer";
 import type { AskForApproval } from "./AskForApproval";
-import type { PermissionProfileSelectionParams } from "./PermissionProfileSelectionParams";
 import type { SandboxPolicy } from "./SandboxPolicy";
 import type { TurnEnvironmentParams } from "./TurnEnvironmentParams";
 import type { UserInput } from "./UserInput";
 
-export type TurnStartParams = { threadId: string, input: Array<UserInput>,
+export type TurnStartParams = { threadId: string, clientUserMessageId?: string | null, input: Array<UserInput>,
 /**
  * Optional turn-scoped Responses API client metadata.
  */
 responsesapiClientMetadata?: { [key in string]?: string } | null,
+/**
+ * Optional client-provided context fragments keyed by an opaque source identifier.
+ */
+additionalContext?: { [key in string]?: AdditionalContextEntry } | null,
 /**
  * Optional turn-scoped environments.
  *
@@ -30,6 +34,12 @@ environments?: Array<TurnEnvironmentParams> | null,
  * Override the working directory for this turn and subsequent turns.
  */
 cwd?: string | null,
+/**
+ * Replace the thread's runtime workspace roots for this turn and
+ * subsequent turns. Relative paths are resolved against the effective
+ * cwd for the turn.
+ */
+runtimeWorkspaceRoots?: Array<string> | null,
 /**
  * Override the approval policy for this turn and subsequent turns.
  */
@@ -44,12 +54,10 @@ approvalsReviewer?: ApprovalsReviewer | null,
  */
 sandboxPolicy?: SandboxPolicy | null,
 /**
- * Select a named permissions profile for this turn and subsequent turns.
- * Cannot be combined with `sandboxPolicy`. Use bounded `modifications`
- * for supported turn adjustments instead of replacing the full
- * permissions profile.
+ * Select a named permissions profile id for this turn and subsequent
+ * turns. Cannot be combined with `sandboxPolicy`.
  */
-permissions?: PermissionProfileSelectionParams | null,
+permissions?: string | null,
 /**
  * Override the model for this turn and subsequent turns.
  */

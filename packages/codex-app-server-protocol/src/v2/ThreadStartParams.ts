@@ -6,24 +6,26 @@ import type { JsonValue } from "../serde_json/JsonValue";
 import type { ApprovalsReviewer } from "./ApprovalsReviewer";
 import type { AskForApproval } from "./AskForApproval";
 import type { DynamicToolSpec } from "./DynamicToolSpec";
-import type { PermissionProfileSelectionParams } from "./PermissionProfileSelectionParams";
 import type { SandboxMode } from "./SandboxMode";
 import type { ThreadSource } from "./ThreadSource";
 import type { ThreadStartSource } from "./ThreadStartSource";
 import type { TurnEnvironmentParams } from "./TurnEnvironmentParams";
 
-export type ThreadStartParams = { model?: string | null, modelProvider?: string | null, serviceTier?: string | null | null, cwd?: string | null, approvalPolicy?: AskForApproval | null,
+export type ThreadStartParams = { model?: string | null, modelProvider?: string | null, serviceTier?: string | null | null, cwd?: string | null,
+/**
+ * Replace the thread's runtime workspace roots. Relative paths are
+ * resolved against the effective cwd for the thread.
+ */
+runtimeWorkspaceRoots?: Array<string> | null, approvalPolicy?: AskForApproval | null,
 /**
  * Override where approval requests are routed for review on this thread
  * and subsequent turns.
  */
 approvalsReviewer?: ApprovalsReviewer | null, sandbox?: SandboxMode | null,
 /**
- * Named profile selection for this thread. Cannot be combined with
- * `sandbox`. Use bounded `modifications` for supported turn/thread
- * adjustments instead of replacing the full permissions profile.
+ * Named profile id for this thread. Cannot be combined with `sandbox`.
  */
-permissions?: PermissionProfileSelectionParams | null, config?: { [key in string]?: JsonValue } | null, serviceName?: string | null, baseInstructions?: string | null, developerInstructions?: string | null, personality?: Personality | null, ephemeral?: boolean | null, sessionStartSource?: ThreadStartSource | null,
+permissions?: string | null, config?: { [key in string]?: JsonValue } | null, serviceName?: string | null, baseInstructions?: string | null, developerInstructions?: string | null, personality?: Personality | null, ephemeral?: boolean | null, sessionStartSource?: ThreadStartSource | null,
 /**
  * Optional client-supplied analytics source classification for this thread.
  */
@@ -46,10 +48,4 @@ mockExperimentalField?: string | null,
  * If true, opt into emitting raw Responses API items on the event stream.
  * This is for internal use only (e.g. Codex Cloud).
  */
-experimentalRawEvents: boolean,
-/**
- * Deprecated and ignored by app-server. Kept only so older clients can
- * continue sending the field while rollout persistence always uses the
- * limited history policy.
- */
-persistExtendedHistory: boolean, };
+experimentalRawEvents?: boolean, };
