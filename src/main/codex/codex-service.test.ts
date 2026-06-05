@@ -2138,7 +2138,7 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         const forkParams = requests[0]?.params as Record<string, unknown> | undefined;
 
         expect(requests[0]?.method).toBe("thread/fork");
-        expect(forkParams?.persistExtendedHistory).toBeTrue();
+        expect("persistExtendedHistory" in (forkParams ?? {})).toBeFalse();
         expect("path" in (forkParams ?? {})).toBeFalse();
         expect((requests[1]?.params as { threadId?: string; numTurns?: number } | undefined)?.threadId).toBe("thr_forked");
         expect((requests[1]?.params as { numTurns?: number } | undefined)?.numTurns).toBe(1);
@@ -2254,7 +2254,7 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
 
         expect(requests.length).toBe(1);
         expect(requests[0]?.method).toBe("thread/fork");
-        expect(forkParams?.persistExtendedHistory).toBeTrue();
+        expect("persistExtendedHistory" in (forkParams ?? {})).toBeFalse();
         expect("path" in (forkParams ?? {})).toBeFalse();
         expect(result.threadId).toBe("thr_latest_forked");
         expect(snapshot?.turns.length).toBe(2);
@@ -3683,7 +3683,6 @@ describe("codex-service startThreadForCard", () => {
         ephemeral: true,
         experimentalRawEvents: false,
         dynamicTools: null,
-        persistExtendedHistory: false,
       }));
 
       const turnStartPayload = turnStartParams && typeof turnStartParams === "object"

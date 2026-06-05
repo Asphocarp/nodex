@@ -539,8 +539,6 @@ type DefaultCodexRuntimeOptions = {
 };
 
 const THREAD_START_EXPERIMENTAL_RAW_EVENTS = false;
-const THREAD_START_PERSIST_EXTENDED_HISTORY = true;
-const THREAD_RESUME_PERSIST_EXTENDED_HISTORY = true;
 const CODEX_THREAD_CONFIG_OVERRIDES = {
   "features.apply_patch_streaming_events": true,
 } satisfies NonNullable<ThreadStartParams["config"]>;
@@ -4696,7 +4694,6 @@ export class CodexService extends EventEmitter {
           ephemeral: true,
           experimentalRawEvents: false,
           dynamicTools: null,
-          persistExtendedHistory: false,
         });
 
         activeThreadId = parseThreadIdFromStartResult(startedThread);
@@ -4884,7 +4881,6 @@ export class CodexService extends EventEmitter {
         config: buildCodexThreadConfigOverrides(),
         ...buildServiceTierParams(input.serviceTier),
         experimentalRawEvents: THREAD_START_EXPERIMENTAL_RAW_EVENTS,
-        persistExtendedHistory: THREAD_START_PERSIST_EXTENDED_HISTORY,
         ...threadPermissionOverrides,
       };
       const threadStart = await this.client.request<"thread/start", ThreadStartResponse>("thread/start", threadStartParams);
@@ -5070,7 +5066,6 @@ export class CodexService extends EventEmitter {
     const resumeParams: ThreadResumeParams = {
       threadId,
       config: buildCodexThreadConfigOverrides(),
-      persistExtendedHistory: THREAD_RESUME_PERSIST_EXTENDED_HISTORY,
       ...buildThreadPermissionOverrides({
         permissionState,
       }),
@@ -5247,7 +5242,6 @@ export class CodexService extends EventEmitter {
     const forkParams: ThreadForkParams = {
       threadId,
       cwd: currentDetail.cwd,
-      persistExtendedHistory: true,
     };
     const forkResult = await this.client.request<"thread/fork", ThreadForkResponse>("thread/fork", forkParams);
     const forkedThreadId = forkResult.thread.id;
@@ -5423,7 +5417,6 @@ export class CodexService extends EventEmitter {
       await this.client.request("thread/resume", {
         threadId,
         config: buildCodexThreadConfigOverrides(),
-        persistExtendedHistory: THREAD_RESUME_PERSIST_EXTENDED_HISTORY,
         ...buildThreadPermissionOverrides({
           permissionState,
         }),

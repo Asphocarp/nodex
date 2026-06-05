@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 - Thread collapsed tool activity groups now has synthesized summaries and flat expanded row hierarchy instead of showing generic completed-action labels or nested exploration subgroups.
 
 ### Fixed
+- Fixed Codex runtime compatibility after the pinned `@openai/codex` bump by updating app-server handshake and thread request payloads to the new protocol shape.
 - Fixed stopped Thread turn ordering so a final collapsed tool/activity group renders above the assistant action toolbar.
 - Fixed completed Thread file-edit rows so expanding a file shows the rendered inline diff body again instead of only the patch-frame header.
 - Removed the redundant extra colored gutter line from inline Thread diffs so the diff body relies on the native add/delete indicators.

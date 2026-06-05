@@ -479,6 +479,7 @@ export class CodexAppServerClient extends EventEmitter {
       clientInfo: this.clientInfo,
       capabilities: {
         experimentalApi: true,
+        requestAttestation: false,
       },
     };
 
