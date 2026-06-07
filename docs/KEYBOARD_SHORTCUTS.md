@@ -6,20 +6,20 @@ All keyboard shortcuts in Nodex. Platform modifier: **⌘ (Cmd)** on Mac, **Ctrl
 
 | Shortcut | Action | Notes |
 |----------|--------|-------|
-| `Ctrl+Tab` | Next stage | Cycles `DB -> Cards -> Threads -> Diff`, including while focus is inside the NFM editor |
-| `Ctrl+Shift+Tab` | Previous stage | Reverse cycle, including while focus is inside the NFM editor |
-| `⌘/Ctrl+L` | Shift sliding window right | In `Sliding window` mode, moves the visible stage window one stage right and keeps focus on the current stage when it stays visible; in `Full rail`, falls back to focusing the next stage |
-| `⌘/Ctrl+H` | Shift sliding window left | In `Sliding window` mode, moves the visible stage window one stage left and keeps focus on the current stage when it stays visible; in `Full rail`, falls back to focusing the previous stage |
-| `Shift+Wheel` | Scroll stage rail panels | Uses native horizontal wheel scrolling in the stage rail; does not change stage focus (Calendar view claims this gesture for day navigation and blocks stage-rail scrolling) |
-| `⌘/Ctrl+1`–`4` | Jump to stage by index | Stage index order in sidebar; works while focus is in the NFM editor |
-| `⌘/Ctrl+Alt+1`–`9` | Jump to space by index | First 9 spaces in sidebar order (disabled while focus is in NFM editor because `⌘/Ctrl+Alt+1`–`4` are editor heading shortcuts) |
+| `Ctrl+Tab` | Legacy stage focus | Retained by the shortcut hook while project/session/tab shortcuts are rebuilt; no longer describes the primary shell hierarchy |
+| `Ctrl+Shift+Tab` | Legacy reverse stage focus | Retained by the shortcut hook while project/session/tab shortcuts are rebuilt |
+| `⌘/Ctrl+L` | Legacy stage-window shift | Retained by the shortcut hook; the new shell uses session tabs instead of a sliding stage rail |
+| `⌘/Ctrl+H` | Legacy stage-window shift | Retained by the shortcut hook; the new shell uses session tabs instead of a sliding stage rail |
+| `Shift+Wheel` | Native horizontal scrolling | Calendar view still claims this gesture for day navigation where applicable |
+| `⌘/Ctrl+1`–`4` | Legacy stage jump | Retained by the shortcut hook while project/session/tab shortcuts are rebuilt |
+| `⌘/Ctrl+Alt+1`–`9` | Jump to project by index | First 9 projects in shell/sidebar order (disabled while focus is in NFM editor because `⌘/Ctrl+Alt+1`–`4` are editor heading shortcuts) |
 | `⌘/Ctrl+Shift+P` | Search commands | Opens the global palette with `>` already seeded, so it starts in command mode; works from editable surfaces too |
 | `⌘/Ctrl+K` | Open command palette | Global launcher for cards; type `>` to switch into command search; works from editable surfaces too |
 | `⌘/Ctrl+P` | Open command palette | Alias for the same global launcher |
 | `⌘/Ctrl+[` | Go back | Restores the previous durable workbench context; works from editable surfaces too |
 | `⌘/Ctrl+]` | Go forward | Restores the next durable workbench context; works from editable surfaces too |
 | `⌘/Ctrl+,` | Toggle settings overlay | Opens/closes the full-page settings overlay |
-| `⌘/Ctrl+J` | Toggle bottom terminal panel | Global toggle, including when focus is in editor inputs |
+| `⌘/Ctrl+J` | Toggle terminal UI | Global toggle, including when focus is in editor inputs; session-tab terminals are the primary terminal surface in the new shell |
 | `⌘/Ctrl+N` | Open new app window | Electron desktop only (`window:new` IPC); ignored in browser runtime |
 | `⌘/Ctrl+F` | Open search for the focused stage | In Threads, opens `Find in thread`; in Diffs, opens `Find in review`; otherwise opens the Views-stage floating task search. Thread and review search can open even when focus is inside their stage content |
 
@@ -27,7 +27,7 @@ All keyboard shortcuts in Nodex. Platform modifier: **⌘ (Cmd)** on Mac, **Ctrl
 
 | Shortcut | Action | Scope |
 |----------|--------|-------|
-| `←` / `→` | Resize focused panel separator | Full-rail stage border handles, and sliding-window separators |
+| `←` / `→` | Resize focused panel separator | Legacy stage border handlers; project-session pane resize is pointer-driven in v1 |
 | `⌘/Ctrl+Z` | Undo | Board-level undo (card ops) outside editor surfaces; inside BlockNote editor this stays editor-local undo |
 | `⌘/Ctrl+Shift+Z` | Redo | Board-level redo outside editor surfaces |
 | `⌘/Ctrl+Y` | Redo | Windows convention |
@@ -36,7 +36,7 @@ All keyboard shortcuts in Nodex. Platform modifier: **⌘ (Cmd)** on Mac, **Ctrl
 
 | Shortcut | Action | Notes |
 |----------|--------|-------|
-| `Enter` | Send prompt | Default behavior in thread panel composer; in `Cmd/Ctrl+Enter to send long prompts` mode, multiline drafts use `Enter` for newline instead |
+| `Enter` | Send prompt | Default behavior in the thread-page composer; in `Cmd/Ctrl+Enter to send long prompts` mode, multiline drafts use `Enter` for newline instead |
 | `Shift+Enter` | Insert newline | Thread panel composer |
 | `⌘/Ctrl+Enter` | Send prompt | Always submits; when `Cmd/Ctrl+Enter to send long prompts` is enabled, this becomes the primary submit for multiline drafts |
 | `⌘/Ctrl+Shift+Enter` | Alternate queue/steer submit | Running-thread composer only, when `Cmd/Ctrl+Enter to send long prompts` is enabled |
@@ -93,7 +93,7 @@ All keyboard shortcuts in Nodex. Platform modifier: **⌘ (Cmd)** on Mac, **Ctrl
 
 ## Implementation
 
-Workbench navigation shortcuts are in `src/renderer/lib/use-workbench-shortcuts.ts`.
+Workbench navigation shortcuts are in `src/renderer/lib/use-workbench-shortcuts.ts`. The remaining stage-focused shortcuts are legacy compatibility until the project/session/tab keyboard map replaces them.
 Undo/redo shortcuts are in `src/renderer/lib/use-keyboard-shortcuts.ts`.
 Editor shortcuts are in `src/renderer/components/kanban/editor/nfm-editor-extensions.ts` and `nfm-editor.tsx`.
 Terminal panel shortcut routing is in `src/renderer/lib/use-workbench-shortcuts.ts`.

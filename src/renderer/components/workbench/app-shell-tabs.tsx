@@ -50,6 +50,7 @@ interface AppShellTabsProps {
   onSelect: (tabId: string) => void;
   onCloseTab?: (tabId: string) => void;
   onReorderTab?: (activeId: string, overId: string) => void;
+  afterList?: ReactNode;
   className?: string;
 }
 
@@ -113,6 +114,7 @@ export function AppShellTabs({
   onSelect,
   onCloseTab,
   onReorderTab,
+  afterList,
   className,
 }: AppShellTabsProps) {
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
@@ -219,6 +221,9 @@ export function AppShellTabs({
             className="sticky end-0 z-10 h-full w-0 opacity-0 transition-opacity duration-100 after:absolute after:end-0 after:inset-y-0 after:w-10 after:bg-linear-to-r after:from-transparent after:to-token-main-surface-primary after:content-[''] after:pointer-events-none"
           />
         </div>
+        {afterList ? (
+          <div className="ml-1 flex shrink-0 items-center gap-1">{afterList}</div>
+        ) : null}
       </div>
 
       {activeTab ? (

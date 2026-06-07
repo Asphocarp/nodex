@@ -1,2114 +1,679 @@
-import { describe, expect, mock, test } from "bun:test";
-import { createElement } from "react";
-import type { ReactNode } from "react";
-import { act } from "@testing-library/react";
-import type { Project } from "@/lib/types";
-import { resetCardDraftStoreForTest, setCardDraftOverlay } from "../../lib/card-draft-store";
-import { render, textContent } from "../../test/dom";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { createElement, createRef } from "react";
+import { act, fireEvent, within } from "@testing-library/react";
+import type { Project, ProjectSession, WorkspaceRecord } from "@/lib/types";
+import {
+  getDefaultDbViewPrefs,
+  type DbViewPrefs,
+  type SupportedDbView,
+} from "@/lib/db-view-prefs";
+import { render, settleAsyncRender, textContent } from "../../test/dom";
 
-let resolveSlidingWindowFocusIntentReturn: { direction: "left" | "right" } = {
-  direction: "right",
-};
-let resolveSlidingWindowFocusIntentCalls: Array<[unknown, unknown, unknown, unknown]> = [];
-let resolveExpandedStagesReturn: Array<"db" | "cards" | "threads" | "files"> = ["db", "cards"];
-let mockInvokeImpl: ((...args: unknown[]) => Promise<unknown>) | null = null;
 let invokeCalls: unknown[][] = [];
+let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
 
-type SidebarItem = {
-  id: string;
-  label?: string;
-  active?: boolean;
-  onSelect?: () => void;
-  icon?: unknown;
-  updatedAtMs?: number;
-};
-type SidebarSection = {
-  id: string;
-  label?: string;
-  count?: number;
-  collapsible?: boolean;
-  items?: SidebarItem[];
-};
-type SidebarGroup = {
-  id: string;
-  label?: string;
-  active?: boolean;
-  icon?: unknown;
-  onFocus?: () => void;
-  items?: SidebarItem[];
-  sections?: SidebarSection[];
-  moreActions?: {
-    itemLimit?: number;
-    canMoveUp?: boolean;
-    canMoveDown?: boolean;
-  };
-};
-type StageTabStripProps = {
-  activeTabId?: string;
-  onSelect?: (tabId: string) => void;
-};
-type AppShellTabsProps = {
-  tabs?: Array<{
-    id: string;
-    title?: string;
-    isLabel?: boolean;
-    tooltip?: ReactNode;
-    renderPanel?: (closeTab: () => void) => ReactNode;
-  }>;
-  activeTabId?: string;
-  onCloseTab?: (tabId: string) => void;
-  onReorderTab?: (activeId: string, overId: string) => void;
-};
-
-mock.module("./workbench-shell-deps", () => ({
-  CardIcon: ({ className }: { className?: string }) => createElement("span", { className }, "C"),
-  CommandPalette: (props: Record<string, unknown>) => {
-    (globalThis as { __lastCommandPaletteProps?: Record<string, unknown> }).__lastCommandPaletteProps = props;
-    return createElement("div", { "data-command-palette": String(Boolean(props.open)) });
+mock.module("@/lib/api", () => ({
+  invoke: async (channel: string, ...args: unknown[]) => {
+    invokeCalls.push([channel, ...args]);
+    return mockInvokeImpl?.(channel, ...args) ?? null;
   },
+}));
+
+mock.module("./main-view-host", () => ({
   MainViewHost: (props: Record<string, unknown>) => {
     (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps = props;
-    return createElement("div", { "data-main-view-host": "true" });
+    return createElement("div", { "data-main-view-host": "true" }, `DB:${String(props.projectId)}:${String(props.view)}`);
   },
-  SettingsOverlay: (props: Record<string, unknown>) => {
-    (globalThis as { __lastSettingsOverlayProps?: Record<string, unknown> }).__lastSettingsOverlayProps = props;
-    return null;
-  },
-  LeftSidebar: (props: Record<string, unknown>) => {
-    (globalThis as { __lastLeftSidebarProps?: Record<string, unknown> }).__lastLeftSidebarProps = props;
-    const stageGroups = (props.stageGroups as Array<{ id: string }> | undefined) ?? [];
-    return createElement("div", { "data-stage-groups": stageGroups.map((group) => group.id).join(",") });
-  },
-  ConnectedReviewDiffPanel: (props: Record<string, unknown>) => {
-    (globalThis as { __lastConnectedReviewDiffPanelProps?: Record<string, unknown> }).__lastConnectedReviewDiffPanelProps = props;
-    return createElement("div", { "data-review-diff-panel": "true" });
-  },
-  StageTabStrip: (props: StageTabStripProps) => {
-    const globalState = globalThis as { __stageTabStripProps?: StageTabStripProps[] };
-    globalState.__stageTabStripProps ??= [];
-    globalState.__stageTabStripProps.push(props);
-    return createElement("div", { "data-stage-tab-strip": "true" });
-  },
-  AppShellTabs: (props: AppShellTabsProps) => {
-    (globalThis as { __lastAppShellTabsProps?: AppShellTabsProps }).__lastAppShellTabsProps = props;
-    const tabs = props.tabs ?? [];
-    const activeTab = tabs.find((tab) => tab.id === props.activeTabId) ?? tabs[0] ?? null;
-    return createElement(
-      "div",
-      { "data-app-shell-tabs": "true" },
-      activeTab?.renderPanel?.(() => {
-        props.onCloseTab?.(activeTab.id);
-      }) ?? null,
-    );
-  },
-  HistoryPanel: (props: Record<string, unknown>) => {
-    (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> }).__lastHistoryPanelProps = props;
-    if (!props.open) return null;
-    return createElement("div", { "data-history-panel": "true" });
-  },
+}));
+
+mock.module("./workbench-card-stage", () => ({
   CardStage: (props: Record<string, unknown>) => {
     (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps = props;
-    return createElement("div", { "data-card-stage": "true" });
+    const card = props.card as { id?: string } | null | undefined;
+    return createElement("div", { "data-card-stage": "true" }, `Card:${String(card?.id ?? "missing")}`);
   },
+}));
+
+mock.module("./workbench-terminal-panel", () => ({
   TerminalPanel: (props: Record<string, unknown>) => {
     (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> }).__lastTerminalPanelProps = props;
-    return createElement("div", { "data-terminal-panel": "true" });
+    return createElement("div", { "data-terminal-panel": "true" }, `Terminal:${String(props.sessionId)}`);
   },
-  Input: (props: Record<string, unknown>) => createElement("input", props),
-  invoke: async (...args: unknown[]) => {
-    invokeCalls.push(args);
-    if (!mockInvokeImpl) return null;
-    return mockInvokeImpl(...args);
-  },
-  readNextPanelPeekPx: () => 28,
-  writeNextPanelPeekPx: (value: number) => value,
-  readComposerEnterBehavior: () => "enter" as const,
-  writeComposerEnterBehavior: (value: "enter" | "cmdIfMultiline") => value,
-  readWorktreeStartMode: () => "autoBranch" as const,
-  writeWorktreeStartMode: (value: "autoBranch" | "detachedHead") => value,
-  readWorktreeAutoBranchPrefix: () => "nodex/" as const,
-  writeWorktreeAutoBranchPrefix: (value: string) => value,
-  DEFAULT_CODEX_COLLABORATION_MODE: "default" as const,
-  readGlobalCollaborationMode: () => "default" as const,
-  writeGlobalCollaborationMode: (mode: "default" | "plan") => mode,
-  readSmartPrefixParsingEnabled: () => true,
-  readStripSmartPrefixFromTitleEnabled: () => true,
-  writeSmartPrefixParsingEnabled: (value: boolean) => value,
-  writeStripSmartPrefixFromTitleEnabled: (value: boolean) => value,
-  useCodexAppServerControl: () => ({
-    ...({
-      availableModels: [],
-      threadSettings: {
-        model: "gpt-5.3-codex",
-        reasoningEffort: "high",
-      },
-      reasoningEffortOptions: [],
-      permissionMode: "auto" as const,
-      loadThreads: async () => [],
-      loadModels: async () => [],
-      listCollaborationModes: async () => [],
-      startThreadForCard: async () => ({ threadId: "t-1" }),
-      startTurn: async () => null,
-      enqueueQueuedFollowUp: async () => undefined,
-      steerTurn: async () => null,
-      interruptTurn: async () => true,
-      respondApproval: async () => true,
-      respondUserInput: async () => true,
-      respondMcpElicitation: async () => true,
-      setPermissionMode: async () => undefined,
-      setThreadModel: () => undefined,
-      setThreadReasoningEffort: () => undefined,
-    }),
-    ...((globalThis as { __mockUseCodexOverrides?: Record<string, unknown> }).__mockUseCodexOverrides ?? {}),
-  }),
-  useCodexThreadStartProgress: () => (
-    ((globalThis as { __mockThreadStartProgress?: Record<string, unknown> | null }).__mockThreadStartProgress ?? null)
-  ),
-  useCodexThreadFollowerClient: () => ({
-    startTurn: async () => null,
-    enqueueQueuedFollowUp: async () => undefined,
-    steerTurn: async () => null,
-    interruptTurn: async () => true,
-    editLastUserTurn: async () => ({
-      threadId: "thr-1",
-      composerIntent: {
-        prompt: "Edited prompt",
-        focusNonce: 1,
-      },
-    }),
-    forkConversationFromTurn: async () => ({
-      threadId: "thr-forked",
-      composerIntent: {
-        prompt: "Forked prompt",
-        focusNonce: 2,
-      },
-    }),
-    ...((globalThis as { __mockUseCodexThreadFollowerClientOverrides?: Record<string, unknown> }).__mockUseCodexThreadFollowerClientOverrides ?? {}),
-  }),
-  useCodexAccountActions: () => ({
-    refreshAccount: async () => null,
-    startChatGptLogin: async () => ({ type: "apiKey" as const }),
-    startApiKeyLogin: async () => ({ type: "apiKey" as const }),
-    cancelLogin: async () => ({ status: "canceled" as const }),
-    logout: async () => true,
-    ...((globalThis as { __mockUseCodexAccountActionOverrides?: Record<string, unknown> }).__mockUseCodexAccountActionOverrides ?? {}),
-  }),
+}));
+
+mock.module("@/features/local-conversation", () => ({
   ConnectedThreadStage: (props: Record<string, unknown>) => {
-    const actions = (props.actions as Record<string, unknown> | undefined) ?? {};
-    const activeThreadId = props.activeThreadId as string | null | undefined;
-    const knownConversationsById =
-      (globalThis as { __mockKnownConversationsById?: Record<string, unknown> }).__mockKnownConversationsById ?? {};
-    const resumeRequests =
-      (globalThis as { __mockResumeRequestThreadIds?: Set<string> }).__mockResumeRequestThreadIds
-      ?? new Set<string>();
-    (globalThis as { __mockResumeRequestThreadIds?: Set<string> }).__mockResumeRequestThreadIds = resumeRequests;
-    if (
-      activeThreadId
-      && activeThreadId !== "new-thread"
-      && props.isNewThreadTab !== true
-      && !resumeRequests.has(activeThreadId)
-    ) {
-      resumeRequests.add(activeThreadId);
-      void (
-        (globalThis as {
-          __mockRequestConversationResume?: (...args: unknown[]) => Promise<unknown>;
-        }).__mockRequestConversationResume?.(activeThreadId)
-      );
-    }
-    (globalThis as { __lastStageThreadsProps?: Record<string, unknown> }).__lastStageThreadsProps = {
-      ...props,
-      ...actions,
-      conversation: activeThreadId ? knownConversationsById[activeThreadId] : null,
-    };
-    return createElement("div", { "data-stage-threads": "true" });
+    (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps = props;
+    return createElement("div", { "data-thread-stage": "true" }, `Thread:${String(props.activeThreadId)}`);
   },
-  useProjectThreadSummaries: () => (
-    (globalThis as { __mockProjectThreadSummaries?: Array<Record<string, unknown>> }).__mockProjectThreadSummaries ?? []
-  ),
-  readLocalConversation: (threadId: string) => (
-    ((globalThis as { __mockKnownConversationsById?: Record<string, unknown> }).__mockKnownConversationsById ?? {})[threadId]
-      ?? null
-  ),
-  requestLocalConversationSnapshot: async (...args: unknown[]) => (
-    (globalThis as {
-      __mockRequestConversationSnapshot?: (...args: unknown[]) => Promise<unknown>;
-    }).__mockRequestConversationSnapshot?.(...args) ?? null
-  ),
-  removeLocalConversationPlanImplementationRequest: async () => true,
-  setLocalConversationCollaborationMode: async (threadId: string, mode: "default" | "plan") => {
-    const globalState = globalThis as {
-      __mockConversationModesById?: Record<string, { mode: "default" | "plan"; settings: { model: string; reasoning_effort: "high"; developer_instructions: null } }>;
-    };
-    globalState.__mockConversationModesById ??= {};
-    globalState.__mockConversationModesById[threadId] = {
-      mode,
-      settings: {
-        model: "gpt-5.3-codex",
-        reasoning_effort: "high",
-        developer_instructions: null,
-      },
-    };
-    return globalState.__mockConversationModesById[threadId];
+}));
+
+mock.module("@/lib/calendar-view-state", () => ({
+  loadCalendarViewState: () => ({
+    anchorDate: new Date("2026-06-07T00:00:00.000Z"),
+    range: { mode: "week", multiDayCount: 4, multiWeekCount: 2 },
+  }),
+  normalizeCalendarAnchorDate: (value: Date) => value,
+  shiftCalendarAnchorDateByDays: (value: Date, days: number) => {
+    const next = new Date(value);
+    next.setDate(next.getDate() + days);
+    return next;
   },
-  setLocalConversationComposerIntent: () => undefined,
-  useConversationCollaborationMode: (threadId: string | null) => {
-    if (!threadId) return null;
-    return ((globalThis as {
-      __mockConversationModesById?: Record<string, {
-        mode: "default" | "plan";
-        settings: { model: string; reasoning_effort: "high"; developer_instructions: null };
-      }>;
-    }).__mockConversationModesById ?? {})[threadId] ?? null;
-  },
-  consumeLocalConversationComposerIntent: () => undefined,
+  resolveCalendarVisibleDays: () => [new Date("2026-06-07T00:00:00.000Z")],
+  saveCalendarViewState: () => undefined,
+  formatCalendarToolbarMonthYear: () => "June 2026",
+}));
+
+mock.module("@/lib/use-kanban", () => ({
   useKanban: () => ({
-    board: {
-      columns: [
-        {
-          id: "draft",
-          name: "Draft",
-          cards: [
-            {
-              id: "card-draft-1",
-              title: "Draft Card",
-              description: "",
-              priority: "p2-medium",
-              tags: [],
-              created: new Date("2026-02-25T00:00:00.000Z"),
-              order: 0,
-              runInTarget: "newWorktree",
-            },
-          ],
-        },
-        {
-          id: "backlog",
-          name: "Backlog",
-          cards: [
-            {
-              id: "card-backlog-1",
-              title: "Backlog Card",
-              description: "",
-              priority: "p2-medium",
-              tags: [],
-              created: new Date("2026-02-25T00:00:00.000Z"),
-              order: 0,
-              runInTarget: "newWorktree",
-            },
-          ],
-        },
-        {
-          id: "in_progress",
-          name: "In Progress",
-          cards: [
-            {
-              id: "card-1",
-              title: "Card 1",
-              description: "",
-              priority: "p2-medium",
-              tags: [],
-              created: new Date("2026-02-25T00:00:00.000Z"),
-              order: 0,
-              runInTarget: "newWorktree",
-            },
-            {
-              id: "card-ops-1",
-              title: "Ops Card",
-              description: "",
-              priority: "p2-medium",
-              tags: [],
-              created: new Date("2026-02-25T00:00:00.000Z"),
-              order: 1,
-              runInTarget: "newWorktree",
-            },
-          ],
-        },
-        {
-          id: "in_review",
-          name: "In Review",
-          cards: [
-            {
-              id: "card-review-1",
-              title: "Review Card",
-              description: "",
-              priority: "p2-medium",
-              tags: [],
-              created: new Date("2026-02-25T00:00:00.000Z"),
-              order: 0,
-              runInTarget: "newWorktree",
-            },
-          ],
-        },
-        {
-          id: "done",
-          name: "Done",
-          cards: [
-            {
-              id: "card-done-1",
-              title: "Done Card",
-              description: "",
-              priority: "p2-medium",
-              tags: [],
-              created: new Date("2026-02-25T00:00:00.000Z"),
-              order: 0,
-              runInTarget: "newWorktree",
-            },
-          ],
-        },
-      ],
-    },
+    board: { columns: [] },
     cardIndex: new Map([
       [
         "card-1",
         {
           id: "card-1",
-          title: "Card 1",
+          projectId: "alpha",
+          status: "todo",
+          title: "Card One",
           description: "",
-          priority: "p2-medium",
           tags: [],
-          created: new Date("2026-02-25T00:00:00.000Z"),
-          order: 0,
-          runInTarget: "newWorktree",
-          columnId: "in_progress",
-          columnName: "In Progress",
-          boardIndex: 0,
-        },
-      ],
-      [
-        "card-ops-1",
-        {
-          id: "card-ops-1",
-          title: "Ops Card",
-          description: "",
-          priority: "p2-medium",
-          tags: [],
-          created: new Date("2026-02-25T00:00:00.000Z"),
-          order: 1,
-          runInTarget: "newWorktree",
-          columnId: "in_progress",
-          columnName: "In Progress",
-          boardIndex: 1,
+          archived: false,
         },
       ],
     ]),
-    loading: false,
-    error: null,
-    updateCard: async () => null,
+    refresh: async () => undefined,
     patchCard: () => undefined,
+    updateCard: async () => ({ didMutate: true }),
     deleteCard: async () => true,
-    moveCard: async () => true,
-    completeOccurrence: async () => true,
-    skipOccurrence: async () => true,
+    moveCard: async () => undefined,
+    completeOccurrence: async () => undefined,
+    skipOccurrence: async () => undefined,
   }),
-  KANBAN_STATUS_LABELS: {
-    draft: "Draft",
-    backlog: "Backlog",
-    in_progress: "In Progress",
-    in_review: "In Review",
-    done: "Done",
-  },
-  SharedStatusIcon: ({ className }: { className?: string }) =>
-    createElement("span", { className, "data-status-icon": "true" }, "S"),
-  STAGE_ORDER: ["db", "cards", "threads", "files"],
-  NEW_THREAD_STAGE_TAB_ID: "thread:new",
-  resolveExpandedStages: () => resolveExpandedStagesReturn,
-  resolveSlidingWindowFocusIntent: (...args: [unknown, unknown, unknown, unknown]) => {
-    resolveSlidingWindowFocusIntentCalls.push(args);
-    return resolveSlidingWindowFocusIntentReturn;
-  },
 }));
 
-const PROJECTS: Project[] = [
-  {
-    id: "default",
-    name: "Default",
+let WorkbenchShell: (typeof import("./workbench-shell"))["WorkbenchShell"];
+let resolveCardStageSessionTabOrder: (typeof import("./workbench-shell"))["resolveCardStageSessionTabOrder"];
+
+beforeAll(async () => {
+  const workbenchShellModule = await import("./workbench-shell");
+  WorkbenchShell = workbenchShellModule.WorkbenchShell;
+  resolveCardStageSessionTabOrder = workbenchShellModule.resolveCardStageSessionTabOrder;
+});
+
+function makeProject(id = "alpha", name = "Alpha"): Project {
+  return {
+    id,
+    name,
     description: "",
-    created: new Date("2026-02-25T00:00:00.000Z"),
-  },
-];
-
-async function renderShell(
-  terminalPanelOpen: boolean,
-  layoutMode: "sliding-window" | "full-rail" = "sliding-window",
-  overrides: Record<string, unknown> = {},
-  mockCodexThreads: Array<Record<string, unknown>> = [],
-  invokeImpl: ((...args: unknown[]) => Promise<unknown>) | null = null,
-  expandedStages: Array<"db" | "cards" | "threads" | "files"> = ["db", "cards"],
-  useCodexOverrides?: Record<string, unknown>,
-  useLocalConversationOverrides?: Record<string, unknown>,
-  useCodexThreadFollowerOverrides?: Record<string, unknown>,
-): Promise<ReturnType<typeof render>> {
-  (globalThis as { __lastSettingsOverlayProps?: Record<string, unknown> }).__lastSettingsOverlayProps = undefined;
-  (globalThis as { __lastCommandPaletteProps?: Record<string, unknown> }).__lastCommandPaletteProps = undefined;
-  (globalThis as { __lastLeftSidebarProps?: Record<string, unknown> }).__lastLeftSidebarProps = undefined;
-  (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps = undefined;
-  (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> }).__lastHistoryPanelProps = undefined;
-  (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps = undefined;
-  (globalThis as { __lastStageThreadsProps?: Record<string, unknown> }).__lastStageThreadsProps = undefined;
-  (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> }).__lastTerminalPanelProps = undefined;
-  (globalThis as { __stageTabStripProps?: StageTabStripProps[] }).__stageTabStripProps = [];
-  (globalThis as { __mockResumeRequestThreadIds?: Set<string> }).__mockResumeRequestThreadIds = new Set();
-  (globalThis as { __mockProjectThreadSummaries?: Array<Record<string, unknown>> }).__mockProjectThreadSummaries = mockCodexThreads;
-  (globalThis as { __mockUseCodexOverrides?: Record<string, unknown> }).__mockUseCodexOverrides = useCodexOverrides;
-  (globalThis as { __mockThreadStartProgress?: Record<string, unknown> | null }).__mockThreadStartProgress =
-    (
-      useCodexOverrides?.state as {
-        threadStartProgressByTarget?: Record<string, Record<string, unknown>>;
-      } | undefined
-    )?.threadStartProgressByTarget?.["default:card-1"] ?? null;
-  (globalThis as { __mockUseCodexThreadFollowerClientOverrides?: Record<string, unknown> }).__mockUseCodexThreadFollowerClientOverrides =
-    useCodexThreadFollowerOverrides;
-  (globalThis as { __mockKnownConversationsById?: Record<string, unknown> }).__mockKnownConversationsById =
-    (
-      useLocalConversationOverrides?.state as { conversationsById?: Record<string, unknown> } | undefined
-    )?.conversationsById ?? {};
-  (globalThis as {
-    __mockConversationModesById?: Record<string, {
-      mode: "default" | "plan";
-      settings: { model: string; reasoning_effort: "high"; developer_instructions: null };
-    }>;
-  }).__mockConversationModesById =
-    Object.fromEntries(
-      Object.entries(
-        ((useLocalConversationOverrides?.state as {
-          conversationsById?: Record<string, { latestCollaborationMode?: {
-            mode: "default" | "plan";
-            settings: { model: string; reasoning_effort: "high"; developer_instructions: null };
-          } }>;
-        } | undefined)?.conversationsById ?? {}),
-      ).flatMap(([threadId, conversation]) =>
-        conversation.latestCollaborationMode
-          ? [[threadId, conversation.latestCollaborationMode]]
-          : [],
-      ),
-    );
-  (globalThis as { __mockRequestConversationSnapshot?: (...args: unknown[]) => Promise<unknown> }).__mockRequestConversationSnapshot =
-    useLocalConversationOverrides?.requestConversationSnapshot as ((...args: unknown[]) => Promise<unknown>) | undefined;
-  (globalThis as { __mockRequestConversationResume?: (...args: unknown[]) => Promise<unknown> }).__mockRequestConversationResume =
-    useLocalConversationOverrides?.requestConversationResume as ((...args: unknown[]) => Promise<unknown>) | undefined;
-  resolveExpandedStagesReturn = expandedStages;
-  mockInvokeImpl = invokeImpl;
-  invokeCalls = [];
-  const { WorkbenchShell } = await import("./workbench-shell");
-  const props: Record<string, unknown> = {
-    projects: PROJECTS,
-    dbProjectId: "default",
-    threadsProjectId: "default",
-    activeView: "kanban",
-    activeSearchQuery: "",
-    spaces: [{ projectId: "default", colorToken: "#2783de", initial: "D" }],
-    recentCardSessions: [],
-    activeRecentSessionId: null,
-    sidebar: {
-      collapsed: false,
-      width: 280,
-      topLevelSectionOrder: ["recents", "cards", "threads", "files"],
-      topLevelSections: {
-        recents: { visible: true, itemLimit: 10 },
-        cards: { visible: true, itemLimit: 10 },
-        threads: { visible: true, itemLimit: 10 },
-        files: { visible: true, itemLimit: 10 },
-      },
-    },
-    focusedStage: "db",
-    stageNavDirection: "right",
-    cardsTabs: [{ id: "history", kind: "history", title: "History" }],
-    activeCardsTabId: "history",
-    threadsTabs: [{ id: "thread:new", title: "New thread", preview: "" }],
-    activeThreadsTabId: "thread:new",
-    terminalTabs: [{
-      id: "project:default",
-      kind: "project",
-      projectId: "default",
-      title: "Project Shell",
-      sessionId: "project:default",
-    }],
-    activeTerminalTabId: "project:default",
-    filesTabs: [{ id: "diff", title: "Diff" }],
-    activeFilesTabId: "diff",
-    stagePanelWidths: {},
-    stageRailLayoutMode: layoutMode,
-    onStageRailLayoutModeChange: () => undefined,
-    slidingWindowPaneCount: 2,
-    terminalPanelOpen,
-    terminalPanelHeight: 260,
-    cardStageState: {
-      open: false,
-      projectId: "",
-      cardId: null,
-    },
-    cardStageCardId: undefined,
-    cardStageCloseRef: { current: null },
-    cardStagePersistRef: { current: null },
-    pendingReminderOpen: null,
-    onReminderHandled: () => undefined,
-    openCardStage: () => undefined,
-    setDbProject: () => undefined,
-    setThreadsProjectId: () => undefined,
-    setView: () => undefined,
-    setSearchQuery: () => undefined,
-    setSidebarCollapsed: () => undefined,
-    setSidebarWidth: () => undefined,
-    setSidebarTopLevelSectionVisible: () => undefined,
-    setSidebarTopLevelSectionItemLimit: () => undefined,
-    moveSidebarTopLevelSectionBy: () => undefined,
-    setFocusedStage: () => undefined,
-    setSidebarStageExpanded: () => undefined,
-    isSidebarStageExpanded: () => true,
-    setSidebarSectionExpanded: () => undefined,
-    isSidebarSectionExpanded: () => false,
-    setSidebarSectionShowAll: () => undefined,
-    isSidebarSectionShowAll: () => false,
-    setActiveCardsTab: () => undefined,
-    setActiveThreadsTab: () => undefined,
-    setThreadsTabs: () => undefined,
-    setActiveTerminalTab: () => undefined,
-    setActiveFilesTab: () => undefined,
-    setStagePanelWidths: () => undefined,
-    stepSlidingWindowPaneCount: () => undefined,
-    setTerminalPanelOpen: () => undefined,
-    setTerminalPanelHeight: () => undefined,
-    openProjectTerminalTab: () => "project:default",
-    openCardTerminalTab: () => "card:session",
-    closeTerminalTab: () => undefined,
-    selectRecentCardSession: () => undefined,
-    closeRecentCardSession: () => undefined,
-    reorderRecentCardSessions: () => undefined,
-    closeCardStage: () => undefined,
-    onLeaveCardStageCard: () => undefined,
-    cardStageSessionSnapshotRef: { current: null },
-    onRequestProjectPickerOpen: () => undefined,
-    projectPickerOpenTick: 0,
-    taskSearchOpenTick: 0,
-    threadSearchOpenTick: 0,
-    commandPaletteOpenTick: 0,
-    settingsToggleTick: 0,
-    onCreateProject: async () => null,
-    onDeleteProject: async () => false,
-    onRenameProject: async () => null,
-    navigateToStage: () => undefined,
-    navigateToDbView: () => undefined,
-    navigateToRecentSession: () => undefined,
-    navigateToCardsTab: () => undefined,
-    navigateToThreadTab: () => undefined,
-    navigateToFilesTab: () => undefined,
-    canNavigateBack: false,
-    canNavigateForward: false,
-    onNavigateBack: () => undefined,
-    onNavigateForward: () => undefined,
-    ...overrides,
+    icon: "",
+    created: new Date("2026-06-07T00:00:00.000Z"),
   };
-
-  const typedProps = props as unknown as Parameters<typeof WorkbenchShell>[0];
-  return render(createElement(WorkbenchShell, typedProps));
 }
 
-describe("WorkbenchShell", () => {
-  test("does not render inline task search input by default", async () => {
-    const shell = await renderShell(false);
-    expect(shell.container.innerHTML.includes('aria-hidden="true"')).toBeTrue();
-  });
-
-  test("renders database view controls in the top toolbar", async () => {
-    const shell = await renderShell(false, "sliding-window", { activeView: "calendar" });
-
-    expect(shell.getByLabelText("Database views").getAttribute("aria-label")).toBe("Database views");
-    expect(textContent(shell.container).includes("Board")).toBeTrue();
-    expect(shell.container.querySelectorAll('[aria-label="Table"]').length).toBe(1);
-    expect(textContent(shell.container).includes("Calendar")).toBeTrue();
-    expect(shell.container.querySelectorAll('[data-tab-label-visible="true"]').length).toBe(1);
-  });
-
-  test("places pane controls on either side of the minimap", async () => {
-    const shell = await renderShell(false, "sliding-window");
-    const decreaseControl = shell.getByLabelText("Decrease visible panes");
-    const minimap = shell.getByLabelText("Database");
-    const increaseControl = shell.getByLabelText("Increase visible panes");
-
-    expect(Boolean(decreaseControl.compareDocumentPosition(minimap) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
-    expect(Boolean(minimap.compareDocumentPosition(increaseControl) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
-  });
-
-  test("renders a left-edge hover trigger when the sidebar is collapsed", async () => {
-    const shell = await renderShell(false, "sliding-window", {
-      sidebar: {
-        collapsed: true,
-        width: 280,
-        topLevelSectionOrder: ["recents", "cards", "threads", "files"],
-        topLevelSections: {
-          recents: { visible: true, itemLimit: 10 },
-          cards: { visible: true, itemLimit: 10 },
-          threads: { visible: true, itemLimit: 10 },
-          files: { visible: true, itemLimit: 10 },
-        },
+function makeSession(overrides: Partial<ProjectSession> = {}): ProjectSession {
+  const projectId = overrides.projectId ?? "alpha";
+  const tabId = `${overrides.id ?? "overview:alpha"}:db`;
+  return {
+    id: "overview:alpha",
+    projectId,
+    title: "Overview",
+    isOverview: true,
+    order: 0,
+    leftPaneCollapsed: true,
+    rightPaneCollapsed: false,
+    rightPaneLayout: {
+      version: 1,
+      root: {
+        type: "leaf",
+        id: "main",
+        tabIds: [tabId],
+        activeTabId: tabId,
       },
-    });
-
-    expect(shell.container.querySelector('[data-sidebar-hover-trigger="true"]')).not.toBeNull();
-    expect(shell.getByLabelText("Expand sidebar").getAttribute("aria-label")).toBe("Expand sidebar");
-    expect(shell.container.innerHTML.includes('aria-hidden="true"')).toBeTrue();
-    expect(shell.container.querySelector("[data-stage-groups]")).not.toBeNull();
-  });
-
-  test("opens history as a second state of the active card-stage tab", async () => {
-    const cardsTabNavigations: unknown[][] = [];
-    const shell = await renderShell(false, "sliding-window", {
-      cardsTabs: [{ id: "session:s-1", kind: "session", title: "Card 1", sessionId: "s-1" }],
-      activeCardsTabId: "history",
-      activeRecentSessionId: "s-1",
-      recentCardSessions: [{
-        id: "s-1",
-        projectId: "default",
-        cardId: "card-1",
-        titleSnapshot: "Card 1",
-        lastOpenedAt: "2026-02-26T12:00:00.000Z",
-      }],
-      cardStageState: {
-        open: true,
-        projectId: "default",
-        cardId: "card-1",
-      },
-      navigateToCardsTab: (...args: unknown[]) => {
-        cardsTabNavigations.push(args);
-      },
-    });
-
-    expect(shell.container.querySelector('[data-app-shell-tabs="true"]')).not.toBeNull();
-    expect(shell.container.querySelector('[data-history-panel="true"]')).not.toBeNull();
-
-    const historyPanelProps = (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> }).__lastHistoryPanelProps;
-    const appShellTabsProps = (globalThis as { __lastAppShellTabsProps?: AppShellTabsProps }).__lastAppShellTabsProps;
-    expect(historyPanelProps?.projectId).toBe("default");
-    expect(historyPanelProps?.cardId).toBe("card-1");
-    expect(historyPanelProps?.open).toBeTrue();
-    expect(historyPanelProps?.mode).toBe("embedded");
-    expect(appShellTabsProps?.activeTabId).toBe("session:s-1");
-    expect(appShellTabsProps?.tabs?.some((tab) => tab.id === "history")).toBeFalse();
-    const historyTab = appShellTabsProps?.tabs?.find((tab) => tab.id === "session:s-1");
-    expect(historyTab?.title).toBe("History");
-    const tooltipView = render(createElement("div", null, historyTab?.tooltip));
-    const tooltipText = textContent(tooltipView.container);
-    expect(tooltipText.includes("History | Card 1")).toBeTrue();
-    expect(tooltipText.includes("Default")).toBeTrue();
-    expect(tooltipText.includes("card-1")).toBeTrue();
-    expect(tooltipText.includes("Timeline")).toBeFalse();
-    expect(tooltipText.includes("Drag to place")).toBeFalse();
-
-    appShellTabsProps?.onCloseTab?.("session:s-1");
-    expect(cardsTabNavigations.map((args) => args.join(":")).join(",")).toBe("default:session:s-1:s-1");
-  });
-
-  test("resolves card-stage tab reorder through displayed tabs while persisting sessions only", async () => {
-    const { resolveCardStageSessionTabOrder } = await import("./workbench-shell");
-
-    const nextSessionOrder = resolveCardStageSessionTabOrder([
-      { id: "session:s-1" },
-      { id: "session:s-2" },
-      { id: "current:default:card-3", isLabel: true },
-    ], "session:s-1", "current:default:card-3");
-
-    expect(nextSessionOrder?.join(",")).toBe("s-2,s-1");
-    expect(resolveCardStageSessionTabOrder([
-      { id: "session:s-1" },
-      { id: "current:default:card-3", isLabel: true },
-    ], "current:default:card-3", "session:s-1")).toBe(null);
-    expect(resolveCardStageSessionTabOrder([
-      { id: "session:s-1" },
-    ], "current:default:card-3", "session:s-1")).toBe(null);
-  });
-
-  test("keeps the current card visible when active project differs and resolves history by card project", async () => {
-    const shell = await renderShell(false, "sliding-window", {
-      dbProjectId: "default",
-      projects: [
-        ...PROJECTS,
-        {
-          id: "ops",
-          name: "Ops",
-          description: "",
-          created: new Date("2026-02-25T00:00:00.000Z"),
-        },
-      ],
-      spaces: [
-        { projectId: "default", colorToken: "#2783de", initial: "D" },
-        { projectId: "ops", colorToken: "#de9255", initial: "O" },
-      ],
-      cardsTabs: [{ id: "history", kind: "history", title: "History" }],
-      activeCardsTabId: "history",
-      cardStageState: {
-        open: true,
-        projectId: "ops",
-        cardId: "card-ops-1",
-      },
-    });
-
-    expect(shell.container.querySelector('[data-app-shell-tabs="true"]')).not.toBeNull();
-    expect(shell.container.querySelector('[data-history-panel="true"]')).not.toBeNull();
-
-    const historyPanelProps = (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> }).__lastHistoryPanelProps;
-    expect(historyPanelProps?.projectId).toBe("ops");
-    expect(historyPanelProps?.cardId).toBe("card-ops-1");
-    expect(historyPanelProps?.open).toBeTrue();
-  });
-
-  test("passes the persisted card into card stage even when a draft overlay exists", async () => {
-    resetCardDraftStoreForTest();
-    setCardDraftOverlay("default", "card-1", {
-      title: "Draft title",
-      description: "Draft description",
-    });
-
-    await renderShell(false, "sliding-window", {
-      activeCardsTabId: "session:s-1",
-      cardsTabs: [{ id: "session:s-1", kind: "session", title: "Card 1", sessionId: "s-1" }],
-      cardStageState: {
-        open: true,
-        projectId: "default",
-        cardId: "card-1",
-      },
-    });
-
-    const cardStageProps = (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps;
-    const card = cardStageProps?.card as { title?: string; description?: string } | undefined;
-    expect(card?.title).toBe("Card 1");
-    expect(card?.description).toBe("");
-
-    resetCardDraftStoreForTest();
-  });
-
-  test("keeps the inline toolbar search field visible when search query exists", async () => {
-    const shell = await renderShell(false, "sliding-window", { activeSearchQuery: "bugfix" });
-    expect(shell.getByPlaceholderText("Type to search...").getAttribute("placeholder")).toBe("Type to search...");
-    expect(shell.getByDisplayValue("bugfix").getAttribute("value")).toBe("bugfix");
-  });
-
-  test("routes db stage host with dbProjectId even when threads project differs", async () => {
-    await renderShell(false, "full-rail", {
-      dbProjectId: "default",
-      threadsProjectId: "ops",
-      projects: [
-        ...PROJECTS,
-        {
-          id: "ops",
-          name: "Ops",
-          description: "",
-          created: new Date("2026-02-25T00:00:00.000Z"),
-        },
-      ],
-      spaces: [
-        { projectId: "default", colorToken: "#2783de", initial: "D" },
-        { projectId: "ops", colorToken: "#de9255", initial: "O" },
-      ],
-    });
-
-    const mainViewHostProps = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
-    expect(mainViewHostProps?.projectId).toBe("default");
-  });
-
-  test("threads stage stays on threadsProjectId when db project changes", async () => {
-    await renderShell(false, "full-rail", {
-      dbProjectId: "default",
-      threadsProjectId: "ops",
-      projects: [
-        ...PROJECTS,
-        {
-          id: "ops",
-          name: "Ops",
-          description: "",
-          created: new Date("2026-02-25T00:00:00.000Z"),
-        },
-      ],
-      spaces: [
-        { projectId: "default", colorToken: "#2783de", initial: "D" },
-        { projectId: "ops", colorToken: "#de9255", initial: "O" },
-      ],
-    });
-
-    const stageThreadsProps = (globalThis as { __lastStageThreadsProps?: Record<string, unknown> }).__lastStageThreadsProps;
-    expect(stageThreadsProps?.projectId).toBe("ops");
-  });
-
-  test("passes selected collaboration mode into startThreadForCard callback", async () => {
-    const startThreadForCardCalls: Array<Record<string, unknown>> = [];
-    const useCodexOverrides: Record<string, unknown> = {
-      startThreadForCard: async (input: Record<string, unknown>) => {
-        startThreadForCardCalls.push(input);
-        return { threadId: "thr-created" };
-      },
-      loadThreads: async () => [],
-    };
-
-    await renderShell(false, "full-rail", {
-      cardsTabs: [{ id: "session:s-1", kind: "session", title: "Card 1", sessionId: "s-1" }],
-      activeCardsTabId: "session:s-1",
-      cardStageState: {
-        open: true,
-        projectId: "default",
-        cardId: "card-1",
-      },
-      activeThreadsTabId: "thread:new",
-    }, [], null, ["db", "cards"], useCodexOverrides);
-
-    const stageThreadsProps = (globalThis as { __lastStageThreadsProps?: Record<string, unknown> }).__lastStageThreadsProps;
-    const onStartThreadForCard = stageThreadsProps?.onStartThreadForCard as ((input: {
-      projectId: string;
-      cardId: string;
-      prompt: string;
-    }) => Promise<void>) | undefined;
-    expect(Boolean(onStartThreadForCard)).toBeTrue();
-
-    await onStartThreadForCard?.({
-      projectId: "default",
-      cardId: "card-1",
-      prompt: "Plan first",
-    });
-
-    expect(startThreadForCardCalls.length).toBe(1);
-    expect(startThreadForCardCalls[0]?.collaborationMode).toBe("default");
-  });
-
-  test("passes selected collaboration mode into startTurn callback", async () => {
-    const startTurnCalls: Array<unknown[]> = [];
-    const threadFollowerOverrides: Record<string, unknown> = {
-      startTurn: async (...args: unknown[]) => {
-        startTurnCalls.push(args);
-        return null;
-      },
-    };
-
-    await renderShell(false, "full-rail", {
-      activeThreadsTabId: "thr-1",
-      threadsTabs: [{ id: "thr-1", title: "Thread 1", preview: "Preview" }],
-    }, [
+    },
+    thread: null,
+    tabs: [
       {
-        threadId: "thr-1",
-        projectId: "default",
-        cardId: "card-1",
-        threadName: "Thread 1",
-        threadPreview: "Preview",
-        modelProvider: "openai",
-        statusType: "idle",
-        statusActiveFlags: [],
-        archived: false,
-        createdAt: 1,
-        updatedAt: 2,
-        linkedAt: "2026-02-21T00:00:00.000Z",
+        id: tabId,
+        sessionId: "overview:alpha",
+        projectId,
+        kind: "db_view",
+        title: "DB View",
+        order: 0,
+        config: { projectId, view: "kanban" },
+        createdAt: "2026-06-07T00:00:00.000Z",
+        updatedAt: "2026-06-07T00:00:00.000Z",
       },
-    ], null, ["db", "cards"], {
-      state: {
-        threadStartProgressByTarget: {},
-      },
-    }, undefined, threadFollowerOverrides);
+    ],
+    createdAt: "2026-06-07T00:00:00.000Z",
+    updatedAt: "2026-06-07T00:00:00.000Z",
+    ...overrides,
+  };
+}
 
-    const stageThreadsProps = (globalThis as { __lastStageThreadsProps?: Record<string, unknown> }).__lastStageThreadsProps;
-    const onSendPrompt = stageThreadsProps?.onSendPrompt as ((prompt: string) => Promise<void>) | undefined;
-    expect(Boolean(onSendPrompt)).toBeTrue();
-
-    await onSendPrompt?.("Follow up");
-
-    expect(startTurnCalls.length).toBe(1);
-    const startTurnOptions = startTurnCalls[0]?.[2] as { collaborationMode?: string } | undefined;
-    expect(startTurnOptions?.collaborationMode).toBe("default");
+function makeAttachedSession(overrides: Partial<ProjectSession> = {}): ProjectSession {
+  return makeSession({
+    leftPaneCollapsed: true,
+    thread: {
+      sessionId: overrides.id ?? "overview:alpha",
+      projectId: overrides.projectId ?? "alpha",
+      threadId: "thread-alpha",
+      parentThreadId: undefined,
+      threadName: "Alpha thread",
+      threadPreview: "Working on the active session",
+      modelProvider: "openai",
+      cwd: "/Users/asc/repo/nodex",
+      statusType: "notLoaded",
+      statusActiveFlags: [],
+      archived: false,
+      createdAt: 1_780_800_000_000,
+      updatedAt: 1_780_800_000_000,
+      linkedAt: "2026-06-07T00:00:00.000Z",
+    },
+    ...overrides,
   });
+}
 
-  test("uses the active conversation collaboration mode instead of shell-local storage", async () => {
-    const startTurnCalls: Array<unknown[]> = [];
-    const threadFollowerOverrides: Record<string, unknown> = {
-      startTurn: async (...args: unknown[]) => {
-        startTurnCalls.push(args);
-        return null;
-      },
-    };
+function replaceSession(
+  current: Record<string, ProjectSession[]>,
+  nextSession: ProjectSession,
+): Record<string, ProjectSession[]> {
+  return Object.fromEntries(
+    Object.entries(current).map(([projectId, sessions]) => [
+      projectId,
+      sessions.map((session) => (session.id === nextSession.id ? nextSession : session)),
+    ]),
+  );
+}
 
-    await renderShell(false, "full-rail", {
-      activeThreadsTabId: "thr-1",
-      threadsTabs: [{ id: "thr-1", title: "Thread 1", preview: "Preview" }],
-    }, [
-      {
-        threadId: "thr-1",
-        projectId: "default",
-        cardId: "card-1",
-        threadName: "Thread 1",
-        threadPreview: "Preview",
-        modelProvider: "openai",
-        statusType: "idle",
-        statusActiveFlags: [],
-        archived: false,
-        createdAt: 1,
-        updatedAt: 2,
-        linkedAt: "2026-02-21T00:00:00.000Z",
-      },
-    ], null, ["db", "cards"], {
-      state: {
-        threadStartProgressByTarget: {},
-      },
-    }, {
-      state: {
-        conversationsById: {
-          "thr-1": {
-            threadId: "thr-1",
-            projectId: "default",
-            cardId: "card-1",
-            threadName: "Thread 1",
-            threadPreview: "Preview",
-            modelProvider: "openai",
-            cwd: "/tmp/project",
-            statusType: "idle",
-            statusActiveFlags: [],
-            archived: false,
-            createdAt: 1,
-            updatedAt: 2,
-            linkedAt: "2026-02-21T00:00:00.000Z",
-            latestCollaborationMode: {
-              mode: "plan",
-              settings: {
-                model: "gpt-5.3-codex",
-                reasoning_effort: "high",
-                developer_instructions: null,
-              },
-            },
-            resumeState: "resumed",
-            turns: [],
-            requests: [],
-            queuedFollowUps: [],
-            pendingSteers: [],
-            backgroundTerminalRows: [],
-            childMemberships: [],
-            capabilityFlags: {
-              canEditLastUserTurn: false,
-              canForkFromTurn: false,
-              canSearch: true,
-              canCollapseTurns: true,
-            },
-          },
-        },
-      },
-    }, threadFollowerOverrides);
+function renderWorkbench({
+  projects = [makeProject()],
+  sessionsByProject = { alpha: [makeSession()] },
+  searchByProject = {},
+  dbViewPrefsByProject = {},
+  sidebar,
+}: {
+  projects?: Project[];
+  sessionsByProject?: Record<string, ProjectSession[]>;
+  searchByProject?: Record<string, string>;
+  dbViewPrefsByProject?: Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>;
+  sidebar?: { collapsed: boolean; width: number };
+} = {}) {
+  let sessionState = sessionsByProject;
+  const workspace: WorkspaceRecord = {
+    id: "main",
+    name: "Main",
+    icon: "",
+    createdAt: "2026-06-07T00:00:00.000Z",
+    updatedAt: "2026-06-07T00:00:00.000Z",
+    layout: {} as WorkspaceRecord["layout"],
+  };
 
-    const stageThreadsProps = (globalThis as { __lastStageThreadsProps?: Record<string, unknown> }).__lastStageThreadsProps;
-    expect(stageThreadsProps?.selectedCollaborationMode).toBe("plan");
+  mockInvokeImpl = async (channel, ...args) => {
+    if (channel === "project-sessions:list") {
+      const projectId = String(args[0]);
+      return sessionState[projectId] ?? [];
+    }
+    if (channel === "project-sessions:update") {
+      const sessionId = String(args[0]);
+      const input = (args[1] ?? {}) as Partial<ProjectSession>;
+      const session = Object.values(sessionState).flat().find((item) => item.id === sessionId);
+      if (!session) return null;
+      const updated = { ...session, ...input };
+      sessionState = replaceSession(sessionState, updated);
+      return updated;
+    }
+    if (channel === "project-session-tabs:create") {
+      const input = (args[0] ?? {}) as {
+        sessionId: string;
+        projectId: string;
+        kind: ProjectSession["tabs"][number]["kind"];
+        title: string;
+        config: ProjectSession["tabs"][number]["config"];
+      };
+      const session = Object.values(sessionState).flat().find((item) => item.id === input.sessionId);
+      if (!session) return null;
+      const tab = {
+        id: `created-tab-${session.tabs.length + 1}`,
+        sessionId: input.sessionId,
+        projectId: input.projectId,
+        kind: input.kind,
+        title: input.title,
+        order: session.tabs.length,
+        config: input.config,
+        createdAt: "2026-06-07T00:00:00.000Z",
+        updatedAt: "2026-06-07T00:00:00.000Z",
+      } as ProjectSession["tabs"][number];
+      sessionState = replaceSession(sessionState, { ...session, tabs: [...session.tabs, tab] });
+      return tab;
+    }
+    if (channel === "project-session-tabs:update") {
+      const tabId = String(args[0]);
+      const input = (args[1] ?? {}) as Partial<ProjectSession["tabs"][number]>;
+      const session = Object.values(sessionState)
+        .flat()
+        .find((item) => item.tabs.some((tab) => tab.id === tabId));
+      if (!session) return null;
 
-    const onSendPrompt = stageThreadsProps?.onSendPrompt as ((prompt: string) => Promise<void>) | undefined;
-    expect(Boolean(onSendPrompt)).toBeTrue();
+      const updatedTabs = session.tabs.map((tab) =>
+        tab.id === tabId
+          ? { ...tab, ...input, updatedAt: "2026-06-07T00:00:00.000Z" }
+          : tab,
+      );
+      const updatedSession = { ...session, tabs: updatedTabs };
+      sessionState = replaceSession(sessionState, updatedSession);
+      return updatedTabs.find((tab) => tab.id === tabId) ?? null;
+    }
+    if (channel === "project-session-tabs:reorder") {
+      const sessionId = String(args[0]);
+      return Object.values(sessionState).flat().find((item) => item.id === sessionId) ?? null;
+    }
+    return null;
+  };
 
-    await onSendPrompt?.("Follow up");
+  const setDbProjectCalls: string[] = [];
+  const result = render(
+    <WorkbenchShell
+      projects={projects}
+      dbProjectId={projects[0]?.id ?? "alpha"}
+      activeView="kanban"
+      activeSearchQuery=""
+      activeDbViewPrefs={null}
+      searchByProject={searchByProject}
+      dbViewPrefsByProject={dbViewPrefsByProject}
+      spaces={projects.map((project) => ({
+        projectId: project.id,
+        colorToken: "var(--accent-blue)",
+        initial: project.name.slice(0, 1).toUpperCase(),
+      }))}
+      workspaces={[workspace]}
+      activeWorkspaceId={workspace.id}
+      sidebar={sidebar}
+      cardStageCloseRef={createRef()}
+      setDbProject={(projectId) => {
+        setDbProjectCalls.push(projectId);
+      }}
+      setSearchQuery={() => undefined}
+      setDbViewPrefs={() => undefined}
+      openCardStage={() => undefined}
+      onLeaveCardStageCard={() => undefined}
+      onSelectWorkspace={() => undefined}
+      onCreateProject={async () => null}
+      onRenameProject={async () => null}
+      onDeleteProject={async () => false}
+      onRequestProjectPickerOpen={() => undefined}
+      threadSearchOpenTick={0}
+    />,
+  );
+  return { ...result, setDbProjectCalls };
+}
 
-    const startTurnOptions = startTurnCalls[0]?.[2] as { collaborationMode?: string } | undefined;
-    expect(startTurnOptions?.collaborationMode).toBe("plan");
-  });
+beforeEach(() => {
+  invokeCalls = [];
+  mockInvokeImpl = null;
+  delete (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
+  delete (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+});
 
-  test("allows thread prompt callbacks to override collaboration mode for plan implementation follow-ups", async () => {
-    const startTurnCalls: Array<unknown[]> = [];
-    const threadFollowerOverrides: Record<string, unknown> = {
-      startTurn: async (...args: unknown[]) => {
-        startTurnCalls.push(args);
-        return null;
-      },
-    };
-
-    await renderShell(false, "full-rail", {
-      activeThreadsTabId: "thr-1",
-      threadsTabs: [{ id: "thr-1", title: "Thread 1", preview: "Preview" }],
-    }, [
-      {
-        threadId: "thr-1",
-        projectId: "default",
-        cardId: "card-1",
-        threadName: "Thread 1",
-        threadPreview: "Preview",
-        modelProvider: "openai",
-        statusType: "idle",
-        statusActiveFlags: [],
-        archived: false,
-        createdAt: 1,
-        updatedAt: 2,
-        linkedAt: "2026-02-21T00:00:00.000Z",
-      },
-    ], null, ["db", "cards"], {
-      state: {
-        threadStartProgressByTarget: {},
-      },
-    }, undefined, threadFollowerOverrides);
-
-    const stageThreadsProps = (globalThis as { __lastStageThreadsProps?: Record<string, unknown> }).__lastStageThreadsProps;
-    const onSendPrompt = stageThreadsProps?.onSendPrompt as
-      | ((prompt: string, opts?: { collaborationMode?: string }) => Promise<void>)
-      | undefined;
-    expect(Boolean(onSendPrompt)).toBeTrue();
-
-    await onSendPrompt?.("PLEASE IMPLEMENT THIS PLAN:\nShip it", { collaborationMode: "default" });
-
-    expect(startTurnCalls.length).toBe(1);
-    const startTurnOptions = startTurnCalls[0]?.[2] as { collaborationMode?: string } | undefined;
-    expect(startTurnOptions?.collaborationMode).toBe("default");
-  });
-
-  test("sources active thread stage data from local conversation snapshots instead of codex thread details", async () => {
-    await renderShell(
-      false,
-      "full-rail",
-      {
-        activeThreadsTabId: "thr-1",
-        threadsTabs: [{ id: "thr-1", title: "Thread 1", preview: "Preview" }],
-      },
+describe("workbench session shell", () => {
+  test("keeps card-stage session tab ordering scoped to session ids", () => {
+    const order = resolveCardStageSessionTabOrder(
       [
-        {
-          threadId: "thr-1",
-          projectId: "default",
-          cardId: "card-1",
-          threadName: "Thread 1",
-          threadPreview: "Preview",
-          modelProvider: "openai",
-          statusType: "idle",
-          statusActiveFlags: [],
-          archived: false,
-          createdAt: 1,
-          updatedAt: 2,
-          linkedAt: "2026-02-21T00:00:00.000Z",
-        },
+        { id: "session:first", sessionId: "first" },
+        { id: "history" },
+        { id: "session:second", sessionId: "second" },
       ],
-      null,
-      ["db", "cards"],
-      {
-        state: {
-          threadStartProgressByTarget: {},
-        },
-      },
-      {
-        state: {
-          connection: {
-            status: "connected",
-            retries: 0,
-          },
-          account: null,
-          threadSummariesByProject: {},
-          conversationsById: {
-            "thr-1": {
-              threadId: "thr-1",
-              projectId: "default",
-              cardId: "card-1",
-              threadName: "Thread 1",
-              threadPreview: "Preview",
-              modelProvider: "openai",
-              cwd: "/tmp/project",
-              statusType: "idle",
-              statusActiveFlags: [],
-              archived: false,
-              createdAt: 1,
-              updatedAt: 2,
-              linkedAt: "2026-02-21T00:00:00.000Z",
-              turns: [
-                {
-                  threadId: "thr-1",
-                  turnId: "turn-1",
-                  status: "completed",
-                  itemIds: ["user-1"],
-                  items: [
-                    {
-                      threadId: "thr-1",
-                      turnId: "turn-1",
-                      itemId: "user-1",
-                      type: "user_message",
-                      kind: "userMessage",
-                      role: "user",
-                      markdownText: "hello",
-                      createdAt: 1,
-                      updatedAt: 1,
-                    },
-                  ],
-                },
-              ],
-              requests: [
-                {
-                  type: "approval",
-                  requestId: "approval-1",
-                  kind: "command",
-                  projectId: "default",
-                  cardId: "card-1",
-                  threadId: "thr-1",
-                  turnId: "turn-1",
-                  itemId: "user-1",
-                  createdAt: 2,
-                },
-              ],
-              queuedFollowUps: [],
-              pendingSteers: [],
-              backgroundTerminalRows: [],
-              childMemberships: [],
-              capabilityFlags: {
-                canEditLastUserTurn: true,
-                canForkFromTurn: true,
-                canSearch: true,
-                canCollapseTurns: true,
+      "session:second",
+      "session:first",
+    );
+
+    expect(JSON.stringify(order)).toBe(JSON.stringify(["second", "first"]));
+  });
+
+  test("loads project sessions and renders the overview DB tab", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const text = textContent(screen.container);
+    expect(text.includes("Alpha")).toBeTrue();
+    expect(text.includes("Overview")).toBeTrue();
+    expect(text.includes("DB:alpha:kanban")).toBeTrue();
+    expect(invokeCalls.some((call) => call[0] === "project-sessions:list" && call[1] === "alpha")).toBeTrue();
+  });
+
+  test("restores the DB toolbar controls inside session DB tabs", async () => {
+    const prefs = getDefaultDbViewPrefs("list");
+    const listTab = {
+      id: "overview:alpha:list",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "db_view",
+      title: "Table",
+      order: 0,
+      config: { projectId: "alpha", view: "list" },
+      createdAt: "2026-06-07T00:00:00.000Z",
+      updatedAt: "2026-06-07T00:00:00.000Z",
+    } satisfies ProjectSession["tabs"][number];
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [
+          makeSession({
+            tabs: [listTab],
+            rightPaneLayout: {
+              version: 1,
+              root: {
+                type: "leaf",
+                id: "main",
+                tabIds: [listTab.id],
+                activeTabId: listTab.id,
               },
             },
-          },
-          errorMessage: null,
-        },
+          }),
+        ],
       },
-    );
-
-    const stageThreadsProps = (globalThis as { __lastStageThreadsProps?: Record<string, unknown> }).__lastStageThreadsProps;
-    const conversation = stageThreadsProps?.conversation as {
-      threadId?: string;
-      turns?: Array<{ items?: Array<{ itemId?: string }> }>;
-      requests?: Array<{ requestId?: string }>;
-    } | undefined;
-
-    expect(conversation?.threadId).toBe("thr-1");
-    expect(conversation?.turns?.[0]?.items?.[0]?.itemId).toBe("user-1");
-    expect(conversation?.requests?.[0]?.requestId).toBe("approval-1");
-  });
-
-  test("opens the diffs stage with an explicit selected turn diff target", async () => {
-    const navigateToStageCalls: unknown[][] = [];
-    await renderShell(false, "full-rail", {
-      activeThreadsTabId: "thr-1",
-      threadsTabs: [{ id: "thr-1", title: "Thread 1", preview: "Preview" }],
-      navigateToStage: (...args: unknown[]) => {
-        navigateToStageCalls.push(args);
-      },
+      searchByProject: { alpha: "urgent" },
+      dbViewPrefsByProject: { alpha: { list: prefs } },
     });
+    await settleAsyncRender();
+    await settleAsyncRender();
 
-    const stageThreadsProps = (globalThis as { __lastStageThreadsProps?: Record<string, unknown> }).__lastStageThreadsProps;
-    const openTurnDiffReview = stageThreadsProps?.onOpenTurnDiffReview as ((target: Record<string, unknown>) => void) | undefined;
-    expect(Boolean(openTurnDiffReview)).toBeTrue();
+    const dbToolbarTabList = screen.getByRole("tablist", { name: "Database views" });
+    expect(dbToolbarTabList.getAttribute("aria-label")).toBe("Database views");
+    expect(within(dbToolbarTabList).getByRole("tab", { name: "Table" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("button", { name: "Filter" }).getAttribute("aria-label")).toBe("Filter");
+    expect(screen.getByRole("button", { name: "Sort" }).getAttribute("aria-label")).toBe("Sort");
+    expect(screen.getByRole("button", { name: "Display" }).getAttribute("aria-label")).toBe("Display");
+    expect(screen.getByDisplayValue("urgent").getAttribute("value")).toBe("urgent");
 
-    act(() => {
-      openTurnDiffReview?.({
-        type: "turnDiff",
-        threadId: "thr-1",
-        turnId: "turn-2",
-        entryId: "turn-diff:turn-2",
-        patch: "--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-old\n+new",
-        cwd: "/tmp/project",
-        showRevertButton: true,
-      });
-    });
-
-    expect(navigateToStageCalls.length).toBe(1);
-    expect(navigateToStageCalls[0]?.[1] ?? null).toBe("files");
-
-    const reviewProps = (globalThis as { __lastConnectedReviewDiffPanelProps?: Record<string, unknown> }).__lastConnectedReviewDiffPanelProps;
-    expect((reviewProps?.threadId as string | null) ?? null).toBe("thr-1");
-    expect(((reviewProps?.selectedTurnDiff as { turnId?: string } | undefined)?.turnId) ?? null).toBe("turn-2");
+    const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
+    expect(props?.searchQuery).toBe("urgent");
+    expect(props?.dbViewPrefs === prefs).toBeTrue();
+    expect(typeof props?.onUpdateDbViewPrefs).toBe("function");
   });
 
-  test("terminal panel uses active terminal tab project", async () => {
-    await renderShell(true, "sliding-window", {
-      dbProjectId: "default",
-      terminalTabs: [
-        {
-          id: "card:ops-session",
-          kind: "card",
-          projectId: "ops",
-          title: "Ops card shell",
-          sessionId: "card-ops-1",
-          cardId: "card-ops-1",
-          sessionRefId: "ops-session",
-        },
-      ],
-      activeTerminalTabId: "card:ops-session",
-    });
-
-    const terminalPanelProps = (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> }).__lastTerminalPanelProps;
-    expect(terminalPanelProps?.projectId).toBe("ops");
-    expect(terminalPanelProps?.cardId).toBe("card-ops-1");
-    expect(terminalPanelProps?.mode).toBe("card");
-  });
-
-  test("includes recents as a top-level sidebar group", async () => {
-    const shell = await renderShell(false);
-    expect(shell.container.querySelector('[data-stage-groups="db,recents,cards,threads,files"]')).not.toBeNull();
-  });
-
-  test("orders and filters top-level sidebar groups from persisted sidebar prefs", async () => {
-    await renderShell(false, "sliding-window", {
-      sidebar: {
-        collapsed: false,
-        width: 280,
-        topLevelSectionOrder: ["threads", "recents", "cards", "files"],
-        topLevelSections: {
-          recents: { visible: true, itemLimit: 5 },
-          cards: { visible: false, itemLimit: 10 },
-          threads: { visible: true, itemLimit: 15 },
-          files: { visible: true, itemLimit: 20 },
-        },
-      },
-    });
-
-    const sidebarProps = (globalThis as { __lastLeftSidebarProps?: Record<string, unknown> }).__lastLeftSidebarProps;
-    const stageGroups = (sidebarProps?.stageGroups as SidebarGroup[] | undefined) ?? [];
-
-    expect(stageGroups.map((group) => group.id).join(",")).toBe("db,threads,recents,files");
-    expect(stageGroups[1]?.moreActions?.itemLimit).toBe(15);
-    expect(stageGroups[1]?.moreActions?.canMoveUp).toBeFalse();
-    expect(stageGroups[1]?.moreActions?.canMoveDown).toBeTrue();
-    expect(stageGroups[2]?.moreActions?.itemLimit).toBe(5);
-    expect(stageGroups[3]?.moreActions?.canMoveDown).toBeFalse();
-  });
-
-  test("builds a top-level recents group plus current-project cards sections", async () => {
-    await renderShell(false, "sliding-window", {
-      recentCardSessions: [
-        {
-          id: "s-1",
-          projectId: "ops",
-          cardId: "card-1",
-          titleSnapshot: "Cross-project recent",
-          lastOpenedAt: "2026-02-26T12:00:00.000Z",
-        },
-      ],
-      cardsTabs: [{ id: "history", kind: "history", title: "History" }],
-      activeCardsTabId: "history",
-    });
-
-    const sidebarProps = (globalThis as { __lastLeftSidebarProps?: Record<string, unknown> }).__lastLeftSidebarProps;
-    const stageGroups = (sidebarProps?.stageGroups as SidebarGroup[] | undefined) ?? [];
-    const recentsGroup = stageGroups.find((group) => group.id === "recents");
-    const cardsGroup = stageGroups.find((group) => group.id === "cards");
-    const sectionIds = cardsGroup?.sections?.map((section) => section.id).join(",");
-    const statusSection = cardsGroup?.sections?.find((section) => section.id === "cards:status:in_progress");
-
-    expect(sectionIds).toBe([
-      "cards:status:done",
-      "cards:status:in_review",
-      "cards:status:in_progress",
-      "cards:status:backlog",
-      "cards:status:draft",
-    ].join(","));
-    expect(statusSection?.label).toBe("In Progress");
-    expect(statusSection?.count).toBe(2);
-    expect(statusSection?.collapsible).toBeTrue();
-    expect(statusSection?.items?.map((item) => item.label).join(",")).toBe("Card 1,Ops Card");
-    expect(recentsGroup?.label).toBe("Recents");
-    expect(recentsGroup?.items?.[0]?.label).toBe("Cross-project recent");
-  });
-
-  test("keeps the currently open recent card active when card-stage and tab state disagree", async () => {
-    await renderShell(false, "sliding-window", {
-      recentCardSessions: [
-        {
-          id: "session-1",
-          projectId: "default",
-          cardId: "card-1",
-          titleSnapshot: "Card 1",
-          lastOpenedAt: "2026-02-26T12:00:00.000Z",
-        },
-        {
-          id: "session-2",
-          projectId: "default",
-          cardId: "card-ops-1",
-          titleSnapshot: "Ops Card",
-          lastOpenedAt: "2026-02-26T13:00:00.000Z",
-        },
-      ],
-      focusedStage: "cards",
-      activeCardsTabId: "session:session-2",
-      activeRecentSessionId: "session-2",
-      cardStageState: {
-        open: true,
-        projectId: "default",
-        cardId: "card-1",
-      },
-      cardStageCardId: "card-1",
-    });
-
-    const sidebarProps = (globalThis as { __lastLeftSidebarProps?: Record<string, unknown> }).__lastLeftSidebarProps;
-    const stageGroups = (sidebarProps?.stageGroups as SidebarGroup[] | undefined) ?? [];
-    const recentsGroup = stageGroups.find((group) => group.id === "recents");
-    const card1 = recentsGroup?.items?.find((item) => item.id === "session:session-1");
-    const card2 = recentsGroup?.items?.find((item) => item.id === "session:session-2");
-
-    expect(card1?.active).toBeTrue();
-    expect(card2?.active).toBeFalse();
-  });
-
-  test("keeps the current recent card active while history is open as an overlay", async () => {
-    await renderShell(false, "sliding-window", {
-      recentCardSessions: [
-        {
-          id: "session-1",
-          projectId: "default",
-          cardId: "card-1",
-          titleSnapshot: "Card 1",
-          lastOpenedAt: "2026-02-26T12:00:00.000Z",
-        },
-      ],
-      focusedStage: "cards",
-      activeCardsTabId: "history",
-      activeRecentSessionId: "session-1",
-      cardStageState: {
-        open: true,
-        projectId: "default",
-        cardId: "card-1",
-      },
-      cardStageCardId: "card-1",
-    });
-
-    const sidebarProps = (globalThis as { __lastLeftSidebarProps?: Record<string, unknown> }).__lastLeftSidebarProps;
-    const stageGroups = (sidebarProps?.stageGroups as SidebarGroup[] | undefined) ?? [];
-    const recentsGroup = stageGroups.find((group) => group.id === "recents");
-    const card1 = recentsGroup?.items?.find((item) => item.id === "session:session-1");
-
-    expect(card1?.active).toBeTrue();
-  });
-
-  test("passes sidebar section visibility controls through to settings", async () => {
-    await renderShell(false, "sliding-window", {
-      sidebar: {
-        collapsed: false,
-        width: 280,
-        topLevelSectionOrder: ["files", "threads", "recents", "cards"],
-        topLevelSections: {
-          recents: { visible: false, itemLimit: 10 },
-          cards: { visible: true, itemLimit: 10 },
-          threads: { visible: true, itemLimit: 15 },
-          files: { visible: true, itemLimit: 20 },
-        },
-      },
-    });
-
-    const settingsProps = (globalThis as { __lastSettingsOverlayProps?: Record<string, unknown> }).__lastSettingsOverlayProps;
-
-    expect((settingsProps?.sidebarTopLevelSectionOrder as string[] | undefined)?.join(",")).toBe("files,threads,recents,cards");
-    expect((settingsProps?.sidebarTopLevelSections as Record<string, { visible: boolean }> | undefined)?.recents?.visible).toBeFalse();
-    expect(typeof settingsProps?.onSidebarTopLevelSectionVisibleChange).toBe("function");
-  });
-
-  test("defaults settings shell to the general section", async () => {
-    await renderShell(false, "sliding-window");
-
-    const settingsProps = (globalThis as { __lastSettingsOverlayProps?: Record<string, unknown> }).__lastSettingsOverlayProps;
-    expect(settingsProps?.path).toBe("/settings/general-settings");
-  });
-
-  test("opens current-project status cards through the existing card-stage flow", async () => {
-    const openCardStageCalls: Array<unknown[]> = [];
-    const openCardStage = (...args: unknown[]) => {
-      openCardStageCalls.push(args);
-    };
-
-    await renderShell(false, "sliding-window", {
-      openCardStage,
-      focusedStage: "db",
-      cardsTabs: [{ id: "history", kind: "history", title: "History" }],
-      activeCardsTabId: "history",
-    });
-
-    const sidebarProps = (globalThis as { __lastLeftSidebarProps?: Record<string, unknown> }).__lastLeftSidebarProps;
-    const stageGroups = (sidebarProps?.stageGroups as SidebarGroup[] | undefined) ?? [];
-    const cardsGroup = stageGroups.find((group) => group.id === "cards");
-    const statusCard = cardsGroup?.sections
-      ?.find((section) => section.id === "cards:status:in_progress")
-      ?.items?.find((item) => item.id === "project-card:card-1");
-
-    expect(Boolean(statusCard?.onSelect)).toBeTrue();
-
-    statusCard?.onSelect?.();
-
-    expect(openCardStageCalls.length).toBe(1);
-    expect(openCardStageCalls[0]?.[0]).toBe("default");
-    expect(openCardStageCalls[0]?.[1]).toBe("card-1");
-    expect(openCardStageCalls[0]?.[2]).toBe("Card 1");
-  });
-
-  test("keeps grouped current-project cards independent from the active search query", async () => {
-    await renderShell(false, "sliding-window", {
-      activeSearchQuery: "ops",
-      cardsTabs: [{ id: "history", kind: "history", title: "History" }],
-      activeCardsTabId: "history",
-    });
-
-    const sidebarProps = (globalThis as { __lastLeftSidebarProps?: Record<string, unknown> }).__lastLeftSidebarProps;
-    const stageGroups = (sidebarProps?.stageGroups as SidebarGroup[] | undefined) ?? [];
-    const cardsGroup = stageGroups.find((group) => group.id === "cards");
-    const statusSection = cardsGroup?.sections?.find((section) => section.id === "cards:status:in_progress");
-
-    expect(statusSection?.items?.map((item) => item.label).join(",")).toBe("Card 1,Ops Card");
-  });
-
-  test("highlights only sidebar groups and items shown in visible sliding windows", async () => {
-    await renderShell(false, "sliding-window", {
-      activeView: "list",
-      activeCardsTabId: "history",
-      activeThreadsTabId: "thr-1",
-      activeFilesTabId: "diff",
-      focusedStage: "cards",
-      stageNavDirection: "right",
-      cardsTabs: [{ id: "history", kind: "history", title: "History" }],
-      filesTabs: [{ id: "diff", title: "Diff" }],
-    }, [
-      {
-        threadId: "thr-1",
-        threadName: "Thread 1",
-        threadPreview: "preview",
-        statusType: "idle",
-        cardId: "card-1",
-      },
-    ], null, ["cards", "threads"]);
-
-    const sidebarProps = (globalThis as { __lastLeftSidebarProps?: Record<string, unknown> }).__lastLeftSidebarProps;
-    const stageGroups = (sidebarProps?.stageGroups as SidebarGroup[] | undefined) ?? [];
-    const dbGroup = stageGroups.find((group) => group.id === "db");
-    const cardsGroup = stageGroups.find((group) => group.id === "cards");
-    const threadsGroup = stageGroups.find((group) => group.id === "threads");
-    const filesGroup = stageGroups.find((group) => group.id === "files");
-
-    expect(dbGroup?.active).toBeFalse();
-    expect(cardsGroup?.active).toBeTrue();
-    expect(threadsGroup?.active).toBeTrue();
-    expect(filesGroup?.active).toBeFalse();
-
-    expect(dbGroup?.items?.some((item) => item.active)).toBeTrue();
-    expect(cardsGroup?.items?.some((item) => item.active)).toBeFalse();
-    expect(threadsGroup?.items?.some((item) => item.active)).toBeTrue();
-    expect(filesGroup?.items?.some((item) => item.active)).toBeFalse();
-  });
-
-  test("shows only one visible stage in sidebar highlights when pane count is one", async () => {
-    await renderShell(false, "sliding-window", {
-      activeCardsTabId: "history",
-      activeThreadsTabId: "thr-1",
-      focusedStage: "cards",
-      stageNavDirection: "right",
-      slidingWindowPaneCount: 1,
-      cardsTabs: [{ id: "history", kind: "history", title: "History" }],
-    }, [
-      {
-        threadId: "thr-1",
-        threadName: "Thread 1",
-        threadPreview: "preview",
-        statusType: "idle",
-        cardId: "card-1",
-      },
-    ], null, ["cards"]);
-
-    const sidebarProps = (globalThis as { __lastLeftSidebarProps?: Record<string, unknown> }).__lastLeftSidebarProps;
-    const stageGroups = (sidebarProps?.stageGroups as SidebarGroup[] | undefined) ?? [];
-    const cardsGroup = stageGroups.find((group) => group.id === "cards");
-    const threadsGroup = stageGroups.find((group) => group.id === "threads");
-
-    expect(cardsGroup?.active).toBeTrue();
-    expect(threadsGroup?.active).toBeFalse();
-    expect(cardsGroup?.items?.some((item) => item.active)).toBeFalse();
-    expect(threadsGroup?.items?.some((item) => item.active)).toBeFalse();
-  });
-
-  test("keeps the same threads header icon when threads start running", async () => {
-    await renderShell(false, "sliding-window", {}, [
-      {
-        threadId: "thr-idle",
-        threadName: "Idle Thread",
-        threadPreview: "preview",
-        statusType: "idle",
-        updatedAt: 1710000000000,
-        cardId: "card-1",
-      },
-    ]);
-
-    const idleSidebarProps = (globalThis as { __lastLeftSidebarProps?: Record<string, unknown> }).__lastLeftSidebarProps;
-    const idleStageGroups = (idleSidebarProps?.stageGroups as SidebarGroup[] | undefined) ?? [];
-    const idleThreadsGroup = idleStageGroups.find((group) => group.id === "threads");
-    const idleThreadsIcon = idleThreadsGroup?.icon;
-
-    await renderShell(false, "sliding-window", {}, [
-      {
-        threadId: "thr-running",
-        threadName: "Running Thread",
-        threadPreview: "preview",
-        statusType: "active",
-        updatedAt: 1710000000000,
-        cardId: "card-1",
-      },
-    ]);
-
-    const runningSidebarProps = (globalThis as { __lastLeftSidebarProps?: Record<string, unknown> }).__lastLeftSidebarProps;
-    const runningStageGroups = (runningSidebarProps?.stageGroups as SidebarGroup[] | undefined) ?? [];
-    const runningThreadsGroup = runningStageGroups.find((group) => group.id === "threads");
-
-    expect(runningThreadsGroup?.icon).toBe(idleThreadsIcon);
-  });
-
-  test("adds running icon and elapsed source timestamp to thread sidebar items", async () => {
-    await renderShell(false, "sliding-window", {}, [
-      {
-        threadId: "thr-running",
-        threadName: "Running Thread",
-        threadPreview: "preview",
-        statusType: "active",
-        updatedAt: 1710000000000,
-        cardId: "card-1",
-      },
-      {
-        threadId: "thr-idle",
-        threadName: "Idle Thread",
-        threadPreview: "preview",
-        statusType: "idle",
-        updatedAt: 1710001000000,
-        cardId: "card-2",
-      },
-    ]);
-
-    const sidebarProps = (globalThis as { __lastLeftSidebarProps?: Record<string, unknown> }).__lastLeftSidebarProps;
-    const stageGroups = (sidebarProps?.stageGroups as SidebarGroup[] | undefined) ?? [];
-    const threadsGroup = stageGroups.find((group) => group.id === "threads");
-    const runningThreadItem = threadsGroup?.items?.find((item) => item.id === "thr-running");
-    const idleThreadItem = threadsGroup?.items?.find((item) => item.id === "thr-idle");
-
-    expect(runningThreadItem?.icon === undefined).toBeFalse();
-    expect(runningThreadItem?.updatedAtMs).toBe(1710000000000);
-    expect(idleThreadItem?.icon === undefined).toBeTrue();
-    expect(idleThreadItem?.updatedAtMs).toBe(1710001000000);
-  });
-
-  test("renders global bottom terminal panel when opened", async () => {
-    const shell = await renderShell(true);
-    expect(shell.container.querySelector('[data-terminal-panel="true"]')).not.toBeNull();
-  });
-
-  test("shows a toolbar divider when multiple stages are visible", async () => {
-    const shell = await renderShell(false, "sliding-window");
-    const toolbar = shell.container.querySelector("main > section");
-    const toolbarClassName = toolbar?.getAttribute("class") ?? "";
-
-    expect(toolbar).not.toBeNull();
-    expect(Boolean(toolbarClassName.includes("border-b"))).toBeTrue();
-    expect(Boolean(toolbarClassName.includes("border-(--border)"))).toBeTrue();
-  });
-
-  test("hides the toolbar divider when only one stage is visible", async () => {
-    const shell = await renderShell(
-      false,
-      "sliding-window",
-      {},
-      [],
-      null,
-      ["db"],
-    );
-    const toolbar = shell.container.querySelector("main > section");
-    const toolbarClassName = toolbar?.getAttribute("class") ?? "";
-
-    expect(toolbar).not.toBeNull();
-    expect(Boolean(toolbarClassName.includes("border-b"))).toBeFalse();
-    expect(Boolean(toolbarClassName.includes("border-(--border)"))).toBeFalse();
-  });
-
-  test("wires stage rail layout mode into settings modal", async () => {
-    await renderShell(false, "full-rail");
-    const props = (globalThis as { __lastSettingsOverlayProps?: Record<string, unknown> }).__lastSettingsOverlayProps;
-    expect(props?.stageRailLayoutMode).toBe("full-rail");
-    expect(typeof props?.onStageRailLayoutModeChange).toBe("function");
-  });
-
-  test("wires smart prefix settings into settings modal", async () => {
-    await renderShell(false, "full-rail");
-    const props = (globalThis as { __lastSettingsOverlayProps?: Record<string, unknown> }).__lastSettingsOverlayProps;
-    expect(props?.smartPrefixParsingEnabled).toBeTrue();
-    expect(props?.stripSmartPrefixFromTitleEnabled).toBeTrue();
-    expect(typeof props?.onSmartPrefixParsingEnabledChange).toBe("function");
-    expect(typeof props?.onStripSmartPrefixFromTitleEnabledChange).toBe("function");
-  });
-
-  test("opens local-environments settings from card stage with project and config context", async () => {
-    await renderShell(false, "sliding-window", {
-      projects: [
-        {
-          id: "default",
-          name: "Default",
-          description: "",
-          workspacePath: "/tmp/default",
-          created: new Date("2026-02-25T00:00:00.000Z"),
-        },
-      ],
-      cardsTabs: [{ id: "session:s-1", kind: "session", title: "Card 1", sessionId: "s-1" }],
-      activeCardsTabId: "session:s-1",
-      cardStageState: {
-        open: true,
-        projectId: "default",
-        cardId: "card-1",
-      },
-    });
-
-    const cardStageProps = (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps;
-    const openLocalEnvironmentSettings = cardStageProps?.onOpenLocalEnvironmentSettings as
-      | ((input: { projectId: string; configPath?: string | null }) => void)
-      | undefined;
-
-    expect(Boolean(openLocalEnvironmentSettings)).toBeTrue();
+  test("persists DB toolbar view selection through the session tab API", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
 
     await act(async () => {
-      openLocalEnvironmentSettings?.({
-        projectId: "default",
-        configPath: ".codex/environments/environment.toml",
-      });
+      const dbToolbarTabList = screen.getByRole("tablist", { name: "Database views" });
+      fireEvent.mouseDown(within(dbToolbarTabList).getByRole("tab", { name: "Table" }), { button: 0 });
+      await Promise.resolve();
     });
 
-    const settingsProps = (globalThis as { __lastSettingsOverlayProps?: Record<string, unknown> }).__lastSettingsOverlayProps;
-    expect(settingsProps?.open).toBeTrue();
-    expect(settingsProps?.path).toBe("/settings/local-environments");
-    expect(settingsProps?.initialLocalEnvironmentProjectId).toBe("default");
-    expect(settingsProps?.initialLocalEnvironmentConfigPath).toBe(".codex/environments/environment.toml");
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-session-tabs:update"
+      && call[1] === "overview:alpha:db"
+      && JSON.stringify(call[2]) === JSON.stringify({
+        config: { projectId: "alpha", view: "list" },
+        title: "Table",
+      })
+    )).toBeTrue();
   });
 
-  test("uses nearest sliding-window focus intent when selecting thread from sidebar", async () => {
-    const navigateToThreadTabCalls: Array<unknown[]> = [];
-    const navigateToThreadTab = (...args: unknown[]) => {
-      navigateToThreadTabCalls.push(args);
-    };
+  test("renders an attached session thread as the main session page", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeAttachedSession()] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
 
-    await renderShell(false, "sliding-window", {
-      navigateToThreadTab,
-      activeThreadsTabId: "thread:new",
-    }, [
-      {
-        threadId: "thr-1",
-        threadName: "Thread 1",
-        threadPreview: "preview",
-        statusType: "idle",
-        cardId: "card-1",
-      },
-    ]);
-
-    const leftSidebarProps = (globalThis as { __lastLeftSidebarProps?: Record<string, unknown> }).__lastLeftSidebarProps;
-    const stageGroups = (leftSidebarProps?.stageGroups as Array<{ id: string; items?: Array<{ id: string; onSelect?: () => void }> }> | undefined) ?? [];
-    const threadGroup = stageGroups.find((group) => group.id === "threads");
-    const threadItem = threadGroup?.items?.find((item) => item.id === "thr-1");
-    expect(Boolean(threadItem)).toBeTrue();
-
-    threadItem?.onSelect?.();
-
-    expect(navigateToThreadTabCalls.length).toBe(1);
-    expect(navigateToThreadTabCalls[0]?.[0]).toBe("default");
-    expect(navigateToThreadTabCalls[0]?.[1]).toBe("thr-1");
+    const threadPage = screen.container.querySelector('[data-testid="session-thread-page"]');
+    expect(threadPage?.getAttribute("data-session-thread-page-hidden")).toBe("false");
+    expect(textContent(screen.container).includes("Thread:thread-alpha")).toBeTrue();
+    expect(screen.container.querySelector('[data-thread-stage="true"]') !== null).toBeTrue();
   });
 
-  test("uses nearest sliding-window focus intent when opening a linked thread from Card Stage", async () => {
-    const navigateToThreadTabCalls: Array<unknown[]> = [];
-    const navigateToThreadTab = (...args: unknown[]) => {
-      navigateToThreadTabCalls.push(args);
-    };
+  test("collapsed right panel opens from the thread page control", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeSession({ rightPaneCollapsed: true })] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
 
-    await renderShell(false, "sliding-window", {
-      navigateToThreadTab,
-      cardsTabs: [{ id: "session:s-1", kind: "session", title: "Card 1", sessionId: "s-1" }],
-      activeCardsTabId: "session:s-1",
-      cardStageState: {
-        open: true,
-        projectId: "default",
-        cardId: "card-1",
-      },
+    expect(screen.queryAllByRole("tablist").length).toBe(0);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Show right panel" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-sessions:update"
+      && call[1] === "overview:alpha"
+      && JSON.stringify(call[2]) === JSON.stringify({ rightPaneCollapsed: false })
+    )).toBeTrue();
+    expect(screen.queryAllByRole("tablist").length > 0).toBeTrue();
+  });
+
+  test("open right panel can expand to full session width", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Expand panel" }));
+      await Promise.resolve();
     });
 
-    const cardStageProps = (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps;
-    const onOpenCodexThread = cardStageProps?.onOpenCodexThread as ((threadId: string) => Promise<void>) | undefined;
-    expect(Boolean(onOpenCodexThread)).toBeTrue();
-
-    await onOpenCodexThread?.("thr-1");
-
-    expect(navigateToThreadTabCalls.length).toBe(1);
-    expect(navigateToThreadTabCalls[0]?.[0]).toBe("default");
-    expect(navigateToThreadTabCalls[0]?.[1]).toBe("thr-1");
+    const rightPanel = screen.container.querySelector('[data-testid="session-right-panel"]');
+    const threadPage = screen.container.querySelector('[data-testid="session-thread-page"]');
+    expect(rightPanel?.getAttribute("data-right-panel-width-mode")).toBe("full");
+    expect(threadPage?.getAttribute("data-session-thread-page-hidden")).toBe("true");
+    expect(screen.getByRole("button", { name: "Restore panel width" }).getAttribute("aria-pressed")).toBe("true");
   });
 
-  test("uses nearest sliding-window focus intent for db/cards/files sidebar interactions", async () => {
-    resolveSlidingWindowFocusIntentCalls = [];
-    resolveSlidingWindowFocusIntentReturn = { direction: "left" };
-    const navigateToStageCalls: Array<unknown[]> = [];
-    const navigateToDbViewCalls: Array<unknown[]> = [];
-    const openCardStageCalls: Array<unknown[]> = [];
-    const navigateToFilesTabCalls: Array<unknown[]> = [];
-    const navigateToStage = (...args: unknown[]) => {
-      navigateToStageCalls.push(args);
-    };
-    const navigateToDbView = (...args: unknown[]) => {
-      navigateToDbViewCalls.push(args);
-    };
-    const openCardStage = (...args: unknown[]) => {
-      openCardStageCalls.push(args);
-    };
-    const navigateToFilesTab = (...args: unknown[]) => {
-      navigateToFilesTabCalls.push(args);
-    };
+  test("manual tab creation opens a collapsed right panel", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeSession({ rightPaneCollapsed: true })] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
 
-    await renderShell(false, "sliding-window", {
-      navigateToStage,
-      navigateToDbView,
-      openCardStage,
-      navigateToFilesTab,
-      cardsTabs: [{ id: "history", kind: "history", title: "History" }],
-      filesTabs: [{ id: "diff", title: "Diff" }],
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Add DB view" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-sessions:update"
+      && call[1] === "overview:alpha"
+      && JSON.stringify(call[2]) === JSON.stringify({ rightPaneCollapsed: false })
+    )).toBeTrue();
+    expect(screen.queryAllByRole("tablist").length > 0).toBeTrue();
+  });
+
+  test("opening a card from the thread page opens a collapsed right panel", async () => {
+    renderWorkbench({
+      sessionsByProject: { alpha: [makeAttachedSession({ rightPaneCollapsed: true })] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    const actions = props?.actions as { onOpenCard?: (cardId: string) => void } | undefined;
+    await act(async () => {
+      actions?.onOpenCard?.("card-1");
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeTrue();
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-sessions:update"
+      && call[1] === "overview:alpha"
+      && JSON.stringify(call[2]) === JSON.stringify({ rightPaneCollapsed: false })
+    )).toBeTrue();
+  });
+
+  test("opens cards from the DB tab as session-attached card-stage tabs", async () => {
+    renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
+    expect(typeof props?.openCardStage).toBe("function");
+    await act(async () => {
+      await (props?.openCardStage as (projectId: string, cardId: string, title?: string) => Promise<void> | void)(
+        "alpha",
+        "card-1",
+        "Card One",
+      );
     });
 
-    const leftSidebarProps = (globalThis as { __lastLeftSidebarProps?: Record<string, unknown> }).__lastLeftSidebarProps;
-    const stageGroups = (leftSidebarProps?.stageGroups as SidebarGroup[] | undefined) ?? [];
-    const dbGroup = stageGroups.find((group) => group.id === "db");
-    const cardsGroup = stageGroups.find((group) => group.id === "cards");
-    const filesGroup = stageGroups.find((group) => group.id === "files");
-    const dbItem = dbGroup?.items?.[0];
-    const cardsItem = cardsGroup?.sections?.[0]?.items?.[0];
-    const filesItem = filesGroup?.items?.[0];
-
-    expect(Boolean(dbItem)).toBeTrue();
-    expect(Boolean(cardsItem)).toBeTrue();
-    expect(Boolean(filesItem)).toBeTrue();
-
-    dbItem?.onSelect?.();
-    cardsItem?.onSelect?.();
-    filesItem?.onSelect?.();
-    dbGroup?.onFocus?.();
-    cardsGroup?.onFocus?.();
-    filesGroup?.onFocus?.();
-
-    expect(navigateToDbViewCalls.length).toBe(1);
-    expect(openCardStageCalls.length).toBe(1);
-    expect(navigateToFilesTabCalls.length).toBe(1);
-    expect(openCardStageCalls[0]?.[0]).toBe("default");
-    expect(openCardStageCalls[0]?.[1]).toBe("card-done-1");
-    expect(navigateToStageCalls.length).toBe(3);
-    expect(resolveSlidingWindowFocusIntentCalls.length).toBe(3);
+    const createCall = invokeCalls.find((call) => call[0] === "project-session-tabs:create");
+    expect(createCall !== undefined).toBeTrue();
+    expect(JSON.stringify(createCall?.[1])).toBe(
+      JSON.stringify({
+        sessionId: "overview:alpha",
+        projectId: "alpha",
+        kind: "card_stage",
+        title: "Card One",
+        config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
+      }),
+    );
   });
 
-  test("uses nearest sliding-window focus intent when opening a card from thread", async () => {
-    const openCardStageCalls: Array<unknown[]> = [];
-    const openCardStage = (...args: unknown[]) => {
-      openCardStageCalls.push(args);
-    };
-
-    await renderShell(false, "sliding-window", {
-      openCardStage,
-      focusedStage: "threads",
-      stageNavDirection: "right",
-      activeThreadsTabId: "thr-1",
-      threadsTabs: [{ id: "thr-1", title: "Thread 1", preview: "Preview" }],
-    }, [
-      {
-        threadId: "thr-1",
-        threadName: "Thread 1",
-        threadPreview: "preview",
-        statusType: "idle",
-        cardId: "card-1",
-      },
-    ], null, ["db", "threads"]);
-
-    const stageThreadsProps = (globalThis as { __lastStageThreadsProps?: Record<string, unknown> }).__lastStageThreadsProps;
-    const onOpenCard = stageThreadsProps?.onOpenCard as ((cardId: string) => void) | undefined;
-    expect(Boolean(onOpenCard)).toBeTrue();
-
-    onOpenCard?.("card-1");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(
-      invokeCalls.every((entry) => entry[0] === "app:update:status"),
-    ).toBeTrue();
-    expect(openCardStageCalls.length).toBe(1);
-  });
-
-  test("shows global recent cards in sidebar and preserves sliding-window focus intent", async () => {
-    const navigateToRecentSessionCalls: Array<unknown[]> = [];
-    const navigateToThreadTabCalls: Array<unknown[]> = [];
-    const navigateToRecentSession = (...args: unknown[]) => {
-      navigateToRecentSessionCalls.push(args);
-    };
-    const navigateToThreadTab = (...args: unknown[]) => {
-      navigateToThreadTabCalls.push(args);
-    };
-
-    await renderShell(false, "sliding-window", {
-      projects: [
-        ...PROJECTS,
+  test("persists active tab changes through the session API", async () => {
+    const session = makeSession({
+      tabs: [
         {
-          id: "ops",
-          name: "Ops",
-          description: "",
-          created: new Date("2026-02-25T00:00:00.000Z"),
+          id: "db-tab",
+          sessionId: "session-1",
+          projectId: "alpha",
+          kind: "db_view",
+          title: "DB View",
+          order: 0,
+          config: { projectId: "alpha", view: "kanban" },
+          createdAt: "2026-06-07T00:00:00.000Z",
+          updatedAt: "2026-06-07T00:00:00.000Z",
+        },
+        {
+          id: "terminal-tab",
+          sessionId: "session-1",
+          projectId: "alpha",
+          kind: "terminal",
+          title: "Terminal",
+          order: 1,
+          config: { projectId: "alpha", terminalSessionId: "terminal-1", mode: "project" },
+          createdAt: "2026-06-07T00:00:00.000Z",
+          updatedAt: "2026-06-07T00:00:00.000Z",
         },
       ],
-      spaces: [
-        { projectId: "default", colorToken: "#2783de", initial: "D" },
-        { projectId: "ops", colorToken: "#de9255", initial: "O" },
-      ],
-      recentCardSessions: [
+      id: "session-1",
+      rightPaneLayout: {
+        version: 1,
+        root: {
+          type: "leaf",
+          id: "main",
+          tabIds: ["db-tab", "terminal-tab"],
+          activeTabId: "db-tab",
+        },
+      },
+    });
+    const screen = renderWorkbench({ sessionsByProject: { alpha: [session] } });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.mouseDown(screen.getByRole("tab", { name: "Terminal" }), { button: 0 });
+      await Promise.resolve();
+    });
+
+    expect(invokeCalls.some((call) => call[0] === "project-sessions:update" && call[1] === "session-1")).toBeTrue();
+  });
+
+  test("renders the project session tree on a native-vibrant sidebar beside the rounded main surface", async () => {
+    const screen = renderWorkbench({ sidebar: { collapsed: false, width: 312 } });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const sidebar = screen.container.querySelector('[data-testid="project-session-sidebar"]');
+    expect(sidebar?.className.includes("window-fx-sidebar-surface")).toBeFalse();
+    expect(sidebar?.className.includes("bg-token-surface-secondary")).toBeFalse();
+    const mainSurface = screen.container.querySelector("main");
+    expect(mainSurface?.className.includes("main-surface")).toBeTrue();
+    expect(mainSurface?.className.includes("overflow-hidden")).toBeTrue();
+    const dragStrip = screen.container.querySelector('[data-testid="sidebar-drag-strip"]');
+    expect(dragStrip?.className.includes("draggable")).toBeTrue();
+    expect(textContent(screen.container).includes("Overview")).toBeTrue();
+    expect(screen.container.querySelector('[data-session-row="true"]') !== null).toBeTrue();
+  });
+
+  test("selecting another project expands it and falls back to its overview session", async () => {
+    const beta = makeProject("beta", "Beta");
+    const betaSession = makeSession({
+      id: "overview:beta",
+      projectId: "beta",
+      title: "Beta Overview",
+      tabs: [
         {
-          id: "s-1",
-          projectId: "ops",
-          cardId: "card-1",
-          titleSnapshot: "Card 1",
-          lastOpenedAt: "2026-02-26T12:00:00.000Z",
+          id: "overview:beta:db",
+          sessionId: "overview:beta",
+          projectId: "beta",
+          kind: "db_view",
+          title: "DB View",
+          order: 0,
+          config: { projectId: "beta", view: "kanban" },
+          createdAt: "2026-06-07T00:00:00.000Z",
+          updatedAt: "2026-06-07T00:00:00.000Z",
         },
       ],
-      navigateToRecentSession,
-      navigateToThreadTab,
-      focusedStage: "cards",
-      cardsTabs: [{ id: "history", kind: "history", title: "History" }],
-      activeCardsTabId: "history",
-      activeThreadsTabId: "thread:new",
-    }, [
-      {
-        threadId: "thr-1",
-        threadName: "Thread 1",
-        threadPreview: "preview",
-        statusType: "idle",
-        cardId: "card-1",
-      },
-    ], null, ["cards", "threads"]);
-
-    const sidebarProps = (globalThis as { __lastLeftSidebarProps?: Record<string, unknown> }).__lastLeftSidebarProps;
-    const stageGroups = (sidebarProps?.stageGroups as SidebarGroup[] | undefined) ?? [];
-    const recentsGroup = stageGroups.find((group) => group.id === "recents");
-    const threadsGroup = stageGroups.find((group) => group.id === "threads");
-    const cardsSession = recentsGroup?.items?.find((item) => item.id === "session:s-1");
-    const threadEntry = threadsGroup?.items?.find((item) => item.id === "thr-1");
-    expect(Boolean(cardsSession?.onSelect)).toBeTrue();
-    expect(Boolean(threadEntry?.onSelect)).toBeTrue();
-
-    cardsSession?.onSelect?.();
-    threadEntry?.onSelect?.();
-
-    expect(navigateToRecentSessionCalls.length).toBe(1);
-    expect(navigateToRecentSessionCalls[0]?.[0]).toBe("s-1");
-    expect(navigateToThreadTabCalls.length).toBe(1);
-    expect(navigateToThreadTabCalls[0]?.[0]).toBe("default");
-    expect(navigateToThreadTabCalls[0]?.[1]).toBe("thr-1");
-  });
-
-  test("uses nearest sliding-window focus intent when starting a thread for active project", async () => {
-    const navigateToThreadTabCalls: Array<unknown[]> = [];
-    const navigateToThreadTab = (...args: unknown[]) => {
-      navigateToThreadTabCalls.push(args);
-    };
-
-    await renderShell(false, "sliding-window", {
-      navigateToThreadTab,
-      dbProjectId: "default",
-      focusedStage: "threads",
-      stageNavDirection: "right",
-      activeThreadsTabId: "thread:new",
-    }, [], null, ["threads", "files"]);
-
-    const stageThreadsProps = (globalThis as { __lastStageThreadsProps?: Record<string, unknown> }).__lastStageThreadsProps;
-    const onStartThreadForCard = stageThreadsProps?.onStartThreadForCard as ((input: {
-      projectId: string;
-      cardId: string;
-      prompt: string;
-      threadName?: string;
-    }) => Promise<void>) | undefined;
-    expect(Boolean(onStartThreadForCard)).toBeTrue();
-
-    await onStartThreadForCard?.({
-      projectId: "default",
-      cardId: "card-1",
-      prompt: "hello",
-      threadName: "Test Thread",
-    });
-
-    expect(navigateToThreadTabCalls.length).toBe(1);
-    expect(navigateToThreadTabCalls[0]?.[0]).toBe("default");
-    expect(navigateToThreadTabCalls[0]?.[1]).toBe("t-1");
-  });
-
-  test("starts thread without requesting manual card-stage sync", async () => {
-    await renderShell(false, "sliding-window", {
-      dbProjectId: "default",
-      focusedStage: "threads",
-      stageNavDirection: "right",
-      activeThreadsTabId: "thread:new",
-      cardStageState: {
-        open: true,
-        projectId: "default",
-        cardId: "card-1",
-      },
-    }, [], null, ["threads", "files"]);
-
-    const stageThreadsProps = (globalThis as { __lastStageThreadsProps?: Record<string, unknown> }).__lastStageThreadsProps;
-    const onStartThreadForCard = stageThreadsProps?.onStartThreadForCard as ((input: {
-      projectId: string;
-      cardId: string;
-      prompt: string;
-      threadName?: string;
-    }) => Promise<void>) | undefined;
-    expect(Boolean(onStartThreadForCard)).toBeTrue();
-
-    await onStartThreadForCard?.({
-      projectId: "default",
-      cardId: "card-1",
-      prompt: "create worktree thread",
-    });
-
-    expect(invokeCalls.some((call) => call[0] === "card:get")).toBeFalse();
-  });
-
-  test("submitting an inline message edit refreshes the thread snapshot without seeding a composer intent", async () => {
-    const requestConversationSnapshotCalls: Array<unknown[]> = [];
-    const setComposerIntentCalls: Array<unknown[]> = [];
-    const editLastUserTurnCalls: Array<unknown[]> = [];
-
-    await renderShell(false, "sliding-window", {
-      focusedStage: "threads",
-      activeThreadsTabId: "thr-1",
-      threadsTabs: [{ id: "thr-1", title: "Thread 1", preview: "Preview" }],
-    }, [
-      {
-        threadId: "thr-1",
-        threadName: "Thread 1",
-        threadPreview: "preview",
-        statusType: "idle",
-        cardId: "card-1",
-      },
-    ], null, ["threads", "files"], undefined, {
-      requestConversationSnapshot: async (...args: unknown[]) => {
-        requestConversationSnapshotCalls.push(args);
-        return null;
-      },
-      setComposerIntent: (...args: unknown[]) => {
-        setComposerIntentCalls.push(args);
-      },
-    }, {
-      editLastUserTurn: async (...args: unknown[]) => {
-        editLastUserTurnCalls.push(args);
-        return {
-          threadId: "thr-1",
-          composerIntent: {
-            prompt: "Edited prompt",
-            focusNonce: 1,
-          },
-        };
+      rightPaneLayout: {
+        version: 1,
+        root: {
+          type: "leaf",
+          id: "main",
+          tabIds: ["overview:beta:db"],
+          activeTabId: "overview:beta:db",
+        },
       },
     });
-
-    const stageThreadsProps = (globalThis as { __lastStageThreadsProps?: Record<string, unknown> }).__lastStageThreadsProps;
-    const onEditLastUserTurn = stageThreadsProps?.onEditLastUserTurn as ((input: {
-      threadId: string;
-      turnId: string;
-      message: string;
-    }) => Promise<void>) | undefined;
-    expect(Boolean(onEditLastUserTurn)).toBeTrue();
-    requestConversationSnapshotCalls.length = 0;
-
-    await onEditLastUserTurn?.({
-      threadId: "thr-1",
-      turnId: "turn-1",
-      message: "Rewrite the prompt",
+    const screen = renderWorkbench({
+      projects: [makeProject(), beta],
+      sessionsByProject: { alpha: [makeSession()], beta: [betaSession] },
+      sidebar: { collapsed: false, width: 300 },
     });
+    await settleAsyncRender();
+    await settleAsyncRender();
 
-    expect(editLastUserTurnCalls.length).toBe(1);
-    expect(requestConversationSnapshotCalls.length).toBe(1);
-    expect(requestConversationSnapshotCalls[0]?.[0]).toBe("thr-1");
-    expect(setComposerIntentCalls.length).toBe(0);
-  });
-
-  test("opening an existing active thread tab resumes it instead of snapshot-hydrating it", async () => {
-    const requestConversationSnapshotCalls: Array<unknown[]> = [];
-    const requestConversationResumeCalls: Array<unknown[]> = [];
-
-    await renderShell(false, "sliding-window", {
-      focusedStage: "threads",
-      activeThreadsTabId: "thr-1",
-      threadsTabs: [{ id: "thr-1", title: "Thread 1", preview: "Preview" }],
-    }, [
-      {
-        threadId: "thr-1",
-        threadName: "Thread 1",
-        threadPreview: "preview",
-        statusType: "idle",
-        cardId: "card-1",
-      },
-    ], null, ["threads", "files"], undefined, {
-      requestConversationSnapshot: async (...args: unknown[]) => {
-        requestConversationSnapshotCalls.push(args);
-        return null;
-      },
-      requestConversationResume: async (...args: unknown[]) => {
-        requestConversationResumeCalls.push(args);
-        return null;
-      },
+    await act(async () => {
+      fireEvent.click(screen.getByText("Beta"));
+      await Promise.resolve();
     });
+    await settleAsyncRender();
 
-    expect(requestConversationResumeCalls.length).toBe(1);
-    expect(requestConversationResumeCalls[0]?.[0]).toBe("thr-1");
-    expect(requestConversationSnapshotCalls.length).toBe(0);
+    expect(screen.setDbProjectCalls.includes("beta")).toBeTrue();
+    expect(textContent(screen.container).includes("Beta Overview")).toBeTrue();
+    expect(textContent(screen.container).includes("DB:beta:kanban")).toBeTrue();
   });
 
-  test("focuses cards stage when opening a card from view and cards are not visible", async () => {
-    const openCardStageCalls: Array<unknown[]> = [];
-    const openCardStage = (...args: unknown[]) => {
-      openCardStageCalls.push(args);
-    };
+  test("collapsed sidebar keeps the titlebar collapse control out of the traffic light zone on macOS", async () => {
+    const originalPlatform = navigator.platform;
+    Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
+    try {
+      const screen = renderWorkbench({ sidebar: { collapsed: true, width: 300 } });
+      await settleAsyncRender();
+      await settleAsyncRender();
 
-    await renderShell(false, "sliding-window", {
-      openCardStage,
-      focusedStage: "db",
-      stageNavDirection: "right",
-      slidingWindowPaneCount: 2,
-    }, [], null, ["db", "threads"]);
-
-    const mainViewHostProps = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
-    const openCardStageFromView = mainViewHostProps?.openCardStage as (
-      projectId: string,
-      columnId: string,
-      card: Record<string, unknown>,
-      availableTags: string[],
-      handlers: Record<string, unknown>,
-    ) => void;
-    expect(Boolean(openCardStageFromView)).toBeTrue();
-
-    openCardStageFromView(
-      "default",
-      "in_progress",
-      { id: "card-1", title: "Card 1" },
-      [],
-      {
-        onUpdate: async () => undefined,
-        onPatch: () => undefined,
-        onDelete: async () => undefined,
-        onMove: async () => undefined,
-      },
-    );
-
-    expect(openCardStageCalls.length).toBe(1);
-  });
-
-  test("does not refocus stage when cards are already visible in right pane", async () => {
-    const setFocusedStageCalls: Array<unknown[]> = [];
-    const openCardStageCalls: Array<unknown[]> = [];
-    const setFocusedStage = (...args: unknown[]) => {
-      setFocusedStageCalls.push(args);
-    };
-    const openCardStage = (...args: unknown[]) => {
-      openCardStageCalls.push(args);
-    };
-
-    await renderShell(false, "sliding-window", {
-      openCardStage,
-      setFocusedStage,
-      focusedStage: "db",
-      stageNavDirection: "right",
-      slidingWindowPaneCount: 2,
-    }, [], null, ["db", "cards"]);
-
-    const mainViewHostProps = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
-    const openCardStageFromView = mainViewHostProps?.openCardStage as (
-      projectId: string,
-      columnId: string,
-      card: Record<string, unknown>,
-      availableTags: string[],
-      handlers: Record<string, unknown>,
-    ) => void;
-    expect(Boolean(openCardStageFromView)).toBeTrue();
-
-    openCardStageFromView(
-      "default",
-      "in_progress",
-      { id: "card-1", title: "Card 1" },
-      [],
-      {
-        onUpdate: async () => undefined,
-        onPatch: () => undefined,
-        onDelete: async () => undefined,
-        onMove: async () => undefined,
-      },
-    );
-
-    expect(openCardStageCalls.length).toBe(1);
-    expect(setFocusedStageCalls.length).toBe(0);
+      const sidebar = screen.container.querySelector('[data-testid="project-session-sidebar"]') as HTMLElement | null;
+      expect(sidebar !== null).toBeTrue();
+      expect(sidebar?.closest("[aria-hidden]")?.getAttribute("aria-hidden")).toBe("true");
+      const floatingShell = screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]');
+      expect(floatingShell?.className.includes("rounded-r-2xl")).toBeTrue();
+      expect(floatingShell?.className.includes("overflow-hidden")).toBeTrue();
+      expect(floatingShell?.className.includes("bg-(")).toBeFalse();
+      expect(floatingShell?.className.includes("bg-token")).toBeFalse();
+      const collapseButton = screen.getByRole("button", { name: "Expand sidebar" });
+      const fixedContainer = collapseButton.parentElement as HTMLElement;
+      expect(fixedContainer.style.left).toBe("90px");
+      expect(fixedContainer.style.top).toBe("12px");
+      expect(collapseButton.className.includes("no-drag")).toBeTrue();
+    } finally {
+      Object.defineProperty(navigator, "platform", { configurable: true, value: originalPlatform });
+    }
   });
 });

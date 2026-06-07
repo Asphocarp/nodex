@@ -90,6 +90,7 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
     activeDbViewPrefs,
     viewsByProject,
     searchByProject,
+    dbViewPrefsByProject,
     sidebar,
     focusedStage,
     stageNavDirection,
@@ -1072,6 +1073,8 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
       activeView={resolvedView}
       activeSearchQuery={resolvedSearchQuery}
       activeDbViewPrefs={activeDbViewPrefs}
+      searchByProject={searchByProject}
+      dbViewPrefsByProject={dbViewPrefsByProject}
       spaces={spaces}
       workspaces={workspaceCatalog.workspaces}
       activeWorkspaceId={activeWorkspace.id}

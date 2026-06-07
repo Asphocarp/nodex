@@ -60,6 +60,94 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       });
       return res.json();
     }
+    case "project-sessions:list": {
+      const [projectId] = args as [string];
+      const res = await fetch(toApiUrl(`/api/projects/${projectId}/sessions`));
+      const data = await res.json();
+      return data.sessions ?? [];
+    }
+    case "project-sessions:create": {
+      const [input] = args as [{ projectId: string; title: string }];
+      const res = await fetch(toApiUrl(`/api/projects/${input.projectId}/sessions`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      return res.json();
+    }
+    case "project-sessions:update": {
+      const [sessionId, input] = args as [string, object];
+      const res = await fetch(toApiUrl(`/api/project-sessions/${sessionId}`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      return res.ok ? res.json() : null;
+    }
+    case "project-sessions:delete": {
+      const [sessionId] = args as [string];
+      const res = await fetch(toApiUrl(`/api/project-sessions/${sessionId}`), { method: "DELETE" });
+      const data = await res.json();
+      return data.success ?? false;
+    }
+    case "project-sessions:reorder": {
+      const [projectId, orderedSessionIds] = args as [string, string[]];
+      const res = await fetch(toApiUrl(`/api/projects/${projectId}/sessions/reorder`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderedSessionIds }),
+      });
+      const data = await res.json();
+      return data.sessions ?? [];
+    }
+    case "project-session-tabs:create": {
+      const [input] = args as [{ sessionId: string }];
+      const res = await fetch(toApiUrl(`/api/project-sessions/${input.sessionId}/tabs`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      return res.json();
+    }
+    case "project-session-tabs:update": {
+      const [tabId, input] = args as [string, object];
+      const res = await fetch(toApiUrl(`/api/project-session-tabs/${tabId}`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      return res.ok ? res.json() : null;
+    }
+    case "project-session-tabs:delete": {
+      const [tabId] = args as [string];
+      const res = await fetch(toApiUrl(`/api/project-session-tabs/${tabId}`), { method: "DELETE" });
+      const data = await res.json();
+      return data.success ?? false;
+    }
+    case "project-session-tabs:reorder": {
+      const [sessionId, orderedTabIds] = args as [string, string[]];
+      const res = await fetch(toApiUrl(`/api/project-sessions/${sessionId}/tabs/reorder`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderedTabIds }),
+      });
+      return res.ok ? res.json() : null;
+    }
+    case "project-session-threads:attach": {
+      const [input] = args as [{ sessionId: string }];
+      const res = await fetch(toApiUrl(`/api/project-sessions/${input.sessionId}/thread`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      return res.json();
+    }
+    case "project-session-threads:detach": {
+      const [sessionId] = args as [string];
+      const res = await fetch(toApiUrl(`/api/project-sessions/${sessionId}/thread`), { method: "DELETE" });
+      const data = await res.json();
+      return data.success ?? false;
+    }
     case "board:get": {
       const [projectId] = args as [string];
       const res = await fetch(toApiUrl(`/api/projects/${projectId}/board`));

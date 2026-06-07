@@ -59,6 +59,14 @@ import type {
   MoveCardsInput,
   Project,
   ProjectInput,
+  ProjectSession,
+  ProjectSessionCreateInput,
+  ProjectSessionTab,
+  ProjectSessionTabCreateInput,
+  ProjectSessionTabUpdateInput,
+  ProjectSessionThreadLink,
+  ProjectSessionThreadLinkInput,
+  ProjectSessionUpdateInput,
   RestoreBackupInput,
   RestoreBackupResult,
   ThreadNotificationSettings,
@@ -248,6 +256,26 @@ export interface IpcApi {
     result: Project | null;
   };
   "projects:delete": { args: [projectId: string]; result: boolean };
+  "project-sessions:list": { args: [projectId: string]; result: ProjectSession[] };
+  "project-sessions:create": { args: [input: ProjectSessionCreateInput]; result: ProjectSession };
+  "project-sessions:update": {
+    args: [sessionId: string, input: ProjectSessionUpdateInput];
+    result: ProjectSession | null;
+  };
+  "project-sessions:delete": { args: [sessionId: string]; result: boolean };
+  "project-sessions:reorder": { args: [projectId: string, orderedSessionIds: string[]]; result: ProjectSession[] };
+  "project-session-tabs:create": { args: [input: ProjectSessionTabCreateInput]; result: ProjectSessionTab };
+  "project-session-tabs:update": {
+    args: [tabId: string, input: ProjectSessionTabUpdateInput];
+    result: ProjectSessionTab | null;
+  };
+  "project-session-tabs:delete": { args: [tabId: string]; result: boolean };
+  "project-session-tabs:reorder": { args: [sessionId: string, orderedTabIds: string[]]; result: ProjectSession | null };
+  "project-session-threads:attach": {
+    args: [input: ProjectSessionThreadLinkInput];
+    result: ProjectSessionThreadLink;
+  };
+  "project-session-threads:detach": { args: [sessionId: string]; result: boolean };
   "board:get": { args: [projectId: string]; result: Board };
   "card:create": {
     args: [projectId: string, status: Card["status"], input: CardCreateInput, sessionId?: string, placement?: CardCreatePlacement];

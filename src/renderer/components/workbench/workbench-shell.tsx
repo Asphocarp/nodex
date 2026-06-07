@@ -1,192 +1,123 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  startTransition,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+  type ReactNode,
+} from "react";
 import {
   CalendarDays,
   ChevronDown,
-  FileText,
-  History,
-  LayoutGrid,
+  FolderOpen,
+  Globe2,
+  Maximize2,
+  MessageSquare,
+  PanelRightClose,
+  PanelRightOpen,
+  Minimize2,
   PenLine,
+  Plus,
   SquareKanban,
   Table2,
+  Terminal,
 } from "lucide-react";
-import { subscribeAppUpdateStatus } from "../../lib/api";
-import { AppUpdateRestartNotice } from "./app-update-restart-notice";
+import { AppShellTabs, type AppShellTabItem } from "./app-shell-tabs";
 import {
   CalendarToolbarControls,
   CalendarToolbarMonthLabel,
 } from "@/components/kanban/calendar/calendar-toolbar";
 import { DbViewToolbar } from "./db-view-toolbar";
+import { MainViewHost } from "./main-view-host";
+import { CardStage } from "./workbench-card-stage";
+import { TerminalPanel } from "./workbench-terminal-panel";
+import { ProjectManagerPopover, ProjectMark } from "./left-sidebar-project-manager";
+import { LeftSidebarWorkspaceManager } from "./left-sidebar-workspace-manager";
+import { NodexTooltip, NodexTooltipProvider } from "@/components/ui/tooltip";
+import { ConnectedThreadStage } from "@/features/local-conversation";
 import {
   loadCalendarViewState,
   normalizeCalendarAnchorDate,
   resolveCalendarVisibleDays,
   saveCalendarViewState,
   shiftCalendarAnchorDateByDays,
+  type CalendarViewState,
 } from "@/lib/calendar-view-state";
 import type { CalendarRangeState } from "@/lib/calendar-range";
 import { resolveCalendarVisibleDayCount } from "@/lib/calendar-range";
+import { KANBAN_STATUS_LABELS } from "@/lib/kanban-options";
+import { invoke } from "@/lib/api";
+import { useKanban } from "@/lib/use-kanban";
+import { cn } from "@/lib/utils";
+import type {
+  Card,
+  CardInput,
+  CardUpdateMutationResult,
+  CodexAccountSnapshot,
+  CodexThreadSummary,
+  Project,
+  ProjectSession,
+  ProjectSessionDbView,
+  ProjectSessionTab,
+  ProjectSessionThreadLink,
+  WorkspaceRecord,
+} from "@/lib/types";
+import type { ThreadStageActions } from "@/features/local-conversation";
 import {
+  getDefaultDbViewPrefs,
+  viewSupportsDbViewPrefs,
   type DbViewPrefs,
   type SupportedDbView,
-  viewSupportsDbViewPrefs,
-} from "../../lib/db-view-prefs";
-import { ThreadsIcon } from "./threads-icon";
+} from "@/lib/db-view-prefs";
+import type { SpaceRef, WorkbenchView } from "@/lib/use-workbench-state";
+import type { CardStageSessionSnapshot } from "@/components/kanban/card-stage/types";
 import { ToggleListIcon } from "./toggle-list-icon";
-import type { SettingsSectionId } from "./workbench-settings-sections";
-import { buildSettingsPath } from "./workbench-settings-routes";
-import { type StageSidebarGroup, type StageSidebarItem, type StageSidebarSection } from "./left-sidebar";
-import { StageMinimap } from "./stage-minimap";
-import { StageRail, type StageRailStage } from "./stage-rail";
 import {
   FLOATING_SIDEBAR_TRANSITION_DURATION_MS,
   FLOATING_SIDEBAR_TRANSITION_TIMING_FUNCTION,
   SIDEBAR_HOVER_KEEP_OPEN_MS,
   SIDEBAR_HOVER_OPEN_DELAY_MS,
   SIDEBAR_HOVER_TRIGGER_WIDTH_PX,
-} from "../../lib/floating-sidebar";
-import { readThreadQueueFollowUpsEnabled, writeThreadQueueFollowUpsEnabled } from "@/lib/thread-composer-follow-up-mode";
-import {
-  CardStage,
-  CardIcon,
-  CommandPalette,
-  AppShellTabs,
-  HistoryPanel,
-  invoke,
-  KANBAN_STATUS_LABELS,
-  LeftSidebar,
-  MainViewHost,
-  NEW_THREAD_STAGE_TAB_ID,
-  readGlobalCollaborationMode,
-  readComposerEnterBehavior,
-  readLocalConversation,
-  readNextPanelPeekPx,
-  readSmartPrefixParsingEnabled,
-  readStripSmartPrefixFromTitleEnabled,
-  readWorktreeAutoBranchPrefix,
-  readWorktreeStartMode,
-  removeLocalConversationPlanImplementationRequest,
-  resolveExpandedStages,
-  resolveSlidingWindowFocusIntent,
-  requestLocalConversationSnapshot,
-  SettingsOverlay,
-  SharedStatusIcon,
-  StageTabStrip,
-  ConnectedReviewDiffPanel,
-  ConnectedThreadStage,
-  STAGE_ORDER,
-  TerminalPanel,
-  setLocalConversationComposerIntent,
-  setLocalConversationCollaborationMode,
-  useCodexAppServerControl,
-  useCodexAccountActions,
-  useConversationCollaborationMode,
-  useCodexThreadStartProgress,
-  useCodexThreadFollowerClient,
-  useKanban,
-  useProjectThreadSummaries,
-  writeGlobalCollaborationMode,
-  writeComposerEnterBehavior,
-  writeNextPanelPeekPx,
-  writeSmartPrefixParsingEnabled,
-  writeStripSmartPrefixFromTitleEnabled,
-  writeWorktreeAutoBranchPrefix,
-  writeWorktreeStartMode,
-  DEFAULT_CODEX_COLLABORATION_MODE,
-  consumeLocalConversationComposerIntent,
-  type AppShellTabItem,
-} from "./workbench-shell-deps";
-import { type ThreadStageActions } from "@/features/local-conversation";
-import type { StageRailLayoutMode } from "@/lib/stage-rail-layout-mode";
-import { cn } from "@/lib/utils";
-import { TOGGLE_LIST_STATUS_ORDER } from "../../lib/toggle-list/types";
-import {
-  resolveVisibleSidebarTopLevelSections,
-  type SidebarSectionItemLimit,
-  type SidebarTopLevelSectionId,
-  type SidebarTopLevelSectionsPrefs,
-} from "../../lib/sidebar-section-prefs";
-import type {
-  AppUpdateStatus,
-  Card,
-  CardInput,
-  CardUpdateMutationResult,
-  CodexCollaborationModeKind,
-  CodexCollaborationModePreset,
-  CodexTurnDiffReviewTarget,
-  Project,
-  WorkspaceRecord,
-} from "@/lib/types";
-import type { CardStageState } from "@/lib/use-card-stage";
-import type {
-  CardsStageTab,
-  FilesStageTab,
-  RecentCardSession,
-  SidebarGroupId,
-  SpaceRef,
-  StageNavDirection,
-  StageId,
-  StagePanelWidths,
-  TerminalStageTab,
-  ThreadsStageTab,
-  WorkbenchView,
-} from "@/lib/use-workbench-state";
-import type { CardStageSessionSnapshot } from "@/components/kanban/card-stage/types";
+} from "@/lib/floating-sidebar";
 
-const CARDS_SIDEBAR_STATUS_ORDER = [...TOGGLE_LIST_STATUS_ORDER].reverse();
+const COLLAPSE_CONTROL_TRAFFIC_LIGHT_OFFSET_PX = 90;
+const RIGHT_PANEL_DEFAULT_WIDTH = 600;
+const RIGHT_PANEL_MIN_WIDTH = 320;
+const RIGHT_PANEL_MAIN_MIN_WIDTH = 352;
+const TOOLBAR_BUTTON_CLASS = "flex h-7 w-7 items-center justify-center rounded-full text-token-text-secondary hover:bg-token-foreground/5 hover:text-token-text-primary";
+const DB_VIEW_TABS: Array<{ id: ProjectSessionDbView; label: string; icon: ComponentType<{ className?: string }> }> = [
+  { id: "kanban", label: "Board", icon: SquareKanban },
+  { id: "list", label: "Table", icon: Table2 },
+  { id: "toggle-list", label: "List", icon: ToggleListIcon },
+  { id: "canvas", label: "Canvas", icon: PenLine },
+  { id: "calendar", label: "Calendar", icon: CalendarDays },
+];
 
 interface WorkbenchShellProps {
   projects: Project[];
   dbProjectId: string;
-  threadsProjectId: string;
   activeView: WorkbenchView;
   activeSearchQuery: string;
   activeDbViewPrefs: DbViewPrefs | null;
-  spaces: SpaceRef[];
+  searchByProject: Record<string, string>;
+  dbViewPrefsByProject: Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>;
+  spaces?: SpaceRef[];
   workspaces: WorkspaceRecord[];
   activeWorkspaceId: string;
-  recentCardSessions: RecentCardSession[];
-  activeRecentSessionId: string | null;
-  sidebar: {
+  sidebar?: {
     collapsed: boolean;
     width: number;
-    topLevelSectionOrder: SidebarTopLevelSectionId[];
-    topLevelSections: SidebarTopLevelSectionsPrefs;
   };
-  focusedStage: StageId;
-  cardsTabs: CardsStageTab[];
-  activeCardsTabId: string;
-  threadsTabs: ThreadsStageTab[];
-  activeThreadsTabId: string;
-  terminalTabs: TerminalStageTab[];
-  activeTerminalTabId: string;
-  filesTabs: FilesStageTab[];
-  activeFilesTabId: string;
-  stagePanelWidths: StagePanelWidths;
-  stageRailLayoutMode: StageRailLayoutMode;
-  onStageRailLayoutModeChange: (mode: StageRailLayoutMode) => void;
-  stageNavDirection: StageNavDirection;
-  slidingWindowPaneCount: number;
-  terminalPanelOpen: boolean;
-  terminalPanelHeight: number;
-  cardStageState: CardStageState;
-  cardStageCardId?: string;
   cardStageCloseRef: React.RefObject<(() => Promise<void>) | null>;
   cardStagePersistRef?: React.MutableRefObject<(() => Promise<void>) | null>;
+  cardStageSessionSnapshotRef?: React.MutableRefObject<CardStageSessionSnapshot | null>;
   pendingReminderOpen?: {
     projectId: string;
     cardId: string;
     occurrenceStart: string;
   } | null;
-  onReminderHandled?: (payload: {
-    projectId: string;
-    cardId: string;
-    occurrenceStart: string;
-  }) => void;
-  openCardStage: (
-    projectId: string,
-    cardId: string,
-    titleSnapshot?: string,
-  ) => void;
   setDbProject: (projectId: string) => void;
   setSearchQuery: (projectId: string, value: string) => void;
   setDbViewPrefs: (
@@ -194,43 +125,17 @@ interface WorkbenchShellProps {
     view: SupportedDbView,
     update: (prev: DbViewPrefs) => DbViewPrefs,
   ) => void;
-  setSidebarCollapsed: (collapsed: boolean) => void;
-  setSidebarWidth: (width: number) => void;
-  setSidebarTopLevelSectionVisible: (sectionId: SidebarTopLevelSectionId, visible: boolean) => void;
-  setSidebarTopLevelSectionItemLimit: (
-    sectionId: SidebarTopLevelSectionId,
-    itemLimit: SidebarSectionItemLimit,
-  ) => void;
-  moveSidebarTopLevelSectionBy: (sectionId: SidebarTopLevelSectionId, direction: -1 | 1) => void;
-  setSidebarStageExpanded: (projectId: string, stageId: SidebarGroupId, expanded: boolean) => void;
-  isSidebarStageExpanded: (projectId: string, stageId: SidebarGroupId) => boolean;
-  setSidebarSectionExpanded: (projectId: string, sectionId: string, expanded: boolean) => void;
-  isSidebarSectionExpanded: (projectId: string, sectionId: string) => boolean;
-  setSidebarSectionShowAll: (projectId: string, sectionId: string, showAll: boolean) => void;
-  isSidebarSectionShowAll: (projectId: string, sectionId: string) => boolean;
-  setActiveThreadsTab: (projectId: string, tabId: string) => void;
-  setThreadsTabs: (projectId: string, tabs: ThreadsStageTab[]) => void;
-  setActiveTerminalTab: (projectId: string, tabId: string) => void;
-  setStagePanelWidths: (projectId: string, widths: StagePanelWidths) => void;
-  stepSlidingWindowPaneCount: (action: "decrease" | "increase") => void;
-  setTerminalPanelOpen: (projectId: string, open: boolean) => void;
-  setTerminalPanelHeight: (projectId: string, height: number) => void;
-  openProjectTerminalTab: (projectId: string) => string;
-  openCardTerminalTab: (projectId: string, sessionRefId: string, cardId: string, title: string) => string;
-  closeTerminalTab: (projectId: string, tabId: string) => void;
-  closeRecentCardSession: (sessionId: string) => void;
-  reorderRecentCardSessions: (orderedSessionIds: string[]) => void;
-  closeCardStage: () => void;
+  openCardStage: (projectId: string, cardId: string, titleSnapshot?: string) => void;
+  onReminderHandled?: (payload: {
+    projectId: string;
+    cardId: string;
+    occurrenceStart: string;
+  }) => void;
   onLeaveCardStageCard: (snapshot: CardStageSessionSnapshot) => void;
-  cardStageSessionSnapshotRef?: React.MutableRefObject<CardStageSessionSnapshot | null>;
-  onRequestProjectPickerOpen: () => void;
-  projectPickerOpenTick: number;
-  taskSearchOpenTick: number;
-  threadSearchOpenTick: number;
-  diffSearchOpenTick: number;
-  commandPaletteOpenTick: number;
-  commandPaletteInitialQuery: string;
-  settingsToggleTick: number;
+  onSelectWorkspace: (workspaceId: string) => void;
+  onCreateWorkspace?: (name: string, icon?: string | null) => Promise<void>;
+  onRenameWorkspace?: (workspaceId: string, name: string, icon?: string | null) => Promise<void>;
+  onDeleteWorkspace?: (workspaceId: string) => Promise<void>;
   onCreateProject: (
     id: string,
     name: string,
@@ -238,7 +143,6 @@ interface WorkbenchShellProps {
     icon?: string,
     workspacePath?: string | null,
   ) => Promise<Project | null>;
-  onDeleteProject: (projectId: string) => Promise<boolean>;
   onRenameProject: (
     oldId: string,
     newId: string,
@@ -246,364 +150,1643 @@ interface WorkbenchShellProps {
     icon?: string,
     workspacePath?: string | null,
   ) => Promise<Project | null>;
-  onSelectWorkspace: (workspaceId: string) => void;
-  onCreateWorkspace: (name: string, icon?: string | null) => Promise<void>;
-  onRenameWorkspace: (workspaceId: string, name: string, icon?: string | null) => Promise<void>;
-  onDeleteWorkspace: (workspaceId: string) => Promise<void>;
-  navigateToStage: (projectId: string, stageId: StageId, fallbackDirection?: StageNavDirection) => void;
-  navigateToDbView: (projectId: string, view: WorkbenchView) => void;
-  navigateToRecentSession: (sessionId: string) => void | Promise<void>;
-  navigateToCardsTab: (projectId: string, tabId: string, activeSessionId: string | null) => void;
-  navigateToThreadTab: (projectId: string, tabId: string, focusStage?: boolean) => void;
-  navigateToFilesTab: (projectId: string, tabId: string) => void;
-  canNavigateBack: boolean;
-  canNavigateForward: boolean;
-  onNavigateBack: () => void;
-  onNavigateForward: () => void;
-  onRequestNewWindow?: () => void;
+  onDeleteProject: (projectId: string) => Promise<boolean>;
+  onRequestProjectPickerOpen: () => void;
+  threadSearchOpenTick: number;
+  setSidebarCollapsed?: (collapsed: boolean) => void;
+  setSidebarWidth?: (width: number) => void;
+  setSidebarTopLevelSectionVisible?: unknown;
+  setSidebarTopLevelSectionItemLimit?: unknown;
+  moveSidebarTopLevelSectionBy?: unknown;
+  setSidebarStageExpanded?: unknown;
+  isSidebarStageExpanded?: unknown;
+  setSidebarSectionExpanded?: unknown;
+  isSidebarSectionExpanded?: unknown;
+  setSidebarSectionShowAll?: unknown;
+  isSidebarSectionShowAll?: unknown;
+  threadsProjectId?: unknown;
+  recentCardSessions?: unknown;
+  activeRecentSessionId?: unknown;
+  focusedStage?: unknown;
+  stageNavDirection?: unknown;
+  cardsTabs?: unknown;
+  activeCardsTabId?: unknown;
+  threadsTabs?: unknown;
+  activeThreadsTabId?: unknown;
+  terminalTabs?: unknown;
+  activeTerminalTabId?: unknown;
+  filesTabs?: unknown;
+  activeFilesTabId?: unknown;
+  stagePanelWidths?: unknown;
+  stageRailLayoutMode?: unknown;
+  onStageRailLayoutModeChange?: unknown;
+  slidingWindowPaneCount?: unknown;
+  terminalPanelOpen?: unknown;
+  terminalPanelHeight?: unknown;
+  cardStageState?: unknown;
+  cardStageCardId?: unknown;
+  setActiveThreadsTab?: unknown;
+  setThreadsTabs?: unknown;
+  setActiveTerminalTab?: unknown;
+  setStagePanelWidths?: unknown;
+  stepSlidingWindowPaneCount?: unknown;
+  setTerminalPanelOpen?: unknown;
+  setTerminalPanelHeight?: unknown;
+  openProjectTerminalTab?: unknown;
+  openCardTerminalTab?: unknown;
+  closeTerminalTab?: unknown;
+  closeRecentCardSession?: unknown;
+  reorderRecentCardSessions?: unknown;
+  closeCardStage?: unknown;
+  projectPickerOpenTick?: unknown;
+  taskSearchOpenTick?: unknown;
+  diffSearchOpenTick?: unknown;
+  commandPaletteOpenTick?: unknown;
+  commandPaletteInitialQuery?: unknown;
+  settingsToggleTick?: unknown;
+  navigateToStage?: unknown;
+  navigateToDbView?: unknown;
+  navigateToRecentSession?: unknown;
+  navigateToCardsTab?: unknown;
+  navigateToThreadTab?: unknown;
+  navigateToFilesTab?: unknown;
+  canNavigateBack?: unknown;
+  canNavigateForward?: unknown;
+  onNavigateBack?: unknown;
+  onNavigateForward?: unknown;
+  onRequestNewWindow?: unknown;
 }
-
-const DB_VIEW_TABS: Array<{ id: WorkbenchView; label: string }> = [
-  { id: "kanban", label: "Board" },
-  { id: "list", label: "Table" },
-  { id: "toggle-list", label: "List" },
-  { id: "canvas", label: "Canvas" },
-  { id: "calendar", label: "Calendar" },
-];
-
-const DB_VIEW_ICONS: Record<WorkbenchView, StageSidebarItem["icon"]> = {
-  kanban: SquareKanban,
-  list: Table2,
-  "toggle-list": ToggleListIcon,
-  canvas: PenLine,
-  calendar: CalendarDays,
-};
-
-const STAGE_ICONS: Record<StageId, StageSidebarGroup["icon"]> = {
-  db: LayoutGrid,
-  cards: CardIcon,
-  threads: ThreadsIcon,
-  files: FileText,
-};
-const COLLAPSE_CONTROL_TRAFFIC_LIGHT_OFFSET_PX = 90;
-const SIDEBAR_COLLAPSE_TRANSITION_MS = 220;
-const FALLBACK_COLLABORATION_MODE_PRESETS: CodexCollaborationModePreset[] = [
-  {
-    name: "Default",
-    mode: "default",
-    model: null,
-    reasoningEffort: undefined,
-  },
-  {
-    name: "Plan",
-    mode: "plan",
-    model: null,
-    reasoningEffort: undefined,
-  },
-];
 
 export function resolveCardStageSessionTabOrder(
-  tabs: readonly Pick<AppShellTabItem, "id" | "isLabel">[],
+  tabs: readonly { id: string; kind?: string; sessionId?: string; isLabel?: boolean }[],
   activeId: string,
   overId: string,
-): string[] | null {
-  if (!activeId.startsWith("session:")) return null;
-  if (activeId === overId) return null;
+): string[] {
+  const sessionIds = tabs
+    .filter((tab) => tab.id !== "history")
+    .map((tab) => tab.sessionId ?? tab.id.replace(/^session:/, ""));
+  const from = tabs.find((tab) => tab.id === activeId)?.sessionId ?? activeId.replace(/^session:/, "");
+  const to = tabs.find((tab) => tab.id === overId)?.sessionId ?? overId.replace(/^session:/, "");
+  const fromIndex = sessionIds.indexOf(from);
+  const toIndex = sessionIds.indexOf(to);
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return sessionIds;
 
-  const activeIndex = tabs.findIndex((tab) => tab.id === activeId);
-  const overIndex = tabs.findIndex((tab) => tab.id === overId);
-  if (activeIndex < 0 || overIndex < 0) return null;
-  if (tabs[activeIndex]?.isLabel === true) return null;
-
-  const nextTabs = [...tabs];
-  const [movedTab] = nextTabs.splice(activeIndex, 1);
-  if (!movedTab) return null;
-
-  nextTabs.splice(overIndex, 0, movedTab);
-
-  const orderedSessionIds = nextTabs.flatMap((tab) => (
-    tab.id.startsWith("session:") ? [tab.id.slice("session:".length)] : []
-  ));
-  return orderedSessionIds.length > 0 ? orderedSessionIds : null;
+  const next = [...sessionIds];
+  const [item] = next.splice(fromIndex, 1);
+  if (!item) return sessionIds;
+  next.splice(toIndex, 0, item);
+  return next;
 }
 
-interface CardStageTabTooltipProps {
-  title: string;
-  projectName: string;
-  cardId: string;
-}
-
-function CardStageTabTooltip({
-  title,
-  projectName,
-  cardId,
-}: CardStageTabTooltipProps) {
+export function WorkbenchStageToolbar({
+  children,
+  showDivider = true,
+}: {
+  children: ReactNode;
+  showDivider?: boolean;
+}) {
   return (
-    <div className="flex max-w-80 flex-col gap-1">
-      <div className="min-w-0 truncate font-medium">{title}</div>
-      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-token-description-foreground">
-        <span className="min-w-0 truncate">{projectName}</span>
-        <span aria-hidden="true">/</span>
-        <span>{formatCardStageTooltipCardId(cardId)}</span>
-      </div>
+    <div
+      className={cn(
+        "grid min-h-11 grid-cols-[1fr_auto_1fr] items-center gap-3 bg-token-main-surface-primary px-3",
+        showDivider && "border-b border-token-border",
+      )}
+    >
+      {children}
     </div>
   );
 }
 
-function formatCardStageTooltipCardId(cardId: string): string {
-  if (cardId.length <= 12) return cardId;
-  return `${cardId.slice(0, 6)}...${cardId.slice(-4)}`;
+function readInitialExpandedProjects(projects: Project[], activeProjectId: string): Set<string> {
+  const initial = new Set<string>();
+  if (activeProjectId) initial.add(activeProjectId);
+  if (projects.length === 1 && projects[0]) initial.add(projects[0].id);
+  return initial;
 }
 
-interface WorkbenchStageToolbarProps {
-  showDivider: boolean;
-  children: React.ReactNode;
+function isProjectSessionDbView(value: string): value is ProjectSessionDbView {
+  return DB_VIEW_TABS.some((item) => item.id === value);
 }
 
-export function WorkbenchStageToolbar({ showDivider, children }: WorkbenchStageToolbarProps) {
-  return (
-    <section
-      className={cn(
-        "grid h-toolbar shrink-0 grid-cols-[1fr_auto_1fr] items-center px-2",
-        showDivider && "border-b border-(--border)",
-      )}
-      style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
-    >
-      {children}
-    </section>
-  );
+function getTabIcon(kind: ProjectSessionTab["kind"]): ComponentType<{ className?: string }> {
+  if (kind === "db_view") return Table2;
+  if (kind === "card_stage") return SquareKanban;
+  if (kind === "terminal") return Terminal;
+  return Globe2;
 }
 
-function RunningThreadSpinnerIcon({ className }: { className?: string }) {
-  return (
-    <span className={cn("inline-flex size-3.5 items-center justify-center text-[color-mix(in_srgb,var(--sidebar-foreground)_70%,transparent)]", className)}>
-      <span className="inline-flex animate-spin animation-duration-[2000ms]" style={{ animationDelay: "-703ms" }}>
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden className="size-3.5 shrink-0">
-          <path
-            d="M10 2C5.58172 2 2 5.58172 2 10C2 14.4183 5.58172 18 10 18C14.4183 18 18 14.4183 18 10C18 5.58172 14.4183 2 10 2ZM10 4C13.3137 4 16 6.68629 16 10C16 13.3137 13.3137 16 10 16C6.68629 16 4 13.3137 4 10C4 6.68629 6.68629 4 10 4Z"
-            fill="currentColor"
-            fillRule="evenodd"
-            clipRule="evenodd"
-            style={{
-              maskImage: "conic-gradient(transparent 0deg, currentColor 360deg)",
-              maskMode: "alpha",
-              maskSize: "contain",
-            }}
-          />
-        </svg>
-      </span>
-    </span>
-  );
+function getProjectLabel(project: Project): string {
+  return project.name.trim() || project.id;
+}
+
+function clampRegularRightPanelWidth(width: number, sessionWidth: number): number {
+  const maxWidth = sessionWidth > 0
+    ? Math.max(RIGHT_PANEL_MIN_WIDTH, sessionWidth - RIGHT_PANEL_MAIN_MIN_WIDTH)
+    : RIGHT_PANEL_DEFAULT_WIDTH;
+  return Math.min(maxWidth, Math.max(RIGHT_PANEL_MIN_WIDTH, width));
 }
 
 export function WorkbenchShell({
   projects,
   dbProjectId,
-  threadsProjectId,
   activeView,
   activeSearchQuery,
   activeDbViewPrefs,
-  spaces,
+  searchByProject,
+  dbViewPrefsByProject,
+  spaces = [],
   workspaces,
   activeWorkspaceId,
-  recentCardSessions,
-  activeRecentSessionId,
   sidebar,
-  focusedStage,
-  activeCardsTabId,
-  threadsTabs,
-  activeThreadsTabId,
-  terminalTabs,
-  activeTerminalTabId,
-  filesTabs,
-  activeFilesTabId,
-  stagePanelWidths,
-  stageRailLayoutMode,
-  onStageRailLayoutModeChange,
-  stageNavDirection,
-  slidingWindowPaneCount,
-  terminalPanelOpen,
-  terminalPanelHeight,
-  cardStageState,
-  cardStageCardId,
   cardStageCloseRef,
   cardStagePersistRef,
+  cardStageSessionSnapshotRef,
   pendingReminderOpen,
-  onReminderHandled,
-  openCardStage,
   setDbProject,
   setSearchQuery,
   setDbViewPrefs,
-  setSidebarCollapsed,
-  setSidebarWidth,
-  setSidebarTopLevelSectionVisible,
-  setSidebarTopLevelSectionItemLimit,
-  moveSidebarTopLevelSectionBy,
-  setSidebarStageExpanded,
-  isSidebarStageExpanded,
-  setSidebarSectionExpanded,
-  isSidebarSectionExpanded,
-  setSidebarSectionShowAll,
-  isSidebarSectionShowAll,
-  setActiveThreadsTab,
-  setThreadsTabs,
-  setActiveTerminalTab,
-  setStagePanelWidths,
-  stepSlidingWindowPaneCount,
-  setTerminalPanelOpen,
-  setTerminalPanelHeight,
-  openProjectTerminalTab,
-  openCardTerminalTab,
-  closeTerminalTab,
-  closeRecentCardSession,
-  reorderRecentCardSessions,
-  closeCardStage,
+  openCardStage,
+  onReminderHandled,
   onLeaveCardStageCard,
-  cardStageSessionSnapshotRef,
-  onRequestProjectPickerOpen,
-  projectPickerOpenTick,
-  taskSearchOpenTick,
-  threadSearchOpenTick,
-  diffSearchOpenTick,
-  commandPaletteOpenTick,
-  commandPaletteInitialQuery,
-  settingsToggleTick,
-  onCreateProject,
-  onDeleteProject,
-  onRenameProject,
   onSelectWorkspace,
   onCreateWorkspace,
   onRenameWorkspace,
   onDeleteWorkspace,
-  navigateToStage,
-  navigateToDbView,
-  navigateToRecentSession,
-  navigateToCardsTab,
-  navigateToThreadTab,
-  navigateToFilesTab,
-  canNavigateBack,
-  canNavigateForward,
-  onNavigateBack,
-  onNavigateForward,
-  onRequestNewWindow,
+  onCreateProject,
+  onRenameProject,
+  onDeleteProject,
+  threadSearchOpenTick,
+  setSidebarCollapsed,
+  setSidebarWidth,
 }: WorkbenchShellProps) {
-  const isMac = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
-  const canRequestNewWindow = typeof window !== "undefined" && Boolean(window.api);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsPath, setSettingsPath] = useState(() => buildSettingsPath("general-settings"));
-  const [settingsInitialLocalEnvironmentProjectId, setSettingsInitialLocalEnvironmentProjectId] = useState<string | null>(null);
-  const [settingsInitialLocalEnvironmentConfigPath, setSettingsInitialLocalEnvironmentConfigPath] = useState<string | null>(null);
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const [appUpdateStatus, setAppUpdateStatus] = useState<AppUpdateStatus | null>(null);
-  const [dismissedDownloadedUpdateVersion, setDismissedDownloadedUpdateVersion] = useState<string | null>(null);
-  const [sidebarVisible, setSidebarVisible] = useState(() => !sidebar.collapsed);
+  const fallbackProjectId = projects[0]?.id ?? "default";
+  const [activeProjectId, setActiveProjectId] = useState(dbProjectId || fallbackProjectId);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [sessionsByProject, setSessionsByProject] = useState<Record<string, ProjectSession[]>>({});
+  const [expandedProjectIds, setExpandedProjectIds] = useState(() =>
+    readInitialExpandedProjects(projects, dbProjectId || fallbackProjectId),
+  );
+  const [loadingSessions, setLoadingSessions] = useState(false);
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT_WIDTH);
+  const [sessionContentWidth, setSessionContentWidth] = useState(0);
+  const [rightPanelFullWidthBySessionId, setRightPanelFullWidthBySessionId] = useState<Record<string, boolean>>({});
+  const [localSidebarCollapsed, setLocalSidebarCollapsed] = useState(false);
+  const [localSidebarWidth, setLocalSidebarWidth] = useState(300);
+  const [sidebarVisible, setSidebarVisible] = useState(() => !(sidebar?.collapsed ?? false));
   const [hoverSidebarOpen, setHoverSidebarOpen] = useState(false);
+  const sessionContentRef = useRef<HTMLDivElement | null>(null);
+  const sidebarHoverOpenTimeoutRef = useRef<number | null>(null);
+  const sidebarHoverCloseTimeoutRef = useRef<number | null>(null);
   const sidebarHideTimeoutRef = useRef<number | null>(null);
-  const hoverSidebarOpenTimeoutRef = useRef<number | null>(null);
-  const hoverSidebarCloseTimeoutRef = useRef<number | null>(null);
-  const [nextPanelPeekPx, setNextPanelPeekPxState] = useState<number>(() => readNextPanelPeekPx());
-  const [smartPrefixParsingEnabled, setSmartPrefixParsingEnabledState] = useState<boolean>(() =>
-    readSmartPrefixParsingEnabled(),
+  const sidebarCollapsed = sidebar?.collapsed ?? localSidebarCollapsed;
+  const sidebarWidth = sidebar?.width ?? localSidebarWidth;
+
+  const activeProject = projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null;
+  const activeSessions = activeProject ? sessionsByProject[activeProject.id] ?? [] : [];
+  const activeSession = activeSessions.find((session) => session.id === activeSessionId) ?? activeSessions[0] ?? null;
+  const activeTabId = activeSession?.rightPaneLayout.root.type === "leaf"
+    ? activeSession.rightPaneLayout.root.activeTabId
+    : activeSession?.tabs[0]?.id ?? null;
+  const activeTab = activeSession?.tabs.find((tab) => tab.id === activeTabId) ?? activeSession?.tabs[0] ?? null;
+  const rightPanelFullWidth = activeSession
+    ? !activeSession.rightPaneCollapsed && rightPanelFullWidthBySessionId[activeSession.id] === true
+    : false;
+  const regularRightPanelWidth = clampRegularRightPanelWidth(rightPanelWidth, sessionContentWidth);
+
+  const refreshProjectSessions = useCallback(async (projectId: string) => {
+    const sessions = (await invoke("project-sessions:list", projectId)) as ProjectSession[];
+    setSessionsByProject((current) => ({ ...current, [projectId]: sessions }));
+    return sessions;
+  }, []);
+
+  const refreshAllSessions = useCallback(async () => {
+    if (projects.length === 0) return;
+    setLoadingSessions(true);
+    setSessionError(null);
+    try {
+      const entries = await Promise.all(
+        projects.map(async (project) => [project.id, await refreshProjectSessions(project.id)] as const),
+      );
+      setSessionsByProject(Object.fromEntries(entries));
+    } catch (error) {
+      setSessionError(error instanceof Error ? error.message : "Unable to load project sessions");
+    } finally {
+      setLoadingSessions(false);
+    }
+  }, [projects, refreshProjectSessions]);
+
+  useEffect(() => {
+    void refreshAllSessions();
+  }, [refreshAllSessions]);
+
+  useEffect(() => {
+    const contentElement = sessionContentRef.current;
+    if (!contentElement) return undefined;
+
+    const measure = () => {
+      setSessionContentWidth(contentElement.getBoundingClientRect().width);
+    };
+
+    measure();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => {
+        window.removeEventListener("resize", measure);
+      };
+    }
+
+    const resizeObserver = new ResizeObserver(measure);
+    resizeObserver.observe(contentElement);
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [activeSession?.id]);
+
+  useEffect(() => {
+    setRightPanelWidth((current) => clampRegularRightPanelWidth(current, sessionContentWidth));
+  }, [sessionContentWidth]);
+
+  useEffect(() => {
+    if (!projects.some((project) => project.id === activeProjectId)) {
+      const nextProjectId = dbProjectId || fallbackProjectId;
+      setActiveProjectId(nextProjectId);
+      setExpandedProjectIds((current) => new Set([...current, nextProjectId]));
+    }
+  }, [activeProjectId, dbProjectId, fallbackProjectId, projects]);
+
+  useEffect(() => {
+    if (!activeProject) return;
+    if (activeSession && activeSession.projectId === activeProject.id) return;
+    const overview = activeSessions.find((session) => session.isOverview) ?? activeSessions[0] ?? null;
+    startTransition(() => {
+      setActiveSessionId(overview?.id ?? null);
+    });
+  }, [activeProject, activeSession, activeSessions]);
+
+  const selectProject = useCallback((projectId: string) => {
+    startTransition(() => {
+      setActiveProjectId(projectId);
+      setDbProject(projectId);
+      setExpandedProjectIds((current) => new Set([...current, projectId]));
+    });
+  }, [setDbProject]);
+
+  const selectSession = useCallback((session: ProjectSession) => {
+    startTransition(() => {
+      setActiveProjectId(session.projectId);
+      setActiveSessionId(session.id);
+      setDbProject(session.projectId);
+      setExpandedProjectIds((current) => new Set([...current, session.projectId]));
+    });
+  }, [setDbProject]);
+
+  const updateActiveSession = useCallback(async (input: Partial<ProjectSession>) => {
+    if (!activeSession) return null;
+    const updated = (await invoke("project-sessions:update", activeSession.id, input)) as ProjectSession | null;
+    if (!updated) return null;
+    await refreshProjectSessions(updated.projectId);
+    return updated;
+  }, [activeSession, refreshProjectSessions]);
+
+  const setActiveTab = useCallback(async (tabId: string, options?: { openRightPanel?: boolean }) => {
+    if (!activeSession || activeSession.rightPaneLayout.root.type !== "leaf") return;
+    const layout = {
+      ...activeSession.rightPaneLayout,
+      root: {
+        ...activeSession.rightPaneLayout.root,
+        activeTabId: tabId,
+      },
+    };
+    await updateActiveSession({
+      rightPaneLayout: layout,
+      ...(options?.openRightPanel ? { rightPaneCollapsed: false } : {}),
+    });
+  }, [activeSession, updateActiveSession]);
+
+  const reorderTabs = useCallback(async (activeId: string, overId: string) => {
+    if (!activeSession) return;
+    const order = activeSession.tabs.map((tab) => tab.id);
+    const fromIndex = order.indexOf(activeId);
+    const toIndex = order.indexOf(overId);
+    if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
+    const next = [...order];
+    const [item] = next.splice(fromIndex, 1);
+    if (!item) return;
+    next.splice(toIndex, 0, item);
+    const session = (await invoke("project-session-tabs:reorder", activeSession.id, next)) as ProjectSession | null;
+    if (session) await refreshProjectSessions(session.projectId);
+  }, [activeSession, refreshProjectSessions]);
+
+  const closeTab = useCallback(async (tabId: string) => {
+    if (!activeSession) return;
+    await invoke("project-session-tabs:delete", tabId);
+    await refreshProjectSessions(activeSession.projectId);
+  }, [activeSession, refreshProjectSessions]);
+
+  const ensureActiveRightPanelOpenWithoutRefresh = useCallback(async () => {
+    if (!activeSession || !activeSession.rightPaneCollapsed) return;
+    setRightPanelFullWidthBySessionId((current) => ({ ...current, [activeSession.id]: false }));
+    await invoke("project-sessions:update", activeSession.id, { rightPaneCollapsed: false });
+  }, [activeSession]);
+
+  const openCardTab = useCallback(async (projectId: string, cardId: string, titleSnapshot?: string) => {
+    if (!activeSession) {
+      openCardStage(projectId, cardId, titleSnapshot);
+      return;
+    }
+
+    const existing = activeSession.tabs.find((tab) =>
+      tab.kind === "card_stage"
+      && "cardId" in tab.config
+      && tab.config.cardId === cardId
+      && tab.config.projectId === projectId,
+    );
+    if (existing) {
+      setRightPanelFullWidthBySessionId((current) => ({ ...current, [activeSession.id]: false }));
+      await setActiveTab(existing.id, { openRightPanel: true });
+      return;
+    }
+
+    await invoke("project-session-tabs:create", {
+      sessionId: activeSession.id,
+      projectId: activeSession.projectId,
+      kind: "card_stage",
+      title: titleSnapshot || cardId,
+      config: { projectId, cardId, titleSnapshot },
+    });
+    await ensureActiveRightPanelOpenWithoutRefresh();
+    await refreshProjectSessions(activeSession.projectId);
+  }, [activeSession, ensureActiveRightPanelOpenWithoutRefresh, openCardStage, refreshProjectSessions, setActiveTab]);
+
+  const createSession = useCallback(async (projectId: string) => {
+    const title = window.prompt("Session name", "New session")?.trim();
+    if (!title) return;
+    const session = (await invoke("project-sessions:create", { projectId, title })) as ProjectSession;
+    await refreshProjectSessions(projectId);
+    selectSession(session);
+  }, [refreshProjectSessions, selectSession]);
+
+  const createManualTab = useCallback(async (kind: ProjectSessionTab["kind"]) => {
+    if (!activeSession) return;
+    if (kind === "db_view") {
+      await invoke("project-session-tabs:create", {
+        sessionId: activeSession.id,
+        projectId: activeSession.projectId,
+        kind,
+        title: "DB View",
+        config: { projectId: activeSession.projectId, view: "kanban" },
+      });
+      await ensureActiveRightPanelOpenWithoutRefresh();
+      await refreshProjectSessions(activeSession.projectId);
+      return;
+    }
+
+    if (kind === "terminal") {
+      await invoke("project-session-tabs:create", {
+        sessionId: activeSession.id,
+        projectId: activeSession.projectId,
+        kind,
+        title: "Terminal",
+        config: {
+          projectId: activeSession.projectId,
+          terminalSessionId: `session:${activeSession.id}:terminal:${Date.now()}`,
+          mode: "project",
+        },
+      });
+      await ensureActiveRightPanelOpenWithoutRefresh();
+      await refreshProjectSessions(activeSession.projectId);
+      return;
+    }
+
+    if (kind === "browser_placeholder") {
+      await invoke("project-session-tabs:create", {
+        sessionId: activeSession.id,
+        projectId: activeSession.projectId,
+        kind,
+        title: "Browser",
+        config: {},
+      });
+      await ensureActiveRightPanelOpenWithoutRefresh();
+      await refreshProjectSessions(activeSession.projectId);
+      return;
+    }
+
+    const cardId = window.prompt("Card id")?.trim();
+    if (!cardId) return;
+    await openCardTab(activeSession.projectId, cardId, cardId);
+  }, [activeSession, ensureActiveRightPanelOpenWithoutRefresh, openCardTab, refreshProjectSessions]);
+
+  const attachThread = useCallback(async () => {
+    if (!activeSession) return;
+    const threadId = window.prompt("Thread id to attach")?.trim();
+    if (!threadId) return;
+    await invoke("project-session-threads:attach", {
+      sessionId: activeSession.id,
+      projectId: activeSession.projectId,
+      threadId,
+      threadPreview: threadId,
+    });
+    await refreshProjectSessions(activeSession.projectId);
+  }, [activeSession, refreshProjectSessions]);
+
+  const detachThread = useCallback(async () => {
+    if (!activeSession) return;
+    await invoke("project-session-threads:detach", activeSession.id);
+    await refreshProjectSessions(activeSession.projectId);
+  }, [activeSession, refreshProjectSessions]);
+
+  const showActiveRightPanel = useCallback(async () => {
+    if (!activeSession) return;
+    setRightPanelFullWidthBySessionId((current) => ({ ...current, [activeSession.id]: false }));
+    await updateActiveSession({ rightPaneCollapsed: false });
+  }, [activeSession, updateActiveSession]);
+
+  const hideActiveRightPanel = useCallback(async () => {
+    if (!activeSession) return;
+    setRightPanelFullWidthBySessionId((current) => ({ ...current, [activeSession.id]: false }));
+    await updateActiveSession({ rightPaneCollapsed: true });
+  }, [activeSession, updateActiveSession]);
+
+  const toggleActiveRightPanelFullWidth = useCallback(() => {
+    if (!activeSession) return;
+    setRightPanelFullWidthBySessionId((current) => ({
+      ...current,
+      [activeSession.id]: current[activeSession.id] !== true,
+    }));
+  }, [activeSession]);
+
+  const resizeRightPanel = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = regularRightPanelWidth;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const nextWidth = clampRegularRightPanelWidth(startWidth + startX - moveEvent.clientX, sessionContentWidth);
+      setRightPanelWidth(nextWidth);
+    };
+
+    const onMouseUp = () => {
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  }, [regularRightPanelWidth, sessionContentWidth]);
+
+  const tabItems = useMemo<AppShellTabItem[]>(() => {
+    if (!activeSession) return [];
+    return activeSession.tabs.map((tab) => ({
+      id: tab.id,
+      title: tab.title,
+      icon: getTabIcon(tab.kind),
+      closable: !activeSession.isOverview || activeSession.tabs.length > 1,
+      reorderable: true,
+      renderPanel: () => (
+        <ProjectSessionTabPanel
+          key={`${activeSession.id}:${tab.id}`}
+          tab={tab}
+          activeSession={activeSession}
+          projects={projects}
+          activeView={activeView}
+          activeSearchQuery={activeSearchQuery}
+          activeDbViewPrefs={activeDbViewPrefs}
+          searchByProject={searchByProject}
+          dbViewPrefsByProject={dbViewPrefsByProject}
+          cardStageCloseRef={cardStageCloseRef}
+          cardStagePersistRef={cardStagePersistRef}
+          cardStageSessionSnapshotRef={cardStageSessionSnapshotRef}
+          pendingReminderOpen={pendingReminderOpen}
+          setSearchQuery={setSearchQuery}
+          setDbViewPrefs={setDbViewPrefs}
+          onReminderHandled={onReminderHandled}
+          onLeaveCardStageCard={onLeaveCardStageCard}
+          onOpenCardTab={openCardTab}
+          onRefreshSessions={refreshProjectSessions}
+          onCloseTab={closeTab}
+        />
+      ),
+    }));
+  }, [
+    activeDbViewPrefs,
+    activeSearchQuery,
+    activeSession,
+    activeView,
+    cardStageCloseRef,
+    cardStagePersistRef,
+    cardStageSessionSnapshotRef,
+    closeTab,
+    onLeaveCardStageCard,
+    onReminderHandled,
+    openCardTab,
+    pendingReminderOpen,
+    projects,
+    refreshProjectSessions,
+    dbViewPrefsByProject,
+    searchByProject,
+    setActiveTab,
+    setDbViewPrefs,
+    setSearchQuery,
+  ]);
+
+  useEffect(() => {
+    if (!sidebarCollapsed) {
+      setSidebarVisible(true);
+      setHoverSidebarOpen(false);
+      return;
+    }
+    setSidebarVisible(false);
+  }, [sidebarCollapsed]);
+
+  const applySidebarCollapsed = useCallback((collapsed: boolean) => {
+    if (setSidebarCollapsed) {
+      setSidebarCollapsed(collapsed);
+    } else {
+      setLocalSidebarCollapsed(collapsed);
+    }
+  }, [setSidebarCollapsed]);
+
+  const applySidebarWidth = useCallback((width: number) => {
+    if (setSidebarWidth) {
+      setSidebarWidth(width);
+    } else {
+      setLocalSidebarWidth(Math.min(520, Math.max(240, width)));
+    }
+  }, [setSidebarWidth]);
+
+  const clearHoverSidebarOpenTimeout = useCallback(() => {
+    if (sidebarHoverOpenTimeoutRef.current === null) return;
+    window.clearTimeout(sidebarHoverOpenTimeoutRef.current);
+    sidebarHoverOpenTimeoutRef.current = null;
+  }, []);
+
+  const clearHoverSidebarCloseTimeout = useCallback(() => {
+    if (sidebarHoverCloseTimeoutRef.current === null) return;
+    window.clearTimeout(sidebarHoverCloseTimeoutRef.current);
+    sidebarHoverCloseTimeoutRef.current = null;
+  }, []);
+
+  const scheduleHoverSidebarOpen = useCallback(() => {
+    if (!sidebarCollapsed || hoverSidebarOpen) return;
+    clearHoverSidebarCloseTimeout();
+    clearHoverSidebarOpenTimeout();
+    sidebarHoverOpenTimeoutRef.current = window.setTimeout(() => {
+      sidebarHoverOpenTimeoutRef.current = null;
+      setHoverSidebarOpen(true);
+    }, SIDEBAR_HOVER_OPEN_DELAY_MS);
+  }, [clearHoverSidebarCloseTimeout, clearHoverSidebarOpenTimeout, hoverSidebarOpen, sidebarCollapsed]);
+
+  const scheduleHoverSidebarClose = useCallback(() => {
+    if (!sidebarCollapsed) return;
+    clearHoverSidebarOpenTimeout();
+    clearHoverSidebarCloseTimeout();
+    sidebarHoverCloseTimeoutRef.current = window.setTimeout(() => {
+      sidebarHoverCloseTimeoutRef.current = null;
+      setHoverSidebarOpen(false);
+    }, SIDEBAR_HOVER_KEEP_OPEN_MS);
+  }, [clearHoverSidebarCloseTimeout, clearHoverSidebarOpenTimeout, sidebarCollapsed]);
+
+  const clearSidebarHideTimeout = useCallback(() => {
+    if (sidebarHideTimeoutRef.current === null) return;
+    window.clearTimeout(sidebarHideTimeoutRef.current);
+    sidebarHideTimeoutRef.current = null;
+  }, []);
+
+  const toggleSidebarCollapsed = useCallback(() => {
+    clearHoverSidebarCloseTimeout();
+    clearHoverSidebarOpenTimeout();
+    clearSidebarHideTimeout();
+    applySidebarCollapsed(!sidebarCollapsed);
+  }, [
+    applySidebarCollapsed,
+    clearHoverSidebarCloseTimeout,
+    clearHoverSidebarOpenTimeout,
+    clearSidebarHideTimeout,
+    sidebarCollapsed,
+  ]);
+
+  const rightPanelActions = activeSession ? (
+    <>
+      <ToolbarIconButton
+        label={rightPanelFullWidth ? "Restore panel width" : "Expand panel"}
+        pressed={rightPanelFullWidth}
+        onClick={toggleActiveRightPanelFullWidth}
+      >
+        {rightPanelFullWidth ? <Minimize2 className="icon-sm" /> : <Maximize2 className="icon-sm" />}
+      </ToolbarIconButton>
+      <ToolbarIconButton label="Hide right panel" onClick={() => void hideActiveRightPanel()}>
+        <PanelRightClose className="icon-sm" />
+      </ToolbarIconButton>
+    </>
+  ) : null;
+
+  const isMacPlatform = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
+  const showFloatingSidebar = sidebarCollapsed;
+  const showInlineSidebar = sidebarVisible && !sidebarCollapsed;
+  const sidebarCollapseControlButton = (
+    <button
+      type="button"
+      onClick={toggleSidebarCollapsed}
+      title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+      aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+      className="no-drag inline-flex size-6 items-center justify-center rounded-lg text-(--foreground-secondary) hover:bg-(--background-secondary) hover:text-(--foreground)"
+    >
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+        <rect x="0.75" y="0.75" width="12.5" height="12.5" rx="2.5" stroke="currentColor" strokeWidth="1.5" />
+        <line
+          x1="4.5"
+          y1="1.5"
+          x2="4.5"
+          y2="12.5"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          style={{ opacity: sidebarCollapsed ? 1 : 0 }}
+        />
+        <rect
+          x="3.5"
+          y="3.5"
+          width="2"
+          height="7"
+          rx="0.75"
+          fill="currentColor"
+          style={{ opacity: sidebarCollapsed ? 0 : 1 }}
+        />
+      </svg>
+    </button>
   );
-  const [stripSmartPrefixFromTitleEnabled, setStripSmartPrefixFromTitleEnabledState] = useState<boolean>(() =>
-    readStripSmartPrefixFromTitleEnabled(),
+
+  return (
+    <NodexTooltipProvider>
+      <div className="relative flex h-screen min-h-0 text-token-text-primary">
+      {sidebarCollapsed ? (
+        <div
+          aria-hidden
+          data-sidebar-hover-trigger="true"
+          className="absolute inset-y-0 left-0 z-40"
+          style={{ width: SIDEBAR_HOVER_TRIGGER_WIDTH_PX }}
+          onMouseEnter={scheduleHoverSidebarOpen}
+          onMouseLeave={clearHoverSidebarOpenTimeout}
+        />
+      ) : null}
+
+      {showInlineSidebar ? (
+        <ProjectSessionSidebar
+          projects={projects}
+          spaces={spaces}
+          workspaces={workspaces}
+          activeProjectId={activeProjectId}
+          activeSessionId={activeSession?.id ?? null}
+          activeWorkspaceId={activeWorkspaceId}
+          sessionsByProject={sessionsByProject}
+          expandedProjectIds={expandedProjectIds}
+          loadingSessions={loadingSessions}
+          width={sidebarWidth}
+          onResizeWidth={applySidebarWidth}
+          onToggleProjectExpanded={(projectId) => {
+            setExpandedProjectIds((current) => {
+              const next = new Set(current);
+              if (next.has(projectId)) next.delete(projectId);
+              else next.add(projectId);
+              return next;
+            });
+          }}
+          onSelectProject={selectProject}
+          onSelectSession={selectSession}
+          onCreateSession={createSession}
+          onCreateProject={async (...args) => {
+            const project = await onCreateProject(...args);
+            await refreshAllSessions();
+            return project;
+          }}
+          onRenameProject={onRenameProject ?? (async () => null)}
+          onDeleteProject={onDeleteProject ?? (async () => false)}
+          onSelectWorkspace={onSelectWorkspace}
+          onCreateWorkspace={onCreateWorkspace ?? (async () => undefined)}
+          onRenameWorkspace={onRenameWorkspace ?? (async () => undefined)}
+          onDeleteWorkspace={onDeleteWorkspace ?? (async () => undefined)}
+          onOpenSettings={() => undefined}
+        />
+      ) : null}
+
+      {showFloatingSidebar ? (
+        <div
+          aria-hidden={!hoverSidebarOpen}
+          className="pointer-events-none absolute inset-y-0 left-0 z-50"
+        >
+          <div
+            data-testid="floating-project-session-sidebar-shell"
+            className="absolute inset-y-0 overflow-hidden rounded-r-2xl border border-l-0 border-(--border)"
+            style={{
+              width: sidebarWidth,
+              left: hoverSidebarOpen ? 0 : -sidebarWidth,
+              boxShadow: hoverSidebarOpen ? "0 24px 56px rgba(0,0,0,0.24)" : "none",
+              pointerEvents: hoverSidebarOpen ? "auto" : "none",
+              transitionProperty: "left, box-shadow",
+              transitionDuration: `${FLOATING_SIDEBAR_TRANSITION_DURATION_MS}ms`,
+              transitionTimingFunction: FLOATING_SIDEBAR_TRANSITION_TIMING_FUNCTION,
+            }}
+            onMouseEnter={clearHoverSidebarCloseTimeout}
+            onMouseLeave={scheduleHoverSidebarClose}
+          >
+            <ProjectSessionSidebar
+              projects={projects}
+              spaces={spaces}
+              workspaces={workspaces}
+              activeProjectId={activeProjectId}
+              activeSessionId={activeSession?.id ?? null}
+              activeWorkspaceId={activeWorkspaceId}
+              sessionsByProject={sessionsByProject}
+              expandedProjectIds={expandedProjectIds}
+              loadingSessions={loadingSessions}
+              width={sidebarWidth}
+              onResizeWidth={applySidebarWidth}
+              onToggleProjectExpanded={(projectId) => {
+                setExpandedProjectIds((current) => {
+                  const next = new Set(current);
+                  if (next.has(projectId)) next.delete(projectId);
+                  else next.add(projectId);
+                  return next;
+                });
+              }}
+              onSelectProject={selectProject}
+              onSelectSession={selectSession}
+              onCreateSession={createSession}
+              onCreateProject={async (...args) => {
+                const project = await onCreateProject(...args);
+                await refreshAllSessions();
+                return project;
+              }}
+              onRenameProject={onRenameProject ?? (async () => null)}
+              onDeleteProject={onDeleteProject ?? (async () => false)}
+              onSelectWorkspace={onSelectWorkspace}
+              onCreateWorkspace={onCreateWorkspace ?? (async () => undefined)}
+              onRenameWorkspace={onRenameWorkspace ?? (async () => undefined)}
+              onDeleteWorkspace={onDeleteWorkspace ?? (async () => undefined)}
+              onOpenSettings={() => undefined}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      <main className="main-surface flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="flex h-toolbar shrink-0 items-center justify-between border-b border-token-border px-3">
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium">{activeSession?.title ?? "No session"}</div>
+            <div className="truncate text-xs text-token-text-tertiary">{activeProject ? getProjectLabel(activeProject) : "No project"}</div>
+          </div>
+          <div className="flex items-center gap-1">
+            {activeSession ? (
+              <>
+                <button type="button" className={TOOLBAR_BUTTON_CLASS} onClick={() => void createManualTab("db_view")} title="Add DB view" aria-label="Add DB view">
+                  <Table2 className="icon-sm" />
+                </button>
+                <button type="button" className={TOOLBAR_BUTTON_CLASS} onClick={() => void createManualTab("card_stage")} title="Add card stage" aria-label="Add card stage">
+                  <SquareKanban className="icon-sm" />
+                </button>
+                <button type="button" className={TOOLBAR_BUTTON_CLASS} onClick={() => void createManualTab("terminal")} title="Add terminal" aria-label="Add terminal">
+                  <Terminal className="icon-sm" />
+                </button>
+                <button type="button" className={TOOLBAR_BUTTON_CLASS} onClick={() => void createManualTab("browser_placeholder")} title="Add browser placeholder" aria-label="Add browser placeholder">
+                  <Globe2 className="icon-sm" />
+                </button>
+              </>
+            ) : null}
+          </div>
+        </header>
+
+        {sessionError ? (
+          <div className="border-b border-token-border px-3 py-2 text-xs text-token-text-secondary">{sessionError}</div>
+        ) : null}
+
+        {activeSession ? (
+          <div ref={sessionContentRef} className="flex min-h-0 flex-1 overflow-hidden">
+            <section
+              data-testid="session-thread-page"
+              data-session-thread-page-hidden={rightPanelFullWidth ? "true" : "false"}
+              aria-hidden={rightPanelFullWidth ? "true" : undefined}
+              className="relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-token-main-surface-primary"
+              style={{
+                flex: rightPanelFullWidth ? "0 0 0px" : "1 1 0%",
+                width: rightPanelFullWidth ? 0 : undefined,
+              }}
+            >
+              <SessionThreadPage
+                session={activeSession}
+                project={activeProject}
+                showRightPanelButton={activeSession.rightPaneCollapsed}
+                onShowRightPanel={showActiveRightPanel}
+                onAttachThread={attachThread}
+                onDetachThread={detachThread}
+                searchOpenTick={threadSearchOpenTick}
+                onOpenCard={(cardId) => {
+                  if (!activeProject) return;
+                  void openCardTab(activeProject.id, cardId, cardId);
+                }}
+              />
+            </section>
+
+            {!activeSession.rightPaneCollapsed ? (
+              <section
+                data-testid="session-right-panel"
+                data-right-panel-width-mode={rightPanelFullWidth ? "full" : "regular"}
+                className={cn(
+                  "relative ml-auto flex min-h-0 shrink-0 flex-col bg-token-main-surface-primary shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-token-border)_75%,transparent)]",
+                  !rightPanelFullWidth && "border-l border-token-border",
+                )}
+                style={{ width: rightPanelFullWidth ? "100%" : regularRightPanelWidth }}
+              >
+                {!rightPanelFullWidth ? (
+                  <div
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="Resize right panel"
+                    className="group absolute inset-y-0 -left-2 z-20 flex w-4 cursor-col-resize touch-none select-none"
+                    onMouseDown={resizeRightPanel}
+                  >
+                    <div className="pointer-events-none m-auto h-full w-px bg-transparent group-hover:bg-token-border" />
+                  </div>
+                ) : null}
+
+                {tabItems.length > 0 && activeTab ? (
+                  <AppShellTabs
+                    tabs={tabItems}
+                    activeTabId={activeTab.id}
+                    controllerId={`session-${activeSession.id}`}
+                    onSelect={(tabId) => void setActiveTab(tabId)}
+                    onCloseTab={(tabId) => void closeTab(tabId)}
+                    onReorderTab={(dragId, overId) => void reorderTabs(dragId, overId)}
+                    afterList={rightPanelActions}
+                  />
+                ) : (
+                  <div className="flex h-full min-h-0 flex-col">
+                    <div className="flex h-toolbar-pane min-w-0 shrink-0 items-center justify-end bg-token-main-surface-primary px-2">
+                      {rightPanelActions}
+                    </div>
+                    <EmptyRightPane onCreateDbTab={() => void createManualTab("db_view")} />
+                  </div>
+                )}
+              </section>
+            ) : null}
+          </div>
+        ) : (
+          <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-token-text-secondary">
+            Select a project session.
+          </div>
+        )}
+      </main>
+
+      {isMacPlatform ? (
+        <div
+          className="fixed z-50 flex items-center justify-center"
+          style={{
+            left: COLLAPSE_CONTROL_TRAFFIC_LIGHT_OFFSET_PX,
+            top: 12,
+            WebkitAppRegion: "no-drag",
+          } as React.CSSProperties}
+        >
+          {sidebarCollapseControlButton}
+        </div>
+      ) : sidebarCollapsed ? (
+        <div
+          className="fixed left-3 top-3 z-50 flex items-center justify-center"
+          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+        >
+          {sidebarCollapseControlButton}
+        </div>
+      ) : null}
+      </div>
+    </NodexTooltipProvider>
   );
-  const [composerEnterBehavior, setComposerEnterBehaviorState] = useState(() =>
-    readComposerEnterBehavior(),
+}
+
+function resolveProjectColorToken(projectId: string, spaces: SpaceRef[]): string | undefined {
+  return spaces.find((space) => space.projectId === projectId)?.colorToken;
+}
+
+function ProjectSessionSidebar({
+  projects,
+  spaces,
+  workspaces,
+  activeProjectId,
+  activeSessionId,
+  activeWorkspaceId,
+  sessionsByProject,
+  expandedProjectIds,
+  loadingSessions,
+  width,
+  onResizeWidth,
+  onToggleProjectExpanded,
+  onSelectProject,
+  onSelectSession,
+  onCreateSession,
+  onCreateProject,
+  onRenameProject,
+  onDeleteProject,
+  onSelectWorkspace,
+  onCreateWorkspace,
+  onRenameWorkspace,
+  onDeleteWorkspace,
+  onOpenSettings,
+}: {
+  projects: Project[];
+  spaces: SpaceRef[];
+  workspaces: WorkspaceRecord[];
+  activeProjectId: string;
+  activeSessionId: string | null;
+  activeWorkspaceId: string;
+  sessionsByProject: Record<string, ProjectSession[]>;
+  expandedProjectIds: Set<string>;
+  loadingSessions: boolean;
+  width: number;
+  onResizeWidth: (width: number) => void;
+  onToggleProjectExpanded: (projectId: string) => void;
+  onSelectProject: (projectId: string) => void;
+  onSelectSession: (session: ProjectSession) => void;
+  onCreateSession: (projectId: string) => void | Promise<void>;
+  onCreateProject: (
+    id: string,
+    name: string,
+    description?: string,
+    icon?: string,
+    workspacePath?: string | null,
+  ) => Promise<Project | null>;
+  onRenameProject: (
+    oldId: string,
+    newId: string,
+    name?: string,
+    icon?: string,
+    workspacePath?: string | null,
+  ) => Promise<Project | null>;
+  onDeleteProject: (projectId: string) => Promise<boolean>;
+  onSelectWorkspace: (workspaceId: string) => void;
+  onCreateWorkspace: (name: string, icon?: string | null) => Promise<void>;
+  onRenameWorkspace: (workspaceId: string, name: string, icon?: string | null) => Promise<void>;
+  onDeleteWorkspace: (workspaceId: string) => Promise<void>;
+  onOpenSettings: () => void;
+}) {
+  const [manageProjectsOpen, setManageProjectsOpen] = useState(false);
+
+  const handleSetProjectWorkspacePath = async (project: Project) => {
+    try {
+      const pickedPath = (await invoke("pty:pick-cwd")) as string | null;
+      if (!pickedPath) return;
+      await onRenameProject(project.id, project.id, project.name, undefined, pickedPath);
+    } catch {
+      setManageProjectsOpen(true);
+    }
+  };
+
+  const handleResizeStart = (event: React.MouseEvent) => {
+    event.preventDefault();
+
+    const startX = event.clientX;
+    const startWidth = width;
+
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+
+    const onMouseMove = (nextEvent: MouseEvent) => {
+      onResizeWidth(startWidth + (nextEvent.clientX - startX));
+    };
+
+    const onMouseUp = () => {
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  };
+
+  return (
+    <aside
+      className="relative flex h-full min-h-0 shrink-0 flex-col overflow-hidden font-sans text-sm"
+      style={{ width }}
+      data-testid="project-session-sidebar"
+    >
+      <div className="draggable h-toolbar w-full shrink-0" data-testid="sidebar-drag-strip" />
+
+      <div className="scrollbar-token min-h-0 flex-1 overflow-y-auto px-(--sidebar-shell-padding-x) py-1">
+        <section className="mb-2">
+          <div
+            className={cn(
+              "group/top-header flex min-h-7.5 items-center gap-1 rounded-lg pl-(--sidebar-header-padding-x) pr-1 py-(--sidebar-row-padding-tight-y)",
+              "text-token-input-placeholder-foreground hover:bg-sidebar-accent hover:text-(--sidebar-foreground) font-medium",
+            )}
+          >
+            <button
+              type="button"
+              className="mr-auto flex min-w-0 flex-1 items-center gap-2 text-left text-xs outline-none"
+              onClick={() => setManageProjectsOpen(true)}
+            >
+              <span className="truncate">Projects</span>
+              <span className="shrink-0 text-[11px]/5 text-(--sidebar-foreground-tertiary)">
+                {projects.length}
+              </span>
+            </button>
+            <ProjectManagerPopover
+              projects={projects}
+              spaces={spaces}
+              activeProjectId={activeProjectId}
+              onSelectSpace={onSelectProject}
+              onCreateProject={onCreateProject}
+              onDeleteProject={onDeleteProject}
+              onRenameProject={onRenameProject}
+              open={manageProjectsOpen}
+              onOpenChange={setManageProjectsOpen}
+              side="bottom"
+              align="end"
+              contentClassName="w-80"
+              trigger={(
+                <button
+                  type="button"
+                  className={cn(
+                    "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md outline-none",
+                    "text-(--sidebar-foreground-tertiary) hover:bg-[color-mix(in_srgb,var(--sidebar-foreground)_8%,transparent)] hover:text-(--sidebar-foreground)",
+                    "focus-visible:ring-2 focus-visible:ring-(--sidebar-ring)/35",
+                  )}
+                  title="Manage projects"
+                  aria-label="Manage projects"
+                >
+                  <Plus className="size-3.5" />
+                </button>
+              )}
+            />
+          </div>
+
+          <div className="mt-px flex min-h-0 flex-col gap-px overflow-hidden">
+            {projects.map((project) => {
+              const sessions = sessionsByProject[project.id] ?? [];
+              const expanded = expandedProjectIds.has(project.id);
+              const isActiveProject = project.id === activeProjectId;
+              const workspacePath = project.workspacePath?.trim() ?? "";
+              const workspaceLabel = workspacePath || "Choose project folder";
+              const workspaceTitle = workspacePath || `Choose a workspace folder for ${project.name}`;
+              const colorToken = resolveProjectColorToken(project.id, spaces);
+
+              return (
+                <div
+                  key={project.id}
+                  data-active={isActiveProject ? "true" : undefined}
+                  className={cn(
+                    "group/project rounded-xl pr-(--sidebar-header-padding-x) pl-(--sidebar-row-padding-x) py-1 min-h-7.5",
+                    isActiveProject
+                      ? "bg-[color-mix(in_srgb,var(--sidebar-accent)_68%,transparent)] text-(--sidebar-foreground)"
+                      : "text-(--sidebar-foreground) hover:bg-(--sidebar-accent)",
+                  )}
+                >
+                  <div className="min-w-0">
+                    <div className="flex min-w-0 items-start gap-1.5">
+                      <button
+                        type="button"
+                        className="mt-0.5 flex size-4.5 shrink-0 items-center justify-center rounded-md text-(--sidebar-foreground-secondary) outline-none hover:bg-(--sidebar-accent) hover:text-(--sidebar-foreground) focus-visible:ring-2 focus-visible:ring-(--sidebar-ring)/35"
+                        aria-label={expanded ? `Collapse ${project.name}` : `Expand ${project.name}`}
+                        aria-expanded={expanded}
+                        onClick={() => onToggleProjectExpanded(project.id)}
+                      >
+                        <ChevronDown
+                          className={cn(
+                            "size-3 shrink-0 transition-all duration-150",
+                            !expanded && "-rotate-90",
+                          )}
+                        />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onSelectProject(project.id)}
+                        className="flex min-w-0 flex-1 items-start gap-1.5 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-(--sidebar-ring)/35"
+                      >
+                        <span
+                          className={cn(
+                            "mt-0.5 inline-flex size-4.5 shrink-0 items-center justify-center rounded-md",
+                            isActiveProject ? "opacity-100" : "opacity-40 grayscale",
+                          )}
+                        >
+                          <ProjectMark
+                            icon={project.icon}
+                            colorToken={colorToken}
+                            className="text-sm leading-none"
+                            dotClassName="h-2.5 w-2.5"
+                          />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="flex min-w-0 items-baseline gap-1.5">
+                            <span className="truncate text-sm">{project.name}</span>
+                            <span className="shrink-0 text-[11px]/4 text-(--sidebar-foreground-tertiary)">
+                              /{project.id}
+                            </span>
+                          </span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className={cn(
+                          "mt-px hidden h-6 w-6 shrink-0 items-center justify-center rounded-md outline-none group-hover/project:inline-flex",
+                          "text-(--sidebar-foreground-tertiary) hover:bg-[color-mix(in_srgb,var(--sidebar-foreground)_8%,transparent)] hover:text-(--sidebar-foreground)",
+                          "focus-visible:ring-2 focus-visible:ring-(--sidebar-ring)/35",
+                        )}
+                        title="New session"
+                        aria-label={`New session in ${project.name}`}
+                        onClick={() => void onCreateSession(project.id)}
+                      >
+                        <Plus className="size-3.5" />
+                      </button>
+                    </div>
+
+                    {isActiveProject ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void handleSetProjectWorkspacePath(project);
+                        }}
+                        title={workspaceTitle}
+                        aria-label={workspaceTitle}
+                        className={cn(
+                          "mt-0.5 ml-10 flex min-w-0 max-w-full items-center gap-1 rounded-md text-[11px]/4 outline-none focus-visible:ring-2 focus-visible:ring-(--sidebar-ring)/35",
+                          "text-(--sidebar-foreground-secondary) hover:text-(--sidebar-foreground)",
+                        )}
+                      >
+                        <FolderOpen className="size-3 shrink-0" />
+                        <span className="truncate">{workspaceLabel}</span>
+                      </button>
+                    ) : null}
+
+                    {expanded ? (
+                      <div className="mt-px flex min-h-0 flex-col gap-px overflow-hidden pl-10">
+                        {sessions.map((session) => (
+                          <button
+                            key={session.id}
+                            type="button"
+                            data-session-row="true"
+                            className={cn(
+                              "group/session inline-flex min-h-7 w-full items-center gap-1.5 rounded-lg px-[var(--sidebar-row-padding-x)] py-(--sidebar-row-padding-tight-y) text-left",
+                              activeSessionId === session.id
+                                ? "bg-[color-mix(in_srgb,var(--sidebar-accent)_85%,transparent)] text-(--sidebar-foreground)"
+                                : "text-(--sidebar-foreground-secondary) hover:bg-(--sidebar-accent) hover:text-(--sidebar-foreground)",
+                            )}
+                            onClick={() => onSelectSession(session)}
+                          >
+                            <span
+                              className={cn(
+                                "size-1.5 shrink-0 rounded-full",
+                                session.thread
+                                  ? "bg-token-text-link-foreground"
+                                  : "bg-[color-mix(in_srgb,var(--sidebar-foreground)_22%,transparent)]",
+                              )}
+                            />
+                            <span className="min-w-0 flex-1 truncate text-sm">{session.title}</span>
+                            {session.isOverview ? (
+                              <span className="shrink-0 text-[10px]/4 text-(--sidebar-foreground-tertiary)">default</span>
+                            ) : null}
+                          </button>
+                        ))}
+                        {sessions.length === 0 && loadingSessions ? (
+                          <div className="px-(--sidebar-row-padding-x) py-1 text-xs text-(--sidebar-foreground-tertiary)">
+                            Loading sessions...
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      </div>
+
+      <LeftSidebarWorkspaceManager
+        workspaces={workspaces}
+        activeWorkspaceId={activeWorkspaceId}
+        onSelectWorkspace={onSelectWorkspace}
+        onOpenSettings={onOpenSettings}
+        onCreateWorkspace={onCreateWorkspace}
+        onRenameWorkspace={onRenameWorkspace}
+        onDeleteWorkspace={onDeleteWorkspace}
+      />
+
+      <div
+        onMouseDown={handleResizeStart}
+        className="group absolute top-0 right-0 bottom-0 z-20 flex w-3 translate-x-1.5 cursor-col-resize touch-none select-none active:cursor-col-resize"
+      >
+        <div
+          aria-hidden
+          className="pointer-events-none m-auto h-full w-px bg-linear-to-b from-transparent via-(--border) to-transparent group-hover:via-(--foreground-tertiary) group-active:via-(--foreground-tertiary)"
+        />
+      </div>
+    </aside>
   );
-  const [threadQueueFollowUpsEnabled, setThreadQueueFollowUpsEnabledState] = useState(() =>
-    readThreadQueueFollowUpsEnabled(),
+}
+
+function EmptyRightPane({ onCreateDbTab }: { onCreateDbTab: () => void }) {
+  return (
+    <div className="flex h-full items-center justify-center">
+      <button
+        type="button"
+        className="rounded-lg bg-token-foreground/5 px-3 py-2 text-sm text-token-text-secondary hover:bg-token-foreground/10 hover:text-token-text-primary"
+        onClick={onCreateDbTab}
+      >
+        Add DB view
+      </button>
+    </div>
   );
-  const [worktreeStartMode, setWorktreeStartModeState] = useState(() =>
-    readWorktreeStartMode(),
+}
+
+function ToolbarIconButton({
+  label,
+  pressed,
+  className,
+  onClick,
+  children,
+}: {
+  label: string;
+  pressed?: boolean;
+  className?: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <NodexTooltip tooltipContent={label} side="bottom">
+      <button
+        type="button"
+        className={cn(TOOLBAR_BUTTON_CLASS, className)}
+        title={label}
+        aria-label={label}
+        aria-pressed={pressed}
+        onClick={onClick}
+      >
+        {children}
+      </button>
+    </NodexTooltip>
   );
-  const [worktreeAutoBranchPrefix, setWorktreeAutoBranchPrefixState] = useState(() =>
-    readWorktreeAutoBranchPrefix(),
+}
+
+function SessionThreadPage({
+  session,
+  project,
+  showRightPanelButton,
+  onShowRightPanel,
+  onAttachThread,
+  onDetachThread,
+  onOpenCard,
+  searchOpenTick,
+}: {
+  session: ProjectSession;
+  project: Project | null;
+  showRightPanelButton: boolean;
+  onShowRightPanel: () => void | Promise<void>;
+  onAttachThread: () => void;
+  onDetachThread: () => void;
+  onOpenCard: (cardId: string) => void;
+  searchOpenTick: number;
+}) {
+  if (!session.thread || !project) {
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="flex h-toolbar-pane items-center justify-between px-3">
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium">Thread</div>
+            <div className="text-xs text-token-text-tertiary">No thread attached</div>
+          </div>
+          <div className="flex items-center gap-1">
+            {showRightPanelButton ? (
+              <ToolbarIconButton label="Show right panel" onClick={() => void onShowRightPanel()}>
+                <PanelRightOpen className="icon-sm" />
+              </ToolbarIconButton>
+            ) : null}
+            <ToolbarIconButton label="Attach thread" onClick={onAttachThread}>
+              <Plus className="icon-sm" />
+            </ToolbarIconButton>
+          </div>
+        </div>
+        <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-token-text-secondary">
+          Attach an existing Codex thread to use this session page.
+        </div>
+      </div>
+    );
+  }
+
+  const summary = makeThreadSummary(session.thread);
+  const actions = makeNoopThreadStageActions(onOpenCard);
+
+  return (
+    <div className="h-full min-h-0">
+      <div className="absolute right-2 top-2 z-30 flex items-center gap-1">
+        {showRightPanelButton ? (
+          <ToolbarIconButton label="Show right panel" onClick={() => void onShowRightPanel()} className="bg-token-main-surface-primary">
+            <PanelRightOpen className="icon-sm" />
+          </ToolbarIconButton>
+        ) : null}
+        <ToolbarIconButton label="Detach thread" onClick={onDetachThread} className="bg-token-main-surface-primary">
+          <MessageSquare className="icon-sm" />
+        </ToolbarIconButton>
+      </div>
+      <ConnectedThreadStage
+        projectId={project.id}
+        projectWorkspacePath={project.workspacePath ?? null}
+        isNewThreadTab={false}
+        newThreadTarget={null}
+        threadStartProgress={null}
+        activeThreadId={summary.threadId}
+        activeThreadSummary={summary}
+        availableModels={[]}
+        collaborationModes={[]}
+        selectedCollaborationMode="default"
+        selectedModel=""
+        selectedReasoningEffort="medium"
+        reasoningEffortOptions={[]}
+        permissionMode="auto"
+        isQueueingEnabled
+        composerEnterBehavior="enter"
+        searchOpenTick={searchOpenTick}
+        actions={actions}
+      />
+    </div>
   );
-  const [availableCollaborationModes, setAvailableCollaborationModes] = useState<CodexCollaborationModePreset[]>(
-    FALLBACK_COLLABORATION_MODE_PRESETS,
+}
+
+function makeThreadSummary(thread: ProjectSessionThreadLink): CodexThreadSummary {
+  return {
+    threadId: thread.threadId,
+    projectId: thread.projectId,
+    cardId: "",
+    source: thread.parentThreadId ? { parentThreadId: thread.parentThreadId } : null,
+    threadName: thread.threadName ?? null,
+    threadPreview: thread.threadPreview,
+    modelProvider: thread.modelProvider,
+    cwd: thread.cwd ?? null,
+    statusType: thread.statusType as CodexThreadSummary["statusType"],
+    statusActiveFlags: thread.statusActiveFlags as CodexThreadSummary["statusActiveFlags"],
+    archived: thread.archived,
+    createdAt: thread.createdAt,
+    updatedAt: thread.updatedAt,
+    linkedAt: thread.linkedAt,
+  };
+}
+
+function makeNoopThreadStageActions(onOpenCard: (cardId: string) => void): ThreadStageActions {
+  const noopAsync = async () => undefined;
+  return {
+    onCollaborationModeChange: () => undefined,
+    onModelChange: () => undefined,
+    onReasoningEffortChange: () => undefined,
+    onPermissionModeChange: () => undefined,
+    onQueueingEnabledChange: () => undefined,
+    onRefreshAccount: async () => ({
+      isAuthenticated: false,
+      authMethod: null,
+      account: null,
+      requiresOpenAiAuth: false,
+    }) as unknown as CodexAccountSnapshot,
+    onStartChatGptLogin: async () => ({ type: "apiKey" }),
+    onStartApiKeyLogin: async () => ({ type: "apiKey" }),
+    onCancelLogin: noopAsync,
+    onLogout: noopAsync,
+    onStartThreadForCard: noopAsync,
+    onSendPrompt: noopAsync,
+    onSteerPrompt: async () => undefined,
+    onInterruptTurn: async () => undefined,
+    onRespondApproval: async () => undefined,
+    onRespondUserInput: async () => undefined,
+    onRespondMcpElicitation: async () => undefined,
+    onResolvePlanImplementationRequest: noopAsync,
+    onEnqueueQueuedFollowUp: noopAsync,
+    onRemoveQueuedFollowUp: noopAsync,
+    onReorderQueuedFollowUps: noopAsync,
+    onSendQueuedFollowUpNow: noopAsync,
+    onEditQueuedFollowUp: noopAsync,
+    onEditLastUserTurn: noopAsync,
+    onForkFromTurn: noopAsync,
+    onOpenTurnDiffReview: () => undefined,
+    onConsumeComposerIntent: () => undefined,
+    onOpenThread: () => undefined,
+    onCleanBackgroundTerminals: async () => undefined,
+    onOpenCard,
+  };
+}
+
+function ProjectSessionTabPanel({
+  tab,
+  activeSession,
+  projects,
+  activeView,
+  activeSearchQuery,
+  activeDbViewPrefs,
+  searchByProject,
+  dbViewPrefsByProject,
+  cardStageCloseRef,
+  cardStagePersistRef,
+  cardStageSessionSnapshotRef,
+  pendingReminderOpen,
+  setSearchQuery,
+  setDbViewPrefs,
+  onReminderHandled,
+  onLeaveCardStageCard,
+  onOpenCardTab,
+  onRefreshSessions,
+  onCloseTab,
+}: {
+  tab: ProjectSessionTab;
+  activeSession: ProjectSession;
+  projects: Project[];
+  activeView: WorkbenchView;
+  activeSearchQuery: string;
+  activeDbViewPrefs: DbViewPrefs | null;
+  searchByProject: Record<string, string>;
+  dbViewPrefsByProject: Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>;
+  cardStageCloseRef: React.RefObject<(() => Promise<void>) | null>;
+  cardStagePersistRef?: React.MutableRefObject<(() => Promise<void>) | null>;
+  cardStageSessionSnapshotRef?: React.MutableRefObject<CardStageSessionSnapshot | null>;
+  pendingReminderOpen?: {
+    projectId: string;
+    cardId: string;
+    occurrenceStart: string;
+  } | null;
+  setSearchQuery: (projectId: string, value: string) => void;
+  setDbViewPrefs: (
+    projectId: string,
+    view: SupportedDbView,
+    update: (prev: DbViewPrefs) => DbViewPrefs,
+  ) => void;
+  onReminderHandled?: (payload: {
+    projectId: string;
+    cardId: string;
+    occurrenceStart: string;
+  }) => void;
+  onLeaveCardStageCard: (snapshot: CardStageSessionSnapshot) => void;
+  onOpenCardTab: (projectId: string, cardId: string, titleSnapshot?: string) => Promise<void>;
+  onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
+  onCloseTab: (tabId: string) => Promise<void>;
+}) {
+  if (tab.kind === "db_view" && "view" in tab.config) {
+    return (
+      <DbViewSessionTab
+        tab={tab}
+        projects={projects}
+        activeView={activeView}
+        activeSearchQuery={activeSearchQuery}
+        activeDbViewPrefs={activeDbViewPrefs}
+        searchByProject={searchByProject}
+        dbViewPrefsByProject={dbViewPrefsByProject}
+        cardStageCloseRef={cardStageCloseRef}
+        pendingReminderOpen={pendingReminderOpen}
+        setSearchQuery={setSearchQuery}
+        setDbViewPrefs={setDbViewPrefs}
+        onReminderHandled={onReminderHandled}
+        onOpenCardTab={onOpenCardTab}
+        onRefreshSessions={onRefreshSessions}
+      />
+    );
+  }
+
+  if (tab.kind === "card_stage" && "cardId" in tab.config && "projectId" in tab.config) {
+    const cardTab = tab as ProjectSessionTab & {
+      config: { projectId: string; cardId: string; titleSnapshot?: string };
+    };
+    return (
+      <CardStageSessionTab
+        tab={cardTab}
+        project={projects.find((item) => item.id === cardTab.config.projectId) ?? null}
+        closeRef={cardStageCloseRef}
+        persistRef={cardStagePersistRef}
+        sessionSnapshotRef={cardStageSessionSnapshotRef}
+        onLeaveCard={onLeaveCardStageCard}
+        onClose={() => void onCloseTab(tab.id)}
+        onOpenTerminal={async (card) => {
+          await invoke("project-session-tabs:create", {
+            sessionId: activeSession.id,
+            projectId: activeSession.projectId,
+            kind: "terminal",
+            title: `${card.title || card.id} Terminal`,
+            config: {
+              projectId: cardTab.config.projectId,
+              terminalSessionId: `card:${activeSession.id}:${card.id}`,
+              mode: "card",
+              cardId: card.id,
+            },
+          });
+          await onRefreshSessions(activeSession.projectId);
+        }}
+      />
+    );
+  }
+
+  if (tab.kind === "terminal" && "terminalSessionId" in tab.config) {
+    return (
+      <div className="h-full min-h-0 bg-token-main-surface-primary">
+        <TerminalPanel
+          projectId={tab.config.projectId}
+          cardId={tab.config.cardId ?? tab.config.projectId}
+          mode={tab.config.mode}
+          sessionId={tab.config.terminalSessionId}
+          onClose={() => void onCloseTab(tab.id)}
+          panelHeight={Number.MAX_SAFE_INTEGER}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full items-center justify-center bg-token-main-surface-primary text-sm text-token-text-secondary">
+      Browser tabs are reserved for a future browser stage.
+    </div>
   );
-  const [globalSelectedCollaborationMode, setGlobalSelectedCollaborationMode] = useState<CodexCollaborationModeKind>(
-    () => readGlobalCollaborationMode(),
-  );
-  const [selectedTurnDiffReviewTarget, setSelectedTurnDiffReviewTarget] = useState<CodexTurnDiffReviewTarget | null>(null);
-  const [taskSearchOpen, setTaskSearchOpen] = useState(false);
-  const taskSearchInputRef = useRef<HTMLInputElement>(null);
-  const previousTaskSearchOpenTickRef = useRef(taskSearchOpenTick);
-  const previousCommandPaletteOpenTickRef = useRef(commandPaletteOpenTick);
-  const previousSettingsToggleTickRef = useRef(settingsToggleTick);
-  const {
-    availableModels,
-    threadSettings,
-    reasoningEffortOptions,
-    permissionMode,
-    loadThreads: loadCodexThreads,
-    listCollaborationModes,
-    startThreadForCard,
-    startTurn,
-    steerTurn,
-    respondApproval,
-    respondUserInput,
-    respondMcpElicitation,
-    setPermissionMode,
-    setThreadModel,
-    setThreadReasoningEffort,
-  } = useCodexAppServerControl(threadsProjectId);
-  const {
-    refreshAccount,
-    startChatGptLogin,
-    startApiKeyLogin,
-    cancelLogin,
-    logout,
-  } = useCodexAccountActions();
-  const projectThreadSummaries = useProjectThreadSummaries(threadsProjectId);
-  const threadFollowerClient = useCodexThreadFollowerClient({
-    projectId: threadsProjectId,
-    permissionMode,
-    model: threadSettings.model,
-    reasoningEffort: threadSettings.reasoningEffort,
-  });
-  const cardStageProjectId = cardStageState.projectId || dbProjectId;
-  const {
-    board: cardStageBoard,
-    cardIndex: cardStageCardIndex,
-    loading: cardStageBoardLoading,
-    updateCard: updateCardForCardStage,
-    patchCard: patchCardForCardStage,
-    deleteCard: deleteCardForCardStage,
-    moveCard: moveCardForCardStage,
-    completeOccurrence: completeOccurrenceForCardStage,
-    skipOccurrence: skipOccurrenceForCardStage,
-  } = useKanban({
-    projectId: cardStageProjectId,
-  });
-  const {
-    board: activeProjectBoard,
-    pendingMutationCount: activeProjectPendingMutationCount,
-    lastMutationError: activeProjectLastMutationError,
-    clearLastMutationError: clearActiveProjectLastMutationError,
-  } = useKanban({
-    projectId: dbProjectId,
-  });
-  const [mutationErrorToast, setMutationErrorToast] = useState<string | null>(null);
-  const [calendarState, setCalendarState] = useState(loadCalendarViewState);
+}
+
+function DbViewSessionTab({
+  tab,
+  projects,
+  activeView,
+  activeSearchQuery,
+  activeDbViewPrefs,
+  searchByProject,
+  dbViewPrefsByProject,
+  cardStageCloseRef,
+  pendingReminderOpen,
+  setSearchQuery,
+  setDbViewPrefs,
+  onReminderHandled,
+  onOpenCardTab,
+  onRefreshSessions,
+}: {
+  tab: ProjectSessionTab;
+  projects: Project[];
+  activeView: WorkbenchView;
+  activeSearchQuery: string;
+  activeDbViewPrefs: DbViewPrefs | null;
+  searchByProject: Record<string, string>;
+  dbViewPrefsByProject: Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>;
+  cardStageCloseRef: React.RefObject<(() => Promise<void>) | null>;
+  pendingReminderOpen?: {
+    projectId: string;
+    cardId: string;
+    occurrenceStart: string;
+  } | null;
+  setSearchQuery: (projectId: string, value: string) => void;
+  setDbViewPrefs: (
+    projectId: string,
+    view: SupportedDbView,
+    update: (prev: DbViewPrefs) => DbViewPrefs,
+  ) => void;
+  onReminderHandled?: (payload: {
+    projectId: string;
+    cardId: string;
+    occurrenceStart: string;
+  }) => void;
+  onOpenCardTab: (projectId: string, cardId: string, titleSnapshot?: string) => Promise<void>;
+  onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
+}) {
+  const config = "view" in tab.config ? tab.config : { projectId: tab.projectId, view: activeView };
+  const view = isProjectSessionDbView(config.view) ? config.view : activeView;
+  const rulesView = viewSupportsDbViewPrefs(view) ? view : null;
+  const dbViewPrefs = rulesView
+    ? dbViewPrefsByProject[config.projectId]?.[rulesView]
+      ?? (config.projectId === tab.projectId && view === activeView ? activeDbViewPrefs : null)
+      ?? getDefaultDbViewPrefs(rulesView)
+    : null;
+  const activeProjectBoard = useKanban({
+    projectId: config.projectId,
+    sessionId: `${tab.id}:toolbar`,
+  }).board;
+  const [calendarState, setCalendarState] = useState<CalendarViewState>(() => loadCalendarViewState());
   const [calendarCreateRequestId, setCalendarCreateRequestId] = useState(0);
+  const [taskSearchOpen, setTaskSearchOpen] = useState(false);
   const calendarVisibleDays = useMemo(() => resolveCalendarVisibleDays(calendarState), [calendarState]);
   const calendarDayCount = resolveCalendarVisibleDayCount(calendarState.range);
-  const activeDbRulesView = viewSupportsDbViewPrefs(activeView) ? activeView : null;
-  const activeProjectTags = useMemo(() => {
+  const taskSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const searchQuery = searchByProject[config.projectId] ?? (config.projectId === tab.projectId ? activeSearchQuery : "");
+  const availableTags = useMemo(() => {
     if (!activeProjectBoard) return [];
     return Array.from(
       new Set(activeProjectBoard.columns.flatMap((column) => column.cards.flatMap((card) => card.tags))),
     ).sort((left, right) => left.localeCompare(right));
   }, [activeProjectBoard]);
-  const updateActiveDbViewPrefs = activeDbRulesView
-    ? (update: (prev: DbViewPrefs) => DbViewPrefs) => setDbViewPrefs(dbProjectId, activeDbRulesView, update)
-    : null;
 
   useEffect(() => {
     saveCalendarViewState(calendarState);
   }, [calendarState]);
+
+  const openTaskSearch = useCallback((selectQuery = false) => {
+    setTaskSearchOpen(true);
+    window.requestAnimationFrame(() => {
+      const input = taskSearchInputRef.current;
+      if (!input) return;
+      input.focus();
+      if (selectQuery) input.select();
+    });
+  }, []);
+
+  const closeTaskSearch = useCallback(() => {
+    setTaskSearchOpen(false);
+  }, []);
 
   const handleCalendarRangeChange = useCallback((range: CalendarRangeState) => {
     setCalendarState((current) => ({ ...current, range }));
@@ -635,517 +1818,27 @@ export function WorkbenchShell({
     setCalendarCreateRequestId((current) => current + 1);
   }, []);
 
-  const setNextPanelPeekPx = useCallback((value: number) => {
-    const normalized = writeNextPanelPeekPx(value);
-    setNextPanelPeekPxState(normalized);
-  }, []);
-  const setSmartPrefixParsingEnabled = useCallback((value: boolean) => {
-    const normalized = writeSmartPrefixParsingEnabled(value);
-    setSmartPrefixParsingEnabledState(normalized);
-  }, []);
-  const setStripSmartPrefixFromTitleEnabled = useCallback((value: boolean) => {
-    const normalized = writeStripSmartPrefixFromTitleEnabled(value);
-    setStripSmartPrefixFromTitleEnabledState(normalized);
-  }, []);
-  const setComposerEnterBehavior = useCallback((value: "enter" | "cmdIfMultiline") => {
-    const normalized = writeComposerEnterBehavior(value);
-    setComposerEnterBehaviorState(normalized);
-  }, []);
-  const setThreadQueueFollowUpsEnabled = useCallback((value: boolean) => {
-    const normalized = writeThreadQueueFollowUpsEnabled(value);
-    setThreadQueueFollowUpsEnabledState(normalized);
-  }, []);
-  const setWorktreeStartMode = useCallback((value: "autoBranch" | "detachedHead") => {
-    const normalized = writeWorktreeStartMode(value);
-    setWorktreeStartModeState(normalized);
-  }, []);
-  const setWorktreeAutoBranchPrefix = useCallback((value: string) => {
-    const normalized = writeWorktreeAutoBranchPrefix(value);
-    setWorktreeAutoBranchPrefixState(normalized);
-  }, []);
-  const openSettings = useCallback((options?: {
-    section?: SettingsSectionId;
-    localEnvironmentProjectId?: string | null;
-    localEnvironmentConfigPath?: string | null;
-  }) => {
-    const nextSection = options?.section ?? "general-settings";
-    setSettingsPath(buildSettingsPath(nextSection));
-    setSettingsInitialLocalEnvironmentProjectId(options?.localEnvironmentProjectId ?? null);
-    setSettingsInitialLocalEnvironmentConfigPath(options?.localEnvironmentConfigPath ?? null);
-    setSettingsOpen(true);
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    void listCollaborationModes()
-      .then((presets) => {
-        if (cancelled) return;
-        if (!Array.isArray(presets) || presets.length === 0) {
-          setAvailableCollaborationModes(FALLBACK_COLLABORATION_MODE_PRESETS);
-          return;
-        }
-
-        const dedupedByMode = new Map<CodexCollaborationModeKind, CodexCollaborationModePreset>();
-        for (const preset of presets) {
-          if (preset.mode !== "default" && preset.mode !== "plan") continue;
-          if (dedupedByMode.has(preset.mode)) continue;
-          dedupedByMode.set(preset.mode, preset);
-        }
-
-        const resolved = Array.from(dedupedByMode.values());
-        setAvailableCollaborationModes(
-          resolved.length > 0 ? resolved : FALLBACK_COLLABORATION_MODE_PRESETS,
-        );
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setAvailableCollaborationModes(FALLBACK_COLLABORATION_MODE_PRESETS);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [listCollaborationModes]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    void invoke("app:update:status")
-      .then((result) => {
-        if (cancelled) {
-          return;
-        }
-
-        const nextStatus =
-          typeof result === "object"
-            && result !== null
-            && typeof (result as AppUpdateStatus).status === "string"
-            && typeof (result as AppUpdateStatus).supported === "boolean"
-            && typeof (result as AppUpdateStatus).currentVersion === "string"
-            ? (result as AppUpdateStatus)
-            : null;
-
-        if (nextStatus) {
-          setAppUpdateStatus(nextStatus);
-        }
-      })
-      .catch(() => { });
-
-    const unsubscribe = subscribeAppUpdateStatus((nextStatus) => {
-      setAppUpdateStatus(nextStatus);
+  const selectView = async (nextView: ProjectSessionDbView) => {
+    await invoke("project-session-tabs:update", tab.id, {
+      config: {
+        projectId: config.projectId,
+        view: nextView,
+      },
+      title: DB_VIEW_TABS.find((item) => item.id === nextView)?.label ?? "DB View",
     });
+    await onRefreshSessions(tab.projectId);
+  };
 
-    return () => {
-      cancelled = true;
-      unsubscribe();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!appUpdateStatus || appUpdateStatus.status !== "downloaded") {
-      setDismissedDownloadedUpdateVersion(null);
-      return;
-    }
-
-    if (dismissedDownloadedUpdateVersion === null) {
-      return;
-    }
-
-    const nextDismissKey = appUpdateStatus.availableVersion ?? "__downloaded__";
-    if (dismissedDownloadedUpdateVersion !== nextDismissKey) {
-      setDismissedDownloadedUpdateVersion(null);
-    }
-  }, [appUpdateStatus, dismissedDownloadedUpdateVersion]);
-
-  const openTaskSearch = useCallback((selectQuery = false) => {
-    setTaskSearchOpen(true);
-    window.requestAnimationFrame(() => {
-      const input = taskSearchInputRef.current;
-      if (!input) return;
-      input.focus();
-      if (selectQuery) input.select();
-    });
-  }, []);
-
-  const closeTaskSearch = useCallback(() => {
-    setTaskSearchOpen(false);
-  }, []);
-
-  useEffect(() => {
-    if (!activeProjectLastMutationError) return;
-    setMutationErrorToast(activeProjectLastMutationError);
-    clearActiveProjectLastMutationError();
-  }, [activeProjectLastMutationError, clearActiveProjectLastMutationError]);
-
-  useEffect(() => {
-    if (!mutationErrorToast) return;
-    const timeout = window.setTimeout(() => {
-      setMutationErrorToast(null);
-    }, 4000);
-    return () => {
-      window.clearTimeout(timeout);
-    };
-  }, [mutationErrorToast]);
-
-  useEffect(() => {
-    const handleCardConflict = (event: Event) => {
-      const detail = (event as CustomEvent<{ projectId?: string }>).detail;
-      if (!detail || detail.projectId !== dbProjectId) return;
-      setMutationErrorToast("Card changed in another window. Reloaded latest.");
-    };
-
-    window.addEventListener("nodex:card-update-conflict", handleCardConflict as EventListener);
-    return () => {
-      window.removeEventListener("nodex:card-update-conflict", handleCardConflict as EventListener);
-    };
-  }, [dbProjectId]);
-
-  useEffect(() => {
-    if (previousTaskSearchOpenTickRef.current === taskSearchOpenTick) return;
-    previousTaskSearchOpenTickRef.current = taskSearchOpenTick;
-    openTaskSearch(true);
-  }, [openTaskSearch, taskSearchOpenTick]);
-
-  useEffect(() => {
-    if (previousCommandPaletteOpenTickRef.current === commandPaletteOpenTick) return;
-    previousCommandPaletteOpenTickRef.current = commandPaletteOpenTick;
-    setCommandPaletteOpen(true);
-  }, [commandPaletteOpenTick]);
-
-  useEffect(() => {
-    if (previousSettingsToggleTickRef.current === settingsToggleTick) return;
-    previousSettingsToggleTickRef.current = settingsToggleTick;
-    if (settingsOpen) {
-      setSettingsOpen(false);
-      return;
-    }
-    openSettings();
-  }, [openSettings, settingsOpen, settingsToggleTick]);
-
-  const slidingWindowVisibleStages = useMemo(
-    () => resolveExpandedStages(focusedStage, stageNavDirection, slidingWindowPaneCount, false),
-    [focusedStage, slidingWindowPaneCount, stageNavDirection],
-  );
-  const visibleStageCount = stageRailLayoutMode === "sliding-window"
-    ? slidingWindowVisibleStages.length
-    : STAGE_ORDER.length;
-  const showStageToolbarDivider = visibleStageCount >= 2;
-  const sidebarVisibleStageSet = useMemo(() => {
-    if (stageRailLayoutMode !== "sliding-window") {
-      return new Set<StageId>(STAGE_ORDER);
-    }
-
-    return new Set<StageId>(slidingWindowVisibleStages);
-  }, [slidingWindowVisibleStages, stageRailLayoutMode]);
-  const isSidebarStageVisible = useCallback(
-    (stageId: StageId) => sidebarVisibleStageSet.has(stageId),
-    [sidebarVisibleStageSet],
-  );
-
-  const handleOpenCardStageFromView = useCallback(
-    (
-      projectId: string,
-      cardId: string,
-      titleSnapshot?: string,
-    ) => {
-      openCardStage(projectId, cardId, titleSnapshot);
+  const toolbarItems = DB_VIEW_TABS.map((item) => ({
+    id: item.id,
+    label: item.label,
+    icon: item.icon,
+    active: item.id === view,
+    onSelect: () => {
+      void selectView(item.id);
     },
-    [openCardStage],
-  );
-
-  const handleStageRailFocus = useCallback((stageId: StageId) => {
-    if (stageRailLayoutMode !== "sliding-window") {
-      navigateToStage(dbProjectId, stageId);
-      return;
-    }
-
-    const { direction } = resolveSlidingWindowFocusIntent(
-      stageId,
-      slidingWindowVisibleStages,
-      slidingWindowPaneCount,
-      stageNavDirection,
-    );
-    navigateToStage(dbProjectId, stageId, direction);
-  }, [
-    dbProjectId,
-    navigateToStage,
-    slidingWindowVisibleStages,
-    slidingWindowPaneCount,
-    stageNavDirection,
-    stageRailLayoutMode,
-  ]);
-
-  const handleCommandPaletteSetView = useCallback((view: WorkbenchView) => {
-    navigateToDbView(dbProjectId, view);
-  }, [dbProjectId, navigateToDbView]);
-
-  const handleCommandPaletteToggleTerminal = useCallback(() => {
-    setTerminalPanelOpen(dbProjectId, !terminalPanelOpen);
-  }, [dbProjectId, setTerminalPanelOpen, terminalPanelOpen]);
-
-  const handleInstallAppUpdate = useCallback(() => {
-    void invoke("app:update:install");
-  }, []);
-
-  const clearSidebarHideTimeout = useCallback(() => {
-    if (sidebarHideTimeoutRef.current === null) return;
-    window.clearTimeout(sidebarHideTimeoutRef.current);
-    sidebarHideTimeoutRef.current = null;
-  }, []);
-
-  const clearHoverSidebarOpenTimeout = useCallback(() => {
-    if (hoverSidebarOpenTimeoutRef.current === null) return;
-    window.clearTimeout(hoverSidebarOpenTimeoutRef.current);
-    hoverSidebarOpenTimeoutRef.current = null;
-  }, []);
-
-  const clearHoverSidebarCloseTimeout = useCallback(() => {
-    if (hoverSidebarCloseTimeoutRef.current === null) return;
-    window.clearTimeout(hoverSidebarCloseTimeoutRef.current);
-    hoverSidebarCloseTimeoutRef.current = null;
-  }, []);
-
-  const closeHoverSidebar = useCallback(() => {
-    clearHoverSidebarOpenTimeout();
-    clearHoverSidebarCloseTimeout();
-    window.requestAnimationFrame(() => {
-      setHoverSidebarOpen(false);
-    });
-  }, [clearHoverSidebarCloseTimeout, clearHoverSidebarOpenTimeout]);
-
-  const scheduleHoverSidebarOpen = useCallback(() => {
-    if (!sidebar.collapsed || sidebarVisible) return;
-
-    clearHoverSidebarCloseTimeout();
-    if (hoverSidebarOpen || hoverSidebarOpenTimeoutRef.current !== null) return;
-
-    hoverSidebarOpenTimeoutRef.current = window.setTimeout(() => {
-      hoverSidebarOpenTimeoutRef.current = null;
-      window.requestAnimationFrame(() => {
-        setHoverSidebarOpen(true);
-      });
-    }, SIDEBAR_HOVER_OPEN_DELAY_MS);
-  }, [clearHoverSidebarCloseTimeout, hoverSidebarOpen, sidebar.collapsed, sidebarVisible]);
-
-  const scheduleHoverSidebarClose = useCallback(() => {
-    if (!sidebar.collapsed || !hoverSidebarOpen) return;
-
-    clearHoverSidebarOpenTimeout();
-    if (hoverSidebarCloseTimeoutRef.current !== null) return;
-
-    hoverSidebarCloseTimeoutRef.current = window.setTimeout(() => {
-      hoverSidebarCloseTimeoutRef.current = null;
-      closeHoverSidebar();
-    }, SIDEBAR_HOVER_KEEP_OPEN_MS);
-  }, [clearHoverSidebarOpenTimeout, closeHoverSidebar, hoverSidebarOpen, sidebar.collapsed]);
-
-  const toggleSidebarCollapsed = useCallback(() => {
-    if (sidebar.collapsed) {
-      clearHoverSidebarOpenTimeout();
-      clearHoverSidebarCloseTimeout();
-      setHoverSidebarOpen(false);
-      setSidebarVisible(true);
-    }
-    setSidebarCollapsed(!sidebar.collapsed);
-  }, [clearHoverSidebarCloseTimeout, clearHoverSidebarOpenTimeout, setSidebarCollapsed, sidebar.collapsed]);
-
-  useEffect(() => {
-    if (sidebar.collapsed) return;
-    clearHoverSidebarOpenTimeout();
-    clearHoverSidebarCloseTimeout();
-    setHoverSidebarOpen(false);
-    setSidebarVisible(true);
-  }, [clearHoverSidebarCloseTimeout, clearHoverSidebarOpenTimeout, sidebar.collapsed]);
-
-  useEffect(() => {
-    if (!sidebar.collapsed) {
-      clearSidebarHideTimeout();
-      return;
-    }
-    if (!sidebarVisible) return;
-
-    clearSidebarHideTimeout();
-    sidebarHideTimeoutRef.current = window.setTimeout(() => {
-      setSidebarVisible(false);
-      sidebarHideTimeoutRef.current = null;
-    }, SIDEBAR_COLLAPSE_TRANSITION_MS);
-
-    return clearSidebarHideTimeout;
-  }, [clearSidebarHideTimeout, sidebar.collapsed, sidebarVisible]);
-
-  useEffect(() => {
-    return () => {
-      clearSidebarHideTimeout();
-      clearHoverSidebarOpenTimeout();
-      clearHoverSidebarCloseTimeout();
-    };
-  }, [clearHoverSidebarCloseTimeout, clearHoverSidebarOpenTimeout, clearSidebarHideTimeout]);
-
-  useEffect(() => {
-    if (!hoverSidebarOpen) return;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      closeHoverSidebar();
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [closeHoverSidebar, hoverSidebarOpen]);
-
-  const decreaseSlidingWindowPaneCount = useCallback(() => {
-    if (stageRailLayoutMode !== "sliding-window") return;
-    stepSlidingWindowPaneCount("decrease");
-  }, [
-    stepSlidingWindowPaneCount,
-    stageRailLayoutMode,
-  ]);
-
-  const increaseSlidingWindowPaneCount = useCallback(() => {
-    if (stageRailLayoutMode !== "sliding-window") return;
-    stepSlidingWindowPaneCount("increase");
-  }, [
-    stepSlidingWindowPaneCount,
-    stageRailLayoutMode,
-  ]);
-
-  const decreasePaneCountButton = (
-    <button
-      type="button"
-      onClick={decreaseSlidingWindowPaneCount}
-      disabled={stageRailLayoutMode !== "sliding-window" || slidingWindowPaneCount <= 1}
-      title="Decrease visible panes"
-      aria-label="Decrease visible panes"
-      className={cn(
-        "inline-flex size-7 items-center justify-center rounded-lg transition-colors",
-        stageRailLayoutMode !== "sliding-window" || slidingWindowPaneCount <= 1
-          ? "cursor-not-allowed text-(--foreground-secondary) opacity-30"
-          : "text-(--foreground-secondary) hover:bg-(--background-secondary) hover:text-(--foreground)",
-      )}
-      style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-    >
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M8.5 3.5L5 7L8.5 10.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </button>
-  );
-
-  const increasePaneCountButton = (
-    <button
-      type="button"
-      onClick={increaseSlidingWindowPaneCount}
-      disabled={stageRailLayoutMode !== "sliding-window" || slidingWindowPaneCount >= STAGE_ORDER.length}
-      title="Increase visible panes"
-      aria-label="Increase visible panes"
-      className={cn(
-        "inline-flex size-7 items-center justify-center rounded-lg transition-colors",
-        stageRailLayoutMode !== "sliding-window" || slidingWindowPaneCount >= STAGE_ORDER.length
-          ? "cursor-not-allowed text-(--foreground-secondary) opacity-30"
-          : "text-(--foreground-secondary) hover:bg-(--background-secondary) hover:text-(--foreground)",
-      )}
-      style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-    >
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M5.5 3.5L9 7L5.5 10.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </button>
-  );
-
-  const activeTerminalTab = useMemo(
-    () => terminalTabs.find((tab) => tab.id === activeTerminalTabId) ?? terminalTabs[0] ?? null,
-    [terminalTabs, activeTerminalTabId],
-  );
-
-  const codexThreadTabs = useMemo<ThreadsStageTab[]>(
-    () => [
-      { id: NEW_THREAD_STAGE_TAB_ID, title: "New thread", preview: "" },
-      ...projectThreadSummaries.map((thread) => ({
-        id: thread.threadId,
-        title: thread.threadName?.trim() || thread.threadPreview || thread.threadId,
-        preview: thread.threadPreview,
-      })),
-    ],
-    [projectThreadSummaries],
-  );
-
-  useEffect(() => {
-    setThreadsTabs(threadsProjectId, codexThreadTabs);
-  }, [threadsProjectId, codexThreadTabs, setThreadsTabs]);
-
-  const resolvedThreadsTabs = codexThreadTabs.length > 0 ? codexThreadTabs : threadsTabs;
-  const resolvedConversationThreadSummaries = projectThreadSummaries;
-  const resolvedActiveThreadsTabId = useMemo(() => {
-    if (resolvedThreadsTabs.some((tab) => tab.id === activeThreadsTabId)) return activeThreadsTabId;
-    return resolvedThreadsTabs[0]?.id ?? "";
-  }, [activeThreadsTabId, resolvedThreadsTabs]);
-
-  useEffect(() => {
-    if (resolvedActiveThreadsTabId === activeThreadsTabId) return;
-    setActiveThreadsTab(threadsProjectId, resolvedActiveThreadsTabId);
-  }, [threadsProjectId, activeThreadsTabId, resolvedActiveThreadsTabId, setActiveThreadsTab]);
-
-  const activeThreadTab = useMemo(
-    () => resolvedThreadsTabs.find((tab) => tab.id === resolvedActiveThreadsTabId) ?? null,
-    [resolvedThreadsTabs, resolvedActiveThreadsTabId],
-  );
-
-  const isNewThreadTab = resolvedActiveThreadsTabId === NEW_THREAD_STAGE_TAB_ID;
-
-  const runningThreadIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const thread of resolvedConversationThreadSummaries) {
-      if (thread.statusType === "active") ids.add(thread.threadId);
-    }
-    return ids;
-  }, [resolvedConversationThreadSummaries]);
-
-  const activeThreadSummary = useMemo(() => {
-    if (!activeThreadTab || activeThreadTab.id === NEW_THREAD_STAGE_TAB_ID) return null;
-    return resolvedConversationThreadSummaries.find((thread) => thread.threadId === activeThreadTab.id) ?? null;
-  }, [activeThreadTab, resolvedConversationThreadSummaries]);
-
-  const activeCardStageCardId = cardStageState.open ? cardStageState.cardId : null;
-  const activeCardStageCard = useMemo(
-    () => (activeCardStageCardId ? cardStageCardIndex.get(activeCardStageCardId) ?? null : null),
-    [activeCardStageCardId, cardStageCardIndex],
-  );
-  const activeCardStageColumnId = activeCardStageCard?.columnId ?? "";
-  const cardStageColumnName = useMemo(
-    () => activeCardStageCard?.columnName ?? KANBAN_STATUS_LABELS[activeCardStageColumnId] ?? "",
-    [activeCardStageCard?.columnName, activeCardStageColumnId],
-  );
-  const cardStageAvailableTags = useMemo(() => {
-    if (!cardStageBoard) return [];
-    const uniqueTags = new Set(
-      cardStageBoard.columns.flatMap((column) => column.cards.flatMap((card) => card.tags ?? [])),
-    );
-    return Array.from(uniqueTags);
-  }, [cardStageBoard]);
-  const historyOverlayOpen = activeCardsTabId === "history" && Boolean(activeCardStageCard);
-
-  const currentCardStageSession = useMemo(() => {
-    if (!activeCardStageCardId) return null;
-    return (
-      recentCardSessions.find(
-        (session) =>
-          session.projectId === cardStageState.projectId &&
-          session.cardId === activeCardStageCardId,
-      ) ?? null
-    );
-  }, [activeCardStageCardId, cardStageState.projectId, recentCardSessions]);
-  const activeRecentSidebarSessionId = currentCardStageSession?.id ?? null;
-
-  const dbSidebarItems: StageSidebarItem[] = DB_VIEW_TABS.map((tab) => ({
-    id: tab.id,
-    label: tab.label,
-    icon: DB_VIEW_ICONS[tab.id],
-    active: activeView === tab.id,
-    onSelect: () => navigateToDbView(dbProjectId, tab.id),
   }));
-  const calendarToolbarControls = activeView === "calendar" ? (
+  const calendarToolbarControls = view === "calendar" ? (
     <CalendarToolbarControls
       range={calendarState.range}
       onRangeChange={handleCalendarRangeChange}
@@ -1155,1203 +1848,143 @@ export function WorkbenchShell({
       onNext={handleCalendarNext}
     />
   ) : null;
-  const calendarToolbarContextLabel = activeView === "calendar" ? (
+  const calendarToolbarContextLabel = view === "calendar" ? (
     <CalendarToolbarMonthLabel visibleDays={calendarVisibleDays} />
   ) : null;
-
-  const cardsSidebarSections = useMemo<StageSidebarSection[]>(() => {
-    const statusSections = CARDS_SIDEBAR_STATUS_ORDER.flatMap<StageSidebarSection>((statusId) => {
-      const column = activeProjectBoard?.columns.find((candidate) => candidate.id === statusId);
-      if (!column || column.cards.length === 0) return [];
-
-      const StatusSectionIcon = ({ className }: { className?: string }) => (
-        <SharedStatusIcon
-          statusId={statusId}
-          label={column.name || KANBAN_STATUS_LABELS[statusId] || statusId}
-          className={className}
-        />
-      );
-
-      return [{
-        id: `cards:status:${statusId}`,
-        label: column.name || KANBAN_STATUS_LABELS[statusId] || statusId,
-        count: column.cards.length,
-        icon: StatusSectionIcon,
-        collapsible: true,
-        items: column.cards.map((card) => ({
-          id: `project-card:${card.id}`,
-          label: card.title,
-          active:
-            isSidebarStageVisible("cards")
-            && cardStageState.projectId === dbProjectId
-            && activeCardStageCardId === card.id,
-          onSelect: () => {
-            openCardStage(dbProjectId, card.id, card.title);
-          },
-        })),
-      }];
-    });
-
-    return statusSections;
-  }, [
-    activeCardStageCardId,
-    activeProjectBoard,
-    cardStageState.projectId,
-    dbProjectId,
-    isSidebarStageVisible,
-    openCardStage,
-  ]);
-
-  const recentSidebarSections = useMemo<StageSidebarSection[]>(() => {
-    if (recentCardSessions.length === 0) return [];
-
-    return [{
-      id: "recents:list",
-      items: recentCardSessions.map((session) => ({
-        id: `session:${session.id}`,
-        label: session.titleSnapshot || session.cardId,
-        active: isSidebarStageVisible("cards") && session.id === activeRecentSidebarSessionId,
-        closable: true,
-        onClose: () => closeRecentCardSession(session.id),
-        onSelect: () => {
-          void navigateToRecentSession(session.id);
-        },
-      })),
-    }];
-  }, [
-    activeRecentSidebarSessionId,
-    closeRecentCardSession,
-    isSidebarStageVisible,
-    navigateToRecentSession,
-    recentCardSessions,
-  ]);
-
-  const threadSummaryById = useMemo(
-    () => new Map(resolvedConversationThreadSummaries.map((thread) => [thread.threadId, thread])),
-    [resolvedConversationThreadSummaries],
-  );
-
-  const threadsSidebarItems: StageSidebarItem[] = resolvedThreadsTabs.map((tab) => {
-    const summary = threadSummaryById.get(tab.id);
-    const isRunningThread = runningThreadIds.has(tab.id);
-    return {
-      id: tab.id,
-      label: tab.title,
-      icon: isRunningThread ? RunningThreadSpinnerIcon : undefined,
-      updatedAtMs: summary?.updatedAt,
-      active: isSidebarStageVisible("threads") && tab.id === resolvedActiveThreadsTabId,
-      onSelect: () => navigateToThreadTab(summary?.projectId ?? threadsProjectId, tab.id),
-    };
-  });
-
-  const filesSidebarItems: StageSidebarItem[] = filesTabs.map((tab) => ({
-    id: tab.id,
-    label: tab.title,
-    active: isSidebarStageVisible("files") && tab.id === activeFilesTabId,
-    onSelect: () => navigateToFilesTab(dbProjectId, tab.id),
-  }));
-
-  const dbStageGroup: StageSidebarGroup = {
-    id: "db",
-    label: "Views",
-    hideHeader: true,
-    icon: STAGE_ICONS.db,
-    active: isSidebarStageVisible("db"),
-    expanded: isSidebarStageExpanded(dbProjectId, "db"),
-    onFocus: () => handleStageRailFocus("db"),
-    onToggleExpanded: () =>
-      setSidebarStageExpanded(dbProjectId, "db", !isSidebarStageExpanded(dbProjectId, "db")),
-    sections: [{ id: "db:views", items: dbSidebarItems }],
-    items: dbSidebarItems,
-  };
-
-  const topLevelStageGroups = new Map<SidebarTopLevelSectionId, StageSidebarGroup>([
-    [
-      "recents",
-      {
-        id: "recents",
-        label: "Recents",
-        active: isSidebarStageVisible("cards") && recentSidebarSections.some((section) =>
-          section.items.some((item) => item.active),
-        ),
-        expanded: isSidebarStageExpanded(dbProjectId, "recents"),
-        onFocus: () => handleStageRailFocus("cards"),
-        onToggleExpanded: () =>
-          setSidebarStageExpanded(dbProjectId, "recents", !isSidebarStageExpanded(dbProjectId, "recents")),
-        sections: recentSidebarSections,
-        items: recentSidebarSections.flatMap((section) => section.items),
-      },
-    ],
-    [
-      "cards",
-      {
-        id: "cards",
-        label: "Cards",
-        icon: STAGE_ICONS.cards,
-        active: isSidebarStageVisible("cards"),
-        expanded: isSidebarStageExpanded(dbProjectId, "cards"),
-        onFocus: () => handleStageRailFocus("cards"),
-        onToggleExpanded: () =>
-          setSidebarStageExpanded(dbProjectId, "cards", !isSidebarStageExpanded(dbProjectId, "cards")),
-        sections: cardsSidebarSections,
-        items: cardsSidebarSections.flatMap((section) => section.items),
-      },
-    ],
-    [
-      "threads",
-      {
-        id: "threads",
-        label: "Threads",
-        icon: STAGE_ICONS.threads,
-        active: isSidebarStageVisible("threads"),
-        expanded: isSidebarStageExpanded(dbProjectId, "threads"),
-        onFocus: () => handleStageRailFocus("threads"),
-        onToggleExpanded: () =>
-          setSidebarStageExpanded(dbProjectId, "threads", !isSidebarStageExpanded(dbProjectId, "threads")),
-        sections: [{ id: "threads:list", items: threadsSidebarItems }],
-        items: threadsSidebarItems,
-      },
-    ],
-    [
-      "files",
-      {
-        id: "files",
-        label: "Diffs",
-        icon: STAGE_ICONS.files,
-        active: isSidebarStageVisible("files"),
-        expanded: isSidebarStageExpanded(dbProjectId, "files"),
-        onFocus: () => handleStageRailFocus("files"),
-        onToggleExpanded: () =>
-          setSidebarStageExpanded(dbProjectId, "files", !isSidebarStageExpanded(dbProjectId, "files")),
-        sections: [{ id: "files:list", items: filesSidebarItems }],
-        items: filesSidebarItems,
-      },
-    ],
-  ]);
-
-  const orderedTopLevelSectionIds = resolveVisibleSidebarTopLevelSections(
-    sidebar.topLevelSectionOrder,
-    sidebar.topLevelSections,
-  );
-  const sidebarSectionExpandedState = useMemo(() => {
-    const stateBySection: Record<string, boolean> = {};
-    for (const group of [dbStageGroup, ...topLevelStageGroups.values()]) {
-      for (const section of group.sections) {
-        stateBySection[section.id] = isSidebarSectionExpanded(dbProjectId, section.id);
-      }
-    }
-    return stateBySection;
-  }, [dbProjectId, dbStageGroup, isSidebarSectionExpanded, topLevelStageGroups]);
-  const sidebarSectionShowAllState = useMemo(() => {
-    const stateBySection: Record<string, boolean> = {};
-    for (const group of [dbStageGroup, ...topLevelStageGroups.values()]) {
-      for (const section of group.sections) {
-        stateBySection[section.id] = isSidebarSectionShowAll(dbProjectId, section.id);
-      }
-    }
-    return stateBySection;
-  }, [dbProjectId, dbStageGroup, isSidebarSectionShowAll, topLevelStageGroups]);
-  const stageGroups: StageSidebarGroup[] = [
-    dbStageGroup,
-    ...orderedTopLevelSectionIds.flatMap((sectionId, index, visibleIds) => {
-      const group = topLevelStageGroups.get(sectionId);
-      if (!group) return [];
-      const sectionPrefs = sidebar.topLevelSections[sectionId];
-      return [{
-        ...group,
-        moreActions: {
-          itemLimit: sectionPrefs.itemLimit,
-          canMoveUp: index > 0,
-          canMoveDown: index < visibleIds.length - 1,
-          onItemLimitChange: (itemLimit: SidebarSectionItemLimit) =>
-            setSidebarTopLevelSectionItemLimit(sectionId, itemLimit),
-          onMoveUp: () => moveSidebarTopLevelSectionBy(sectionId, -1),
-          onMoveDown: () => moveSidebarTopLevelSectionBy(sectionId, 1),
-          onHide: () => setSidebarTopLevelSectionVisible(sectionId, false),
-        },
-      }];
-    }),
-  ];
-
-  const linkedThreadsForCardStageCard = useMemo(() => {
-    if (!activeCardStageCardId) return [];
-    return resolvedConversationThreadSummaries
-      .filter((thread) => thread.cardId === activeCardStageCardId)
-      .map((thread) => ({
-        threadId: thread.threadId,
-        title: thread.threadName?.trim() || thread.threadPreview || thread.threadId,
-        preview: thread.threadPreview,
-        statusType: thread.statusType,
-        statusActiveFlags: thread.statusActiveFlags,
-        archived: thread.archived,
-        updatedAt: thread.updatedAt,
-      }));
-  }, [activeCardStageCardId, resolvedConversationThreadSummaries]);
-
-  const activeThreadsProject = useMemo(
-    () => projects.find((project) => project.id === threadsProjectId) ?? null,
-    [projects, threadsProjectId],
-  );
-
-  const newThreadTarget = useMemo(() => {
-    if (!activeCardStageCard || !cardStageState.projectId) return null;
-    return {
-      projectId: cardStageState.projectId,
-      projectName: projects.find((project) => project.id === cardStageState.projectId)?.name ?? cardStageState.projectId,
-      cardId: activeCardStageCard.id,
-      cardTitle: activeCardStageCard.title,
-      columnId: activeCardStageColumnId,
-      runInTarget: activeCardStageCard.runInTarget,
-    };
-  }, [activeCardStageCard, activeCardStageColumnId, cardStageState.projectId, projects]);
-  const newThreadStartProgress = useCodexThreadStartProgress(
-    newThreadTarget?.projectId ?? null,
-    newThreadTarget?.cardId ?? null,
-  );
-  const activeConversationCollaborationMode = useConversationCollaborationMode(
-    !isNewThreadTab && resolvedActiveThreadsTabId && resolvedActiveThreadsTabId !== NEW_THREAD_STAGE_TAB_ID
-      ? resolvedActiveThreadsTabId
-      : null,
-  );
-  const selectedCollaborationMode = isNewThreadTab
-    ? globalSelectedCollaborationMode
-    : activeConversationCollaborationMode?.mode ?? DEFAULT_CODEX_COLLABORATION_MODE;
-
-  const handleCollaborationModeChange = useCallback((mode: CodexCollaborationModeKind) => {
-    if (!isNewThreadTab && resolvedActiveThreadsTabId && resolvedActiveThreadsTabId !== NEW_THREAD_STAGE_TAB_ID) {
-      void setLocalConversationCollaborationMode(resolvedActiveThreadsTabId, mode);
-      return;
-    }
-    const nextMode = writeGlobalCollaborationMode(mode);
-    setGlobalSelectedCollaborationMode(nextMode);
-  }, [isNewThreadTab, resolvedActiveThreadsTabId]);
-  const handleCardStagePatch = useCallback((columnId: string, cardId: string, updates: Partial<CardInput>) => {
-    if (!cardStageProjectId) return;
-    patchCardForCardStage(columnId, cardId, updates);
-  }, [cardStageProjectId, patchCardForCardStage]);
-  const handleCardStageUpdate = useCallback(async (columnId: string, cardId: string, updates: Partial<CardInput>) => {
-    if (!cardStageProjectId) {
-      return {
-        status: "error",
-        error: "No active project selected",
-      } as CardUpdateMutationResult;
-    }
-    return updateCardForCardStage(columnId, cardId, updates);
-  }, [cardStageProjectId, updateCardForCardStage]);
-  const handleCardStageDelete = useCallback(async (columnId: string, cardId: string) => {
-    if (!cardStageProjectId) return;
-    await deleteCardForCardStage(columnId, cardId);
-  }, [cardStageProjectId, deleteCardForCardStage]);
-  const handleCardStageMove = useCallback(async (fromStatus: Card["status"], cardId: string, toStatus: Card["status"]) => {
-    if (!cardStageProjectId) return;
-    await moveCardForCardStage({ cardId, fromStatus, toStatus });
-  }, [cardStageProjectId, moveCardForCardStage]);
-  const handleCardStageCompleteOccurrence = useCallback(async (cardId: string, occurrenceStart: Date) => {
-    if (!cardStageProjectId) return;
-    await completeOccurrenceForCardStage({ cardId, occurrenceStart, source: "card-stage" });
-  }, [cardStageProjectId, completeOccurrenceForCardStage]);
-  const handleCardStageSkipOccurrence = useCallback(async (cardId: string, occurrenceStart: Date) => {
-    if (!cardStageProjectId) return;
-    await skipOccurrenceForCardStage({ cardId, occurrenceStart, source: "card-stage" });
-  }, [cardStageProjectId, skipOccurrenceForCardStage]);
-
-  const handleOpenCardFromThread = useCallback(async (cardId: string) => {
-    const projectId = activeThreadSummary?.projectId ?? threadsProjectId;
-    await openCardStage(projectId, cardId);
-  }, [activeThreadSummary?.projectId, openCardStage, threadsProjectId]);
-
-  const handleOpenTurnDiffReview = useCallback((target: CodexTurnDiffReviewTarget) => {
-    setSelectedTurnDiffReviewTarget(target);
-    navigateToStage(threadsProjectId, "files", "right");
-  }, [navigateToStage, threadsProjectId]);
-
-  const threadStageActions = useMemo<ThreadStageActions>(() => ({
-    onCollaborationModeChange: handleCollaborationModeChange,
-    onModelChange: setThreadModel,
-    onReasoningEffortChange: setThreadReasoningEffort,
-    onPermissionModeChange: (mode) => {
-      void setPermissionMode(threadsProjectId, mode);
-    },
-    onQueueingEnabledChange: (enabled) => {
-      setThreadQueueFollowUpsEnabled(enabled);
-    },
-    onRefreshAccount: refreshAccount,
-    onStartChatGptLogin: startChatGptLogin,
-    onStartApiKeyLogin: startApiKeyLogin,
-    onCancelLogin: async (loginId) => {
-      await cancelLogin(loginId);
-    },
-    onLogout: async () => {
-      await logout();
-    },
-    onStartThreadForCard: async (input) => {
-      const detail = await startThreadForCard({
-        projectId: input.projectId,
-        cardId: input.cardId,
-        prompt: input.prompt,
-        promptInput: input.promptInput,
-        collaborationMode: selectedCollaborationMode,
-        worktreeStartMode,
-        worktreeBranchPrefix: worktreeAutoBranchPrefix,
-      });
-      await loadCodexThreads(input.projectId);
-      navigateToThreadTab(input.projectId, detail.threadId);
-    },
-    onSendPrompt: async (prompt, opts) => {
-      if (!activeThreadTab || activeThreadTab.id === NEW_THREAD_STAGE_TAB_ID) return;
-      await threadFollowerClient.startTurn(
-        activeThreadTab.id,
-        prompt,
-        {
-          collaborationMode: opts?.collaborationMode ?? selectedCollaborationMode,
-          promptInput: opts?.promptInput,
-        },
-      );
-    },
-    onSteerPrompt: async (input) => {
-      if (!activeThreadTab || activeThreadTab.id === NEW_THREAD_STAGE_TAB_ID) return;
-      await threadFollowerClient.steerTurn({
-        ...input,
-        threadId: activeThreadTab.id,
-      });
-    },
-    onInterruptTurn: async (turnId) => {
-      if (!activeThreadTab || activeThreadTab.id === NEW_THREAD_STAGE_TAB_ID) return;
-      await threadFollowerClient.interruptTurn(activeThreadTab.id, turnId);
-    },
-    onRespondApproval: async (requestId, decision) => {
-      await respondApproval(requestId, decision);
-    },
-    onRespondUserInput: async (requestId, answers) => {
-      await respondUserInput(requestId, answers);
-    },
-    onRespondMcpElicitation: async (requestId, action) => {
-      await respondMcpElicitation(requestId, action);
-    },
-    onResolvePlanImplementationRequest: async (threadId, turnId) => {
-      await removeLocalConversationPlanImplementationRequest(threadId, turnId);
-    },
-    onEnqueueQueuedFollowUp: async (threadId, prompt, opts) => {
-      await threadFollowerClient.enqueueQueuedFollowUp(threadId, prompt, {
-        collaborationMode: opts?.collaborationMode ?? null,
-        promptInput: opts?.promptInput,
-      });
-    },
-    onRemoveQueuedFollowUp: async (threadId, followUpId) => {
-      await threadFollowerClient.removeQueuedFollowUp(threadId, followUpId);
-    },
-    onReorderQueuedFollowUps: async (threadId, orderedFollowUpIds) => {
-      await threadFollowerClient.reorderQueuedFollowUps(threadId, orderedFollowUpIds);
-    },
-    onSendQueuedFollowUpNow: async (threadId, followUpId) => {
-      await threadFollowerClient.sendQueuedFollowUpNow(threadId, followUpId);
-    },
-    onEditQueuedFollowUp: async ({ threadId, followUpId, prompt }) => {
-      await threadFollowerClient.removeQueuedFollowUp(threadId, followUpId);
-      setLocalConversationComposerIntent(threadId, {
-        prompt,
-        focusNonce: Date.now(),
-      });
-    },
-    onEditLastUserTurn: async (input) => {
-      await threadFollowerClient.editLastUserTurn(input.threadId, input.turnId, input.message);
-      await requestLocalConversationSnapshot(input.threadId);
-    },
-    onForkFromTurn: async (input) => {
-      const result = await threadFollowerClient.forkConversationFromTurn(input.threadId, input.turnId, input.message);
-      const forkedConversation = await requestLocalConversationSnapshot(result.threadId);
-      setLocalConversationComposerIntent(result.threadId, result.composerIntent);
-      void setLocalConversationCollaborationMode(result.threadId, selectedCollaborationMode);
-      const projectId = forkedConversation?.projectId ?? activeThreadSummary?.projectId ?? threadsProjectId;
-      await loadCodexThreads(projectId);
-      navigateToThreadTab(projectId, result.threadId);
-    },
-    onOpenTurnDiffReview: handleOpenTurnDiffReview,
-    onConsumeComposerIntent: (threadId, focusNonce) => {
-      consumeLocalConversationComposerIntent(threadId, focusNonce);
-    },
-    onOpenThread: (threadId) => {
-      navigateToThreadTab(threadsProjectId, threadId);
-    },
-    onCleanBackgroundTerminals: async (threadId) => {
-      await threadFollowerClient.cleanBackgroundTerminals(threadId);
-    },
-    onOpenCard: (cardId) => {
-      void handleOpenCardFromThread(cardId);
-    },
-  }), [
-    activeThreadTab,
-    activeThreadSummary?.projectId,
-    cancelLogin,
-    consumeLocalConversationComposerIntent,
-    handleCollaborationModeChange,
-    handleOpenCardFromThread,
-    handleOpenTurnDiffReview,
-    loadCodexThreads,
-    logout,
-    navigateToThreadTab,
-    refreshAccount,
-    removeLocalConversationPlanImplementationRequest,
-    respondApproval,
-    respondMcpElicitation,
-    respondUserInput,
-    selectedCollaborationMode,
-    setPermissionMode,
-    setLocalConversationComposerIntent,
-    setThreadQueueFollowUpsEnabled,
-    setThreadModel,
-    setThreadReasoningEffort,
-    startApiKeyLogin,
-    startChatGptLogin,
-    startThreadForCard,
-    threadFollowerClient,
-    threadsProjectId,
-    worktreeAutoBranchPrefix,
-    worktreeStartMode,
-  ]);
-
-  const closeHistoryTab = useCallback(() => {
-    const fallbackSessionId = currentCardStageSession?.id ?? null;
-    const fallbackTabId = fallbackSessionId
-      ? `session:${fallbackSessionId}`
-      : cardStageState.open && cardStageState.cardId
-        ? `current:${cardStageState.projectId}:${cardStageState.cardId}`
-        : "";
-    navigateToCardsTab(
-      dbProjectId,
-      fallbackTabId,
-      fallbackSessionId,
-    );
-  }, [
-    cardStageState.cardId,
-    cardStageState.open,
-    cardStageState.projectId,
-    currentCardStageSession,
-    dbProjectId,
-    navigateToCardsTab,
-  ]);
-
-  const cardStageEditorPanel = activeCardStageCard ? (
-    <CardStage
-      onClose={closeCardStage}
-      onLeaveCard={onLeaveCardStageCard}
-      closeRef={cardStageCloseRef}
-      persistRef={cardStagePersistRef}
-      sessionSnapshotRef={cardStageSessionSnapshotRef}
-      card={activeCardStageCard}
-      columnId={activeCardStageColumnId}
-      columnName={cardStageColumnName}
-      projectId={cardStageState.projectId}
-      projectWorkspacePath={projects.find((project) => project.id === cardStageState.projectId)?.workspacePath ?? null}
-      availableTags={cardStageAvailableTags}
-      onUpdate={handleCardStageUpdate}
-      onPatch={handleCardStagePatch}
-      onDelete={handleCardStageDelete}
-      onMove={handleCardStageMove}
-      onCompleteOccurrence={handleCardStageCompleteOccurrence}
-      onSkipOccurrence={handleCardStageSkipOccurrence}
-      onOpenHistoryPanel={() => {
-        navigateToCardsTab(
-          dbProjectId,
-          "history",
-          currentCardStageSession?.id ?? activeRecentSessionId,
-        );
-      }}
-      onOpenTerminalPanel={() => {
-        const sessionRefId = currentCardStageSession?.id ?? activeRecentSessionId ?? `ephemeral:${activeCardStageCard.id}`;
-        openCardTerminalTab(cardStageState.projectId, sessionRefId, activeCardStageCard.id, activeCardStageCard.title);
-        setTerminalPanelOpen(cardStageState.projectId, true);
-      }}
-      linkedCodexThreads={linkedThreadsForCardStageCard}
-      onOpenCodexThread={async (threadId) => {
-        navigateToThreadTab(cardStageState.projectId, threadId);
-      }}
-      onOpenNewCodexThread={() => {
-        navigateToThreadTab(cardStageState.projectId, NEW_THREAD_STAGE_TAB_ID);
-      }}
-      onOpenLocalEnvironmentSettings={({ projectId, configPath }) => {
-        openSettings({
-          section: "local-environments",
-          localEnvironmentProjectId: projectId,
-          localEnvironmentConfigPath: configPath,
-        });
-      }}
-      onStartThreadSection={async ({ projectId, cardId, prompt, promptInput }) => {
-        const detail = await startThreadForCard({
-          projectId,
-          cardId,
-          prompt,
-          promptInput,
-          collaborationMode: selectedCollaborationMode,
-          worktreeStartMode,
-          worktreeBranchPrefix: worktreeAutoBranchPrefix,
-        });
-        await loadCodexThreads(projectId);
-        return { threadId: detail.threadId };
-      }}
-      onSendThreadSectionPrompt={async ({ projectId, threadId, prompt, promptInput }) => {
-        const conversation = readLocalConversation(threadId);
-        const activeTurn = conversation
-          ? [...conversation.turns].reverse().find((turn) => turn.status === "inProgress") ?? null
-          : null;
-        if (activeTurn) {
-          if ((promptInput?.agentConfigs?.length ?? 0) > 0) {
-            throw new Error("Agent config cannot be steered into a running turn. Wait for the turn to finish or queue a follow-up.");
-          }
-          await steerTurn({
-            threadId,
-            expectedTurnId: activeTurn.turnId,
-            prompt,
-            promptInput,
-            collaborationMode: selectedCollaborationMode,
-          });
-        } else {
-          await startTurn(threadId, prompt, {
-            projectId,
-            collaborationMode: selectedCollaborationMode,
-            promptInput,
-          });
-        }
-        await loadCodexThreads(projectId);
-      }}
-      terminalPanelActive={
-        terminalPanelOpen &&
-        activeTerminalTab?.kind === "card" &&
-        activeTerminalTab.cardId === activeCardStageCard.id
-      }
-      historyPanelActive={historyOverlayOpen}
-    />
-  ) : cardStageState.open && cardStageState.cardId && cardStageBoardLoading ? (
-    <div className="flex h-full items-center justify-center text-sm text-(--foreground-tertiary)">
-      Loading card...
-    </div>
-  ) : (
-    <div className="flex h-full items-center justify-center text-sm text-(--foreground-tertiary)">
-      Select a card session to open the editor.
-    </div>
-  );
-
-  const projectNameById = useMemo(
-    () => new Map(projects.map((project) => [project.id, project.name])),
-    [projects],
-  );
-
-  const cardStageTabs = useMemo<AppShellTabItem[]>(() => {
-    const historyPanel = historyOverlayOpen && activeCardStageCard
-      ? (
-          <HistoryPanel
-            projectId={cardStageState.projectId}
-            cardId={activeCardStageCard.id}
-            open={true}
-            mode="embedded"
-            onClose={closeHistoryTab}
-          />
-      )
-      : null;
-
-    const sessionTabs = recentCardSessions.map<AppShellTabItem>((session) => {
-      const isHistoryState = historyPanel && currentCardStageSession?.id === session.id;
-      const tabTitle = isHistoryState ? "History" : session.titleSnapshot || session.cardId;
-      const cardTitle = session.titleSnapshot || session.cardId;
-      const tooltipTitle = isHistoryState ? `History | ${cardTitle}` : tabTitle;
-      const projectName = projectNameById.get(session.projectId) ?? session.projectId;
-
-      return {
-        id: `session:${session.id}`,
-        title: tabTitle,
-        titleLabel: tabTitle,
-        icon: isHistoryState ? History : CardIcon,
-        closable: true,
-        reorderable: true,
-        tooltip: (
-          <CardStageTabTooltip
-            title={tooltipTitle}
-            projectName={projectName}
-            cardId={session.cardId}
-          />
-        ),
-        renderPanel: () => (
-          isHistoryState
-            ? historyPanel
-            : cardStageEditorPanel
-        ),
-      };
-    });
-
-    const hasActiveSessionTab =
-      currentCardStageSession
-      && recentCardSessions.some((session) => session.id === currentCardStageSession.id);
-
-    const currentCardTab = cardStageState.open && cardStageState.cardId && !hasActiveSessionTab
-      ? (() => {
-          const tabTitle = historyPanel ? "History" : activeCardStageCard?.title || cardStageState.cardId;
-          const cardTitle = activeCardStageCard?.title || cardStageState.cardId;
-          const tooltipTitle = historyPanel ? `History | ${cardTitle}` : tabTitle;
-          const projectName = projectNameById.get(cardStageState.projectId) ?? cardStageState.projectId;
-
-          return [{
-            id: `current:${cardStageState.projectId}:${cardStageState.cardId}`,
-            title: tabTitle,
-            titleLabel: tabTitle,
-            icon: historyPanel ? History : CardIcon,
-            closable: true,
-            reorderable: false,
-            isLabel: true,
-            tooltip: (
-              <CardStageTabTooltip
-                title={tooltipTitle}
-                projectName={projectName}
-                cardId={cardStageState.cardId}
-              />
-            ),
-            renderPanel: () => historyPanel ?? cardStageEditorPanel,
-          } satisfies AppShellTabItem];
-        })()
-      : [];
-
-    return [...sessionTabs, ...currentCardTab];
-  }, [
-    activeCardStageCard,
-    cardStageEditorPanel,
-    cardStageState.cardId,
-    cardStageState.open,
-    cardStageState.projectId,
-    closeHistoryTab,
-    currentCardStageSession,
-    historyOverlayOpen,
-    projectNameById,
-    recentCardSessions,
-  ]);
-
-  const activeCardStageTabId = (() => {
-    if (activeCardsTabId && cardStageTabs.some((tab) => tab.id === activeCardsTabId)) return activeCardsTabId;
-    if (currentCardStageSession && cardStageTabs.some((tab) => tab.id === `session:${currentCardStageSession.id}`)) {
-      return `session:${currentCardStageSession.id}`;
-    }
-    const currentTab = cardStageTabs.find((tab) => tab.id.startsWith("current:"));
-    return currentTab?.id ?? cardStageTabs[0]?.id ?? "";
-  })();
-
-  const selectCardStageTab = useCallback((tabId: string) => {
-    if (tabId.startsWith("session:")) {
-      const sessionId = tabId.slice("session:".length);
-      void navigateToRecentSession(sessionId);
-    }
-  }, [navigateToRecentSession]);
-
-  const closeCardStageTab = useCallback((tabId: string) => {
-    if (historyOverlayOpen && tabId === activeCardStageTabId) {
-      closeHistoryTab();
-      return;
-    }
-    if (tabId.startsWith("session:")) {
-      closeRecentCardSession(tabId.slice("session:".length));
-      return;
-    }
-    if (tabId.startsWith("current:")) {
-      closeCardStage();
-    }
-  }, [activeCardStageTabId, closeCardStage, closeHistoryTab, closeRecentCardSession, historyOverlayOpen]);
-
-  const reorderCardStageTab = useCallback((activeId: string, overId: string) => {
-    const orderedSessionIds = resolveCardStageSessionTabOrder(cardStageTabs, activeId, overId);
-    if (!orderedSessionIds) return;
-
-    reorderRecentCardSessions(orderedSessionIds);
-  }, [cardStageTabs, reorderRecentCardSessions]);
-
-  const stages: StageRailStage[] = [
-    {
-      id: "db",
-      title: "Views",
-      icon: STAGE_ICONS.db,
-      hideHeader: true,
-      content: (
-        <div className="flex h-full min-h-0 flex-col bg-(--background)">
-          <DbViewToolbar
-            items={dbSidebarItems}
-            activeSearchQuery={activeSearchQuery}
-            taskSearchOpen={taskSearchOpen}
-            showSearchControls={activeView !== "calendar"}
-            searchShortcutLabel={isMac ? "⌘F" : "Ctrl+F"}
-            taskSearchInputRef={taskSearchInputRef}
-            rulesView={activeDbRulesView}
-            dbViewPrefs={activeDbViewPrefs}
-            availableTags={activeProjectTags}
-            viewContextLabel={calendarToolbarContextLabel}
-            calendarControls={calendarToolbarControls}
-            onUpdateDbViewPrefs={updateActiveDbViewPrefs}
-            onSearchQueryChange={(value) => setSearchQuery(dbProjectId, value)}
-            onOpenTaskSearch={openTaskSearch}
-            onCloseTaskSearch={closeTaskSearch}
-          />
-          <div className="min-h-0 flex-1 overflow-hidden">
-            <MainViewHost
-              projectId={dbProjectId}
-              projects={projects}
-              view={activeView}
-              searchQuery={activeSearchQuery}
-              dbViewPrefs={activeDbViewPrefs}
-              onUpdateDbViewPrefs={updateActiveDbViewPrefs}
-              cardStageCardId={cardStageCardId}
-              cardStageCloseRef={cardStageCloseRef}
-              pendingReminderOpen={pendingReminderOpen}
-              calendarState={calendarState}
-              calendarVisibleDays={calendarVisibleDays}
-              calendarCreateRequestId={calendarCreateRequestId}
-              onCalendarAnchorDateChange={handleCalendarAnchorDateChange}
-              onReminderHandled={onReminderHandled}
-              openCardStage={handleOpenCardStageFromView}
-            />
-          </div>
-        </div>
-      ),
-    },
-    {
-      id: "cards",
-      title: "Cards",
-      icon: STAGE_ICONS.cards,
-      hideHeader: true,
-      content: (
-        <div className="h-full min-h-0 bg-token-main-surface-primary">
-          {cardStageTabs.length > 0 ? (
-            <AppShellTabs
-              tabs={cardStageTabs}
-              activeTabId={activeCardStageTabId}
-              controllerId="cards"
-              onSelect={selectCardStageTab}
-              onCloseTab={closeCardStageTab}
-              onReorderTab={reorderCardStageTab}
-            />
-          ) : (
-            <div className="flex h-full items-center justify-center text-sm text-(--foreground-tertiary)">
-              Select a card session to open the editor.
-            </div>
-          )}
-        </div>
-      ),
-    },
-    {
-      id: "threads",
-      title: "Threads",
-      icon: STAGE_ICONS.threads,
-      hideHeader: true,
-      content: (
-        <ConnectedThreadStage
-          projectId={threadsProjectId}
-          projectWorkspacePath={activeThreadsProject?.workspacePath ?? null}
-          isNewThreadTab={isNewThreadTab}
-          newThreadTarget={newThreadTarget}
-          threadStartProgress={newThreadStartProgress}
-          activeThreadId={activeThreadTab?.id ?? null}
-          activeThreadSummary={activeThreadSummary}
-          availableModels={availableModels}
-          collaborationModes={availableCollaborationModes}
-          selectedCollaborationMode={selectedCollaborationMode}
-          selectedModel={threadSettings.model}
-          selectedReasoningEffort={threadSettings.reasoningEffort}
-          reasoningEffortOptions={reasoningEffortOptions}
-          permissionMode={permissionMode}
-          isQueueingEnabled={threadQueueFollowUpsEnabled}
-          composerEnterBehavior={composerEnterBehavior}
-          searchOpenTick={threadSearchOpenTick}
-          actions={threadStageActions}
-        />
-      ),
-    },
-    {
-      id: "files",
-      title: "Diffs",
-      icon: STAGE_ICONS.files,
-      hideHeader: true,
-      content: (
-        <ConnectedReviewDiffPanel
-          threadId={selectedTurnDiffReviewTarget?.threadId ?? activeThreadTab?.id ?? null}
-          projectWorkspacePath={activeThreadsProject?.workspacePath ?? null}
-          searchOpenTick={diffSearchOpenTick}
-          selectedTurnDiff={selectedTurnDiffReviewTarget}
-        />
-      ),
-    },
-  ];
-
-  const isMacPlatform = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
-  const showFloatingSidebar = sidebar.collapsed;
-  const showInlineSidebar = sidebarVisible;
-  const isSidebarAnimatingOut = sidebar.collapsed && sidebarVisible;
-  const showCollapsedTitlebarCollapseControl = sidebar.collapsed && !isSidebarAnimatingOut && !hoverSidebarOpen;
-  const sidebarCollapseControlButton = (
-    <button
-      type="button"
-      onClick={toggleSidebarCollapsed}
-      title={sidebar.collapsed ? "Expand sidebar" : "Collapse sidebar"}
-      aria-label={sidebar.collapsed ? "Expand sidebar" : "Collapse sidebar"}
-      className="inline-flex size-6 items-center justify-center rounded-lg text-(--foreground-secondary) hover:bg-(--background-secondary) hover:text-(--foreground)"
-      style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-    >
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <rect x="0.75" y="0.75" width="12.5" height="12.5" rx="2.5" stroke="currentColor" strokeWidth="1.5" />
-        {/* Collapsed: full-height divider line (original icon) */}
-        <line
-          x1="4.5" y1="1.5" x2="4.5" y2="12.5"
-          stroke="currentColor" strokeWidth="1.5"
-          style={{ opacity: sidebar.collapsed ? 1 : 0 }}
-        />
-        {/* Expanded: small vertical bar */}
-        <rect
-          x="3.5" y="3.5" width="2" height="7" rx="0.75"
-          fill="currentColor"
-          style={{ opacity: sidebar.collapsed ? 0 : 1 }}
-        />
-      </svg>
-    </button>
-  );
-  const appUpdateDismissKey = appUpdateStatus?.availableVersion ?? "__downloaded__";
-  const showAppUpdateRestartNotice = appUpdateStatus?.status === "downloaded"
-    && appUpdateDismissKey !== dismissedDownloadedUpdateVersion;
+  const updateDbViewPrefs = rulesView
+    ? (update: (prev: DbViewPrefs) => DbViewPrefs) => setDbViewPrefs(config.projectId, rulesView, update)
+    : null;
+  const searchShortcutLabel =
+    typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC") ? "⌘F" : "Ctrl+F";
 
   return (
-    <div className="relative flex h-screen">
-      <CommandPalette
-        open={commandPaletteOpen}
-        openTriggerTick={commandPaletteOpenTick}
-        initialQuery={commandPaletteInitialQuery}
-        projects={projects}
-        activeProjectId={dbProjectId}
-        activeView={activeView}
-        focusedStage={focusedStage}
-        recentCardSessions={recentCardSessions}
-        onOpenChange={setCommandPaletteOpen}
-        onOpenCard={openCardStage}
-        onFocusStage={handleStageRailFocus}
-        onSetView={handleCommandPaletteSetView}
-        canGoBack={canNavigateBack}
-        canGoForward={canNavigateForward}
-        onGoBack={onNavigateBack}
-        onGoForward={onNavigateForward}
-        onOpenProjectPicker={() => {
-          onRequestProjectPickerOpen();
-        }}
-        onOpenTaskSearch={() => {
-          openTaskSearch(true);
-        }}
-        onToggleTerminal={handleCommandPaletteToggleTerminal}
-        onOpenSettings={() => {
-          openSettings();
-        }}
-        onRequestNewWindow={canRequestNewWindow ? onRequestNewWindow : undefined}
+    <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary">
+      <DbViewToolbar
+        items={toolbarItems}
+        activeSearchQuery={searchQuery}
+        taskSearchOpen={taskSearchOpen}
+        showSearchControls={view !== "calendar"}
+        searchShortcutLabel={searchShortcutLabel}
+        taskSearchInputRef={taskSearchInputRef}
+        rulesView={rulesView}
+        dbViewPrefs={dbViewPrefs}
+        availableTags={availableTags}
+        viewContextLabel={calendarToolbarContextLabel}
+        calendarControls={calendarToolbarControls}
+        onUpdateDbViewPrefs={updateDbViewPrefs}
+        onSearchQueryChange={(value) => setSearchQuery(config.projectId, value)}
+        onOpenTaskSearch={openTaskSearch}
+        onCloseTaskSearch={closeTaskSearch}
       />
-      {sidebar.collapsed ? (
-        <div
-          aria-hidden
-          data-sidebar-hover-trigger="true"
-          className="absolute inset-y-0 left-0 z-40"
-          style={{ width: SIDEBAR_HOVER_TRIGGER_WIDTH_PX }}
-          onMouseEnter={scheduleHoverSidebarOpen}
-          onMouseLeave={clearHoverSidebarOpenTimeout}
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <MainViewHost
+          projectId={config.projectId}
+          projects={projects}
+          view={view}
+          searchQuery={searchQuery}
+          dbViewPrefs={dbViewPrefs}
+          onUpdateDbViewPrefs={updateDbViewPrefs}
+          cardStageCloseRef={cardStageCloseRef}
+          pendingReminderOpen={pendingReminderOpen}
+          calendarState={calendarState}
+          calendarVisibleDays={calendarVisibleDays}
+          calendarCreateRequestId={calendarCreateRequestId}
+          onCalendarAnchorDateChange={handleCalendarAnchorDateChange}
+          onReminderHandled={onReminderHandled}
+          openCardStage={(projectId, cardId, titleSnapshot) => {
+            void onOpenCardTab(projectId, cardId, titleSnapshot);
+          }}
         />
-      ) : null}
-
-      {showInlineSidebar ? (
-        <div
-          className={cn(
-            "relative h-full min-h-0 shrink-0 overflow-hidden",
-            isSidebarAnimatingOut
-              ? "transition-shell-resize duration-220 ease-emphasized motion-reduce:transition-none -translate-x-1 opacity-0"
-              : "translate-x-0 opacity-100",
-          )}
-          style={{ width: isSidebarAnimatingOut ? 0 : sidebar.width }}
-        >
-          <LeftSidebar
-            projects={projects}
-            spaces={spaces}
-            workspaces={workspaces}
-            activeProjectId={dbProjectId}
-            activeWorkspaceId={activeWorkspaceId}
-            stageGroups={stageGroups}
-            collapsed={false}
-            width={sidebar.width}
-            expandedSections={sidebarSectionExpandedState}
-            showAllItemsBySection={sidebarSectionShowAllState}
-            onResizeWidth={setSidebarWidth}
-            onSetSectionExpanded={(sectionId, expanded) =>
-              setSidebarSectionExpanded(dbProjectId, sectionId, expanded)}
-            onSetSectionShowAll={(sectionId, showAll) =>
-              setSidebarSectionShowAll(dbProjectId, sectionId, showAll)}
-            onSelectSpace={setDbProject}
-            onSelectWorkspace={onSelectWorkspace}
-            onOpenSettings={() => openSettings()}
-            projectPickerOpenTick={projectPickerOpenTick}
-            onCreateProject={onCreateProject}
-            onDeleteProject={onDeleteProject}
-            onRenameProject={onRenameProject}
-            onCreateWorkspace={onCreateWorkspace}
-            onRenameWorkspace={onRenameWorkspace}
-            onDeleteWorkspace={onDeleteWorkspace}
-          />
-        </div>
-      ) : null}
-
-      {showFloatingSidebar ? (
-        <div
-          aria-hidden={!hoverSidebarOpen}
-          className="pointer-events-none absolute inset-y-0 left-0 z-50"
-        >
-          <div
-            className="absolute inset-y-0 overflow-hidden rounded-r-2xl border border-l-0 border-(--border) bg-(--background-secondary)"
-            style={{
-              width: sidebar.width,
-              left: hoverSidebarOpen ? 0 : -sidebar.width,
-              boxShadow: hoverSidebarOpen ? "0 24px 56px rgba(0,0,0,0.24)" : "none",
-              pointerEvents: hoverSidebarOpen ? "auto" : "none",
-              transitionProperty: "left, box-shadow",
-              transitionDuration: `${FLOATING_SIDEBAR_TRANSITION_DURATION_MS}ms`,
-              transitionTimingFunction: FLOATING_SIDEBAR_TRANSITION_TIMING_FUNCTION,
-            }}
-            onMouseEnter={clearHoverSidebarCloseTimeout}
-            onMouseLeave={scheduleHoverSidebarClose}
-          >
-            <LeftSidebar
-              projects={projects}
-              spaces={spaces}
-              workspaces={workspaces}
-              activeProjectId={dbProjectId}
-              activeWorkspaceId={activeWorkspaceId}
-              stageGroups={stageGroups}
-              collapsed={false}
-              width={sidebar.width}
-              expandedSections={sidebarSectionExpandedState}
-              showAllItemsBySection={sidebarSectionShowAllState}
-              onResizeWidth={setSidebarWidth}
-              onSetSectionExpanded={(sectionId, expanded) =>
-                setSidebarSectionExpanded(dbProjectId, sectionId, expanded)}
-              onSetSectionShowAll={(sectionId, showAll) =>
-                setSidebarSectionShowAll(dbProjectId, sectionId, showAll)}
-              onSelectSpace={setDbProject}
-              onSelectWorkspace={onSelectWorkspace}
-              onOpenSettings={() => openSettings()}
-              projectPickerOpenTick={projectPickerOpenTick}
-              onCreateProject={onCreateProject}
-              onDeleteProject={onDeleteProject}
-              onRenameProject={onRenameProject}
-              onCreateWorkspace={onCreateWorkspace}
-              onRenameWorkspace={onRenameWorkspace}
-              onDeleteWorkspace={onDeleteWorkspace}
-            />
-          </div>
-        </div>
-      ) : null}
-
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl bg-(--background)">
-        <WorkbenchStageToolbar showDivider={showStageToolbarDivider}>
-          <div className="flex items-center">
-            {/* Non-Mac collapse control when sidebar is hidden */}
-            {!isMacPlatform && showCollapsedTitlebarCollapseControl ? (
-              <div
-                className="inline-flex items-center"
-                style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-              >
-                {sidebarCollapseControlButton}
-              </div>
-            ) : null}
-          </div>
-          <div className="justify-self-center">
-            <div
-              className="flex items-center gap-3"
-              style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-            >
-              {decreasePaneCountButton}
-              <StageMinimap
-                focusedStage={focusedStage}
-                stageNavDirection={stageNavDirection}
-                layoutMode={stageRailLayoutMode}
-                slidingWindowPaneCount={slidingWindowPaneCount}
-                onFocusStage={(stageId) => handleStageRailFocus(stageId)}
-              />
-              {increasePaneCountButton}
-            </div>
-          </div>
-          <div className="flex items-center justify-end gap-0.5">
-            {showAppUpdateRestartNotice && appUpdateStatus ? (
-              <div className="mr-1" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
-                <AppUpdateRestartNotice
-                  status={appUpdateStatus}
-                  onDismiss={() => {
-                    setDismissedDownloadedUpdateVersion(appUpdateDismissKey);
-                  }}
-                  onRestart={handleInstallAppUpdate}
-                />
-              </div>
-            ) : null}
-            {activeProjectPendingMutationCount > 0 ? (
-              <span
-                className="mr-1 inline-flex items-center rounded-full border border-(--border) bg-(--background-secondary) px-2 py-0.5 text-xs font-medium text-(--foreground-secondary)"
-                style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-              >
-                Syncing...
-              </span>
-            ) : null}
-            {mutationErrorToast ? (
-              <button
-                type="button"
-                onClick={() => setMutationErrorToast(null)}
-                className="mr-1 inline-flex max-w-70 items-center rounded-full border border-(--destructive)/30 bg-(--destructive)/10 px-2 py-0.5 text-xs font-medium text-(--destructive)"
-                title={mutationErrorToast}
-                style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-              >
-                {mutationErrorToast}
-              </button>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => setTerminalPanelOpen(dbProjectId, !terminalPanelOpen)}
-              title={terminalPanelOpen ? "Hide terminal" : "Show terminal"}
-              aria-label={terminalPanelOpen ? "Hide terminal" : "Show terminal"}
-              className={cn(
-                "inline-flex size-7 items-center justify-center rounded-lg transition-colors",
-                terminalPanelOpen
-                  ? "bg-(--foreground)/10 text-(--foreground) hover:bg-(--foreground)/15"
-                  : "text-(--foreground-secondary) hover:bg-(--background-secondary) hover:text-(--foreground)",
-              )}
-              style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-            >
-              <svg width="16" height="16" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect x="0.75" y="0.75" width="12.5" height="12.5" rx="2.5" stroke="currentColor" strokeWidth="1.5" />
-                <path d="M4 5.5L6 7.5L4 9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                <line x1="7.5" y1="9.5" x2="10" y2="9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
-            </button>
-          </div>
-        </WorkbenchStageToolbar>
-
-        <StageRail
-          stages={stages}
-          layoutMode={stageRailLayoutMode}
-          focusedStage={focusedStage}
-          stageNavDirection={stageNavDirection}
-          slidingWindowPaneCount={slidingWindowPaneCount}
-          panelWidths={stagePanelWidths}
-          nextPanelPeekPx={nextPanelPeekPx}
-          onPanelWidthsChange={(widths) => setStagePanelWidths(dbProjectId, widths)}
-          onFocusStage={handleStageRailFocus}
-        />
-
-        {terminalPanelOpen && (
-          <section className="shrink-0 overflow-hidden border-t border-(--border)">
-            <header className="flex h-8 items-center gap-2 bg-(--background-secondary) px-2">
-              <span className="shrink-0 text-xs font-medium text-(--foreground-secondary)">Terminal</span>
-              <StageTabStrip
-                className="min-w-0 flex-1"
-                tabs={terminalTabs.map((tab) => ({
-                  id: tab.id,
-                  label: tab.title,
-                  muted: tab.kind === "project",
-                  closable: terminalTabs.length > 1,
-                }))}
-                activeTabId={activeTerminalTabId}
-                onSelect={(tabId) => {
-                  setActiveTerminalTab(dbProjectId, tabId);
-                }}
-                onCloseTab={(tabId) => {
-                  const tabProjectId = terminalTabs.find((tab) => tab.id === tabId)?.projectId ?? dbProjectId;
-                  closeTerminalTab(tabProjectId, tabId);
-                }}
-                onAddTab={() => {
-                  openProjectTerminalTab(dbProjectId);
-                }}
-                addLabel="Open project shell"
-              />
-              <button
-                type="button"
-                onClick={() => setTerminalPanelOpen(dbProjectId, false)}
-                title="Hide terminal panel"
-                className={cn(
-                  "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md",
-                  "text-(--foreground-tertiary) hover:text-(--foreground-secondary)",
-                  "transition-colors hover:bg-(--background-tertiary)",
-                )}
-              >
-                <ChevronDown className="size-3.5" />
-              </button>
-            </header>
-
-            {!activeTerminalTab ? (
-              <div className="flex h-55 items-center justify-center text-sm text-(--foreground-tertiary)">
-                Open a terminal tab.
-              </div>
-            ) : activeTerminalTab.kind === "project" ? (
-              <TerminalPanel
-                projectId={activeTerminalTab.projectId}
-                cardId={activeTerminalTab.projectId}
-                mode="project"
-                sessionId={activeTerminalTab.sessionId}
-                panelHeight={terminalPanelHeight}
-                onPanelHeightChange={(height) => setTerminalPanelHeight(dbProjectId, height)}
-                onClose={() => closeTerminalTab(activeTerminalTab.projectId, activeTerminalTab.id)}
-              />
-            ) : activeTerminalTab.cardId ? (
-              <TerminalPanel
-                projectId={activeTerminalTab.projectId}
-                cardId={activeTerminalTab.cardId}
-                mode="card"
-                sessionId={activeTerminalTab.sessionId}
-                panelHeight={terminalPanelHeight}
-                onPanelHeightChange={(height) => setTerminalPanelHeight(dbProjectId, height)}
-                onClose={() => closeTerminalTab(activeTerminalTab.projectId, activeTerminalTab.id)}
-              />
-            ) : (
-              <div className="flex h-55 items-center justify-center text-sm text-(--foreground-tertiary)">
-                This card terminal is unavailable because the card session is no longer active.
-              </div>
-            )}
-          </section>
-        )}
-      </main>
-
-      <SettingsOverlay
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        path={settingsPath}
-        onPathChange={setSettingsPath}
-        onRequestProjectPickerOpen={onRequestProjectPickerOpen}
-        projects={projects}
-        activeProjectId={dbProjectId}
-        initialLocalEnvironmentProjectId={settingsInitialLocalEnvironmentProjectId}
-        initialLocalEnvironmentConfigPath={settingsInitialLocalEnvironmentConfigPath}
-        sidebarTopLevelSectionOrder={sidebar.topLevelSectionOrder}
-        sidebarTopLevelSections={sidebar.topLevelSections}
-        onSidebarTopLevelSectionVisibleChange={setSidebarTopLevelSectionVisible}
-        stageRailLayoutMode={stageRailLayoutMode}
-        onStageRailLayoutModeChange={onStageRailLayoutModeChange}
-        nextPanelPeekPx={nextPanelPeekPx}
-        onNextPanelPeekPxChange={setNextPanelPeekPx}
-        threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
-        onThreadQueueFollowUpsEnabledChange={setThreadQueueFollowUpsEnabled}
-        composerEnterBehavior={composerEnterBehavior}
-        onComposerEnterBehaviorChange={setComposerEnterBehavior}
-        worktreeStartMode={worktreeStartMode}
-        onWorktreeStartModeChange={setWorktreeStartMode}
-        worktreeAutoBranchPrefix={worktreeAutoBranchPrefix}
-        onWorktreeAutoBranchPrefixChange={setWorktreeAutoBranchPrefix}
-        smartPrefixParsingEnabled={smartPrefixParsingEnabled}
-        onSmartPrefixParsingEnabledChange={setSmartPrefixParsingEnabled}
-        stripSmartPrefixFromTitleEnabled={stripSmartPrefixFromTitleEnabled}
-        onStripSmartPrefixFromTitleEnabledChange={setStripSmartPrefixFromTitleEnabled}
-      />
-
-      {/* Fixed sidebar toggle — rendered last so it paints above drag regions */}
-      {isMacPlatform ? (
-        <div
-          className="fixed z-50 flex items-center justify-center"
-          style={{
-            left: COLLAPSE_CONTROL_TRAFFIC_LIGHT_OFFSET_PX,
-            top: 12,
-            WebkitAppRegion: "no-drag",
-          } as React.CSSProperties}
-        >
-          {sidebarCollapseControlButton}
-        </div>
-      ) : null}
+      </div>
     </div>
+  );
+}
+
+function CardStageSessionTab({
+  tab,
+  project,
+  closeRef,
+  persistRef,
+  sessionSnapshotRef,
+  onLeaveCard,
+  onClose,
+  onOpenTerminal,
+}: {
+  tab: ProjectSessionTab & { config: { projectId: string; cardId: string; titleSnapshot?: string } };
+  project: Project | null;
+  closeRef: React.RefObject<(() => Promise<void>) | null>;
+  persistRef?: React.MutableRefObject<(() => Promise<void>) | null>;
+  sessionSnapshotRef?: React.MutableRefObject<CardStageSessionSnapshot | null>;
+  onLeaveCard: (snapshot: CardStageSessionSnapshot) => void;
+  onClose: () => void;
+  onOpenTerminal: (card: Card) => Promise<void>;
+}) {
+  const kanban = useKanban({ projectId: tab.config.projectId, sessionId: tab.id });
+  const refreshBoard = kanban.refresh;
+
+  useEffect(() => {
+    void refreshBoard();
+  }, [refreshBoard]);
+
+  const card = kanban.cardIndex.get(tab.config.cardId) ?? null;
+  const availableTags = useMemo(() => {
+    const tags = new Set<string>();
+    for (const column of kanban.board?.columns ?? []) {
+      for (const item of column.cards) {
+        item.tags.forEach((tag) => tags.add(tag));
+      }
+    }
+    return [...tags].sort((left, right) => left.localeCompare(right));
+  }, [kanban.board?.columns]);
+
+  if (!project) {
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-token-text-secondary">
+        Project not found.
+      </div>
+    );
+  }
+
+  const columnId = card?.status ?? "draft";
+  const columnName = KANBAN_STATUS_LABELS[columnId] ?? columnId;
+
+  return (
+    <CardStage
+      card={card}
+      columnId={columnId}
+      columnName={columnName}
+      projectId={tab.config.projectId}
+      projectWorkspacePath={project.workspacePath ?? null}
+      availableTags={availableTags}
+      closeRef={closeRef as React.MutableRefObject<(() => Promise<void>) | null>}
+      persistRef={persistRef}
+      sessionSnapshotRef={sessionSnapshotRef}
+      onClose={onClose}
+      onLeaveCard={onLeaveCard}
+      onPatch={(nextColumnId: string, cardId: string, updates: Partial<CardInput>) => {
+        kanban.patchCard(nextColumnId, cardId, updates);
+      }}
+      onUpdate={async (nextColumnId: string, cardId: string, updates: Partial<CardInput>): Promise<CardUpdateMutationResult> => (
+        await kanban.updateCard(nextColumnId, cardId, updates)
+      )}
+      onDelete={async (nextColumnId: string, cardId: string) => {
+        const deleted = await kanban.deleteCard(nextColumnId, cardId);
+        if (deleted) onClose();
+      }}
+      onMove={async (fromStatus, cardId, toStatus) => {
+        await kanban.moveCard({ fromStatus, cardId, toStatus });
+      }}
+      onCompleteOccurrence={async (cardId, occurrenceStart) => {
+        await kanban.completeOccurrence({ cardId, occurrenceStart, source: "card-stage" });
+      }}
+      onSkipOccurrence={async (cardId, occurrenceStart) => {
+        await kanban.skipOccurrence({ cardId, occurrenceStart, source: "card-stage" });
+      }}
+      onOpenTerminalPanel={() => {
+        if (!card) return;
+        void onOpenTerminal(card);
+      }}
+      linkedCodexThreads={[]}
+    />
   );
 }

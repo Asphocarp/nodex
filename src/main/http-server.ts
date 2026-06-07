@@ -4,6 +4,7 @@ import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
 import { randomUUID } from "node:crypto";
 import * as dbService from "./kanban/db-service";
+import * as projectSessionService from "./kanban/project-session-service";
 import * as backupService from "./kanban/backup-service";
 import * as canvasService from "./kanban/canvas-service";
 import {
@@ -463,6 +464,124 @@ app.delete("/api/projects/:projectId", (c) => {
   const success = dbService.deleteProject(c.req.param("projectId"));
   if (!success) return c.json({ error: "Not found" }, 404);
   return c.json({ success: true });
+});
+
+// === Project session routes ===
+
+app.get("/api/projects/:projectId/sessions", (c) => {
+  try {
+    const sessions = projectSessionService.listProjectSessions(c.req.param("projectId"));
+    return c.json({ sessions });
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 404);
+  }
+});
+
+app.post("/api/projects/:projectId/sessions", async (c) => {
+  const projectId = c.req.param("projectId");
+  const body = await c.req.json();
+  try {
+    const session = projectSessionService.createProjectSession({ ...body, projectId });
+    return c.json(session, 201);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
+app.put("/api/project-sessions/:sessionId", async (c) => {
+  const body = await c.req.json();
+  try {
+    const session = projectSessionService.updateProjectSession(c.req.param("sessionId"), body);
+    if (!session) return c.json({ error: "Not found" }, 404);
+    return c.json(session);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
+app.delete("/api/project-sessions/:sessionId", (c) => {
+  try {
+    const success = projectSessionService.deleteProjectSession(c.req.param("sessionId"));
+    if (!success) return c.json({ error: "Not found" }, 404);
+    return c.json({ success: true });
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
+app.put("/api/projects/:projectId/sessions/reorder", async (c) => {
+  const projectId = c.req.param("projectId");
+  const body = await c.req.json();
+  try {
+    const orderedSessionIds = Array.isArray(body.orderedSessionIds) ? body.orderedSessionIds : [];
+    const sessions = projectSessionService.reorderProjectSessions(
+      projectId,
+      orderedSessionIds.filter((item: unknown): item is string => typeof item === "string"),
+    );
+    return c.json({ sessions });
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
+app.post("/api/project-sessions/:sessionId/tabs", async (c) => {
+  const sessionId = c.req.param("sessionId");
+  const body = await c.req.json();
+  try {
+    const tab = projectSessionService.createProjectSessionTab({ ...body, sessionId });
+    return c.json(tab, 201);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
+app.put("/api/project-session-tabs/:tabId", async (c) => {
+  const body = await c.req.json();
+  try {
+    const tab = projectSessionService.updateProjectSessionTab(c.req.param("tabId"), body);
+    if (!tab) return c.json({ error: "Not found" }, 404);
+    return c.json(tab);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
+app.delete("/api/project-session-tabs/:tabId", (c) => {
+  const success = projectSessionService.deleteProjectSessionTab(c.req.param("tabId"));
+  if (!success) return c.json({ error: "Not found" }, 404);
+  return c.json({ success: true });
+});
+
+app.put("/api/project-sessions/:sessionId/tabs/reorder", async (c) => {
+  const sessionId = c.req.param("sessionId");
+  const body = await c.req.json();
+  try {
+    const orderedTabIds = Array.isArray(body.orderedTabIds) ? body.orderedTabIds : [];
+    const session = projectSessionService.reorderProjectSessionTabs(
+      sessionId,
+      orderedTabIds.filter((item: unknown): item is string => typeof item === "string"),
+    );
+    if (!session) return c.json({ error: "Not found" }, 404);
+    return c.json(session);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
+app.put("/api/project-sessions/:sessionId/thread", async (c) => {
+  const sessionId = c.req.param("sessionId");
+  const body = await c.req.json();
+  try {
+    const thread = projectSessionService.upsertProjectSessionThreadLink({ ...body, sessionId });
+    return c.json(thread);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
+app.delete("/api/project-sessions/:sessionId/thread", (c) => {
+  const success = projectSessionService.detachProjectSessionThread(c.req.param("sessionId"));
+  return c.json({ success });
 });
 
 // === Board routes ===

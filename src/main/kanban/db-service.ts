@@ -250,6 +250,30 @@ function parseTags(value: string): string[] {
   }
 }
 
+function updateProjectSessionTabConfigsForProjectRename(
+  database: Database.Database,
+  oldId: string,
+  newId: string,
+): void {
+  const rows = database
+    .prepare("SELECT id, config_json FROM project_session_tabs WHERE project_id = ?")
+    .all(newId) as Array<{ id: string; config_json: string }>;
+  const update = database.prepare("UPDATE project_session_tabs SET config_json = ?, updated_at = ? WHERE id = ?");
+  const now = new Date().toISOString();
+
+  for (const row of rows) {
+    try {
+      const config = JSON.parse(row.config_json) as unknown;
+      if (typeof config !== "object" || config === null) continue;
+      const configWithProject = config as { projectId?: unknown };
+      if (configWithProject.projectId !== oldId) continue;
+      update.run(JSON.stringify({ ...configWithProject, projectId: newId }), now, row.id);
+    } catch {
+      continue;
+    }
+  }
+}
+
 function rowToProject(row: DbProject): Project {
   return {
     id: row.id,
@@ -539,6 +563,10 @@ export function renameProject(
         database.prepare("UPDATE reminder_receipts SET project_id = ? WHERE project_id = ?").run(newId, oldId);
         database.prepare("UPDATE reminder_snoozes SET project_id = ? WHERE project_id = ?").run(newId, oldId);
         database.prepare("UPDATE codex_card_threads SET project_id = ? WHERE project_id = ?").run(newId, oldId);
+        database.prepare("UPDATE project_sessions SET project_id = ? WHERE project_id = ?").run(newId, oldId);
+        database.prepare("UPDATE project_session_tabs SET project_id = ? WHERE project_id = ?").run(newId, oldId);
+        database.prepare("UPDATE project_session_threads SET project_id = ? WHERE project_id = ?").run(newId, oldId);
+        updateProjectSessionTabConfigsForProjectRename(database, oldId, newId);
       }
       if (updates?.name !== undefined) {
         database.prepare("UPDATE projects SET name = ? WHERE id = ?").run(updates.name, newId);

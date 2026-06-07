@@ -38,57 +38,36 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 
 #### 1. Multi-Project Support
 - Each project has an independent kanban board, history, and undo/redo
-- Single-page app with staged workbench shell (left sidebar stage map + horizontal stage rail)
-- Stage order: `View -> Card -> Thread -> Diff`
-- Sidebar stage sections provide each stage's tab group; Card Stage also renders a Codex-style top tab bar for open card sessions and card history, with hover tooltips on tab titles for card/project context
-- Stage rail layout modes:
-  - `Sliding window` (default): renders a sliding 1-4 stage window
-  - `Full rail`: renders all stages in one horizontal strip
-- Focus model is niri-inspired: focused stage is emphasized and auto-revealed in the active layout mode
-- `Shift + mouse wheel` inside the stage rail only performs native panel scrolling; it does not change focused stage.
-- In `Sliding window` mode, `Cmd/Ctrl+H` and `Cmd/Ctrl+L` shift the visible stage window one stage left/right without changing the focused stage when it remains visible; when the previous focus would leave the viewport, focus falls back to the entering edge stage. In `Full rail`, those shortcuts continue to act as previous/next stage focus.
-- Full-rail stage widths are user-resizable by dragging either left or right border of a stage panel
-- Resizing a full-rail stage panel updates only that panel width (adjacent panel widths stay unchanged)
-- Sliding-window mode supports 1-4 visible stage panes; requested pane count persists globally across projects
-- Sliding-window mode includes resizable separators between adjacent panes; separator drag updates pane widths in real time and persists per-stage widths globally
-- Sliding-window mode auto-caps effective visible panes by available width while preserving requested pane count
-- Workbench top toolbar includes sidebar collapse plus sliding-window pane-count controls flanking the minimap; `-` sits to the left of the minimap and always removes the current right-most pane, while `+` sits to the right and tries to append the next pane on the right before falling back to prepending the left pane at the right edge
-- The View stage has its own sticky top toolbar; it keeps the DB view selector pinned above board, list, toggle-list, canvas, and calendar content, task search expands inline inside the toolbar's trailing action cluster for searchable DB views, and `kanban` / `list` / `toggle-list` expose shared view-local filter and sort popovers there
-- The main DB views keep a consistent inner gutter under the sticky View-stage toolbar so list, calendar, and canvas align with the existing board/toggle-list spacing instead of sitting flush against the stage edge
+- Single-page app with a Codex-style project/session shell: projects render as folders in the left sidebar, expanded projects show durable sessions, and the active session renders as a thread page with a shell-owned right panel for content tabs
+- Every project has a seeded `Overview` session with one right-panel `db_view` tab for that project's primary DB view
+- Session right-pane tabs support `db_view`, `card_stage`, `terminal`, and `browser_placeholder` kinds; browser tabs render a placeholder until the browser feature ships
+- DB view tabs keep the DB view selector pinned above board, list, toggle-list, canvas, and calendar content, with task search and supported view-local filter/sort/display controls inside that tab body
+- Card Stage opens as a session-attached tab. Opening a card from a DB tab creates or focuses the matching card tab in the active session instead of switching a global Card stage.
+- Terminal opens as a session-attached tab with a session-tab-scoped terminal id
+- The active session can show, collapse, resize, or full-width expand the right panel. When collapsed, the thread page shows the right-panel opener in its top-right corner; when open, the right panel owns the hide and expand/restore controls.
+- The persisted right-pane layout JSON is split-capable for future VS Code-style tab splits, but v1 renders one tab group only
 - URL sync: `/?project=<id>`, persisted to localStorage
-- Sidebar project switcher selects the DB-stage datasource only; it does not reset Card/Thread/Terminal stage contexts
-- Task search query is persisted per project and restored on space switching; search lives in the sticky View-stage toolbar alongside the DB view selector for searchable DB views, while Calendar hides that search chrome
+- Selecting a project expands its folder and switches the active DB project context. Selecting a session switches both the thread page and the right-panel tab group.
+- Task search query is persisted per project and restored on space switching; search lives inside the active DB view tab toolbar for searchable DB views, while Calendar hides that search chrome
 - `Cmd/Ctrl+K` and `Cmd/Ctrl+P` open a global command palette that searches cards across projects by default; typing a `>` prefix switches the palette into command mode for shell actions such as opening settings, task search, project picker, terminal, stage focus, and view switches, and `Cmd/Ctrl+Shift+P` opens that same palette with `>` already prefilled. Card results use fuzzy full-text ranking across title, description, tags, assignee, agent status, column, project name, and card id; card mode also exposes a trailing `Filter` popover plus a compact active-filter row beneath the input, using the same status/priority/tag/project-style pill language as the View-stage toolbar while persisting those filter selections across reopen/reload and still rendering three-line contextual previews for matching description text
-- `Cmd/Ctrl+[` and `Cmd/Ctrl+]` navigate backward/forward through durable workbench context (active DB project/view, focused stage, selected card session or card history state, selected thread tab, selected diff tab) without including transient overlays such as settings, command palette, task search, or terminal chrome
+- `Cmd/Ctrl+[` and `Cmd/Ctrl+]` navigate backward/forward through durable workbench context (active project/session/tab, DB project/view, selected card, selected thread, and review context) without including transient overlays such as settings, command palette, or task search
 - The command palette always includes `Go back` and `Go forward` commands with matching keyboard hints; those commands are shown disabled when there is no history in that direction
 - Desktop supports multi-window in a single app process (`Cmd/Ctrl+N`): each window keeps independent navigation/session state while all windows share the same SQLite data and realtime board-change fanout
 - When Nodex starts, the Settings -> General -> `Restore windows` policy decides whether to restore all retained window sessions, only the last focused session, or one fresh session
-- Each restored window resumes its own selected workspace, DB view, open card/history session, selected thread tab, `Recents` list, workbench layout, and saved window bounds
+- Each restored window resumes its own selected workspace, active project/session/tab, pane state, DB view, open card context, selected thread context, workbench layout, and saved window bounds
 - Windows opened while another window is already open start from the currently active workspace and then diverge as independent window sessions
 - Back/forward navigation history is window-session-local and is restored only from that window's session storage; it is not part of the cold-launch resume snapshot saved when all windows close
 - Desktop single-instance behavior is scoped per resolved server profile (`KANBAN_DIR`/`config.toml` dir). Different profile dirs can run at the same time (for example packaged release + dev build), while each profile still enforces one process with many windows.
-- Card Stage open/close + selected card state is global across spaces/projects and rendered in the Card stage
-- Clicking a card from the View stage in sliding-window mode ensures the Card stage is visible in the current window (`View -> Card`) by refocusing when needed
-- Recent card sessions are persisted in a top-level sidebar `Recents` group across all projects, capped at 10 entries
-- Entering/selecting a card never mutates `Recents`; leaving a card adds it to the front only if it is not already present, and existing entries keep their current position
-- Selecting a recent card session from another project opens that card in the Card stage without changing the currently active project
-- Projects with no recent card sessions do not auto-select the History overlay in the Card stage
-- Sidebar rows use consistent nested indentation, with quiet top-level section labels for `Recents`, `Cards`, `Threads`, and `Diffs`, plus collapsible status subheaders in `Cards` that start collapsed by default
-- Each top-level sidebar section header includes a `more actions` menu for changing its default row limit (`5`, `10`, `15`, or `20` items), moving the section up/down among visible top-level sections, and hiding the section
-- The sidebar `Cards` stage group shows the current DB project's cards grouped by non-empty, collapsible status sections in reverse workflow order (`Done` -> `Draft`), using title-only rows and per-section counts; status sections start collapsed by default, and collapsed sections may still surface their active card row so the current selection stays visible
-- Sidebar stage sections show at most each section's configured default row limit per subsection/list by default, with clickable `Show more` / `Show less` controls for longer lists
-- Sidebar status-subheader collapse state and per-section `Show more` / `Show less` state persist per project across reloads
-- Sidebar stage collapse/expand and show-more/show-less interactions animate list height and row visibility
-- Hidden top-level sidebar sections stay hidden until re-enabled from Settings -> Workspace -> `Sidebar sections`, and then return in their previously saved order
-- When the sidebar is collapsed, hovering the left window edge reveals a transient floating sidebar without shifting the stage rail; moving away or pressing `Escape` dismisses it while keeping the sidebar collapsed
-- Sidebar footer includes a settings trigger in the same row as project spaces/switcher controls; this opens a full-page settings shell with a Codex-style left navigation rail, a `Back to app` affordance, and one active section page at a time instead of a single scrollspy document. The shell is path-driven (`/settings/:section`) and redirects invalid section ids to the default visible section. The current sections are `General` (`Stage rail layout`, `Restore windows`, `Desktop notifications`, `App updates`, `Sidebar sections`, `Adjacent panel peek`), `Appearance` (`Theme`, `Sans font size`, `Code font size`), `Agent` (`Permissions modes`, `Custom config.toml settings`), `Editor` (`Thread detail`, `Spellcheck`, `Auto-link while typing`, `Auto-link on paste`, `Recognize bare domains`, `Large paste text threshold`, `Large paste description soft limit`, `Open markdown file links in`, `Smart parse block prefixes`, `Strip parsed prefix from title`, `Confirm thread section send`, `Cmd/Ctrl+Enter to send long prompts`, `Queue follow-ups`), `Card` (`Kanban card properties`, `Card stage collapsed properties`), `Worktrees` (`Worktree start mode`, `Auto branch prefix`, managed-worktree inventory), `Local environments` (a settings-surface page constrained to the same centered max-width as other settings pages; its root state is a workspace chooser with `Learn more` copy and `Add project`, and project-specific summary/edit subpages move through a breadcrumb toolbar while editing structured `.codex/environments/*.toml` `setup`, `cleanup`, platform overrides, and reusable actions), and `Backups` (auto-backup on/off, frequency hours, backup retention, history retention, manual backup, restore, per-snapshot delete). `Sans font size` defaults to `15px`, persists locally, updates `--vscode-font-size`, and scales the shared sans typography tokens used by the renderer; `Code font size` defaults to `14px`, persists locally, and sets `--vscode-editor-font-size` globally.
+- Session tabs and ordering are shared project data in SQLite. Window state owns only active project, active session, active tab, right-panel width/full-width mode, collapse overrides, and focus history.
+- Existing card-owned thread links remain in `codex_card_threads`. Optional session-thread attachments are stored separately and do not rewrite card-thread ownership.
+- Sidebar rows use consistent nested indentation for project folders and their sessions. Sessions can show a subtle attached-thread indicator.
+- Sidebar footer includes workspace switching controls; workspaces remain profile-local window layout templates and do not own shared project session data.
+- Settings opens a full-page settings shell with a Codex-style left navigation rail, a `Back to app` affordance, and one active section page at a time instead of a single scrollspy document. The shell is path-driven (`/settings/:section`) and redirects invalid section ids to the default visible section. The current sections are `General` (`Restore windows`, `Desktop notifications`, `App updates`, `Adjacent panel peek`), `Appearance` (`Theme`, `Sans font size`, `Code font size`), `Agent` (`Permissions modes`, `Custom config.toml settings`), `Editor` (`Thread detail`, `Spellcheck`, `Auto-link while typing`, `Auto-link on paste`, `Recognize bare domains`, `Large paste text threshold`, `Large paste description soft limit`, `Open markdown file links in`, `Smart parse block prefixes`, `Strip parsed prefix from title`, `Confirm thread section send`, `Cmd/Ctrl+Enter to send long prompts`, `Queue follow-ups`), `Card` (`Kanban card properties`, `Card stage collapsed properties`), `Worktrees` (`Worktree start mode`, `Auto branch prefix`, managed-worktree inventory), `Local environments` (a settings-surface page constrained to the same centered max-width as other settings pages; its root state is a workspace chooser with `Learn more` copy and `Add project`, and project-specific summary/edit subpages move through a breadcrumb toolbar while editing structured `.codex/environments/*.toml` `setup`, `cleanup`, platform overrides, and reusable actions), and `Backups` (auto-backup on/off, frequency hours, backup retention, history retention, manual backup, restore, per-snapshot delete). `Sans font size` defaults to `15px`, persists locally, updates `--vscode-font-size`, and scales the shared sans typography tokens used by the renderer; `Code font size` defaults to `14px`, persists locally, and sets `--vscode-editor-font-size` globally.
 - On macOS, traffic-light window controls stay visible at top-left; when the sidebar is expanded, the sidebar collapse control sits beside them in the sidebar top strip, and when collapsed the same control is rendered in the titlebar left region
-- Card stage session selection lives in the sidebar alongside the current DB project's grouped card navigator; Card Stage mirrors open card sessions in a Codex-style top tab bar, supports tab-title hover tooltips, tab close, and pointer-only Codex-style drag reorder for recent card tabs, and opens card history as an embedded `History` state of the active card tab
+- Card Stage session selection lives in the active session's right-panel tab strip; tabs support hover tooltips, close, and pointer-only Codex-style drag reorder through the shared tab strip
 - Settings can choose which optional card-stage rows start behind the Card Stage `more properties` toggle (`Tags`, `Assignee`, `Threads`, `Schedule`, `Agent blocked`, and `Agent status`)
-- Terminal is a global bottom foldable panel (VS Code-like) with mixed tabs (`project` shell tabs and `card` shell tabs)
-- Terminal panel open/closed state and panel height persist globally in shell state
-- `Cmd/Ctrl + J` toggles the global terminal panel from anywhere in the app
-- Thread stage is a live Codex workspace in Electron (auth, linked threads, streaming events, approvals)
+- Terminal is primarily a session-attached right-panel tab. Legacy global terminal shortcut state may remain during migration but is no longer the primary workbench model.
+- The session thread page is a live Codex workspace in Electron when a session has an attached thread (auth, linked thread summary, streaming events, approvals)
 - Detailed visible transcript behavior for Threads lives in [Codex Thread Transcript Behavior](./codex-thread-transcript-behavior.md), including answered `request_user_input` rows, plan-implementation follow-up flow, optimistic prompt dedupe, tool/reasoning rendering, and restart recovery rules.
 - User-message transcript actions follow the Codex Electron model:
   - `Copy message` and the sent timestamp are available from user bubbles.
@@ -546,7 +525,7 @@ nodex/
 │       ├── index.html          # HTML entry
 │       ├── main.tsx            # React root
 │       ├── app.tsx             # Workbench shell orchestration
-│       ├── components/workbench/ # Sidebar + stage rail + staged panel shells
+│       ├── components/workbench/ # Project/session shell, tab strip, DB/Card/terminal wrappers, settings shells
 │       ├── env.d.ts            # Window.api type declaration
 │       ├── components/
 │       │   ├── kanban/
@@ -649,6 +628,22 @@ nodex/
 | PUT | `/api/projects/[projectId]` | Rename/update project (body: `{newId?, name?, description?, icon?, workspacePath?}`) |
 | DELETE | `/api/projects/[projectId]` | Delete project (cascades cards + history) |
 
+#### Project Session Routes
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/projects/[projectId]/sessions` | Fetch a project's ordered session tree with tabs and optional attached thread metadata |
+| POST | `/api/projects/[projectId]/sessions` | Create a project-owned session (body: `{title}`) |
+| PUT | `/api/projects/[projectId]/sessions/reorder` | Reorder sessions (body: `{orderedSessionIds}`) |
+| PUT | `/api/project-sessions/[sessionId]` | Update session title, pane collapse state, or right-pane layout JSON |
+| DELETE | `/api/project-sessions/[sessionId]` | Delete a non-Overview session |
+| POST | `/api/project-sessions/[sessionId]/tabs` | Create a session tab (body: `{projectId, kind, title, config}`) |
+| PUT | `/api/project-session-tabs/[tabId]` | Update a session tab title or validated config |
+| DELETE | `/api/project-session-tabs/[tabId]` | Delete a session tab |
+| PUT | `/api/project-sessions/[sessionId]/tabs/reorder` | Reorder tabs in a session (body: `{orderedTabIds}`) |
+| PUT | `/api/project-sessions/[sessionId]/thread` | Attach or update a session-owned thread link |
+| DELETE | `/api/project-sessions/[sessionId]/thread` | Detach the session-owned thread link |
+
 #### Board Routes (project-scoped)
 
 | Method | Endpoint | Description |
@@ -696,6 +691,49 @@ CREATE TABLE projects (
   icon TEXT NOT NULL DEFAULT '',    -- optional project emoji icon
   workspace_path TEXT,              -- optional filesystem cwd for Codex threads
   created TEXT NOT NULL             -- ISO datetime
+);
+
+-- Project sessions and session tabs
+CREATE TABLE project_sessions (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  is_overview INTEGER NOT NULL DEFAULT 0,
+  "order" INTEGER NOT NULL,
+  left_pane_collapsed INTEGER NOT NULL DEFAULT 0,
+  right_pane_collapsed INTEGER NOT NULL DEFAULT 0,
+  right_pane_layout_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE project_session_tabs (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES project_sessions(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,               -- db_view | card_stage | terminal | browser_placeholder
+  title TEXT NOT NULL,
+  config_json TEXT NOT NULL,
+  "order" INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE project_session_threads (
+  session_id TEXT PRIMARY KEY REFERENCES project_sessions(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  thread_id TEXT NOT NULL,
+  parent_thread_id TEXT,
+  thread_name TEXT,
+  thread_preview TEXT NOT NULL DEFAULT '',
+  model_provider TEXT NOT NULL DEFAULT '',
+  cwd TEXT,
+  status_type TEXT NOT NULL DEFAULT 'notLoaded',
+  status_active_flags_json TEXT NOT NULL DEFAULT '[]',
+  archived INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  linked_at TEXT NOT NULL
 );
 
 -- Cards table

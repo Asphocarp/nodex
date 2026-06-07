@@ -260,6 +260,151 @@ export interface ProjectInput {
   workspacePath?: string | null;
 }
 
+export type ProjectSessionDbView = "kanban" | "list" | "toggle-list" | "canvas" | "calendar";
+
+export type ProjectSessionTabKind =
+  | "db_view"
+  | "card_stage"
+  | "terminal"
+  | "browser_placeholder";
+
+export interface ProjectSessionDbViewTabConfig {
+  projectId: string;
+  view: ProjectSessionDbView;
+}
+
+export interface ProjectSessionCardStageTabConfig {
+  projectId: string;
+  cardId: string;
+  titleSnapshot?: string;
+}
+
+export interface ProjectSessionTerminalTabConfig {
+  projectId: string;
+  terminalSessionId: string;
+  mode: "project" | "card";
+  cardId?: string;
+}
+
+export interface ProjectSessionBrowserPlaceholderTabConfig {
+  url?: string;
+  title?: string;
+}
+
+export type ProjectSessionTabConfig =
+  | ProjectSessionDbViewTabConfig
+  | ProjectSessionCardStageTabConfig
+  | ProjectSessionTerminalTabConfig
+  | ProjectSessionBrowserPlaceholderTabConfig;
+
+export interface ProjectSessionSplitLeaf {
+  type: "leaf";
+  id: string;
+  tabIds: string[];
+  activeTabId: string | null;
+}
+
+export interface ProjectSessionSplitBranch {
+  type: "split";
+  id: string;
+  direction: "horizontal" | "vertical";
+  first: ProjectSessionRightPaneNode;
+  second: ProjectSessionRightPaneNode;
+  ratio: number;
+}
+
+export type ProjectSessionRightPaneNode = ProjectSessionSplitLeaf | ProjectSessionSplitBranch;
+
+export interface ProjectSessionRightPaneLayout {
+  version: 1;
+  root: ProjectSessionRightPaneNode;
+}
+
+export interface ProjectSessionTab {
+  id: string;
+  sessionId: string;
+  projectId: string;
+  kind: ProjectSessionTabKind;
+  title: string;
+  order: number;
+  config: ProjectSessionTabConfig;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectSessionThreadLink {
+  sessionId: string;
+  projectId: string;
+  threadId: string;
+  parentThreadId?: string;
+  threadName?: string;
+  threadPreview: string;
+  modelProvider: string;
+  cwd?: string;
+  statusType: string;
+  statusActiveFlags: string[];
+  archived: boolean;
+  createdAt: number;
+  updatedAt: number;
+  linkedAt: string;
+}
+
+export interface ProjectSession {
+  id: string;
+  projectId: string;
+  title: string;
+  isOverview: boolean;
+  order: number;
+  leftPaneCollapsed: boolean;
+  rightPaneCollapsed: boolean;
+  rightPaneLayout: ProjectSessionRightPaneLayout;
+  thread: ProjectSessionThreadLink | null;
+  tabs: ProjectSessionTab[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectSessionCreateInput {
+  projectId: string;
+  title: string;
+}
+
+export interface ProjectSessionUpdateInput {
+  title?: string;
+  leftPaneCollapsed?: boolean;
+  rightPaneCollapsed?: boolean;
+  rightPaneLayout?: ProjectSessionRightPaneLayout;
+}
+
+export interface ProjectSessionTabCreateInput {
+  sessionId: string;
+  projectId: string;
+  kind: ProjectSessionTabKind;
+  title: string;
+  config: ProjectSessionTabConfig;
+}
+
+export interface ProjectSessionTabUpdateInput {
+  title?: string;
+  config?: ProjectSessionTabConfig;
+}
+
+export interface ProjectSessionThreadLinkInput {
+  sessionId: string;
+  projectId: string;
+  threadId: string;
+  parentThreadId?: string | null;
+  threadName?: string | null;
+  threadPreview?: string;
+  modelProvider?: string;
+  cwd?: string | null;
+  statusType?: string;
+  statusActiveFlags?: string[];
+  archived?: boolean;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
 export interface UploadedResourceAsset {
   source: string;
   name: string;

@@ -14,6 +14,7 @@
 - Shared hooks/helpers: `src/renderer/lib/`
 - NFM conversion/parsing: `src/renderer/lib/nfm/`
 - Storybook workspace: `packages/storybook/` with colocated `*.stories.tsx` under `src/renderer/`
+- Workbench shell: `src/renderer/components/workbench/workbench-shell.tsx` renders projects as expandable folders, sessions as durable project children, a session thread page, and a collapsible/full-width right panel for session-attached tabs.
 
 ## State and Data Access
 - API boundary: always go through `src/renderer/lib/api.ts`.
@@ -23,9 +24,11 @@
 - History/undo: `use-history.ts`.
 - Project lifecycle: `use-projects.ts`.
 - SSE/IPC updates are centralized in API subscription helpers.
-- Live workbench navigation/session state is window-local (`sessionStorage`) for in-session continuity, while shared non-layout preferences remain in `localStorage`.
+- Live workbench window state is narrow and local: active project, active session, active tab, pane widths, collapse overrides, and focus history can live in `sessionStorage`/window-session snapshots for continuity.
+- Shared project-session structure is SQLite-owned: sessions, session tab records, tab ordering, session-thread attachments, and future right-pane split layout JSON load through the project-session IPC/HTTP APIs rather than renderer-local reducers.
 - Cold-launch resume is window-session-owned in Electron: the main process stores profile-local workspace and window-session catalogs under `userData`, renderer bootstrap applies the assigned session layout before mounting, and legacy last-window snapshots only seed the default workspace/session during migration.
 - Terminal: `use-terminal.ts` manages ghostty-web lifecycle, fit/resize behavior, and PTY IPC.
+- Session tab bodies should stay reusable: DB view hosts, Card Stage, terminal, and browser-placeholder surfaces mount behind `ProjectSessionTab.kind`; do not rebuild separate shell-specific versions of those features.
 - Active conversation UI: keep Codex host-message ingestion in the singleton external store under `features/local-conversation/`, subscribe through per-thread selectors, then derive renderer-only projection data in `features/local-conversation/projection/*`. Keep transcript projection, composer-shell aggregation, search-unit derivation, turn-request stitching, and background-activity ordering upstream of JSX.
 - Keep active conversation UI ownership inside `features/local-conversation/view/*` and `features/local-conversation/view/shared/*`. Do not reintroduce a second workbench thread renderer path outside that feature.
 - Use `@tanstack/react-form` for structured renderer forms with real validation or value coercion; keep simple one-field inputs on local state and use `src/renderer/lib/forms.ts` for shared submit/error helpers.

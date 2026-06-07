@@ -5,11 +5,15 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added a Codex-style project session shell with expandable project folders, durable sessions, a session thread page, session-owned right-panel tabs, browser placeholders, and separate optional session-thread attachments.
+- Added SQLite-backed project session, project session tab, and session-thread link storage with default Overview sessions seeded for every project.
 
 ### Changed
+- Replaced the old primary stage-rail workbench model with project sessions that open as a thread page with a collapsible and full-width-expandable right panel for DB view, Card Stage, terminal, and browser-placeholder tabs.
 - Thread collapsed tool activity groups now has synthesized summaries and flat expanded row hierarchy instead of showing generic completed-action labels or nested exploration subgroups.
 
 ### Fixed
+- Fixed project-session DB tabs so the restored View toolbar includes the original view selector, search, filter, sort, display, and calendar controls.
 - Fixed Codex runtime compatibility after the pinned `@openai/codex` bump by updating app-server handshake and thread request payloads to the new protocol shape.
 - Fixed stopped Thread turn ordering so a final collapsed tool/activity group renders above the assistant action toolbar.
 - Fixed completed Thread file-edit rows so expanding a file shows the rendered inline diff body again instead of only the patch-frame header.

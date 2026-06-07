@@ -7,9 +7,12 @@ import { CARD_STATUS_COLUMNS } from "../../shared/card-status";
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 26;
+export const CURRENT_SCHEMA_VERSION = 27;
 
 const RESETTABLE_TABLES = [
+  "project_session_threads",
+  "project_session_tabs",
+  "project_sessions",
   "canvas",
   "reminder_snoozes",
   "reminder_receipts",
@@ -29,7 +32,9 @@ export interface EnsureDatabaseOptions {
 }
 
 export function getSchemaMigrationTargets(currentVersion: number): number[] | null {
-  return currentVersion === CURRENT_SCHEMA_VERSION ? [] : null;
+  if (currentVersion === CURRENT_SCHEMA_VERSION) return [];
+  if (currentVersion === 26) return [27];
+  return null;
 }
 
 function getUserVersion(db: Database.Database): number {
@@ -134,6 +139,68 @@ function createLatestSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_codex_card_threads_project_updated
       ON codex_card_threads(project_id, updated_at DESC);
 
+    CREATE TABLE IF NOT EXISTS project_sessions (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      is_overview INTEGER NOT NULL DEFAULT 0,
+      "order" INTEGER NOT NULL,
+      left_pane_collapsed INTEGER NOT NULL DEFAULT 0,
+      right_pane_collapsed INTEGER NOT NULL DEFAULT 0,
+      right_pane_layout_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK (is_overview IN (0, 1)),
+      CHECK (left_pane_collapsed IN (0, 1)),
+      CHECK (right_pane_collapsed IN (0, 1))
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_project_sessions_overview
+      ON project_sessions(project_id)
+      WHERE is_overview = 1;
+    CREATE INDEX IF NOT EXISTS idx_project_sessions_project_order
+      ON project_sessions(project_id, "order", created_at);
+
+    CREATE TABLE IF NOT EXISTS project_session_tabs (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES project_sessions(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      title TEXT NOT NULL,
+      config_json TEXT NOT NULL,
+      "order" INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK (kind IN ('db_view', 'card_stage', 'terminal', 'browser_placeholder'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_project_session_tabs_session_order
+      ON project_session_tabs(session_id, "order", created_at);
+    CREATE INDEX IF NOT EXISTS idx_project_session_tabs_project
+      ON project_session_tabs(project_id);
+
+    CREATE TABLE IF NOT EXISTS project_session_threads (
+      session_id TEXT PRIMARY KEY REFERENCES project_sessions(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      thread_id TEXT NOT NULL,
+      parent_thread_id TEXT,
+      thread_name TEXT,
+      thread_preview TEXT NOT NULL DEFAULT '',
+      model_provider TEXT NOT NULL DEFAULT '',
+      cwd TEXT,
+      status_type TEXT NOT NULL DEFAULT 'notLoaded',
+      status_active_flags_json TEXT NOT NULL DEFAULT '[]',
+      archived INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      linked_at TEXT NOT NULL
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_project_session_threads_project_updated
+      ON project_session_threads(project_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_project_session_threads_thread
+      ON project_session_threads(thread_id);
+
     CREATE TABLE IF NOT EXISTS history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -225,6 +292,86 @@ function createLatestSchema(db: Database.Database): void {
   `);
 }
 
+function makeOverviewSessionId(projectId: string): string {
+  return `overview:${projectId}`;
+}
+
+function makeOverviewDbTabId(projectId: string): string {
+  return `overview:${projectId}:db`;
+}
+
+function makeOverviewRightPaneLayout(tabId: string): string {
+  return JSON.stringify({
+    version: 1,
+    root: {
+      type: "leaf",
+      id: "main",
+      tabIds: [tabId],
+      activeTabId: tabId,
+    },
+  });
+}
+
+function seedOverviewSessionsForAllProjects(db: Database.Database): void {
+  const projects = db.prepare("SELECT id FROM projects ORDER BY created ASC").all() as Array<{ id: string }>;
+  const insertSession = db.prepare(`
+    INSERT OR IGNORE INTO project_sessions (
+      id, project_id, title, is_overview, "order", left_pane_collapsed, right_pane_collapsed,
+      right_pane_layout_json, created_at, updated_at
+    ) VALUES (?, ?, ?, 1, 0, 1, 0, ?, ?, ?)
+  `);
+  const insertTab = db.prepare(`
+    INSERT OR IGNORE INTO project_session_tabs (
+      id, session_id, project_id, kind, title, config_json, "order", created_at, updated_at
+    ) VALUES (?, ?, ?, 'db_view', 'DB View', ?, 0, ?, ?)
+  `);
+
+  const seed = db.transaction(() => {
+    const now = new Date().toISOString();
+    for (const project of projects) {
+      const sessionId = makeOverviewSessionId(project.id);
+      const tabId = makeOverviewDbTabId(project.id);
+      insertSession.run(sessionId, project.id, "Overview", makeOverviewRightPaneLayout(tabId), now, now);
+      insertTab.run(
+        tabId,
+        sessionId,
+        project.id,
+        JSON.stringify({ projectId: project.id, view: "kanban" }),
+        now,
+        now,
+      );
+    }
+  });
+  seed();
+}
+
+function migrateToSchema27(db: Database.Database): void {
+  createLatestSchema(db);
+  seedOverviewSessionsForAllProjects(db);
+  setUserVersion(db, 27);
+}
+
+function runMigrations(
+  db: Database.Database,
+  currentVersion: number,
+  targets: number[],
+  options: EnsureDatabaseOptions,
+): void {
+  void currentVersion;
+  for (const target of targets) {
+    options.onMigrationProgress?.({
+      type: "InProgress",
+      value: targets.indexOf(target) / targets.length,
+    });
+    if (target === 27) {
+      migrateToSchema27(db);
+      continue;
+    }
+    throw new Error(`Unsupported Nodex database migration target ${target}`);
+  }
+  options.onMigrationProgress?.({ type: "Done" });
+}
+
 function ensureCodexCardThreadColumns(db: Database.Database): void {
   const columns = db.prepare("PRAGMA table_info(codex_card_threads)").all() as Array<{ name: string }>;
   const columnNames = new Set(columns.map((column) => column.name));
@@ -259,7 +406,6 @@ function seedDefaultProjectIfMissing(db: Database.Database): void {
 }
 
 export function ensureDatabase(options: EnsureDatabaseOptions = {}): void {
-  void options;
   const dbPath = getDatabasePath();
   const dir = path.dirname(dbPath);
 
@@ -275,15 +421,20 @@ export function ensureDatabase(options: EnsureDatabaseOptions = {}): void {
     const currentVersion = getUserVersion(db);
     if (currentVersion === 0) {
       resetDatabaseToLatestSchema(db);
-    } else if (getSchemaMigrationTargets(currentVersion) === null) {
-      throw new Error(
-        `Unsupported Nodex database schema version ${currentVersion}. Expected ${CURRENT_SCHEMA_VERSION}. Delete or recreate the local database if you want a fresh start.`,
-      );
+    } else {
+      const targets = getSchemaMigrationTargets(currentVersion);
+      if (targets === null) {
+        throw new Error(
+          `Unsupported Nodex database schema version ${currentVersion}. Expected ${CURRENT_SCHEMA_VERSION}. Delete or recreate the local database if you want a fresh start.`,
+        );
+      }
+      runMigrations(db, currentVersion, targets, options);
     }
 
     db.exec("DROP TABLE IF EXISTS codex_thread_snapshots");
     ensureCodexCardThreadColumns(db);
     seedDefaultProjectIfMissing(db);
+    seedOverviewSessionsForAllProjects(db);
   } finally {
     db.close();
   }

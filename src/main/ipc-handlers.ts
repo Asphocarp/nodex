@@ -3,6 +3,7 @@ import { writeImageToClipboard } from "./clipboard-image-writer";
 import { inspectClipboardPasteItems } from "./clipboard-paste-inspector";
 import { prepareComposerPickedFiles } from "./composer-picked-files";
 import * as dbService from "./kanban/db-service";
+import * as projectSessionService from "./kanban/project-session-service";
 import * as backupService from "./kanban/backup-service";
 import * as canvasService from "./kanban/canvas-service";
 import * as ptyManager from "./pty-manager";
@@ -137,6 +138,51 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   registerHandle("projects:delete", (_, projectId: string) =>
     dbService.deleteProject(projectId)
+  );
+
+  // Project sessions
+  registerHandle("project-sessions:list", (_, projectId: string) =>
+    projectSessionService.listProjectSessions(projectId)
+  );
+
+  registerHandle("project-sessions:create", (_, input) =>
+    projectSessionService.createProjectSession(input)
+  );
+
+  registerHandle("project-sessions:update", (_, sessionId: string, input) =>
+    projectSessionService.updateProjectSession(sessionId, input)
+  );
+
+  registerHandle("project-sessions:delete", (_, sessionId: string) =>
+    projectSessionService.deleteProjectSession(sessionId)
+  );
+
+  registerHandle("project-sessions:reorder", (_, projectId: string, orderedSessionIds: string[]) =>
+    projectSessionService.reorderProjectSessions(projectId, orderedSessionIds)
+  );
+
+  registerHandle("project-session-tabs:create", (_, input) =>
+    projectSessionService.createProjectSessionTab(input)
+  );
+
+  registerHandle("project-session-tabs:update", (_, tabId: string, input) =>
+    projectSessionService.updateProjectSessionTab(tabId, input)
+  );
+
+  registerHandle("project-session-tabs:delete", (_, tabId: string) =>
+    projectSessionService.deleteProjectSessionTab(tabId)
+  );
+
+  registerHandle("project-session-tabs:reorder", (_, sessionId: string, orderedTabIds: string[]) =>
+    projectSessionService.reorderProjectSessionTabs(sessionId, orderedTabIds)
+  );
+
+  registerHandle("project-session-threads:attach", (_, input) =>
+    projectSessionService.upsertProjectSessionThreadLink(input)
+  );
+
+  registerHandle("project-session-threads:detach", (_, sessionId: string) =>
+    projectSessionService.detachProjectSessionThread(sessionId)
   );
 
   // Board

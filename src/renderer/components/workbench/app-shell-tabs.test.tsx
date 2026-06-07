@@ -4,7 +4,6 @@ import { act } from "react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import {
   AppShellTabs,
-  projectAppShellTabOrder,
   resolveAppShellTabDrop,
   shouldShowAppShellTabSeparator,
   type AppShellTabItem,
@@ -207,14 +206,7 @@ describe("AppShellTabs", () => {
     expect(resolveAppShellTabDrop(tabs, "missing", "one")).toBe(null);
   });
 
-  test("projects drag order and separators without mutating real tab order", () => {
-    const tabIds = ["one", "two", "history"];
-
-    const projected = projectAppShellTabOrder(tabIds, "one", 2);
-
-    expect(projected.join(",")).toBe("two,history,one");
-    expect(tabIds.join(",")).toBe("one,two,history");
-    expect(projectAppShellTabOrder(tabIds, "missing", 1).join(",")).toBe("one,two,history");
+  test("shows separators for projected drag positions", () => {
     expect(shouldShowAppShellTabSeparator({
       projectedIndex: 0,
       projectedLength: 3,
