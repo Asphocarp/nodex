@@ -33,6 +33,30 @@ export function ThreadComposerStatusStrip({
   projectSelectorDisabled = false,
   className,
 }: ThreadComposerStatusStripProps) {
+  if (!shouldShowThreadComposerStatusStrip(model)) return null;
+
+  return (
+    <ThreadComposerStatusStripContent
+      model={model}
+      actions={actions}
+      onErrorMessage={onErrorMessage}
+      projectSelectorDisabled={projectSelectorDisabled}
+      className={className}
+    />
+  );
+}
+
+export function shouldShowThreadComposerStatusStrip(model: ThreadFooterModel): boolean {
+  return model.isNewThreadTab && model.conversation === null;
+}
+
+function ThreadComposerStatusStripContent({
+  model,
+  actions,
+  onErrorMessage,
+  projectSelectorDisabled = false,
+  className,
+}: ThreadComposerStatusStripProps) {
   const [branchState, setBranchState] = useState<BranchSelectorState>(EMPTY_BRANCH_SELECTOR_STATE);
   const [isBranchBusy, setIsBranchBusy] = useState(false);
   const branchCwd = useMemo(

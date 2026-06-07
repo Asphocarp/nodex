@@ -133,9 +133,7 @@ describe("LocalConversationComposerShell", () => {
     expect(Boolean(renderedText.includes("Worker 1"))).toBeFalse();
 
     const lowerStatusRow = view.container.querySelector('[data-composer-lower-status-row="true"]');
-    expect(lowerStatusRow !== null).toBeTrue();
-    expect(Boolean(lowerStatusRow?.textContent?.includes("Work locally"))).toBeTrue();
-    expect(Boolean(lowerStatusRow?.querySelector('[aria-label="Select Git branch"]'))).toBeTrue();
+    expect(lowerStatusRow === null).toBeTrue();
     expect(view.queryByLabelText("Add files and more") === null).toBeTrue();
     expect(view.queryByLabelText("Permission mode") === null).toBeTrue();
     expect(view.queryByLabelText("Select Codex model and reasoning") === null).toBeTrue();

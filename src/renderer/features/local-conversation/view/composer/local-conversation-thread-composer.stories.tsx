@@ -26,6 +26,7 @@ interface ComposerSendButtonStoryProps {
   modelCatalog: "default" | "expanded";
   selectedModelReasoningSupport: "default" | "highOnly";
   selectedCollaborationMode: CodexCollaborationModeKind;
+  threadState: "existingThread" | "newChat";
   surfaceWidth: "normal" | "narrow";
   addContextState: "default" | "ideConnected" | "plugins";
 }
@@ -108,15 +109,27 @@ function resolveStoryAvailableModels(input: {
 
 function buildModel(args: ComposerSendButtonStoryProps): ThreadFooterModel {
   const controls: ThreadStageStoryControls = {
-    preset: "streaming",
+    preset: args.threadState === "newChat" ? "new-thread" : "streaming",
     permissionMode: args.permissionMode,
     authenticatedAccount: true,
     isQueueingEnabled: args.isQueueingEnabled,
     collapseAgentBody: false,
   };
   const scenario = buildThreadStageStoryScenario(controls);
+  const newChatTarget = scenario.runtime.newThreadTarget
+    ? {
+        ...scenario.runtime.newThreadTarget,
+        sessionId: "session_story",
+        runInTarget: "localProject" as const,
+      }
+    : null;
   const runtime = {
     ...scenario.runtime,
+    ...(args.threadState === "newChat"
+      ? {
+          newThreadTarget: newChatTarget,
+        }
+      : {}),
     composerIntent: args.draftPrompt.trim().length === 0
       ? null
       : {
@@ -146,6 +159,44 @@ function buildModel(args: ComposerSendButtonStoryProps): ThreadFooterModel {
       : selectedModelReasoningOptions[0]?.reasoningEffort ?? footerModel.selectedReasoningEffort,
     reasoningEffortOptions: selectedModelReasoningOptions,
     selectedCollaborationMode: args.selectedCollaborationMode,
+    ...(args.threadState === "newChat" && newChatTarget
+      ? {
+          newThreadTarget: newChatTarget,
+          newThreadProjectSelector: {
+            selectedProjectId: newChatTarget.projectId,
+            disabled: false,
+            canAddProject: true,
+            projects: [
+              {
+                id: newChatTarget.projectId,
+                label: newChatTarget.projectName,
+                description: footerModel.projectWorkspacePath ?? "/Users/asc/repo/nodex",
+                workspacePath: footerModel.projectWorkspacePath ?? "/Users/asc/repo/nodex",
+                searchText: `${newChatTarget.projectId} ${newChatTarget.projectName}`,
+              },
+              {
+                id: "project_devtools_codex",
+                label: "Devtools Codex",
+                description: "/Users/asc/repo/devtools-codex",
+                workspacePath: "/Users/asc/repo/devtools-codex",
+                searchText: "project_devtools_codex devtools codex",
+              },
+            ],
+          },
+          newThreadStartInSelector: {
+            target: {
+              runInTarget: "localProject" as const,
+            },
+            disabled: false,
+            worktreeAvailable: true,
+            environments: [],
+            environmentsLoading: false,
+            selectedEnvironmentPath: null,
+            worktreeStartMode: "autoBranch" as const,
+            worktreeBranchPrefix: "codex/",
+          },
+        }
+      : {}),
     ...(args.addContextState === "ideConnected"
       ? {
           composerIdeContext: {
@@ -201,6 +252,12 @@ function buildActions(): ThreadStageActions {
     onOpenThread: () => { },
     onCleanBackgroundTerminals: async () => { },
     onOpenCard: () => { },
+    onNewThreadProjectChange: () => { },
+    onRequestNewChatProjectCreate: () => { },
+    onNewThreadStartInTargetChange: () => { },
+    onNewThreadStartInEnvironmentChange: () => { },
+    onRefreshNewThreadStartInEnvironments: async () => { },
+    onOpenNewThreadLocalEnvironmentsSettings: () => { },
   };
 }
 
@@ -251,6 +308,7 @@ const meta = {
     modelCatalog: "default",
     selectedModelReasoningSupport: "default",
     selectedCollaborationMode: "default",
+    threadState: "existingThread",
     surfaceWidth: "normal",
     addContextState: "default",
   },
@@ -290,6 +348,10 @@ const meta = {
     selectedCollaborationMode: {
       control: "radio",
       options: ["default", "plan"],
+    },
+    threadState: {
+      control: "radio",
+      options: ["existingThread", "newChat"],
     },
     surfaceWidth: {
       control: "radio",
@@ -394,6 +456,15 @@ export const DefaultIntelligenceSelector: Story = {
     isQueueingEnabled: false,
     composerEnterBehavior: "enter",
     draftPrompt: "",
+  },
+};
+
+export const NewChatStatusStrip: Story = {
+  args: {
+    isQueueingEnabled: false,
+    composerEnterBehavior: "enter",
+    draftPrompt: "",
+    threadState: "newChat",
   },
 };
 

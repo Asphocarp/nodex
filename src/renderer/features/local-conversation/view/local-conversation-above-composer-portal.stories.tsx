@@ -334,7 +334,7 @@ function NarrowRequestCardsStory() {
       <AboveComposerStoryFrame
         model={buildShellModel()}
         title="Request Cards Narrow"
-        description="Narrow-width parity story verifying request cards replace composer controls while the lower status strip wraps cleanly instead of being covered."
+        description="Narrow-width parity story verifying existing-thread request cards replace composer controls without rendering the new-chat-only lower status strip."
       />
     </div>
   );
@@ -361,7 +361,7 @@ export const QueueLane: Story = {
   args: {
     title: "Composer Shell",
     description:
-      "Focused parity story for the unified Codex-style composer shell: queued steers, queued follow-ups, background terminals, background agents, request cards, and the preserved lower status strip are rendered by one shell instead of split footer surfaces.",
+      "Focused parity story for the unified Codex-style existing-thread composer shell: queued steers, queued follow-ups, background terminals, background agents, and request cards render without the new-chat-only lower status strip.",
   },
   render: (args) => <AboveComposerStoryFrame {...args} />,
 };
@@ -399,7 +399,7 @@ export const RequestCardsNarrow: Story = {
   args: {
     title: "Request Cards Narrow",
     description:
-      "Narrow-width parity story verifying request cards replace composer controls while the lower status strip wraps cleanly instead of being covered.",
+      "Narrow-width parity story verifying existing-thread request cards replace composer controls without rendering the new-chat-only lower status strip.",
   },
   render: () => <NarrowRequestCardsStory />,
 };

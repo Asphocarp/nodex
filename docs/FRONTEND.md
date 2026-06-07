@@ -135,6 +135,7 @@
   - approval cards own their body preview (`command`, `network`, or `patch`) and pass that preview into the shared questionnaire shell
   - background-child approvals do not get a separate worker-name header; inject that child identity inline into the approval prompt only when the Codex approval prompt branch calls for it
   - request-card stories should exercise the dedicated Codex request-card components directly, not older wrapper aliases
+- Keep the lower composer status strip new-chat-only: render it only for pre-start new-chat surfaces (`isNewThreadTab && conversation === null`). Existing threads keep add-context, permissions, context, Intelligence, dictation, and send/stop inside the composer form footer and rely on the floating thread panel instead of a second under-input status row.
 - Keep local-environments UI as a first-class settings feature:
   - the feature lives in the workbench settings overlay, not in card-stage popovers or OS file-manager escapes
   - card-stage environment pickers should stay thin choosers and route `Environment settings` into the shared settings page with project/config context

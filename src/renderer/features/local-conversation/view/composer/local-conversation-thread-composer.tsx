@@ -63,7 +63,10 @@ import {
   PermissionModeDropdown,
   resolvePromptTextareaMaxHeightPx,
 } from "./local-conversation-thread-composer-deps";
-import { ThreadComposerStatusStrip } from "./local-conversation-thread-composer-status-strip";
+import {
+  shouldShowThreadComposerStatusStrip,
+  ThreadComposerStatusStrip,
+} from "./local-conversation-thread-composer-status-strip";
 
 interface ThreadComposerProps {
   model: ThreadFooterModel;
@@ -1447,12 +1450,14 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
         </form>
       </div>
 
-      <ThreadComposerStatusStrip
-        model={model}
-        actions={actions}
-        onErrorMessage={onErrorMessage}
-        projectSelectorDisabled={busyAction !== null}
-      />
+      {shouldShowThreadComposerStatusStrip(model) ? (
+        <ThreadComposerStatusStrip
+          model={model}
+          actions={actions}
+          onErrorMessage={onErrorMessage}
+          projectSelectorDisabled={busyAction !== null}
+        />
+      ) : null}
     </>
   );
 }

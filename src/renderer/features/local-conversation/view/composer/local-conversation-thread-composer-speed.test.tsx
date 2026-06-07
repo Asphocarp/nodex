@@ -457,9 +457,13 @@ describe("ThreadComposer speed menu", () => {
     expect(Boolean((sentPromptInputs[0] ?? "").includes("\"skills\":[{\"name\":\"Computer Use\",\"path\":\"/plugins/computer-use\"}]"))).toBeTrue();
   });
 
-  test("places permissions and context inside the composer footer while the lower row keeps run target and branch", async () => {
+  test("places permissions and context inside the existing-thread composer footer without a lower status row", async () => {
     resetStorage();
-    const view = await renderComposer();
+    const invokedChannels: string[] = [];
+    const view = await renderComposer(undefined, undefined, async (channel) => {
+      invokedChannels.push(channel);
+      return undefined;
+    });
 
     const permissionTrigger = view.getByLabelText("Permission mode");
     const contextTrigger = view.getByLabelText(/Context window/);
@@ -467,13 +471,10 @@ describe("ThreadComposer speed menu", () => {
     const formFooter = view.container.querySelector('[data-composer-form-footer="true"]');
 
     expect(formFooter !== null).toBeTrue();
-    expect(lowerStatusRow !== null).toBeTrue();
+    expect(lowerStatusRow === null).toBeTrue();
     expect(formFooter?.contains(permissionTrigger)).toBeTrue();
     expect(formFooter?.contains(contextTrigger)).toBeTrue();
-    expect(lowerStatusRow?.contains(permissionTrigger)).toBeFalse();
-    expect(lowerStatusRow?.contains(contextTrigger)).toBeFalse();
-    expect(Boolean(lowerStatusRow?.textContent?.includes("Work locally"))).toBeTrue();
-    expect(Boolean(lowerStatusRow?.querySelector('[aria-label="Select Git branch"]'))).toBeTrue();
+    expect(invokedChannels.some((channel) => channel.startsWith("git:branch:"))).toBeFalse();
   });
 
   test("places the new-chat project selector in the lower status row before run target", async () => {
@@ -529,6 +530,26 @@ describe("ThreadComposer speed menu", () => {
     expect(lowerText.indexOf("Nodex") >= 0).toBeTrue();
     expect(lowerText.indexOf("Work locally") >= 0).toBeTrue();
     expect(lowerText.indexOf("Nodex") < lowerText.indexOf("Work locally")).toBeTrue();
+  });
+
+  test("hides the lower status row after a new-chat tab materializes a conversation", async () => {
+    resetStorage();
+    const view = await renderComposer({
+      isNewThreadTab: true,
+      newThreadTarget: {
+        projectId: "project_1",
+        projectName: "Nodex",
+        sessionId: "session_1",
+        threadTitle: "New thread",
+        runInTarget: "localProject",
+      },
+    });
+
+    const lowerStatusRow = view.container.querySelector('[data-composer-lower-status-row="true"]');
+    const formFooter = view.container.querySelector('[data-composer-form-footer="true"]');
+
+    expect(formFooter !== null).toBeTrue();
+    expect(lowerStatusRow === null).toBeTrue();
   });
 
   test("keeps the composer shell chrome stable on focus", async () => {

@@ -32,7 +32,10 @@ import type {
   ThreadStageActions,
 } from "../../thread-stage-types";
 import { ThreadComposer } from "./local-conversation-thread-composer";
-import { ThreadComposerStatusStrip } from "./local-conversation-thread-composer-status-strip";
+import {
+  shouldShowThreadComposerStatusStrip,
+  ThreadComposerStatusStrip,
+} from "./local-conversation-thread-composer-status-strip";
 import { CodexPendingRequestCard } from "./request-cards/codex-pending-request-card";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../shared/thread-motion";
 import {
@@ -790,7 +793,9 @@ export function LocalConversationComposerShell({
       {model.composerShell.showRequestCards ? (
         <>
           <RequestCardStack model={model} actions={actions} />
-          <ThreadComposerStatusStrip model={model} actions={actions} onErrorMessage={onErrorMessage} />
+          {shouldShowThreadComposerStatusStrip(model) ? (
+            <ThreadComposerStatusStrip model={model} actions={actions} onErrorMessage={onErrorMessage} />
+          ) : null}
         </>
       ) : (
         <ThreadComposer
