@@ -38,6 +38,7 @@ function buildModel(overrides?: Partial<ThreadStageHeaderModel>): ThreadStageHea
     threadId: "thread_1",
     cardId: "card_1",
     title: "Thread title",
+    showSeparator: false,
     openCardTarget: null,
     activeThreadCardColumnId: null,
     connection: { status: "connected", retries: 0 },
@@ -87,6 +88,64 @@ function buildActions(): ThreadStageActions {
 }
 
 describe("ThreadStageHeader auth chrome", () => {
+  test("renders the Codex Electron sized single-line thread title", async () => {
+    const { ThreadStageHeader } = await import("./local-conversation-stage-header");
+    const { container } = render(
+      <ThreadStageHeader
+        model={buildModel({ title: "Review shell header parity" })}
+        actions={buildActions()}
+        onErrorMessage={() => {}}
+      />,
+    );
+
+    const title = container.querySelector('[data-testid="thread-stage-title"]');
+    expect(title?.textContent).toBe("Review shell header parity");
+    expect(title?.className.includes("max-w-[320px]")).toBeTrue();
+    expect(title?.className.includes("text-token-foreground")).toBeTrue();
+    expect(title?.parentElement?.className.includes("text-base")).toBeTrue();
+  });
+
+  test("renders the title separator only when requested by the shell", async () => {
+    const { ThreadStageHeader } = await import("./local-conversation-stage-header");
+    const visible = render(
+      <ThreadStageHeader
+        model={buildModel({ showSeparator: true })}
+        actions={buildActions()}
+        onErrorMessage={() => {}}
+      />,
+    );
+
+    expect(visible.container.firstElementChild?.className.includes("border-b")).toBeTrue();
+    expect(visible.container.firstElementChild?.className.includes("border-token-border")).toBeTrue();
+    visible.unmount();
+
+    const hidden = render(
+      <ThreadStageHeader
+        model={buildModel({ showSeparator: false })}
+        actions={buildActions()}
+        onErrorMessage={() => {}}
+      />,
+    );
+
+    expect(hidden.container.firstElementChild?.className.includes("border-b")).toBeFalse();
+  });
+
+  test("reserves the global side-panel toggle area as no-drag", async () => {
+    const { ThreadStageHeader } = await import("./local-conversation-stage-header");
+    const { container } = render(
+      <ThreadStageHeader model={buildModel()} actions={buildActions()} onErrorMessage={() => {}} />,
+    );
+
+    const header = container.firstElementChild;
+    const hitbox = container.querySelector('[data-testid="thread-stage-header-toggle-hitbox"]');
+    expect(header?.className.includes("draggable")).toBeTrue();
+    expect(header?.className.includes("relative")).toBeTrue();
+    expect(hitbox?.className.includes("no-drag")).toBeTrue();
+    expect(hitbox?.className.includes("pointer-events-auto")).toBeTrue();
+    expect(hitbox?.className.includes("right-0")).toBeTrue();
+    expect(hitbox?.className.includes("z-10")).toBeTrue();
+  });
+
   test("does not rerender for body-only turn updates", async () => {
     connectionBadgeRenderCount = 0;
     const { ThreadStageHeader } = await import("./local-conversation-stage-header");

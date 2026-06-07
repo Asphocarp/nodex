@@ -124,12 +124,33 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
   const openCardTone = openCardTarget?.columnId ? columnStyles[openCardTarget.columnId] : null;
 
   return (
-    <div className="px-3 py-3">
-      <div className="flex items-center gap-2">
-        <div className="min-w-0 flex-1 truncate text-sm/tight font-medium text-(--foreground)">
-          {model.title}
+    <div
+      className={cn(
+        "draggable relative grid w-full min-w-0 grid-cols-[minmax(0,1fr)] items-center gap-x-4 py-3 pr-3 pl-3 electron:h-toolbar extension:py-row-y",
+        model.showSeparator && "border-b border-token-border",
+      )}
+      style={{
+        paddingRight: "calc(var(--thread-stage-header-right-reserve, 0px) + calc(var(--spacing) * 3))",
+      }}
+    >
+      <div
+        aria-hidden="true"
+        data-testid="thread-stage-header-toggle-hitbox"
+        className="no-drag pointer-events-auto absolute inset-y-0 right-0 z-10"
+        style={{
+          width: "calc(var(--thread-stage-header-right-reserve, 0px) + calc(var(--spacing) * 3))",
+        }}
+      />
+      <div className="flex min-w-0 items-center gap-2 truncate text-base electron:font-medium">
+        <div
+          data-testid="thread-stage-title"
+          className="no-drag pointer-events-auto inline-flex max-w-[320px] min-w-[2ch] cursor-interaction items-center overflow-hidden text-token-foreground"
+        >
+          <span className="inline-flex min-w-0 items-center gap-2 overflow-hidden">
+            <span className="min-w-0 truncate">{model.title}</span>
+          </span>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="no-drag ml-auto flex shrink-0 items-center gap-1.5">
           {openCardTarget && (
             <CardInfoHoverCard card={openCardData} columnId={openCardTarget.columnId}>
               <button

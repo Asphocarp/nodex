@@ -177,6 +177,7 @@ function ConnectedThreadStageHeader({
       threadId: summaryFields.threadId ?? input.activeThreadSummary?.threadId ?? activeThreadId,
       cardId: summaryFields.cardId ?? input.activeThreadSummary?.cardId ?? input.newThreadTarget?.cardId ?? null,
       title: resolveThreadTitle(input, summaryFields),
+      showSeparator: input.showHeaderSeparator,
       openCardTarget: resolveOpenCardTarget(input, summaryFields, activeThreadCardColumnId),
       activeThreadCardColumnId,
       connection,

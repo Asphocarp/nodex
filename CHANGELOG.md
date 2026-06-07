@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - Replaced the old primary stage-rail workbench model with project sessions that open as a thread page with a collapsible and full-width-expandable right panel for DB view, Card Stage, terminal, and browser-placeholder tabs.
 - Refined the project session shell to match Codex Electron side-panel control placement, adjacent header-slot spacing, remembered full-width mode, and button styling: the global header now owns `Toggle side panel`, right-panel tab creation and expand/restore actions live in the panel tab header, and the unused attach/detach thread toolbar button is removed.
+- Refined project session thread headers to match Codex Electron title sizing, use the thread title as the session header, and hide the redundant header separator while the right panel is closed.
 - Project session thread pages without an attached thread now show the Codex-style new-chat composer and start a session-owned Codex thread from the first prompt instead of showing an attach-thread empty state.
 - Codex thread metadata now supports card-owned, session-owned, project-only, and projectless threads without fake card ids.
 - Thread collapsed tool activity groups now has synthesized summaries and flat expanded row hierarchy instead of showing generic completed-action labels or nested exploration subgroups.

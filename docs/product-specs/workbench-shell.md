@@ -9,7 +9,7 @@ Detailed Auto-review preset, config, and approval-lifecycle rules are specified 
 - Left sidebar: projects render as expandable folders. Selecting a project expands it and switches the DB project context.
 - Project children: each expanded project lists ordered sessions. Every project has one seeded `Overview` session.
 - Sidebar footer: workspace dots remain profile-local window layout controls. Workspaces do not own project session data.
-- Active session header: shows the session title, project name, and the global Codex-style `Toggle side panel` control. Right-panel tab creation and expand/restore actions belong to the right-panel tab header; there is no attach/detach thread toolbar button.
+- Active session header: uses the active thread title row as the session header, without a separate session title or project-name subtitle. The fixed global header still owns the Codex-style `Toggle side panel` control. Right-panel tab creation and expand/restore actions belong to the right-panel tab header; there is no attach/detach thread toolbar button.
 - Thread page: the main session viewport always hosts the session thread page. If no thread is attached, it shows the new-thread composer. If the right panel is collapsed, the global top-right side-panel toggle opens it.
 - Right panel: the v1 right panel renders one tab group with ordered session tabs. It can be collapsed, regular-width, or expanded to the full session content area. Hiding and showing the side panel preserves the session-local regular/full-width mode. The persisted layout shape already supports future split leaves, but v1 does not render multiple split groups.
 - Browser tabs: browser is a real tab kind but renders a nonfunctional placeholder until the browser feature ships.

@@ -73,6 +73,7 @@ export interface ThreadStageRouteInput {
   } | null;
   newThreadProjectSelector?: NewChatProjectSelectorModel | null;
   newThreadStartInSelector?: NewChatStartInSelectorModel | null;
+  showHeaderSeparator: boolean;
   activeThreadCardColumnId: string | null;
   threadStartProgress: {
     phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
@@ -466,6 +467,7 @@ export interface ThreadStageHeaderModel {
   threadId: string | null;
   cardId: string | null;
   title: string;
+  showSeparator: boolean;
   openCardTarget: ThreadOpenCardTarget | null;
   activeThreadCardColumnId: string | null;
   connection: CodexConnectionState;

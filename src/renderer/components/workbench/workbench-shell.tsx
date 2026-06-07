@@ -331,10 +331,6 @@ function getTabIcon(kind: ProjectSessionTab["kind"]): ComponentType<{ className?
   return Globe2;
 }
 
-function getProjectLabel(project: Project): string {
-  return project.name.trim() || project.id;
-}
-
 function clampRegularRightPanelWidth(width: number, sessionWidth: number): number {
   const maxWidth = sessionWidth > 0
     ? Math.max(RIGHT_PANEL_MIN_WIDTH, sessionWidth - RIGHT_PANEL_MAIN_MIN_WIDTH)
@@ -1030,18 +1026,6 @@ export function WorkbenchShell({
           className="app-header-tint draggable pointer-events-none fixed inset-x-0 top-0 z-30 flex h-toolbar min-w-0 items-center"
         >
           <div
-            className="no-drag pointer-events-auto flex min-w-0 items-center gap-3 px-3"
-            style={{
-              marginLeft: showInlineSidebar ? sidebarWidth : "var(--spacing-token-safe-header-left)",
-              maxWidth: "calc(100% - var(--spacing-token-safe-header-right) - 12rem)",
-            }}
-          >
-            <div className="min-w-0">
-              <div className="truncate text-sm font-medium">{activeSession?.title ?? "No session"}</div>
-              <div className="truncate text-xs text-token-text-tertiary">{activeProject ? getProjectLabel(activeProject) : "No project"}</div>
-            </div>
-          </div>
-          <div
             ref={headerRightProbeRef}
             aria-hidden="true"
             className="invisible pointer-events-none fixed top-0 left-0 min-w-max pe-2 [&_*]:![view-transition-name:none]"
@@ -1190,8 +1174,10 @@ export function WorkbenchShell({
                   )}
                 >
                   <div
-                    className="app-shell-main-content-frame relative flex min-h-0 flex-1 flex-col border-t border-token-border"
-                    style={{ marginTop: "var(--app-shell-main-content-frame-top-offset)" }}
+                    className="app-shell-main-content-frame relative flex min-h-0 flex-1 flex-col"
+                    style={{
+                      "--thread-stage-header-right-reserve": sidePanelOpen ? "0px" : `${headerRightWidth}px`,
+                    } as React.CSSProperties}
                   >
                     <div
                       aria-hidden="true"
@@ -1212,6 +1198,7 @@ export function WorkbenchShell({
                       worktreeStartMode={worktreeStartMode}
                       worktreeBranchPrefix={worktreeAutoBranchPrefix}
                       searchOpenTick={threadSearchOpenTick}
+                      sidePanelOpen={sidePanelOpen}
                       onOpenCard={(cardId) => {
                         if (!activeProject) return;
                         void openCardTab(activeProject.id, cardId, cardId);
@@ -1723,6 +1710,7 @@ function SessionThreadPage({
   worktreeBranchPrefix,
   onOpenCard,
   searchOpenTick,
+  sidePanelOpen,
 }: {
   session: ProjectSession;
   project: Project | null;
@@ -1735,6 +1723,7 @@ function SessionThreadPage({
   worktreeBranchPrefix: string;
   onOpenCard: (cardId: string) => void;
   searchOpenTick: number;
+  sidePanelOpen: boolean;
 }) {
   const projectId = project?.id ?? session.projectId;
   const summary = session.thread ? makeThreadSummary(session.thread) : null;
@@ -1842,6 +1831,7 @@ function SessionThreadPage({
           disabled: false,
           canAddProject: true,
         }}
+        showHeaderSeparator={sidePanelOpen}
         newThreadStartInSelector={summary ? null : {
           target: {
             runInTarget: selectedNewThreadRunInTarget,

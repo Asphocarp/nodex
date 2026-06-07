@@ -562,6 +562,47 @@ describe("workbench session shell", () => {
     expect(JSON.stringify(props?.activeThreadSummary).includes('"cardId":null')).toBeTrue();
   });
 
+  test("uses the thread header as the only top title row", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeAttachedSession()] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const globalHeader = screen.container.querySelector('[data-testid="workbench-global-header"]');
+    const threadFrame = screen.container.querySelector(".app-shell-main-content-frame");
+    if (!globalHeader || !threadFrame) throw new Error("Expected workbench global header and thread frame");
+    expect(textContent(globalHeader).includes("Overview")).toBeFalse();
+    expect(textContent(globalHeader).includes("Alpha")).toBeFalse();
+    expect(Boolean(threadFrame?.getAttribute("style")?.includes("--app-shell-main-content-frame-top-offset"))).toBeFalse();
+  });
+
+  test("shows the thread-page separator only while the right panel is enabled", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeAttachedSession({ rightPaneCollapsed: false })] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const visibleProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    const visibleFrame = screen.container.querySelector(".app-shell-main-content-frame");
+    expect(visibleProps?.showHeaderSeparator).toBeTrue();
+    expect(visibleFrame?.className.includes("border-t")).toBeFalse();
+    expect(visibleFrame?.getAttribute("style")?.includes("--thread-stage-header-right-reserve: 0px")).toBeTrue();
+    screen.unmount();
+
+    const collapsedScreen = renderWorkbench({
+      sessionsByProject: { alpha: [makeAttachedSession({ rightPaneCollapsed: true })] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const collapsedProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    const collapsedFrame = collapsedScreen.container.querySelector(".app-shell-main-content-frame");
+    expect(collapsedProps?.showHeaderSeparator).toBeFalse();
+    expect(collapsedFrame?.getAttribute("style")?.includes("--thread-stage-header-right-reserve: 36px")).toBeTrue();
+  });
+
   test("renders the session new-thread composer instead of the old attach placeholder", async () => {
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [makeSession()] },
