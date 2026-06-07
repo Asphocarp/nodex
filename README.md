@@ -19,7 +19,7 @@ Release packaging currently runs on macOS 26 CI runners because the Icon Compose
 
 ## Landing Site
 
-The public landing site lives in [`packages/landing`](packages/landing/) and is intended to publish to [nodexapp.github.io](https://nodexapp.github.io).
+The public landing site lives in [`packages/landing`](packages/landing/) and is intended to publish to [nodex.jyu.app](https://nodex.jyu.app).
 
 Local commands:
 
