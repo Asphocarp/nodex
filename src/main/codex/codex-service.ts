@@ -728,6 +728,12 @@ function isThreadNotFoundError(error: unknown): boolean {
   return message.includes("thread not found") || (message.includes("thread") && message.includes("not found"));
 }
 
+function isThreadArchivedError(error: unknown): boolean {
+  if (!(error instanceof CodexRpcError)) return false;
+  const message = error.message.toLowerCase();
+  return message.includes(" is archived") || (message.includes("session") && message.includes("archived"));
+}
+
 function isSteerTurnInactiveError(error: unknown): boolean {
   if (!(error instanceof CodexRpcError)) return false;
   const data = error.data;
@@ -5503,6 +5509,14 @@ export class CodexService extends EventEmitter {
   }
 
   async requestConversationResume(threadId: string): Promise<CodexConversationSnapshot | null> {
+    const existingLink = this.getThreadLinkSafely(threadId);
+    if (existingLink?.archived) {
+      this.ensureConversationDetail(threadId);
+      this.setConversationResumeState(threadId, "needs_resume");
+      this.emitThreadStreamSnapshotFromRecord(threadId);
+      return this.serializeConversationSnapshot(threadId);
+    }
+
     this.setConversationResumeState(threadId, "resuming");
     this.ensureConversationDetail(threadId);
     this.emitThreadStreamSnapshotFromRecord(threadId);
@@ -5523,6 +5537,19 @@ export class CodexService extends EventEmitter {
       const record = this.ensureConversationRecord(threadId);
       record.streamRole = null;
       record.isStreaming = false;
+      if (isThreadArchivedError(error)) {
+        const summary = updateCodexThreadArchived(threadId, true);
+        if (summary) {
+          this.emitEvent({ type: "threadSummary", thread: summary });
+        }
+        const detail = this.ensureConversationDetail(threadId);
+        if (detail) {
+          detail.archived = true;
+        }
+        this.emitEvent({ type: "threadArchivedState", threadId, archived: true });
+        this.emitThreadStreamSnapshotFromRecord(threadId);
+        return this.serializeConversationSnapshot(threadId);
+      }
       this.emitThreadStreamSnapshotFromRecord(threadId);
       throw error;
     }

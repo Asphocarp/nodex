@@ -30,6 +30,11 @@ interface ComposerSendButtonStoryProps {
   addContextState: "default" | "ideConnected" | "plugins";
 }
 
+const LONG_PROMPT_STORY_DRAFT = Array.from(
+  { length: 32 },
+  (_, index) => `Refine the composer scroll behavior pass ${index + 1}: keep the native textarea as the only vertical scroll surface while preserving the footer controls.`,
+).join("\n");
+
 function resolveStoryReasoningOptions(args: ComposerSendButtonStoryProps, fallback: CodexReasoningEffortOption[]) {
   if (args.selectedModelReasoningSupport === "highOnly") {
     return [
@@ -190,6 +195,7 @@ function buildActions(): ThreadStageActions {
     onEditQueuedFollowUp: async () => { },
     onEditLastUserTurn: async () => { },
     onForkFromTurn: async () => { },
+    onUnarchiveThread: async () => { },
     onOpenTurnDiffReview: () => { },
     onConsumeComposerIntent: () => { },
     onOpenThread: () => { },
@@ -353,6 +359,15 @@ export const RunningSteerMultilineCmdEnter: Story = {
     isQueueingEnabled: false,
     composerEnterBehavior: "cmdIfMultiline",
     draftPrompt: "Steer the current run toward the MCP transcript cleanup.\nPrefer deduping the approval rows.",
+  },
+};
+
+export const LongPromptScroll: Story = {
+  args: {
+    isQueueingEnabled: false,
+    composerEnterBehavior: "cmdIfMultiline",
+    draftPrompt: LONG_PROMPT_STORY_DRAFT,
+    surfaceWidth: "narrow",
   },
 };
 

@@ -1916,6 +1916,7 @@ function makeNoopThreadStageActions(onOpenCard: (cardId: string) => void): Threa
     onEditQueuedFollowUp: noopAsync,
     onEditLastUserTurn: noopAsync,
     onForkFromTurn: noopAsync,
+    onUnarchiveThread: noopAsync,
     onOpenTurnDiffReview: () => undefined,
     onConsumeComposerIntent: () => undefined,
     onOpenThread: () => undefined,
@@ -2016,6 +2017,10 @@ function makeSessionThreadStageActions(input: {
         collaborationMode: opts?.collaborationMode,
         promptInput: opts?.promptInput,
       });
+    },
+    onUnarchiveThread: async (threadId, projectId) => {
+      await input.codexControl.unarchiveThread(threadId, projectId);
+      await input.onRefreshProjectSessions(projectId);
     },
   };
 }

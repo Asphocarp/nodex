@@ -43,6 +43,7 @@ function buildActions(onSelect: (target: NewChatStartInTarget) => void): ThreadS
     onEditQueuedFollowUp: noopAsync,
     onEditLastUserTurn: noopAsync,
     onForkFromTurn: noopAsync,
+    onUnarchiveThread: async () => { },
     onOpenTurnDiffReview: () => undefined,
     onConsumeComposerIntent: () => undefined,
     onOpenThread: () => undefined,

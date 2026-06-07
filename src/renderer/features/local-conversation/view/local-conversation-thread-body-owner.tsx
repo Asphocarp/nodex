@@ -10,6 +10,7 @@ import {
 import {
   CheckmarkIcon,
   ChevronDownIcon,
+  RefreshIcon,
   SearchIcon,
   SpinnerIcon,
 } from "@/components/shared/icons";
@@ -174,6 +175,7 @@ function DeferredThreadBodyPlaceholder() {
 
 interface LocalConversationThreadBodyOwnerProps {
   body: ThreadBodyModel;
+  projectId: string;
   threadId: string | null;
   cwd: string | null;
   turns: CodexConversationTurn[];
@@ -197,6 +199,7 @@ interface LocalConversationThreadBodyOwnerProps {
 
 export function LocalConversationThreadBodyOwner({
   body,
+  projectId,
   threadId,
   cwd,
   turns,
@@ -235,6 +238,7 @@ export function LocalConversationThreadBodyOwner({
     message: string;
   } | null>(null);
   const [isForkSubmitting, setIsForkSubmitting] = useState(false);
+  const [isRestoringArchivedThread, setIsRestoringArchivedThread] = useState(false);
   const [isDeferredBodyReady, setIsDeferredBodyReady] = useState(
     () =>
       !threadId ||
@@ -627,6 +631,20 @@ export function LocalConversationThreadBodyOwner({
     [runForkFromTurn],
   );
 
+  const handleRestoreArchivedThread = useCallback(async () => {
+    if (!threadId || isRestoringArchivedThread) return;
+
+    setIsRestoringArchivedThread(true);
+    onErrorMessage(null);
+    try {
+      await actions.onUnarchiveThread(threadId, projectId);
+    } catch (error) {
+      onErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsRestoringArchivedThread(false);
+    }
+  }, [actions, isRestoringArchivedThread, onErrorMessage, projectId, threadId]);
+
   const showThreadSearch =
     isSearchVisible &&
     body.turnCount > 0 &&
@@ -676,6 +694,32 @@ export function LocalConversationThreadBodyOwner({
               <div className="text-sm text-(--foreground-tertiary) opacity-60">
                 {body.emptyState.description}
               </div>
+            </div>
+          </div>
+        ) : body.emptyState.type === "archivedThread" ? (
+          <div className="flex items-center justify-center py-16">
+            <div className="space-y-3 px-6 text-center">
+              <div className="space-y-1">
+                <div className="text-base font-medium text-(--foreground-tertiary)">
+                  {body.emptyState.title}
+                </div>
+                <div className="text-sm text-(--foreground-tertiary) opacity-60">
+                  {body.emptyState.description}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleRestoreArchivedThread()}
+                disabled={isRestoringArchivedThread || !threadId}
+                className="mx-auto inline-flex h-8 items-center gap-1.5 rounded-lg bg-token-foreground px-3 text-sm font-medium text-token-background transition-opacity hover:opacity-90 disabled:cursor-default disabled:opacity-40"
+              >
+                {isRestoringArchivedThread ? (
+                  <SpinnerIcon className="icon-xs animate-spin" />
+                ) : (
+                  <RefreshIcon className="icon-xs" />
+                )}
+                Restore
+              </button>
             </div>
           </div>
         ) : body.emptyState.type === "resumingThread" ? (

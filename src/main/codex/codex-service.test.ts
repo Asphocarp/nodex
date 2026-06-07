@@ -950,6 +950,98 @@ describe("codex-service session-backed transcript recovery", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("does not call thread/resume for a known archived thread", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Archived conversation" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_archived_known",
+        threadName: "Archived known",
+        archived: true,
+      });
+
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        throw new Error(`unexpected RPC during archived resume: ${method}`);
+      };
+
+      try {
+        const conversation = await service.requestConversationResume("thr_archived_known");
+
+        expect(conversation?.threadId).toBe("thr_archived_known");
+        expect(conversation?.archived).toBeTrue();
+        expect(conversation?.resumeState).toBe("needs_resume");
+        expect(requests.length).toBe(0);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("marks stale thread metadata archived when app-server rejects resume", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard("codex", "in_progress", { title: "Stale archived conversation" });
+      upsertCodexCardThreadLink({
+        projectId: "codex",
+        cardId: card.id,
+        threadId: "thr_archived_stale",
+        threadName: "Archived stale",
+        archived: false,
+      });
+
+      const service = createService();
+      const hostMessages: CodexHostMessage[] = [];
+      service.on("hostMessage", (message) => {
+        hostMessages.push(message);
+      });
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "thread/resume") {
+          throw new CodexRpcError(
+            "session 019ea13a-cca5-7760-98a8-7f3684bae059 is archived. Run `codex unarchive 019ea13a-cca5-7760-98a8-7f3684bae059` to unarchive it first.",
+            -32600,
+          );
+        }
+        throw new Error(`unexpected RPC during archived resume fallback: ${method}`);
+      };
+
+      try {
+        const conversation = await service.requestConversationResume("thr_archived_stale");
+        const projected = projectConversationFromHostMessages(hostMessages);
+        const persisted = getCodexCardThreadLink("thr_archived_stale");
+
+        expect(requests.length).toBe(1);
+        expect(requests[0]?.method).toBe("thread/resume");
+        expect(conversation?.threadId).toBe("thr_archived_stale");
+        expect(conversation?.archived).toBeTrue();
+        expect(conversation?.resumeState).toBe("needs_resume");
+        expect(projected?.archived).toBeTrue();
+        expect(projected?.resumeState).toBe("needs_resume");
+        expect(persisted?.archived).toBeTrue();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("resume materializes completed reopened threads from the thread/resume payload", async () => {
     const ran = await withTempDatabase(async () => {
       withTempCodexHome((codexHome) => {

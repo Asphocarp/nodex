@@ -132,4 +132,25 @@ describe("buildThreadBodyModel", () => {
 
     expect(model.hasAboveComposerBlocks).toBeTrue();
   });
+
+  test("renders archived threads as restorable instead of resuming", () => {
+    const model = buildThreadBodyModel({
+      activeThreadId: "thread_1",
+      conversation: buildConversation({
+        archived: true,
+        resumeState: "needs_resume",
+      }),
+      parentTurns: [],
+      isNewThreadTab: false,
+      newThreadTarget: null,
+      isCloudNewThreadTarget: false,
+      threadStartProgress: null,
+    });
+
+    expect(model.threadId).toBe("thread_1");
+    expect(model.emptyState.type).toBe("archivedThread");
+    if (model.emptyState.type === "archivedThread") {
+      expect(model.emptyState.title).toBe("Archived thread");
+    }
+  });
 });

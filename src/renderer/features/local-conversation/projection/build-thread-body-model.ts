@@ -17,6 +17,7 @@ interface BuildThreadBodyModelInput {
   requests: CodexConversationServerRequest[];
   resumeState: CodexConversationResumeState | null;
   statusType: CodexThreadStatusType | null;
+  archived: boolean;
   capabilityFlags: CodexConversationCapabilityFlags;
   parentTurns: readonly CodexConversationTurn[];
   isNewThreadTab: boolean;
@@ -62,6 +63,7 @@ function normalizeBuildThreadBodyModelInput(input: ThreadBodyModelInput): BuildT
       requests: input.conversation?.requests ?? [],
       resumeState: input.conversation?.resumeState ?? null,
       statusType: input.conversation?.statusType ?? null,
+      archived: input.conversation?.archived ?? false,
       capabilityFlags: input.conversation?.capabilityFlags ?? {
         canEditLastUserTurn: false,
         canForkFromTurn: false,
@@ -95,7 +97,7 @@ function buildBodyConversation(input: BuildThreadBodyModelInput) {
     cwd: null,
     statusType: input.statusType ?? "notLoaded",
     statusActiveFlags: [],
-    archived: false,
+    archived: input.archived,
     createdAt: 0,
     updatedAt: 0,
     linkedAt: "",
@@ -173,9 +175,27 @@ export function buildThreadBodyModel(input: ThreadBodyModelInput): ThreadBodyMod
   const normalized = normalizeBuildThreadBodyModelInput(input);
   const conversation = buildBodyConversation(normalized);
   const resumeState = normalized.resumeState;
+  const isArchivedThread = Boolean(normalized.activeThreadId && normalized.archived);
   const showThreadStartProgressPanel = Boolean(
     normalized.isNewThreadTab && !conversation && normalized.newThreadTarget && normalized.threadStartProgress,
   );
+
+  if (isArchivedThread) {
+    return {
+      threadId: normalized.activeThreadId,
+      turnCount: 0,
+      hasAboveComposerBlocks: false,
+      isThreadRunning: false,
+      activeTurnId: null,
+      latestTurnId: null,
+      showThreadStartProgressPanel: false,
+      emptyState: {
+        type: "archivedThread",
+        title: "Archived thread",
+        description: "Restore this thread before continuing.",
+      },
+    };
+  }
 
   if (!conversation) {
     if (normalized.activeThreadId && resumeState) {

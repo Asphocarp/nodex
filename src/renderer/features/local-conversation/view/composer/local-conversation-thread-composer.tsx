@@ -1218,8 +1218,11 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
               <div className="flex w-full flex-wrap items-center justify-start gap-1" />
             </div>
 
-            <div className="mb-2 grow overflow-y-auto px-3">
-              <div className="h-auto max-h-[25dvh] min-h-[4dvh] overflow-y-auto text-sm text-(--foreground)">
+            <div className="mb-2 grow px-3">
+              <div
+                data-composer-prompt-frame="true"
+                className="h-auto max-h-[25dvh] min-h-[4dvh] overflow-hidden text-sm text-(--foreground)"
+              >
                 <textarea
                   ref={promptTextareaRef}
                   value={prompt}
@@ -1239,7 +1242,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
                   }}
                   onKeyDown={handleKeyDown}
                   rows={1}
-                  className="min-h-10 w-full resize-none border-0 bg-transparent p-0 text-sm/editor text-(--foreground) placeholder:text-(--foreground-tertiary) focus:outline-none"
+                  className="scrollbar-token min-h-10 w-full resize-none overflow-y-auto border-0 bg-transparent p-0 text-sm/editor text-(--foreground) placeholder:text-(--foreground-tertiary) focus:outline-none"
                   disabled={(model.conversation === null && !canStartNewThreadTarget(model)) || busyAction !== null}
                 />
               </div>

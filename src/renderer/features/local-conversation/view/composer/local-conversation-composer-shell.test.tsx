@@ -56,6 +56,7 @@ function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActio
     onEditQueuedFollowUp: async () => { },
     onEditLastUserTurn: async () => { },
     onForkFromTurn: async () => { },
+    onUnarchiveThread: async () => { },
     onOpenTurnDiffReview: () => { },
     onConsumeComposerIntent: () => { },
     onOpenThread: () => { },

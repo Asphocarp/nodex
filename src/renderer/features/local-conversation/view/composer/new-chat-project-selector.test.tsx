@@ -63,6 +63,7 @@ function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActio
     onEditQueuedFollowUp: noopAsync,
     onEditLastUserTurn: noopAsync,
     onForkFromTurn: noopAsync,
+    onUnarchiveThread: noopAsync,
     onOpenTurnDiffReview: () => undefined,
     onConsumeComposerIntent: () => undefined,
     onOpenThread: () => undefined,

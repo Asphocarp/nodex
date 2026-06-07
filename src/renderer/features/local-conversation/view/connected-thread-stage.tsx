@@ -214,6 +214,8 @@ function ConnectedThreadStageBody({
   const cwd = useConversationCwd(activeThreadId);
   const resumeState = useConversationResumeState(activeThreadId);
   const statusType = useConversationStatusType(activeThreadId);
+  const summaryFields = useConversationSummaryFields(activeThreadId);
+  const archived = input.activeThreadSummary?.archived === true || summaryFields.archived;
   const capabilityFlags = useConversationCapabilityFlags(activeThreadId);
   const parentThreadId = useConversationParentThreadId(activeThreadId);
   const parentTurns = useConversationTurns(parentThreadId);
@@ -227,6 +229,7 @@ function ConnectedThreadStageBody({
         requests,
         resumeState,
         statusType,
+        archived,
         capabilityFlags,
         parentTurns,
         isNewThreadTab: input.isNewThreadTab,
@@ -238,6 +241,7 @@ function ConnectedThreadStageBody({
       }),
     [
       activeThreadId,
+      archived,
       capabilityFlags,
       input.isNewThreadTab,
       input.newThreadTarget,
@@ -252,6 +256,7 @@ function ConnectedThreadStageBody({
 
   const model = useMemo<ThreadBodySurfaceModel>(
     () => ({
+      projectId: input.projectId,
       threadId: activeThreadId,
       cwd,
       turns,
@@ -270,6 +275,7 @@ function ConnectedThreadStageBody({
       body,
       capabilityFlags,
       cwd,
+      input.projectId,
       input.projectWorkspacePath,
       input.searchOpenTick,
       input.threadStartProgress,
@@ -310,6 +316,8 @@ function ConnectedThreadStageFooter({
   const resumeState = useConversationResumeState(activeThreadId);
   const statusType = useConversationStatusType(activeThreadId);
   const statusActiveFlags = useConversationStatusActiveFlags(activeThreadId);
+  const summaryFields = useConversationSummaryFields(activeThreadId);
+  const archived = input.activeThreadSummary?.archived === true || summaryFields.archived;
   const childMemberships = useConversationChildMemberships(activeThreadId);
   const pendingSteers = useConversationPendingSteers(activeThreadId);
   const queuedFollowUps = useConversationQueuedFollowUps(activeThreadId);
@@ -374,6 +382,7 @@ function ConnectedThreadStageFooter({
         requests,
         resumeState,
         statusType,
+        archived,
         capabilityFlags: {
           canEditLastUserTurn: false,
           canForkFromTurn: false,
@@ -390,6 +399,7 @@ function ConnectedThreadStageFooter({
       }),
     [
       activeThreadId,
+      archived,
       input.isNewThreadTab,
       input.newThreadTarget,
       input.threadStartProgress,
@@ -418,7 +428,7 @@ function ConnectedThreadStageFooter({
             cwd,
             statusType: statusType ?? "notLoaded",
             statusActiveFlags,
-            archived: input.activeThreadSummary?.archived ?? false,
+            archived,
             createdAt: input.activeThreadSummary?.createdAt ?? 0,
             updatedAt: input.activeThreadSummary?.updatedAt ?? 0,
             linkedAt: input.activeThreadSummary?.linkedAt ?? "",
@@ -465,6 +475,7 @@ function ConnectedThreadStageFooter({
     [
       activeThreadId,
       activeTurn,
+      archived,
       account,
       body,
       backgroundTerminalRows,
@@ -520,9 +531,14 @@ export function ConnectedThreadStage({
     ? input.activeThreadId
     : null;
   const resumeState = useConversationResumeState(activeThreadId);
+  const summaryFields = useConversationSummaryFields(activeThreadId);
+  const isActiveThreadArchived = input.activeThreadSummary?.archived === true || summaryFields.archived;
 
   useEffect(() => {
     if (!input.activeThreadId || input.isNewThreadTab) {
+      return;
+    }
+    if (isActiveThreadArchived) {
       return;
     }
 
@@ -532,7 +548,7 @@ export function ConnectedThreadStage({
     }
 
     void requestLocalConversationResume(input.activeThreadId).catch(() => {});
-  }, [resumeState, input.activeThreadId, input.isNewThreadTab]);
+  }, [isActiveThreadArchived, resumeState, input.activeThreadId, input.isNewThreadTab]);
 
   return (
     <LocalConversationStageScreen

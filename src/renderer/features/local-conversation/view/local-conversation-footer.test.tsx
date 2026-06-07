@@ -132,6 +132,7 @@ function buildActions(): ThreadStageActions {
     onEditQueuedFollowUp: async () => {},
     onEditLastUserTurn: async () => {},
     onForkFromTurn: async () => {},
+    onUnarchiveThread: async () => {},
     onOpenTurnDiffReview: () => {},
     onConsumeComposerIntent: () => {},
     onOpenThread: () => {},

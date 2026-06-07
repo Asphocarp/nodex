@@ -23,9 +23,11 @@ All notable changes to this project will be documented in this file.
 - Removed the legacy Full rail stage layout mode, its General settings controls, and the adjacent-panel peek setting.
 
 ### Fixed
+- Fixed long Thread composer prompts so the prompt field shows only the textarea scrollbar instead of a second wrapper scrollbar.
 - Fixed full-width right-panel tabs so they start at the panel edge instead of leaving an empty leading gap.
 - Fixed newly created non-Overview project sessions so they start with the right panel collapsed, while Overview sessions still open their DB tab full-width by default.
 - Fixed project-session DB tabs so the restored View toolbar includes the original view selector, search, filter, sort, display, and calendar controls.
+- Fixed archived session threads so opening them shows a restore state instead of attempting to resume and surfacing an app-server archive error.
 - Fixed Codex runtime compatibility after the pinned `@openai/codex` bump by updating app-server handshake and thread request payloads to the new protocol shape.
 - Fixed stopped Thread turn ordering so a final collapsed tool/activity group renders above the assistant action toolbar.
 - Fixed completed Thread file-edit rows so expanding a file shows the rendered inline diff body again instead of only the patch-frame header.

@@ -240,6 +240,7 @@ function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActio
     onEditQueuedFollowUp: async () => {},
     onEditLastUserTurn: async () => {},
     onForkFromTurn: async () => {},
+    onUnarchiveThread: async () => { },
     onOpenTurnDiffReview: () => {},
     onConsumeComposerIntent: () => {},
     onOpenThread: () => {},
@@ -539,6 +540,30 @@ describe("ThreadComposer speed menu", () => {
     expect(Boolean(composerForm?.className.includes("focus-within"))).toBeFalse();
     expect(Boolean(composerForm?.className.includes("ring-black/10"))).toBeTrue();
     expect(Boolean(composerForm?.className.includes("backdrop-blur-lg"))).toBeTrue();
+  });
+
+  test("keeps prompt scrolling owned by the textarea", async () => {
+    resetStorage();
+    const longPrompt = Array.from({ length: 80 }, (_, index) => `line ${index + 1}`).join("\n");
+    const view = await renderComposer({
+      composerIntent: {
+        prompt: longPrompt,
+        focusNonce: 1,
+      },
+    });
+    const textarea = view.container.querySelector("textarea");
+    const composerForm = textarea?.closest("form");
+    const promptFrame = view.container.querySelector<HTMLElement>('[data-composer-prompt-frame="true"]');
+    const wrapperScrollContainers = Array.from(composerForm?.querySelectorAll<HTMLElement>(".overflow-y-auto") ?? [])
+      .filter((element) => element !== textarea);
+
+    expect(textarea !== null).toBeTrue();
+    expect(promptFrame !== null).toBeTrue();
+    expect(Boolean(textarea?.className.includes("scrollbar-token"))).toBeTrue();
+    expect(Boolean(textarea?.className.includes("overflow-y-auto"))).toBeTrue();
+    expect(Boolean(promptFrame?.className.includes("max-h-[25dvh]"))).toBeTrue();
+    expect(Boolean(promptFrame?.className.includes("overflow-hidden"))).toBeTrue();
+    expect(wrapperScrollContainers.length).toBe(0);
   });
 
   test("Intelligence menu preserves reasoning and model selectors", async () => {

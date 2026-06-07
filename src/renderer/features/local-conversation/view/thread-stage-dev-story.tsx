@@ -566,6 +566,7 @@ export function ThreadStageDevStoryPage({
         }));
       }
     },
+    onUnarchiveThread: async () => { },
     onOpenTurnDiffReview: (target) => {
       setRuntime((current) => setStoryLog(current, `Opened diff review for ${target.turnId}.`));
     },

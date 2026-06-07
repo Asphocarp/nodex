@@ -112,6 +112,7 @@ function buildModel(overrides?: {
       requests: conversation?.requests ?? [],
       resumeState: conversation?.resumeState ?? null,
       statusType: conversation?.statusType ?? null,
+      archived: conversation?.archived ?? false,
       capabilityFlags: conversation?.capabilityFlags ?? {
         canEditLastUserTurn: false,
         canForkFromTurn: false,
@@ -126,6 +127,7 @@ function buildModel(overrides?: {
     });
 
   return {
+    projectId: conversation?.projectId ?? "project_1",
     threadId: conversation?.threadId ?? null,
     cwd: conversation?.cwd ?? null,
     turns: conversation?.turns ?? [],
@@ -178,6 +180,7 @@ function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActio
     onEditQueuedFollowUp: async () => {},
     onEditLastUserTurn: async () => {},
     onForkFromTurn: async () => {},
+    onUnarchiveThread: async () => {},
     onOpenTurnDiffReview: () => {},
     onConsumeComposerIntent: () => {},
     onOpenThread: () => {},
@@ -304,6 +307,39 @@ describe("LocalConversationThreadBody", () => {
 
     expect(Boolean(getByRole("status", { name: /Restoring thread/i }))).toBeTrue();
     expect(Boolean(queryByText("Assistant message"))).toBeFalse();
+  });
+
+  test("shows archived thread restore action without rendering transcript content", async () => {
+    const restoreCalls: Array<{ threadId: string; projectId: string }> = [];
+    const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
+    const { getByRole, queryByText } = render(
+      <TooltipProvider>
+        <LocalConversationThreadBody
+          model={buildModel({
+            conversation: buildConversation({
+              archived: true,
+              resumeState: "needs_resume",
+            }),
+          })}
+          actions={buildActions({
+            onUnarchiveThread: async (threadId, projectId) => {
+              restoreCalls.push({ threadId, projectId });
+            },
+          })}
+          onErrorMessage={() => {}}
+        />
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(queryByText("Assistant message"))).toBeFalse();
+    expect(Boolean(queryByText("Archived thread"))).toBeTrue();
+
+    fireEvent.click(getByRole("button", { name: "Restore" }));
+    await settleAsyncRender();
+
+    expect(restoreCalls.length).toBe(1);
+    expect(restoreCalls[0]?.threadId).toBe("thread_1");
+    expect(restoreCalls[0]?.projectId).toBe("project_1");
   });
 
   test("opens an older-turn fork confirm before invoking the manager action", async () => {

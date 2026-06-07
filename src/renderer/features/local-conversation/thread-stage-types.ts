@@ -149,6 +149,7 @@ export interface ThreadStageActions {
   onEditQueuedFollowUp: (input: { threadId: string; followUpId: string; prompt: string }) => Promise<void>;
   onEditLastUserTurn: (input: { threadId: string; turnId: string; message: string }) => Promise<void>;
   onForkFromTurn: (input: { threadId: string; turnId: string; message: string }) => Promise<void>;
+  onUnarchiveThread: (threadId: string, projectId: string) => Promise<void>;
   onOpenTurnDiffReview: (target: CodexTurnDiffReviewTarget) => void;
   onConsumeComposerIntent: (threadId: string, focusNonce: number) => void;
   onOpenThread: (threadId: string) => void;
@@ -413,6 +414,7 @@ export interface ThreadBodyModel {
     | { type: "newThread"; title: string; description: string }
     | { type: "noThread"; title: string; description: string }
     | { type: "emptyThread"; title: string; description: string }
+    | { type: "archivedThread"; title: string; description: string }
     | { type: "resumingThread"; title: string; description: string; status: CodexConversationResumeState };
   showThreadStartProgressPanel: boolean;
 }
@@ -475,6 +477,7 @@ export interface ThreadStageHeaderModel {
 }
 
 export interface ThreadBodySurfaceModel {
+  projectId: string;
   threadId: string | null;
   cwd: string | null;
   turns: CodexConversationTurn[];

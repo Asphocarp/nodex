@@ -28,6 +28,7 @@ function LocalConversationThreadBodyComponent({
       <LocalConversationThreadScrollLayout scrollViewClassName="hide-scrollbar">
         <LocalConversationThreadBodyOwner
           body={model.body}
+          projectId={model.projectId}
           threadId={model.threadId}
           cwd={model.cwd}
           turns={model.turns}
@@ -58,6 +59,7 @@ export const LocalConversationThreadBody = memo(
     && left.model.projectWorkspacePath === right.model.projectWorkspacePath
     && left.model.threadStartProgress === right.model.threadStartProgress
     && left.model.body === right.model.body
+    && left.model.projectId === right.model.projectId
     && left.model.threadId === right.model.threadId
     && left.model.cwd === right.model.cwd
     && left.model.resumeState === right.model.resumeState

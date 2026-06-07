@@ -2210,6 +2210,7 @@ export function buildThreadStageStorySurfaceModels(
     requests,
     resumeState,
     statusType,
+    archived: conversation?.archived ?? false,
     capabilityFlags,
     parentTurns,
     isNewThreadTab: runtime.isNewThreadTab,
@@ -2279,6 +2280,7 @@ export function buildThreadStageStorySurfaceModels(
   };
 
   const bodyModel: ThreadBodySurfaceModel = {
+    projectId: STORY_PROJECT_ID,
     threadId: activeThreadId,
     cwd: conversation?.cwd ?? null,
     turns,
