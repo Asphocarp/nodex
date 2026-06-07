@@ -790,7 +790,7 @@ export function LocalConversationComposerShell({
       {model.composerShell.showRequestCards ? (
         <>
           <RequestCardStack model={model} actions={actions} />
-          <ThreadComposerStatusStrip model={model} onErrorMessage={onErrorMessage} />
+          <ThreadComposerStatusStrip model={model} actions={actions} onErrorMessage={onErrorMessage} />
         </>
       ) : (
         <ThreadComposer

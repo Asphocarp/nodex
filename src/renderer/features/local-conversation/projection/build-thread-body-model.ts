@@ -214,7 +214,9 @@ export function buildThreadBodyModel(input: ThreadBodyModelInput): ThreadBodyMod
           description: normalized.newThreadTarget
             ? normalized.isCloudNewThreadTarget
               ? "Cloud run target is mock-only right now. Change the card Run in property to Local project or New worktree."
-              : "Write the first prompt and send to create a new card-linked thread."
+              : normalized.newThreadTarget.sessionId
+                ? "Write the first prompt and send to create a new session thread."
+                : "Write the first prompt and send to create a new card-linked thread."
             : "Select a card in the Cards stage, then press New in its Threads property.",
         },
       };

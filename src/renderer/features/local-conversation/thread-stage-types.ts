@@ -31,6 +31,14 @@ import type {
 } from "../../lib/types";
 import type { ComposerEnterBehavior } from "../../lib/composer-enter-behavior";
 import type { CodexTurnScopedConversationRequest } from "./conversation-request-helpers";
+import type { NewChatProjectSelectorOption } from "../../lib/new-chat-project-selector";
+
+export interface NewChatProjectSelectorModel {
+  projects: NewChatProjectSelectorOption[];
+  selectedProjectId: string | null;
+  disabled: boolean;
+  canAddProject: boolean;
+}
 
 export interface ThreadStageRouteInput {
   projectId: string;
@@ -46,6 +54,7 @@ export interface ThreadStageRouteInput {
     threadTitle?: string;
     runInTarget?: CardRunInTarget;
   } | null;
+  newThreadProjectSelector?: NewChatProjectSelectorModel | null;
   activeThreadCardColumnId: string | null;
   threadStartProgress: {
     phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
@@ -88,6 +97,8 @@ export interface ThreadStageActions {
   onLogout: () => Promise<void>;
   onStartThreadForCard: (input: { projectId: string; cardId: string; prompt: string; promptInput?: CodexPromptInput }) => Promise<void>;
   onStartThreadForSession?: (input: { projectId: string; sessionId: string; prompt: string; promptInput?: CodexPromptInput }) => Promise<void>;
+  onNewThreadProjectChange?: (projectId: string) => void;
+  onRequestNewChatProjectCreate?: () => void;
   onSendPrompt: (prompt: string, opts?: { collaborationMode?: CodexCollaborationModeKind; promptInput?: CodexPromptInput }) => Promise<void>;
   onSteerPrompt: (input: Omit<CodexSteerTurnInput, "threadId">) => Promise<void>;
   onInterruptTurn: (turnId?: string) => Promise<void>;
@@ -463,6 +474,7 @@ export interface ThreadFooterModel {
   isNewThreadTab: boolean;
   isCloudNewThreadTarget: boolean;
   newThreadTarget: ThreadStageRouteInput["newThreadTarget"];
+  newThreadProjectSelector?: ThreadStageRouteInput["newThreadProjectSelector"];
   composerShell: ThreadComposerShellModel;
   body: ThreadBodyModel;
   collaborationModes: CodexCollaborationModePreset[];

@@ -1192,7 +1192,6 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     primaryShortcutKeys,
     alternateShortcutKeys,
   });
-
   return (
     <>
       <div className="relative">
@@ -1441,7 +1440,12 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
         </form>
       </div>
 
-      <ThreadComposerStatusStrip model={model} onErrorMessage={onErrorMessage} />
+      <ThreadComposerStatusStrip
+        model={model}
+        actions={actions}
+        onErrorMessage={onErrorMessage}
+        projectSelectorDisabled={busyAction !== null}
+      />
     </>
   );
 }

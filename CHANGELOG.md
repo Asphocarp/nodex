@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 - Added a public changelog page at `nodex.jyu.app/changelog`, generated from the project changelog file.
 - Added a Codex-style project session shell with expandable project folders, durable sessions, a session thread page, session-owned right-panel tabs, browser placeholders, and separate optional session-thread attachments.
 - Added SQLite-backed project session, project session tab, and session-thread link storage with default Overview sessions seeded for every project.
+- Added a Codex-style project selector in the empty session new-chat status row so a first prompt can target another project before the thread starts.
 
 ### Changed
 - Replaced the old primary stage-rail workbench model with project sessions that open as a thread page with a collapsible and full-width-expandable right panel for DB view, Card Stage, terminal, and browser-placeholder tabs.

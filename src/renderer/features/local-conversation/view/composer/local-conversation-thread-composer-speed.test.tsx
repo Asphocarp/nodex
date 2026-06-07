@@ -475,6 +475,61 @@ describe("ThreadComposer speed menu", () => {
     expect(Boolean(lowerStatusRow?.querySelector('[aria-label="Select Git branch"]'))).toBeTrue();
   });
 
+  test("places the new-chat project selector in the lower status row before run target", async () => {
+    resetStorage();
+    const view = await renderComposer(
+      {
+        conversation: null,
+        isNewThreadTab: true,
+        newThreadTarget: {
+          projectId: "project_1",
+          projectName: "Nodex",
+          sessionId: "session_1",
+          threadTitle: "New thread",
+          runInTarget: "localProject",
+        },
+        newThreadProjectSelector: {
+          selectedProjectId: "project_1",
+          disabled: false,
+          canAddProject: true,
+          projects: [
+            {
+              id: "project_1",
+              label: "Nodex",
+              description: "/tmp/project",
+              workspacePath: "/tmp/project",
+              searchText: "project_1 nodex /tmp/project",
+            },
+            {
+              id: "project_2",
+              label: "Devtools Codex",
+              description: "/tmp/devtools-codex",
+              workspacePath: "/tmp/devtools-codex",
+              searchText: "project_2 devtools codex /tmp/devtools-codex",
+            },
+          ],
+        },
+      },
+      {
+        onNewThreadProjectChange: () => {},
+        onRequestNewChatProjectCreate: () => {},
+      },
+    );
+
+    const projectSelector = view.getByLabelText("Select project");
+    const lowerStatusRow = view.container.querySelector('[data-composer-lower-status-row="true"]');
+    const formFooter = view.container.querySelector('[data-composer-form-footer="true"]');
+    const lowerText = lowerStatusRow?.textContent ?? "";
+
+    expect(lowerStatusRow !== null).toBeTrue();
+    expect(formFooter !== null).toBeTrue();
+    expect(lowerStatusRow?.contains(projectSelector)).toBeTrue();
+    expect(formFooter?.contains(projectSelector)).toBeFalse();
+    expect(lowerText.indexOf("Nodex") >= 0).toBeTrue();
+    expect(lowerText.indexOf("Work locally") >= 0).toBeTrue();
+    expect(lowerText.indexOf("Nodex") < lowerText.indexOf("Work locally")).toBeTrue();
+  });
+
   test("keeps the composer shell chrome stable on focus", async () => {
     resetStorage();
     const view = await renderComposer();

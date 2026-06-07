@@ -54,6 +54,7 @@ mock.module("@/lib/api", () => ({
     invokeCalls.push([channel, ...args]);
     return mockInvokeImpl?.(channel, ...args) ?? null;
   },
+  subscribeGitBranchChanges: () => () => undefined,
   subscribeAppUpdateStatus: () => () => undefined,
 }));
 
@@ -286,6 +287,32 @@ function renderWorkbench({
       const updated = { ...session, ...input };
       sessionState = replaceSession(sessionState, updated);
       return updated;
+    }
+    if (channel === "project-sessions:create") {
+      const input = (args[0] ?? {}) as { projectId: string; title?: string };
+      const session = makeSession({
+        id: `session:${input.projectId}:created`,
+        projectId: input.projectId,
+        title: input.title ?? "New thread",
+        isOverview: false,
+        order: sessionState[input.projectId]?.length ?? 0,
+        thread: null,
+        tabs: [],
+        rightPaneLayout: {
+          version: 1,
+          root: {
+            type: "leaf",
+            id: "main",
+            tabIds: [],
+            activeTabId: null,
+          },
+        },
+      });
+      sessionState = {
+        ...sessionState,
+        [input.projectId]: [...(sessionState[input.projectId] ?? []), session],
+      };
+      return session;
     }
     if (channel === "project-session-tabs:create") {
       const input = (args[0] ?? {}) as {
@@ -550,6 +577,58 @@ describe("workbench session shell", () => {
       collaborationMode: "default",
     }));
     expect(invokeCalls.some((call) => call[0] === "project-sessions:list" && call[1] === "alpha")).toBeTrue();
+  });
+
+  test("session composer submit creates an owning session when the new-chat project changes", async () => {
+    const betaProject = makeProject("beta", "Beta");
+    const screen = renderWorkbench({
+      projects: [makeProject(), betaProject],
+      sessionsByProject: {
+        alpha: [makeSession()],
+        beta: [
+          makeAttachedSession({
+            id: "overview:beta",
+            projectId: "beta",
+            title: "Overview",
+            isOverview: true,
+          }),
+        ],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const propsBefore = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    const actions = propsBefore?.actions as {
+      onNewThreadProjectChange?: (projectId: string) => void;
+    } | undefined;
+    await act(async () => {
+      actions?.onNewThreadProjectChange?.("beta");
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const propsAfter = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(JSON.stringify(propsAfter?.newThreadTarget).includes('"projectId":"beta"')).toBeTrue();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-sessions:create"
+      && JSON.stringify(call[1]) === JSON.stringify({ projectId: "beta", title: "New thread" })
+    )).toBeTrue();
+    expect(startThreadForSessionCalls.length).toBe(1);
+    expect(JSON.stringify(startThreadForSessionCalls[0])).toBe(JSON.stringify({
+      projectId: "beta",
+      sessionId: "session:beta:created",
+      prompt: "Start from session",
+      collaborationMode: "default",
+    }));
+    expect(invokeCalls.some((call) => call[0] === "project-sessions:list" && call[1] === "beta")).toBeTrue();
   });
 
   test("collapsed right panel opens from the global side-panel toggle", async () => {

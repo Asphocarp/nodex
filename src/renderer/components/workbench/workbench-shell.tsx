@@ -61,6 +61,7 @@ import {
   readNextPanelPeekPx,
   writeNextPanelPeekPx,
 } from "@/lib/stage-rail-peek";
+import { buildNewChatProjectSelectorOptions } from "@/lib/new-chat-project-selector";
 import {
   readComposerEnterBehavior,
   writeComposerEnterBehavior,
@@ -645,6 +646,24 @@ export function WorkbenchShell({
     selectSession(session);
   }, [refreshProjectSessions, selectSession]);
 
+  const ensureBlankSessionForProject = useCallback(async (projectId: string) => {
+    const sessions = sessionsByProject[projectId] ?? await refreshProjectSessions(projectId);
+    const reusableSession = sessions.find((candidate) => !candidate.thread && !candidate.isOverview) ?? null;
+
+    if (reusableSession) {
+      selectSession(reusableSession);
+      return reusableSession;
+    }
+
+    const session = (await invoke("project-sessions:create", {
+      projectId,
+      title: "New thread",
+    })) as ProjectSession;
+    await refreshProjectSessions(projectId);
+    selectSession(session);
+    return session;
+  }, [refreshProjectSessions, selectSession, sessionsByProject]);
+
   const createManualTab = useCallback(async (kind: ProjectSessionTab["kind"]) => {
     if (!activeSession) return;
     if (kind === "db_view") {
@@ -1174,9 +1193,10 @@ export function WorkbenchShell({
                     <SessionThreadPage
                       session={activeSession}
                       project={activeProject}
-                      onRefreshThreads={async () => {
-                        await refreshProjectSessions(activeSession.projectId);
-                      }}
+                      projects={projects}
+                      onRefreshProjectSessions={refreshProjectSessions}
+                      onEnsureBlankSessionForProject={ensureBlankSessionForProject}
+                      onRequestProjectPickerOpen={onRequestProjectPickerOpen}
                       searchOpenTick={threadSearchOpenTick}
                       onOpenCard={(cardId) => {
                         if (!activeProject) return;
@@ -1680,42 +1700,69 @@ function ToolbarIconButton({
 function SessionThreadPage({
   session,
   project,
-  onRefreshThreads,
+  projects,
+  onRefreshProjectSessions,
+  onEnsureBlankSessionForProject,
+  onRequestProjectPickerOpen,
   onOpenCard,
   searchOpenTick,
 }: {
   session: ProjectSession;
   project: Project | null;
-  onRefreshThreads: () => Promise<void>;
+  projects: Project[];
+  onRefreshProjectSessions: (projectId: string) => Promise<ProjectSession[]>;
+  onEnsureBlankSessionForProject: (projectId: string) => Promise<ProjectSession>;
+  onRequestProjectPickerOpen: () => void;
   onOpenCard: (cardId: string) => void;
   searchOpenTick: number;
 }) {
   const projectId = project?.id ?? session.projectId;
-  const codexControl = useCodexAppServerControl(projectId);
+  const summary = session.thread ? makeThreadSummary(session.thread) : null;
+  const [selectedNewThreadProjectId, setSelectedNewThreadProjectId] = useState(projectId);
+  const selectedNewThreadProject = projects.find((candidate) => candidate.id === selectedNewThreadProjectId) ?? project;
+  const effectiveProjectId = summary ? projectId : selectedNewThreadProject?.id ?? projectId;
+  const codexControl = useCodexAppServerControl(effectiveProjectId);
   const [collaborationModes, setCollaborationModes] = useState<CodexCollaborationModePreset[]>([]);
   const [selectedCollaborationMode, setSelectedCollaborationMode] = useState<CodexCollaborationModeKind>("default");
-  const summary = session.thread ? makeThreadSummary(session.thread) : null;
+  const projectSelectorOptions = useMemo(() => buildNewChatProjectSelectorOptions(projects), [projects]);
+
+  useEffect(() => {
+    if (summary) return;
+    setSelectedNewThreadProjectId(projectId);
+  }, [projectId, session.id, summary]);
+
+  useEffect(() => {
+    if (projects.some((candidate) => candidate.id === selectedNewThreadProjectId)) return;
+    setSelectedNewThreadProjectId(projectId);
+  }, [projectId, projects, selectedNewThreadProjectId]);
 
   useEffect(() => {
     void codexControl.loadModels().catch(() => undefined);
     void codexControl.listCollaborationModes()
       .then(setCollaborationModes)
       .catch(() => setCollaborationModes([]));
-  }, [codexControl.loadModels, codexControl.listCollaborationModes, projectId]);
+  }, [codexControl.loadModels, codexControl.listCollaborationModes, effectiveProjectId]);
 
   const actions = useMemo(() => makeSessionThreadStageActions({
     activeThreadId: summary?.threadId ?? null,
     codexControl,
     onOpenCard,
-    onRefreshThreads,
-    projectId,
+    onEnsureBlankSessionForProject,
+    onRefreshProjectSessions,
+    currentSessionProjectId: session.projectId,
+    projectId: effectiveProjectId,
+    onNewThreadProjectChange: setSelectedNewThreadProjectId,
+    onRequestNewChatProjectCreate: onRequestProjectPickerOpen,
     selectedCollaborationMode,
     setSelectedCollaborationMode,
   }), [
     codexControl,
     onOpenCard,
-    onRefreshThreads,
-    projectId,
+    onEnsureBlankSessionForProject,
+    onRefreshProjectSessions,
+    onRequestProjectPickerOpen,
+    effectiveProjectId,
+    session.projectId,
     selectedCollaborationMode,
     summary?.threadId,
   ]);
@@ -1723,15 +1770,21 @@ function SessionThreadPage({
   return (
     <div className="h-full min-h-0">
       <ConnectedThreadStage
-        projectId={projectId}
-        projectWorkspacePath={project?.workspacePath ?? null}
+        projectId={effectiveProjectId}
+        projectWorkspacePath={summary ? project?.workspacePath ?? null : selectedNewThreadProject?.workspacePath ?? null}
         isNewThreadTab={!summary}
         newThreadTarget={summary ? null : {
-          projectId,
-          projectName: project?.name ?? projectId,
+          projectId: effectiveProjectId,
+          projectName: selectedNewThreadProject?.name ?? effectiveProjectId,
           sessionId: session.id,
           threadTitle: "New thread",
           runInTarget: "localProject",
+        }}
+        newThreadProjectSelector={summary ? null : {
+          projects: projectSelectorOptions,
+          selectedProjectId: effectiveProjectId,
+          disabled: false,
+          canAddProject: true,
         }}
         threadStartProgress={null}
         activeThreadId={summary?.threadId ?? null}
@@ -1815,8 +1868,12 @@ function makeNoopThreadStageActions(onOpenCard: (cardId: string) => void): Threa
 function makeSessionThreadStageActions(input: {
   activeThreadId: string | null;
   codexControl: ReturnType<typeof useCodexAppServerControl>;
+  currentSessionProjectId: string;
   onOpenCard: (cardId: string) => void;
-  onRefreshThreads: () => Promise<void>;
+  onEnsureBlankSessionForProject: (projectId: string) => Promise<ProjectSession>;
+  onRefreshProjectSessions: (projectId: string) => Promise<ProjectSession[]>;
+  onNewThreadProjectChange: (projectId: string) => void;
+  onRequestNewChatProjectCreate: () => void;
   projectId: string;
   selectedCollaborationMode: CodexCollaborationModeKind;
   setSelectedCollaborationMode: (mode: CodexCollaborationModeKind) => void;
@@ -1831,15 +1888,20 @@ function makeSessionThreadStageActions(input: {
       void input.codexControl.setPermissionMode(input.projectId, mode);
     },
     onStartThreadForSession: async ({ projectId, sessionId, prompt, promptInput }) => {
+      const targetSession = projectId === input.currentSessionProjectId
+        ? null
+        : await input.onEnsureBlankSessionForProject(projectId);
       await input.codexControl.startThreadForSession({
         projectId,
-        sessionId,
+        sessionId: targetSession?.id ?? sessionId,
         prompt,
         promptInput,
         collaborationMode: input.selectedCollaborationMode,
       });
-      await input.onRefreshThreads();
+      await input.onRefreshProjectSessions(projectId);
     },
+    onNewThreadProjectChange: input.onNewThreadProjectChange,
+    onRequestNewChatProjectCreate: input.onRequestNewChatProjectCreate,
     onSendPrompt: async (prompt, opts) => {
       if (!input.activeThreadId) return;
       await input.codexControl.startTurn(input.activeThreadId, prompt, {

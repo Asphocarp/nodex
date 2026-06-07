@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDownIcon, LocalStatusIcon } from "@/components/shared/icons";
 import { cn } from "../../../../lib/utils";
-import type { ThreadFooterModel } from "../../thread-stage-types";
+import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-types";
 import {
   EMPTY_BRANCH_SELECTOR_STATE,
   isBranchSelectorMutationCurrent,
@@ -14,16 +14,21 @@ import {
   invoke,
   subscribeGitBranchChanges,
 } from "./local-conversation-thread-composer-deps";
+import { NewChatProjectSelector } from "./new-chat-project-selector";
 
 interface ThreadComposerStatusStripProps {
   model: ThreadFooterModel;
+  actions: ThreadStageActions;
   onErrorMessage: (message: string | null) => void;
+  projectSelectorDisabled?: boolean;
   className?: string;
 }
 
 export function ThreadComposerStatusStrip({
   model,
+  actions,
   onErrorMessage,
+  projectSelectorDisabled = false,
   className,
 }: ThreadComposerStatusStripProps) {
   const [branchState, setBranchState] = useState<BranchSelectorState>(EMPTY_BRANCH_SELECTOR_STATE);
@@ -35,6 +40,13 @@ export function ThreadComposerStatusStrip({
   const branchCwdRef = useRef<string | null>(branchCwd);
   const branchMutationRequestIdRef = useRef(0);
   branchCwdRef.current = branchCwd;
+  const showNewChatProjectSelector = Boolean(
+    model.isNewThreadTab
+    && model.conversation === null
+    && model.newThreadTarget?.sessionId
+    && !model.isCloudNewThreadTarget
+    && model.newThreadProjectSelector,
+  );
 
   const handleRefreshBranchState = useCallback(async () => {
     const requestedCwd = branchCwdRef.current;
@@ -161,6 +173,13 @@ export function ThreadComposerStatusStrip({
       className={cn("flex flex-wrap items-center gap-2 overflow-visible px-2 py-1.5", className)}
     >
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+        {showNewChatProjectSelector && model.newThreadProjectSelector ? (
+          <NewChatProjectSelector
+            model={model.newThreadProjectSelector}
+            actions={actions}
+            disabled={projectSelectorDisabled}
+          />
+        ) : null}
         <button
           type="button"
           className="inline-flex h-7 items-center gap-1 rounded-full border border-transparent px-1.5 text-sm/4.5 text-(--foreground-tertiary) hover:bg-(--background-tertiary) hover:text-(--foreground-secondary)"
