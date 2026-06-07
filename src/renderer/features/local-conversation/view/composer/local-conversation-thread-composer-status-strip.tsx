@@ -11,10 +11,12 @@ import {
 } from "../shared/branch-selector-state";
 import {
   BranchSelectorPopover,
+  EnvironmentSelectorPopover,
   invoke,
   subscribeGitBranchChanges,
 } from "./local-conversation-thread-composer-deps";
 import { NewChatProjectSelector } from "./new-chat-project-selector";
+import { NewChatStartInSelector } from "./new-chat-start-in-selector";
 
 interface ThreadComposerStatusStripProps {
   model: ThreadFooterModel;
@@ -46,6 +48,17 @@ export function ThreadComposerStatusStrip({
     && model.newThreadTarget?.sessionId
     && !model.isCloudNewThreadTarget
     && model.newThreadProjectSelector,
+  );
+  const showNewChatStartInSelector = Boolean(
+    model.isNewThreadTab
+    && model.conversation === null
+    && model.newThreadTarget?.sessionId
+    && !model.isCloudNewThreadTarget
+    && model.newThreadStartInSelector,
+  );
+  const worktreeAvailable = Boolean(
+    branchCwd
+    && (branchState.currentBranch || branchState.defaultBranch || branchState.branches.length > 0),
   );
 
   const handleRefreshBranchState = useCallback(async () => {
@@ -180,15 +193,41 @@ export function ThreadComposerStatusStrip({
             disabled={projectSelectorDisabled}
           />
         ) : null}
-        <button
-          type="button"
-          className="inline-flex h-7 items-center gap-1 rounded-full border border-transparent px-1.5 text-sm/4.5 text-(--foreground-tertiary) hover:bg-(--background-tertiary) hover:text-(--foreground-secondary)"
-          aria-label="Run target"
-        >
-          <LocalStatusIcon className="shrink-0" />
-          <span className="max-w-40 truncate text-sm">Work locally</span>
-          <ChevronDownIcon />
-        </button>
+        {showNewChatStartInSelector && model.newThreadStartInSelector ? (
+          <NewChatStartInSelector
+            model={model.newThreadStartInSelector}
+            actions={actions}
+            disabled={projectSelectorDisabled}
+            worktreeAvailable={worktreeAvailable}
+          />
+        ) : (
+          <button
+            type="button"
+            className="inline-flex h-7 items-center gap-1 rounded-full border border-transparent px-1.5 text-sm/4.5 text-(--foreground-tertiary) hover:bg-(--background-tertiary) hover:text-(--foreground-secondary)"
+            aria-label="Run target"
+          >
+            <LocalStatusIcon className="shrink-0" />
+            <span className="max-w-40 truncate text-sm">Work locally</span>
+            <ChevronDownIcon />
+          </button>
+        )}
+        {showNewChatStartInSelector
+          && model.newThreadStartInSelector
+          && model.newThreadStartInSelector.target.runInTarget === "newWorktree" ? (
+            <EnvironmentSelectorPopover
+              options={model.newThreadStartInSelector.environments}
+              selectedPath={model.newThreadStartInSelector.selectedEnvironmentPath}
+              busy={model.newThreadStartInSelector.environmentsLoading}
+              disabled={projectSelectorDisabled || model.newThreadStartInSelector.disabled}
+              onRefresh={() => actions.onRefreshNewThreadStartInEnvironments?.() ?? Promise.resolve()}
+              onSelect={(environmentPath) => {
+                actions.onNewThreadStartInEnvironmentChange?.(environmentPath);
+                return true;
+              }}
+              onOpenSettings={() => actions.onOpenNewThreadLocalEnvironmentsSettings?.()}
+              triggerClassName="text-token-text-tertiary hover:text-token-foreground"
+            />
+          ) : null}
         <BranchSelectorPopover
           cwd={branchCwd}
           state={branchState}

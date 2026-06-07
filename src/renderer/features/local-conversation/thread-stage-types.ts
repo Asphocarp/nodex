@@ -28,16 +28,30 @@ import type {
   CodexReasoningEffort,
   CodexReasoningEffortOption,
   CodexTurnDiffReviewTarget,
+  WorktreeEnvironmentOption,
+  WorktreeStartMode,
 } from "../../lib/types";
 import type { ComposerEnterBehavior } from "../../lib/composer-enter-behavior";
 import type { CodexTurnScopedConversationRequest } from "./conversation-request-helpers";
 import type { NewChatProjectSelectorOption } from "../../lib/new-chat-project-selector";
+import type { NewChatStartInTarget } from "../../lib/new-chat-start-in-selector";
 
 export interface NewChatProjectSelectorModel {
   projects: NewChatProjectSelectorOption[];
   selectedProjectId: string | null;
   disabled: boolean;
   canAddProject: boolean;
+}
+
+export interface NewChatStartInSelectorModel {
+  target: NewChatStartInTarget;
+  disabled: boolean;
+  worktreeAvailable: boolean;
+  environments: WorktreeEnvironmentOption[];
+  environmentsLoading: boolean;
+  selectedEnvironmentPath: string | null;
+  worktreeStartMode: WorktreeStartMode;
+  worktreeBranchPrefix: string;
 }
 
 export interface ThreadStageRouteInput {
@@ -53,8 +67,12 @@ export interface ThreadStageRouteInput {
     sessionId?: string;
     threadTitle?: string;
     runInTarget?: CardRunInTarget;
+    runInEnvironmentPath?: string | null;
+    worktreeStartMode?: WorktreeStartMode;
+    worktreeBranchPrefix?: string | null;
   } | null;
   newThreadProjectSelector?: NewChatProjectSelectorModel | null;
+  newThreadStartInSelector?: NewChatStartInSelectorModel | null;
   activeThreadCardColumnId: string | null;
   threadStartProgress: {
     phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
@@ -96,7 +114,20 @@ export interface ThreadStageActions {
   onCancelLogin: (loginId: string) => Promise<void>;
   onLogout: () => Promise<void>;
   onStartThreadForCard: (input: { projectId: string; cardId: string; prompt: string; promptInput?: CodexPromptInput }) => Promise<void>;
-  onStartThreadForSession?: (input: { projectId: string; sessionId: string; prompt: string; promptInput?: CodexPromptInput }) => Promise<void>;
+  onStartThreadForSession?: (input: {
+    projectId: string;
+    sessionId: string;
+    prompt: string;
+    promptInput?: CodexPromptInput;
+    runInTarget?: CardRunInTarget;
+    runInEnvironmentPath?: string | null;
+    worktreeStartMode?: WorktreeStartMode;
+    worktreeBranchPrefix?: string | null;
+  }) => Promise<void>;
+  onNewThreadStartInTargetChange?: (target: NewChatStartInTarget) => void;
+  onNewThreadStartInEnvironmentChange?: (environmentPath: string | null) => void;
+  onRefreshNewThreadStartInEnvironments?: () => Promise<void>;
+  onOpenNewThreadLocalEnvironmentsSettings?: () => void;
   onNewThreadProjectChange?: (projectId: string) => void;
   onRequestNewChatProjectCreate?: () => void;
   onSendPrompt: (prompt: string, opts?: { collaborationMode?: CodexCollaborationModeKind; promptInput?: CodexPromptInput }) => Promise<void>;
@@ -475,6 +506,7 @@ export interface ThreadFooterModel {
   isCloudNewThreadTarget: boolean;
   newThreadTarget: ThreadStageRouteInput["newThreadTarget"];
   newThreadProjectSelector?: ThreadStageRouteInput["newThreadProjectSelector"];
+  newThreadStartInSelector?: ThreadStageRouteInput["newThreadStartInSelector"];
   composerShell: ThreadComposerShellModel;
   body: ThreadBodyModel;
   collaborationModes: CodexCollaborationModePreset[];

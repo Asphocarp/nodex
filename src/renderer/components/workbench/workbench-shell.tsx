@@ -34,7 +34,11 @@ import { ProjectManagerPopover, ProjectMark } from "./left-sidebar-project-manag
 import { LeftSidebarWorkspaceManager } from "./left-sidebar-workspace-manager";
 import { NodexDropdownItem, NodexDropdownMenu } from "@/components/ui/dropdown";
 import { NodexTooltip, NodexTooltipProvider } from "@/components/ui/tooltip";
-import { ConnectedThreadStage, useCodexAppServerControl } from "@/features/local-conversation";
+import {
+  ConnectedThreadStage,
+  useCodexAppServerControl,
+  useCodexThreadStartProgress,
+} from "@/features/local-conversation";
 import {
   loadCalendarViewState,
   normalizeCalendarAnchorDate,
@@ -87,6 +91,7 @@ import {
 } from "@/lib/smart-prefix-parsing";
 import type {
   Card,
+  CardRunInTarget,
   CardInput,
   CardUpdateMutationResult,
   CodexAccountSnapshot,
@@ -99,6 +104,7 @@ import type {
   ProjectSessionTab,
   ProjectSessionThreadLink,
   WorktreeStartMode,
+  WorktreeEnvironmentOption,
   WorkspaceRecord,
 } from "@/lib/types";
 import type { ThreadStageActions } from "@/features/local-conversation";
@@ -429,6 +435,11 @@ export function WorkbenchShell({
 
   const openSettings = useCallback(() => {
     setSettingsPath(buildSettingsPath("general-settings"));
+    setSettingsOpen(true);
+  }, []);
+
+  const openLocalEnvironmentsSettings = useCallback(() => {
+    setSettingsPath(buildSettingsPath("local-environments"));
     setSettingsOpen(true);
   }, []);
 
@@ -1197,6 +1208,9 @@ export function WorkbenchShell({
                       onRefreshProjectSessions={refreshProjectSessions}
                       onEnsureBlankSessionForProject={ensureBlankSessionForProject}
                       onRequestProjectPickerOpen={onRequestProjectPickerOpen}
+                      onOpenLocalEnvironmentsSettings={openLocalEnvironmentsSettings}
+                      worktreeStartMode={worktreeStartMode}
+                      worktreeBranchPrefix={worktreeAutoBranchPrefix}
                       searchOpenTick={threadSearchOpenTick}
                       onOpenCard={(cardId) => {
                         if (!activeProject) return;
@@ -1704,6 +1718,9 @@ function SessionThreadPage({
   onRefreshProjectSessions,
   onEnsureBlankSessionForProject,
   onRequestProjectPickerOpen,
+  onOpenLocalEnvironmentsSettings,
+  worktreeStartMode,
+  worktreeBranchPrefix,
   onOpenCard,
   searchOpenTick,
 }: {
@@ -1713,15 +1730,23 @@ function SessionThreadPage({
   onRefreshProjectSessions: (projectId: string) => Promise<ProjectSession[]>;
   onEnsureBlankSessionForProject: (projectId: string) => Promise<ProjectSession>;
   onRequestProjectPickerOpen: () => void;
+  onOpenLocalEnvironmentsSettings: () => void;
+  worktreeStartMode: WorktreeStartMode;
+  worktreeBranchPrefix: string;
   onOpenCard: (cardId: string) => void;
   searchOpenTick: number;
 }) {
   const projectId = project?.id ?? session.projectId;
   const summary = session.thread ? makeThreadSummary(session.thread) : null;
   const [selectedNewThreadProjectId, setSelectedNewThreadProjectId] = useState(projectId);
+  const [selectedNewThreadRunInTarget, setSelectedNewThreadRunInTarget] = useState<CardRunInTarget>("localProject");
+  const [selectedNewThreadEnvironmentPath, setSelectedNewThreadEnvironmentPath] = useState<string | null>(null);
+  const [newThreadEnvironmentOptions, setNewThreadEnvironmentOptions] = useState<WorktreeEnvironmentOption[]>([]);
+  const [newThreadEnvironmentsLoading, setNewThreadEnvironmentsLoading] = useState(false);
   const selectedNewThreadProject = projects.find((candidate) => candidate.id === selectedNewThreadProjectId) ?? project;
   const effectiveProjectId = summary ? projectId : selectedNewThreadProject?.id ?? projectId;
   const codexControl = useCodexAppServerControl(effectiveProjectId);
+  const threadStartProgress = useCodexThreadStartProgress(effectiveProjectId, session.id);
   const [collaborationModes, setCollaborationModes] = useState<CodexCollaborationModePreset[]>([]);
   const [selectedCollaborationMode, setSelectedCollaborationMode] = useState<CodexCollaborationModeKind>("default");
   const projectSelectorOptions = useMemo(() => buildNewChatProjectSelectorOptions(projects), [projects]);
@@ -1729,6 +1754,8 @@ function SessionThreadPage({
   useEffect(() => {
     if (summary) return;
     setSelectedNewThreadProjectId(projectId);
+    setSelectedNewThreadRunInTarget("localProject");
+    setSelectedNewThreadEnvironmentPath(null);
   }, [projectId, session.id, summary]);
 
   useEffect(() => {
@@ -1743,6 +1770,23 @@ function SessionThreadPage({
       .catch(() => setCollaborationModes([]));
   }, [codexControl.loadModels, codexControl.listCollaborationModes, effectiveProjectId]);
 
+  const refreshNewThreadEnvironments = useCallback(async () => {
+    setNewThreadEnvironmentsLoading(true);
+    try {
+      const options = await invoke("worktrees:environments:list", effectiveProjectId);
+      setNewThreadEnvironmentOptions(options as WorktreeEnvironmentOption[]);
+    } catch {
+      setNewThreadEnvironmentOptions([]);
+    } finally {
+      setNewThreadEnvironmentsLoading(false);
+    }
+  }, [effectiveProjectId]);
+
+  useEffect(() => {
+    if (summary || selectedNewThreadRunInTarget !== "newWorktree") return;
+    void refreshNewThreadEnvironments();
+  }, [refreshNewThreadEnvironments, selectedNewThreadRunInTarget, summary]);
+
   const actions = useMemo(() => makeSessionThreadStageActions({
     activeThreadId: summary?.threadId ?? null,
     codexControl,
@@ -1753,6 +1797,13 @@ function SessionThreadPage({
     projectId: effectiveProjectId,
     onNewThreadProjectChange: setSelectedNewThreadProjectId,
     onRequestNewChatProjectCreate: onRequestProjectPickerOpen,
+    onNewThreadStartInTargetChange: (target) => {
+      setSelectedNewThreadRunInTarget(target.runInTarget);
+      if (target.runInTarget !== "newWorktree") setSelectedNewThreadEnvironmentPath(null);
+    },
+    onNewThreadStartInEnvironmentChange: setSelectedNewThreadEnvironmentPath,
+    onRefreshNewThreadStartInEnvironments: refreshNewThreadEnvironments,
+    onOpenNewThreadLocalEnvironmentsSettings: onOpenLocalEnvironmentsSettings,
     selectedCollaborationMode,
     setSelectedCollaborationMode,
   }), [
@@ -1761,6 +1812,8 @@ function SessionThreadPage({
     onEnsureBlankSessionForProject,
     onRefreshProjectSessions,
     onRequestProjectPickerOpen,
+    onOpenLocalEnvironmentsSettings,
+    refreshNewThreadEnvironments,
     effectiveProjectId,
     session.projectId,
     selectedCollaborationMode,
@@ -1778,7 +1831,10 @@ function SessionThreadPage({
           projectName: selectedNewThreadProject?.name ?? effectiveProjectId,
           sessionId: session.id,
           threadTitle: "New thread",
-          runInTarget: "localProject",
+          runInTarget: selectedNewThreadRunInTarget,
+          runInEnvironmentPath: selectedNewThreadEnvironmentPath,
+          worktreeStartMode,
+          worktreeBranchPrefix,
         }}
         newThreadProjectSelector={summary ? null : {
           projects: projectSelectorOptions,
@@ -1786,7 +1842,22 @@ function SessionThreadPage({
           disabled: false,
           canAddProject: true,
         }}
-        threadStartProgress={null}
+        newThreadStartInSelector={summary ? null : {
+          target: {
+            runInTarget: selectedNewThreadRunInTarget,
+            runInEnvironmentPath: selectedNewThreadEnvironmentPath,
+            worktreeStartMode,
+            worktreeBranchPrefix,
+          },
+          disabled: false,
+          worktreeAvailable: Boolean(selectedNewThreadProject?.workspacePath),
+          environments: newThreadEnvironmentOptions,
+          environmentsLoading: newThreadEnvironmentsLoading,
+          selectedEnvironmentPath: selectedNewThreadEnvironmentPath,
+          worktreeStartMode,
+          worktreeBranchPrefix,
+        }}
+        threadStartProgress={summary ? null : threadStartProgress}
         activeThreadId={summary?.threadId ?? null}
         activeThreadSummary={summary}
         availableModels={codexControl.availableModels}
@@ -1874,6 +1945,10 @@ function makeSessionThreadStageActions(input: {
   onRefreshProjectSessions: (projectId: string) => Promise<ProjectSession[]>;
   onNewThreadProjectChange: (projectId: string) => void;
   onRequestNewChatProjectCreate: () => void;
+  onNewThreadStartInTargetChange: ThreadStageActions["onNewThreadStartInTargetChange"];
+  onNewThreadStartInEnvironmentChange: ThreadStageActions["onNewThreadStartInEnvironmentChange"];
+  onRefreshNewThreadStartInEnvironments: NonNullable<ThreadStageActions["onRefreshNewThreadStartInEnvironments"]>;
+  onOpenNewThreadLocalEnvironmentsSettings: NonNullable<ThreadStageActions["onOpenNewThreadLocalEnvironmentsSettings"]>;
   projectId: string;
   selectedCollaborationMode: CodexCollaborationModeKind;
   setSelectedCollaborationMode: (mode: CodexCollaborationModeKind) => void;
@@ -1887,7 +1962,16 @@ function makeSessionThreadStageActions(input: {
     onPermissionModeChange: (mode) => {
       void input.codexControl.setPermissionMode(input.projectId, mode);
     },
-    onStartThreadForSession: async ({ projectId, sessionId, prompt, promptInput }) => {
+    onStartThreadForSession: async ({
+      projectId,
+      sessionId,
+      prompt,
+      promptInput,
+      runInTarget,
+      runInEnvironmentPath,
+      worktreeStartMode,
+      worktreeBranchPrefix,
+    }) => {
       const targetSession = projectId === input.currentSessionProjectId
         ? null
         : await input.onEnsureBlankSessionForProject(projectId);
@@ -1896,12 +1980,20 @@ function makeSessionThreadStageActions(input: {
         sessionId: targetSession?.id ?? sessionId,
         prompt,
         promptInput,
+        runInTarget,
+        runInEnvironmentPath,
+        worktreeStartMode,
+        worktreeBranchPrefix: worktreeBranchPrefix ?? undefined,
         collaborationMode: input.selectedCollaborationMode,
       });
       await input.onRefreshProjectSessions(projectId);
     },
     onNewThreadProjectChange: input.onNewThreadProjectChange,
     onRequestNewChatProjectCreate: input.onRequestNewChatProjectCreate,
+    onNewThreadStartInTargetChange: input.onNewThreadStartInTargetChange,
+    onNewThreadStartInEnvironmentChange: input.onNewThreadStartInEnvironmentChange,
+    onRefreshNewThreadStartInEnvironments: input.onRefreshNewThreadStartInEnvironments,
+    onOpenNewThreadLocalEnvironmentsSettings: input.onOpenNewThreadLocalEnvironmentsSettings,
     onSendPrompt: async (prompt, opts) => {
       if (!input.activeThreadId) return;
       await input.codexControl.startTurn(input.activeThreadId, prompt, {

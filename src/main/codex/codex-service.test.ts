@@ -110,6 +110,10 @@ interface TestableCodexService {
     reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
     collaborationMode?: "default" | "plan";
     promptInput?: CodexPromptInput;
+    runInTarget?: "localProject" | "newWorktree" | "cloud";
+    runInEnvironmentPath?: string | null;
+    worktreeStartMode?: "autoBranch" | "detachedHead";
+    worktreeBranchPrefix?: string;
   }) => Promise<CodexThreadDetail>;
   listCollaborationModes: () => Promise<CodexCollaborationModePreset[]>;
   interruptTurn: (threadId: string, turnId?: string) => Promise<boolean>;
@@ -3723,6 +3727,214 @@ describe("codex-service startThreadForCard", () => {
         expect(detail.threadId).toBe("thr_session_start");
         expect(detail.projectId).toBe("codex");
         expect(detail.cardId ?? null).toBe(null);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("starts a session thread in a managed worktree when requested", async () => {
+    const ran = await withTempDatabase(async () => {
+      const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-session-worktree-repo-"));
+      initializeGitRepository(repoPath);
+      createProject({ id: "session-worktree-project", name: "Session Worktree", workspacePath: repoPath });
+      const session = createProjectSession({ projectId: "session-worktree-project", title: "Session worktree" });
+
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+      const events: CodexEvent[] = [];
+
+      (service as unknown as {
+        on: (eventName: "event", listener: (event: CodexEvent) => void) => void;
+      }).on("event", (event) => {
+        events.push(event);
+      });
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "config/read" || method === "configRequirements/read") {
+          throw new Error("use fallback permission state");
+        }
+        if (method === "thread/start") {
+          return {
+            thread: {
+              id: "thr_session_worktree",
+              modelProvider: "openai",
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          };
+        }
+        if (method === "turn/start") {
+          return {
+            turn: {
+              id: "turn_session_worktree",
+              status: "in_progress",
+              transcript: [],
+            },
+          };
+        }
+        return {};
+      };
+
+      service.serializeThreadDetail = (threadId: string) => {
+        const link = getProjectSession(session.id)?.thread;
+        return {
+          threadId,
+          projectId: "session-worktree-project",
+          cardId: null,
+          source: null,
+          threadName: "Thread",
+          threadPreview: "",
+          modelProvider: "openai",
+          cwd: link?.cwd ?? "",
+          statusType: "active",
+          statusActiveFlags: [],
+          archived: false,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          linkedAt: new Date().toISOString(),
+          turns: [],
+          transcript: [],
+        };
+      };
+
+      try {
+        await service.startThreadForSession({
+          projectId: "session-worktree-project",
+          sessionId: session.id,
+          prompt: "Start in worktree",
+          runInTarget: "newWorktree",
+          worktreeStartMode: "detachedHead",
+          worktreeBranchPrefix: "nodex/",
+        });
+
+        const threadStartCwd = (requests.find((request) => request.method === "thread/start")?.params as { cwd?: string } | undefined)?.cwd ?? "";
+        const turnStartCwd = (requests.find((request) => request.method === "turn/start")?.params as { cwd?: string } | undefined)?.cwd ?? "";
+        const linked = getProjectSession(session.id)?.thread;
+        expect(threadStartCwd.length > 0).toBeTrue();
+        expect(threadStartCwd === repoPath).toBeFalse();
+        expect(fs.existsSync(threadStartCwd)).toBeTrue();
+        expect(turnStartCwd).toBe(threadStartCwd);
+        expect(linked?.cwd).toBe(threadStartCwd);
+
+        const progressEvents = events.filter(
+          (event): event is Extract<CodexEvent, { type: "threadStartProgress" }> => event.type === "threadStartProgress",
+        );
+        expect(progressEvents.some((event) => event.cardId === session.id && event.phase === "creatingWorktree")).toBeTrue();
+        expect(progressEvents.some((event) => event.cardId === session.id && event.phase === "ready")).toBeTrue();
+      } finally {
+        await service.shutdown();
+        fs.rmSync(repoPath, { recursive: true, force: true });
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("aborts session worktree start when selected environment setup fails", async () => {
+    const ran = await withTempDatabase(async () => {
+      const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-session-env-fail-repo-"));
+      initializeGitRepository(repoPath);
+      createProject({ id: "session-env-fail-project", name: "Session Env Fail", workspacePath: repoPath });
+      const environmentsDir = path.join(repoPath, ".codex", "environments");
+      fs.mkdirSync(environmentsDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(environmentsDir, "environment.toml"),
+        [
+          'name = "session-env-fail"',
+          "",
+          "[setup]",
+          "script = '''",
+          "echo session-env-fail",
+          "exit 9",
+          "'''",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+      const session = createProjectSession({ projectId: "session-env-fail-project", title: "Failing setup" });
+
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+      const events: CodexEvent[] = [];
+
+      (service as unknown as {
+        on: (eventName: "event", listener: (event: CodexEvent) => void) => void;
+      }).on("event", (event) => {
+        events.push(event);
+      });
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        return {};
+      };
+
+      try {
+        let message = "";
+        try {
+          await service.startThreadForSession({
+            projectId: "session-env-fail-project",
+            sessionId: session.id,
+            prompt: "Fail setup",
+            runInTarget: "newWorktree",
+            runInEnvironmentPath: ".codex/environments/environment.toml",
+          });
+        } catch (error) {
+          message = error instanceof Error ? error.message : String(error);
+        }
+
+        expect(message.includes("Failed to set up new worktree using environment")).toBeTrue();
+        expect(requests.some((request) => request.method === "thread/start")).toBeFalse();
+        const progressEvents = events.filter(
+          (event): event is Extract<CodexEvent, { type: "threadStartProgress" }> => event.type === "threadStartProgress",
+        );
+        expect(progressEvents.some((event) => event.cardId === session.id && event.phase === "failed")).toBeTrue();
+      } finally {
+        await service.shutdown();
+        fs.rmSync(repoPath, { recursive: true, force: true });
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("rejects unsupported cloud session starts", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({ projectId: "codex", title: "Cloud selector" });
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      client.start = async () => undefined;
+      client.request = async () => ({});
+
+      try {
+        let message = "";
+        try {
+          await service.startThreadForSession({
+            projectId: "codex",
+            sessionId: session.id,
+            prompt: "Send to cloud",
+            runInTarget: "cloud",
+          });
+        } catch (error) {
+          message = error instanceof Error ? error.message : String(error);
+        }
+        expect(message).toBe("Cloud run target is not available yet. Choose Work locally or New worktree.");
       } finally {
         await service.shutdown();
       }

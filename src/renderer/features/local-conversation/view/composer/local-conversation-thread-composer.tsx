@@ -730,6 +730,10 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
             sessionId: target.sessionId,
             prompt: nextPrompt,
             promptInput,
+            runInTarget: target.runInTarget,
+            runInEnvironmentPath: target.runInEnvironmentPath,
+            worktreeStartMode: target.worktreeStartMode,
+            worktreeBranchPrefix: target.worktreeBranchPrefix,
           });
         } else if (target.cardId) {
           await actions.onStartThreadForCard({

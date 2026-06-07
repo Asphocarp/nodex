@@ -2293,7 +2293,7 @@ export class CodexService extends EventEmitter {
 
   private emitThreadStartProgress(input: {
     projectId: string;
-    cardId: string;
+    cardId: string | null;
     phase: CodexThreadStartProgressPhase;
     message: string;
     stream?: CodexThreadStartProgressStream;
@@ -3217,6 +3217,122 @@ export class CodexService extends EventEmitter {
       cwd: resolvedLocalPath,
       runInTarget: "localProject",
       createdManagedWorktree: false,
+    };
+  }
+
+  private async resolveSessionThreadRunLocation(input: {
+    projectId: string;
+    sessionId: string;
+    sessionTitle?: string | null;
+    threadTitle?: string | null;
+    runInTarget?: CardRunInTarget;
+    runInEnvironmentPath?: string | null;
+    worktreeStartMode?: WorktreeStartMode;
+    worktreeBranchPrefix?: string | null;
+    onProgress?: (update: ThreadStartProgressUpdate) => void;
+  }): Promise<ResolvedThreadRunLocation> {
+    const runInTarget = input.runInTarget ?? "localProject";
+
+    if (runInTarget === "cloud") {
+      throw new Error("Cloud run target is not available yet. Choose Work locally or New worktree.");
+    }
+
+    const workspacePath = this.parseWorkspacePath(input.projectId);
+
+    if (runInTarget !== "newWorktree") {
+      return {
+        cwd: workspacePath,
+        runInTarget: "localProject",
+        createdManagedWorktree: false,
+      };
+    }
+
+    input.onProgress?.({
+      phase: "creatingWorktree",
+      message: WORKTREE_LOG_STATUS_MESSAGE,
+      clearOutput: true,
+    });
+    input.onProgress?.({
+      phase: "creatingWorktree",
+      message: WORKTREE_LOG_STATUS_MESSAGE,
+      stream: "info",
+      outputDelta: "[info] Starting worktree creation\n",
+    });
+
+    const createdWorktree = await createManagedWorktree({
+      repositoryPath: workspacePath,
+      serverDir: getKanbanDir(),
+      projectId: input.projectId,
+      cardId: input.sessionId,
+      threadTitle: input.threadTitle?.trim() || input.sessionTitle?.trim() || input.sessionId,
+      branchPrefix: input.worktreeBranchPrefix,
+      preferredBaseBranch: null,
+      mode: input.worktreeStartMode ?? "detachedHead",
+      onLog: (output) => {
+        if (!output.data) return;
+        input.onProgress?.({
+          phase: "creatingWorktree",
+          message: WORKTREE_LOG_STATUS_MESSAGE,
+          stream: output.stream,
+          outputDelta: output.data,
+        });
+      },
+    });
+    const resolvedWorktreePath = path.resolve(createdWorktree.cwd);
+    input.onProgress?.({
+      phase: "creatingWorktree",
+      message: WORKTREE_LOG_STATUS_MESSAGE,
+      stream: "info",
+      outputDelta: `Worktree created at ${resolvedWorktreePath}\n`,
+    });
+
+    const selectedEnvironmentPath = input.runInEnvironmentPath?.trim() || null;
+    if (selectedEnvironmentPath) {
+      try {
+        const environmentDefinition = await readWorktreeEnvironmentDefinition({
+          workspacePath,
+          environmentPath: selectedEnvironmentPath,
+        });
+        if (environmentDefinition.setupScript) {
+          input.onProgress?.({
+            phase: "runningSetup",
+            message: WORKTREE_LOG_STATUS_MESSAGE,
+            stream: "info",
+            outputDelta: `Running setup script ${environmentDefinition.path}\n`,
+          });
+          await runWorktreeSetupScript({
+            script: environmentDefinition.setupScript,
+            cwd: resolvedWorktreePath,
+            onOutput: (output) => {
+              if (!output.data) return;
+              input.onProgress?.({
+                phase: "runningSetup",
+                message: WORKTREE_LOG_STATUS_MESSAGE,
+                stream: output.stream,
+                outputDelta: output.data,
+              });
+            },
+          });
+          input.onProgress?.({
+            phase: "runningSetup",
+            message: WORKTREE_LOG_STATUS_MESSAGE,
+            stream: "info",
+            outputDelta: "Setup script completed\n",
+          });
+        }
+      } catch (error) {
+        await removeManagedWorktree(resolvedWorktreePath).catch(() => undefined);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `Failed to set up new worktree using environment '${selectedEnvironmentPath}': ${errorMessage}`,
+        );
+      }
+    }
+
+    return {
+      cwd: resolvedWorktreePath,
+      runInTarget,
+      createdManagedWorktree: true,
     };
   }
 
@@ -5110,7 +5226,6 @@ export class CodexService extends EventEmitter {
       throw new Error("Thread project must match the owning session project");
     }
 
-    const workspacePath = this.parseWorkspacePath(input.projectId);
     const preparedPrompt = await this.preparePromptForTurn(input.prompt, input.promptInput);
     const prompt = preparedPrompt.promptText;
     const effectiveModel = preparedPrompt.agentConfigOverrides.model ?? input.model;
@@ -5118,38 +5233,60 @@ export class CodexService extends EventEmitter {
     const effectiveCollaborationMode = preparedPrompt.agentConfigOverrides.collaborationMode ?? input.collaborationMode;
     const explicitThreadName = input.threadName?.trim() || null;
     const startedAt = Date.now();
-    const resolvedPermissionState = await this.readPermissionState(input.projectId);
-    const effectivePermissionState = this.resolvePermissionStateForRequest(
-      resolvedPermissionState,
-      input.permissionMode,
-      workspacePath,
-    );
-    const permissionMode = effectivePermissionState.mode;
-    const turnPermissionOverrides = buildTurnPermissionOverrides({
-      permissionState: effectivePermissionState,
-      workspacePath,
-    });
-    const threadPermissionOverrides = buildThreadPermissionOverrides({
-      permissionState: effectivePermissionState,
-    });
-
-    this.logger.info("Starting Codex thread for project session", {
-      projectId: input.projectId,
-      sessionId: input.sessionId,
-      cwd: workspacePath,
-      model: effectiveModel ?? null,
-      serviceTier: formatServiceTierForReporting(input.serviceTier),
-      permissionMode,
-      reasoningEffort: effectiveReasoningEffort ?? null,
-      collaborationMode: effectiveCollaborationMode ?? null,
-      hasExplicitThreadName: Boolean(explicitThreadName),
-      promptLength: prompt.length,
-      promptPreview: previewText(prompt),
-    });
+    const hasThreadStartProgress = input.runInTarget === "newWorktree";
 
     try {
+      const runLocation = await this.resolveSessionThreadRunLocation({
+        projectId: input.projectId,
+        sessionId: input.sessionId,
+        sessionTitle: session.title,
+        threadTitle: explicitThreadName,
+        runInTarget: input.runInTarget,
+        runInEnvironmentPath: input.runInEnvironmentPath,
+        worktreeStartMode: input.worktreeStartMode,
+        worktreeBranchPrefix: input.worktreeBranchPrefix,
+        onProgress: hasThreadStartProgress
+          ? (update) => {
+              this.emitThreadStartProgress({
+                projectId: input.projectId,
+                cardId: input.sessionId,
+                ...update,
+              });
+            }
+          : undefined,
+      });
+      const resolvedPermissionState = await this.readPermissionState(input.projectId);
+      const effectivePermissionState = this.resolvePermissionStateForRequest(
+        resolvedPermissionState,
+        input.permissionMode,
+        runLocation.cwd,
+      );
+      const permissionMode = effectivePermissionState.mode;
+      const turnPermissionOverrides = buildTurnPermissionOverrides({
+        permissionState: effectivePermissionState,
+        workspacePath: runLocation.cwd,
+      });
+      const threadPermissionOverrides = buildThreadPermissionOverrides({
+        permissionState: effectivePermissionState,
+      });
+
+      this.logger.info("Starting Codex thread for project session", {
+        projectId: input.projectId,
+        sessionId: input.sessionId,
+        cwd: runLocation.cwd,
+        runInTarget: runLocation.runInTarget,
+        model: effectiveModel ?? null,
+        serviceTier: formatServiceTierForReporting(input.serviceTier),
+        permissionMode,
+        reasoningEffort: effectiveReasoningEffort ?? null,
+        collaborationMode: effectiveCollaborationMode ?? null,
+        hasExplicitThreadName: Boolean(explicitThreadName),
+        promptLength: prompt.length,
+        promptPreview: previewText(prompt),
+      });
+
       const threadStartParams: ThreadStartParams = {
-        cwd: workspacePath,
+        cwd: runLocation.cwd,
         model: effectiveModel ?? null,
         config: buildCodexThreadConfigOverrides(),
         ...buildServiceTierParams(input.serviceTier),
@@ -5161,7 +5298,7 @@ export class CodexService extends EventEmitter {
       const link = this.upsertSessionLinkFromThread(threadStart.thread, {
         projectId: input.projectId,
         sessionId: input.sessionId,
-      }, workspacePath);
+      }, runLocation.cwd);
 
       if (!link) {
         throw new Error("Codex thread/start returned an invalid thread payload");
@@ -5176,7 +5313,7 @@ export class CodexService extends EventEmitter {
         projectId: input.projectId,
         sessionId: input.sessionId,
         threadId: link.threadId,
-        cwd: workspacePath,
+        cwd: runLocation.cwd,
       });
 
       if (explicitThreadName) {
@@ -5209,7 +5346,7 @@ export class CodexService extends EventEmitter {
       const turnStartParams: TurnStartParams = {
         threadId: link.threadId,
         input: preparedPrompt.inputItems,
-        cwd: workspacePath,
+        cwd: runLocation.cwd,
         ...turnPermissionOverrides,
         ...(effectiveModel ? { model: effectiveModel } : {}),
         ...buildServiceTierParams(input.serviceTier),
@@ -5252,8 +5389,19 @@ export class CodexService extends EventEmitter {
         threadId: link.threadId,
         projectId: input.projectId,
         sessionId: input.sessionId,
+        cwd: runLocation.cwd,
         durationMs: Date.now() - startedAt,
       });
+      if (hasThreadStartProgress) {
+        this.emitThreadStartProgress({
+          projectId: input.projectId,
+          cardId: input.sessionId,
+          phase: "ready",
+          message: "Worktree ready.",
+          stream: "info",
+          outputDelta: "[info] Worktree ready.\n",
+        });
+      }
       return detail;
     } catch (error) {
       this.logger.error("Failed to start Codex thread for project session", {
@@ -5262,6 +5410,17 @@ export class CodexService extends EventEmitter {
         durationMs: Date.now() - startedAt,
         error,
       });
+      if (hasThreadStartProgress) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.emitThreadStartProgress({
+          projectId: input.projectId,
+          cardId: input.sessionId,
+          phase: "failed",
+          message: "Worktree setup failed.",
+          stream: "stderr",
+          outputDelta: `[stderr] ${detail}\n`,
+        });
+      }
       throw error;
     }
   }

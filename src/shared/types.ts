@@ -812,6 +812,10 @@ export interface CodexThreadStartForSessionInput {
   permissionMode?: CodexPermissionMode;
   reasoningEffort?: CodexReasoningEffort;
   collaborationMode?: CodexCollaborationModeKind;
+  runInTarget?: CardRunInTarget;
+  runInEnvironmentPath?: string | null;
+  worktreeStartMode?: WorktreeStartMode;
+  worktreeBranchPrefix?: string;
 }
 
 export interface CodexTurnStartOptions {

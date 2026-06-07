@@ -743,6 +743,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         permissionMode?: "auto" | "guardian-approvals" | "full-access" | "custom";
         reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
         collaborationMode?: "default" | "plan";
+        runInTarget?: "localProject" | "newWorktree" | "cloud";
+        runInEnvironmentPath?: string | null;
+        worktreeStartMode?: "autoBranch" | "detachedHead";
+        worktreeBranchPrefix?: string;
       },
     ) =>
       codexService.startThreadForSession(input),

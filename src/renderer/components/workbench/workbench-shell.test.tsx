@@ -84,9 +84,24 @@ mock.module("@/features/local-conversation", () => ({
   ConnectedThreadStage: (props: Record<string, unknown>) => {
     (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps = props;
     const actions = props.actions as {
-      onStartThreadForSession?: (input: { projectId: string; sessionId: string; prompt: string }) => Promise<void>;
+      onStartThreadForSession?: (input: {
+        projectId: string;
+        sessionId: string;
+        prompt: string;
+        runInTarget?: string;
+        runInEnvironmentPath?: string | null;
+        worktreeStartMode?: string;
+        worktreeBranchPrefix?: string | null;
+      }) => Promise<void>;
     } | undefined;
-    const target = props.newThreadTarget as { projectId?: string; sessionId?: string } | null | undefined;
+    const target = props.newThreadTarget as {
+      projectId?: string;
+      sessionId?: string;
+      runInTarget?: string;
+      runInEnvironmentPath?: string | null;
+      worktreeStartMode?: string;
+      worktreeBranchPrefix?: string | null;
+    } | null | undefined;
     return createElement(
       "div",
       { "data-thread-stage": "true" },
@@ -103,6 +118,10 @@ mock.module("@/features/local-conversation", () => ({
                 projectId: target.projectId,
                 sessionId: target.sessionId,
                 prompt: "Start from session",
+                runInTarget: target.runInTarget,
+                runInEnvironmentPath: target.runInEnvironmentPath,
+                worktreeStartMode: target.worktreeStartMode,
+                worktreeBranchPrefix: target.worktreeBranchPrefix,
               });
             },
           }, "Send")
@@ -112,6 +131,7 @@ mock.module("@/features/local-conversation", () => ({
     );
   },
   useCodexAppServerControl: () => mockCodexControl,
+  useCodexThreadStartProgress: () => null,
 }));
 
 mock.module("@/lib/calendar-view-state", () => ({
@@ -359,6 +379,9 @@ function renderWorkbench({
       const sessionId = String(args[0]);
       return Object.values(sessionState).flat().find((item) => item.id === sessionId) ?? null;
     }
+    if (channel === "worktrees:environments:list") {
+      return [];
+    }
     return null;
   };
 
@@ -574,6 +597,10 @@ describe("workbench session shell", () => {
       projectId: "alpha",
       sessionId: "overview:alpha",
       prompt: "Start from session",
+      runInTarget: "localProject",
+      runInEnvironmentPath: null,
+      worktreeStartMode: "detachedHead",
+      worktreeBranchPrefix: "nodex/",
       collaborationMode: "default",
     }));
     expect(invokeCalls.some((call) => call[0] === "project-sessions:list" && call[1] === "alpha")).toBeTrue();
@@ -626,9 +653,52 @@ describe("workbench session shell", () => {
       projectId: "beta",
       sessionId: "session:beta:created",
       prompt: "Start from session",
+      runInTarget: "localProject",
+      runInEnvironmentPath: null,
+      worktreeStartMode: "detachedHead",
+      worktreeBranchPrefix: "nodex/",
       collaborationMode: "default",
     }));
     expect(invokeCalls.some((call) => call[0] === "project-sessions:list" && call[1] === "beta")).toBeTrue();
+  });
+
+  test("session composer submit passes the selected new-worktree target", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeSession()] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const propsBefore = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    const actions = propsBefore?.actions as {
+      onNewThreadStartInTargetChange?: (target: { runInTarget: "newWorktree" }) => void;
+    } | undefined;
+    await act(async () => {
+      actions?.onNewThreadStartInTargetChange?.({ runInTarget: "newWorktree" });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const propsAfter = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(JSON.stringify(propsAfter?.newThreadTarget).includes('"runInTarget":"newWorktree"')).toBeTrue();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(startThreadForSessionCalls.length).toBe(1);
+    expect(JSON.stringify(startThreadForSessionCalls[0])).toBe(JSON.stringify({
+      projectId: "alpha",
+      sessionId: "overview:alpha",
+      prompt: "Start from session",
+      runInTarget: "newWorktree",
+      runInEnvironmentPath: null,
+      worktreeStartMode: "detachedHead",
+      worktreeBranchPrefix: "nodex/",
+      collaborationMode: "default",
+    }));
   });
 
   test("collapsed right panel opens from the global side-panel toggle", async () => {
