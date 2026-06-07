@@ -89,6 +89,13 @@ function readSha256(filePath: string): string {
   return createHash("sha256").update(readFileSync(filePath)).digest("hex");
 }
 
+function resolveFirstExistingPath(label: string, candidates: string[]): string {
+  const match = candidates.find((candidate) => existsSync(candidate));
+  if (match) return match;
+
+  throw new Error(`Missing bundled ${label}. Checked:\n${candidates.map((candidate) => `- ${candidate}`).join("\n")}`);
+}
+
 function replaceDirectory(sourceDir: string, destinationDir: string): void {
   rmSync(destinationDir, { recursive: true, force: true });
   renameSync(sourceDir, destinationDir);
@@ -99,15 +106,14 @@ export function stageCodexRuntime(options: StageCodexRuntimeOptions): BundledCod
   const packageRoot = options.packageRoot ? resolve(options.packageRoot) : resolveCodexRuntimePackageRoot(target.packageName);
   const packageVersion = readPackageVersion(packageRoot);
   const vendorRoot = join(packageRoot, "vendor", target.targetTriple);
-  const codexSourcePath = join(vendorRoot, "codex", "codex");
-  const rgSourcePath = join(vendorRoot, "path", "rg");
-
-  if (!existsSync(codexSourcePath)) {
-    throw new Error(`Missing bundled Codex binary at ${codexSourcePath}`);
-  }
-  if (!existsSync(rgSourcePath)) {
-    throw new Error(`Missing bundled rg binary at ${rgSourcePath}`);
-  }
+  const codexSourcePath = resolveFirstExistingPath("Codex binary", [
+    join(vendorRoot, "bin", "codex"),
+    join(vendorRoot, "codex", "codex"),
+  ]);
+  const rgSourcePath = resolveFirstExistingPath("rg binary", [
+    join(vendorRoot, "codex-path", "rg"),
+    join(vendorRoot, "path", "rg"),
+  ]);
 
   const outputPath = resolve(options.outputPath);
   const outputParent = dirname(outputPath);
