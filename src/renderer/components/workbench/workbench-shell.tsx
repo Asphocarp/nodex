@@ -13,11 +13,7 @@ import {
   ChevronDown,
   FolderOpen,
   Globe2,
-  Maximize2,
   MessageSquare,
-  PanelRightClose,
-  PanelRightOpen,
-  Minimize2,
   PenLine,
   Plus,
   SquareKanban,
@@ -83,6 +79,14 @@ import {
   SIDEBAR_HOVER_OPEN_DELAY_MS,
   SIDEBAR_HOVER_TRIGGER_WIDTH_PX,
 } from "@/lib/floating-sidebar";
+import {
+  CodexExpandPanelIcon,
+  CodexPanelLeftHiddenIcon,
+  CodexPanelLeftVisibleIcon,
+  CodexPanelRightHiddenIcon,
+  CodexPanelRightVisibleIcon,
+  CodexRestorePanelIcon,
+} from "@/components/shared/icons";
 
 const COLLAPSE_CONTROL_TRAFFIC_LIGHT_OFFSET_PX = 90;
 const RIGHT_PANEL_DEFAULT_WIDTH = 600;
@@ -773,19 +777,48 @@ export function WorkbenchShell({
     sidebarCollapsed,
   ]);
 
-  const rightPanelActions = activeSession ? (
+  const sessionCreationControls = activeSession ? (
     <>
-      <ToolbarIconButton
-        label={rightPanelFullWidth ? "Restore panel width" : "Expand panel"}
-        pressed={rightPanelFullWidth}
-        onClick={toggleActiveRightPanelFullWidth}
-      >
-        {rightPanelFullWidth ? <Minimize2 className="icon-sm" /> : <Maximize2 className="icon-sm" />}
-      </ToolbarIconButton>
-      <ToolbarIconButton label="Hide right panel" onClick={() => void hideActiveRightPanel()}>
-        <PanelRightClose className="icon-sm" />
-      </ToolbarIconButton>
+      <button type="button" className={TOOLBAR_BUTTON_CLASS} onClick={() => void createManualTab("db_view")} title="Add DB view" aria-label="Add DB view">
+        <Table2 className="icon-sm" />
+      </button>
+      <button type="button" className={TOOLBAR_BUTTON_CLASS} onClick={() => void createManualTab("card_stage")} title="Add card stage" aria-label="Add card stage">
+        <SquareKanban className="icon-sm" />
+      </button>
+      <button type="button" className={TOOLBAR_BUTTON_CLASS} onClick={() => void createManualTab("terminal")} title="Add terminal" aria-label="Add terminal">
+        <Terminal className="icon-sm" />
+      </button>
+      <button type="button" className={TOOLBAR_BUTTON_CLASS} onClick={() => void createManualTab("browser_placeholder")} title="Add browser placeholder" aria-label="Add browser placeholder">
+        <Globe2 className="icon-sm" />
+      </button>
     </>
+  ) : null;
+
+  const threadHeaderControls = activeSession ? (
+    <ToolbarIconButton label={activeSession.thread ? "Detach thread" : "Attach thread"} onClick={activeSession.thread ? detachThread : attachThread}>
+      {activeSession.thread ? <MessageSquare className="icon-sm" /> : <Plus className="icon-sm" />}
+    </ToolbarIconButton>
+  ) : null;
+
+  const rightPanelHeaderControls = activeSession ? (
+    activeSession.rightPaneCollapsed ? (
+      <ToolbarIconButton label="Show right panel" onClick={() => void showActiveRightPanel()}>
+        <CodexPanelRightHiddenIcon className="icon-sm" />
+      </ToolbarIconButton>
+    ) : (
+      <>
+        <ToolbarIconButton
+          label={rightPanelFullWidth ? "Restore panel width" : "Expand panel"}
+          pressed={rightPanelFullWidth}
+          onClick={toggleActiveRightPanelFullWidth}
+        >
+          {rightPanelFullWidth ? <CodexRestorePanelIcon className="icon-sm" /> : <CodexExpandPanelIcon className="icon-sm" />}
+        </ToolbarIconButton>
+        <ToolbarIconButton label="Hide right panel" onClick={() => void hideActiveRightPanel()}>
+          <CodexPanelRightVisibleIcon className="icon-sm" />
+        </ToolbarIconButton>
+      </>
+    )
   ) : null;
 
   const isMacPlatform = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
@@ -799,103 +832,58 @@ export function WorkbenchShell({
       aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
       className="no-drag inline-flex size-6 items-center justify-center rounded-lg text-(--foreground-secondary) hover:bg-(--background-secondary) hover:text-(--foreground)"
     >
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
-        <rect x="0.75" y="0.75" width="12.5" height="12.5" rx="2.5" stroke="currentColor" strokeWidth="1.5" />
-        <line
-          x1="4.5"
-          y1="1.5"
-          x2="4.5"
-          y2="12.5"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          style={{ opacity: sidebarCollapsed ? 1 : 0 }}
-        />
-        <rect
-          x="3.5"
-          y="3.5"
-          width="2"
-          height="7"
-          rx="0.75"
-          fill="currentColor"
-          style={{ opacity: sidebarCollapsed ? 0 : 1 }}
-        />
-      </svg>
+      {sidebarCollapsed ? <CodexPanelLeftHiddenIcon className="size-4" /> : <CodexPanelLeftVisibleIcon className="size-4" />}
     </button>
   );
 
   return (
     <NodexTooltipProvider>
-      <div className="relative flex h-screen min-h-0 text-token-text-primary">
-      {sidebarCollapsed ? (
-        <div
-          aria-hidden
-          data-sidebar-hover-trigger="true"
-          className="absolute inset-y-0 left-0 z-40"
-          style={{ width: SIDEBAR_HOVER_TRIGGER_WIDTH_PX }}
-          onMouseEnter={scheduleHoverSidebarOpen}
-          onMouseLeave={clearHoverSidebarOpenTimeout}
-        />
-      ) : null}
-
-      {showInlineSidebar ? (
-        <ProjectSessionSidebar
-          projects={projects}
-          spaces={spaces}
-          workspaces={workspaces}
-          activeProjectId={activeProjectId}
-          activeSessionId={activeSession?.id ?? null}
-          activeWorkspaceId={activeWorkspaceId}
-          sessionsByProject={sessionsByProject}
-          expandedProjectIds={expandedProjectIds}
-          loadingSessions={loadingSessions}
-          width={sidebarWidth}
-          onResizeWidth={applySidebarWidth}
-          onToggleProjectExpanded={(projectId) => {
-            setExpandedProjectIds((current) => {
-              const next = new Set(current);
-              if (next.has(projectId)) next.delete(projectId);
-              else next.add(projectId);
-              return next;
-            });
-          }}
-          onSelectProject={selectProject}
-          onSelectSession={selectSession}
-          onCreateSession={createSession}
-          onCreateProject={async (...args) => {
-            const project = await onCreateProject(...args);
-            await refreshAllSessions();
-            return project;
-          }}
-          onRenameProject={onRenameProject ?? (async () => null)}
-          onDeleteProject={onDeleteProject ?? (async () => false)}
-          onSelectWorkspace={onSelectWorkspace}
-          onCreateWorkspace={onCreateWorkspace ?? (async () => undefined)}
-          onRenameWorkspace={onRenameWorkspace ?? (async () => undefined)}
-          onDeleteWorkspace={onDeleteWorkspace ?? (async () => undefined)}
-          onOpenSettings={() => undefined}
-        />
-      ) : null}
-
-      {showFloatingSidebar ? (
-        <div
-          aria-hidden={!hoverSidebarOpen}
-          className="pointer-events-none absolute inset-y-0 left-0 z-50"
+      <div
+        className="relative flex flex-col text-token-text-primary"
+        style={{
+          "--spacing-token-safe-header-left": isMacPlatform ? "128px" : "12px",
+          "--spacing-token-safe-header-right": "12px",
+          width: "calc(100vw / var(--codex-window-zoom, 1))",
+          height: "calc(100vh / var(--codex-window-zoom, 1))",
+          zoom: "var(--codex-window-zoom, 1)",
+        } as React.CSSProperties}
+      >
+        <header
+          data-testid="workbench-global-header"
+          className="app-header-tint draggable pointer-events-none fixed inset-x-0 top-0 z-30 flex h-toolbar min-w-0 items-center"
         >
           <div
-            data-testid="floating-project-session-sidebar-shell"
-            className="absolute inset-y-0 overflow-hidden rounded-r-2xl border border-l-0 border-(--border)"
+            className="no-drag pointer-events-auto flex min-w-0 items-center gap-3 px-3"
             style={{
-              width: sidebarWidth,
-              left: hoverSidebarOpen ? 0 : -sidebarWidth,
-              boxShadow: hoverSidebarOpen ? "0 24px 56px rgba(0,0,0,0.24)" : "none",
-              pointerEvents: hoverSidebarOpen ? "auto" : "none",
-              transitionProperty: "left, box-shadow",
-              transitionDuration: `${FLOATING_SIDEBAR_TRANSITION_DURATION_MS}ms`,
-              transitionTimingFunction: FLOATING_SIDEBAR_TRANSITION_TIMING_FUNCTION,
+              marginLeft: showInlineSidebar ? sidebarWidth : "var(--spacing-token-safe-header-left)",
+              maxWidth: "calc(100% - var(--spacing-token-safe-header-right) - 12rem)",
             }}
-            onMouseEnter={clearHoverSidebarCloseTimeout}
-            onMouseLeave={scheduleHoverSidebarClose}
           >
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium">{activeSession?.title ?? "No session"}</div>
+              <div className="truncate text-xs text-token-text-tertiary">{activeProject ? getProjectLabel(activeProject) : "No project"}</div>
+            </div>
+            <div className="hidden items-center gap-1 sm:flex">{sessionCreationControls}</div>
+          </div>
+          <div className="no-drag pointer-events-auto ml-auto flex items-center gap-1 px-2">
+            {threadHeaderControls}
+            {rightPanelHeaderControls}
+          </div>
+        </header>
+
+        <div className="relative flex max-h-full min-h-0 w-full flex-1">
+          {sidebarCollapsed ? (
+            <div
+              aria-hidden
+              data-sidebar-hover-trigger="true"
+              className="absolute inset-y-0 left-0 z-40"
+              style={{ width: SIDEBAR_HOVER_TRIGGER_WIDTH_PX }}
+              onMouseEnter={scheduleHoverSidebarOpen}
+              onMouseLeave={clearHoverSidebarOpenTimeout}
+            />
+          ) : null}
+
+          {showInlineSidebar ? (
             <ProjectSessionSidebar
               projects={projects}
               spaces={spaces}
@@ -932,119 +920,167 @@ export function WorkbenchShell({
               onDeleteWorkspace={onDeleteWorkspace ?? (async () => undefined)}
               onOpenSettings={() => undefined}
             />
-          </div>
-        </div>
-      ) : null}
+          ) : null}
 
-      <main className="main-surface flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex h-toolbar shrink-0 items-center justify-between border-b border-token-border px-3">
-          <div className="min-w-0">
-            <div className="truncate text-sm font-medium">{activeSession?.title ?? "No session"}</div>
-            <div className="truncate text-xs text-token-text-tertiary">{activeProject ? getProjectLabel(activeProject) : "No project"}</div>
-          </div>
-          <div className="flex items-center gap-1">
-            {activeSession ? (
-              <>
-                <button type="button" className={TOOLBAR_BUTTON_CLASS} onClick={() => void createManualTab("db_view")} title="Add DB view" aria-label="Add DB view">
-                  <Table2 className="icon-sm" />
-                </button>
-                <button type="button" className={TOOLBAR_BUTTON_CLASS} onClick={() => void createManualTab("card_stage")} title="Add card stage" aria-label="Add card stage">
-                  <SquareKanban className="icon-sm" />
-                </button>
-                <button type="button" className={TOOLBAR_BUTTON_CLASS} onClick={() => void createManualTab("terminal")} title="Add terminal" aria-label="Add terminal">
-                  <Terminal className="icon-sm" />
-                </button>
-                <button type="button" className={TOOLBAR_BUTTON_CLASS} onClick={() => void createManualTab("browser_placeholder")} title="Add browser placeholder" aria-label="Add browser placeholder">
-                  <Globe2 className="icon-sm" />
-                </button>
-              </>
-            ) : null}
-          </div>
-        </header>
-
-        {sessionError ? (
-          <div className="border-b border-token-border px-3 py-2 text-xs text-token-text-secondary">{sessionError}</div>
-        ) : null}
-
-        {activeSession ? (
-          <div ref={sessionContentRef} className="flex min-h-0 flex-1 overflow-hidden">
-            <section
-              data-testid="session-thread-page"
-              data-session-thread-page-hidden={rightPanelFullWidth ? "true" : "false"}
-              aria-hidden={rightPanelFullWidth ? "true" : undefined}
-              className="relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-token-main-surface-primary"
-              style={{
-                flex: rightPanelFullWidth ? "0 0 0px" : "1 1 0%",
-                width: rightPanelFullWidth ? 0 : undefined,
-              }}
+          {showFloatingSidebar ? (
+            <div
+              aria-hidden={!hoverSidebarOpen}
+              className="pointer-events-none absolute inset-y-0 left-0 z-50"
             >
-              <SessionThreadPage
-                session={activeSession}
-                project={activeProject}
-                showRightPanelButton={activeSession.rightPaneCollapsed}
-                onShowRightPanel={showActiveRightPanel}
-                onAttachThread={attachThread}
-                onDetachThread={detachThread}
-                onRefreshThreads={async () => {
-                  await refreshProjectSessions(activeSession.projectId);
+              <div
+                data-testid="floating-project-session-sidebar-shell"
+                className="absolute inset-y-0 overflow-hidden rounded-r-2xl border border-l-0 border-(--border)"
+                style={{
+                  width: sidebarWidth,
+                  left: hoverSidebarOpen ? 0 : -sidebarWidth,
+                  boxShadow: hoverSidebarOpen ? "0 24px 56px rgba(0,0,0,0.24)" : "none",
+                  pointerEvents: hoverSidebarOpen ? "auto" : "none",
+                  transitionProperty: "left, box-shadow",
+                  transitionDuration: `${FLOATING_SIDEBAR_TRANSITION_DURATION_MS}ms`,
+                  transitionTimingFunction: FLOATING_SIDEBAR_TRANSITION_TIMING_FUNCTION,
                 }}
-                searchOpenTick={threadSearchOpenTick}
-                onOpenCard={(cardId) => {
-                  if (!activeProject) return;
-                  void openCardTab(activeProject.id, cardId, cardId);
-                }}
-              />
-            </section>
-
-            {!activeSession.rightPaneCollapsed ? (
-              <section
-                data-testid="session-right-panel"
-                data-right-panel-width-mode={rightPanelFullWidth ? "full" : "regular"}
-                className={cn(
-                  "relative ml-auto flex min-h-0 shrink-0 flex-col bg-token-main-surface-primary shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-token-border)_75%,transparent)]",
-                  !rightPanelFullWidth && "border-l border-token-border",
-                )}
-                style={{ width: rightPanelFullWidth ? "100%" : regularRightPanelWidth }}
+                onMouseEnter={clearHoverSidebarCloseTimeout}
+                onMouseLeave={scheduleHoverSidebarClose}
               >
-                {!rightPanelFullWidth ? (
-                  <div
-                    role="separator"
-                    aria-orientation="vertical"
-                    aria-label="Resize right panel"
-                    className="group absolute inset-y-0 -left-2 z-20 flex w-4 cursor-col-resize touch-none select-none"
-                    onMouseDown={resizeRightPanel}
-                  >
-                    <div className="pointer-events-none m-auto h-full w-px bg-transparent group-hover:bg-token-border" />
-                  </div>
-                ) : null}
+                <ProjectSessionSidebar
+                  projects={projects}
+                  spaces={spaces}
+                  workspaces={workspaces}
+                  activeProjectId={activeProjectId}
+                  activeSessionId={activeSession?.id ?? null}
+                  activeWorkspaceId={activeWorkspaceId}
+                  sessionsByProject={sessionsByProject}
+                  expandedProjectIds={expandedProjectIds}
+                  loadingSessions={loadingSessions}
+                  width={sidebarWidth}
+                  onResizeWidth={applySidebarWidth}
+                  onToggleProjectExpanded={(projectId) => {
+                    setExpandedProjectIds((current) => {
+                      const next = new Set(current);
+                      if (next.has(projectId)) next.delete(projectId);
+                      else next.add(projectId);
+                      return next;
+                    });
+                  }}
+                  onSelectProject={selectProject}
+                  onSelectSession={selectSession}
+                  onCreateSession={createSession}
+                  onCreateProject={async (...args) => {
+                    const project = await onCreateProject(...args);
+                    await refreshAllSessions();
+                    return project;
+                  }}
+                  onRenameProject={onRenameProject ?? (async () => null)}
+                  onDeleteProject={onDeleteProject ?? (async () => false)}
+                  onSelectWorkspace={onSelectWorkspace}
+                  onCreateWorkspace={onCreateWorkspace ?? (async () => undefined)}
+                  onRenameWorkspace={onRenameWorkspace ?? (async () => undefined)}
+                  onDeleteWorkspace={onDeleteWorkspace ?? (async () => undefined)}
+                  onOpenSettings={() => undefined}
+                />
+              </div>
+            </div>
+          ) : null}
 
-                {tabItems.length > 0 && activeTab ? (
-                  <AppShellTabs
-                    tabs={tabItems}
-                    activeTabId={activeTab.id}
-                    controllerId={`session-${activeSession.id}`}
-                    onSelect={(tabId) => void setActiveTab(tabId)}
-                    onCloseTab={(tabId) => void closeTab(tabId)}
-                    onReorderTab={(dragId, overId) => void reorderTabs(dragId, overId)}
-                    afterList={rightPanelActions}
-                  />
-                ) : (
-                  <div className="flex h-full min-h-0 flex-col">
-                    <div className="flex h-toolbar-pane min-w-0 shrink-0 items-center justify-end bg-token-main-surface-primary px-2">
-                      {rightPanelActions}
-                    </div>
-                    <EmptyRightPane onCreateDbTab={() => void createManualTab("db_view")} />
+          <main className="main-surface relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            {activeSession ? (
+              <div ref={sessionContentRef} className="relative flex min-h-0 flex-1 overflow-hidden">
+                <section
+                  data-testid="session-thread-page"
+                  data-session-thread-page-hidden={rightPanelFullWidth ? "true" : "false"}
+                  data-app-shell-main-content-layout="thread-edge-scroll"
+                  aria-hidden={rightPanelFullWidth ? "true" : undefined}
+                  className={cn(
+                    "app-shell-main-content-viewport relative flex min-h-0 min-w-0 flex-col",
+                    rightPanelFullWidth ? "w-0 flex-none overflow-hidden" : "flex-1",
+                  )}
+                >
+                  <div
+                    className="app-shell-main-content-frame relative flex min-h-0 flex-1 flex-col border-t border-token-border"
+                    style={{ marginTop: "var(--app-shell-main-content-frame-top-offset)" }}
+                  >
+                    <div
+                      aria-hidden="true"
+                      data-app-shell-main-content-top-fade="visible"
+                      className="app-shell-main-content-top-fade pointer-events-none absolute inset-x-0 top-0 z-10 h-8 bg-linear-to-b from-token-main-surface-primary to-transparent opacity-0"
+                    />
+                    {sessionError ? (
+                      <div className="border-b border-token-border px-3 py-2 text-xs text-token-text-secondary">{sessionError}</div>
+                    ) : null}
+                    <SessionThreadPage
+                      session={activeSession}
+                      project={activeProject}
+                      onRefreshThreads={async () => {
+                        await refreshProjectSessions(activeSession.projectId);
+                      }}
+                      searchOpenTick={threadSearchOpenTick}
+                      onOpenCard={(cardId) => {
+                        if (!activeProject) return;
+                        void openCardTab(activeProject.id, cardId, cardId);
+                      }}
+                    />
                   </div>
-                )}
-              </section>
-            ) : null}
-          </div>
-        ) : (
-          <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-token-text-secondary">
-            Select a project session.
-          </div>
-        )}
-      </main>
+                </section>
+
+                {!activeSession.rightPaneCollapsed ? (
+                  <section
+                    data-app-shell-focus-area="right-panel"
+                    data-testid="session-right-panel"
+                    data-right-panel-width-mode={rightPanelFullWidth ? "full" : "regular"}
+                    className="relative ml-auto h-full min-h-0 min-w-0 shrink-0 overflow-visible"
+                    style={{ width: rightPanelFullWidth ? "100%" : regularRightPanelWidth }}
+                  >
+                    {!rightPanelFullWidth ? (
+                      <div
+                        role="separator"
+                        aria-orientation="vertical"
+                        aria-label="Resize right panel"
+                        className="group absolute top-0 bottom-0 left-0 z-40 flex w-4 -translate-x-2 cursor-col-resize touch-none select-none active:cursor-col-resize"
+                        onMouseDown={resizeRightPanel}
+                      >
+                        <div className="pointer-events-none m-auto h-full w-px bg-linear-to-b from-transparent via-token-foreground/25 to-transparent opacity-0 group-hover:opacity-100 group-active:opacity-100" />
+                      </div>
+                    ) : null}
+
+                    <div className="absolute inset-0 min-w-0 overflow-hidden">
+                      <div
+                        className={cn(
+                          "absolute top-0 bottom-0 left-0 min-w-0 bg-token-main-surface-primary",
+                          !rightPanelFullWidth && "border-l border-token-border",
+                        )}
+                        style={{
+                          width: rightPanelFullWidth ? "100%" : regularRightPanelWidth,
+                          "--thread-content-top-inset": "calc(var(--spacing) * 8)",
+                        } as React.CSSProperties}
+                      >
+                        {tabItems.length > 0 && activeTab ? (
+                          <AppShellTabs
+                            tabs={tabItems}
+                            activeTabId={activeTab.id}
+                            controllerId={`session-${activeSession.id}`}
+                            onSelect={(tabId) => void setActiveTab(tabId)}
+                            onCloseTab={(tabId) => void closeTab(tabId)}
+                            onReorderTab={(dragId, overId) => void reorderTabs(dragId, overId)}
+                            headerHeight="toolbar"
+                          />
+                        ) : (
+                          <div className="flex h-full min-h-0 flex-col">
+                            <div className="flex h-toolbar min-w-0 shrink-0 items-center justify-end bg-token-main-surface-primary px-2" />
+                            <EmptyRightPane onCreateDbTab={() => void createManualTab("db_view")} />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </section>
+                ) : null}
+              </div>
+            ) : (
+              <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-token-text-secondary">
+                Select a project session.
+              </div>
+            )}
+          </main>
+        </div>
 
       {isMacPlatform ? (
         <div
@@ -1437,20 +1473,12 @@ function ToolbarIconButton({
 function SessionThreadPage({
   session,
   project,
-  showRightPanelButton,
-  onShowRightPanel,
-  onAttachThread,
-  onDetachThread,
   onRefreshThreads,
   onOpenCard,
   searchOpenTick,
 }: {
   session: ProjectSession;
   project: Project | null;
-  showRightPanelButton: boolean;
-  onShowRightPanel: () => void | Promise<void>;
-  onAttachThread: () => void;
-  onDetachThread: () => void;
   onRefreshThreads: () => Promise<void>;
   onOpenCard: (cardId: string) => void;
   searchOpenTick: number;
@@ -1487,22 +1515,6 @@ function SessionThreadPage({
 
   return (
     <div className="h-full min-h-0">
-      <div className="absolute right-2 top-2 z-30 flex items-center gap-1">
-        {showRightPanelButton ? (
-          <ToolbarIconButton label="Show right panel" onClick={() => void onShowRightPanel()} className="bg-token-main-surface-primary">
-            <PanelRightOpen className="icon-sm" />
-          </ToolbarIconButton>
-        ) : null}
-        {session.thread ? (
-          <ToolbarIconButton label="Detach thread" onClick={onDetachThread} className="bg-token-main-surface-primary">
-            <MessageSquare className="icon-sm" />
-          </ToolbarIconButton>
-        ) : (
-          <ToolbarIconButton label="Attach thread" onClick={onAttachThread} className="bg-token-main-surface-primary">
-            <Plus className="icon-sm" />
-          </ToolbarIconButton>
-        )}
-      </div>
       <ConnectedThreadStage
         projectId={projectId}
         projectWorkspacePath={project?.workspacePath ?? null}

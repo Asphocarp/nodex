@@ -17,6 +17,11 @@ const meta = {
   title: "Workbench/Project session shell",
   parameters: {
     layout: "fullscreen",
+    docs: {
+      description: {
+        component: "Codex Electron-style project session shell with fixed global toolbar controls and a top-level right panel.",
+      },
+    },
   },
   args: {
     activeTab: "browser",
@@ -421,7 +426,15 @@ function replaceSession(
   );
 }
 
-export const MixedRightTabs: Story = {};
+export const MixedRightTabs: Story = {
+  parameters: {
+    docs: {
+      description: {
+        story: "Regular 600px right panel with show/expand/hide controls in the fixed global toolbar.",
+      },
+    },
+  },
+};
 
 export const AttachedThreadPage: Story = {
   args: {
@@ -434,12 +447,26 @@ export const CollapsedRightPanel: Story = {
   args: {
     rightPanel: "collapsed",
   },
+  parameters: {
+    docs: {
+      description: {
+        story: "Collapsed right panel with the side-panel toggle still available at the top-right of the global toolbar.",
+      },
+    },
+  },
 };
 
 export const FullWidthRightPanel: Story = {
   args: {
     rightPanel: "full",
     activeTab: "terminal",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Expanded right panel with the main thread viewport collapsed to zero width under the same fixed toolbar.",
+      },
+    },
   },
 };
 

@@ -12,6 +12,8 @@ import { render, settleAsyncRender, textContent } from "../../test/dom";
 let invokeCalls: unknown[][] = [];
 let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
 let startThreadForSessionCalls: unknown[] = [];
+const CODEX_PANEL_VISIBLE_ICON_PREFIX = "M16.835 8.66301";
+const CODEX_PANEL_HIDDEN_ICON_PREFIX = "M6.83496 3.99992";
 
 const mockCodexControl = {
   availableModels: [
@@ -529,7 +531,7 @@ describe("workbench session shell", () => {
     expect(invokeCalls.some((call) => call[0] === "project-sessions:list" && call[1] === "alpha")).toBeTrue();
   });
 
-  test("collapsed right panel opens from the thread page control", async () => {
+  test("collapsed right panel opens from the global header control", async () => {
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [makeSession({ rightPaneCollapsed: true })] },
     });
@@ -537,9 +539,14 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     expect(screen.queryAllByRole("tablist").length).toBe(0);
+    const globalHeader = screen.container.querySelector('[data-testid="workbench-global-header"]');
+    const showButton = screen.getByRole("button", { name: "Show right panel" });
+    const showIconPath = showButton.querySelector("path")?.getAttribute("d") ?? "";
+    expect(globalHeader?.contains(showButton)).toBeTrue();
+    expect(showIconPath.startsWith(CODEX_PANEL_VISIBLE_ICON_PREFIX)).toBeTrue();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Show right panel" }));
+      fireEvent.click(showButton);
       await Promise.resolve();
     });
     await settleAsyncRender();
@@ -557,16 +564,30 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
+    const globalHeader = screen.container.querySelector('[data-testid="workbench-global-header"]');
+    const expandButton = screen.getByRole("button", { name: "Expand panel" });
+    const hideButton = screen.getByRole("button", { name: "Hide right panel" });
+    const hideIconPath = hideButton.querySelector("path")?.getAttribute("d") ?? "";
+    expect(globalHeader?.contains(expandButton)).toBeTrue();
+    expect(globalHeader?.contains(hideButton)).toBeTrue();
+    expect(hideIconPath.startsWith(CODEX_PANEL_HIDDEN_ICON_PREFIX)).toBeTrue();
+
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Expand panel" }));
+      fireEvent.click(expandButton);
       await Promise.resolve();
     });
 
     const rightPanel = screen.container.querySelector('[data-testid="session-right-panel"]');
     const threadPage = screen.container.querySelector('[data-testid="session-thread-page"]');
     expect(rightPanel?.getAttribute("data-right-panel-width-mode")).toBe("full");
+    expect(rightPanel?.getAttribute("data-app-shell-focus-area")).toBe("right-panel");
+    expect(rightPanel?.className.includes("shadow-xl")).toBeFalse();
     expect(threadPage?.getAttribute("data-session-thread-page-hidden")).toBe("true");
-    expect(screen.getByRole("button", { name: "Restore panel width" }).getAttribute("aria-pressed")).toBe("true");
+    expect(threadPage?.className.includes("w-0")).toBeTrue();
+    expect(threadPage?.className.includes("flex-none")).toBeTrue();
+    const restoreButton = screen.getByRole("button", { name: "Restore panel width" });
+    expect(globalHeader?.contains(restoreButton)).toBeTrue();
+    expect(restoreButton.getAttribute("aria-pressed")).toBe("true");
   });
 
   test("manual tab creation opens a collapsed right panel", async () => {

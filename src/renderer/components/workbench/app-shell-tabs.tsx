@@ -51,6 +51,7 @@ interface AppShellTabsProps {
   onCloseTab?: (tabId: string) => void;
   onReorderTab?: (activeId: string, overId: string) => void;
   afterList?: ReactNode;
+  headerHeight?: "pane" | "toolbar";
   className?: string;
 }
 
@@ -115,6 +116,7 @@ export function AppShellTabs({
   onCloseTab,
   onReorderTab,
   afterList,
+  headerHeight = "pane",
   className,
 }: AppShellTabsProps) {
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
@@ -171,7 +173,12 @@ export function AppShellTabs({
 
   return (
     <div className={cn("flex h-full min-h-0 flex-col bg-token-main-surface-primary", className)}>
-      <div className="flex h-toolbar-pane min-w-0 shrink-0 items-center bg-token-main-surface-primary px-2">
+      <div
+        className={cn(
+          "flex min-w-0 shrink-0 items-center bg-token-main-surface-primary px-2",
+          headerHeight === "toolbar" ? "h-toolbar" : "h-toolbar-pane",
+        )}
+      >
         <div
           className="hide-scrollbar relative flex h-full min-w-0 flex-1 scroll-px-1 items-center overflow-x-auto overflow-y-hidden"
           style={{ scrollPaddingInlineEnd: 0 }}
