@@ -2173,11 +2173,11 @@ function resolveStoryOpenCardTarget(
     };
   }
 
-  if (runtime.isNewThreadTab && runtime.newThreadTarget) {
+  if (runtime.isNewThreadTab && runtime.newThreadTarget?.cardId && runtime.newThreadTarget.cardTitle) {
     return {
       cardId: runtime.newThreadTarget.cardId,
       title: runtime.newThreadTarget.cardTitle,
-      columnId: runtime.newThreadTarget.columnId,
+      columnId: runtime.newThreadTarget.columnId ?? null,
     };
   }
 

@@ -36,7 +36,7 @@ import { TerminalPanel } from "./workbench-terminal-panel";
 import { ProjectManagerPopover, ProjectMark } from "./left-sidebar-project-manager";
 import { LeftSidebarWorkspaceManager } from "./left-sidebar-workspace-manager";
 import { NodexTooltip, NodexTooltipProvider } from "@/components/ui/tooltip";
-import { ConnectedThreadStage } from "@/features/local-conversation";
+import { ConnectedThreadStage, useCodexAppServerControl } from "@/features/local-conversation";
 import {
   loadCalendarViewState,
   normalizeCalendarAnchorDate,
@@ -56,6 +56,8 @@ import type {
   CardInput,
   CardUpdateMutationResult,
   CodexAccountSnapshot,
+  CodexCollaborationModeKind,
+  CodexCollaborationModePreset,
   CodexThreadSummary,
   Project,
   ProjectSession,
@@ -983,6 +985,9 @@ export function WorkbenchShell({
                 onShowRightPanel={showActiveRightPanel}
                 onAttachThread={attachThread}
                 onDetachThread={detachThread}
+                onRefreshThreads={async () => {
+                  await refreshProjectSessions(activeSession.projectId);
+                }}
                 searchOpenTick={threadSearchOpenTick}
                 onOpenCard={(cardId) => {
                   if (!activeProject) return;
@@ -1436,6 +1441,7 @@ function SessionThreadPage({
   onShowRightPanel,
   onAttachThread,
   onDetachThread,
+  onRefreshThreads,
   onOpenCard,
   searchOpenTick,
 }: {
@@ -1445,37 +1451,39 @@ function SessionThreadPage({
   onShowRightPanel: () => void | Promise<void>;
   onAttachThread: () => void;
   onDetachThread: () => void;
+  onRefreshThreads: () => Promise<void>;
   onOpenCard: (cardId: string) => void;
   searchOpenTick: number;
 }) {
-  if (!session.thread || !project) {
-    return (
-      <div className="flex h-full min-h-0 flex-col">
-        <div className="flex h-toolbar-pane items-center justify-between px-3">
-          <div className="min-w-0">
-            <div className="truncate text-sm font-medium">Thread</div>
-            <div className="text-xs text-token-text-tertiary">No thread attached</div>
-          </div>
-          <div className="flex items-center gap-1">
-            {showRightPanelButton ? (
-              <ToolbarIconButton label="Show right panel" onClick={() => void onShowRightPanel()}>
-                <PanelRightOpen className="icon-sm" />
-              </ToolbarIconButton>
-            ) : null}
-            <ToolbarIconButton label="Attach thread" onClick={onAttachThread}>
-              <Plus className="icon-sm" />
-            </ToolbarIconButton>
-          </div>
-        </div>
-        <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-token-text-secondary">
-          Attach an existing Codex thread to use this session page.
-        </div>
-      </div>
-    );
-  }
+  const projectId = project?.id ?? session.projectId;
+  const codexControl = useCodexAppServerControl(projectId);
+  const [collaborationModes, setCollaborationModes] = useState<CodexCollaborationModePreset[]>([]);
+  const [selectedCollaborationMode, setSelectedCollaborationMode] = useState<CodexCollaborationModeKind>("default");
+  const summary = session.thread ? makeThreadSummary(session.thread) : null;
 
-  const summary = makeThreadSummary(session.thread);
-  const actions = makeNoopThreadStageActions(onOpenCard);
+  useEffect(() => {
+    void codexControl.loadModels().catch(() => undefined);
+    void codexControl.listCollaborationModes()
+      .then(setCollaborationModes)
+      .catch(() => setCollaborationModes([]));
+  }, [codexControl.loadModels, codexControl.listCollaborationModes, projectId]);
+
+  const actions = useMemo(() => makeSessionThreadStageActions({
+    activeThreadId: summary?.threadId ?? null,
+    codexControl,
+    onOpenCard,
+    onRefreshThreads,
+    projectId,
+    selectedCollaborationMode,
+    setSelectedCollaborationMode,
+  }), [
+    codexControl,
+    onOpenCard,
+    onRefreshThreads,
+    projectId,
+    selectedCollaborationMode,
+    summary?.threadId,
+  ]);
 
   return (
     <div className="h-full min-h-0">
@@ -1485,25 +1493,37 @@ function SessionThreadPage({
             <PanelRightOpen className="icon-sm" />
           </ToolbarIconButton>
         ) : null}
-        <ToolbarIconButton label="Detach thread" onClick={onDetachThread} className="bg-token-main-surface-primary">
-          <MessageSquare className="icon-sm" />
-        </ToolbarIconButton>
+        {session.thread ? (
+          <ToolbarIconButton label="Detach thread" onClick={onDetachThread} className="bg-token-main-surface-primary">
+            <MessageSquare className="icon-sm" />
+          </ToolbarIconButton>
+        ) : (
+          <ToolbarIconButton label="Attach thread" onClick={onAttachThread} className="bg-token-main-surface-primary">
+            <Plus className="icon-sm" />
+          </ToolbarIconButton>
+        )}
       </div>
       <ConnectedThreadStage
-        projectId={project.id}
-        projectWorkspacePath={project.workspacePath ?? null}
-        isNewThreadTab={false}
-        newThreadTarget={null}
+        projectId={projectId}
+        projectWorkspacePath={project?.workspacePath ?? null}
+        isNewThreadTab={!summary}
+        newThreadTarget={summary ? null : {
+          projectId,
+          projectName: project?.name ?? projectId,
+          sessionId: session.id,
+          threadTitle: "New thread",
+          runInTarget: "localProject",
+        }}
         threadStartProgress={null}
-        activeThreadId={summary.threadId}
+        activeThreadId={summary?.threadId ?? null}
         activeThreadSummary={summary}
-        availableModels={[]}
-        collaborationModes={[]}
-        selectedCollaborationMode="default"
-        selectedModel=""
-        selectedReasoningEffort="medium"
-        reasoningEffortOptions={[]}
-        permissionMode="auto"
+        availableModels={codexControl.availableModels}
+        collaborationModes={collaborationModes}
+        selectedCollaborationMode={selectedCollaborationMode}
+        selectedModel={codexControl.threadSettings.model ?? ""}
+        selectedReasoningEffort={codexControl.threadSettings.reasoningEffort ?? "medium"}
+        reasoningEffortOptions={codexControl.reasoningEffortOptions}
+        permissionMode={codexControl.permissionMode}
         isQueueingEnabled
         composerEnterBehavior="enter"
         searchOpenTick={searchOpenTick}
@@ -1570,6 +1590,72 @@ function makeNoopThreadStageActions(onOpenCard: (cardId: string) => void): Threa
     onOpenThread: () => undefined,
     onCleanBackgroundTerminals: async () => undefined,
     onOpenCard,
+  };
+}
+
+function makeSessionThreadStageActions(input: {
+  activeThreadId: string | null;
+  codexControl: ReturnType<typeof useCodexAppServerControl>;
+  onOpenCard: (cardId: string) => void;
+  onRefreshThreads: () => Promise<void>;
+  projectId: string;
+  selectedCollaborationMode: CodexCollaborationModeKind;
+  setSelectedCollaborationMode: (mode: CodexCollaborationModeKind) => void;
+}): ThreadStageActions {
+  const base = makeNoopThreadStageActions(input.onOpenCard);
+  return {
+    ...base,
+    onCollaborationModeChange: input.setSelectedCollaborationMode,
+    onModelChange: input.codexControl.setThreadModel,
+    onReasoningEffortChange: input.codexControl.setThreadReasoningEffort,
+    onPermissionModeChange: (mode) => {
+      void input.codexControl.setPermissionMode(input.projectId, mode);
+    },
+    onStartThreadForSession: async ({ projectId, sessionId, prompt, promptInput }) => {
+      await input.codexControl.startThreadForSession({
+        projectId,
+        sessionId,
+        prompt,
+        promptInput,
+        collaborationMode: input.selectedCollaborationMode,
+      });
+      await input.onRefreshThreads();
+    },
+    onSendPrompt: async (prompt, opts) => {
+      if (!input.activeThreadId) return;
+      await input.codexControl.startTurn(input.activeThreadId, prompt, {
+        projectId: input.projectId,
+        collaborationMode: opts?.collaborationMode,
+        promptInput: opts?.promptInput,
+      });
+    },
+    onSteerPrompt: async (steerInput) => {
+      if (!input.activeThreadId) return;
+      await input.codexControl.steerTurn({
+        ...steerInput,
+        threadId: input.activeThreadId,
+      });
+    },
+    onInterruptTurn: async (turnId) => {
+      if (!input.activeThreadId) return;
+      await input.codexControl.interruptTurn(input.activeThreadId, turnId);
+    },
+    onRespondApproval: async (requestId, decision) => {
+      await input.codexControl.respondApproval(requestId, decision);
+    },
+    onRespondUserInput: async (requestId, answers) => {
+      await input.codexControl.respondUserInput(requestId, answers);
+    },
+    onRespondMcpElicitation: async (requestId, action) => {
+      await input.codexControl.respondMcpElicitation(requestId, action);
+    },
+    onEnqueueQueuedFollowUp: async (threadId, prompt, opts) => {
+      await input.codexControl.enqueueQueuedFollowUp(threadId, prompt, {
+        projectId: input.projectId,
+        collaborationMode: opts?.collaborationMode,
+        promptInput: opts?.promptInput,
+      });
+    },
   };
 }
 

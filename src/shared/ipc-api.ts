@@ -29,6 +29,7 @@ import type {
   CodexPermissionState,
   CodexSteerTurnInput,
   CodexThreadStartForCardInput,
+  CodexThreadStartForSessionInput,
   CodexThreadDetail,
   CodexThreadSummary,
   CodexTurnStartOptions,
@@ -488,6 +489,10 @@ export interface IpcApi {
   };
   "codex:thread:start-for-card": {
     args: [CodexThreadStartForCardInput];
+    result: CodexThreadDetail;
+  };
+  "codex:thread:start-for-session": {
+    args: [CodexThreadStartForSessionInput];
     result: CodexThreadDetail;
   };
   "worktrees:list": { args: []; result: ManagedWorktreeRecord[] };

@@ -801,6 +801,19 @@ export interface CodexThreadStartForCardInput {
   worktreeBranchPrefix?: string;
 }
 
+export interface CodexThreadStartForSessionInput {
+  projectId: string;
+  sessionId: string;
+  prompt: string;
+  promptInput?: CodexPromptInput;
+  threadName?: string;
+  model?: string;
+  serviceTier?: CodexServiceTier;
+  permissionMode?: CodexPermissionMode;
+  reasoningEffort?: CodexReasoningEffort;
+  collaborationMode?: CodexCollaborationModeKind;
+}
+
 export interface CodexTurnStartOptions {
   model?: string;
   serviceTier?: CodexServiceTier;

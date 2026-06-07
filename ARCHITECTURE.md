@@ -93,14 +93,14 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 
 Project sessions flow:
 1. The renderer shell loads `project-sessions:list` for each visible project and renders projects as expandable folders with ordered sessions beneath them.
-2. SQLite owns the shared tree: `project_sessions` stores session order, Overview marker, default pane collapse state, and right-pane layout JSON; `project_session_tabs` stores ordered DB/Card/terminal/browser-placeholder tabs and validated tab configs; `project_session_threads` stores optional session-thread attachment metadata.
+2. SQLite owns the shared tree: `project_sessions` stores session order, Overview marker, default pane collapse state, and right-pane layout JSON; `project_session_tabs` stores ordered DB/Card/terminal/browser-placeholder tabs and validated tab configs; `project_session_threads` stores optional session-thread metadata for manually attached or session-created Codex threads.
 3. Window/session UI state owns only the active project, active session, active tab, pane widths/collapse overrides, and focus history. Those values can be discarded or best-effort translated from old stage snapshots without mutating shared project data.
 4. Every project has a seeded `Overview` session with one right-panel `db_view` tab for that project. The project-session service also lazily creates the Overview row for projects added after startup.
 
 Codex Threads flow:
 1. Renderer sends `codex:*` IPC actions through `lib/api.ts`, manager-backed control hooks, and the local-conversation app-server manager substrate.
 2. Renderer loads `collaborationMode/list` via IPC and resolves active collaboration mode from the local-conversation manager when a thread exists; only no-thread/new-thread surfaces fall back to the global persisted default.
-3. `codex-service` resolves card run target (`localProject` / `newWorktree` / `cloud`), including sticky per-card managed-worktree reuse via `runInWorktreePath`; for freshly created worktrees, it optionally executes selected `.codex/environments/*.toml` `[setup].script` before thread start.
+3. `codex-service` resolves card run target (`localProject` / `newWorktree` / `cloud`), including sticky per-card managed-worktree reuse via `runInWorktreePath`; for freshly created worktrees, it optionally executes selected `.codex/environments/*.toml` `[setup].script` before thread start. Session-owned thread starts use `codex:thread:start-for-session`, require the owning project workspace path, start the first turn immediately, and persist the resulting thread summary in `project_session_threads` without creating a card link.
 4. For fresh worktree creation, `codex-service` emits `codex:event` `threadStartProgress` updates (`creatingWorktree` / `runningSetup` / `startingThread` / terminal `ready|failed`) with streamed stdout/stderr chunks so renderer can render real-time setup logs.
 5. `codex-service` persists thread cwd in `codex_card_threads` (payload cwd or resolved fallback) so follow-up turns keep the same execution location.
 6. `codex-link-repository` persists one-owner card-thread link metadata in SQLite, while `codex-session-store` provides bootstrap-only recovery input for the main-process conversation manager when persisted Codex session artifacts exist.
@@ -135,7 +135,7 @@ Workbench reopen flow:
 - Renderer never accesses SQLite directly.
 - Custom editor behavior must preserve NFM round-trip fidelity.
 - Card-owned Codex links are one-owner: one card can own many threads; each card-owned thread belongs to exactly one card.
-- Session-thread links are separate optional session attachments in `project_session_threads`; they do not replace or mutate existing `codex_card_threads` ownership.
+- Session-thread links are separate optional session attachments in `project_session_threads`; they do not replace or mutate existing `codex_card_threads` ownership, and session-created threads must not create hidden cards.
 - Codex thread creation is card-first and includes immediate first-turn submission for durable thread materialization.
 - Codex thread/turn cwd must use the linked thread cwd when present (not only project workspace fallback).
 - Thread-title generation is renderer-triggered but host-owned: renderer may request generation, but only main owns generation prompt building, persistent title cache/backfill, and authoritative `threadTitleUpdated` rebroadcasts.

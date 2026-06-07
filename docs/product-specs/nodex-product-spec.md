@@ -67,7 +67,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Card Stage session selection lives in the active session's right-panel tab strip; tabs support hover tooltips, close, and pointer-only Codex-style drag reorder through the shared tab strip
 - Settings can choose which optional card-stage rows start behind the Card Stage `more properties` toggle (`Tags`, `Assignee`, `Threads`, `Schedule`, `Agent blocked`, and `Agent status`)
 - Terminal is primarily a session-attached right-panel tab. Legacy global terminal shortcut state may remain during migration but is no longer the primary workbench model.
-- The session thread page is a live Codex workspace in Electron when a session has an attached thread (auth, linked thread summary, streaming events, approvals)
+- The session thread page is a live Codex workspace in Electron. Without an attached thread, it shows the Codex-style new-chat composer with add-context, Plan mode, permissions, model/reasoning, dictation, and send controls; submitting the first prompt starts a session-owned Codex thread in the active project workspace and stores the link in `project_session_threads`. Existing thread-id attachment remains a secondary action, not the primary empty state.
 - Detailed visible transcript behavior for Threads lives in [Codex Thread Transcript Behavior](./codex-thread-transcript-behavior.md), including answered `request_user_input` rows, plan-implementation follow-up flow, optimistic prompt dedupe, tool/reasoning rendering, and restart recovery rules.
 - User-message transcript actions follow the Codex Electron model:
   - `Copy message` and the sent timestamp are available from user bubbles.

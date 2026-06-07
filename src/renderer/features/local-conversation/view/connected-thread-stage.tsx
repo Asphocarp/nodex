@@ -95,6 +95,7 @@ function resolveThreadTitle(input: ConnectedThreadStageInput, summary: ReturnTyp
     summary.threadPreview ||
     input.activeThreadSummary?.threadName ||
     input.activeThreadSummary?.threadPreview ||
+    input.newThreadTarget?.threadTitle ||
     (input.isNewThreadTab ? "New thread" : "No thread")
   );
 }
@@ -108,7 +109,7 @@ function resolveOpenCardTarget(input: ConnectedThreadStageInput, summary: Return
     };
   }
 
-  if (input.activeThreadSummary) {
+  if (input.activeThreadSummary?.cardId) {
     return {
       cardId: input.activeThreadSummary.cardId,
       title:
@@ -119,11 +120,11 @@ function resolveOpenCardTarget(input: ConnectedThreadStageInput, summary: Return
     };
   }
 
-  if (input.isNewThreadTab && input.newThreadTarget) {
+  if (input.isNewThreadTab && input.newThreadTarget?.cardId && input.newThreadTarget.cardTitle) {
     return {
       cardId: input.newThreadTarget.cardId,
       title: input.newThreadTarget.cardTitle,
-      columnId: input.newThreadTarget.columnId,
+      columnId: input.newThreadTarget.columnId ?? null,
     };
   }
 

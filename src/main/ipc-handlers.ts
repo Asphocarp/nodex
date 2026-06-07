@@ -728,6 +728,26 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       codexService.startThreadForCard(input),
   );
 
+  registerHandle(
+    "codex:thread:start-for-session",
+    (
+      _,
+      input: {
+        projectId: string;
+        sessionId: string;
+        prompt: string;
+        promptInput?: CodexPromptInput;
+        threadName?: string;
+        model?: string;
+        serviceTier?: null | "fast";
+        permissionMode?: "auto" | "guardian-approvals" | "full-access" | "custom";
+        reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+        collaborationMode?: "default" | "plan";
+      },
+    ) =>
+      codexService.startThreadForSession(input),
+  );
+
   registerHandle("worktrees:list", () =>
     codexService.listManagedWorktrees()
   );

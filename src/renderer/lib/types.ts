@@ -59,6 +59,7 @@ export type {
   CodexThreadDetailLevel,
   CodexThreadSettings,
   CodexThreadStartForCardInput,
+  CodexThreadStartForSessionInput,
   CodexTurnStartOptions,
   CodexPromptAgentConfigInput,
   CodexPromptImageInput,

@@ -11,6 +11,40 @@ import { render, settleAsyncRender, textContent } from "../../test/dom";
 
 let invokeCalls: unknown[][] = [];
 let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
+let startThreadForSessionCalls: unknown[] = [];
+
+const mockCodexControl = {
+  availableModels: [
+    {
+      id: "gpt-5-codex",
+      model: "gpt-5-codex",
+      displayName: "GPT-5 Codex",
+      description: "",
+      hidden: false,
+      supportedReasoningEfforts: [],
+      defaultReasoningEffort: "medium",
+      isDefault: true,
+    },
+  ],
+  threadSettings: { model: "gpt-5-codex", reasoningEffort: "medium" },
+  reasoningEffortOptions: [{ reasoningEffort: "medium", description: "Balanced" }],
+  permissionMode: "auto",
+  loadModels: async () => undefined,
+  listCollaborationModes: async () => [{ name: "Plan", mode: "plan", model: null }],
+  setThreadModel: () => undefined,
+  setThreadReasoningEffort: () => undefined,
+  setPermissionMode: async () => undefined,
+  startThreadForSession: async (input: unknown) => {
+    startThreadForSessionCalls.push(input);
+  },
+  startTurn: async () => undefined,
+  steerTurn: async () => undefined,
+  interruptTurn: async () => undefined,
+  respondApproval: async () => undefined,
+  respondUserInput: async () => undefined,
+  respondMcpElicitation: async () => undefined,
+  enqueueQueuedFollowUp: async () => undefined,
+};
 
 mock.module("@/lib/api", () => ({
   invoke: async (channel: string, ...args: unknown[]) => {
@@ -44,8 +78,35 @@ mock.module("./workbench-terminal-panel", () => ({
 mock.module("@/features/local-conversation", () => ({
   ConnectedThreadStage: (props: Record<string, unknown>) => {
     (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps = props;
-    return createElement("div", { "data-thread-stage": "true" }, `Thread:${String(props.activeThreadId)}`);
+    const actions = props.actions as {
+      onStartThreadForSession?: (input: { projectId: string; sessionId: string; prompt: string }) => Promise<void>;
+    } | undefined;
+    const target = props.newThreadTarget as { projectId?: string; sessionId?: string } | null | undefined;
+    return createElement(
+      "div",
+      { "data-thread-stage": "true" },
+      createElement("span", null, `Thread:${String(props.activeThreadId)}`),
+      props.isNewThreadTab
+        ? createElement("textarea", { "aria-label": "Prompt", placeholder: "Write the first prompt for this new thread..." })
+        : null,
+      props.isNewThreadTab
+        ? createElement("button", {
+            type: "button",
+            onClick: () => {
+              if (!target?.projectId || !target.sessionId) return;
+              void actions?.onStartThreadForSession?.({
+                projectId: target.projectId,
+                sessionId: target.sessionId,
+                prompt: "Start from session",
+              });
+            },
+          }, "Send")
+        : null,
+      createElement("span", null, String(props.selectedModel)),
+      createElement("span", null, String(props.selectedReasoningEffort)),
+    );
   },
+  useCodexAppServerControl: () => mockCodexControl,
 }));
 
 mock.module("@/lib/calendar-view-state", () => ({
@@ -309,6 +370,7 @@ function renderWorkbench({
 
 beforeEach(() => {
   invokeCalls = [];
+  startThreadForSessionCalls = [];
   mockInvokeImpl = null;
   delete (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
   delete (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
@@ -423,6 +485,46 @@ describe("workbench session shell", () => {
     expect(threadPage?.getAttribute("data-session-thread-page-hidden")).toBe("false");
     expect(textContent(screen.container).includes("Thread:thread-alpha")).toBeTrue();
     expect(screen.container.querySelector('[data-thread-stage="true"]') !== null).toBeTrue();
+  });
+
+  test("renders the session new-thread composer instead of the old attach placeholder", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeSession()] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const threadPage = screen.container.querySelector('[data-testid="session-thread-page"]');
+    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(threadPage?.getAttribute("data-session-thread-page-hidden")).toBe("false");
+    expect(screen.getByLabelText("Prompt").getAttribute("placeholder")).toBe("Write the first prompt for this new thread...");
+    expect(textContent(screen.container).includes("Attach an existing Codex thread to use this session page.")).toBeFalse();
+    expect(props?.isNewThreadTab).toBeTrue();
+    expect(props?.activeThreadId === null).toBeTrue();
+    expect(JSON.stringify(props?.newThreadTarget).includes('"sessionId":"overview:alpha"')).toBeTrue();
+  });
+
+  test("session composer submit starts a session-owned thread and refreshes sessions", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeSession()] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(startThreadForSessionCalls.length).toBe(1);
+    expect(JSON.stringify(startThreadForSessionCalls[0])).toBe(JSON.stringify({
+      projectId: "alpha",
+      sessionId: "overview:alpha",
+      prompt: "Start from session",
+      collaborationMode: "default",
+    }));
+    expect(invokeCalls.some((call) => call[0] === "project-sessions:list" && call[1] === "alpha")).toBeTrue();
   });
 
   test("collapsed right panel opens from the thread page control", async () => {

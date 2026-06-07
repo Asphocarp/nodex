@@ -23,9 +23,11 @@ interface BuildThreadBodyModelInput {
   newThreadTarget: {
     projectId: string;
     projectName: string;
-    cardId: string;
-    cardTitle: string;
-    columnId: string;
+    cardId?: string;
+    cardTitle?: string;
+    columnId?: string;
+    sessionId?: string;
+    threadTitle?: string;
     runInTarget?: "localProject" | "newWorktree" | "cloud";
   } | null;
   isCloudNewThreadTarget: boolean;

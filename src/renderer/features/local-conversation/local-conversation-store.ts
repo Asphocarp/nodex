@@ -40,6 +40,7 @@ import type {
   CodexSharedObject,
   CodexThreadSettings,
   CodexThreadStartForCardInput,
+  CodexThreadStartForSessionInput,
   CodexThreadSummary,
   CodexTurnStartOptions,
 } from "../../lib/types";
@@ -908,6 +909,29 @@ export class CodexAppServerManager {
   }): Promise<CodexThreadDetail> {
     await this.loadPermissionState(input.projectId);
     const detail = (await invoke("codex:thread:start-for-card", {
+      ...input,
+      permissionMode: this.readPermissionMode(input.projectId),
+    })) as CodexThreadDetail;
+
+    if (!detail.threadName?.trim()) {
+      void this.generateAndPersistThreadTitle({
+        threadId: detail.threadId,
+        projectId: detail.projectId,
+        prompt: input.prompt,
+        cwd: detail.cwd,
+      });
+    }
+
+    return detail;
+  }
+
+  async startThreadForSession(input: CodexThreadStartForSessionInput & {
+    collaborationMode?: CodexCollaborationModeKind;
+    model?: string;
+    reasoningEffort?: CodexThreadSettings["reasoningEffort"];
+  }): Promise<CodexThreadDetail> {
+    await this.loadPermissionState(input.projectId);
+    const detail = (await invoke("codex:thread:start-for-session", {
       ...input,
       permissionMode: this.readPermissionMode(input.projectId),
     })) as CodexThreadDetail;
@@ -2588,6 +2612,25 @@ export function useCodexAppServerControl(activeProjectId: string) {
     return detail;
   }, [availableModels, manager, serviceTierSettings.serviceTier, storedThreadSettings]);
 
+  const startThreadForSession = useCallback(async (
+    input: CodexThreadStartForSessionInput & {
+      collaborationMode?: CodexCollaborationModeKind;
+    },
+  ) => {
+    const resolvedSettings = resolveCodexThreadSettings(storedThreadSettings, availableModels);
+    const effectiveServiceTier = resolveCodexRequestServiceTier(input, serviceTierSettings.serviceTier);
+    await manager.loadPermissionState(input.projectId);
+    const detail = await manager.startThreadForSession({
+      ...input,
+      permissionMode: manager.readPermissionMode(input.projectId),
+      model: input.model ?? resolvedSettings.model,
+      reasoningEffort: resolvedSettings.reasoningEffort,
+      ...buildCodexServiceTierRequestOverride(effectiveServiceTier),
+    });
+    await manager.loadThreads(input.projectId);
+    return detail;
+  }, [availableModels, manager, serviceTierSettings.serviceTier, storedThreadSettings]);
+
   const setThreadName = useCallback(
     async (threadId: string, name: string, projectId: string) => manager.setThreadName(threadId, name, projectId),
     [manager],
@@ -2692,6 +2735,7 @@ export function useCodexAppServerControl(activeProjectId: string) {
     loadModels,
     listCollaborationModes,
     startThreadForCard,
+    startThreadForSession,
     setThreadName,
     archiveThread,
     unarchiveThread,

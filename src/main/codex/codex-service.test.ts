@@ -28,6 +28,10 @@ import {
   getCard,
   initializeDatabase,
 } from "../kanban/db-service";
+import {
+  createProjectSession,
+  getProjectSession,
+} from "../kanban/project-session-service";
 import { CodexRpcError } from "./codex-app-server-client";
 import {
   getCodexCardThreadLink,
@@ -94,6 +98,18 @@ interface TestableCodexService {
     promptInput?: CodexPromptInput;
     worktreeStartMode?: "autoBranch" | "detachedHead";
     worktreeBranchPrefix?: string;
+  }) => Promise<CodexThreadDetail>;
+  startThreadForSession: (input: {
+    projectId: string;
+    sessionId: string;
+    prompt: string;
+    threadName?: string;
+    model?: string;
+    serviceTier?: null | "fast";
+    permissionMode?: CodexPermissionMode;
+    reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+    collaborationMode?: "default" | "plan";
+    promptInput?: CodexPromptInput;
   }) => Promise<CodexThreadDetail>;
   listCollaborationModes: () => Promise<CodexCollaborationModePreset[]>;
   interruptTurn: (threadId: string, turnId?: string) => Promise<boolean>;
@@ -3606,6 +3622,193 @@ describe("codex-service collaboration modes", () => {
 });
 
 describe("codex-service startThreadForCard", () => {
+  test("starts a session thread in the project workspace and persists the project session link", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({ projectId: "codex", title: "Session composer" });
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "config/read" || method === "configRequirements/read") {
+          throw new Error("use fallback permission state");
+        }
+        if (method === "thread/start") {
+          return {
+            thread: {
+              id: "thr_session_start",
+              modelProvider: "openai",
+              cwd: "/tmp/codex",
+              createdAt: 1_780_800_000_000,
+              updatedAt: 1_780_800_000_000,
+            },
+          };
+        }
+        if (method === "turn/start") {
+          return {
+            turn: {
+              id: "turn_session_start",
+              status: "in_progress",
+              transcript: [],
+            },
+          };
+        }
+        return {};
+      };
+
+      try {
+        const detail = await service.startThreadForSession({
+          projectId: "codex",
+          sessionId: session.id,
+          prompt: "Start from this session",
+          model: "gpt-5-codex",
+          reasoningEffort: "medium",
+          permissionMode: "auto",
+        });
+
+        const threadStartRequest = requests.find((request) => request.method === "thread/start");
+        const turnStartRequest = requests.find((request) => request.method === "turn/start");
+        const linked = getProjectSession(session.id)?.thread;
+        expect((threadStartRequest?.params as { cwd?: string } | undefined)?.cwd).toBe("/tmp/codex");
+        expect((turnStartRequest?.params as { cwd?: string } | undefined)?.cwd).toBe("/tmp/codex");
+        expect(linked?.threadId).toBe("thr_session_start");
+        expect(linked?.projectId).toBe("codex");
+        expect(linked?.cwd).toBe("/tmp/codex");
+        expect(detail.threadId).toBe("thr_session_start");
+        expect(detail.projectId).toBe("codex");
+        expect(detail.cardId).toBe("");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("preserves session prompt attachments and selected model, reasoning, permission, and collaboration inputs", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({ projectId: "codex", title: "Attachment composer" });
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "config/read" || method === "configRequirements/read") {
+          throw new Error("use fallback permission state");
+        }
+        if (method === "thread/start") {
+          return {
+            thread: {
+              id: "thr_session_attachments",
+              modelProvider: "openai",
+              cwd: "/tmp/codex",
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            },
+          };
+        }
+        if (method === "turn/start") {
+          return {
+            turn: {
+              id: "turn_session_attachments",
+              status: "in_progress",
+              transcript: [],
+            },
+          };
+        }
+        return {};
+      };
+
+      try {
+        await service.startThreadForSession({
+          projectId: "codex",
+          sessionId: session.id,
+          prompt: "Fallback text",
+          promptInput: {
+            text: "Analyze this screenshot",
+            images: [{ source: "data:image/png;base64,AAA", caption: "screen.png" }],
+            mentions: [{ name: "README.md", path: "/tmp/codex/README.md" }],
+          },
+          model: "gpt-5.3-codex",
+          reasoningEffort: "high",
+          permissionMode: "full-access",
+          collaborationMode: "plan",
+          serviceTier: "fast",
+        });
+
+        const threadStartRequest = requests.find((request) => request.method === "thread/start");
+        const turnStartRequest = requests.find((request) => request.method === "turn/start");
+        const turnStartParams = turnStartRequest?.params as {
+          model?: string;
+          effort?: string;
+          input?: unknown;
+          collaborationMode?: unknown;
+        } | undefined;
+        expect((threadStartRequest?.params as { model?: string } | undefined)?.model).toBe("gpt-5.3-codex");
+        expect(turnStartParams?.model).toBe("gpt-5.3-codex");
+        expect(turnStartParams?.effort).toBe("high");
+        expect(JSON.stringify(turnStartParams?.collaborationMode)).toBe(JSON.stringify({
+          mode: "plan",
+          settings: {
+            model: "gpt-5.3-codex",
+            reasoning_effort: "high",
+            developer_instructions: null,
+          },
+        }));
+        const serializedInput = JSON.stringify(turnStartParams?.input);
+        expect(serializedInput.includes("Analyze this screenshot")).toBeTrue();
+        expect(serializedInput.includes("screen.png")).toBeTrue();
+        expect(serializedInput.includes("/tmp/codex/README.md")).toBeTrue();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("fails session thread start with a clear error when the project has no workspace path", async () => {
+    const ran = await withTempDatabase(async () => {
+      createProject({ id: "missing-workspace", name: "Missing Workspace" });
+      const session = createProjectSession({ projectId: "missing-workspace", title: "No workspace" });
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      client.start = async () => undefined;
+      client.request = async () => ({});
+
+      try {
+        let message = "";
+        try {
+          await service.startThreadForSession({
+            projectId: "missing-workspace",
+            sessionId: session.id,
+            prompt: "Start without workspace",
+          });
+        } catch (error) {
+          message = error instanceof Error ? error.message : String(error);
+        }
+        expect(message.includes("must configure workspace path before using Codex threads")).toBeTrue();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("generates thread title through structured thread/start and turn/start flow", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {

@@ -39,9 +39,11 @@ export interface ThreadStageRouteInput {
   newThreadTarget: {
     projectId: string;
     projectName: string;
-    cardId: string;
-    cardTitle: string;
-    columnId: string;
+    cardId?: string;
+    cardTitle?: string;
+    columnId?: string;
+    sessionId?: string;
+    threadTitle?: string;
     runInTarget?: CardRunInTarget;
   } | null;
   activeThreadCardColumnId: string | null;
@@ -85,6 +87,7 @@ export interface ThreadStageActions {
   onCancelLogin: (loginId: string) => Promise<void>;
   onLogout: () => Promise<void>;
   onStartThreadForCard: (input: { projectId: string; cardId: string; prompt: string; promptInput?: CodexPromptInput }) => Promise<void>;
+  onStartThreadForSession?: (input: { projectId: string; sessionId: string; prompt: string; promptInput?: CodexPromptInput }) => Promise<void>;
   onSendPrompt: (prompt: string, opts?: { collaborationMode?: CodexCollaborationModeKind; promptInput?: CodexPromptInput }) => Promise<void>;
   onSteerPrompt: (input: Omit<CodexSteerTurnInput, "threadId">) => Promise<void>;
   onInterruptTurn: (turnId?: string) => Promise<void>;

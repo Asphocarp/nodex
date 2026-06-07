@@ -212,6 +212,15 @@ function buildComposerPromptInput(input: {
   };
 }
 
+function canStartNewThreadTarget(model: ThreadFooterModel): boolean {
+  return Boolean(
+    model.isNewThreadTab &&
+    model.newThreadTarget !== null &&
+    !model.isCloudNewThreadTarget &&
+    (model.newThreadTarget.cardId || model.newThreadTarget.sessionId),
+  );
+}
+
 function hasComposerAttachmentStateContent(attachments: ComposerAttachmentState): boolean {
   return attachments.fileAttachments.length > 0
     || attachments.imageAttachments.length > 0
@@ -711,12 +720,28 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     try {
       if (!model.conversation) {
         if (!target) return;
-        await actions.onStartThreadForCard({
-          projectId: target.projectId,
-          cardId: target.cardId,
-          prompt: nextPrompt,
-          promptInput,
-        });
+        if (target.sessionId) {
+          if (!actions.onStartThreadForSession) {
+            onErrorMessage("Session thread creation is not available.");
+            return;
+          }
+          await actions.onStartThreadForSession({
+            projectId: target.projectId,
+            sessionId: target.sessionId,
+            prompt: nextPrompt,
+            promptInput,
+          });
+        } else if (target.cardId) {
+          await actions.onStartThreadForCard({
+            projectId: target.projectId,
+            cardId: target.cardId,
+            prompt: nextPrompt,
+            promptInput,
+          });
+        } else {
+          onErrorMessage("Select a card or session before starting a new thread.");
+          return;
+        }
       } else if (model.isThreadRunning) {
         if (inProgressFollowUpMode === "queue") {
           await actions.onEnqueueQueuedFollowUp(model.conversation.threadId, nextPrompt, {
@@ -1136,7 +1161,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const isMacPlatform = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
 
   const composerActionState = resolveStageThreadsComposerActionState({
-    canSendPrompt: (model.conversation !== null || (model.isNewThreadTab && model.newThreadTarget !== null)) && !model.isCloudNewThreadTarget,
+    canSendPrompt: model.conversation !== null || canStartNewThreadTarget(model),
     isThreadRunning: model.isThreadRunning,
     busyAction,
     hasDraftContent,
@@ -1145,8 +1170,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const isSendPending = busyAction === "send" && composerActionState.action === "send";
   const canRunPrimaryAction = Boolean(
     hasDraftContent &&
-    (model.conversation || (model.isNewThreadTab && model.newThreadTarget)) &&
-    !model.isCloudNewThreadTarget,
+    (model.conversation !== null || canStartNewThreadTarget(model)),
   );
   const primaryShortcutKeys = resolveShortcutKeycapTokens({
     accelerator: resolveThreadComposerPrimaryShortcutAccelerator({
@@ -1204,7 +1228,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
                           ? model.isCloudNewThreadTarget
                             ? "Cloud run target is currently mock-only"
                             : "Write the first prompt for this new thread..."
-                          : "Select a card before starting a new thread"
+                          : "Select a card or session before starting a new thread"
                         : "Select a thread"
                   }
                   onChange={(event) => {
@@ -1213,7 +1237,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
                   onKeyDown={handleKeyDown}
                   rows={1}
                   className="min-h-10 w-full resize-none border-0 bg-transparent p-0 text-sm/editor text-(--foreground) placeholder:text-(--foreground-tertiary) focus:outline-none"
-                  disabled={(model.conversation === null && (!model.isNewThreadTab || model.newThreadTarget === null || model.isCloudNewThreadTarget)) || busyAction !== null}
+                  disabled={(model.conversation === null && !canStartNewThreadTarget(model)) || busyAction !== null}
                 />
               </div>
             </div>

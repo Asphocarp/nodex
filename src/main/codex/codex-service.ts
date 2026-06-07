@@ -85,6 +85,7 @@ import type {
   CodexThreadSummary,
   CodexThreadStartProgressPhase,
   CodexThreadStartProgressStream,
+  CodexThreadStartForSessionInput,
   CodexTurnStartOptions,
   CodexTurnStatus,
   CodexThreadStartForCardInput,
@@ -94,6 +95,7 @@ import type {
   CodexPromptAgentConfigInput,
   CodexPromptInput,
   ManagedWorktreeRecord,
+  ProjectSessionThreadLink,
   UpdateWorktreeEnvironmentConfigInput,
   WorktreeEnvironmentConfigRecord,
   WorktreeEnvironmentOption,
@@ -103,6 +105,7 @@ import type {
 import { parseAssetSource } from "../../shared/assets";
 import { parseInlineContent } from "../../shared/nfm";
 import { parseCodexThreadTokenUsage } from "../../shared/schemas/codex";
+import * as projectSessionService from "../kanban/project-session-service";
 import {
   buildPermissionModeConfigEdits,
   buildThreadPermissionOverrides,
@@ -604,6 +607,26 @@ function parseThreadActiveFlags(value: unknown): CodexThreadActiveFlag[] {
     (flag): flag is CodexThreadActiveFlag =>
       flag === "waitingOnApproval" || flag === "waitingOnUserInput",
   );
+}
+
+function sessionThreadLinkToSummary(link: ProjectSessionThreadLink): CodexThreadSummary {
+  const parsedStatus = parseThreadStatus(link.statusType);
+  return {
+    threadId: link.threadId,
+    projectId: link.projectId,
+    cardId: "",
+    source: link.parentThreadId ? { parentThreadId: link.parentThreadId } : null,
+    threadName: link.threadName ?? null,
+    threadPreview: link.threadPreview,
+    modelProvider: link.modelProvider,
+    cwd: link.cwd ?? null,
+    statusType: parsedStatus.statusType,
+    statusActiveFlags: parseThreadActiveFlags(link.statusActiveFlags),
+    archived: link.archived,
+    createdAt: link.createdAt,
+    updatedAt: link.updatedAt,
+    linkedAt: link.linkedAt,
+  };
 }
 
 function parseThreadStatus(status: unknown): ParsedThreadStatus {
@@ -1879,7 +1902,10 @@ export class CodexService extends EventEmitter {
 
   private getThreadLinkSafely(threadId: string) {
     try {
-      return getCodexCardThreadLink(threadId);
+      const cardLink = getCodexCardThreadLink(threadId);
+      if (cardLink) return cardLink;
+      const sessionLink = projectSessionService.getProjectSessionThreadLink(threadId);
+      return sessionLink ? sessionThreadLinkToSummary(sessionLink) : null;
     } catch (error) {
       if (isUnavailableSqliteBindingError(error)) return null;
       throw error;
@@ -4450,6 +4476,44 @@ export class CodexService extends EventEmitter {
     return summary;
   }
 
+  private upsertSessionLinkFromThread(
+    thread: unknown,
+    input: { sessionId: string; projectId: string },
+    fallbackCwd?: string | null,
+  ): CodexThreadSummary | null {
+    if (typeof thread !== "object" || thread === null) return null;
+    const candidate = thread as Record<string, unknown>;
+    if (typeof candidate.id !== "string") return null;
+
+    const existing = projectSessionService.getProjectSessionThreadLink(candidate.id);
+    const parsedStatus = parseThreadStatus(candidate.status);
+    const parentThreadId = parseThreadSourceParentThreadId(candidate.source);
+    const link = projectSessionService.upsertProjectSessionThreadLink({
+      sessionId: input.sessionId,
+      projectId: input.projectId,
+      threadId: candidate.id,
+      parentThreadId: parentThreadId ?? existing?.parentThreadId ?? null,
+      threadName: typeof candidate.name === "string" ? candidate.name : (existing?.threadName ?? null),
+      threadPreview: typeof candidate.preview === "string" ? candidate.preview : (existing?.threadPreview ?? ""),
+      modelProvider: typeof candidate.modelProvider === "string" ? candidate.modelProvider : (existing?.modelProvider ?? ""),
+      cwd: typeof candidate.cwd === "string"
+        ? candidate.cwd
+        : (existing?.cwd ?? (fallbackCwd?.trim() || null)),
+      statusType: parsedStatus.statusType,
+      statusActiveFlags: parsedStatus.statusActiveFlags,
+      archived: existing?.archived ?? false,
+      createdAt: normalizeTimestamp(candidate.createdAt),
+      updatedAt: normalizeTimestamp(candidate.updatedAt),
+    });
+
+    const summary = sessionThreadLinkToSummary(link);
+    if (summary.threadName?.trim()) {
+      this.threadTitleState.setTitle(summary.threadId, summary.threadName);
+    }
+
+    return summary;
+  }
+
   private parseWorkspacePath(projectId: string): string {
     const project = dbService.getProject(projectId);
     if (!project) {
@@ -5015,6 +5079,173 @@ export class CodexService extends EventEmitter {
     }
   }
 
+  async startThreadForSession(input: CodexThreadStartForSessionInput): Promise<CodexThreadDetail> {
+    await this.ensureClientReady();
+
+    const session = projectSessionService.getProjectSession(input.sessionId);
+    if (!session) {
+      throw new Error(`Project session not found: ${input.sessionId}`);
+    }
+    if (session.projectId !== input.projectId) {
+      throw new Error("Thread project must match the owning session project");
+    }
+
+    const workspacePath = this.parseWorkspacePath(input.projectId);
+    const preparedPrompt = await this.preparePromptForTurn(input.prompt, input.promptInput);
+    const prompt = preparedPrompt.promptText;
+    const effectiveModel = preparedPrompt.agentConfigOverrides.model ?? input.model;
+    const effectiveReasoningEffort = preparedPrompt.agentConfigOverrides.reasoningEffort ?? input.reasoningEffort;
+    const effectiveCollaborationMode = preparedPrompt.agentConfigOverrides.collaborationMode ?? input.collaborationMode;
+    const explicitThreadName = input.threadName?.trim() || null;
+    const startedAt = Date.now();
+    const resolvedPermissionState = await this.readPermissionState(input.projectId);
+    const effectivePermissionState = this.resolvePermissionStateForRequest(
+      resolvedPermissionState,
+      input.permissionMode,
+      workspacePath,
+    );
+    const permissionMode = effectivePermissionState.mode;
+    const turnPermissionOverrides = buildTurnPermissionOverrides({
+      permissionState: effectivePermissionState,
+      workspacePath,
+    });
+    const threadPermissionOverrides = buildThreadPermissionOverrides({
+      permissionState: effectivePermissionState,
+    });
+
+    this.logger.info("Starting Codex thread for project session", {
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      cwd: workspacePath,
+      model: effectiveModel ?? null,
+      serviceTier: formatServiceTierForReporting(input.serviceTier),
+      permissionMode,
+      reasoningEffort: effectiveReasoningEffort ?? null,
+      collaborationMode: effectiveCollaborationMode ?? null,
+      hasExplicitThreadName: Boolean(explicitThreadName),
+      promptLength: prompt.length,
+      promptPreview: previewText(prompt),
+    });
+
+    try {
+      const threadStartParams: ThreadStartParams = {
+        cwd: workspacePath,
+        model: effectiveModel ?? null,
+        config: buildCodexThreadConfigOverrides(),
+        ...buildServiceTierParams(input.serviceTier),
+        experimentalRawEvents: THREAD_START_EXPERIMENTAL_RAW_EVENTS,
+        ...threadPermissionOverrides,
+      };
+      const threadStart = await this.client.request<"thread/start", ThreadStartResponse>("thread/start", threadStartParams);
+
+      const link = this.upsertSessionLinkFromThread(threadStart.thread, {
+        projectId: input.projectId,
+        sessionId: input.sessionId,
+      }, workspacePath);
+
+      if (!link) {
+        throw new Error("Codex thread/start returned an invalid thread payload");
+      }
+      this.setThreadPermissionFields(link.threadId, {
+        approvalPolicy: threadStart.approvalPolicy,
+        approvalsReviewer: threadStart.approvalsReviewer,
+        sandbox: threadStart.sandbox,
+      });
+
+      this.logger.info("Created Codex thread for project session", {
+        projectId: input.projectId,
+        sessionId: input.sessionId,
+        threadId: link.threadId,
+        cwd: workspacePath,
+      });
+
+      if (explicitThreadName) {
+        await this.client.request("thread/name/set", {
+          threadId: link.threadId,
+          name: explicitThreadName,
+        });
+        projectSessionService.updateProjectSessionThreadNameByThreadId(link.threadId, explicitThreadName);
+        this.emitThreadTitleUpdated(link.threadId, explicitThreadName);
+        const updatedThread = this.getThreadLinkSafely(link.threadId);
+        if (updatedThread) {
+          this.emitEvent({ type: "threadSummary", thread: updatedThread });
+        }
+      }
+
+      const collaborationMode = this.buildCollaborationModePayload({
+        collaborationMode: effectiveCollaborationMode,
+        model: effectiveModel,
+        reasoningEffort: effectiveReasoningEffort,
+      });
+      if (effectiveCollaborationMode) {
+        this.setLatestCollaborationModeForThread(link.threadId, this.buildCollaborationModeState({
+          collaborationMode: effectiveCollaborationMode,
+          model: effectiveModel ?? null,
+          reasoningEffort: effectiveReasoningEffort ?? null,
+          fallback: this.getConversationRecord(link.threadId).latestCollaborationMode,
+        }));
+      }
+
+      const turnStartParams: TurnStartParams = {
+        threadId: link.threadId,
+        input: preparedPrompt.inputItems,
+        cwd: workspacePath,
+        ...turnPermissionOverrides,
+        ...(effectiveModel ? { model: effectiveModel } : {}),
+        ...buildServiceTierParams(input.serviceTier),
+        ...(effectiveReasoningEffort ? { effort: effectiveReasoningEffort } : {}),
+        ...(collaborationMode ? { collaborationMode } : {}),
+      };
+      const turnStart = await this.client.request<"turn/start", TurnStartResponse>("turn/start", turnStartParams);
+      const startedTurn = this.asTurnSummary(link.threadId, turnStart.turn);
+      if (startedTurn) {
+        const observedTurn: CodexTurnSummary = {
+          ...startedTurn,
+          turnStartedAtMs: startedTurn.turnStartedAtMs ?? Date.now(),
+        };
+        this.mergeTurn(link.threadId, observedTurn);
+        const optimisticUserAttachments = buildCodexUserAttachmentsFromContent(
+          preparedPrompt.inputItems,
+          `optimistic:${observedTurn.turnId}`,
+        );
+        this.seedTurnWithOptimisticUserMessage(
+          link.threadId,
+          observedTurn.turnId,
+          prompt,
+          optimisticUserAttachments.length > 0 ? optimisticUserAttachments : undefined,
+        );
+        this.logger.info("Started first Codex turn for project session", {
+          threadId: link.threadId,
+          turnId: observedTurn.turnId,
+          durationMs: Date.now() - startedAt,
+        });
+      }
+      this.markThreadAsActive(link.threadId);
+      this.emitThreadStreamSnapshotFromRecord(link.threadId);
+
+      const detail = this.serializeThreadDetail(link.threadId);
+      if (!detail) {
+        throw new Error("Thread was created but could not be loaded");
+      }
+
+      this.logger.info("Codex thread for project session is ready", {
+        threadId: link.threadId,
+        projectId: input.projectId,
+        sessionId: input.sessionId,
+        durationMs: Date.now() - startedAt,
+      });
+      return detail;
+    } catch (error) {
+      this.logger.error("Failed to start Codex thread for project session", {
+        projectId: input.projectId,
+        sessionId: input.sessionId,
+        durationMs: Date.now() - startedAt,
+        error,
+      });
+      throw error;
+    }
+  }
+
   async readThread(threadId: string, includeTurns = true): Promise<CodexThreadDetail | null> {
     await this.ensureClientReady();
     try {
@@ -5289,6 +5520,7 @@ export class CodexService extends EventEmitter {
 
     this.emitThreadTitleUpdated(threadId, normalizedName);
     updateCodexThreadName(threadId, normalizedName);
+    projectSessionService.updateProjectSessionThreadNameByThreadId(threadId, normalizedName);
     const updated = this.getThreadLinkSafely(threadId);
     if (updated) {
       this.emitEvent({ type: "threadSummary", thread: updated });

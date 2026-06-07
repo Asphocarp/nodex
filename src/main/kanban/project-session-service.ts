@@ -247,6 +247,27 @@ export function getProjectSession(sessionId: string): ProjectSession | null {
   return row ? buildSession(row) : null;
 }
 
+export function getProjectSessionThreadLink(threadId: string): ProjectSessionThreadLink | null {
+  const row = getDb()
+    .prepare("SELECT * FROM project_session_threads WHERE thread_id = ?")
+    .get(threadId) as DbProjectSessionThread | undefined;
+  return row ? rowToThread(row) : null;
+}
+
+export function updateProjectSessionThreadNameByThreadId(
+  threadId: string,
+  threadName: string | null,
+): ProjectSessionThreadLink | null {
+  const normalizedThreadId = threadId.trim();
+  if (!normalizedThreadId) return null;
+  getDb().prepare(`
+    UPDATE project_session_threads
+    SET thread_name = ?, updated_at = ?
+    WHERE thread_id = ?
+  `).run(threadName?.trim() || null, Date.now(), normalizedThreadId);
+  return getProjectSessionThreadLink(normalizedThreadId);
+}
+
 export function createProjectSession(input: ProjectSessionCreateInput): ProjectSession {
   const parsed = ProjectSessionCreateInputSchema.parse(input);
   ensureProjectExists(parsed.projectId);
