@@ -40,10 +40,13 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Each project has an independent kanban board, history, and undo/redo
 - Single-page app with a Codex-style project/session shell: projects render as folders in the left sidebar, expanded projects show durable sessions, and the active session renders as a thread page with a shell-owned right panel for content tabs
 - Every project has a seeded `Overview` session with one open full-width right-panel `db_view` tab for that project's primary DB view; new non-Overview sessions start with the right panel collapsed
-- Session right-pane tabs support `db_view`, `card_stage`, `terminal`, and `browser_placeholder` kinds; browser tabs render a placeholder until the browser feature ships
+- Session right-pane tabs support `db_view`, `card_stage`, `terminal`, `browser_placeholder`, `review`, `files_placeholder`, and `side_chat_placeholder` kinds; Files, Side chat, and Browser render Codex-style mock/placeholder panels until those features ship, while Review renders the active thread's connected review diff panel
+- The empty right panel and the panel-header plus menu use the same Codex-style new-tab action registry: Files, Side chat, Browser, Review, Terminal, then Nodex-only DB View and Card Stage. DB View, Review, and Browser are singleton tabs per session, so their actions disappear once present and shortcuts focus the existing tab instead of creating duplicates.
 - DB view tabs keep the DB view selector pinned above board, list, toggle-list, canvas, and calendar content, with task search and supported view-local filter/sort/display controls inside that tab body
 - Card Stage opens as a session-attached tab. Opening a card from a DB tab creates or focuses the matching card tab in the active session instead of switching a global Card stage.
+- Opening Card Stage from the right-panel action chooser uses an active-project card picker instead of prompting for a card id.
 - Terminal opens as a session-attached tab with a session-tab-scoped terminal id
+- Right-panel action shortcuts are `Cmd/Ctrl+P` for Files, `Cmd/Ctrl+T` for Browser, `Ctrl+Shift+G` for Review, and `Ctrl+\`` for Terminal. They are ignored while focus is inside editor/input/dialog surfaces.
 - The active session can show, collapse, resize, or full-width expand the right panel. New non-Overview sessions default to collapsed right panels, while Overview sessions default to open full-width right panels unless the user has changed that session's panel width. The fixed global header owns the Codex-style `Toggle side panel` control, while the right-panel tab header owns tab creation and expand/restore controls.
 - The persisted right-pane layout JSON is split-capable for future VS Code-style tab splits, but v1 renders one tab group only
 - URL sync: `/?project=<id>`, persisted to localStorage

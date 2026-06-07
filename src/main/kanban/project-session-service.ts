@@ -26,6 +26,9 @@ import {
   getCodexThread,
   upsertCodexThread,
 } from "../codex/codex-link-repository";
+import { PROJECT_SESSION_SINGLETON_TAB_KINDS } from "../../shared/types";
+
+const PROJECT_SESSION_SINGLETON_TAB_KIND_SET = new Set<string>(PROJECT_SESSION_SINGLETON_TAB_KINDS);
 
 interface DbProjectSession {
   id: string;
@@ -403,12 +406,23 @@ function updateSessionLayoutForTabs(sessionId: string, tabs: ProjectSessionTab[]
     .run(stringifyLayout(layout), new Date().toISOString(), sessionId);
 }
 
+function findSingletonTab(session: ProjectSession, kind: ProjectSessionTabCreateInput["kind"]): ProjectSessionTab | null {
+  if (!PROJECT_SESSION_SINGLETON_TAB_KIND_SET.has(kind)) return null;
+  return session.tabs.find((tab) => tab.kind === kind) ?? null;
+}
+
 export function createProjectSessionTab(input: ProjectSessionTabCreateInput): ProjectSessionTab {
   const parsed = ProjectSessionTabCreateInputSchema.parse(input);
   const session = getProjectSession(parsed.sessionId);
   if (!session) throw new Error(`Project session not found: ${parsed.sessionId}`);
   if (session.projectId !== parsed.projectId) {
     throw new Error("Tab project must match the owning session project");
+  }
+
+  const existingSingleton = findSingletonTab(session, parsed.kind);
+  if (existingSingleton) {
+    updateSessionLayoutForTabs(parsed.sessionId, session.tabs, existingSingleton.id);
+    return getProjectSession(parsed.sessionId)?.tabs.find((tab) => tab.id === existingSingleton.id) ?? existingSingleton;
   }
 
   const database = getDb();

@@ -149,6 +149,10 @@ mock.module("@/features/local-conversation", () => ({
       }, String(props.summaryPanelMounted)),
     );
   },
+  ConnectedReviewDiffPanel: (props: Record<string, unknown>) => {
+    (globalThis as { __lastConnectedReviewDiffPanelProps?: Record<string, unknown> }).__lastConnectedReviewDiffPanelProps = props;
+    return createElement("div", { "data-review-diff-panel": "true" }, `Review:${String(props.threadId)}`);
+  },
   useCodexAppServerControl: () => mockCodexControl,
   useCodexThreadStartProgress: () => null,
 }));
@@ -171,14 +175,32 @@ mock.module("@/lib/calendar-view-state", () => ({
 
 mock.module("@/lib/use-kanban", () => ({
   useKanban: () => ({
-    board: { columns: [] },
+    board: {
+      columns: [
+        {
+          id: "in_progress",
+          name: "In Progress",
+          cards: [
+            {
+              id: "card-1",
+              projectId: "alpha",
+              status: "in_progress",
+              title: "Card One",
+              description: "",
+              tags: [],
+              archived: false,
+            },
+          ],
+        },
+      ],
+    },
     cardIndex: new Map([
       [
         "card-1",
         {
           id: "card-1",
           projectId: "alpha",
-          status: "todo",
+          status: "in_progress",
           title: "Card One",
           description: "",
           tags: [],
@@ -385,6 +407,24 @@ function renderWorkbench({
       };
       const session = Object.values(sessionState).flat().find((item) => item.id === input.sessionId);
       if (!session) return null;
+      if (["db_view", "review", "browser_placeholder"].includes(input.kind)) {
+        const existing = session.tabs.find((tab) => tab.kind === input.kind);
+        if (existing) {
+          sessionState = replaceSession(sessionState, {
+            ...session,
+            rightPaneLayout: {
+              version: 1,
+              root: {
+                type: "leaf",
+                id: "main",
+                tabIds: session.tabs.map((tab) => tab.id),
+                activeTabId: existing.id,
+              },
+            },
+          });
+          return existing;
+        }
+      }
       const tab = {
         id: `created-tab-${session.tabs.length + 1}`,
         sessionId: input.sessionId,
@@ -396,7 +436,20 @@ function renderWorkbench({
         createdAt: "2026-06-07T00:00:00.000Z",
         updatedAt: "2026-06-07T00:00:00.000Z",
       } as ProjectSession["tabs"][number];
-      sessionState = replaceSession(sessionState, { ...session, tabs: [...session.tabs, tab] });
+      const tabs = [...session.tabs, tab];
+      sessionState = replaceSession(sessionState, {
+        ...session,
+        tabs,
+        rightPaneLayout: {
+          version: 1,
+          root: {
+            type: "leaf",
+            id: "main",
+            tabIds: tabs.map((item) => item.id),
+            activeTabId: tab.id,
+          },
+        },
+      });
       return tab;
     }
     if (channel === "project-session-tabs:update") {
@@ -1327,10 +1380,184 @@ describe("workbench session shell", () => {
 
     fireEvent.pointerDown(addTabButton, { button: 0 });
     await settleAsyncRender();
-    fireEvent.click(screen.getByText("DB view"));
+    fireEvent.click(screen.getByText("Files"));
     await settleAsyncRender();
 
-    expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeTrue();
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-session-tabs:create"
+      && JSON.stringify(call[1]).includes('"kind":"files_placeholder"')
+    )).toBeTrue();
+  });
+
+  test("empty right panel renders Codex-style new-tab actions", async () => {
+    const emptySession = makeSession({
+      id: "session:alpha:empty",
+      isOverview: false,
+      tabs: [],
+      rightPaneLayout: {
+        version: 1,
+        root: {
+          type: "leaf",
+          id: "main",
+          tabIds: [],
+          activeTabId: null,
+        },
+      },
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [emptySession] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const actionGrid = screen.container.querySelector('[data-thread-side-panel-new-tab-action-grid="true"]');
+    expect(actionGrid !== null).toBeTrue();
+    if (!actionGrid) throw new Error("Expected right-panel action grid");
+    expect(screen.getByRole("button", { name: /Files/ }) !== null).toBeTrue();
+    expect(screen.getByRole("button", { name: /Side chat/ }) !== null).toBeTrue();
+    expect(screen.getByRole("button", { name: /Browser/ }) !== null).toBeTrue();
+    expect(screen.getByRole("button", { name: /Review/ }) !== null).toBeTrue();
+    expect(screen.getByRole("button", { name: /Terminal/ }) !== null).toBeTrue();
+    expect(screen.getByRole("button", { name: /DB View/ }) !== null).toBeTrue();
+    expect(screen.getByRole("button", { name: /Card Stage/ }) !== null).toBeTrue();
+    expect(textContent(actionGrid).includes("⌃⇧G")).toBeTrue();
+    expect(textContent(actionGrid).includes("⌃`")).toBeTrue();
+  });
+
+  test("plus menu hides singleton actions that already exist", async () => {
+    const browserTab = {
+      id: "overview:alpha:browser",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "browser_placeholder",
+      title: "Browser",
+      order: 1,
+      config: {},
+      createdAt: "2026-06-07T00:00:00.000Z",
+      updatedAt: "2026-06-07T00:00:00.000Z",
+    } satisfies ProjectSession["tabs"][number];
+    const reviewTab = {
+      id: "overview:alpha:review",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "review",
+      title: "Review",
+      order: 2,
+      config: { projectId: "alpha" },
+      createdAt: "2026-06-07T00:00:00.000Z",
+      updatedAt: "2026-06-07T00:00:00.000Z",
+    } satisfies ProjectSession["tabs"][number];
+    const session = makeSession({
+      tabs: [...makeSession().tabs, browserTab, reviewTab],
+      rightPaneLayout: {
+        version: 1,
+        root: {
+          type: "leaf",
+          id: "main",
+          tabIds: ["overview:alpha:db", browserTab.id, reviewTab.id],
+          activeTabId: "overview:alpha:db",
+        },
+      },
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Open side panel tab" }), { button: 0 });
+    await settleAsyncRender();
+
+    const menu = screen.getByRole("menu");
+    expect(within(menu).queryByText("DB View")).toBe(null);
+    expect(within(menu).queryByText("Browser")).toBe(null);
+    expect(within(menu).queryByText("Review")).toBe(null);
+    expect(within(menu).getByText("Files") !== null).toBeTrue();
+    expect(within(menu).getByText("Terminal") !== null).toBeTrue();
+  });
+
+  test("review action creates and renders the connected review panel", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeAttachedSession()] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Open side panel tab" }), { button: 0 });
+    await settleAsyncRender();
+    fireEvent.click(screen.getByText("Review"));
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-session-tabs:create"
+      && JSON.stringify(call[1]).includes('"kind":"review"')
+    )).toBeTrue();
+    expect(screen.container.querySelector("[data-review-diff-panel]") !== null).toBeTrue();
+  });
+
+  test("card stage chooser opens a real card tab without prompting", async () => {
+    const emptySession = makeSession({
+      id: "session:alpha:empty",
+      isOverview: false,
+      tabs: [],
+      rightPaneLayout: {
+        version: 1,
+        root: {
+          type: "leaf",
+          id: "main",
+          tabIds: [],
+          activeTabId: null,
+        },
+      },
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [emptySession] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: /Card Stage/ }), { button: 0 });
+    await settleAsyncRender();
+    fireEvent.click(screen.getByText("Card One"));
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-session-tabs:create"
+      && JSON.stringify(call[1]).includes('"kind":"card_stage"')
+      && JSON.stringify(call[1]).includes('"cardId":"card-1"')
+    )).toBeTrue();
+  });
+
+  test("right-panel shortcuts create tabs and ignore editable targets", async () => {
+    renderWorkbench({
+      sessionsByProject: { alpha: [makeAttachedSession()] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.keyDown(document, { key: "G", ctrlKey: true, shiftKey: true });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-session-tabs:create"
+      && JSON.stringify(call[1]).includes('"kind":"review"')
+    )).toBeTrue();
+
+    invokeCalls = [];
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    await act(async () => {
+      fireEvent.keyDown(input, { key: "`", code: "Backquote", ctrlKey: true });
+      await Promise.resolve();
+    });
+    input.remove();
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
   });
 
   test("panel tab menu creates tabs after opening a collapsed right panel", async () => {
@@ -1353,7 +1580,7 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     await act(async () => {
-      fireEvent.click(screen.getByText("DB view"));
+      fireEvent.click(screen.getByText("DB View"));
       await Promise.resolve();
     });
     await settleAsyncRender();

@@ -4,6 +4,7 @@ import type {
   ProjectSessionCardStageTabConfig,
   ProjectSessionCreateInput,
   ProjectSessionDbViewTabConfig,
+  ProjectSessionProjectScopedTabConfig,
   ProjectSessionRightPaneLayout,
   ProjectSessionTabConfig,
   ProjectSessionTabCreateInput,
@@ -35,15 +36,23 @@ export const ProjectSessionTerminalTabConfigSchema = z.object({
 }) satisfies z.ZodType<ProjectSessionTerminalTabConfig>;
 
 export const ProjectSessionBrowserPlaceholderTabConfigSchema = z.object({
+  projectId: z.string().min(1).optional(),
   url: z.string().optional(),
   title: z.string().optional(),
 }) satisfies z.ZodType<ProjectSessionBrowserPlaceholderTabConfig>;
+
+export const ProjectSessionProjectScopedTabConfigSchema = z.object({
+  projectId: z.string().min(1),
+}) satisfies z.ZodType<ProjectSessionProjectScopedTabConfig>;
 
 export function parseProjectSessionTabConfig(kind: string, config: unknown): ProjectSessionTabConfig {
   if (kind === "db_view") return ProjectSessionDbViewTabConfigSchema.parse(config);
   if (kind === "card_stage") return ProjectSessionCardStageTabConfigSchema.parse(config);
   if (kind === "terminal") return ProjectSessionTerminalTabConfigSchema.parse(config);
   if (kind === "browser_placeholder") return ProjectSessionBrowserPlaceholderTabConfigSchema.parse(config);
+  if (kind === "review") return ProjectSessionProjectScopedTabConfigSchema.parse(config);
+  if (kind === "files_placeholder") return ProjectSessionProjectScopedTabConfigSchema.parse(config);
+  if (kind === "side_chat_placeholder") return ProjectSessionProjectScopedTabConfigSchema.parse(config);
   throw new Error(`Unknown project session tab kind: ${kind}`);
 }
 
@@ -88,6 +97,9 @@ export const ProjectSessionTabKindSchema = z.enum([
   "card_stage",
   "terminal",
   "browser_placeholder",
+  "review",
+  "files_placeholder",
+  "side_chat_placeholder",
 ]);
 
 export const ProjectSessionTabCreateInputSchema = z.object({

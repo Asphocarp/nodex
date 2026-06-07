@@ -158,6 +158,87 @@ describe("project session service", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("returns existing fixed tabs instead of creating duplicate singleton tabs", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({ projectId: "default", title: "Fixed tabs" });
+
+      const dbView = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: "default",
+        kind: "db_view",
+        title: "DB View",
+        config: { projectId: "default", view: "kanban" },
+      });
+      const duplicateDbView = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: "default",
+        kind: "db_view",
+        title: "Another DB View",
+        config: { projectId: "default", view: "list" },
+      });
+      expect(duplicateDbView.id).toBe(dbView.id);
+
+      const review = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: "default",
+        kind: "review",
+        title: "Review",
+        config: { projectId: "default" },
+      });
+      const duplicateReview = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: "default",
+        kind: "review",
+        title: "Review changes",
+        config: { projectId: "default" },
+      });
+      expect(duplicateReview.id).toBe(review.id);
+
+      const browser = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: "default",
+        kind: "browser_placeholder",
+        title: "Browser",
+        config: {},
+      });
+      const duplicateBrowser = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: "default",
+        kind: "browser_placeholder",
+        title: "Website",
+        config: { url: "https://example.com" },
+      });
+      expect(duplicateBrowser.id).toBe(browser.id);
+
+      const terminalOne = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: "default",
+        kind: "terminal",
+        title: "Terminal",
+        config: { projectId: "default", terminalSessionId: "term-1", mode: "project" },
+      });
+      const terminalTwo = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: "default",
+        kind: "terminal",
+        title: "Terminal",
+        config: { projectId: "default", terminalSessionId: "term-2", mode: "project" },
+      });
+      expect(terminalOne.id === terminalTwo.id).toBeFalse();
+
+      const updated = getProjectSession(session.id);
+      expect(updated?.tabs.filter((tab) => tab.kind === "db_view").length).toBe(1);
+      expect(updated?.tabs.filter((tab) => tab.kind === "review").length).toBe(1);
+      expect(updated?.tabs.filter((tab) => tab.kind === "browser_placeholder").length).toBe(1);
+      expect(updated?.tabs.filter((tab) => tab.kind === "terminal").length).toBe(2);
+      if (updated?.rightPaneLayout.root.type === "leaf") {
+        expect(updated.rightPaneLayout.root.activeTabId).toBe(terminalTwo.id);
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("attaches and detaches session-owned thread metadata", async () => {
     const ran = await withTempDatabase(async () => {
       const session = createProjectSession({ projectId: "default", title: "Agent run" });

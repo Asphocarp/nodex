@@ -1,12 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { Dispatch, SetStateAction } from "react";
 import { useEffect, useMemo, useState } from "react";
-import type { Project, ProjectSession, ProjectSessionTab, WorkspaceRecord } from "@/lib/types";
+import type { Board, Project, ProjectSession, ProjectSessionTab, WorkspaceRecord } from "@/lib/types";
 import type { WorkbenchView } from "@/lib/use-workbench-state";
 import { WorkbenchShell } from "./workbench-shell";
 
 type ShellStoryArgs = {
-  activeTab: "browser" | "terminal" | "db";
+  activeTab: "browser" | "terminal" | "db" | "review" | "empty";
   thread: "empty" | "attached";
   rightPanel: "regular" | "collapsed" | "full";
   sidebar: "expanded" | "collapsed";
@@ -33,7 +33,7 @@ const meta = {
   argTypes: {
     activeTab: {
       control: "inline-radio",
-      options: ["browser", "terminal", "db"],
+      options: ["browser", "terminal", "db", "review", "empty"],
     },
     thread: {
       control: "inline-radio",
@@ -104,6 +104,28 @@ const SPACES = PROJECTS.map((project) => ({
   initial: project.name.slice(0, 1).toUpperCase(),
 }));
 
+const STORY_BOARD: Board = {
+  columns: [
+    {
+      id: "in_progress",
+      name: "In Progress",
+      cards: [
+        {
+          id: "card-1",
+          status: "in_progress",
+          archived: false,
+          title: "Workbench redesign",
+          description: "",
+          tags: ["shell"],
+          agentBlocked: false,
+          created: new Date(CREATED_AT),
+          order: 0,
+        },
+      ],
+    },
+  ],
+};
+
 function makeTab(
   overrides: Partial<ProjectSessionTab> & Pick<ProjectSessionTab, "id" | "kind" | "title" | "config">,
 ): ProjectSessionTab {
@@ -118,7 +140,32 @@ function makeTab(
 }
 
 function makeSession(args: ShellStoryArgs): ProjectSession {
-  const tabs = [
+  if (args.activeTab === "empty") {
+    return {
+      id: "session:overview",
+      projectId: "nodex",
+      title: "Overview",
+      isOverview: true,
+      order: 0,
+      leftPaneCollapsed: true,
+      rightPaneCollapsed: args.rightPanel === "collapsed",
+      rightPaneLayout: {
+        version: 1,
+        root: {
+          type: "leaf",
+          id: "main",
+          tabIds: [],
+          activeTabId: null,
+        },
+      },
+      thread: null,
+      tabs: [],
+      createdAt: CREATED_AT,
+      updatedAt: CREATED_AT,
+    };
+  }
+
+  const baseTabs = [
     makeTab({
       id: "tab:db",
       kind: "db_view",
@@ -150,11 +197,25 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
       config: { title: "Browser" },
     }),
   ];
+  const tabs = args.activeTab === "review"
+    ? [
+        ...baseTabs,
+        makeTab({
+          id: "tab:review",
+          kind: "review",
+          title: "Review",
+          order: 4,
+          config: { projectId: "nodex" },
+        }),
+      ]
+    : baseTabs;
   const activeTabId = args.activeTab === "db"
     ? "tab:db"
     : args.activeTab === "terminal"
       ? "tab:terminal"
-      : "tab:browser";
+      : args.activeTab === "review"
+        ? "tab:review"
+        : "tab:browser";
 
   return {
     id: "session:overview",
@@ -331,6 +392,9 @@ function installStoryApi(
         if (channel === "project-sessions:list") {
           return sessionsByProject[String(args[0])] ?? [];
         }
+        if (channel === "board:get") {
+          return STORY_BOARD;
+        }
         if (channel === "project-sessions:update") {
           const sessionId = String(args[0]);
           const input = (args[1] ?? {}) as Partial<ProjectSession>;
@@ -390,7 +454,61 @@ function installStoryApi(
           return tabs.find((tab) => tab.id === tabId) ?? null;
         }
         if (channel === "project-session-tabs:create") {
-          return null;
+          const input = args[0] as {
+            sessionId: string;
+            projectId: string;
+            kind: ProjectSessionTab["kind"];
+            title: string;
+            config: ProjectSessionTab["config"];
+          };
+          const session = Object.values(sessionsByProject)
+            .flat()
+            .find((item) => item.id === input.sessionId);
+          if (!session) return null;
+          if (["db_view", "review", "browser_placeholder"].includes(input.kind)) {
+            const existing = session.tabs.find((tab) => tab.kind === input.kind);
+            if (existing) {
+              const next = {
+                ...session,
+                rightPaneLayout: {
+                  version: 1 as const,
+                  root: {
+                    type: "leaf" as const,
+                    id: "main",
+                    tabIds: session.tabs.map((tab) => tab.id),
+                    activeTabId: existing.id,
+                  },
+                },
+              };
+              setSessionsByProject((current) => replaceSession(current, next));
+              return existing;
+            }
+          }
+          const tab = makeTab({
+            id: `tab:${input.kind}:${session.tabs.length + 1}`,
+            sessionId: input.sessionId,
+            projectId: input.projectId,
+            kind: input.kind,
+            title: input.title,
+            order: session.tabs.length,
+            config: input.config,
+          });
+          const tabs = [...session.tabs, tab];
+          const next = {
+            ...session,
+            tabs,
+            rightPaneLayout: {
+              version: 1 as const,
+              root: {
+                type: "leaf" as const,
+                id: "main",
+                tabIds: tabs.map((item) => item.id),
+                activeTabId: tab.id,
+              },
+            },
+          };
+          setSessionsByProject((current) => replaceSession(current, next));
+          return tab;
         }
         if (channel === "project-session-tabs:delete") {
           return true;
@@ -437,10 +555,64 @@ export const MixedRightTabs: Story = {
   },
 };
 
+export const EmptyRightPanelActions: Story = {
+  args: {
+    activeTab: "empty",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Empty right panel showing the Codex-style new-tab action grid with Nodex DB View and Card Stage actions appended.",
+      },
+    },
+  },
+};
+
+export const ReviewRightTab: Story = {
+  args: {
+    thread: "attached",
+    activeTab: "review",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Attached session with the singleton Review right-panel tab active.",
+      },
+    },
+  },
+};
+
+export const MockBrowserRightTab: Story = {
+  args: {
+    activeTab: "browser",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Browser placeholder tab rendered as a Codex-style mock surface until browser support is implemented.",
+      },
+    },
+  },
+};
+
 export const AttachedThreadPage: Story = {
   args: {
     thread: "attached",
     activeTab: "browser",
+  },
+};
+
+export const SingletonFilteredActions: Story = {
+  args: {
+    thread: "attached",
+    activeTab: "review",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Session with DB View, Browser, and Review already present so the plus menu filters those singleton actions.",
+      },
+    },
   },
 };
 

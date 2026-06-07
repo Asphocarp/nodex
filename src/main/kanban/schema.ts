@@ -7,7 +7,9 @@ import { CARD_STATUS_COLUMNS } from "../../shared/card-status";
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 28;
+export const CURRENT_SCHEMA_VERSION = 29;
+const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
+  "'db_view', 'card_stage', 'terminal', 'browser_placeholder', 'review', 'files_placeholder', 'side_chat_placeholder'";
 
 const RESETTABLE_TABLES = [
   "project_session_threads",
@@ -35,8 +37,9 @@ export interface EnsureDatabaseOptions {
 
 export function getSchemaMigrationTargets(currentVersion: number): number[] | null {
   if (currentVersion === CURRENT_SCHEMA_VERSION) return [];
-  if (currentVersion === 26) return [27, 28];
-  if (currentVersion === 27) return [28];
+  if (currentVersion === 26) return [27, 28, 29];
+  if (currentVersion === 27) return [28, 29];
+  if (currentVersion === 28) return [29];
   return null;
 }
 
@@ -186,7 +189,7 @@ function createLatestSchema(db: Database.Database): void {
       "order" INTEGER NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
-      CHECK (kind IN ('db_view', 'card_stage', 'terminal', 'browser_placeholder'))
+      CHECK (kind IN (${PROJECT_SESSION_TAB_KIND_CHECK_VALUES}))
     );
 
     CREATE INDEX IF NOT EXISTS idx_project_session_tabs_session_order
@@ -470,6 +473,41 @@ function migrateToSchema28(db: Database.Database): void {
   setUserVersion(db, 28);
 }
 
+function migrateToSchema29(db: Database.Database): void {
+  db.exec(`
+    DROP TABLE IF EXISTS project_session_tabs_next;
+
+    CREATE TABLE project_session_tabs_next (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES project_sessions(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      title TEXT NOT NULL,
+      config_json TEXT NOT NULL,
+      "order" INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK (kind IN (${PROJECT_SESSION_TAB_KIND_CHECK_VALUES}))
+    );
+
+    INSERT INTO project_session_tabs_next (
+      id, session_id, project_id, kind, title, config_json, "order", created_at, updated_at
+    )
+    SELECT
+      id, session_id, project_id, kind, title, config_json, "order", created_at, updated_at
+    FROM project_session_tabs;
+
+    DROP TABLE project_session_tabs;
+    ALTER TABLE project_session_tabs_next RENAME TO project_session_tabs;
+
+    CREATE INDEX IF NOT EXISTS idx_project_session_tabs_session_order
+      ON project_session_tabs(session_id, "order", created_at);
+    CREATE INDEX IF NOT EXISTS idx_project_session_tabs_project
+      ON project_session_tabs(project_id);
+  `);
+  setUserVersion(db, 29);
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -488,6 +526,10 @@ function runMigrations(
     }
     if (target === 28) {
       migrateToSchema28(db);
+      continue;
+    }
+    if (target === 29) {
+      migrateToSchema29(db);
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);

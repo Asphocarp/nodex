@@ -93,9 +93,10 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 
 Project sessions flow:
 1. The renderer shell loads `project-sessions:list` for each visible project and renders projects as expandable folders with ordered sessions beneath them.
-2. SQLite owns the shared tree: `project_sessions` stores session order, Overview marker, default pane collapse state, and right-pane layout JSON; `project_session_tabs` stores ordered DB/Card/terminal/browser-placeholder tabs and validated tab configs; `project_session_threads` stores optional session-to-thread attachments while thread metadata lives in `codex_threads`.
+2. SQLite owns the shared tree: `project_sessions` stores session order, Overview marker, default pane collapse state, and right-pane layout JSON; `project_session_tabs` stores ordered DB/Card/terminal/browser/review/files/side-chat tabs and validated tab configs; `project_session_threads` stores optional session-to-thread attachments while thread metadata lives in `codex_threads`.
 3. Window/session UI state owns only the active project, active session, active tab, pane widths/collapse overrides, and focus history. Those values can be discarded or best-effort translated from old stage snapshots without mutating shared project data.
 4. Every project has a seeded `Overview` session with one right-panel `db_view` tab for that project. The project-session service also lazily creates the Overview row for projects added after startup.
+5. Session singleton right-panel kinds are `db_view`, `review`, and `browser_placeholder`. Their create path in `project-session-service` returns/focuses an existing tab in the same session instead of inserting duplicates; repeatable kinds such as `terminal`, `files_placeholder`, `side_chat_placeholder`, and card-specific `card_stage` remain action-driven.
 
 Codex Threads flow:
 1. Renderer sends `codex:*` IPC actions through `lib/api.ts`, manager-backed control hooks, and the local-conversation app-server manager substrate.

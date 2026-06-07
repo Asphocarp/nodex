@@ -16,6 +16,7 @@
 - Storybook workspace: `packages/storybook/` with colocated `*.stories.tsx` under `src/renderer/`
 - Workbench shell: `src/renderer/components/workbench/workbench-shell.tsx` renders projects as expandable folders, sessions as durable project children, a session thread page, and a collapsible/full-width right panel for session-attached tabs.
 - Workbench app-shell parity: keep the side-panel toggle in the fixed global header, keep right-panel tab creation plus expand/restore in the right-panel toolbar-height tab header, and implement full-width mode by collapsing the main thread viewport to zero width rather than conditionally removing thread title/header UI.
+- Right-panel chooser parity: keep empty-panel actions and the panel-header plus menu driven from the same `RIGHT_PANEL_NEW_TAB_ACTIONS` registry in `WorkbenchShell`. Preserve Codex action order (`Files`, `Side chat`, `Browser`, `Review`, `Terminal`) and append Nodex-only actions after that (`DB View`, `Card Stage`). `db_view`, `review`, and `browser_placeholder` are session singletons and must be filtered/focused consistently across clicks, menu actions, and shortcuts.
 - Workbench sidebar parity: project/session sidebar chrome lives in `src/renderer/components/workbench/codex-sidebar.tsx`; use Codex Electron row classes and markers (`app-shell-left-panel`, `data-app-action-sidebar-section*`, `data-app-action-sidebar-project-*`, `data-app-action-sidebar-thread-*`, `h-token-nav-row`, `px-row-x`, `py-row-y`) instead of local project-row styling, and keep project folder selection inside the project row actions menu.
 - Thread summary panel parity: `WorkbenchShell` owns the top-right summary toggle beside the side-panel toggle only for attached-thread sessions while the right panel is collapsed, and reserves header width for both controls. The panel UI lives under `features/local-conversation/view/summary-panel`, renders through `LocalConversationStageScreen.floatingContent`, keeps collapsible section chevrons trailing and hover/focus revealed, and stays stage-owned so the 300px pinned overlay can sit at the thread stage's top-right edge without affecting header, transcript, or footer layout.
 
@@ -76,6 +77,7 @@
 - Keep app-owned SVG icons centralized:
   - prefer `lucide-react` for generic stock icons that already exist in the library
   - you MUST keep ALL custom SVGs in `src/renderer/components/shared/icons.tsx`
+  - Codex Electron-extracted side-panel action SVGs belong in that shared icon file and should be reused by both empty-panel action cards and tab headers
 - Prefer shared primitives over bespoke wrappers:
   - if a surface looks like an existing row shell, accordion shell, summary header, fade-mask container, or compact card, reuse or extract a primitive instead of restyling a feature-local wrapper
   - keep visual density aligned to the existing rhythm (`gap-*`, `px-panel`, `var(--conversation-tool-assistant-gap)`) rather than per-component spacing tweaks

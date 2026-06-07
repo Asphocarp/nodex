@@ -266,7 +266,18 @@ export type ProjectSessionTabKind =
   | "db_view"
   | "card_stage"
   | "terminal"
-  | "browser_placeholder";
+  | "browser_placeholder"
+  | "review"
+  | "files_placeholder"
+  | "side_chat_placeholder";
+
+export const PROJECT_SESSION_SINGLETON_TAB_KINDS = [
+  "db_view",
+  "review",
+  "browser_placeholder",
+] as const satisfies readonly ProjectSessionTabKind[];
+
+export type ProjectSessionSingletonTabKind = typeof PROJECT_SESSION_SINGLETON_TAB_KINDS[number];
 
 export interface ProjectSessionDbViewTabConfig {
   projectId: string;
@@ -286,7 +297,12 @@ export interface ProjectSessionTerminalTabConfig {
   cardId?: string;
 }
 
+export interface ProjectSessionProjectScopedTabConfig {
+  projectId: string;
+}
+
 export interface ProjectSessionBrowserPlaceholderTabConfig {
+  projectId?: string;
   url?: string;
   title?: string;
 }
@@ -295,7 +311,8 @@ export type ProjectSessionTabConfig =
   | ProjectSessionDbViewTabConfig
   | ProjectSessionCardStageTabConfig
   | ProjectSessionTerminalTabConfig
-  | ProjectSessionBrowserPlaceholderTabConfig;
+  | ProjectSessionBrowserPlaceholderTabConfig
+  | ProjectSessionProjectScopedTabConfig;
 
 export interface ProjectSessionSplitLeaf {
   type: "leaf";

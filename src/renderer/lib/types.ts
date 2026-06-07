@@ -170,6 +170,9 @@ export type {
   UpdateThreadNotificationSettingsInput,
   UploadedResourceAsset,
 } from "../../shared/types";
+
+export { PROJECT_SESSION_SINGLETON_TAB_KINDS } from "../../shared/types";
+
 export type {
   WorkbenchRecentCardSession,
   WorkbenchResumeCardStageState,

@@ -15,8 +15,9 @@ function isUnsupportedSqliteError(error: unknown): boolean {
 describe("schema initialization", () => {
   test("exposes only the supported in-app migration target", () => {
     expect(JSON.stringify(getSchemaMigrationTargets(CURRENT_SCHEMA_VERSION))).toBe("[]");
-    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[27,28]");
-    expect(JSON.stringify(getSchemaMigrationTargets(27))).toBe("[28]");
+    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[27,28,29]");
+    expect(JSON.stringify(getSchemaMigrationTargets(27))).toBe("[28,29]");
+    expect(JSON.stringify(getSchemaMigrationTargets(28))).toBe("[29]");
     expect(getSchemaMigrationTargets(20) === null).toBeTrue();
   });
 
@@ -350,6 +351,111 @@ describe("schema initialization", () => {
         WHERE type = 'table' AND name = 'codex_card_threads'
       `).get();
       expect(legacyTable === undefined).toBeTrue();
+      migrated.close();
+    } catch (error) {
+      if (isUnsupportedSqliteError(error)) {
+        initializationRan = false;
+      } else {
+        throw error;
+      }
+    } finally {
+      closeDatabase();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      delete process.env.KANBAN_DIR;
+    }
+
+    if (!initializationRan) {
+      expect(true).toBeTrue();
+    }
+  });
+
+  test("migrates schema 28 tab kind checks for side panel placeholder tabs", async () => {
+    closeDatabase();
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-schema-v28-tabs-"));
+    process.env.KANBAN_DIR = tempDir;
+
+    let initializationRan = true;
+    try {
+      const dbPath = getDatabasePath();
+      fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+      const db = new Database(dbPath);
+      db.exec(`
+        CREATE TABLE projects (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          icon TEXT NOT NULL DEFAULT '',
+          workspace_path TEXT,
+          created TEXT NOT NULL
+        );
+        CREATE TABLE project_sessions (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL,
+          title TEXT NOT NULL,
+          is_overview INTEGER NOT NULL DEFAULT 0,
+          "order" INTEGER NOT NULL,
+          left_pane_collapsed INTEGER NOT NULL DEFAULT 0,
+          right_pane_collapsed INTEGER NOT NULL DEFAULT 0,
+          right_pane_layout_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE project_session_tabs (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          project_id TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          title TEXT NOT NULL,
+          config_json TEXT NOT NULL,
+          "order" INTEGER NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          CHECK (kind IN ('db_view', 'card_stage', 'terminal', 'browser_placeholder'))
+        );
+        INSERT INTO projects (id, name, description, icon, created)
+        VALUES ('alpha', 'Alpha', '', '', '2026-01-01T00:00:00.000Z');
+        INSERT INTO project_sessions (
+          id, project_id, title, is_overview, "order", right_pane_layout_json, created_at, updated_at
+        ) VALUES (
+          'session-1', 'alpha', 'Session', 0, 0,
+          '{"version":1,"root":{"type":"leaf","id":"main","tabIds":["tab-db"],"activeTabId":"tab-db"}}',
+          '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+        );
+        INSERT INTO project_session_tabs (
+          id, session_id, project_id, kind, title, config_json, "order", created_at, updated_at
+        ) VALUES (
+          'tab-db', 'session-1', 'alpha', 'db_view', 'DB View', '{"projectId":"alpha","view":"kanban"}', 0,
+          '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+        );
+        PRAGMA user_version = 28;
+      `);
+      db.close();
+
+      await initializeDatabase();
+
+      const migrated = new Database(dbPath);
+      const version = migrated.prepare("PRAGMA user_version").get() as
+        | { user_version: number }
+        | undefined;
+      expect(version?.user_version).toBe(CURRENT_SCHEMA_VERSION);
+
+      migrated.prepare(`
+        INSERT INTO project_session_tabs (
+          id, session_id, project_id, kind, title, config_json, "order", created_at, updated_at
+        ) VALUES (
+          'tab-review', 'session-1', 'alpha', 'review', 'Review', '{"projectId":"alpha"}', 1,
+          '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+        )
+      `).run();
+
+      const tabs = migrated.prepare(`
+        SELECT kind
+        FROM project_session_tabs
+        WHERE session_id = 'session-1'
+        ORDER BY "order" ASC
+      `).all() as Array<{ kind: string }>;
+      expect(JSON.stringify(tabs.map((tab) => tab.kind))).toBe(JSON.stringify(["db_view", "review"]));
       migrated.close();
     } catch (error) {
       if (isUnsupportedSqliteError(error)) {

@@ -1,10 +1,13 @@
 import {
+  forwardRef,
   startTransition,
   useCallback,
   useEffect,
+  useEffectEvent,
   useMemo,
   useRef,
   useState,
+  type ComponentPropsWithoutRef,
   type ComponentType,
   type ReactNode,
 } from "react";
@@ -15,7 +18,6 @@ import {
   Plus,
   SquareKanban,
   Table2,
-  Terminal,
 } from "lucide-react";
 import { AppShellTabs, type AppShellTabItem } from "./app-shell-tabs";
 import {
@@ -30,11 +32,12 @@ import { SettingsOverlay } from "./workbench-settings-overlay";
 import { buildSettingsPath } from "./workbench-settings-routes";
 import { ProjectManagerPopover } from "./left-sidebar-project-manager";
 import { LeftSidebarWorkspaceManager } from "./left-sidebar-workspace-manager";
-import { NodexDropdownItem, NodexDropdownMenu } from "@/components/ui/dropdown";
+import { NodexDropdownFlyoutSubmenuItem, NodexDropdownItem, NodexDropdownMenu } from "@/components/ui/dropdown";
 import { NodexTooltip, NodexTooltipProvider } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
 import {
   ConnectedThreadStage,
+  ConnectedReviewDiffPanel,
   ThreadSummaryPanelToggle,
   useCodexAppServerControl,
   useCodexThreadStartProgress,
@@ -84,6 +87,7 @@ import {
   writeSmartPrefixParsingEnabled,
   writeStripSmartPrefixFromTitleEnabled,
 } from "@/lib/smart-prefix-parsing";
+import { PROJECT_SESSION_SINGLETON_TAB_KINDS } from "@/lib/types";
 import type {
   Card,
   CardRunInTarget,
@@ -127,6 +131,12 @@ import {
   CodexPanelRightHiddenIcon,
   CodexPanelRightVisibleIcon,
   CodexRestorePanelIcon,
+  CodexSidePanelBrowserIcon,
+  CodexSidePanelFilesIcon,
+  CodexSidePanelPlusIcon,
+  CodexSidePanelReviewIcon,
+  CodexSidePanelSideChatIcon,
+  CodexSidePanelTerminalIcon,
   ComposerPluginsIcon,
   SearchIcon,
 } from "@/components/shared/icons";
@@ -150,12 +160,74 @@ const TOOLBAR_BUTTON_GHOST_CLASS = "text-token-text-tertiary enabled:hover:bg-to
 const TOOLBAR_BUTTON_SECONDARY_CLASS = "text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent";
 const RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX = 36;
 const THREAD_SUMMARY_PANEL_STORAGE_KEY = "nodex:thread-summary-panel:pinned-open";
+const PROJECT_SESSION_SINGLETON_TAB_KIND_SET = new Set<string>(PROJECT_SESSION_SINGLETON_TAB_KINDS);
+const RIGHT_PANEL_ACTION_CARD_CLASS = "cursor-interaction min-h-32 w-full max-w-[330px] rounded-xl bg-token-bg-secondary px-4 py-6 text-center hover:bg-token-list-hover-background focus-visible:outline focus-visible:outline-2 focus-visible:outline-token-border-xstrong";
+const RIGHT_PANEL_ACTION_KBD_CLASS = "inline-flex !rounded-md !border-0 !bg-current/10 !font-sans !text-xs !text-current !shadow-none !px-1.5 !py-0.5 !leading-none";
 const DB_VIEW_TABS: Array<{ id: ProjectSessionDbView; label: string; icon: ComponentType<{ className?: string }> }> = [
   { id: "kanban", label: "Board", icon: SquareKanban },
   { id: "list", label: "Table", icon: Table2 },
   { id: "toggle-list", label: "List", icon: ToggleListIcon },
   { id: "canvas", label: "Canvas", icon: PenLine },
   { id: "calendar", label: "Calendar", icon: CalendarDays },
+];
+
+type RightPanelActionShortcut = "mod+p" | "mod+t" | "ctrl+shift+g" | "ctrl+backquote";
+
+interface RightPanelNewTabAction {
+  kind: ProjectSessionTab["kind"];
+  label: string;
+  description: string;
+  shortcut?: RightPanelActionShortcut;
+  Icon: ComponentType<{ className?: string }>;
+}
+
+const RIGHT_PANEL_NEW_TAB_ACTIONS: RightPanelNewTabAction[] = [
+  {
+    kind: "files_placeholder",
+    label: "Files",
+    description: "Browse project files",
+    shortcut: "mod+p",
+    Icon: CodexSidePanelFilesIcon,
+  },
+  {
+    kind: "side_chat_placeholder",
+    label: "Side chat",
+    description: "Start a side conversation",
+    Icon: CodexSidePanelSideChatIcon,
+  },
+  {
+    kind: "browser_placeholder",
+    label: "Browser",
+    description: "Open a website",
+    shortcut: "mod+t",
+    Icon: CodexSidePanelBrowserIcon,
+  },
+  {
+    kind: "review",
+    label: "Review",
+    description: "View code changes",
+    shortcut: "ctrl+shift+g",
+    Icon: CodexSidePanelReviewIcon,
+  },
+  {
+    kind: "terminal",
+    label: "Terminal",
+    description: "Start an interactive shell",
+    shortcut: "ctrl+backquote",
+    Icon: CodexSidePanelTerminalIcon,
+  },
+  {
+    kind: "db_view",
+    label: "DB View",
+    description: "Open the project database",
+    Icon: Table2,
+  },
+  {
+    kind: "card_stage",
+    label: "Card Stage",
+    description: "Open a project card",
+    Icon: SquareKanban,
+  },
 ];
 
 function readThreadSummaryPanelPinnedOpen(): boolean {
@@ -369,8 +441,45 @@ function isWorkbenchNewChatShortcutTargetEditable(target: EventTarget | null): b
 function getTabIcon(kind: ProjectSessionTab["kind"]): ComponentType<{ className?: string }> {
   if (kind === "db_view") return Table2;
   if (kind === "card_stage") return SquareKanban;
-  if (kind === "terminal") return Terminal;
+  if (kind === "terminal") return CodexSidePanelTerminalIcon;
+  if (kind === "browser_placeholder") return CodexSidePanelBrowserIcon;
+  if (kind === "review") return CodexSidePanelReviewIcon;
+  if (kind === "files_placeholder") return CodexSidePanelFilesIcon;
+  if (kind === "side_chat_placeholder") return CodexSidePanelSideChatIcon;
   return Globe2;
+}
+
+function filterAvailableRightPanelActions(
+  actions: readonly RightPanelNewTabAction[],
+  tabs: readonly ProjectSessionTab[],
+): RightPanelNewTabAction[] {
+  return actions.filter((action) => {
+    if (!PROJECT_SESSION_SINGLETON_TAB_KIND_SET.has(action.kind)) return true;
+    return !tabs.some((tab) => tab.kind === action.kind);
+  });
+}
+
+function resolveRightPanelShortcutLabel(shortcut: RightPanelActionShortcut | undefined, isMac: boolean): string | null {
+  if (!shortcut) return null;
+  if (shortcut === "mod+p") return isMac ? "⌘P" : "Ctrl+P";
+  if (shortcut === "mod+t") return isMac ? "⌘T" : "Ctrl+T";
+  if (shortcut === "ctrl+shift+g") return "⌃⇧G";
+  return "⌃`";
+}
+
+function matchesRightPanelShortcut(
+  event: Pick<KeyboardEvent, "altKey" | "code" | "ctrlKey" | "key" | "metaKey" | "shiftKey">,
+  shortcut: RightPanelActionShortcut,
+  isMac: boolean,
+): boolean {
+  const key = event.key.toLowerCase();
+  const modifier = isMac ? event.metaKey : event.ctrlKey;
+  if (shortcut === "mod+p") return modifier && !event.altKey && !event.shiftKey && key === "p";
+  if (shortcut === "mod+t") return modifier && !event.altKey && !event.shiftKey && key === "t";
+  if (shortcut === "ctrl+shift+g") {
+    return event.ctrlKey && !event.metaKey && !event.altKey && event.shiftKey && key === "g";
+  }
+  return event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && (event.key === "`" || event.code === "Backquote");
 }
 
 function clampRegularRightPanelWidth(width: number, sessionWidth: number): number {
@@ -458,6 +567,10 @@ export function WorkbenchShell({
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null;
   const activeSessions = activeProject ? sessionsByProject[activeProject.id] ?? [] : [];
   const activeSession = activeSessions.find((session) => session.id === activeSessionId) ?? activeSessions[0] ?? null;
+  const activeProjectKanban = useKanban({
+    projectId: activeProject?.id ?? activeProjectId,
+    sessionId: activeSession ? `${activeSession.id}:right-panel-actions` : "right-panel-actions",
+  });
   const activeTabId = activeSession?.rightPaneLayout.root.type === "leaf"
     ? activeSession.rightPaneLayout.root.activeTabId
     : activeSession?.tabs[0]?.id ?? null;
@@ -470,6 +583,21 @@ export function WorkbenchShell({
     sidebar?.topLevelSectionOrder,
   );
   const settingsSidebarTopLevelSections = sidebar?.topLevelSections ?? makeDefaultSidebarTopLevelSectionsPrefs();
+  const activeProjectCardOptions = useMemo(() => {
+    const cards: Array<{ card: Card; columnName: string }> = [];
+    for (const column of activeProjectKanban.board?.columns ?? []) {
+      const columnName = KANBAN_STATUS_LABELS[column.id] ?? column.name;
+      for (const card of column.cards) {
+        cards.push({ card, columnName });
+      }
+    }
+    return cards;
+  }, [activeProjectKanban.board?.columns]);
+  const isMacPlatform = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
+  const availableRightPanelActions = useMemo(
+    () => filterAvailableRightPanelActions(RIGHT_PANEL_NEW_TAB_ACTIONS, activeSession?.tabs ?? []),
+    [activeSession?.tabs],
+  );
 
   const openSettings = useCallback(() => {
     setSettingsPath(buildSettingsPath("general-settings"));
@@ -493,6 +621,10 @@ export function WorkbenchShell({
     lastHandledSettingsToggleTickRef.current = settingsToggleTick;
     setSettingsOpen((current) => !current);
   }, [settingsToggleTick]);
+
+  useEffect(() => {
+    void activeProjectKanban.refresh();
+  }, [activeProjectKanban.refresh, activeProject?.id, activeSession?.id]);
 
   const handleThreadQueueFollowUpsEnabledChange = useCallback((value: boolean) => {
     setThreadQueueFollowUpsEnabled(writeThreadQueueFollowUpsEnabled(value));
@@ -752,6 +884,58 @@ export function WorkbenchShell({
       return;
     }
 
+    if (kind === "files_placeholder") {
+      await invoke("project-session-tabs:create", {
+        sessionId: activeSession.id,
+        projectId: activeSession.projectId,
+        kind,
+        title: "Files",
+        config: { projectId: activeSession.projectId },
+      });
+      await ensureActiveRightPanelOpenWithoutRefresh();
+      await refreshProjectSessions(activeSession.projectId);
+      return;
+    }
+
+    if (kind === "side_chat_placeholder") {
+      await invoke("project-session-tabs:create", {
+        sessionId: activeSession.id,
+        projectId: activeSession.projectId,
+        kind,
+        title: "Side chat",
+        config: { projectId: activeSession.projectId },
+      });
+      await ensureActiveRightPanelOpenWithoutRefresh();
+      await refreshProjectSessions(activeSession.projectId);
+      return;
+    }
+
+    if (kind === "browser_placeholder") {
+      await invoke("project-session-tabs:create", {
+        sessionId: activeSession.id,
+        projectId: activeSession.projectId,
+        kind,
+        title: "Browser",
+        config: { projectId: activeSession.projectId },
+      });
+      await ensureActiveRightPanelOpenWithoutRefresh();
+      await refreshProjectSessions(activeSession.projectId);
+      return;
+    }
+
+    if (kind === "review") {
+      await invoke("project-session-tabs:create", {
+        sessionId: activeSession.id,
+        projectId: activeSession.projectId,
+        kind,
+        title: "Review",
+        config: { projectId: activeSession.projectId },
+      });
+      await ensureActiveRightPanelOpenWithoutRefresh();
+      await refreshProjectSessions(activeSession.projectId);
+      return;
+    }
+
     if (kind === "terminal") {
       await invoke("project-session-tabs:create", {
         sessionId: activeSession.id,
@@ -766,26 +950,37 @@ export function WorkbenchShell({
       });
       await ensureActiveRightPanelOpenWithoutRefresh();
       await refreshProjectSessions(activeSession.projectId);
-      return;
     }
+  }, [activeSession, ensureActiveRightPanelOpenWithoutRefresh, refreshProjectSessions]);
 
-    if (kind === "browser_placeholder") {
-      await invoke("project-session-tabs:create", {
-        sessionId: activeSession.id,
-        projectId: activeSession.projectId,
-        kind,
-        title: "Browser",
-        config: {},
-      });
-      await ensureActiveRightPanelOpenWithoutRefresh();
-      await refreshProjectSessions(activeSession.projectId);
-      return;
-    }
+  const openCardStageFromPicker = useCallback(async (card: Card) => {
+    if (!activeSession) return;
+    await openCardTab(activeSession.projectId, card.id, card.title || card.id);
+  }, [activeSession, openCardTab]);
 
-    const cardId = window.prompt("Card id")?.trim();
-    if (!cardId) return;
-    await openCardTab(activeSession.projectId, cardId, cardId);
-  }, [activeSession, ensureActiveRightPanelOpenWithoutRefresh, openCardTab, refreshProjectSessions]);
+  const handleRightPanelShortcut = useEffectEvent((event: KeyboardEvent): boolean => {
+    if (!activeSession) return false;
+    if (isWorkbenchNewChatShortcutTargetEditable(event.target)) return false;
+
+    const action = RIGHT_PANEL_NEW_TAB_ACTIONS.find((candidate) =>
+      candidate.shortcut ? matchesRightPanelShortcut(event, candidate.shortcut, isMacPlatform) : false,
+    );
+    if (!action) return false;
+
+    void createManualTab(action.kind);
+    return true;
+  });
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!handleRightPanelShortcut(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, []);
 
   const showActiveRightPanel = useCallback(async () => {
     if (!activeSession) return;
@@ -1038,7 +1233,7 @@ export function WorkbenchShell({
     <NodexDropdownMenu
       align="end"
       sideOffset={6}
-      contentWidth="sm"
+      contentWidth="menuWide"
       triggerButton={(
         <button
           type="button"
@@ -1046,22 +1241,40 @@ export function WorkbenchShell({
           title="Open side panel tab"
           aria-label="Open side panel tab"
         >
-          <Plus className="icon-xs" />
+          <CodexSidePanelPlusIcon className="icon-xs" />
         </button>
       )}
     >
-      <NodexDropdownItem leftSlot={<Table2 className="icon-sm" />} onSelect={() => void createManualTab("db_view")}>
-        DB view
-      </NodexDropdownItem>
-      <NodexDropdownItem leftSlot={<SquareKanban className="icon-sm" />} onSelect={() => void createManualTab("card_stage")}>
-        Card Stage
-      </NodexDropdownItem>
-      <NodexDropdownItem leftSlot={<Terminal className="icon-sm" />} onSelect={() => void createManualTab("terminal")}>
-        Terminal
-      </NodexDropdownItem>
-      <NodexDropdownItem leftSlot={<Globe2 className="icon-sm" />} onSelect={() => void createManualTab("browser_placeholder")}>
-        Browser placeholder
-      </NodexDropdownItem>
+      {availableRightPanelActions.map((action) => {
+        const Icon = action.Icon;
+        if (action.kind === "card_stage") {
+          return (
+            <NodexDropdownFlyoutSubmenuItem
+              key={action.kind}
+              label={action.label}
+              leftSlot={<Icon className="icon-sm" />}
+              contentClassName="w-[336px]"
+            >
+              <RightPanelCardStagePicker
+                cards={activeProjectCardOptions}
+                onOpenCard={(card) => void openCardStageFromPicker(card)}
+              />
+            </NodexDropdownFlyoutSubmenuItem>
+          );
+        }
+
+        return (
+          <NodexDropdownItem
+            key={action.kind}
+            leftSlot={<Icon className="icon-sm" />}
+            subText={action.description}
+            keyboardShortcut={resolveRightPanelShortcutLabel(action.shortcut, isMacPlatform)}
+            onSelect={() => void createManualTab(action.kind)}
+          >
+            {action.label}
+          </NodexDropdownItem>
+        );
+      })}
     </NodexDropdownMenu>
   ) : null;
 
@@ -1083,7 +1296,6 @@ export function WorkbenchShell({
     </>
   ) : null;
 
-  const isMacPlatform = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
   const showFloatingSidebar = sidebarCollapsed;
   const showInlineSidebar = sidebarVisible && !sidebarCollapsed;
   const sidebarCollapseControlButton = (
@@ -1357,7 +1569,13 @@ export function WorkbenchShell({
                               <div className="ml-1 flex shrink-0 items-center gap-1">{rightPanelTabHeaderStickyControls}</div>
                               <div className="ml-1 flex shrink-0 items-center gap-1">{rightPanelTabHeaderControls}</div>
                             </div>
-                            <EmptyRightPane onCreateDbTab={() => void createManualTab("db_view")} />
+                            <EmptyRightPane
+                              actions={availableRightPanelActions}
+                              cards={activeProjectCardOptions}
+                              isMac={isMacPlatform}
+                              onAction={(kind) => void createManualTab(kind)}
+                              onOpenCard={(card) => void openCardStageFromPicker(card)}
+                            />
                           </div>
                         )}
                       </div>
@@ -1660,16 +1878,139 @@ function ProjectSessionSidebar({
   );
 }
 
-function EmptyRightPane({ onCreateDbTab }: { onCreateDbTab: () => void }) {
-  return (
-    <div className="flex h-full items-center justify-center">
+type RightPanelActionCardProps = ComponentPropsWithoutRef<"button"> & {
+  action: RightPanelNewTabAction;
+  isMac: boolean;
+};
+
+const RightPanelActionCard = forwardRef<HTMLButtonElement, RightPanelActionCardProps>(
+  function RightPanelActionCard({
+    action,
+    isMac,
+    className,
+    ...buttonProps
+  }, ref) {
+    const shortcut = resolveRightPanelShortcutLabel(action.shortcut, isMac);
+    const Icon = action.Icon;
+    return (
       <button
+        ref={ref}
         type="button"
-        className="rounded-lg bg-token-foreground/5 px-3 py-2 text-sm text-token-text-secondary hover:bg-token-foreground/10 hover:text-token-text-primary"
-        onClick={onCreateDbTab}
+        className={cn(RIGHT_PANEL_ACTION_CARD_CLASS, className)}
+        {...buttonProps}
       >
-        Add DB view
+        <div className="flex min-w-0 flex-col items-center gap-3">
+          <span className="flex size-7 shrink-0 items-center justify-center text-token-text-secondary">
+            <Icon className="icon-md" />
+          </span>
+          <span className="flex min-w-0 flex-col items-center gap-1">
+            <span
+              data-thread-side-panel-new-tab-action-label="true"
+              className="w-max max-w-full truncate text-base font-semibold text-token-text-primary"
+            >
+              {action.label}
+            </span>
+            <span
+              data-thread-side-panel-new-tab-action-label="true"
+              className="w-max max-w-full truncate text-sm text-token-text-secondary"
+            >
+              {action.description}
+            </span>
+            {shortcut ? (
+              <span
+                data-thread-side-panel-new-tab-action-label="true"
+                className="pt-1 text-token-text-secondary"
+              >
+                <kbd className={RIGHT_PANEL_ACTION_KBD_CLASS}>{shortcut}</kbd>
+              </span>
+            ) : null}
+          </span>
+        </div>
       </button>
+    );
+  },
+);
+
+function RightPanelCardStagePicker({
+  cards,
+  onOpenCard,
+}: {
+  cards: Array<{ card: Card; columnName: string }>;
+  onOpenCard: (card: Card) => void;
+}) {
+  if (cards.length === 0) {
+    return (
+      <div className="w-[320px] px-3 py-2 text-sm text-token-description-foreground">
+        No cards in this project.
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-h-[320px] w-[320px] overflow-y-auto py-1">
+      {cards.map(({ card, columnName }) => (
+        <NodexDropdownItem
+          key={card.id}
+          leftSlot={<SquareKanban className="icon-sm" />}
+          subText={columnName}
+          onSelect={() => onOpenCard(card)}
+        >
+          {card.title || card.id}
+        </NodexDropdownItem>
+      ))}
+    </div>
+  );
+}
+
+function EmptyRightPane({
+  actions,
+  cards,
+  isMac,
+  onAction,
+  onOpenCard,
+}: {
+  actions: RightPanelNewTabAction[];
+  cards: Array<{ card: Card; columnName: string }>;
+  isMac: boolean;
+  onAction: (kind: ProjectSessionTab["kind"]) => void;
+  onOpenCard: (card: Card) => void;
+}) {
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-x-hidden overflow-y-auto bg-token-main-surface-primary p-6 select-none">
+      <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center">
+        <div className="sticky top-0 z-10 flex flex-col gap-8 bg-token-main-surface-primary">
+          <div
+            data-thread-side-panel-new-tab-action-grid="true"
+            className="grid w-full grid-cols-1 justify-center justify-items-center gap-3"
+            style={{ gridTemplateColumns: "repeat(1, minmax(0px, 330px))" }}
+          >
+            {actions.map((action) => {
+              if (action.kind === "card_stage") {
+                return (
+                  <NodexDropdownMenu
+                    key={action.kind}
+                    align="center"
+                    sideOffset={8}
+                    contentWidth="panelWide"
+                    triggerButton={<RightPanelActionCard action={action} isMac={isMac} />}
+                  >
+                    <RightPanelCardStagePicker cards={cards} onOpenCard={onOpenCard} />
+                  </NodexDropdownMenu>
+                );
+              }
+
+              return (
+                <RightPanelActionCard
+                  key={action.kind}
+                  action={action}
+                  isMac={isMac}
+                  onClick={() => onAction(action.kind)}
+                />
+              );
+            })}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2166,9 +2507,48 @@ function ProjectSessionTabPanel({
     );
   }
 
+  if (tab.kind === "review") {
+    const project = projects.find((item) => item.id === tab.projectId) ?? null;
+    return (
+      <ConnectedReviewDiffPanel
+        threadId={activeSession.thread?.threadId ?? null}
+        projectWorkspacePath={project?.workspacePath ?? null}
+        searchOpenTick={0}
+      />
+    );
+  }
+
+  if (
+    tab.kind === "browser_placeholder"
+    || tab.kind === "files_placeholder"
+    || tab.kind === "side_chat_placeholder"
+  ) {
+    return <ProjectSessionMockTab kind={tab.kind} />;
+  }
+
   return (
     <div className="flex h-full items-center justify-center bg-token-main-surface-primary text-sm text-token-text-secondary">
-      Browser tabs are reserved for a future browser stage.
+      Unsupported tab.
+    </div>
+  );
+}
+
+function ProjectSessionMockTab({
+  kind,
+}: {
+  kind: "browser_placeholder" | "files_placeholder" | "side_chat_placeholder";
+}) {
+  const action = RIGHT_PANEL_NEW_TAB_ACTIONS.find((candidate) => candidate.kind === kind);
+  const Icon = action?.Icon ?? CodexSidePanelBrowserIcon;
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary p-6 select-none">
+      <div className="mx-auto flex h-full w-full max-w-2xl flex-col items-center justify-center text-center">
+        <div className="mb-3 flex size-10 items-center justify-center rounded-xl bg-token-bg-secondary text-token-text-secondary">
+          <Icon className="icon-md" />
+        </div>
+        <div className="text-base font-semibold text-token-text-primary">{action?.label ?? "Browser"}</div>
+        <div className="mt-1 text-sm text-token-text-secondary">{action?.description ?? "Open a website"}</div>
+      </div>
     </div>
   );
 }
