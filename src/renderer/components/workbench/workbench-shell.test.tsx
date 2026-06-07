@@ -1481,7 +1481,18 @@ describe("workbench session shell", () => {
     const dragStrip = screen.container.querySelector('[data-testid="sidebar-drag-strip"]');
     expect(dragStrip).toBe(null);
     expect(textContent(screen.container).includes("Overview")).toBeTrue();
-    expect(screen.container.querySelector("[data-app-action-sidebar-thread-row]") !== null).toBeTrue();
+    const threadRow = screen.container.querySelector("[data-app-action-sidebar-thread-row]");
+    expect(threadRow !== null).toBeTrue();
+    const threadTitle = threadRow?.querySelector('[data-thread-title="true"]');
+    expect(threadTitle?.textContent).toBe("Overview");
+    expect(threadTitle?.getAttribute("draggable")).toBe("false");
+    const titleTrigger = threadTitle?.closest('[data-thread-title-trigger="true"]');
+    expect(String(titleTrigger?.className).includes("self-stretch")).toBeTrue();
+    const titleIndent = titleTrigger?.parentElement;
+    expect(String(titleIndent?.className).includes("pl-0.5")).toBeTrue();
+    expect(String(titleIndent?.className).includes("ml-1.5")).toBeTrue();
+    const leadingSlot = titleIndent?.previousElementSibling;
+    expect(String(leadingSlot?.className).includes("w-4")).toBeTrue();
   });
 
   test("selecting another project expands it and falls back to its overview session", async () => {

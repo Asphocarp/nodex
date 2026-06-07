@@ -377,14 +377,30 @@ export function CodexThreadRow({
         }}
       >
         <div className="contents">
-          <div className="flex h-full items-center gap-2">
-            <span className="min-w-0 flex-1 truncate text-token-foreground">
-              {session.title}
-            </span>
+          <div className="flex h-full w-full items-center text-sm leading-4">
+            <div className="w-4">
+              <div className="relative flex items-center justify-center" />
+            </div>
+            <div className="flex min-w-0 flex-1 items-center gap-2 pl-0.5 ml-1.5">
+              <div
+                className="flex min-w-0 flex-1 self-stretch items-center gap-2 text-base leading-5 text-token-foreground"
+                data-thread-title-trigger="true"
+              >
+                <span
+                  className="min-w-0 flex-1 truncate select-none"
+                  data-thread-title="true"
+                  draggable={false}
+                >
+                  {session.title}
+                </span>
+              </div>
+            </div>
             {session.isOverview ? (
-              <span className="shrink-0 text-xs text-token-description-foreground">
-                default
-              </span>
+              <div className="ml-[3px] flex min-w-[26px] items-center justify-end gap-1">
+                <span className="shrink-0 text-xs text-token-description-foreground">
+                  default
+                </span>
+              </div>
             ) : null}
           </div>
         </div>
