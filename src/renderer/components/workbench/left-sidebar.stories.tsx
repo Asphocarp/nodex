@@ -2,9 +2,14 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useState } from "react";
 import type { Project, WorkspaceRecord } from "@/lib/types";
 import type { SpaceRef } from "@/lib/use-workbench-state";
+import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { LeftSidebar, type StageSidebarGroup } from "./left-sidebar";
 import { ProjectManagerPopover } from "./left-sidebar-project-manager";
 import { LeftSidebarWorkspaceManager } from "./left-sidebar-workspace-manager";
+import {
+  SidebarNewChatButton,
+  SidebarProjectNewChatButton,
+} from "./sidebar-new-chat-controls";
 
 const PROJECTS: Project[] = [
   {
@@ -246,6 +251,28 @@ function ProjectManagerHarness() {
   );
 }
 
+function SidebarNewChatControlsHarness() {
+  return (
+    <NodexTooltipProvider>
+      <div className="min-h-screen bg-(--background) p-8">
+        <div className="w-[280px] bg-(--background-secondary) py-1">
+          <SidebarNewChatButton shortcutLabel="⌘N" onClick={() => {}} />
+          <div className="mt-3 px-(--sidebar-shell-padding-x)">
+            <div className="group/folder-row flex min-h-7.5 items-center gap-1.5 rounded-xl pl-(--sidebar-row-padding-x) pr-(--sidebar-header-padding-x) py-1 text-(--sidebar-foreground) hover:bg-(--sidebar-accent)">
+              <span className="min-w-0 flex-1 truncate text-sm">Codex bundle</span>
+              <SidebarProjectNewChatButton
+                label="Start new chat in Codex bundle"
+                className="opacity-100"
+                onClick={() => {}}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </NodexTooltipProvider>
+  );
+}
+
 function WorkspaceFooterHarness({
   activeWorkspaceId = "default",
   workspaces = WORKSPACES,
@@ -302,6 +329,10 @@ export const StatusGroupsReversed: Story = {
 
 export const ProjectManagerOpen: Story = {
   render: () => <ProjectManagerHarness />,
+};
+
+export const NewChatControls: Story = {
+  render: () => <SidebarNewChatControlsHarness />,
 };
 
 export const WorkspaceFooter: Story = {

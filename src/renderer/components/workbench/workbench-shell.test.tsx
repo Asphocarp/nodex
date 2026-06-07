@@ -15,6 +15,9 @@ let startThreadForSessionCalls: unknown[] = [];
 const CODEX_PANEL_VISIBLE_ICON_PREFIX = "M16.835 8.66301";
 const CODEX_EXPAND_PANEL_ICON_PREFIX = "M4.33496 11";
 const CODEX_RESTORE_PANEL_ICON_PREFIX = "M16.0299 3.0293";
+const CODEX_NEW_CHAT_ICON_PREFIX = "M2.6687 11.333";
+const CODEX_TOP_NEW_CHAT_CLASS = "focus-visible:outline-token-border relative h-token-nav-row px-row-x py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-lg text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background group";
+const CODEX_PROJECT_NEW_CHAT_CLASS = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-muted-foreground enabled:hover:bg-transparent data-[state=open]:bg-transparent hover:text-token-foreground border-transparent electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5 h-6 w-6 rounded-md !p-1";
 
 const mockCodexControl = {
   availableModels: [
@@ -455,6 +458,144 @@ describe("workbench session shell", () => {
     expect(text.includes("Overview")).toBeTrue();
     expect(text.includes("DB:alpha:kanban")).toBeTrue();
     expect(invokeCalls.some((call) => call[0] === "project-sessions:list" && call[1] === "alpha")).toBeTrue();
+  });
+
+  test("renders the Codex-style top new-chat row", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const newChatButton = screen.getByRole("button", { name: "New chat" });
+    const iconPath = newChatButton.querySelector("path")?.getAttribute("d") ?? "";
+    expect(newChatButton.className).toBe(CODEX_TOP_NEW_CHAT_CLASS);
+    expect(iconPath.startsWith(CODEX_NEW_CHAT_ICON_PREFIX)).toBeTrue();
+    expect(textContent(newChatButton).includes("⌘N") || textContent(newChatButton).includes("Ctrl+N")).toBeTrue();
+  });
+
+  test("top new-chat row opens a blank session composer", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-sessions:create"
+      && JSON.stringify(call[1]) === JSON.stringify({ projectId: "alpha", title: "New thread" })
+    )).toBeTrue();
+    expect(props?.isNewThreadTab).toBeTrue();
+    expect(JSON.stringify(props?.newThreadTarget).includes('"sessionId":"session:alpha:created"')).toBeTrue();
+    expect(screen.getByLabelText("Prompt").getAttribute("placeholder")).toBe("Write the first prompt for this new thread...");
+  });
+
+  test("Cmd+N opens the project-scoped new-chat composer from the workbench shell", async () => {
+    renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.keyDown(document, { key: "n", metaKey: true, ctrlKey: true });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-sessions:create"
+      && JSON.stringify(call[1]) === JSON.stringify({ projectId: "alpha", title: "New thread" })
+    )).toBeTrue();
+  });
+
+  test("project row new-chat button opens a project composer without prompting or toggling", async () => {
+    const promptCalls: string[] = [];
+    const originalPrompt = window.prompt;
+    window.prompt = ((message?: string) => {
+      promptCalls.push(String(message ?? ""));
+      return "Should not be used";
+    }) as typeof window.prompt;
+
+    try {
+      const screen = renderWorkbench({
+        projects: [makeProject(), makeProject("beta", "Beta")],
+        sessionsByProject: {
+          alpha: [makeSession()],
+          beta: [
+            makeSession({
+              id: "overview:beta",
+              projectId: "beta",
+              title: "Overview",
+              isOverview: true,
+            }),
+          ],
+        },
+      });
+      await settleAsyncRender();
+      await settleAsyncRender();
+
+      const betaAction = screen.getByLabelText("Start new chat in Beta");
+      const iconPath = betaAction.querySelector("path")?.getAttribute("d") ?? "";
+      expect(betaAction.className).toBe(CODEX_PROJECT_NEW_CHAT_CLASS);
+      expect(iconPath.startsWith(CODEX_NEW_CHAT_ICON_PREFIX)).toBeTrue();
+
+      await act(async () => {
+        fireEvent.click(betaAction);
+        await Promise.resolve();
+      });
+      await settleAsyncRender();
+
+      const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+      expect(promptCalls.length).toBe(0);
+      expect(invokeCalls.some((call) =>
+        call[0] === "project-sessions:create"
+        && JSON.stringify(call[1]) === JSON.stringify({ projectId: "beta", title: "New thread" })
+      )).toBeTrue();
+      expect(JSON.stringify(props?.newThreadTarget).includes('"projectId":"beta"')).toBeTrue();
+      expect(JSON.stringify(props?.newThreadTarget).includes('"sessionId":"session:beta:created"')).toBeTrue();
+    } finally {
+      window.prompt = originalPrompt;
+    }
+  });
+
+  test("project row new-chat button reuses an existing blank session", async () => {
+    const betaBlank = makeSession({
+      id: "session:beta:blank",
+      projectId: "beta",
+      title: "New thread",
+      isOverview: false,
+      thread: null,
+      tabs: [],
+    });
+    const screen = renderWorkbench({
+      projects: [makeProject(), makeProject("beta", "Beta")],
+      sessionsByProject: {
+        alpha: [makeSession()],
+        beta: [
+          makeSession({
+            id: "overview:beta",
+            projectId: "beta",
+            title: "Overview",
+            isOverview: true,
+          }),
+          betaBlank,
+        ],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Start new chat in Beta"));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(invokeCalls.some((call) => call[0] === "project-sessions:create" && JSON.stringify(call[1]).includes('"projectId":"beta"'))).toBeFalse();
+    expect(JSON.stringify(props?.newThreadTarget).includes('"sessionId":"session:beta:blank"')).toBeTrue();
   });
 
   test("opens settings from the sidebar settings button", async () => {

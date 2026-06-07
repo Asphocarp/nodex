@@ -173,7 +173,7 @@ describe("handleWorkbenchShortcut", () => {
     expect(called).toBeTrue();
   });
 
-  test("Cmd+N requests a new window", () => {
+  test("Cmd+N is reserved for the workbench shell new chat action", () => {
     let called = false;
     const actions = makeActions({
       onRequestNewWindow: () => {
@@ -187,6 +187,31 @@ describe("handleWorkbenchShortcut", () => {
         ctrlKey: false,
         metaKey: true,
         shiftKey: false,
+        altKey: false,
+        target: null,
+      },
+      actions,
+      true,
+    );
+
+    expect(handled).toBeFalse();
+    expect(called).toBeFalse();
+  });
+
+  test("Cmd+Shift+N requests a new window", () => {
+    let called = false;
+    const actions = makeActions({
+      onRequestNewWindow: () => {
+        called = true;
+      },
+    });
+
+    const handled = handleWorkbenchShortcut(
+      {
+        key: "N",
+        ctrlKey: false,
+        metaKey: true,
+        shiftKey: true,
         altKey: false,
         target: null,
       },

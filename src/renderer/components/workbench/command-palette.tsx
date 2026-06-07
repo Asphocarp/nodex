@@ -281,7 +281,7 @@ function buildCommands(input: {
       title: "Open new window",
       subtitle: "Create another Nodex window",
       keywords: ["window", "new"],
-      shortcut: createShortcutLabel("Cmd+N", isMac),
+      shortcut: createShortcutLabel("Cmd+Shift+N", isMac),
       priority: 440,
     },
     ...commands,

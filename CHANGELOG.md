@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Added a public changelog page at `nodex.jyu.app/changelog`, generated from the project changelog file.
-- Added a Codex-style project session shell with expandable project folders, durable sessions, a session thread page, session-owned right-panel tabs, browser placeholders, and separate optional session-thread attachments.
+- Added a Codex-style project session shell with expandable project folders, a sidebar `New chat` entry, project-row new-chat actions, durable sessions, a session thread page, session-owned right-panel tabs, browser placeholders, and separate optional session-thread attachments.
 - Added SQLite-backed project session, project session tab, and session-thread link storage with default Overview sessions seeded for every project.
 - Added a Codex-style project selector in the empty session new-chat status row so a first prompt can target another project before the thread starts.
 - Added a Codex-style `Start in` selector to empty session new-chat composers, including `Work locally` and managed `New worktree` starts with environment setup progress.

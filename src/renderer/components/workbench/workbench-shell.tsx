@@ -132,6 +132,10 @@ import {
   CodexPanelRightVisibleIcon,
   CodexRestorePanelIcon,
 } from "@/components/shared/icons";
+import {
+  SidebarNewChatButton,
+  SidebarProjectNewChatButton,
+} from "./sidebar-new-chat-controls";
 
 const COLLAPSE_CONTROL_TRAFFIC_LIGHT_OFFSET_PX = 90;
 const RIGHT_PANEL_DEFAULT_WIDTH = 600;
@@ -322,6 +326,21 @@ function readInitialExpandedProjects(projects: Project[], activeProjectId: strin
 
 function isProjectSessionDbView(value: string): value is ProjectSessionDbView {
   return DB_VIEW_TABS.some((item) => item.id === value);
+}
+
+interface ShortcutTargetLike {
+  tagName?: string;
+  isContentEditable?: boolean;
+  closest?: (selector: string) => Element | null;
+}
+
+function isWorkbenchNewChatShortcutTargetEditable(target: EventTarget | null): boolean {
+  const element = target as ShortcutTargetLike | null;
+  if (!element) return false;
+  if (element.isContentEditable) return true;
+  if (element.tagName === "INPUT" || element.tagName === "TEXTAREA") return true;
+  if (!element.closest) return false;
+  return Boolean(element.closest(".nfm-editor, .bn-editor, .bn-container, [role='dialog']"));
 }
 
 function getTabIcon(kind: ProjectSessionTab["kind"]): ComponentType<{ className?: string }> {
@@ -645,14 +664,6 @@ export function WorkbenchShell({
     await refreshProjectSessions(activeSession.projectId);
   }, [activeSession, ensureActiveRightPanelOpenWithoutRefresh, openCardStage, refreshProjectSessions, setActiveTab]);
 
-  const createSession = useCallback(async (projectId: string) => {
-    const title = window.prompt("Session name", "New session")?.trim();
-    if (!title) return;
-    const session = (await invoke("project-sessions:create", { projectId, title })) as ProjectSession;
-    await refreshProjectSessions(projectId);
-    selectSession(session);
-  }, [refreshProjectSessions, selectSession]);
-
   const ensureBlankSessionForProject = useCallback(async (projectId: string) => {
     const sessions = sessionsByProject[projectId] ?? await refreshProjectSessions(projectId);
     const reusableSession = sessions.find((candidate) => !candidate.thread && !candidate.isOverview) ?? null;
@@ -670,6 +681,26 @@ export function WorkbenchShell({
     selectSession(session);
     return session;
   }, [refreshProjectSessions, selectSession, sessionsByProject]);
+
+  const startNewChatInProject = useCallback(async (projectId: string) => {
+    const session = await ensureBlankSessionForProject(projectId);
+    setRightPanelFullWidthBySessionId((current) => ({ ...current, [session.id]: false }));
+  }, [ensureBlankSessionForProject]);
+
+  useEffect(() => {
+    const isMacPlatformForShortcut = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      const modifier = isMacPlatformForShortcut ? event.metaKey : event.ctrlKey;
+      if (!modifier || event.altKey || event.shiftKey || event.key.toLowerCase() !== "n") return;
+      if (isWorkbenchNewChatShortcutTargetEditable(event.target)) return;
+      event.preventDefault();
+      void startNewChatInProject(activeProjectId);
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [activeProjectId, startNewChatInProject]);
 
   const createManualTab = useCallback(async (kind: ProjectSessionTab["kind"]) => {
     if (!activeSession) return;
@@ -1084,7 +1115,7 @@ export function WorkbenchShell({
               }}
               onSelectProject={selectProject}
               onSelectSession={selectSession}
-              onCreateSession={createSession}
+              onStartNewChatInProject={(projectId) => void startNewChatInProject(projectId)}
               onCreateProject={async (...args) => {
                 const project = await onCreateProject(...args);
                 await refreshAllSessions();
@@ -1142,7 +1173,7 @@ export function WorkbenchShell({
                   }}
                   onSelectProject={selectProject}
                   onSelectSession={selectSession}
-                  onCreateSession={createSession}
+                  onStartNewChatInProject={(projectId) => void startNewChatInProject(projectId)}
                   onCreateProject={async (...args) => {
                     const project = await onCreateProject(...args);
                     await refreshAllSessions();
@@ -1349,7 +1380,7 @@ function ProjectSessionSidebar({
   onToggleProjectExpanded,
   onSelectProject,
   onSelectSession,
-  onCreateSession,
+  onStartNewChatInProject,
   onCreateProject,
   onRenameProject,
   onDeleteProject,
@@ -1373,7 +1404,7 @@ function ProjectSessionSidebar({
   onToggleProjectExpanded: (projectId: string) => void;
   onSelectProject: (projectId: string) => void;
   onSelectSession: (session: ProjectSession) => void;
-  onCreateSession: (projectId: string) => void | Promise<void>;
+  onStartNewChatInProject: (projectId: string) => void | Promise<void>;
   onCreateProject: (
     id: string,
     name: string,
@@ -1440,6 +1471,10 @@ function ProjectSessionSidebar({
       <div className="draggable h-toolbar w-full shrink-0" data-testid="sidebar-drag-strip" />
 
       <div className="scrollbar-token min-h-0 flex-1 overflow-y-auto px-(--sidebar-shell-padding-x) py-1">
+        <SidebarNewChatButton
+          shortcutLabel={typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC") ? "⌘N" : "Ctrl+N"}
+          onClick={() => void onStartNewChatInProject(activeProjectId)}
+        />
         <section className="mb-2">
           <div
             className={cn(
@@ -1502,7 +1537,7 @@ function ProjectSessionSidebar({
                   key={project.id}
                   data-active={isActiveProject ? "true" : undefined}
                   className={cn(
-                    "group/project rounded-xl pr-(--sidebar-header-padding-x) pl-(--sidebar-row-padding-x) py-1 min-h-7.5",
+                    "group/project group/folder-row rounded-xl pr-(--sidebar-header-padding-x) pl-(--sidebar-row-padding-x) py-1 min-h-7.5",
                     isActiveProject
                       ? "bg-[color-mix(in_srgb,var(--sidebar-accent)_68%,transparent)] text-(--sidebar-foreground)"
                       : "text-(--sidebar-foreground) hover:bg-(--sidebar-accent)",
@@ -1551,19 +1586,10 @@ function ProjectSessionSidebar({
                           </span>
                         </span>
                       </button>
-                      <button
-                        type="button"
-                        className={cn(
-                          "mt-px hidden h-6 w-6 shrink-0 items-center justify-center rounded-md outline-none group-hover/project:inline-flex",
-                          "text-(--sidebar-foreground-tertiary) hover:bg-[color-mix(in_srgb,var(--sidebar-foreground)_8%,transparent)] hover:text-(--sidebar-foreground)",
-                          "focus-visible:ring-2 focus-visible:ring-(--sidebar-ring)/35",
-                        )}
-                        title="New session"
-                        aria-label={`New session in ${project.name}`}
-                        onClick={() => void onCreateSession(project.id)}
-                      >
-                        <Plus className="size-3.5" />
-                      </button>
+                      <SidebarProjectNewChatButton
+                        label={`Start new chat in ${project.name}`}
+                        onClick={() => void onStartNewChatInProject(project.id)}
+                      />
                     </div>
 
                     {isActiveProject ? (

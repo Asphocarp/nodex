@@ -60,7 +60,7 @@ export function handleWorkbenchShortcut(
     return true;
   }
 
-  if (modifier && !e.altKey && !e.shiftKey && (e.key === "n" || e.key === "N")) {
+  if (modifier && !e.altKey && e.shiftKey && (e.key === "n" || e.key === "N")) {
     actions.onRequestNewWindow?.();
     return true;
   }
