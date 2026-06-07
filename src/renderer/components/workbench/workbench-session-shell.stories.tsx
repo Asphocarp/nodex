@@ -430,7 +430,7 @@ export const MixedRightTabs: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Regular 600px right panel with show/expand/hide controls in the fixed global toolbar.",
+        story: "Regular 600px right panel with the global side-panel toggle in the fixed toolbar and expand/restore in the panel tab header.",
       },
     },
   },
@@ -450,7 +450,7 @@ export const CollapsedRightPanel: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Collapsed right panel with the side-panel toggle still available at the top-right of the global toolbar.",
+        story: "Collapsed right panel with the Codex-style side-panel toggle still available at the top-right of the global toolbar.",
       },
     },
   },
@@ -464,7 +464,7 @@ export const FullWidthRightPanel: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Expanded right panel with the main thread viewport collapsed to zero width under the same fixed toolbar.",
+        story: "Expanded right panel with restore in the panel tab header and the main thread viewport collapsed to zero width under the same fixed toolbar.",
       },
     },
   },

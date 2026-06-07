@@ -13,7 +13,8 @@ let invokeCalls: unknown[][] = [];
 let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
 let startThreadForSessionCalls: unknown[] = [];
 const CODEX_PANEL_VISIBLE_ICON_PREFIX = "M16.835 8.66301";
-const CODEX_PANEL_HIDDEN_ICON_PREFIX = "M6.83496 3.99992";
+const CODEX_EXPAND_PANEL_ICON_PREFIX = "M4.33496 11";
+const CODEX_RESTORE_PANEL_ICON_PREFIX = "M16.0299 3.0293";
 
 const mockCodexControl = {
   availableModels: [
@@ -531,7 +532,7 @@ describe("workbench session shell", () => {
     expect(invokeCalls.some((call) => call[0] === "project-sessions:list" && call[1] === "alpha")).toBeTrue();
   });
 
-  test("collapsed right panel opens from the global header control", async () => {
+  test("collapsed right panel opens from the global side-panel toggle", async () => {
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [makeSession({ rightPaneCollapsed: true })] },
     });
@@ -540,13 +541,20 @@ describe("workbench session shell", () => {
 
     expect(screen.queryAllByRole("tablist").length).toBe(0);
     const globalHeader = screen.container.querySelector('[data-testid="workbench-global-header"]');
-    const showButton = screen.getByRole("button", { name: "Show right panel" });
-    const showIconPath = showButton.querySelector("path")?.getAttribute("d") ?? "";
-    expect(globalHeader?.contains(showButton)).toBeTrue();
-    expect(showIconPath.startsWith(CODEX_PANEL_VISIBLE_ICON_PREFIX)).toBeTrue();
+    const toggleButton = screen.getByRole("button", { name: "Toggle side panel" });
+    const toggleIconPath = toggleButton.querySelector("path")?.getAttribute("d") ?? "";
+    expect(globalHeader?.contains(toggleButton)).toBeTrue();
+    expect(toggleButton.getAttribute("aria-pressed")).toBe("false");
+    expect(toggleButton.className.includes("no-drag")).toBeTrue();
+    expect(toggleButton.className.includes("rounded-lg")).toBeTrue();
+    expect(toggleButton.className.includes("h-token-button-composer")).toBeTrue();
+    expect(toggleButton.className.includes("text-token-text-tertiary")).toBeTrue();
+    expect(toggleIconPath.startsWith(CODEX_PANEL_VISIBLE_ICON_PREFIX)).toBeTrue();
+    expect(screen.queryByRole("button", { name: "Attach thread" })).toBe(null);
+    expect(screen.queryByRole("button", { name: "Detach thread" })).toBe(null);
 
     await act(async () => {
-      fireEvent.click(showButton);
+      fireEvent.click(toggleButton);
       await Promise.resolve();
     });
     await settleAsyncRender();
@@ -559,25 +567,40 @@ describe("workbench session shell", () => {
     expect(screen.queryAllByRole("tablist").length > 0).toBeTrue();
   });
 
-  test("open right panel can expand to full session width", async () => {
+  test("open right panel keeps side toggle global and expands from the panel header", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
     await settleAsyncRender();
 
     const globalHeader = screen.container.querySelector('[data-testid="workbench-global-header"]');
+    const rightPanel = screen.container.querySelector('[data-testid="session-right-panel"]');
+    const tabHeader = rightPanel?.querySelector('[role="tablist"]')?.parentElement?.parentElement;
+    const headerShellSlot = screen.container.querySelector('[data-test-id="header-shell-slot"]');
+    if (!tabHeader) throw new Error("Expected right-panel tab header");
+
+    const sidePanelToggle = screen.getByRole("button", { name: "Toggle side panel" });
     const expandButton = screen.getByRole("button", { name: "Expand panel" });
-    const hideButton = screen.getByRole("button", { name: "Hide right panel" });
-    const hideIconPath = hideButton.querySelector("path")?.getAttribute("d") ?? "";
-    expect(globalHeader?.contains(expandButton)).toBeTrue();
-    expect(globalHeader?.contains(hideButton)).toBeTrue();
-    expect(hideIconPath.startsWith(CODEX_PANEL_HIDDEN_ICON_PREFIX)).toBeTrue();
+    const expandIconPath = expandButton.querySelector("path")?.getAttribute("d") ?? "";
+    expect(globalHeader?.contains(sidePanelToggle)).toBeTrue();
+    expect(headerShellSlot?.contains(sidePanelToggle)).toBeTrue();
+    expect(headerShellSlot?.className.includes("pe-2")).toBeTrue();
+    expect(headerShellSlot?.getAttribute("style")?.includes("min-width: 36px")).toBeTrue();
+    expect(sidePanelToggle.getAttribute("aria-pressed")).toBe("true");
+    expect(sidePanelToggle.className.includes("bg-token-foreground/5")).toBeTrue();
+    expect(globalHeader?.contains(expandButton)).toBeFalse();
+    expect(tabHeader.contains(expandButton)).toBeTrue();
+    expect(expandButton.className.includes("no-drag")).toBeTrue();
+    expect(expandButton.className.includes("rounded-lg")).toBeTrue();
+    expect(expandButton.className.includes("h-token-button-composer")).toBeTrue();
+    expect(expandButton.className.includes("text-token-text-tertiary")).toBeTrue();
+    expect(expandIconPath.startsWith(CODEX_EXPAND_PANEL_ICON_PREFIX)).toBeTrue();
+    expect(screen.container.querySelector('[data-testid="right-panel-tab-bar-header-spacer"]')?.getAttribute("style")?.includes("width: 36px")).toBeTrue();
 
     await act(async () => {
       fireEvent.click(expandButton);
       await Promise.resolve();
     });
 
-    const rightPanel = screen.container.querySelector('[data-testid="session-right-panel"]');
     const threadPage = screen.container.querySelector('[data-testid="session-thread-page"]');
     expect(rightPanel?.getAttribute("data-right-panel-width-mode")).toBe("full");
     expect(rightPanel?.getAttribute("data-app-shell-focus-area")).toBe("right-panel");
@@ -585,12 +608,71 @@ describe("workbench session shell", () => {
     expect(threadPage?.getAttribute("data-session-thread-page-hidden")).toBe("true");
     expect(threadPage?.className.includes("w-0")).toBeTrue();
     expect(threadPage?.className.includes("flex-none")).toBeTrue();
+    expect(screen.queryByRole("separator", { name: "Resize right panel" })).toBe(null);
     const restoreButton = screen.getByRole("button", { name: "Restore panel width" });
-    expect(globalHeader?.contains(restoreButton)).toBeTrue();
+    expect(globalHeader?.contains(restoreButton)).toBeFalse();
+    expect(tabHeader.contains(restoreButton)).toBeTrue();
+    expect(restoreButton.getAttribute("aria-pressed")).toBe("true");
+    expect(restoreButton.className.includes("bg-token-foreground/5")).toBeTrue();
+    expect(restoreButton.querySelector("path")?.getAttribute("d")?.startsWith(CODEX_RESTORE_PANEL_ICON_PREFIX)).toBeTrue();
+  });
+
+  test("full-width right panel state survives hiding and showing the side panel", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Expand panel" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.getByRole("button", { name: "Restore panel width" }).getAttribute("aria-pressed")).toBe("true");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Toggle side panel" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.queryByRole("button", { name: "Restore panel width" })).toBe(null);
+    expect(screen.queryByTestId("session-right-panel")).toBe(null);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Toggle side panel" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const restoredRightPanel = screen.getByTestId("session-right-panel");
+    const restoredThreadPage = screen.container.querySelector('[data-testid="session-thread-page"]');
+    const restoreButton = screen.getByRole("button", { name: "Restore panel width" });
+    expect(restoredRightPanel.getAttribute("data-right-panel-width-mode")).toBe("full");
+    expect(restoredThreadPage?.getAttribute("data-session-thread-page-hidden")).toBe("true");
+    expect(restoredThreadPage?.className.includes("w-0")).toBeTrue();
     expect(restoreButton.getAttribute("aria-pressed")).toBe("true");
   });
 
-  test("manual tab creation opens a collapsed right panel", async () => {
+  test("right-panel add actions are reachable from the panel header plus menu", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const globalHeader = screen.container.querySelector('[data-testid="workbench-global-header"]');
+    const addTabButton = screen.getByRole("button", { name: "Open side panel tab" });
+    expect(globalHeader?.contains(addTabButton)).toBeFalse();
+    expect(screen.queryByRole("button", { name: "Add DB view" })).toBe(null);
+
+    fireEvent.pointerDown(addTabButton, { button: 0 });
+    await settleAsyncRender();
+    fireEvent.click(screen.getByText("DB view"));
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeTrue();
+  });
+
+  test("panel tab menu creates tabs after opening a collapsed right panel", async () => {
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [makeSession({ rightPaneCollapsed: true })] },
     });
@@ -598,7 +680,19 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Add DB view" }));
+      fireEvent.click(screen.getByRole("button", { name: "Toggle side panel" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByRole("button", { name: "Open side panel tab" }), { button: 0 });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("DB view"));
       await Promise.resolve();
     });
     await settleAsyncRender();

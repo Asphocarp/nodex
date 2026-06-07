@@ -15,6 +15,7 @@
 - NFM conversion/parsing: `src/renderer/lib/nfm/`
 - Storybook workspace: `packages/storybook/` with colocated `*.stories.tsx` under `src/renderer/`
 - Workbench shell: `src/renderer/components/workbench/workbench-shell.tsx` renders projects as expandable folders, sessions as durable project children, a session thread page, and a collapsible/full-width right panel for session-attached tabs.
+- Workbench app-shell parity: keep the side-panel toggle in the fixed global header, keep right-panel tab creation plus expand/restore in the right-panel toolbar-height tab header, and implement full-width mode by collapsing the main thread viewport to zero width rather than conditionally removing thread title/header UI.
 
 ## State and Data Access
 - API boundary: always go through `src/renderer/lib/api.ts`.

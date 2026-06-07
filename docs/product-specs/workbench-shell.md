@@ -9,11 +9,11 @@ Detailed Auto-review preset, config, and approval-lifecycle rules are specified 
 - Left sidebar: projects render as expandable folders. Selecting a project expands it and switches the DB project context.
 - Project children: each expanded project lists ordered sessions. Every project has one seeded `Overview` session.
 - Sidebar footer: workspace dots remain profile-local window layout controls. Workspaces do not own project session data.
-- Active session header: shows the session title, project name, and quick actions for adding right-panel tabs.
-- Thread page: the main session viewport always hosts the session thread page. If no thread is attached, it shows the attach-thread empty state. If the right panel is collapsed, the thread page top-right control opens it.
-- Right panel: the v1 right panel renders one tab group with ordered session tabs. It can be collapsed, regular-width, or expanded to the full session content area. The persisted layout shape already supports future split leaves, but v1 does not render multiple split groups.
+- Active session header: shows the session title, project name, and the global Codex-style `Toggle side panel` control. Right-panel tab creation and expand/restore actions belong to the right-panel tab header; there is no attach/detach thread toolbar button.
+- Thread page: the main session viewport always hosts the session thread page. If no thread is attached, it shows the new-thread composer. If the right panel is collapsed, the global top-right side-panel toggle opens it.
+- Right panel: the v1 right panel renders one tab group with ordered session tabs. It can be collapsed, regular-width, or expanded to the full session content area. Hiding and showing the side panel preserves the session-local regular/full-width mode. The persisted layout shape already supports future split leaves, but v1 does not render multiple split groups.
 - Browser tabs: browser is a real tab kind but renders a nonfunctional placeholder until the browser feature ships.
-- The right panel has a left-edge resize handle in regular mode. Full-width mode hides the thread viewport and removes the resize handle until the panel width is restored.
+- The right panel has a left-edge resize handle in regular mode. Full-width mode collapses the thread viewport to zero width, removes the resize handle and inner left border, and exposes `Restore panel width` from the right-panel tab header.
 
 ## Session And Tab Semantics
 - `Overview`: created for every project, ordered first by default, with one right-panel `db_view` tab for that project.
@@ -54,5 +54,5 @@ Detailed Auto-review preset, config, and approval-lifecycle rules are specified 
 
 ## Storybook And Testing
 - Storybook coverage lives in `src/renderer/components/workbench/workbench-session-shell.stories.tsx` for mixed tabs, attached thread page, collapsed right panel, full-width right panel, and long names.
-- Unit tests should cover schema migration, Overview seeding, tab config validation, session ordering, tab ordering, and session-thread attach/detach.
+- Unit tests should cover schema migration, Overview seeding, tab config validation, session ordering, tab ordering, session-thread startup, and the absence of attach/detach toolbar controls.
 - Renderer tests should cover project expansion, session loading/switching, Overview defaults, right-panel collapse/full-width behavior, tab selection, tab reorder, and each tab kind.

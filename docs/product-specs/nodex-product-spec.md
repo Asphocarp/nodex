@@ -44,7 +44,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - DB view tabs keep the DB view selector pinned above board, list, toggle-list, canvas, and calendar content, with task search and supported view-local filter/sort/display controls inside that tab body
 - Card Stage opens as a session-attached tab. Opening a card from a DB tab creates or focuses the matching card tab in the active session instead of switching a global Card stage.
 - Terminal opens as a session-attached tab with a session-tab-scoped terminal id
-- The active session can show, collapse, resize, or full-width expand the right panel. When collapsed, the thread page shows the right-panel opener in its top-right corner; when open, the right panel owns the hide and expand/restore controls.
+- The active session can show, collapse, resize, or full-width expand the right panel. The fixed global header owns the Codex-style `Toggle side panel` control, while the right-panel tab header owns tab creation and expand/restore controls.
 - The persisted right-pane layout JSON is split-capable for future VS Code-style tab splits, but v1 renders one tab group only
 - URL sync: `/?project=<id>`, persisted to localStorage
 - Selecting a project expands its folder and switches the active DB project context. Selecting a session switches both the thread page and the right-panel tab group.
@@ -67,7 +67,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Card Stage session selection lives in the active session's right-panel tab strip; tabs support hover tooltips, close, and pointer-only Codex-style drag reorder through the shared tab strip
 - Settings can choose which optional card-stage rows start behind the Card Stage `more properties` toggle (`Tags`, `Assignee`, `Threads`, `Schedule`, `Agent blocked`, and `Agent status`)
 - Terminal is primarily a session-attached right-panel tab. Legacy global terminal shortcut state may remain during migration but is no longer the primary workbench model.
-- The session thread page is a live Codex workspace in Electron. Without an attached thread, it shows the Codex-style new-chat composer with add-context, Plan mode, permissions, model/reasoning, dictation, and send controls; submitting the first prompt starts a session-owned Codex thread in the active project workspace and stores the link in `project_session_threads`. Existing thread-id attachment remains a secondary action, not the primary empty state.
+- The session thread page is a live Codex workspace in Electron. Without an attached thread, it shows the Codex-style new-chat composer with add-context, Plan mode, permissions, model/reasoning, dictation, and send controls; submitting the first prompt starts a session-owned Codex thread in the active project workspace and stores the link in `project_session_threads`. Thread-id attachment storage remains available at the transport layer, but the workbench header does not expose an attach/detach thread button.
 - Detailed visible transcript behavior for Threads lives in [Codex Thread Transcript Behavior](./codex-thread-transcript-behavior.md), including answered `request_user_input` rows, plan-implementation follow-up flow, optimistic prompt dedupe, tool/reasoning rendering, and restart recovery rules.
 - User-message transcript actions follow the Codex Electron model:
   - `Copy message` and the sent timestamp are available from user bubbles.

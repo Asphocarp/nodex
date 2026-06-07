@@ -13,7 +13,6 @@ import {
   ChevronDown,
   FolderOpen,
   Globe2,
-  MessageSquare,
   PenLine,
   Plus,
   SquareKanban,
@@ -31,6 +30,7 @@ import { CardStage } from "./workbench-card-stage";
 import { TerminalPanel } from "./workbench-terminal-panel";
 import { ProjectManagerPopover, ProjectMark } from "./left-sidebar-project-manager";
 import { LeftSidebarWorkspaceManager } from "./left-sidebar-workspace-manager";
+import { NodexDropdownItem, NodexDropdownMenu } from "@/components/ui/dropdown";
 import { NodexTooltip, NodexTooltipProvider } from "@/components/ui/tooltip";
 import { ConnectedThreadStage, useCodexAppServerControl } from "@/features/local-conversation";
 import {
@@ -92,7 +92,10 @@ const COLLAPSE_CONTROL_TRAFFIC_LIGHT_OFFSET_PX = 90;
 const RIGHT_PANEL_DEFAULT_WIDTH = 600;
 const RIGHT_PANEL_MIN_WIDTH = 320;
 const RIGHT_PANEL_MAIN_MIN_WIDTH = 352;
-const TOOLBAR_BUTTON_CLASS = "flex h-7 w-7 items-center justify-center rounded-full text-token-text-secondary hover:bg-token-foreground/5 hover:text-token-text-primary";
+const TOOLBAR_BUTTON_BASE_CLASS = "border-token-border user-select-none no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg h-token-button-composer px-2 py-0 text-base leading-[18px] aspect-square justify-center !px-0";
+const TOOLBAR_BUTTON_GHOST_CLASS = "text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent";
+const TOOLBAR_BUTTON_SECONDARY_CLASS = "text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent";
+const RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX = 36;
 const DB_VIEW_TABS: Array<{ id: ProjectSessionDbView; label: string; icon: ComponentType<{ className?: string }> }> = [
   { id: "kanban", label: "Board", icon: SquareKanban },
   { id: "list", label: "Table", icon: Table2 },
@@ -336,12 +339,14 @@ export function WorkbenchShell({
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT_WIDTH);
   const [sessionContentWidth, setSessionContentWidth] = useState(0);
+  const [headerRightWidth, setHeaderRightWidth] = useState(RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX);
   const [rightPanelFullWidthBySessionId, setRightPanelFullWidthBySessionId] = useState<Record<string, boolean>>({});
   const [localSidebarCollapsed, setLocalSidebarCollapsed] = useState(false);
   const [localSidebarWidth, setLocalSidebarWidth] = useState(300);
   const [sidebarVisible, setSidebarVisible] = useState(() => !(sidebar?.collapsed ?? false));
   const [hoverSidebarOpen, setHoverSidebarOpen] = useState(false);
   const sessionContentRef = useRef<HTMLDivElement | null>(null);
+  const headerRightProbeRef = useRef<HTMLDivElement | null>(null);
   const sidebarHoverOpenTimeoutRef = useRef<number | null>(null);
   const sidebarHoverCloseTimeoutRef = useRef<number | null>(null);
   const sidebarHideTimeoutRef = useRef<number | null>(null);
@@ -493,7 +498,6 @@ export function WorkbenchShell({
 
   const ensureActiveRightPanelOpenWithoutRefresh = useCallback(async () => {
     if (!activeSession || !activeSession.rightPaneCollapsed) return;
-    setRightPanelFullWidthBySessionId((current) => ({ ...current, [activeSession.id]: false }));
     await invoke("project-sessions:update", activeSession.id, { rightPaneCollapsed: false });
   }, [activeSession]);
 
@@ -584,34 +588,13 @@ export function WorkbenchShell({
     await openCardTab(activeSession.projectId, cardId, cardId);
   }, [activeSession, ensureActiveRightPanelOpenWithoutRefresh, openCardTab, refreshProjectSessions]);
 
-  const attachThread = useCallback(async () => {
-    if (!activeSession) return;
-    const threadId = window.prompt("Thread id to attach")?.trim();
-    if (!threadId) return;
-    await invoke("project-session-threads:attach", {
-      sessionId: activeSession.id,
-      projectId: activeSession.projectId,
-      threadId,
-      threadPreview: threadId,
-    });
-    await refreshProjectSessions(activeSession.projectId);
-  }, [activeSession, refreshProjectSessions]);
-
-  const detachThread = useCallback(async () => {
-    if (!activeSession) return;
-    await invoke("project-session-threads:detach", activeSession.id);
-    await refreshProjectSessions(activeSession.projectId);
-  }, [activeSession, refreshProjectSessions]);
-
   const showActiveRightPanel = useCallback(async () => {
     if (!activeSession) return;
-    setRightPanelFullWidthBySessionId((current) => ({ ...current, [activeSession.id]: false }));
     await updateActiveSession({ rightPaneCollapsed: false });
   }, [activeSession, updateActiveSession]);
 
   const hideActiveRightPanel = useCallback(async () => {
     if (!activeSession) return;
-    setRightPanelFullWidthBySessionId((current) => ({ ...current, [activeSession.id]: false }));
     await updateActiveSession({ rightPaneCollapsed: true });
   }, [activeSession, updateActiveSession]);
 
@@ -777,48 +760,105 @@ export function WorkbenchShell({
     sidebarCollapsed,
   ]);
 
-  const sessionCreationControls = activeSession ? (
+  const sidePanelOpen = activeSession ? !activeSession.rightPaneCollapsed : false;
+  const toggleActiveSidePanel = useCallback(() => {
+    if (!activeSession) return;
+    if (activeSession.rightPaneCollapsed) {
+      void showActiveRightPanel();
+      return;
+    }
+    void hideActiveRightPanel();
+  }, [activeSession, hideActiveRightPanel, showActiveRightPanel]);
+
+  const renderSidePanelHeaderControl = () => {
+    if (!activeSession) return null;
+
+    return (
+      <ToolbarIconButton label="Toggle side panel" pressed={sidePanelOpen} onClick={toggleActiveSidePanel}>
+        {sidePanelOpen ? <CodexPanelRightVisibleIcon className="icon-sm" /> : <CodexPanelRightHiddenIcon className="icon-sm" />}
+      </ToolbarIconButton>
+    );
+  };
+
+  useEffect(() => {
+    const controlsElement = headerRightProbeRef.current;
+    if (!controlsElement) return undefined;
+
+    const measure = () => {
+      const width = Math.ceil(controlsElement.getBoundingClientRect().width);
+      setHeaderRightWidth(width > 0 ? width : RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX);
+    };
+
+    measure();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => {
+        window.removeEventListener("resize", measure);
+      };
+    }
+
+    const resizeObserver = new ResizeObserver(measure);
+    resizeObserver.observe(controlsElement);
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [activeSession?.id, sidePanelOpen]);
+
+  const rightPanelTabHeaderStickyControls = activeSession ? (
+    <NodexDropdownMenu
+      align="end"
+      sideOffset={6}
+      contentWidth="sm"
+      triggerButton={(
+        <button
+          type="button"
+          className={cn(TOOLBAR_BUTTON_BASE_CLASS, TOOLBAR_BUTTON_GHOST_CLASS)}
+          title="Open side panel tab"
+          aria-label="Open side panel tab"
+        >
+          <Plus className="icon-xs" />
+        </button>
+      )}
+    >
+      <NodexDropdownItem leftSlot={<Table2 className="icon-sm" />} onSelect={() => void createManualTab("db_view")}>
+        DB view
+      </NodexDropdownItem>
+      <NodexDropdownItem leftSlot={<SquareKanban className="icon-sm" />} onSelect={() => void createManualTab("card_stage")}>
+        Card Stage
+      </NodexDropdownItem>
+      <NodexDropdownItem leftSlot={<Terminal className="icon-sm" />} onSelect={() => void createManualTab("terminal")}>
+        Terminal
+      </NodexDropdownItem>
+      <NodexDropdownItem leftSlot={<Globe2 className="icon-sm" />} onSelect={() => void createManualTab("browser_placeholder")}>
+        Browser placeholder
+      </NodexDropdownItem>
+    </NodexDropdownMenu>
+  ) : null;
+
+  const rightPanelTabHeaderControls = activeSession ? (
     <>
-      <button type="button" className={TOOLBAR_BUTTON_CLASS} onClick={() => void createManualTab("db_view")} title="Add DB view" aria-label="Add DB view">
-        <Table2 className="icon-sm" />
-      </button>
-      <button type="button" className={TOOLBAR_BUTTON_CLASS} onClick={() => void createManualTab("card_stage")} title="Add card stage" aria-label="Add card stage">
-        <SquareKanban className="icon-sm" />
-      </button>
-      <button type="button" className={TOOLBAR_BUTTON_CLASS} onClick={() => void createManualTab("terminal")} title="Add terminal" aria-label="Add terminal">
-        <Terminal className="icon-sm" />
-      </button>
-      <button type="button" className={TOOLBAR_BUTTON_CLASS} onClick={() => void createManualTab("browser_placeholder")} title="Add browser placeholder" aria-label="Add browser placeholder">
-        <Globe2 className="icon-sm" />
-      </button>
+      <ToolbarIconButton
+        label={rightPanelFullWidth ? "Restore panel width" : "Expand panel"}
+        pressed={rightPanelFullWidth}
+        onClick={toggleActiveRightPanelFullWidth}
+      >
+        {rightPanelFullWidth ? <CodexExpandPanelIcon className="icon-sm" /> : <CodexRestorePanelIcon className="icon-sm" />}
+      </ToolbarIconButton>
+      <div
+        aria-hidden="true"
+        data-testid="right-panel-tab-bar-header-spacer"
+        className="pointer-events-none flex h-full shrink-0 items-center"
+        style={{ width: headerRightWidth }}
+      />
     </>
   ) : null;
-
-  const threadHeaderControls = activeSession ? (
-    <ToolbarIconButton label={activeSession.thread ? "Detach thread" : "Attach thread"} onClick={activeSession.thread ? detachThread : attachThread}>
-      {activeSession.thread ? <MessageSquare className="icon-sm" /> : <Plus className="icon-sm" />}
-    </ToolbarIconButton>
-  ) : null;
-
-  const rightPanelHeaderControls = activeSession ? (
-    activeSession.rightPaneCollapsed ? (
-      <ToolbarIconButton label="Show right panel" onClick={() => void showActiveRightPanel()}>
-        <CodexPanelRightHiddenIcon className="icon-sm" />
-      </ToolbarIconButton>
-    ) : (
-      <>
-        <ToolbarIconButton
-          label={rightPanelFullWidth ? "Restore panel width" : "Expand panel"}
-          pressed={rightPanelFullWidth}
-          onClick={toggleActiveRightPanelFullWidth}
-        >
-          {rightPanelFullWidth ? <CodexRestorePanelIcon className="icon-sm" /> : <CodexExpandPanelIcon className="icon-sm" />}
-        </ToolbarIconButton>
-        <ToolbarIconButton label="Hide right panel" onClick={() => void hideActiveRightPanel()}>
-          <CodexPanelRightVisibleIcon className="icon-sm" />
-        </ToolbarIconButton>
-      </>
-    )
+  const rightPanelTabHeaderLeadingSpacer = rightPanelFullWidth ? (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none h-full shrink-0"
+      style={{ width: "var(--spacing-token-safe-header-left)" }}
+    />
   ) : null;
 
   const isMacPlatform = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
@@ -863,11 +903,28 @@ export function WorkbenchShell({
               <div className="truncate text-sm font-medium">{activeSession?.title ?? "No session"}</div>
               <div className="truncate text-xs text-token-text-tertiary">{activeProject ? getProjectLabel(activeProject) : "No project"}</div>
             </div>
-            <div className="hidden items-center gap-1 sm:flex">{sessionCreationControls}</div>
           </div>
-          <div className="no-drag pointer-events-auto ml-auto flex items-center gap-1 px-2">
-            {threadHeaderControls}
-            {rightPanelHeaderControls}
+          <div
+            ref={headerRightProbeRef}
+            aria-hidden="true"
+            className="invisible pointer-events-none fixed top-0 left-0 min-w-max pe-2 [&_*]:![view-transition-name:none]"
+          >
+            <div className="inline-flex h-full items-center gap-1.5 no-drag pointer-events-auto w-auto">
+              <div className="no-drag pointer-events-auto flex shrink-0 items-center ms-auto">
+                {renderSidePanelHeaderControl()}
+              </div>
+            </div>
+          </div>
+          <div
+            data-test-id="header-shell-slot"
+            className="pointer-events-none relative h-full shrink-0 [container-type:inline-size] ml-auto pe-2"
+            style={{ width: 0, minWidth: headerRightWidth }}
+          >
+            <div className="inline-flex h-full items-center gap-1.5 pointer-events-none w-full">
+              <div className="no-drag pointer-events-auto flex shrink-0 items-center ms-auto">
+                {renderSidePanelHeaderControl()}
+              </div>
+            </div>
           </div>
         </header>
 
@@ -1061,11 +1118,19 @@ export function WorkbenchShell({
                             onSelect={(tabId) => void setActiveTab(tabId)}
                             onCloseTab={(tabId) => void closeTab(tabId)}
                             onReorderTab={(dragId, overId) => void reorderTabs(dragId, overId)}
+                            beforeList={rightPanelTabHeaderLeadingSpacer}
+                            afterListSticky={rightPanelTabHeaderStickyControls}
+                            afterList={rightPanelTabHeaderControls}
                             headerHeight="toolbar"
                           />
                         ) : (
                           <div className="flex h-full min-h-0 flex-col">
-                            <div className="flex h-toolbar min-w-0 shrink-0 items-center justify-end bg-token-main-surface-primary px-2" />
+                            <div className="flex h-toolbar min-w-0 shrink-0 items-center bg-token-main-surface-primary px-2">
+                              {rightPanelTabHeaderLeadingSpacer}
+                              <div className="min-w-0 flex-1" />
+                              <div className="ml-1 flex shrink-0 items-center gap-1">{rightPanelTabHeaderStickyControls}</div>
+                              <div className="ml-1 flex shrink-0 items-center gap-1">{rightPanelTabHeaderControls}</div>
+                            </div>
                             <EmptyRightPane onCreateDbTab={() => void createManualTab("db_view")} />
                           </div>
                         )}
@@ -1458,7 +1523,11 @@ function ToolbarIconButton({
     <NodexTooltip tooltipContent={label} side="bottom">
       <button
         type="button"
-        className={cn(TOOLBAR_BUTTON_CLASS, className)}
+        className={cn(
+          TOOLBAR_BUTTON_BASE_CLASS,
+          pressed ? TOOLBAR_BUTTON_SECONDARY_CLASS : TOOLBAR_BUTTON_GHOST_CLASS,
+          className,
+        )}
         title={label}
         aria-label={label}
         aria-pressed={pressed}

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
 import { act } from "react";
+import type { ReactNode } from "react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import {
   AppShellTabs,
@@ -49,6 +50,9 @@ function renderAppShellTabs(props: {
   onSelect?: (tabId: string) => void;
   onCloseTab?: (tabId: string) => void;
   onReorderTab?: (activeId: string, overId: string) => void;
+  beforeList?: ReactNode;
+  afterListSticky?: ReactNode;
+  afterList?: ReactNode;
 }) {
   return render(
     <NodexTooltipProvider>
@@ -58,6 +62,9 @@ function renderAppShellTabs(props: {
         onSelect={props.onSelect ?? (() => undefined)}
         onCloseTab={props.onCloseTab}
         onReorderTab={props.onReorderTab}
+        beforeList={props.beforeList}
+        afterListSticky={props.afterListSticky}
+        afterList={props.afterList}
       />
     </NodexTooltipProvider>,
   );
@@ -87,6 +94,21 @@ describe("AppShellTabs", () => {
     expect(view.container.querySelectorAll('[role="tab"][aria-selected="true"]').length).toBe(1);
     expect(view.container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Two");
     expect(textContent(view.getByRole("tabpanel"))).toBe("Panel two");
+  });
+
+  test("renders tab header slots in before, sticky, after order", () => {
+    const view = renderAppShellTabs({
+      beforeList: <span data-testid="before-list">Before</span>,
+      afterListSticky: <span data-testid="after-list-sticky">Sticky</span>,
+      afterList: <span data-testid="after-list">After</span>,
+    });
+    const header = view.getByRole("tablist").parentElement?.parentElement;
+    if (!header) throw new Error("Expected tab header");
+
+    const text = textContent(header);
+    expect(text.indexOf("Before") < text.indexOf("One")).toBeTrue();
+    expect(text.indexOf("Sticky") > text.indexOf("History")).toBeTrue();
+    expect(text.indexOf("Sticky") < text.indexOf("After")).toBeTrue();
   });
 
   test("does not render the title fade when the tab title fits", () => {

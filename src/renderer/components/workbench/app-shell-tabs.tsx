@@ -50,6 +50,8 @@ interface AppShellTabsProps {
   onSelect: (tabId: string) => void;
   onCloseTab?: (tabId: string) => void;
   onReorderTab?: (activeId: string, overId: string) => void;
+  beforeList?: ReactNode;
+  afterListSticky?: ReactNode;
   afterList?: ReactNode;
   headerHeight?: "pane" | "toolbar";
   className?: string;
@@ -115,6 +117,8 @@ export function AppShellTabs({
   onSelect,
   onCloseTab,
   onReorderTab,
+  beforeList,
+  afterListSticky,
   afterList,
   headerHeight = "pane",
   className,
@@ -179,6 +183,7 @@ export function AppShellTabs({
           headerHeight === "toolbar" ? "h-toolbar" : "h-toolbar-pane",
         )}
       >
+        {beforeList ? <div className="flex h-full shrink-0 items-center">{beforeList}</div> : null}
         <div
           className="hide-scrollbar relative flex h-full min-w-0 flex-1 scroll-px-1 items-center overflow-x-auto overflow-y-hidden"
           style={{ scrollPaddingInlineEnd: 0 }}
@@ -228,6 +233,9 @@ export function AppShellTabs({
             className="sticky end-0 z-10 h-full w-0 opacity-0 transition-opacity duration-100 after:absolute after:end-0 after:inset-y-0 after:w-10 after:bg-linear-to-r after:from-transparent after:to-token-main-surface-primary after:content-[''] after:pointer-events-none"
           />
         </div>
+        {afterListSticky ? (
+          <div className="ml-1 flex shrink-0 items-center gap-1">{afterListSticky}</div>
+        ) : null}
         {afterList ? (
           <div className="ml-1 flex shrink-0 items-center gap-1">{afterList}</div>
         ) : null}
