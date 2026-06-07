@@ -14,7 +14,7 @@ export interface StageShiftWheelNestedScrollInput {
   direction: -1 | 1;
 }
 
-export interface StageRailCalendarWheelGuardInput {
+export interface CalendarShiftWheelGuardInput {
   target: EventTarget | null;
   shiftKey: boolean;
   ctrlKey: boolean;
@@ -115,11 +115,11 @@ export function isInsideCalendarShiftWheelScope(target: EventTarget | null): boo
   return false;
 }
 
-export function shouldPreventStageRailShiftWheelFromCalendar({
+export function shouldPreventStageShiftWheelFromCalendar({
   target,
   shiftKey,
   ctrlKey,
-}: StageRailCalendarWheelGuardInput): boolean {
+}: CalendarShiftWheelGuardInput): boolean {
   if (!shiftKey || ctrlKey) return false;
   return isInsideCalendarShiftWheelScope(target);
 }

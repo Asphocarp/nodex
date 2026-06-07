@@ -40,13 +40,6 @@ import { useFileLinkOpener } from "../../lib/use-file-link-opener";
 import { useCardStageCollapsedProperties } from "../../lib/use-card-stage-collapsed-properties";
 import { DEFAULT_WORKTREE_AUTO_BRANCH_PREFIX } from "../../lib/worktree-branch-prefix";
 import {
-  DEFAULT_NEXT_PANEL_PEEK_PX,
-  MAX_NEXT_PANEL_PEEK_PX,
-  MIN_ENABLED_NEXT_PANEL_PEEK_PX,
-  MIN_NEXT_PANEL_PEEK_PX,
-  NEXT_PANEL_PEEK_STEP_PX,
-} from "../../lib/stage-rail-peek";
-import {
   DEFAULT_CODE_FONT_SIZE,
   MAX_CODE_FONT_SIZE,
   MIN_CODE_FONT_SIZE,
@@ -70,7 +63,6 @@ import {
 } from "../../lib/paste-resource-settings";
 import { usePasteResourceSettings } from "../../lib/use-paste-resource-settings";
 import { useThreadSectionSendSettings } from "../../lib/use-thread-section-send-settings";
-import type { StageRailLayoutMode } from "../../lib/stage-rail-layout-mode";
 import { useSansFontSize } from "../../lib/use-sans-font-size";
 import type { ComposerEnterBehavior } from "../../lib/composer-enter-behavior";
 import { useSpellcheck } from "../../lib/use-spellcheck";
@@ -1130,90 +1122,6 @@ function ThreadQueueFollowUpsSettingControl({
   return <TogglePill value={value} onChange={onChange} />;
 }
 
-function StageRailPeekSettingControl({
-  value,
-  onChange,
-  disabled = false,
-}: {
-  value: number;
-  onChange: (value: number) => void;
-  disabled?: boolean;
-}) {
-  const isEnabled = value > MIN_NEXT_PANEL_PEEK_PX;
-  const lastEnabledValueRef = useRef(
-    value > MIN_NEXT_PANEL_PEEK_PX ? value : DEFAULT_NEXT_PANEL_PEEK_PX,
-  );
-
-  useEffect(() => {
-    if (value <= MIN_NEXT_PANEL_PEEK_PX) return;
-    lastEnabledValueRef.current = value;
-  }, [value]);
-
-  const handleToggle = useCallback(() => {
-    if (disabled) return;
-    if (isEnabled) {
-      onChange(MIN_NEXT_PANEL_PEEK_PX);
-      return;
-    }
-
-    onChange(lastEnabledValueRef.current);
-  }, [disabled, isEnabled, onChange]);
-
-  const handleRangeChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      if (disabled) return;
-      const parsed = Number.parseInt(event.target.value, 10);
-      if (!Number.isFinite(parsed)) return;
-      onChange(parsed);
-    },
-    [disabled, onChange],
-  );
-
-  const sliderValue = isEnabled ? value : lastEnabledValueRef.current;
-
-  return (
-    <div className="flex items-center gap-3">
-      <span className="text-sm text-(--foreground-secondary) tabular-nums">
-        {isEnabled ? `${value}px` : "Hidden"}
-      </span>
-      <input
-        type="range"
-        min={MIN_ENABLED_NEXT_PANEL_PEEK_PX}
-        max={MAX_NEXT_PANEL_PEEK_PX}
-        step={NEXT_PANEL_PEEK_STEP_PX}
-        value={sliderValue}
-        disabled={disabled || !isEnabled}
-        onChange={handleRangeChange}
-        aria-label="Next panel peek width"
-        className={cn(
-          "w-28 accent-(--accent-blue)",
-          (disabled || !isEnabled) && "cursor-not-allowed opacity-40",
-        )}
-      />
-      <TogglePill value={isEnabled} onChange={() => handleToggle()} disabled={disabled} />
-    </div>
-  );
-}
-
-function StageRailLayoutModeControl({
-  value,
-  onChange,
-}: {
-  value: StageRailLayoutMode;
-  onChange: (value: StageRailLayoutMode) => void;
-}) {
-  return (
-    <SegmentedControl
-      value={value}
-      onChange={onChange}
-      options={[
-        { value: "sliding-window", label: "Sliding window" },
-        { value: "full-rail", label: "Full rail" },
-      ]}
-    />
-  );
-}
-
 function formatBackupSize(bytes: number): string {
   if (bytes <= 0) return "0 B";
   if (bytes < 1024) return `${bytes} B`;
@@ -1692,10 +1600,6 @@ interface SettingsOverlayProps {
   sidebarTopLevelSectionOrder: SidebarTopLevelSectionId[];
   sidebarTopLevelSections: SidebarTopLevelSectionsPrefs;
   onSidebarTopLevelSectionVisibleChange: (sectionId: SidebarTopLevelSectionId, visible: boolean) => void;
-  stageRailLayoutMode: StageRailLayoutMode;
-  onStageRailLayoutModeChange: (value: StageRailLayoutMode) => void;
-  nextPanelPeekPx: number;
-  onNextPanelPeekPxChange: (value: number) => void;
   threadQueueFollowUpsEnabled: boolean;
   onThreadQueueFollowUpsEnabledChange: (value: boolean) => void;
   composerEnterBehavior: ComposerEnterBehavior;
@@ -1716,13 +1620,10 @@ interface SettingsSectionPageProps extends Pick<
   | "composerEnterBehavior"
   | "initialLocalEnvironmentConfigPath"
   | "initialLocalEnvironmentProjectId"
-  | "nextPanelPeekPx"
   | "onRequestProjectPickerOpen"
   | "onComposerEnterBehaviorChange"
-  | "onNextPanelPeekPxChange"
   | "onSidebarTopLevelSectionVisibleChange"
   | "onSmartPrefixParsingEnabledChange"
-  | "onStageRailLayoutModeChange"
   | "onStripSmartPrefixFromTitleEnabledChange"
   | "onThreadQueueFollowUpsEnabledChange"
   | "onWorktreeAutoBranchPrefixChange"
@@ -1731,7 +1632,6 @@ interface SettingsSectionPageProps extends Pick<
   | "sidebarTopLevelSectionOrder"
   | "sidebarTopLevelSections"
   | "smartPrefixParsingEnabled"
-  | "stageRailLayoutMode"
   | "stripSmartPrefixFromTitleEnabled"
   | "threadQueueFollowUpsEnabled"
   | "worktreeAutoBranchPrefix"
@@ -1742,14 +1642,10 @@ interface SettingsSectionPageProps extends Pick<
 }
 
 function GeneralSettingsPage({
-  nextPanelPeekPx,
-  onNextPanelPeekPxChange,
   onSidebarTopLevelSectionVisibleChange,
-  onStageRailLayoutModeChange,
   open,
   sidebarTopLevelSectionOrder,
   sidebarTopLevelSections,
-  stageRailLayoutMode,
 }: SettingsSectionPageProps) {
   return (
     <SettingsPageSurface
@@ -1757,15 +1653,6 @@ function GeneralSettingsPage({
       subtitle="Workspace-wide shell behavior and notifications."
     >
       <SectionBlock title="Workspace">
-        <SettingRow
-          label="Stage rail layout"
-          description="Sliding window focuses 1-4 stages. Full rail keeps the whole stage line visible."
-        >
-          <StageRailLayoutModeControl
-            value={stageRailLayoutMode}
-            onChange={onStageRailLayoutModeChange}
-          />
-        </SettingRow>
         <SettingRow
           label="Restore windows"
           description="Choose which workbench windows reopen after quitting Nodex."
@@ -1798,20 +1685,6 @@ function GeneralSettingsPage({
             order={sidebarTopLevelSectionOrder}
             sections={sidebarTopLevelSections}
             onVisibleChange={onSidebarTopLevelSectionVisibleChange}
-          />
-        </SettingRow>
-        <SettingRow
-          label="Adjacent panel peek"
-          description={
-            stageRailLayoutMode === "sliding-window"
-              ? "Available only in Full rail. Sliding window hides this control."
-              : "Keep a thin sliver of the neighboring stage visible in Full rail."
-          }
-        >
-          <StageRailPeekSettingControl
-            value={nextPanelPeekPx}
-            onChange={onNextPanelPeekPxChange}
-            disabled={stageRailLayoutMode === "sliding-window"}
           />
         </SettingRow>
       </SectionBlock>
@@ -2288,10 +2161,6 @@ export function SettingsOverlay({
   sidebarTopLevelSectionOrder,
   sidebarTopLevelSections,
   onSidebarTopLevelSectionVisibleChange,
-  stageRailLayoutMode,
-  onStageRailLayoutModeChange,
-  nextPanelPeekPx,
-  onNextPanelPeekPxChange,
   threadQueueFollowUpsEnabled,
   onThreadQueueFollowUpsEnabledChange,
   composerEnterBehavior,
@@ -2390,10 +2259,6 @@ export function SettingsOverlay({
               sidebarTopLevelSectionOrder={sidebarTopLevelSectionOrder}
               sidebarTopLevelSections={sidebarTopLevelSections}
               onSidebarTopLevelSectionVisibleChange={onSidebarTopLevelSectionVisibleChange}
-              stageRailLayoutMode={stageRailLayoutMode}
-              onStageRailLayoutModeChange={onStageRailLayoutModeChange}
-              nextPanelPeekPx={nextPanelPeekPx}
-              onNextPanelPeekPxChange={onNextPanelPeekPxChange}
               threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
               onThreadQueueFollowUpsEnabledChange={onThreadQueueFollowUpsEnabledChange}
               composerEnterBehavior={composerEnterBehavior}

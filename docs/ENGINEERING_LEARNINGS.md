@@ -187,12 +187,7 @@ docker exec <act-container-id> bash -lc '
 '
 ```
 
-On the exact failing SHA `696736bbfd0777a10afe20ae543c26b02eb51191`, that randomized rerun inside the `act` container reproduced the same GitHub-cloud failures:
-
-- `StageRail > sliding-window mode renders requested visible panes`
-- `StageRail > sliding-window mode supports single-pane layout`
-- `StageRail > sliding-window mode degrades gracefully when ResizeObserver is unavailable`
-- `shared input > renders the thin Nodex form-input contract`
+On the exact failing SHA `696736bbfd0777a10afe20ae543c26b02eb51191`, that randomized rerun inside the `act` container reproduced the same GitHub-cloud failures, including renderer layout tests and `shared input > renders the thin Nodex form-input contract`.
 
 The important lesson is that default `act` execution can stay green while the cloud flake is still real. The difference is usually execution order and shared renderer global state, not just package versions. Treat GitHub-only Bun flake reproduction as a strict ladder:
 

@@ -6,7 +6,6 @@ import type {
   RecentCardSession,
   SidebarGroupId,
   SidebarSectionState,
-  StageCollapsedState,
   StageId,
   StageNavDirection,
   StagePanelWidths,
@@ -249,15 +248,6 @@ export function parseStagePanelWidths(value: unknown): StagePanelWidths {
       return acc;
     }
     acc[stageId as StageId] = width;
-    return acc;
-  }, {});
-}
-
-export function parseStageCollapsedState(value: unknown): StageCollapsedState {
-  const parsed = parseValueWithSchema(value, UnknownRecordSchema, {});
-  return Object.entries(parsed).reduce<StageCollapsedState>((acc, [stageId, collapsed]) => {
-    if (!WORKBENCH_STAGE_IDS.has(stageId as StageId) || typeof collapsed !== "boolean") return acc;
-    acc[stageId as StageId] = collapsed;
     return acc;
   }, {});
 }

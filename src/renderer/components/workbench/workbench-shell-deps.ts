@@ -12,10 +12,6 @@ export { TerminalPanel } from "./workbench-terminal-panel";
 export { invoke } from "./workbench-api";
 export { Input } from "@/components/ui/input";
 export {
-  readNextPanelPeekPx,
-  writeNextPanelPeekPx,
-} from "@/lib/stage-rail-peek";
-export {
   readComposerEnterBehavior,
   writeComposerEnterBehavior,
 } from "@/lib/composer-enter-behavior";

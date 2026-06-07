@@ -6,8 +6,6 @@ import type {
   WorkbenchResumeView,
 } from "./workbench-resume";
 
-export type WorkbenchLayoutStageRailMode = "sliding-window" | "full-rail";
-
 export interface WorkbenchLayoutThreadsStageTab {
   id: string;
   title: string;
@@ -51,7 +49,6 @@ export interface WorkbenchLayoutSnapshot {
   spaceOrder: string[];
   focusedStage: WorkbenchResumeStageId;
   stageNavDirection: WorkbenchResumeStageNavDirection;
-  stageRailLayoutMode: WorkbenchLayoutStageRailMode;
   sidebar: WorkbenchLayoutSidebarSnapshot;
   dock: WorkbenchLayoutDockSnapshot;
   sidebarStageExpandedByProject: Record<string, Record<string, boolean>>;
@@ -68,7 +65,6 @@ export interface WorkbenchLayoutSnapshot {
   filesTabs: WorkbenchLayoutFilesStageTab[];
   activeFilesTabId: string;
   stagePanelWidths: Record<string, number>;
-  stageCollapsed: Record<string, boolean>;
   slidingWindowPaneCount: number;
   terminalPanelOpen: boolean;
   terminalPanelHeight: number;

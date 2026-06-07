@@ -28,11 +28,6 @@ import {
   type NavigationSnapshot,
 } from "@/lib/workbench-navigation-history";
 import {
-  readStageRailLayoutMode,
-  type StageRailLayoutMode,
-  writeStageRailLayoutMode,
-} from "@/lib/stage-rail-layout-mode";
-import {
   buildWorkbenchResumeSnapshot,
   saveWorkbenchResumeSnapshot,
 } from "@/lib/workbench-resume";
@@ -73,9 +68,6 @@ function readWorkbenchV2Flag(): boolean {
 
 function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap: WindowSessionBootstrap }) {
   const workbenchV2Enabled = readWorkbenchV2Flag();
-  const [stageRailLayoutMode, setStageRailLayoutModeState] = useState<StageRailLayoutMode>(() =>
-    initialWorkspaceBootstrap.session.layout.stageRailLayoutMode ?? readStageRailLayoutMode(),
-  );
   const { projects, loading, createProject, deleteProject, renameProject, refresh } = useProjects();
   const [workspaceCatalog, setWorkspaceCatalog] = useState<WorkspaceCatalog>(initialWorkspaceBootstrap.catalog);
   const [activeWorkspace, setActiveWorkspaceState] = useState<WorkspaceRecord>(
@@ -146,7 +138,6 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
     buildLayoutSnapshot,
     replaceLayoutSnapshot,
   } = useWorkbenchState(projects, {
-    stageCollapseEnabled: stageRailLayoutMode === "full-rail",
     initialLayoutSnapshot: initialWorkspaceBootstrap.session.layout,
   });
   const [projectPickerOpenTick, setProjectPickerOpenTick] = useState(0);
@@ -156,11 +147,6 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
   const [commandPaletteOpenTick, setCommandPaletteOpenTick] = useState(0);
   const [commandPaletteInitialQuery, setCommandPaletteInitialQuery] = useState("");
   const [settingsToggleTick, setSettingsToggleTick] = useState(0);
-
-  const setStageRailLayoutMode = useCallback((value: StageRailLayoutMode) => {
-    const normalized = writeStageRailLayoutMode(value);
-    setStageRailLayoutModeState(normalized);
-  }, []);
 
   const {
     state: cardStageState,
@@ -199,8 +185,8 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
   }, [activeWorkspace]);
 
   const currentWorkspaceLayout = useMemo(
-    () => buildLayoutSnapshot(cardStageState, stageRailLayoutMode),
-    [buildLayoutSnapshot, cardStageState, stageRailLayoutMode],
+    () => buildLayoutSnapshot(cardStageState),
+    [buildLayoutSnapshot, cardStageState],
   );
 
   useEffect(() => {
@@ -211,7 +197,6 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
     const nextWorkspace = bootstrap.activeWorkspace;
     setWorkspaceCatalog(bootstrap.catalog);
     setActiveWorkspaceState(nextWorkspace);
-    setStageRailLayoutMode(nextWorkspace.layout.stageRailLayoutMode);
     replaceLayoutSnapshot(nextWorkspace.layout);
     setNavigationHistory({ backStack: [], forwardStack: [] });
 
@@ -225,7 +210,6 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
     closeCardStageState,
     openCardStageState,
     replaceLayoutSnapshot,
-    setStageRailLayoutMode,
   ]);
 
   const flushWorkspaceLayout = useCallback(async () => {
@@ -602,11 +586,6 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
       stageId: StageId,
       fallbackDirection?: StageNavDirection,
     ) => {
-      if (stageRailLayoutMode !== "sliding-window") {
-        setFocusedStageState(projectId, stageId);
-        return;
-      }
-
       const slidingWindowVisibleStages = resolveExpandedStages(
         focusedStage,
         stageNavDirection,
@@ -626,7 +605,6 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
       setFocusedStageState,
       slidingWindowPaneCount,
       stageNavDirection,
-      stageRailLayoutMode,
     ],
   );
 
@@ -634,10 +612,6 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
     stageId: StageId,
     fallbackDirection?: StageNavDirection,
   ): StageNavDirection => {
-    if (stageRailLayoutMode !== "sliding-window") {
-      return fallbackDirection ?? stageNavDirection;
-    }
-
     const slidingWindowVisibleStages = resolveExpandedStages(
       focusedStage,
       stageNavDirection,
@@ -651,7 +625,7 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
       fallbackDirection ?? stageNavDirection,
     );
     return direction;
-  }, [focusedStage, slidingWindowPaneCount, stageNavDirection, stageRailLayoutMode]);
+  }, [focusedStage, slidingWindowPaneCount, stageNavDirection]);
 
   const applyNavigationSnapshot = useCallback(async (snapshot: NavigationSnapshot) => {
     setDbProjectState(snapshot.dbProjectId);
@@ -917,11 +891,6 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
   }, [navigateToCard, pendingDeepLinkOpen, resolvedDbProjectId]);
 
   const handleShortcutFocusAdjacentStage = useCallback((projectId: string, direction: -1 | 1) => {
-    if (stageRailLayoutMode !== "sliding-window") {
-      navigateToStage(projectId, STAGE_ORDER[(STAGE_ORDER.indexOf(focusedStage) + (direction > 0 ? 1 : STAGE_ORDER.length - 1)) % STAGE_ORDER.length] as StageId, direction > 0 ? "right" : "left");
-      return;
-    }
-
     const currentIndex = STAGE_ORDER.indexOf(focusedStage);
     if (currentIndex < 0) return;
     const nextIndex =
@@ -930,14 +899,9 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
         : (currentIndex - 1 + STAGE_ORDER.length) % STAGE_ORDER.length;
     const nextStage = STAGE_ORDER[nextIndex];
     navigateToStage(projectId, nextStage, direction > 0 ? "right" : "left");
-  }, [focusedStage, navigateToStage, stageRailLayoutMode]);
+  }, [focusedStage, navigateToStage]);
 
   const handleShortcutShiftSlidingWindow = useCallback((projectId: string, direction: -1 | 1) => {
-    if (stageRailLayoutMode !== "sliding-window") {
-      navigateToStage(projectId, STAGE_ORDER[(STAGE_ORDER.indexOf(focusedStage) + (direction > 0 ? 1 : STAGE_ORDER.length - 1)) % STAGE_ORDER.length] as StageId, direction > 0 ? "right" : "left");
-      return;
-    }
-
     const nextWindowState = resolveSlidingWindowShift(
       focusedStage,
       stageNavDirection,
@@ -961,7 +925,6 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
     setFocusedStageState,
     slidingWindowPaneCount,
     stageNavDirection,
-    stageRailLayoutMode,
   ]);
 
   const handleShortcutSwitchToStageIndex = useCallback((projectId: string, index: number) => {
@@ -1092,8 +1055,6 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
       filesTabs={filesTabs}
       activeFilesTabId={activeFilesTabId}
       stagePanelWidths={stagePanelWidths}
-      stageRailLayoutMode={stageRailLayoutMode}
-      onStageRailLayoutModeChange={setStageRailLayoutMode}
       slidingWindowPaneCount={slidingWindowPaneCount}
       terminalPanelOpen={terminalPanelOpen}
       terminalPanelHeight={terminalPanelHeight}

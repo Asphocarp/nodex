@@ -40,10 +40,6 @@ async function renderOverlay() {
         sidebarTopLevelSectionOrder={["recents", "cards", "threads", "files"]}
         sidebarTopLevelSections={makeDefaultSidebarTopLevelSectionsPrefs()}
         onSidebarTopLevelSectionVisibleChange={() => {}}
-        stageRailLayoutMode="sliding-window"
-        onStageRailLayoutModeChange={() => {}}
-        nextPanelPeekPx={32}
-        onNextPanelPeekPxChange={() => {}}
         threadQueueFollowUpsEnabled={false}
         onThreadQueueFollowUpsEnabledChange={() => {}}
         composerEnterBehavior="enter"

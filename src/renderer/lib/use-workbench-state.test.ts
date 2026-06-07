@@ -781,33 +781,6 @@ describe("use-workbench-state helpers", () => {
     resetStorage();
   });
 
-  test("resolveNearestExpandedStage prefers nearby expanded stages", () => {
-    const next = workbenchTestHelpers.resolveNearestExpandedStage("threads", {
-      threads: true,
-      files: true,
-    });
-    const allCollapsed = workbenchTestHelpers.resolveNearestExpandedStage("db", {
-      db: true,
-      cards: true,
-      threads: true,
-      files: true,
-    });
-
-    expect(next).toBe("cards");
-    expect(allCollapsed).toBe("db");
-  });
-
-  test("collapse-disabled policy keeps stage navigation targets accessible", () => {
-    const collapsed = workbenchTestHelpers.resolveEffectiveStageCollapsedState(
-      { files: true },
-      false,
-    );
-    const next = workbenchTestHelpers.resolveNearestExpandedStage("files", collapsed);
-
-    expect(JSON.stringify(collapsed)).toBe(JSON.stringify({}));
-    expect(next).toBe("files");
-  });
-
   test("drops invalid stage ids from persisted stage maps", () => {
     const normalized = workbenchTestHelpers.normalizeStageMap({
       alpha: "terminal",
@@ -848,7 +821,6 @@ describe("use-workbench-state helpers", () => {
       spaceOrder: ["ops", "default"],
       focusedStage: "threads",
       stageNavDirection: "left",
-      stageRailLayoutMode: "full-rail",
       sidebar: {
         collapsed: false,
         width: 300,
@@ -877,7 +849,6 @@ describe("use-workbench-state helpers", () => {
       filesTabs: [{ id: "diff", title: "Diffs" }],
       activeFilesTabId: "diff",
       stagePanelWidths: {},
-      stageCollapsed: { files: true },
       slidingWindowPaneCount: 3,
       terminalPanelOpen: true,
       terminalPanelHeight: 320,

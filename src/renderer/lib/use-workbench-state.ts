@@ -34,7 +34,6 @@ import {
   parseFilesStageTabs,
   parseSidebarSectionStateByProject,
   parseSidebarStageExpanded,
-  parseStageCollapsedState,
   parseStageNavDirection,
   parseStagePanelWidths,
   parseTerminalStageTabs,
@@ -96,7 +95,6 @@ export interface FilesStageTab {
 }
 
 export type StagePanelWidths = Partial<Record<StageId, number>>;
-export type StageCollapsedState = Partial<Record<StageId, boolean>>;
 export type SidebarSectionState = Record<string, boolean>;
 
 const WORKBENCH_STORAGE_KEY = "nodex-workbench-v1";
@@ -142,7 +140,6 @@ interface WorkbenchPrefs {
   filesTabs?: FilesStageTab[];
   activeFilesTabId?: string;
   stagePanelWidths?: StagePanelWidths;
-  stageCollapsed?: StageCollapsedState;
   slidingWindowPaneCount?: number;
   terminalPanelOpen?: boolean;
   terminalPanelHeight?: number;
@@ -177,7 +174,6 @@ interface WorkbenchState {
   filesTabs: FilesStageTab[];
   activeFilesTabId: string;
   stagePanelWidths: StagePanelWidths;
-  stageCollapsed: StageCollapsedState;
   slidingWindowPaneCount: number;
   terminalPanelOpen: boolean;
   terminalPanelHeight: number;
@@ -396,10 +392,6 @@ function normalizeStagePanelWidths(
   }, {});
 }
 
-function normalizeStageCollapsedState(value: unknown): StageCollapsedState {
-  return parseStageCollapsedState(value);
-}
-
 function normalizeBoolean(value: unknown): boolean | null {
   if (typeof value !== "boolean") return null;
   return value;
@@ -437,20 +429,6 @@ function clampTerminalPanelHeight(height: number): number {
 function normalizeTerminalPanelHeight(value: unknown): number | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
   return clampTerminalPanelHeight(value);
-}
-
-function makeDefaultStageCollapsedState(): StageCollapsedState {
-  return {
-    files: true,
-  };
-}
-
-function resolveEffectiveStageCollapsedState(
-  collapsedState: StageCollapsedState,
-  stageCollapseEnabled: boolean,
-): StageCollapsedState {
-  if (!stageCollapseEnabled) return {};
-  return collapsedState;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -571,10 +549,6 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
       persistedWorkbench.activeRecentSessionId) ||
       null);
   const stagePanelWidths = normalizeStagePanelWidths(layoutSnapshot?.stagePanelWidths ?? persistedWorkbench?.stagePanelWidths);
-  const normalizedStageCollapsed = normalizeStageCollapsedState(layoutSnapshot?.stageCollapsed ?? persistedWorkbench?.stageCollapsed);
-  const stageCollapsed = Object.keys(normalizedStageCollapsed).length > 0
-    ? normalizedStageCollapsed
-    : makeDefaultStageCollapsedState();
   const slidingWindowPaneCount = resolvePersistedSlidingWindowPaneCount(
     layoutSnapshot?.slidingWindowPaneCount ?? persistedWorkbench?.slidingWindowPaneCount,
   );
@@ -646,7 +620,6 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
     filesTabs,
     activeFilesTabId,
     stagePanelWidths,
-    stageCollapsed,
     slidingWindowPaneCount,
     terminalPanelOpen,
     terminalPanelHeight,
@@ -713,30 +686,6 @@ function ensureTerminalTabs(projectId: string, tabs: TerminalStageTab[] | undefi
 
 function stageIndexOf(stageId: StageId): number {
   return STAGE_ORDER.indexOf(stageId);
-}
-
-function resolveNearestExpandedStage(
-  currentStage: StageId,
-  collapsedState: StageCollapsedState,
-): StageId {
-  if (collapsedState[currentStage] !== true) return currentStage;
-
-  const currentIndex = stageIndexOf(currentStage);
-  for (let step = 1; step < STAGE_ORDER.length; step += 1) {
-    const rightIndex = currentIndex + step;
-    if (rightIndex < STAGE_ORDER.length) {
-      const rightStage = STAGE_ORDER[rightIndex];
-      if (collapsedState[rightStage] !== true) return rightStage;
-    }
-
-    const leftIndex = currentIndex - step;
-    if (leftIndex >= 0) {
-      const leftStage = STAGE_ORDER[leftIndex];
-      if (collapsedState[leftStage] !== true) return leftStage;
-    }
-  }
-
-  return currentStage;
 }
 
 export function resolveExpandedStages(
@@ -1016,7 +965,6 @@ function makeCardsStageTabs(
 }
 
 interface UseWorkbenchStateOptions {
-  stageCollapseEnabled?: boolean;
   initialResumeSnapshot?: WorkbenchResumeSnapshot | null;
   initialLayoutSnapshot?: WorkbenchLayoutSnapshot | null;
 }
@@ -1025,7 +973,6 @@ export function useWorkbenchState(
   projects: Project[],
   options: UseWorkbenchStateOptions = {},
 ) {
-  const stageCollapseEnabled = options.stageCollapseEnabled ?? true;
   const [state, setState] = useState<WorkbenchState>(() =>
     loadInitialState({
       resumeSnapshot: options.initialResumeSnapshot,
@@ -1144,12 +1091,7 @@ export function useWorkbenchState(
         : filesTabs[0]?.id ?? "diff";
 
       const stagePanelWidths = normalizeStagePanelWidths(prev.stagePanelWidths);
-      const stageCollapsed = normalizeStageCollapsedState(prev.stageCollapsed);
-      const effectiveCollapsedState = resolveEffectiveStageCollapsedState(
-        stageCollapsed,
-        stageCollapseEnabled,
-      );
-      const focusedStage = resolveNearestExpandedStage(prev.focusedStage, effectiveCollapsedState);
+      const focusedStage = prev.focusedStage;
       const stageNavDirection = isStageDirection(prev.stageNavDirection) ? prev.stageNavDirection : "right";
 
       return {
@@ -1175,13 +1117,12 @@ export function useWorkbenchState(
         filesTabs,
         activeFilesTabId,
         stagePanelWidths,
-        stageCollapsed,
         slidingWindowPaneCount,
         terminalPanelOpen,
         terminalPanelHeight,
       };
     });
-  }, [projects, stageCollapseEnabled]);
+  }, [projects]);
 
   useEffect(() => {
     writeJson(WORKBENCH_STORAGE_KEY, {
@@ -1204,7 +1145,6 @@ export function useWorkbenchState(
       filesTabs: state.filesTabs,
       activeFilesTabId: state.activeFilesTabId,
       stagePanelWidths: state.stagePanelWidths,
-      stageCollapsed: state.stageCollapsed,
       slidingWindowPaneCount: state.slidingWindowPaneCount,
       terminalPanelOpen: state.terminalPanelOpen,
       terminalPanelHeight: state.terminalPanelHeight,
@@ -1244,7 +1184,6 @@ export function useWorkbenchState(
   const filesTabs = state.filesTabs;
   const activeFilesTabId = state.activeFilesTabId;
   const stagePanelWidths = state.stagePanelWidths;
-  const stageCollapsed = state.stageCollapsed;
   const slidingWindowPaneCount = clampSlidingWindowPaneCount(state.slidingWindowPaneCount);
   const terminalPanelOpen = state.terminalPanelOpen;
   const terminalPanelHeight = clampTerminalPanelHeight(
@@ -1433,14 +1372,9 @@ export function useWorkbenchState(
     directionOverride?: StageNavDirection,
   ) => {
     setState((prev) => {
-      const stageCollapsedState = resolveEffectiveStageCollapsedState(
-        normalizeStageCollapsedState(prev.stageCollapsed),
-        stageCollapseEnabled,
-      );
-      const resolvedStageId = resolveNearestExpandedStage(stageId, stageCollapsedState);
       const prevStage = prev.focusedStage;
       const prevIndex = stageIndexOf(prevStage);
-      const nextIndex = stageIndexOf(resolvedStageId);
+      const nextIndex = stageIndexOf(stageId);
       const computedDirection =
         nextIndex === prevIndex
           ? prev.stageNavDirection
@@ -1449,38 +1383,27 @@ export function useWorkbenchState(
             : "left";
       const direction = directionOverride ?? computedDirection;
 
-      if (prevStage === resolvedStageId && prev.stageNavDirection === direction) {
+      if (prevStage === stageId && prev.stageNavDirection === direction) {
         return prev;
       }
 
       return {
         ...prev,
-        focusedStage: resolvedStageId,
+        focusedStage: stageId,
         stageNavDirection: direction,
       };
     });
-  }, [stageCollapseEnabled]);
+  }, []);
 
   const focusAdjacentStage = useCallback((_projectId: string, direction: -1 | 1) => {
     setState((prev) => {
       const current = prev.focusedStage;
-      const stageCollapsedState = resolveEffectiveStageCollapsedState(
-        normalizeStageCollapsedState(prev.stageCollapsed),
-        stageCollapseEnabled,
-      );
       const currentIndex = stageIndexOf(current);
-      let nextStage = current;
-
-      for (let step = 1; step <= STAGE_ORDER.length; step += 1) {
-        const candidateIndex =
-          direction > 0
-            ? (currentIndex + step) % STAGE_ORDER.length
-            : (currentIndex - step + STAGE_ORDER.length) % STAGE_ORDER.length;
-        const candidateStage = STAGE_ORDER[candidateIndex];
-        if (stageCollapsedState[candidateStage] === true) continue;
-        nextStage = candidateStage;
-        break;
-      }
+      const nextIndex =
+        direction > 0
+          ? (currentIndex + 1) % STAGE_ORDER.length
+          : (currentIndex - 1 + STAGE_ORDER.length) % STAGE_ORDER.length;
+      const nextStage = STAGE_ORDER[nextIndex];
 
       return {
         ...prev,
@@ -1488,7 +1411,7 @@ export function useWorkbenchState(
         stageNavDirection: direction > 0 ? "right" : "left",
       };
     });
-  }, [stageCollapseEnabled]);
+  }, []);
 
   const switchToStageIndex = useCallback((projectId: string, index: number) => {
     if (index < 0 || index >= STAGE_ORDER.length) return;
@@ -1555,45 +1478,6 @@ export function useWorkbenchState(
     const value = state.sidebarSectionShowAllByProject[projectId]?.[sectionId];
     return typeof value === "boolean" ? value : false;
   }, [state.sidebarSectionShowAllByProject]);
-
-  const setStageCollapsed = useCallback((_projectId: string, stageId: StageId, collapsed: boolean) => {
-    setState((prev) => {
-      if (!stageCollapseEnabled) return prev;
-      const current = normalizeStageCollapsedState(prev.stageCollapsed);
-      const nextState: StageCollapsedState = { ...current };
-
-      if (collapsed) {
-        nextState[stageId] = true;
-      } else {
-        nextState[stageId] = false;
-      }
-
-      const currentSignature = JSON.stringify(current);
-      const nextSignature = JSON.stringify(nextState);
-      if (currentSignature === nextSignature) return prev;
-
-      let nextFocusedStage = prev.focusedStage;
-      let nextDirection = prev.stageNavDirection;
-
-      if (nextFocusedStage === stageId) {
-        const resolvedFocusedStage = resolveNearestExpandedStage(
-          stageId,
-          resolveEffectiveStageCollapsedState(nextState, stageCollapseEnabled),
-        );
-        if (resolvedFocusedStage !== nextFocusedStage) {
-          nextDirection = stageIndexOf(resolvedFocusedStage) > stageIndexOf(nextFocusedStage) ? "right" : "left";
-          nextFocusedStage = resolvedFocusedStage;
-        }
-      }
-
-      return {
-        ...prev,
-        focusedStage: nextFocusedStage,
-        stageNavDirection: nextDirection,
-        stageCollapsed: nextState,
-      };
-    });
-  }, [stageCollapseEnabled]);
 
   const setActiveCardsTab = useCallback((_projectId: string, tabId: string) => {
     setState((prev) => {
@@ -1955,17 +1839,8 @@ export function useWorkbenchState(
     [state.sidebarStageExpandedByProject],
   );
 
-  const isStageCollapsed = useCallback(
-    (_projectId: string, stageId: StageId): boolean => {
-      if (!stageCollapseEnabled) return false;
-      return state.stageCollapsed[stageId] === true;
-    },
-    [stageCollapseEnabled, state.stageCollapsed],
-  );
-
   const buildLayoutSnapshot = useCallback((
     cardStage: WorkbenchLayoutSnapshot["cardStage"],
-    stageRailLayoutMode: WorkbenchLayoutSnapshot["stageRailLayoutMode"],
   ): WorkbenchLayoutSnapshot => ({
     version: 1,
     dbProjectId: state.dbProjectId,
@@ -1976,7 +1851,6 @@ export function useWorkbenchState(
     spaceOrder: state.spaceOrder,
     focusedStage: state.focusedStage,
     stageNavDirection: state.stageNavDirection,
-    stageRailLayoutMode,
     sidebar: state.sidebar,
     dock: state.dock,
     sidebarStageExpandedByProject: state.sidebarStageExpandedByProject as Record<string, Record<string, boolean>>,
@@ -1993,7 +1867,6 @@ export function useWorkbenchState(
     filesTabs: state.filesTabs,
     activeFilesTabId: state.activeFilesTabId,
     stagePanelWidths: state.stagePanelWidths as Record<string, number>,
-    stageCollapsed: state.stageCollapsed as Record<string, boolean>,
     slidingWindowPaneCount: state.slidingWindowPaneCount,
     terminalPanelOpen: state.terminalPanelOpen,
     terminalPanelHeight: state.terminalPanelHeight,
@@ -2029,7 +1902,6 @@ export function useWorkbenchState(
     filesTabs,
     activeFilesTabId,
     stagePanelWidths,
-    stageCollapsed,
     slidingWindowPaneCount,
     terminalPanelOpen,
     terminalPanelHeight,
@@ -2055,8 +1927,6 @@ export function useWorkbenchState(
     isSidebarSectionExpanded,
     setSidebarSectionShowAll,
     isSidebarSectionShowAll,
-    setStageCollapsed,
-    isStageCollapsed,
     setActiveCardsTab,
     setActiveThreadsTab,
     setThreadsTabs,
@@ -2104,17 +1974,13 @@ export const workbenchTestHelpers = {
   recordRecentCardLeaveInList,
   reorderRecentCardSessionsInList,
   normalizeStageMap,
-  normalizeStageCollapsedState,
   clampSlidingWindowPaneCount,
   normalizeSlidingWindowPaneCount,
   resolvePersistedSlidingWindowPaneCount,
-  resolveEffectiveStageCollapsedState,
   clampTerminalPanelHeight,
   normalizeSidebarTopLevelSectionOrder,
   normalizeSidebarTopLevelSectionsPrefs,
   moveSidebarTopLevelSection,
-  makeDefaultStageCollapsedState,
-  resolveNearestExpandedStage,
   reconcileSpaceOrder,
   ensureActiveProject,
   loadInitialState,

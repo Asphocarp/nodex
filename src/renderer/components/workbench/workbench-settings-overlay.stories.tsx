@@ -312,10 +312,6 @@ function SettingsOverlayStory({
           cards: { visible: true, itemLimit: 10 },
         }}
         onSidebarTopLevelSectionVisibleChange={() => {}}
-        stageRailLayoutMode="full-rail"
-        onStageRailLayoutModeChange={() => {}}
-        nextPanelPeekPx={28}
-        onNextPanelPeekPxChange={() => {}}
         threadQueueFollowUpsEnabled={true}
         onThreadQueueFollowUpsEnabledChange={() => {}}
         composerEnterBehavior="cmdIfMultiline"

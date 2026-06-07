@@ -60,11 +60,6 @@ import {
   type SidebarTopLevelSectionId,
   type SidebarTopLevelSectionsPrefs,
 } from "@/lib/sidebar-section-prefs";
-import type { StageRailLayoutMode } from "@/lib/stage-rail-layout-mode";
-import {
-  readNextPanelPeekPx,
-  writeNextPanelPeekPx,
-} from "@/lib/stage-rail-peek";
 import { buildNewChatProjectSelectorOptions } from "@/lib/new-chat-project-selector";
 import {
   readComposerEnterBehavior,
@@ -238,8 +233,6 @@ interface WorkbenchShellProps {
   filesTabs?: unknown;
   activeFilesTabId?: unknown;
   stagePanelWidths?: unknown;
-  stageRailLayoutMode?: StageRailLayoutMode;
-  onStageRailLayoutModeChange?: (value: StageRailLayoutMode) => void;
   slidingWindowPaneCount?: unknown;
   terminalPanelOpen?: unknown;
   terminalPanelHeight?: unknown;
@@ -391,8 +384,6 @@ export function WorkbenchShell({
   setSidebarCollapsed,
   setSidebarWidth,
   setSidebarTopLevelSectionVisible,
-  stageRailLayoutMode = "sliding-window",
-  onStageRailLayoutModeChange,
   settingsToggleTick,
 }: WorkbenchShellProps) {
   const fallbackProjectId = projects[0]?.id ?? "default";
@@ -422,7 +413,6 @@ export function WorkbenchShell({
   const lastHandledSettingsToggleTickRef = useRef(settingsToggleTick);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPath, setSettingsPath] = useState(() => buildSettingsPath("general-settings"));
-  const [nextPanelPeekPx, setNextPanelPeekPx] = useState(readNextPanelPeekPx);
   const [threadQueueFollowUpsEnabled, setThreadQueueFollowUpsEnabled] = useState(readThreadQueueFollowUpsEnabled);
   const [composerEnterBehavior, setComposerEnterBehavior] = useState<ComposerEnterBehavior>(readComposerEnterBehavior);
   const [worktreeStartMode, setWorktreeStartMode] = useState<WorktreeStartMode>(readWorktreeStartMode);
@@ -470,10 +460,6 @@ export function WorkbenchShell({
     lastHandledSettingsToggleTickRef.current = settingsToggleTick;
     setSettingsOpen((current) => !current);
   }, [settingsToggleTick]);
-
-  const handleNextPanelPeekPxChange = useCallback((value: number) => {
-    setNextPanelPeekPx(writeNextPanelPeekPx(value));
-  }, []);
 
   const handleThreadQueueFollowUpsEnabledChange = useCallback((value: boolean) => {
     setThreadQueueFollowUpsEnabled(writeThreadQueueFollowUpsEnabled(value));
@@ -1329,10 +1315,6 @@ export function WorkbenchShell({
           sidebarTopLevelSectionOrder={settingsSidebarTopLevelSectionOrder}
           sidebarTopLevelSections={settingsSidebarTopLevelSections}
           onSidebarTopLevelSectionVisibleChange={setSidebarTopLevelSectionVisible ?? (() => undefined)}
-          stageRailLayoutMode={stageRailLayoutMode}
-          onStageRailLayoutModeChange={onStageRailLayoutModeChange ?? (() => undefined)}
-          nextPanelPeekPx={nextPanelPeekPx}
-          onNextPanelPeekPxChange={handleNextPanelPeekPxChange}
           threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
           onThreadQueueFollowUpsEnabledChange={handleThreadQueueFollowUpsEnabledChange}
           composerEnterBehavior={composerEnterBehavior}

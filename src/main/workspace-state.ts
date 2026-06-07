@@ -48,7 +48,6 @@ export function createDefaultWorkbenchLayoutSnapshot(
     spaceOrder: [],
     focusedStage: legacyResumeSnapshot?.focusedStage ?? "db",
     stageNavDirection: legacyResumeSnapshot?.stageNavDirection ?? "right",
-    stageRailLayoutMode: "sliding-window",
     sidebar: {
       collapsed: false,
       width: 280,
@@ -77,7 +76,6 @@ export function createDefaultWorkbenchLayoutSnapshot(
     filesTabs: [{ id: "diff", title: "Diffs" }],
     activeFilesTabId: "diff",
     stagePanelWidths: {},
-    stageCollapsed: { files: true },
     slidingWindowPaneCount: 2,
     terminalPanelOpen: false,
     terminalPanelHeight: 260,

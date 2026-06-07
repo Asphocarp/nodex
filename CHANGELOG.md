@@ -19,6 +19,9 @@ All notable changes to this project will be documented in this file.
 - Codex thread metadata now supports card-owned, session-owned, project-only, and projectless threads without fake card ids.
 - Thread collapsed tool activity groups now has synthesized summaries and flat expanded row hierarchy instead of showing generic completed-action labels or nested exploration subgroups.
 
+### Removed
+- Removed the legacy Full rail stage layout mode, its General settings controls, and the adjacent-panel peek setting.
+
 ### Fixed
 - Fixed full-width right-panel tabs so they start at the panel edge instead of leaving an empty leading gap.
 - Fixed newly created non-Overview project sessions so they start with the right panel collapsed, while Overview sessions still open their DB tab full-width by default.

@@ -273,7 +273,6 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
           spaceOrder: [],
           focusedStage: "db",
           stageNavDirection: "right",
-          stageRailLayoutMode: "sliding-window",
           sidebar: {
             collapsed: false,
             width: 280,
@@ -311,7 +310,6 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
           filesTabs: [{ id: "diff", title: "Diffs" }],
           activeFilesTabId: "diff",
           stagePanelWidths: {},
-          stageCollapsed: { files: true },
           slidingWindowPaneCount: 2,
           terminalPanelOpen: false,
           terminalPanelHeight: 260,

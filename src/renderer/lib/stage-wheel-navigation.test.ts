@@ -5,7 +5,7 @@ import {
   isInsideCalendarShiftWheelScope,
   resolveStageWheelNavigation,
   resolveWrappedStageIndex,
-  shouldPreventStageRailShiftWheelFromCalendar,
+  shouldPreventStageShiftWheelFromCalendar,
   shouldDeferStageShiftWheelToNestedScroll,
 } from "./stage-wheel-navigation";
 
@@ -179,7 +179,7 @@ describe("shouldDeferStageShiftWheelToNestedScroll", () => {
     expect(result).toBeFalse();
   });
 
-  test("does not treat stage-rail container itself as a nested scroller", () => {
+  test("does not treat the stage container itself as a nested scroller", () => {
     const { rail } = createMockHorizontalScroller({
       railScrollWidth: 700,
       railClientWidth: 300,
@@ -232,7 +232,7 @@ describe("isInsideCalendarShiftWheelScope", () => {
   });
 });
 
-describe("shouldPreventStageRailShiftWheelFromCalendar", () => {
+describe("shouldPreventStageShiftWheelFromCalendar", () => {
   test("returns true for shift wheel from calendar scope", () => {
     const root = {
       parentElement: null,
@@ -244,7 +244,7 @@ describe("shouldPreventStageRailShiftWheelFromCalendar", () => {
       parentElement: root,
     } as unknown as EventTarget;
 
-    expect(shouldPreventStageRailShiftWheelFromCalendar({
+    expect(shouldPreventStageShiftWheelFromCalendar({
       target,
       shiftKey: true,
       ctrlKey: false,
@@ -256,7 +256,7 @@ describe("shouldPreventStageRailShiftWheelFromCalendar", () => {
       parentElement: null,
     } as unknown as EventTarget;
 
-    expect(shouldPreventStageRailShiftWheelFromCalendar({
+    expect(shouldPreventStageShiftWheelFromCalendar({
       target,
       shiftKey: false,
       ctrlKey: false,
@@ -274,7 +274,7 @@ describe("shouldPreventStageRailShiftWheelFromCalendar", () => {
       parentElement: root,
     } as unknown as EventTarget;
 
-    expect(shouldPreventStageRailShiftWheelFromCalendar({
+    expect(shouldPreventStageShiftWheelFromCalendar({
       target,
       shiftKey: true,
       ctrlKey: true,
@@ -291,7 +291,7 @@ describe("shouldPreventStageRailShiftWheelFromCalendar", () => {
       parentElement: root,
     } as unknown as EventTarget;
 
-    expect(shouldPreventStageRailShiftWheelFromCalendar({
+    expect(shouldPreventStageShiftWheelFromCalendar({
       target,
       shiftKey: true,
       ctrlKey: false,
