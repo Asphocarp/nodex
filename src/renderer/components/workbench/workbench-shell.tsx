@@ -435,6 +435,7 @@ export function WorkbenchShell({
   const [sidebarVisible, setSidebarVisible] = useState(() => !(sidebar?.collapsed ?? false));
   const [hoverSidebarOpen, setHoverSidebarOpen] = useState(false);
   const [sidebarTaskSearchOpenTick, setSidebarTaskSearchOpenTick] = useState(0);
+  const [projectsSectionCollapsed, setProjectsSectionCollapsed] = useState(false);
   const sessionContentRef = useRef<HTMLDivElement | null>(null);
   const headerRightProbeRef = useRef<HTMLDivElement | null>(null);
   const sidebarHoverOpenTimeoutRef = useRef<number | null>(null);
@@ -715,6 +716,10 @@ export function WorkbenchShell({
     toast.info(`${label} is not available in Nodex yet.`, {
       id: `sidebar-${label.toLowerCase()}-unavailable`,
     });
+  }, []);
+
+  const toggleProjectsSectionCollapsed = useCallback(() => {
+    setProjectsSectionCollapsed((current) => !current);
   }, []);
 
   useEffect(() => {
@@ -1156,9 +1161,11 @@ export function WorkbenchShell({
               activeWorkspaceId={activeWorkspaceId}
               sessionsByProject={sessionsByProject}
               expandedProjectIds={expandedProjectIds}
+              projectsSectionCollapsed={projectsSectionCollapsed}
               loadingSessions={loadingSessions}
               width={sidebarWidth}
               onResizeWidth={applySidebarWidth}
+              onToggleProjectsSectionCollapsed={toggleProjectsSectionCollapsed}
               onToggleProjectExpanded={(projectId) => {
                 setExpandedProjectIds((current) => {
                   const next = new Set(current);
@@ -1216,9 +1223,11 @@ export function WorkbenchShell({
                   activeWorkspaceId={activeWorkspaceId}
                   sessionsByProject={sessionsByProject}
                   expandedProjectIds={expandedProjectIds}
+                  projectsSectionCollapsed={projectsSectionCollapsed}
                   loadingSessions={loadingSessions}
                   width={sidebarWidth}
                   onResizeWidth={applySidebarWidth}
+                  onToggleProjectsSectionCollapsed={toggleProjectsSectionCollapsed}
                   onToggleProjectExpanded={(projectId) => {
                     setExpandedProjectIds((current) => {
                       const next = new Set(current);
@@ -1424,9 +1433,11 @@ function ProjectSessionSidebar({
   activeWorkspaceId,
   sessionsByProject,
   expandedProjectIds,
+  projectsSectionCollapsed,
   loadingSessions,
   width,
   onResizeWidth,
+  onToggleProjectsSectionCollapsed,
   onToggleProjectExpanded,
   onSelectProject,
   onSelectSession,
@@ -1450,9 +1461,11 @@ function ProjectSessionSidebar({
   activeWorkspaceId: string;
   sessionsByProject: Record<string, ProjectSession[]>;
   expandedProjectIds: Set<string>;
+  projectsSectionCollapsed: boolean;
   loadingSessions: boolean;
   width: number;
   onResizeWidth: (width: number) => void;
+  onToggleProjectsSectionCollapsed: () => void;
   onToggleProjectExpanded: (projectId: string) => void;
   onSelectProject: (projectId: string) => void;
   onSelectSession: (session: ProjectSession) => void;
@@ -1546,8 +1559,8 @@ function ProjectSessionSidebar({
           >
             <CodexSidebarSection
               heading="Projects"
-              collapsed={false}
-              onToggle={() => setManageProjectsOpen(true)}
+              collapsed={projectsSectionCollapsed}
+              onToggle={onToggleProjectsSectionCollapsed}
               actions={(
                 <ProjectManagerPopover
                   projects={projects}
@@ -1570,7 +1583,8 @@ function ProjectSessionSidebar({
                 />
               )}
             >
-              <div className="pt-0.5">
+              {!projectsSectionCollapsed ? (
+                <div className="pt-0.5">
                 <div className="isolate flex flex-col [contain:layout]">
                   <div className="flex flex-col" role="list" aria-label="Projects">
                     {projects.map((project) => {
@@ -1585,8 +1599,12 @@ function ProjectSessionSidebar({
                           active={isActiveProject}
                           expanded={expanded}
                           onActivate={() => {
+                            if (isActiveProject) {
+                              onToggleProjectExpanded(project.id);
+                              return;
+                            }
+
                             onSelectProject(project.id);
-                            if (isActiveProject) onToggleProjectExpanded(project.id);
                           }}
                           onStartNewChat={() => void onStartNewChatInProject(project.id)}
                           onRenameProject={onRenameProject}
@@ -1612,7 +1630,8 @@ function ProjectSessionSidebar({
                     })}
                   </div>
                 </div>
-              </div>
+                </div>
+              ) : null}
             </CodexSidebarSection>
           </div>
         </div>

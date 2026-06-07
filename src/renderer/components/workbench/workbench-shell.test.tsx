@@ -533,6 +533,91 @@ describe("workbench session shell", () => {
     expect(sidebarText.indexOf("Plugins") < sidebarText.indexOf("Automations")).toBeTrue();
   });
 
+  test("clicking the Projects section header collapses and expands project rows", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const section = screen.container.querySelector('[data-app-action-sidebar-section-heading="Projects"]');
+    if (!(section instanceof HTMLElement)) {
+      throw new Error("Expected Projects section");
+    }
+
+    const toggle = section.querySelector("[data-app-action-sidebar-section-toggle]");
+    if (!(toggle instanceof HTMLElement)) {
+      throw new Error("Expected Projects section toggle");
+    }
+
+    expect(section.getAttribute("data-app-action-sidebar-section-collapsed")).toBe("false");
+    expect(section.querySelectorAll("[data-app-action-sidebar-project-row]").length).toBe(1);
+
+    await act(async () => {
+      fireEvent.click(toggle);
+      await Promise.resolve();
+    });
+
+    expect(section.getAttribute("data-app-action-sidebar-section-collapsed")).toBe("true");
+    expect(section.querySelectorAll("[data-app-action-sidebar-project-row]").length).toBe(0);
+
+    await act(async () => {
+      fireEvent.click(toggle);
+      await Promise.resolve();
+    });
+
+    expect(section.getAttribute("data-app-action-sidebar-section-collapsed")).toBe("false");
+    expect(section.querySelectorAll("[data-app-action-sidebar-project-row]").length).toBe(1);
+  });
+
+  test("clicking an active project row while focused on its child session keeps the folder collapsed", async () => {
+    const activeThread = makeAttachedSession({
+      id: "session:alpha:thread",
+      title: "Active thread",
+      isOverview: false,
+      order: 1,
+      rightPaneCollapsed: true,
+      rightPaneLayout: {
+        version: 1,
+        root: {
+          type: "leaf",
+          id: "main",
+          tabIds: [],
+          activeTabId: null,
+        },
+      },
+      tabs: [],
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [makeSession(), activeThread],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Active thread"));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const projectRow = screen.container.querySelector('[data-app-action-sidebar-project-id="alpha"]');
+    if (!(projectRow instanceof HTMLElement)) {
+      throw new Error("Expected active project row");
+    }
+    const projectSelectionCallCountBeforeProjectClick = screen.setDbProjectCalls.length;
+
+    await act(async () => {
+      fireEvent.click(projectRow);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(projectRow.getAttribute("data-app-action-sidebar-project-collapsed")).toBe("true");
+    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Active thread"]')).toBe(null);
+    expect(screen.setDbProjectCalls.length).toBe(projectSelectionCallCountBeforeProjectClick);
+  });
+
   test("top new-chat row opens a blank session composer", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();

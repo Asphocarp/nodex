@@ -25,6 +25,8 @@ All notable changes to this project will be documented in this file.
 - Removed the legacy Full rail stage layout mode, its General settings controls, and the adjacent-panel peek setting.
 
 ### Fixed
+- Fixed active project folder toggles so clicking the project title while focused on one of its sessions no longer re-selects the project and flickers back open.
+- Fixed the Codex-style sidebar `Projects` header so clicking it collapses and expands the project/session rows.
 - Restored the native vibrant workbench sidebar background after the Codex sidebar chrome update.
 - Fixed long Thread composer prompts so the prompt field shows only the textarea scrollbar instead of a second wrapper scrollbar.
 - Fixed full-width right-panel tabs so they start at the panel edge instead of leaving an empty leading gap.
