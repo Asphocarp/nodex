@@ -34,9 +34,15 @@ test("landing build renders the real app version in the release stamp", async ()
     await build(config);
 
     const builtIndexHtml = readFileSync(join(outputDir, "index.html"), "utf8");
+    const builtChangelogHtml = readFileSync(join(outputDir, "changelog/index.html"), "utf8");
 
     expect(builtIndexHtml.includes(expectedVersionLabel)).toBeTrue();
     expect(builtIndexHtml.includes("Latest stable")).toBeFalse();
+    expect(builtChangelogHtml.includes("<h1>Changelog</h1>")).toBeTrue();
+    expect(builtChangelogHtml.includes("<h2>Unreleased</h2>")).toBeTrue();
+    expect(builtChangelogHtml.includes("<p>In development</p>")).toBeTrue();
+    expect(builtChangelogHtml.includes("Codex-style project session shell")).toBeTrue();
+    expect(builtChangelogHtml.includes("__NODEX_CHANGELOG_HTML__")).toBeFalse();
   } finally {
     rmSync(outputDir, { force: true, recursive: true });
   }

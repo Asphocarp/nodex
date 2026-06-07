@@ -27,15 +27,18 @@ bun run preview:landing
 
 `packages/landing` contains:
 - `index.html` for the homepage
+- `changelog/index.html` for the generated changelog page
 - `privacy/index.html`
 - `terms/index.html`
 - `src/styles.css` for landing-only Tailwind and token styling
+- `src/changelog-renderer.ts` for build-time `CHANGELOG.md` parsing and rendering
 - `src/download-cta.ts` for the direct-download CTA upgrade logic
 - `public/` for copied brand assets, the committed OG image, and `.nojekyll`
 
 The site is a static multi-page build. It does not use React Router or any client-side routing fallback.
 The homepage keeps the primary macOS CTA no-JS-safe by pointing at the stable arm64 GitHub Release alias first, then downgrades to the x64 alias only when browser signals positively identify Intel.
 The homepage release stamp is also build-time data: it reads the root app version from the repository `package.json`, so the published site shows the same semver that release automation cuts.
+The changelog page at `/changelog/` is also build-time data: it reads the root `CHANGELOG.md`, renders `Unreleased` first as an in-development entry, and then renders dated release entries in the same order as the source file.
 
 ## Publishing Topology
 
@@ -54,9 +57,11 @@ Two workflows manage the site:
 - `.github/workflows/landing-site.yml`
   - validates the landing package on pull requests and relevant pushes
   - installs dependencies and runs `bun run build:landing`
+  - also runs when `CHANGELOG.md` changes because `/changelog/` is generated from that file
 
 - `.github/workflows/deploy-landing-site.yml`
   - runs on `main` changes affecting the landing site and on manual dispatch
+  - also runs on `CHANGELOG.md` changes
   - builds the site in this repo
   - clones `NodexApp/NodexApp.github.io`
   - replaces its root contents with the built artifact
@@ -82,6 +87,7 @@ No CNAME file is needed for the default `nodexapp.github.io` hostname.
 
 The v1 site is intentionally narrow:
 - a single-screen homepage
+- a generated changelog page at `/changelog/`
 - a primary release CTA
 - a secondary Homebrew install affordance
 - minimal privacy and terms pages

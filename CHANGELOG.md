@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added a public changelog page at `nodex.jyu.app/changelog`, generated from the project changelog file.
 - Added a Codex-style project session shell with expandable project folders, durable sessions, a session thread page, session-owned right-panel tabs, browser placeholders, and separate optional session-thread attachments.
 - Added SQLite-backed project session, project session tab, and session-thread link storage with default Overview sessions seeded for every project.
 

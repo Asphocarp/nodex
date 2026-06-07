@@ -7,6 +7,7 @@ on:
     paths:
       - "packages/landing/**"
       - ".github/workflows/deploy-landing-site.yml"
+      - "CHANGELOG.md"
       - "package.json"
       - "bun.lock"
   workflow_dispatch:

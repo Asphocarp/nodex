@@ -112,6 +112,14 @@
     @apply text-[15px] font-semibold text-[#86868b] transition-colors duration-150 hover:text-[#f5f5f7] focus-visible:text-[#f5f5f7] focus-visible:outline-hidden;
   }
 
+  .landing-nav-links {
+    @apply flex items-center gap-5;
+  }
+
+  .landing-nav-link-active {
+    @apply text-[#f5f5f7];
+  }
+
   .landing-nav a:hover .landing-wordmark {
     color: #f5f5f7;
   }
@@ -296,6 +304,89 @@
     @apply m-0 space-y-2 pl-5;
   }
 
+  .changelog-shell {
+    @apply relative mx-auto flex w-full max-w-[920px] flex-1 flex-col px-6 pb-20 pt-28 sm:px-10;
+  }
+
+  .changelog-hero {
+    @apply max-w-[680px] pb-14;
+  }
+
+  .changelog-kicker {
+    @apply m-0 font-(family-name:--font-mono) text-[12px] font-medium tracking-[0.16em] text-[#55a2ff] uppercase;
+  }
+
+  .changelog-hero h1 {
+    @apply m-0 mt-4 font-(family-name:--font-display) text-[56px] leading-none font-semibold tracking-[-0.045em] text-[#f5f5f7];
+  }
+
+  .changelog-hero > p:last-child {
+    @apply m-0 mt-5 max-w-[560px] text-[18px] leading-8 text-[#a1a1a6];
+  }
+
+  .changelog-feed {
+    @apply relative border-t border-white/8;
+  }
+
+  .changelog-release {
+    @apply grid gap-8 border-b border-white/8 py-10 md:grid-cols-[180px_minmax(0,1fr)];
+  }
+
+  .changelog-release-latest {
+    @apply bg-white/[0.025];
+    box-shadow:
+      -24px 0 0 rgba(255, 255, 255, 0.025),
+      24px 0 0 rgba(255, 255, 255, 0.025);
+  }
+
+  .changelog-release-header {
+    @apply md:sticky md:top-24 md:self-start;
+  }
+
+  .changelog-release-header h2 {
+    @apply m-0 font-(family-name:--font-display) text-[24px] leading-tight font-semibold tracking-[-0.035em] text-[#f5f5f7];
+  }
+
+  .changelog-release-header p {
+    @apply m-0 mt-2 font-(family-name:--font-mono) text-[12px] leading-5 tracking-[0.08em] text-[#636366] uppercase;
+  }
+
+  .changelog-category {
+    @apply max-w-[680px];
+  }
+
+  .changelog-category + .changelog-category {
+    @apply mt-8;
+  }
+
+  .changelog-category h3 {
+    @apply m-0 text-[14px] font-semibold tracking-[-0.01em] text-[#d6deff];
+  }
+
+  .changelog-category ul {
+    @apply m-0 mt-3 space-y-3 pl-5 text-[15px] leading-7 text-[#a1a1a6];
+  }
+
+  .changelog-category li {
+    @apply pl-1;
+  }
+
+  .changelog-category li::marker {
+    color: rgba(85, 162, 255, 0.72);
+  }
+
+  .changelog-category code {
+    @apply rounded-[5px] bg-white/[0.065] px-1.5 py-0.5 font-(family-name:--font-mono) text-[0.88em] text-[#d6deff];
+  }
+
+  .changelog-footer {
+    @apply relative z-10 mx-auto flex w-full max-w-[920px] flex-wrap items-center justify-between gap-3 px-6 pb-8 pt-0 text-[13px] text-[#48484a] sm:px-10;
+  }
+
+  .changelog-footer a {
+    @apply text-[#48484a] transition-colors duration-150 hover:text-[#86868b];
+  }
+
   @keyframes landing-icon-in {
     0% {
       opacity: 0;
@@ -348,6 +439,44 @@
 
     .landing-copy {
       @apply text-[19px];
+    }
+
+    .landing-nav-links {
+      @apply gap-4;
+    }
+
+    .changelog-shell {
+      @apply px-6 pb-14 pt-24;
+    }
+
+    .changelog-hero {
+      @apply pb-10;
+    }
+
+    .changelog-hero h1 {
+      @apply text-[42px];
+    }
+
+    .changelog-hero > p:last-child {
+      @apply text-[16px] leading-7;
+    }
+
+    .changelog-release {
+      @apply gap-5 py-8;
+    }
+
+    .changelog-release-latest {
+      box-shadow:
+        -16px 0 0 rgba(255, 255, 255, 0.025),
+        16px 0 0 rgba(255, 255, 255, 0.025);
+    }
+
+    .changelog-category ul {
+      @apply text-[14px] leading-7;
+    }
+
+    .changelog-footer {
+      @apply px-6;
     }
   }
 }

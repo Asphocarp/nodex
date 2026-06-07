@@ -5,6 +5,7 @@ on:
     paths:
       - "packages/landing/**"
       - ".github/workflows/landing-site.yml"
+      - "CHANGELOG.md"
       - "package.json"
       - "bun.lock"
   push:
@@ -13,6 +14,7 @@ on:
     paths:
       - "packages/landing/**"
       - ".github/workflows/landing-site.yml"
+      - "CHANGELOG.md"
       - "package.json"
       - "bun.lock"
   workflow_dispatch:
