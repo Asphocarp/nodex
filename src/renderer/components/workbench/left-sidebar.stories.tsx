@@ -1,15 +1,22 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useState } from "react";
-import type { Project, WorkspaceRecord } from "@/lib/types";
+import type { Project, ProjectSession, WorkspaceRecord } from "@/lib/types";
 import type { SpaceRef } from "@/lib/use-workbench-state";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { LeftSidebar, type StageSidebarGroup } from "./left-sidebar";
 import { ProjectManagerPopover } from "./left-sidebar-project-manager";
+import { SidebarProjectsSection } from "./left-sidebar-projects-section";
 import { LeftSidebarWorkspaceManager } from "./left-sidebar-workspace-manager";
 import {
   SidebarNewChatButton,
   SidebarProjectNewChatButton,
 } from "./sidebar-new-chat-controls";
+import {
+  CodexProjectRow,
+  CodexProjectSessionList,
+  CodexSidebarSection,
+  CodexThreadRow,
+} from "./codex-sidebar";
 
 const PROJECTS: Project[] = [
   {
@@ -31,6 +38,36 @@ const PROJECTS: Project[] = [
 const SPACES: SpaceRef[] = [
   { projectId: "default", colorToken: "var(--accent-blue)", initial: "N" },
   { projectId: "bundle", colorToken: "var(--accent-green)", initial: "C" },
+];
+
+const SIDEBAR_PARITY_PROJECTS: Project[] = [
+  {
+    id: "nodex",
+    name: "Nodex",
+    description: "",
+    workspacePath: "/Users/asc/repo/nodex",
+    created: new Date("2026-06-01T00:00:00.000Z"),
+  },
+  {
+    id: "codex-electron-readable-bundle-with-a-very-long-name",
+    name: "Codex Electron readable bundle with a very long project label",
+    description: "",
+    workspacePath: "/Users/asc/repo/devtools-codex/codex_electron_26.519.81530_to_be_readable",
+    created: new Date("2026-06-02T00:00:00.000Z"),
+  },
+  {
+    id: "missing-workspace",
+    name: "Missing workspace path",
+    description: "",
+    workspacePath: "",
+    created: new Date("2026-06-03T00:00:00.000Z"),
+  },
+];
+
+const SIDEBAR_PARITY_SPACES: SpaceRef[] = [
+  { projectId: "nodex", colorToken: "var(--accent-blue)", initial: "N" },
+  { projectId: "codex-electron-readable-bundle-with-a-very-long-name", colorToken: "var(--accent-green)", initial: "C" },
+  { projectId: "missing-workspace", colorToken: "var(--accent-yellow)", initial: "M" },
 ];
 
 const WORKSPACES: WorkspaceRecord[] = [
@@ -273,6 +310,158 @@ function SidebarNewChatControlsHarness() {
   );
 }
 
+function CodexProjectsHarness({
+  expanded = true,
+  activeProjectId = "nodex",
+  openActionsFor,
+  projects = SIDEBAR_PARITY_PROJECTS,
+}: {
+  expanded?: boolean;
+  activeProjectId?: string;
+  openActionsFor?: string;
+  projects?: Project[];
+}) {
+  useEffect(() => {
+    if (!openActionsFor) return;
+    const frameId = window.requestAnimationFrame(() => {
+      const trigger = document.querySelector<HTMLElement>(`[aria-label='Project actions for ${openActionsFor}']`);
+      if (!trigger) return;
+      const event = typeof PointerEvent === "function"
+        ? new PointerEvent("pointerdown", { bubbles: true, button: 0, ctrlKey: false })
+        : new MouseEvent("pointerdown", { bubbles: true, button: 0, ctrlKey: false });
+      trigger.dispatchEvent(event);
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [openActionsFor]);
+
+  return (
+    <NodexTooltipProvider>
+      <div data-codex-window-type="electron" className="min-h-screen bg-token-bg-primary p-8">
+        <div className="app-shell-left-panel w-[300px] overflow-visible py-4">
+          <SidebarProjectsSection
+            projects={projects}
+            spaces={SIDEBAR_PARITY_SPACES}
+            activeProjectId={activeProjectId}
+            expanded={expanded}
+            onToggleExpanded={() => {}}
+            onSelectSpace={() => {}}
+            onCreateProject={async () => projects[0] ?? null}
+            onDeleteProject={async () => true}
+            onRenameProject={async () => projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null}
+            projectPickerOpenTick={0}
+          />
+        </div>
+      </div>
+    </NodexTooltipProvider>
+  );
+}
+
+function makeStorySession(input: {
+  id: string;
+  title: string;
+  isOverview?: boolean;
+  threadId?: string;
+}): ProjectSession {
+  const tabId = `${input.id}:db`;
+  return {
+    id: input.id,
+    projectId: "nodex",
+    title: input.title,
+    isOverview: input.isOverview ?? false,
+    order: 0,
+    leftPaneCollapsed: true,
+    rightPaneCollapsed: false,
+    rightPaneLayout: {
+      version: 1,
+      root: {
+        type: "leaf",
+        id: "main",
+        tabIds: [tabId],
+        activeTabId: tabId,
+      },
+    },
+    thread: input.threadId
+      ? {
+        sessionId: input.id,
+        projectId: "nodex",
+        threadId: input.threadId,
+        parentThreadId: undefined,
+        threadName: input.title,
+        threadPreview: "",
+        modelProvider: "openai",
+        cwd: "/Users/asc/repo/nodex",
+        statusType: "notLoaded",
+        statusActiveFlags: [],
+        archived: false,
+        createdAt: 1_780_800_000_000,
+        updatedAt: 1_780_800_000_000,
+        linkedAt: "2026-06-07T00:00:00.000Z",
+      }
+      : null,
+    tabs: [
+      {
+        id: tabId,
+        sessionId: input.id,
+        projectId: "nodex",
+        kind: "db_view",
+        title: "DB View",
+        order: 0,
+        config: { projectId: "nodex", view: "kanban" },
+        createdAt: "2026-06-07T00:00:00.000Z",
+        updatedAt: "2026-06-07T00:00:00.000Z",
+      },
+    ],
+    createdAt: "2026-06-07T00:00:00.000Z",
+    updatedAt: "2026-06-07T00:00:00.000Z",
+  };
+}
+
+function CodexProjectSessionRowsHarness() {
+  const project = SIDEBAR_PARITY_PROJECTS[0]!;
+  const sessions = [
+    makeStorySession({ id: "overview:nodex", title: "Overview", isOverview: true }),
+    makeStorySession({ id: "thread:nodex:parity", title: "Mirror Codex Electron layout", threadId: "local:sidebar-parity" }),
+    makeStorySession({ id: "thread:nodex:long", title: "Very long session title that should truncate before colliding with row actions", threadId: "local:long-title" }),
+  ];
+
+  return (
+    <NodexTooltipProvider>
+      <div data-codex-window-type="electron" className="min-h-screen bg-token-bg-primary p-8">
+        <div className="app-shell-left-panel w-[300px] overflow-visible py-4">
+          <CodexSidebarSection heading="Projects" collapsed={false} onToggle={() => {}}>
+            <div className="pt-0.5">
+              <div className="isolate flex flex-col [contain:layout]">
+                <div className="flex flex-col" role="list" aria-label="Projects">
+                  <CodexProjectRow
+                    project={project}
+                    active
+                    expanded
+                    onActivate={() => {}}
+                    onStartNewChat={() => {}}
+                    onRenameProject={async () => project}
+                    onManageProject={() => {}}
+                  >
+                    <CodexProjectSessionList project={project}>
+                      {sessions.map((session, index) => (
+                        <CodexThreadRow
+                          key={session.id}
+                          session={session}
+                          active={index === 1}
+                          onSelect={() => {}}
+                        />
+                      ))}
+                    </CodexProjectSessionList>
+                  </CodexProjectRow>
+                </div>
+              </div>
+            </div>
+          </CodexSidebarSection>
+        </div>
+      </div>
+    </NodexTooltipProvider>
+  );
+}
+
 function WorkspaceFooterHarness({
   activeWorkspaceId = "default",
   workspaces = WORKSPACES,
@@ -333,6 +522,35 @@ export const ProjectManagerOpen: Story = {
 
 export const NewChatControls: Story = {
   render: () => <SidebarNewChatControlsHarness />,
+};
+
+export const CodexProjectsExpanded: Story = {
+  render: () => <CodexProjectsHarness expanded activeProjectId="nodex" />,
+};
+
+export const CodexProjectsCollapsed: Story = {
+  render: () => <CodexProjectsHarness expanded={false} activeProjectId="nodex" />,
+};
+
+export const CodexProjectActionsMenuOpen: Story = {
+  render: () => <CodexProjectsHarness expanded activeProjectId="nodex" openActionsFor="Nodex" />,
+};
+
+export const CodexProjectsMissingWorkspacePath: Story = {
+  render: () => <CodexProjectsHarness expanded activeProjectId="missing-workspace" />,
+};
+
+export const CodexProjectsLongLabels: Story = {
+  render: () => (
+    <CodexProjectsHarness
+      expanded
+      activeProjectId="codex-electron-readable-bundle-with-a-very-long-name"
+    />
+  ),
+};
+
+export const CodexProjectSessionRows: Story = {
+  render: () => <CodexProjectSessionRowsHarness />,
 };
 
 export const WorkspaceFooter: Story = {

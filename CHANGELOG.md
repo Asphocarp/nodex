@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Replaced the old primary stage-rail workbench model with project sessions that open as a thread page with a collapsible and full-width-expandable right panel for DB view, Card Stage, terminal, and browser-placeholder tabs.
+- Matched the project/session sidebar chrome to Codex Electron, moved project folder selection into each project row actions menu, and added Search, Plugins, and Automations rows for layout parity.
 - Refined the project session shell to match Codex Electron side-panel control placement, adjacent header-slot spacing, remembered full-width mode, and button styling: the global header now owns `Toggle side panel`, right-panel tab creation and expand/restore actions live in the panel tab header, and the unused attach/detach thread toolbar button is removed.
 - Refined project session thread headers to match Codex Electron title sizing, use the thread title as the session header, and hide the redundant header separator while the right panel is closed.
 - Added a Codex-style top-right thread summary panel for attached local conversation sessions, with the Codex pinned-summary toggle/icon, toolbar-safe overlay placement, hover-revealed section chevrons, and compact authenticated account quota details moved out of the thread header into that panel.
@@ -24,6 +25,7 @@ All notable changes to this project will be documented in this file.
 - Removed the legacy Full rail stage layout mode, its General settings controls, and the adjacent-panel peek setting.
 
 ### Fixed
+- Restored the native vibrant workbench sidebar background after the Codex sidebar chrome update.
 - Fixed long Thread composer prompts so the prompt field shows only the textarea scrollbar instead of a second wrapper scrollbar.
 - Fixed full-width right-panel tabs so they start at the panel edge instead of leaving an empty leading gap.
 - Fixed newly created non-Overview project sessions so they start with the right panel collapsed, while Overview sessions still open their DB tab full-width by default.

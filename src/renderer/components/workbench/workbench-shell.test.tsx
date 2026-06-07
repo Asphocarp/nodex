@@ -423,6 +423,12 @@ function renderWorkbench({
     if (channel === "worktrees:environments:list") {
       return [];
     }
+    if (channel === "pty:pick-cwd") {
+      return "/repo/selected";
+    }
+    if (channel === "shell:open-file-link") {
+      return true;
+    }
     return null;
   };
 
@@ -509,6 +515,22 @@ describe("workbench session shell", () => {
     expect(newChatButton.className).toBe(CODEX_TOP_NEW_CHAT_CLASS);
     expect(iconPath.startsWith(CODEX_NEW_CHAT_ICON_PREFIX)).toBeTrue();
     expect(textContent(newChatButton).includes("⌘N") || textContent(newChatButton).includes("Ctrl+N")).toBeTrue();
+  });
+
+  test("renders Codex sidebar top rows in captured order", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const sidebar = screen.container.querySelector('[data-testid="project-session-sidebar"]');
+    if (!(sidebar instanceof HTMLElement)) {
+      throw new Error("Expected project session sidebar");
+    }
+
+    const sidebarText = textContent(sidebar);
+    expect(sidebarText.indexOf("New chat") < sidebarText.indexOf("Search")).toBeTrue();
+    expect(sidebarText.indexOf("Search") < sidebarText.indexOf("Plugins")).toBeTrue();
+    expect(sidebarText.indexOf("Plugins") < sidebarText.indexOf("Automations")).toBeTrue();
   });
 
   test("top new-chat row opens a blank session composer", async () => {
@@ -598,6 +620,34 @@ describe("workbench session shell", () => {
     } finally {
       window.prompt = originalPrompt;
     }
+  });
+
+  test("project action menu opens without selecting the project row", async () => {
+    const beta = makeProject("beta", "Beta");
+    const screen = renderWorkbench({
+      projects: [makeProject(), beta],
+      sessionsByProject: {
+        alpha: [makeSession()],
+        beta: [
+          makeSession({
+            id: "overview:beta",
+            projectId: "beta",
+            title: "Beta Overview",
+            isOverview: true,
+          }),
+        ],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByLabelText("Project actions for Beta"), { button: 0, ctrlKey: false });
+      await Promise.resolve();
+    });
+
+    expect(screen.setDbProjectCalls.includes("beta")).toBeFalse();
+    expect(textContent(document.body).includes("Choose project folder...")).toBeTrue();
   });
 
   test("project row new-chat button reuses an existing blank session", async () => {
@@ -1337,15 +1387,16 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     const sidebar = screen.container.querySelector('[data-testid="project-session-sidebar"]');
+    expect(sidebar?.className.includes("app-shell-left-panel")).toBeTrue();
     expect(sidebar?.className.includes("window-fx-sidebar-surface")).toBeFalse();
     expect(sidebar?.className.includes("bg-token-surface-secondary")).toBeFalse();
     const mainSurface = screen.container.querySelector("main");
     expect(mainSurface?.className.includes("main-surface")).toBeTrue();
     expect(mainSurface?.className.includes("overflow-hidden")).toBeTrue();
     const dragStrip = screen.container.querySelector('[data-testid="sidebar-drag-strip"]');
-    expect(dragStrip?.className.includes("draggable")).toBeTrue();
+    expect(dragStrip).toBe(null);
     expect(textContent(screen.container).includes("Overview")).toBeTrue();
-    expect(screen.container.querySelector('[data-session-row="true"]') !== null).toBeTrue();
+    expect(screen.container.querySelector("[data-app-action-sidebar-thread-row]") !== null).toBeTrue();
   });
 
   test("selecting another project expands it and falls back to its overview session", async () => {
@@ -1408,8 +1459,8 @@ describe("workbench session shell", () => {
       expect(sidebar !== null).toBeTrue();
       expect(sidebar?.closest("[aria-hidden]")?.getAttribute("aria-hidden")).toBe("true");
       const floatingShell = screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]');
-      expect(floatingShell?.className.includes("rounded-r-2xl")).toBeTrue();
-      expect(floatingShell?.className.includes("overflow-hidden")).toBeTrue();
+      expect(floatingShell?.className.includes("rounded-r-2xl")).toBeFalse();
+      expect(floatingShell?.className.includes("overflow-visible")).toBeTrue();
       expect(floatingShell?.className.includes("bg-(")).toBeFalse();
       expect(floatingShell?.className.includes("bg-token")).toBeFalse();
       const collapseButton = screen.getByRole("button", { name: "Expand sidebar" });

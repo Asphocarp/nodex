@@ -10,8 +10,6 @@ import {
 } from "react";
 import {
   CalendarDays,
-  ChevronDown,
-  FolderOpen,
   Globe2,
   PenLine,
   Plus,
@@ -30,10 +28,11 @@ import { CardStage } from "./workbench-card-stage";
 import { TerminalPanel } from "./workbench-terminal-panel";
 import { SettingsOverlay } from "./workbench-settings-overlay";
 import { buildSettingsPath } from "./workbench-settings-routes";
-import { ProjectManagerPopover, ProjectMark } from "./left-sidebar-project-manager";
+import { ProjectManagerPopover } from "./left-sidebar-project-manager";
 import { LeftSidebarWorkspaceManager } from "./left-sidebar-workspace-manager";
 import { NodexDropdownItem, NodexDropdownMenu } from "@/components/ui/dropdown";
 import { NodexTooltip, NodexTooltipProvider } from "@/components/ui/tooltip";
+import { toast } from "@/components/ui/toast";
 import {
   ConnectedThreadStage,
   ThreadSummaryPanelToggle,
@@ -121,17 +120,26 @@ import {
   SIDEBAR_HOVER_TRIGGER_WIDTH_PX,
 } from "@/lib/floating-sidebar";
 import {
+  CodexAutomationsIcon,
   CodexExpandPanelIcon,
   CodexPanelLeftHiddenIcon,
   CodexPanelLeftVisibleIcon,
   CodexPanelRightHiddenIcon,
   CodexPanelRightVisibleIcon,
   CodexRestorePanelIcon,
+  ComposerPluginsIcon,
+  SearchIcon,
 } from "@/components/shared/icons";
+import { SidebarNewChatButton } from "./sidebar-new-chat-controls";
 import {
-  SidebarNewChatButton,
-  SidebarProjectNewChatButton,
-} from "./sidebar-new-chat-controls";
+  CodexProjectRow,
+  CodexProjectSessionList,
+  CodexSidebarActionButton,
+  CodexSidebarSection,
+  CodexSidebarTopAction,
+  CodexThreadRow,
+  resolveCodexNewChatShortcutLabel,
+} from "./codex-sidebar";
 
 const COLLAPSE_CONTROL_TRAFFIC_LIGHT_OFFSET_PX = 90;
 const RIGHT_PANEL_DEFAULT_WIDTH = 600;
@@ -426,6 +434,7 @@ export function WorkbenchShell({
   const [localSidebarWidth, setLocalSidebarWidth] = useState(300);
   const [sidebarVisible, setSidebarVisible] = useState(() => !(sidebar?.collapsed ?? false));
   const [hoverSidebarOpen, setHoverSidebarOpen] = useState(false);
+  const [sidebarTaskSearchOpenTick, setSidebarTaskSearchOpenTick] = useState(0);
   const sessionContentRef = useRef<HTMLDivElement | null>(null);
   const headerRightProbeRef = useRef<HTMLDivElement | null>(null);
   const sidebarHoverOpenTimeoutRef = useRef<number | null>(null);
@@ -696,6 +705,18 @@ export function WorkbenchShell({
     setRightPanelFullWidthBySessionId((current) => ({ ...current, [session.id]: false }));
   }, [ensureBlankSessionForProject]);
 
+  const openSidebarTaskSearch = useCallback(() => {
+    setSidebarTaskSearchOpenTick((current) => current + 1);
+    if (!activeSession?.rightPaneCollapsed) return;
+    void updateActiveSession({ rightPaneCollapsed: false });
+  }, [activeSession?.rightPaneCollapsed, updateActiveSession]);
+
+  const showSidebarUnavailableProduct = useCallback((label: string) => {
+    toast.info(`${label} is not available in Nodex yet.`, {
+      id: `sidebar-${label.toLowerCase()}-unavailable`,
+    });
+  }, []);
+
   useEffect(() => {
     const isMacPlatformForShortcut = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
 
@@ -825,6 +846,7 @@ export function WorkbenchShell({
           cardStagePersistRef={cardStagePersistRef}
           cardStageSessionSnapshotRef={cardStageSessionSnapshotRef}
           pendingReminderOpen={pendingReminderOpen}
+          taskSearchOpenTick={sidebarTaskSearchOpenTick}
           setSearchQuery={setSearchQuery}
           setDbViewPrefs={setDbViewPrefs}
           onReminderHandled={onReminderHandled}
@@ -850,6 +872,7 @@ export function WorkbenchShell({
     pendingReminderOpen,
     projects,
     refreshProjectSessions,
+    sidebarTaskSearchOpenTick,
     dbViewPrefsByProject,
     searchByProject,
     setActiveTab,
@@ -875,12 +898,17 @@ export function WorkbenchShell({
   }, [setSidebarCollapsed]);
 
   const applySidebarWidth = useCallback((width: number) => {
+    if (width < 240) {
+      applySidebarCollapsed(true);
+      return;
+    }
+
     if (setSidebarWidth) {
       setSidebarWidth(width);
     } else {
       setLocalSidebarWidth(Math.min(520, Math.max(240, width)));
     }
-  }, [setSidebarWidth]);
+  }, [applySidebarCollapsed, setSidebarWidth]);
 
   const clearHoverSidebarOpenTimeout = useCallback(() => {
     if (sidebarHoverOpenTimeoutRef.current === null) return;
@@ -1142,6 +1170,8 @@ export function WorkbenchShell({
               onSelectProject={selectProject}
               onSelectSession={selectSession}
               onStartNewChatInProject={(projectId) => void startNewChatInProject(projectId)}
+              onOpenTaskSearch={openSidebarTaskSearch}
+              onShowUnavailableProduct={showSidebarUnavailableProduct}
               onCreateProject={async (...args) => {
                 const project = await onCreateProject(...args);
                 await refreshAllSessions();
@@ -1164,7 +1194,7 @@ export function WorkbenchShell({
             >
               <div
                 data-testid="floating-project-session-sidebar-shell"
-                className="absolute inset-y-0 overflow-hidden rounded-r-2xl border border-l-0 border-(--border)"
+                className="absolute inset-y-0 overflow-visible"
                 style={{
                   width: sidebarWidth,
                   left: hoverSidebarOpen ? 0 : -sidebarWidth,
@@ -1200,6 +1230,8 @@ export function WorkbenchShell({
                   onSelectProject={selectProject}
                   onSelectSession={selectSession}
                   onStartNewChatInProject={(projectId) => void startNewChatInProject(projectId)}
+                  onOpenTaskSearch={openSidebarTaskSearch}
+                  onShowUnavailableProduct={showSidebarUnavailableProduct}
                   onCreateProject={async (...args) => {
                     const project = await onCreateProject(...args);
                     await refreshAllSessions();
@@ -1383,10 +1415,6 @@ export function WorkbenchShell({
   );
 }
 
-function resolveProjectColorToken(projectId: string, spaces: SpaceRef[]): string | undefined {
-  return spaces.find((space) => space.projectId === projectId)?.colorToken;
-}
-
 function ProjectSessionSidebar({
   projects,
   spaces,
@@ -1403,6 +1431,8 @@ function ProjectSessionSidebar({
   onSelectProject,
   onSelectSession,
   onStartNewChatInProject,
+  onOpenTaskSearch,
+  onShowUnavailableProduct,
   onCreateProject,
   onRenameProject,
   onDeleteProject,
@@ -1427,6 +1457,8 @@ function ProjectSessionSidebar({
   onSelectProject: (projectId: string) => void;
   onSelectSession: (session: ProjectSession) => void;
   onStartNewChatInProject: (projectId: string) => void | Promise<void>;
+  onOpenTaskSearch: () => void;
+  onShowUnavailableProduct: (label: string) => void;
   onCreateProject: (
     id: string,
     name: string,
@@ -1449,16 +1481,6 @@ function ProjectSessionSidebar({
   onOpenSettings: () => void;
 }) {
   const [manageProjectsOpen, setManageProjectsOpen] = useState(false);
-
-  const handleSetProjectWorkspacePath = async (project: Project) => {
-    try {
-      const pickedPath = (await invoke("pty:pick-cwd")) as string | null;
-      if (!pickedPath) return;
-      await onRenameProject(project.id, project.id, project.name, undefined, pickedPath);
-    } catch {
-      setManageProjectsOpen(true);
-    }
-  };
 
   const handleResizeStart = (event: React.MouseEvent) => {
     event.preventDefault();
@@ -1486,194 +1508,114 @@ function ProjectSessionSidebar({
 
   return (
     <aside
-      className="relative flex h-full min-h-0 shrink-0 flex-col overflow-hidden font-sans text-sm"
-      style={{ width }}
+      className="app-shell-left-panel pointer-events-auto relative flex h-full min-h-0 shrink-0 flex-col overflow-visible browser:bg-token-main-surface-primary font-sans text-sm"
+      style={{ width, paddingTop: "var(--height-toolbar)" }}
       data-testid="project-session-sidebar"
     >
-      <div className="draggable h-toolbar w-full shrink-0" data-testid="sidebar-drag-strip" />
-
-      <div className="scrollbar-token min-h-0 flex-1 overflow-y-auto px-(--sidebar-shell-padding-x) py-1">
-        <SidebarNewChatButton
-          shortcutLabel={typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC") ? "⌘N" : "Ctrl+N"}
-          onClick={() => void onStartNewChatInProject(activeProjectId)}
-        />
-        <section className="mb-2">
-          <div
-            className={cn(
-              "group/top-header flex min-h-7.5 items-center gap-1 rounded-lg pl-(--sidebar-header-padding-x) pr-1 py-(--sidebar-row-padding-tight-y)",
-              "text-token-input-placeholder-foreground hover:bg-sidebar-accent hover:text-(--sidebar-foreground) font-medium",
-            )}
-          >
-            <button
-              type="button"
-              className="mr-auto flex min-w-0 flex-1 items-center gap-2 text-left text-xs outline-none"
-              onClick={() => setManageProjectsOpen(true)}
-            >
-              <span className="truncate">Projects</span>
-              <span className="shrink-0 text-[11px]/5 text-(--sidebar-foreground-tertiary)">
-                {projects.length}
-              </span>
-            </button>
-            <ProjectManagerPopover
-              projects={projects}
-              spaces={spaces}
-              activeProjectId={activeProjectId}
-              onSelectSpace={onSelectProject}
-              onCreateProject={onCreateProject}
-              onDeleteProject={onDeleteProject}
-              onRenameProject={onRenameProject}
-              open={manageProjectsOpen}
-              onOpenChange={setManageProjectsOpen}
-              side="bottom"
-              align="end"
-              contentClassName="w-80"
-              trigger={(
-                <button
-                  type="button"
-                  className={cn(
-                    "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md outline-none",
-                    "text-(--sidebar-foreground-tertiary) hover:bg-[color-mix(in_srgb,var(--sidebar-foreground)_8%,transparent)] hover:text-(--sidebar-foreground)",
-                    "focus-visible:ring-2 focus-visible:ring-(--sidebar-ring)/35",
-                  )}
-                  title="Manage projects"
-                  aria-label="Manage projects"
-                >
-                  <Plus className="size-3.5" />
-                </button>
-              )}
+      <div
+        className="max-w-full min-h-0 flex-1 overflow-hidden"
+        style={{ minWidth: width, width }}
+      >
+        <div className="flex h-full min-h-0 flex-col overflow-hidden">
+          <div className="shrink-0">
+            <SidebarNewChatButton
+              shortcutLabel={resolveCodexNewChatShortcutLabel()}
+              onClick={() => void onStartNewChatInProject(activeProjectId)}
+            />
+            <CodexSidebarTopAction
+              label="Search"
+              icon={<SearchIcon className="icon-xs" />}
+              shortcutLabel={resolveCodexNewChatShortcutLabel() === "⌘N" ? "⌘F" : "Ctrl+F"}
+              onClick={onOpenTaskSearch}
+            />
+            <CodexSidebarTopAction
+              label="Plugins"
+              icon={<ComposerPluginsIcon className="icon-xs" />}
+              onClick={() => onShowUnavailableProduct("Plugins")}
+            />
+            <CodexSidebarTopAction
+              label="Automations"
+              icon={<CodexAutomationsIcon />}
+              onClick={() => onShowUnavailableProduct("Automations")}
             />
           </div>
 
-          <div className="mt-px flex min-h-0 flex-col gap-px overflow-hidden">
-            {projects.map((project) => {
-              const sessions = sessionsByProject[project.id] ?? [];
-              const expanded = expandedProjectIds.has(project.id);
-              const isActiveProject = project.id === activeProjectId;
-              const workspacePath = project.workspacePath?.trim() ?? "";
-              const workspaceLabel = workspacePath || "Choose project folder";
-              const workspaceTitle = workspacePath || `Choose a workspace folder for ${project.name}`;
-              const colorToken = resolveProjectColorToken(project.id, spaces);
-
-              return (
-                <div
-                  key={project.id}
-                  data-active={isActiveProject ? "true" : undefined}
-                  className={cn(
-                    "group/project group/folder-row rounded-xl pr-(--sidebar-header-padding-x) pl-(--sidebar-row-padding-x) py-1 min-h-7.5",
-                    isActiveProject
-                      ? "bg-[color-mix(in_srgb,var(--sidebar-accent)_68%,transparent)] text-(--sidebar-foreground)"
-                      : "text-(--sidebar-foreground) hover:bg-(--sidebar-accent)",
+          <div
+            data-app-action-sidebar-scroll=""
+            className="vertical-scroll-fade-mask scrollbar-token relative isolate flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto pt-4 [contain:layout_paint]"
+          >
+            <CodexSidebarSection
+              heading="Projects"
+              collapsed={false}
+              onToggle={() => setManageProjectsOpen(true)}
+              actions={(
+                <ProjectManagerPopover
+                  projects={projects}
+                  spaces={spaces}
+                  activeProjectId={activeProjectId}
+                  onSelectSpace={onSelectProject}
+                  onCreateProject={onCreateProject}
+                  onDeleteProject={onDeleteProject}
+                  onRenameProject={onRenameProject}
+                  open={manageProjectsOpen}
+                  onOpenChange={setManageProjectsOpen}
+                  side="bottom"
+                  align="end"
+                  contentClassName="w-80"
+                  trigger={(
+                    <CodexSidebarActionButton label="Manage projects" title="Manage projects">
+                      <Plus className="size-3.5" />
+                    </CodexSidebarActionButton>
                   )}
-                >
-                  <div className="min-w-0">
-                    <div className="flex min-w-0 items-start gap-1.5">
-                      <button
-                        type="button"
-                        className="mt-0.5 flex size-4.5 shrink-0 items-center justify-center rounded-md text-(--sidebar-foreground-secondary) outline-none hover:bg-(--sidebar-accent) hover:text-(--sidebar-foreground) focus-visible:ring-2 focus-visible:ring-(--sidebar-ring)/35"
-                        aria-label={expanded ? `Collapse ${project.name}` : `Expand ${project.name}`}
-                        aria-expanded={expanded}
-                        onClick={() => onToggleProjectExpanded(project.id)}
-                      >
-                        <ChevronDown
-                          className={cn(
-                            "size-3 shrink-0 transition-all duration-150",
-                            !expanded && "-rotate-90",
-                          )}
-                        />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onSelectProject(project.id)}
-                        className="flex min-w-0 flex-1 items-start gap-1.5 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-(--sidebar-ring)/35"
-                      >
-                        <span
-                          className={cn(
-                            "mt-0.5 inline-flex size-4.5 shrink-0 items-center justify-center rounded-md",
-                            isActiveProject ? "opacity-100" : "opacity-40 grayscale",
-                          )}
+                />
+              )}
+            >
+              <div className="pt-0.5">
+                <div className="isolate flex flex-col [contain:layout]">
+                  <div className="flex flex-col" role="list" aria-label="Projects">
+                    {projects.map((project) => {
+                      const sessions = sessionsByProject[project.id] ?? [];
+                      const expanded = expandedProjectIds.has(project.id);
+                      const isActiveProject = project.id === activeProjectId;
+
+                      return (
+                        <CodexProjectRow
+                          key={project.id}
+                          project={project}
+                          active={isActiveProject}
+                          expanded={expanded}
+                          onActivate={() => {
+                            onSelectProject(project.id);
+                            if (isActiveProject) onToggleProjectExpanded(project.id);
+                          }}
+                          onStartNewChat={() => void onStartNewChatInProject(project.id)}
+                          onRenameProject={onRenameProject}
+                          onManageProject={() => setManageProjectsOpen(true)}
                         >
-                          <ProjectMark
-                            icon={project.icon}
-                            colorToken={colorToken}
-                            className="text-sm leading-none"
-                            dotClassName="h-2.5 w-2.5"
-                          />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="flex min-w-0 items-baseline gap-1.5">
-                            <span className="truncate text-sm">{project.name}</span>
-                            <span className="shrink-0 text-[11px]/4 text-(--sidebar-foreground-tertiary)">
-                              /{project.id}
-                            </span>
-                          </span>
-                        </span>
-                      </button>
-                      <SidebarProjectNewChatButton
-                        label={`Start new chat in ${project.name}`}
-                        onClick={() => void onStartNewChatInProject(project.id)}
-                      />
-                    </div>
-
-                    {isActiveProject ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void handleSetProjectWorkspacePath(project);
-                        }}
-                        title={workspaceTitle}
-                        aria-label={workspaceTitle}
-                        className={cn(
-                          "mt-0.5 ml-10 flex min-w-0 max-w-full items-center gap-1 rounded-md text-[11px]/4 outline-none focus-visible:ring-2 focus-visible:ring-(--sidebar-ring)/35",
-                          "text-(--sidebar-foreground-secondary) hover:text-(--sidebar-foreground)",
-                        )}
-                      >
-                        <FolderOpen className="size-3 shrink-0" />
-                        <span className="truncate">{workspaceLabel}</span>
-                      </button>
-                    ) : null}
-
-                    {expanded ? (
-                      <div className="mt-px flex min-h-0 flex-col gap-px overflow-hidden pl-10">
-                        {sessions.map((session) => (
-                          <button
-                            key={session.id}
-                            type="button"
-                            data-session-row="true"
-                            className={cn(
-                              "group/session inline-flex min-h-7 w-full items-center gap-1.5 rounded-lg px-[var(--sidebar-row-padding-x)] py-(--sidebar-row-padding-tight-y) text-left",
-                              activeSessionId === session.id
-                                ? "bg-[color-mix(in_srgb,var(--sidebar-accent)_85%,transparent)] text-(--sidebar-foreground)"
-                                : "text-(--sidebar-foreground-secondary) hover:bg-(--sidebar-accent) hover:text-(--sidebar-foreground)",
-                            )}
-                            onClick={() => onSelectSession(session)}
-                          >
-                            <span
-                              className={cn(
-                                "size-1.5 shrink-0 rounded-full",
-                                session.thread
-                                  ? "bg-token-text-link-foreground"
-                                  : "bg-[color-mix(in_srgb,var(--sidebar-foreground)_22%,transparent)]",
-                              )}
-                            />
-                            <span className="min-w-0 flex-1 truncate text-sm">{session.title}</span>
-                            {session.isOverview ? (
-                              <span className="shrink-0 text-[10px]/4 text-(--sidebar-foreground-tertiary)">default</span>
+                          <CodexProjectSessionList project={project}>
+                            {sessions.map((session) => (
+                              <CodexThreadRow
+                                key={session.id}
+                                session={session}
+                                active={activeSessionId === session.id}
+                                onSelect={() => onSelectSession(session)}
+                              />
+                            ))}
+                            {sessions.length === 0 && loadingSessions ? (
+                              <div className="px-row-x py-row-y text-sm text-token-description-foreground">
+                                Loading sessions...
+                              </div>
                             ) : null}
-                          </button>
-                        ))}
-                        {sessions.length === 0 && loadingSessions ? (
-                          <div className="px-(--sidebar-row-padding-x) py-1 text-xs text-(--sidebar-foreground-tertiary)">
-                            Loading sessions...
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
+                          </CodexProjectSessionList>
+                        </CodexProjectRow>
+                      );
+                    })}
                   </div>
                 </div>
-              );
-            })}
+              </div>
+            </CodexSidebarSection>
           </div>
-        </section>
+        </div>
       </div>
 
       <LeftSidebarWorkspaceManager
@@ -2094,6 +2036,7 @@ function ProjectSessionTabPanel({
   cardStagePersistRef,
   cardStageSessionSnapshotRef,
   pendingReminderOpen,
+  taskSearchOpenTick,
   setSearchQuery,
   setDbViewPrefs,
   onReminderHandled,
@@ -2118,6 +2061,7 @@ function ProjectSessionTabPanel({
     cardId: string;
     occurrenceStart: string;
   } | null;
+  taskSearchOpenTick: number;
   setSearchQuery: (projectId: string, value: string) => void;
   setDbViewPrefs: (
     projectId: string,
@@ -2146,6 +2090,7 @@ function ProjectSessionTabPanel({
         dbViewPrefsByProject={dbViewPrefsByProject}
         cardStageCloseRef={cardStageCloseRef}
         pendingReminderOpen={pendingReminderOpen}
+        taskSearchOpenTick={taskSearchOpenTick}
         setSearchQuery={setSearchQuery}
         setDbViewPrefs={setDbViewPrefs}
         onReminderHandled={onReminderHandled}
@@ -2219,6 +2164,7 @@ function DbViewSessionTab({
   dbViewPrefsByProject,
   cardStageCloseRef,
   pendingReminderOpen,
+  taskSearchOpenTick,
   setSearchQuery,
   setDbViewPrefs,
   onReminderHandled,
@@ -2238,6 +2184,7 @@ function DbViewSessionTab({
     cardId: string;
     occurrenceStart: string;
   } | null;
+  taskSearchOpenTick: number;
   setSearchQuery: (projectId: string, value: string) => void;
   setDbViewPrefs: (
     projectId: string,
@@ -2270,6 +2217,7 @@ function DbViewSessionTab({
   const calendarVisibleDays = useMemo(() => resolveCalendarVisibleDays(calendarState), [calendarState]);
   const calendarDayCount = resolveCalendarVisibleDayCount(calendarState.range);
   const taskSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const lastHandledTaskSearchOpenTickRef = useRef(taskSearchOpenTick);
   const searchQuery = searchByProject[config.projectId] ?? (config.projectId === tab.projectId ? activeSearchQuery : "");
   const availableTags = useMemo(() => {
     if (!activeProjectBoard) return [];
@@ -2295,6 +2243,18 @@ function DbViewSessionTab({
   const closeTaskSearch = useCallback(() => {
     setTaskSearchOpen(false);
   }, []);
+
+  useEffect(() => {
+    if (
+      taskSearchOpenTick <= 0
+      || taskSearchOpenTick === lastHandledTaskSearchOpenTickRef.current
+    ) {
+      return;
+    }
+
+    lastHandledTaskSearchOpenTickRef.current = taskSearchOpenTick;
+    openTaskSearch(true);
+  }, [openTaskSearch, taskSearchOpenTick]);
 
   const handleCalendarRangeChange = useCallback((range: CalendarRangeState) => {
     setCalendarState((current) => ({ ...current, range }));
