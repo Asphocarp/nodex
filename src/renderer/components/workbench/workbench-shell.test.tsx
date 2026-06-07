@@ -950,7 +950,7 @@ describe("workbench session shell", () => {
     expect(threadFrame.className.includes("mt-(--app-shell-main-content-frame-top-offset)")).toBeTrue();
     expect(threadFrame.className.includes("border-t")).toBeTrue();
     expect(threadFrame.className.includes("border-token-border-default")).toBeTrue();
-    expect(Boolean(threadFrame.getAttribute("style")?.includes("--app-shell-main-content-frame-top-offset"))).toBeFalse();
+    expect(threadFrame.getAttribute("style")?.includes("--app-shell-main-content-frame-top-offset: 0px")).toBeTrue();
     const topFade = screen.container.querySelector(".app-shell-main-content-top-fade");
     expect(topFade?.getAttribute("data-app-shell-main-content-top-fade")).toBe("full-bleed");
     expect(topFade?.className.includes("h-4")).toBeTrue();
@@ -977,6 +977,7 @@ describe("workbench session shell", () => {
     const visibleFrame = screen.container.querySelector(".app-shell-main-content-frame");
     expect(visibleProps?.showHeaderSeparator).toBeTrue();
     expect(visibleFrame?.className.includes("border-t")).toBeTrue();
+    expect(visibleFrame?.getAttribute("style")?.includes("--app-shell-main-content-frame-top-offset: 0px")).toBeTrue();
     expect(visibleFrame?.getAttribute("style")?.includes("--thread-stage-header-right-reserve: 0px")).toBeTrue();
     screen.unmount();
 
@@ -998,6 +999,7 @@ describe("workbench session shell", () => {
     const collapsedProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
     const collapsedFrame = collapsedScreen.container.querySelector(".app-shell-main-content-frame");
     expect(collapsedProps?.showHeaderSeparator).toBeFalse();
+    expect(collapsedFrame?.getAttribute("style")?.includes("--app-shell-main-content-frame-top-offset: 0px")).toBeTrue();
     expect(collapsedFrame?.getAttribute("style")?.includes("--thread-stage-header-right-reserve: 36px")).toBeTrue();
   });
 

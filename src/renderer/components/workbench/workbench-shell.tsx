@@ -1486,6 +1486,7 @@ export function WorkbenchShell({
                   <div
                     className="app-shell-main-content-frame relative mt-(--app-shell-main-content-frame-top-offset) flex min-h-0 flex-1 flex-col border-t border-token-border-default"
                     style={{
+                      "--app-shell-main-content-frame-top-offset": "0px",
                       "--thread-stage-header-right-reserve": sidePanelOpen ? "0px" : `${headerRightWidth}px`,
                     } as React.CSSProperties}
                   >

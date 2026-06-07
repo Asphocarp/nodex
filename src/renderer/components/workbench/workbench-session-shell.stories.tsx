@@ -549,7 +549,7 @@ export const MixedRightTabs: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Regular 600px right panel with the global side-panel toggle in the fixed toolbar and expand/restore in the panel tab header.",
+        story: "Regular 600px right panel with the global side-panel toggle in the fixed toolbar, expand/restore in the panel tab header, and no empty toolbar row above the thread title.",
       },
     },
   },
@@ -624,7 +624,7 @@ export const CollapsedRightPanel: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Attached thread with the right panel collapsed, showing the Codex pinned-summary toggle beside the side-panel toggle and the floating summary overlay below the toolbar.",
+        story: "Attached thread with the right panel collapsed, keeping the thread title at the top while reserving the Codex pinned-summary toggle beside the side-panel toggle inside that header row.",
       },
     },
   },
