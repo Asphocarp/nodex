@@ -22,7 +22,7 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `ipc-handlers.ts`: mirrors core operations through IPC, including project session mutations, asset-path resolution, and clipboard paste inspection for desktop-only file/folder paste flows.
 - `clipboard-paste-inspector.ts`: best-effort Electron clipboard inspection for pasted absolute file/folder paths across supported native formats.
 - `kanban/db-service.ts`: SQLite CRUD, move logic, project lifecycle, atomic block-drop import (`sourceUpdates + card creates`), and atomic card-to-editor move drop (`target updates + source delete`) grouped in one transaction.
-- `kanban/project-session-service.ts`: SQLite CRUD for project-owned sessions, session-attached tabs, optional session-thread links, Overview seeding, ordering, and the v1 single-leaf right-pane layout JSON.
+- `kanban/project-session-service.ts`: SQLite CRUD for project-owned sessions, right/bottom session panels, session-attached tabs, optional session-thread links, Overview seeding, ordering, and v1 single-leaf panel layout JSON.
 - `kanban/history-service.ts`: undo/redo and change history records, including grouped undo/redo via `history.group_id` and description hydration from revision ids.
 - `kanban/description-revision-service.ts`: top-level NFM block hashing, revision delta/snapshot storage, description reconstruction, and revision/blob garbage collection.
 - `kanban/recurrence-service.ts`: recurrence expansion, exception application, and next-occurrence computation.
@@ -34,7 +34,7 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `workbench-resume-state.ts`: legacy profile-scoped last-window snapshot store retained for migration/default seeding.
 - `workspace-state.ts`: profile-scoped workspace catalog store under Electron `userData`, including default workspace seeding, legacy workbench-resume migration, active-workspace tracking, and layout snapshot persistence.
 - `window-session-state.ts`: profile-scoped persisted Electron window-session catalog with per-window layout snapshots, restore-policy selection support, focus recency, and saved window bounds.
-- `pty-manager.ts`: PTY process lifecycle management for per-card terminals (spawn, write, resize, kill).
+- `pty-manager.ts`: PTY process lifecycle management for session terminal ids (spawn, write, resize, kill).
 - `codex/codex-app-server-client.ts`: global JSON-RPC client for `codex app-server` stdio lifecycle, handshake, request correlation, reconnect/backoff, and wire-level typing against the committed `@nodex/codex-app-server-protocol` workspace package.
 - `codex/codex-service.ts`: domain facade for account/auth, thread/turn actions, approval + request-user-input handling, packaged-vs-dev Codex runtime resolution, canonical per-thread conversation-manager state, and main-process transcript/snapshot projection + `codex:event` / host-message emission.
 - `codex/thread-title-generator.ts`: packaged-safe shared helper for `generate-thread-title` RPC prompt building and structured title parsing; it never reads repo-relative prompt assets.
@@ -59,7 +59,7 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `styles/theme-codex-surface.generated.css`: generated renderer surface layer synced from Codex Electron for shared component/global rules that are treated as upstream-owned.
 - `styles/theme-utilities.css`: author-maintained renderer utility source for Nodex-local utility additions that are not part of the generated Codex contract.
 - `styles/theme-surface.css`: author-maintained renderer surface rules and global CSS contracts layered on top of the source token files.
-- `components/workbench/*`: Codex-style project/session shell, shared tab strip, DB view host, Card Stage/terminal tab wrappers, settings surfaces, and remaining workbench composition helpers.
+- `components/workbench/*`: Codex-style project/session shell, shared right/bottom panel tab strip, DB view host, Card Stage/session-terminal tab wrappers, settings surfaces, and remaining workbench composition helpers.
 - `components/workbench/review-diff-panel.tsx`: Codex-style Diff stage surface for `Last turn` and Git-backed review snapshots (`unstaged`, `staged`, `branch`), including toolbar controls, review search, file-tree filtering, lazy full-file loading, capped large-diff mode, and per-file diff rendering/actions.
 - `components/workbench/workbench-settings-*`: Codex-style settings route shell with a settings-specific sidebar adapter, section metadata registry, path resolver/redirect policy, shared settings page primitives, and one active section page at a time (`/settings/:section` over `general-settings`, `appearance`, `editor`, `card`, `worktrees`, `local-environments`, `backups`).
 - `features/local-conversation/*`: Codex-parity renderer substrate and the public workbench boundary for active conversation stages. It owns the renderer-side app-server manager/registry substrate, host-message + control-event bridge, per-thread/any-conversation/meta selector hooks, connected thread/review stage containers, projection pipeline, stage shell, header/auth shell, footer/composer shell, shared thread controls, turn virtualization, and the thread-body search/scroll/collapse behavior used by the active workbench thread stage.
@@ -69,7 +69,7 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `lib/codex-theme-variant.ts`: Codex Electron-style runtime theme bridge that derives semantic color variables from the active light/dark theme variant and injects them onto `document.documentElement` before renderer surfaces read the token bridge.
 - `lib/kanban-store.ts`: shared per-project board store with one realtime subscription, deduped fetches, optimistic journal rebase (`baseBoard + pending/local ops`), LWW conflict superseding, typed conflict resolution (`updated|conflict|not_found`), and O(1) `cardIndex` lookup map.
 - `lib/use-kanban.ts`, `lib/use-history.ts`, `lib/use-projects.ts`: stateful hooks over API channels (`use-kanban` is store-backed via `useSyncExternalStore`).
-- `lib/use-workbench-state.ts`: persisted workbench shell state with explicit project-context slices: `dbProjectId` (DB stage datasource), `threadsProjectId` (Thread stage context), entity-driven card context, and terminal per-tab project identity; it can build and replace full workspace layout snapshots, while DB view/search remain keyed by `dbProjectId`.
+- `lib/use-workbench-state.ts`: persisted legacy workspace shell state with explicit project-context slices. Session panels and durable terminal tabs are no longer owned here; project-session SQLite state is the primary model, while legacy terminal height can still seed bottom-panel defaults.
 - `lib/workbench-persisted-schemas.ts`: renderer-side persisted-state schema/parsing layer for workbench/session history maps, tabs, panel widths, and restart-friendly shell snapshots.
 - `lib/app-close-flush.ts`: renderer-side close-flush coordinator so all registered async flushers complete before one final Electron close ack is sent.
 - `lib/workbench-resume.ts`: renderer helpers for consuming/saving the durable last-window snapshot and building snapshot payloads from live shell state.
@@ -93,10 +93,11 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 
 Project sessions flow:
 1. The renderer shell loads `project-sessions:list` for each visible project and renders projects as expandable folders with ordered sessions beneath them.
-2. SQLite owns the shared tree: `project_sessions` stores session order, Overview marker, default pane collapse state, and right-pane layout JSON; `project_session_tabs` stores ordered DB/Card/terminal/browser/review/files/side-chat tabs and validated tab configs; `project_session_threads` stores optional session-to-thread attachments while thread metadata lives in `codex_threads`.
-3. Window/session UI state owns only the active project, active session, active tab, pane widths/collapse overrides, and focus history. Those values can be discarded or best-effort translated from old stage snapshots without mutating shared project data.
+2. SQLite owns the shared tree: `project_sessions.panel_state_json` stores independent right and bottom panel state, `project_session_tabs.panel_id` stores ordered DB/Card/terminal/browser/review/files/side-chat tabs per panel, and `project_session_threads` stores optional session-to-thread attachments while thread metadata lives in `codex_threads`.
+3. Window/session UI state owns only the active project, active session, transient focus/history, and legacy migration defaults. Durable panel collapse, size, active tab, tab order, and tab state belong to project-session storage.
 4. Every project has a seeded `Overview` session with one right-panel `db_view` tab for that project. The project-session service also lazily creates the Overview row for projects added after startup.
-5. Session singleton right-panel kinds are `db_view`, `review`, and `browser_placeholder`. Their create path in `project-session-service` returns/focuses an existing tab in the same session instead of inserting duplicates; repeatable kinds such as `terminal`, `files_placeholder`, `side_chat_placeholder`, and card-specific `card_stage` remain action-driven.
+5. Session singleton right-panel kinds are `db_view`, `review`, and `browser_placeholder`. Terminal tabs are session-owned bottom-panel tabs by default and carry only `projectId` plus `terminalSessionId`; cards never own terminals.
+6. Renderer-local panel previews are intentionally outside SQLite. Files, Browser, and Side chat previews occupy one preview slot per session panel, replace each other within that panel, and are persisted only when pinned through the normal session-tab create API.
 
 Codex Threads flow:
 1. Renderer sends `codex:*` IPC actions through `lib/api.ts`, manager-backed control hooks, and the local-conversation app-server manager substrate.

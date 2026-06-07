@@ -370,14 +370,32 @@ function makeStorySession(input: {
     isOverview: input.isOverview ?? false,
     order: 0,
     leftPaneCollapsed: true,
-    rightPaneCollapsed: false,
-    rightPaneLayout: {
-      version: 1,
-      root: {
-        type: "leaf",
-        id: "main",
-        tabIds: [tabId],
-        activeTabId: tabId,
+    panels: {
+      right: {
+        collapsed: false,
+        layout: {
+          version: 1,
+          root: {
+            type: "leaf",
+            id: "main",
+            tabIds: [tabId],
+            activeTabId: tabId,
+          },
+        },
+        size: { widthPx: 600, fullWidth: input.isOverview ?? false },
+      },
+      bottom: {
+        collapsed: true,
+        layout: {
+          version: 1,
+          root: {
+            type: "leaf",
+            id: "bottom",
+            tabIds: [],
+            activeTabId: null,
+          },
+        },
+        size: { heightPx: 280 },
       },
     },
     thread: input.threadId
@@ -403,10 +421,13 @@ function makeStorySession(input: {
         id: tabId,
         sessionId: input.id,
         projectId: "nodex",
+        panelId: "right",
         kind: "db_view",
         title: "DB View",
         order: 0,
         config: { projectId: "nodex", view: "kanban" },
+        stateKey: 0,
+        state: {},
         createdAt: "2026-06-07T00:00:00.000Z",
         updatedAt: "2026-06-07T00:00:00.000Z",
       },

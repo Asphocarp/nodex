@@ -35,6 +35,7 @@ export interface AppShellTabItem {
   title: string;
   icon?: ComponentType<{ className?: string }>;
   closable?: boolean;
+  preview?: boolean;
   reorderable?: boolean;
   isLabel?: boolean;
   disabled?: boolean;
@@ -46,10 +47,13 @@ export interface AppShellTabItem {
 interface AppShellTabsProps {
   tabs: AppShellTabItem[];
   activeTabId: string;
+  panelId?: string;
   controllerId?: string;
   onSelect: (tabId: string) => void;
   onCloseTab?: (tabId: string) => void;
+  onPinTab?: (tabId: string) => void;
   onReorderTab?: (activeId: string, overId: string) => void;
+  onMoveTab?: (tabId: string, targetPanelId: string) => void;
   beforeList?: ReactNode;
   afterListSticky?: ReactNode;
   afterList?: ReactNode;
@@ -70,6 +74,7 @@ export function resolveAppShellTabDrop(
   if (activeIndex < 0 || overIndex < 0) return null;
 
   if (tabs.length <= 1 || tabs[activeIndex]?.isLabel === true) return null;
+  if (tabs[activeIndex]?.reorderable === false) return null;
 
   return { activeId, overId };
 }
@@ -113,10 +118,13 @@ export function shouldShowAppShellTabSeparator({
 export function AppShellTabs({
   tabs,
   activeTabId,
+  panelId,
   controllerId = "cards",
   onSelect,
   onCloseTab,
+  onPinTab,
   onReorderTab,
+  onMoveTab,
   beforeList,
   afterListSticky,
   afterList,
@@ -145,6 +153,10 @@ export function AppShellTabs({
 
   const closeTab = (tabId: string) => {
     onCloseTab?.(tabId);
+  };
+
+  const pinTab = (tabId: string) => {
+    onPinTab?.(tabId);
   };
 
   const clearDragState = () => {
@@ -176,7 +188,10 @@ export function AppShellTabs({
   };
 
   return (
-    <div className={cn("flex h-full min-h-0 flex-col bg-token-main-surface-primary", className)}>
+    <div
+      data-app-shell-panel-id={panelId}
+      className={cn("flex h-full min-h-0 flex-col bg-token-main-surface-primary", className)}
+    >
       <div
         className={cn(
           "flex min-w-0 shrink-0 items-center bg-token-main-surface-primary px-2",
@@ -221,6 +236,8 @@ export function AppShellTabs({
                       projectedTabCount={projectedTabIds.length}
                       onSelect={onSelect}
                       onClose={tab.closable ? closeTab : undefined}
+                      onPin={tab.preview ? pinTab : undefined}
+                      onMove={onMoveTab}
                     />
                   );
                 })}
@@ -246,7 +263,16 @@ export function AppShellTabs({
           role="tabpanel"
           id={activePanelId}
           aria-label={activeTab.titleLabel ?? activeTab.title}
+          data-app-shell-tabpanel-preview={activeTab.preview ? "true" : undefined}
           className="relative min-h-0 flex-1"
+          onPointerDownCapture={() => {
+            if (!activeTab.preview) return;
+            pinTab(activeTab.id);
+          }}
+          onKeyDownCapture={() => {
+            if (!activeTab.preview) return;
+            pinTab(activeTab.id);
+          }}
         >
           {activeTab.renderPanel(() => closeTab(activeTab.id))}
         </div>
@@ -267,6 +293,8 @@ function SortableAppShellTab({
   projectedTabCount,
   onSelect,
   onClose,
+  onPin,
+  onMove,
 }: {
   tab: AppShellTabItem;
   controllerId: string;
@@ -279,6 +307,8 @@ function SortableAppShellTab({
   projectedTabCount: number;
   onSelect: (tabId: string) => void;
   onClose?: (tabId: string) => void;
+  onPin?: (tabId: string) => void;
+  onMove?: (tabId: string, targetPanelId: string) => void;
 }) {
   const {
     attributes,
@@ -291,7 +321,7 @@ function SortableAppShellTab({
   } = useSortable({
     id: tab.id,
     disabled: {
-      draggable: isOnlyTab || tab.isLabel === true,
+      draggable: isOnlyTab || tab.isLabel === true || tab.reorderable === false,
       droppable: false,
     },
   });
@@ -303,7 +333,7 @@ function SortableAppShellTab({
     <span
       ref={titleRef}
       data-app-shell-tab-title={tab.id}
-      className="inline-block min-w-0 whitespace-nowrap"
+      className={cn("inline-block min-w-0 whitespace-nowrap", tab.preview && "italic")}
     >
       {tab.title}
     </span>
@@ -311,6 +341,13 @@ function SortableAppShellTab({
 
   const closeCurrentTab = () => {
     onClose?.(tab.id);
+  };
+  const targetPanelId = controllerId.includes("bottom") ? "right" : "bottom";
+  const moveCurrentTab = () => {
+    onMove?.(tab.id, targetPanelId);
+  };
+  const pinCurrentTab = () => {
+    onPin?.(tab.id);
   };
   const showSeparator = shouldShowAppShellTabSeparator({
     projectedIndex: separatorIndex,
@@ -326,6 +363,7 @@ function SortableAppShellTab({
       ref={setNodeRef}
       data-app-shell-tab-controller={controllerId}
       data-tab-id={tab.id}
+      data-app-shell-tab-preview={tab.preview ? "true" : undefined}
       className={cn(
         "my-auto flex shrink-0 items-center gap-0.5 contain-content relative max-w-40 pe-1",
         isDragging && "z-10 cursor-grab",
@@ -459,6 +497,22 @@ function SortableAppShellTab({
           >
             Close tab
           </ContextMenuPrimitive.Item>
+          {tab.preview && onPin ? (
+            <ContextMenuPrimitive.Item
+              className="cursor-interaction rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm outline-hidden hover:bg-token-list-hover-background focus:bg-token-list-hover-background"
+              onSelect={pinCurrentTab}
+            >
+              Pin tab
+            </ContextMenuPrimitive.Item>
+          ) : null}
+          {onMove && !tab.preview ? (
+            <ContextMenuPrimitive.Item
+              className="cursor-interaction rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm outline-hidden hover:bg-token-list-hover-background focus:bg-token-list-hover-background"
+              onSelect={moveCurrentTab}
+            >
+              Move to {targetPanelId === "bottom" ? "bottom panel" : "right panel"}
+            </ContextMenuPrimitive.Item>
+          ) : null}
         </ContextMenuPrimitive.Content>
       </ContextMenuPrimitive.Portal>
     </ContextMenuPrimitive.Root>

@@ -7,9 +7,10 @@ import { CARD_STATUS_COLUMNS } from "../../shared/card-status";
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 29;
+export const CURRENT_SCHEMA_VERSION = 30;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser_placeholder', 'review', 'files_placeholder', 'side_chat_placeholder'";
+const PROJECT_SESSION_PANEL_ID_CHECK_VALUES = "'right', 'bottom'";
 
 const RESETTABLE_TABLES = [
   "project_session_threads",
@@ -37,9 +38,10 @@ export interface EnsureDatabaseOptions {
 
 export function getSchemaMigrationTargets(currentVersion: number): number[] | null {
   if (currentVersion === CURRENT_SCHEMA_VERSION) return [];
-  if (currentVersion === 26) return [27, 28, 29];
-  if (currentVersion === 27) return [28, 29];
-  if (currentVersion === 28) return [29];
+  if (currentVersion === 26) return [27, 28, 29, 30];
+  if (currentVersion === 27) return [28, 29, 30];
+  if (currentVersion === 28) return [29, 30];
+  if (currentVersion === 29) return [30];
   return null;
 }
 
@@ -166,6 +168,7 @@ function createLatestSchema(db: Database.Database): void {
       left_pane_collapsed INTEGER NOT NULL DEFAULT 0,
       right_pane_collapsed INTEGER NOT NULL DEFAULT 0,
       right_pane_layout_json TEXT NOT NULL,
+      panel_state_json TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       CHECK (is_overview IN (0, 1)),
@@ -183,17 +186,21 @@ function createLatestSchema(db: Database.Database): void {
       id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL REFERENCES project_sessions(id) ON DELETE CASCADE,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      panel_id TEXT NOT NULL DEFAULT 'right',
       kind TEXT NOT NULL,
       title TEXT NOT NULL,
       config_json TEXT NOT NULL,
+      state_key INTEGER NOT NULL DEFAULT 0,
+      state_json TEXT NOT NULL DEFAULT '{}',
       "order" INTEGER NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
-      CHECK (kind IN (${PROJECT_SESSION_TAB_KIND_CHECK_VALUES}))
+      CHECK (kind IN (${PROJECT_SESSION_TAB_KIND_CHECK_VALUES})),
+      CHECK (panel_id IN (${PROJECT_SESSION_PANEL_ID_CHECK_VALUES}))
     );
 
     CREATE INDEX IF NOT EXISTS idx_project_session_tabs_session_order
-      ON project_session_tabs(session_id, "order", created_at);
+      ON project_session_tabs(session_id, panel_id, "order", created_at);
     CREATE INDEX IF NOT EXISTS idx_project_session_tabs_project
       ON project_session_tabs(project_id);
 
@@ -317,18 +324,104 @@ function makeOverviewRightPaneLayout(tabId: string): string {
   });
 }
 
+function makePanelLayout(tabIds: string[], activeTabId: string | null): {
+  version: 1;
+  root: { type: "leaf"; id: string; tabIds: string[]; activeTabId: string | null };
+} {
+  return {
+    version: 1,
+    root: {
+      type: "leaf",
+      id: "main",
+      tabIds,
+      activeTabId,
+    },
+  };
+}
+
+function parseLayoutJson(value: string): ReturnType<typeof makePanelLayout> | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (
+      typeof parsed === "object"
+      && parsed !== null
+      && "version" in parsed
+      && parsed.version === 1
+      && "root" in parsed
+      && typeof parsed.root === "object"
+      && parsed.root !== null
+      && "type" in parsed.root
+      && parsed.root.type === "leaf"
+      && "tabIds" in parsed.root
+      && Array.isArray(parsed.root.tabIds)
+    ) {
+      const root = parsed.root as { id?: unknown; tabIds: unknown[]; activeTabId?: unknown };
+      return makePanelLayout(
+        root.tabIds.filter((item): item is string => typeof item === "string"),
+        typeof root.activeTabId === "string" ? root.activeTabId : null,
+      );
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function normalizePanelLayoutFromJson(value: string, tabIds: string[]): ReturnType<typeof makePanelLayout> {
+  const parsed = parseLayoutJson(value);
+  if (!parsed) return makePanelLayout(tabIds, tabIds[0] ?? null);
+
+  const knownTabIds = new Set(tabIds);
+  const layoutTabIds = parsed.root.tabIds.filter((tabId) => knownTabIds.has(tabId));
+  for (const tabId of tabIds) {
+    if (!layoutTabIds.includes(tabId)) layoutTabIds.push(tabId);
+  }
+
+  const activeTabId = parsed.root.activeTabId && knownTabIds.has(parsed.root.activeTabId)
+    ? parsed.root.activeTabId
+    : layoutTabIds[0] ?? null;
+
+  return makePanelLayout(layoutTabIds, activeTabId);
+}
+
+function makePanelStateJson(input: {
+  rightCollapsed: boolean;
+  rightLayoutJson: string;
+  rightTabIds: string[];
+  bottomTabIds: string[];
+  overview: boolean;
+}): string {
+  return JSON.stringify({
+    right: {
+      collapsed: input.rightCollapsed,
+      layout: normalizePanelLayoutFromJson(input.rightLayoutJson, input.rightTabIds),
+      size: {
+        widthPx: 600,
+        fullWidth: input.overview,
+      },
+    },
+    bottom: {
+      collapsed: input.bottomTabIds.length === 0,
+      layout: makePanelLayout(input.bottomTabIds, input.bottomTabIds[0] ?? null),
+      size: {
+        heightPx: 280,
+      },
+    },
+  });
+}
+
 function seedOverviewSessionsForAllProjects(db: Database.Database): void {
   const projects = db.prepare("SELECT id FROM projects ORDER BY created ASC").all() as Array<{ id: string }>;
   const insertSession = db.prepare(`
     INSERT OR IGNORE INTO project_sessions (
       id, project_id, title, is_overview, "order", left_pane_collapsed, right_pane_collapsed,
-      right_pane_layout_json, created_at, updated_at
-    ) VALUES (?, ?, ?, 1, 0, 1, 0, ?, ?, ?)
+      right_pane_layout_json, panel_state_json, created_at, updated_at
+    ) VALUES (?, ?, ?, 1, 0, 1, 0, ?, ?, ?, ?)
   `);
   const insertTab = db.prepare(`
     INSERT OR IGNORE INTO project_session_tabs (
-      id, session_id, project_id, kind, title, config_json, "order", created_at, updated_at
-    ) VALUES (?, ?, ?, 'db_view', 'DB View', ?, 0, ?, ?)
+      id, session_id, project_id, panel_id, kind, title, config_json, state_key, state_json, "order", created_at, updated_at
+    ) VALUES (?, ?, ?, 'right', 'db_view', 'DB View', ?, 0, '{}', 0, ?, ?)
   `);
 
   const seed = db.transaction(() => {
@@ -336,7 +429,22 @@ function seedOverviewSessionsForAllProjects(db: Database.Database): void {
     for (const project of projects) {
       const sessionId = makeOverviewSessionId(project.id);
       const tabId = makeOverviewDbTabId(project.id);
-      insertSession.run(sessionId, project.id, "Overview", makeOverviewRightPaneLayout(tabId), now, now);
+      const rightLayoutJson = makeOverviewRightPaneLayout(tabId);
+      insertSession.run(
+        sessionId,
+        project.id,
+        "Overview",
+        rightLayoutJson,
+        makePanelStateJson({
+          rightCollapsed: false,
+          rightLayoutJson,
+          rightTabIds: [tabId],
+          bottomTabIds: [],
+          overview: true,
+        }),
+        now,
+        now,
+      );
       insertTab.run(
         tabId,
         sessionId,
@@ -508,6 +616,168 @@ function migrateToSchema29(db: Database.Database): void {
   setUserVersion(db, 29);
 }
 
+function tableHasColumn(db: Database.Database, tableName: string, columnName: string): boolean {
+  return (db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>)
+    .some((column) => column.name === columnName);
+}
+
+function normalizeMigratedTerminalTabConfig(input: {
+  id: string;
+  sessionId: string;
+  projectId: string;
+  configJson: string;
+}): string {
+  try {
+    const parsed = JSON.parse(input.configJson) as Record<string, unknown>;
+    const projectId = typeof parsed.projectId === "string" && parsed.projectId.length > 0
+      ? parsed.projectId
+      : input.projectId;
+    const legacyMode = typeof parsed.mode === "string" ? parsed.mode : "";
+    const parsedTerminalSessionId = typeof parsed.terminalSessionId === "string" && parsed.terminalSessionId.length > 0
+      ? parsed.terminalSessionId
+      : "";
+    const terminalSessionId = legacyMode === "card" || parsedTerminalSessionId.startsWith("card:")
+      ? `session:${input.sessionId}:terminal:${input.id}`
+      : parsedTerminalSessionId || `session:${input.sessionId}:terminal:${input.id}`;
+    return JSON.stringify({ projectId, terminalSessionId });
+  } catch {
+    return JSON.stringify({
+      projectId: input.projectId,
+      terminalSessionId: `session:${input.sessionId}:terminal:${input.id}`,
+    });
+  }
+}
+
+function migrateToSchema30(db: Database.Database): void {
+  db.exec(`
+    DROP TABLE IF EXISTS project_session_tabs_next;
+
+    CREATE TABLE project_session_tabs_next (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES project_sessions(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      panel_id TEXT NOT NULL DEFAULT 'right',
+      kind TEXT NOT NULL,
+      title TEXT NOT NULL,
+      config_json TEXT NOT NULL,
+      state_key INTEGER NOT NULL DEFAULT 0,
+      state_json TEXT NOT NULL DEFAULT '{}',
+      "order" INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK (kind IN (${PROJECT_SESSION_TAB_KIND_CHECK_VALUES})),
+      CHECK (panel_id IN (${PROJECT_SESSION_PANEL_ID_CHECK_VALUES}))
+    );
+  `);
+
+  const tabRows = db.prepare(`
+    SELECT id, session_id, project_id, kind, title, config_json, "order", created_at, updated_at
+    FROM project_session_tabs
+    ORDER BY session_id ASC, "order" ASC, created_at ASC
+  `).all() as Array<{
+    id: string;
+    session_id: string;
+    project_id: string;
+    kind: string;
+    title: string;
+    config_json: string;
+    order: number;
+    created_at: string;
+    updated_at: string;
+  }>;
+  const insertTab = db.prepare(`
+    INSERT INTO project_session_tabs_next (
+      id, session_id, project_id, panel_id, kind, title, config_json, state_key, state_json, "order", created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, '{}', ?, ?, ?)
+  `);
+  const panelOrderBySession = new Map<string, number>();
+  const insertTabs = db.transaction(() => {
+    for (const row of tabRows) {
+      const panelId = row.kind === "terminal" ? "bottom" : "right";
+      const orderKey = `${row.session_id}:${panelId}`;
+      const order = panelOrderBySession.get(orderKey) ?? 0;
+      panelOrderBySession.set(orderKey, order + 1);
+      insertTab.run(
+        row.id,
+        row.session_id,
+        row.project_id,
+        panelId,
+        row.kind,
+        row.title,
+        row.kind === "terminal"
+          ? normalizeMigratedTerminalTabConfig({
+              id: row.id,
+              sessionId: row.session_id,
+              projectId: row.project_id,
+              configJson: row.config_json,
+            })
+          : row.config_json,
+        order,
+        row.created_at,
+        row.updated_at,
+      );
+    }
+  });
+  insertTabs();
+
+  db.exec(`
+    DROP TABLE project_session_tabs;
+    ALTER TABLE project_session_tabs_next RENAME TO project_session_tabs;
+
+    CREATE INDEX IF NOT EXISTS idx_project_session_tabs_session_order
+      ON project_session_tabs(session_id, panel_id, "order", created_at);
+    CREATE INDEX IF NOT EXISTS idx_project_session_tabs_project
+      ON project_session_tabs(project_id);
+  `);
+
+  if (!tableHasColumn(db, "project_sessions", "panel_state_json")) {
+    db.exec("ALTER TABLE project_sessions ADD COLUMN panel_state_json TEXT NOT NULL DEFAULT '{}'");
+  }
+
+  const sessions = db.prepare(`
+    SELECT id, is_overview, right_pane_collapsed, right_pane_layout_json
+    FROM project_sessions
+  `).all() as Array<{
+    id: string;
+    is_overview: number;
+    right_pane_collapsed: number;
+    right_pane_layout_json: string;
+  }>;
+  const tabsBySession = db.prepare(`
+    SELECT id, panel_id
+    FROM project_session_tabs
+    WHERE session_id = ?
+    ORDER BY panel_id ASC, "order" ASC, created_at ASC
+  `);
+  const updateSession = db.prepare(`
+    UPDATE project_sessions
+    SET panel_state_json = ?, updated_at = COALESCE(updated_at, ?)
+    WHERE id = ?
+  `);
+  const updatePanelStates = db.transaction(() => {
+    const now = new Date().toISOString();
+    for (const session of sessions) {
+      const tabs = tabsBySession.all(session.id) as Array<{ id: string; panel_id: string }>;
+      const rightTabIds = tabs.filter((tab) => tab.panel_id === "right").map((tab) => tab.id);
+      const bottomTabIds = tabs.filter((tab) => tab.panel_id === "bottom").map((tab) => tab.id);
+      updateSession.run(
+        makePanelStateJson({
+          rightCollapsed: session.right_pane_collapsed === 1,
+          rightLayoutJson: session.right_pane_layout_json,
+          rightTabIds,
+          bottomTabIds,
+          overview: session.is_overview === 1,
+        }),
+        now,
+        session.id,
+      );
+    }
+  });
+  updatePanelStates();
+
+  setUserVersion(db, 30);
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -530,6 +800,10 @@ function runMigrations(
     }
     if (target === 29) {
       migrateToSchema29(db);
+      continue;
+    }
+    if (target === 30) {
+      migrateToSchema30(db);
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);

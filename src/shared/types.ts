@@ -293,8 +293,6 @@ export interface ProjectSessionCardStageTabConfig {
 export interface ProjectSessionTerminalTabConfig {
   projectId: string;
   terminalSessionId: string;
-  mode: "project" | "card";
-  cardId?: string;
 }
 
 export interface ProjectSessionProjectScopedTabConfig {
@@ -325,26 +323,43 @@ export interface ProjectSessionSplitBranch {
   type: "split";
   id: string;
   direction: "horizontal" | "vertical";
-  first: ProjectSessionRightPaneNode;
-  second: ProjectSessionRightPaneNode;
+  first: ProjectSessionPanelNode;
+  second: ProjectSessionPanelNode;
   ratio: number;
 }
 
-export type ProjectSessionRightPaneNode = ProjectSessionSplitLeaf | ProjectSessionSplitBranch;
+export type ProjectSessionPanelNode = ProjectSessionSplitLeaf | ProjectSessionSplitBranch;
 
-export interface ProjectSessionRightPaneLayout {
+export interface ProjectSessionPanelLayout {
   version: 1;
-  root: ProjectSessionRightPaneNode;
+  root: ProjectSessionPanelNode;
+}
+
+export type PanelId = "right" | "bottom";
+
+export interface ProjectSessionPanelSize {
+  widthPx?: number;
+  heightPx?: number;
+  fullWidth?: boolean;
+}
+
+export interface ProjectSessionPanelState {
+  collapsed: boolean;
+  layout: ProjectSessionPanelLayout;
+  size: ProjectSessionPanelSize;
 }
 
 export interface ProjectSessionTab {
   id: string;
   sessionId: string;
   projectId: string;
+  panelId: PanelId;
   kind: ProjectSessionTabKind;
   title: string;
   order: number;
   config: ProjectSessionTabConfig;
+  stateKey: number;
+  state: unknown;
   createdAt: string;
   updatedAt: string;
 }
@@ -373,8 +388,7 @@ export interface ProjectSession {
   isOverview: boolean;
   order: number;
   leftPaneCollapsed: boolean;
-  rightPaneCollapsed: boolean;
-  rightPaneLayout: ProjectSessionRightPaneLayout;
+  panels: Record<PanelId, ProjectSessionPanelState>;
   thread: ProjectSessionThreadLink | null;
   tabs: ProjectSessionTab[];
   createdAt: string;
@@ -389,13 +403,13 @@ export interface ProjectSessionCreateInput {
 export interface ProjectSessionUpdateInput {
   title?: string;
   leftPaneCollapsed?: boolean;
-  rightPaneCollapsed?: boolean;
-  rightPaneLayout?: ProjectSessionRightPaneLayout;
+  panels?: Partial<Record<PanelId, Partial<ProjectSessionPanelState>>>;
 }
 
 export interface ProjectSessionTabCreateInput {
   sessionId: string;
   projectId: string;
+  panelId: PanelId;
   kind: ProjectSessionTabKind;
   title: string;
   config: ProjectSessionTabConfig;
@@ -404,6 +418,20 @@ export interface ProjectSessionTabCreateInput {
 export interface ProjectSessionTabUpdateInput {
   title?: string;
   config?: ProjectSessionTabConfig;
+  stateKey?: number;
+  state?: unknown;
+}
+
+export interface ProjectSessionTabReorderInput {
+  sessionId: string;
+  panelId: PanelId;
+  orderedTabIds: string[];
+}
+
+export interface ProjectSessionTabMoveInput {
+  tabId: string;
+  targetPanelId: PanelId;
+  targetIndex?: number;
 }
 
 export interface ProjectSessionThreadLinkInput {

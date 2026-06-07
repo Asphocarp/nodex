@@ -169,12 +169,24 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     projectSessionService.updateProjectSessionTab(tabId, input)
   );
 
+  registerHandle("project-session-panels:update", (_, sessionId: string, panelId, input) =>
+    projectSessionService.updateProjectSessionPanel(sessionId, panelId, input)
+  );
+
+  registerHandle("project-session-tabs:state:update", (_, tabId: string, stateKey: number, state) =>
+    projectSessionService.updateProjectSessionTabState(tabId, stateKey, state)
+  );
+
   registerHandle("project-session-tabs:delete", (_, tabId: string) =>
     projectSessionService.deleteProjectSessionTab(tabId)
   );
 
-  registerHandle("project-session-tabs:reorder", (_, sessionId: string, orderedTabIds: string[]) =>
-    projectSessionService.reorderProjectSessionTabs(sessionId, orderedTabIds)
+  registerHandle("project-session-tabs:reorder", (_, input) =>
+    projectSessionService.reorderProjectSessionTabs(input)
+  );
+
+  registerHandle("project-session-tabs:move", (_, input) =>
+    projectSessionService.moveProjectSessionTab(input)
   );
 
   registerHandle("project-session-threads:attach", (_, input) =>

@@ -76,12 +76,10 @@ const ThreadsStageTabSchema = z.object({
 
 const TerminalStageTabSchema = z.object({
   id: z.string(),
-  kind: z.enum(["project", "card"]),
+  kind: z.literal("project"),
   projectId: z.string().optional(),
   title: z.string(),
   sessionId: z.string(),
-  cardId: z.string().optional(),
-  sessionRefId: z.string().optional(),
 });
 
 const FilesStageTabSchema = z.object({

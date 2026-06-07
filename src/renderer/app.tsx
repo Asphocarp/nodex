@@ -90,13 +90,10 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
     activeCardsTabId,
     threadsTabs,
     activeThreadsTabId,
-    terminalTabs,
-    activeTerminalTabId,
     filesTabs,
     activeFilesTabId,
     stagePanelWidths,
     slidingWindowPaneCount,
-    terminalPanelOpen,
     terminalPanelHeight,
     recentCardSessions,
     activeRecentSessionId,
@@ -120,16 +117,9 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
     setActiveCardsTab: setActiveCardsTabState,
     setActiveThreadsTab: setActiveThreadsTabState,
     setThreadsTabs,
-    setActiveTerminalTab,
     setActiveFilesTab: setActiveFilesTabState,
     setStagePanelWidths,
     stepSlidingWindowPaneCount,
-    setTerminalPanelOpen,
-    setTerminalPanelHeight,
-    toggleTerminalPanel,
-    openProjectTerminalTab,
-    openCardTerminalTab,
-    closeTerminalTab,
     recordRecentCardLeave,
     selectRecentCardSession: selectRecentCardSessionState,
     setActiveRecentCardSession: setActiveRecentCardSessionState,
@@ -977,7 +967,6 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
     shiftSlidingWindow: handleShortcutShiftSlidingWindow,
     switchToStageIndex: handleShortcutSwitchToStageIndex,
     switchToProjectIndex: navigateToProjectIndex,
-    toggleTerminalPanel,
     onRequestNewWindow: () => {
       void handleRequestNewWindow();
     },
@@ -1050,13 +1039,10 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
       activeCardsTabId={activeCardsTabId}
       threadsTabs={threadsTabs}
       activeThreadsTabId={activeThreadsTabId}
-      terminalTabs={terminalTabs}
-      activeTerminalTabId={activeTerminalTabId}
       filesTabs={filesTabs}
       activeFilesTabId={activeFilesTabId}
       stagePanelWidths={stagePanelWidths}
       slidingWindowPaneCount={slidingWindowPaneCount}
-      terminalPanelOpen={terminalPanelOpen}
       terminalPanelHeight={terminalPanelHeight}
       cardStageState={cardStageState}
       cardStageCardId={cardStageState.projectId === resolvedDbProjectId ? cardStageCardId : undefined}
@@ -1081,14 +1067,8 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
       isSidebarSectionShowAll={isSidebarSectionShowAll}
       setActiveThreadsTab={setActiveThreadsTabState}
       setThreadsTabs={setThreadsTabs}
-      setActiveTerminalTab={setActiveTerminalTab}
       setStagePanelWidths={setStagePanelWidths}
       stepSlidingWindowPaneCount={stepSlidingWindowPaneCount}
-      setTerminalPanelOpen={setTerminalPanelOpen}
-      setTerminalPanelHeight={setTerminalPanelHeight}
-      openProjectTerminalTab={openProjectTerminalTab}
-      openCardTerminalTab={openCardTerminalTab}
-      closeTerminalTab={closeTerminalTab}
       closeRecentCardSession={handleCloseRecentSession}
       reorderRecentCardSessions={reorderRecentCardSessions}
       closeCardStage={closeCardStageState}

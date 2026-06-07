@@ -27,11 +27,9 @@ function writeStoredCwd(projectId: string, cwd: string): void {
 }
 
 interface TerminalPanelProps {
-  cardId: string;
   projectId: string;
+  terminalId: string;
   onClose: () => void;
-  mode?: "card" | "project";
-  sessionId?: string;
   panelHeight?: number;
   onPanelHeightChange?: (height: number) => void;
 }
@@ -45,17 +43,14 @@ function clampPanelHeight(height: number): number {
 }
 
 export function TerminalPanel({
-  cardId,
   projectId,
+  terminalId,
   onClose,
-  mode = "card",
-  sessionId,
   panelHeight,
   onPanelHeightChange,
 }: TerminalPanelProps) {
-  const resolvedSessionId = sessionId ?? (mode === "project" ? `project:${projectId}` : cardId);
   const [uncontrolledPanelHeight, setUncontrolledPanelHeight] = useState(() =>
-    getPanelHeight(resolvedSessionId),
+    getPanelHeight(terminalId),
   );
   const [cwd, setCwd] = useState(() => readStoredCwd(projectId));
   const isResizingRef = useRef(false);
@@ -75,7 +70,7 @@ export function TerminalPanel({
   );
 
   const { containerRef, isExited, exitCode, isUnavailable, error, reconnect } =
-    useTerminal({ cardId: resolvedSessionId, visible: true, cwd });
+    useTerminal({ terminalId, visible: true, cwd });
 
   // ── Vertical resize handle ──────────────────────────────────────────
   const handleResizeStart = useCallback(
@@ -132,8 +127,8 @@ export function TerminalPanel({
   // Persist height per session when uncontrolled.
   useEffect(() => {
     if (isControlledHeight) return;
-    storePanelHeight(resolvedSessionId, resolvedPanelHeight);
-  }, [isControlledHeight, resolvedPanelHeight, resolvedSessionId]);
+    storePanelHeight(terminalId, resolvedPanelHeight);
+  }, [isControlledHeight, resolvedPanelHeight, terminalId]);
 
   // ── Cwd picker ──────────────────────────────────────────────────────
   const pickCwd = useCallback(async () => {
@@ -178,7 +173,7 @@ export function TerminalPanel({
       <div className="flex h-8 shrink-0 items-center justify-between bg-(--background-secondary) px-3">
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-xs font-medium text-(--foreground-secondary)">
-            {mode === "project" ? "Project Terminal" : "Card Terminal"}
+            Session Terminal
           </span>
           {cwdLabel && (
             <button

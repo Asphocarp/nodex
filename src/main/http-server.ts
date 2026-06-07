@@ -499,6 +499,19 @@ app.put("/api/project-sessions/:sessionId", async (c) => {
   }
 });
 
+app.put("/api/project-sessions/:sessionId/panels/:panelId", async (c) => {
+  const body = await c.req.json();
+  try {
+    const panelId = c.req.param("panelId");
+    if (panelId !== "right" && panelId !== "bottom") return c.json({ error: "Invalid panel" }, 400);
+    const session = projectSessionService.updateProjectSessionPanel(c.req.param("sessionId"), panelId, body);
+    if (!session) return c.json({ error: "Not found" }, 404);
+    return c.json(session);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
 app.delete("/api/project-sessions/:sessionId", (c) => {
   try {
     const success = projectSessionService.deleteProjectSession(c.req.param("sessionId"));
@@ -546,6 +559,21 @@ app.put("/api/project-session-tabs/:tabId", async (c) => {
   }
 });
 
+app.put("/api/project-session-tabs/:tabId/state", async (c) => {
+  const body = await c.req.json();
+  try {
+    const tab = projectSessionService.updateProjectSessionTabState(
+      c.req.param("tabId"),
+      typeof body.stateKey === "number" ? body.stateKey : 0,
+      body.state,
+    );
+    if (!tab) return c.json({ error: "Not found" }, 404);
+    return c.json(tab);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
 app.delete("/api/project-session-tabs/:tabId", (c) => {
   const success = projectSessionService.deleteProjectSessionTab(c.req.param("tabId"));
   if (!success) return c.json({ error: "Not found" }, 404);
@@ -556,11 +584,30 @@ app.put("/api/project-sessions/:sessionId/tabs/reorder", async (c) => {
   const sessionId = c.req.param("sessionId");
   const body = await c.req.json();
   try {
+    const panelId = body.panelId === "bottom" ? "bottom" : "right";
     const orderedTabIds = Array.isArray(body.orderedTabIds) ? body.orderedTabIds : [];
     const session = projectSessionService.reorderProjectSessionTabs(
-      sessionId,
-      orderedTabIds.filter((item: unknown): item is string => typeof item === "string"),
+      {
+        sessionId,
+        panelId,
+        orderedTabIds: orderedTabIds.filter((item: unknown): item is string => typeof item === "string"),
+      },
     );
+    if (!session) return c.json({ error: "Not found" }, 404);
+    return c.json(session);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
+app.put("/api/project-session-tabs/:tabId/move", async (c) => {
+  const body = await c.req.json();
+  try {
+    const session = projectSessionService.moveProjectSessionTab({
+      tabId: c.req.param("tabId"),
+      targetPanelId: body.targetPanelId,
+      targetIndex: body.targetIndex,
+    });
     if (!session) return c.json({ error: "Not found" }, 404);
     return c.json(session);
   } catch (err) {

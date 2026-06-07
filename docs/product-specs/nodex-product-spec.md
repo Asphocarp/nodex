@@ -38,19 +38,20 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 
 #### 1. Multi-Project Support
 - Each project has an independent kanban board, history, and undo/redo
-- Single-page app with a Codex-style project/session shell: projects render as folders in the left sidebar, expanded projects show durable sessions, and the active session renders as a thread page with a shell-owned right panel for content tabs
+- Single-page app with a Codex-style project/session shell: projects render as folders in the left sidebar, expanded projects show durable sessions, and the active session renders as a thread page with shell-owned right and bottom panels for content tabs
 - Every project has a seeded `Overview` session with one open full-width right-panel `db_view` tab for that project's primary DB view; new non-Overview sessions start with the right panel collapsed
-- Session right-pane tabs support `db_view`, `card_stage`, `terminal`, `browser_placeholder`, `review`, `files_placeholder`, and `side_chat_placeholder` kinds; Files, Side chat, and Browser render Codex-style mock/placeholder panels until those features ship, while Review renders the active thread's connected review diff panel
-- The empty right panel and the panel-header plus menu use the same Codex-style new-tab action registry: Files, Side chat, Browser, Review, Terminal, then Nodex-only DB View and Card Stage. DB View, Review, and Browser are singleton tabs per session, so their actions disappear once present and shortcuts focus the existing tab instead of creating duplicates.
+- Session panel tabs support `db_view`, `card_stage`, `terminal`, `browser_placeholder`, `review`, `files_placeholder`, and `side_chat_placeholder` kinds; Files, Side chat, and Browser render Codex-style mock/placeholder panels until those features ship, while Review renders the active thread's connected review diff panel
+- The empty panels and panel-header plus menus use the same Codex-style new-tab action registry. Right-panel defaults are Files, Side chat, Browser, Review, DB View, and Card Stage. Terminal defaults to the bottom panel. DB View, Review, and Browser are singleton tabs per session, so their actions disappear once present and shortcuts focus the existing tab instead of creating duplicates.
+- Files, Side chat, and Browser can open as Codex-style preview tabs. A project session panel owns at most one preview at a time; opening a second preview in the same panel replaces the first, and the preview is ephemeral until the user interacts with the preview body or pins it.
 - DB view tabs keep the DB view selector pinned above board, list, toggle-list, canvas, and calendar content, with task search and supported view-local filter/sort/display controls inside that tab body
 - Card Stage opens as a session-attached tab. Opening a card from a DB tab creates or focuses the matching card tab in the active session instead of switching a global Card stage.
 - Opening Card Stage from the right-panel action chooser uses an active-project card picker instead of prompting for a card id.
-- Terminal opens as a session-attached tab with a session-tab-scoped terminal id
-- Right-panel action shortcuts are `Cmd/Ctrl+P` for Files, `Cmd/Ctrl+T` for Browser, `Ctrl+Shift+G` for Review, and `Ctrl+\`` for Terminal. They are ignored while focus is inside editor/input/dialog surfaces.
-- The active session can show, collapse, resize, or full-width expand the right panel. New non-Overview sessions default to collapsed right panels, while Overview sessions default to open full-width right panels unless the user has changed that session's panel width. The fixed global header owns the Codex-style `Toggle side panel` control, while the right-panel tab header owns tab creation and expand/restore controls.
-- The persisted right-pane layout JSON is split-capable for future VS Code-style tab splits, but v1 renders one tab group only
+- Terminal opens as a session-attached bottom-panel tab with a session-tab-scoped terminal id. Cards can request a terminal, but terminal tabs no longer carry card ownership or card ids.
+- Panel action shortcuts are `Cmd/Ctrl+P` for Files, `Cmd/Ctrl+T` for Browser, `Ctrl+Shift+G` for Review, and `Ctrl+\`` for Terminal. They are ignored while focus is inside editor/input/dialog surfaces.
+- The active session can show, collapse, resize, or full-width expand the right panel, and can show/collapse/resize the bottom panel independently. New non-Overview sessions default to collapsed right panels; bottom opens when a terminal tab is created or focused. Overview sessions default to open full-width right panels unless the user has changed that session's panel width.
+- The persisted panel layout JSON is split-capable for future VS Code-style tab splits, but v1 renders one tab group per panel only
 - URL sync: `/?project=<id>`, persisted to localStorage
-- Selecting a project expands its folder and switches the active DB project context. Selecting a session switches both the thread page and the right-panel tab group.
+- Selecting a project expands its folder and switches the active DB project context. Selecting a session switches the thread page plus both panel tab groups.
 - Task search query is persisted per project and restored on space switching; search lives inside the active DB view tab toolbar for searchable DB views, while Calendar hides that search chrome
 - `Cmd/Ctrl+K` and `Cmd/Ctrl+P` open a global command palette that searches cards across projects by default; typing a `>` prefix switches the palette into command mode for shell actions such as opening settings, task search, project picker, terminal, stage focus, and view switches, and `Cmd/Ctrl+Shift+P` opens that same palette with `>` already prefilled. Card results use fuzzy full-text ranking across title, description, tags, assignee, agent status, column, project name, and card id; card mode also exposes a trailing `Filter` popover plus a compact active-filter row beneath the input, using the same status/priority/tag/project-style pill language as the View-stage toolbar while persisting those filter selections across reopen/reload and still rendering three-line contextual previews for matching description text
 - `Cmd/Ctrl+[` and `Cmd/Ctrl+]` navigate backward/forward through durable workbench context (active project/session/tab, DB project/view, selected card, selected thread, and review context) without including transient overlays such as settings, command palette, or task search
@@ -61,7 +62,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Windows opened while another window is already open start from the currently active workspace and then diverge as independent window sessions
 - Back/forward navigation history is window-session-local and is restored only from that window's session storage; it is not part of the cold-launch resume snapshot saved when all windows close
 - Desktop single-instance behavior is scoped per resolved server profile (`KANBAN_DIR`/`config.toml` dir). Different profile dirs can run at the same time (for example packaged release + dev build), while each profile still enforces one process with many windows.
-- Session tabs and ordering are shared project data in SQLite. Window state owns only active project, active session, active tab, right-panel width/full-width mode, collapse overrides, and focus history.
+- Pinned session tabs, tab ordering, tab state, and right/bottom panel state are shared project data in SQLite. Renderer state owns ephemeral panel previews, active project, active session, transient focus history, and legacy migration defaults.
 - Codex thread metadata lives in `codex_threads`, where `project_id` and `card_id` are nullable. Optional card ownership lives in `codex_thread_card_links`; optional session ownership lives in `project_session_threads`.
 - Sidebar rows use Codex Electron-style project folder and session row chrome, including compact top actions for New chat, Search, Plugins, and Automations. Sessions are nested under project folders and can show a subtle attached-thread indicator.
 - Sidebar footer includes workspace switching controls; workspaces remain profile-local window layout templates and do not own shared project session data.
@@ -69,7 +70,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - On macOS, traffic-light window controls stay visible at top-left; when the sidebar is expanded, the sidebar collapse control sits beside them in the sidebar top strip, and when collapsed the same control is rendered in the titlebar left region
 - Card Stage session selection lives in the active session's right-panel tab strip; tabs support hover tooltips, close, and pointer-only Codex-style drag reorder through the shared tab strip
 - Settings can choose which optional card-stage rows start behind the Card Stage `more properties` toggle (`Tags`, `Assignee`, `Threads`, `Schedule`, `Agent blocked`, and `Agent status`)
-- Terminal is primarily a session-attached right-panel tab. Legacy global terminal shortcut state may remain during migration but is no longer the primary workbench model.
+- Terminal is a session-attached panel tab that defaults to the bottom panel and can be moved to the right panel. Card Stage may request a session terminal, but cards cannot own terminal tabs or PTY ids.
 - The session thread page is a live Codex workspace in Electron. Without an attached thread, it shows the Codex-style new-chat composer with add-context, Plan mode, permissions, model/reasoning, dictation, send controls, a project selector, and a `Start in` selector in the lower composer status row. The `Start in` selector supports `Work locally` and `New worktree`; `Connect Codex web`, `Send to cloud`, usage, upgrade, and learn-more rows are rendered for Codex parity, but cloud starts remain disabled until a backend cloud session path exists. Submitting the first prompt starts a session-owned Codex thread for the selected project and stores the link in `project_session_threads`; if the selected project differs from the current blank session's project, Nodex first reuses or creates a blank session owned by that project, then starts the thread there so session/project ownership remains valid. `Work locally` uses the selected project workspace path. `New worktree` creates a managed Git worktree, runs the selected local-environment setup script when configured, starts `thread/start` and `turn/start` in that worktree cwd, streams setup progress, and links the resulting thread to the owning session. Thread-id attachment storage remains available at the transport layer, but the workbench header does not expose an attach/detach thread button. Projectless new-chat startup remains hidden until a backend projectless session path exists.
 - Opening a session with an archived attached thread shows an archived-thread restore state. Nodex must not call `thread/resume` for archived thread metadata; the user explicitly restores the thread through `thread/unarchive`, then the normal resume flow can continue after the thread is active again.
 - Detailed visible transcript behavior for Threads lives in [Codex Thread Transcript Behavior](./codex-thread-transcript-behavior.md), including answered `request_user_input` rows, plan-implementation follow-up flow, optimistic prompt dedupe, tool/reasoning rendering, and restart recovery rules.
@@ -639,12 +640,15 @@ nodex/
 | GET | `/api/projects/[projectId]/sessions` | Fetch a project's ordered session tree with tabs and optional attached thread metadata |
 | POST | `/api/projects/[projectId]/sessions` | Create a project-owned session (body: `{title}`) |
 | PUT | `/api/projects/[projectId]/sessions/reorder` | Reorder sessions (body: `{orderedSessionIds}`) |
-| PUT | `/api/project-sessions/[sessionId]` | Update session title, pane collapse state, or right-pane layout JSON |
+| PUT | `/api/project-sessions/[sessionId]` | Update session title or legacy session metadata |
+| PUT | `/api/project-sessions/[sessionId]/panels/[panelId]` | Update a `right` or `bottom` panel's collapsed state, layout, or size |
 | DELETE | `/api/project-sessions/[sessionId]` | Delete a non-Overview session |
-| POST | `/api/project-sessions/[sessionId]/tabs` | Create a session tab (body: `{projectId, kind, title, config}`) |
+| POST | `/api/project-sessions/[sessionId]/tabs` | Create a session tab (body: `{projectId, panelId, kind, title, config}`) |
 | PUT | `/api/project-session-tabs/[tabId]` | Update a session tab title or validated config |
+| PUT | `/api/project-session-tabs/[tabId]/state` | Update a tab state key/value pair |
+| PUT | `/api/project-session-tabs/[tabId]/move` | Move a tab between `right` and `bottom` panels |
 | DELETE | `/api/project-session-tabs/[tabId]` | Delete a session tab |
-| PUT | `/api/project-sessions/[sessionId]/tabs/reorder` | Reorder tabs in a session (body: `{orderedTabIds}`) |
+| PUT | `/api/project-sessions/[sessionId]/tabs/reorder` | Reorder tabs in one panel (body: `{panelId, orderedTabIds}`) |
 | PUT | `/api/project-sessions/[sessionId]/thread` | Attach or update a session-owned thread link |
 | DELETE | `/api/project-sessions/[sessionId]/thread` | Detach the session-owned thread link |
 
@@ -707,6 +711,7 @@ CREATE TABLE project_sessions (
   left_pane_collapsed INTEGER NOT NULL DEFAULT 0,
   right_pane_collapsed INTEGER NOT NULL DEFAULT 0,
   right_pane_layout_json TEXT NOT NULL,
+  panel_state_json TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -715,9 +720,12 @@ CREATE TABLE project_session_tabs (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES project_sessions(id) ON DELETE CASCADE,
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL,               -- db_view | card_stage | terminal | browser_placeholder
+  panel_id TEXT NOT NULL,           -- right | bottom
+  kind TEXT NOT NULL,               -- db_view | card_stage | terminal | browser_placeholder | review | files_placeholder | side_chat_placeholder
   title TEXT NOT NULL,
   config_json TEXT NOT NULL,
+  state_key INTEGER NOT NULL DEFAULT 0,
+  state_json TEXT NOT NULL DEFAULT '{}',
   "order" INTEGER NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL

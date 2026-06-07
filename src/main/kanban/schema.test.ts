@@ -15,9 +15,10 @@ function isUnsupportedSqliteError(error: unknown): boolean {
 describe("schema initialization", () => {
   test("exposes only the supported in-app migration target", () => {
     expect(JSON.stringify(getSchemaMigrationTargets(CURRENT_SCHEMA_VERSION))).toBe("[]");
-    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[27,28,29]");
-    expect(JSON.stringify(getSchemaMigrationTargets(27))).toBe("[28,29]");
-    expect(JSON.stringify(getSchemaMigrationTargets(28))).toBe("[29]");
+    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[27,28,29,30]");
+    expect(JSON.stringify(getSchemaMigrationTargets(27))).toBe("[28,29,30]");
+    expect(JSON.stringify(getSchemaMigrationTargets(28))).toBe("[29,30]");
+    expect(JSON.stringify(getSchemaMigrationTargets(29))).toBe("[30]");
     expect(getSchemaMigrationTargets(20) === null).toBeTrue();
   });
 
@@ -92,6 +93,16 @@ describe("schema initialization", () => {
       expect(tableNames.includes("project_session_threads")).toBeTrue();
       expect(tableNames.includes("codex_thread_card_links")).toBeTrue();
 
+      const sessionColumns = db.prepare("PRAGMA table_info(project_sessions)").all() as Array<{ name: string }>;
+      const sessionColumnNames = sessionColumns.map((column) => column.name);
+      expect(sessionColumnNames.includes("panel_state_json")).toBeTrue();
+
+      const sessionTabColumns = db.prepare("PRAGMA table_info(project_session_tabs)").all() as Array<{ name: string }>;
+      const sessionTabColumnNames = sessionTabColumns.map((column) => column.name);
+      expect(sessionTabColumnNames.includes("panel_id")).toBeTrue();
+      expect(sessionTabColumnNames.includes("state_key")).toBeTrue();
+      expect(sessionTabColumnNames.includes("state_json")).toBeTrue();
+
       const overviewSession = db.prepare(`
         SELECT id, project_id, title, is_overview, left_pane_collapsed, right_pane_collapsed
         FROM project_sessions
@@ -114,13 +125,27 @@ describe("schema initialization", () => {
       expect(overviewSession?.right_pane_collapsed).toBe(0);
 
       const overviewTab = db.prepare(`
-        SELECT id, kind, config_json
+        SELECT id, panel_id, kind, config_json
         FROM project_session_tabs
         WHERE session_id = 'overview:default'
-      `).get() as { id: string; kind: string; config_json: string } | undefined;
+      `).get() as { id: string; panel_id: string; kind: string; config_json: string } | undefined;
       expect(overviewTab?.id).toBe("overview:default:db");
+      expect(overviewTab?.panel_id).toBe("right");
       expect(overviewTab?.kind).toBe("db_view");
       expect(overviewTab?.config_json).toBe(JSON.stringify({ projectId: "default", view: "kanban" }));
+
+      const overviewPanelState = db.prepare(`
+        SELECT panel_state_json
+        FROM project_sessions
+        WHERE id = 'overview:default'
+      `).get() as { panel_state_json: string } | undefined;
+      const parsedPanelState = JSON.parse(overviewPanelState?.panel_state_json ?? "{}") as {
+        right?: { collapsed?: boolean; size?: { fullWidth?: boolean } };
+        bottom?: { collapsed?: boolean };
+      };
+      expect(parsedPanelState.right?.collapsed).toBeFalse();
+      expect(parsedPanelState.right?.size?.fullWidth).toBeTrue();
+      expect(parsedPanelState.bottom?.collapsed).toBeTrue();
 
       db.close();
     } catch (error) {
@@ -456,6 +481,148 @@ describe("schema initialization", () => {
         ORDER BY "order" ASC
       `).all() as Array<{ kind: string }>;
       expect(JSON.stringify(tabs.map((tab) => tab.kind))).toBe(JSON.stringify(["db_view", "review"]));
+      migrated.close();
+    } catch (error) {
+      if (isUnsupportedSqliteError(error)) {
+        initializationRan = false;
+      } else {
+        throw error;
+      }
+    } finally {
+      closeDatabase();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      delete process.env.KANBAN_DIR;
+    }
+
+    if (!initializationRan) {
+      expect(true).toBeTrue();
+    }
+  });
+
+  test("migrates schema 29 project session tabs into right and bottom panels", async () => {
+    closeDatabase();
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-schema-v29-panels-"));
+    process.env.KANBAN_DIR = tempDir;
+
+    let initializationRan = true;
+    try {
+      const dbPath = getDatabasePath();
+      fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+      const db = new Database(dbPath);
+      db.exec(`
+        CREATE TABLE projects (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          icon TEXT NOT NULL DEFAULT '',
+          workspace_path TEXT,
+          created TEXT NOT NULL
+        );
+        CREATE TABLE project_sessions (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL,
+          title TEXT NOT NULL,
+          is_overview INTEGER NOT NULL DEFAULT 0,
+          "order" INTEGER NOT NULL,
+          left_pane_collapsed INTEGER NOT NULL DEFAULT 0,
+          right_pane_collapsed INTEGER NOT NULL DEFAULT 0,
+          right_pane_layout_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE project_session_tabs (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          project_id TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          title TEXT NOT NULL,
+          config_json TEXT NOT NULL,
+          "order" INTEGER NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO projects (id, name, description, icon, created)
+        VALUES ('alpha', 'Alpha', '', '', '2026-01-01T00:00:00.000Z');
+        INSERT INTO project_sessions (
+          id, project_id, title, is_overview, "order", right_pane_collapsed, right_pane_layout_json, created_at, updated_at
+        ) VALUES (
+          'session-1', 'alpha', 'Session', 0, 0, 0,
+          '{"version":1,"root":{"type":"leaf","id":"main","tabIds":["tab-terminal","tab-review"],"activeTabId":"tab-terminal"}}',
+          '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+        );
+        INSERT INTO project_session_tabs (
+          id, session_id, project_id, kind, title, config_json, "order", created_at, updated_at
+        ) VALUES
+          (
+            'tab-terminal', 'session-1', 'alpha', 'terminal', 'Terminal',
+            '{"projectId":"alpha","terminalSessionId":"term-1","mode":"project"}', 0,
+            '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+          ),
+          (
+            'tab-review', 'session-1', 'alpha', 'review', 'Review',
+            '{"projectId":"alpha"}', 1,
+            '2026-01-01T00:00:01.000Z', '2026-01-01T00:00:01.000Z'
+          );
+        PRAGMA user_version = 29;
+      `);
+      db.close();
+
+      await initializeDatabase();
+
+      const migrated = new Database(dbPath, { readonly: true });
+      const version = migrated.prepare("PRAGMA user_version").get() as
+        | { user_version: number }
+        | undefined;
+      expect(version?.user_version).toBe(CURRENT_SCHEMA_VERSION);
+
+      const tabs = migrated.prepare(`
+        SELECT id, panel_id, config_json, "order", state_key, state_json
+        FROM project_session_tabs
+        WHERE session_id = 'session-1'
+        ORDER BY panel_id ASC, "order" ASC
+      `).all() as Array<{
+        id: string;
+        panel_id: string;
+        config_json: string;
+        order: number;
+        state_key: number;
+        state_json: string;
+      }>;
+      expect(JSON.stringify(tabs)).toBe(JSON.stringify([
+        {
+          id: "tab-terminal",
+          panel_id: "bottom",
+          config_json: JSON.stringify({ projectId: "alpha", terminalSessionId: "term-1" }),
+          order: 0,
+          state_key: 0,
+          state_json: "{}",
+        },
+        {
+          id: "tab-review",
+          panel_id: "right",
+          config_json: JSON.stringify({ projectId: "alpha" }),
+          order: 0,
+          state_key: 0,
+          state_json: "{}",
+        },
+      ]));
+
+      const stateRow = migrated.prepare(`
+        SELECT panel_state_json
+        FROM project_sessions
+        WHERE id = 'session-1'
+      `).get() as { panel_state_json: string } | undefined;
+      const panelState = JSON.parse(stateRow?.panel_state_json ?? "{}") as {
+        right?: { collapsed?: boolean; layout?: { root?: { tabIds?: string[]; activeTabId?: string | null } } };
+        bottom?: { collapsed?: boolean; layout?: { root?: { tabIds?: string[]; activeTabId?: string | null } } };
+      };
+      expect(panelState.right?.collapsed).toBeFalse();
+      expect(JSON.stringify(panelState.right?.layout?.root?.tabIds)).toBe(JSON.stringify(["tab-review"]));
+      expect(panelState.right?.layout?.root?.activeTabId).toBe("tab-review");
+      expect(panelState.bottom?.collapsed).toBeFalse();
+      expect(JSON.stringify(panelState.bottom?.layout?.root?.tabIds)).toBe(JSON.stringify(["tab-terminal"]));
+      expect(panelState.bottom?.layout?.root?.activeTabId).toBe("tab-terminal");
       migrated.close();
     } catch (error) {
       if (isUnsupportedSqliteError(error)) {

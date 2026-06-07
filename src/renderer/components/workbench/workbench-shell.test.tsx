@@ -1,7 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { createElement, createRef } from "react";
 import { act, fireEvent, within } from "@testing-library/react";
-import type { Project, ProjectSession, WorkspaceRecord } from "@/lib/types";
+import type { Project, ProjectSession, ProjectSessionTab, WorkspaceRecord } from "@/lib/types";
 import {
   getDefaultDbViewPrefs,
   type DbViewPrefs,
@@ -79,7 +79,7 @@ mock.module("./workbench-card-stage", () => ({
 mock.module("./workbench-terminal-panel", () => ({
   TerminalPanel: (props: Record<string, unknown>) => {
     (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> }).__lastTerminalPanelProps = props;
-    return createElement("div", { "data-terminal-panel": "true" }, `Terminal:${String(props.sessionId)}`);
+    return createElement("div", { "data-terminal-panel": "true" }, `Terminal:${String(props.terminalId)}`);
   },
 }));
 
@@ -237,47 +237,121 @@ function makeProject(id = "alpha", name = "Alpha"): Project {
   };
 }
 
-function makeSession(overrides: Partial<ProjectSession> = {}): ProjectSession {
-  const projectId = overrides.projectId ?? "alpha";
-  const tabId = `${overrides.id ?? "overview:alpha"}:db`;
+function makePanelLayout(tabIds: string[], activeTabId: string | null) {
   return {
-    id: "overview:alpha",
-    projectId,
-    title: "Overview",
-    isOverview: true,
-    order: 0,
-    leftPaneCollapsed: true,
-    rightPaneCollapsed: false,
-    rightPaneLayout: {
-      version: 1,
-      root: {
-        type: "leaf",
-        id: "main",
-        tabIds: [tabId],
-        activeTabId: tabId,
-      },
+    version: 1,
+    root: {
+      type: "leaf",
+      id: "main",
+      tabIds,
+      activeTabId,
     },
-    thread: null,
-    tabs: [
-      {
-        id: tabId,
-        sessionId: "overview:alpha",
-        projectId,
-        kind: "db_view",
-        title: "DB View",
-        order: 0,
-        config: { projectId, view: "kanban" },
-        createdAt: "2026-06-07T00:00:00.000Z",
-        updatedAt: "2026-06-07T00:00:00.000Z",
-      },
-    ],
+  } as const;
+}
+
+function makePanels(options: {
+  rightTabIds?: string[];
+  rightActiveTabId?: string | null;
+  rightCollapsed?: boolean;
+  rightFullWidth?: boolean;
+  bottomTabIds?: string[];
+  bottomActiveTabId?: string | null;
+  bottomCollapsed?: boolean;
+} = {}): ProjectSession["panels"] {
+  const rightTabIds = options.rightTabIds ?? [];
+  const bottomTabIds = options.bottomTabIds ?? [];
+  return {
+    right: {
+      collapsed: options.rightCollapsed ?? false,
+      layout: makePanelLayout(rightTabIds, options.rightActiveTabId ?? rightTabIds[0] ?? null),
+      size: { widthPx: 600, fullWidth: options.rightFullWidth ?? false },
+    },
+    bottom: {
+      collapsed: options.bottomCollapsed ?? true,
+      layout: makePanelLayout(bottomTabIds, options.bottomActiveTabId ?? bottomTabIds[0] ?? null),
+      size: { heightPx: 280 },
+    },
+  };
+}
+
+type SessionTabFixture = Partial<ProjectSessionTab> & Pick<ProjectSessionTab, "id" | "kind" | "title" | "config">;
+type SessionFixtureOverrides = Omit<Partial<ProjectSession>, "tabs"> & {
+  tabs?: SessionTabFixture[];
+  rightPaneCollapsed?: boolean;
+  rightPaneLayout?: ProjectSession["panels"]["right"]["layout"];
+};
+
+function makeSessionTab(overrides: SessionTabFixture): ProjectSessionTab {
+  return {
+    sessionId: "overview:alpha",
+    projectId: "alpha",
+    panelId: "right",
+    order: 0,
+    stateKey: 0,
+    state: {},
     createdAt: "2026-06-07T00:00:00.000Z",
     updatedAt: "2026-06-07T00:00:00.000Z",
     ...overrides,
   };
 }
 
-function makeAttachedSession(overrides: Partial<ProjectSession> = {}): ProjectSession {
+function makeSession(overrides: SessionFixtureOverrides = {}): ProjectSession {
+  const {
+    rightPaneCollapsed,
+    rightPaneLayout,
+    tabs: rawTabs,
+    ...sessionOverrides
+  } = overrides;
+  const projectId = overrides.projectId ?? "alpha";
+  const sessionId = overrides.id ?? "overview:alpha";
+  const isOverview = overrides.isOverview ?? true;
+  const tabId = `${sessionId}:db`;
+  const tabs = (rawTabs ?? [
+    makeSessionTab({
+      id: tabId,
+      sessionId,
+      projectId,
+      kind: "db_view",
+      title: "DB View",
+      config: { projectId, view: "kanban" },
+    }),
+  ]).map((tab, index) => makeSessionTab({
+    sessionId,
+    projectId,
+    panelId: tab.panelId ?? (tab.kind === "terminal" ? "bottom" : "right"),
+    order: index,
+    ...tab,
+  }));
+  const rightTabIds = tabs.filter((tab) => tab.panelId === "right").map((tab) => tab.id);
+  const bottomTabIds = tabs.filter((tab) => tab.panelId === "bottom").map((tab) => tab.id);
+  const panels = overrides.panels ?? makePanels({
+    rightTabIds,
+    rightActiveTabId: rightPaneLayout?.root.type === "leaf"
+      ? rightPaneLayout.root.activeTabId
+      : rightTabIds[0] ?? null,
+    rightCollapsed: rightPaneCollapsed ?? false,
+    rightFullWidth: isOverview,
+    bottomTabIds,
+    bottomActiveTabId: bottomTabIds[0] ?? null,
+    bottomCollapsed: bottomTabIds.length === 0,
+  });
+  return {
+    id: sessionId,
+    projectId,
+    title: "Overview",
+    isOverview,
+    order: 0,
+    leftPaneCollapsed: true,
+    panels,
+    thread: null,
+    tabs,
+    createdAt: "2026-06-07T00:00:00.000Z",
+    updatedAt: "2026-06-07T00:00:00.000Z",
+    ...sessionOverrides,
+  };
+}
+
+function makeAttachedSession(overrides: SessionFixtureOverrides = {}): ProjectSession {
   return makeSession({
     leftPaneCollapsed: true,
     thread: {
@@ -300,21 +374,12 @@ function makeAttachedSession(overrides: Partial<ProjectSession> = {}): ProjectSe
   });
 }
 
-function makeBlankSession(overrides: Partial<ProjectSession> = {}): ProjectSession {
+function makeBlankSession(overrides: SessionFixtureOverrides = {}): ProjectSession {
   return makeSession({
     id: "session:alpha:blank",
     title: "New thread",
     isOverview: false,
-    rightPaneCollapsed: true,
-    rightPaneLayout: {
-      version: 1,
-      root: {
-        type: "leaf",
-        id: "main",
-        tabIds: [],
-        activeTabId: null,
-      },
-    },
+    panels: makePanels({ rightCollapsed: true }),
     thread: null,
     tabs: [],
     ...overrides,
@@ -370,6 +435,29 @@ function renderWorkbench({
       sessionState = replaceSession(sessionState, updated);
       return updated;
     }
+    if (channel === "project-session-panels:update") {
+      const sessionId = String(args[0]);
+      const panelId = args[1] === "bottom" ? "bottom" : "right";
+      const input = (args[2] ?? {}) as Partial<ProjectSession["panels"]["right"]>;
+      const session = Object.values(sessionState).flat().find((item) => item.id === sessionId);
+      if (!session) return null;
+      const updated = {
+        ...session,
+        panels: {
+          ...session.panels,
+          [panelId]: {
+            ...session.panels[panelId],
+            ...input,
+            size: {
+              ...session.panels[panelId].size,
+              ...(input.size ?? {}),
+            },
+          },
+        },
+      };
+      sessionState = replaceSession(sessionState, updated);
+      return updated;
+    }
     if (channel === "project-sessions:create") {
       const input = (args[0] ?? {}) as { projectId: string; title?: string };
       const session = makeSession({
@@ -380,16 +468,7 @@ function renderWorkbench({
         order: sessionState[input.projectId]?.length ?? 0,
         thread: null,
         tabs: [],
-        rightPaneCollapsed: true,
-        rightPaneLayout: {
-          version: 1,
-          root: {
-            type: "leaf",
-            id: "main",
-            tabIds: [],
-            activeTabId: null,
-          },
-        },
+        panels: makePanels({ rightCollapsed: true }),
       });
       sessionState = {
         ...sessionState,
@@ -401,6 +480,7 @@ function renderWorkbench({
       const input = (args[0] ?? {}) as {
         sessionId: string;
         projectId: string;
+        panelId?: ProjectSessionTab["panelId"];
         kind: ProjectSession["tabs"][number]["kind"];
         title: string;
         config: ProjectSession["tabs"][number]["config"];
@@ -410,43 +490,50 @@ function renderWorkbench({
       if (["db_view", "review", "browser_placeholder"].includes(input.kind)) {
         const existing = session.tabs.find((tab) => tab.kind === input.kind);
         if (existing) {
+          const panel = session.panels[existing.panelId];
           sessionState = replaceSession(sessionState, {
             ...session,
-            rightPaneLayout: {
-              version: 1,
-              root: {
-                type: "leaf",
-                id: "main",
-                tabIds: session.tabs.map((tab) => tab.id),
-                activeTabId: existing.id,
+            panels: {
+              ...session.panels,
+              [existing.panelId]: {
+                ...panel,
+                collapsed: false,
+                layout: makePanelLayout(
+                  session.tabs.filter((tab) => tab.panelId === existing.panelId).map((tab) => tab.id),
+                  existing.id,
+                ),
               },
             },
           });
           return existing;
         }
       }
+      const panelId = input.panelId ?? "right";
       const tab = {
         id: `created-tab-${session.tabs.length + 1}`,
         sessionId: input.sessionId,
         projectId: input.projectId,
+        panelId,
         kind: input.kind,
         title: input.title,
-        order: session.tabs.length,
+        order: session.tabs.filter((item) => item.panelId === panelId).length,
         config: input.config,
+        stateKey: 0,
+        state: {},
         createdAt: "2026-06-07T00:00:00.000Z",
         updatedAt: "2026-06-07T00:00:00.000Z",
       } as ProjectSession["tabs"][number];
       const tabs = [...session.tabs, tab];
+      const panelTabs = tabs.filter((item) => item.panelId === panelId);
       sessionState = replaceSession(sessionState, {
         ...session,
         tabs,
-        rightPaneLayout: {
-          version: 1,
-          root: {
-            type: "leaf",
-            id: "main",
-            tabIds: tabs.map((item) => item.id),
-            activeTabId: tab.id,
+        panels: {
+          ...session.panels,
+          [panelId]: {
+            ...session.panels[panelId],
+            collapsed: false,
+            layout: makePanelLayout(panelTabs.map((item) => item.id), tab.id),
           },
         },
       });
@@ -470,8 +557,51 @@ function renderWorkbench({
       return updatedTabs.find((tab) => tab.id === tabId) ?? null;
     }
     if (channel === "project-session-tabs:reorder") {
-      const sessionId = String(args[0]);
-      return Object.values(sessionState).flat().find((item) => item.id === sessionId) ?? null;
+      const input = (args[0] ?? {}) as { sessionId: string; panelId: ProjectSessionTab["panelId"]; orderedTabIds: string[] };
+      const session = Object.values(sessionState).flat().find((item) => item.id === input.sessionId);
+      if (!session) return null;
+      const panelTabs = session.tabs.filter((tab) => tab.panelId === input.panelId);
+      const knownIds = new Set(panelTabs.map((tab) => tab.id));
+      const selected = input.orderedTabIds.filter((tabId) => knownIds.has(tabId));
+      const remaining = panelTabs.map((tab) => tab.id).filter((tabId) => !selected.includes(tabId));
+      const finalOrder = [...selected, ...remaining];
+      const updatedTabs = session.tabs.map((tab) =>
+        tab.panelId === input.panelId ? { ...tab, order: finalOrder.indexOf(tab.id) } : tab
+      );
+      const root = session.panels[input.panelId].layout.root;
+      const updated = {
+        ...session,
+        tabs: updatedTabs,
+        panels: {
+          ...session.panels,
+          [input.panelId]: {
+            ...session.panels[input.panelId],
+            layout: makePanelLayout(finalOrder, root.type === "leaf" ? root.activeTabId : finalOrder[0] ?? null),
+          },
+        },
+      };
+      sessionState = replaceSession(sessionState, updated);
+      return updated;
+    }
+    if (channel === "project-session-tabs:move") {
+      const input = (args[0] ?? {}) as { tabId: string; targetPanelId: ProjectSessionTab["panelId"] };
+      const session = Object.values(sessionState).flat().find((item) => item.tabs.some((tab) => tab.id === input.tabId));
+      if (!session) return null;
+      const updatedTabs = session.tabs.map((tab) =>
+        tab.id === input.tabId ? { ...tab, panelId: input.targetPanelId, order: 0 } : tab
+      );
+      const rightIds = updatedTabs.filter((tab) => tab.panelId === "right").map((tab) => tab.id);
+      const bottomIds = updatedTabs.filter((tab) => tab.panelId === "bottom").map((tab) => tab.id);
+      const updated = {
+        ...session,
+        tabs: updatedTabs,
+        panels: {
+          right: { ...session.panels.right, layout: makePanelLayout(rightIds, rightIds[0] ?? null) },
+          bottom: { ...session.panels.bottom, collapsed: false, layout: makePanelLayout(bottomIds, bottomIds[0] ?? null) },
+        },
+      };
+      sessionState = replaceSession(sessionState, updated);
+      return updated;
     }
     if (channel === "worktrees:environments:list") {
       return [];
@@ -847,7 +977,7 @@ describe("workbench session shell", () => {
 
   test("restores the DB toolbar controls inside session DB tabs", async () => {
     const prefs = getDefaultDbViewPrefs("list");
-    const listTab = {
+    const listTab = makeSessionTab({
       id: "overview:alpha:list",
       sessionId: "overview:alpha",
       projectId: "alpha",
@@ -855,9 +985,7 @@ describe("workbench session shell", () => {
       title: "Table",
       order: 0,
       config: { projectId: "alpha", view: "list" },
-      createdAt: "2026-06-07T00:00:00.000Z",
-      updatedAt: "2026-06-07T00:00:00.000Z",
-    } satisfies ProjectSession["tabs"][number];
+    });
     const screen = renderWorkbench({
       sessionsByProject: {
         alpha: [
@@ -1170,9 +1298,10 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     expect(invokeCalls.some((call) =>
-      call[0] === "project-sessions:update"
+      call[0] === "project-session-panels:update"
       && call[1] === "overview:alpha"
-      && JSON.stringify(call[2]) === JSON.stringify({ rightPaneCollapsed: false })
+      && call[2] === "right"
+      && JSON.stringify(call[3]) === JSON.stringify({ collapsed: false })
     )).toBeTrue();
     expect(screen.queryAllByRole("tablist").length > 0).toBeTrue();
   });
@@ -1370,7 +1499,7 @@ describe("workbench session shell", () => {
     expect(restoredExpandButton.getAttribute("aria-pressed")).toBe("false");
   });
 
-  test("right-panel add actions are reachable from the panel header plus menu", async () => {
+  test("previewable right-panel add actions pin only after panel interaction", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
     await settleAsyncRender();
@@ -1385,10 +1514,40 @@ describe("workbench session shell", () => {
     fireEvent.click(screen.getByText("Files"));
     await settleAsyncRender();
 
+    expect(screen.getByRole("tab", { name: "Files" }) !== null).toBeTrue();
+    expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null).toBeTrue();
+    expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
+
+    fireEvent.pointerDown(screen.getByText("Browse project files"));
+    await settleAsyncRender();
+    await settleAsyncRender();
+
     expect(invokeCalls.some((call) =>
       call[0] === "project-session-tabs:create"
       && JSON.stringify(call[1]).includes('"kind":"files_placeholder"')
     )).toBeTrue();
+  });
+
+  test("opening another preview tab replaces the prior same-panel preview", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Open side panel tab" }), { button: 0 });
+    await settleAsyncRender();
+    fireEvent.click(screen.getByText("Files"));
+    await settleAsyncRender();
+
+    expect(screen.getByRole("tab", { name: "Files" }) !== null).toBeTrue();
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Open side panel tab" }), { button: 0 });
+    await settleAsyncRender();
+    fireEvent.click(screen.getByText("Browser"));
+    await settleAsyncRender();
+
+    expect(screen.queryByRole("tab", { name: "Files" })).toBe(null);
+    expect(screen.getByRole("tab", { name: "Browser" }) !== null).toBeTrue();
+    expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
   });
 
   test("empty right panel renders Codex-style new-tab actions", async () => {
@@ -1419,15 +1578,15 @@ describe("workbench session shell", () => {
     expect(screen.getByRole("button", { name: /Side chat/ }) !== null).toBeTrue();
     expect(screen.getByRole("button", { name: /Browser/ }) !== null).toBeTrue();
     expect(screen.getByRole("button", { name: /Review/ }) !== null).toBeTrue();
-    expect(screen.getByRole("button", { name: /Terminal/ }) !== null).toBeTrue();
+    expect(screen.queryByRole("button", { name: /Terminal/ })).toBe(null);
     expect(screen.getByRole("button", { name: /DB View/ }) !== null).toBeTrue();
     expect(screen.getByRole("button", { name: /Card Stage/ }) !== null).toBeTrue();
     expect(textContent(actionGrid).includes("⌃⇧G")).toBeTrue();
-    expect(textContent(actionGrid).includes("⌃`")).toBeTrue();
+    expect(textContent(actionGrid).includes("⌃`")).toBeFalse();
   });
 
   test("plus menu hides singleton actions that already exist", async () => {
-    const browserTab = {
+    const browserTab = makeSessionTab({
       id: "overview:alpha:browser",
       sessionId: "overview:alpha",
       projectId: "alpha",
@@ -1435,10 +1594,8 @@ describe("workbench session shell", () => {
       title: "Browser",
       order: 1,
       config: {},
-      createdAt: "2026-06-07T00:00:00.000Z",
-      updatedAt: "2026-06-07T00:00:00.000Z",
-    } satisfies ProjectSession["tabs"][number];
-    const reviewTab = {
+    });
+    const reviewTab = makeSessionTab({
       id: "overview:alpha:review",
       sessionId: "overview:alpha",
       projectId: "alpha",
@@ -1446,9 +1603,7 @@ describe("workbench session shell", () => {
       title: "Review",
       order: 2,
       config: { projectId: "alpha" },
-      createdAt: "2026-06-07T00:00:00.000Z",
-      updatedAt: "2026-06-07T00:00:00.000Z",
-    } satisfies ProjectSession["tabs"][number];
+    });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab, reviewTab],
       rightPaneLayout: {
@@ -1475,7 +1630,7 @@ describe("workbench session shell", () => {
     expect(within(menu).queryByText("Browser")).toBe(null);
     expect(within(menu).queryByText("Review")).toBe(null);
     expect(within(menu).getByText("Files") !== null).toBeTrue();
-    expect(within(menu).getByText("Terminal") !== null).toBeTrue();
+    expect(within(menu).queryByText("Terminal")).toBe(null);
   });
 
   test("review action creates and renders the connected review panel", async () => {
@@ -1550,6 +1705,19 @@ describe("workbench session shell", () => {
     )).toBeTrue();
 
     invokeCalls = [];
+    await act(async () => {
+      fireEvent.keyDown(document, { key: "`", code: "Backquote", ctrlKey: true });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-session-tabs:create"
+      && JSON.stringify(call[1]).includes('"panelId":"bottom"')
+      && JSON.stringify(call[1]).includes('"kind":"terminal"')
+    )).toBeTrue();
+
+    invokeCalls = [];
     const input = document.createElement("input");
     document.body.appendChild(input);
     await act(async () => {
@@ -1588,9 +1756,10 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     expect(invokeCalls.some((call) =>
-      call[0] === "project-sessions:update"
+      call[0] === "project-session-panels:update"
       && call[1] === "overview:alpha"
-      && JSON.stringify(call[2]) === JSON.stringify({ rightPaneCollapsed: false })
+      && call[2] === "right"
+      && JSON.stringify(call[3]) === JSON.stringify({ collapsed: false })
     )).toBeTrue();
     expect(screen.queryAllByRole("tablist").length > 0).toBeTrue();
   });
@@ -1612,9 +1781,10 @@ describe("workbench session shell", () => {
 
     expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeTrue();
     expect(invokeCalls.some((call) =>
-      call[0] === "project-sessions:update"
+      call[0] === "project-session-panels:update"
       && call[1] === "overview:alpha"
-      && JSON.stringify(call[2]) === JSON.stringify({ rightPaneCollapsed: false })
+      && call[2] === "right"
+      && JSON.stringify(call[3]) === JSON.stringify({ collapsed: false })
     )).toBeTrue();
   });
 
@@ -1639,6 +1809,7 @@ describe("workbench session shell", () => {
       JSON.stringify({
         sessionId: "overview:alpha",
         projectId: "alpha",
+        panelId: "right",
         kind: "card_stage",
         title: "Card One",
         config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
@@ -1667,7 +1838,7 @@ describe("workbench session shell", () => {
           kind: "terminal",
           title: "Terminal",
           order: 1,
-          config: { projectId: "alpha", terminalSessionId: "terminal-1", mode: "project" },
+          config: { projectId: "alpha", terminalSessionId: "terminal-1" },
           createdAt: "2026-06-07T00:00:00.000Z",
           updatedAt: "2026-06-07T00:00:00.000Z",
         },
@@ -1692,7 +1863,11 @@ describe("workbench session shell", () => {
       await Promise.resolve();
     });
 
-    expect(invokeCalls.some((call) => call[0] === "project-sessions:update" && call[1] === "session-1")).toBeTrue();
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-session-panels:update"
+      && call[1] === "session-1"
+      && call[2] === "bottom"
+    )).toBeTrue();
   });
 
   test("renders the project session tree on a native-vibrant sidebar beside the rounded main surface", async () => {

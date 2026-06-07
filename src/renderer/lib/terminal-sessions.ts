@@ -1,9 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-/**
- * Global store tracking which card IDs have active PTY sessions.
- * Used by card components to show a terminal-running indicator.
- */
+/** Global store tracking active PTY-backed terminal session IDs. */
 
 let sessions = new Set<string>();
 const listeners = new Set<() => void>();
@@ -43,29 +40,29 @@ export function useActiveTerminals(): Set<string> {
   );
 }
 
-// ── Per-card UI state (panel open + height) ────────────────────────
-// In-memory only — survives card switching within a session.
+// ── Per-terminal UI state (panel open + height) ─────────────────────
+// In-memory only — survives tab switching within a session.
 
 const openPanels = new Set<string>();
 const panelHeights = new Map<string, number>();
 
-export function isPanelOpen(cardId: string): boolean {
-  return openPanels.has(cardId);
+export function isPanelOpen(terminalId: string): boolean {
+  return openPanels.has(terminalId);
 }
 
-export function setPanelOpen(cardId: string, open: boolean): void {
-  if (open) openPanels.add(cardId);
-  else openPanels.delete(cardId);
+export function setPanelOpen(terminalId: string, open: boolean): void {
+  if (open) openPanels.add(terminalId);
+  else openPanels.delete(terminalId);
 }
 
 const DEFAULT_PANEL_HEIGHT = 260;
 
-export function getPanelHeight(cardId: string): number {
-  return panelHeights.get(cardId) ?? DEFAULT_PANEL_HEIGHT;
+export function getPanelHeight(terminalId: string): number {
+  return panelHeights.get(terminalId) ?? DEFAULT_PANEL_HEIGHT;
 }
 
-export function setPanelHeight(cardId: string, height: number): void {
-  panelHeights.set(cardId, height);
+export function setPanelHeight(terminalId: string, height: number): void {
+  panelHeights.set(terminalId, height);
 }
 
 // Global listener: remove sessions when PTY exits (even if terminal panel is hidden).

@@ -26,7 +26,6 @@ function makeActions(overrides: Partial<WorkbenchShortcutActions> = {}): Workben
     shiftSlidingWindow: () => {},
     switchToStageIndex: () => {},
     switchToProjectIndex: () => {},
-    toggleTerminalPanel: () => {},
     onRequestCommandPalette: () => {},
     onRequestProjectPicker: () => {},
     onRequestTaskSearch: () => {},
@@ -121,15 +120,7 @@ describe("handleWorkbenchShortcut", () => {
     expect(selectedIndex).toBe(-1);
   });
 
-  test("Cmd+J toggles terminal panel globally", () => {
-    let calledWithProjectId: string | null = null;
-    const actions = makeActions({
-      dbProjectId: "b",
-      toggleTerminalPanel: (projectId) => {
-        calledWithProjectId = projectId;
-      },
-    });
-
+  test("Cmd+J is not handled by the app-level shortcut hook", () => {
     const handled = handleWorkbenchShortcut(
       {
         key: "j",
@@ -137,40 +128,13 @@ describe("handleWorkbenchShortcut", () => {
         metaKey: true,
         shiftKey: false,
         altKey: false,
-        target: null,
+        target: makeInputTarget(),
       },
-      actions,
+      makeActions({ dbProjectId: "b" }),
       true,
     );
 
-    expect(handled).toBeTrue();
-    expect(calledWithProjectId).toBe("b");
-  });
-
-  test("Cmd+J still works inside editable targets", () => {
-    let called = false;
-    const target = makeInputTarget();
-    const actions = makeActions({
-      toggleTerminalPanel: () => {
-        called = true;
-      },
-    });
-
-    const handled = handleWorkbenchShortcut(
-      {
-        key: "j",
-        ctrlKey: false,
-        metaKey: true,
-        shiftKey: false,
-        altKey: false,
-        target,
-      },
-      actions,
-      true,
-    );
-
-    expect(handled).toBeTrue();
-    expect(called).toBeTrue();
+    expect(handled).toBeFalse();
   });
 
   test("Cmd+N is reserved for the workbench shell new chat action", () => {

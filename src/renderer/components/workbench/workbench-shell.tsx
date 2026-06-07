@@ -97,10 +97,12 @@ import type {
   CodexCollaborationModeKind,
   CodexCollaborationModePreset,
   CodexThreadSummary,
+  PanelId,
   Project,
   ProjectSession,
   ProjectSessionDbView,
   ProjectSessionTab,
+  ProjectSessionTabCreateInput,
   ProjectSessionThreadLink,
   WorktreeStartMode,
   WorktreeEnvironmentOption,
@@ -155,14 +157,21 @@ const COLLAPSE_CONTROL_TRAFFIC_LIGHT_OFFSET_PX = 90;
 const RIGHT_PANEL_DEFAULT_WIDTH = 600;
 const RIGHT_PANEL_MIN_WIDTH = 320;
 const RIGHT_PANEL_MAIN_MIN_WIDTH = 352;
+const BOTTOM_PANEL_DEFAULT_HEIGHT = 280;
+const BOTTOM_PANEL_MIN_HEIGHT = 160;
 const TOOLBAR_BUTTON_BASE_CLASS = "border-token-border user-select-none no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg h-token-button-composer px-2 py-0 text-base leading-[18px] aspect-square justify-center !px-0";
 const TOOLBAR_BUTTON_GHOST_CLASS = "text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent";
 const TOOLBAR_BUTTON_SECONDARY_CLASS = "text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent";
 const RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX = 36;
 const THREAD_SUMMARY_PANEL_STORAGE_KEY = "nodex:thread-summary-panel:pinned-open";
 const PROJECT_SESSION_SINGLETON_TAB_KIND_SET = new Set<string>(PROJECT_SESSION_SINGLETON_TAB_KINDS);
-const RIGHT_PANEL_ACTION_CARD_CLASS = "cursor-interaction min-h-32 w-full max-w-[330px] rounded-xl bg-token-bg-secondary px-4 py-6 text-center hover:bg-token-list-hover-background focus-visible:outline focus-visible:outline-2 focus-visible:outline-token-border-xstrong";
-const RIGHT_PANEL_ACTION_KBD_CLASS = "inline-flex !rounded-md !border-0 !bg-current/10 !font-sans !text-xs !text-current !shadow-none !px-1.5 !py-0.5 !leading-none";
+const PREVIEWABLE_PROJECT_SESSION_TAB_KIND_SET = new Set<ProjectSessionTab["kind"]>([
+  "browser_placeholder",
+  "files_placeholder",
+  "side_chat_placeholder",
+]);
+const PANEL_ACTION_CARD_CLASS = "cursor-interaction min-h-32 w-full max-w-[330px] rounded-xl bg-token-bg-secondary px-4 py-6 text-center hover:bg-token-list-hover-background focus-visible:outline focus-visible:outline-2 focus-visible:outline-token-border-xstrong";
+const PANEL_ACTION_KBD_CLASS = "inline-flex !rounded-md !border-0 !bg-current/10 !font-sans !text-xs !text-current !shadow-none !px-1.5 !py-0.5 !leading-none";
 const DB_VIEW_TABS: Array<{ id: ProjectSessionDbView; label: string; icon: ComponentType<{ className?: string }> }> = [
   { id: "kanban", label: "Board", icon: SquareKanban },
   { id: "list", label: "Table", icon: Table2 },
@@ -171,19 +180,31 @@ const DB_VIEW_TABS: Array<{ id: ProjectSessionDbView; label: string; icon: Compo
   { id: "calendar", label: "Calendar", icon: CalendarDays },
 ];
 
-type RightPanelActionShortcut = "mod+p" | "mod+t" | "ctrl+shift+g" | "ctrl+backquote";
+type PanelActionShortcut = "mod+p" | "mod+t" | "ctrl+shift+g" | "ctrl+backquote";
 
-interface RightPanelNewTabAction {
+interface PanelNewTabAction {
   kind: ProjectSessionTab["kind"];
+  defaultPanelId: PanelId;
   label: string;
   description: string;
-  shortcut?: RightPanelActionShortcut;
+  shortcut?: PanelActionShortcut;
   Icon: ComponentType<{ className?: string }>;
 }
 
-const RIGHT_PANEL_NEW_TAB_ACTIONS: RightPanelNewTabAction[] = [
+type ProjectSessionPreviewTab = ProjectSessionTab & {
+  preview: true;
+};
+
+type ProjectSessionRenderableTab = ProjectSessionTab & {
+  preview?: true;
+};
+
+type ProjectSessionTabDraft = Pick<ProjectSessionTabCreateInput, "kind" | "title" | "config">;
+
+const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
   {
     kind: "files_placeholder",
+    defaultPanelId: "right",
     label: "Files",
     description: "Browse project files",
     shortcut: "mod+p",
@@ -191,12 +212,14 @@ const RIGHT_PANEL_NEW_TAB_ACTIONS: RightPanelNewTabAction[] = [
   },
   {
     kind: "side_chat_placeholder",
+    defaultPanelId: "right",
     label: "Side chat",
     description: "Start a side conversation",
     Icon: CodexSidePanelSideChatIcon,
   },
   {
     kind: "browser_placeholder",
+    defaultPanelId: "right",
     label: "Browser",
     description: "Open a website",
     shortcut: "mod+t",
@@ -204,6 +227,7 @@ const RIGHT_PANEL_NEW_TAB_ACTIONS: RightPanelNewTabAction[] = [
   },
   {
     kind: "review",
+    defaultPanelId: "right",
     label: "Review",
     description: "View code changes",
     shortcut: "ctrl+shift+g",
@@ -211,6 +235,7 @@ const RIGHT_PANEL_NEW_TAB_ACTIONS: RightPanelNewTabAction[] = [
   },
   {
     kind: "terminal",
+    defaultPanelId: "bottom",
     label: "Terminal",
     description: "Start an interactive shell",
     shortcut: "ctrl+backquote",
@@ -218,12 +243,14 @@ const RIGHT_PANEL_NEW_TAB_ACTIONS: RightPanelNewTabAction[] = [
   },
   {
     kind: "db_view",
+    defaultPanelId: "right",
     label: "DB View",
     description: "Open the project database",
     Icon: Table2,
   },
   {
     kind: "card_stage",
+    defaultPanelId: "right",
     label: "Card Stage",
     description: "Open a project card",
     Icon: SquareKanban,
@@ -330,26 +357,17 @@ interface WorkbenchShellProps {
   activeCardsTabId?: unknown;
   threadsTabs?: unknown;
   activeThreadsTabId?: unknown;
-  terminalTabs?: unknown;
-  activeTerminalTabId?: unknown;
   filesTabs?: unknown;
   activeFilesTabId?: unknown;
   stagePanelWidths?: unknown;
   slidingWindowPaneCount?: unknown;
-  terminalPanelOpen?: unknown;
   terminalPanelHeight?: unknown;
   cardStageState?: unknown;
   cardStageCardId?: unknown;
   setActiveThreadsTab?: unknown;
   setThreadsTabs?: unknown;
-  setActiveTerminalTab?: unknown;
   setStagePanelWidths?: unknown;
   stepSlidingWindowPaneCount?: unknown;
-  setTerminalPanelOpen?: unknown;
-  setTerminalPanelHeight?: unknown;
-  openProjectTerminalTab?: unknown;
-  openCardTerminalTab?: unknown;
-  closeTerminalTab?: unknown;
   closeRecentCardSession?: unknown;
   reorderRecentCardSessions?: unknown;
   closeCardStage?: unknown;
@@ -449,17 +467,19 @@ function getTabIcon(kind: ProjectSessionTab["kind"]): ComponentType<{ className?
   return Globe2;
 }
 
-function filterAvailableRightPanelActions(
-  actions: readonly RightPanelNewTabAction[],
+function filterAvailablePanelActions(
+  actions: readonly PanelNewTabAction[],
   tabs: readonly ProjectSessionTab[],
-): RightPanelNewTabAction[] {
+  panelId: PanelId,
+): PanelNewTabAction[] {
   return actions.filter((action) => {
+    if (action.defaultPanelId !== panelId) return false;
     if (!PROJECT_SESSION_SINGLETON_TAB_KIND_SET.has(action.kind)) return true;
     return !tabs.some((tab) => tab.kind === action.kind);
   });
 }
 
-function resolveRightPanelShortcutLabel(shortcut: RightPanelActionShortcut | undefined, isMac: boolean): string | null {
+function resolvePanelShortcutLabel(shortcut: PanelActionShortcut | undefined, isMac: boolean): string | null {
   if (!shortcut) return null;
   if (shortcut === "mod+p") return isMac ? "⌘P" : "Ctrl+P";
   if (shortcut === "mod+t") return isMac ? "⌘T" : "Ctrl+T";
@@ -467,9 +487,9 @@ function resolveRightPanelShortcutLabel(shortcut: RightPanelActionShortcut | und
   return "⌃`";
 }
 
-function matchesRightPanelShortcut(
+function matchesPanelShortcut(
   event: Pick<KeyboardEvent, "altKey" | "code" | "ctrlKey" | "key" | "metaKey" | "shiftKey">,
-  shortcut: RightPanelActionShortcut,
+  shortcut: PanelActionShortcut,
   isMac: boolean,
 ): boolean {
   const key = event.key.toLowerCase();
@@ -487,6 +507,106 @@ function clampRegularRightPanelWidth(width: number, sessionWidth: number): numbe
     ? Math.max(RIGHT_PANEL_MIN_WIDTH, sessionWidth - RIGHT_PANEL_MAIN_MIN_WIDTH)
     : RIGHT_PANEL_DEFAULT_WIDTH;
   return Math.min(maxWidth, Math.max(RIGHT_PANEL_MIN_WIDTH, width));
+}
+
+function clampBottomPanelHeight(height: number, sessionHeight: number): number {
+  const maxHeight = sessionHeight > 0
+    ? Math.max(BOTTOM_PANEL_MIN_HEIGHT, Math.floor(sessionHeight / 2))
+    : BOTTOM_PANEL_DEFAULT_HEIGHT;
+  return Math.min(maxHeight, Math.max(BOTTOM_PANEL_MIN_HEIGHT, height));
+}
+
+function getDefaultPanelIdForTabKind(kind: ProjectSessionTab["kind"]): PanelId {
+  return PANEL_NEW_TAB_ACTIONS.find((action) => action.kind === kind)?.defaultPanelId ?? "right";
+}
+
+function makePanelPreviewKey(sessionId: string, panelId: PanelId): string {
+  return `${sessionId}:${panelId}`;
+}
+
+function isPreviewableProjectSessionTabKind(kind: ProjectSessionTab["kind"]): boolean {
+  return PREVIEWABLE_PROJECT_SESSION_TAB_KIND_SET.has(kind);
+}
+
+function makeProjectSessionTabDraft(
+  session: ProjectSession,
+  kind: ProjectSessionTab["kind"],
+): ProjectSessionTabDraft | null {
+  if (kind === "db_view") {
+    return {
+      kind,
+      title: "DB View",
+      config: { projectId: session.projectId, view: "kanban" },
+    };
+  }
+
+  if (kind === "files_placeholder") {
+    return {
+      kind,
+      title: "Files",
+      config: { projectId: session.projectId },
+    };
+  }
+
+  if (kind === "side_chat_placeholder") {
+    return {
+      kind,
+      title: "Side chat",
+      config: { projectId: session.projectId },
+    };
+  }
+
+  if (kind === "browser_placeholder") {
+    return {
+      kind,
+      title: "Browser",
+      config: { projectId: session.projectId },
+    };
+  }
+
+  if (kind === "review") {
+    return {
+      kind,
+      title: "Review",
+      config: { projectId: session.projectId },
+    };
+  }
+
+  if (kind === "terminal") {
+    return {
+      kind,
+      title: "Terminal",
+      config: {
+        projectId: session.projectId,
+        terminalSessionId: `session:${session.id}:terminal:${Date.now()}`,
+      },
+    };
+  }
+
+  return null;
+}
+
+function makePreviewProjectSessionTab(
+  session: ProjectSession,
+  panelId: PanelId,
+  draft: ProjectSessionTabDraft,
+): ProjectSessionPreviewTab {
+  const now = new Date().toISOString();
+  return {
+    id: `preview:${session.id}:${panelId}:${draft.kind}`,
+    sessionId: session.id,
+    projectId: session.projectId,
+    panelId,
+    kind: draft.kind,
+    title: draft.title,
+    order: session.tabs.filter((tab) => tab.panelId === panelId).length,
+    config: draft.config,
+    stateKey: 0,
+    state: {},
+    preview: true,
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 export function WorkbenchShell({
@@ -523,6 +643,7 @@ export function WorkbenchShell({
   setSidebarCollapsed,
   setSidebarWidth,
   setSidebarTopLevelSectionVisible,
+  terminalPanelHeight,
   settingsToggleTick,
 }: WorkbenchShellProps) {
   const fallbackProjectId = projects[0]?.id ?? "default";
@@ -534,10 +655,11 @@ export function WorkbenchShell({
   );
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
+  const [previewTabsByPanel, setPreviewTabsByPanel] = useState<Record<string, ProjectSessionPreviewTab>>({});
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT_WIDTH);
   const [sessionContentWidth, setSessionContentWidth] = useState(0);
+  const [sessionContentHeight, setSessionContentHeight] = useState(0);
   const [headerRightWidth, setHeaderRightWidth] = useState(RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX);
-  const [rightPanelFullWidthBySessionId, setRightPanelFullWidthBySessionId] = useState<Record<string, boolean>>({});
   const [threadSummaryPanelPinnedOpen, setThreadSummaryPanelPinnedOpen] = useState(readThreadSummaryPanelPinnedOpen);
   const [localSidebarCollapsed, setLocalSidebarCollapsed] = useState(false);
   const [localSidebarWidth, setLocalSidebarWidth] = useState(300);
@@ -547,6 +669,7 @@ export function WorkbenchShell({
   const [projectsSectionCollapsed, setProjectsSectionCollapsed] = useState(false);
   const sessionContentRef = useRef<HTMLDivElement | null>(null);
   const headerRightProbeRef = useRef<HTMLDivElement | null>(null);
+  const pinningPreviewTabIdsRef = useRef<Set<string>>(new Set());
   const sidebarHoverOpenTimeoutRef = useRef<number | null>(null);
   const sidebarHoverCloseTimeoutRef = useRef<number | null>(null);
   const sidebarHideTimeoutRef = useRef<number | null>(null);
@@ -571,14 +694,42 @@ export function WorkbenchShell({
     projectId: activeProject?.id ?? activeProjectId,
     sessionId: activeSession ? `${activeSession.id}:right-panel-actions` : "right-panel-actions",
   });
-  const activeTabId = activeSession?.rightPaneLayout.root.type === "leaf"
-    ? activeSession.rightPaneLayout.root.activeTabId
-    : activeSession?.tabs[0]?.id ?? null;
-  const activeTab = activeSession?.tabs.find((tab) => tab.id === activeTabId) ?? activeSession?.tabs[0] ?? null;
-  const rightPanelFullWidth = activeSession
-    ? !activeSession.rightPaneCollapsed && (rightPanelFullWidthBySessionId[activeSession.id] ?? activeSession.isOverview) === true
-    : false;
-  const regularRightPanelWidth = clampRegularRightPanelWidth(rightPanelWidth, sessionContentWidth);
+  const rightPanel = activeSession?.panels.right ?? null;
+  const bottomPanel = activeSession?.panels.bottom ?? null;
+  const rightPanelTabs = activeSession?.tabs.filter((tab) => tab.panelId === "right") ?? [];
+  const bottomPanelTabs = activeSession?.tabs.filter((tab) => tab.panelId === "bottom") ?? [];
+  const rightPreviewTab = activeSession
+    ? previewTabsByPanel[makePanelPreviewKey(activeSession.id, "right")] ?? null
+    : null;
+  const bottomPreviewTab = activeSession
+    ? previewTabsByPanel[makePanelPreviewKey(activeSession.id, "bottom")] ?? null
+    : null;
+  const rightRenderableTabs: ProjectSessionRenderableTab[] = rightPreviewTab
+    ? [...rightPanelTabs, rightPreviewTab]
+    : rightPanelTabs;
+  const bottomRenderableTabs: ProjectSessionRenderableTab[] = bottomPreviewTab
+    ? [...bottomPanelTabs, bottomPreviewTab]
+    : bottomPanelTabs;
+  const rightActiveTabId = rightPanel?.layout.root.type === "leaf"
+    ? rightPreviewTab?.id ?? rightPanel.layout.root.activeTabId
+    : rightPanelTabs[0]?.id ?? null;
+  const bottomActiveTabId = bottomPanel?.layout.root.type === "leaf"
+    ? bottomPreviewTab?.id ?? bottomPanel.layout.root.activeTabId
+    : bottomPanelTabs[0]?.id ?? null;
+  const rightActiveTab = rightRenderableTabs.find((tab) => tab.id === rightActiveTabId) ?? rightRenderableTabs[0] ?? null;
+  const bottomActiveTab = bottomRenderableTabs.find((tab) => tab.id === bottomActiveTabId) ?? bottomRenderableTabs[0] ?? null;
+  const rightPanelFullWidth = Boolean(
+    activeSession && !rightPanel?.collapsed && (rightPanel?.size.fullWidth ?? activeSession.isOverview),
+  );
+  const regularRightPanelWidth = clampRegularRightPanelWidth(
+    rightPanel?.size.widthPx ?? rightPanelWidth,
+    sessionContentWidth,
+  );
+  const bottomPanelHeight = clampBottomPanelHeight(
+    bottomPanel?.size.heightPx
+      ?? (typeof terminalPanelHeight === "number" ? terminalPanelHeight : BOTTOM_PANEL_DEFAULT_HEIGHT),
+    sessionContentHeight,
+  );
   const settingsSidebarTopLevelSectionOrder = normalizeSidebarTopLevelSectionOrder(
     sidebar?.topLevelSectionOrder,
   );
@@ -595,7 +746,11 @@ export function WorkbenchShell({
   }, [activeProjectKanban.board?.columns]);
   const isMacPlatform = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
   const availableRightPanelActions = useMemo(
-    () => filterAvailableRightPanelActions(RIGHT_PANEL_NEW_TAB_ACTIONS, activeSession?.tabs ?? []),
+    () => filterAvailablePanelActions(PANEL_NEW_TAB_ACTIONS, activeSession?.tabs ?? [], "right"),
+    [activeSession?.tabs],
+  );
+  const availableBottomPanelActions = useMemo(
+    () => filterAvailablePanelActions(PANEL_NEW_TAB_ACTIONS, activeSession?.tabs ?? [], "bottom"),
     [activeSession?.tabs],
   );
 
@@ -681,7 +836,9 @@ export function WorkbenchShell({
     if (!contentElement) return undefined;
 
     const measure = () => {
-      setSessionContentWidth(contentElement.getBoundingClientRect().width);
+      const rect = contentElement.getBoundingClientRect();
+      setSessionContentWidth(rect.width);
+      setSessionContentHeight(rect.height);
     };
 
     measure();
@@ -738,32 +895,49 @@ export function WorkbenchShell({
     });
   }, [setDbProject]);
 
-  const updateActiveSession = useCallback(async (input: Partial<ProjectSession>) => {
+  const updateActivePanel = useCallback(async (
+    panelId: PanelId,
+    input: Partial<ProjectSession["panels"][PanelId]>,
+    options?: { refresh?: boolean },
+  ) => {
     if (!activeSession) return null;
-    const updated = (await invoke("project-sessions:update", activeSession.id, input)) as ProjectSession | null;
+    const updated = (await invoke("project-session-panels:update", activeSession.id, panelId, input)) as ProjectSession | null;
     if (!updated) return null;
-    await refreshProjectSessions(updated.projectId);
+    if (options?.refresh !== false) await refreshProjectSessions(updated.projectId);
     return updated;
   }, [activeSession, refreshProjectSessions]);
 
-  const setActiveTab = useCallback(async (tabId: string, options?: { openRightPanel?: boolean }) => {
-    if (!activeSession || activeSession.rightPaneLayout.root.type !== "leaf") return;
+  const clearPanelPreviewTab = useCallback((sessionId: string, panelId: PanelId) => {
+    setPreviewTabsByPanel((current) => {
+      const key = makePanelPreviewKey(sessionId, panelId);
+      if (!(key in current)) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
+  const setActivePanelTab = useCallback(async (panelId: PanelId, tabId: string, options?: { openPanel?: boolean }) => {
+    if (!activeSession) return;
+    clearPanelPreviewTab(activeSession.id, panelId);
+    const panel = activeSession.panels[panelId];
+    if (panel.layout.root.type !== "leaf") return;
     const layout = {
-      ...activeSession.rightPaneLayout,
+      ...panel.layout,
       root: {
-        ...activeSession.rightPaneLayout.root,
+        ...panel.layout.root,
         activeTabId: tabId,
       },
     };
-    await updateActiveSession({
-      rightPaneLayout: layout,
-      ...(options?.openRightPanel ? { rightPaneCollapsed: false } : {}),
+    await updateActivePanel(panelId, {
+      layout,
+      ...(options?.openPanel ? { collapsed: false } : {}),
     });
-  }, [activeSession, updateActiveSession]);
+  }, [activeSession, clearPanelPreviewTab, updateActivePanel]);
 
-  const reorderTabs = useCallback(async (activeId: string, overId: string) => {
+  const reorderTabs = useCallback(async (panelId: PanelId, activeId: string, overId: string) => {
     if (!activeSession) return;
-    const order = activeSession.tabs.map((tab) => tab.id);
+    const order = activeSession.tabs.filter((tab) => tab.panelId === panelId).map((tab) => tab.id);
     const fromIndex = order.indexOf(activeId);
     const toIndex = order.indexOf(overId);
     if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
@@ -771,7 +945,11 @@ export function WorkbenchShell({
     const [item] = next.splice(fromIndex, 1);
     if (!item) return;
     next.splice(toIndex, 0, item);
-    const session = (await invoke("project-session-tabs:reorder", activeSession.id, next)) as ProjectSession | null;
+    const session = (await invoke("project-session-tabs:reorder", {
+      sessionId: activeSession.id,
+      panelId,
+      orderedTabIds: next,
+    })) as ProjectSession | null;
     if (session) await refreshProjectSessions(session.projectId);
   }, [activeSession, refreshProjectSessions]);
 
@@ -781,10 +959,85 @@ export function WorkbenchShell({
     await refreshProjectSessions(activeSession.projectId);
   }, [activeSession, refreshProjectSessions]);
 
-  const ensureActiveRightPanelOpenWithoutRefresh = useCallback(async () => {
-    if (!activeSession || !activeSession.rightPaneCollapsed) return;
-    await invoke("project-sessions:update", activeSession.id, { rightPaneCollapsed: false });
+  const closePreviewTab = useCallback(async (panelId: PanelId) => {
+    if (!activeSession) return;
+    clearPanelPreviewTab(activeSession.id, panelId);
+    const durablePanelTabs = activeSession.tabs.filter((tab) => tab.panelId === panelId);
+    if (durablePanelTabs.length > 0) return;
+    await updateActivePanel(panelId, { collapsed: true });
+  }, [activeSession, clearPanelPreviewTab, updateActivePanel]);
+
+  const closePanelTab = useCallback(async (panelId: PanelId, tabId: string) => {
+    if (!activeSession) return;
+    const previewTab = previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId)];
+    if (previewTab?.id === tabId) {
+      await closePreviewTab(panelId);
+      return;
+    }
+
+    await closeTab(tabId);
+  }, [activeSession, closePreviewTab, closeTab, previewTabsByPanel]);
+
+  const selectPanelTab = useCallback(async (panelId: PanelId, tabId: string) => {
+    if (!activeSession) return;
+    const previewTab = previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId)];
+    if (previewTab?.id === tabId) return;
+    await setActivePanelTab(panelId, tabId);
+  }, [activeSession, previewTabsByPanel, setActivePanelTab]);
+
+  const pinPreviewTab = useCallback(async (panelId: PanelId, tabId: string) => {
+    if (!activeSession) return;
+    const previewTab = previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId)];
+    if (!previewTab || previewTab.id !== tabId) return;
+    if (pinningPreviewTabIdsRef.current.has(tabId)) return;
+
+    pinningPreviewTabIdsRef.current.add(tabId);
+    try {
+      await invoke("project-session-tabs:create", {
+        sessionId: activeSession.id,
+        projectId: activeSession.projectId,
+        panelId,
+        kind: previewTab.kind,
+        title: previewTab.title,
+        config: previewTab.config,
+      });
+      clearPanelPreviewTab(activeSession.id, panelId);
+      await refreshProjectSessions(activeSession.projectId);
+    } finally {
+      pinningPreviewTabIdsRef.current.delete(tabId);
+    }
+  }, [activeSession, clearPanelPreviewTab, previewTabsByPanel, refreshProjectSessions]);
+
+  const moveTabToPanel = useCallback(async (tabId: string, targetPanelId: string) => {
+    if (!activeSession) return;
+    if (targetPanelId !== "right" && targetPanelId !== "bottom") return;
+    const session = (await invoke("project-session-tabs:move", {
+      tabId,
+      targetPanelId,
+    })) as ProjectSession | null;
+    if (session) await refreshProjectSessions(session.projectId);
+  }, [activeSession, refreshProjectSessions]);
+
+  const ensureActivePanelOpenWithoutRefresh = useCallback(async (panelId: PanelId) => {
+    if (!activeSession || !activeSession.panels[panelId].collapsed) return;
+    await invoke("project-session-panels:update", activeSession.id, panelId, { collapsed: false });
   }, [activeSession]);
+
+  const openPreviewTab = useCallback(async (kind: ProjectSessionTab["kind"], targetPanelId?: PanelId) => {
+    if (!activeSession) return;
+    if (!isPreviewableProjectSessionTabKind(kind)) return;
+
+    const panelId = targetPanelId ?? getDefaultPanelIdForTabKind(kind);
+    const draft = makeProjectSessionTabDraft(activeSession, kind);
+    if (!draft) return;
+
+    setPreviewTabsByPanel((current) => ({
+      ...current,
+      [makePanelPreviewKey(activeSession.id, panelId)]: makePreviewProjectSessionTab(activeSession, panelId, draft),
+    }));
+    await ensureActivePanelOpenWithoutRefresh(panelId);
+    await refreshProjectSessions(activeSession.projectId);
+  }, [activeSession, ensureActivePanelOpenWithoutRefresh, refreshProjectSessions]);
 
   const openCardTab = useCallback(async (projectId: string, cardId: string, titleSnapshot?: string) => {
     if (!activeSession) {
@@ -794,26 +1047,31 @@ export function WorkbenchShell({
 
     const existing = activeSession.tabs.find((tab) =>
       tab.kind === "card_stage"
+      && tab.panelId === "right"
       && "cardId" in tab.config
       && tab.config.cardId === cardId
       && tab.config.projectId === projectId,
     );
     if (existing) {
-      setRightPanelFullWidthBySessionId((current) => ({ ...current, [activeSession.id]: false }));
-      await setActiveTab(existing.id, { openRightPanel: true });
+      await updateActivePanel("right", {
+        collapsed: false,
+        size: { ...activeSession.panels.right.size, fullWidth: false },
+      });
+      await setActivePanelTab("right", existing.id, { openPanel: true });
       return;
     }
 
     await invoke("project-session-tabs:create", {
       sessionId: activeSession.id,
       projectId: activeSession.projectId,
+      panelId: "right",
       kind: "card_stage",
       title: titleSnapshot || cardId,
       config: { projectId, cardId, titleSnapshot },
     });
-    await ensureActiveRightPanelOpenWithoutRefresh();
+    await ensureActivePanelOpenWithoutRefresh("right");
     await refreshProjectSessions(activeSession.projectId);
-  }, [activeSession, ensureActiveRightPanelOpenWithoutRefresh, openCardStage, refreshProjectSessions, setActiveTab]);
+  }, [activeSession, ensureActivePanelOpenWithoutRefresh, openCardStage, refreshProjectSessions, setActivePanelTab, updateActivePanel]);
 
   const ensureBlankSessionForProject = useCallback(async (projectId: string) => {
     const sessions = sessionsByProject[projectId] ?? await refreshProjectSessions(projectId);
@@ -835,14 +1093,17 @@ export function WorkbenchShell({
 
   const startNewChatInProject = useCallback(async (projectId: string) => {
     const session = await ensureBlankSessionForProject(projectId);
-    setRightPanelFullWidthBySessionId((current) => ({ ...current, [session.id]: false }));
-  }, [ensureBlankSessionForProject]);
+    await invoke("project-session-panels:update", session.id, "right", {
+      size: { ...session.panels.right.size, fullWidth: false },
+    });
+    await refreshProjectSessions(projectId);
+  }, [ensureBlankSessionForProject, refreshProjectSessions]);
 
   const openSidebarTaskSearch = useCallback(() => {
     setSidebarTaskSearchOpenTick((current) => current + 1);
-    if (!activeSession?.rightPaneCollapsed) return;
-    void updateActiveSession({ rightPaneCollapsed: false });
-  }, [activeSession?.rightPaneCollapsed, updateActiveSession]);
+    if (!activeSession?.panels.right.collapsed) return;
+    void updateActivePanel("right", { collapsed: false });
+  }, [activeSession?.panels.right.collapsed, updateActivePanel]);
 
   const showSidebarUnavailableProduct = useCallback((label: string) => {
     toast.info(`${label} is not available in Nodex yet.`, {
@@ -869,89 +1130,33 @@ export function WorkbenchShell({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [activeProjectId, startNewChatInProject]);
 
-  const createManualTab = useCallback(async (kind: ProjectSessionTab["kind"]) => {
+  const createManualTab = useCallback(async (kind: ProjectSessionTab["kind"], targetPanelId?: PanelId) => {
     if (!activeSession) return;
-    if (kind === "db_view") {
-      await invoke("project-session-tabs:create", {
-        sessionId: activeSession.id,
-        projectId: activeSession.projectId,
-        kind,
-        title: "DB View",
-        config: { projectId: activeSession.projectId, view: "kanban" },
-      });
-      await ensureActiveRightPanelOpenWithoutRefresh();
-      await refreshProjectSessions(activeSession.projectId);
+    const panelId = targetPanelId ?? getDefaultPanelIdForTabKind(kind);
+    const draft = makeProjectSessionTabDraft(activeSession, kind);
+    if (!draft) return;
+
+    await invoke("project-session-tabs:create", {
+      sessionId: activeSession.id,
+      projectId: activeSession.projectId,
+      panelId,
+      ...draft,
+    });
+    await ensureActivePanelOpenWithoutRefresh(panelId);
+    await refreshProjectSessions(activeSession.projectId);
+  }, [activeSession, ensureActivePanelOpenWithoutRefresh, refreshProjectSessions]);
+
+  const focusOrCreateSessionTerminalTab = useCallback(async () => {
+    if (!activeSession) return;
+    const existing =
+      activeSession.tabs.find((tab) => tab.kind === "terminal" && tab.panelId === "bottom")
+      ?? activeSession.tabs.find((tab) => tab.kind === "terminal");
+    if (existing) {
+      await setActivePanelTab(existing.panelId, existing.id, { openPanel: true });
       return;
     }
-
-    if (kind === "files_placeholder") {
-      await invoke("project-session-tabs:create", {
-        sessionId: activeSession.id,
-        projectId: activeSession.projectId,
-        kind,
-        title: "Files",
-        config: { projectId: activeSession.projectId },
-      });
-      await ensureActiveRightPanelOpenWithoutRefresh();
-      await refreshProjectSessions(activeSession.projectId);
-      return;
-    }
-
-    if (kind === "side_chat_placeholder") {
-      await invoke("project-session-tabs:create", {
-        sessionId: activeSession.id,
-        projectId: activeSession.projectId,
-        kind,
-        title: "Side chat",
-        config: { projectId: activeSession.projectId },
-      });
-      await ensureActiveRightPanelOpenWithoutRefresh();
-      await refreshProjectSessions(activeSession.projectId);
-      return;
-    }
-
-    if (kind === "browser_placeholder") {
-      await invoke("project-session-tabs:create", {
-        sessionId: activeSession.id,
-        projectId: activeSession.projectId,
-        kind,
-        title: "Browser",
-        config: { projectId: activeSession.projectId },
-      });
-      await ensureActiveRightPanelOpenWithoutRefresh();
-      await refreshProjectSessions(activeSession.projectId);
-      return;
-    }
-
-    if (kind === "review") {
-      await invoke("project-session-tabs:create", {
-        sessionId: activeSession.id,
-        projectId: activeSession.projectId,
-        kind,
-        title: "Review",
-        config: { projectId: activeSession.projectId },
-      });
-      await ensureActiveRightPanelOpenWithoutRefresh();
-      await refreshProjectSessions(activeSession.projectId);
-      return;
-    }
-
-    if (kind === "terminal") {
-      await invoke("project-session-tabs:create", {
-        sessionId: activeSession.id,
-        projectId: activeSession.projectId,
-        kind,
-        title: "Terminal",
-        config: {
-          projectId: activeSession.projectId,
-          terminalSessionId: `session:${activeSession.id}:terminal:${Date.now()}`,
-          mode: "project",
-        },
-      });
-      await ensureActiveRightPanelOpenWithoutRefresh();
-      await refreshProjectSessions(activeSession.projectId);
-    }
-  }, [activeSession, ensureActiveRightPanelOpenWithoutRefresh, refreshProjectSessions]);
+    await createManualTab("terminal", "bottom");
+  }, [activeSession, createManualTab, setActivePanelTab]);
 
   const openCardStageFromPicker = useCallback(async (card: Card) => {
     if (!activeSession) return;
@@ -962,12 +1167,22 @@ export function WorkbenchShell({
     if (!activeSession) return false;
     if (isWorkbenchNewChatShortcutTargetEditable(event.target)) return false;
 
-    const action = RIGHT_PANEL_NEW_TAB_ACTIONS.find((candidate) =>
-      candidate.shortcut ? matchesRightPanelShortcut(event, candidate.shortcut, isMacPlatform) : false,
+    const action = PANEL_NEW_TAB_ACTIONS.find((candidate) =>
+      candidate.shortcut ? matchesPanelShortcut(event, candidate.shortcut, isMacPlatform) : false,
     );
     if (!action) return false;
 
-    void createManualTab(action.kind);
+    if (action.kind === "terminal") {
+      void focusOrCreateSessionTerminalTab();
+      return true;
+    }
+
+    if (isPreviewableProjectSessionTabKind(action.kind)) {
+      void openPreviewTab(action.kind, action.defaultPanelId);
+      return true;
+    }
+
+    void createManualTab(action.kind, action.defaultPanelId);
     return true;
   });
 
@@ -984,29 +1199,43 @@ export function WorkbenchShell({
 
   const showActiveRightPanel = useCallback(async () => {
     if (!activeSession) return;
-    await updateActiveSession({ rightPaneCollapsed: false });
-  }, [activeSession, updateActiveSession]);
+    await updateActivePanel("right", { collapsed: false });
+  }, [activeSession, updateActivePanel]);
 
   const hideActiveRightPanel = useCallback(async () => {
     if (!activeSession) return;
-    await updateActiveSession({ rightPaneCollapsed: true });
-  }, [activeSession, updateActiveSession]);
+    await updateActivePanel("right", { collapsed: true });
+  }, [activeSession, updateActivePanel]);
+
+  const showActiveBottomPanel = useCallback(async () => {
+    if (!activeSession) return;
+    await updateActivePanel("bottom", { collapsed: false });
+  }, [activeSession, updateActivePanel]);
+
+  const hideActiveBottomPanel = useCallback(async () => {
+    if (!activeSession) return;
+    await updateActivePanel("bottom", { collapsed: true });
+  }, [activeSession, updateActivePanel]);
 
   const toggleActiveRightPanelFullWidth = useCallback(() => {
     if (!activeSession) return;
-    setRightPanelFullWidthBySessionId((current) => ({
-      ...current,
-      [activeSession.id]: !(current[activeSession.id] ?? activeSession.isOverview),
-    }));
-  }, [activeSession]);
+    void updateActivePanel("right", {
+      size: {
+        ...activeSession.panels.right.size,
+        fullWidth: !rightPanelFullWidth,
+      },
+    });
+  }, [activeSession, rightPanelFullWidth, updateActivePanel]);
 
   const resizeRightPanel = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
     const startX = event.clientX;
     const startWidth = regularRightPanelWidth;
 
+    let latestWidth = startWidth;
     const onMouseMove = (moveEvent: MouseEvent) => {
       const nextWidth = clampRegularRightPanelWidth(startWidth + startX - moveEvent.clientX, sessionContentWidth);
+      latestWidth = nextWidth;
       setRightPanelWidth(nextWidth);
     };
 
@@ -1015,25 +1244,75 @@ export function WorkbenchShell({
       document.body.style.cursor = "";
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
+      if (activeSession) {
+        void updateActivePanel("right", {
+          size: {
+            ...activeSession.panels.right.size,
+            widthPx: latestWidth,
+          },
+        });
+      }
     };
 
     document.body.style.userSelect = "none";
     document.body.style.cursor = "col-resize";
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
-  }, [regularRightPanelWidth, sessionContentWidth]);
+  }, [activeSession, regularRightPanelWidth, sessionContentWidth, updateActivePanel]);
 
-  const tabItems = useMemo<AppShellTabItem[]>(() => {
-    if (!activeSession) return [];
-    return activeSession.tabs.map((tab) => ({
+  const resizeBottomPanel = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = bottomPanelHeight;
+    let latestHeight = startHeight;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const nextHeight = clampBottomPanelHeight(startHeight + startY - moveEvent.clientY, sessionContentHeight);
+      latestHeight = nextHeight;
+      if (activeSession) {
+        void updateActivePanel("bottom", {
+          size: {
+            ...activeSession.panels.bottom.size,
+            heightPx: nextHeight,
+          },
+        }, { refresh: false });
+      }
+    };
+
+    const onMouseUp = () => {
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      if (activeSession) {
+        void updateActivePanel("bottom", {
+          size: {
+            ...activeSession.panels.bottom.size,
+            heightPx: latestHeight,
+          },
+        });
+      }
+    };
+
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "row-resize";
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  }, [activeSession, bottomPanelHeight, sessionContentHeight, updateActivePanel]);
+
+  const panelTabItems = useMemo<Record<PanelId, AppShellTabItem[]>>(() => {
+    const empty = { right: [], bottom: [] } satisfies Record<PanelId, AppShellTabItem[]>;
+    if (!activeSession) return empty;
+    const makeItem = (tab: ProjectSessionRenderableTab): AppShellTabItem => ({
       id: tab.id,
       title: tab.title,
       icon: getTabIcon(tab.kind),
-      closable: !activeSession.isOverview || activeSession.tabs.length > 1,
-      reorderable: true,
+      closable: tab.preview === true || !activeSession.isOverview || activeSession.tabs.length > 1,
+      preview: tab.preview,
+      reorderable: tab.preview === true ? false : true,
       renderPanel: () => (
         <ProjectSessionTabPanel
-          key={`${activeSession.id}:${tab.id}`}
+          key={`${activeSession.id}:${tab.id}:${tab.stateKey}`}
           tab={tab}
           activeSession={activeSession}
           projects={projects}
@@ -1056,7 +1335,11 @@ export function WorkbenchShell({
           onCloseTab={closeTab}
         />
       ),
-    }));
+    });
+    return {
+      right: rightRenderableTabs.map(makeItem),
+      bottom: bottomRenderableTabs.map(makeItem),
+    };
   }, [
     activeDbViewPrefs,
     activeSearchQuery,
@@ -1075,9 +1358,10 @@ export function WorkbenchShell({
     sidebarTaskSearchOpenTick,
     dbViewPrefsByProject,
     searchByProject,
-    setActiveTab,
     setDbViewPrefs,
     setSearchQuery,
+    rightRenderableTabs,
+    bottomRenderableTabs,
   ]);
 
   useEffect(() => {
@@ -1161,7 +1445,8 @@ export function WorkbenchShell({
     sidebarCollapsed,
   ]);
 
-  const sidePanelOpen = activeSession ? !activeSession.rightPaneCollapsed : false;
+  const sidePanelOpen = activeSession ? !activeSession.panels.right.collapsed : false;
+  const bottomPanelOpen = activeSession ? !activeSession.panels.bottom.collapsed : false;
   const threadSummaryPanelMounted = Boolean(activeSession?.thread && !rightPanelFullWidth);
   const showThreadSummaryPanelControl = threadSummaryPanelMounted && !sidePanelOpen;
   const threadSummaryPanelOpen = showThreadSummaryPanelControl && threadSummaryPanelPinnedOpen;
@@ -1187,12 +1472,21 @@ export function WorkbenchShell({
 
   const toggleActiveSidePanel = useCallback(() => {
     if (!activeSession) return;
-    if (activeSession.rightPaneCollapsed) {
+    if (activeSession.panels.right.collapsed) {
       void showActiveRightPanel();
       return;
     }
     void hideActiveRightPanel();
   }, [activeSession, hideActiveRightPanel, showActiveRightPanel]);
+
+  const toggleActiveBottomPanel = useCallback(() => {
+    if (!activeSession) return;
+    if (activeSession.panels.bottom.collapsed) {
+      void showActiveBottomPanel();
+      return;
+    }
+    void hideActiveBottomPanel();
+  }, [activeSession, hideActiveBottomPanel, showActiveBottomPanel]);
 
   const renderSidePanelHeaderControl = () => {
     if (!activeSession) return null;
@@ -1268,8 +1562,53 @@ export function WorkbenchShell({
             key={action.kind}
             leftSlot={<Icon className="icon-sm" />}
             subText={action.description}
-            keyboardShortcut={resolveRightPanelShortcutLabel(action.shortcut, isMacPlatform)}
-            onSelect={() => void createManualTab(action.kind)}
+            keyboardShortcut={resolvePanelShortcutLabel(action.shortcut, isMacPlatform)}
+            onSelect={() => {
+              if (isPreviewableProjectSessionTabKind(action.kind)) {
+                void openPreviewTab(action.kind, "right");
+                return;
+              }
+              void createManualTab(action.kind, "right");
+            }}
+          >
+            {action.label}
+          </NodexDropdownItem>
+        );
+      })}
+    </NodexDropdownMenu>
+  ) : null;
+
+  const bottomPanelTabHeaderStickyControls = activeSession ? (
+    <NodexDropdownMenu
+      align="end"
+      sideOffset={6}
+      contentWidth="menuWide"
+      triggerButton={(
+        <button
+          type="button"
+          className={cn(TOOLBAR_BUTTON_BASE_CLASS, TOOLBAR_BUTTON_GHOST_CLASS)}
+          title="Open bottom panel tab"
+          aria-label="Open bottom panel tab"
+        >
+          <CodexSidePanelPlusIcon className="icon-xs" />
+        </button>
+      )}
+    >
+      {availableBottomPanelActions.map((action) => {
+        const Icon = action.Icon;
+        return (
+          <NodexDropdownItem
+            key={action.kind}
+            leftSlot={<Icon className="icon-sm" />}
+            subText={action.description}
+            keyboardShortcut={resolvePanelShortcutLabel(action.shortcut, isMacPlatform)}
+            onSelect={() => {
+              if (isPreviewableProjectSessionTabKind(action.kind)) {
+                void openPreviewTab(action.kind, "bottom");
+                return;
+              }
+              void createManualTab(action.kind, "bottom");
+            }}
           >
             {action.label}
           </NodexDropdownItem>
@@ -1294,6 +1633,16 @@ export function WorkbenchShell({
         style={{ width: headerRightWidth }}
       />
     </>
+  ) : null;
+
+  const bottomPanelTabHeaderControls = activeSession ? (
+    <ToolbarIconButton
+      label="Close bottom panel"
+      pressed={bottomPanelOpen}
+      onClick={toggleActiveBottomPanel}
+    >
+      <CodexPanelRightVisibleIcon className="icon-sm rotate-90" />
+    </ToolbarIconButton>
   ) : null;
 
   const showFloatingSidebar = sidebarCollapsed;
@@ -1472,115 +1821,182 @@ export function WorkbenchShell({
 
           <main className="main-surface relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             {activeSession ? (
-              <div ref={sessionContentRef} className="relative flex min-h-0 flex-1 overflow-hidden">
-                <section
-                  data-testid="session-thread-page"
-                  data-session-thread-page-hidden={rightPanelFullWidth ? "true" : "false"}
-                  data-app-shell-main-content-layout="thread-edge-scroll"
-                  aria-hidden={rightPanelFullWidth ? "true" : undefined}
-                  className={cn(
-                    "app-shell-main-content-viewport relative flex min-h-0 min-w-0 flex-col",
-                    rightPanelFullWidth ? "w-0 flex-none overflow-hidden" : "flex-1",
-                  )}
-                >
-                  <div
-                    className="app-shell-main-content-frame relative mt-(--app-shell-main-content-frame-top-offset) flex min-h-0 flex-1 flex-col border-t border-token-border-default"
-                    style={{
-                      "--app-shell-main-content-frame-top-offset": "0px",
-                      "--thread-stage-header-right-reserve": sidePanelOpen ? "0px" : `${headerRightWidth}px`,
-                    } as React.CSSProperties}
+              <div ref={sessionContentRef} className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+                <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+                  <section
+                    data-testid="session-thread-page"
+                    data-session-thread-page-hidden={rightPanelFullWidth ? "true" : "false"}
+                    data-app-shell-main-content-layout="thread-edge-scroll"
+                    aria-hidden={rightPanelFullWidth ? "true" : undefined}
+                    className={cn(
+                      "app-shell-main-content-viewport relative flex min-h-0 min-w-0 flex-col",
+                      rightPanelFullWidth ? "w-0 flex-none overflow-hidden" : "flex-1",
+                    )}
                   >
                     <div
-                      aria-hidden="true"
-                      data-app-shell-main-content-top-fade="full-bleed"
-                      className="app-shell-main-content-top-fade pointer-events-none absolute inset-x-0 top-0 z-20 h-4 bg-gradient-to-b from-token-main-surface-primary opacity-0 transition-opacity duration-200 browser:hidden"
-                    />
-                    {sessionError ? (
-                      <div className="border-b border-token-border px-3 py-2 text-xs text-token-text-secondary">{sessionError}</div>
-                    ) : null}
-                    <SessionThreadPage
-                      session={activeSession}
-                      project={activeProject}
-                      projects={projects}
-                      onRefreshProjectSessions={refreshProjectSessions}
-                      onEnsureBlankSessionForProject={ensureBlankSessionForProject}
-                      onRequestProjectPickerOpen={onRequestProjectPickerOpen}
-                      onOpenLocalEnvironmentsSettings={openLocalEnvironmentsSettings}
-                      worktreeStartMode={worktreeStartMode}
-                      worktreeBranchPrefix={worktreeAutoBranchPrefix}
-                      searchOpenTick={threadSearchOpenTick}
-                      sidePanelOpen={sidePanelOpen}
-                      summaryPanelMounted={threadSummaryPanelMounted}
-                      summaryPanelOpen={threadSummaryPanelOpen}
-                      onOpenCard={(cardId) => {
-                        if (!activeProject) return;
-                        void openCardTab(activeProject.id, cardId, cardId);
-                      }}
-                    />
-                  </div>
-                </section>
-
-                {!activeSession.rightPaneCollapsed ? (
-                  <section
-                    data-app-shell-focus-area="right-panel"
-                    data-testid="session-right-panel"
-                    data-right-panel-width-mode={rightPanelFullWidth ? "full" : "regular"}
-                    className="relative ml-auto h-full min-h-0 min-w-0 shrink-0 overflow-visible"
-                    style={{ width: rightPanelFullWidth ? "100%" : regularRightPanelWidth }}
-                  >
-                    {!rightPanelFullWidth ? (
+                      className="app-shell-main-content-frame relative mt-(--app-shell-main-content-frame-top-offset) flex min-h-0 flex-1 flex-col border-t border-token-border-default"
+                      style={{
+                        "--app-shell-main-content-frame-top-offset": "0px",
+                        "--thread-stage-header-right-reserve": sidePanelOpen ? "0px" : `${headerRightWidth}px`,
+                      } as React.CSSProperties}
+                    >
                       <div
-                        role="separator"
-                        aria-orientation="vertical"
-                        aria-label="Resize right panel"
-                        className="group absolute top-0 bottom-0 left-0 z-40 flex w-4 -translate-x-2 cursor-col-resize touch-none select-none active:cursor-col-resize"
-                        onMouseDown={resizeRightPanel}
-                      >
-                        <div className="pointer-events-none m-auto h-full w-px bg-linear-to-b from-transparent via-token-foreground/25 to-transparent opacity-0 group-hover:opacity-100 group-active:opacity-100" />
-                      </div>
-                    ) : null}
-
-                    <div className="absolute inset-0 min-w-0 overflow-hidden">
-                      <div
-                        className={cn(
-                          "absolute top-0 bottom-0 left-0 min-w-0 bg-token-main-surface-primary",
-                          !rightPanelFullWidth && "border-l border-token-border",
-                        )}
-                        style={{
-                          width: rightPanelFullWidth ? "100%" : regularRightPanelWidth,
-                          "--thread-content-top-inset": "calc(var(--spacing) * 8)",
-                        } as React.CSSProperties}
-                      >
-                        {tabItems.length > 0 && activeTab ? (
-                          <AppShellTabs
-                            tabs={tabItems}
-                            activeTabId={activeTab.id}
-                            controllerId={`session-${activeSession.id}`}
-                            onSelect={(tabId) => void setActiveTab(tabId)}
-                            onCloseTab={(tabId) => void closeTab(tabId)}
-                            onReorderTab={(dragId, overId) => void reorderTabs(dragId, overId)}
-                            afterListSticky={rightPanelTabHeaderStickyControls}
-                            afterList={rightPanelTabHeaderControls}
-                            headerHeight="toolbar"
-                          />
-                        ) : (
-                          <div className="flex h-full min-h-0 flex-col">
-                            <div className="flex h-toolbar min-w-0 shrink-0 items-center bg-token-main-surface-primary px-2">
-                              <div className="min-w-0 flex-1" />
-                              <div className="ml-1 flex shrink-0 items-center gap-1">{rightPanelTabHeaderStickyControls}</div>
-                              <div className="ml-1 flex shrink-0 items-center gap-1">{rightPanelTabHeaderControls}</div>
-                            </div>
-                            <EmptyRightPane
-                              actions={availableRightPanelActions}
-                              cards={activeProjectCardOptions}
-                              isMac={isMacPlatform}
-                              onAction={(kind) => void createManualTab(kind)}
-                              onOpenCard={(card) => void openCardStageFromPicker(card)}
-                            />
-                          </div>
-                        )}
-                      </div>
+                        aria-hidden="true"
+                        data-app-shell-main-content-top-fade="full-bleed"
+                        className="app-shell-main-content-top-fade pointer-events-none absolute inset-x-0 top-0 z-20 h-4 bg-gradient-to-b from-token-main-surface-primary opacity-0 transition-opacity duration-200 browser:hidden"
+                      />
+                      {sessionError ? (
+                        <div className="border-b border-token-border px-3 py-2 text-xs text-token-text-secondary">{sessionError}</div>
+                      ) : null}
+                      <SessionThreadPage
+                        session={activeSession}
+                        project={activeProject}
+                        projects={projects}
+                        onRefreshProjectSessions={refreshProjectSessions}
+                        onEnsureBlankSessionForProject={ensureBlankSessionForProject}
+                        onRequestProjectPickerOpen={onRequestProjectPickerOpen}
+                        onOpenLocalEnvironmentsSettings={openLocalEnvironmentsSettings}
+                        worktreeStartMode={worktreeStartMode}
+                        worktreeBranchPrefix={worktreeAutoBranchPrefix}
+                        searchOpenTick={threadSearchOpenTick}
+                        sidePanelOpen={sidePanelOpen}
+                        summaryPanelMounted={threadSummaryPanelMounted}
+                        summaryPanelOpen={threadSummaryPanelOpen}
+                        onOpenCard={(cardId) => {
+                          if (!activeProject) return;
+                          void openCardTab(activeProject.id, cardId, cardId);
+                        }}
+                      />
                     </div>
+                  </section>
+
+                  {!activeSession.panels.right.collapsed ? (
+                    <section
+                      data-app-shell-focus-area="right-panel"
+                      data-testid="session-right-panel"
+                      data-right-panel-width-mode={rightPanelFullWidth ? "full" : "regular"}
+                      className="relative ml-auto h-full min-h-0 min-w-0 shrink-0 overflow-visible"
+                      style={{ width: rightPanelFullWidth ? "100%" : regularRightPanelWidth }}
+                    >
+                      {!rightPanelFullWidth ? (
+                        <div
+                          role="separator"
+                          aria-orientation="vertical"
+                          aria-label="Resize right panel"
+                          className="group absolute top-0 bottom-0 left-0 z-40 flex w-4 -translate-x-2 cursor-col-resize touch-none select-none active:cursor-col-resize"
+                          onMouseDown={resizeRightPanel}
+                        >
+                          <div className="pointer-events-none m-auto h-full w-px bg-linear-to-b from-transparent via-token-foreground/25 to-transparent opacity-0 group-hover:opacity-100 group-active:opacity-100" />
+                        </div>
+                      ) : null}
+
+                      <div className="absolute inset-0 min-w-0 overflow-hidden">
+                        <div
+                          className={cn(
+                            "absolute top-0 bottom-0 left-0 min-w-0 bg-token-main-surface-primary",
+                            !rightPanelFullWidth && "border-l border-token-border",
+                          )}
+                          style={{
+                            width: rightPanelFullWidth ? "100%" : regularRightPanelWidth,
+                            "--thread-content-top-inset": "calc(var(--spacing) * 8)",
+                          } as React.CSSProperties}
+                        >
+                          {panelTabItems.right.length > 0 && rightActiveTab ? (
+                            <AppShellTabs
+                              tabs={panelTabItems.right}
+                              activeTabId={rightActiveTab.id}
+                              panelId="right"
+                              controllerId={`session-${activeSession.id}-right`}
+                              onSelect={(tabId) => void selectPanelTab("right", tabId)}
+                              onCloseTab={(tabId) => void closePanelTab("right", tabId)}
+                              onPinTab={(tabId) => void pinPreviewTab("right", tabId)}
+                              onMoveTab={(tabId, targetPanelId) => void moveTabToPanel(tabId, targetPanelId)}
+                              onReorderTab={(dragId, overId) => void reorderTabs("right", dragId, overId)}
+                              afterListSticky={rightPanelTabHeaderStickyControls}
+                              afterList={rightPanelTabHeaderControls}
+                              headerHeight="toolbar"
+                            />
+                          ) : (
+                            <div className="flex h-full min-h-0 flex-col">
+                              <div className="flex h-toolbar min-w-0 shrink-0 items-center bg-token-main-surface-primary px-2">
+                                <div className="min-w-0 flex-1" />
+                                <div className="ml-1 flex shrink-0 items-center gap-1">{rightPanelTabHeaderStickyControls}</div>
+                                <div className="ml-1 flex shrink-0 items-center gap-1">{rightPanelTabHeaderControls}</div>
+                              </div>
+                              <EmptyRightPane
+                                actions={availableRightPanelActions}
+                                cards={activeProjectCardOptions}
+                                isMac={isMacPlatform}
+                                onAction={(kind) => {
+                                  if (isPreviewableProjectSessionTabKind(kind)) {
+                                    void openPreviewTab(kind, "right");
+                                    return;
+                                  }
+                                  void createManualTab(kind, "right");
+                                }}
+                                onOpenCard={(card) => void openCardStageFromPicker(card)}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </section>
+                  ) : null}
+                </div>
+
+                {!activeSession.panels.bottom.collapsed ? (
+                  <section
+                    data-app-shell-focus-area="bottom-panel"
+                    data-testid="session-bottom-panel"
+                    className="relative min-h-0 w-full shrink-0 overflow-visible border-t border-token-border bg-token-main-surface-primary"
+                    style={{ height: bottomPanelHeight }}
+                  >
+                    <div
+                      role="separator"
+                      aria-orientation="horizontal"
+                      aria-label="Resize bottom panel"
+                      className="group absolute top-0 left-0 right-0 z-40 flex h-4 -translate-y-2 cursor-row-resize touch-none select-none active:cursor-row-resize"
+                      onMouseDown={resizeBottomPanel}
+                    >
+                      <div className="pointer-events-none mx-auto h-px w-full bg-linear-to-r from-transparent via-token-foreground/25 to-transparent opacity-0 group-hover:opacity-100 group-active:opacity-100" />
+                    </div>
+                    {panelTabItems.bottom.length > 0 && bottomActiveTab ? (
+                      <AppShellTabs
+                        tabs={panelTabItems.bottom}
+                        activeTabId={bottomActiveTab.id}
+                        panelId="bottom"
+                        controllerId={`session-${activeSession.id}-bottom`}
+                        onSelect={(tabId) => void selectPanelTab("bottom", tabId)}
+                        onCloseTab={(tabId) => void closePanelTab("bottom", tabId)}
+                        onPinTab={(tabId) => void pinPreviewTab("bottom", tabId)}
+                        onMoveTab={(tabId, targetPanelId) => void moveTabToPanel(tabId, targetPanelId)}
+                        onReorderTab={(dragId, overId) => void reorderTabs("bottom", dragId, overId)}
+                        afterListSticky={bottomPanelTabHeaderStickyControls}
+                        afterList={bottomPanelTabHeaderControls}
+                        headerHeight="toolbar"
+                      />
+                    ) : (
+                      <div className="flex h-full min-h-0 flex-col">
+                        <div className="flex h-toolbar min-w-0 shrink-0 items-center bg-token-main-surface-primary px-2">
+                          <div className="min-w-0 flex-1" />
+                          <div className="ml-1 flex shrink-0 items-center gap-1">{bottomPanelTabHeaderStickyControls}</div>
+                          <div className="ml-1 flex shrink-0 items-center gap-1">{bottomPanelTabHeaderControls}</div>
+                        </div>
+                        <EmptyRightPane
+                          actions={availableBottomPanelActions}
+                          cards={[]}
+                          isMac={isMacPlatform}
+                          onAction={(kind) => {
+                            if (isPreviewableProjectSessionTabKind(kind)) {
+                              void openPreviewTab(kind, "bottom");
+                              return;
+                            }
+                            void createManualTab(kind, "bottom");
+                          }}
+                          onOpenCard={(card) => void openCardStageFromPicker(card)}
+                        />
+                      </div>
+                    )}
                   </section>
                 ) : null}
               </div>
@@ -1879,25 +2295,25 @@ function ProjectSessionSidebar({
   );
 }
 
-type RightPanelActionCardProps = ComponentPropsWithoutRef<"button"> & {
-  action: RightPanelNewTabAction;
+type PanelActionCardProps = ComponentPropsWithoutRef<"button"> & {
+  action: PanelNewTabAction;
   isMac: boolean;
 };
 
-const RightPanelActionCard = forwardRef<HTMLButtonElement, RightPanelActionCardProps>(
-  function RightPanelActionCard({
+const PanelActionCard = forwardRef<HTMLButtonElement, PanelActionCardProps>(
+  function PanelActionCard({
     action,
     isMac,
     className,
     ...buttonProps
   }, ref) {
-    const shortcut = resolveRightPanelShortcutLabel(action.shortcut, isMac);
+    const shortcut = resolvePanelShortcutLabel(action.shortcut, isMac);
     const Icon = action.Icon;
     return (
       <button
         ref={ref}
         type="button"
-        className={cn(RIGHT_PANEL_ACTION_CARD_CLASS, className)}
+        className={cn(PANEL_ACTION_CARD_CLASS, className)}
         {...buttonProps}
       >
         <div className="flex min-w-0 flex-col items-center gap-3">
@@ -1922,7 +2338,7 @@ const RightPanelActionCard = forwardRef<HTMLButtonElement, RightPanelActionCardP
                 data-thread-side-panel-new-tab-action-label="true"
                 className="pt-1 text-token-text-secondary"
               >
-                <kbd className={RIGHT_PANEL_ACTION_KBD_CLASS}>{shortcut}</kbd>
+                <kbd className={PANEL_ACTION_KBD_CLASS}>{shortcut}</kbd>
               </span>
             ) : null}
           </span>
@@ -1970,7 +2386,7 @@ function EmptyRightPane({
   onAction,
   onOpenCard,
 }: {
-  actions: RightPanelNewTabAction[];
+  actions: PanelNewTabAction[];
   cards: Array<{ card: Card; columnName: string }>;
   isMac: boolean;
   onAction: (kind: ProjectSessionTab["kind"]) => void;
@@ -1993,7 +2409,7 @@ function EmptyRightPane({
                     align="center"
                     sideOffset={8}
                     contentWidth="panelWide"
-                    triggerButton={<RightPanelActionCard action={action} isMac={isMac} />}
+                    triggerButton={<PanelActionCard action={action} isMac={isMac} />}
                   >
                     <RightPanelCardStagePicker cards={cards} onOpenCard={onOpenCard} />
                   </NodexDropdownMenu>
@@ -2001,7 +2417,7 @@ function EmptyRightPane({
               }
 
               return (
-                <RightPanelActionCard
+                <PanelActionCard
                   key={action.kind}
                   action={action}
                   isMac={isMac}
@@ -2474,19 +2890,19 @@ function ProjectSessionTabPanel({
         sessionSnapshotRef={cardStageSessionSnapshotRef}
         onLeaveCard={onLeaveCardStageCard}
         onClose={() => void onCloseTab(tab.id)}
-        onOpenTerminal={async (card) => {
+        onOpenTerminal={async () => {
           await invoke("project-session-tabs:create", {
             sessionId: activeSession.id,
             projectId: activeSession.projectId,
+            panelId: "bottom",
             kind: "terminal",
-            title: `${card.title || card.id} Terminal`,
+            title: "Terminal",
             config: {
-              projectId: cardTab.config.projectId,
-              terminalSessionId: `card:${activeSession.id}:${card.id}`,
-              mode: "card",
-              cardId: card.id,
+              projectId: activeSession.projectId,
+              terminalSessionId: `session:${activeSession.id}:terminal:${Date.now()}`,
             },
           });
+          await invoke("project-session-panels:update", activeSession.id, "bottom", { collapsed: false });
           await onRefreshSessions(activeSession.projectId);
         }}
       />
@@ -2498,9 +2914,7 @@ function ProjectSessionTabPanel({
       <div className="h-full min-h-0 bg-token-main-surface-primary">
         <TerminalPanel
           projectId={tab.config.projectId}
-          cardId={tab.config.cardId ?? tab.config.projectId}
-          mode={tab.config.mode}
-          sessionId={tab.config.terminalSessionId}
+          terminalId={tab.config.terminalSessionId}
           onClose={() => void onCloseTab(tab.id)}
           panelHeight={Number.MAX_SAFE_INTEGER}
         />
@@ -2539,7 +2953,7 @@ function ProjectSessionMockTab({
 }: {
   kind: "browser_placeholder" | "files_placeholder" | "side_chat_placeholder";
 }) {
-  const action = RIGHT_PANEL_NEW_TAB_ACTIONS.find((candidate) => candidate.kind === kind);
+  const action = PANEL_NEW_TAB_ACTIONS.find((candidate) => candidate.kind === kind);
   const Icon = action?.Icon ?? CodexSidePanelBrowserIcon;
   return (
     <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary p-6 select-none">

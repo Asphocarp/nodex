@@ -14,8 +14,10 @@ import {
   detachProjectSessionThread,
   getProjectSession,
   listProjectSessions,
+  moveProjectSessionTab,
   reorderProjectSessionTabs,
   reorderProjectSessions,
+  updateProjectSessionPanel,
   updateProjectSessionTab,
   upsertProjectSessionThreadLink,
 } from "./project-session-service";
@@ -60,8 +62,11 @@ describe("project session service", () => {
       expect(defaultSessions[0]?.title).toBe("Overview");
       expect(defaultSessions[0]?.isOverview).toBeTrue();
       expect(defaultSessions[0]?.leftPaneCollapsed).toBeTrue();
-      expect(defaultSessions[0]?.rightPaneCollapsed).toBeFalse();
+      expect(defaultSessions[0]?.panels.right.collapsed).toBeFalse();
+      expect(defaultSessions[0]?.panels.right.size.fullWidth).toBeTrue();
+      expect(defaultSessions[0]?.panels.bottom.collapsed).toBeTrue();
       expect(defaultSessions[0]?.tabs.length).toBe(1);
+      expect(defaultSessions[0]?.tabs[0]?.panelId).toBe("right");
       expect(defaultSessions[0]?.tabs[0]?.kind).toBe("db_view");
       expect(JSON.stringify(defaultSessions[0]?.tabs[0]?.config)).toBe(
         JSON.stringify({ projectId: "default", view: "kanban" }),
@@ -71,7 +76,7 @@ describe("project session service", () => {
       const alphaSessions = listProjectSessions("alpha");
       expect(alphaSessions.length).toBe(1);
       expect(alphaSessions[0]?.id).toBe("overview:alpha");
-      expect(alphaSessions[0]?.rightPaneCollapsed).toBeFalse();
+      expect(alphaSessions[0]?.panels.right.collapsed).toBeFalse();
       expect(alphaSessions[0]?.tabs[0]?.id).toBe("overview:alpha:db");
     });
 
@@ -82,7 +87,8 @@ describe("project session service", () => {
     const ran = await withTempDatabase(async () => {
       const session = createProjectSession({ projectId: "default", title: "Build" });
       expect(session.isOverview).toBeFalse();
-      expect(session.rightPaneCollapsed).toBeTrue();
+      expect(session.panels.right.collapsed).toBeTrue();
+      expect(session.panels.bottom.collapsed).toBeTrue();
 
       const sessions = reorderProjectSessions("default", [session.id, "overview:default"]);
       expect(JSON.stringify(sessions.map((item) => item.id))).toBe(
@@ -92,17 +98,18 @@ describe("project session service", () => {
       const terminal = createProjectSessionTab({
         sessionId: session.id,
         projectId: "default",
+        panelId: "bottom",
         kind: "terminal",
         title: "Terminal",
         config: {
           projectId: "default",
           terminalSessionId: "term-1",
-          mode: "project",
         },
       });
       const browser = createProjectSessionTab({
         sessionId: session.id,
         projectId: "default",
+        panelId: "right",
         kind: "browser_placeholder",
         title: "Browser",
         config: {
@@ -116,25 +123,34 @@ describe("project session service", () => {
         config: {
           projectId: "default",
           terminalSessionId: "term-2",
-          mode: "project",
         },
       });
       expect(updatedTerminal?.title).toBe("Shell");
       expect(JSON.stringify(updatedTerminal?.config)).toBe(
-        JSON.stringify({ projectId: "default", terminalSessionId: "term-2", mode: "project" }),
+        JSON.stringify({ projectId: "default", terminalSessionId: "term-2" }),
       );
 
-      const reordered = reorderProjectSessionTabs(session.id, [terminal.id, browser.id]);
+      const reordered = reorderProjectSessionTabs({
+        sessionId: session.id,
+        panelId: "right",
+        orderedTabIds: [browser.id],
+      });
       expect(reordered !== null).toBeTrue();
-      expect(JSON.stringify(reordered?.tabs.map((tab) => tab.id))).toBe(
-        JSON.stringify([terminal.id, browser.id]),
-      );
-      expect(reordered?.rightPaneLayout.root.type).toBe("leaf");
-      if (reordered?.rightPaneLayout.root.type === "leaf") {
-        expect(JSON.stringify(reordered.rightPaneLayout.root.tabIds)).toBe(
-          JSON.stringify([terminal.id, browser.id]),
+      expect(reordered?.tabs.find((tab) => tab.id === terminal.id)?.panelId).toBe("bottom");
+      expect(reordered?.tabs.find((tab) => tab.id === browser.id)?.panelId).toBe("right");
+      expect(reordered?.panels.right.layout.root.type).toBe("leaf");
+      if (reordered?.panels.right.layout.root.type === "leaf") {
+        expect(JSON.stringify(reordered.panels.right.layout.root.tabIds)).toBe(
+          JSON.stringify([browser.id]),
         );
-        expect(reordered.rightPaneLayout.root.activeTabId).toBe(browser.id);
+        expect(reordered.panels.right.layout.root.activeTabId).toBe(browser.id);
+      }
+      expect(reordered?.panels.bottom.layout.root.type).toBe("leaf");
+      if (reordered?.panels.bottom.layout.root.type === "leaf") {
+        expect(JSON.stringify(reordered.panels.bottom.layout.root.tabIds)).toBe(
+          JSON.stringify([terminal.id]),
+        );
+        expect(reordered.panels.bottom.layout.root.activeTabId).toBe(terminal.id);
       }
 
       let validationMessage = "";
@@ -142,11 +158,11 @@ describe("project session service", () => {
         createProjectSessionTab({
           sessionId: session.id,
           projectId: "default",
+          panelId: "bottom",
           kind: "terminal",
           title: "Broken",
           config: {
             projectId: "default",
-            mode: "project",
           } as never,
         });
       } catch (error) {
@@ -165,6 +181,7 @@ describe("project session service", () => {
       const dbView = createProjectSessionTab({
         sessionId: session.id,
         projectId: "default",
+        panelId: "right",
         kind: "db_view",
         title: "DB View",
         config: { projectId: "default", view: "kanban" },
@@ -172,6 +189,7 @@ describe("project session service", () => {
       const duplicateDbView = createProjectSessionTab({
         sessionId: session.id,
         projectId: "default",
+        panelId: "right",
         kind: "db_view",
         title: "Another DB View",
         config: { projectId: "default", view: "list" },
@@ -181,6 +199,7 @@ describe("project session service", () => {
       const review = createProjectSessionTab({
         sessionId: session.id,
         projectId: "default",
+        panelId: "right",
         kind: "review",
         title: "Review",
         config: { projectId: "default" },
@@ -188,6 +207,7 @@ describe("project session service", () => {
       const duplicateReview = createProjectSessionTab({
         sessionId: session.id,
         projectId: "default",
+        panelId: "right",
         kind: "review",
         title: "Review changes",
         config: { projectId: "default" },
@@ -197,6 +217,7 @@ describe("project session service", () => {
       const browser = createProjectSessionTab({
         sessionId: session.id,
         projectId: "default",
+        panelId: "right",
         kind: "browser_placeholder",
         title: "Browser",
         config: {},
@@ -204,6 +225,7 @@ describe("project session service", () => {
       const duplicateBrowser = createProjectSessionTab({
         sessionId: session.id,
         projectId: "default",
+        panelId: "right",
         kind: "browser_placeholder",
         title: "Website",
         config: { url: "https://example.com" },
@@ -213,16 +235,18 @@ describe("project session service", () => {
       const terminalOne = createProjectSessionTab({
         sessionId: session.id,
         projectId: "default",
+        panelId: "bottom",
         kind: "terminal",
         title: "Terminal",
-        config: { projectId: "default", terminalSessionId: "term-1", mode: "project" },
+        config: { projectId: "default", terminalSessionId: "term-1" },
       });
       const terminalTwo = createProjectSessionTab({
         sessionId: session.id,
         projectId: "default",
+        panelId: "bottom",
         kind: "terminal",
         title: "Terminal",
-        config: { projectId: "default", terminalSessionId: "term-2", mode: "project" },
+        config: { projectId: "default", terminalSessionId: "term-2" },
       });
       expect(terminalOne.id === terminalTwo.id).toBeFalse();
 
@@ -231,8 +255,8 @@ describe("project session service", () => {
       expect(updated?.tabs.filter((tab) => tab.kind === "review").length).toBe(1);
       expect(updated?.tabs.filter((tab) => tab.kind === "browser_placeholder").length).toBe(1);
       expect(updated?.tabs.filter((tab) => tab.kind === "terminal").length).toBe(2);
-      if (updated?.rightPaneLayout.root.type === "leaf") {
-        expect(updated.rightPaneLayout.root.activeTabId).toBe(terminalTwo.id);
+      if (updated?.panels.bottom.layout.root.type === "leaf") {
+        expect(updated.panels.bottom.layout.root.activeTabId).toBe(terminalTwo.id);
       }
     });
 
@@ -299,6 +323,59 @@ describe("project session service", () => {
       expect(JSON.stringify(renamedSessions[0]?.tabs[0]?.config)).toBe(
         JSON.stringify({ projectId: "beta", view: "kanban" }),
       );
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("updates panel state and moves tabs between panels while preserving state", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({ projectId: "default", title: "Panels" });
+      const review = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: "default",
+        panelId: "right",
+        kind: "review",
+        title: "Review",
+        config: { projectId: "default" },
+      });
+      const terminal = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: "default",
+        panelId: "bottom",
+        kind: "terminal",
+        title: "Terminal",
+        config: { projectId: "default", terminalSessionId: "term-1" },
+      });
+
+      const stateful = updateProjectSessionTab(terminal.id, { stateKey: 2, state: { cwd: "/tmp/default" } });
+      expect(stateful?.stateKey).toBe(2);
+      expect(JSON.stringify(stateful?.state)).toBe(JSON.stringify({ cwd: "/tmp/default" }));
+
+      const sized = updateProjectSessionPanel(session.id, "bottom", {
+        collapsed: false,
+        size: { heightPx: 360 },
+      });
+      expect(sized?.panels.bottom.collapsed).toBeFalse();
+      expect(sized?.panels.bottom.size.heightPx).toBe(360);
+
+      const moved = moveProjectSessionTab({
+        tabId: terminal.id,
+        targetPanelId: "right",
+        targetIndex: 0,
+      });
+      expect(moved?.tabs.find((tab) => tab.id === terminal.id)?.panelId).toBe("right");
+      expect(moved?.tabs.find((tab) => tab.id === terminal.id)?.stateKey).toBe(2);
+      if (moved?.panels.right.layout.root.type === "leaf") {
+        expect(moved.panels.right.layout.root.activeTabId).toBe(terminal.id);
+        expect(JSON.stringify(moved.panels.right.layout.root.tabIds)).toBe(
+          JSON.stringify([terminal.id, review.id]),
+        );
+      }
+      if (moved?.panels.bottom.layout.root.type === "leaf") {
+        expect(moved.panels.bottom.layout.root.activeTabId ?? null).toBe(null);
+        expect(JSON.stringify(moved.panels.bottom.layout.root.tabIds)).toBe(JSON.stringify([]));
+      }
     });
 
     if (!ran) expect(true).toBeTrue();

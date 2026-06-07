@@ -5,15 +5,17 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
-- Added a Codex-style right-panel tab chooser with Files, Side chat, Browser, Review, Terminal, DB View, and Card Stage actions, including Codex shortcut parity and singleton activation for Browser, Review, and DB View.
+- Added Codex-style right and bottom session panels with shared tab chrome, panel-scoped ordering, cross-panel tab moves, and a bottom-panel Terminal default.
+- Added Codex-style ephemeral panel previews for placeholder Files, Browser, and Side chat tabs; they replace the prior preview in the same panel and persist only after the user interacts with or pins the preview.
 - Added a public changelog page at `nodex.jyu.app/changelog`, generated from the project changelog file.
-- Added a Codex-style project session shell with expandable project folders, a sidebar `New chat` entry, project-row new-chat actions, durable sessions, a session thread page, session-owned right-panel tabs, browser placeholders, and separate optional session-thread attachments.
+- Added a Codex-style project session shell with expandable project folders, a sidebar `New chat` entry, project-row new-chat actions, durable sessions, a session thread page, session-owned panel tabs, browser placeholders, and separate optional session-thread attachments.
 - Added SQLite-backed project session, project session tab, and session-thread link storage with default Overview sessions seeded for every project.
 - Added a Codex-style project selector in the empty session new-chat status row so a first prompt can target another project before the thread starts.
 - Added a Codex-style `Start in` selector to empty session new-chat composers, including `Work locally` and managed `New worktree` starts with environment setup progress.
 
 ### Changed
-- Replaced the old primary stage-rail workbench model with project sessions that open as a thread page with a collapsible and full-width-expandable right panel for DB view, Card Stage, terminal, and browser-placeholder tabs.
+- Replaced the old primary stage-rail workbench model with project sessions that open as a thread page with a collapsible and full-width-expandable right panel plus an independent bottom panel for session tabs.
+- Terminal tabs are now session-owned panel tabs with session terminal ids; cards can request a terminal but no longer own terminal tabs or PTY identity.
 - Matched the project/session sidebar chrome to Codex Electron, moved project folder selection into each project row actions menu, and added Search, Plugins, and Automations rows for layout parity.
 - Refined the project session shell to match Codex Electron side-panel control placement, adjacent header-slot spacing, remembered full-width mode, and button styling: the global header now owns `Toggle side panel`, right-panel tab creation and expand/restore actions live in the panel tab header, and the unused attach/detach thread toolbar button is removed.
 - Refined project session thread headers to match Codex Electron title sizing, use the thread title as the session header, and hide the redundant header separator while the right panel is closed.

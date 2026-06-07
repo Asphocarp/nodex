@@ -92,7 +92,7 @@ function applyTerminalTheme(term: Terminal): void {
 }
 
 export interface UseTerminalOptions {
-  cardId: string;
+  terminalId: string;
   visible: boolean;
   cwd?: string;
 }
@@ -108,7 +108,7 @@ export interface UseTerminalReturn {
 }
 
 export function useTerminal({
-  cardId,
+  terminalId,
   visible,
   cwd,
 }: UseTerminalOptions): UseTerminalReturn {
@@ -120,10 +120,10 @@ export function useTerminal({
   const [exitCode, setExitCode] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Track latest cardId/cwd for reconnect
-  const cardIdRef = useRef(cardId);
+  // Track latest terminal id/cwd for reconnect.
+  const terminalIdRef = useRef(terminalId);
   const cwdRef = useRef(cwd);
-  cardIdRef.current = cardId;
+  terminalIdRef.current = terminalId;
   cwdRef.current = cwd;
 
   const reconnect = useCallback(() => {
@@ -132,10 +132,10 @@ export function useTerminal({
     setExitCode(null);
     setError(null);
     termRef.current.clear();
-    const c = terminalCache.get(cardIdRef.current);
+    const c = terminalCache.get(terminalIdRef.current);
     if (c) { c.exited = false; c.exitCode = null; }
     window.api!
-      .invoke("pty:spawn", cardIdRef.current, {
+      .invoke("pty:spawn", terminalIdRef.current, {
         cols: termRef.current.cols,
         rows: termRef.current.rows,
         cwd: cwdRef.current,
@@ -144,7 +144,7 @@ export function useTerminal({
         const r = result as { success: boolean; error?: string };
         if (r.success) {
           setIsConnected(true);
-          addSession(cardIdRef.current);
+          addSession(terminalIdRef.current);
         } else {
           setError(r.error ?? "Failed to spawn terminal");
           termRef.current?.write(`\r\n\x1b[31mError: ${r.error ?? "Failed to spawn terminal"}\x1b[0m\r\n`);
@@ -176,7 +176,7 @@ export function useTerminal({
         if (disposed) return;
 
         // Check cache for an existing Terminal instance
-        let cached = terminalCache.get(cardId);
+        let cached = terminalCache.get(terminalId);
         let isNew = false;
         let restoredExited = false;
 
@@ -195,7 +195,7 @@ export function useTerminal({
           // Evict stale cache (cwd changed or missing)
           if (cached) {
             cached.term.dispose();
-            terminalCache.delete(cardId);
+            terminalCache.delete(terminalId);
           }
 
           isNew = true;
@@ -214,7 +214,7 @@ export function useTerminal({
           term.open(container);
 
           cached = { term, fit, cwd, exited: false, exitCode: null };
-          terminalCache.set(cardId, cached);
+          terminalCache.set(terminalId, cached);
         }
 
         const { term, fit } = cached;
@@ -226,7 +226,7 @@ export function useTerminal({
 
         // Wire terminal input → PTY
         const inputDisposable = term.onData((data) => {
-          window.api!.invoke("pty:write", cardId, data);
+          window.api!.invoke("pty:write", terminalId, data);
         });
 
         // Wire PTY output → terminal
@@ -234,7 +234,7 @@ export function useTerminal({
           "pty:data",
           (...args: unknown[]) => {
             const payload = args[0] as { sessionId: string; data: string };
-            if (payload.sessionId === cardId) {
+            if (payload.sessionId === terminalId) {
               term.write(payload.data);
             }
           },
@@ -244,12 +244,12 @@ export function useTerminal({
           "pty:exit",
           (...args: unknown[]) => {
             const payload = args[0] as { sessionId: string; exitCode: number };
-            if (payload.sessionId !== cardId) return;
+            if (payload.sessionId !== terminalId) return;
             setIsExited(true);
             setExitCode(payload.exitCode);
             setIsConnected(false);
             // Persist in cache for cross-mount state
-            const c = terminalCache.get(cardId);
+            const c = terminalCache.get(terminalId);
             if (!c) return;
             c.exited = true;
             c.exitCode = payload.exitCode;
@@ -265,7 +265,7 @@ export function useTerminal({
             fitRef.current.fit();
             window.api!.invoke(
               "pty:resize",
-              cardId,
+              terminalId,
               termRef.current.cols,
               termRef.current.rows,
             );
@@ -284,16 +284,16 @@ export function useTerminal({
 
           const cols = term.cols;
           const rows = term.rows;
-          console.log(`[terminal] ${isNew ? "init" : "reconnect"} cardId=${cardId} cols=${cols} rows=${rows} cwd=${cwd ?? "(default)"}`);
+          console.log(`[terminal] ${isNew ? "init" : "reconnect"} terminalId=${terminalId} cols=${cols} rows=${rows} cwd=${cwd ?? "(default)"}`);
 
           window.api!
-            .invoke("pty:spawn", cardId, { cols, rows, cwd })
+            .invoke("pty:spawn", terminalId, { cols, rows, cwd })
             .then((result: unknown) => {
               if (disposed) return;
               const r = result as { success: boolean; error?: string };
               if (r.success) {
                 setIsConnected(true);
-                addSession(cardId);
+                addSession(terminalId);
               } else {
                 console.error("[terminal] spawn failed:", r.error);
                 setError(r.error ?? "Failed to spawn terminal");
@@ -341,7 +341,7 @@ export function useTerminal({
       teardown();
       teardown = null;
     };
-  }, [cardId, visible, cwd]);
+  }, [terminalId, visible, cwd]);
 
   // Sync theme when dark mode changes
   useEffect(() => {

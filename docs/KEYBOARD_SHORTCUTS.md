@@ -19,20 +19,19 @@ All keyboard shortcuts in Nodex. Platform modifier: **⌘ (Cmd)** on Mac, **Ctrl
 | `⌘/Ctrl+[` | Go back | Restores the previous durable workbench context; works from editable surfaces too |
 | `⌘/Ctrl+]` | Go forward | Restores the next durable workbench context; works from editable surfaces too |
 | `⌘/Ctrl+,` | Toggle settings overlay | Opens/closes the full-page settings overlay |
-| `⌘/Ctrl+J` | Toggle terminal UI | Global toggle, including when focus is in editor inputs; session-tab terminals are the primary terminal surface in the new shell |
 | `⌘/Ctrl+N` | Open new app window | Electron desktop only (`window:new` IPC); ignored in browser runtime |
 | `⌘/Ctrl+F` | Open search for the focused stage | In Threads, opens `Find in thread`; in Diffs, opens `Find in review`; otherwise opens the Views-stage floating task search. Thread and review search can open even when focus is inside their stage content |
 
-## Project Session Right Panel
+## Project Session Panels
 
 | Shortcut | Action | Notes |
 |----------|--------|-------|
 | `⌘/Ctrl+P` | Files | Opens a Codex-style mock Files tab |
 | `⌘/Ctrl+T` | Browser | Opens or focuses the singleton Browser placeholder tab |
 | `Ctrl+Shift+G` | Review | Opens or focuses the singleton Review tab |
-| `Ctrl+\`` | Terminal | Opens a new session terminal tab |
+| `Ctrl+\`` | Terminal | Focuses an existing session terminal tab, or creates one in the bottom panel |
 
-Right-panel shortcuts are ignored from editable targets and dialog surfaces.
+Panel shortcuts are ignored from editable targets and dialog surfaces.
 
 ### Workbench Panel Borders
 
@@ -104,7 +103,7 @@ Right-panel shortcuts are ignored from editable targets and dialog surfaces.
 
 ## Implementation
 
-Workbench navigation shortcuts are in `src/renderer/lib/use-workbench-shortcuts.ts`. Project-session right-panel shortcuts are owned by `src/renderer/components/workbench/workbench-shell.tsx` because they depend on the active session and tab registry. The remaining stage-focused shortcuts are legacy compatibility until the project/session/tab keyboard map replaces them.
+Workbench navigation shortcuts are in `src/renderer/lib/use-workbench-shortcuts.ts`. Project-session panel shortcuts are owned by `src/renderer/components/workbench/workbench-shell.tsx` because they depend on the active session and tab registry. The remaining stage-focused shortcuts are legacy compatibility until the project/session/tab keyboard map replaces them.
 Undo/redo shortcuts are in `src/renderer/lib/use-keyboard-shortcuts.ts`.
 Editor shortcuts are in `src/renderer/components/kanban/editor/nfm-editor-extensions.ts` and `nfm-editor.tsx`.
 Terminal panel shortcut routing is in `src/renderer/lib/use-workbench-shortcuts.ts`.

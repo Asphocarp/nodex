@@ -14,12 +14,10 @@ export interface WorkbenchLayoutThreadsStageTab {
 
 export interface WorkbenchLayoutTerminalStageTab {
   id: string;
-  kind: "project" | "card";
+  kind: "project";
   projectId: string;
   title: string;
   sessionId: string;
-  cardId?: string;
-  sessionRefId?: string;
 }
 
 export interface WorkbenchLayoutFilesStageTab {

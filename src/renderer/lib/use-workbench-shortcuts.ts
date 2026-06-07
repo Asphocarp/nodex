@@ -9,7 +9,6 @@ export interface WorkbenchShortcutActions {
   shiftSlidingWindow: (projectId: string, direction: -1 | 1) => void;
   switchToStageIndex: (projectId: string, index: number) => void;
   switchToProjectIndex: (index: number) => void;
-  toggleTerminalPanel: (projectId: string) => void;
   onRequestNewWindow?: () => void;
   onRequestCommandPalette?: (initialQuery?: string) => void;
   onRequestProjectPicker?: () => void;
@@ -55,11 +54,6 @@ export function handleWorkbenchShortcut(
   const modifier = isMac ? e.metaKey : e.ctrlKey;
   const targetIsEditable = isEditableTarget(e.target);
   const targetIsEditorSurface = isEditorSurfaceTarget(e.target);
-  if (modifier && !e.altKey && !e.shiftKey && (e.key === "j" || e.key === "J")) {
-    actions.toggleTerminalPanel(actions.dbProjectId);
-    return true;
-  }
-
   if (modifier && !e.altKey && e.shiftKey && (e.key === "n" || e.key === "N")) {
     actions.onRequestNewWindow?.();
     return true;

@@ -77,12 +77,10 @@ export const WorkbenchLayoutThreadsStageTabSchema = z.object({
 
 export const WorkbenchLayoutTerminalStageTabSchema = z.object({
   id: z.string(),
-  kind: z.enum(["project", "card"]),
+  kind: z.literal("project"),
   projectId: z.string(),
   title: z.string(),
   sessionId: z.string(),
-  cardId: z.string().optional(),
-  sessionRefId: z.string().optional(),
 }) satisfies z.ZodType<WorkbenchLayoutTerminalStageTab>;
 
 export const WorkbenchLayoutFilesStageTabSchema = z.object({

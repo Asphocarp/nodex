@@ -62,8 +62,11 @@ import type {
   ProjectInput,
   ProjectSession,
   ProjectSessionCreateInput,
+  ProjectSessionPanelState,
   ProjectSessionTab,
   ProjectSessionTabCreateInput,
+  ProjectSessionTabMoveInput,
+  ProjectSessionTabReorderInput,
   ProjectSessionTabUpdateInput,
   ProjectSessionThreadLink,
   ProjectSessionThreadLinkInput,
@@ -271,7 +274,16 @@ export interface IpcApi {
     result: ProjectSessionTab | null;
   };
   "project-session-tabs:delete": { args: [tabId: string]; result: boolean };
-  "project-session-tabs:reorder": { args: [sessionId: string, orderedTabIds: string[]]; result: ProjectSession | null };
+  "project-session-panels:update": {
+    args: [sessionId: string, panelId: "right" | "bottom", input: Partial<ProjectSessionPanelState>];
+    result: ProjectSession | null;
+  };
+  "project-session-tabs:state:update": {
+    args: [tabId: string, stateKey: number, state: unknown];
+    result: ProjectSessionTab | null;
+  };
+  "project-session-tabs:reorder": { args: [input: ProjectSessionTabReorderInput]; result: ProjectSession | null };
+  "project-session-tabs:move": { args: [input: ProjectSessionTabMoveInput]; result: ProjectSession | null };
   "project-session-threads:attach": {
     args: [input: ProjectSessionThreadLinkInput];
     result: ProjectSessionThreadLink;

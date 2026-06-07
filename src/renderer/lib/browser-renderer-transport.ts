@@ -118,6 +118,24 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       });
       return res.ok ? res.json() : null;
     }
+    case "project-session-panels:update": {
+      const [sessionId, panelId, input] = args as [string, string, object];
+      const res = await fetch(toApiUrl(`/api/project-sessions/${sessionId}/panels/${panelId}`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      return res.ok ? res.json() : null;
+    }
+    case "project-session-tabs:state:update": {
+      const [tabId, stateKey, state] = args as [string, number, unknown];
+      const res = await fetch(toApiUrl(`/api/project-session-tabs/${tabId}/state`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stateKey, state }),
+      });
+      return res.ok ? res.json() : null;
+    }
     case "project-session-tabs:delete": {
       const [tabId] = args as [string];
       const res = await fetch(toApiUrl(`/api/project-session-tabs/${tabId}`), { method: "DELETE" });
@@ -125,11 +143,20 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       return data.success ?? false;
     }
     case "project-session-tabs:reorder": {
-      const [sessionId, orderedTabIds] = args as [string, string[]];
-      const res = await fetch(toApiUrl(`/api/project-sessions/${sessionId}/tabs/reorder`), {
+      const [input] = args as [{ sessionId: string; panelId: string; orderedTabIds: string[] }];
+      const res = await fetch(toApiUrl(`/api/project-sessions/${input.sessionId}/tabs/reorder`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderedTabIds }),
+        body: JSON.stringify({ panelId: input.panelId, orderedTabIds: input.orderedTabIds }),
+      });
+      return res.ok ? res.json() : null;
+    }
+    case "project-session-tabs:move": {
+      const [input] = args as [{ tabId: string; targetPanelId: string; targetIndex?: number }];
+      const res = await fetch(toApiUrl(`/api/project-session-tabs/${input.tabId}/move`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
       });
       return res.ok ? res.json() : null;
     }

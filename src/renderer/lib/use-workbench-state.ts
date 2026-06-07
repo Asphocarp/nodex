@@ -81,12 +81,10 @@ export interface ThreadsStageTab {
 
 export interface TerminalStageTab {
   id: string;
-  kind: "project" | "card";
+  kind: "project";
   projectId: string;
   title: string;
   sessionId: string;
-  cardId?: string;
-  sessionRefId?: string;
 }
 
 export interface FilesStageTab {
@@ -1065,22 +1063,7 @@ export function useWorkbenchState(
         ? prev.activeThreadsTabId
         : threadsTabs[0]?.id ?? "";
 
-      const sessionLookup = new Map(
-        recentCardSessions.map((session) => [session.id, session]),
-      );
-      const terminalTabs = ensureTerminalTabs(dbProjectId, prev.terminalTabs).map((tab) => {
-        if (tab.kind !== "card") return tab;
-        if (!tab.sessionRefId) return tab;
-        const session = sessionLookup.get(tab.sessionRefId);
-        if (!session) return tab;
-        return {
-          ...tab,
-          projectId: session.projectId,
-          title: session.titleSnapshot || session.cardId,
-          cardId: session.cardId,
-          sessionId: session.cardId,
-        };
-      });
+      const terminalTabs = ensureTerminalTabs(dbProjectId, prev.terminalTabs);
       const activeTerminalTabId = terminalTabs.some((tab) => tab.id === prev.activeTerminalTabId)
         ? prev.activeTerminalTabId
         : terminalTabs[0]?.id ?? "";
@@ -1655,50 +1638,6 @@ export function useWorkbenchState(
     return tabId;
   }, []);
 
-  const openCardTerminalTab = useCallback(
-    (projectId: string, sessionRefId: string, cardId: string, title: string): string => {
-      const tabId = `card:${sessionRefId}`;
-      const normalizedTitle = title.trim() || cardId;
-      setState((prev) => {
-        const existingTabs = ensureTerminalTabs(prev.dbProjectId, prev.terminalTabs);
-        const existing = existingTabs.find((tab) => tab.id === tabId);
-        const nextTabs = existing
-          ? existingTabs.map((tab) =>
-              tab.id === tabId
-                ? {
-                    ...tab,
-                    projectId,
-                    title: normalizedTitle,
-                    cardId,
-                    sessionId: cardId,
-                    sessionRefId,
-                  }
-                : tab,
-            )
-          : [
-              ...existingTabs,
-              {
-                id: tabId,
-                kind: "card" as const,
-                projectId,
-                title: normalizedTitle,
-                cardId,
-                sessionId: cardId,
-                sessionRefId,
-              },
-            ];
-
-        return {
-          ...prev,
-          terminalTabs: nextTabs,
-          activeTerminalTabId: tabId,
-        };
-      });
-      return tabId;
-    },
-    [],
-  );
-
   const closeTerminalTab = useCallback((projectId: string, tabId: string) => {
     setState((prev) => {
       const existingTabs = ensureTerminalTabs(prev.dbProjectId, prev.terminalTabs);
@@ -1939,7 +1878,6 @@ export function useWorkbenchState(
     setTerminalPanelHeight,
     toggleTerminalPanel,
     openProjectTerminalTab,
-    openCardTerminalTab,
     closeTerminalTab,
     cycleProjects,
     switchToProjectIndex,

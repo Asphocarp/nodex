@@ -132,15 +132,86 @@ function makeTab(
   return {
     sessionId: "session:overview",
     projectId: "nodex",
+    panelId: overrides.kind === "terminal" ? "bottom" : "right",
     order: 0,
+    stateKey: 0,
+    state: {},
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
     ...overrides,
   };
 }
 
+function makePanelLayout(tabIds: string[], activeTabId: string | null) {
+  return {
+    version: 1,
+    root: {
+      type: "leaf",
+      id: "main",
+      tabIds,
+      activeTabId,
+    },
+  } as const;
+}
+
+function makePanels(input: {
+  rightTabIds?: string[];
+  rightActiveTabId?: string | null;
+  rightCollapsed?: boolean;
+  rightFullWidth?: boolean;
+  bottomTabIds?: string[];
+  bottomActiveTabId?: string | null;
+  bottomCollapsed?: boolean;
+}): ProjectSession["panels"] {
+  const rightTabIds = input.rightTabIds ?? [];
+  const bottomTabIds = input.bottomTabIds ?? [];
+  return {
+    right: {
+      collapsed: input.rightCollapsed ?? false,
+      layout: makePanelLayout(rightTabIds, input.rightActiveTabId ?? rightTabIds[0] ?? null),
+      size: { widthPx: 600, fullWidth: input.rightFullWidth ?? false },
+    },
+    bottom: {
+      collapsed: input.bottomCollapsed ?? bottomTabIds.length === 0,
+      layout: makePanelLayout(bottomTabIds, input.bottomActiveTabId ?? bottomTabIds[0] ?? null),
+      size: { heightPx: 280 },
+    },
+  };
+}
+
+function withPanelLayouts(
+  session: ProjectSession,
+  activeByPanel: Partial<Record<"right" | "bottom", string | null>> = {},
+): ProjectSession {
+  const rightTabIds = session.tabs.filter((tab) => tab.panelId === "right").map((tab) => tab.id);
+  const bottomTabIds = session.tabs.filter((tab) => tab.panelId === "bottom").map((tab) => tab.id);
+  return {
+    ...session,
+    panels: {
+      right: {
+        ...session.panels.right,
+        layout: makePanelLayout(
+          rightTabIds,
+          activeByPanel.right ?? rightTabIds[0] ?? null,
+        ),
+      },
+      bottom: {
+        ...session.panels.bottom,
+        layout: makePanelLayout(
+          bottomTabIds,
+          activeByPanel.bottom ?? bottomTabIds[0] ?? null,
+        ),
+      },
+    },
+  };
+}
+
 function makeSession(args: ShellStoryArgs): ProjectSession {
   if (args.activeTab === "empty") {
+    const panels = makePanels({
+      rightCollapsed: args.rightPanel === "collapsed",
+      rightFullWidth: args.rightPanel === "full",
+    });
     return {
       id: "session:overview",
       projectId: "nodex",
@@ -148,16 +219,7 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
       isOverview: true,
       order: 0,
       leftPaneCollapsed: true,
-      rightPaneCollapsed: args.rightPanel === "collapsed",
-      rightPaneLayout: {
-        version: 1,
-        root: {
-          type: "leaf",
-          id: "main",
-          tabIds: [],
-          activeTabId: null,
-        },
-      },
+      panels,
       thread: null,
       tabs: [],
       createdAt: CREATED_AT,
@@ -187,7 +249,7 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
       kind: "terminal",
       title: "Terminal",
       order: 2,
-      config: { projectId: "nodex", terminalSessionId: "story-terminal", mode: "project" },
+      config: { projectId: "nodex", terminalSessionId: "story-terminal" },
     }),
     makeTab({
       id: "tab:browser",
@@ -216,6 +278,17 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
       : args.activeTab === "review"
         ? "tab:review"
         : "tab:browser";
+  const rightTabIds = tabs.filter((tab) => tab.panelId === "right").map((tab) => tab.id);
+  const bottomTabIds = tabs.filter((tab) => tab.panelId === "bottom").map((tab) => tab.id);
+  const panels = makePanels({
+    rightTabIds,
+    rightActiveTabId: rightTabIds.includes(activeTabId) ? activeTabId : rightTabIds[0] ?? null,
+    rightCollapsed: args.rightPanel === "collapsed",
+    rightFullWidth: args.rightPanel === "full",
+    bottomTabIds,
+    bottomActiveTabId: bottomTabIds.includes(activeTabId) ? activeTabId : bottomTabIds[0] ?? null,
+    bottomCollapsed: args.activeTab !== "terminal",
+  });
 
   return {
     id: "session:overview",
@@ -226,16 +299,7 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
     isOverview: true,
     order: 0,
     leftPaneCollapsed: true,
-    rightPaneCollapsed: args.rightPanel === "collapsed",
-    rightPaneLayout: {
-      version: 1,
-      root: {
-        type: "leaf",
-        id: "main",
-        tabIds: tabs.map((tab) => tab.id),
-        activeTabId,
-      },
-    },
+    panels,
     thread: args.thread === "attached"
       ? {
           sessionId: "session:overview",
@@ -261,39 +325,42 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
 }
 
 function makeSecondarySession(args: ShellStoryArgs): ProjectSession {
+  const tabs = [
+    makeTab({
+      id: "tab:release-terminal",
+      sessionId: "session:release",
+      kind: "terminal",
+      title: "Release terminal",
+      order: 0,
+      config: { projectId: "nodex", terminalSessionId: "release-terminal" },
+    }),
+    makeTab({
+      id: "tab:release-browser",
+      sessionId: "session:release",
+      kind: "browser_placeholder",
+      title: "Browser",
+      order: 1,
+      config: { title: "Browser" },
+    }),
+  ];
+  const rightTabIds = tabs.filter((tab) => tab.panelId === "right").map((tab) => tab.id);
+  const bottomTabIds = tabs.filter((tab) => tab.panelId === "bottom").map((tab) => tab.id);
   return {
     ...makeSession({ ...args, activeTab: "terminal", thread: "empty" }),
     id: "session:release",
     title: args.longNames ? "Release validation and follow-up terminal work" : "Release run",
     isOverview: false,
     order: 1,
-    tabs: [
-      makeTab({
-        id: "tab:release-terminal",
-        sessionId: "session:release",
-        kind: "terminal",
-        title: "Release terminal",
-        order: 0,
-        config: { projectId: "nodex", terminalSessionId: "release-terminal", mode: "project" },
-      }),
-      makeTab({
-        id: "tab:release-browser",
-        sessionId: "session:release",
-        kind: "browser_placeholder",
-        title: "Browser",
-        order: 1,
-        config: { title: "Browser" },
-      }),
-    ],
-    rightPaneLayout: {
-      version: 1,
-      root: {
-        type: "leaf",
-        id: "main",
-        tabIds: ["tab:release-terminal", "tab:release-browser"],
-        activeTabId: "tab:release-terminal",
-      },
-    },
+    tabs,
+    panels: makePanels({
+      rightTabIds,
+      rightActiveTabId: rightTabIds[0] ?? null,
+      rightCollapsed: args.rightPanel === "collapsed",
+      rightFullWidth: args.rightPanel === "full",
+      bottomTabIds,
+      bottomActiveTabId: "tab:release-terminal",
+      bottomCollapsed: false,
+    }),
   };
 }
 
@@ -302,7 +369,7 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
     () => ({
       nodex: [makeSession(args), makeSecondarySession(args)],
       "codex-readable": [
-        {
+        withPanelLayouts({
           ...makeSession({ ...args, activeTab: "browser", thread: "empty" }),
           id: "session:codex-overview",
           projectId: "codex-readable",
@@ -317,16 +384,7 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
               config: { title: "Browser" },
             }),
           ],
-          rightPaneLayout: {
-              version: 1 as const,
-              root: {
-                type: "leaf" as const,
-                id: "main",
-                tabIds: ["tab:codex-browser"],
-                activeTabId: "tab:codex-browser",
-            },
-          },
-        },
+        }, { right: "tab:codex-browser" }),
       ],
     }),
     [args],
@@ -395,46 +453,56 @@ function installStoryApi(
         if (channel === "board:get") {
           return STORY_BOARD;
         }
-        if (channel === "project-sessions:update") {
+        if (channel === "project-session-panels:update") {
           const sessionId = String(args[0]);
-          const input = (args[1] ?? {}) as Partial<ProjectSession>;
+          const panelId = args[1] === "bottom" ? "bottom" : "right";
+          const input = (args[2] ?? {}) as Partial<ProjectSession["panels"]["right"]>;
           const updated = Object.values(sessionsByProject)
             .flat()
             .find((session) => session.id === sessionId);
           if (!updated) return null;
-          const next = { ...updated, ...input, updatedAt: new Date().toISOString() };
+          const next = {
+            ...updated,
+            panels: {
+              ...updated.panels,
+              [panelId]: {
+                ...updated.panels[panelId],
+                ...input,
+                size: {
+                  ...updated.panels[panelId].size,
+                  ...input.size,
+                },
+              },
+            },
+            updatedAt: new Date().toISOString(),
+          };
           setSessionsByProject((current) => replaceSession(current, next));
           return next;
         }
         if (channel === "project-session-tabs:reorder") {
-          const sessionId = String(args[0]);
-          const order = (args[1] as string[] | undefined) ?? [];
+          const input = (args[0] ?? {}) as {
+            sessionId: string;
+            panelId: ProjectSessionTab["panelId"];
+            orderedTabIds: string[];
+          };
           const session = Object.values(sessionsByProject)
             .flat()
-            .find((item) => item.id === sessionId);
+            .find((item) => item.id === input.sessionId);
           if (!session) return null;
           const byId = new Map(session.tabs.map((tab) => [tab.id, tab]));
-          const tabs = order.flatMap((tabId, index) => {
+          const orderedPanelTabs = input.orderedTabIds.flatMap((tabId, index) => {
             const tab = byId.get(tabId);
             return tab ? [{ ...tab, order: index }] : [];
           });
+          const untouchedTabs = session.tabs.filter((tab) => tab.panelId !== input.panelId);
+          const tabs = [...untouchedTabs, ...orderedPanelTabs].sort((left, right) => left.order - right.order);
           const next = {
             ...session,
             tabs,
-            rightPaneLayout: {
-              version: 1 as const,
-              root: {
-                type: "leaf" as const,
-                id: "main",
-                tabIds: tabs.map((tab) => tab.id),
-                activeTabId: session.rightPaneLayout.root.type === "leaf"
-                  ? session.rightPaneLayout.root.activeTabId
-                  : tabs[0]?.id ?? null,
-              },
-            },
           };
-          setSessionsByProject((current) => replaceSession(current, next));
-          return next;
+          const normalized = withPanelLayouts(next);
+          setSessionsByProject((current) => replaceSession(current, normalized));
+          return normalized;
         }
         if (channel === "project-session-tabs:update") {
           const tabId = String(args[0]);
@@ -457,6 +525,7 @@ function installStoryApi(
           const input = args[0] as {
             sessionId: string;
             projectId: string;
+            panelId?: ProjectSessionTab["panelId"];
             kind: ProjectSessionTab["kind"];
             title: string;
             config: ProjectSessionTab["config"];
@@ -468,45 +537,34 @@ function installStoryApi(
           if (["db_view", "review", "browser_placeholder"].includes(input.kind)) {
             const existing = session.tabs.find((tab) => tab.kind === input.kind);
             if (existing) {
-              const next = {
-                ...session,
-                rightPaneLayout: {
-                  version: 1 as const,
-                  root: {
-                    type: "leaf" as const,
-                    id: "main",
-                    tabIds: session.tabs.map((tab) => tab.id),
-                    activeTabId: existing.id,
-                  },
-                },
-              };
+              const next = withPanelLayouts(session, { [existing.panelId]: existing.id });
               setSessionsByProject((current) => replaceSession(current, next));
               return existing;
             }
           }
+          const panelId = input.panelId ?? (input.kind === "terminal" ? "bottom" : "right");
           const tab = makeTab({
             id: `tab:${input.kind}:${session.tabs.length + 1}`,
             sessionId: input.sessionId,
             projectId: input.projectId,
             kind: input.kind,
             title: input.title,
-            order: session.tabs.length,
+            order: session.tabs.filter((item) => item.panelId === panelId).length,
+            panelId,
             config: input.config,
           });
           const tabs = [...session.tabs, tab];
-          const next = {
+          const next = withPanelLayouts({
             ...session,
             tabs,
-            rightPaneLayout: {
-              version: 1 as const,
-              root: {
-                type: "leaf" as const,
-                id: "main",
-                tabIds: tabs.map((item) => item.id),
-                activeTabId: tab.id,
+            panels: {
+              ...session.panels,
+              [tab.panelId]: {
+                ...session.panels[tab.panelId],
+                collapsed: false,
               },
             },
-          };
+          }, { [tab.panelId]: tab.id });
           setSessionsByProject((current) => replaceSession(current, next));
           return tab;
         }
