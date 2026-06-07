@@ -1,9 +1,8 @@
 # AGENTS.md
 
-> **IMPORTANT for agents:** Always commit changes after all edits are done (with a prefix like `feat:`/`fix:`/`docs:`/`refactor:`/`chore:`, e.g. `feat: add kanban board`). Do not leave uncommitted changes at the end of a task.
-
-## Global Instructions
-- This app has no real users or real data yet. Feel free to make whatever huge changes/refactors you want and do not worry about it.
+## **IMPORTANT Global Instructions for Agents:**
+- Always commit changes after all edits are done (with a prefix like `feat:`/`fix:`/`docs:`/`refactor:`/`chore:`, e.g. `feat: add kanban board`). Do not leave uncommitted changes at the end of a task.
+- This app has no real users or real data yet. Feel free to make ANY huge changes/refactors you want and do not worry about it.
 - For frontend design, prioritize an elegant, information-dense layout with minimal logical/visual redundancy and shallow nesting.
 - Do not read repository contents via web crawling from `raw.githubusercontent.com` because it is not stable for agent workflows. For remote repository inspection, clone the repository into a temporary local directory and read files from the local clone instead.
 - When writing bun unit tests, be aware that `expect` is of type `expect(value: unknown): { toBe: (expected: unknown) => void; toBeTrue: () => void; toBeFalse: () => void; not: { toBeNull: () => void; }; }` 
@@ -11,6 +10,7 @@
   - there is NO `toBeUndefined`, `toEqual`, `toBeNull` or `toContain`.
 - DO NOT write tests that only assert a source file contains a string (source-string tests); that is redundant with the implementation and does not validate behavior. Prefer checking generated CSS/build output or a real rendered/runtime outcome.
 - Read [official doc of codex-app-server](https://developers.openai.com/codex/app-server.md) when dealing with codex-app-server.
+- After UI modification, no need to verify the UI changes yourself using playwright or anything. Just tell user to do it, which is more efficient.
 
 
 ## Project Overview
