@@ -54,6 +54,7 @@ mock.module("@/lib/api", () => ({
     invokeCalls.push([channel, ...args]);
     return mockInvokeImpl?.(channel, ...args) ?? null;
   },
+  subscribeAppUpdateStatus: () => () => undefined,
 }));
 
 mock.module("./main-view-host", () => ({
@@ -404,6 +405,25 @@ describe("workbench session shell", () => {
     expect(text.includes("Overview")).toBeTrue();
     expect(text.includes("DB:alpha:kanban")).toBeTrue();
     expect(invokeCalls.some((call) => call[0] === "project-sessions:list" && call[1] === "alpha")).toBeTrue();
+  });
+
+  test("opens settings from the sidebar settings button", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const settingsButton = screen.container.querySelector('button[title="Settings"]');
+    if (!(settingsButton instanceof HTMLElement)) {
+      throw new Error("Expected a sidebar settings button");
+    }
+
+    await act(async () => {
+      fireEvent.click(settingsButton);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.getByRole("dialog", { name: "Settings" }).getAttribute("aria-modal")).toBe("true");
   });
 
   test("restores the DB toolbar controls inside session DB tabs", async () => {

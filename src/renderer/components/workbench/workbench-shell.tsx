@@ -28,6 +28,8 @@ import { DbViewToolbar } from "./db-view-toolbar";
 import { MainViewHost } from "./main-view-host";
 import { CardStage } from "./workbench-card-stage";
 import { TerminalPanel } from "./workbench-terminal-panel";
+import { SettingsOverlay } from "./workbench-settings-overlay";
+import { buildSettingsPath } from "./workbench-settings-routes";
 import { ProjectManagerPopover, ProjectMark } from "./left-sidebar-project-manager";
 import { LeftSidebarWorkspaceManager } from "./left-sidebar-workspace-manager";
 import { NodexDropdownItem, NodexDropdownMenu } from "@/components/ui/dropdown";
@@ -47,6 +49,41 @@ import { KANBAN_STATUS_LABELS } from "@/lib/kanban-options";
 import { invoke } from "@/lib/api";
 import { useKanban } from "@/lib/use-kanban";
 import { cn } from "@/lib/utils";
+import {
+  makeDefaultSidebarTopLevelSectionsPrefs,
+  normalizeSidebarTopLevelSectionOrder,
+  type SidebarSectionItemLimit,
+  type SidebarTopLevelSectionId,
+  type SidebarTopLevelSectionsPrefs,
+} from "@/lib/sidebar-section-prefs";
+import type { StageRailLayoutMode } from "@/lib/stage-rail-layout-mode";
+import {
+  readNextPanelPeekPx,
+  writeNextPanelPeekPx,
+} from "@/lib/stage-rail-peek";
+import {
+  readComposerEnterBehavior,
+  writeComposerEnterBehavior,
+  type ComposerEnterBehavior,
+} from "@/lib/composer-enter-behavior";
+import {
+  readThreadQueueFollowUpsEnabled,
+  writeThreadQueueFollowUpsEnabled,
+} from "@/lib/thread-composer-follow-up-mode";
+import {
+  readWorktreeStartMode,
+  writeWorktreeStartMode,
+} from "@/lib/worktree-start-mode";
+import {
+  readWorktreeAutoBranchPrefix,
+  writeWorktreeAutoBranchPrefix,
+} from "@/lib/worktree-branch-prefix";
+import {
+  readSmartPrefixParsingEnabled,
+  readStripSmartPrefixFromTitleEnabled,
+  writeSmartPrefixParsingEnabled,
+  writeStripSmartPrefixFromTitleEnabled,
+} from "@/lib/smart-prefix-parsing";
 import type {
   Card,
   CardInput,
@@ -60,6 +97,7 @@ import type {
   ProjectSessionDbView,
   ProjectSessionTab,
   ProjectSessionThreadLink,
+  WorktreeStartMode,
   WorkspaceRecord,
 } from "@/lib/types";
 import type { ThreadStageActions } from "@/features/local-conversation";
@@ -118,6 +156,8 @@ interface WorkbenchShellProps {
   sidebar?: {
     collapsed: boolean;
     width: number;
+    topLevelSectionOrder?: SidebarTopLevelSectionId[];
+    topLevelSections?: SidebarTopLevelSectionsPrefs;
   };
   cardStageCloseRef: React.RefObject<(() => Promise<void>) | null>;
   cardStagePersistRef?: React.MutableRefObject<(() => Promise<void>) | null>;
@@ -164,9 +204,9 @@ interface WorkbenchShellProps {
   threadSearchOpenTick: number;
   setSidebarCollapsed?: (collapsed: boolean) => void;
   setSidebarWidth?: (width: number) => void;
-  setSidebarTopLevelSectionVisible?: unknown;
-  setSidebarTopLevelSectionItemLimit?: unknown;
-  moveSidebarTopLevelSectionBy?: unknown;
+  setSidebarTopLevelSectionVisible?: (sectionId: SidebarTopLevelSectionId, visible: boolean) => void;
+  setSidebarTopLevelSectionItemLimit?: (sectionId: SidebarTopLevelSectionId, itemLimit: SidebarSectionItemLimit) => void;
+  moveSidebarTopLevelSectionBy?: (sectionId: SidebarTopLevelSectionId, direction: -1 | 1) => void;
   setSidebarStageExpanded?: unknown;
   isSidebarStageExpanded?: unknown;
   setSidebarSectionExpanded?: unknown;
@@ -187,8 +227,8 @@ interface WorkbenchShellProps {
   filesTabs?: unknown;
   activeFilesTabId?: unknown;
   stagePanelWidths?: unknown;
-  stageRailLayoutMode?: unknown;
-  onStageRailLayoutModeChange?: unknown;
+  stageRailLayoutMode?: StageRailLayoutMode;
+  onStageRailLayoutModeChange?: (value: StageRailLayoutMode) => void;
   slidingWindowPaneCount?: unknown;
   terminalPanelOpen?: unknown;
   terminalPanelHeight?: unknown;
@@ -324,9 +364,14 @@ export function WorkbenchShell({
   onCreateProject,
   onRenameProject,
   onDeleteProject,
+  onRequestProjectPickerOpen,
   threadSearchOpenTick,
   setSidebarCollapsed,
   setSidebarWidth,
+  setSidebarTopLevelSectionVisible,
+  stageRailLayoutMode = "sliding-window",
+  onStageRailLayoutModeChange,
+  settingsToggleTick,
 }: WorkbenchShellProps) {
   const fallbackProjectId = projects[0]?.id ?? "default";
   const [activeProjectId, setActiveProjectId] = useState(dbProjectId || fallbackProjectId);
@@ -352,6 +397,18 @@ export function WorkbenchShell({
   const sidebarHideTimeoutRef = useRef<number | null>(null);
   const sidebarCollapsed = sidebar?.collapsed ?? localSidebarCollapsed;
   const sidebarWidth = sidebar?.width ?? localSidebarWidth;
+  const lastHandledSettingsToggleTickRef = useRef(settingsToggleTick);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsPath, setSettingsPath] = useState(() => buildSettingsPath("general-settings"));
+  const [nextPanelPeekPx, setNextPanelPeekPx] = useState(readNextPanelPeekPx);
+  const [threadQueueFollowUpsEnabled, setThreadQueueFollowUpsEnabled] = useState(readThreadQueueFollowUpsEnabled);
+  const [composerEnterBehavior, setComposerEnterBehavior] = useState<ComposerEnterBehavior>(readComposerEnterBehavior);
+  const [worktreeStartMode, setWorktreeStartMode] = useState<WorktreeStartMode>(readWorktreeStartMode);
+  const [worktreeAutoBranchPrefix, setWorktreeAutoBranchPrefix] = useState(readWorktreeAutoBranchPrefix);
+  const [smartPrefixParsingEnabled, setSmartPrefixParsingEnabled] = useState(readSmartPrefixParsingEnabled);
+  const [stripSmartPrefixFromTitleEnabled, setStripSmartPrefixFromTitleEnabled] = useState(
+    readStripSmartPrefixFromTitleEnabled,
+  );
 
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null;
   const activeSessions = activeProject ? sessionsByProject[activeProject.id] ?? [] : [];
@@ -364,6 +421,56 @@ export function WorkbenchShell({
     ? !activeSession.rightPaneCollapsed && rightPanelFullWidthBySessionId[activeSession.id] === true
     : false;
   const regularRightPanelWidth = clampRegularRightPanelWidth(rightPanelWidth, sessionContentWidth);
+  const settingsSidebarTopLevelSectionOrder = normalizeSidebarTopLevelSectionOrder(
+    sidebar?.topLevelSectionOrder,
+  );
+  const settingsSidebarTopLevelSections = sidebar?.topLevelSections ?? makeDefaultSidebarTopLevelSectionsPrefs();
+
+  const openSettings = useCallback(() => {
+    setSettingsPath(buildSettingsPath("general-settings"));
+    setSettingsOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (
+      typeof settingsToggleTick !== "number"
+      || settingsToggleTick <= 0
+      || settingsToggleTick === lastHandledSettingsToggleTickRef.current
+    ) {
+      return;
+    }
+
+    lastHandledSettingsToggleTickRef.current = settingsToggleTick;
+    setSettingsOpen((current) => !current);
+  }, [settingsToggleTick]);
+
+  const handleNextPanelPeekPxChange = useCallback((value: number) => {
+    setNextPanelPeekPx(writeNextPanelPeekPx(value));
+  }, []);
+
+  const handleThreadQueueFollowUpsEnabledChange = useCallback((value: boolean) => {
+    setThreadQueueFollowUpsEnabled(writeThreadQueueFollowUpsEnabled(value));
+  }, []);
+
+  const handleComposerEnterBehaviorChange = useCallback((value: ComposerEnterBehavior) => {
+    setComposerEnterBehavior(writeComposerEnterBehavior(value));
+  }, []);
+
+  const handleWorktreeStartModeChange = useCallback((value: WorktreeStartMode) => {
+    setWorktreeStartMode(writeWorktreeStartMode(value));
+  }, []);
+
+  const handleWorktreeAutoBranchPrefixChange = useCallback((value: string) => {
+    setWorktreeAutoBranchPrefix(writeWorktreeAutoBranchPrefix(value));
+  }, []);
+
+  const handleSmartPrefixParsingEnabledChange = useCallback((value: boolean) => {
+    setSmartPrefixParsingEnabled(writeSmartPrefixParsingEnabled(value));
+  }, []);
+
+  const handleStripSmartPrefixFromTitleEnabledChange = useCallback((value: boolean) => {
+    setStripSmartPrefixFromTitleEnabled(writeStripSmartPrefixFromTitleEnabled(value));
+  }, []);
 
   const refreshProjectSessions = useCallback(async (projectId: string) => {
     const sessions = (await invoke("project-sessions:list", projectId)) as ProjectSession[];
@@ -975,7 +1082,7 @@ export function WorkbenchShell({
               onCreateWorkspace={onCreateWorkspace ?? (async () => undefined)}
               onRenameWorkspace={onRenameWorkspace ?? (async () => undefined)}
               onDeleteWorkspace={onDeleteWorkspace ?? (async () => undefined)}
-              onOpenSettings={() => undefined}
+              onOpenSettings={openSettings}
             />
           ) : null}
 
@@ -1033,7 +1140,7 @@ export function WorkbenchShell({
                   onCreateWorkspace={onCreateWorkspace ?? (async () => undefined)}
                   onRenameWorkspace={onRenameWorkspace ?? (async () => undefined)}
                   onDeleteWorkspace={onDeleteWorkspace ?? (async () => undefined)}
-                  onOpenSettings={() => undefined}
+                  onOpenSettings={openSettings}
                 />
               </div>
             </div>
@@ -1166,6 +1273,37 @@ export function WorkbenchShell({
           {sidebarCollapseControlButton}
         </div>
       ) : null}
+
+        <SettingsOverlay
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+          path={settingsPath}
+          onPathChange={setSettingsPath}
+          onRequestProjectPickerOpen={onRequestProjectPickerOpen}
+          projects={projects}
+          activeProjectId={activeProject?.id ?? activeProjectId}
+          initialLocalEnvironmentProjectId={null}
+          initialLocalEnvironmentConfigPath={null}
+          sidebarTopLevelSectionOrder={settingsSidebarTopLevelSectionOrder}
+          sidebarTopLevelSections={settingsSidebarTopLevelSections}
+          onSidebarTopLevelSectionVisibleChange={setSidebarTopLevelSectionVisible ?? (() => undefined)}
+          stageRailLayoutMode={stageRailLayoutMode}
+          onStageRailLayoutModeChange={onStageRailLayoutModeChange ?? (() => undefined)}
+          nextPanelPeekPx={nextPanelPeekPx}
+          onNextPanelPeekPxChange={handleNextPanelPeekPxChange}
+          threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
+          onThreadQueueFollowUpsEnabledChange={handleThreadQueueFollowUpsEnabledChange}
+          composerEnterBehavior={composerEnterBehavior}
+          onComposerEnterBehaviorChange={handleComposerEnterBehaviorChange}
+          worktreeStartMode={worktreeStartMode}
+          onWorktreeStartModeChange={handleWorktreeStartModeChange}
+          worktreeAutoBranchPrefix={worktreeAutoBranchPrefix}
+          onWorktreeAutoBranchPrefixChange={handleWorktreeAutoBranchPrefixChange}
+          smartPrefixParsingEnabled={smartPrefixParsingEnabled}
+          onSmartPrefixParsingEnabledChange={handleSmartPrefixParsingEnabledChange}
+          stripSmartPrefixFromTitleEnabled={stripSmartPrefixFromTitleEnabled}
+          onStripSmartPrefixFromTitleEnabledChange={handleStripSmartPrefixFromTitleEnabledChange}
+        />
       </div>
     </NodexTooltipProvider>
   );
