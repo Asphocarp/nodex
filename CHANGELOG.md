@@ -20,6 +20,8 @@ All notable changes to this project will be documented in this file.
 - Thread collapsed tool activity groups now has synthesized summaries and flat expanded row hierarchy instead of showing generic completed-action labels or nested exploration subgroups.
 
 ### Fixed
+- Fixed full-width right-panel tabs so they start at the panel edge instead of leaving an empty leading gap.
+- Fixed newly created non-Overview project sessions so they start with the right panel collapsed, while Overview sessions still open their DB tab full-width by default.
 - Fixed project-session DB tabs so the restored View toolbar includes the original view selector, search, filter, sort, display, and calendar controls.
 - Fixed Codex runtime compatibility after the pinned `@openai/codex` bump by updating app-server handshake and thread request payloads to the new protocol shape.
 - Fixed stopped Thread turn ordering so a final collapsed tool/activity group renders above the assistant action toolbar.

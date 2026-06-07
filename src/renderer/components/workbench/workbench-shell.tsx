@@ -440,7 +440,7 @@ export function WorkbenchShell({
     : activeSession?.tabs[0]?.id ?? null;
   const activeTab = activeSession?.tabs.find((tab) => tab.id === activeTabId) ?? activeSession?.tabs[0] ?? null;
   const rightPanelFullWidth = activeSession
-    ? !activeSession.rightPaneCollapsed && rightPanelFullWidthBySessionId[activeSession.id] === true
+    ? !activeSession.rightPaneCollapsed && (rightPanelFullWidthBySessionId[activeSession.id] ?? activeSession.isOverview) === true
     : false;
   const regularRightPanelWidth = clampRegularRightPanelWidth(rightPanelWidth, sessionContentWidth);
   const settingsSidebarTopLevelSectionOrder = normalizeSidebarTopLevelSectionOrder(
@@ -766,7 +766,7 @@ export function WorkbenchShell({
     if (!activeSession) return;
     setRightPanelFullWidthBySessionId((current) => ({
       ...current,
-      [activeSession.id]: current[activeSession.id] !== true,
+      [activeSession.id]: !(current[activeSession.id] ?? activeSession.isOverview),
     }));
   }, [activeSession]);
 
@@ -1017,13 +1017,6 @@ export function WorkbenchShell({
       />
     </>
   ) : null;
-  const rightPanelTabHeaderLeadingSpacer = rightPanelFullWidth ? (
-    <div
-      aria-hidden="true"
-      className="pointer-events-none h-full shrink-0"
-      style={{ width: "var(--spacing-token-safe-header-left)" }}
-    />
-  ) : null;
 
   const isMacPlatform = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
   const showFloatingSidebar = sidebarCollapsed;
@@ -1045,7 +1038,6 @@ export function WorkbenchShell({
       <div
         className="relative flex flex-col text-token-text-primary"
         style={{
-          "--spacing-token-safe-header-left": isMacPlatform ? "128px" : "12px",
           "--spacing-token-safe-header-right": "12px",
           width: "calc(100vw / var(--codex-window-zoom, 1))",
           height: "calc(100vh / var(--codex-window-zoom, 1))",
@@ -1277,7 +1269,6 @@ export function WorkbenchShell({
                             onSelect={(tabId) => void setActiveTab(tabId)}
                             onCloseTab={(tabId) => void closeTab(tabId)}
                             onReorderTab={(dragId, overId) => void reorderTabs(dragId, overId)}
-                            beforeList={rightPanelTabHeaderLeadingSpacer}
                             afterListSticky={rightPanelTabHeaderStickyControls}
                             afterList={rightPanelTabHeaderControls}
                             headerHeight="toolbar"
@@ -1285,7 +1276,6 @@ export function WorkbenchShell({
                         ) : (
                           <div className="flex h-full min-h-0 flex-col">
                             <div className="flex h-toolbar min-w-0 shrink-0 items-center bg-token-main-surface-primary px-2">
-                              {rightPanelTabHeaderLeadingSpacer}
                               <div className="min-w-0 flex-1" />
                               <div className="ml-1 flex shrink-0 items-center gap-1">{rightPanelTabHeaderStickyControls}</div>
                               <div className="ml-1 flex shrink-0 items-center gap-1">{rightPanelTabHeaderControls}</div>

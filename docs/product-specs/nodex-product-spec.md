@@ -39,12 +39,12 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 #### 1. Multi-Project Support
 - Each project has an independent kanban board, history, and undo/redo
 - Single-page app with a Codex-style project/session shell: projects render as folders in the left sidebar, expanded projects show durable sessions, and the active session renders as a thread page with a shell-owned right panel for content tabs
-- Every project has a seeded `Overview` session with one right-panel `db_view` tab for that project's primary DB view
+- Every project has a seeded `Overview` session with one open full-width right-panel `db_view` tab for that project's primary DB view; new non-Overview sessions start with the right panel collapsed
 - Session right-pane tabs support `db_view`, `card_stage`, `terminal`, and `browser_placeholder` kinds; browser tabs render a placeholder until the browser feature ships
 - DB view tabs keep the DB view selector pinned above board, list, toggle-list, canvas, and calendar content, with task search and supported view-local filter/sort/display controls inside that tab body
 - Card Stage opens as a session-attached tab. Opening a card from a DB tab creates or focuses the matching card tab in the active session instead of switching a global Card stage.
 - Terminal opens as a session-attached tab with a session-tab-scoped terminal id
-- The active session can show, collapse, resize, or full-width expand the right panel. The fixed global header owns the Codex-style `Toggle side panel` control, while the right-panel tab header owns tab creation and expand/restore controls.
+- The active session can show, collapse, resize, or full-width expand the right panel. New non-Overview sessions default to collapsed right panels, while Overview sessions default to open full-width right panels unless the user has changed that session's panel width. The fixed global header owns the Codex-style `Toggle side panel` control, while the right-panel tab header owns tab creation and expand/restore controls.
 - The persisted right-pane layout JSON is split-capable for future VS Code-style tab splits, but v1 renders one tab group only
 - URL sync: `/?project=<id>`, persisted to localStorage
 - Selecting a project expands its folder and switches the active DB project context. Selecting a session switches both the thread page and the right-panel tab group.

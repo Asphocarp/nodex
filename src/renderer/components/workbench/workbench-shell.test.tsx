@@ -262,6 +262,27 @@ function makeAttachedSession(overrides: Partial<ProjectSession> = {}): ProjectSe
   });
 }
 
+function makeBlankSession(overrides: Partial<ProjectSession> = {}): ProjectSession {
+  return makeSession({
+    id: "session:alpha:blank",
+    title: "New thread",
+    isOverview: false,
+    rightPaneCollapsed: true,
+    rightPaneLayout: {
+      version: 1,
+      root: {
+        type: "leaf",
+        id: "main",
+        tabIds: [],
+        activeTabId: null,
+      },
+    },
+    thread: null,
+    tabs: [],
+    ...overrides,
+  });
+}
+
 function replaceSession(
   current: Record<string, ProjectSession[]>,
   nextSession: ProjectSession,
@@ -321,6 +342,7 @@ function renderWorkbench({
         order: sessionState[input.projectId]?.length ?? 0,
         thread: null,
         tabs: [],
+        rightPaneCollapsed: true,
         rightPaneLayout: {
           version: 1,
           root: {
@@ -491,6 +513,7 @@ describe("workbench session shell", () => {
     expect(props?.isNewThreadTab).toBeTrue();
     expect(JSON.stringify(props?.newThreadTarget).includes('"sessionId":"session:alpha:created"')).toBeTrue();
     expect(screen.getByLabelText("Prompt").getAttribute("placeholder")).toBe("Write the first prompt for this new thread...");
+    expect(screen.queryByTestId("session-right-panel")).toBe(null);
   });
 
   test("Cmd+N opens the project-scoped new-chat composer from the workbench shell", async () => {
@@ -688,9 +711,11 @@ describe("workbench session shell", () => {
     )).toBeTrue();
   });
 
-  test("renders an attached session thread as the main session page", async () => {
+  test("renders an attached non-overview session thread as the main session page", async () => {
     const screen = renderWorkbench({
-      sessionsByProject: { alpha: [makeAttachedSession()] },
+      sessionsByProject: {
+        alpha: [makeAttachedSession({ id: "session:alpha:thread", title: "Thread", isOverview: false })],
+      },
     });
     await settleAsyncRender();
     await settleAsyncRender();
@@ -705,7 +730,9 @@ describe("workbench session shell", () => {
 
   test("uses the thread header as the only top title row", async () => {
     const screen = renderWorkbench({
-      sessionsByProject: { alpha: [makeAttachedSession()] },
+      sessionsByProject: {
+        alpha: [makeAttachedSession({ id: "session:alpha:thread", title: "Thread", isOverview: false })],
+      },
     });
     await settleAsyncRender();
     await settleAsyncRender();
@@ -720,7 +747,16 @@ describe("workbench session shell", () => {
 
   test("shows the thread-page separator only while the right panel is enabled", async () => {
     const screen = renderWorkbench({
-      sessionsByProject: { alpha: [makeAttachedSession({ rightPaneCollapsed: false })] },
+      sessionsByProject: {
+        alpha: [
+          makeAttachedSession({
+            id: "session:alpha:thread",
+            title: "Thread",
+            isOverview: false,
+            rightPaneCollapsed: false,
+          }),
+        ],
+      },
     });
     await settleAsyncRender();
     await settleAsyncRender();
@@ -733,7 +769,16 @@ describe("workbench session shell", () => {
     screen.unmount();
 
     const collapsedScreen = renderWorkbench({
-      sessionsByProject: { alpha: [makeAttachedSession({ rightPaneCollapsed: true })] },
+      sessionsByProject: {
+        alpha: [
+          makeAttachedSession({
+            id: "session:alpha:thread-collapsed",
+            title: "Thread",
+            isOverview: false,
+            rightPaneCollapsed: true,
+          }),
+        ],
+      },
     });
     await settleAsyncRender();
     await settleAsyncRender();
@@ -746,7 +791,7 @@ describe("workbench session shell", () => {
 
   test("renders the session new-thread composer instead of the old attach placeholder", async () => {
     const screen = renderWorkbench({
-      sessionsByProject: { alpha: [makeSession()] },
+      sessionsByProject: { alpha: [makeBlankSession()] },
     });
     await settleAsyncRender();
     await settleAsyncRender();
@@ -758,12 +803,12 @@ describe("workbench session shell", () => {
     expect(textContent(screen.container).includes("Attach an existing Codex thread to use this session page.")).toBeFalse();
     expect(props?.isNewThreadTab).toBeTrue();
     expect(props?.activeThreadId === null).toBeTrue();
-    expect(JSON.stringify(props?.newThreadTarget).includes('"sessionId":"overview:alpha"')).toBeTrue();
+    expect(JSON.stringify(props?.newThreadTarget).includes('"sessionId":"session:alpha:blank"')).toBeTrue();
   });
 
   test("session composer submit starts a session-owned thread and refreshes sessions", async () => {
     const screen = renderWorkbench({
-      sessionsByProject: { alpha: [makeSession()] },
+      sessionsByProject: { alpha: [makeBlankSession()] },
     });
     await settleAsyncRender();
     await settleAsyncRender();
@@ -777,7 +822,7 @@ describe("workbench session shell", () => {
     expect(startThreadForSessionCalls.length).toBe(1);
     expect(JSON.stringify(startThreadForSessionCalls[0])).toBe(JSON.stringify({
       projectId: "alpha",
-      sessionId: "overview:alpha",
+      sessionId: "session:alpha:blank",
       prompt: "Start from session",
       runInTarget: "localProject",
       runInEnvironmentPath: null,
@@ -793,7 +838,7 @@ describe("workbench session shell", () => {
     const screen = renderWorkbench({
       projects: [makeProject(), betaProject],
       sessionsByProject: {
-        alpha: [makeSession()],
+        alpha: [makeBlankSession()],
         beta: [
           makeAttachedSession({
             id: "overview:beta",
@@ -846,7 +891,7 @@ describe("workbench session shell", () => {
 
   test("session composer submit passes the selected new-worktree target", async () => {
     const screen = renderWorkbench({
-      sessionsByProject: { alpha: [makeSession()] },
+      sessionsByProject: { alpha: [makeBlankSession()] },
     });
     await settleAsyncRender();
     await settleAsyncRender();
@@ -873,7 +918,7 @@ describe("workbench session shell", () => {
     expect(startThreadForSessionCalls.length).toBe(1);
     expect(JSON.stringify(startThreadForSessionCalls[0])).toBe(JSON.stringify({
       projectId: "alpha",
-      sessionId: "overview:alpha",
+      sessionId: "session:alpha:blank",
       prompt: "Start from session",
       runInTarget: "newWorktree",
       runInEnvironmentPath: null,
@@ -918,8 +963,33 @@ describe("workbench session shell", () => {
     expect(screen.queryAllByRole("tablist").length > 0).toBeTrue();
   });
 
-  test("open right panel keeps side toggle global and expands from the panel header", async () => {
+  test("overview sessions default to open full-width right panels", async () => {
     const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const rightPanel = screen.getByTestId("session-right-panel");
+    const threadPage = screen.container.querySelector('[data-testid="session-thread-page"]');
+    const restoreButton = screen.getByRole("button", { name: "Restore panel width" });
+    expect(rightPanel.getAttribute("data-right-panel-width-mode")).toBe("full");
+    expect(rightPanel.getAttribute("data-app-shell-focus-area")).toBe("right-panel");
+    expect(threadPage?.getAttribute("data-session-thread-page-hidden")).toBe("true");
+    expect(restoreButton.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  test("open non-overview right panel keeps side toggle global and expands from the panel header", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [
+          makeSession({
+            id: "session:alpha:build",
+            title: "Build",
+            isOverview: false,
+            rightPaneCollapsed: false,
+          }),
+        ],
+      },
+    });
     await settleAsyncRender();
     await settleAsyncRender();
 
@@ -960,6 +1030,8 @@ describe("workbench session shell", () => {
     expect(threadPage?.className.includes("w-0")).toBeTrue();
     expect(threadPage?.className.includes("flex-none")).toBeTrue();
     expect(screen.queryByRole("separator", { name: "Resize right panel" })).toBe(null);
+    const fullWidthTabHeader = rightPanel?.querySelector('[role="tablist"]')?.parentElement?.parentElement;
+    expect(fullWidthTabHeader?.firstElementChild?.querySelector('[role="tablist"]') !== null).toBeTrue();
     const restoreButton = screen.getByRole("button", { name: "Restore panel width" });
     expect(globalHeader?.contains(restoreButton)).toBeFalse();
     expect(tabHeader.contains(restoreButton)).toBeTrue();
@@ -968,18 +1040,24 @@ describe("workbench session shell", () => {
     expect(restoreButton.querySelector("path")?.getAttribute("d")?.startsWith(CODEX_RESTORE_PANEL_ICON_PREFIX)).toBeTrue();
   });
 
-  test("full-width right panel state survives hiding and showing the side panel", async () => {
+  test("overview regular-width override survives hiding and showing the side panel", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
     await settleAsyncRender();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Expand panel" }));
+      fireEvent.click(screen.getByRole("button", { name: "Restore panel width" }));
       await Promise.resolve();
     });
     await settleAsyncRender();
 
-    expect(screen.getByRole("button", { name: "Restore panel width" }).getAttribute("aria-pressed")).toBe("true");
+    const regularRightPanel = screen.getByTestId("session-right-panel");
+    const regularThreadPage = screen.container.querySelector('[data-testid="session-thread-page"]');
+    const expandButton = screen.getByRole("button", { name: "Expand panel" });
+    expect(regularRightPanel.getAttribute("data-right-panel-width-mode")).toBe("regular");
+    expect(regularThreadPage?.getAttribute("data-session-thread-page-hidden")).toBe("false");
+    expect(regularThreadPage?.className.split(/\s+/).includes("w-0")).toBeFalse();
+    expect(expandButton.getAttribute("aria-pressed")).toBe("false");
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Toggle side panel" }));
@@ -998,11 +1076,11 @@ describe("workbench session shell", () => {
 
     const restoredRightPanel = screen.getByTestId("session-right-panel");
     const restoredThreadPage = screen.container.querySelector('[data-testid="session-thread-page"]');
-    const restoreButton = screen.getByRole("button", { name: "Restore panel width" });
-    expect(restoredRightPanel.getAttribute("data-right-panel-width-mode")).toBe("full");
-    expect(restoredThreadPage?.getAttribute("data-session-thread-page-hidden")).toBe("true");
-    expect(restoredThreadPage?.className.includes("w-0")).toBeTrue();
-    expect(restoreButton.getAttribute("aria-pressed")).toBe("true");
+    const restoredExpandButton = screen.getByRole("button", { name: "Expand panel" });
+    expect(restoredRightPanel.getAttribute("data-right-panel-width-mode")).toBe("regular");
+    expect(restoredThreadPage?.getAttribute("data-session-thread-page-hidden")).toBe("false");
+    expect(restoredThreadPage?.className.split(/\s+/).includes("w-0")).toBeFalse();
+    expect(restoredExpandButton.getAttribute("aria-pressed")).toBe("false");
   });
 
   test("right-panel add actions are reachable from the panel header plus menu", async () => {

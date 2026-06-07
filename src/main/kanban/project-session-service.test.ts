@@ -60,6 +60,7 @@ describe("project session service", () => {
       expect(defaultSessions[0]?.title).toBe("Overview");
       expect(defaultSessions[0]?.isOverview).toBeTrue();
       expect(defaultSessions[0]?.leftPaneCollapsed).toBeTrue();
+      expect(defaultSessions[0]?.rightPaneCollapsed).toBeFalse();
       expect(defaultSessions[0]?.tabs.length).toBe(1);
       expect(defaultSessions[0]?.tabs[0]?.kind).toBe("db_view");
       expect(JSON.stringify(defaultSessions[0]?.tabs[0]?.config)).toBe(
@@ -70,6 +71,7 @@ describe("project session service", () => {
       const alphaSessions = listProjectSessions("alpha");
       expect(alphaSessions.length).toBe(1);
       expect(alphaSessions[0]?.id).toBe("overview:alpha");
+      expect(alphaSessions[0]?.rightPaneCollapsed).toBeFalse();
       expect(alphaSessions[0]?.tabs[0]?.id).toBe("overview:alpha:db");
     });
 
@@ -79,6 +81,9 @@ describe("project session service", () => {
   test("creates and reorders sessions and tabs with validated tab config", async () => {
     const ran = await withTempDatabase(async () => {
       const session = createProjectSession({ projectId: "default", title: "Build" });
+      expect(session.isOverview).toBeFalse();
+      expect(session.rightPaneCollapsed).toBeTrue();
+
       const sessions = reorderProjectSessions("default", [session.id, "overview:default"]);
       expect(JSON.stringify(sessions.map((item) => item.id))).toBe(
         JSON.stringify([session.id, "overview:default"]),

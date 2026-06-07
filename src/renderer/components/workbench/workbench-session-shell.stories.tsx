@@ -275,9 +275,10 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
   installStoryApi(sessionsByProject, setSessionsByProject);
 
   useEffect(() => {
-    if (args.rightPanel !== "full") return undefined;
+    if (args.rightPanel === "collapsed") return undefined;
     const timeout = window.setTimeout(() => {
-      document.querySelector<HTMLButtonElement>('[aria-label="Expand panel"]')?.click();
+      const label = args.rightPanel === "regular" ? "Restore panel width" : "Expand panel";
+      document.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)?.click();
     }, 0);
     return () => {
       window.clearTimeout(timeout);
@@ -464,7 +465,7 @@ export const FullWidthRightPanel: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Expanded right panel with restore in the panel tab header and the main thread viewport collapsed to zero width under the same fixed toolbar.",
+        story: "Expanded right panel with tabs aligned to the panel edge, restore in the panel tab header, and the main thread viewport collapsed to zero width under the same fixed toolbar.",
       },
     },
   },

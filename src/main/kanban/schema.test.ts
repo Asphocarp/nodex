@@ -92,17 +92,25 @@ describe("schema initialization", () => {
       expect(tableNames.includes("codex_thread_card_links")).toBeTrue();
 
       const overviewSession = db.prepare(`
-        SELECT id, project_id, title, is_overview, left_pane_collapsed
+        SELECT id, project_id, title, is_overview, left_pane_collapsed, right_pane_collapsed
         FROM project_sessions
         WHERE project_id = 'default' AND is_overview = 1
       `).get() as
-        | { id: string; project_id: string; title: string; is_overview: number; left_pane_collapsed: number }
+        | {
+          id: string;
+          project_id: string;
+          title: string;
+          is_overview: number;
+          left_pane_collapsed: number;
+          right_pane_collapsed: number;
+        }
         | undefined;
       expect(overviewSession?.id).toBe("overview:default");
       expect(overviewSession?.project_id).toBe("default");
       expect(overviewSession?.title).toBe("Overview");
       expect(overviewSession?.is_overview).toBe(1);
       expect(overviewSession?.left_pane_collapsed).toBe(1);
+      expect(overviewSession?.right_pane_collapsed).toBe(0);
 
       const overviewTab = db.prepare(`
         SELECT id, kind, config_json

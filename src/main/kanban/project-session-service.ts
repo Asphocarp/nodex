@@ -321,7 +321,7 @@ export function createProjectSession(input: ProjectSessionCreateInput): ProjectS
     INSERT INTO project_sessions (
       id, project_id, title, is_overview, "order", left_pane_collapsed,
       right_pane_collapsed, right_pane_layout_json, created_at, updated_at
-    ) VALUES (?, ?, ?, 0, ?, 0, 0, ?, ?, ?)
+    ) VALUES (?, ?, ?, 0, ?, 0, 1, ?, ?, ?)
   `).run(
     id,
     parsed.projectId,
