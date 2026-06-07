@@ -21,15 +21,15 @@ Detailed Auto-review preset, config, and approval-lifecycle rules are specified 
 - `card_stage`: reuses Card Stage for a project/card config. Opening a card from a DB tab creates or focuses the matching session tab instead of switching to a global Cards stage.
 - `terminal`: reuses the terminal lifecycle with a session-tab-scoped terminal id.
 - `browser_placeholder`: shows a quiet placeholder surface and stores optional placeholder metadata.
-- Session-thread links are optional and separate from card-owned Codex thread links. Attaching a thread to a session does not move or rewrite `codex_card_threads`.
+- Session-thread links are optional and separate from card-owned Codex thread links. Attaching a thread to a session does not create or rewrite a `codex_thread_card_links` card relation.
 
 ## Storage Ownership
 - SQLite owns shared project session data:
   - `project_sessions`: project id, title, overview marker, order, default pane collapse state, and right-pane layout JSON.
   - `project_session_tabs`: session/project id, kind, title, order, and validated kind-specific config JSON.
-  - `project_session_threads`: optional session-to-thread attachment metadata.
+  - `project_session_threads`: optional session-to-thread attachments; canonical thread metadata lives in `codex_threads`.
 - Window-local shell state owns only active project, active session, active tab, right-panel width/full-width mode, collapse overrides, and focus history.
-- Existing projects are migrated by creating missing Overview sessions. Existing cards, project data, history, and `codex_card_threads` rows remain intact.
+- Existing projects are migrated by creating missing Overview sessions. Existing cards, project data, history, and legacy `codex_card_threads` rows are migrated into `codex_threads` plus `codex_thread_card_links`.
 - Old stage-rail/window layout snapshots are best-effort inputs for active project/session defaults only; they are not authoritative shared session data.
 
 ## Navigation

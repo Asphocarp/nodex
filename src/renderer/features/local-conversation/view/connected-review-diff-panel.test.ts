@@ -6,7 +6,7 @@ function buildConversation(unifiedDiff: string): CodexConversationSnapshot {
   return {
     threadId: "thread-1",
     projectId: "project-1",
-    cardId: "",
+    cardId: null,
     source: null,
     resumeState: "resumed",
     threadName: "Thread",

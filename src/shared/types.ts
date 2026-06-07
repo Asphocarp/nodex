@@ -714,8 +714,8 @@ export interface CodexDictationStateSnapshot {
 
 export interface CodexThreadSummary {
   threadId: string;
-  projectId: string;
-  cardId: string;
+  projectId: string | null;
+  cardId: string | null;
   source: CodexConversationSource | null;
   threadName: string | null;
   threadPreview: string;
@@ -1525,8 +1525,8 @@ export type CodexEvent =
   | { type: "userInputResolved"; requestId: string }
   | {
       type: "threadStartProgress";
-      projectId: string;
-      cardId: string;
+      projectId: string | null;
+      cardId: string | null;
       phase: CodexThreadStartProgressPhase;
       message: string;
       stream?: CodexThreadStartProgressStream;
@@ -1566,8 +1566,8 @@ export type CodexSharedObject =
       objectType: "threadStartProgress";
       objectId: string;
       value: {
-        projectId: string;
-        cardId: string;
+        projectId: string | null;
+        cardId: string | null;
         phase: CodexThreadStartProgressPhase;
         message: string;
         stream?: CodexThreadStartProgressStream;

@@ -7,7 +7,7 @@ import { CARD_STATUS_COLUMNS } from "../../shared/card-status";
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 27;
+export const CURRENT_SCHEMA_VERSION = 28;
 
 const RESETTABLE_TABLES = [
   "project_session_threads",
@@ -18,6 +18,8 @@ const RESETTABLE_TABLES = [
   "reminder_receipts",
   "recurrence_exceptions",
   "history",
+  "codex_thread_card_links",
+  "codex_threads",
   "codex_card_threads",
   "description_revisions",
   "description_blocks",
@@ -33,7 +35,8 @@ export interface EnsureDatabaseOptions {
 
 export function getSchemaMigrationTargets(currentVersion: number): number[] | null {
   if (currentVersion === CURRENT_SCHEMA_VERSION) return [];
-  if (currentVersion === 26) return [27];
+  if (currentVersion === 26) return [27, 28];
+  if (currentVersion === 27) return [28];
   return null;
 }
 
@@ -117,10 +120,10 @@ function createLatestSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_description_revisions_card_created
       ON description_revisions(card_id, created_at, id);
 
-    CREATE TABLE IF NOT EXISTS codex_card_threads (
+    CREATE TABLE IF NOT EXISTS codex_threads (
       thread_id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+      card_id TEXT REFERENCES cards(id) ON DELETE SET NULL,
       parent_thread_id TEXT,
       thread_name TEXT,
       thread_preview TEXT NOT NULL DEFAULT '',
@@ -134,10 +137,22 @@ function createLatestSchema(db: Database.Database): void {
       linked_at TEXT NOT NULL
     ) WITHOUT ROWID;
 
-    CREATE INDEX IF NOT EXISTS idx_codex_card_threads_project_card_updated
-      ON codex_card_threads(project_id, card_id, updated_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_codex_card_threads_project_updated
-      ON codex_card_threads(project_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_codex_threads_project_updated
+      ON codex_threads(project_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_codex_threads_card_updated
+      ON codex_threads(card_id, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS codex_thread_card_links (
+      thread_id TEXT PRIMARY KEY REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+      linked_at TEXT NOT NULL
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_codex_thread_card_links_project_card
+      ON codex_thread_card_links(project_id, card_id);
+    CREATE INDEX IF NOT EXISTS idx_codex_thread_card_links_project
+      ON codex_thread_card_links(project_id);
 
     CREATE TABLE IF NOT EXISTS project_sessions (
       id TEXT PRIMARY KEY,
@@ -181,23 +196,10 @@ function createLatestSchema(db: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS project_session_threads (
       session_id TEXT PRIMARY KEY REFERENCES project_sessions(id) ON DELETE CASCADE,
-      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      thread_id TEXT NOT NULL,
-      parent_thread_id TEXT,
-      thread_name TEXT,
-      thread_preview TEXT NOT NULL DEFAULT '',
-      model_provider TEXT NOT NULL DEFAULT '',
-      cwd TEXT,
-      status_type TEXT NOT NULL DEFAULT 'notLoaded',
-      status_active_flags_json TEXT NOT NULL DEFAULT '[]',
-      archived INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
+      thread_id TEXT NOT NULL REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
       linked_at TEXT NOT NULL
     ) WITHOUT ROWID;
 
-    CREATE INDEX IF NOT EXISTS idx_project_session_threads_project_updated
-      ON project_session_threads(project_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_project_session_threads_thread
       ON project_session_threads(thread_id);
 
@@ -351,6 +353,123 @@ function migrateToSchema27(db: Database.Database): void {
   setUserVersion(db, 27);
 }
 
+function migrateToSchema28(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS codex_threads (
+      thread_id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+      card_id TEXT REFERENCES cards(id) ON DELETE SET NULL,
+      parent_thread_id TEXT,
+      thread_name TEXT,
+      thread_preview TEXT NOT NULL DEFAULT '',
+      model_provider TEXT NOT NULL DEFAULT '',
+      cwd TEXT,
+      status_type TEXT NOT NULL DEFAULT 'notLoaded',
+      status_active_flags_json TEXT NOT NULL DEFAULT '[]',
+      archived INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      linked_at TEXT NOT NULL
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_codex_threads_project_updated
+      ON codex_threads(project_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_codex_threads_card_updated
+      ON codex_threads(card_id, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS codex_thread_card_links (
+      thread_id TEXT PRIMARY KEY REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+      linked_at TEXT NOT NULL
+    ) WITHOUT ROWID;
+
+    CREATE INDEX IF NOT EXISTS idx_codex_thread_card_links_project_card
+      ON codex_thread_card_links(project_id, card_id);
+    CREATE INDEX IF NOT EXISTS idx_codex_thread_card_links_project
+      ON codex_thread_card_links(project_id);
+  `);
+
+  const hasLegacyCardThreads = Boolean(db.prepare(`
+    SELECT 1
+    FROM sqlite_master
+    WHERE type = 'table' AND name = 'codex_card_threads'
+  `).get());
+  const hasLegacySessionThreads = Boolean(db.prepare(`
+    SELECT 1
+    FROM sqlite_master
+    WHERE type = 'table' AND name = 'project_session_threads'
+  `).get());
+  const legacySessionThreadColumns = hasLegacySessionThreads
+    ? new Set((db.prepare("PRAGMA table_info(project_session_threads)").all() as Array<{ name: string }>)
+      .map((column) => column.name))
+    : new Set<string>();
+  const hasSessionThreadMetadata =
+    legacySessionThreadColumns.has("project_id") && legacySessionThreadColumns.has("parent_thread_id");
+
+  if (hasLegacyCardThreads) {
+    db.exec(`
+      INSERT OR IGNORE INTO codex_threads (
+        thread_id, project_id, card_id, parent_thread_id, thread_name, thread_preview,
+        model_provider, cwd, status_type, status_active_flags_json, archived,
+        created_at, updated_at, linked_at
+      )
+      SELECT
+        thread_id, project_id, card_id, parent_thread_id, thread_name, thread_preview,
+        model_provider, cwd, status_type, status_active_flags_json, archived,
+        created_at, updated_at, linked_at
+      FROM codex_card_threads;
+
+      INSERT OR REPLACE INTO codex_thread_card_links (thread_id, project_id, card_id, linked_at)
+      SELECT thread_id, project_id, card_id, linked_at
+      FROM codex_card_threads;
+    `);
+  }
+
+  if (hasLegacySessionThreads && hasSessionThreadMetadata) {
+    db.exec(`
+      INSERT OR IGNORE INTO codex_threads (
+        thread_id, project_id, card_id, parent_thread_id, thread_name, thread_preview,
+        model_provider, cwd, status_type, status_active_flags_json, archived,
+        created_at, updated_at, linked_at
+      )
+      SELECT
+        thread_id, project_id, NULL, parent_thread_id, thread_name, thread_preview,
+        model_provider, cwd, status_type, status_active_flags_json, archived,
+        created_at, updated_at, linked_at
+      FROM project_session_threads;
+
+      CREATE TABLE IF NOT EXISTS project_session_threads_next (
+        session_id TEXT PRIMARY KEY REFERENCES project_sessions(id) ON DELETE CASCADE,
+        thread_id TEXT NOT NULL REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
+        linked_at TEXT NOT NULL
+      ) WITHOUT ROWID;
+
+      INSERT OR REPLACE INTO project_session_threads_next (session_id, thread_id, linked_at)
+      SELECT session_id, thread_id, linked_at
+      FROM project_session_threads;
+
+      DROP TABLE project_session_threads;
+      ALTER TABLE project_session_threads_next RENAME TO project_session_threads;
+    `);
+  } else if (!hasLegacySessionThreads) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS project_session_threads (
+        session_id TEXT PRIMARY KEY REFERENCES project_sessions(id) ON DELETE CASCADE,
+        thread_id TEXT NOT NULL REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
+        linked_at TEXT NOT NULL
+      ) WITHOUT ROWID;
+    `);
+  }
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_project_session_threads_thread
+      ON project_session_threads(thread_id);
+    DROP TABLE IF EXISTS codex_card_threads;
+  `);
+  setUserVersion(db, 28);
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -367,17 +486,13 @@ function runMigrations(
       migrateToSchema27(db);
       continue;
     }
+    if (target === 28) {
+      migrateToSchema28(db);
+      continue;
+    }
     throw new Error(`Unsupported Nodex database migration target ${target}`);
   }
   options.onMigrationProgress?.({ type: "Done" });
-}
-
-function ensureCodexCardThreadColumns(db: Database.Database): void {
-  const columns = db.prepare("PRAGMA table_info(codex_card_threads)").all() as Array<{ name: string }>;
-  const columnNames = new Set(columns.map((column) => column.name));
-  if (!columnNames.has("parent_thread_id")) {
-    db.exec("ALTER TABLE codex_card_threads ADD COLUMN parent_thread_id TEXT");
-  }
 }
 
 function resetDatabaseToLatestSchema(db: Database.Database): void {
@@ -432,7 +547,6 @@ export function ensureDatabase(options: EnsureDatabaseOptions = {}): void {
     }
 
     db.exec("DROP TABLE IF EXISTS codex_thread_snapshots");
-    ensureCodexCardThreadColumns(db);
     seedDefaultProjectIfMissing(db);
     seedOverviewSessionsForAllProjects(db);
   } finally {

@@ -9,6 +9,7 @@ import {
   updateCodexThreadArchived,
   updateCodexThreadName,
   updateCodexThreadStatus,
+  upsertCodexThread,
   upsertCodexCardThreadLink,
 } from "./codex-link-repository";
 
@@ -123,6 +124,42 @@ describe("codex-link-repository", () => {
       const withArchived = listCodexProjectThreads("codex", { includeArchived: true });
       expect(withArchived.length).toBe(1);
       expect(withArchived[0]?.threadId).toBe("thr_test_2");
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("stores project-only and projectless threads without card ownership", async () => {
+    const ran = await withTempDatabase(async () => {
+      const projectOnly = upsertCodexThread({
+        projectId: "codex",
+        threadId: "thr_project_only",
+        threadName: "Project thread",
+        cwd: "/tmp/codex",
+        statusType: "idle",
+      });
+      const projectless = upsertCodexThread({
+        projectId: null,
+        cardId: null,
+        threadId: "thr_projectless",
+        threadName: "Projectless thread",
+        statusType: "idle",
+      });
+
+      expect(projectOnly.projectId).toBe("codex");
+      expect(projectOnly.cardId ?? null).toBe(null);
+      expect(projectless.projectId ?? null).toBe(null);
+      expect(projectless.cardId ?? null).toBe(null);
+
+      const byProject = listCodexProjectThreads("codex");
+      expect(byProject.length).toBe(1);
+      expect(byProject[0]?.threadId).toBe("thr_project_only");
+
+      const allThreads = JSON.stringify([
+        getCodexCardThreadLink("thr_project_only")?.threadId,
+        getCodexCardThreadLink("thr_projectless")?.threadId,
+      ]);
+      expect(allThreads).toBe(JSON.stringify(["thr_project_only", "thr_projectless"]));
     });
 
     if (!ran) expect(true).toBeTrue();

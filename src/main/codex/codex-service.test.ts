@@ -2498,6 +2498,47 @@ describe("codex-service startTurn", () => {
     }
   });
 
+  test("starts a follow-up for projectless thread metadata without forcing a workspace cwd", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      parseThreadRef: (threadId: string) => { projectId: string | null; cardId: string | null; cwd: string | null } | null;
+      markThreadAsActive: (threadId: string) => void;
+      persistThreadSnapshot: (threadId: string) => void;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    const requests: Array<{ method: string; params: unknown }> = [];
+
+    serviceInternals.parseThreadRef = () => ({ projectId: null, cardId: null, cwd: null });
+    serviceInternals.markThreadAsActive = () => {};
+    serviceInternals.persistThreadSnapshot = () => {};
+    client.start = async () => undefined;
+    client.request = async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      if (method === "turn/start") {
+        return {
+          turn: {
+            id: "turn_projectless",
+            status: "in_progress",
+            transcript: [],
+          },
+        };
+      }
+      throw new Error(`Unexpected method: ${method}`);
+    };
+
+    try {
+      const turn = await service.startTurn("thr_projectless", "Continue without project");
+      expect(turn?.turnId).toBe("turn_projectless");
+      expect(requests.length).toBe(1);
+      expect(JSON.stringify(requests[0]?.params).includes("\"cwd\"")).toBeFalse();
+    } finally {
+      await service.shutdown();
+    }
+  });
+
   test("omits serviceTier from turn/start when standard is requested explicitly", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
@@ -3681,7 +3722,7 @@ describe("codex-service startThreadForCard", () => {
         expect(linked?.cwd).toBe("/tmp/codex");
         expect(detail.threadId).toBe("thr_session_start");
         expect(detail.projectId).toBe("codex");
-        expect(detail.cardId).toBe("");
+        expect(detail.cardId ?? null).toBe(null);
       } finally {
         await service.shutdown();
       }

@@ -86,8 +86,8 @@ function buildBodyConversation(input: BuildThreadBodyModelInput) {
 
   return {
     threadId: input.threadId,
-    projectId: "",
-    cardId: "",
+    projectId: null,
+    cardId: null,
     source: null,
     threadName: null,
     threadPreview: "",

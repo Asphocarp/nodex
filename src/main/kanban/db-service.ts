@@ -562,10 +562,10 @@ export function renameProject(
         database.prepare("UPDATE recurrence_exceptions SET project_id = ? WHERE project_id = ?").run(newId, oldId);
         database.prepare("UPDATE reminder_receipts SET project_id = ? WHERE project_id = ?").run(newId, oldId);
         database.prepare("UPDATE reminder_snoozes SET project_id = ? WHERE project_id = ?").run(newId, oldId);
-        database.prepare("UPDATE codex_card_threads SET project_id = ? WHERE project_id = ?").run(newId, oldId);
+        database.prepare("UPDATE codex_threads SET project_id = ? WHERE project_id = ?").run(newId, oldId);
+        database.prepare("UPDATE codex_thread_card_links SET project_id = ? WHERE project_id = ?").run(newId, oldId);
         database.prepare("UPDATE project_sessions SET project_id = ? WHERE project_id = ?").run(newId, oldId);
         database.prepare("UPDATE project_session_tabs SET project_id = ? WHERE project_id = ?").run(newId, oldId);
-        database.prepare("UPDATE project_session_threads SET project_id = ? WHERE project_id = ?").run(newId, oldId);
         updateProjectSessionTabConfigsForProjectRename(database, oldId, newId);
       }
       if (updates?.name !== undefined) {
@@ -1348,12 +1348,17 @@ export async function moveCardToProject(
       "recurrence_exceptions",
       "reminder_receipts",
       "reminder_snoozes",
-      "codex_card_threads",
     ].forEach((tableName) => {
       database
         .prepare(`UPDATE ${tableName} SET project_id = ? WHERE project_id = ? AND card_id = ?`)
         .run(input.targetProjectId, input.sourceProjectId, input.cardId);
     });
+    database
+      .prepare("UPDATE codex_thread_card_links SET project_id = ? WHERE project_id = ? AND card_id = ?")
+      .run(input.targetProjectId, input.sourceProjectId, input.cardId);
+    database
+      .prepare("UPDATE codex_threads SET project_id = ? WHERE project_id = ? AND card_id = ?")
+      .run(input.targetProjectId, input.sourceProjectId, input.cardId);
 
     return {
       cardId: input.cardId,

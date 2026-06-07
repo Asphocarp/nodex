@@ -2162,7 +2162,7 @@ function resolveStoryOpenCardTarget(
     };
   }
 
-  if (runtime.activeThreadSummary) {
+  if (runtime.activeThreadSummary?.cardId) {
     return {
       cardId: runtime.activeThreadSummary.cardId,
       title:

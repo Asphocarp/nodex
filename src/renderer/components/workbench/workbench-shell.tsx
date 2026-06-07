@@ -1537,7 +1537,7 @@ function makeThreadSummary(thread: ProjectSessionThreadLink): CodexThreadSummary
   return {
     threadId: thread.threadId,
     projectId: thread.projectId,
-    cardId: "",
+    cardId: null,
     source: thread.parentThreadId ? { parentThreadId: thread.parentThreadId } : null,
     threadName: thread.threadName ?? null,
     threadPreview: thread.threadPreview,

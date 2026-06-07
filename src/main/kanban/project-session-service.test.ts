@@ -184,7 +184,7 @@ describe("project session service", () => {
         threadPreview: "Follow-up",
       });
       expect(updated.threadId).toBe("thread-2");
-      expect(updated.parentThreadId).toBe("parent-1");
+      expect(updated.parentThreadId ?? null).toBe(null);
       expect(updated.threadPreview).toBe("Follow-up");
 
       expect(detachProjectSessionThread(session.id)).toBeTrue();

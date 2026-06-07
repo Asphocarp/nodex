@@ -59,7 +59,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Back/forward navigation history is window-session-local and is restored only from that window's session storage; it is not part of the cold-launch resume snapshot saved when all windows close
 - Desktop single-instance behavior is scoped per resolved server profile (`KANBAN_DIR`/`config.toml` dir). Different profile dirs can run at the same time (for example packaged release + dev build), while each profile still enforces one process with many windows.
 - Session tabs and ordering are shared project data in SQLite. Window state owns only active project, active session, active tab, right-panel width/full-width mode, collapse overrides, and focus history.
-- Existing card-owned thread links remain in `codex_card_threads`. Optional session-thread attachments are stored separately and do not rewrite card-thread ownership.
+- Codex thread metadata lives in `codex_threads`, where `project_id` and `card_id` are nullable. Optional card ownership lives in `codex_thread_card_links`; optional session ownership lives in `project_session_threads`.
 - Sidebar rows use consistent nested indentation for project folders and their sessions. Sessions can show a subtle attached-thread indicator.
 - Sidebar footer includes workspace switching controls; workspaces remain profile-local window layout templates and do not own shared project session data.
 - Settings opens a full-page settings shell with a Codex-style left navigation rail, a `Back to app` affordance, and one active section page at a time instead of a single scrollspy document. The shell is path-driven (`/settings/:section`) and redirects invalid section ids to the default visible section. The current sections are `General` (`Restore windows`, `Desktop notifications`, `App updates`, `Adjacent panel peek`), `Appearance` (`Theme`, `Sans font size`, `Code font size`), `Agent` (`Permissions modes`, `Custom config.toml settings`), `Editor` (`Thread detail`, `Spellcheck`, `Auto-link while typing`, `Auto-link on paste`, `Recognize bare domains`, `Large paste text threshold`, `Large paste description soft limit`, `Open markdown file links in`, `Smart parse block prefixes`, `Strip parsed prefix from title`, `Confirm thread section send`, `Cmd/Ctrl+Enter to send long prompts`, `Queue follow-ups`), `Card` (`Kanban card properties`, `Card stage collapsed properties`), `Worktrees` (`Worktree start mode`, `Auto branch prefix`, managed-worktree inventory), `Local environments` (a settings-surface page constrained to the same centered max-width as other settings pages; its root state is a workspace chooser with `Learn more` copy and `Add project`, and project-specific summary/edit subpages move through a breadcrumb toolbar while editing structured `.codex/environments/*.toml` `setup`, `cleanup`, platform overrides, and reusable actions), and `Backups` (auto-backup on/off, frequency hours, backup retention, history retention, manual backup, restore, per-snapshot delete). `Sans font size` defaults to `15px`, persists locally, updates `--vscode-font-size`, and scales the shared sans typography tokens used by the renderer; `Code font size` defaults to `14px`, persists locally, and sets `--vscode-editor-font-size` globally.
@@ -721,18 +721,7 @@ CREATE TABLE project_session_tabs (
 
 CREATE TABLE project_session_threads (
   session_id TEXT PRIMARY KEY REFERENCES project_sessions(id) ON DELETE CASCADE,
-  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  thread_id TEXT NOT NULL,
-  parent_thread_id TEXT,
-  thread_name TEXT,
-  thread_preview TEXT NOT NULL DEFAULT '',
-  model_provider TEXT NOT NULL DEFAULT '',
-  cwd TEXT,
-  status_type TEXT NOT NULL DEFAULT 'notLoaded',
-  status_active_flags_json TEXT NOT NULL DEFAULT '[]',
-  archived INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
+  thread_id TEXT NOT NULL REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
   linked_at TEXT NOT NULL
 );
 
@@ -814,11 +803,12 @@ CREATE INDEX idx_history_timestamp ON history(timestamp DESC);
 CREATE INDEX idx_history_session ON history(session_id);
 CREATE INDEX idx_history_group ON history(project_id, group_id);
 
--- Codex card-thread links
-CREATE TABLE codex_card_threads (
+-- Codex thread metadata and optional card ownership
+CREATE TABLE codex_threads (
   thread_id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+  project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+  card_id TEXT REFERENCES cards(id) ON DELETE SET NULL,
+  parent_thread_id TEXT,
   thread_name TEXT,
   thread_preview TEXT NOT NULL DEFAULT '',
   model_provider TEXT NOT NULL DEFAULT '',
@@ -831,10 +821,20 @@ CREATE TABLE codex_card_threads (
   linked_at TEXT NOT NULL
 ) WITHOUT ROWID;
 
-CREATE INDEX idx_codex_card_threads_project_card_updated
-  ON codex_card_threads(project_id, card_id, updated_at DESC);
-CREATE INDEX idx_codex_card_threads_project_updated
-  ON codex_card_threads(project_id, updated_at DESC);
+CREATE INDEX idx_codex_threads_project_updated
+  ON codex_threads(project_id, updated_at DESC);
+CREATE INDEX idx_codex_threads_card_updated
+  ON codex_threads(card_id, updated_at DESC);
+
+CREATE TABLE codex_thread_card_links (
+  thread_id TEXT PRIMARY KEY REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+  linked_at TEXT NOT NULL
+) WITHOUT ROWID;
+
+CREATE INDEX idx_codex_thread_card_links_project_card
+  ON codex_thread_card_links(project_id, card_id);
 ```
 
 ### Real-Time Sync Flow

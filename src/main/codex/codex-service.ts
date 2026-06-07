@@ -130,14 +130,15 @@ import * as dbService from "../kanban/db-service";
 import { resolveAssetPath } from "../kanban/asset-service";
 import { getKanbanDir } from "../kanban/config";
 import {
-  getCodexCardThreadLink,
+  getCodexThread,
+  linkCodexThreadToCard,
   listCodexThreadLinks,
   listCodexProjectThreads,
   unlinkCodexThread,
   updateCodexThreadArchived,
   updateCodexThreadName,
   updateCodexThreadStatus,
-  upsertCodexCardThreadLink,
+  upsertCodexThread,
 } from "./codex-link-repository";
 import {
   CodexAppServerClient,
@@ -200,8 +201,8 @@ const codexLogger = getLogger({ subsystem: "codex", component: "service" });
 const require = createRequire(import.meta.url);
 
 interface ThreadRef {
-  projectId: string;
-  cardId: string;
+  projectId: string | null;
+  cardId: string | null;
   cwd: string | null;
 }
 
@@ -614,7 +615,7 @@ function sessionThreadLinkToSummary(link: ProjectSessionThreadLink): CodexThread
   return {
     threadId: link.threadId,
     projectId: link.projectId,
-    cardId: "",
+    cardId: null,
     source: link.parentThreadId ? { parentThreadId: link.parentThreadId } : null,
     threadName: link.threadName ?? null,
     threadPreview: link.threadPreview,
@@ -1902,8 +1903,8 @@ export class CodexService extends EventEmitter {
 
   private getThreadLinkSafely(threadId: string) {
     try {
-      const cardLink = getCodexCardThreadLink(threadId);
-      if (cardLink) return cardLink;
+      const thread = getCodexThread(threadId);
+      if (thread) return thread;
       const sessionLink = projectSessionService.getProjectSessionThreadLink(threadId);
       return sessionLink ? sessionThreadLinkToSummary(sessionLink) : null;
     } catch (error) {
@@ -1929,8 +1930,8 @@ export class CodexService extends EventEmitter {
         }
       : {
           threadId,
-          projectId: "",
-          cardId: "",
+          projectId: null,
+          cardId: null,
           source: null,
           threadName: null,
           threadPreview: "",
@@ -2805,6 +2806,7 @@ export class CodexService extends EventEmitter {
     const recordsByPath = links.reduce<Map<string, ManagedWorktreeRecord>>((acc, link) => {
       const cwd = link.cwd?.trim();
       if (!cwd) return acc;
+      if (!link.projectId || !link.cardId) return acc;
 
       const resolvedPath = path.resolve(cwd);
       if (!isPathWithin(managedRoot, resolvedPath)) return acc;
@@ -2814,8 +2816,8 @@ export class CodexService extends EventEmitter {
         return acc;
       }
 
-      const project = dbService.getProject(link.projectId);
-      const card = dbService.getCardSync(link.projectId, link.cardId);
+      const project = link.projectId ? dbService.getProject(link.projectId) : null;
+      const card = link.projectId && link.cardId ? dbService.getCardSync(link.projectId, link.cardId) : null;
 
       acc.set(resolvedPath, {
         threadId: link.threadId,
@@ -4188,7 +4190,7 @@ export class CodexService extends EventEmitter {
     if (!sessionDetail) return null;
 
     const reconciledDetail = this.reconcileDetailTranscriptToTerminalTurnStatus(sessionDetail);
-    upsertCodexCardThreadLink({
+    upsertCodexThread({
       projectId: link.projectId,
       cardId: link.cardId,
       threadId,
@@ -4442,32 +4444,50 @@ export class CodexService extends EventEmitter {
         ? {
             projectId: existing.projectId,
             cardId: existing.cardId,
+            cwd: existing.cwd,
           }
         : null);
-
-    if (!ref) return null;
 
     const parsedStatus = parseThreadStatus(candidate.status);
 
     const parentThreadId = parseThreadSourceParentThreadId(candidate.source);
-    const summary = upsertCodexCardThreadLink({
-      projectId: ref.projectId,
-      cardId: ref.cardId,
-      threadId: candidate.id,
-      source: parentThreadId ? { parentThreadId } : null,
-      threadName: typeof candidate.name === "string" ? candidate.name : null,
-      threadPreview: typeof candidate.preview === "string" ? candidate.preview : "",
-      modelProvider: typeof candidate.modelProvider === "string" ? candidate.modelProvider : "",
-      cwd: typeof candidate.cwd === "string"
-        ? candidate.cwd
-        : (existing?.cwd ?? (fallbackCwd?.trim() || null)),
-      statusType: parsedStatus.statusType,
-      statusActiveFlags: parsedStatus.statusActiveFlags,
-      archived: existing?.archived ?? false,
-      createdAt: normalizeTimestamp(candidate.createdAt),
-      updatedAt: normalizeTimestamp(candidate.updatedAt),
-      linkedAt: existing?.linkedAt,
-    });
+    const summary = ref?.projectId && ref.cardId
+      ? linkCodexThreadToCard({
+          projectId: ref.projectId,
+          cardId: ref.cardId,
+          threadId: candidate.id,
+          source: parentThreadId ? { parentThreadId } : null,
+          threadName: typeof candidate.name === "string" ? candidate.name : null,
+          threadPreview: typeof candidate.preview === "string" ? candidate.preview : "",
+          modelProvider: typeof candidate.modelProvider === "string" ? candidate.modelProvider : "",
+          cwd: typeof candidate.cwd === "string"
+            ? candidate.cwd
+            : (existing?.cwd ?? ref.cwd ?? (fallbackCwd?.trim() || null)),
+          statusType: parsedStatus.statusType,
+          statusActiveFlags: parsedStatus.statusActiveFlags,
+          archived: existing?.archived ?? false,
+          createdAt: normalizeTimestamp(candidate.createdAt),
+          updatedAt: normalizeTimestamp(candidate.updatedAt),
+          linkedAt: existing?.linkedAt,
+        })
+      : upsertCodexThread({
+          projectId: ref?.projectId ?? existing?.projectId ?? null,
+          cardId: ref?.cardId ?? existing?.cardId ?? null,
+          threadId: candidate.id,
+          source: parentThreadId ? { parentThreadId } : null,
+          threadName: typeof candidate.name === "string" ? candidate.name : null,
+          threadPreview: typeof candidate.preview === "string" ? candidate.preview : "",
+          modelProvider: typeof candidate.modelProvider === "string" ? candidate.modelProvider : "",
+          cwd: typeof candidate.cwd === "string"
+            ? candidate.cwd
+            : (existing?.cwd ?? ref?.cwd ?? (fallbackCwd?.trim() || null)),
+          statusType: parsedStatus.statusType,
+          statusActiveFlags: parsedStatus.statusActiveFlags,
+          archived: existing?.archived ?? false,
+          createdAt: normalizeTimestamp(candidate.createdAt),
+          updatedAt: normalizeTimestamp(candidate.updatedAt),
+          linkedAt: existing?.linkedAt,
+        });
 
     if (summary?.threadName?.trim()) {
       this.threadTitleState.setTitle(summary.threadId, summary.threadName);
@@ -5164,7 +5184,7 @@ export class CodexService extends EventEmitter {
           threadId: link.threadId,
           name: explicitThreadName,
         });
-        projectSessionService.updateProjectSessionThreadNameByThreadId(link.threadId, explicitThreadName);
+        updateCodexThreadName(link.threadId, explicitThreadName);
         this.emitThreadTitleUpdated(link.threadId, explicitThreadName);
         const updatedThread = this.getThreadLinkSafely(link.threadId);
         if (updatedThread) {
@@ -5520,7 +5540,6 @@ export class CodexService extends EventEmitter {
 
     this.emitThreadTitleUpdated(threadId, normalizedName);
     updateCodexThreadName(threadId, normalizedName);
-    projectSessionService.updateProjectSessionThreadNameByThreadId(threadId, normalizedName);
     const updated = this.getThreadLinkSafely(threadId);
     if (updated) {
       this.emitEvent({ type: "threadSummary", thread: updated });
@@ -5583,7 +5602,7 @@ export class CodexService extends EventEmitter {
 
     const threadRef = this.parseThreadRef(threadId);
     const workspacePath = threadRef?.cwd?.trim()
-      || (threadRef ? this.parseWorkspacePath(threadRef.projectId) : null);
+      || (threadRef?.projectId ? this.parseWorkspacePath(threadRef.projectId) : null);
     const resolvedPermissionState = await this.readPermissionState(threadRef?.projectId ?? null);
     const permissionState = this.resolvePermissionStateForRequest(
       resolvedPermissionState,

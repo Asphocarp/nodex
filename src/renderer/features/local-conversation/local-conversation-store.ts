@@ -165,8 +165,8 @@ type UserInputRequestListener = (payload: {
 }) => void;
 
 interface CodexThreadStartProgressState {
-  projectId: string;
-  cardId: string;
+  projectId: string | null;
+  cardId: string | null;
   phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
   message: string;
   outputText: string;
@@ -284,8 +284,8 @@ function cleanupListenerSet<T>(
   }
 }
 
-function getThreadStartProgressTargetKey(projectId: string, cardId: string): string {
-  return `${projectId}:${cardId}`;
+function getThreadStartProgressTargetKey(projectId: string | null, cardId: string | null): string {
+  return `${projectId ?? "projectless"}:${cardId ?? "cardless"}`;
 }
 
 function applyTerminalOutputDelta(input: {
@@ -358,8 +358,8 @@ interface ConversationAnyProjection {
 
 interface ConversationMetaProjection {
   id: string;
-  projectId: string;
-  cardId: string;
+  projectId: string | null;
+  cardId: string | null;
   archived: boolean;
   createdAtMs: number;
   updatedAtMs: number;
@@ -916,7 +916,7 @@ export class CodexAppServerManager {
     if (!detail.threadName?.trim()) {
       void this.generateAndPersistThreadTitle({
         threadId: detail.threadId,
-        projectId: detail.projectId,
+        projectId: input.projectId,
         prompt: input.prompt,
         cwd: detail.cwd,
       });
@@ -939,7 +939,7 @@ export class CodexAppServerManager {
     if (!detail.threadName?.trim()) {
       void this.generateAndPersistThreadTitle({
         threadId: detail.threadId,
-        projectId: detail.projectId,
+        projectId: input.projectId,
         prompt: input.prompt,
         cwd: detail.cwd,
       });
@@ -948,7 +948,7 @@ export class CodexAppServerManager {
     return detail;
   }
 
-  async setThreadName(threadId: string, name: string, projectId: string): Promise<boolean> {
+  async setThreadName(threadId: string, name: string, projectId: string | null): Promise<boolean> {
     const normalizedName = name.trim();
     if (!normalizedName) {
       return false;
@@ -958,11 +958,11 @@ export class CodexAppServerManager {
     try {
       const result = (await invoke("codex:thread:name:set", threadId, normalizedName)) as boolean;
       if (!result) {
-        void this.loadThreads(projectId).catch(() => {});
+        if (projectId) void this.loadThreads(projectId).catch(() => {});
       }
       return result;
     } catch (error) {
-      void this.loadThreads(projectId).catch(() => {});
+      if (projectId) void this.loadThreads(projectId).catch(() => {});
       throw error;
     }
   }
@@ -1498,7 +1498,7 @@ export class CodexAppServerManager {
 
   private async generateAndPersistThreadTitle(input: {
     threadId: string;
-    projectId: string;
+    projectId: string | null;
     prompt: string;
     cwd: string | null;
   }): Promise<void> {
@@ -1542,10 +1542,15 @@ export class CodexAppServerManager {
       this.threadTitlesById.set(nextThread.threadId, nextThread.threadName);
     }
 
-    const currentThreads = this.threadSummariesByProject.get(nextThread.projectId) ?? EMPTY_THREADS;
-    const nextThreads = upsertThreadSummary(currentThreads, nextThread);
     this.threadSummariesById.set(nextThread.threadId, nextThread);
     this.ensureRecentConversationId(nextThread.threadId);
+    if (!nextThread.projectId) {
+      this.notifyAnyConversationCallbacks({ forceMeta: true });
+      return;
+    }
+
+    const currentThreads = this.threadSummariesByProject.get(nextThread.projectId) ?? EMPTY_THREADS;
+    const nextThreads = upsertThreadSummary(currentThreads, nextThread);
     if (areThreadSummariesEqual(currentThreads, nextThreads)) {
       this.notifyAnyConversationCallbacks({ forceMeta: true });
       return;

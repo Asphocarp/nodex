@@ -485,6 +485,8 @@ describe("workbench session shell", () => {
     expect(threadPage?.getAttribute("data-session-thread-page-hidden")).toBe("false");
     expect(textContent(screen.container).includes("Thread:thread-alpha")).toBeTrue();
     expect(screen.container.querySelector('[data-thread-stage="true"]') !== null).toBeTrue();
+    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(JSON.stringify(props?.activeThreadSummary).includes('"cardId":null')).toBeTrue();
   });
 
   test("renders the session new-thread composer instead of the old attach placeholder", async () => {

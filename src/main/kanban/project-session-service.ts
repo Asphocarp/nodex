@@ -19,7 +19,13 @@ import type {
   ProjectSessionThreadLink,
   ProjectSessionThreadLinkInput,
   ProjectSessionUpdateInput,
+  CodexThreadActiveFlag,
+  CodexThreadStatusType,
 } from "../../shared/types";
+import {
+  getCodexThread,
+  upsertCodexThread,
+} from "../codex/codex-link-repository";
 
 interface DbProjectSession {
   id: string;
@@ -48,8 +54,10 @@ interface DbProjectSessionTab {
 
 interface DbProjectSessionThread {
   session_id: string;
-  project_id: string;
   thread_id: string;
+  session_project_id: string;
+  project_id: string | null;
+  card_id: string | null;
   parent_thread_id: string | null;
   thread_name: string | null;
   thread_preview: string;
@@ -145,7 +153,7 @@ function parseStatusActiveFlags(value: string): string[] {
 function rowToThread(row: DbProjectSessionThread): ProjectSessionThreadLink {
   return {
     sessionId: row.session_id,
-    projectId: row.project_id,
+    projectId: row.project_id ?? row.session_project_id,
     threadId: row.thread_id,
     parentThreadId: row.parent_thread_id || undefined,
     threadName: row.thread_name || undefined,
@@ -168,7 +176,29 @@ function buildSession(row: DbProjectSession): ProjectSession {
     .all(row.id) as DbProjectSessionTab[];
   const tabs = tabRows.map(rowToTab);
   const threadRow = database
-    .prepare("SELECT * FROM project_session_threads WHERE session_id = ?")
+    .prepare(`
+      SELECT
+        pst.session_id,
+        pst.linked_at,
+        ps.project_id AS session_project_id,
+        t.thread_id,
+        t.project_id,
+        t.card_id,
+        t.parent_thread_id,
+        t.thread_name,
+        t.thread_preview,
+        t.model_provider,
+        t.cwd,
+        t.status_type,
+        t.status_active_flags_json,
+        t.archived,
+        t.created_at,
+        t.updated_at
+      FROM project_session_threads pst
+      JOIN project_sessions ps ON ps.id = pst.session_id
+      JOIN codex_threads t ON t.thread_id = pst.thread_id
+      WHERE pst.session_id = ?
+    `)
     .get(row.id) as DbProjectSessionThread | undefined;
 
   return {
@@ -249,23 +279,31 @@ export function getProjectSession(sessionId: string): ProjectSession | null {
 
 export function getProjectSessionThreadLink(threadId: string): ProjectSessionThreadLink | null {
   const row = getDb()
-    .prepare("SELECT * FROM project_session_threads WHERE thread_id = ?")
+    .prepare(`
+      SELECT
+        pst.session_id,
+        pst.linked_at,
+        ps.project_id AS session_project_id,
+        t.thread_id,
+        t.project_id,
+        t.card_id,
+        t.parent_thread_id,
+        t.thread_name,
+        t.thread_preview,
+        t.model_provider,
+        t.cwd,
+        t.status_type,
+        t.status_active_flags_json,
+        t.archived,
+        t.created_at,
+        t.updated_at
+      FROM project_session_threads pst
+      JOIN project_sessions ps ON ps.id = pst.session_id
+      JOIN codex_threads t ON t.thread_id = pst.thread_id
+      WHERE pst.thread_id = ?
+    `)
     .get(threadId) as DbProjectSessionThread | undefined;
   return row ? rowToThread(row) : null;
-}
-
-export function updateProjectSessionThreadNameByThreadId(
-  threadId: string,
-  threadName: string | null,
-): ProjectSessionThreadLink | null {
-  const normalizedThreadId = threadId.trim();
-  if (!normalizedThreadId) return null;
-  getDb().prepare(`
-    UPDATE project_session_threads
-    SET thread_name = ?, updated_at = ?
-    WHERE thread_id = ?
-  `).run(threadName?.trim() || null, Date.now(), normalizedThreadId);
-  return getProjectSessionThreadLink(normalizedThreadId);
 }
 
 export function createProjectSession(input: ProjectSessionCreateInput): ProjectSession {
@@ -488,37 +526,36 @@ export function upsertProjectSessionThreadLink(input: ProjectSessionThreadLinkIn
 
   const nowMs = Date.now();
   const linkedAt = new Date().toISOString();
+  const existing = getCodexThread(parsed.threadId);
+  upsertCodexThread({
+    projectId: parsed.projectId,
+    cardId: existing?.cardId ?? null,
+    threadId: parsed.threadId,
+    source: parsed.parentThreadId
+      ? { parentThreadId: parsed.parentThreadId }
+      : existing?.source ?? null,
+    threadName: parsed.threadName ?? existing?.threadName ?? null,
+    threadPreview: parsed.threadPreview ?? existing?.threadPreview ?? "",
+    modelProvider: parsed.modelProvider ?? existing?.modelProvider ?? "",
+    cwd: parsed.cwd ?? existing?.cwd ?? null,
+    statusType: parsed.statusType as CodexThreadStatusType | undefined,
+    statusActiveFlags: parsed.statusActiveFlags as CodexThreadActiveFlag[] | undefined,
+    archived: parsed.archived ?? existing?.archived ?? false,
+    createdAt: parsed.createdAt ?? existing?.createdAt ?? nowMs,
+    updatedAt: parsed.updatedAt ?? nowMs,
+    linkedAt: existing?.linkedAt ?? linkedAt,
+  });
+
   getDb().prepare(`
     INSERT INTO project_session_threads (
-      session_id, project_id, thread_id, parent_thread_id, thread_name, thread_preview,
-      model_provider, cwd, status_type, status_active_flags_json, archived, created_at, updated_at, linked_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      session_id, thread_id, linked_at
+    ) VALUES (?, ?, ?)
     ON CONFLICT(session_id) DO UPDATE SET
       thread_id = excluded.thread_id,
-      parent_thread_id = COALESCE(excluded.parent_thread_id, project_session_threads.parent_thread_id),
-      thread_name = COALESCE(excluded.thread_name, project_session_threads.thread_name),
-      thread_preview = excluded.thread_preview,
-      model_provider = excluded.model_provider,
-      cwd = COALESCE(excluded.cwd, project_session_threads.cwd),
-      status_type = excluded.status_type,
-      status_active_flags_json = excluded.status_active_flags_json,
-      archived = excluded.archived,
-      updated_at = excluded.updated_at,
       linked_at = excluded.linked_at
   `).run(
     parsed.sessionId,
-    parsed.projectId,
     parsed.threadId,
-    parsed.parentThreadId ?? null,
-    parsed.threadName ?? null,
-    parsed.threadPreview ?? "",
-    parsed.modelProvider ?? "",
-    parsed.cwd ?? null,
-    parsed.statusType ?? "notLoaded",
-    JSON.stringify(parsed.statusActiveFlags ?? []),
-    parsed.archived ? 1 : 0,
-    parsed.createdAt ?? nowMs,
-    parsed.updatedAt ?? nowMs,
     linkedAt,
   );
 
