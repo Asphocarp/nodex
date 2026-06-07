@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { act, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
-import { render } from "@/test/dom";
+import { render, settleAsyncRender } from "@/test/dom";
 import type { NewChatStartInSelectorModel, ThreadStageActions } from "../../thread-stage-types";
 import { NewChatStartInSelector } from "./new-chat-start-in-selector";
 
@@ -86,6 +86,7 @@ async function renderSelector(
     );
     await Promise.resolve();
   });
+  await settleAsyncRender();
   return view;
 }
 
@@ -95,6 +96,7 @@ async function openMenu(trigger: HTMLElement): Promise<void> {
     fireEvent.click(trigger);
     await Promise.resolve();
   });
+  await settleAsyncRender();
   await waitFor(() => {
     if (!document.body.querySelector("[data-new-chat-start-in-option='localProject']")) {
       throw new Error("Expected start-in selector menu to open.");
@@ -104,11 +106,13 @@ async function openMenu(trigger: HTMLElement): Promise<void> {
 
 describe("NewChatStartInSelector", () => {
   afterEach(async () => {
+    await settleAsyncRender();
     await act(async () => {
       cleanup();
       document.body.replaceChildren();
       await Promise.resolve();
     });
+    await settleAsyncRender();
   });
 
   test("renders the closed Work locally trigger", async () => {
@@ -152,6 +156,7 @@ describe("NewChatStartInSelector", () => {
       fireEvent.click(row);
       await Promise.resolve();
     });
+    await settleAsyncRender();
 
     expect(selected[0]).toBe("newWorktree");
   });

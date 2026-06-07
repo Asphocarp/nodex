@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { act, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
-import { render } from "@/test/dom";
+import { render, settleAsyncRender } from "@/test/dom";
 import type { NewChatProjectSelectorModel, ThreadStageActions } from "../../thread-stage-types";
 import { NewChatProjectSelector } from "./new-chat-project-selector";
 
@@ -81,6 +81,7 @@ async function openMenu(trigger: HTMLElement): Promise<void> {
     fireEvent.click(trigger);
     await Promise.resolve();
   });
+  await settleAsyncRender();
   await waitFor(() => {
     if (!document.body.querySelector("[data-new-chat-project-search='true']")) {
       throw new Error("Expected project selector menu to open.");
@@ -101,16 +102,19 @@ async function renderSelector(
     );
     await Promise.resolve();
   });
+  await settleAsyncRender();
   return view;
 }
 
 describe("NewChatProjectSelector", () => {
   afterEach(async () => {
+    await settleAsyncRender();
     await act(async () => {
       cleanup();
       document.body.replaceChildren();
       await Promise.resolve();
     });
+    await settleAsyncRender();
   });
 
   test("renders selected project trigger and selected row", async () => {
@@ -152,6 +156,7 @@ describe("NewChatProjectSelector", () => {
       fireEvent.click(devtoolsRow);
       await Promise.resolve();
     });
+    await settleAsyncRender();
     expect(selected[0]).toBe("devtools-codex");
   });
 
@@ -178,6 +183,7 @@ describe("NewChatProjectSelector", () => {
       fireEvent.click(addRow);
       await Promise.resolve();
     });
+    await settleAsyncRender();
     expect(addProjectCount).toBe(1);
   });
 });
