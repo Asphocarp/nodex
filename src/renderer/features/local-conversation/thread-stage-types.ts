@@ -539,6 +539,7 @@ export interface ThreadStageScreenProps {
   header: ReactNode;
   body: ReactNode;
   footer: ReactNode;
+  floatingContent?: ReactNode;
 }
 
 export interface ThreadBodyUiStateOverrides {

@@ -11,6 +11,7 @@ Detailed Auto-review preset, config, and approval-lifecycle rules are specified 
 - Sidebar footer: workspace dots remain profile-local window layout controls. Workspaces do not own project session data.
 - Active session header: uses the active thread title row as the session header, without a separate session title or project-name subtitle. The fixed global header still owns the Codex-style `Toggle side panel` control. Right-panel tab creation and expand/restore actions belong to the right-panel tab header; there is no attach/detach thread toolbar button.
 - Thread page: the main session viewport always hosts the session thread page. If no thread is attached, it shows the new-thread composer. If the right panel is collapsed, the global top-right side-panel toggle opens it.
+- Pinned summary: attached-thread pages with the right panel collapsed show a Codex Electron-style `Toggle pinned summary` button beside the global side-panel toggle. The 300px floating summary panel renders as a pinned stage overlay below the fixed toolbar, never over the top toolbar buttons. Opening the right panel or expanding it full-width hides the pinned-summary button and overlay without changing the saved pinned-open preference.
 - Right panel: the v1 right panel renders one tab group with ordered session tabs. It can be collapsed, regular-width, or expanded to the full session content area. New non-Overview sessions start with the right panel collapsed; each seeded `Overview` session starts with the right panel open and full-width expanded on its default DB tab unless the user has changed that session's panel width. Hiding and showing the side panel preserves the session-local regular/full-width mode. The persisted layout shape already supports future split leaves, but v1 does not render multiple split groups.
 - Browser tabs: browser is a real tab kind but renders a nonfunctional placeholder until the browser feature ships.
 - The right panel has a left-edge resize handle in regular mode. Full-width mode collapses the thread viewport to zero width, removes the resize handle and inner left border, and exposes `Restore panel width` from the right-panel tab header.
@@ -50,6 +51,7 @@ Detailed Auto-review preset, config, and approval-lifecycle rules are specified 
 - Surfaces should use the generated Codex theme layers and token classes before adding local CSS.
 - Tabs are dense, use hover-revealed close actions, and support pointer reorder through the shared tab strip.
 - Project/session rows should be information-dense and shallow: folder disclosure, project label, session title, and subtle thread-attached indicator.
+- The thread page content frame must keep the Codex toolbar-offset top margin and top border so floating stage overlays begin below the global header controls.
 - Do not reintroduce the stage rail as a compatibility layer. DB view, Card Stage, Thread, Diff/review, and Terminal implementations should remain reusable bodies behind sessions and tabs.
 
 ## Storybook And Testing

@@ -84,6 +84,18 @@ mock.module("./workbench-terminal-panel", () => ({
 }));
 
 mock.module("@/features/local-conversation", () => ({
+  ThreadSummaryPanelToggle: (props: { pressed: boolean; onClick: () => void }) => (
+    createElement(
+      "button",
+      {
+        type: "button",
+        "aria-label": "Toggle pinned summary",
+        "aria-pressed": props.pressed,
+        onClick: props.onClick,
+      },
+      "Summary",
+    )
+  ),
   ConnectedThreadStage: (props: Record<string, unknown>) => {
     (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps = props;
     const actions = props.actions as {
@@ -131,6 +143,10 @@ mock.module("@/features/local-conversation", () => ({
         : null,
       createElement("span", null, String(props.selectedModel)),
       createElement("span", null, String(props.selectedReasoningEffort)),
+      createElement("span", {
+        "data-summary-panel-mounted": String(props.summaryPanelMounted),
+        "data-summary-panel-open": String(props.summaryPanelOpen),
+      }, String(props.summaryPanelMounted)),
     );
   },
   useCodexAppServerControl: () => mockCodexControl,
@@ -451,6 +467,7 @@ beforeEach(() => {
   invokeCalls = [];
   startThreadForSessionCalls = [];
   mockInvokeImpl = null;
+  localStorage.clear();
   delete (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
   delete (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
 });
@@ -742,7 +759,14 @@ describe("workbench session shell", () => {
     if (!globalHeader || !threadFrame) throw new Error("Expected workbench global header and thread frame");
     expect(textContent(globalHeader).includes("Overview")).toBeFalse();
     expect(textContent(globalHeader).includes("Alpha")).toBeFalse();
-    expect(Boolean(threadFrame?.getAttribute("style")?.includes("--app-shell-main-content-frame-top-offset"))).toBeFalse();
+    expect(threadFrame.className.includes("mt-(--app-shell-main-content-frame-top-offset)")).toBeTrue();
+    expect(threadFrame.className.includes("border-t")).toBeTrue();
+    expect(threadFrame.className.includes("border-token-border-default")).toBeTrue();
+    expect(Boolean(threadFrame.getAttribute("style")?.includes("--app-shell-main-content-frame-top-offset"))).toBeFalse();
+    const topFade = screen.container.querySelector(".app-shell-main-content-top-fade");
+    expect(topFade?.getAttribute("data-app-shell-main-content-top-fade")).toBe("full-bleed");
+    expect(topFade?.className.includes("h-4")).toBeTrue();
+    expect(topFade?.className.includes("bg-gradient-to-b")).toBeTrue();
   });
 
   test("shows the thread-page separator only while the right panel is enabled", async () => {
@@ -764,7 +788,7 @@ describe("workbench session shell", () => {
     const visibleProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
     const visibleFrame = screen.container.querySelector(".app-shell-main-content-frame");
     expect(visibleProps?.showHeaderSeparator).toBeTrue();
-    expect(visibleFrame?.className.includes("border-t")).toBeFalse();
+    expect(visibleFrame?.className.includes("border-t")).toBeTrue();
     expect(visibleFrame?.getAttribute("style")?.includes("--thread-stage-header-right-reserve: 0px")).toBeTrue();
     screen.unmount();
 
@@ -961,6 +985,79 @@ describe("workbench session shell", () => {
       && JSON.stringify(call[2]) === JSON.stringify({ rightPaneCollapsed: false })
     )).toBeTrue();
     expect(screen.queryAllByRole("tablist").length > 0).toBeTrue();
+  });
+
+  test("thread summary toggle defaults to pinned open and persists collapsed state", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [
+          makeAttachedSession({
+            id: "session:alpha:thread",
+            title: "Thread",
+            isOverview: false,
+            rightPaneCollapsed: true,
+            tabs: [],
+          }),
+        ],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const summaryToggle = screen.getByRole("button", { name: "Toggle pinned summary" });
+    let stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(summaryToggle.getAttribute("aria-pressed")).toBe("true");
+    expect(stageProps?.summaryPanelMounted).toBe(true);
+    expect(stageProps?.summaryPanelOpen).toBe(true);
+
+    await act(async () => {
+      fireEvent.click(summaryToggle);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(summaryToggle.getAttribute("aria-pressed")).toBe("false");
+    expect(stageProps?.summaryPanelMounted).toBe(true);
+    expect(stageProps?.summaryPanelOpen).toBe(false);
+    expect(localStorage.getItem("nodex:thread-summary-panel:pinned-open")).toBe("false");
+  });
+
+  test("thread summary toggle is hidden while the right panel is open without changing pinned preference", async () => {
+    localStorage.setItem("nodex:thread-summary-panel:pinned-open", "true");
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [
+          makeAttachedSession({
+            id: "session:alpha:thread",
+            title: "Thread",
+            isOverview: false,
+            rightPaneCollapsed: false,
+          }),
+        ],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    let stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(screen.queryByRole("button", { name: "Toggle pinned summary" })).toBe(null);
+    expect(stageProps?.summaryPanelMounted).toBe(true);
+    expect(stageProps?.summaryPanelOpen).toBe(false);
+    expect(localStorage.getItem("nodex:thread-summary-panel:pinned-open")).toBe("true");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Toggle side panel" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const summaryToggle = screen.getByRole("button", { name: "Toggle pinned summary" });
+    stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(summaryToggle.getAttribute("aria-pressed")).toBe("true");
+    expect(stageProps?.summaryPanelMounted).toBe(true);
+    expect(stageProps?.summaryPanelOpen).toBe(true);
+    expect(localStorage.getItem("nodex:thread-summary-panel:pinned-open")).toBe("true");
   });
 
   test("overview sessions default to open full-width right panels", async () => {

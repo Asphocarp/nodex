@@ -1,15 +1,12 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import { columnStyles } from "@/components/kanban/column";
 import { cn } from "../../../lib/utils";
 import { CardIcon } from "../../../components/workbench/card-icon";
 import {
   AuthPopover,
-  ConnectionBadge,
-  renderConnectionAccountTooltipContent,
   CardInfoHoverCard,
   invoke,
 } from "./local-conversation-stage-header-deps";
-import { shouldRefreshAccountOnConnectionTooltipOpen } from "./shared/account-tooltip-refresh";
 import { resolveThreadCardResult } from "./shared/thread-card-fetch";
 import type { Card } from "../../../lib/types";
 import type { ThreadStageActions, ThreadStageHeaderModel } from "../thread-stage-types";
@@ -23,9 +20,6 @@ interface ThreadStageHeaderProps {
 function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadStageHeaderProps) {
   const [busyAction, setBusyAction] = useState<"login" | "logout" | null>(null);
   const [openCardData, setOpenCardData] = useState<Card | null>(null);
-  const accountRefreshInFlightRef = useRef(false);
-  const authenticatedAccount = model.account?.account ?? null;
-  const hasAuthenticatedAccount = authenticatedAccount !== null;
 
   useEffect(() => {
     const cardId = model.cardId;
@@ -82,44 +76,6 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
     }
   }, [actions, onErrorMessage]);
 
-  const handleLogout = useCallback(async () => {
-    setBusyAction("logout");
-    onErrorMessage(null);
-    try {
-      await actions.onLogout();
-    } catch (error) {
-      onErrorMessage(error instanceof Error ? error.message : "Logout failed");
-    } finally {
-      setBusyAction(null);
-    }
-  }, [actions, onErrorMessage]);
-
-  const connectionTooltipContent = authenticatedAccount
-    ? renderConnectionAccountTooltipContent(authenticatedAccount, model.account?.rateLimits, {
-        onSignOut: () => void handleLogout(),
-        isSigningOutDisabled: busyAction !== null,
-      })
-    : null;
-
-  const handleConnectionTooltipOpenChange = useCallback((isOpen: boolean) => {
-    if (
-      !shouldRefreshAccountOnConnectionTooltipOpen({
-        isOpen,
-        hasAccount: Boolean(model.account?.account),
-        refreshInFlight: accountRefreshInFlightRef.current,
-      })
-    ) {
-      return;
-    }
-
-    accountRefreshInFlightRef.current = true;
-    void actions.onRefreshAccount()
-      .catch(() => {})
-      .finally(() => {
-        accountRefreshInFlightRef.current = false;
-      });
-  }, [actions, model.account?.account]);
-
   const openCardTarget = model.openCardTarget;
   const openCardTone = openCardTarget?.columnId ? columnStyles[openCardTarget.columnId] : null;
 
@@ -175,14 +131,6 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
             onApiKeyLogin={(key) => void handleApiKeyLogin(key)}
             onCancelLogin={(loginId) => void actions.onCancelLogin(loginId)}
           />
-          {hasAuthenticatedAccount && (
-            <ConnectionBadge
-              connection={model.connection}
-              rateLimits={model.account?.rateLimits}
-              tooltipContent={connectionTooltipContent}
-              onTooltipOpenChange={handleConnectionTooltipOpenChange}
-            />
-          )}
         </div>
       </div>
     </div>

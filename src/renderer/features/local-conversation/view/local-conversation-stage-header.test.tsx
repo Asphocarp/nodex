@@ -147,7 +147,7 @@ describe("ThreadStageHeader auth chrome", () => {
     expect(hitbox?.className.includes("z-10")).toBeTrue();
   });
 
-  test("does not rerender for body-only turn updates", async () => {
+  test("does not render the authenticated connection badge", async () => {
     connectionBadgeRenderCount = 0;
     const { ThreadStageHeader } = await import("./local-conversation-stage-header");
     const actions = buildActions();
@@ -167,7 +167,6 @@ describe("ThreadStageHeader auth chrome", () => {
       />,
     );
     await settleAsyncRender();
-    const renderCountAfterMount = connectionBadgeRenderCount;
 
     rerender(
       <ThreadStageHeader
@@ -181,7 +180,7 @@ describe("ThreadStageHeader auth chrome", () => {
     );
     await settleAsyncRender();
 
-    expect(String(connectionBadgeRenderCount)).toBe(String(renderCountAfterMount));
+    expect(String(connectionBadgeRenderCount)).toBe("0");
   });
 
   test("does not show sign-in or connected badge before the account snapshot hydrates", async () => {
@@ -217,7 +216,7 @@ describe("ThreadStageHeader auth chrome", () => {
     expect(content.includes("Connected")).toBeFalse();
   });
 
-  test("shows quota remaining without sign-in when the account snapshot is authenticated", async () => {
+  test("moves quota remaining out of the header when the account snapshot is authenticated", async () => {
     const { ThreadStageHeader } = await import("./local-conversation-stage-header");
     const { container } = render(
       <ThreadStageHeader
@@ -246,6 +245,6 @@ describe("ThreadStageHeader auth chrome", () => {
     const content = textContent(container);
     expect(content.includes("Sign in")).toBeFalse();
     expect(content.includes("Connected")).toBeFalse();
-    expect(content.includes("82% · 61%")).toBeTrue();
+    expect(content.includes("82% · 61%")).toBeFalse();
   });
 });

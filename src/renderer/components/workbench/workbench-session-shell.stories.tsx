@@ -446,12 +446,13 @@ export const AttachedThreadPage: Story = {
 
 export const CollapsedRightPanel: Story = {
   args: {
+    thread: "attached",
     rightPanel: "collapsed",
   },
   parameters: {
     docs: {
       description: {
-        story: "Collapsed right panel with the Codex-style side-panel toggle still available at the top-right of the global toolbar.",
+        story: "Attached thread with the right panel collapsed, showing the Codex pinned-summary toggle beside the side-panel toggle and the floating summary overlay below the toolbar.",
       },
     },
   },

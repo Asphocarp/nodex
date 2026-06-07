@@ -36,6 +36,7 @@ import { NodexDropdownItem, NodexDropdownMenu } from "@/components/ui/dropdown";
 import { NodexTooltip, NodexTooltipProvider } from "@/components/ui/tooltip";
 import {
   ConnectedThreadStage,
+  ThreadSummaryPanelToggle,
   useCodexAppServerControl,
   useCodexThreadStartProgress,
 } from "@/features/local-conversation";
@@ -140,6 +141,7 @@ const TOOLBAR_BUTTON_BASE_CLASS = "border-token-border user-select-none no-drag 
 const TOOLBAR_BUTTON_GHOST_CLASS = "text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent";
 const TOOLBAR_BUTTON_SECONDARY_CLASS = "text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent";
 const RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX = 36;
+const THREAD_SUMMARY_PANEL_STORAGE_KEY = "nodex:thread-summary-panel:pinned-open";
 const DB_VIEW_TABS: Array<{ id: ProjectSessionDbView; label: string; icon: ComponentType<{ className?: string }> }> = [
   { id: "kanban", label: "Board", icon: SquareKanban },
   { id: "list", label: "Table", icon: Table2 },
@@ -147,6 +149,26 @@ const DB_VIEW_TABS: Array<{ id: ProjectSessionDbView; label: string; icon: Compo
   { id: "canvas", label: "Canvas", icon: PenLine },
   { id: "calendar", label: "Calendar", icon: CalendarDays },
 ];
+
+function readThreadSummaryPanelPinnedOpen(): boolean {
+  if (typeof localStorage === "undefined") return true;
+  try {
+    const raw = localStorage.getItem(THREAD_SUMMARY_PANEL_STORAGE_KEY);
+    if (raw === null) return true;
+    return raw === "true";
+  } catch {
+    return true;
+  }
+}
+
+function writeThreadSummaryPanelPinnedOpen(open: boolean): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(THREAD_SUMMARY_PANEL_STORAGE_KEY, open ? "true" : "false");
+  } catch {
+    // Ignore storage failures; the in-memory state remains authoritative for this session.
+  }
+}
 
 interface WorkbenchShellProps {
   projects: Project[];
@@ -399,6 +421,7 @@ export function WorkbenchShell({
   const [sessionContentWidth, setSessionContentWidth] = useState(0);
   const [headerRightWidth, setHeaderRightWidth] = useState(RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX);
   const [rightPanelFullWidthBySessionId, setRightPanelFullWidthBySessionId] = useState<Record<string, boolean>>({});
+  const [threadSummaryPanelPinnedOpen, setThreadSummaryPanelPinnedOpen] = useState(readThreadSummaryPanelPinnedOpen);
   const [localSidebarCollapsed, setLocalSidebarCollapsed] = useState(false);
   const [localSidebarWidth, setLocalSidebarWidth] = useState(300);
   const [sidebarVisible, setSidebarVisible] = useState(() => !(sidebar?.collapsed ?? false));
@@ -911,6 +934,29 @@ export function WorkbenchShell({
   ]);
 
   const sidePanelOpen = activeSession ? !activeSession.rightPaneCollapsed : false;
+  const threadSummaryPanelMounted = Boolean(activeSession?.thread && !rightPanelFullWidth);
+  const showThreadSummaryPanelControl = threadSummaryPanelMounted && !sidePanelOpen;
+  const threadSummaryPanelOpen = showThreadSummaryPanelControl && threadSummaryPanelPinnedOpen;
+
+  const toggleThreadSummaryPanel = useCallback(() => {
+    setThreadSummaryPanelPinnedOpen((current) => {
+      const next = !current;
+      writeThreadSummaryPanelPinnedOpen(next);
+      return next;
+    });
+  }, []);
+
+  const renderThreadSummaryPanelHeaderControl = () => {
+    if (!showThreadSummaryPanelControl) return null;
+
+    return (
+      <ThreadSummaryPanelToggle
+        pressed={threadSummaryPanelOpen}
+        onClick={toggleThreadSummaryPanel}
+      />
+    );
+  };
+
   const toggleActiveSidePanel = useCallback(() => {
     if (!activeSession) return;
     if (activeSession.rightPaneCollapsed) {
@@ -953,7 +999,7 @@ export function WorkbenchShell({
     return () => {
       resizeObserver.disconnect();
     };
-  }, [activeSession?.id, sidePanelOpen]);
+  }, [activeSession?.id, sidePanelOpen, showThreadSummaryPanelControl, threadSummaryPanelOpen]);
 
   const rightPanelTabHeaderStickyControls = activeSession ? (
     <NodexDropdownMenu
@@ -1041,6 +1087,7 @@ export function WorkbenchShell({
           >
             <div className="inline-flex h-full items-center gap-1.5 no-drag pointer-events-auto w-auto">
               <div className="no-drag pointer-events-auto flex shrink-0 items-center ms-auto">
+                {renderThreadSummaryPanelHeaderControl()}
                 {renderSidePanelHeaderControl()}
               </div>
             </div>
@@ -1052,6 +1099,7 @@ export function WorkbenchShell({
           >
             <div className="inline-flex h-full items-center gap-1.5 pointer-events-none w-full">
               <div className="no-drag pointer-events-auto flex shrink-0 items-center ms-auto">
+                {renderThreadSummaryPanelHeaderControl()}
                 {renderSidePanelHeaderControl()}
               </div>
             </div>
@@ -1183,15 +1231,15 @@ export function WorkbenchShell({
                   )}
                 >
                   <div
-                    className="app-shell-main-content-frame relative flex min-h-0 flex-1 flex-col"
+                    className="app-shell-main-content-frame relative mt-(--app-shell-main-content-frame-top-offset) flex min-h-0 flex-1 flex-col border-t border-token-border-default"
                     style={{
                       "--thread-stage-header-right-reserve": sidePanelOpen ? "0px" : `${headerRightWidth}px`,
                     } as React.CSSProperties}
                   >
                     <div
                       aria-hidden="true"
-                      data-app-shell-main-content-top-fade="visible"
-                      className="app-shell-main-content-top-fade pointer-events-none absolute inset-x-0 top-0 z-10 h-8 bg-linear-to-b from-token-main-surface-primary to-transparent opacity-0"
+                      data-app-shell-main-content-top-fade="full-bleed"
+                      className="app-shell-main-content-top-fade pointer-events-none absolute inset-x-0 top-0 z-20 h-4 bg-gradient-to-b from-token-main-surface-primary opacity-0 transition-opacity duration-200 browser:hidden"
                     />
                     {sessionError ? (
                       <div className="border-b border-token-border px-3 py-2 text-xs text-token-text-secondary">{sessionError}</div>
@@ -1208,6 +1256,8 @@ export function WorkbenchShell({
                       worktreeBranchPrefix={worktreeAutoBranchPrefix}
                       searchOpenTick={threadSearchOpenTick}
                       sidePanelOpen={sidePanelOpen}
+                      summaryPanelMounted={threadSummaryPanelMounted}
+                      summaryPanelOpen={threadSummaryPanelOpen}
                       onOpenCard={(cardId) => {
                         if (!activeProject) return;
                         void openCardTab(activeProject.id, cardId, cardId);
@@ -1709,6 +1759,8 @@ function SessionThreadPage({
   onOpenCard,
   searchOpenTick,
   sidePanelOpen,
+  summaryPanelMounted,
+  summaryPanelOpen,
 }: {
   session: ProjectSession;
   project: Project | null;
@@ -1722,6 +1774,8 @@ function SessionThreadPage({
   onOpenCard: (cardId: string) => void;
   searchOpenTick: number;
   sidePanelOpen: boolean;
+  summaryPanelMounted: boolean;
+  summaryPanelOpen: boolean;
 }) {
   const projectId = project?.id ?? session.projectId;
   const summary = session.thread ? makeThreadSummary(session.thread) : null;
@@ -1858,6 +1912,8 @@ function SessionThreadPage({
         isQueueingEnabled
         composerEnterBehavior="enter"
         searchOpenTick={searchOpenTick}
+        summaryPanelMounted={summaryPanelMounted}
+        summaryPanelOpen={summaryPanelOpen}
         actions={actions}
       />
     </div>

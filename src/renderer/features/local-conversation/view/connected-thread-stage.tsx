@@ -43,6 +43,7 @@ import { LocalConversationStageScreen } from "./local-conversation-stage-screen"
 import { ThreadStageHeader } from "./local-conversation-stage-header";
 import { LocalConversationThreadBody } from "./local-conversation-thread-body";
 import { resolveThreadCardStatus } from "./shared/thread-card-fetch";
+import { ThreadFloatingSummaryPanel } from "./summary-panel";
 
 type ConnectedThreadStageInput = Omit<
   ThreadStageRouteInput,
@@ -87,6 +88,8 @@ function resolveEffectiveCollaborationMode({
 interface ConnectedThreadStageProps extends ConnectedThreadStageInput {
   actions: ThreadStageActions;
   initialUiState?: ThreadBodyUiStateOverrides;
+  summaryPanelMounted?: boolean;
+  summaryPanelOpen?: boolean;
 }
 
 function resolveThreadTitle(input: ConnectedThreadStageInput, summary: ReturnType<typeof useConversationSummaryFields>): string {
@@ -524,6 +527,8 @@ function ConnectedThreadStageFooter({
 export function ConnectedThreadStage({
   actions,
   initialUiState,
+  summaryPanelMounted = false,
+  summaryPanelOpen = false,
   ...input
 }: ConnectedThreadStageProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -532,6 +537,10 @@ export function ConnectedThreadStage({
     : null;
   const resumeState = useConversationResumeState(activeThreadId);
   const summaryFields = useConversationSummaryFields(activeThreadId);
+  const turns = useConversationTurns(activeThreadId);
+  const cwd = useConversationCwd(activeThreadId);
+  const connection = useLocalConversationConnection();
+  const account = useLocalConversationAccount();
   const isActiveThreadArchived = input.activeThreadSummary?.archived === true || summaryFields.archived;
 
   useEffect(() => {
@@ -575,6 +584,21 @@ export function ConnectedThreadStage({
           input={input}
           actions={actions}
           errorMessage={errorMessage}
+          onErrorMessage={setErrorMessage}
+        />
+      )}
+      floatingContent={(
+        <ThreadFloatingSummaryPanel
+          mounted={summaryPanelMounted}
+          open={summaryPanelOpen}
+          activeThreadId={activeThreadId}
+          cwd={cwd}
+          projectWorkspacePath={input.projectWorkspacePath ?? null}
+          account={account}
+          connection={connection}
+          turns={turns}
+          actions={actions}
+          newThreadStartInSelector={input.newThreadStartInSelector}
           onErrorMessage={setErrorMessage}
         />
       )}

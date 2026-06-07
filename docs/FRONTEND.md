@@ -16,6 +16,7 @@
 - Storybook workspace: `packages/storybook/` with colocated `*.stories.tsx` under `src/renderer/`
 - Workbench shell: `src/renderer/components/workbench/workbench-shell.tsx` renders projects as expandable folders, sessions as durable project children, a session thread page, and a collapsible/full-width right panel for session-attached tabs.
 - Workbench app-shell parity: keep the side-panel toggle in the fixed global header, keep right-panel tab creation plus expand/restore in the right-panel toolbar-height tab header, and implement full-width mode by collapsing the main thread viewport to zero width rather than conditionally removing thread title/header UI.
+- Thread summary panel parity: `WorkbenchShell` owns the top-right summary toggle beside the side-panel toggle only for attached-thread sessions while the right panel is collapsed, and reserves header width for both controls. The panel UI lives under `features/local-conversation/view/summary-panel`, renders through `LocalConversationStageScreen.floatingContent`, keeps collapsible section chevrons trailing and hover/focus revealed, and stays stage-owned so the 300px pinned overlay can sit at the thread stage's top-right edge without affecting header, transcript, or footer layout.
 
 ## State and Data Access
 - API boundary: always go through `src/renderer/lib/api.ts`.
@@ -32,6 +33,8 @@
 - Session tab bodies should stay reusable: DB view hosts, Card Stage, terminal, and browser-placeholder surfaces mount behind `ProjectSessionTab.kind`; do not rebuild separate shell-specific versions of those features.
 - Active conversation UI: keep Codex host-message ingestion in the singleton external store under `features/local-conversation/`, subscribe through per-thread selectors, then derive renderer-only projection data in `features/local-conversation/projection/*`. Keep transcript projection, composer-shell aggregation, search-unit derivation, turn-request stitching, and background-activity ordering upstream of JSX.
 - Keep active conversation UI ownership inside `features/local-conversation/view/*` and `features/local-conversation/view/shared/*`. Do not reintroduce a second workbench thread renderer path outside that feature.
+- Keep authenticated account quota in the thread summary panel's account section, not in the thread header. Signed-out auth remains reachable from the thread header, while the summary panel owns authenticated quota text, account tooltip details, and refresh-on-open behavior.
+- Keep the thread summary panel pinned state local to `WorkbenchShell`: the pinned-open state persists under `nodex:thread-summary-panel:pinned-open`, defaults open for attached local conversation sessions, renders only as a pinned stage overlay while the right side panel is closed, and is hidden without changing the saved pinned preference while the right side panel or full-width panel is open. Keep the app-shell frame's toolbar-offset margin in place so the floating panel starts below the fixed toolbar controls.
 - Use `@tanstack/react-form` for structured renderer forms with real validation or value coercion; keep simple one-field inputs on local state and use `src/renderer/lib/forms.ts` for shared submit/error helpers.
 - Keep runtime validation at boundaries:
   - shared storage / transport / raw JSON schemas live under `src/shared/schemas/*`

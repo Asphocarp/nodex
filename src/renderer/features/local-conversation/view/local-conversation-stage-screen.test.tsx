@@ -10,6 +10,7 @@ describe("LocalConversationStageScreen", () => {
         header={createElement("div", { "data-local-conversation-header": "true" })}
         body={createElement("div", { "data-local-conversation-thread-body": "true" })}
         footer={createElement("div", { "data-local-conversation-footer": "true" })}
+        floatingContent={createElement("div", { "data-local-conversation-floating": "true" })}
       />,
     );
     const hasAbsoluteFooterOverlay = Array.from(container.querySelectorAll("div")).some(
@@ -19,6 +20,7 @@ describe("LocalConversationStageScreen", () => {
     );
 
     expect(Boolean(container.querySelector("[data-local-conversation-header='true']"))).toBeTrue();
+    expect(Boolean(container.querySelector("[data-local-conversation-floating='true']"))).toBeTrue();
     expect(Boolean(container.querySelector("[data-local-conversation-thread-body='true']"))).toBeTrue();
     expect(Boolean(container.querySelector("[data-local-conversation-footer='true']"))).toBeTrue();
     expect(Boolean(container.querySelector(".sticky.top-0.z-10"))).toBeTrue();
