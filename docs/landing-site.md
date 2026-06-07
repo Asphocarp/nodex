@@ -7,7 +7,7 @@ This document is the source of truth for the public Nodex landing site and its G
 The landing site lives in `packages/landing`. It is a small Vite-built static site that intentionally stays separate from the Electron renderer and its design-token stack.
 
 Why it is separate:
-- the site is published to `https://nodexapp.github.io`
+- the site is published to `https://nodex.jyu.app`
 - it should stay fast and low-risk
 - it should not inherit desktop-app-only code, CSS, or runtime assumptions
 
