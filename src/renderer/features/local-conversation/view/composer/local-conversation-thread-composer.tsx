@@ -1,5 +1,5 @@
 import { useForm, useStore } from "@tanstack/react-form";
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { handleFormSubmit } from "@/lib/forms";
 import {
   formatCodexModelLabel,
@@ -98,6 +98,29 @@ function isElectronLikeComposerEnvironment(): boolean {
   }
 
   return document.documentElement.dataset.codexWindowType === "electron";
+}
+
+function resizePromptTextareaElement(textarea: HTMLTextAreaElement): void {
+  if (textarea.value.length === 0) {
+    textarea.style.height = "";
+    textarea.style.overflowY = "hidden";
+    return;
+  }
+
+  textarea.style.height = "auto";
+  const { heightPx, hasOverflow } = resolvePromptTextareaSize({
+    scrollHeight: textarea.scrollHeight,
+    maxHeightPx: resolvePromptTextareaMaxHeightPx(),
+  });
+
+  if (heightPx <= 0) {
+    textarea.style.height = "";
+    textarea.style.overflowY = "hidden";
+    return;
+  }
+
+  textarea.style.height = `${heightPx}px`;
+  textarea.style.overflowY = hasOverflow ? "auto" : "hidden";
 }
 
 function renderModelSelectorLabel(input: {
@@ -989,18 +1012,27 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const resizePromptTextarea = useCallback(() => {
     const textarea = promptTextareaRef.current;
     if (!textarea) return;
-    textarea.style.height = "auto";
-    const { heightPx, hasOverflow } = resolvePromptTextareaSize({
-      scrollHeight: textarea.scrollHeight,
-      maxHeightPx: resolvePromptTextareaMaxHeightPx(),
-    });
-    textarea.style.height = heightPx > 0 ? `${heightPx}px` : "";
-    textarea.style.overflowY = hasOverflow ? "auto" : "hidden";
+    resizePromptTextareaElement(textarea);
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     resizePromptTextarea();
-  }, [prompt, resizePromptTextarea]);
+  }, [model.isNewThreadTab, model.threadId, prompt, resizePromptTextarea]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleResize = () => {
+      resizePromptTextarea();
+    };
+
+    const animationFrame = window.requestAnimationFrame(handleResize);
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [model.isNewThreadTab, model.threadId, resizePromptTextarea]);
 
   useEffect(() => {
     if (!isDictationSupported || model.dictation.isRealtimeVoiceActive) {

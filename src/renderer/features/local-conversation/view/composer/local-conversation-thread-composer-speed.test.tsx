@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { act, fireEvent } from "@testing-library/react";
+import { act, fireEvent, waitFor } from "@testing-library/react";
 import { AppProviders } from "@/app-providers";
 import { render } from "@/test/dom";
 import {
@@ -32,6 +32,22 @@ const localStorageRef = (globalThis as { localStorage: typeof mockStorage }).loc
 function resetStorage(): void {
   storageMap.clear();
   localStorageRef.removeItem("nodex-codex-default-service-tier-v1");
+}
+
+function installPromptTextareaScrollHeight(input: {
+  emptyScrollHeight: number;
+  filledScrollHeight: number;
+}): void {
+  Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+    configurable: true,
+    get() {
+      if (this instanceof HTMLTextAreaElement) {
+        return this.value.length === 0 ? input.emptyScrollHeight : input.filledScrollHeight;
+      }
+
+      return input.filledScrollHeight;
+    },
+  });
 }
 
 type TestInvoke = (channel: string, ...args: unknown[]) => Promise<unknown>;
@@ -585,6 +601,31 @@ describe("ThreadComposer speed menu", () => {
     expect(Boolean(promptFrame?.className.includes("max-h-[25dvh]"))).toBeTrue();
     expect(Boolean(promptFrame?.className.includes("overflow-hidden"))).toBeTrue();
     expect(wrapperScrollContainers.length).toBe(0);
+  });
+
+  test("does not let placeholder measurement inflate empty prompt height after mount", async () => {
+    resetStorage();
+    installPromptTextareaScrollHeight({
+      emptyScrollHeight: 220,
+      filledScrollHeight: 40,
+    });
+    const view = await renderComposer();
+    const textarea = view.container.querySelector("textarea") as HTMLTextAreaElement | null;
+
+    expect(textarea !== null).toBeTrue();
+    expect(textarea?.style.height ?? "").toBe("");
+
+    const filledView = await renderComposer({
+      composerIntent: {
+        prompt: "x",
+        focusNonce: 1,
+      },
+    });
+    const filledTextarea = filledView.container.querySelector("textarea") as HTMLTextAreaElement | null;
+
+    await waitFor(() => {
+      expect(filledTextarea?.style.height ?? "").toBe("40px");
+    });
   });
 
   test("Intelligence menu preserves reasoning and model selectors", async () => {

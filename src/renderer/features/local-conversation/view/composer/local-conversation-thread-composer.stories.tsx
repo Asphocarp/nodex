@@ -384,6 +384,16 @@ export const RunningStop: Story = {
   },
 };
 
+export const NewChatEmptyNarrow: Story = {
+  args: {
+    isQueueingEnabled: false,
+    composerEnterBehavior: "enter",
+    draftPrompt: "",
+    threadState: "newChat",
+    surfaceWidth: "narrow",
+  },
+};
+
 export const RunningSteer: Story = {
   args: {
     isQueueingEnabled: false,
