@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, Menu, dialog, ipcMain, nativeImage, type MenuItemConstructorOptions } from "electron";
 import { writeImageToClipboard } from "./clipboard-image-writer";
 import { inspectClipboardPasteItems } from "./clipboard-paste-inspector";
 import { prepareComposerPickedFiles } from "./composer-picked-files";
@@ -23,12 +23,15 @@ import { resolveAssetPath } from "./kanban/asset-service";
 import { parseAssetSource } from "../shared/assets";
 import { codexService } from "./codex/codex-service";
 import { openFileLinkTarget } from "./file-link-opener";
+import { dbNotifier } from "./kanban/db-notifier";
 import type { WorkbenchLayoutSnapshot } from "../shared/workbench-layout";
 import type {
   WindowSessionBootstrap,
   WindowSessionBounds,
   WindowSessionSeed,
 } from "../shared/window-session";
+import type { NativeContextMenuItem, NativeContextMenuOptions } from "../shared/native-context-menu";
+import { buildSessionContextMenuIconSvg } from "../shared/session-context-menu-icons";
 import type { DesktopNotificationManager } from "./desktop-notification-manager";
 import {
   checkoutGitBranch,
@@ -52,6 +55,89 @@ function registerHandle(
   // Make registration idempotent so hot-reloads cannot leave partial channel maps.
   ipcMain.removeHandler(channel);
   ipcMain.handle(channel, listener);
+}
+
+function buildNativeContextMenuTemplate(
+  items: NativeContextMenuItem[],
+  onSelect: (id: string) => void,
+): MenuItemConstructorOptions[] {
+  return items.map((item) => {
+    if (item.type === "separator") {
+      return { type: "separator" };
+    }
+
+    const enabled = item.enabled !== false;
+    const icon = item.iconKey
+      ? nativeImage.createFromDataURL(
+          `data:image/svg+xml;charset=utf-8,${encodeURIComponent(buildSessionContextMenuIconSvg(item.iconKey))}`,
+        )
+      : undefined;
+    icon?.setTemplateImage(true);
+
+    const base = {
+      id: item.id,
+      label: item.label,
+      enabled,
+      accelerator: item.accelerator,
+      toolTip: item.tooltip,
+      icon,
+    } satisfies MenuItemConstructorOptions;
+
+    if (item.type === "submenu") {
+      return {
+        ...base,
+        submenu: buildNativeContextMenuTemplate(item.submenu, onSelect),
+      } satisfies MenuItemConstructorOptions;
+    }
+
+    if (item.type === "checkbox") {
+      return {
+        ...base,
+        type: "checkbox",
+        checked: item.checked === true,
+        click: () => {
+          if (enabled) onSelect(item.id);
+        },
+      } satisfies MenuItemConstructorOptions;
+    }
+
+    return {
+      ...base,
+      click: () => {
+        if (enabled) onSelect(item.id);
+      },
+    } satisfies MenuItemConstructorOptions;
+  });
+}
+
+function showNativeContextMenu(
+  window: BrowserWindow | null,
+  items: NativeContextMenuItem[],
+  options: NativeContextMenuOptions | undefined,
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    let selectedId: string | null = null;
+    let resolved = false;
+    const finish = () => {
+      if (resolved) return;
+      resolved = true;
+      resolve(selectedId);
+    };
+
+    const menu = Menu.buildFromTemplate(
+      buildNativeContextMenuTemplate(items, (id) => {
+        selectedId = id;
+      }),
+    );
+
+    menu.popup({
+      window: window ?? undefined,
+      x: typeof options?.x === "number" ? Math.round(options.x) : undefined,
+      y: typeof options?.y === "number" ? Math.round(options.y) : undefined,
+      positioningItem: options?.positioningItem,
+      callback: finish,
+    });
+  });
 }
 
 interface RegisterIpcHandlersOptions {
@@ -124,25 +210,98 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   );
 
   // Project sessions
-  registerHandle("project-sessions:list", (_, projectId: string) =>
-    projectSessionService.listProjectSessions(projectId)
+  registerHandle("project-sessions:list", (_, projectId: string, options) =>
+    projectSessionService.listProjectSessions(projectId, options)
   );
 
-  registerHandle("project-sessions:create", (_, input) =>
-    projectSessionService.createProjectSession(input)
-  );
+  registerHandle("project-sessions:create", (_, input) => {
+    const session = projectSessionService.createProjectSession(input);
+    dbNotifier.notifyProjectSessionsChanged(session.projectId, "create", session.id);
+    return session;
+  });
 
-  registerHandle("project-sessions:update", (_, sessionId: string, input) =>
-    projectSessionService.updateProjectSession(sessionId, input)
-  );
+  registerHandle("project-sessions:update", async (_, sessionId: string, input) => {
+    const existing = projectSessionService.getProjectSession(sessionId);
+    if (!existing) return null;
+    const nextTitle = typeof input?.title === "string" ? input.title : null;
+    if (nextTitle !== null && existing.thread) {
+      await codexService.setThreadName(existing.thread.threadId, nextTitle);
+    }
+    const session = projectSessionService.updateProjectSession(sessionId, input);
+    if (session) {
+      dbNotifier.notifyProjectSessionsChanged(session.projectId, "update", session.id);
+    }
+    return session;
+  });
 
-  registerHandle("project-sessions:delete", (_, sessionId: string) =>
-    projectSessionService.deleteProjectSession(sessionId)
-  );
+  registerHandle("project-sessions:delete", (_, sessionId: string) => {
+    const existing = projectSessionService.getProjectSession(sessionId);
+    const success = projectSessionService.deleteProjectSession(sessionId);
+    if (success && existing) {
+      dbNotifier.notifyProjectSessionsChanged(existing.projectId, "delete", sessionId);
+    }
+    return success;
+  });
 
-  registerHandle("project-sessions:reorder", (_, projectId: string, orderedSessionIds: string[]) =>
-    projectSessionService.reorderProjectSessions(projectId, orderedSessionIds)
-  );
+  registerHandle("project-sessions:reorder", (_, projectId: string, orderedSessionIds: string[]) => {
+    const sessions = projectSessionService.reorderProjectSessions(projectId, orderedSessionIds);
+    dbNotifier.notifyProjectSessionsChanged(projectId, "reorder");
+    return sessions;
+  });
+
+  registerHandle("project-sessions:set-pinned", (_, sessionId: string, input) => {
+    const session = projectSessionService.setProjectSessionPinned(sessionId, input);
+    if (session) {
+      dbNotifier.notifyProjectSessionsChanged(session.projectId, "pin", session.id);
+    }
+    return session;
+  });
+
+  registerHandle("project-sessions:set-pinned-order", (_, projectId: string, input) => {
+    const sessions = projectSessionService.setPinnedProjectSessionOrder(projectId, input);
+    dbNotifier.notifyProjectSessionsChanged(projectId, "pin");
+    return sessions;
+  });
+
+  registerHandle("project-sessions:archive", async (_, sessionId: string) => {
+    const existing = projectSessionService.getProjectSession(sessionId);
+    if (!existing) return null;
+    if (existing.thread) {
+      await codexService.archiveThread(existing.thread.threadId);
+    }
+    const session = projectSessionService.archiveProjectSession(sessionId);
+    if (session) {
+      dbNotifier.notifyProjectSessionsChanged(session.projectId, "archive", session.id);
+    }
+    return session;
+  });
+
+  registerHandle("project-sessions:unarchive", async (_, sessionId: string) => {
+    const existing = projectSessionService.getProjectSession(sessionId);
+    if (!existing) return null;
+    if (existing.thread) {
+      await codexService.unarchiveThread(existing.thread.threadId);
+    }
+    const session = projectSessionService.unarchiveProjectSession(sessionId);
+    if (session) {
+      dbNotifier.notifyProjectSessionsChanged(session.projectId, "unarchive", session.id);
+    }
+    return session;
+  });
+
+  registerHandle("project-sessions:mark-unread", (_, sessionId: string, input) => {
+    const session = projectSessionService.markProjectSessionUnread(sessionId, input);
+    if (session) {
+      dbNotifier.notifyProjectSessionsChanged(session.projectId, "unread", session.id);
+    }
+    return session;
+  });
+
+  registerHandle("project-sessions:fork", async (_, sessionId: string, input) => {
+    const result = await codexService.forkProjectSessionThread(sessionId, input);
+    dbNotifier.notifyProjectSessionsChanged(result.session.projectId, "create", result.session.id);
+    return result;
+  });
 
   registerHandle("project-session-tabs:create", (_, input) =>
     projectSessionService.createProjectSessionTab(input)
@@ -172,13 +331,20 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     projectSessionService.moveProjectSessionTab(input)
   );
 
-  registerHandle("project-session-threads:attach", (_, input) =>
-    projectSessionService.upsertProjectSessionThreadLink(input)
-  );
+  registerHandle("project-session-threads:attach", (_, input) => {
+    const link = projectSessionService.upsertProjectSessionThreadLink(input);
+    dbNotifier.notifyProjectSessionsChanged(link.projectId, "thread", link.sessionId);
+    return link;
+  });
 
-  registerHandle("project-session-threads:detach", (_, sessionId: string) =>
-    projectSessionService.detachProjectSessionThread(sessionId)
-  );
+  registerHandle("project-session-threads:detach", (_, sessionId: string) => {
+    const existing = projectSessionService.getProjectSession(sessionId);
+    const success = projectSessionService.detachProjectSessionThread(sessionId);
+    if (success && existing) {
+      dbNotifier.notifyProjectSessionsChanged(existing.projectId, "thread", sessionId);
+    }
+    return success;
+  });
 
   // Board
   registerHandle("board:get", (_, projectId: string) =>
@@ -356,6 +522,11 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   registerHandle("electron-window:focus:get", (event) => {
     return BrowserWindow.fromWebContents(event.sender)?.isFocused() ?? false;
+  });
+
+  registerHandle("native-context-menu:show", async (event, items: NativeContextMenuItem[], menuOptions?: NativeContextMenuOptions) => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    return await showNativeContextMenu(window, items, menuOptions);
   });
 
   registerHandle("settings:app-updates:get", () => getAppUpdateSettings());

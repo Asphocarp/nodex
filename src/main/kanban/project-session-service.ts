@@ -7,6 +7,10 @@ import {
   ProjectSessionTabMoveInputSchema,
   ProjectSessionTabCreateInputSchema,
   ProjectSessionTabReorderInputSchema,
+  ProjectSessionPinnedInputSchema,
+  ProjectSessionPinnedOrderInputSchema,
+  ProjectSessionUnreadInputSchema,
+  ProjectSessionListOptionsSchema,
   ProjectSessionThreadLinkInputSchema,
   ProjectSessionUpdateInputSchema,
   parseProjectSessionTabConfig,
@@ -16,8 +20,11 @@ import type {
   PanelId,
   ProjectSession,
   ProjectSessionCreateInput,
+  ProjectSessionListOptions,
   ProjectSessionPanelLayout,
   ProjectSessionPanelState,
+  ProjectSessionPinnedInput,
+  ProjectSessionPinnedOrderInput,
   ProjectSessionTab,
   ProjectSessionTabCreateInput,
   ProjectSessionTabMoveInput,
@@ -25,6 +32,7 @@ import type {
   ProjectSessionTabUpdateInput,
   ProjectSessionThreadLink,
   ProjectSessionThreadLinkInput,
+  ProjectSessionUnreadInput,
   ProjectSessionUpdateInput,
   CodexThreadActiveFlag,
   CodexThreadStatusType,
@@ -45,6 +53,11 @@ interface DbProjectSession {
   title: string;
   is_overview: number;
   order: number;
+  pinned: number;
+  pinned_order: number | null;
+  archived: number;
+  archived_at: string | null;
+  unread: number;
   left_pane_collapsed: number;
   panel_state_json: string;
   created_at: string;
@@ -270,6 +283,11 @@ function buildSession(row: DbProjectSession): ProjectSession {
     title: row.title,
     isOverview: row.is_overview === 1,
     order: row.order,
+    pinned: row.pinned === 1,
+    pinnedOrder: row.pinned_order,
+    archived: row.archived === 1,
+    archivedAt: row.archived_at,
+    unread: row.unread === 1,
     leftPaneCollapsed: row.left_pane_collapsed === 1,
     panels: parsePanelStates(row, tabs),
     thread: threadRow ? rowToThread(threadRow) : null,
@@ -306,9 +324,9 @@ function ensureOverviewSession(projectId: string): void {
     } satisfies Record<PanelId, ProjectSessionPanelState>;
     database.prepare(`
       INSERT OR IGNORE INTO project_sessions (
-        id, project_id, title, is_overview, "order", left_pane_collapsed,
+        id, project_id, title, is_overview, "order", pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
         panel_state_json, created_at, updated_at
-      ) VALUES (?, ?, 'Overview', 1, 0, 1, ?, ?, ?)
+      ) VALUES (?, ?, 'Overview', 1, 0, 0, NULL, 0, NULL, 0, 1, ?, ?, ?)
     `).run(
       sessionId,
       projectId,
@@ -332,12 +350,32 @@ function ensureOverviewSession(projectId: string): void {
   insert();
 }
 
-export function listProjectSessions(projectId: string): ProjectSession[] {
+export function listProjectSessions(
+  projectId: string,
+  options?: ProjectSessionListOptions,
+): ProjectSession[] {
+  const parsedOptions = ProjectSessionListOptionsSchema.parse(options) ?? {};
   ensureProjectExists(projectId);
   ensureOverviewSession(projectId);
   const rows = getDb()
-    .prepare('SELECT * FROM project_sessions WHERE project_id = ? ORDER BY "order" ASC, created_at ASC')
-    .all(projectId) as DbProjectSession[];
+    .prepare(`
+      SELECT *
+      FROM project_sessions
+      WHERE project_id = ?
+        AND (? = 1 OR archived = 0)
+      ORDER BY
+        CASE
+          WHEN is_overview = 1 THEN 0
+          WHEN pinned = 1 THEN 1
+          ELSE 2
+        END ASC,
+        CASE
+          WHEN pinned = 1 THEN COALESCE(pinned_order, 9223372036854775807)
+          ELSE "order"
+        END ASC,
+        created_at ASC
+    `)
+    .all(projectId, parsedOptions.includeArchived === true ? 1 : 0) as DbProjectSession[];
   return rows.map(buildSession);
 }
 
@@ -394,9 +432,9 @@ export function createProjectSession(input: ProjectSessionCreateInput): ProjectS
 
   database.prepare(`
     INSERT INTO project_sessions (
-      id, project_id, title, is_overview, "order", left_pane_collapsed,
+      id, project_id, title, is_overview, "order", pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
       panel_state_json, created_at, updated_at
-    ) VALUES (?, ?, ?, 0, ?, 0, ?, ?, ?)
+    ) VALUES (?, ?, ?, 0, ?, 0, NULL, 0, NULL, 0, 0, ?, ?, ?)
   `).run(
     id,
     parsed.projectId,
@@ -470,19 +508,143 @@ export function deleteProjectSession(sessionId: string): boolean {
 export function reorderProjectSessions(projectId: string, orderedSessionIds: string[]): ProjectSession[] {
   ensureProjectExists(projectId);
   const existing = listProjectSessions(projectId);
-  const existingIds = new Set(existing.map((session) => session.id));
+  const movableSessions = existing.filter((session) => !session.isOverview);
+  const existingIds = new Set(movableSessions.map((session) => session.id));
   const selected = orderedSessionIds.filter((sessionId) => existingIds.has(sessionId));
+  const remaining = movableSessions.map((session) => session.id).filter((sessionId) => !selected.includes(sessionId));
+  const finalOrder = [...selected, ...remaining];
+  const byId = new Map(movableSessions.map((session) => [session.id, session]));
+  const pinnedOrder = finalOrder.filter((sessionId) => byId.get(sessionId)?.pinned === true);
+  const now = new Date().toISOString();
+
+  const database = getDb();
+  const updateOrder = database.prepare('UPDATE project_sessions SET "order" = ?, updated_at = ? WHERE id = ? AND project_id = ? AND is_overview = 0');
+  const updatePinnedOrder = database.prepare("UPDATE project_sessions SET pinned_order = ?, updated_at = ? WHERE id = ? AND project_id = ? AND pinned = 1 AND is_overview = 0");
+  const tx = database.transaction(() => {
+    finalOrder.forEach((sessionId, index) => updateOrder.run(index + 1, now, sessionId, projectId));
+    pinnedOrder.forEach((sessionId, index) => updatePinnedOrder.run(index, now, sessionId, projectId));
+  });
+  tx();
+  return listProjectSessions(projectId);
+}
+
+export function setProjectSessionPinned(
+  sessionId: string,
+  input: ProjectSessionPinnedInput,
+): ProjectSession | null {
+  const parsed = ProjectSessionPinnedInputSchema.parse(input);
+  const existing = getProjectSession(sessionId);
+  if (!existing) return null;
+  if (existing.isOverview) throw new Error("Overview session cannot be pinned");
+
+  const database = getDb();
+  const now = new Date().toISOString();
+  if (parsed.pinned) {
+    const maxPinnedOrder = database
+      .prepare(`
+        SELECT MAX(pinned_order) AS maxPinnedOrder
+        FROM project_sessions
+        WHERE project_id = ? AND pinned = 1 AND archived = 0
+      `)
+      .get(existing.projectId) as { maxPinnedOrder: number | null } | undefined;
+    const nextPinnedOrder = existing.pinned && existing.pinnedOrder !== null
+      ? existing.pinnedOrder
+      : (maxPinnedOrder?.maxPinnedOrder ?? -1) + 1;
+
+    database.prepare(`
+      UPDATE project_sessions
+      SET pinned = 1, pinned_order = ?, updated_at = ?
+      WHERE id = ? AND is_overview = 0
+    `).run(nextPinnedOrder, now, sessionId);
+    return getProjectSession(sessionId);
+  }
+
+  database.prepare(`
+    UPDATE project_sessions
+    SET pinned = 0, pinned_order = NULL, updated_at = ?
+    WHERE id = ? AND is_overview = 0
+  `).run(now, sessionId);
+  return getProjectSession(sessionId);
+}
+
+export function setPinnedProjectSessionOrder(
+  projectId: string,
+  input: ProjectSessionPinnedOrderInput,
+): ProjectSession[] {
+  const parsed = ProjectSessionPinnedOrderInputSchema.parse(input);
+  ensureProjectExists(projectId);
+  const existing = listProjectSessions(projectId, { includeArchived: true })
+    .filter((session) => session.pinned && !session.archived && !session.isOverview);
+  const existingIds = new Set(existing.map((session) => session.id));
+  const selected = parsed.orderedSessionIds.filter((sessionId) => existingIds.has(sessionId));
   const remaining = existing.map((session) => session.id).filter((sessionId) => !selected.includes(sessionId));
   const finalOrder = [...selected, ...remaining];
   const now = new Date().toISOString();
 
-  const database = getDb();
-  const update = database.prepare('UPDATE project_sessions SET "order" = ?, updated_at = ? WHERE id = ? AND project_id = ?');
-  const tx = database.transaction(() => {
+  const update = getDb().prepare(`
+    UPDATE project_sessions
+    SET pinned_order = ?, updated_at = ?
+    WHERE id = ? AND project_id = ? AND pinned = 1 AND is_overview = 0
+  `);
+  getDb().transaction(() => {
     finalOrder.forEach((sessionId, index) => update.run(index, now, sessionId, projectId));
-  });
-  tx();
+  })();
+
   return listProjectSessions(projectId);
+}
+
+export function archiveProjectSession(sessionId: string): ProjectSession | null {
+  const existing = getProjectSession(sessionId);
+  if (!existing) return null;
+  if (existing.isOverview) throw new Error("Overview session cannot be archived");
+
+  getDb().prepare(`
+    UPDATE project_sessions
+    SET archived = 1,
+        archived_at = ?,
+        pinned = 0,
+        pinned_order = NULL,
+        unread = 0,
+        updated_at = ?
+    WHERE id = ? AND is_overview = 0
+  `).run(new Date().toISOString(), new Date().toISOString(), sessionId);
+  return getProjectSession(sessionId);
+}
+
+export function unarchiveProjectSession(sessionId: string): ProjectSession | null {
+  const existing = getProjectSession(sessionId);
+  if (!existing) return null;
+  if (existing.isOverview) throw new Error("Overview session cannot be unarchived");
+
+  const now = new Date().toISOString();
+  getDb().prepare(`
+    UPDATE project_sessions
+    SET archived = 0,
+        archived_at = NULL,
+        updated_at = ?
+    WHERE id = ? AND is_overview = 0
+  `).run(now, sessionId);
+  return getProjectSession(sessionId);
+}
+
+export function markProjectSessionUnread(
+  sessionId: string,
+  input: ProjectSessionUnreadInput,
+): ProjectSession | null {
+  const parsed = ProjectSessionUnreadInputSchema.parse(input);
+  const existing = getProjectSession(sessionId);
+  if (!existing) return null;
+  if (existing.isOverview && parsed.unread) {
+    throw new Error("Overview session cannot be marked unread");
+  }
+
+  const now = new Date().toISOString();
+  getDb().prepare(`
+    UPDATE project_sessions
+    SET unread = ?, updated_at = ?
+    WHERE id = ?
+  `).run(parsed.unread ? 1 : 0, now, sessionId);
+  return getProjectSession(sessionId);
 }
 
 function updatePanelStateForTabs(

@@ -126,6 +126,9 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     source: WorkbenchSidebarToggleCommandSource;
   }>({ tick: 0, source: "keyboard_shortcut" });
   const [settingsToggleTick, setSettingsToggleTick] = useState(0);
+  const [activeProjectSessionId, setActiveProjectSessionId] = useState<string | null>(
+    initialWindowSessionBootstrap.session.layout.activeProjectSessionId ?? null,
+  );
 
   const {
     state: cardStageState,
@@ -146,6 +149,10 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     projectId: string;
     cardId: string;
   } | null>(null);
+  const [pendingSessionDeepLinkOpen, setPendingSessionDeepLinkOpen] = useState<{
+    projectId: string;
+    sessionId: string;
+  } | null>(null);
   const cardStageStateRef = useRef(cardStageState);
   const resumeValidationStartedRef = useRef(false);
   const [navigationHistory, setNavigationHistory] = useState<NavigationHistoryState>(() => readNavigationHistoryState());
@@ -159,8 +166,8 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
   }, [cardStageState]);
 
   const currentLayout = useMemo(
-    () => buildLayoutSnapshot(cardStageState),
-    [buildLayoutSnapshot, cardStageState],
+    () => buildLayoutSnapshot(cardStageState, activeProjectSessionId),
+    [activeProjectSessionId, buildLayoutSnapshot, cardStageState],
   );
 
   useEffect(() => {
@@ -790,6 +797,30 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
   }, [navigateToProject]);
 
   useEffect(() => {
+    if (!window.api) return;
+    return window.api.on("deeplink:open-session", (...args: unknown[]) => {
+      const payload = args[0] as {
+        projectId?: unknown;
+        sessionId?: unknown;
+      } | undefined;
+
+      if (!payload) return;
+      if (
+        typeof payload.projectId !== "string"
+        || typeof payload.sessionId !== "string"
+      ) {
+        return;
+      }
+
+      setPendingSessionDeepLinkOpen({
+        projectId: payload.projectId,
+        sessionId: payload.sessionId,
+      });
+      navigateToProject(payload.projectId);
+    });
+  }, [navigateToProject]);
+
+  useEffect(() => {
     if (!pendingReminderOpen) return;
     if (pendingReminderOpen.projectId !== resolvedDbProjectId) return;
     if (resolvedView === "calendar") return;
@@ -806,6 +837,12 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     });
     setPendingDeepLinkOpen(null);
   }, [navigateToCard, pendingDeepLinkOpen, resolvedDbProjectId]);
+
+  useEffect(() => {
+    if (!pendingSessionDeepLinkOpen) return;
+    if (activeProjectSessionId !== pendingSessionDeepLinkOpen.sessionId) return;
+    setPendingSessionDeepLinkOpen(null);
+  }, [activeProjectSessionId, pendingSessionDeepLinkOpen]);
 
   const handleShortcutFocusAdjacentStage = useCallback((projectId: string, direction: -1 | 1) => {
     const currentIndex = STAGE_ORDER.indexOf(focusedStage);
@@ -880,6 +917,22 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     });
   }, [flushWindowSessionLayout]);
 
+  const handleOpenProjectSessionInNewWindow = useCallback(async (session: { id: string; projectId: string }) => {
+    if (layoutSaveTimerRef.current !== null) {
+      window.clearTimeout(layoutSaveTimerRef.current);
+      layoutSaveTimerRef.current = null;
+    }
+    await cardStagePersistRef.current?.();
+    await flushWindowSessionLayout();
+    await invoke("window:new", {
+      layout: {
+        ...latestLayoutRef.current,
+        dbProjectId: session.projectId,
+        activeProjectSessionId: session.id,
+      },
+    });
+  }, [flushWindowSessionLayout]);
+
   const handleOpenCommandPalette = useCallback((initialQuery = "") => {
     setCommandPaletteInitialQuery(initialQuery);
     setCommandPaletteOpenTick((tick) => tick + 1);
@@ -951,6 +1004,8 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       threadsProjectId={threadsProjectId}
       activeView={resolvedView}
       activeSearchQuery={resolvedSearchQuery}
+      initialActiveProjectSessionId={initialWindowSessionBootstrap.session.layout.activeProjectSessionId ?? null}
+      onActiveProjectSessionChange={setActiveProjectSessionId}
       activeDbViewPrefs={activeDbViewPrefs}
       searchByProject={searchByProject}
       dbViewPrefsByProject={dbViewPrefsByProject}
@@ -973,7 +1028,9 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       cardStageCloseRef={cardStageCloseRef}
       cardStagePersistRef={cardStagePersistRef}
       pendingReminderOpen={pendingReminderOpen}
+      pendingSessionOpen={pendingSessionDeepLinkOpen}
       onReminderHandled={handleReminderHandled}
+      onOpenProjectSessionInNewWindow={handleOpenProjectSessionInNewWindow}
       openCardStage={navigateToCard}
       setDbProject={navigateToProject}
       setSearchQuery={setSearchQuery}

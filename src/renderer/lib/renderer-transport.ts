@@ -5,6 +5,7 @@ export interface RendererTransport {
   kind: "browser" | "electron";
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
   subscribeBoardChanges: (projectId: string, callback: () => void) => () => void;
+  subscribeProjectSessionChanges: (projectId: string, callback: () => void) => () => void;
   subscribeCodexHostMessages: (callback: (message: import("./types").CodexHostMessage) => void) => () => void;
   subscribeDesktopNotificationActions: (
     callback: (payload: import("./types").DesktopNotificationActionPayload & {

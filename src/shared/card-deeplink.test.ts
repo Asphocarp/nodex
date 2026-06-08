@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildCardDeepLink,
+  buildSessionDeepLink,
   parseCardDeepLink,
+  parseSessionDeepLink,
 } from "./card-deeplink";
 
 describe("card deeplink", () => {
@@ -27,5 +29,27 @@ describe("card deeplink", () => {
 
   test("returns null for unsupported deeplinks", () => {
     expect(parseCardDeepLink("nodex://thread/thread-1")).toBe(null);
+  });
+});
+
+describe("session deeplink", () => {
+  test("builds nodex session deeplinks", () => {
+    expect(buildSessionDeepLink({ sessionId: "session-42" })).toBe("nodex://sessions/session-42");
+  });
+
+  test("parses nodex session deeplinks", () => {
+    const target = parseSessionDeepLink("nodex://sessions/session-42");
+
+    expect(target?.sessionId).toBe("session-42");
+  });
+
+  test("parses alternate empty-host session deeplinks", () => {
+    const target = parseSessionDeepLink("nodex:///sessions/session-42");
+
+    expect(target?.sessionId).toBe("session-42");
+  });
+
+  test("does not parse card deeplinks as session links", () => {
+    expect(parseSessionDeepLink("nodex://cards/card-42")).toBe(null);
   });
 });

@@ -79,6 +79,7 @@ export const WorkbenchLayoutFilesStageTabSchema = z.object({
 export const WorkbenchLayoutSnapshotSchema = z.object({
   version: z.literal(1),
   dbProjectId: z.string(),
+  activeProjectSessionId: z.string().nullable().catch(null),
   threadsProjectId: z.string(),
   viewsByProject: ViewRecordSchema,
   searchByProject: StringRecordSchema.catch({}),

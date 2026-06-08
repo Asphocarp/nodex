@@ -1,13 +1,19 @@
 export const NODEX_DEEPLINK_PROTOCOL = "nodex:";
 export const NODEX_CARD_DEEPLINK_KIND = "cards";
+export const NODEX_SESSION_DEEPLINK_KIND = "sessions";
 
 const NODEX_CARD_DEEPLINK_PREFIX = `${NODEX_DEEPLINK_PROTOCOL}//${NODEX_CARD_DEEPLINK_KIND}/`;
+const NODEX_SESSION_DEEPLINK_PREFIX = `${NODEX_DEEPLINK_PROTOCOL}//${NODEX_SESSION_DEEPLINK_KIND}/`;
 
 export interface CardDeepLinkTarget {
   cardId: string;
 }
 
-function normalizeCardId(value: string): string | null {
+export interface SessionDeepLinkTarget {
+  sessionId: string;
+}
+
+function normalizeDeepLinkId(value: string): string | null {
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
 }
@@ -22,6 +28,10 @@ function decodePathSegment(value: string): string | null {
 
 export function buildCardDeepLink(target: CardDeepLinkTarget): string {
   return `${NODEX_CARD_DEEPLINK_PREFIX}${encodeURIComponent(target.cardId)}`;
+}
+
+export function buildSessionDeepLink(target: SessionDeepLinkTarget): string {
+  return `${NODEX_SESSION_DEEPLINK_PREFIX}${encodeURIComponent(target.sessionId)}`;
 }
 
 export function parseCardDeepLink(value: string): CardDeepLinkTarget | null {
@@ -43,9 +53,9 @@ export function parseCardDeepLink(value: string): CardDeepLinkTarget | null {
     .filter((segment) => segment.length > 0);
 
   const cardId = host === NODEX_CARD_DEEPLINK_KIND
-    ? normalizeCardId(decodePathSegment(pathSegments[0] ?? "") ?? "")
+    ? normalizeDeepLinkId(decodePathSegment(pathSegments[0] ?? "") ?? "")
     : host.length === 0 && pathSegments[0]?.toLowerCase() === NODEX_CARD_DEEPLINK_KIND
-      ? normalizeCardId(decodePathSegment(pathSegments[1] ?? "") ?? "")
+      ? normalizeDeepLinkId(decodePathSegment(pathSegments[1] ?? "") ?? "")
       : null;
 
   if (!cardId) {
@@ -53,4 +63,35 @@ export function parseCardDeepLink(value: string): CardDeepLinkTarget | null {
   }
 
   return { cardId };
+}
+
+export function parseSessionDeepLink(value: string): SessionDeepLinkTarget | null {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+
+  if (url.protocol !== NODEX_DEEPLINK_PROTOCOL) {
+    return null;
+  }
+
+  const host = url.hostname.trim().toLowerCase();
+  const pathSegments = url.pathname
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+
+  const sessionId = host === NODEX_SESSION_DEEPLINK_KIND
+    ? normalizeDeepLinkId(decodePathSegment(pathSegments[0] ?? "") ?? "")
+    : host.length === 0 && pathSegments[0]?.toLowerCase() === NODEX_SESSION_DEEPLINK_KIND
+      ? normalizeDeepLinkId(decodePathSegment(pathSegments[1] ?? "") ?? "")
+      : null;
+
+  if (!sessionId) {
+    return null;
+  }
+
+  return { sessionId };
 }

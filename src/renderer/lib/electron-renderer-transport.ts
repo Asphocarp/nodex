@@ -3,7 +3,7 @@ import type {
   CodexHostMessage,
   DesktopNotificationActionPayload,
 } from "./types";
-import type { BoardChangeEvent } from "../../shared/ipc-api";
+import type { BoardChangeEvent, ProjectSessionsChangeEvent } from "../../shared/ipc-api";
 
 export type ElectronRendererBridge = NonNullable<Window["api"]>;
 
@@ -16,6 +16,13 @@ export function createElectronRendererTransport(bridge: ElectronRendererBridge) 
     subscribeBoardChanges(projectId: string, callback: () => void) {
       return bridge.on("board-changed", (...args: unknown[]) => {
         const payload = args[0] as BoardChangeEvent | undefined;
+        if (!payload || payload.projectId !== projectId) return;
+        callback();
+      });
+    },
+    subscribeProjectSessionChanges(projectId: string, callback: () => void) {
+      return bridge.on("project-sessions-changed", (...args: unknown[]) => {
+        const payload = args[0] as ProjectSessionsChangeEvent | undefined;
         if (!payload || payload.projectId !== projectId) return;
         callback();
       });

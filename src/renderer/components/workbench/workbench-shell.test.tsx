@@ -65,6 +65,7 @@ mock.module("@/lib/api", () => ({
     return mockInvokeImpl?.(channel, ...args) ?? null;
   },
   subscribeGitBranchChanges: () => () => undefined,
+  subscribeProjectSessionChanges: () => () => undefined,
   subscribeAppUpdateStatus: () => () => undefined,
 }));
 
@@ -379,6 +380,11 @@ function makeSession(overrides: SessionFixtureOverrides = {}): ProjectSession {
     createdAt: "2026-06-07T00:00:00.000Z",
     updatedAt: "2026-06-07T00:00:00.000Z",
     ...sessionOverrides,
+    pinned: sessionOverrides.pinned ?? false,
+    pinnedOrder: sessionOverrides.pinnedOrder ?? null,
+    archived: sessionOverrides.archived ?? false,
+    archivedAt: sessionOverrides.archivedAt ?? null,
+    unread: sessionOverrides.unread ?? false,
   };
 }
 

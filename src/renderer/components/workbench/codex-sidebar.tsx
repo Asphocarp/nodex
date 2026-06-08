@@ -5,7 +5,7 @@ import type {
   ReactNode,
 } from "react";
 import { useState } from "react";
-import { FolderOpen, Settings } from "lucide-react";
+import { FolderOpen, Pin, Settings } from "lucide-react";
 import {
   CodexFolderIcon,
   CodexProjectActionsIcon,
@@ -345,12 +345,18 @@ export function CodexProjectSessionList({
 export function CodexThreadRow({
   session,
   active,
+  contextMenuOpen = false,
   onSelect,
+  onOpenContextMenu,
 }: {
   session: ProjectSession;
   active: boolean;
+  contextMenuOpen?: boolean;
   onSelect: () => void;
+  onOpenContextMenu?: (session: ProjectSession, event: MouseEvent<HTMLElement>) => void;
 }) {
+  const showSessionActions = !session.isOverview && Boolean(onOpenContextMenu);
+
   return (
     <div className="after:block after:h-px after:content-[''] last:after:hidden" role="listitem">
       <div
@@ -358,18 +364,25 @@ export function CodexThreadRow({
         data-app-action-sidebar-thread-host-id="local"
         data-app-action-sidebar-thread-id={session.thread?.threadId ?? session.id}
         data-app-action-sidebar-thread-kind="local"
-        data-app-action-sidebar-thread-pinned="false"
+        data-app-action-sidebar-thread-pinned={String(session.pinned)}
+        data-app-action-sidebar-thread-unread={String(session.unread)}
         data-app-action-sidebar-thread-row=""
         data-app-action-sidebar-thread-title={session.title}
         className={cn(
           CODEX_SIDEBAR_THREAD_ROW_CLASS,
           active && "bg-token-list-hover-background",
+          contextMenuOpen && "bg-token-list-hover-background",
         )}
         role="button"
         tabIndex={0}
-        data-state="closed"
+        data-state={contextMenuOpen ? "open" : "closed"}
         aria-current={active ? "page" : undefined}
         onClick={onSelect}
+        onContextMenu={(event) => {
+          if (!showSessionActions) return;
+          event.preventDefault();
+          onOpenContextMenu?.(session, event);
+        }}
         onKeyDown={(event) => {
           if (event.key !== "Enter" && event.key !== " ") return;
           event.preventDefault();
@@ -378,10 +391,17 @@ export function CodexThreadRow({
       >
         <div className="contents">
           <div className="flex h-full w-full items-center text-sm leading-4">
-            <div className="w-4">
-              <div className="relative flex items-center justify-center" />
+            <div className="w-4 shrink-0">
+              <div className="relative flex items-center justify-center">
+                {session.unread ? (
+                  <span
+                    className="size-1.5 rounded-full bg-token-foreground"
+                    aria-label="Unread"
+                  />
+                ) : null}
+              </div>
             </div>
-            <div className="flex min-w-0 flex-1 items-center gap-2 pl-0.5 ml-1.5">
+            <div className="ml-1.5 flex min-w-0 flex-1 items-center gap-2 pl-0.5">
               <div
                 className="flex min-w-0 flex-1 self-stretch items-center gap-2 text-base leading-5 text-token-foreground"
                 data-thread-title-trigger="true"
@@ -395,12 +415,39 @@ export function CodexThreadRow({
                 </span>
               </div>
             </div>
+            {session.pinned ? (
+              <div className="ml-1 flex h-5 w-5 shrink-0 items-center justify-center text-token-description-foreground">
+                <Pin className="icon-xs" aria-hidden="true" />
+              </div>
+            ) : null}
             {session.isOverview ? (
               <div className="ml-[3px] flex min-w-[26px] items-center justify-end gap-1">
                 <span className="shrink-0 text-xs text-token-description-foreground">
                   default
                 </span>
               </div>
+            ) : null}
+            {showSessionActions ? (
+              <button
+                type="button"
+                aria-label={`Session actions for ${session.title}`}
+                className={cn(
+                  CODEX_SIDEBAR_PROJECT_ACTIONS_BUTTON_CLASS,
+                  "ml-1 shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100",
+                )}
+                data-state={contextMenuOpen ? "open" : "closed"}
+                data-app-action-sidebar-thread-actions-menu=""
+                onPointerDown={stopCodexSidebarRowActionPropagation}
+                onMouseDown={stopCodexSidebarRowActionPropagation}
+                onKeyDown={stopCodexSidebarRowActionPropagation}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onOpenContextMenu?.(session, event);
+                }}
+              >
+                <CodexProjectActionsIcon />
+              </button>
             ) : null}
           </div>
         </div>

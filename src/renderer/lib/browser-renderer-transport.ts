@@ -77,8 +77,13 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       return res.json();
     }
     case "project-sessions:list": {
-      const [projectId] = args as [string];
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/sessions`));
+      const [projectId, options] = args as [string, { includeArchived?: boolean }?];
+      const params = new URLSearchParams();
+      if (options?.includeArchived === true) {
+        params.set("includeArchived", "true");
+      }
+      const suffix = params.size > 0 ? `?${params.toString()}` : "";
+      const res = await fetch(toApiUrl(`/api/projects/${projectId}/sessions${suffix}`));
       const data = await res.json();
       return data.sessions ?? [];
     }
@@ -115,6 +120,61 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       });
       const data = await res.json();
       return data.sessions ?? [];
+    }
+    case "project-sessions:set-pinned": {
+      const [sessionId, input] = args as [string, { pinned: boolean }];
+      const res = await fetch(toApiUrl(`/api/project-sessions/${sessionId}/pinned`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      return res.ok ? res.json() : null;
+    }
+    case "project-sessions:set-pinned-order": {
+      const [projectId, input] = args as [string, { orderedSessionIds: string[] }];
+      const res = await fetch(toApiUrl(`/api/projects/${projectId}/sessions/pinned-order`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      const data = await res.json();
+      return data.sessions ?? [];
+    }
+    case "project-sessions:archive": {
+      const [sessionId] = args as [string];
+      const res = await fetch(toApiUrl(`/api/project-sessions/${sessionId}/archive`), {
+        method: "PUT",
+      });
+      return res.ok ? res.json() : null;
+    }
+    case "project-sessions:unarchive": {
+      const [sessionId] = args as [string];
+      const res = await fetch(toApiUrl(`/api/project-sessions/${sessionId}/unarchive`), {
+        method: "PUT",
+      });
+      return res.ok ? res.json() : null;
+    }
+    case "project-sessions:mark-unread": {
+      const [sessionId, input] = args as [string, { unread: boolean }];
+      const res = await fetch(toApiUrl(`/api/project-sessions/${sessionId}/unread`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      return res.ok ? res.json() : null;
+    }
+    case "project-sessions:fork": {
+      const [sessionId, input] = args as [string, object];
+      const res = await fetch(toApiUrl(`/api/project-sessions/${sessionId}/fork`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(typeof error.error === "string" ? error.error : "Failed to fork session");
+      }
+      return res.json();
     }
     case "project-session-tabs:create": {
       const [input] = args as [{ sessionId: string }];
@@ -995,12 +1055,37 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
 }
 
 function subscribeBoardChanges(projectId: string, callback: () => void): () => void {
+  if (typeof EventSource === "undefined") {
+    return () => {};
+  }
+
   const es = new EventSource(toApiUrl(`/api/projects/${projectId}/events`));
 
   es.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data) as BoardChangeEvent & { event?: string };
       if (data.event === "board-changed") {
+        callback();
+      }
+    } catch {
+      // ignore parse errors
+    }
+  };
+
+  return () => es.close();
+}
+
+function subscribeProjectSessionChanges(projectId: string, callback: () => void): () => void {
+  if (typeof EventSource === "undefined") {
+    return () => {};
+  }
+
+  const es = new EventSource(toApiUrl(`/api/projects/${projectId}/events`));
+
+  es.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data) as { event?: string };
+      if (data.event === "project-sessions-changed") {
         callback();
       }
     } catch {
@@ -1066,6 +1151,7 @@ export const browserRendererTransport = {
   kind: "browser" as const,
   invoke,
   subscribeBoardChanges,
+  subscribeProjectSessionChanges,
   subscribeCodexHostMessages,
   subscribeDesktopNotificationActions,
   subscribeGitBranchChanges,

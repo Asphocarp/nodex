@@ -9,6 +9,7 @@ import {
   useState,
   type ComponentPropsWithoutRef,
   type ComponentType,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 import { AnimatePresence, motion, useReducedMotion, useTransform, type MotionStyle, type MotionValue } from "motion/react";
@@ -40,6 +41,14 @@ import { buildSettingsPath } from "./workbench-settings-routes";
 import { ProjectManagerPopover } from "./left-sidebar-project-manager";
 import { LeftSidebarFooter } from "./left-sidebar-footer";
 import { NodexDropdownFlyoutSubmenuItem, NodexDropdownItem, NodexDropdownMenu } from "@/components/ui/dropdown";
+import { NodexButton } from "@/components/ui/button";
+import {
+  NodexDialog,
+  NodexDialogContent,
+  NodexDialogFooter,
+  NodexDialogHeader,
+  NodexDialogTitle,
+} from "@/components/ui/dialog";
 import { ShortcutKeycaps } from "@/components/ui/shortcut-keycaps";
 import { NodexTooltip, NodexTooltipProvider } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
@@ -63,7 +72,7 @@ import {
 import type { CalendarRangeState } from "@/lib/calendar-range";
 import { resolveCalendarVisibleDayCount } from "@/lib/calendar-range";
 import { KANBAN_STATUS_LABELS } from "@/lib/kanban-options";
-import { invoke } from "@/lib/api";
+import { invoke, subscribeProjectSessionChanges } from "@/lib/api";
 import { useKanban } from "@/lib/use-kanban";
 import { cn } from "@/lib/utils";
 import {
@@ -119,6 +128,7 @@ import type {
   Project,
   ProjectSession,
   ProjectSessionDbView,
+  ProjectSessionForkResult,
   ProjectSessionTab,
   ProjectSessionTabCreateInput,
   ProjectSessionThreadLink,
@@ -134,6 +144,16 @@ import {
 } from "@/lib/db-view-prefs";
 import type { SpaceRef, WorkbenchView } from "@/lib/use-workbench-state";
 import type { CardStageSessionSnapshot } from "@/components/kanban/card-stage/types";
+import { buildSessionDeepLink } from "@/lib/card-deeplink";
+import { writeTextToClipboard } from "@/lib/clipboard";
+import { showNativeContextMenu } from "@/lib/native-context-menu";
+import {
+  SESSION_CONTEXT_MENU_ACTION_IDS,
+  buildSessionContextMenuItems,
+  canForkSessionLocally,
+  resolveSessionRevealPath,
+  type SessionContextMenuActionId,
+} from "./session-context-menu-model";
 import { ToggleListIcon } from "./toggle-list-icon";
 import {
   CODEX_SIDEBAR_FLOATING_ASIDE_CLASS,
@@ -325,9 +345,35 @@ function writeThreadSummaryPanelPinnedOpen(open: boolean): void {
   }
 }
 
+function readRendererPlatform(): NodeJS.Platform | "browser" {
+  if (typeof navigator === "undefined") return "browser";
+  const platform = navigator.platform.toUpperCase();
+  if (platform.includes("MAC")) return "darwin";
+  if (platform.includes("WIN")) return "win32";
+  if (platform.includes("LINUX")) return "linux";
+  return "browser";
+}
+
+function sortProjectSessionsForSidebar(sessions: ProjectSession[]): ProjectSession[] {
+  return [...sessions].sort((a, b) => {
+    const rank = (session: ProjectSession) => session.isOverview ? 0 : session.pinned ? 1 : 2;
+    const rankDelta = rank(a) - rank(b);
+    if (rankDelta !== 0) return rankDelta;
+    if (a.pinned || b.pinned) {
+      const aPinnedOrder = a.pinnedOrder ?? Number.MAX_SAFE_INTEGER;
+      const bPinnedOrder = b.pinnedOrder ?? Number.MAX_SAFE_INTEGER;
+      if (aPinnedOrder !== bPinnedOrder) return aPinnedOrder - bPinnedOrder;
+    }
+    if (a.order !== b.order) return a.order - b.order;
+    return a.createdAt.localeCompare(b.createdAt);
+  });
+}
+
 interface WorkbenchShellProps {
   projects: Project[];
   dbProjectId: string;
+  initialActiveProjectSessionId?: string | null;
+  onActiveProjectSessionChange?: (sessionId: string | null) => void;
   activeView: WorkbenchView;
   activeSearchQuery: string;
   activeDbViewPrefs: DbViewPrefs | null;
@@ -348,6 +394,10 @@ interface WorkbenchShellProps {
     cardId: string;
     occurrenceStart: string;
   } | null;
+  pendingSessionOpen?: {
+    projectId: string;
+    sessionId: string;
+  } | null;
   setDbProject: (projectId: string) => void;
   setSearchQuery: (projectId: string, value: string) => void;
   setDbViewPrefs: (
@@ -361,6 +411,7 @@ interface WorkbenchShellProps {
     cardId: string;
     occurrenceStart: string;
   }) => void;
+  onOpenProjectSessionInNewWindow?: (session: ProjectSession) => Promise<void>;
   onLeaveCardStageCard: (snapshot: CardStageSessionSnapshot) => void;
   onCreateProject: (
     id: string,
@@ -689,6 +740,8 @@ function makePreviewProjectSessionTab(
 export function WorkbenchShell({
   projects,
   dbProjectId,
+  initialActiveProjectSessionId = null,
+  onActiveProjectSessionChange,
   activeView,
   activeSearchQuery,
   activeDbViewPrefs,
@@ -700,11 +753,13 @@ export function WorkbenchShell({
   cardStagePersistRef,
   cardStageSessionSnapshotRef,
   pendingReminderOpen,
+  pendingSessionOpen,
   setDbProject,
   setSearchQuery,
   setDbViewPrefs,
   openCardStage,
   onReminderHandled,
+  onOpenProjectSessionInNewWindow,
   onLeaveCardStageCard,
   onCreateProject,
   onRenameProject,
@@ -724,13 +779,17 @@ export function WorkbenchShell({
 }: WorkbenchShellProps) {
   const fallbackProjectId = projects[0]?.id ?? "default";
   const [activeProjectId, setActiveProjectId] = useState(dbProjectId || fallbackProjectId);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(initialActiveProjectSessionId);
   const [sessionsByProject, setSessionsByProject] = useState<Record<string, ProjectSession[]>>({});
   const [expandedProjectIds, setExpandedProjectIds] = useState(() =>
     readInitialExpandedProjects(projects, dbProjectId || fallbackProjectId),
   );
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
+  const [contextMenuSessionId, setContextMenuSessionId] = useState<string | null>(null);
+  const [renameSession, setRenameSession] = useState<ProjectSession | null>(null);
+  const [renameSessionTitle, setRenameSessionTitle] = useState("");
+  const [renamingSession, setRenamingSession] = useState(false);
   const [previewTabsByPanel, setPreviewTabsByPanel] = useState<Record<string, ProjectSessionPreviewTab>>({});
   const [panelCollapsedOverrides, setPanelCollapsedOverrides] = useState<Record<string, boolean>>({});
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT_WIDTH);
@@ -787,7 +846,8 @@ export function WorkbenchShell({
 
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null;
   const activeSessions = activeProject ? sessionsByProject[activeProject.id] ?? [] : [];
-  const activeSession = activeSessions.find((session) => session.id === activeSessionId) ?? activeSessions[0] ?? null;
+  const selectedActiveSession = activeSessions.find((session) => session.id === activeSessionId) ?? null;
+  const activeSession = selectedActiveSession ?? activeSessions[0] ?? null;
   const activeProjectKanban = useKanban({
     projectId: activeProject?.id ?? activeProjectId,
     sessionId: activeSession ? `${activeSession.id}:right-panel-actions` : "right-panel-actions",
@@ -1003,6 +1063,42 @@ export function WorkbenchShell({
     return sessions;
   }, []);
 
+  const mergeSessionInState = useCallback((session: ProjectSession) => {
+    setSessionsByProject((current) => {
+      const sessions = current[session.projectId];
+      if (!sessions) return current;
+      return {
+        ...current,
+        [session.projectId]: sortProjectSessionsForSidebar(
+          sessions.map((candidate) => candidate.id === session.id ? session : candidate),
+        ),
+      };
+    });
+  }, []);
+
+  const resolveSessionHasGitRepository = useCallback(async (session: ProjectSession): Promise<boolean> => {
+    if (!canForkSessionLocally(session)) return false;
+    const cwd = session.thread?.cwd?.trim();
+    if (!cwd) return false;
+    try {
+      const state = await invoke("git:branch:state", cwd) as {
+        currentBranch?: string | null;
+        defaultBranch?: string | null;
+        branches?: string[];
+      };
+      return Boolean(state.currentBranch || state.defaultBranch || (state.branches?.length ?? 0) > 0);
+    } catch {
+      return false;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!activeProject?.id) return;
+    return subscribeProjectSessionChanges(activeProject.id, () => {
+      void refreshProjectSessions(activeProject.id);
+    });
+  }, [activeProject?.id, refreshProjectSessions]);
+
   const refreshAllSessions = useCallback(async () => {
     if (projects.length === 0) return;
     setLoadingSessions(true);
@@ -1075,12 +1171,22 @@ export function WorkbenchShell({
 
   useEffect(() => {
     if (!activeProject) return;
-    if (activeSession && activeSession.projectId === activeProject.id) return;
+    if (
+      activeSession
+      && activeSession.projectId === activeProject.id
+      && activeSession.id === activeSessionId
+    ) {
+      return;
+    }
     const overview = activeSessions.find((session) => session.isOverview) ?? activeSessions[0] ?? null;
     startTransition(() => {
       setActiveSessionId(overview?.id ?? null);
     });
-  }, [activeProject, activeSession, activeSessions]);
+  }, [activeProject, activeSession, activeSessionId, activeSessions]);
+
+  useEffect(() => {
+    onActiveProjectSessionChange?.(activeSession?.id ?? null);
+  }, [activeSession?.id, onActiveProjectSessionChange]);
 
   const selectProject = useCallback((projectId: string) => {
     startTransition(() => {
@@ -1097,7 +1203,247 @@ export function WorkbenchShell({
       setDbProject(session.projectId);
       setExpandedProjectIds((current) => new Set([...current, session.projectId]));
     });
-  }, [setDbProject]);
+    if (session.unread) {
+      void invoke("project-sessions:mark-unread", session.id, { unread: false })
+        .then((updated) => {
+          if (!updated) return;
+          mergeSessionInState(updated as ProjectSession);
+        })
+        .catch(() => undefined);
+    }
+  }, [mergeSessionInState, setDbProject]);
+
+  useEffect(() => {
+    if (!pendingSessionOpen) return;
+    if (pendingSessionOpen.projectId !== activeProject?.id) return;
+    const targetSession = activeSessions.find((session) => session.id === pendingSessionOpen.sessionId);
+    if (!targetSession) return;
+    selectSession(targetSession);
+  }, [activeProject?.id, activeSessions, pendingSessionOpen, selectSession]);
+
+  const toggleSessionPin = useCallback(async (session: ProjectSession) => {
+    const previousSessions = sessionsByProject[session.projectId] ?? [];
+    const nextPinned = !session.pinned;
+    const nextPinnedOrder = nextPinned
+      ? Math.max(-1, ...previousSessions.map((candidate) => candidate.pinnedOrder ?? -1)) + 1
+      : null;
+    const optimisticSession: ProjectSession = {
+      ...session,
+      pinned: nextPinned,
+      pinnedOrder: nextPinnedOrder,
+    };
+
+    setSessionsByProject((current) => ({
+      ...current,
+      [session.projectId]: sortProjectSessionsForSidebar(
+        (current[session.projectId] ?? previousSessions)
+          .map((candidate) => candidate.id === session.id ? optimisticSession : candidate),
+      ),
+    }));
+
+    try {
+      const updated = await invoke("project-sessions:set-pinned", session.id, { pinned: nextPinned }) as ProjectSession | null;
+      if (updated) mergeSessionInState(updated);
+      await refreshProjectSessions(session.projectId);
+    } catch {
+      setSessionsByProject((current) => ({ ...current, [session.projectId]: previousSessions }));
+      toast.danger(nextPinned ? "Failed to pin chat" : "Failed to unpin chat");
+    }
+  }, [mergeSessionInState, refreshProjectSessions, sessionsByProject]);
+
+  const openRenameSessionDialog = useCallback((session: ProjectSession) => {
+    setRenameSession(session);
+    setRenameSessionTitle(session.title);
+  }, []);
+
+  const archiveSession = useCallback(async (session: ProjectSession) => {
+    try {
+      await invoke("project-sessions:archive", session.id);
+      const sessions = await refreshProjectSessions(session.projectId);
+      if (activeSessionId === session.id) {
+        const fallbackSession = sessions.find((candidate) => candidate.isOverview) ?? sessions[0] ?? null;
+        if (fallbackSession) {
+          selectSession(fallbackSession);
+        } else {
+          setActiveSessionId(null);
+        }
+      }
+    } catch {
+      toast.danger("Failed to archive chat");
+    }
+  }, [activeSessionId, refreshProjectSessions, selectSession]);
+
+  const markSessionUnread = useCallback(async (session: ProjectSession) => {
+    try {
+      const updated = await invoke("project-sessions:mark-unread", session.id, { unread: true }) as ProjectSession | null;
+      if (updated) mergeSessionInState(updated);
+    } catch {
+      toast.danger("Failed to mark chat unread");
+    }
+  }, [mergeSessionInState]);
+
+  const revealSession = useCallback(async (session: ProjectSession) => {
+    const project = projects.find((candidate) => candidate.id === session.projectId) ?? null;
+    const revealPath = resolveSessionRevealPath({
+      session,
+      projectWorkspacePath: project?.workspacePath ?? null,
+    });
+    if (!revealPath) return;
+    try {
+      const opened = await invoke("shell:open-file-link", { path: revealPath }, "fileManager") as boolean;
+      if (!opened) toast.danger("Failed to reveal chat folder");
+    } catch {
+      toast.danger("Failed to reveal chat folder");
+    }
+  }, [projects]);
+
+  const copySessionText = useCallback(async (text: string, successMessage: string, errorMessage: string) => {
+    const copied = await writeTextToClipboard(text);
+    if (copied) {
+      toast.success(successMessage);
+      return;
+    }
+    toast.danger(errorMessage);
+  }, []);
+
+  const forkSession = useCallback(async (
+    session: ProjectSession,
+    target: "local" | "newWorktree",
+  ) => {
+    try {
+      const result = await invoke("project-sessions:fork", session.id, {
+        target,
+        ...(target === "newWorktree"
+          ? {
+              worktreeStartMode,
+              worktreeBranchPrefix: worktreeAutoBranchPrefix,
+            }
+          : {}),
+      }) as ProjectSessionForkResult;
+      await refreshProjectSessions(result.session.projectId);
+      selectSession(result.session);
+    } catch {
+      toast.danger(target === "newWorktree" ? "Failed to fork chat into new worktree" : "Failed to fork chat");
+    }
+  }, [refreshProjectSessions, selectSession, worktreeAutoBranchPrefix, worktreeStartMode]);
+
+  const handleSessionContextMenuAction = useCallback(async (
+    session: ProjectSession,
+    actionId: SessionContextMenuActionId,
+  ) => {
+    if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.togglePin) {
+      await toggleSessionPin(session);
+      return;
+    }
+    if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.rename) {
+      openRenameSessionDialog(session);
+      return;
+    }
+    if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.archive) {
+      await archiveSession(session);
+      return;
+    }
+    if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.markUnread) {
+      await markSessionUnread(session);
+      return;
+    }
+    if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.reveal) {
+      await revealSession(session);
+      return;
+    }
+    if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.copyWorkingDirectory) {
+      await copySessionText(
+        session.thread?.cwd ?? "",
+        "Copied working directory",
+        "Failed to copy working directory",
+      );
+      return;
+    }
+    if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.copySessionId) {
+      await copySessionText(session.id, "Copied session ID", "Failed to copy session ID");
+      return;
+    }
+    if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.copyDeeplink) {
+      await copySessionText(
+        buildSessionDeepLink({ sessionId: session.id }),
+        "Copied deeplink",
+        "Failed to copy deeplink",
+      );
+      return;
+    }
+    if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.forkLocal) {
+      await forkSession(session, "local");
+      return;
+    }
+    if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.forkNewWorktree) {
+      await forkSession(session, "newWorktree");
+      return;
+    }
+    if (actionId === SESSION_CONTEXT_MENU_ACTION_IDS.openInNewWindow) {
+      await onOpenProjectSessionInNewWindow?.(session);
+    }
+  }, [
+    archiveSession,
+    copySessionText,
+    forkSession,
+    markSessionUnread,
+    onOpenProjectSessionInNewWindow,
+    openRenameSessionDialog,
+    revealSession,
+    toggleSessionPin,
+  ]);
+
+  const openSessionContextMenu = useCallback(async (
+    session: ProjectSession,
+    event: ReactMouseEvent<HTMLElement>,
+  ) => {
+    if (session.isOverview) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX > 0 ? event.clientX : rect.right;
+    const y = event.clientY > 0 ? event.clientY : rect.bottom;
+    const project = projects.find((candidate) => candidate.id === session.projectId) ?? null;
+    const isGitRepository = await resolveSessionHasGitRepository(session);
+    const items = buildSessionContextMenuItems({
+      session,
+      projectWorkspacePath: project?.workspacePath ?? null,
+      platform: readRendererPlatform(),
+      isGitRepository,
+    });
+
+    setContextMenuSessionId(session.id);
+    try {
+      const selectedId = await showNativeContextMenu(items, { x, y });
+      if (!selectedId) return;
+      await handleSessionContextMenuAction(session, selectedId as SessionContextMenuActionId);
+    } catch {
+      toast.danger("Native context menu is unavailable");
+    } finally {
+      setContextMenuSessionId(null);
+    }
+  }, [handleSessionContextMenuAction, projects, resolveSessionHasGitRepository]);
+
+  const submitRenameSession = useCallback(async () => {
+    if (!renameSession) return;
+    const title = renameSessionTitle.trim();
+    if (!title) return;
+
+    setRenamingSession(true);
+    try {
+      const updated = await invoke("project-sessions:update", renameSession.id, { title }) as ProjectSession | null;
+      if (!updated) throw new Error("Session was not found");
+      mergeSessionInState(updated);
+      await refreshProjectSessions(updated.projectId);
+      setRenameSession(null);
+      setRenameSessionTitle("");
+    } catch {
+      toast.danger("Failed to rename chat");
+    } finally {
+      setRenamingSession(false);
+    }
+  }, [mergeSessionInState, refreshProjectSessions, renameSession, renameSessionTitle]);
 
   const updateActivePanel = useCallback(async (
     panelId: PanelId,
@@ -2144,9 +2490,61 @@ export function WorkbenchShell({
     />
   ) : null;
 
+  const renameSessionDialog = (
+    <NodexDialog
+      open={Boolean(renameSession)}
+      onOpenChange={(open) => {
+        if (open) return;
+        setRenameSession(null);
+        setRenameSessionTitle("");
+      }}
+    >
+      <NodexDialogContent className="max-w-sm gap-5 rounded-2xl p-5">
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submitRenameSession();
+          }}
+        >
+          <NodexDialogHeader className="gap-1">
+            <NodexDialogTitle className="text-base">Rename chat</NodexDialogTitle>
+          </NodexDialogHeader>
+          <input
+            autoFocus
+            className="h-9 rounded-lg border border-token-border bg-token-main-surface-primary px-3 text-sm text-token-foreground outline-none focus-visible:ring-2 focus-visible:ring-token-focus"
+            value={renameSessionTitle}
+            onChange={(event) => setRenameSessionTitle(event.target.value)}
+          />
+          <NodexDialogFooter>
+            <NodexButton
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setRenameSession(null);
+                setRenameSessionTitle("");
+              }}
+            >
+              Cancel
+            </NodexButton>
+            <NodexButton
+              type="submit"
+              size="sm"
+              disabled={renamingSession || renameSessionTitle.trim().length === 0}
+            >
+              Rename
+            </NodexButton>
+          </NodexDialogFooter>
+        </form>
+      </NodexDialogContent>
+    </NodexDialog>
+  );
+
   return (
     <HeaderActionProvider actions={settingsPath ? null : headerActions}>
       <NodexTooltipProvider>
+        {renameSessionDialog}
         <motion.div
           ref={workbenchRootRef}
           className="relative flex flex-col text-token-text-primary"
@@ -2194,6 +2592,7 @@ export function WorkbenchShell({
               spaces={spaces}
               activeProjectId={activeProjectId}
               activeSessionId={activeSession?.id ?? null}
+              contextMenuSessionId={contextMenuSessionId}
               sessionsByProject={sessionsByProject}
               expandedProjectIds={expandedProjectIds}
               projectsSectionCollapsed={projectsSectionCollapsed}
@@ -2215,6 +2614,7 @@ export function WorkbenchShell({
               }}
               onSelectProject={selectProject}
               onSelectSession={selectSession}
+              onOpenSessionContextMenu={openSessionContextMenu}
               onStartNewChatInProject={(projectId) => void startNewChatInProject(projectId)}
               onOpenTaskSearch={openSidebarTaskSearch}
               onShowUnavailableProduct={showSidebarUnavailableProduct}
@@ -2253,6 +2653,7 @@ export function WorkbenchShell({
                   spaces={spaces}
                   activeProjectId={activeProjectId}
                   activeSessionId={activeSession?.id ?? null}
+                  contextMenuSessionId={contextMenuSessionId}
                   sessionsByProject={sessionsByProject}
                   expandedProjectIds={expandedProjectIds}
                   projectsSectionCollapsed={projectsSectionCollapsed}
@@ -2271,6 +2672,7 @@ export function WorkbenchShell({
                   }}
                   onSelectProject={selectProject}
                   onSelectSession={selectSession}
+                  onOpenSessionContextMenu={openSessionContextMenu}
                   onStartNewChatInProject={(projectId) => void startNewChatInProject(projectId)}
                   onOpenTaskSearch={openSidebarTaskSearch}
                   onShowUnavailableProduct={showSidebarUnavailableProduct}
@@ -2523,6 +2925,7 @@ function ProjectSessionSidebar({
   spaces,
   activeProjectId,
   activeSessionId,
+  contextMenuSessionId,
   sessionsByProject,
   expandedProjectIds,
   projectsSectionCollapsed,
@@ -2537,6 +2940,7 @@ function ProjectSessionSidebar({
   onToggleProjectExpanded,
   onSelectProject,
   onSelectSession,
+  onOpenSessionContextMenu,
   onStartNewChatInProject,
   onOpenTaskSearch,
   onShowUnavailableProduct,
@@ -2556,6 +2960,7 @@ function ProjectSessionSidebar({
   spaces: SpaceRef[];
   activeProjectId: string;
   activeSessionId: string | null;
+  contextMenuSessionId?: string | null;
   sessionsByProject: Record<string, ProjectSession[]>;
   expandedProjectIds: Set<string>;
   projectsSectionCollapsed: boolean;
@@ -2570,6 +2975,7 @@ function ProjectSessionSidebar({
   onToggleProjectExpanded: (projectId: string) => void;
   onSelectProject: (projectId: string) => void;
   onSelectSession: (session: ProjectSession) => void;
+  onOpenSessionContextMenu?: (session: ProjectSession, event: ReactMouseEvent<HTMLElement>) => void;
   onStartNewChatInProject: (projectId: string) => void | Promise<void>;
   onOpenTaskSearch: () => void;
   onShowUnavailableProduct: (label: string) => void;
@@ -2729,7 +3135,9 @@ function ProjectSessionSidebar({
                                 key={session.id}
                                 session={session}
                                 active={activeSessionId === session.id}
+                                contextMenuOpen={contextMenuSessionId === session.id}
                                 onSelect={() => onSelectSession(session)}
+                                onOpenContextMenu={onOpenSessionContextMenu}
                               />
                             ))}
                             {sessions.length === 0 && loadingSessions ? (

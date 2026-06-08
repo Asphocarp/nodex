@@ -20,8 +20,9 @@ function tableColumnNames(db: Database.Database, tableName: string): string[] {
 describe("schema initialization", () => {
   test("exposes only the supported in-app migration target", () => {
     expect(JSON.stringify(getSchemaMigrationTargets(CURRENT_SCHEMA_VERSION))).toBe("[]");
-    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[31]");
-    expect(JSON.stringify(getSchemaMigrationTargets(30))).toBe("[31]");
+    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[31,32]");
+    expect(JSON.stringify(getSchemaMigrationTargets(30))).toBe("[31,32]");
+    expect(JSON.stringify(getSchemaMigrationTargets(31))).toBe("[32]");
     expect(getSchemaMigrationTargets(29) === null).toBeTrue();
     expect(getSchemaMigrationTargets(20) === null).toBeTrue();
   });
@@ -98,6 +99,18 @@ describe("schema initialization", () => {
 
       const sessionColumnNames = tableColumnNames(db, "project_sessions");
       expect(sessionColumnNames.includes("panel_state_json")).toBeTrue();
+      expect(sessionColumnNames.includes("pinned")).toBeTrue();
+      expect(sessionColumnNames.includes("pinned_order")).toBeTrue();
+      expect(sessionColumnNames.includes("archived")).toBeTrue();
+      expect(sessionColumnNames.includes("archived_at")).toBeTrue();
+      expect(sessionColumnNames.includes("unread")).toBeTrue();
+      const sessionSidebarIndex = db.prepare(`
+        SELECT 1
+        FROM sqlite_master
+        WHERE type = 'index'
+          AND name = 'idx_project_sessions_project_sidebar'
+      `).get();
+      expect(sessionSidebarIndex !== undefined).toBeTrue();
 
       const sessionTabColumnNames = tableColumnNames(db, "project_session_tabs");
       expect(sessionTabColumnNames.includes("panel_id")).toBeTrue();

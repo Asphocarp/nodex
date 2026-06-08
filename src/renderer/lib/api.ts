@@ -20,6 +20,13 @@ export function subscribeBoardChanges(
   return resolveRendererTransport().subscribeBoardChanges(projectId, callback);
 }
 
+export function subscribeProjectSessionChanges(
+  projectId: string,
+  callback: () => void,
+): () => void {
+  return resolveRendererTransport().subscribeProjectSessionChanges(projectId, callback);
+}
+
 export function subscribeCodexHostMessages(
   callback: (message: import("./types").CodexHostMessage) => void,
 ): () => void {

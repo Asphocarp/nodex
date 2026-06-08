@@ -42,6 +42,7 @@ export interface WorkbenchLayoutDockSnapshot {
 export interface WorkbenchLayoutSnapshot {
   version: 1;
   dbProjectId: string;
+  activeProjectSessionId: string | null;
   threadsProjectId: string;
   viewsByProject: Record<string, WorkbenchLayoutView>;
   searchByProject: Record<string, string>;
@@ -82,6 +83,7 @@ export function createDefaultWorkbenchLayoutSnapshot(): WorkbenchLayoutSnapshot 
   return {
     version: 1,
     dbProjectId: "default",
+    activeProjectSessionId: null,
     threadsProjectId: "default",
     viewsByProject: {},
     searchByProject: {},

@@ -21,6 +21,7 @@ import type { AppUpdateStatus } from "../shared/types";
 import { registerIpcHandlers } from "./ipc-handlers";
 import { startHttpServer } from "./http-server";
 import { findCardLocationById, initializeDatabase } from "./kanban/db-service";
+import * as projectSessionService from "./kanban/project-session-service";
 import { dbNotifier } from "./kanban/db-notifier";
 import {
   configureAutoBackupScheduler,
@@ -39,7 +40,7 @@ import {
 import { codexService } from "./codex/codex-service";
 import { DesktopNotificationManager } from "./desktop-notification-manager";
 import { configureInstanceScopePaths } from "./instance-scope";
-import { parseCardDeepLink } from "../shared/card-deeplink";
+import { parseCardDeepLink, parseSessionDeepLink } from "../shared/card-deeplink";
 import {
   isWindowSessionBoundsVisible,
   WindowSessionState,
@@ -73,6 +74,8 @@ let stopReminderScheduler: (() => void) | null = null;
 let databaseReady = false;
 let pendingCardDeepLinkCardId: string | null = null;
 let pendingCardDeepLinkTarget: { projectId: string; cardId: string } | null = null;
+let pendingSessionDeepLinkSessionId: string | null = null;
+let pendingSessionDeepLinkTarget: { projectId: string; sessionId: string } | null = null;
 const pendingCloseResolvers = new Map<number, () => void>();
 const allowImmediateWindowClose = new Set<number>();
 const WINDOW_CLOSE_FLUSH_TIMEOUT_MS = 1500;
@@ -340,6 +343,24 @@ function flushPendingCardDeepLink(): void {
   pendingCardDeepLinkTarget = null;
 }
 
+function flushPendingSessionDeepLink(): void {
+  if (!pendingSessionDeepLinkTarget) {
+    return;
+  }
+
+  const targetWindow = getLastFocusedWindow();
+  if (!targetWindow || targetWindow.isDestroyed()) {
+    return;
+  }
+
+  if (targetWindow.webContents.isLoadingMainFrame()) {
+    return;
+  }
+
+  targetWindow.webContents.send("deeplink:open-session", pendingSessionDeepLinkTarget);
+  pendingSessionDeepLinkTarget = null;
+}
+
 function resolvePendingCardDeepLink(): void {
   if (!databaseReady) {
     return;
@@ -365,6 +386,31 @@ function resolvePendingCardDeepLink(): void {
   flushPendingCardDeepLink();
 }
 
+function resolvePendingSessionDeepLink(): void {
+  if (!databaseReady) {
+    return;
+  }
+
+  if (!pendingSessionDeepLinkSessionId) {
+    flushPendingSessionDeepLink();
+    return;
+  }
+
+  const sessionId = pendingSessionDeepLinkSessionId;
+  const session = projectSessionService.getProjectSession(sessionId);
+  pendingSessionDeepLinkSessionId = null;
+  if (!session) {
+    return;
+  }
+
+  pendingSessionDeepLinkTarget = {
+    projectId: session.projectId,
+    sessionId,
+  };
+
+  flushPendingSessionDeepLink();
+}
+
 function queueCardDeepLink(cardId: string): void {
   pendingCardDeepLinkCardId = cardId;
 
@@ -376,24 +422,47 @@ function queueCardDeepLink(cardId: string): void {
   resolvePendingCardDeepLink();
 }
 
+function queueSessionDeepLink(sessionId: string): void {
+  pendingSessionDeepLinkSessionId = sessionId;
+
+  if (!databaseReady) {
+    return;
+  }
+
+  focusLastWindow();
+  resolvePendingSessionDeepLink();
+}
+
 function handleIncomingDeepLink(value: string): boolean {
-  const target = parseCardDeepLink(value);
-  if (!target) {
+  const sessionTarget = parseSessionDeepLink(value);
+  if (sessionTarget) {
+    queueSessionDeepLink(sessionTarget.sessionId);
+    return true;
+  }
+
+  const cardTarget = parseCardDeepLink(value);
+  if (!cardTarget) {
     return false;
   }
 
-  queueCardDeepLink(target.cardId);
+  queueCardDeepLink(cardTarget.cardId);
   return true;
 }
 
 function extractDeepLinkFromArgv(argv: string[]): string | null {
   for (const arg of argv) {
-    const target = parseCardDeepLink(arg);
-    if (!target) {
+    const sessionTarget = parseSessionDeepLink(arg);
+    if (sessionTarget) {
+      queueSessionDeepLink(sessionTarget.sessionId);
+      return arg;
+    }
+
+    const cardTarget = parseCardDeepLink(arg);
+    if (!cardTarget) {
       continue;
     }
 
-    queueCardDeepLink(target.cardId);
+    queueCardDeepLink(cardTarget.cardId);
     return arg;
   }
 
@@ -553,6 +622,7 @@ function createWindow(
       window.webContents.send("app:update-status", appUpdateStatus);
     }
     flushPendingCardDeepLink();
+    flushPendingSessionDeepLink();
     maybeStartAutomaticAppUpdateChecks();
   });
   window.on("closed", () => {
@@ -599,6 +669,7 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
   });
   databaseReady = true;
   resolvePendingCardDeepLink();
+  resolvePendingSessionDeepLink();
 
   startHttpServer(serverPort);
 
@@ -666,6 +737,9 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
 
   dbNotifier.on("board-changed", (event) => {
     broadcastToWindows("board-changed", event);
+  });
+  dbNotifier.on("project-sessions-changed", (event) => {
+    broadcastToWindows("project-sessions-changed", event);
   });
 
   app.on("activate", () => {

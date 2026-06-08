@@ -132,3 +132,8 @@ contextBridge.exposeInMainWorld("api", {
     }
   },
 });
+
+contextBridge.exposeInMainWorld("electronBridge", {
+  showContextMenu: (items: unknown[], options?: unknown) =>
+    ipcRenderer.invoke("native-context-menu:show", items, options),
+});

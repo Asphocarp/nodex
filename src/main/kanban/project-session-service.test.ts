@@ -14,9 +14,13 @@ import {
   detachProjectSessionThread,
   getProjectSession,
   listProjectSessions,
+  archiveProjectSession,
   moveProjectSessionTab,
   reorderProjectSessionTabs,
   reorderProjectSessions,
+  setPinnedProjectSessionOrder,
+  setProjectSessionPinned,
+  markProjectSessionUnread,
   updateProjectSessionPanel,
   updateProjectSessionTab,
   upsertProjectSessionThreadLink,
@@ -92,7 +96,7 @@ describe("project session service", () => {
 
       const sessions = reorderProjectSessions("default", [session.id, "overview:default"]);
       expect(JSON.stringify(sessions.map((item) => item.id))).toBe(
-        JSON.stringify([session.id, "overview:default"]),
+        JSON.stringify(["overview:default", session.id]),
       );
 
       const terminal = createProjectSessionTab({
@@ -169,6 +173,48 @@ describe("project session service", () => {
         validationMessage = (error as Error).message;
       }
       expect(validationMessage.length > 0).toBeTrue();
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("pins, reorders pinned sessions, and archives without deleting sessions", async () => {
+    const ran = await withTempDatabase(async () => {
+      const alpha = createProjectSession({ projectId: "default", title: "Alpha" });
+      const beta = createProjectSession({ projectId: "default", title: "Beta" });
+      const gamma = createProjectSession({ projectId: "default", title: "Gamma" });
+
+      const pinnedAlpha = setProjectSessionPinned(alpha.id, { pinned: true });
+      const pinnedGamma = setProjectSessionPinned(gamma.id, { pinned: true });
+      expect(pinnedAlpha?.pinned).toBeTrue();
+      expect(pinnedAlpha?.pinnedOrder).toBe(0);
+      expect(pinnedGamma?.pinnedOrder).toBe(1);
+
+      let sessions = listProjectSessions("default");
+      expect(JSON.stringify(sessions.map((session) => session.id))).toBe(
+        JSON.stringify(["overview:default", alpha.id, gamma.id, beta.id]),
+      );
+
+      sessions = setPinnedProjectSessionOrder("default", { orderedSessionIds: [gamma.id, alpha.id] });
+      expect(JSON.stringify(sessions.map((session) => session.id))).toBe(
+        JSON.stringify(["overview:default", gamma.id, alpha.id, beta.id]),
+      );
+
+      const unreadGamma = markProjectSessionUnread(gamma.id, { unread: true });
+      expect(unreadGamma?.unread).toBeTrue();
+      const archivedGamma = archiveProjectSession(gamma.id);
+      expect(archivedGamma?.archived).toBeTrue();
+      expect(archivedGamma?.pinned).toBeFalse();
+      expect(archivedGamma?.pinnedOrder).toBe(null);
+      expect(archivedGamma?.unread).toBeFalse();
+
+      sessions = listProjectSessions("default");
+      expect(JSON.stringify(sessions.map((session) => session.id))).toBe(
+        JSON.stringify(["overview:default", alpha.id, beta.id]),
+      );
+
+      const archivedVisible = listProjectSessions("default", { includeArchived: true });
+      expect(archivedVisible.some((session) => session.id === gamma.id)).toBeTrue();
     });
 
     if (!ran) expect(true).toBeTrue();

@@ -19,10 +19,10 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `index.ts`: application bootstrap (startup-init gating, DB init with migration progress fanout, HTTP server start, multi-window registry, profile-scoped single-instance lock, notifier fanout).
 - `instance-scope.ts`: resolves/apply Electron `userData` + `sessionData` paths under the resolved server dir so each configured profile owns its own process lock scope.
 - `http-server.ts`: Hono routes for projects, project sessions/tabs/thread links, cards, history, backups, and assets.
-- `ipc-handlers.ts`: mirrors core operations through IPC, including project session mutations, asset-path resolution, and clipboard paste inspection for desktop-only file/folder paste flows.
+- `ipc-handlers.ts`: mirrors core operations through IPC, including project session mutations, native context menu selection, asset-path resolution, and clipboard paste inspection for desktop-only file/folder paste flows.
 - `clipboard-paste-inspector.ts`: best-effort Electron clipboard inspection for pasted absolute file/folder paths across supported native formats.
 - `kanban/db-service.ts`: SQLite CRUD, move logic, project lifecycle, atomic block-drop import (`sourceUpdates + card creates`), and atomic card-to-editor move drop (`target updates + source delete`) grouped in one transaction.
-- `kanban/project-session-service.ts`: SQLite CRUD for project-owned sessions, right/bottom session panels, session-attached tabs, optional session-thread links, Overview seeding, ordering, and v1 single-leaf panel layout JSON.
+- `kanban/project-session-service.ts`: SQLite CRUD for project-owned sessions, project-local pin/archive/unread state, right/bottom session panels, session-attached tabs, optional session-thread links, Overview seeding, ordering, and v1 single-leaf panel layout JSON.
 - `kanban/history-service.ts`: undo/redo and change history records, including grouped undo/redo via `history.group_id` and description hydration from revision ids.
 - `kanban/description-revision-service.ts`: top-level NFM block hashing, revision delta/snapshot storage, description reconstruction, and revision/blob garbage collection.
 - `kanban/recurrence-service.ts`: recurrence expansion, exception application, and next-occurrence computation.
@@ -46,7 +46,7 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `codex/worktree-environment-service.ts`: lists and validates `.codex/environments/*.toml`, parses environment metadata (`name`, `[setup].script`), and enforces in-repo path boundaries.
 
 ### Preload Boundary (`src/preload`)
-- `index.ts`: minimal `window.api` bridge that exposes `invoke`, event subscription, runtime server URL, and the cached Electron asset-path prefix used for synchronous local asset-path resolution.
+- `index.ts`: minimal `window.api` bridge that exposes `invoke`, event subscription, runtime server URL, cached Electron asset-path prefix, and the `window.electronBridge.showContextMenu` native-menu bridge used by desktop-only row menus.
 
 ### Renderer Application (`src/renderer`)
 - `app.tsx`: workbench orchestration, window-session bootstrap/layout persistence, Electron startup-gating screen, reminder deep-link handling, and feature-flagged shell entry.
@@ -83,16 +83,16 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 1. Renderer issues a command through `lib/api.ts`.
 2. Transport resolves to IPC or HTTP based on runtime.
 3. Main process writes through `db-service`, recurrence helpers, and records history.
-4. `db-notifier` emits `board-changed`.
-5. Electron main broadcasts `board-changed` to all open windows; renderer store subscriptions filter by `projectId`.
-6. Renderer shared project stores (`kanban-store`) receive IPC/SSE board-change signals and dedupe refresh work per project.
-6. Reminder scheduler polls occurrences, dedupes delivery via receipts, and emits `reminder:open` to renderer on notification click.
+4. `db-notifier` emits `board-changed` for board/card changes or `project-sessions-changed` for session-tree changes.
+5. Electron main broadcasts change events to all open windows; renderer subscriptions filter by `projectId`.
+6. Renderer shared project stores (`kanban-store`) receive IPC/SSE board-change signals and dedupe refresh work per project. Workbench session lists receive IPC/SSE session-change signals and reload the affected project sessions.
+7. Reminder scheduler polls occurrences, dedupes delivery via receipts, and emits `reminder:open` to renderer on notification click.
 
 Project sessions flow:
 1. The renderer shell loads `project-sessions:list` for each visible project and renders projects as expandable folders with ordered sessions beneath them.
-2. SQLite owns the shared tree: `project_sessions.panel_state_json` stores independent right and bottom panel state, `project_session_tabs.panel_id` stores ordered DB/Card/terminal/browser/review/files/side-chat tabs per panel, and `project_session_threads` stores optional session-to-thread attachments while thread metadata lives in `codex_threads`.
+2. SQLite owns the shared tree: `project_sessions.pinned`, `pinned_order`, `archived`, `archived_at`, and `unread` store project-local sidebar state, `project_sessions.panel_state_json` stores independent right and bottom panel state, `project_session_tabs.panel_id` stores ordered DB/Card/terminal/browser/review/files/side-chat tabs per panel, and `project_session_threads` stores optional session-to-thread attachments while thread metadata lives in `codex_threads`.
 3. Window/session UI state owns only the active project, active session, and transient focus/history. Durable panel collapse, size, active tab, tab order, and tab state belong to project-session storage.
-4. Every project has a seeded `Overview` session with one right-panel `db_view` tab for that project. The project-session service also lazily creates the Overview row for projects added after startup.
+4. Every project has a seeded `Overview` session with one right-panel `db_view` tab for that project. The project-session service also lazily creates the Overview row for projects added after startup. Overview sessions always sort first and cannot be pinned, archived, deleted, or marked unread.
 5. Session singleton right-panel kinds are `db_view`, `review`, and `browser_placeholder`. Terminal tabs are session-owned bottom-panel tabs by default and carry only `projectId` plus `terminalSessionId`; cards never own terminals.
 6. Renderer-local panel previews are intentionally outside SQLite. Files, Browser, and Side chat previews occupy one preview slot per session panel, replace each other within that panel, and are persisted only when pinned through the normal session-tab create API.
 

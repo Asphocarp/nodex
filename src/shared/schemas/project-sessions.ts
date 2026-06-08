@@ -15,6 +15,11 @@ import type {
   ProjectSessionTerminalTabConfig,
   ProjectSessionThreadLinkInput,
   ProjectSessionUpdateInput,
+  ProjectSessionPinnedInput,
+  ProjectSessionPinnedOrderInput,
+  ProjectSessionUnreadInput,
+  ProjectSessionListOptions,
+  ProjectSessionForkInput,
 } from "../types";
 import { WorkbenchViewSchema } from "./workbench";
 
@@ -113,6 +118,10 @@ export const ProjectSessionCreateInputSchema = z.object({
   title: titleSchema,
 }) satisfies z.ZodType<ProjectSessionCreateInput>;
 
+export const ProjectSessionListOptionsSchema = z.object({
+  includeArchived: z.boolean().optional(),
+}).optional() satisfies z.ZodType<ProjectSessionListOptions | undefined>;
+
 export const ProjectSessionUpdateInputSchema = z.object({
   title: titleSchema.optional(),
   leftPaneCollapsed: z.boolean().optional(),
@@ -121,6 +130,24 @@ export const ProjectSessionUpdateInputSchema = z.object({
     bottom: ProjectSessionPanelStateUpdateSchema.optional(),
   }).optional(),
 }) satisfies z.ZodType<ProjectSessionUpdateInput>;
+
+export const ProjectSessionPinnedInputSchema = z.object({
+  pinned: z.boolean(),
+}) satisfies z.ZodType<ProjectSessionPinnedInput>;
+
+export const ProjectSessionPinnedOrderInputSchema = z.object({
+  orderedSessionIds: z.array(z.string()),
+}) satisfies z.ZodType<ProjectSessionPinnedOrderInput>;
+
+export const ProjectSessionUnreadInputSchema = z.object({
+  unread: z.boolean(),
+}) satisfies z.ZodType<ProjectSessionUnreadInput>;
+
+export const ProjectSessionForkInputSchema = z.object({
+  target: z.enum(["local", "newWorktree"]),
+  worktreeStartMode: z.enum(["autoBranch", "detachedHead"]).optional(),
+  worktreeBranchPrefix: z.string().trim().min(1).max(48).optional(),
+}) satisfies z.ZodType<ProjectSessionForkInput>;
 
 export const ProjectSessionTabKindSchema = z.enum([
   "db_view",

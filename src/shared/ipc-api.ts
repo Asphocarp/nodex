@@ -62,7 +62,12 @@ import type {
   ProjectInput,
   ProjectSession,
   ProjectSessionCreateInput,
+  ProjectSessionForkInput,
+  ProjectSessionForkResult,
+  ProjectSessionListOptions,
   ProjectSessionPanelState,
+  ProjectSessionPinnedInput,
+  ProjectSessionPinnedOrderInput,
   ProjectSessionTab,
   ProjectSessionTabCreateInput,
   ProjectSessionTabMoveInput,
@@ -70,6 +75,7 @@ import type {
   ProjectSessionTabUpdateInput,
   ProjectSessionThreadLink,
   ProjectSessionThreadLinkInput,
+  ProjectSessionUnreadInput,
   ProjectSessionUpdateInput,
   RestoreBackupInput,
   RestoreBackupResult,
@@ -83,6 +89,10 @@ import type {
   WindowRestoreSettings,
   DesktopNotificationActionPayload,
 } from "./types";
+import type {
+  NativeContextMenuItem,
+  NativeContextMenuOptions,
+} from "./native-context-menu";
 import type { WorkbenchLayoutSnapshot } from "./workbench-layout";
 import type {
   WindowSessionBootstrap,
@@ -243,6 +253,23 @@ export interface BoardChangeEvent {
   cardId?: string;
 }
 
+export type ProjectSessionChangeType =
+  | "create"
+  | "update"
+  | "delete"
+  | "reorder"
+  | "pin"
+  | "archive"
+  | "unarchive"
+  | "unread"
+  | "thread";
+
+export interface ProjectSessionsChangeEvent {
+  projectId: string;
+  changeType: ProjectSessionChangeType;
+  sessionId?: string;
+}
+
 export interface IpcApi {
   "projects:list": { args: []; result: Project[] };
   "projects:get": { args: [projectId: string]; result: Project | null };
@@ -256,7 +283,7 @@ export interface IpcApi {
     result: Project | null;
   };
   "projects:delete": { args: [projectId: string]; result: boolean };
-  "project-sessions:list": { args: [projectId: string]; result: ProjectSession[] };
+  "project-sessions:list": { args: [projectId: string, options?: ProjectSessionListOptions]; result: ProjectSession[] };
   "project-sessions:create": { args: [input: ProjectSessionCreateInput]; result: ProjectSession };
   "project-sessions:update": {
     args: [sessionId: string, input: ProjectSessionUpdateInput];
@@ -264,6 +291,24 @@ export interface IpcApi {
   };
   "project-sessions:delete": { args: [sessionId: string]; result: boolean };
   "project-sessions:reorder": { args: [projectId: string, orderedSessionIds: string[]]; result: ProjectSession[] };
+  "project-sessions:set-pinned": {
+    args: [sessionId: string, input: ProjectSessionPinnedInput];
+    result: ProjectSession | null;
+  };
+  "project-sessions:set-pinned-order": {
+    args: [projectId: string, input: ProjectSessionPinnedOrderInput];
+    result: ProjectSession[];
+  };
+  "project-sessions:archive": { args: [sessionId: string]; result: ProjectSession | null };
+  "project-sessions:unarchive": { args: [sessionId: string]; result: ProjectSession | null };
+  "project-sessions:mark-unread": {
+    args: [sessionId: string, input: ProjectSessionUnreadInput];
+    result: ProjectSession | null;
+  };
+  "project-sessions:fork": {
+    args: [sessionId: string, input: ProjectSessionForkInput];
+    result: ProjectSessionForkResult;
+  };
   "project-session-tabs:create": { args: [input: ProjectSessionTabCreateInput]; result: ProjectSessionTab };
   "project-session-tabs:update": {
     args: [tabId: string, input: ProjectSessionTabUpdateInput];
@@ -393,6 +438,10 @@ export interface IpcApi {
     result: void;
   };
   "electron-window:focus:get": { args: []; result: boolean };
+  "native-context-menu:show": {
+    args: [items: NativeContextMenuItem[], options?: NativeContextMenuOptions];
+    result: string | null;
+  };
   "settings:app-updates:get": { args: []; result: AppUpdateSettings };
   "settings:app-updates:update": {
     args: [input: UpdateAppUpdateSettingsInput];
@@ -594,6 +643,7 @@ export interface IpcApi {
 
 export interface IpcEvents {
   "board-changed": BoardChangeEvent;
+  "project-sessions-changed": ProjectSessionsChangeEvent;
   "reminder:open": { projectId: string; cardId: string; occurrenceStart: string };
   "pty:data": { sessionId: string; data: string };
   "pty:exit": { sessionId: string; exitCode: number };

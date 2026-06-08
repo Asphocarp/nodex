@@ -96,6 +96,8 @@ import type {
   CodexPromptInput,
   ManagedWorktreeRecord,
   ProjectSessionThreadLink,
+  ProjectSessionForkInput,
+  ProjectSessionForkResult,
   UpdateWorktreeEnvironmentConfigInput,
   WorktreeEnvironmentConfigRecord,
   WorktreeEnvironmentOption,
@@ -105,6 +107,7 @@ import type {
 import { parseAssetSource } from "../../shared/assets";
 import { parseInlineContent } from "../../shared/nfm";
 import { parseCodexThreadTokenUsage } from "../../shared/schemas/codex";
+import { ProjectSessionForkInputSchema } from "../../shared/schemas/project-sessions";
 import * as projectSessionService from "../kanban/project-session-service";
 import {
   buildPermissionModeConfigEdits,
@@ -5429,6 +5432,89 @@ export class CodexService extends EventEmitter {
       }
       throw error;
     }
+  }
+
+  async forkProjectSessionThread(
+    sessionId: string,
+    input: ProjectSessionForkInput,
+  ): Promise<ProjectSessionForkResult> {
+    await this.ensureClientReady();
+
+    const parsed = ProjectSessionForkInputSchema.parse(input);
+    const sourceSession = projectSessionService.getProjectSession(sessionId);
+    if (!sourceSession) {
+      throw new Error(`Project session not found: ${sessionId}`);
+    }
+    if (sourceSession.isOverview) {
+      throw new Error("Overview session cannot be forked");
+    }
+    if (!sourceSession.thread) {
+      throw new Error("Session has no Codex thread to fork");
+    }
+    if (!sourceSession.thread.cwd) {
+      throw new Error("Session thread has no working directory to fork");
+    }
+
+    const runLocation = parsed.target === "newWorktree"
+      ? await this.resolveSessionThreadRunLocation({
+          projectId: sourceSession.projectId,
+          sessionId: sourceSession.id,
+          sessionTitle: sourceSession.title,
+          threadTitle: sourceSession.thread.threadName ?? sourceSession.title,
+          runInTarget: "newWorktree",
+          worktreeStartMode: parsed.worktreeStartMode,
+          worktreeBranchPrefix: parsed.worktreeBranchPrefix,
+        })
+      : {
+          cwd: sourceSession.thread.cwd,
+          runInTarget: "localProject" as const,
+          createdManagedWorktree: false,
+        };
+
+    const forkParams: ThreadForkParams = {
+      threadId: sourceSession.thread.threadId,
+      cwd: runLocation.cwd,
+    };
+    const forkResult = await this.client.request<"thread/fork", ThreadForkResponse>("thread/fork", forkParams);
+    const forkedThreadId = forkResult.thread.id;
+    if (typeof forkedThreadId !== "string" || forkedThreadId.length === 0) {
+      throw new Error("Thread fork did not return a valid thread id");
+    }
+
+    const nextSession = projectSessionService.createProjectSession({
+      projectId: sourceSession.projectId,
+      title: sourceSession.title,
+    });
+    const summary = this.upsertSessionLinkFromThread(
+      forkResult.thread,
+      {
+        projectId: sourceSession.projectId,
+        sessionId: nextSession.id,
+      },
+      runLocation.cwd,
+    );
+    if (!summary) {
+      throw new Error("Thread fork completed but could not be attached to a project session");
+    }
+
+    const detail = this.buildThreadDetailFromRead(forkResult.thread)
+      ?? this.serializeThreadDetail(forkedThreadId);
+    if (!detail) {
+      throw new Error(`Thread fork completed but canonical conversation '${forkedThreadId}' is unavailable`);
+    }
+    this.setConversationRecordDetail(detail);
+    this.emitEvent({ type: "threadSummary", thread: summary });
+    this.emitThreadStreamSnapshotFromRecord(summary.threadId);
+
+    const session = projectSessionService.getProjectSession(nextSession.id);
+    if (!session) {
+      throw new Error("Forked project session could not be loaded");
+    }
+
+    return {
+      session,
+      threadId: summary.threadId,
+    };
   }
 
   async readThread(threadId: string, includeTurns = true): Promise<CodexThreadDetail | null> {

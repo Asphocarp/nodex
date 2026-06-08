@@ -814,6 +814,7 @@ describe("use-workbench-state helpers", () => {
     const layout: WorkbenchLayoutSnapshot = {
       version: 1,
       dbProjectId: "ops",
+      activeProjectSessionId: "session:ops:alpha",
       threadsProjectId: "ops",
       viewsByProject: { ops: "calendar" },
       searchByProject: { ops: "release" },

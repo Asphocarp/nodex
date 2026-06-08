@@ -387,6 +387,11 @@ export interface ProjectSession {
   title: string;
   isOverview: boolean;
   order: number;
+  pinned: boolean;
+  pinnedOrder: number | null;
+  archived: boolean;
+  archivedAt: string | null;
+  unread: boolean;
   leftPaneCollapsed: boolean;
   panels: Record<PanelId, ProjectSessionPanelState>;
   thread: ProjectSessionThreadLink | null;
@@ -400,10 +405,39 @@ export interface ProjectSessionCreateInput {
   title: string;
 }
 
+export interface ProjectSessionListOptions {
+  includeArchived?: boolean;
+}
+
 export interface ProjectSessionUpdateInput {
   title?: string;
   leftPaneCollapsed?: boolean;
   panels?: Partial<Record<PanelId, Partial<ProjectSessionPanelState>>>;
+}
+
+export interface ProjectSessionPinnedInput {
+  pinned: boolean;
+}
+
+export interface ProjectSessionPinnedOrderInput {
+  orderedSessionIds: string[];
+}
+
+export interface ProjectSessionUnreadInput {
+  unread: boolean;
+}
+
+export type ProjectSessionForkTarget = "local" | "newWorktree";
+
+export interface ProjectSessionForkInput {
+  target: ProjectSessionForkTarget;
+  worktreeStartMode?: WorktreeStartMode;
+  worktreeBranchPrefix?: string;
+}
+
+export interface ProjectSessionForkResult {
+  session: ProjectSession;
+  threadId: string;
 }
 
 export interface ProjectSessionTabCreateInput {

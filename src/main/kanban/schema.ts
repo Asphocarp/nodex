@@ -7,7 +7,7 @@ import { CARD_STATUS_COLUMNS } from "../../shared/card-status";
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 31;
+export const CURRENT_SCHEMA_VERSION = 32;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser_placeholder', 'review', 'files_placeholder', 'side_chat_placeholder'";
 const PROJECT_SESSION_PANEL_ID_CHECK_VALUES = "'right', 'bottom'";
@@ -38,8 +38,9 @@ export interface EnsureDatabaseOptions {
 
 export function getSchemaMigrationTargets(currentVersion: number): number[] | null {
   if (currentVersion === CURRENT_SCHEMA_VERSION) return [];
-  if (currentVersion === 26) return [31];
-  if (currentVersion === 30) return [31];
+  if (currentVersion === 26) return [31, 32];
+  if (currentVersion === 30) return [31, 32];
+  if (currentVersion === 31) return [32];
   return null;
 }
 
@@ -163,11 +164,19 @@ function createLatestSchema(db: Database.Database): void {
       title TEXT NOT NULL,
       is_overview INTEGER NOT NULL DEFAULT 0,
       "order" INTEGER NOT NULL,
+      pinned INTEGER NOT NULL DEFAULT 0,
+      pinned_order INTEGER,
+      archived INTEGER NOT NULL DEFAULT 0,
+      archived_at TEXT,
+      unread INTEGER NOT NULL DEFAULT 0,
       left_pane_collapsed INTEGER NOT NULL DEFAULT 0,
       panel_state_json TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       CHECK (is_overview IN (0, 1)),
+      CHECK (pinned IN (0, 1)),
+      CHECK (archived IN (0, 1)),
+      CHECK (unread IN (0, 1)),
       CHECK (left_pane_collapsed IN (0, 1))
     );
 
@@ -176,6 +185,8 @@ function createLatestSchema(db: Database.Database): void {
       WHERE is_overview = 1;
     CREATE INDEX IF NOT EXISTS idx_project_sessions_project_order
       ON project_sessions(project_id, "order", created_at);
+    CREATE INDEX IF NOT EXISTS idx_project_sessions_project_sidebar
+      ON project_sessions(project_id, archived, pinned, pinned_order, "order");
 
     CREATE TABLE IF NOT EXISTS project_session_tabs (
       id TEXT PRIMARY KEY,
@@ -350,9 +361,9 @@ function seedOverviewSessionsForAllProjects(db: Database.Database): void {
   const projects = db.prepare("SELECT id FROM projects ORDER BY created ASC").all() as Array<{ id: string }>;
   const insertSession = db.prepare(`
     INSERT OR IGNORE INTO project_sessions (
-      id, project_id, title, is_overview, "order", left_pane_collapsed,
+      id, project_id, title, is_overview, "order", pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
       panel_state_json, created_at, updated_at
-    ) VALUES (?, ?, ?, 1, 0, 1, ?, ?, ?)
+    ) VALUES (?, ?, ?, 1, 0, 0, NULL, 0, NULL, 0, 1, ?, ?, ?)
   `);
   const insertTab = db.prepare(`
     INSERT OR IGNORE INTO project_session_tabs (
@@ -498,20 +509,54 @@ function migrateToSchema31(db: Database.Database, currentVersion: number): void 
   throw new Error(`Unsupported Nodex database migration target 31 from ${currentVersion}`);
 }
 
+function migrateSchema31To32(db: Database.Database): void {
+  if (!tableHasColumn(db, "project_sessions", "pinned")) {
+    db.exec("ALTER TABLE project_sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1))");
+  }
+  if (!tableHasColumn(db, "project_sessions", "pinned_order")) {
+    db.exec("ALTER TABLE project_sessions ADD COLUMN pinned_order INTEGER");
+  }
+  if (!tableHasColumn(db, "project_sessions", "archived")) {
+    db.exec("ALTER TABLE project_sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1))");
+  }
+  if (!tableHasColumn(db, "project_sessions", "archived_at")) {
+    db.exec("ALTER TABLE project_sessions ADD COLUMN archived_at TEXT");
+  }
+  if (!tableHasColumn(db, "project_sessions", "unread")) {
+    db.exec("ALTER TABLE project_sessions ADD COLUMN unread INTEGER NOT NULL DEFAULT 0 CHECK (unread IN (0, 1))");
+  }
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_project_sessions_project_sidebar
+      ON project_sessions(project_id, archived, pinned, pinned_order, "order");
+  `);
+
+  setUserVersion(db, 32);
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
   targets: number[],
   options: EnsureDatabaseOptions,
 ): void {
-  void currentVersion;
+  let fromVersion = currentVersion;
   for (const target of targets) {
     options.onMigrationProgress?.({
       type: "InProgress",
       value: targets.indexOf(target) / targets.length,
     });
     if (target === 31) {
-      migrateToSchema31(db, currentVersion);
+      migrateToSchema31(db, fromVersion);
+      fromVersion = 31;
+      continue;
+    }
+    if (target === 32) {
+      if (fromVersion !== 31) {
+        throw new Error(`Unsupported Nodex database migration target 32 from ${fromVersion}`);
+      }
+      migrateSchema31To32(db);
+      fromVersion = 32;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);

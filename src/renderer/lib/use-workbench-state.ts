@@ -1611,9 +1611,11 @@ export function useWorkbenchState(
 
   const buildLayoutSnapshot = useCallback((
     cardStage: WorkbenchLayoutSnapshot["cardStage"],
+    activeProjectSessionId: string | null = null,
   ): WorkbenchLayoutSnapshot => ({
     version: 1,
     dbProjectId: state.dbProjectId,
+    activeProjectSessionId,
     threadsProjectId: state.threadsProjectId,
     viewsByProject: state.viewsByProject,
     searchByProject: state.searchByProject,

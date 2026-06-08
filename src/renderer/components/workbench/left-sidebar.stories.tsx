@@ -376,6 +376,9 @@ function makeStorySession(input: {
   id: string;
   title: string;
   isOverview?: boolean;
+  pinned?: boolean;
+  pinnedOrder?: number | null;
+  unread?: boolean;
   threadId?: string;
 }): ProjectSession {
   const tabId = `${input.id}:db`;
@@ -385,6 +388,11 @@ function makeStorySession(input: {
     title: input.title,
     isOverview: input.isOverview ?? false,
     order: 0,
+    pinned: input.pinned ?? false,
+    pinnedOrder: input.pinnedOrder ?? null,
+    archived: false,
+    archivedAt: null,
+    unread: input.unread ?? false,
     leftPaneCollapsed: true,
     panels: {
       right: {
@@ -457,7 +465,8 @@ function CodexProjectSessionRowsHarness() {
   const project = SIDEBAR_PARITY_PROJECTS[0]!;
   const sessions = [
     makeStorySession({ id: "overview:nodex", title: "Overview", isOverview: true }),
-    makeStorySession({ id: "thread:nodex:parity", title: "Mirror Codex Electron layout", threadId: "local:sidebar-parity" }),
+    makeStorySession({ id: "thread:nodex:pinned", title: "Pinned architecture notes", pinned: true, pinnedOrder: 0, threadId: "local:pinned" }),
+    makeStorySession({ id: "thread:nodex:parity", title: "Mirror Codex Electron layout", unread: true, threadId: "local:sidebar-parity" }),
     makeStorySession({ id: "thread:nodex:long", title: "Very long session title that should truncate before colliding with row actions", threadId: "local:long-title" }),
   ];
 
@@ -483,8 +492,10 @@ function CodexProjectSessionRowsHarness() {
                         <CodexThreadRow
                           key={session.id}
                           session={session}
-                          active={index === 1}
+                          active={index === 2}
+                          contextMenuOpen={index === 3}
                           onSelect={() => {}}
+                          onOpenContextMenu={() => {}}
                         />
                       ))}
                     </CodexProjectSessionList>

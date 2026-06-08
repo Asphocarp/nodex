@@ -8,6 +8,10 @@ import type {
   ClipboardPasteInspectionItem,
   ClipboardPasteInspectionResult,
 } from "../shared/types";
+import type {
+  NativeContextMenuItem,
+  NativeContextMenuOptions,
+} from "../shared/native-context-menu";
 
 declare global {
   interface Window {
@@ -32,6 +36,12 @@ declare global {
       readPasteClipboard?: () => ClipboardPastePayload;
       getPathInfoForFile?: (file: File) => ClipboardPasteInspectionItem | null;
       getPathForFile?: (file: File) => string;
+    };
+    electronBridge?: {
+      showContextMenu: (
+        items: NativeContextMenuItem[],
+        options?: NativeContextMenuOptions,
+      ) => Promise<string | null>;
     };
   }
 }
