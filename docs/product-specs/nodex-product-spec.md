@@ -229,7 +229,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 #### 7. Card Stage Editor
 - Notion-style slide-out panel for card details
 - Always-editable fields (no edit mode toggle)
-- Auto-save on close (1s debounce + immediate save on blur)
+- Card description edits persist after a 1.5s auto-save debounce, with immediate save on blur/close and explicit save actions
 - Card Stage visibility context is global: switching spaces/projects and views keeps the current Card Stage state/card until explicitly closed
 - Card Stage draft fields survive view/space switching because local patch/update/move operations keep the active card snapshot in sync
 - Card Stage priority uses an explicit empty state by default; empty priority renders as a subdued placeholder in selectors and is omitted from dense card badges.

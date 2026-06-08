@@ -167,4 +167,85 @@ describe("useCardStageController", () => {
     expect(overlay?.description).toBe("Draft body");
     result.view.unmount();
   });
+
+  test("description auto-save waits for the dedicated 1500ms debounce", async () => {
+    resetCardDraftStoreForTest();
+    const updatesSeen: Partial<CardInput>[] = [];
+    const result = renderController(buildProps({
+      onUpdate: async (_columnId, _cardId, updates) => {
+        updatesSeen.push(updates);
+        return {
+          status: "updated",
+          card: buildUpdatedCard(updates),
+        };
+      },
+    }));
+    await settleAsyncRender();
+
+    type TimeoutCallback = Parameters<typeof globalThis.setTimeout>[0];
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    const scheduled: Array<{ callback: TimeoutCallback; delay: number | undefined }> = [];
+
+    globalThis.setTimeout = ((callback: TimeoutCallback, delay?: number) => {
+      scheduled.push({ callback, delay });
+      return scheduled.length as unknown as ReturnType<typeof globalThis.setTimeout>;
+    }) as typeof globalThis.setTimeout;
+    globalThis.clearTimeout = (() => undefined) as typeof globalThis.clearTimeout;
+
+    try {
+      act(() => {
+        result.controller.handleDescriptionChange("Debounced body");
+      });
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
+    }
+
+    expect(scheduled.length).toBe(1);
+    expect(scheduled[0]?.delay).toBe(1500);
+    expect(updatesSeen.length).toBe(0);
+
+    await act(async () => {
+      const callback = scheduled[0]?.callback;
+      if (typeof callback === "function") {
+        callback();
+      }
+    });
+    await settleAsyncRender();
+
+    expect(updatesSeen.length).toBe(1);
+    expect(updatesSeen[0]?.description).toBe("Debounced body");
+    result.view.unmount();
+  });
+
+  test("title auto-save keeps the shared 500ms field debounce", async () => {
+    resetCardDraftStoreForTest();
+    const result = renderController(buildProps());
+    await settleAsyncRender();
+
+    type TimeoutCallback = Parameters<typeof globalThis.setTimeout>[0];
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    const scheduled: Array<{ callback: TimeoutCallback; delay: number | undefined }> = [];
+
+    globalThis.setTimeout = ((callback: TimeoutCallback, delay?: number) => {
+      scheduled.push({ callback, delay });
+      return scheduled.length as unknown as ReturnType<typeof globalThis.setTimeout>;
+    }) as typeof globalThis.setTimeout;
+    globalThis.clearTimeout = (() => undefined) as typeof globalThis.clearTimeout;
+
+    try {
+      act(() => {
+        result.controller.handleTitleChange("Debounced title");
+      });
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
+    }
+
+    expect(scheduled.length).toBe(1);
+    expect(scheduled[0]?.delay).toBe(500);
+    result.view.unmount();
+  });
 });

@@ -13,7 +13,12 @@ import {
   writeCardStageShowRawContentPreference,
 } from "@/lib/card-stage-layout";
 import { loadScrollPosition, saveScrollPosition } from "@/lib/card-stage-scroll";
-import { FIELD_SAVE_DEBOUNCE_MS, SCROLL_SAVE_DEBOUNCE_MS, TAG_BLUR_DELAY_MS } from "@/lib/timing";
+import {
+  DESCRIPTION_SAVE_DEBOUNCE_MS,
+  FIELD_SAVE_DEBOUNCE_MS,
+  SCROLL_SAVE_DEBOUNCE_MS,
+  TAG_BLUR_DELAY_MS,
+} from "@/lib/timing";
 import type {
   Card,
   CardInput,
@@ -793,7 +798,7 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
         runUpdate(columnId, card.id, { description: value }).finally(() => {
           setSaving(false);
         });
-      }, FIELD_SAVE_DEBOUNCE_MS);
+      }, DESCRIPTION_SAVE_DEBOUNCE_MS);
     },
     [card, clearDraftDirty, columnId, markDraftDirty, onPatch, runUpdate],
   );
