@@ -17,12 +17,33 @@ export function dismissNodexTooltips() {
   window.dispatchEvent(new Event(CODEX_TOOLTIP_DISMISS_EVENT));
 }
 
+function dismissNodexTooltipsOnHiddenDocument() {
+  if (typeof document === "undefined") return;
+  if (document.visibilityState !== "hidden") return;
+  dismissNodexTooltips();
+}
+
 export type NodexTooltipProviderProps = ComponentPropsWithoutRef<typeof RadixTooltip.Provider>;
 
 export function NodexTooltipProvider({
   delayDuration = 0,
   ...props
 }: NodexTooltipProviderProps) {
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    if (typeof document === "undefined") return undefined;
+
+    window.addEventListener("blur", dismissNodexTooltips);
+    window.addEventListener("pagehide", dismissNodexTooltips);
+    document.addEventListener("visibilitychange", dismissNodexTooltipsOnHiddenDocument);
+
+    return () => {
+      window.removeEventListener("blur", dismissNodexTooltips);
+      window.removeEventListener("pagehide", dismissNodexTooltips);
+      document.removeEventListener("visibilitychange", dismissNodexTooltipsOnHiddenDocument);
+    };
+  }, []);
+
   return <RadixTooltip.Provider delayDuration={delayDuration} {...props} />;
 }
 
@@ -68,23 +89,27 @@ export function NodexTooltip({
   const contentRef = useRef<HTMLDivElement>(null);
   const isControlled = open !== undefined;
   const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen ?? false);
+  const [dismissVersion, setDismissVersion] = useState(0);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
 
     const handleDismiss = () => {
-      if (isControlled) {
+      const isOpen = isControlled ? open : uncontrolledOpen;
+
+      setDismissVersion((version) => version + 1);
+
+      if (!isControlled) setUncontrolledOpen(false);
+      if (isOpen) {
         onOpenChange?.(false);
-        return;
       }
-      setUncontrolledOpen(false);
     };
 
     window.addEventListener(CODEX_TOOLTIP_DISMISS_EVENT, handleDismiss);
     return () => {
       window.removeEventListener(CODEX_TOOLTIP_DISMISS_EVENT, handleDismiss);
     };
-  }, [isControlled, onOpenChange]);
+  }, [isControlled, onOpenChange, open, uncontrolledOpen]);
 
   if (disabled || tooltipContent == null) return <>{children}</>;
 
@@ -93,6 +118,7 @@ export function NodexTooltip({
 
   return (
     <RadixTooltip.Root
+      key={dismissVersion}
       open={resolvedOpen}
       defaultOpen={defaultOpen}
       onOpenChange={(nextOpen) => {
