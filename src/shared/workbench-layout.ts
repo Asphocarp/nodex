@@ -91,7 +91,7 @@ export function createDefaultWorkbenchLayoutSnapshot(): WorkbenchLayoutSnapshot 
     stageNavDirection: "right",
     sidebar: {
       collapsed: false,
-      width: 280,
+      width: 300,
       topLevelSectionOrder: [],
       topLevelSections: {},
     },

@@ -11,6 +11,7 @@ import {
   type ComponentType,
   type ReactNode,
 } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   CalendarDays,
   Globe2,
@@ -125,12 +126,20 @@ import type { SpaceRef, WorkbenchView } from "@/lib/use-workbench-state";
 import type { CardStageSessionSnapshot } from "@/components/kanban/card-stage/types";
 import { ToggleListIcon } from "./toggle-list-icon";
 import {
-  FLOATING_SIDEBAR_TRANSITION_DURATION_MS,
-  FLOATING_SIDEBAR_TRANSITION_TIMING_FUNCTION,
-  SIDEBAR_HOVER_KEEP_OPEN_MS,
-  SIDEBAR_HOVER_OPEN_DELAY_MS,
-  SIDEBAR_HOVER_TRIGGER_WIDTH_PX,
-} from "@/lib/floating-sidebar";
+  CODEX_SIDEBAR_FLOATING_ASIDE_CLASS,
+  CODEX_SIDEBAR_FLOATING_HEADER_CLASS,
+  CODEX_SIDEBAR_FLOATING_OUTER_CLASS,
+  CODEX_SIDEBAR_FLOATING_PANEL_TRANSITION,
+  CODEX_SIDEBAR_POINTER_DEFAULT,
+  CODEX_SIDEBAR_WIDTH_DEFAULT_PX,
+  CODEX_SIDEBAR_WIDTH_MIN_PX,
+  clampCodexSidebarWidth,
+  deriveCodexSidebarFloatingVisibility,
+  getCodexSidebarFloatingTransition,
+  normalizeCodexSidebarPointer,
+  shouldClearCodexSidebarHoverSuppression,
+  type CodexSidebarPointerSnapshot,
+} from "@/lib/codex-sidebar-auto-reveal";
 import {
   CodexAutomationsIcon,
   CodexCloseIcon,
@@ -696,16 +705,20 @@ export function WorkbenchShell({
   const [headerRightRailWidth, setHeaderRightRailWidth] = useState(RIGHT_PANEL_HEADER_FALLBACK_RAIL_WIDTH_PX);
   const [threadSummaryPanelPinnedOpen, setThreadSummaryPanelPinnedOpen] = useState(readThreadSummaryPanelPinnedOpen);
   const [localSidebarCollapsed, setLocalSidebarCollapsed] = useState(false);
-  const [localSidebarWidth, setLocalSidebarWidth] = useState(300);
-  const [sidebarVisible, setSidebarVisible] = useState(() => !(sidebar?.collapsed ?? false));
-  const [hoverSidebarOpen, setHoverSidebarOpen] = useState(false);
+  const [localSidebarWidth, setLocalSidebarWidth] = useState(CODEX_SIDEBAR_WIDTH_DEFAULT_PX);
+  const [sidebarPointer, setSidebarPointer] = useState<CodexSidebarPointerSnapshot>(CODEX_SIDEBAR_POINTER_DEFAULT);
+  const [floatingSidebarVisible, setFloatingSidebarVisible] = useState(false);
+  const [sidebarHoverSuppressed, setSidebarHoverSuppressed] = useState(false);
+  const [sidebarTriggerHovered, setSidebarTriggerHovered] = useState(false);
+  const [sidebarAnimating, setSidebarAnimating] = useState(false);
+  const [appShellFocusAreaActive, setAppShellFocusAreaActive] = useState(false);
   const [sidebarTaskSearchOpenTick, setSidebarTaskSearchOpenTick] = useState(0);
   const [projectsSectionCollapsed, setProjectsSectionCollapsed] = useState(false);
+  const workbenchRootRef = useRef<HTMLDivElement | null>(null);
   const sessionContentRef = useRef<HTMLDivElement | null>(null);
   const pinningPreviewTabIdsRef = useRef<Set<string>>(new Set());
-  const sidebarHoverOpenTimeoutRef = useRef<number | null>(null);
-  const sidebarHoverCloseTimeoutRef = useRef<number | null>(null);
-  const sidebarHideTimeoutRef = useRef<number | null>(null);
+  const sidebarPointerRef = useRef<CodexSidebarPointerSnapshot>(CODEX_SIDEBAR_POINTER_DEFAULT);
+  const sidebarAnimationTimeoutRef = useRef<number | null>(null);
   const sidebarCollapsed = sidebar?.collapsed ?? localSidebarCollapsed;
   const sidebarWidth = sidebar?.width ?? localSidebarWidth;
   const lastHandledSettingsToggleTickRef = useRef(settingsToggleTick);
@@ -721,6 +734,7 @@ export function WorkbenchShell({
   const codexAccount = useLocalConversationAccount();
   const codexConnection = useLocalConversationConnection();
   const codexAccountActions = useCodexAccountActions();
+  const reducedMotion = useReducedMotion();
 
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null;
   const activeSessions = activeProject ? sessionsByProject[activeProject.id] ?? [] : [];
@@ -1418,15 +1432,6 @@ export function WorkbenchShell({
     bottomRenderableTabs,
   ]);
 
-  useEffect(() => {
-    if (!sidebarCollapsed) {
-      setSidebarVisible(true);
-      setHoverSidebarOpen(false);
-      return;
-    }
-    setSidebarVisible(false);
-  }, [sidebarCollapsed]);
-
   const applySidebarCollapsed = useCallback((collapsed: boolean) => {
     if (setSidebarCollapsed) {
       setSidebarCollapsed(collapsed);
@@ -1435,68 +1440,155 @@ export function WorkbenchShell({
     }
   }, [setSidebarCollapsed]);
 
-  const applySidebarWidth = useCallback((width: number) => {
-    if (width < 240) {
-      applySidebarCollapsed(true);
+  const clearSidebarAnimationTimeout = useCallback(() => {
+    if (sidebarAnimationTimeoutRef.current === null) return;
+    window.clearTimeout(sidebarAnimationTimeoutRef.current);
+    sidebarAnimationTimeoutRef.current = null;
+  }, []);
+
+  const startSidebarAnimationGuard = useCallback((animate: boolean) => {
+    clearSidebarAnimationTimeout();
+    if (!animate || reducedMotion) {
+      setSidebarAnimating(false);
       return;
     }
 
-    if (setSidebarWidth) {
-      setSidebarWidth(width);
-    } else {
-      setLocalSidebarWidth(Math.min(520, Math.max(240, width)));
+    setSidebarAnimating(true);
+    sidebarAnimationTimeoutRef.current = window.setTimeout(() => {
+      sidebarAnimationTimeoutRef.current = null;
+      setSidebarAnimating(false);
+    }, CODEX_SIDEBAR_FLOATING_PANEL_TRANSITION.duration * 1000);
+  }, [clearSidebarAnimationTimeout, reducedMotion]);
+
+  const setSidebarCollapsedWithCodexState = useCallback((
+    collapsed: boolean,
+    options: { animate?: boolean; suppressHoverOpen?: boolean } = {},
+  ) => {
+    const suppressHoverOpen = collapsed && options.suppressHoverOpen !== false;
+    setSidebarTriggerHovered(false);
+    setSidebarHoverSuppressed(suppressHoverOpen);
+    setFloatingSidebarVisible(false);
+    startSidebarAnimationGuard(options.animate !== false);
+    applySidebarCollapsed(collapsed);
+  }, [applySidebarCollapsed, startSidebarAnimationGuard]);
+
+  const applySidebarWidth = useCallback((width: number) => {
+    if (width < CODEX_SIDEBAR_WIDTH_MIN_PX) {
+      setSidebarCollapsedWithCodexState(true);
+      return;
     }
-  }, [applySidebarCollapsed, setSidebarWidth]);
 
-  const clearHoverSidebarOpenTimeout = useCallback(() => {
-    if (sidebarHoverOpenTimeoutRef.current === null) return;
-    window.clearTimeout(sidebarHoverOpenTimeoutRef.current);
-    sidebarHoverOpenTimeoutRef.current = null;
-  }, []);
-
-  const clearHoverSidebarCloseTimeout = useCallback(() => {
-    if (sidebarHoverCloseTimeoutRef.current === null) return;
-    window.clearTimeout(sidebarHoverCloseTimeoutRef.current);
-    sidebarHoverCloseTimeoutRef.current = null;
-  }, []);
-
-  const scheduleHoverSidebarOpen = useCallback(() => {
-    if (!sidebarCollapsed || hoverSidebarOpen) return;
-    clearHoverSidebarCloseTimeout();
-    clearHoverSidebarOpenTimeout();
-    sidebarHoverOpenTimeoutRef.current = window.setTimeout(() => {
-      sidebarHoverOpenTimeoutRef.current = null;
-      setHoverSidebarOpen(true);
-    }, SIDEBAR_HOVER_OPEN_DELAY_MS);
-  }, [clearHoverSidebarCloseTimeout, clearHoverSidebarOpenTimeout, hoverSidebarOpen, sidebarCollapsed]);
-
-  const scheduleHoverSidebarClose = useCallback(() => {
-    if (!sidebarCollapsed) return;
-    clearHoverSidebarOpenTimeout();
-    clearHoverSidebarCloseTimeout();
-    sidebarHoverCloseTimeoutRef.current = window.setTimeout(() => {
-      sidebarHoverCloseTimeoutRef.current = null;
-      setHoverSidebarOpen(false);
-    }, SIDEBAR_HOVER_KEEP_OPEN_MS);
-  }, [clearHoverSidebarCloseTimeout, clearHoverSidebarOpenTimeout, sidebarCollapsed]);
-
-  const clearSidebarHideTimeout = useCallback(() => {
-    if (sidebarHideTimeoutRef.current === null) return;
-    window.clearTimeout(sidebarHideTimeoutRef.current);
-    sidebarHideTimeoutRef.current = null;
-  }, []);
+    const nextWidth = clampCodexSidebarWidth(width);
+    if (setSidebarWidth) {
+      setSidebarWidth(nextWidth);
+    } else {
+      setLocalSidebarWidth(nextWidth);
+    }
+  }, [setSidebarCollapsedWithCodexState, setSidebarWidth]);
 
   const toggleSidebarCollapsed = useCallback(() => {
-    clearHoverSidebarCloseTimeout();
-    clearHoverSidebarOpenTimeout();
-    clearSidebarHideTimeout();
-    applySidebarCollapsed(!sidebarCollapsed);
+    setSidebarCollapsedWithCodexState(!sidebarCollapsed);
   }, [
-    applySidebarCollapsed,
-    clearHoverSidebarCloseTimeout,
-    clearHoverSidebarOpenTimeout,
-    clearSidebarHideTimeout,
+    setSidebarCollapsedWithCodexState,
     sidebarCollapsed,
+  ]);
+
+  const showRealSidebarFromFloatingPanel = useCallback(() => {
+    setSidebarCollapsedWithCodexState(false, {
+      animate: false,
+      suppressHoverOpen: false,
+    });
+  }, [setSidebarCollapsedWithCodexState]);
+
+  useEffect(() => () => {
+    clearSidebarAnimationTimeout();
+  }, [clearSidebarAnimationTimeout]);
+
+  useEffect(() => {
+    if (sidebarCollapsed) return;
+    setFloatingSidebarVisible(false);
+    setSidebarHoverSuppressed(false);
+    setSidebarAnimating(false);
+    clearSidebarAnimationTimeout();
+  }, [clearSidebarAnimationTimeout, sidebarCollapsed]);
+
+  useEffect(() => {
+    const getWindowZoom = () => {
+      const root = workbenchRootRef.current;
+      if (!root) return 1;
+      const raw = window.getComputedStyle(root).getPropertyValue("--codex-window-zoom");
+      const value = Number.parseFloat(raw);
+      return Number.isFinite(value) && value > 0 ? value : 1;
+    };
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const nextPointer = normalizeCodexSidebarPointer(
+        {
+          clientX: event.clientX,
+          clientY: event.clientY,
+          updatedAt: event.timeStamp || performance.now(),
+        },
+        sidebarPointerRef.current,
+        getWindowZoom(),
+      );
+      sidebarPointerRef.current = nextPointer;
+      setSidebarPointer(nextPointer);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+    };
+  }, []);
+
+  useEffect(() => {
+    const updateFocusAreaActive = () => {
+      const activeElement = document.activeElement;
+      setAppShellFocusAreaActive(
+        activeElement instanceof HTMLElement
+          && Boolean(activeElement.closest("[data-app-shell-focus-area]")),
+      );
+    };
+
+    document.addEventListener("focusin", updateFocusAreaActive);
+    document.addEventListener("focusout", updateFocusAreaActive);
+    updateFocusAreaActive();
+    return () => {
+      document.removeEventListener("focusin", updateFocusAreaActive);
+      document.removeEventListener("focusout", updateFocusAreaActive);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (sidebarHoverSuppressed) {
+      if (!shouldClearCodexSidebarHoverSuppression({
+        pointerX: sidebarPointer.x,
+        triggerHovered: sidebarTriggerHovered,
+      })) {
+        setFloatingSidebarVisible(false);
+        return;
+      }
+      setSidebarHoverSuppressed(false);
+      return;
+    }
+
+    setFloatingSidebarVisible((current) => deriveCodexSidebarFloatingVisibility({
+      pointerX: sidebarPointer.x,
+      leftPanelWidthPx: sidebarWidth,
+      sidebarOpen: !sidebarCollapsed,
+      sidebarAnimating,
+      hoverSuppressed: false,
+      focusOverride: appShellFocusAreaActive,
+      currentlyVisible: current,
+    }));
+  }, [
+    appShellFocusAreaActive,
+    sidebarAnimating,
+    sidebarCollapsed,
+    sidebarHoverSuppressed,
+    sidebarPointer.x,
+    sidebarTriggerHovered,
+    sidebarWidth,
   ]);
 
   const sidePanelOpen = activeSession ? !activeSession.panels.right.collapsed : false;
@@ -1545,6 +1637,8 @@ export function WorkbenchShell({
       <button
         type="button"
         onClick={toggleSidebarCollapsed}
+        onPointerEnter={() => setSidebarTriggerHovered(true)}
+        onPointerLeave={() => setSidebarTriggerHovered(false)}
         title="Toggle sidebar"
         aria-label={sidebarCollapseControlLabel}
         className={SIDEBAR_COLLAPSED_CHROME_BUTTON_CLASS}
@@ -1733,8 +1827,32 @@ export function WorkbenchShell({
     </ToolbarIconButton>
   ) : null;
 
-  const showFloatingSidebar = sidebarCollapsed;
-  const showInlineSidebar = sidebarVisible && !sidebarCollapsed;
+  const showFloatingSidebar = sidebarCollapsed && floatingSidebarVisible;
+  const showInlineSidebar = !sidebarCollapsed;
+  const floatingSidebarTransition = getCodexSidebarFloatingTransition(Boolean(reducedMotion));
+  const floatingSidebarExitX = reducedMotion ? 0 : -8;
+  const floatingSidebarHeaderExitX = reducedMotion ? 0 : 8;
+  const floatingSidebarHeader = (
+    <motion.div
+      className={CODEX_SIDEBAR_FLOATING_HEADER_CLASS}
+      initial={{ x: 8 }}
+      animate={{ x: 0 }}
+      exit={{ x: floatingSidebarHeaderExitX }}
+      transition={floatingSidebarTransition}
+    >
+      <NodexTooltip delayOpen tooltipContent="Toggle sidebar" side="bottom">
+        <button
+          type="button"
+          onClick={showRealSidebarFromFloatingPanel}
+          title="Toggle sidebar"
+          aria-label="Show sidebar"
+          className={SIDEBAR_COLLAPSED_CHROME_BUTTON_CLASS}
+        >
+          <CodexPanelLeftHiddenIcon className="icon-sm" />
+        </button>
+      </NodexTooltip>
+    </motion.div>
+  );
   const settingsRouteShell = settingsPath ? (
     <SettingsRouteShell
       path={settingsPath}
@@ -1767,6 +1885,7 @@ export function WorkbenchShell({
     <HeaderActionProvider actions={settingsPath ? null : headerActions}>
       <NodexTooltipProvider>
         <div
+          ref={workbenchRootRef}
           className="relative flex flex-col text-token-text-primary"
           style={{
             "--spacing-token-safe-header-left": `${safeHeaderLeftWidth}px`,
@@ -1805,17 +1924,6 @@ export function WorkbenchShell({
             settingsRouteShell
           ) : (
             <>
-          {sidebarCollapsed ? (
-            <div
-              aria-hidden
-              data-sidebar-hover-trigger="true"
-              className="absolute inset-y-0 left-0 z-40"
-              style={{ width: SIDEBAR_HOVER_TRIGGER_WIDTH_PX }}
-              onMouseEnter={scheduleHoverSidebarOpen}
-              onMouseLeave={clearHoverSidebarOpenTimeout}
-            />
-          ) : null}
-
           {showInlineSidebar ? (
             <ProjectSessionSidebar
               projects={projects}
@@ -1858,27 +1966,21 @@ export function WorkbenchShell({
             />
           ) : null}
 
-          {showFloatingSidebar ? (
-            <div
-              aria-hidden={!hoverSidebarOpen}
-              className="pointer-events-none absolute inset-y-0 left-0 z-50"
-            >
-              <div
+          <AnimatePresence initial={false}>
+            {showFloatingSidebar ? (
+              <motion.div
+                key="codex-floating-left-panel"
                 data-testid="floating-project-session-sidebar-shell"
-                className="absolute inset-y-0 overflow-visible"
-                style={{
-                  width: sidebarWidth,
-                  left: hoverSidebarOpen ? 0 : -sidebarWidth,
-                  boxShadow: hoverSidebarOpen ? "0 24px 56px rgba(0,0,0,0.24)" : "none",
-                  pointerEvents: hoverSidebarOpen ? "auto" : "none",
-                  transitionProperty: "left, box-shadow",
-                  transitionDuration: `${FLOATING_SIDEBAR_TRANSITION_DURATION_MS}ms`,
-                  transitionTimingFunction: FLOATING_SIDEBAR_TRANSITION_TIMING_FUNCTION,
-                }}
-                onMouseEnter={clearHoverSidebarCloseTimeout}
-                onMouseLeave={scheduleHoverSidebarClose}
+                className={CODEX_SIDEBAR_FLOATING_OUTER_CLASS}
+                style={{ width: sidebarWidth }}
+                initial={{ opacity: 0, x: -8 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: floatingSidebarExitX }}
+                transition={floatingSidebarTransition}
               >
                 <ProjectSessionSidebar
+                  floating
+                  header={floatingSidebarHeader}
                   projects={projects}
                   spaces={spaces}
                   activeProjectId={activeProjectId}
@@ -1917,9 +2019,9 @@ export function WorkbenchShell({
                   onLogout={handleCodexAccountLogout}
                   onAccountErrorMessage={handleCodexAccountErrorMessage}
                 />
-              </div>
-            </div>
-          ) : null}
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
 
           <main className="main-surface relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             {activeSession ? (
@@ -2123,6 +2225,8 @@ export function WorkbenchShell({
 }
 
 function ProjectSessionSidebar({
+  floating = false,
+  header,
   projects,
   spaces,
   activeProjectId,
@@ -2150,6 +2254,8 @@ function ProjectSessionSidebar({
   onLogout,
   onAccountErrorMessage,
 }: {
+  floating?: boolean;
+  header?: ReactNode;
   projects: Project[];
   spaces: SpaceRef[];
   activeProjectId: string;
@@ -2217,10 +2323,19 @@ function ProjectSessionSidebar({
 
   return (
     <aside
-      className="app-shell-left-panel pointer-events-auto relative flex h-full min-h-0 shrink-0 flex-col overflow-visible browser:bg-token-main-surface-primary font-sans text-sm"
-      style={{ width, paddingTop: "var(--height-toolbar)" }}
-      data-testid="project-session-sidebar"
+      className={cn(
+        floating
+          ? CODEX_SIDEBAR_FLOATING_ASIDE_CLASS
+          : "app-shell-left-panel pointer-events-auto relative flex h-full min-h-0 shrink-0 flex-col overflow-visible browser:bg-token-main-surface-primary",
+        "font-sans text-sm",
+      )}
+      style={{
+        width,
+        ...(!floating ? { paddingTop: "var(--height-toolbar)" } : {}),
+      }}
+      data-testid={floating ? "app-shell-floating-left-panel" : "project-session-sidebar"}
     >
+      {header}
       <div
         className="max-w-full min-h-0 flex-1 overflow-hidden"
         style={{ minWidth: width, width }}

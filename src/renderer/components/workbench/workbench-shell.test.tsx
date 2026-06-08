@@ -1,7 +1,12 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { createElement, createRef } from "react";
+import { createElement, createRef, useState } from "react";
 import { act, fireEvent, within } from "@testing-library/react";
 import type { Project, ProjectSession, ProjectSessionTab } from "@/lib/types";
+import {
+  CODEX_SIDEBAR_FLOATING_ASIDE_CLASS,
+  CODEX_SIDEBAR_FLOATING_HEADER_CLASS,
+  CODEX_SIDEBAR_FLOATING_OUTER_CLASS,
+} from "@/lib/codex-sidebar-auto-reveal";
 import {
   getDefaultDbViewPrefs,
   type DbViewPrefs,
@@ -638,35 +643,48 @@ function renderWorkbench({
   };
 
   const setDbProjectCalls: string[] = [];
+  function WorkbenchShellTestHarness() {
+    const [sidebarState, setSidebarState] = useState(sidebar ?? { collapsed: false, width: 300 });
+    return (
+      <WorkbenchShell
+        projects={projects}
+        dbProjectId={projects[0]?.id ?? "alpha"}
+        activeView="kanban"
+        activeSearchQuery=""
+        activeDbViewPrefs={null}
+        searchByProject={searchByProject}
+        dbViewPrefsByProject={dbViewPrefsByProject}
+        spaces={projects.map((project) => ({
+          projectId: project.id,
+          colorToken: "var(--accent-blue)",
+          initial: project.name.slice(0, 1).toUpperCase(),
+        }))}
+        sidebar={sidebarState}
+        cardStageCloseRef={createRef()}
+        setDbProject={(projectId) => {
+          setDbProjectCalls.push(projectId);
+        }}
+        setSearchQuery={() => undefined}
+        setDbViewPrefs={() => undefined}
+        openCardStage={() => undefined}
+        onLeaveCardStageCard={() => undefined}
+        onCreateProject={async () => null}
+        onRenameProject={async () => null}
+        onDeleteProject={async () => false}
+        onRequestProjectPickerOpen={() => undefined}
+        threadSearchOpenTick={0}
+        setSidebarCollapsed={(collapsed) => {
+          setSidebarState((current) => ({ ...current, collapsed }));
+        }}
+        setSidebarWidth={(width) => {
+          setSidebarState((current) => ({ ...current, width }));
+        }}
+      />
+    );
+  }
+
   const result = render(
-    <WorkbenchShell
-      projects={projects}
-      dbProjectId={projects[0]?.id ?? "alpha"}
-      activeView="kanban"
-      activeSearchQuery=""
-      activeDbViewPrefs={null}
-      searchByProject={searchByProject}
-      dbViewPrefsByProject={dbViewPrefsByProject}
-      spaces={projects.map((project) => ({
-        projectId: project.id,
-        colorToken: "var(--accent-blue)",
-        initial: project.name.slice(0, 1).toUpperCase(),
-      }))}
-      sidebar={sidebar}
-      cardStageCloseRef={createRef()}
-      setDbProject={(projectId) => {
-        setDbProjectCalls.push(projectId);
-      }}
-      setSearchQuery={() => undefined}
-      setDbViewPrefs={() => undefined}
-      openCardStage={() => undefined}
-      onLeaveCardStageCard={() => undefined}
-      onCreateProject={async () => null}
-      onRenameProject={async () => null}
-      onDeleteProject={async () => false}
-      onRequestProjectPickerOpen={() => undefined}
-      threadSearchOpenTick={0}
-    />,
+    <WorkbenchShellTestHarness />,
   );
   return { ...result, setDbProjectCalls };
 }
@@ -713,6 +731,17 @@ function getHeaderShellSlot(
     throw new Error(`Expected ${side} header shell slot`);
   }
   return slot;
+}
+
+async function moveSidebarPointer(clientX: number, clientY = 80): Promise<void> {
+  await act(async () => {
+    window.dispatchEvent(new MouseEvent("pointermove", {
+      clientX,
+      clientY,
+    }));
+    await Promise.resolve();
+  });
+  await settleAsyncRender();
 }
 
 describe("workbench session shell", () => {
@@ -2291,6 +2320,24 @@ describe("workbench session shell", () => {
     expect(textContent(screen.container).includes("DB:beta:kanban")).toBeTrue();
   });
 
+  test("clicking Hide sidebar suppresses immediate edge auto-reveal", async () => {
+    const screen = renderWorkbench({ sidebar: { collapsed: false, width: 300 } });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBeTrue();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await moveSidebarPointer(12);
+
+    expect(screen.getByRole("button", { name: "Show sidebar" }) !== null).toBeTrue();
+    expect(screen.container.querySelector('[data-sidebar-hover-trigger="true"]')).toBe(null);
+    expect(screen.container.querySelector('[data-testid="app-shell-floating-left-panel"]')).toBe(null);
+  });
+
   test("collapsed sidebar renders Codex-parity left titlebar chrome on macOS", async () => {
     const originalPlatform = navigator.platform;
     Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
@@ -2299,14 +2346,9 @@ describe("workbench session shell", () => {
       await settleAsyncRender();
       await settleAsyncRender();
 
-      const sidebar = screen.container.querySelector('[data-testid="project-session-sidebar"]') as HTMLElement | null;
-      expect(sidebar !== null).toBeTrue();
-      expect(sidebar?.closest("[aria-hidden]")?.getAttribute("aria-hidden")).toBe("true");
-      const floatingShell = screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]');
-      expect(floatingShell?.className.includes("rounded-r-2xl")).toBeFalse();
-      expect(floatingShell?.className.includes("overflow-visible")).toBeTrue();
-      expect(floatingShell?.className.includes("bg-(")).toBeFalse();
-      expect(floatingShell?.className.includes("bg-token")).toBeFalse();
+      expect(screen.container.querySelector('[data-testid="project-session-sidebar"]')).toBe(null);
+      expect(screen.container.querySelector('[data-sidebar-hover-trigger="true"]')).toBe(null);
+      expect(screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]')).toBe(null);
 
       const globalHeader = screen.getByTestId("workbench-global-header");
       const leftSlot = getHeaderShellSlot(screen, "left");
@@ -2337,6 +2379,29 @@ describe("workbench session shell", () => {
       expect(compactNewChatButton.querySelector("svg")?.getAttribute("class")?.includes("icon-sm")).toBeTrue();
       expect(compactNewChatButton.querySelector("path")?.getAttribute("d")?.startsWith(CODEX_NEW_CHAT_ICON_PREFIX)).toBeTrue();
       expect(collapseButton.className.includes("no-drag")).toBeTrue();
+
+      await moveSidebarPointer(12);
+
+      const floatingShell = screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]') as HTMLElement | null;
+      const floatingAside = screen.container.querySelector('[data-testid="app-shell-floating-left-panel"]') as HTMLElement | null;
+      const floatingHeader = floatingAside?.querySelector(".app-header-tint") as HTMLElement | null;
+      expect(floatingShell !== null).toBeTrue();
+      expect(floatingShell?.className).toBe(CODEX_SIDEBAR_FLOATING_OUTER_CLASS);
+      expect(floatingShell?.getAttribute("style")?.includes("width: 300px")).toBeTrue();
+      expect(floatingAside !== null).toBeTrue();
+      expect(floatingAside?.className).toBe(`${CODEX_SIDEBAR_FLOATING_ASIDE_CLASS} font-sans text-sm`);
+      expect(floatingHeader?.className).toBe(CODEX_SIDEBAR_FLOATING_HEADER_CLASS);
+      expect(floatingAside?.className.includes("rounded-lg")).toBeTrue();
+      expect(floatingAside?.className.includes("bg-token-main-surface-primary")).toBeTrue();
+      expect(floatingAside?.className.includes("shadow-[1px_0_0_0_var(--color-token-border-default)")).toBeTrue();
+
+      await moveSidebarPointer(301);
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 600));
+      });
+      await settleAsyncRender();
+
+      expect(screen.container.querySelector('[data-testid="app-shell-floating-left-panel"]')).toBe(null);
 
       await act(async () => {
         fireEvent.click(compactNewChatButton);

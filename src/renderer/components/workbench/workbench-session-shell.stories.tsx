@@ -11,6 +11,8 @@ type ShellStoryArgs = {
   rightPanel: "regular" | "collapsed" | "full";
   bottomPanel: "collapsed" | "empty" | "terminal";
   sidebar: "expanded" | "collapsed";
+  sidebarReveal: "idle" | "edge" | "focus";
+  sidebarWidth: 240 | 300 | 520;
   longNames: boolean;
 };
 
@@ -30,6 +32,8 @@ const meta = {
     rightPanel: "regular",
     bottomPanel: "collapsed",
     sidebar: "expanded",
+    sidebarReveal: "idle",
+    sidebarWidth: 300,
     longNames: false,
   },
   argTypes: {
@@ -52,6 +56,14 @@ const meta = {
     sidebar: {
       control: "inline-radio",
       options: ["expanded", "collapsed"],
+    },
+    sidebarReveal: {
+      control: "inline-radio",
+      options: ["idle", "edge", "focus"],
+    },
+    sidebarWidth: {
+      control: "inline-radio",
+      options: [240, 300, 520],
     },
     longNames: {
       control: "boolean",
@@ -394,10 +406,29 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
     };
   }, [args.rightPanel, sessionsByProject]);
 
+  useEffect(() => {
+    if (args.sidebar !== "collapsed" || args.sidebarReveal === "idle") return undefined;
+    const timeout = window.setTimeout(() => {
+      if (args.sidebarReveal === "edge") {
+        window.dispatchEvent(new MouseEvent("pointermove", {
+          clientX: 12,
+          clientY: 120,
+        }));
+        return;
+      }
+
+      const focusTarget = document.querySelector<HTMLElement>("[data-app-shell-focus-area] button");
+      focusTarget?.focus();
+    }, 0);
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [args.sidebar, args.sidebarReveal, sessionsByProject]);
+
   return (
     <div className="h-screen">
       <WorkbenchShell
-        key={`${args.thread}:${args.rightPanel}:${args.bottomPanel}:${args.activeTab}:${args.longNames ? "long" : "normal"}`}
+        key={`${args.thread}:${args.rightPanel}:${args.bottomPanel}:${args.activeTab}:${args.sidebar}:${args.sidebarReveal}:${args.sidebarWidth}:${args.longNames ? "long" : "normal"}`}
         projects={PROJECTS}
         dbProjectId="nodex"
         activeView={"kanban" as WorkbenchView}
@@ -406,7 +437,7 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
         searchByProject={{ nodex: "" }}
         dbViewPrefsByProject={{}}
         spaces={SPACES}
-        sidebar={{ collapsed: args.sidebar === "collapsed", width: 300 }}
+        sidebar={{ collapsed: args.sidebar === "collapsed", width: args.sidebarWidth }}
         cardStageCloseRef={{ current: null }}
         setDbProject={() => undefined}
         setSearchQuery={() => undefined}
@@ -421,6 +452,43 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
       />
     </div>
   );
+}
+
+function installReducedMotionMatchMedia() {
+  if (typeof window === "undefined") return null;
+  const originalMatchMedia = window.matchMedia;
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    writable: true,
+    value: (query: string): MediaQueryList => ({
+      matches: query === "(prefers-reduced-motion: reduce)",
+      media: query,
+      onchange: null,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => false,
+    }),
+  });
+
+  return () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: originalMatchMedia,
+    });
+  };
+}
+
+function ReducedMotionProjectSessionShellStory(args: ShellStoryArgs) {
+  const [restoreMatchMedia] = useState(installReducedMotionMatchMedia);
+
+  useEffect(() => () => {
+    restoreMatchMedia?.();
+  }, [restoreMatchMedia]);
+
+  return <ProjectSessionShellStory {...args} />;
 }
 
 function installStoryApi(
@@ -652,6 +720,21 @@ export const MockBrowserRightTab: Story = {
   },
 };
 
+export const ExpandedSidebarParity: Story = {
+  args: {
+    thread: "attached",
+    sidebar: "expanded",
+    sidebarWidth: 300,
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Expanded Codex sidebar parity state with the real app-shell left panel mounted at the 300px default width.",
+      },
+    },
+  },
+};
+
 export const AttachedThreadPage: Story = {
   args: {
     thread: "attached",
@@ -691,6 +774,7 @@ export const CollapsedSidebarThreadChrome: Story = {
   args: {
     thread: "attached",
     sidebar: "collapsed",
+    sidebarReveal: "idle",
     rightPanel: "collapsed",
     longNames: true,
   },
@@ -698,6 +782,75 @@ export const CollapsedSidebarThreadChrome: Story = {
     docs: {
       description: {
         story: "Collapsed sidebar chrome parity scene: traffic-light safe left rail with sidebar toggle, compact New chat, and a long thread title that truncates in the top chrome.",
+      },
+    },
+  },
+};
+
+export const FloatingSidebarAutoRevealed: Story = {
+  args: {
+    thread: "attached",
+    sidebar: "collapsed",
+    sidebarReveal: "edge",
+    rightPanel: "collapsed",
+    sidebarWidth: 300,
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Collapsed sidebar with a synthetic pointer at x=12, rendering the Codex fixed floating left panel.",
+      },
+    },
+  },
+};
+
+export const FloatingSidebarFocusOverride: Story = {
+  args: {
+    thread: "attached",
+    sidebar: "collapsed",
+    sidebarReveal: "focus",
+    rightPanel: "regular",
+    sidebarWidth: 300,
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Collapsed sidebar with focus inside a Workbench focus area, keeping the floating panel visible through the Codex focus override.",
+      },
+    },
+  },
+};
+
+export const FloatingSidebarResizedWidth: Story = {
+  args: {
+    thread: "attached",
+    sidebar: "collapsed",
+    sidebarReveal: "edge",
+    rightPanel: "collapsed",
+    sidebarWidth: 520,
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Floating sidebar rendered at the Codex maximum clamped width of 520px.",
+      },
+    },
+  },
+};
+
+export const FloatingSidebarReducedMotion: Story = {
+  args: {
+    thread: "attached",
+    sidebar: "collapsed",
+    sidebarReveal: "edge",
+    rightPanel: "collapsed",
+    sidebarWidth: 300,
+  },
+  render: (args) => <ReducedMotionProjectSessionShellStory {...args} />,
+  parameters: {
+    docs: {
+      description: {
+        story: "Floating sidebar under prefers-reduced-motion, using Codex's zero-duration transition branch.",
       },
     },
   },

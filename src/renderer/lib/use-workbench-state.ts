@@ -21,6 +21,11 @@ import {
   type SidebarTopLevelSectionsPrefs,
 } from "./sidebar-section-prefs";
 import {
+  CODEX_SIDEBAR_WIDTH_STORAGE_KEY,
+  clampCodexSidebarWidth,
+  resolveCodexSidebarWidth,
+} from "./codex-sidebar-auto-reveal";
+import {
   cloneDbViewPrefs,
   getDefaultDbViewPrefs,
   normalizeDbViewPrefs,
@@ -159,10 +164,7 @@ interface WorkbenchState {
   slidingWindowPaneCount: number;
 }
 
-const DEFAULT_SIDEBAR_WIDTH = 280;
 const DEFAULT_DOCK_WIDTH = 560;
-const SIDEBAR_MIN_WIDTH = 200;
-const SIDEBAR_MAX_WIDTH = 420;
 const DOCK_MIN_WIDTH = 360;
 const DOCK_MAX_WIDTH = 1100;
 const SLIDING_WINDOW_MIN_PANES = 1;
@@ -407,6 +409,30 @@ function writeJson(key: string, value: unknown): void {
   }
 }
 
+function readNumberStorage(key: string): number | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw === null || raw.trim() === "") return null;
+    const parsed = JSON.parse(raw) as unknown;
+    return typeof parsed === "number" ? parsed : Number(raw);
+  } catch {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw === null ? null : Number(raw);
+    } catch {
+      return null;
+    }
+  }
+}
+
+function writeNumberStorage(key: string, value: number): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // ignore localStorage failures
+  }
+}
+
 function hashProjectId(projectId: string): number {
   let hash = 0;
   for (let index = 0; index < projectId.length; index += 1) {
@@ -428,6 +454,7 @@ interface LoadInitialStateOptions {
 function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState {
   const persistedWorkbench = readJson<Partial<WorkbenchPrefs>>(WORKBENCH_STORAGE_KEY);
   const persistedSidebar = readJson<Partial<SidebarPrefs>>(SIDEBAR_STORAGE_KEY);
+  const persistedCodexSidebarWidth = readNumberStorage(CODEX_SIDEBAR_WIDTH_STORAGE_KEY);
   const persistedDock = readJson<Partial<DockPrefs>>(DOCK_STORAGE_KEY);
   const persistedRecent = readJson<unknown>(RECENT_STORAGE_KEY);
   const persistedDbViewPrefs = readJson<WorkbenchPrefs["dbViewPrefsByProject"]>(DB_VIEW_PREFS_STORAGE_KEY);
@@ -487,13 +514,15 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
     spaceOrder: normalizeSpaceOrder(layoutSnapshot?.spaceOrder ?? persistedWorkbench?.spaceOrder),
     sidebar: {
       collapsed: Boolean(layoutSnapshot?.sidebar?.collapsed ?? persistedSidebar?.collapsed),
-      width: clamp(
-        typeof layoutSnapshot?.sidebar?.width === "number"
+      width: resolveCodexSidebarWidth({
+        layoutSnapshotWidth: typeof layoutSnapshot?.sidebar?.width === "number"
           ? layoutSnapshot.sidebar.width
-          : typeof persistedSidebar?.width === "number" ? persistedSidebar.width : DEFAULT_SIDEBAR_WIDTH,
-        SIDEBAR_MIN_WIDTH,
-        SIDEBAR_MAX_WIDTH,
-      ),
+          : null,
+        codexStorageWidth: persistedCodexSidebarWidth,
+        nodexStorageWidth: typeof persistedSidebar?.width === "number"
+          ? persistedSidebar.width
+          : null,
+      }),
       topLevelSectionOrder: normalizeSidebarTopLevelSectionOrder(
         layoutSnapshot?.sidebar?.topLevelSectionOrder ?? persistedSidebar?.topLevelSectionOrder,
       ),
@@ -1023,6 +1052,7 @@ export function useWorkbenchState(
     } satisfies WorkbenchPrefs);
 
     writeJson(SIDEBAR_STORAGE_KEY, state.sidebar);
+    writeNumberStorage(CODEX_SIDEBAR_WIDTH_STORAGE_KEY, state.sidebar.width);
     writeJson(DOCK_STORAGE_KEY, state.dock);
     writeJson(RECENT_STORAGE_KEY, state.recentCardSessions);
     writeJson(DB_VIEW_PREFS_STORAGE_KEY, state.dbViewPrefsByProject);
@@ -1132,7 +1162,7 @@ export function useWorkbenchState(
   }, []);
 
   const setSidebarWidth = useCallback((width: number) => {
-    const nextWidth = clamp(width, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH);
+    const nextWidth = clampCodexSidebarWidth(width);
     setState((prev) => {
       if (prev.sidebar.width === nextWidth) return prev;
       return {
