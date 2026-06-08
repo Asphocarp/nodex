@@ -40,6 +40,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - Removed the redundant `Session Terminal` body row from terminal tabs so the terminal content starts directly below the tab chrome.
+- Fixed collapsed sidebar titlebar buttons so they match the top-right toolbar controls for size, color, icon scale, and hover highlight instead of using project-row hover styling.
 - Fixed the right-panel-open thread summary trigger so it sits at the thread/right-panel boundary, keeps the active icon unclipped, and opens the summary popover when clicked.
 - Fixed open right-panel sessions so the thread page no longer leaves an empty toolbar-height row above the thread title.
 - Fixed Codex-style sidebar session rows so titles keep the grouped project indent from Codex Electron.

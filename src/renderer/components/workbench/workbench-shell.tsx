@@ -152,7 +152,7 @@ import {
   SearchIcon,
 } from "@/components/shared/icons";
 import {
-  SIDEBAR_PROJECT_NEW_CHAT_BUTTON_CLASS,
+  SIDEBAR_COLLAPSED_CHROME_BUTTON_CLASS,
   SidebarCompactNewChatButton,
   SidebarNewChatButton,
 } from "./sidebar-new-chat-controls";
@@ -179,7 +179,7 @@ const TOOLBAR_BUTTON_GHOST_CLASS = "text-token-text-tertiary enabled:hover:bg-to
 const TOOLBAR_BUTTON_SECONDARY_CLASS = "text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent";
 const RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX = 70;
 const RIGHT_PANEL_HEADER_FALLBACK_RAIL_WIDTH_PX = 62;
-const LEFT_HEADER_COLLAPSED_RAIL_FALLBACK_WIDTH_PX = 54;
+const LEFT_HEADER_COLLAPSED_RAIL_FALLBACK_WIDTH_PX = 62;
 const THREAD_SUMMARY_PANEL_STORAGE_KEY = "nodex:thread-summary-panel:pinned-open";
 const PROJECT_SESSION_SINGLETON_TAB_KIND_SET = new Set<string>(PROJECT_SESSION_SINGLETON_TAB_KINDS);
 const PREVIEWABLE_PROJECT_SESSION_TAB_KIND_SET = new Set<ProjectSessionTab["kind"]>([
@@ -1547,7 +1547,7 @@ export function WorkbenchShell({
         onClick={toggleSidebarCollapsed}
         title="Toggle sidebar"
         aria-label={sidebarCollapseControlLabel}
-        className={SIDEBAR_PROJECT_NEW_CHAT_BUTTON_CLASS}
+        className={SIDEBAR_COLLAPSED_CHROME_BUTTON_CLASS}
       >
         {sidebarCollapsed ? <CodexPanelLeftHiddenIcon className="icon-sm" /> : <CodexPanelLeftVisibleIcon className="icon-sm" />}
       </button>

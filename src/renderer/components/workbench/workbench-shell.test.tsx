@@ -19,6 +19,7 @@ const CODEX_RESTORE_PANEL_ICON_PREFIX = "M16.0299 3.0293";
 const CODEX_NEW_CHAT_ICON_PREFIX = "M2.6687 11.333";
 const CODEX_TOP_NEW_CHAT_CLASS = "focus-visible:outline-token-border relative h-token-nav-row px-row-x py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-lg text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background group";
 const CODEX_PROJECT_NEW_CHAT_CLASS = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-muted-foreground enabled:hover:bg-transparent data-[state=open]:bg-transparent hover:text-token-foreground border-transparent electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5 h-6 w-6 rounded-md !p-1";
+const CODEX_COLLAPSED_CHROME_BUTTON_CLASS = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg h-token-button-composer px-2 py-0 text-base leading-[18px] aspect-square justify-center !px-0 text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent";
 
 const mockCodexControl = {
   availableModels: [
@@ -2319,11 +2320,21 @@ describe("workbench session shell", () => {
       expect(globalHeader.contains(collapseButton)).toBeTrue();
       expect(visibleLeftLabels).toBe("Show sidebar,New chat");
       expect(leftSlot.className.includes("ps-[max(var(--spacing-token-safe-header-left),0.5rem)]")).toBeTrue();
-      expect(leftSlot.getAttribute("style")?.includes("width: 144px")).toBeTrue();
-      expect(leftSlot.getAttribute("style")?.includes("min-width: 144px")).toBeTrue();
+      expect(leftSlot.getAttribute("style")?.includes("width: 152px")).toBeTrue();
+      expect(leftSlot.getAttribute("style")?.includes("min-width: 152px")).toBeTrue();
       expect(collapseButton.parentElement?.className.includes("fixed")).toBeFalse();
       expect(collapseButton.getAttribute("title")).toBe("Toggle sidebar");
-      expect(compactNewChatButton.className).toBe(CODEX_PROJECT_NEW_CHAT_CLASS);
+      expect(collapseButton.className).toBe(CODEX_COLLAPSED_CHROME_BUTTON_CLASS);
+      expect(compactNewChatButton.className).toBe(CODEX_COLLAPSED_CHROME_BUTTON_CLASS);
+      expect(collapseButton.className.includes("h-token-button-composer")).toBeTrue();
+      expect(compactNewChatButton.className.includes("h-token-button-composer")).toBeTrue();
+      expect(collapseButton.className.includes("text-token-text-tertiary")).toBeTrue();
+      expect(compactNewChatButton.className.includes("text-token-text-tertiary")).toBeTrue();
+      expect(collapseButton.className.includes("enabled:hover:bg-token-list-hover-background")).toBeTrue();
+      expect(compactNewChatButton.className.includes("enabled:hover:bg-token-list-hover-background")).toBeTrue();
+      expect(collapseButton.className.includes("enabled:hover:bg-transparent")).toBeFalse();
+      expect(compactNewChatButton.className.includes("enabled:hover:bg-transparent")).toBeFalse();
+      expect(compactNewChatButton.querySelector("svg")?.getAttribute("class")?.includes("icon-sm")).toBeTrue();
       expect(compactNewChatButton.querySelector("path")?.getAttribute("d")?.startsWith(CODEX_NEW_CHAT_ICON_PREFIX)).toBeTrue();
       expect(collapseButton.className.includes("no-drag")).toBeTrue();
 
