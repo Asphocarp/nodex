@@ -109,6 +109,8 @@ describe("AppShellTabs", () => {
     expect(text.indexOf("Before") < text.indexOf("One")).toBeTrue();
     expect(text.indexOf("Sticky") > text.indexOf("History")).toBeTrue();
     expect(text.indexOf("Sticky") < text.indexOf("After")).toBeTrue();
+    expect(view.getByTestId("after-list-sticky").parentElement?.className.includes("gap-1.5")).toBeTrue();
+    expect(view.getByTestId("after-list").parentElement?.className.includes("gap-1.5")).toBeTrue();
   });
 
   test("does not render the title fade when the tab title fits", () => {

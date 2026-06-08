@@ -21,6 +21,11 @@ import {
 } from "lucide-react";
 import { AppShellTabs, type AppShellTabItem } from "./app-shell-tabs";
 import {
+  HeaderAction,
+  HeaderActionProvider,
+  HeaderShellSlot,
+} from "./workbench-header-actions";
+import {
   CalendarToolbarControls,
   CalendarToolbarMonthLabel,
 } from "@/components/kanban/calendar/calendar-toolbar";
@@ -687,7 +692,6 @@ export function WorkbenchShell({
   const [sidebarTaskSearchOpenTick, setSidebarTaskSearchOpenTick] = useState(0);
   const [projectsSectionCollapsed, setProjectsSectionCollapsed] = useState(false);
   const sessionContentRef = useRef<HTMLDivElement | null>(null);
-  const headerRightProbeRef = useRef<HTMLDivElement | null>(null);
   const pinningPreviewTabIdsRef = useRef<Set<string>>(new Set());
   const sidebarHoverOpenTimeoutRef = useRef<number | null>(null);
   const sidebarHoverCloseTimeoutRef = useRef<number | null>(null);
@@ -1513,54 +1517,30 @@ export function WorkbenchShell({
     void hideActiveBottomPanel();
   }, [activeSession, hideActiveBottomPanel, showActiveBottomPanel]);
 
-  const renderSidePanelHeaderControl = () => {
-    if (!activeSession) return null;
-
-    return (
-      <ToolbarIconButton label="Toggle side panel" pressed={sidePanelOpen} onClick={toggleActiveSidePanel}>
-        {sidePanelOpen ? <CodexPanelRightVisibleIcon className="icon-sm" /> : <CodexPanelRightHiddenIcon className="icon-sm" />}
-      </ToolbarIconButton>
-    );
-  };
-
-  const renderBottomPanelHeaderControl = () => {
-    if (!activeSession) return null;
-
-    return (
-      <ToolbarIconButton label="Toggle bottom panel" pressed={bottomPanelOpen} onClick={toggleActiveBottomPanel}>
-        {bottomPanelOpen ? <CodexPanelBottomVisibleIcon className="icon-sm" /> : <CodexPanelBottomHiddenIcon className="icon-sm" />}
-      </ToolbarIconButton>
-    );
-  };
-
-  useEffect(() => {
-    const controlsElement = headerRightProbeRef.current;
-    if (!controlsElement) return undefined;
-
-    const measure = () => {
-      const width = Math.ceil(controlsElement.getBoundingClientRect().width);
-      setHeaderRightWidth(width > 0 ? width : RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX);
-    };
-
-    measure();
-
-    if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", measure);
-      return () => {
-        window.removeEventListener("resize", measure);
-      };
-    }
-
-    const resizeObserver = new ResizeObserver(measure);
-    resizeObserver.observe(controlsElement);
-    return () => {
-      resizeObserver.disconnect();
-    };
-  }, [
-    activeSession?.id,
-    bottomPanelOpen,
-    sidePanelOpen,
-  ]);
+  const headerActions = activeSession ? (
+    <>
+      <HeaderAction
+        actionId="workbench-bottom-panel-toggle"
+        slotPosition="right"
+        align="end"
+        order={200}
+      >
+        <ToolbarIconButton label="Toggle bottom panel" pressed={bottomPanelOpen} onClick={toggleActiveBottomPanel}>
+          {bottomPanelOpen ? <CodexPanelBottomVisibleIcon className="icon-sm" /> : <CodexPanelBottomHiddenIcon className="icon-sm" />}
+        </ToolbarIconButton>
+      </HeaderAction>
+      <HeaderAction
+        actionId="workbench-side-panel-toggle"
+        slotPosition="right"
+        align="end"
+        order={300}
+      >
+        <ToolbarIconButton label="Toggle side panel" pressed={sidePanelOpen} onClick={toggleActiveSidePanel}>
+          {sidePanelOpen ? <CodexPanelRightVisibleIcon className="icon-sm" /> : <CodexPanelRightHiddenIcon className="icon-sm" />}
+        </ToolbarIconButton>
+      </HeaderAction>
+    </>
+  ) : null;
 
   const rightPanelTabHeaderStickyControls = activeSession ? (
     <NodexDropdownMenu
@@ -1698,49 +1678,29 @@ export function WorkbenchShell({
   );
 
   return (
-    <NodexTooltipProvider>
-      <div
-        className="relative flex flex-col text-token-text-primary"
-        style={{
-          "--spacing-token-safe-header-right": "12px",
-          width: "calc(100vw / var(--codex-window-zoom, 1))",
-          height: "calc(100vh / var(--codex-window-zoom, 1))",
-          zoom: "var(--codex-window-zoom, 1)",
-        } as React.CSSProperties}
-      >
-        <header
-          data-testid="workbench-global-header"
-          className="app-header-tint draggable pointer-events-none fixed inset-x-0 top-0 z-30 flex h-toolbar min-w-0 items-center"
+    <HeaderActionProvider actions={headerActions}>
+      <NodexTooltipProvider>
+        <div
+          className="relative flex flex-col text-token-text-primary"
+          style={{
+            "--spacing-token-safe-header-right": "12px",
+            width: "calc(100vw / var(--codex-window-zoom, 1))",
+            height: "calc(100vh / var(--codex-window-zoom, 1))",
+            zoom: "var(--codex-window-zoom, 1)",
+          } as React.CSSProperties}
         >
-          <div
-            ref={headerRightProbeRef}
-            aria-hidden="true"
-            className="invisible pointer-events-none fixed top-0 left-0 min-w-max pe-2 [&_*]:![view-transition-name:none]"
+          <header
+            data-testid="workbench-global-header"
+            className="app-header-tint draggable pointer-events-none fixed inset-x-0 top-0 z-30 flex h-toolbar min-w-0 items-center"
           >
-            <div className="inline-flex h-full items-center gap-1.5 no-drag pointer-events-auto w-auto">
-              <div className="no-drag pointer-events-auto flex shrink-0 items-center ms-auto">
-                {renderBottomPanelHeaderControl()}
-              </div>
-              <div className="no-drag pointer-events-auto flex shrink-0 items-center">
-                {renderSidePanelHeaderControl()}
-              </div>
-            </div>
-          </div>
-          <div
-            data-test-id="header-shell-slot"
-            className="pointer-events-none relative h-full shrink-0 [container-type:inline-size] ml-auto pe-2"
-            style={{ width: headerShellSlotWidth, minWidth: headerRightWidth }}
-          >
-            <div className="inline-flex h-full items-center gap-1.5 pointer-events-none w-full">
-              <div className="no-drag pointer-events-auto flex shrink-0 items-center ms-auto">
-                {renderBottomPanelHeaderControl()}
-              </div>
-              <div className="no-drag pointer-events-auto flex shrink-0 items-center">
-                {renderSidePanelHeaderControl()}
-              </div>
-            </div>
-          </div>
-        </header>
+            <HeaderShellSlot
+              side="right"
+              slotWidth={headerShellSlotWidth}
+              minWidth={headerRightWidth}
+              fallbackWidth={RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX}
+              onMeasuredWidthChange={setHeaderRightWidth}
+            />
+          </header>
 
         <div className="relative flex max-h-full min-h-0 w-full flex-1">
           {sidebarCollapsed ? (
@@ -1964,8 +1924,8 @@ export function WorkbenchShell({
                             <div className="flex h-full min-h-0 flex-col">
                               <div className="flex h-toolbar min-w-0 shrink-0 items-center bg-token-main-surface-primary px-2">
                                 <div className="min-w-0 flex-1" />
-                                <div className="ml-1 flex shrink-0 items-center gap-1">{rightPanelTabHeaderStickyControls}</div>
-                                <div className="ml-1 flex shrink-0 items-center gap-1">{rightPanelTabHeaderControls}</div>
+                                <div className="ml-1 flex shrink-0 items-center gap-1.5">{rightPanelTabHeaderStickyControls}</div>
+                                <div className="ml-1 flex shrink-0 items-center gap-1.5">{rightPanelTabHeaderControls}</div>
                               </div>
                               <EmptyRightPane
                                 actions={availableRightPanelActions}
@@ -2099,7 +2059,8 @@ export function WorkbenchShell({
           onStripSmartPrefixFromTitleEnabledChange={handleStripSmartPrefixFromTitleEnabledChange}
         />
       </div>
-    </NodexTooltipProvider>
+      </NodexTooltipProvider>
+    </HeaderActionProvider>
   );
 }
 

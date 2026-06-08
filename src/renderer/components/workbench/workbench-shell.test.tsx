@@ -1517,8 +1517,10 @@ describe("workbench session shell", () => {
     const sidePanelToggle = screen.getByRole("button", { name: "Toggle side panel" });
     const expandButton = screen.getByRole("button", { name: "Expand panel" });
     const expandIconPath = expandButton.querySelector("path")?.getAttribute("d") ?? "";
+    const visibleGlobalHeaderButtons = Array.from(headerShellSlot?.querySelectorAll("button") ?? []);
     expect(globalHeader?.contains(sidePanelToggle)).toBeTrue();
     expect(headerShellSlot?.contains(sidePanelToggle)).toBeTrue();
+    expect(visibleGlobalHeaderButtons.map((button) => button.getAttribute("aria-label")).join(",")).toBe("Toggle bottom panel,Toggle side panel");
     expect(headerShellSlot?.className.includes("pe-2")).toBeTrue();
     expect(headerShellSlot?.getAttribute("style")?.includes("width: 600px")).toBeTrue();
     expect(headerShellSlot?.getAttribute("style")?.includes("min-width: 70px")).toBeTrue();

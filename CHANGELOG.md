@@ -25,6 +25,7 @@ All notable changes to this project will be documented in this file.
 - Refined project session thread headers to match Codex Electron title sizing, use the thread title as the session header, and hide the redundant header separator while the right panel is closed.
 - Existing thread composers no longer show the lower run-target/status row under the prompt; that row remains available on new-chat composers.
 - Added a Codex-style top-right thread summary surface for attached local conversation sessions, with the Codex pinned-summary toggle/icon, a right-panel-open `Toggle summary` popover, toolbar-safe under-header pinned placement, and hover-revealed section chevrons.
+- Centralized workbench top-right header controls through a Codex-style header action registry so panel toggles and adjacent panel-header actions keep consistent spacing and reserved width.
 - Moved authenticated Codex quota visibility from the floating thread summary panel into a double-ring indicator in the sidebar footer, with the existing account details available on hover.
 - Project session thread pages without an attached thread now show the Codex-style new-chat composer and start a session-owned Codex thread from the first prompt instead of showing an attach-thread empty state.
 - Codex thread metadata now supports card-owned, session-owned, project-only, and projectless threads without fake card ids.

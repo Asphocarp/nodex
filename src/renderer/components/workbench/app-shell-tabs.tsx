@@ -251,10 +251,10 @@ export function AppShellTabs({
           />
         </div>
         {afterListSticky ? (
-          <div className="ml-1 flex shrink-0 items-center gap-1">{afterListSticky}</div>
+          <div className="ml-1 flex shrink-0 items-center gap-1.5">{afterListSticky}</div>
         ) : null}
         {afterList ? (
-          <div className="ml-1 flex shrink-0 items-center gap-1">{afterList}</div>
+          <div className="ml-1 flex shrink-0 items-center gap-1.5">{afterList}</div>
         ) : null}
       </div>
 
