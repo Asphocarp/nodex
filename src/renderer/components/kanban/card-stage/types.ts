@@ -76,6 +76,5 @@ export interface CardStageProps {
     prompt: string;
     promptInput?: CodexPromptInput;
   }) => Promise<void>;
-  terminalPanelActive?: boolean;
   historyPanelActive?: boolean;
 }

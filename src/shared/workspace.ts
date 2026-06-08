@@ -12,14 +12,6 @@ export interface WorkbenchLayoutThreadsStageTab {
   preview: string;
 }
 
-export interface WorkbenchLayoutTerminalStageTab {
-  id: string;
-  kind: "project";
-  projectId: string;
-  title: string;
-  sessionId: string;
-}
-
 export interface WorkbenchLayoutFilesStageTab {
   id: "diff";
   title: string;
@@ -58,14 +50,10 @@ export interface WorkbenchLayoutSnapshot {
   cardStage: WorkbenchResumeCardStageState;
   threadsTabs: WorkbenchLayoutThreadsStageTab[];
   activeThreadsTabId: string;
-  terminalTabs: WorkbenchLayoutTerminalStageTab[];
-  activeTerminalTabId: string;
   filesTabs: WorkbenchLayoutFilesStageTab[];
   activeFilesTabId: string;
   stagePanelWidths: Record<string, number>;
   slidingWindowPaneCount: number;
-  terminalPanelOpen: boolean;
-  terminalPanelHeight: number;
 }
 
 export interface WorkspaceRecord {

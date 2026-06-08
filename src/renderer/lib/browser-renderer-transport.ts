@@ -313,7 +313,6 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
               id: "storybook-dock",
               tabs: [
                 { id: "cardstage", kind: "cardstage", title: "Card" },
-                { id: "terminal", kind: "terminal", title: "Terminal" },
                 { id: "history", kind: "history", title: "History" },
               ],
               activeTabId: "cardstage",
@@ -332,14 +331,10 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
           },
           threadsTabs: [],
           activeThreadsTabId: "thread:new",
-          terminalTabs: [],
-          activeTerminalTabId: "",
           filesTabs: [{ id: "diff", title: "Diffs" }],
           activeFilesTabId: "diff",
           stagePanelWidths: {},
           slidingWindowPaneCount: 2,
-          terminalPanelOpen: false,
-          terminalPanelHeight: 260,
         },
       };
       return {

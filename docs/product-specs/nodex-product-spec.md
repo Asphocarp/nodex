@@ -62,7 +62,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Windows opened while another window is already open start from the currently active workspace and then diverge as independent window sessions
 - Back/forward navigation history is window-session-local and is restored only from that window's session storage; it is not part of the cold-launch resume snapshot saved when all windows close
 - Desktop single-instance behavior is scoped per resolved server profile (`KANBAN_DIR`/`config.toml` dir). Different profile dirs can run at the same time (for example packaged release + dev build), while each profile still enforces one process with many windows.
-- Pinned session tabs, tab ordering, tab state, and right/bottom panel state are shared project data in SQLite. Renderer state owns ephemeral panel previews, active project, active session, transient focus history, and legacy migration defaults.
+- Pinned session tabs, tab ordering, tab state, and right/bottom panel state are shared project data in SQLite. Renderer state owns ephemeral panel previews, active project, active session, and transient focus history.
 - Codex thread metadata lives in `codex_threads`, where `project_id` and `card_id` are nullable. Optional card ownership lives in `codex_thread_card_links`; optional session ownership lives in `project_session_threads`.
 - Sidebar rows use Codex Electron-style project folder and session row chrome, including compact top actions for New chat, Search, Plugins, and Automations. Sessions are nested under project folders and can show a subtle attached-thread indicator.
 - Sidebar footer includes workspace switching controls; workspaces remain profile-local window layout templates and do not own shared project session data.
@@ -640,7 +640,7 @@ nodex/
 | GET | `/api/projects/[projectId]/sessions` | Fetch a project's ordered session tree with tabs and optional attached thread metadata |
 | POST | `/api/projects/[projectId]/sessions` | Create a project-owned session (body: `{title}`) |
 | PUT | `/api/projects/[projectId]/sessions/reorder` | Reorder sessions (body: `{orderedSessionIds}`) |
-| PUT | `/api/project-sessions/[sessionId]` | Update session title or legacy session metadata |
+| PUT | `/api/project-sessions/[sessionId]` | Update session title or left-pane state |
 | PUT | `/api/project-sessions/[sessionId]/panels/[panelId]` | Update a `right` or `bottom` panel's collapsed state, layout, or size |
 | DELETE | `/api/project-sessions/[sessionId]` | Delete a non-Overview session |
 | POST | `/api/project-sessions/[sessionId]/tabs` | Create a session tab (body: `{projectId, panelId, kind, title, config}`) |
@@ -709,8 +709,6 @@ CREATE TABLE project_sessions (
   is_overview INTEGER NOT NULL DEFAULT 0,
   "order" INTEGER NOT NULL,
   left_pane_collapsed INTEGER NOT NULL DEFAULT 0,
-  right_pane_collapsed INTEGER NOT NULL DEFAULT 0,
-  right_pane_layout_json TEXT NOT NULL,
   panel_state_json TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL

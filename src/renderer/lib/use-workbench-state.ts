@@ -36,7 +36,6 @@ import {
   parseSidebarStageExpanded,
   parseStageNavDirection,
   parseStagePanelWidths,
-  parseTerminalStageTabs,
   parseThreadsStageTabs,
   parseWorkbenchRecentSessions,
   parseWorkbenchSearchMap,
@@ -77,14 +76,6 @@ export interface ThreadsStageTab {
   id: string;
   title: string;
   preview: string;
-}
-
-export interface TerminalStageTab {
-  id: string;
-  kind: "project";
-  projectId: string;
-  title: string;
-  sessionId: string;
 }
 
 export interface FilesStageTab {
@@ -133,14 +124,10 @@ interface WorkbenchPrefs {
   activeCardsTabId?: string;
   threadsTabs?: ThreadsStageTab[];
   activeThreadsTabId?: string;
-  terminalTabs?: TerminalStageTab[];
-  activeTerminalTabId?: string;
   filesTabs?: FilesStageTab[];
   activeFilesTabId?: string;
   stagePanelWidths?: StagePanelWidths;
   slidingWindowPaneCount?: number;
-  terminalPanelOpen?: boolean;
-  terminalPanelHeight?: number;
 }
 
 interface DockPrefs {
@@ -167,14 +154,10 @@ interface WorkbenchState {
   activeCardsTabId: string;
   threadsTabs: ThreadsStageTab[];
   activeThreadsTabId: string;
-  terminalTabs: TerminalStageTab[];
-  activeTerminalTabId: string;
   filesTabs: FilesStageTab[];
   activeFilesTabId: string;
   stagePanelWidths: StagePanelWidths;
   slidingWindowPaneCount: number;
-  terminalPanelOpen: boolean;
-  terminalPanelHeight: number;
 }
 
 const DEFAULT_SIDEBAR_WIDTH = 280;
@@ -183,9 +166,6 @@ const SIDEBAR_MIN_WIDTH = 200;
 const SIDEBAR_MAX_WIDTH = 420;
 const DOCK_MIN_WIDTH = 360;
 const DOCK_MAX_WIDTH = 1100;
-const TERMINAL_PANEL_MIN_HEIGHT = 120;
-const TERMINAL_PANEL_MAX_HEIGHT = 600;
-const TERMINAL_PANEL_DEFAULT_HEIGHT = 260;
 const SLIDING_WINDOW_MIN_PANES = 1;
 const SLIDING_WINDOW_MAX_PANES = STAGE_ORDER.length;
 const SLIDING_WINDOW_DEFAULT_PANES = 2;
@@ -203,16 +183,6 @@ const SPACE_COLOR_PALETTE = [
 const DEFAULT_FILES_TABS: FilesStageTab[] = [
   { id: "diff", title: "Diffs" },
 ];
-
-function makeProjectTerminalTab(projectId: string): TerminalStageTab {
-  return {
-    id: `project:${projectId}`,
-    kind: "project",
-    projectId,
-    title: "Project Shell",
-    sessionId: `project:${projectId}`,
-  };
-}
 
 function isWorkbenchView(value: unknown): value is WorkbenchView {
   return typeof value === "string" && VALID_VIEWS.includes(value as WorkbenchView);
@@ -368,13 +338,6 @@ function normalizeThreadsTabs(value: unknown): ThreadsStageTab[] {
   return ensureThreadsTabs(parsed);
 }
 
-function normalizeTerminalTabs(
-  value: unknown,
-  defaultProjectId: string,
-): TerminalStageTab[] {
-  return parseTerminalStageTabs(value, defaultProjectId).slice(0, 32);
-}
-
 function normalizeFilesTabs(value: unknown): FilesStageTab[] {
   const hasCurrentTab = parseFilesStageTabs(value).some((tab) => tab.id === "diff");
   return hasCurrentTab ? [...DEFAULT_FILES_TABS] : [];
@@ -388,11 +351,6 @@ function normalizeStagePanelWidths(
     acc[stageId] = clampStagePanelWidth(width, STAGE_PANEL_MIN_WIDTH, STAGE_PANEL_MAX_WIDTH);
     return acc;
   }, {});
-}
-
-function normalizeBoolean(value: unknown): boolean | null {
-  if (typeof value !== "boolean") return null;
-  return value;
 }
 
 function clampSlidingWindowPaneCount(value: number): number {
@@ -413,20 +371,6 @@ function resolvePersistedSlidingWindowPaneCount(persistedPaneCount: unknown): nu
   const nextCount = normalizeSlidingWindowPaneCount(persistedPaneCount);
   if (nextCount !== null) return nextCount;
   return SLIDING_WINDOW_DEFAULT_PANES;
-}
-
-function clampTerminalPanelHeight(height: number): number {
-  if (!Number.isFinite(height)) return TERMINAL_PANEL_DEFAULT_HEIGHT;
-  return clamp(
-    Math.round(height),
-    TERMINAL_PANEL_MIN_HEIGHT,
-    TERMINAL_PANEL_MAX_HEIGHT,
-  );
-}
-
-function normalizeTerminalPanelHeight(value: unknown): number | null {
-  if (typeof value !== "number" || !Number.isFinite(value)) return null;
-  return clampTerminalPanelHeight(value);
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -502,10 +446,6 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
     resumeSnapshot?.threadsProjectId ||
     (typeof persistedWorkbench?.threadsProjectId === "string" && persistedWorkbench.threadsProjectId) ||
     dbProjectId;
-  const terminalTabs = ensureTerminalTabs(
-    dbProjectId,
-    normalizeTerminalTabs(layoutSnapshot?.terminalTabs ?? persistedWorkbench?.terminalTabs, dbProjectId),
-  );
   const threadsTabs = ensureThreadsTabs(normalizeThreadsTabs(layoutSnapshot?.threadsTabs ?? persistedWorkbench?.threadsTabs));
   const filesTabs = ensureFilesTabs(normalizeFilesTabs(layoutSnapshot?.filesTabs ?? persistedWorkbench?.filesTabs));
   const focusedStage =
@@ -518,11 +458,6 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
     parseStageNavDirection(resumeSnapshot?.stageNavDirection) ||
     parseStageNavDirection(persistedWorkbench?.stageNavDirection) ||
     "right";
-  const activeTerminalTabId =
-    (typeof layoutSnapshot?.activeTerminalTabId === "string" && layoutSnapshot.activeTerminalTabId) ||
-    (typeof persistedWorkbench?.activeTerminalTabId === "string" && persistedWorkbench.activeTerminalTabId) ||
-    terminalTabs[0]?.id ||
-    "";
   const activeThreadsTabId =
     (typeof layoutSnapshot?.activeThreadsTabId === "string" && layoutSnapshot.activeThreadsTabId) ||
     (typeof resumeSnapshot?.activeThreadsTabId === "string" && resumeSnapshot.activeThreadsTabId) ||
@@ -550,11 +485,6 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
   const slidingWindowPaneCount = resolvePersistedSlidingWindowPaneCount(
     layoutSnapshot?.slidingWindowPaneCount ?? persistedWorkbench?.slidingWindowPaneCount,
   );
-  const terminalPanelOpen = normalizeBoolean(layoutSnapshot?.terminalPanelOpen ?? persistedWorkbench?.terminalPanelOpen) ?? false;
-  const terminalPanelHeight =
-    normalizeTerminalPanelHeight(layoutSnapshot?.terminalPanelHeight ?? persistedWorkbench?.terminalPanelHeight) ??
-    TERMINAL_PANEL_DEFAULT_HEIGHT;
-
   return {
     dbProjectId,
     threadsProjectId,
@@ -613,14 +543,10 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
     activeCardsTabId,
     threadsTabs,
     activeThreadsTabId,
-    terminalTabs,
-    activeTerminalTabId,
     filesTabs,
     activeFilesTabId,
     stagePanelWidths,
     slidingWindowPaneCount,
-    terminalPanelOpen,
-    terminalPanelHeight,
   };
 }
 
@@ -675,11 +601,6 @@ function ensureThreadsTabs(tabs: ThreadsStageTab[] | undefined): ThreadsStageTab
     { id: NEW_THREAD_STAGE_TAB_ID, title: NEW_THREAD_STAGE_TAB_TITLE, preview: "" },
     ...deduped.slice(0, 31),
   ];
-}
-
-function ensureTerminalTabs(projectId: string, tabs: TerminalStageTab[] | undefined): TerminalStageTab[] {
-  if (!tabs || tabs.length === 0) return [makeProjectTerminalTab(projectId)];
-  return tabs;
 }
 
 function stageIndexOf(stageId: StageId): number {
@@ -1024,8 +945,6 @@ export function useWorkbenchState(
       const sidebarSectionExpandedByProject = { ...prev.sidebarSectionExpandedByProject };
       const sidebarSectionShowAllByProject = { ...prev.sidebarSectionShowAllByProject };
       const slidingWindowPaneCount = clampSlidingWindowPaneCount(prev.slidingWindowPaneCount);
-      const terminalPanelOpen = prev.terminalPanelOpen;
-      const terminalPanelHeight = clampTerminalPanelHeight(prev.terminalPanelHeight);
 
       Object.keys(sidebarStageExpandedByProject).forEach((projectId) => {
         if (!projectIds.has(projectId)) delete sidebarStageExpandedByProject[projectId];
@@ -1063,11 +982,6 @@ export function useWorkbenchState(
         ? prev.activeThreadsTabId
         : threadsTabs[0]?.id ?? "";
 
-      const terminalTabs = ensureTerminalTabs(dbProjectId, prev.terminalTabs);
-      const activeTerminalTabId = terminalTabs.some((tab) => tab.id === prev.activeTerminalTabId)
-        ? prev.activeTerminalTabId
-        : terminalTabs[0]?.id ?? "";
-
       const filesTabs = ensureFilesTabs(prev.filesTabs);
       const activeFilesTabId = filesTabs.some((tab) => tab.id === prev.activeFilesTabId)
         ? prev.activeFilesTabId
@@ -1095,14 +1009,10 @@ export function useWorkbenchState(
         activeCardsTabId,
         threadsTabs,
         activeThreadsTabId,
-        terminalTabs,
-        activeTerminalTabId,
         filesTabs,
         activeFilesTabId,
         stagePanelWidths,
         slidingWindowPaneCount,
-        terminalPanelOpen,
-        terminalPanelHeight,
       };
     });
   }, [projects]);
@@ -1123,14 +1033,10 @@ export function useWorkbenchState(
       activeCardsTabId: state.activeCardsTabId,
       threadsTabs: state.threadsTabs,
       activeThreadsTabId: state.activeThreadsTabId,
-      terminalTabs: state.terminalTabs,
-      activeTerminalTabId: state.activeTerminalTabId,
       filesTabs: state.filesTabs,
       activeFilesTabId: state.activeFilesTabId,
       stagePanelWidths: state.stagePanelWidths,
       slidingWindowPaneCount: state.slidingWindowPaneCount,
-      terminalPanelOpen: state.terminalPanelOpen,
-      terminalPanelHeight: state.terminalPanelHeight,
     } satisfies WorkbenchPrefs);
 
     writeJson(SIDEBAR_STORAGE_KEY, state.sidebar);
@@ -1161,17 +1067,10 @@ export function useWorkbenchState(
   const threadsTabs = state.threadsTabs;
   const activeThreadsTabId = state.activeThreadsTabId;
 
-  const terminalTabs = state.terminalTabs;
-  const activeTerminalTabId = state.activeTerminalTabId;
-
   const filesTabs = state.filesTabs;
   const activeFilesTabId = state.activeFilesTabId;
   const stagePanelWidths = state.stagePanelWidths;
   const slidingWindowPaneCount = clampSlidingWindowPaneCount(state.slidingWindowPaneCount);
-  const terminalPanelOpen = state.terminalPanelOpen;
-  const terminalPanelHeight = clampTerminalPanelHeight(
-    state.terminalPanelHeight,
-  );
 
   const setDbProject = useCallback((projectId: string) => {
     setState((prev) => {
@@ -1504,16 +1403,6 @@ export function useWorkbenchState(
     });
   }, []);
 
-  const setActiveTerminalTab = useCallback((_projectId: string, tabId: string) => {
-    setState((prev) => {
-      if (prev.activeTerminalTabId === tabId) return prev;
-      return {
-        ...prev,
-        activeTerminalTabId: tabId,
-      };
-    });
-  }, []);
-
   const setActiveFilesTab = useCallback((_projectId: string, tabId: string) => {
     const normalizedTabId = tabId === "diff" ? tabId : "diff";
     setState((prev) => {
@@ -1584,77 +1473,6 @@ export function useWorkbenchState(
         focusedStage: nextWindowState.focusedStage,
         stageNavDirection: nextWindowState.stageNavDirection,
         slidingWindowPaneCount: nextWindowState.slidingWindowPaneCount,
-      };
-    });
-  }, []);
-
-  const setTerminalPanelOpen = useCallback((_projectId: string, open: boolean) => {
-    setState((prev) => {
-      if (prev.terminalPanelOpen === open) return prev;
-      return {
-        ...prev,
-        terminalPanelOpen: open,
-      };
-    });
-  }, []);
-
-  const setTerminalPanelHeight = useCallback((_projectId: string, height: number) => {
-    const nextHeight = clampTerminalPanelHeight(height);
-    setState((prev) => {
-      if (prev.terminalPanelHeight === nextHeight) return prev;
-      return {
-        ...prev,
-        terminalPanelHeight: nextHeight,
-      };
-    });
-  }, []);
-
-  const toggleTerminalPanel = useCallback((projectId: string) => {
-    void projectId;
-    setState((prev) => {
-      const nextOpen = !prev.terminalPanelOpen;
-      return {
-        ...prev,
-        terminalPanelOpen: nextOpen,
-      };
-    });
-  }, []);
-
-  const openProjectTerminalTab = useCallback((projectId: string): string => {
-    const tabId = `project:${projectId}`;
-    setState((prev) => {
-      const existingTabs = ensureTerminalTabs(prev.dbProjectId, prev.terminalTabs);
-      const existing = existingTabs.find((tab) => tab.id === tabId);
-      const nextTabs = existing
-        ? existingTabs
-        : [...existingTabs, makeProjectTerminalTab(projectId)];
-
-      return {
-        ...prev,
-        terminalTabs: nextTabs,
-        activeTerminalTabId: tabId,
-      };
-    });
-    return tabId;
-  }, []);
-
-  const closeTerminalTab = useCallback((projectId: string, tabId: string) => {
-    setState((prev) => {
-      const existingTabs = ensureTerminalTabs(prev.dbProjectId, prev.terminalTabs);
-      const nextTabs = existingTabs.filter((tab) => tab.id !== tabId);
-      const finalizedTabs =
-        nextTabs.length > 0 ? nextTabs : [makeProjectTerminalTab(projectId)];
-
-      const existingActive = prev.activeTerminalTabId;
-      const nextActive =
-        existingActive === tabId || !finalizedTabs.some((tab) => tab.id === existingActive)
-          ? finalizedTabs[0].id
-          : existingActive;
-
-      return {
-        ...prev,
-        terminalTabs: finalizedTabs,
-        activeTerminalTabId: nextActive,
       };
     });
   }, []);
@@ -1801,14 +1619,10 @@ export function useWorkbenchState(
     cardStage,
     threadsTabs: state.threadsTabs,
     activeThreadsTabId: state.activeThreadsTabId,
-    terminalTabs: state.terminalTabs,
-    activeTerminalTabId: state.activeTerminalTabId,
     filesTabs: state.filesTabs,
     activeFilesTabId: state.activeFilesTabId,
     stagePanelWidths: state.stagePanelWidths as Record<string, number>,
     slidingWindowPaneCount: state.slidingWindowPaneCount,
-    terminalPanelOpen: state.terminalPanelOpen,
-    terminalPanelHeight: state.terminalPanelHeight,
   }), [state]);
 
   const replaceLayoutSnapshot = useCallback((layoutSnapshot: WorkbenchLayoutSnapshot) => {
@@ -1836,14 +1650,10 @@ export function useWorkbenchState(
     activeCardsTabId,
     threadsTabs,
     activeThreadsTabId,
-    terminalTabs,
-    activeTerminalTabId,
     filesTabs,
     activeFilesTabId,
     stagePanelWidths,
     slidingWindowPaneCount,
-    terminalPanelOpen,
-    terminalPanelHeight,
     setDbProject,
     setActiveProject: setDbProject,
     setThreadsProjectId,
@@ -1869,16 +1679,10 @@ export function useWorkbenchState(
     setActiveCardsTab,
     setActiveThreadsTab,
     setThreadsTabs,
-    setActiveTerminalTab,
     setActiveFilesTab,
     setStagePanelWidths,
     setSlidingWindowPaneCount,
     stepSlidingWindowPaneCount,
-    setTerminalPanelOpen,
-    setTerminalPanelHeight,
-    toggleTerminalPanel,
-    openProjectTerminalTab,
-    closeTerminalTab,
     cycleProjects,
     switchToProjectIndex,
     recordRecentCardLeave,
@@ -1915,7 +1719,6 @@ export const workbenchTestHelpers = {
   clampSlidingWindowPaneCount,
   normalizeSlidingWindowPaneCount,
   resolvePersistedSlidingWindowPaneCount,
-  clampTerminalPanelHeight,
   normalizeSidebarTopLevelSectionOrder,
   normalizeSidebarTopLevelSectionsPrefs,
   moveSidebarTopLevelSection,

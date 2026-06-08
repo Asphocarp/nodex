@@ -10,10 +10,6 @@ mock.module("./card-deps", () => ({
   useCardPropertyPosition: () => ({ position: mockCardPropertyPosition }),
 }));
 
-mock.module("@/lib/terminal-sessions", () => ({
-  useActiveTerminals: () => new Set<string>(),
-}));
-
 mock.module("@/lib/use-theme", () => ({
   useTheme: () => ({ resolved: "light" as const }),
 }));

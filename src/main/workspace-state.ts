@@ -28,7 +28,6 @@ function makeDefaultDockTree(): WorkbenchLayoutSnapshot["dock"]["tree"] {
     id: randomUUID(),
     tabs: [
       { id: "cardstage", kind: "cardstage", title: "Card" },
-      { id: "terminal", kind: "terminal", title: "Terminal" },
       { id: "history", kind: "history", title: "History" },
     ],
     activeTabId: "cardstage",
@@ -71,14 +70,10 @@ export function createDefaultWorkbenchLayoutSnapshot(
     },
     threadsTabs: [],
     activeThreadsTabId: legacyResumeSnapshot?.activeThreadsTabId ?? "thread:new",
-    terminalTabs: [],
-    activeTerminalTabId: "",
     filesTabs: [{ id: "diff", title: "Diffs" }],
     activeFilesTabId: "diff",
     stagePanelWidths: {},
     slidingWindowPaneCount: 2,
-    terminalPanelOpen: false,
-    terminalPanelHeight: 260,
   };
 }
 

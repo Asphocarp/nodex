@@ -27,6 +27,7 @@ All notable changes to this project will be documented in this file.
 
 ### Removed
 - Removed the legacy Full rail stage layout mode, its General settings controls, and the adjacent-panel peek setting.
+- Removed the old workspace terminal drawer state and right-pane mirror columns; Terminal tabs and panel state now live only in project sessions.
 
 ### Fixed
 - Fixed open right-panel sessions so the thread page no longer leaves an empty toolbar-height row above the thread title.

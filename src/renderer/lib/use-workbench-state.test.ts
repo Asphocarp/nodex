@@ -777,7 +777,6 @@ describe("use-workbench-state helpers", () => {
     expect(state.dbProjectId).toBe("default");
     expect(state.focusedStage).toBe("db");
     expect(state.slidingWindowPaneCount).toBe(2);
-    expect(state.activeTerminalTabId).toBe("project:default");
     resetStorage();
   });
 
@@ -798,8 +797,6 @@ describe("use-workbench-state helpers", () => {
       activeView: string;
       activeSearchQuery: string;
       focusedStage: string;
-      terminalPanelOpen: boolean;
-      terminalPanelHeight: number;
     };
     const capturedRef: { current: CapturedWorkbenchState | null } = { current: null };
 
@@ -844,14 +841,10 @@ describe("use-workbench-state helpers", () => {
       },
       threadsTabs: [{ id: "thread:new", title: "New thread", preview: "" }],
       activeThreadsTabId: "thread:new",
-      terminalTabs: [],
-      activeTerminalTabId: "",
       filesTabs: [{ id: "diff", title: "Diffs" }],
       activeFilesTabId: "diff",
       stagePanelWidths: {},
       slidingWindowPaneCount: 3,
-      terminalPanelOpen: true,
-      terminalPanelHeight: 320,
     };
 
     await act(async () => {
@@ -864,8 +857,6 @@ describe("use-workbench-state helpers", () => {
     expect(nextState.activeView).toBe("calendar");
     expect(nextState.activeSearchQuery).toBe("release");
     expect(nextState.focusedStage).toBe("threads");
-    expect(nextState.terminalPanelOpen).toBeTrue();
-    expect(nextState.terminalPanelHeight).toBe(320);
   });
 
   resetStorage();

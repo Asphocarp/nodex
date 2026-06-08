@@ -14,7 +14,6 @@ import { EMPTY_DISPLAY_VALUE_TOKEN, getMetaChipClassName } from "../../lib/toggl
 import { estimateStyles } from "@/lib/types";
 import type { Card as CardType, Priority } from "@/lib/types";
 import { useCardPropertyPosition } from "./card-deps";
-import { useActiveTerminals } from "@/lib/terminal-sessions";
 import { useTheme } from "@/lib/use-theme";
 import { cn } from "@/lib/utils";
 import { mergeCardDraftOverlay, useCardDraftOverlay } from "../../lib/card-draft-store";
@@ -78,7 +77,6 @@ interface CardBodyProps {
   card: CardType;
   columnId: string;
   displayPrefs?: DbViewDisplayPrefs;
-  hasTerminal: boolean;
   position: CardPropertyPosition;
   activeProperty: CardEditableProperty | null;
   onOpenPropertyEditor?: (
@@ -101,7 +99,6 @@ function CardPropertyBadges({
   card,
   columnId,
   displayPrefs,
-  hasTerminal,
   layout = "stacked",
   className,
   activeProperty,
@@ -111,7 +108,6 @@ function CardPropertyBadges({
   card: CardType;
   columnId: string;
   displayPrefs?: DbViewDisplayPrefs;
-  hasTerminal: boolean;
   layout?: CardPropertyBadgeLayout;
   className?: string;
   activeProperty: CardEditableProperty | null;
@@ -270,11 +266,6 @@ function CardPropertyBadges({
         </Fragment>
       ))}
 
-      {hasTerminal && (
-        <span className="inline-flex h-4.5 items-center rounded-sm bg-(--foreground)/6 px-1.25 font-mono text-xs/4.5 tracking-tight text-(--foreground-secondary)">
-          $<span className="ml-px h-2.75 w-1.25 animate-[terminal-blink_1s_step-end_infinite] bg-current" />
-        </span>
-      )}
     </Container>
   );
 }
@@ -283,7 +274,6 @@ const CardBody = memo(function CardBody({
   card,
   columnId,
   displayPrefs,
-  hasTerminal,
   position,
   activeProperty,
   onOpenPropertyEditor,
@@ -303,7 +293,6 @@ const CardBody = memo(function CardBody({
           card={card}
           columnId={columnId}
           displayPrefs={displayPrefs}
-          hasTerminal={hasTerminal}
           layout="stacked"
           className="mx-1.5 pt-2 pb-1"
           activeProperty={activeProperty}
@@ -319,7 +308,6 @@ const CardBody = memo(function CardBody({
               card={card}
               columnId={columnId}
               displayPrefs={displayPrefs}
-              hasTerminal={hasTerminal}
               layout="inline"
               activeProperty={activeProperty}
               onOpenPropertyEditor={onOpenPropertyEditor}
@@ -351,7 +339,6 @@ const CardBody = memo(function CardBody({
           card={card}
           columnId={columnId}
           displayPrefs={displayPrefs}
-          hasTerminal={hasTerminal}
           layout="stacked"
           className="mx-1.5 pb-2"
           activeProperty={activeProperty}
@@ -373,7 +360,6 @@ const ResolvedCardBody = memo(function ResolvedCardBody({
   card,
   columnId,
   displayPrefs,
-  hasTerminal,
   position,
   activeProperty,
   onOpenPropertyEditor,
@@ -390,7 +376,6 @@ const ResolvedCardBody = memo(function ResolvedCardBody({
       card={resolvedCard}
       columnId={columnId}
       displayPrefs={displayPrefs}
-      hasTerminal={hasTerminal}
       position={position}
       activeProperty={activeProperty}
       onOpenPropertyEditor={onOpenPropertyEditor}
@@ -411,7 +396,6 @@ interface CardSurfaceProps extends React.HTMLAttributes<HTMLDivElement> {
   isDragging?: boolean;
   isFocused?: boolean;
   isSelected?: boolean;
-  hasTerminal: boolean;
   position: CardPropertyPosition;
   activeProperty: CardEditableProperty | null;
   onOpenPropertyEditor?: (
@@ -434,7 +418,6 @@ const CardSurface = forwardRef<HTMLDivElement, CardSurfaceProps>(function CardSu
   isDragging = false,
   isFocused,
   isSelected = false,
-  hasTerminal,
   position,
   activeProperty,
   onOpenPropertyEditor,
@@ -490,7 +473,6 @@ const CardSurface = forwardRef<HTMLDivElement, CardSurfaceProps>(function CardSu
         card={card}
         columnId={columnId}
         displayPrefs={displayPrefs}
-        hasTerminal={hasTerminal}
         position={position}
         activeProperty={activeProperty}
         onOpenPropertyEditor={onOpenPropertyEditor}
@@ -513,8 +495,6 @@ export function CardPreview({
   fixedHeight?: number;
 }) {
   const { position } = useCardPropertyPosition();
-  const activeTerminals = useActiveTerminals();
-  const hasTerminal = activeTerminals.has(card.id);
 
   return (
     <CardSurface
@@ -526,7 +506,6 @@ export function CardPreview({
       isSelected={isSelected}
       fixedWidth={fixedWidth}
       fixedHeight={fixedHeight}
-      hasTerminal={hasTerminal}
       position={position}
       activeProperty={null}
     />
@@ -549,8 +528,6 @@ export function Card({
   contextMenu,
 }: CardProps) {
   const { position } = useCardPropertyPosition();
-  const activeTerminals = useActiveTerminals();
-  const hasTerminal = activeTerminals.has(card.id);
   const cardSurfaceRef = useRef<HTMLDivElement | null>(null);
   const [activeChipEdit, setActiveChipEdit] = useState<{
     property: CardEditableProperty;
@@ -699,7 +676,6 @@ export function Card({
       isDragging={isDragging}
       isFocused={isFocused}
       isSelected={isSelected}
-      hasTerminal={hasTerminal}
       position={position}
       activeProperty={activeChipEdit?.property ?? null}
       onClick={onClick}

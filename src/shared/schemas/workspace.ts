@@ -4,7 +4,6 @@ import type {
   WorkbenchLayoutFilesStageTab,
   WorkbenchLayoutSidebarSnapshot,
   WorkbenchLayoutSnapshot,
-  WorkbenchLayoutTerminalStageTab,
   WorkbenchLayoutThreadsStageTab,
   WorkspaceBootstrap,
   WorkspaceCatalog,
@@ -75,14 +74,6 @@ export const WorkbenchLayoutThreadsStageTabSchema = z.object({
   preview: z.string(),
 }) satisfies z.ZodType<WorkbenchLayoutThreadsStageTab>;
 
-export const WorkbenchLayoutTerminalStageTabSchema = z.object({
-  id: z.string(),
-  kind: z.literal("project"),
-  projectId: z.string(),
-  title: z.string(),
-  sessionId: z.string(),
-}) satisfies z.ZodType<WorkbenchLayoutTerminalStageTab>;
-
 export const WorkbenchLayoutFilesStageTabSchema = z.object({
   id: z.literal("diff"),
   title: z.string(),
@@ -109,14 +100,10 @@ export const WorkbenchLayoutSnapshotSchema = z.object({
   cardStage: WorkbenchResumeCardStageStateSchema,
   threadsTabs: z.array(WorkbenchLayoutThreadsStageTabSchema).catch([]),
   activeThreadsTabId: z.string(),
-  terminalTabs: z.array(WorkbenchLayoutTerminalStageTabSchema).catch([]),
-  activeTerminalTabId: z.string(),
   filesTabs: z.array(WorkbenchLayoutFilesStageTabSchema).catch([]),
   activeFilesTabId: z.string(),
   stagePanelWidths: NumberRecordSchema.catch({}),
   slidingWindowPaneCount: z.number().finite().catch(2),
-  terminalPanelOpen: z.boolean().catch(false),
-  terminalPanelHeight: z.number().finite().catch(260),
 }) satisfies z.ZodType<WorkbenchLayoutSnapshot>;
 
 export const WorkspaceRecordSchema = z.object({

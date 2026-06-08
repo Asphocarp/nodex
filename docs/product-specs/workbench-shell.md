@@ -28,10 +28,10 @@ Detailed Auto-review preset, config, and approval-lifecycle rules are specified 
 
 ## Storage Ownership
 - SQLite owns shared project session data:
-  - `project_sessions`: project id, title, overview marker, order, legacy right-pane migration fields, and `panel_state_json` for right/bottom collapse, layout, size, and active tab.
+  - `project_sessions`: project id, title, overview marker, order, left-pane collapse, and `panel_state_json` for right/bottom collapse, layout, size, and active tab.
   - `project_session_tabs`: session/project id, `panel_id`, kind, title, per-panel order, state key/value, and validated kind-specific config JSON.
   - `project_session_threads`: optional session-to-thread attachments; canonical thread metadata lives in `codex_threads`.
-- Window-local shell state owns only active project, active session, transient focus history, and legacy migration defaults.
+- Window-local shell state owns only active project, active session, and transient focus history.
 - Existing projects are migrated by creating missing Overview sessions. Existing cards, project data, history, and legacy `codex_card_threads` rows are migrated into `codex_threads` plus `codex_thread_card_links`.
 - Old stage-rail/window layout snapshots are best-effort inputs for active project/session defaults only; they are not authoritative shared session data.
 
@@ -47,7 +47,7 @@ Detailed Auto-review preset, config, and approval-lifecycle rules are specified 
 - Existing global command palette, settings, undo/redo, and editor shortcuts remain in force.
 - The previous stage-order shortcuts (`View -> Card -> Thread -> Diff`) are retired as primary shell semantics.
 - Project/session/tab keyboard shortcuts should be introduced against the new hierarchy: project folder, session row, thread page, and right/bottom panel tab groups.
-- `Ctrl+\`` focuses an existing session terminal tab or creates one in the bottom panel. The legacy global terminal drawer shortcut is not part of the primary shell model.
+- `Ctrl+\`` focuses an existing session terminal tab or creates one in the bottom panel. The global terminal drawer is not part of the project-session shell model.
 
 ## UI Contract
 - Surfaces should use the generated Codex theme layers and token classes before adding local CSS.

@@ -46,8 +46,6 @@ interface DbProjectSession {
   is_overview: number;
   order: number;
   left_pane_collapsed: number;
-  right_pane_collapsed: number;
-  right_pane_layout_json: string;
   panel_state_json: string;
   created_at: string;
   updated_at: string;
@@ -176,19 +174,11 @@ function parsePanelStates(row: DbProjectSession, tabs: ProjectSessionTab[]): Rec
   const parsed = ProjectSessionPanelsSchema.safeParse(parseJson(row.panel_state_json));
   const rightTabs = tabs.filter((tab) => tab.panelId === "right");
   const bottomTabs = tabs.filter((tab) => tab.panelId === "bottom");
-  const fallbackRightLayout = ProjectSessionPanelLayoutSchema.safeParse(parseJson(row.right_pane_layout_json));
 
   return {
-    right: normalizePanelState("right", parsed.success ? parsed.data.right : undefined, rightTabs, {
-      collapsed: row.right_pane_collapsed === 1,
-      layout: fallbackRightLayout.success ? fallbackRightLayout.data : undefined,
-    }),
+    right: normalizePanelState("right", parsed.success ? parsed.data.right : undefined, rightTabs),
     bottom: normalizePanelState("bottom", parsed.success ? parsed.data.bottom : undefined, bottomTabs),
   };
-}
-
-function stringifyLayout(layout: ProjectSessionPanelLayout): string {
-  return JSON.stringify(ProjectSessionPanelLayoutSchema.parse(layout));
 }
 
 function stringifyPanels(panels: Record<PanelId, ProjectSessionPanelState>): string {
@@ -317,12 +307,11 @@ function ensureOverviewSession(projectId: string): void {
     database.prepare(`
       INSERT OR IGNORE INTO project_sessions (
         id, project_id, title, is_overview, "order", left_pane_collapsed,
-        right_pane_collapsed, right_pane_layout_json, panel_state_json, created_at, updated_at
-      ) VALUES (?, ?, 'Overview', 1, 0, 1, 0, ?, ?, ?, ?)
+        panel_state_json, created_at, updated_at
+      ) VALUES (?, ?, 'Overview', 1, 0, 1, ?, ?, ?)
     `).run(
       sessionId,
       projectId,
-      stringifyLayout(rightLayout),
       stringifyPanels(panels),
       now,
       now,
@@ -398,7 +387,6 @@ export function createProjectSession(input: ProjectSessionCreateInput): ProjectS
     .prepare('SELECT MAX("order") AS maxOrder FROM project_sessions WHERE project_id = ?')
     .get(parsed.projectId) as { maxOrder: number | null } | undefined;
   const id = randomUUID();
-  const emptyRightLayout = makeDefaultPanelLayout([], null);
   const panels = {
     right: makeDefaultPanelState("right", [], null),
     bottom: makeDefaultPanelState("bottom", [], null),
@@ -407,14 +395,13 @@ export function createProjectSession(input: ProjectSessionCreateInput): ProjectS
   database.prepare(`
     INSERT INTO project_sessions (
       id, project_id, title, is_overview, "order", left_pane_collapsed,
-      right_pane_collapsed, right_pane_layout_json, panel_state_json, created_at, updated_at
-    ) VALUES (?, ?, ?, 0, ?, 0, 1, ?, ?, ?, ?)
+      panel_state_json, created_at, updated_at
+    ) VALUES (?, ?, ?, 0, ?, 0, ?, ?, ?)
   `).run(
     id,
     parsed.projectId,
     parsed.title,
     (maxOrder?.maxOrder ?? -1) + 1,
-    stringifyLayout(emptyRightLayout),
     stringifyPanels(panels),
     now,
     now,
@@ -461,10 +448,6 @@ export function updateProjectSession(sessionId: string, input: ProjectSessionUpd
     };
     fields.push("panel_state_json = ?");
     values.push(stringifyPanels(nextPanels));
-    fields.push("right_pane_collapsed = ?");
-    values.push(nextPanels.right.collapsed ? 1 : 0);
-    fields.push("right_pane_layout_json = ?");
-    values.push(stringifyLayout(nextPanels.right.layout));
   }
 
   if (fields.length === 0) return existing;
@@ -529,13 +512,11 @@ function persistPanelStates(sessionId: string, panels: Record<PanelId, ProjectSe
   getDb()
     .prepare(`
       UPDATE project_sessions
-      SET panel_state_json = ?, right_pane_collapsed = ?, right_pane_layout_json = ?, updated_at = ?
+      SET panel_state_json = ?, updated_at = ?
       WHERE id = ?
     `)
     .run(
       stringifyPanels(panels),
-      panels.right.collapsed ? 1 : 0,
-      stringifyLayout(panels.right.layout),
       new Date().toISOString(),
       sessionId,
     );

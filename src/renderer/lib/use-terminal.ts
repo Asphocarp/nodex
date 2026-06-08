@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { FitAddon, Terminal, init as initGhosttyWeb } from "ghostty-web";
-import { addSession } from "./terminal-sessions";
 
 const isElectron = typeof window !== "undefined" && !!window.api;
 let ghosttyInitPromise: Promise<void> | null = null;
@@ -144,7 +143,6 @@ export function useTerminal({
         const r = result as { success: boolean; error?: string };
         if (r.success) {
           setIsConnected(true);
-          addSession(terminalIdRef.current);
         } else {
           setError(r.error ?? "Failed to spawn terminal");
           termRef.current?.write(`\r\n\x1b[31mError: ${r.error ?? "Failed to spawn terminal"}\x1b[0m\r\n`);
@@ -293,7 +291,6 @@ export function useTerminal({
               const r = result as { success: boolean; error?: string };
               if (r.success) {
                 setIsConnected(true);
-                addSession(terminalId);
               } else {
                 console.error("[terminal] spawn failed:", r.error);
                 setError(r.error ?? "Failed to spawn terminal");

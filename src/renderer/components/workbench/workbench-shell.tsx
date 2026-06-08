@@ -361,7 +361,6 @@ interface WorkbenchShellProps {
   activeFilesTabId?: unknown;
   stagePanelWidths?: unknown;
   slidingWindowPaneCount?: unknown;
-  terminalPanelHeight?: unknown;
   cardStageState?: unknown;
   cardStageCardId?: unknown;
   setActiveThreadsTab?: unknown;
@@ -643,7 +642,6 @@ export function WorkbenchShell({
   setSidebarCollapsed,
   setSidebarWidth,
   setSidebarTopLevelSectionVisible,
-  terminalPanelHeight,
   settingsToggleTick,
 }: WorkbenchShellProps) {
   const fallbackProjectId = projects[0]?.id ?? "default";
@@ -726,8 +724,7 @@ export function WorkbenchShell({
     sessionContentWidth,
   );
   const bottomPanelHeight = clampBottomPanelHeight(
-    bottomPanel?.size.heightPx
-      ?? (typeof terminalPanelHeight === "number" ? terminalPanelHeight : BOTTOM_PANEL_DEFAULT_HEIGHT),
+    bottomPanel?.size.heightPx ?? BOTTOM_PANEL_DEFAULT_HEIGHT,
     sessionContentHeight,
   );
   const settingsSidebarTopLevelSectionOrder = normalizeSidebarTopLevelSectionOrder(

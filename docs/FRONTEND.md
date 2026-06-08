@@ -29,7 +29,7 @@
 - History/undo: `use-history.ts`.
 - Project lifecycle: `use-projects.ts`.
 - SSE/IPC updates are centralized in API subscription helpers.
-- Live workbench window state is narrow and local: active project, active session, transient focus history, and legacy migration defaults can live in `sessionStorage`/window-session snapshots for continuity.
+- Live workbench window state is narrow and local: active project, active session, and transient focus history can live in `sessionStorage`/window-session snapshots for continuity.
 - Shared project-session structure is SQLite-owned: sessions, right/bottom panel state, session tab records, tab ordering, tab state, and session-thread attachments load through the project-session IPC/HTTP APIs rather than renderer-local reducers.
 - Cold-launch resume is window-session-owned in Electron: the main process stores profile-local workspace and window-session catalogs under `userData`, renderer bootstrap applies the assigned session layout before mounting, and legacy last-window snapshots only seed the default workspace/session during migration.
 - Terminal: `use-terminal.ts` manages ghostty-web lifecycle, fit/resize behavior, and PTY IPC by terminal session id. Terminals are session panel tabs; Card Stage can request a terminal, but cards do not own terminal tab config or PTY identity.

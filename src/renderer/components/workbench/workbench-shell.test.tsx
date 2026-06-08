@@ -277,8 +277,8 @@ function makePanels(options: {
 type SessionTabFixture = Partial<ProjectSessionTab> & Pick<ProjectSessionTab, "id" | "kind" | "title" | "config">;
 type SessionFixtureOverrides = Omit<Partial<ProjectSession>, "tabs"> & {
   tabs?: SessionTabFixture[];
-  rightPaneCollapsed?: boolean;
-  rightPaneLayout?: ProjectSession["panels"]["right"]["layout"];
+  rightCollapsed?: boolean;
+  rightLayout?: ProjectSession["panels"]["right"]["layout"];
 };
 
 function makeSessionTab(overrides: SessionTabFixture): ProjectSessionTab {
@@ -297,8 +297,8 @@ function makeSessionTab(overrides: SessionTabFixture): ProjectSessionTab {
 
 function makeSession(overrides: SessionFixtureOverrides = {}): ProjectSession {
   const {
-    rightPaneCollapsed,
-    rightPaneLayout,
+    rightCollapsed,
+    rightLayout,
     tabs: rawTabs,
     ...sessionOverrides
   } = overrides;
@@ -326,10 +326,10 @@ function makeSession(overrides: SessionFixtureOverrides = {}): ProjectSession {
   const bottomTabIds = tabs.filter((tab) => tab.panelId === "bottom").map((tab) => tab.id);
   const panels = overrides.panels ?? makePanels({
     rightTabIds,
-    rightActiveTabId: rightPaneLayout?.root.type === "leaf"
-      ? rightPaneLayout.root.activeTabId
+    rightActiveTabId: rightLayout?.root.type === "leaf"
+      ? rightLayout.root.activeTabId
       : rightTabIds[0] ?? null,
-    rightCollapsed: rightPaneCollapsed ?? false,
+    rightCollapsed: rightCollapsed ?? false,
     rightFullWidth: isOverview,
     bottomTabIds,
     bottomActiveTabId: bottomTabIds[0] ?? null,
@@ -757,8 +757,8 @@ describe("workbench session shell", () => {
       title: "Active thread",
       isOverview: false,
       order: 1,
-      rightPaneCollapsed: true,
-      rightPaneLayout: {
+      rightCollapsed: true,
+      rightLayout: {
         version: 1,
         root: {
           type: "leaf",
@@ -991,7 +991,7 @@ describe("workbench session shell", () => {
         alpha: [
           makeSession({
             tabs: [listTab],
-            rightPaneLayout: {
+            rightLayout: {
               version: 1,
               root: {
                 type: "leaf",
@@ -1093,7 +1093,7 @@ describe("workbench session shell", () => {
             id: "session:alpha:thread",
             title: "Thread",
             isOverview: false,
-            rightPaneCollapsed: false,
+            rightCollapsed: false,
           }),
         ],
       },
@@ -1116,7 +1116,7 @@ describe("workbench session shell", () => {
             id: "session:alpha:thread-collapsed",
             title: "Thread",
             isOverview: false,
-            rightPaneCollapsed: true,
+            rightCollapsed: true,
           }),
         ],
       },
@@ -1272,7 +1272,7 @@ describe("workbench session shell", () => {
 
   test("collapsed right panel opens from the global side-panel toggle", async () => {
     const screen = renderWorkbench({
-      sessionsByProject: { alpha: [makeSession({ rightPaneCollapsed: true })] },
+      sessionsByProject: { alpha: [makeSession({ rightCollapsed: true })] },
     });
     await settleAsyncRender();
     await settleAsyncRender();
@@ -1314,7 +1314,7 @@ describe("workbench session shell", () => {
             id: "session:alpha:thread",
             title: "Thread",
             isOverview: false,
-            rightPaneCollapsed: true,
+            rightCollapsed: true,
             tabs: [],
           }),
         ],
@@ -1351,7 +1351,7 @@ describe("workbench session shell", () => {
             id: "session:alpha:thread",
             title: "Thread",
             isOverview: false,
-            rightPaneCollapsed: false,
+            rightCollapsed: false,
           }),
         ],
       },
@@ -1401,7 +1401,7 @@ describe("workbench session shell", () => {
             id: "session:alpha:build",
             title: "Build",
             isOverview: false,
-            rightPaneCollapsed: false,
+            rightCollapsed: false,
           }),
         ],
       },
@@ -1555,7 +1555,7 @@ describe("workbench session shell", () => {
       id: "session:alpha:empty",
       isOverview: false,
       tabs: [],
-      rightPaneLayout: {
+      rightLayout: {
         version: 1,
         root: {
           type: "leaf",
@@ -1606,7 +1606,7 @@ describe("workbench session shell", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab, reviewTab],
-      rightPaneLayout: {
+      rightLayout: {
         version: 1,
         root: {
           type: "leaf",
@@ -1658,7 +1658,7 @@ describe("workbench session shell", () => {
       id: "session:alpha:empty",
       isOverview: false,
       tabs: [],
-      rightPaneLayout: {
+      rightLayout: {
         version: 1,
         root: {
           type: "leaf",
@@ -1732,7 +1732,7 @@ describe("workbench session shell", () => {
 
   test("panel tab menu creates tabs after opening a collapsed right panel", async () => {
     const screen = renderWorkbench({
-      sessionsByProject: { alpha: [makeSession({ rightPaneCollapsed: true })] },
+      sessionsByProject: { alpha: [makeSession({ rightCollapsed: true })] },
     });
     await settleAsyncRender();
     await settleAsyncRender();
@@ -1766,7 +1766,7 @@ describe("workbench session shell", () => {
 
   test("opening a card from the thread page opens a collapsed right panel", async () => {
     renderWorkbench({
-      sessionsByProject: { alpha: [makeAttachedSession({ rightPaneCollapsed: true })] },
+      sessionsByProject: { alpha: [makeAttachedSession({ rightCollapsed: true })] },
     });
     await settleAsyncRender();
     await settleAsyncRender();
@@ -1844,7 +1844,7 @@ describe("workbench session shell", () => {
         },
       ],
       id: "session-1",
-      rightPaneLayout: {
+      rightLayout: {
         version: 1,
         root: {
           type: "leaf",
@@ -1918,7 +1918,7 @@ describe("workbench session shell", () => {
           updatedAt: "2026-06-07T00:00:00.000Z",
         },
       ],
-      rightPaneLayout: {
+      rightLayout: {
         version: 1,
         root: {
           type: "leaf",

@@ -94,7 +94,6 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
     activeFilesTabId,
     stagePanelWidths,
     slidingWindowPaneCount,
-    terminalPanelHeight,
     recentCardSessions,
     activeRecentSessionId,
     setDbProject: setDbProjectState,
@@ -1043,7 +1042,6 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
       activeFilesTabId={activeFilesTabId}
       stagePanelWidths={stagePanelWidths}
       slidingWindowPaneCount={slidingWindowPaneCount}
-      terminalPanelHeight={terminalPanelHeight}
       cardStageState={cardStageState}
       cardStageCardId={cardStageState.projectId === resolvedDbProjectId ? cardStageCardId : undefined}
       cardStageCloseRef={cardStageCloseRef}

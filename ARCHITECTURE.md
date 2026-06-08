@@ -69,7 +69,7 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `lib/codex-theme-variant.ts`: Codex Electron-style runtime theme bridge that derives semantic color variables from the active light/dark theme variant and injects them onto `document.documentElement` before renderer surfaces read the token bridge.
 - `lib/kanban-store.ts`: shared per-project board store with one realtime subscription, deduped fetches, optimistic journal rebase (`baseBoard + pending/local ops`), LWW conflict superseding, typed conflict resolution (`updated|conflict|not_found`), and O(1) `cardIndex` lookup map.
 - `lib/use-kanban.ts`, `lib/use-history.ts`, `lib/use-projects.ts`: stateful hooks over API channels (`use-kanban` is store-backed via `useSyncExternalStore`).
-- `lib/use-workbench-state.ts`: persisted legacy workspace shell state with explicit project-context slices. Session panels and durable terminal tabs are no longer owned here; project-session SQLite state is the primary model, while legacy terminal height can still seed bottom-panel defaults.
+- `lib/use-workbench-state.ts`: window-local workbench shell state with explicit project-context slices. Session panels and durable terminal tabs are not owned here; project-session SQLite state is the primary model.
 - `lib/workbench-persisted-schemas.ts`: renderer-side persisted-state schema/parsing layer for workbench/session history maps, tabs, panel widths, and restart-friendly shell snapshots.
 - `lib/app-close-flush.ts`: renderer-side close-flush coordinator so all registered async flushers complete before one final Electron close ack is sent.
 - `lib/workbench-resume.ts`: renderer helpers for consuming/saving the durable last-window snapshot and building snapshot payloads from live shell state.
@@ -94,7 +94,7 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 Project sessions flow:
 1. The renderer shell loads `project-sessions:list` for each visible project and renders projects as expandable folders with ordered sessions beneath them.
 2. SQLite owns the shared tree: `project_sessions.panel_state_json` stores independent right and bottom panel state, `project_session_tabs.panel_id` stores ordered DB/Card/terminal/browser/review/files/side-chat tabs per panel, and `project_session_threads` stores optional session-to-thread attachments while thread metadata lives in `codex_threads`.
-3. Window/session UI state owns only the active project, active session, transient focus/history, and legacy migration defaults. Durable panel collapse, size, active tab, tab order, and tab state belong to project-session storage.
+3. Window/session UI state owns only the active project, active session, and transient focus/history. Durable panel collapse, size, active tab, tab order, and tab state belong to project-session storage.
 4. Every project has a seeded `Overview` session with one right-panel `db_view` tab for that project. The project-session service also lazily creates the Overview row for projects added after startup.
 5. Session singleton right-panel kinds are `db_view`, `review`, and `browser_placeholder`. Terminal tabs are session-owned bottom-panel tabs by default and carry only `projectId` plus `terminalSessionId`; cards never own terminals.
 6. Renderer-local panel previews are intentionally outside SQLite. Files, Browser, and Side chat previews occupy one preview slot per session panel, replace each other within that panel, and are persisted only when pinned through the normal session-tab create API.

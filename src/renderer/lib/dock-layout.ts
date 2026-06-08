@@ -1,4 +1,4 @@
-export type DockPanelKind = "cardstage" | "terminal" | "history";
+export type DockPanelKind = "cardstage" | "history";
 
 export interface DockTab {
   id: string;
@@ -26,7 +26,6 @@ export type DockTreeNode = DockLeaf | DockSplit;
 
 const DEFAULT_TABS: DockTab[] = [
   { id: "cardstage", kind: "cardstage", title: "Card" },
-  { id: "terminal", kind: "terminal", title: "Terminal" },
   { id: "history", kind: "history", title: "History" },
 ];
 

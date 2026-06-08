@@ -9,7 +9,6 @@ import type {
   StageId,
   StageNavDirection,
   StagePanelWidths,
-  TerminalStageTab,
   ThreadsStageTab,
   WorkbenchView,
 } from "./use-workbench-state";
@@ -74,14 +73,6 @@ const ThreadsStageTabSchema = z.object({
   preview: z.string(),
 }) satisfies z.ZodType<ThreadsStageTab>;
 
-const TerminalStageTabSchema = z.object({
-  id: z.string(),
-  kind: z.literal("project"),
-  projectId: z.string().optional(),
-  title: z.string(),
-  sessionId: z.string(),
-});
-
 const FilesStageTabSchema = z.object({
   id: z.literal("diff"),
   title: z.string(),
@@ -138,12 +129,6 @@ const SidebarSectionStateByProjectSchema = UnknownRecordSchema.transform((value)
 const ThreadsStageTabsSchema = UnknownArraySchema.transform((items) =>
   items
     .map((item) => ThreadsStageTabSchema.safeParse(item))
-    .filter((result) => result.success)
-    .map((result) => result.data),
-);
-const TerminalStageTabsSchema = UnknownArraySchema.transform((items) =>
-  items
-    .map((item) => TerminalStageTabSchema.safeParse(item))
     .filter((result) => result.success)
     .map((result) => result.data),
 );
@@ -223,16 +208,6 @@ export function parseSidebarSectionStateByProject(
 
 export function parseThreadsStageTabs(value: unknown): ThreadsStageTab[] {
   return parseValueWithSchema(value, ThreadsStageTabsSchema, []);
-}
-
-export function parseTerminalStageTabs(
-  value: unknown,
-  defaultProjectId: string,
-): TerminalStageTab[] {
-  return parseValueWithSchema(value, TerminalStageTabsSchema, []).map((tab) => ({
-    ...tab,
-    projectId: tab.projectId ?? defaultProjectId,
-  }));
 }
 
 export function parseFilesStageTabs(value: unknown): FilesStageTab[] {
