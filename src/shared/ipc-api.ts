@@ -83,11 +83,7 @@ import type {
   WindowRestoreSettings,
   DesktopNotificationActionPayload,
 } from "./types";
-import type { WorkbenchResumeSnapshot } from "./workbench-resume";
-import type {
-  WorkbenchLayoutSnapshot,
-  WorkspaceBootstrap,
-} from "./workspace";
+import type { WorkbenchLayoutSnapshot } from "./workbench-layout";
 import type {
   WindowSessionBootstrap,
   WindowSessionBounds,
@@ -425,20 +421,9 @@ export interface IpcApi {
   };
   "window:show-emoji-panel": { args: []; result: boolean };
   "window:new": { args: [seed?: WindowSessionSeed]; result: boolean };
-  "workbench:resume:consume": { args: []; result: WorkbenchResumeSnapshot | null };
-  "workbench:resume:save": { args: [snapshot: WorkbenchResumeSnapshot]; result: boolean };
-  "workspaces:bootstrap": { args: []; result: WorkspaceBootstrap };
-  "workspaces:create": { args: [name: string, layout: WorkbenchLayoutSnapshot, icon?: string | null]; result: WorkspaceBootstrap };
-  "workspaces:rename": { args: [workspaceId: string, name: string, icon?: string | null]; result: WorkspaceBootstrap };
-  "workspaces:delete": { args: [workspaceId: string]; result: WorkspaceBootstrap };
-  "workspaces:save-layout": {
-    args: [workspaceId: string, layout: WorkbenchLayoutSnapshot];
-    result: WorkspaceBootstrap;
-  };
-  "workspaces:set-active": { args: [workspaceId: string]; result: WorkspaceBootstrap };
   "window-sessions:bootstrap": { args: []; result: WindowSessionBootstrap };
   "window-sessions:save-layout": {
-    args: [workspaceId: string, layout: WorkbenchLayoutSnapshot];
+    args: [layout: WorkbenchLayoutSnapshot];
     result: WindowSessionBootstrap;
   };
   "window-sessions:update-bounds": {

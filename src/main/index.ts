@@ -39,8 +39,6 @@ import { codexService } from "./codex/codex-service";
 import { DesktopNotificationManager } from "./desktop-notification-manager";
 import { configureInstanceScopePaths } from "./instance-scope";
 import { parseCardDeepLink } from "../shared/card-deeplink";
-import { WorkbenchResumeState } from "./workbench-resume-state";
-import { WorkspaceState } from "./workspace-state";
 import {
   isWindowSessionBoundsVisible,
   WindowSessionState,
@@ -69,8 +67,6 @@ let pendingCardDeepLinkTarget: { projectId: string; cardId: string } | null = nu
 const pendingCloseResolvers = new Map<number, () => void>();
 const allowImmediateWindowClose = new Set<number>();
 const WINDOW_CLOSE_FLUSH_TIMEOUT_MS = 1500;
-let workbenchResumeState: WorkbenchResumeState | null = null;
-let workspaceState: WorkspaceState | null = null;
 let windowSessionState: WindowSessionState | null = null;
 let appQuitRequested = false;
 let lastClosedWindowSessionId: string | null = null;
@@ -124,23 +120,22 @@ function focusLastWindow(): void {
 
   if (!serverUrlForWindows) return;
   const session = createWindowSession();
-  const createdWindow = createWindow(serverUrlForWindows, { restoreEligible: true, session });
+  const createdWindow = createWindow(serverUrlForWindows, { session });
   createdWindow.show();
   createdWindow.focus();
 }
 
 function createWindowSession(seed?: WindowSessionSeed): WindowSessionRecord {
-  if (!workspaceState || !windowSessionState) {
+  if (!windowSessionState) {
     throw new Error("Window session state is unavailable");
   }
-  const workspaceBootstrap = workspaceState.bootstrap();
-  return windowSessionState.createSession(workspaceBootstrap.catalog, seed);
+  return windowSessionState.createSession(seed);
 }
 
 function openNewWindow(seed?: WindowSessionSeed): BrowserWindow | null {
   if (!serverUrlForWindows) return null;
   const session = createWindowSession(seed);
-  const window = createWindow(serverUrlForWindows, { restoreEligible: false, session });
+  const window = createWindow(serverUrlForWindows, { session });
   window.show();
   window.focus();
   return window;
@@ -157,30 +152,10 @@ function captureWindowSessionBounds(window: BrowserWindow): WindowSessionBounds 
   };
 }
 
-function resolveMacWindowTitle(session: WindowSessionRecord): string {
-  const workspaceBootstrap = workspaceState?.bootstrap();
-  const workspaceName = workspaceBootstrap?.catalog.workspaces
-    .find((workspace) => workspace.id === session.workspaceId)
-    ?.name
-    .trim()
-    || workspaceBootstrap?.activeWorkspace.name.trim();
-  return workspaceName || "Nodex";
-}
-
-function syncMacWindowTitle(window: BrowserWindow, session?: WindowSessionRecord | null): void {
+function syncMacWindowTitle(window: BrowserWindow): void {
   if (process.platform !== "darwin") return;
   if (window.isDestroyed()) return;
-
-  const resolvedSession = session ?? windowSessionState?.getSessionForWindow(window.webContents.id);
-  window.setTitle(resolvedSession ? resolveMacWindowTitle(resolvedSession) : "Nodex");
-}
-
-function syncAllMacWindowTitles(): void {
-  if (process.platform !== "darwin") return;
-
-  for (const window of openWindows.values()) {
-    syncMacWindowTitle(window);
-  }
+  window.setTitle("Nodex");
 }
 
 async function requestHostMicrophonePermission(): Promise<void> {
@@ -392,7 +367,7 @@ function registerDeepLinkProtocol(): void {
 
 function createWindow(
   serverUrl: string,
-  options: { restoreEligible: boolean; session: WindowSessionRecord },
+  options: { session: WindowSessionRecord },
 ): BrowserWindow {
   const shouldUseSavedBounds = isWindowSessionBoundsVisible(
     options.session.bounds,
@@ -406,7 +381,7 @@ function createWindow(
     height: savedBounds?.height ?? 900,
     minWidth: 800,
     minHeight: 600,
-    ...(process.platform === "darwin" ? { title: resolveMacWindowTitle(options.session) } : {}),
+    ...(process.platform === "darwin" ? { title: "Nodex" } : {}),
     ...(process.platform === "darwin" ? {} : { icon: appIconPath }),
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 16, y: 16 },
@@ -455,11 +430,8 @@ function createWindow(
   const webContentsId = window.webContents.id;
   openWindows.set(webContentsId, window);
   windowSessionState?.assignWindow(webContentsId, options.session.id);
-  syncMacWindowTitle(window, options.session);
+  syncMacWindowTitle(window);
   lastFocusedWindowId = webContentsId;
-  if (options.restoreEligible) {
-    workbenchResumeState?.markWindowEligible(webContentsId);
-  }
 
   if (savedBounds?.mode === "maximized") {
     window.maximize();
@@ -536,7 +508,6 @@ function createWindow(
     maybeStartAutomaticAppUpdateChecks();
   });
   window.on("closed", () => {
-    workbenchResumeState?.clearWindowEligibility(webContentsId);
     windowSessionState?.clearWindow(webContentsId);
     pendingCloseResolvers.delete(webContentsId);
     allowImmediateWindowClose.delete(webContentsId);
@@ -654,7 +625,7 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
     if (!currentServerUrl) return;
     if (openWindows.size === 0) {
       const session = createWindowSession();
-      createWindow(currentServerUrl, { restoreEligible: true, session });
+      createWindow(currentServerUrl, { session });
       return;
     }
     focusLastWindow();
@@ -701,10 +672,6 @@ if (hasSingleInstanceLock) {
       if (process.platform === "darwin" && !app.isPackaged && !appDockIcon.isEmpty()) {
         app.dock?.setIcon(appDockIcon);
       }
-      workbenchResumeState = new WorkbenchResumeState(app.getPath("userData"));
-      workspaceState = new WorkspaceState(app.getPath("userData"), () =>
-        workbenchResumeState?.readSnapshot() ?? null
-      );
       windowSessionState = new WindowSessionState(app.getPath("userData"));
       appUpdateService = new AppUpdateService({
         currentVersion: app.getVersion(),
@@ -727,99 +694,31 @@ if (hasSingleInstanceLock) {
         onCreateWindow: (seed) => {
           openNewWindow(seed);
         },
-        onConsumeWorkbenchResume: (webContentsId) =>
-          workbenchResumeState?.consumeSnapshotForWindow(webContentsId) ?? null,
-        onSaveWorkbenchResume: (webContentsId, snapshot) =>
-          workbenchResumeState?.saveSnapshotForWindow(
-            webContentsId,
-            lastFocusedWindowId,
-            openWindows.size,
-            snapshot,
-          ) ?? false,
-        onBootstrapWorkspaces: () => {
-          if (!workspaceState) throw new Error("Workspace state is unavailable");
-          return workspaceState.bootstrap();
-        },
-        onCreateWorkspace: (_webContentsId, name, layout, icon) => {
-          if (!workspaceState) throw new Error("Workspace state is unavailable");
-          const bootstrap = workspaceState.createWorkspace(name, layout, icon);
-          syncAllMacWindowTitles();
-          return bootstrap;
-        },
-        onRenameWorkspace: (_webContentsId, workspaceId, name, icon) => {
-          if (!workspaceState) throw new Error("Workspace state is unavailable");
-          const bootstrap = workspaceState.renameWorkspace(workspaceId, name, icon);
-          syncAllMacWindowTitles();
-          return bootstrap;
-        },
-        onDeleteWorkspace: (_webContentsId, workspaceId) => {
-          if (!workspaceState) throw new Error("Workspace state is unavailable");
-          const bootstrap = workspaceState.deleteWorkspace(workspaceId);
-          syncAllMacWindowTitles();
-          return bootstrap;
-        },
-        onSaveWorkspaceLayout: (webContentsId, workspaceId, layout) => {
-          if (!workspaceState) throw new Error("Workspace state is unavailable");
-          if (openWindows.size > 1 && webContentsId !== lastFocusedWindowId) {
-            return workspaceState.bootstrap();
-          }
-          return workspaceState.saveLayout(workspaceId, layout);
-        },
-        onSetActiveWorkspace: (webContentsId, workspaceId) => {
-          if (!workspaceState) throw new Error("Workspace state is unavailable");
-          if (openWindows.size > 1 && webContentsId !== lastFocusedWindowId) {
-            return workspaceState.bootstrap();
-          }
-          return workspaceState.setActive(workspaceId);
-        },
         onBootstrapWindowSession: (webContentsId) => {
-          if (!workspaceState || !windowSessionState) {
+          if (!windowSessionState) {
             throw new Error("Window session state is unavailable");
           }
-          const workspaceBootstrap = workspaceState.bootstrap();
-          const session = windowSessionState.bootstrap(webContentsId, workspaceBootstrap.catalog);
+          const session = windowSessionState.bootstrap(webContentsId);
           const window = openWindows.get(webContentsId);
           if (window) {
-            syncMacWindowTitle(window, session);
+            syncMacWindowTitle(window);
           }
-          const activeWorkspace = workspaceBootstrap.catalog.workspaces.find((workspace) => workspace.id === session.workspaceId)
-            ?? workspaceBootstrap.activeWorkspace;
-          return {
-            catalog: workspaceBootstrap.catalog,
-            activeWorkspace,
-            session,
-          };
+          return { session };
         },
-        onSaveWindowSessionLayout: (webContentsId, workspaceId, layout) => {
-          if (!workspaceState || !windowSessionState) {
+        onSaveWindowSessionLayout: (webContentsId, layout) => {
+          if (!windowSessionState) {
             throw new Error("Window session state is unavailable");
           }
-          const workspaceBootstrap = workspaceState.bootstrap();
           const window = openWindows.get(webContentsId);
           const session = windowSessionState.saveLayout(
             webContentsId,
-            workspaceId,
             layout,
-            workspaceBootstrap.catalog,
             window && !window.isDestroyed() ? captureWindowSessionBounds(window) : undefined,
           );
-          const shouldUpdateWorkspaceTemplate = openWindows.size <= 1 || webContentsId === lastFocusedWindowId;
-          if (shouldUpdateWorkspaceTemplate) {
-            workspaceState.setActive(session.workspaceId);
-          }
-          const nextWorkspaceBootstrap = shouldUpdateWorkspaceTemplate
-            ? workspaceState.saveLayout(session.workspaceId, session.layout)
-            : workspaceState.bootstrap();
-          const activeWorkspace = nextWorkspaceBootstrap.catalog.workspaces.find((workspace) => workspace.id === session.workspaceId)
-            ?? nextWorkspaceBootstrap.activeWorkspace;
           if (window) {
-            syncMacWindowTitle(window, session);
+            syncMacWindowTitle(window);
           }
-          return {
-            catalog: nextWorkspaceBootstrap.catalog,
-            activeWorkspace,
-            session,
-          };
+          return { session };
         },
         onUpdateWindowSessionBounds: (webContentsId, bounds) => {
           windowSessionState?.updateBounds(webContentsId, bounds);
@@ -847,14 +746,10 @@ if (hasSingleInstanceLock) {
       });
 
       appInitializationPromise = initializeDesktopApp(serverPort);
-      const workspaceBootstrap = workspaceState.bootstrap();
       const restorePolicy = getWindowRestoreSettings().policy;
-      const startupSessions = windowSessionState.selectStartupSessions(
-        restorePolicy,
-        workspaceBootstrap.catalog,
-      );
+      const startupSessions = windowSessionState.selectStartupSessions(restorePolicy);
       for (const session of startupSessions) {
-        createWindow(serverUrl, { restoreEligible: true, session });
+        createWindow(serverUrl, { session });
       }
       await appInitializationPromise;
     })

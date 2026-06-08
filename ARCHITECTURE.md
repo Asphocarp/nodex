@@ -7,10 +7,10 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 
 ### Shared Contracts (`src/shared`)
 - `types.ts`: canonical domain model (`Card`, `Board`, `Project`, project session/tab/thread-link payloads, block-drop import payloads).
-- `workspace.ts`: canonical profile-local workspace catalog and serializable workbench layout snapshot types.
+- `workbench-layout.ts`: canonical serializable workbench layout snapshot types.
 - `ipc-api.ts`: typed IPC channel surface between preload/renderer/main.
 - `codex-thread-title.ts`: shared thread-title sanitization and bounded cache helpers used by both main and renderer.
-- `schemas/*`: runtime boundary schemas for persisted renderer state, workspace layout catalogs, Codex settings, HTTP bodies, Codex session replay JSONL lines, and transcript special-item/raw JSON payload families.
+- `schemas/*`: runtime boundary schemas for persisted renderer state, workbench layout snapshots, Codex settings, HTTP bodies, Codex session replay JSONL lines, and transcript special-item/raw JSON payload families.
 - `card-limits.ts`: centralized payload and field size constraints.
 - `assets.ts`: stable `nodex://assets/` URI helpers.
 - `nfm/*`: shared Notion-flavored Markdown parser/serializer core used by both main-process storage logic and renderer editor adapters.
@@ -31,8 +31,6 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `kanban/schema.ts`: latest-schema bootstrap and the future-ready schema version/migration framework, including project session tables and Overview-session seed migration.
 - `kanban/card-input-validation.ts`: shared write validation used by all mutation paths.
 - `logging/logger.ts`: structured backend logger with child scopes, sensitive-field redaction, bounded payload serialization, and profile-scoped JSONL file persistence under `${KANBAN_DIR}/logs`.
-- `workbench-resume-state.ts`: legacy profile-scoped last-window snapshot store retained for migration/default seeding.
-- `workspace-state.ts`: profile-scoped workspace catalog store under Electron `userData`, including default workspace seeding, legacy workbench-resume migration, active-workspace tracking, and layout snapshot persistence.
 - `window-session-state.ts`: profile-scoped persisted Electron window-session catalog with per-window layout snapshots, restore-policy selection support, focus recency, and saved window bounds.
 - `pty-manager.ts`: PTY process lifecycle management for session terminal ids (spawn, write, resize, kill).
 - `codex/codex-app-server-client.ts`: global JSON-RPC client for `codex app-server` stdio lifecycle, handshake, request correlation, reconnect/backoff, and wire-level typing against the committed `@nodex/codex-app-server-protocol` workspace package.
@@ -51,7 +49,7 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `index.ts`: minimal `window.api` bridge that exposes `invoke`, event subscription, runtime server URL, and the cached Electron asset-path prefix used for synchronous local asset-path resolution.
 
 ### Renderer Application (`src/renderer`)
-- `app.tsx`: workbench orchestration, workspace bootstrap/switching, Electron startup-gating screen, reminder deep-link handling, and feature-flagged shell entry.
+- `app.tsx`: workbench orchestration, window-session bootstrap/layout persistence, Electron startup-gating screen, reminder deep-link handling, and feature-flagged shell entry.
 - `styles/theme-source.css`: author-maintained renderer token source, including Tailwind theme declarations, window-type/theme-scoped root tokens, and the CSS-side `--vscode-*` contract consumed by renderer surfaces.
 - `styles/theme-codex-foundation.generated.css`: generated renderer foundation layer synced from Codex Electron for radius math, toolbar spacing, and window-scoped runtime overrides.
 - `styles/theme-codex-utilities.generated.css`: generated renderer utility contract synced from Codex Electron for exact shipped utility selectors and Codex-specific arbitrary/container utility coverage.
@@ -72,8 +70,7 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `lib/use-workbench-state.ts`: window-local workbench shell state with explicit project-context slices. Session panels and durable terminal tabs are not owned here; project-session SQLite state is the primary model.
 - `lib/workbench-persisted-schemas.ts`: renderer-side persisted-state schema/parsing layer for workbench/session history maps, tabs, panel widths, and restart-friendly shell snapshots.
 - `lib/app-close-flush.ts`: renderer-side close-flush coordinator so all registered async flushers complete before one final Electron close ack is sent.
-- `lib/workbench-resume.ts`: renderer helpers for consuming/saving the durable last-window snapshot and building snapshot payloads from live shell state.
-- `lib/workspaces.ts`: renderer helpers for workspace bootstrap, workspace catalog mutations, active-workspace changes, and layout saves through IPC.
+- `lib/window-sessions.ts`: renderer helpers for bootstrapping the assigned window session and saving workbench layout snapshots through IPC.
 - `lib/dock-layout.ts`: dock split-tree helpers for the current persisted shell layout model.
 - `lib/use-workbench-shortcuts.ts`: app-wide stage-first keyboard shortcut mapping.
 - `lib/use-terminal.ts`: ghostty-web terminal lifecycle hook with cached instances, fit/resize handling, IPC wiring, and theme sync.
@@ -117,12 +114,11 @@ Codex Threads flow:
 15. The Diff stage is a workbench-owned review surface, not a transcript diff card. `Last turn` review comes from the active conversation turn diff, while `unstaged` / `staged` / `branch` review data flows through dedicated main-process Git snapshot IPC.
 
 Workbench reopen flow:
-1. Main process keeps a profile-local workspace catalog in `workspaces-v1.json` under Electron `userData`, with a default workspace always present.
-2. Main process also keeps a profile-local window session catalog in `window-sessions-v1.json`; this is the cold-launch restore source for window count, selected workspace, layout snapshot, focus recency, and saved window bounds.
-3. Renderer bootstrap consumes its assigned window session through IPC before mounting the shell. Existing legacy workbench-resume snapshots only seed the default workspace/session when no newer catalog exists.
-4. Live workbench state continues to persist window-locally in `sessionStorage` as an in-session fallback, while durable reopen flows through window sessions. For the project-session shell, this window-local layer may remember active project/session/tab, pane widths, collapse overrides, and focus history; the shared session tree and tab order stay in SQLite.
-5. On workspace switch or close, renderer flushes the current layout snapshot, card draft state, and registered close flushers before applying the next layout or sending the final close ack.
-6. Each window saves its own session layout. Only the focused window updates the named workspace template/last-active workspace used for future new-window seeds.
+1. Main process keeps a profile-local window session catalog in `window-sessions-v1.json`; this is the cold-launch restore source for window count, layout snapshot, focus recency, and saved window bounds.
+2. Renderer bootstrap consumes its assigned window session through IPC before mounting the shell. No workspace catalog or deleted legacy snapshot store participates in bootstrap.
+3. Live workbench state continues to persist window-locally in `sessionStorage` as an in-session fallback, while durable reopen flows through window sessions. For the project-session shell, this window-local layer may remember active project/session/tab, pane widths, collapse overrides, and focus history; the shared session tree and tab order stay in SQLite.
+4. On close, renderer flushes the current layout snapshot, card draft state, and registered close flushers before sending the final close ack.
+5. Each window saves its own session layout. New windows are seeded from an explicit layout request, the last-focused window-session layout, or the default workbench layout.
 
 ## Invariants
 - Persistent truth is split by ownership: Nodex-owned board/link metadata lives in SQLite, while Codex-owned thread history now lives in the main-process conversation manager plus explicit resume operations; the active renderer caches canonical conversation snapshots plus flat UI-only shell state rather than maintaining a second transcript-authority store, a second `resumeState` truth, or a second recovery layer.

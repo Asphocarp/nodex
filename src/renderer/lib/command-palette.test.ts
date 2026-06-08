@@ -48,7 +48,7 @@ function makeCommand(overrides: Partial<CommandPaletteCommand> = {}): CommandPal
     kind: "command",
     id: overrides.id ?? "open-settings",
     title: overrides.title ?? "Open settings",
-    subtitle: overrides.subtitle ?? "Workspace preferences",
+    subtitle: overrides.subtitle ?? "App preferences",
     keywords: overrides.keywords ?? ["settings", "preferences"],
     shortcut: overrides.shortcut,
     active: overrides.active ?? false,

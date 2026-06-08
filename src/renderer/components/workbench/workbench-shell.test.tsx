@@ -1,7 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { createElement, createRef } from "react";
 import { act, fireEvent, within } from "@testing-library/react";
-import type { Project, ProjectSession, ProjectSessionTab, WorkspaceRecord } from "@/lib/types";
+import type { Project, ProjectSession, ProjectSessionTab } from "@/lib/types";
 import {
   getDefaultDbViewPrefs,
   type DbViewPrefs,
@@ -440,15 +440,6 @@ function renderWorkbench({
   sidebar?: { collapsed: boolean; width: number };
 } = {}) {
   let sessionState = sessionsByProject;
-  const workspace: WorkspaceRecord = {
-    id: "main",
-    name: "Main",
-    icon: "",
-    createdAt: "2026-06-07T00:00:00.000Z",
-    updatedAt: "2026-06-07T00:00:00.000Z",
-    layout: {} as WorkspaceRecord["layout"],
-  };
-
   mockInvokeImpl = async (channel, ...args) => {
     if (channel === "project-sessions:list") {
       const projectId = String(args[0]);
@@ -658,8 +649,6 @@ function renderWorkbench({
         colorToken: "var(--accent-blue)",
         initial: project.name.slice(0, 1).toUpperCase(),
       }))}
-      workspaces={[workspace]}
-      activeWorkspaceId={workspace.id}
       sidebar={sidebar}
       cardStageCloseRef={createRef()}
       setDbProject={(projectId) => {
@@ -669,7 +658,6 @@ function renderWorkbench({
       setDbViewPrefs={() => undefined}
       openCardStage={() => undefined}
       onLeaveCardStageCard={() => undefined}
-      onSelectWorkspace={() => undefined}
       onCreateProject={async () => null}
       onRenameProject={async () => null}
       onDeleteProject={async () => false}
@@ -1017,6 +1005,7 @@ describe("workbench session shell", () => {
     if (!(settingsButton instanceof HTMLElement)) {
       throw new Error("Expected a sidebar settings button");
     }
+    expect(screen.container.querySelector('[aria-label="Manage workspaces"]')).toBe(null);
 
     await act(async () => {
       fireEvent.click(settingsButton);

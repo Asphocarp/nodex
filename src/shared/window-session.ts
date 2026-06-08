@@ -1,8 +1,4 @@
-import type {
-  WorkbenchLayoutSnapshot,
-  WorkspaceCatalog,
-  WorkspaceRecord,
-} from "./workspace";
+import type { WorkbenchLayoutSnapshot } from "./workbench-layout";
 
 export type WindowRestorePolicy = "all" | "last-window" | "none";
 
@@ -24,7 +20,6 @@ export interface WindowSessionBounds {
 
 export interface WindowSessionRecord {
   id: string;
-  workspaceId: string;
   layout: WorkbenchLayoutSnapshot;
   createdAt: string;
   updatedAt: string;
@@ -39,12 +34,9 @@ export interface WindowSessionCatalog {
 }
 
 export interface WindowSessionBootstrap {
-  catalog: WorkspaceCatalog;
-  activeWorkspace: WorkspaceRecord;
   session: WindowSessionRecord;
 }
 
 export interface WindowSessionSeed {
-  workspaceId?: string;
   layout?: WorkbenchLayoutSnapshot;
 }

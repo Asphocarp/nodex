@@ -1650,9 +1650,9 @@ function GeneralSettingsPage({
   return (
     <SettingsPageSurface
       title="General"
-      subtitle="Workspace-wide shell behavior and notifications."
+      subtitle="App-wide shell behavior and notifications."
     >
-      <SectionBlock title="Workspace">
+      <SectionBlock title="App">
         <SettingRow
           label="Restore windows"
           description="Choose which workbench windows reopen after quitting Nodex."

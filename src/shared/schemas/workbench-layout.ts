@@ -5,13 +5,10 @@ import type {
   WorkbenchLayoutSidebarSnapshot,
   WorkbenchLayoutSnapshot,
   WorkbenchLayoutThreadsStageTab,
-  WorkspaceBootstrap,
-  WorkspaceCatalog,
-  WorkspaceRecord,
-} from "../workspace";
+} from "../workbench-layout";
 import {
+  WorkbenchLayoutCardStageStateSchema,
   WorkbenchRecentCardSessionSchema,
-  WorkbenchResumeCardStageStateSchema,
   WorkbenchStageIdSchema,
   WorkbenchStageNavDirectionSchema,
   WorkbenchViewSchema,
@@ -97,7 +94,7 @@ export const WorkbenchLayoutSnapshotSchema = z.object({
   activeCardsTabId: z.string(),
   activeRecentSessionId: z.string().nullable(),
   recentCardSessions: z.array(WorkbenchRecentCardSessionSchema).catch([]),
-  cardStage: WorkbenchResumeCardStageStateSchema,
+  cardStage: WorkbenchLayoutCardStageStateSchema,
   threadsTabs: z.array(WorkbenchLayoutThreadsStageTabSchema).catch([]),
   activeThreadsTabId: z.string(),
   filesTabs: z.array(WorkbenchLayoutFilesStageTabSchema).catch([]),
@@ -105,23 +102,3 @@ export const WorkbenchLayoutSnapshotSchema = z.object({
   stagePanelWidths: NumberRecordSchema.catch({}),
   slidingWindowPaneCount: z.number().finite().catch(2),
 }) satisfies z.ZodType<WorkbenchLayoutSnapshot>;
-
-export const WorkspaceRecordSchema = z.object({
-  id: z.string().min(1),
-  name: z.string().min(1),
-  icon: z.string().optional().catch(undefined),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-  layout: WorkbenchLayoutSnapshotSchema,
-}) satisfies z.ZodType<WorkspaceRecord>;
-
-export const WorkspaceCatalogSchema = z.object({
-  version: z.literal(1),
-  lastActiveWorkspaceId: z.string().min(1),
-  workspaces: z.array(WorkspaceRecordSchema).min(1),
-}) satisfies z.ZodType<WorkspaceCatalog>;
-
-export const WorkspaceBootstrapSchema = z.object({
-  catalog: WorkspaceCatalogSchema,
-  activeWorkspace: WorkspaceRecordSchema,
-}) satisfies z.ZodType<WorkspaceBootstrap>;

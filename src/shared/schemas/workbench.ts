@@ -1,12 +1,11 @@
 import { z } from "zod";
 import type {
   WorkbenchRecentCardSession,
-  WorkbenchResumeCardStageState,
-  WorkbenchResumeSnapshot,
-  WorkbenchResumeStageId,
-  WorkbenchResumeStageNavDirection,
-  WorkbenchResumeView,
-} from "../workbench-resume";
+  WorkbenchLayoutCardStageState,
+  WorkbenchLayoutStageId,
+  WorkbenchLayoutStageNavDirection,
+  WorkbenchLayoutView,
+} from "../workbench-layout";
 
 export const WorkbenchViewSchema = z.enum([
   "kanban",
@@ -14,19 +13,19 @@ export const WorkbenchViewSchema = z.enum([
   "toggle-list",
   "canvas",
   "calendar",
-]) satisfies z.ZodType<WorkbenchResumeView>;
+]) satisfies z.ZodType<WorkbenchLayoutView>;
 
 export const WorkbenchStageIdSchema = z.enum([
   "db",
   "cards",
   "threads",
   "files",
-]) satisfies z.ZodType<WorkbenchResumeStageId>;
+]) satisfies z.ZodType<WorkbenchLayoutStageId>;
 
 export const WorkbenchStageNavDirectionSchema = z.enum([
   "left",
   "right",
-]) satisfies z.ZodType<WorkbenchResumeStageNavDirection>;
+]) satisfies z.ZodType<WorkbenchLayoutStageNavDirection>;
 
 export const WorkbenchRecentCardSessionSchema = z.object({
   id: z.string(),
@@ -36,22 +35,8 @@ export const WorkbenchRecentCardSessionSchema = z.object({
   lastOpenedAt: z.string(),
 }) satisfies z.ZodType<WorkbenchRecentCardSession>;
 
-export const WorkbenchResumeCardStageStateSchema = z.object({
+export const WorkbenchLayoutCardStageStateSchema = z.object({
   open: z.boolean(),
   projectId: z.string(),
   cardId: z.string().nullable(),
-}) satisfies z.ZodType<WorkbenchResumeCardStageState>;
-
-export const WorkbenchResumeSnapshotSchema = z.object({
-  version: z.literal(1),
-  dbProjectId: z.string(),
-  threadsProjectId: z.string(),
-  viewsByProject: z.record(z.string(), WorkbenchViewSchema),
-  focusedStage: WorkbenchStageIdSchema,
-  stageNavDirection: WorkbenchStageNavDirectionSchema,
-  activeCardsTabId: z.string(),
-  activeRecentSessionId: z.string().nullable(),
-  activeThreadsTabId: z.string(),
-  recentCardSessions: z.array(WorkbenchRecentCardSessionSchema),
-  cardStage: WorkbenchResumeCardStageStateSchema,
-}) satisfies z.ZodType<WorkbenchResumeSnapshot>;
+}) satisfies z.ZodType<WorkbenchLayoutCardStageState>;

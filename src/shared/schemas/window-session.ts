@@ -6,11 +6,7 @@ import type {
   WindowSessionCatalog,
   WindowSessionRecord,
 } from "../window-session";
-import {
-  WorkbenchLayoutSnapshotSchema,
-  WorkspaceCatalogSchema,
-  WorkspaceRecordSchema,
-} from "./workspace";
+import { WorkbenchLayoutSnapshotSchema } from "./workbench-layout";
 
 export const WindowRestorePolicySchema = z.enum(["all", "last-window", "none"]);
 
@@ -28,7 +24,6 @@ export const WindowSessionBoundsSchema = z.object({
 
 export const WindowSessionRecordSchema = z.object({
   id: z.string().min(1),
-  workspaceId: z.string().min(1),
   layout: WorkbenchLayoutSnapshotSchema,
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -43,7 +38,5 @@ export const WindowSessionCatalogSchema = z.object({
 }) satisfies z.ZodType<WindowSessionCatalog>;
 
 export const WindowSessionBootstrapSchema = z.object({
-  catalog: WorkspaceCatalogSchema,
-  activeWorkspace: WorkspaceRecordSchema,
   session: WindowSessionRecordSchema,
 }) satisfies z.ZodType<WindowSessionBootstrap>;

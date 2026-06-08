@@ -10,10 +10,9 @@ import {
 import { cn } from "@/lib/utils";
 import { formatElapsedSince } from "@/lib/elapsed-time";
 import type { Project } from "@/lib/types";
-import type { WorkspaceRecord } from "@/lib/types";
 import type { SpaceRef } from "@/lib/use-workbench-state";
 import { resolveStageSidebarSectionRenderState } from "./left-sidebar-section-state";
-import { LeftSidebarWorkspaceManager } from "./left-sidebar-workspace-manager";
+import { LeftSidebarFooter } from "./left-sidebar-footer";
 import { SidebarProjectsSection } from "./left-sidebar-projects-section";
 import { SIDEBAR_SECTION_ITEM_LIMITS, type SidebarSectionItemLimit } from "../../lib/sidebar-section-prefs";
 import {
@@ -72,9 +71,7 @@ export interface StageSidebarGroup {
 interface LeftSidebarProps {
   projects: Project[];
   spaces: SpaceRef[];
-  workspaces: WorkspaceRecord[];
   activeProjectId: string;
-  activeWorkspaceId: string;
   stageGroups: StageSidebarGroup[];
   collapsed: boolean;
   width: number;
@@ -84,7 +81,6 @@ interface LeftSidebarProps {
   onSetSectionExpanded: (sectionId: string, expanded: boolean) => void;
   onSetSectionShowAll: (sectionId: string, showAll: boolean) => void;
   onSelectSpace: (projectId: string) => void;
-  onSelectWorkspace: (workspaceId: string) => void;
   onOpenSettings: () => void;
   projectPickerOpenTick: number;
   onCreateProject: (
@@ -102,9 +98,6 @@ interface LeftSidebarProps {
     icon?: string,
     workspacePath?: string | null,
   ) => Promise<Project | null>;
-  onCreateWorkspace: (name: string, icon?: string | null) => Promise<void>;
-  onRenameWorkspace: (workspaceId: string, name: string, icon?: string | null) => Promise<void>;
-  onDeleteWorkspace: (workspaceId: string) => Promise<void>;
 }
 
 const STAGE_ITEM_COLLAPSE_LIMIT = 10;
@@ -213,9 +206,7 @@ function SidebarSectionMoreActionsMenu({
 export function LeftSidebar({
   projects,
   spaces,
-  workspaces,
   activeProjectId,
-  activeWorkspaceId,
   stageGroups,
   collapsed,
   width,
@@ -225,15 +216,11 @@ export function LeftSidebar({
   onSetSectionExpanded,
   onSetSectionShowAll,
   onSelectSpace,
-  onSelectWorkspace,
   onOpenSettings,
   projectPickerOpenTick,
   onCreateProject,
   onDeleteProject,
   onRenameProject,
-  onCreateWorkspace,
-  onRenameWorkspace,
-  onDeleteWorkspace,
 }: LeftSidebarProps) {
   const projectsStageGroup = useMemo(
     () => stageGroups.find((group) => group.id === "db"),
@@ -638,15 +625,7 @@ export function LeftSidebar({
         })}
       </div>
 
-      <LeftSidebarWorkspaceManager
-        workspaces={workspaces}
-        activeWorkspaceId={activeWorkspaceId}
-        onSelectWorkspace={onSelectWorkspace}
-        onOpenSettings={onOpenSettings}
-        onCreateWorkspace={onCreateWorkspace}
-        onRenameWorkspace={onRenameWorkspace}
-        onDeleteWorkspace={onDeleteWorkspace}
-      />
+      <LeftSidebarFooter onOpenSettings={onOpenSettings} />
 
       {/* Resize handle */}
       <div

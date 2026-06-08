@@ -3,7 +3,6 @@ import type {
   Project,
   WorkbenchLayoutSnapshot,
   WorkbenchRecentCardSession,
-  WorkbenchResumeSnapshot,
 } from "./types";
 import {
   type DockTreeNode,
@@ -423,7 +422,6 @@ function makeSpaceRef(projectId: string): SpaceRef {
 }
 
 interface LoadInitialStateOptions {
-  resumeSnapshot?: WorkbenchResumeSnapshot | null;
   layoutSnapshot?: WorkbenchLayoutSnapshot | null;
 }
 
@@ -434,33 +432,27 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
   const persistedRecent = readJson<unknown>(RECENT_STORAGE_KEY);
   const persistedDbViewPrefs = readJson<WorkbenchPrefs["dbViewPrefsByProject"]>(DB_VIEW_PREFS_STORAGE_KEY);
   const parsedDockPrefs = parseDockPrefs(persistedDock);
-  const resumeSnapshot = options.resumeSnapshot ?? null;
   const layoutSnapshot = options.layoutSnapshot ?? null;
   const dbProjectId =
     layoutSnapshot?.dbProjectId ||
-    resumeSnapshot?.dbProjectId ||
     (typeof persistedWorkbench?.dbProjectId === "string" && persistedWorkbench.dbProjectId) ||
     "default";
   const threadsProjectId =
     layoutSnapshot?.threadsProjectId ||
-    resumeSnapshot?.threadsProjectId ||
     (typeof persistedWorkbench?.threadsProjectId === "string" && persistedWorkbench.threadsProjectId) ||
     dbProjectId;
   const threadsTabs = ensureThreadsTabs(normalizeThreadsTabs(layoutSnapshot?.threadsTabs ?? persistedWorkbench?.threadsTabs));
   const filesTabs = ensureFilesTabs(normalizeFilesTabs(layoutSnapshot?.filesTabs ?? persistedWorkbench?.filesTabs));
   const focusedStage =
     (layoutSnapshot && isStageId(layoutSnapshot.focusedStage) && layoutSnapshot.focusedStage) ||
-    (resumeSnapshot && isStageId(resumeSnapshot.focusedStage) && resumeSnapshot.focusedStage) ||
     (isStageId(persistedWorkbench?.focusedStage) && persistedWorkbench.focusedStage) ||
     "db";
   const stageNavDirection =
     parseStageNavDirection(layoutSnapshot?.stageNavDirection) ||
-    parseStageNavDirection(resumeSnapshot?.stageNavDirection) ||
     parseStageNavDirection(persistedWorkbench?.stageNavDirection) ||
     "right";
   const activeThreadsTabId =
     (typeof layoutSnapshot?.activeThreadsTabId === "string" && layoutSnapshot.activeThreadsTabId) ||
-    (typeof resumeSnapshot?.activeThreadsTabId === "string" && resumeSnapshot.activeThreadsTabId) ||
     (typeof persistedWorkbench?.activeThreadsTabId === "string" && persistedWorkbench.activeThreadsTabId) ||
     threadsTabs[0]?.id ||
     "";
@@ -471,13 +463,10 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
     "diff";
   const activeCardsTabId =
     (typeof layoutSnapshot?.activeCardsTabId === "string" && layoutSnapshot.activeCardsTabId) ||
-    (typeof resumeSnapshot?.activeCardsTabId === "string" && resumeSnapshot.activeCardsTabId) ||
     (typeof persistedWorkbench?.activeCardsTabId === "string" && persistedWorkbench.activeCardsTabId) ||
     "";
   const activeRecentSessionId = layoutSnapshot
     ? (typeof layoutSnapshot.activeRecentSessionId === "string" ? layoutSnapshot.activeRecentSessionId : null)
-    : resumeSnapshot
-    ? (typeof resumeSnapshot.activeRecentSessionId === "string" ? resumeSnapshot.activeRecentSessionId : null)
     : ((typeof persistedWorkbench?.activeRecentSessionId === "string" &&
       persistedWorkbench.activeRecentSessionId) ||
       null);
@@ -490,8 +479,6 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
     threadsProjectId,
     viewsByProject: layoutSnapshot
       ? normalizeViewMap(layoutSnapshot.viewsByProject)
-      : resumeSnapshot
-      ? normalizeViewMap(resumeSnapshot.viewsByProject)
       : normalizeViewMap(persistedWorkbench?.viewsByProject),
     searchByProject: normalizeSearchMap(layoutSnapshot?.searchByProject ?? persistedWorkbench?.searchByProject),
     dbViewPrefsByProject: normalizeDbViewPrefsMap(
@@ -525,8 +512,6 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
     },
     recentCardSessions: layoutSnapshot
       ? normalizeRecentSessions(layoutSnapshot.recentCardSessions).slice(0, MAX_RECENT_CARD_SESSIONS)
-      : resumeSnapshot
-      ? normalizeRecentSessions(resumeSnapshot.recentCardSessions).slice(0, MAX_RECENT_CARD_SESSIONS)
       : normalizeRecentSessions(persistedRecent).slice(0, MAX_RECENT_CARD_SESSIONS),
     activeRecentSessionId,
     focusedStage,
@@ -884,7 +869,6 @@ function makeCardsStageTabs(
 }
 
 interface UseWorkbenchStateOptions {
-  initialResumeSnapshot?: WorkbenchResumeSnapshot | null;
   initialLayoutSnapshot?: WorkbenchLayoutSnapshot | null;
 }
 
@@ -894,7 +878,6 @@ export function useWorkbenchState(
 ) {
   const [state, setState] = useState<WorkbenchState>(() =>
     loadInitialState({
-      resumeSnapshot: options.initialResumeSnapshot,
       layoutSnapshot: options.initialLayoutSnapshot,
     }),
   );

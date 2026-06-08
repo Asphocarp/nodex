@@ -178,7 +178,7 @@ function buildCommands(input: {
       kind: "command",
       id: "open-settings",
       title: "Open settings",
-      subtitle: "Adjust workspace, editor, and worktree preferences",
+      subtitle: "Adjust app, editor, and worktree preferences",
       keywords: ["settings", "preferences", "config"],
       shortcut: createShortcutLabel("Cmd+,", isMac),
       priority: 450,

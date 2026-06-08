@@ -176,19 +176,15 @@ export type {
 export { PROJECT_SESSION_SINGLETON_TAB_KINDS } from "../../shared/types";
 
 export type {
+  WorkbenchLayoutCardStageState,
+  WorkbenchLayoutFilesStageTab,
   WorkbenchRecentCardSession,
-  WorkbenchResumeCardStageState,
-  WorkbenchResumeSnapshot,
-  WorkbenchResumeStageId,
-  WorkbenchResumeStageNavDirection,
-  WorkbenchResumeView,
-} from "../../shared/workbench-resume";
-export type {
+  WorkbenchLayoutStageId,
+  WorkbenchLayoutStageNavDirection,
   WorkbenchLayoutSnapshot,
-  WorkspaceBootstrap,
-  WorkspaceCatalog,
-  WorkspaceRecord,
-} from "../../shared/workspace";
+  WorkbenchLayoutThreadsStageTab,
+  WorkbenchLayoutView,
+} from "../../shared/workbench-layout";
 export type {
   UpdateWindowRestoreSettingsInput,
   WindowRestorePolicy,

@@ -1,5 +1,6 @@
 import { toApiUrl } from "./http-base";
-import type { AppUpdateStatus } from "./types";
+import { createDefaultWorkbenchLayoutSnapshot } from "../../shared/workbench-layout";
+import type { AppUpdateStatus, WindowSessionBootstrap, WorkbenchLayoutSnapshot } from "./types";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 
 function isStorybookRuntime(): boolean {
@@ -20,6 +21,21 @@ function resolveUnsupportedAppUpdateStatus(): AppUpdateStatus {
     totalBytes: null,
     checkedAt: null,
     message: "App updates are only available in packaged macOS builds.",
+  };
+}
+
+let browserWindowSessionLayout = createDefaultWorkbenchLayoutSnapshot();
+
+function createBrowserWindowSessionBootstrap(layout: WorkbenchLayoutSnapshot): WindowSessionBootstrap {
+  const timestamp = new Date().toISOString();
+  return {
+    session: {
+      id: "browser-window-session",
+      layout,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      focusedAt: timestamp,
+    },
   };
 }
 
@@ -277,118 +293,13 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       }
       return res.json();
     }
-    case "workbench:resume:consume": {
-      return null;
-    }
-    case "workbench:resume:save": {
-      return false;
-    }
-    case "workspaces:bootstrap": {
-      const timestamp = new Date().toISOString();
-      const workspace = {
-        id: "default",
-        name: "Default",
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        layout: {
-          version: 1,
-          dbProjectId: "default",
-          threadsProjectId: "default",
-          viewsByProject: {},
-          searchByProject: {},
-          dbViewPrefsByProject: {},
-          spaceOrder: [],
-          focusedStage: "db",
-          stageNavDirection: "right",
-          sidebar: {
-            collapsed: false,
-            width: 280,
-            topLevelSectionOrder: [],
-            topLevelSections: {},
-          },
-          dock: {
-            width: 560,
-            tree: {
-              type: "leaf",
-              id: "storybook-dock",
-              tabs: [
-                { id: "cardstage", kind: "cardstage", title: "Card" },
-                { id: "history", kind: "history", title: "History" },
-              ],
-              activeTabId: "cardstage",
-            },
-          },
-          sidebarStageExpandedByProject: {},
-          sidebarSectionExpandedByProject: {},
-          sidebarSectionShowAllByProject: {},
-          activeCardsTabId: "",
-          activeRecentSessionId: null,
-          recentCardSessions: [],
-          cardStage: {
-            open: false,
-            projectId: "",
-            cardId: null,
-          },
-          threadsTabs: [],
-          activeThreadsTabId: "thread:new",
-          filesTabs: [{ id: "diff", title: "Diffs" }],
-          activeFilesTabId: "diff",
-          stagePanelWidths: {},
-          slidingWindowPaneCount: 2,
-        },
-      };
-      return {
-        catalog: {
-          version: 1,
-          lastActiveWorkspaceId: workspace.id,
-          workspaces: [workspace],
-        },
-        activeWorkspace: workspace,
-      };
-    }
-    case "workspaces:create":
-    case "workspaces:rename":
-    case "workspaces:delete":
-    case "workspaces:save-layout":
-    case "workspaces:set-active": {
-      return invoke("workspaces:bootstrap");
-    }
     case "window-sessions:bootstrap": {
-      const bootstrap = await invoke("workspaces:bootstrap") as {
-        catalog: { lastActiveWorkspaceId: string };
-        activeWorkspace: { id: string; layout: object };
-      };
-      const timestamp = new Date().toISOString();
-      return {
-        ...bootstrap,
-        session: {
-          id: "browser-window-session",
-          workspaceId: bootstrap.activeWorkspace.id,
-          layout: bootstrap.activeWorkspace.layout,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-          focusedAt: timestamp,
-        },
-      };
+      return createBrowserWindowSessionBootstrap(browserWindowSessionLayout);
     }
     case "window-sessions:save-layout": {
-      const [workspaceId, layout] = args as [string, object];
-      const bootstrap = await invoke("workspaces:bootstrap") as {
-        catalog: object;
-        activeWorkspace: object;
-      };
-      const timestamp = new Date().toISOString();
-      return {
-        ...bootstrap,
-        session: {
-          id: "browser-window-session",
-          workspaceId,
-          layout,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-          focusedAt: timestamp,
-        },
-      };
+      const [layout] = args as [WorkbenchLayoutSnapshot];
+      browserWindowSessionLayout = layout;
+      return createBrowserWindowSessionBootstrap(browserWindowSessionLayout);
     }
     case "window-sessions:update-bounds": {
       return undefined;

@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { Dispatch, SetStateAction } from "react";
 import { useEffect, useMemo, useState } from "react";
-import type { Board, Project, ProjectSession, ProjectSessionTab, WorkspaceRecord } from "@/lib/types";
+import type { Board, Project, ProjectSession, ProjectSessionTab } from "@/lib/types";
 import type { WorkbenchView } from "@/lib/use-workbench-state";
 import { WorkbenchShell } from "./workbench-shell";
 
@@ -82,25 +82,6 @@ const PROJECTS: Project[] = [
     workspacePath: "/Users/asc/repo/devtools-codex",
     icon: "",
     created: new Date(CREATED_AT),
-  },
-];
-
-const WORKSPACES: WorkspaceRecord[] = [
-  {
-    id: "default",
-    name: "Default",
-    icon: "",
-    createdAt: CREATED_AT,
-    updatedAt: CREATED_AT,
-    layout: {} as WorkspaceRecord["layout"],
-  },
-  {
-    id: "review",
-    name: "Review",
-    icon: "",
-    createdAt: CREATED_AT,
-    updatedAt: CREATED_AT,
-    layout: {} as WorkspaceRecord["layout"],
   },
 ];
 
@@ -425,8 +406,6 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
         searchByProject={{ nodex: "" }}
         dbViewPrefsByProject={{}}
         spaces={SPACES}
-        workspaces={WORKSPACES}
-        activeWorkspaceId="default"
         sidebar={{ collapsed: args.sidebar === "collapsed", width: 300 }}
         cardStageCloseRef={{ current: null }}
         setDbProject={() => undefined}
@@ -434,13 +413,9 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
         setDbViewPrefs={() => undefined}
         openCardStage={() => undefined}
         onLeaveCardStageCard={() => undefined}
-        onSelectWorkspace={() => undefined}
         onCreateProject={async () => null}
         onRenameProject={async () => null}
         onDeleteProject={async () => false}
-        onCreateWorkspace={async () => undefined}
-        onRenameWorkspace={async () => undefined}
-        onDeleteWorkspace={async () => undefined}
         onRequestProjectPickerOpen={() => undefined}
         threadSearchOpenTick={0}
       />

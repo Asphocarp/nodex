@@ -31,7 +31,7 @@ import { TerminalPanel } from "./workbench-terminal-panel";
 import { SettingsOverlay } from "./workbench-settings-overlay";
 import { buildSettingsPath } from "./workbench-settings-routes";
 import { ProjectManagerPopover } from "./left-sidebar-project-manager";
-import { LeftSidebarWorkspaceManager } from "./left-sidebar-workspace-manager";
+import { LeftSidebarFooter } from "./left-sidebar-footer";
 import { NodexDropdownFlyoutSubmenuItem, NodexDropdownItem, NodexDropdownMenu } from "@/components/ui/dropdown";
 import { NodexTooltip, NodexTooltipProvider } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
@@ -105,7 +105,6 @@ import type {
   ProjectSessionThreadLink,
   WorktreeStartMode,
   WorktreeEnvironmentOption,
-  WorkspaceRecord,
 } from "@/lib/types";
 import type { ThreadStageActions } from "@/features/local-conversation";
 import {
@@ -293,8 +292,6 @@ interface WorkbenchShellProps {
   searchByProject: Record<string, string>;
   dbViewPrefsByProject: Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>;
   spaces?: SpaceRef[];
-  workspaces: WorkspaceRecord[];
-  activeWorkspaceId: string;
   sidebar?: {
     collapsed: boolean;
     width: number;
@@ -323,10 +320,6 @@ interface WorkbenchShellProps {
     occurrenceStart: string;
   }) => void;
   onLeaveCardStageCard: (snapshot: CardStageSessionSnapshot) => void;
-  onSelectWorkspace: (workspaceId: string) => void;
-  onCreateWorkspace?: (name: string, icon?: string | null) => Promise<void>;
-  onRenameWorkspace?: (workspaceId: string, name: string, icon?: string | null) => Promise<void>;
-  onDeleteWorkspace?: (workspaceId: string) => Promise<void>;
   onCreateProject: (
     id: string,
     name: string,
@@ -647,8 +640,6 @@ export function WorkbenchShell({
   searchByProject,
   dbViewPrefsByProject,
   spaces = [],
-  workspaces,
-  activeWorkspaceId,
   sidebar,
   cardStageCloseRef,
   cardStagePersistRef,
@@ -660,10 +651,6 @@ export function WorkbenchShell({
   openCardStage,
   onReminderHandled,
   onLeaveCardStageCard,
-  onSelectWorkspace,
-  onCreateWorkspace,
-  onRenameWorkspace,
-  onDeleteWorkspace,
   onCreateProject,
   onRenameProject,
   onDeleteProject,
@@ -1757,10 +1744,8 @@ export function WorkbenchShell({
             <ProjectSessionSidebar
               projects={projects}
               spaces={spaces}
-              workspaces={workspaces}
               activeProjectId={activeProjectId}
               activeSessionId={activeSession?.id ?? null}
-              activeWorkspaceId={activeWorkspaceId}
               sessionsByProject={sessionsByProject}
               expandedProjectIds={expandedProjectIds}
               projectsSectionCollapsed={projectsSectionCollapsed}
@@ -1788,10 +1773,6 @@ export function WorkbenchShell({
               }}
               onRenameProject={onRenameProject ?? (async () => null)}
               onDeleteProject={onDeleteProject ?? (async () => false)}
-              onSelectWorkspace={onSelectWorkspace}
-              onCreateWorkspace={onCreateWorkspace ?? (async () => undefined)}
-              onRenameWorkspace={onRenameWorkspace ?? (async () => undefined)}
-              onDeleteWorkspace={onDeleteWorkspace ?? (async () => undefined)}
               onOpenSettings={openSettings}
             />
           ) : null}
@@ -1819,10 +1800,8 @@ export function WorkbenchShell({
                 <ProjectSessionSidebar
                   projects={projects}
                   spaces={spaces}
-                  workspaces={workspaces}
                   activeProjectId={activeProjectId}
                   activeSessionId={activeSession?.id ?? null}
-                  activeWorkspaceId={activeWorkspaceId}
                   sessionsByProject={sessionsByProject}
                   expandedProjectIds={expandedProjectIds}
                   projectsSectionCollapsed={projectsSectionCollapsed}
@@ -1850,10 +1829,6 @@ export function WorkbenchShell({
                   }}
                   onRenameProject={onRenameProject ?? (async () => null)}
                   onDeleteProject={onDeleteProject ?? (async () => false)}
-                  onSelectWorkspace={onSelectWorkspace}
-                  onCreateWorkspace={onCreateWorkspace ?? (async () => undefined)}
-                  onRenameWorkspace={onRenameWorkspace ?? (async () => undefined)}
-                  onDeleteWorkspace={onDeleteWorkspace ?? (async () => undefined)}
                   onOpenSettings={openSettings}
                 />
               </div>
@@ -2106,10 +2081,8 @@ export function WorkbenchShell({
 function ProjectSessionSidebar({
   projects,
   spaces,
-  workspaces,
   activeProjectId,
   activeSessionId,
-  activeWorkspaceId,
   sessionsByProject,
   expandedProjectIds,
   projectsSectionCollapsed,
@@ -2126,18 +2099,12 @@ function ProjectSessionSidebar({
   onCreateProject,
   onRenameProject,
   onDeleteProject,
-  onSelectWorkspace,
-  onCreateWorkspace,
-  onRenameWorkspace,
-  onDeleteWorkspace,
   onOpenSettings,
 }: {
   projects: Project[];
   spaces: SpaceRef[];
-  workspaces: WorkspaceRecord[];
   activeProjectId: string;
   activeSessionId: string | null;
-  activeWorkspaceId: string;
   sessionsByProject: Record<string, ProjectSession[]>;
   expandedProjectIds: Set<string>;
   projectsSectionCollapsed: boolean;
@@ -2166,10 +2133,6 @@ function ProjectSessionSidebar({
     workspacePath?: string | null,
   ) => Promise<Project | null>;
   onDeleteProject: (projectId: string) => Promise<boolean>;
-  onSelectWorkspace: (workspaceId: string) => void;
-  onCreateWorkspace: (name: string, icon?: string | null) => Promise<void>;
-  onRenameWorkspace: (workspaceId: string, name: string, icon?: string | null) => Promise<void>;
-  onDeleteWorkspace: (workspaceId: string) => Promise<void>;
   onOpenSettings: () => void;
 }) {
   const [manageProjectsOpen, setManageProjectsOpen] = useState(false);
@@ -2316,15 +2279,7 @@ function ProjectSessionSidebar({
         </div>
       </div>
 
-      <LeftSidebarWorkspaceManager
-        workspaces={workspaces}
-        activeWorkspaceId={activeWorkspaceId}
-        onSelectWorkspace={onSelectWorkspace}
-        onOpenSettings={onOpenSettings}
-        onCreateWorkspace={onCreateWorkspace}
-        onRenameWorkspace={onRenameWorkspace}
-        onDeleteWorkspace={onDeleteWorkspace}
-      />
+      <LeftSidebarFooter onOpenSettings={onOpenSettings} />
 
       <div
         onMouseDown={handleResizeStart}

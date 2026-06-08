@@ -6,6 +6,7 @@ import {
   workbenchStorageKeys,
   workbenchTestHelpers,
 } from "./use-workbench-state";
+import { createDefaultWorkbenchLayoutSnapshot } from "../../shared/workbench-layout";
 import type { WorkbenchLayoutSnapshot } from "./types";
 import { render, settleAsyncRender } from "../test/dom";
 
@@ -123,7 +124,7 @@ describe("use-workbench-state helpers", () => {
     expect(state.activeCardsTabId).toBe("");
   });
 
-  test("resume snapshot overrides window session state for restart restore", () => {
+  test("initial layout snapshot overrides stale browser session storage", () => {
     resetStorage();
     sessionStorageRef.setItem(
       workbenchStorageKeys.workbench,
@@ -138,7 +139,8 @@ describe("use-workbench-state helpers", () => {
     );
 
     const state = workbenchTestHelpers.loadInitialState({
-      resumeSnapshot: {
+      layoutSnapshot: {
+        ...createDefaultWorkbenchLayoutSnapshot(),
         version: 1,
         dbProjectId: "default",
         threadsProjectId: "ops",
@@ -386,7 +388,8 @@ describe("use-workbench-state helpers", () => {
       const state = useWorkbenchState(
         projects,
         {
-          initialResumeSnapshot: {
+          initialLayoutSnapshot: {
+            ...createDefaultWorkbenchLayoutSnapshot(),
             version: 1,
             dbProjectId: "default",
             threadsProjectId: "default",

@@ -8,15 +8,12 @@ import type {
   WindowSessionRecord,
   WindowSessionSeed,
 } from "../shared/window-session";
-import type {
-  WorkbenchLayoutSnapshot,
-  WorkspaceCatalog,
-} from "../shared/workspace";
-import { WindowSessionCatalogSchema } from "../shared/schemas/window-session";
-import { WorkbenchLayoutSnapshotSchema } from "../shared/schemas/workspace";
 import {
   createDefaultWorkbenchLayoutSnapshot,
-} from "./workspace-state";
+  type WorkbenchLayoutSnapshot,
+} from "../shared/workbench-layout";
+import { WindowSessionCatalogSchema } from "../shared/schemas/window-session";
+import { WorkbenchLayoutSnapshotSchema } from "../shared/schemas/workbench-layout";
 
 const WINDOW_SESSIONS_FILE_NAME = "window-sessions-v1.json";
 const WINDOW_SESSION_VERSION = 1;
@@ -32,19 +29,10 @@ function normalizeLayout(value: unknown, fallback: WorkbenchLayoutSnapshot): Wor
   return parsed.success ? parsed.data : fallback;
 }
 
-function resolveFallbackWorkspaceId(workspaceCatalog: WorkspaceCatalog): string {
-  return workspaceCatalog.workspaces.find((workspace) => workspace.id === workspaceCatalog.lastActiveWorkspaceId)?.id
-    ?? workspaceCatalog.workspaces[0]?.id
-    ?? "default";
-}
-
-function resolveWorkspaceLayout(
-  workspaceCatalog: WorkspaceCatalog,
-  workspaceId: string,
-): WorkbenchLayoutSnapshot {
-  return workspaceCatalog.workspaces.find((workspace) => workspace.id === workspaceId)?.layout
-    ?? workspaceCatalog.workspaces[0]?.layout
-    ?? createDefaultWorkbenchLayoutSnapshot();
+function resolveLastActiveLayout(catalog: WindowSessionCatalog | null): WorkbenchLayoutSnapshot {
+  const lastActiveSession = catalog?.sessions.find((session) => session.id === catalog.lastActiveSessionId)
+    ?? catalog?.sessions[0];
+  return lastActiveSession?.layout ?? createDefaultWorkbenchLayoutSnapshot();
 }
 
 function normalizeSessionBounds(value: WindowSessionBounds | undefined): WindowSessionBounds | undefined {
@@ -82,25 +70,13 @@ export class WindowSessionState {
     this.statePath = join(userDataPath, WINDOW_SESSIONS_FILE_NAME);
   }
 
-  createSession(workspaceCatalog: WorkspaceCatalog, seed: WindowSessionSeed = {}): WindowSessionRecord {
-    const workspaceId = seed.workspaceId && workspaceCatalog.workspaces.some((workspace) => workspace.id === seed.workspaceId)
-      ? seed.workspaceId
-      : resolveFallbackWorkspaceId(workspaceCatalog);
-    const fallbackLayout = resolveWorkspaceLayout(workspaceCatalog, workspaceId);
-    const timestamp = nowIso();
-    const session: WindowSessionRecord = {
-      id: `window-${randomUUID()}`,
-      workspaceId,
-      layout: normalizeLayout(seed.layout, fallbackLayout),
-      createdAt: timestamp,
-      updatedAt: timestamp,
-      focusedAt: timestamp,
-    };
+  createSession(seed: WindowSessionSeed = {}): WindowSessionRecord {
     const catalog = this.readCatalog() ?? {
       version: WINDOW_SESSION_VERSION,
-      lastActiveSessionId: session.id,
+      lastActiveSessionId: "",
       sessions: [],
     };
+    const session = this.createSessionRecord(normalizeLayout(seed.layout, resolveLastActiveLayout(catalog)));
     const nextCatalog: WindowSessionCatalog = {
       version: WINDOW_SESSION_VERSION,
       lastActiveSessionId: session.id,
@@ -110,13 +86,10 @@ export class WindowSessionState {
     return session;
   }
 
-  selectStartupSessions(
-    policy: WindowRestorePolicy,
-    workspaceCatalog: WorkspaceCatalog,
-  ): WindowSessionRecord[] {
-    const catalog = this.readOrCreateCatalog(workspaceCatalog);
+  selectStartupSessions(policy: WindowRestorePolicy): WindowSessionRecord[] {
+    const catalog = this.readOrCreateCatalog();
     if (policy === "none" || catalog.sessions.length === 0) {
-      const session = this.createSession(workspaceCatalog);
+      const session = this.createSession();
       this.writeCatalog({
         version: WINDOW_SESSION_VERSION,
         lastActiveSessionId: session.id,
@@ -128,7 +101,7 @@ export class WindowSessionState {
     if (policy === "last-window") {
       const lastActiveSession = catalog.sessions.find((session) => session.id === catalog.lastActiveSessionId)
         ?? catalog.sessions[0];
-      return lastActiveSession ? [lastActiveSession] : [this.createSession(workspaceCatalog)];
+      return lastActiveSession ? [lastActiveSession] : [this.createSession()];
     }
 
     return catalog.sessions;
@@ -143,9 +116,9 @@ export class WindowSessionState {
     this.webContentsToSessionId.delete(webContentsId);
   }
 
-  bootstrap(webContentsId: number, workspaceCatalog: WorkspaceCatalog): WindowSessionRecord {
+  bootstrap(webContentsId: number): WindowSessionRecord {
     const assignedSessionId = this.webContentsToSessionId.get(webContentsId);
-    const catalog = this.readOrCreateCatalog(workspaceCatalog);
+    const catalog = this.readOrCreateCatalog();
     const assignedSession = assignedSessionId
       ? catalog.sessions.find((session) => session.id === assignedSessionId)
       : undefined;
@@ -154,7 +127,7 @@ export class WindowSessionState {
       return assignedSession;
     }
 
-    const session = this.createSession(workspaceCatalog);
+    const session = this.createSession();
     this.assignWindow(webContentsId, session.id);
     return session;
   }
@@ -177,23 +150,16 @@ export class WindowSessionState {
 
   saveLayout(
     webContentsId: number,
-    workspaceId: string,
     layout: WorkbenchLayoutSnapshot,
-    workspaceCatalog: WorkspaceCatalog,
     bounds?: WindowSessionBounds,
   ): WindowSessionRecord {
-    const session = this.bootstrap(webContentsId, workspaceCatalog);
-    const catalog = this.readOrCreateCatalog(workspaceCatalog);
+    const session = this.bootstrap(webContentsId);
+    const catalog = this.readOrCreateCatalog();
     const timestamp = nowIso();
-    const normalizedWorkspaceId = workspaceCatalog.workspaces.some((workspace) => workspace.id === workspaceId)
-      ? workspaceId
-      : resolveFallbackWorkspaceId(workspaceCatalog);
-    const fallbackLayout = resolveWorkspaceLayout(workspaceCatalog, normalizedWorkspaceId);
     const normalizedBounds = normalizeSessionBounds(bounds);
     const nextSession: WindowSessionRecord = {
       ...session,
-      workspaceId: normalizedWorkspaceId,
-      layout: normalizeLayout(layout, fallbackLayout),
+      layout: normalizeLayout(layout, session.layout),
       updatedAt: timestamp,
       ...(normalizedBounds ? { bounds: normalizedBounds } : {}),
     };
@@ -268,23 +234,11 @@ export class WindowSessionState {
     }
   }
 
-  readOrCreateCatalog(workspaceCatalog: WorkspaceCatalog): WindowSessionCatalog {
+  readOrCreateCatalog(): WindowSessionCatalog {
     const existing = this.readCatalog();
-    if (existing) {
-      return this.normalizeCatalog(existing, resolveWorkspaceLayout(workspaceCatalog, resolveFallbackWorkspaceId(workspaceCatalog)))
-        ?? existing;
-    }
+    if (existing) return existing;
 
-    const workspaceId = resolveFallbackWorkspaceId(workspaceCatalog);
-    const timestamp = nowIso();
-    const session: WindowSessionRecord = {
-      id: `window-${randomUUID()}`,
-      workspaceId,
-      layout: resolveWorkspaceLayout(workspaceCatalog, workspaceId),
-      createdAt: timestamp,
-      updatedAt: timestamp,
-      focusedAt: timestamp,
-    };
+    const session = this.createSessionRecord(createDefaultWorkbenchLayoutSnapshot());
     const catalog: WindowSessionCatalog = {
       version: WINDOW_SESSION_VERSION,
       lastActiveSessionId: session.id,
@@ -292,6 +246,17 @@ export class WindowSessionState {
     };
     this.writeCatalog(catalog);
     return catalog;
+  }
+
+  private createSessionRecord(layout: WorkbenchLayoutSnapshot): WindowSessionRecord {
+    const timestamp = nowIso();
+    return {
+      id: `window-${randomUUID()}`,
+      layout,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      focusedAt: timestamp,
+    };
   }
 
   private normalizeCatalog(

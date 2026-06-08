@@ -28,16 +28,6 @@ import {
   type NavigationSnapshot,
 } from "@/lib/workbench-navigation-history";
 import {
-  buildWorkbenchResumeSnapshot,
-  saveWorkbenchResumeSnapshot,
-} from "@/lib/workbench-resume";
-import {
-  createWorkspace,
-  deleteWorkspace,
-  renameWorkspace,
-  setActiveWorkspace,
-} from "@/lib/workspaces";
-import {
   bootstrapWindowSession,
   saveWindowSessionLayout,
 } from "@/lib/window-sessions";
@@ -46,9 +36,6 @@ import { NodexToastProvider } from "@/components/ui/toast";
 import type { CardStageSessionSnapshot } from "@/components/kanban/card-stage/types";
 import type {
   WorkbenchLayoutSnapshot,
-  WorkspaceBootstrap,
-  WorkspaceCatalog,
-  WorkspaceRecord,
   WindowSessionBootstrap,
 } from "@/lib/types";
 import type {
@@ -66,13 +53,9 @@ function readWorkbenchV2Flag(): boolean {
   }
 }
 
-function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap: WindowSessionBootstrap }) {
+function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionBootstrap: WindowSessionBootstrap }) {
   const workbenchV2Enabled = readWorkbenchV2Flag();
   const { projects, loading, createProject, deleteProject, renameProject, refresh } = useProjects();
-  const [workspaceCatalog, setWorkspaceCatalog] = useState<WorkspaceCatalog>(initialWorkspaceBootstrap.catalog);
-  const [activeWorkspace, setActiveWorkspaceState] = useState<WorkspaceRecord>(
-    initialWorkspaceBootstrap.activeWorkspace,
-  );
   const {
     dbProjectId,
     threadsProjectId,
@@ -125,9 +108,8 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
     closeRecentCardSession,
     reorderRecentCardSessions,
     buildLayoutSnapshot,
-    replaceLayoutSnapshot,
   } = useWorkbenchState(projects, {
-    initialLayoutSnapshot: initialWorkspaceBootstrap.session.layout,
+    initialLayoutSnapshot: initialWindowSessionBootstrap.session.layout,
   });
   const [projectPickerOpenTick, setProjectPickerOpenTick] = useState(0);
   const [taskSearchOpenTick, setTaskSearchOpenTick] = useState(0);
@@ -142,7 +124,7 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
     openCardStage: openCardStageState,
     closeCardStage: closeCardStageState,
     cardStageCardId,
-  } = useCardStageState(initialWorkspaceBootstrap.session.layout.cardStage ?? null);
+  } = useCardStageState(initialWindowSessionBootstrap.session.layout.cardStage ?? null);
   const cardStageCloseRef = useRef<(() => Promise<void>) | null>(null);
   const cardStagePersistRef = useRef<(() => Promise<void>) | null>(null);
   const cardStageSessionSnapshotRef = useRef<CardStageSessionSnapshot | null>(null);
@@ -159,73 +141,44 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
   const cardStageStateRef = useRef(cardStageState);
   const resumeValidationStartedRef = useRef(false);
   const [navigationHistory, setNavigationHistory] = useState<NavigationHistoryState>(() => readNavigationHistoryState());
-  const activeWorkspaceRef = useRef(activeWorkspace);
-  const latestWorkspaceLayoutRef = useRef<WorkbenchLayoutSnapshot>(
-    initialWorkspaceBootstrap.session.layout,
+  const latestLayoutRef = useRef<WorkbenchLayoutSnapshot>(
+    initialWindowSessionBootstrap.session.layout,
   );
-  const workspaceSaveTimerRef = useRef<number | null>(null);
+  const layoutSaveTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     cardStageStateRef.current = cardStageState;
   }, [cardStageState]);
 
-  useEffect(() => {
-    activeWorkspaceRef.current = activeWorkspace;
-  }, [activeWorkspace]);
-
-  const currentWorkspaceLayout = useMemo(
+  const currentLayout = useMemo(
     () => buildLayoutSnapshot(cardStageState),
     [buildLayoutSnapshot, cardStageState],
   );
 
   useEffect(() => {
-    latestWorkspaceLayoutRef.current = currentWorkspaceLayout;
-  }, [currentWorkspaceLayout]);
+    latestLayoutRef.current = currentLayout;
+  }, [currentLayout]);
 
-  const applyWorkspaceBootstrap = useCallback((bootstrap: WorkspaceBootstrap) => {
-    const nextWorkspace = bootstrap.activeWorkspace;
-    setWorkspaceCatalog(bootstrap.catalog);
-    setActiveWorkspaceState(nextWorkspace);
-    replaceLayoutSnapshot(nextWorkspace.layout);
-    setNavigationHistory({ backStack: [], forwardStack: [] });
-
-    if (nextWorkspace.layout.cardStage.open && nextWorkspace.layout.cardStage.cardId) {
-      openCardStageState(nextWorkspace.layout.cardStage.projectId, nextWorkspace.layout.cardStage.cardId);
-      return;
-    }
-
-    closeCardStageState();
-  }, [
-    closeCardStageState,
-    openCardStageState,
-    replaceLayoutSnapshot,
-  ]);
-
-  const flushWorkspaceLayout = useCallback(async () => {
-    const workspaceId = activeWorkspaceRef.current.id;
-    const layout = latestWorkspaceLayoutRef.current;
-    const bootstrap = await saveWindowSessionLayout(workspaceId, layout);
-    if (activeWorkspaceRef.current.id !== workspaceId) return;
-    setWorkspaceCatalog(bootstrap.catalog);
-    setActiveWorkspaceState(bootstrap.activeWorkspace);
+  const flushWindowSessionLayout = useCallback(async () => {
+    await saveWindowSessionLayout(latestLayoutRef.current);
   }, []);
 
   useEffect(() => {
-    if (workspaceSaveTimerRef.current !== null) {
-      window.clearTimeout(workspaceSaveTimerRef.current);
+    if (layoutSaveTimerRef.current !== null) {
+      window.clearTimeout(layoutSaveTimerRef.current);
     }
 
-    workspaceSaveTimerRef.current = window.setTimeout(() => {
-      workspaceSaveTimerRef.current = null;
-      void flushWorkspaceLayout();
+    layoutSaveTimerRef.current = window.setTimeout(() => {
+      layoutSaveTimerRef.current = null;
+      void flushWindowSessionLayout();
     }, 350);
 
     return () => {
-      if (workspaceSaveTimerRef.current === null) return;
-      window.clearTimeout(workspaceSaveTimerRef.current);
-      workspaceSaveTimerRef.current = null;
+      if (layoutSaveTimerRef.current === null) return;
+      window.clearTimeout(layoutSaveTimerRef.current);
+      layoutSaveTimerRef.current = null;
     };
-  }, [currentWorkspaceLayout, flushWorkspaceLayout]);
+  }, [currentLayout, flushWindowSessionLayout]);
 
   const resolvedDbProjectId = useMemo(() => {
     if (projects.some((project) => project.id === dbProjectId)) return dbProjectId;
@@ -284,44 +237,22 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
 
   useEffect(() => {
     return registerAppCloseFlushHandler(async () => {
-      if (workspaceSaveTimerRef.current !== null) {
-        window.clearTimeout(workspaceSaveTimerRef.current);
-        workspaceSaveTimerRef.current = null;
+      if (layoutSaveTimerRef.current !== null) {
+        window.clearTimeout(layoutSaveTimerRef.current);
+        layoutSaveTimerRef.current = null;
       }
       await cardStagePersistRef.current?.();
-      await flushWorkspaceLayout();
-      const snapshot = buildWorkbenchResumeSnapshot({
-        dbProjectId,
-        threadsProjectId,
-        viewsByProject,
-        focusedStage,
-        stageNavDirection,
-        activeCardsTabId,
-        activeRecentSessionId,
-        activeThreadsTabId,
-        recentCardSessions,
-        cardStageState: cardStageStateRef.current,
-      });
-      await saveWorkbenchResumeSnapshot(snapshot);
+      await flushWindowSessionLayout();
     });
   }, [
-    activeCardsTabId,
-    activeRecentSessionId,
-    activeThreadsTabId,
-    dbProjectId,
-    focusedStage,
-    recentCardSessions,
-    stageNavDirection,
-    threadsProjectId,
-    viewsByProject,
-    flushWorkspaceLayout,
+    flushWindowSessionLayout,
   ]);
 
   useEffect(() => {
     if (loading) return;
     if (resumeValidationStartedRef.current) return;
     resumeValidationStartedRef.current = true;
-    const initialLayout = initialWorkspaceBootstrap.session.layout;
+    const initialLayout = initialWindowSessionBootstrap.session.layout;
 
     let cancelled = false;
     void (async () => {
@@ -381,7 +312,7 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
     return () => {
       cancelled = true;
     };
-  }, [closeCardStageState, closeRecentCardSession, initialWorkspaceBootstrap.session.layout, loading]);
+  }, [closeCardStageState, closeRecentCardSession, initialWindowSessionBootstrap.session.layout, loading]);
 
   const handleCreateProject = useCallback(
     async (
@@ -421,45 +352,6 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
     },
     [renameProject, refresh],
   );
-
-  const handleSelectWorkspace = useCallback(async (workspaceId: string) => {
-    if (workspaceId === activeWorkspaceRef.current.id) return;
-    if (workspaceSaveTimerRef.current !== null) {
-      window.clearTimeout(workspaceSaveTimerRef.current);
-      workspaceSaveTimerRef.current = null;
-    }
-
-    await cardStagePersistRef.current?.();
-    await flushWorkspaceLayout();
-    const bootstrap = await setActiveWorkspace(workspaceId);
-    applyWorkspaceBootstrap(bootstrap);
-    await saveWindowSessionLayout(bootstrap.activeWorkspace.id, bootstrap.activeWorkspace.layout);
-  }, [applyWorkspaceBootstrap, flushWorkspaceLayout]);
-
-  const handleCreateWorkspace = useCallback(async (name: string, icon?: string | null) => {
-    if (workspaceSaveTimerRef.current !== null) {
-      window.clearTimeout(workspaceSaveTimerRef.current);
-      workspaceSaveTimerRef.current = null;
-    }
-
-    await cardStagePersistRef.current?.();
-    const layout = latestWorkspaceLayoutRef.current;
-    const bootstrap = await createWorkspace(name, layout, icon);
-    applyWorkspaceBootstrap(bootstrap);
-    await saveWindowSessionLayout(bootstrap.activeWorkspace.id, bootstrap.activeWorkspace.layout);
-  }, [applyWorkspaceBootstrap]);
-
-  const handleRenameWorkspace = useCallback(async (workspaceId: string, name: string, icon?: string | null) => {
-    const bootstrap = await renameWorkspace(workspaceId, name, icon);
-    applyWorkspaceBootstrap(bootstrap);
-  }, [applyWorkspaceBootstrap]);
-
-  const handleDeleteWorkspace = useCallback(async (workspaceId: string) => {
-    if (workspaceCatalog.workspaces.length <= 1) return;
-    const bootstrap = await deleteWorkspace(workspaceId);
-    applyWorkspaceBootstrap(bootstrap);
-    await saveWindowSessionLayout(bootstrap.activeWorkspace.id, bootstrap.activeWorkspace.layout);
-  }, [applyWorkspaceBootstrap, workspaceCatalog.workspaces.length]);
 
   const recordCardLeave = useCallback((snapshot: CardStageSessionSnapshot) => {
     recordRecentCardLeave(snapshot.projectId, snapshot.cardId, snapshot.titleSnapshot);
@@ -941,17 +833,16 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
   }, []);
 
   const handleRequestNewWindow = useCallback(async () => {
-    if (workspaceSaveTimerRef.current !== null) {
-      window.clearTimeout(workspaceSaveTimerRef.current);
-      workspaceSaveTimerRef.current = null;
+    if (layoutSaveTimerRef.current !== null) {
+      window.clearTimeout(layoutSaveTimerRef.current);
+      layoutSaveTimerRef.current = null;
     }
     await cardStagePersistRef.current?.();
-    await flushWorkspaceLayout();
+    await flushWindowSessionLayout();
     await invoke("window:new", {
-      workspaceId: activeWorkspaceRef.current.id,
-      layout: latestWorkspaceLayoutRef.current,
+      layout: latestLayoutRef.current,
     });
-  }, [flushWorkspaceLayout]);
+  }, [flushWindowSessionLayout]);
 
   const handleOpenCommandPalette = useCallback((initialQuery = "") => {
     setCommandPaletteInitialQuery(initialQuery);
@@ -1027,8 +918,6 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
       searchByProject={searchByProject}
       dbViewPrefsByProject={dbViewPrefsByProject}
       spaces={spaces}
-      workspaces={workspaceCatalog.workspaces}
-      activeWorkspaceId={activeWorkspace.id}
       recentCardSessions={recentCardSessions}
       activeRecentSessionId={activeRecentSessionId}
       sidebar={sidebar}
@@ -1083,12 +972,6 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
       onCreateProject={handleCreateProject}
       onDeleteProject={handleDeleteProject}
       onRenameProject={handleRenameProject}
-      onSelectWorkspace={(workspaceId) => {
-        void handleSelectWorkspace(workspaceId);
-      }}
-      onCreateWorkspace={(name, icon) => handleCreateWorkspace(name, icon)}
-      onRenameWorkspace={(workspaceId, name, icon) => handleRenameWorkspace(workspaceId, name, icon)}
-      onDeleteWorkspace={(workspaceId) => handleDeleteWorkspace(workspaceId)}
       navigateToStage={navigateToStage}
       navigateToDbView={navigateToDbView}
       navigateToRecentSession={navigateToRecentSession}
@@ -1114,12 +997,12 @@ function WorkbenchApp({ initialWorkspaceBootstrap }: { initialWorkspaceBootstrap
 export default function App() {
   const [bootstrapState, setBootstrapState] = useState<{
     ready: boolean;
-    workspaces: WindowSessionBootstrap | null;
+    windowSession: WindowSessionBootstrap | null;
     step: AppInitializationStep;
     migrationProgress: DatabaseMigrationProgress | null;
   }>({
     ready: false,
-    workspaces: null,
+    windowSession: null,
     step: { phase: "app_waiting" },
     migrationProgress: null,
   });
@@ -1151,11 +1034,11 @@ export default function App() {
       : bootstrapWindowSession();
 
     void bootstrapPromise
-      .then((workspaces) => {
+      .then((windowSession) => {
         if (cancelled) return;
         setBootstrapState({
           ready: true,
-          workspaces,
+          windowSession,
           step: { phase: "done" },
           migrationProgress: { type: "Done" },
         });
@@ -1164,7 +1047,7 @@ export default function App() {
         if (cancelled) return;
         setBootstrapState({
           ready: true,
-          workspaces: null,
+          windowSession: null,
           step: { phase: "done" },
           migrationProgress: { type: "Done" },
         });
@@ -1189,8 +1072,8 @@ export default function App() {
 
   return (
     <NodexToastProvider>
-      {bootstrapState.workspaces ? (
-        <WorkbenchApp initialWorkspaceBootstrap={bootstrapState.workspaces} />
+      {bootstrapState.windowSession ? (
+        <WorkbenchApp initialWindowSessionBootstrap={bootstrapState.windowSession} />
       ) : (
         <AppStartupScreen
           step={{ phase: "done" }}

@@ -126,7 +126,7 @@ describe("CommandPaletteSurface", () => {
             kind: "command",
             id: "open-settings",
             title: "Open settings",
-            subtitle: "Workspace preferences",
+            subtitle: "App preferences",
             keywords: ["settings", "preferences"],
             priority: 100,
           },

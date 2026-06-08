@@ -16,6 +16,8 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Replaced the old primary stage-rail workbench model with project sessions that open as a thread page with a collapsible and full-width-expandable right panel plus an independent bottom panel for session tabs.
+- Window restore and new-window layout seeding are now owned only by window sessions instead of named workspaces.
+- macOS window titles now use `Nodex` instead of a workspace name.
 - Terminal tabs are now session-owned panel tabs with session terminal ids that start from the attached thread cwd before falling back to the project workspace path; cards can request a terminal but no longer own terminal tabs or PTY identity.
 - Matched the project/session sidebar chrome to Codex Electron, moved project folder selection into each project row actions menu, and added Search, Plugins, and Automations rows for layout parity.
 - Refined the project session shell to match Codex Electron side-panel control placement, adjacent header-slot spacing, remembered full-width mode, and button styling: the global header now owns `Toggle side panel`, right-panel tab creation and expand/restore actions live in the panel tab header, and the unused attach/detach thread toolbar button is removed.
@@ -28,6 +30,7 @@ All notable changes to this project will be documented in this file.
 
 ### Removed
 - Removed the legacy Full rail stage layout mode, its General settings controls, and the adjacent-panel peek setting.
+- Removed profile-local named workspaces, the workspace switcher/footer dots, and workspace create/rename/delete controls.
 - Removed the old workspace terminal drawer state and right-pane mirror columns; Terminal tabs and panel state now live only in project sessions.
 
 ### Fixed
@@ -174,7 +177,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Added derived-view Kanban block-drop import support for structured filter/sort views, including exact-slot placement when the board can infer safe workflow properties and column-level fallback when the active sort owns visible order.
 - Added richer sorted Kanban drag modes: `board-order` now keeps same-column ranking even with secondary sorts, `priority` / `estimate` sorts can infer bucket-changing drops, and `title` / `created` sorts now explain blocked same-column ranking while still allowing cross-column moves.
-- Added packaged-macOS app auto-update support via GitHub Releases, including background update checks/downloads, a new Settings -> Workspace -> `App updates` control, a `Check for Updates…` macOS app-menu action, and in-app restart prompts when a downloaded update is ready.
+- Added packaged-macOS app auto-update support via GitHub Releases, including background update checks/downloads, a new Settings -> General -> `App updates` control, a `Check for Updates…` macOS app-menu action, and in-app restart prompts when a downloaded update is ready.
 
 ### Changed
 - Matched NFM editor heading typography to the reference scale, including heading weights and drag-handle alignment for heading rows.
