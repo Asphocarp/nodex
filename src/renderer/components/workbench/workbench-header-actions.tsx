@@ -7,6 +7,7 @@ import {
   useEffect,
   useRef,
   type CSSProperties,
+  type Ref,
   type ReactElement,
   type ReactNode,
 } from "react";
@@ -140,16 +141,21 @@ export function HeaderShellSlot({
   slotWidth,
   minWidth,
   fallbackWidth,
+  fallbackRailWidth,
   onMeasuredWidthChange,
+  onMeasuredRailWidthChange,
 }: {
   side: HeaderActionSlotPosition;
   slotWidth: number;
   minWidth: number;
   fallbackWidth: number;
+  fallbackRailWidth: number;
   onMeasuredWidthChange: (width: number) => void;
+  onMeasuredRailWidthChange: (width: number) => void;
 }) {
   const entries = useHeaderActions(side);
   const probeRef = useRef<HTMLDivElement | null>(null);
+  const railProbeRef = useRef<HTMLDivElement | null>(null);
   const measurementKey = entries.map((entry) => `${entry.actionId}:${entry.align}:${entry.order}`).join("|");
   const paddingClassName = resolveHeaderSlotPaddingClassName(side, entries.length);
 
@@ -159,12 +165,15 @@ export function HeaderShellSlot({
 
     if (entries.length === 0) {
       onMeasuredWidthChange(0);
+      onMeasuredRailWidthChange(0);
       return undefined;
     }
 
     const measure = () => {
       const width = Math.ceil(controlsElement.getBoundingClientRect().width);
+      const railWidth = Math.ceil(railProbeRef.current?.getBoundingClientRect().width ?? 0);
       onMeasuredWidthChange(width > 0 ? width : fallbackWidth);
+      onMeasuredRailWidthChange(railWidth > 0 ? railWidth : fallbackRailWidth);
     };
 
     measure();
@@ -181,7 +190,14 @@ export function HeaderShellSlot({
     return () => {
       resizeObserver.disconnect();
     };
-  }, [entries.length, fallbackWidth, measurementKey, onMeasuredWidthChange]);
+  }, [
+    entries.length,
+    fallbackRailWidth,
+    fallbackWidth,
+    measurementKey,
+    onMeasuredRailWidthChange,
+    onMeasuredWidthChange,
+  ]);
 
   return (
     <>
@@ -193,7 +209,7 @@ export function HeaderShellSlot({
           paddingClassName,
         )}
       >
-        <HeaderActionRail entries={entries} />
+        <HeaderActionRail entries={entries} railRef={railProbeRef} />
       </div>
       <div
         data-test-id="header-shell-slot"
@@ -213,15 +229,18 @@ export function HeaderShellSlot({
 function HeaderActionRail({
   entries,
   fillSlot = false,
+  railRef,
 }: {
   entries: readonly HeaderActionEntry[];
   fillSlot?: boolean;
+  railRef?: Ref<HTMLDivElement>;
 }) {
   const startEntries = entries.filter((entry) => entry.align === "start");
   const endEntries = entries.filter((entry) => entry.align === "end");
 
   return (
     <div
+      ref={railRef}
       data-workbench-header-action-rail={fillSlot ? "visible" : "measure"}
       className={cn(
         "inline-flex h-full items-center gap-1.5",

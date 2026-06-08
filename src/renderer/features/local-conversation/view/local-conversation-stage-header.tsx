@@ -86,7 +86,7 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
         model.showSeparator && "border-b border-token-border",
       )}
       style={{
-        paddingRight: "calc(var(--thread-stage-header-right-reserve, 0px) + calc(var(--spacing) * 3))",
+        paddingRight: "var(--thread-stage-header-right-reserve, 0px)",
       }}
     >
       <div
@@ -94,7 +94,7 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
         data-testid="thread-stage-header-toggle-hitbox"
         className="no-drag pointer-events-auto absolute inset-y-0 right-0 z-10"
         style={{
-          width: "calc(var(--thread-stage-header-right-reserve, 0px) + calc(var(--spacing) * 3))",
+          width: "calc(var(--thread-stage-header-right-reserve, 0px) + calc(var(--spacing) * 1.5))",
         }}
       />
       <div
@@ -144,7 +144,7 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
         {model.summaryAction ? (
           <div
             data-testid="thread-stage-header-summary-actions"
-            className="ms-auto flex shrink-0 items-center gap-1.5"
+            className="ms-auto flex shrink-0 -translate-y-px items-center gap-1.5"
           >
             <div className="no-drag pointer-events-auto flex shrink-0 items-center">
               {model.summaryAction}

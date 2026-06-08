@@ -1533,7 +1533,7 @@ describe("workbench session shell", () => {
     expect(expandButton.className.includes("h-token-button-composer")).toBeTrue();
     expect(expandButton.className.includes("text-token-text-tertiary")).toBeTrue();
     expect(expandIconPath.startsWith(CODEX_EXPAND_PANEL_ICON_PREFIX)).toBeTrue();
-    expect(screen.container.querySelector('[data-testid="right-panel-tab-bar-header-spacer"]')?.getAttribute("style")?.includes("width: 70px")).toBeTrue();
+    expect(screen.container.querySelector('[data-testid="right-panel-tab-bar-header-spacer"]')?.getAttribute("style")?.includes("width: 62px")).toBeTrue();
 
     await act(async () => {
       fireEvent.click(expandButton);

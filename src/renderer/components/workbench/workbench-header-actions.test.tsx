@@ -56,6 +56,7 @@ describe("workbench header actions", () => {
 
   test("renders separate declaration components into one right-side rail", async () => {
     const measuredWidths: number[] = [];
+    const measuredRailWidths: number[] = [];
     const view = render(
       <HeaderActionProvider
         actions={(
@@ -71,8 +72,12 @@ describe("workbench header actions", () => {
           slotWidth={144}
           minWidth={70}
           fallbackWidth={70}
+          fallbackRailWidth={62}
           onMeasuredWidthChange={(width) => {
             measuredWidths.push(width);
+          }}
+          onMeasuredRailWidthChange={(width) => {
+            measuredRailWidths.push(width);
           }}
         />
       </HeaderActionProvider>,
@@ -99,5 +104,6 @@ describe("workbench header actions", () => {
     expect(firstActionWrapper.className.includes("ms-auto")).toBeTrue();
     expect(textContent(rail)).toBe("FirstSecondThird");
     expect(measuredWidths[measuredWidths.length - 1]).toBe(70);
+    expect(measuredRailWidths[measuredRailWidths.length - 1]).toBe(62);
   });
 });

@@ -173,6 +173,7 @@ const TOOLBAR_BUTTON_BASE_CLASS = "border-token-border no-drag cursor-interactio
 const TOOLBAR_BUTTON_GHOST_CLASS = "text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent";
 const TOOLBAR_BUTTON_SECONDARY_CLASS = "text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent";
 const RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX = 70;
+const RIGHT_PANEL_HEADER_FALLBACK_RAIL_WIDTH_PX = 62;
 const THREAD_SUMMARY_PANEL_STORAGE_KEY = "nodex:thread-summary-panel:pinned-open";
 const PROJECT_SESSION_SINGLETON_TAB_KIND_SET = new Set<string>(PROJECT_SESSION_SINGLETON_TAB_KINDS);
 const PREVIEWABLE_PROJECT_SESSION_TAB_KIND_SET = new Set<ProjectSessionTab["kind"]>([
@@ -684,6 +685,7 @@ export function WorkbenchShell({
   const [sessionContentWidth, setSessionContentWidth] = useState(0);
   const [sessionContentHeight, setSessionContentHeight] = useState(0);
   const [headerRightWidth, setHeaderRightWidth] = useState(RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX);
+  const [headerRightRailWidth, setHeaderRightRailWidth] = useState(RIGHT_PANEL_HEADER_FALLBACK_RAIL_WIDTH_PX);
   const [threadSummaryPanelPinnedOpen, setThreadSummaryPanelPinnedOpen] = useState(readThreadSummaryPanelPinnedOpen);
   const [localSidebarCollapsed, setLocalSidebarCollapsed] = useState(false);
   const [localSidebarWidth, setLocalSidebarWidth] = useState(300);
@@ -1649,7 +1651,7 @@ export function WorkbenchShell({
         aria-hidden="true"
         data-testid="right-panel-tab-bar-header-spacer"
         className="pointer-events-none flex h-full shrink-0 items-center"
-        style={{ width: headerRightWidth }}
+        style={{ width: headerRightRailWidth }}
       />
     </>
   ) : null;
@@ -1698,7 +1700,9 @@ export function WorkbenchShell({
               slotWidth={headerShellSlotWidth}
               minWidth={headerRightWidth}
               fallbackWidth={RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX}
+              fallbackRailWidth={RIGHT_PANEL_HEADER_FALLBACK_RAIL_WIDTH_PX}
               onMeasuredWidthChange={setHeaderRightWidth}
+              onMeasuredRailWidthChange={setHeaderRightRailWidth}
             />
           </header>
 

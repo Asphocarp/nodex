@@ -174,10 +174,12 @@ describe("ThreadStageHeader auth chrome", () => {
     expect(header?.className.includes("electron:py-0")).toBeTrue();
     expect(contextSurface?.className.includes("h-full")).toBeTrue();
     expect(contextSurface?.className.includes("overflow-hidden")).toBeTrue();
+    expect(contextSurface?.className.includes("pe-1.5")).toBeTrue();
     expect(contextSurface?.contains(summaryButton ?? null)).toBeTrue();
     expect(summaryRail?.contains(summaryButton ?? null)).toBeTrue();
     expect(summaryRail?.className.includes("ms-auto")).toBeTrue();
     expect(summaryRail?.className.includes("shrink-0")).toBeTrue();
+    expect(summaryRail?.className.includes("-translate-y-px")).toBeTrue();
     expect(summaryRail?.className.includes("gap-1.5")).toBeTrue();
     expect(globalHitbox?.contains(summaryButton ?? null)).toBeFalse();
   });
