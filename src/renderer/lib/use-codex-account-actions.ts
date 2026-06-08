@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { invoke } from "./api";
 import type { CodexAccountSnapshot } from "./types";
 
@@ -27,11 +27,11 @@ export function useCodexAccountActions() {
     return (await invoke("codex:account:logout")) as boolean;
   }, []);
 
-  return {
+  return useMemo(() => ({
     refreshAccount,
     startChatGptLogin,
     startApiKeyLogin,
     cancelLogin,
     logout,
-  };
+  }), [cancelLogin, logout, refreshAccount, startApiKeyLogin, startChatGptLogin]);
 }

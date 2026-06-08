@@ -1,0 +1,209 @@
+import { useCallback, useRef, useState } from "react";
+import { NodexTooltip } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import type { CodexAccountSnapshot, CodexConnectionState } from "../../../../lib/types";
+import { shouldRefreshAccountOnConnectionTooltipOpen } from "./account-tooltip-refresh";
+import {
+  buildRateLimitRingViewModel,
+  type RateLimitRingWindowView,
+} from "./auth-rate-limits";
+import { renderConnectionAccountTooltipContent } from "./auth-controls";
+
+interface AccountRateLimitRingProps {
+  account: CodexAccountSnapshot | null;
+  connection: CodexConnectionState;
+  onRefreshAccount: () => Promise<CodexAccountSnapshot>;
+  onLogout: () => Promise<void>;
+  onErrorMessage?: (message: string | null) => void;
+  className?: string;
+}
+
+const OUTER_RING_RADIUS = 10.5;
+const INNER_RING_RADIUS = 6.5;
+const OUTER_RING_CIRCUMFERENCE = 2 * Math.PI * OUTER_RING_RADIUS;
+const INNER_RING_CIRCUMFERENCE = 2 * Math.PI * INNER_RING_RADIUS;
+
+function resolveRingDashOffset(remainingPercent: number, circumference: number): number {
+  return circumference * (1 - remainingPercent / 100);
+}
+
+function formatDashValue(value: number): string {
+  return value.toFixed(3);
+}
+
+function resolveQuotaColor(window: RateLimitRingWindowView | null, fallback: string): string {
+  if (!window) return "var(--sidebar-foreground-tertiary)";
+  if (window.remainingPercent <= 15) return "var(--red-text)";
+  if (window.remainingPercent <= 35) return "var(--yellow-text)";
+  return fallback;
+}
+
+function connectionFallbackLabel(connection: CodexConnectionState): string {
+  if (connection.status === "starting") return "Codex connecting. Usage remaining unavailable";
+  if (connection.status === "missingBinary") return "Codex CLI missing. Usage remaining unavailable";
+  if (connection.status === "error") return "Codex connection error. Usage remaining unavailable";
+  if (connection.status === "disconnected") return "Codex disconnected. Usage remaining unavailable";
+  return "Usage remaining unavailable";
+}
+
+function RateLimitRingSvg({
+  outer,
+  inner,
+  hasLimits,
+}: {
+  outer: RateLimitRingWindowView | null;
+  inner: RateLimitRingWindowView | null;
+  hasLimits: boolean;
+}) {
+  const outerColor = resolveQuotaColor(outer, "var(--color-token-charts-blue)");
+  const innerColor = resolveQuotaColor(inner, "var(--color-token-charts-green)");
+
+  return (
+    <svg
+      viewBox="0 0 28 28"
+      className="size-5.5 shrink-0 overflow-visible"
+      fill="none"
+      aria-hidden="true"
+    >
+      <circle
+        cx="14"
+        cy="14"
+        r={OUTER_RING_RADIUS}
+        stroke="var(--sidebar-foreground-tertiary)"
+        strokeWidth="2.2"
+        opacity={hasLimits ? 0.22 : 0.16}
+      />
+      {outer ? (
+        <circle
+          data-rate-limit-ring="outer"
+          cx="14"
+          cy="14"
+          r={OUTER_RING_RADIUS}
+          stroke={outerColor}
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeDasharray={formatDashValue(OUTER_RING_CIRCUMFERENCE)}
+          strokeDashoffset={formatDashValue(resolveRingDashOffset(outer.remainingPercent, OUTER_RING_CIRCUMFERENCE))}
+          transform="rotate(-90 14 14)"
+        />
+      ) : null}
+      <circle
+        cx="14"
+        cy="14"
+        r={INNER_RING_RADIUS}
+        stroke="var(--sidebar-foreground-tertiary)"
+        strokeWidth="2"
+        opacity={hasLimits ? 0.18 : 0.12}
+      />
+      {inner ? (
+        <circle
+          data-rate-limit-ring="inner"
+          cx="14"
+          cy="14"
+          r={INNER_RING_RADIUS}
+          stroke={innerColor}
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeDasharray={formatDashValue(INNER_RING_CIRCUMFERENCE)}
+          strokeDashoffset={formatDashValue(resolveRingDashOffset(inner.remainingPercent, INNER_RING_CIRCUMFERENCE))}
+          transform="rotate(-90 14 14)"
+        />
+      ) : null}
+      {!hasLimits ? (
+        <circle
+          cx="14"
+          cy="14"
+          r="2"
+          fill="var(--sidebar-foreground-tertiary)"
+          opacity={0.55}
+        />
+      ) : null}
+    </svg>
+  );
+}
+
+export function AccountRateLimitRing({
+  account,
+  connection,
+  onRefreshAccount,
+  onLogout,
+  onErrorMessage,
+  className,
+}: AccountRateLimitRingProps) {
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const refreshInFlightRef = useRef(false);
+  const authenticatedAccount = account?.account ?? null;
+
+  const handleTooltipOpenChange = useCallback((isOpen: boolean) => {
+    if (
+      !shouldRefreshAccountOnConnectionTooltipOpen({
+        isOpen,
+        hasAccount: Boolean(account?.account),
+        refreshInFlight: refreshInFlightRef.current,
+      })
+    ) {
+      return;
+    }
+
+    refreshInFlightRef.current = true;
+    void onRefreshAccount()
+      .catch(() => {})
+      .finally(() => {
+        refreshInFlightRef.current = false;
+      });
+  }, [account?.account, onRefreshAccount]);
+
+  const handleLogout = useCallback(async () => {
+    setIsSigningOut(true);
+    onErrorMessage?.(null);
+    try {
+      await onLogout();
+    } catch (error) {
+      onErrorMessage?.(error instanceof Error ? error.message : "Logout failed");
+    } finally {
+      setIsSigningOut(false);
+    }
+  }, [onErrorMessage, onLogout]);
+
+  if (!authenticatedAccount) return null;
+
+  const viewModel = buildRateLimitRingViewModel(account?.rateLimits);
+  const ariaLabel = viewModel.hasLimits && connection.status === "connected"
+    ? viewModel.ariaLabel
+    : connectionFallbackLabel(connection);
+  const tooltipContent = renderConnectionAccountTooltipContent(authenticatedAccount, account?.rateLimits, {
+    onSignOut: () => void handleLogout(),
+    isSigningOutDisabled: isSigningOut,
+  });
+
+  return (
+    <NodexTooltip
+      tooltipContent={tooltipContent}
+      side="right"
+      align="end"
+      delayDuration={0}
+      onOpenChange={handleTooltipOpenChange}
+      interactive
+    >
+      <button
+        type="button"
+        aria-label={ariaLabel}
+        title={viewModel.summaryLabel ?? undefined}
+        data-testid="sidebar-account-rate-limit-ring"
+        className={cn(
+          "inline-flex h-7 w-7 items-center justify-center rounded-lg outline-none",
+          "text-(--sidebar-foreground-secondary) hover:bg-(--sidebar-accent) hover:text-(--sidebar-foreground)",
+          "focus-visible:bg-(--sidebar-accent) focus-visible:ring-2 focus-visible:ring-(--sidebar-ring)/35",
+          !viewModel.hasLimits && "opacity-70",
+          className,
+        )}
+      >
+        <RateLimitRingSvg
+          outer={viewModel.outer}
+          inner={viewModel.inner}
+          hasLimits={viewModel.hasLimits}
+        />
+      </button>
+    </NodexTooltip>
+  );
+}

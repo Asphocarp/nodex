@@ -12,7 +12,7 @@ import { formatElapsedSince } from "@/lib/elapsed-time";
 import type { Project } from "@/lib/types";
 import type { SpaceRef } from "@/lib/use-workbench-state";
 import { resolveStageSidebarSectionRenderState } from "./left-sidebar-section-state";
-import { LeftSidebarFooter } from "./left-sidebar-footer";
+import { LeftSidebarFooter, type LeftSidebarFooterProps } from "./left-sidebar-footer";
 import { SidebarProjectsSection } from "./left-sidebar-projects-section";
 import { SIDEBAR_SECTION_ITEM_LIMITS, type SidebarSectionItemLimit } from "../../lib/sidebar-section-prefs";
 import {
@@ -98,6 +98,7 @@ interface LeftSidebarProps {
     icon?: string,
     workspacePath?: string | null,
   ) => Promise<Project | null>;
+  footerAccount?: Omit<LeftSidebarFooterProps, "onOpenSettings">;
 }
 
 const STAGE_ITEM_COLLAPSE_LIMIT = 10;
@@ -221,6 +222,7 @@ export function LeftSidebar({
   onCreateProject,
   onDeleteProject,
   onRenameProject,
+  footerAccount,
 }: LeftSidebarProps) {
   const projectsStageGroup = useMemo(
     () => stageGroups.find((group) => group.id === "db"),
@@ -625,7 +627,7 @@ export function LeftSidebar({
         })}
       </div>
 
-      <LeftSidebarFooter onOpenSettings={onOpenSettings} />
+      <LeftSidebarFooter onOpenSettings={onOpenSettings} {...footerAccount} />
 
       {/* Resize handle */}
       <div

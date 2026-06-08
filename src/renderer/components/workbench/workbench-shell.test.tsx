@@ -182,6 +182,8 @@ mock.module("@/features/local-conversation", () => ({
   },
   useCodexAppServerControl: () => mockCodexControl,
   useCodexThreadStartProgress: () => null,
+  useLocalConversationAccount: () => null,
+  useLocalConversationConnection: () => ({ status: "connected", retries: 0 }),
 }));
 
 mock.module("@/lib/calendar-view-state", () => ({

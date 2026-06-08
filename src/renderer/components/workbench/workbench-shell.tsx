@@ -40,6 +40,8 @@ import {
   ConnectedReviewDiffPanel,
   useCodexAppServerControl,
   useCodexThreadStartProgress,
+  useLocalConversationAccount,
+  useLocalConversationConnection,
 } from "@/features/local-conversation";
 import {
   loadCalendarViewState,
@@ -94,6 +96,7 @@ import type {
   CardUpdateMutationResult,
   CodexAccountSnapshot,
   CodexCollaborationModeKind,
+  CodexConnectionState,
   CodexCollaborationModePreset,
   CodexThreadSummary,
   PanelId,
@@ -144,6 +147,7 @@ import {
   SearchIcon,
 } from "@/components/shared/icons";
 import { SidebarNewChatButton } from "./sidebar-new-chat-controls";
+import { useCodexAccountActions } from "@/lib/use-codex-account-actions";
 import {
   CodexProjectRow,
   CodexProjectSessionList,
@@ -701,6 +705,9 @@ export function WorkbenchShell({
   const [stripSmartPrefixFromTitleEnabled, setStripSmartPrefixFromTitleEnabled] = useState(
     readStripSmartPrefixFromTitleEnabled,
   );
+  const codexAccount = useLocalConversationAccount();
+  const codexConnection = useLocalConversationConnection();
+  const codexAccountActions = useCodexAccountActions();
 
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null;
   const activeSessions = activeProject ? sessionsByProject[activeProject.id] ?? [] : [];
@@ -748,6 +755,13 @@ export function WorkbenchShell({
     sidebar?.topLevelSectionOrder,
   );
   const settingsSidebarTopLevelSections = sidebar?.topLevelSections ?? makeDefaultSidebarTopLevelSectionsPrefs();
+  const handleCodexAccountLogout = useCallback(async () => {
+    await codexAccountActions.logout();
+  }, [codexAccountActions]);
+  const handleCodexAccountErrorMessage = useCallback((message: string | null) => {
+    if (!message) return;
+    toast.danger(message);
+  }, []);
   const activeProjectCardOptions = useMemo(() => {
     const cards: Array<{ card: Card; columnName: string }> = [];
     for (const column of activeProjectKanban.board?.columns ?? []) {
@@ -1774,6 +1788,11 @@ export function WorkbenchShell({
               onRenameProject={onRenameProject ?? (async () => null)}
               onDeleteProject={onDeleteProject ?? (async () => false)}
               onOpenSettings={openSettings}
+              account={codexAccount}
+              connection={codexConnection}
+              onRefreshAccount={codexAccountActions.refreshAccount}
+              onLogout={handleCodexAccountLogout}
+              onAccountErrorMessage={handleCodexAccountErrorMessage}
             />
           ) : null}
 
@@ -1830,6 +1849,11 @@ export function WorkbenchShell({
                   onRenameProject={onRenameProject ?? (async () => null)}
                   onDeleteProject={onDeleteProject ?? (async () => false)}
                   onOpenSettings={openSettings}
+                  account={codexAccount}
+                  connection={codexConnection}
+                  onRefreshAccount={codexAccountActions.refreshAccount}
+                  onLogout={handleCodexAccountLogout}
+                  onAccountErrorMessage={handleCodexAccountErrorMessage}
                 />
               </div>
             </div>
@@ -1872,6 +1896,7 @@ export function WorkbenchShell({
                         onEnsureBlankSessionForProject={ensureBlankSessionForProject}
                         onRequestProjectPickerOpen={onRequestProjectPickerOpen}
                         onOpenLocalEnvironmentsSettings={openLocalEnvironmentsSettings}
+                        accountActions={codexAccountActions}
                         worktreeStartMode={worktreeStartMode}
                         worktreeBranchPrefix={worktreeAutoBranchPrefix}
                         searchOpenTick={threadSearchOpenTick}
@@ -2100,6 +2125,11 @@ function ProjectSessionSidebar({
   onRenameProject,
   onDeleteProject,
   onOpenSettings,
+  account,
+  connection,
+  onRefreshAccount,
+  onLogout,
+  onAccountErrorMessage,
 }: {
   projects: Project[];
   spaces: SpaceRef[];
@@ -2134,6 +2164,11 @@ function ProjectSessionSidebar({
   ) => Promise<Project | null>;
   onDeleteProject: (projectId: string) => Promise<boolean>;
   onOpenSettings: () => void;
+  account: CodexAccountSnapshot | null;
+  connection: CodexConnectionState;
+  onRefreshAccount: () => Promise<CodexAccountSnapshot>;
+  onLogout: () => Promise<void>;
+  onAccountErrorMessage: (message: string | null) => void;
 }) {
   const [manageProjectsOpen, setManageProjectsOpen] = useState(false);
 
@@ -2279,7 +2314,14 @@ function ProjectSessionSidebar({
         </div>
       </div>
 
-      <LeftSidebarFooter onOpenSettings={onOpenSettings} />
+      <LeftSidebarFooter
+        onOpenSettings={onOpenSettings}
+        account={account}
+        connection={connection}
+        onRefreshAccount={onRefreshAccount}
+        onLogout={onLogout}
+        onErrorMessage={onAccountErrorMessage}
+      />
 
       <div
         onMouseDown={handleResizeStart}
@@ -2472,6 +2514,7 @@ function SessionThreadPage({
   onEnsureBlankSessionForProject,
   onRequestProjectPickerOpen,
   onOpenLocalEnvironmentsSettings,
+  accountActions,
   worktreeStartMode,
   worktreeBranchPrefix,
   onOpenCard,
@@ -2490,6 +2533,7 @@ function SessionThreadPage({
   onEnsureBlankSessionForProject: (projectId: string) => Promise<ProjectSession>;
   onRequestProjectPickerOpen: () => void;
   onOpenLocalEnvironmentsSettings: () => void;
+  accountActions: ReturnType<typeof useCodexAccountActions>;
   worktreeStartMode: WorktreeStartMode;
   worktreeBranchPrefix: string;
   onOpenCard: (cardId: string) => void;
@@ -2554,6 +2598,7 @@ function SessionThreadPage({
 
   const actions = useMemo(() => makeSessionThreadStageActions({
     activeThreadId: summary?.threadId ?? null,
+    accountActions,
     codexControl,
     onOpenCard,
     onEnsureBlankSessionForProject,
@@ -2573,6 +2618,7 @@ function SessionThreadPage({
     setSelectedCollaborationMode,
   }), [
     codexControl,
+    accountActions,
     onOpenCard,
     onEnsureBlankSessionForProject,
     onRefreshProjectSessions,
@@ -2710,6 +2756,7 @@ function makeNoopThreadStageActions(onOpenCard: (cardId: string) => void): Threa
 
 function makeSessionThreadStageActions(input: {
   activeThreadId: string | null;
+  accountActions: ReturnType<typeof useCodexAccountActions>;
   codexControl: ReturnType<typeof useCodexAppServerControl>;
   currentSessionProjectId: string;
   onOpenCard: (cardId: string) => void;
@@ -2728,6 +2775,15 @@ function makeSessionThreadStageActions(input: {
   const base = makeNoopThreadStageActions(input.onOpenCard);
   return {
     ...base,
+    onRefreshAccount: input.accountActions.refreshAccount,
+    onStartChatGptLogin: input.accountActions.startChatGptLogin,
+    onStartApiKeyLogin: input.accountActions.startApiKeyLogin,
+    onCancelLogin: async (loginId) => {
+      await input.accountActions.cancelLogin(loginId);
+    },
+    onLogout: async () => {
+      await input.accountActions.logout();
+    },
     onCollaborationModeChange: input.setSelectedCollaborationMode,
     onModelChange: input.codexControl.setThreadModel,
     onReasoningEffortChange: input.codexControl.setThreadReasoningEffort,

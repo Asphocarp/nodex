@@ -18,14 +18,11 @@ import { DiffStats } from "../shared/tools/diff-file-shared";
 import { invoke } from "../../../../lib/api";
 import { cn } from "../../../../lib/utils";
 import type {
-  CodexAccountSnapshot,
-  CodexConnectionState,
   CodexConversationTurn,
   GitReviewSnapshot,
   GitReviewSource,
 } from "../../../../lib/types";
-import type { ThreadStageActions, ThreadStageRouteInput } from "../../thread-stage-types";
-import { ThreadSummaryPanelRateLimitRow } from "./thread-summary-panel-rate-limit-row";
+import type { ThreadStageRouteInput } from "../../thread-stage-types";
 import { ThreadSummaryPanelRow } from "./thread-summary-panel-row";
 import { ThreadSummaryPanelSection } from "./thread-summary-panel-section";
 import { ThreadSummaryPanelToggleButton } from "./thread-summary-panel-toggle";
@@ -34,10 +31,7 @@ export interface ThreadSummaryPanelContentProps {
   activeThreadId: string | null;
   cwd: string | null;
   projectWorkspacePath: string | null;
-  account: CodexAccountSnapshot | null;
-  connection: CodexConnectionState;
   turns: readonly CodexConversationTurn[];
-  actions: ThreadStageActions;
   newThreadStartInSelector?: ThreadStageRouteInput["newThreadStartInSelector"];
   onErrorMessage: (message: string | null) => void;
 }
@@ -250,10 +244,7 @@ export function ThreadSummaryPanelSurface({
   activeThreadId,
   cwd,
   projectWorkspacePath,
-  account,
-  connection,
   turns,
-  actions,
   newThreadStartInSelector,
   onErrorMessage,
 }: Omit<ThreadFloatingSummaryPanelProps, "mounted" | "open">) {
@@ -264,7 +255,6 @@ export function ThreadSummaryPanelSurface({
   const gitSummary = useGitSummary(branchCwd, true);
   const branch = useSummaryPanelBranchState({ cwd: branchCwd, onErrorMessage });
   const sourceNames = useMemo(() => collectMcpSourceNames(turns), [turns]);
-  const panelOpenRefreshStartedRef = useRef(false);
   const snapshots = gitSummary.snapshots;
   const unstaged = sumSnapshotFiles(snapshots.unstaged);
   const staged = sumSnapshotFiles(snapshots.staged);
@@ -282,13 +272,6 @@ export function ThreadSummaryPanelSurface({
     if (!hasRepository) return;
     onErrorMessage(`Open the Diff stage to review ${source} changes.`);
   }, [hasRepository, onErrorMessage]);
-
-  useEffect(() => {
-    if (panelOpenRefreshStartedRef.current || !account?.account) return;
-
-    panelOpenRefreshStartedRef.current = true;
-    void actions.onRefreshAccount().catch(() => {});
-  }, [account?.account, actions]);
 
   return (
     <div
@@ -357,15 +340,6 @@ export function ThreadSummaryPanelSurface({
             interactive={hasRepository && Boolean(currentBranch)}
             disabled={!hasRepository || !currentBranch}
             onClick={() => handleOpenGitReview("branch")}
-          />
-        </ThreadSummaryPanelSection>
-
-        <ThreadSummaryPanelSection title="Account">
-          <ThreadSummaryPanelRateLimitRow
-            account={account}
-            connection={connection}
-            actions={actions}
-            onErrorMessage={onErrorMessage}
           />
         </ThreadSummaryPanelSection>
 

@@ -554,26 +554,18 @@ export function ConnectedThreadStage({
   const summaryFields = useConversationSummaryFields(activeThreadId);
   const turns = useConversationTurns(activeThreadId);
   const cwd = useConversationCwd(activeThreadId);
-  const connection = useLocalConversationConnection();
-  const account = useLocalConversationAccount();
   const isActiveThreadArchived = input.activeThreadSummary?.archived === true || summaryFields.archived;
   const summaryPanelContentProps = useMemo(
     () => ({
       activeThreadId,
       cwd,
       projectWorkspacePath: input.projectWorkspacePath ?? null,
-      account,
-      connection,
       turns,
-      actions,
       newThreadStartInSelector: input.newThreadStartInSelector,
       onErrorMessage: setErrorMessage,
     }),
     [
-      account,
       activeThreadId,
-      actions,
-      connection,
       cwd,
       input.newThreadStartInSelector,
       input.projectWorkspacePath,

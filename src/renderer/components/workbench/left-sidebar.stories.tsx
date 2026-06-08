@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useState } from "react";
-import type { Project, ProjectSession } from "@/lib/types";
+import type { CodexAccountSnapshot, Project, ProjectSession } from "@/lib/types";
 import type { SpaceRef } from "@/lib/use-workbench-state";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { LeftSidebar, type StageSidebarGroup } from "./left-sidebar";
@@ -69,6 +69,52 @@ const SIDEBAR_PARITY_SPACES: SpaceRef[] = [
   { projectId: "codex-electron-readable-bundle-with-a-very-long-name", colorToken: "var(--accent-green)", initial: "C" },
   { projectId: "missing-workspace", colorToken: "var(--accent-yellow)", initial: "M" },
 ];
+
+const FOOTER_QUOTA_ACCOUNT: CodexAccountSnapshot = {
+  account: { type: "chatgpt", email: "dev@example.com", planType: "Plus" },
+  requiresOpenAiAuth: false,
+  pendingLogin: null,
+  rateLimits: {
+    primary: {
+      usedPercent: 18,
+      windowDurationMins: 300,
+    },
+    secondary: {
+      usedPercent: 39,
+      windowDurationMins: 7 * 24 * 60,
+    },
+  },
+};
+
+const FOOTER_LOW_QUOTA_ACCOUNT: CodexAccountSnapshot = {
+  account: { type: "chatgpt", email: "dev@example.com", planType: "Plus" },
+  requiresOpenAiAuth: false,
+  pendingLogin: null,
+  rateLimits: {
+    primary: {
+      usedPercent: 91,
+      windowDurationMins: 300,
+    },
+    secondary: {
+      usedPercent: 72,
+      windowDurationMins: 7 * 24 * 60,
+    },
+  },
+};
+
+const FOOTER_NO_LIMITS_ACCOUNT: CodexAccountSnapshot = {
+  account: { type: "chatgpt", email: "dev@example.com", planType: "Plus" },
+  requiresOpenAiAuth: false,
+  pendingLogin: null,
+  rateLimits: null,
+};
+
+const FOOTER_SIGNED_OUT_ACCOUNT: CodexAccountSnapshot = {
+  account: null,
+  requiresOpenAiAuth: true,
+  pendingLogin: null,
+  rateLimits: null,
+};
 
 function SidebarSectionMenuHarness() {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
@@ -453,13 +499,25 @@ function CodexProjectSessionRowsHarness() {
   );
 }
 
-function SettingsFooterHarness() {
+function SettingsFooterHarness({
+  account = FOOTER_QUOTA_ACCOUNT,
+}: {
+  account?: CodexAccountSnapshot | null;
+}) {
   return (
-    <div className="flex min-h-screen items-end bg-(--background) p-8">
-      <div className="w-[280px] bg-(--background-secondary)">
-        <LeftSidebarFooter onOpenSettings={() => {}} />
+    <NodexTooltipProvider>
+      <div className="flex min-h-screen items-end bg-(--background) p-8">
+        <div className="w-[280px] bg-(--background-secondary)">
+          <LeftSidebarFooter
+            onOpenSettings={() => {}}
+            account={account}
+            connection={{ status: "connected", retries: 0 }}
+            onRefreshAccount={async () => account ?? FOOTER_SIGNED_OUT_ACCOUNT}
+            onLogout={async () => undefined}
+          />
+        </div>
       </div>
-    </div>
+    </NodexTooltipProvider>
   );
 }
 
@@ -519,6 +577,18 @@ export const CodexProjectSessionRows: Story = {
   render: () => <CodexProjectSessionRowsHarness />,
 };
 
-export const SettingsFooter: Story = {
-  render: () => <SettingsFooterHarness />,
+export const SettingsFooterWithQuota: Story = {
+  render: () => <SettingsFooterHarness account={FOOTER_QUOTA_ACCOUNT} />,
+};
+
+export const SettingsFooterLowQuota: Story = {
+  render: () => <SettingsFooterHarness account={FOOTER_LOW_QUOTA_ACCOUNT} />,
+};
+
+export const SettingsFooterNoRateLimits: Story = {
+  render: () => <SettingsFooterHarness account={FOOTER_NO_LIMITS_ACCOUNT} />,
+};
+
+export const SettingsFooterSignedOut: Story = {
+  render: () => <SettingsFooterHarness account={FOOTER_SIGNED_OUT_ACCOUNT} />,
 };

@@ -1,5 +1,21 @@
 import type { CodexAccountSnapshot, CodexRateLimitsSnapshot } from "../../../../lib/types";
 
+export interface RateLimitRingWindowView {
+  label: string;
+  compactLabel: string;
+  ariaLabel: string;
+  remainingPercent: number;
+  windowDurationMins: number;
+}
+
+export interface RateLimitRingViewModel {
+  outer: RateLimitRingWindowView | null;
+  inner: RateLimitRingWindowView | null;
+  ariaLabel: string;
+  summaryLabel: string | null;
+  hasLimits: boolean;
+}
+
 export function formatRateLimitWindowLabel(windowDurationMins?: number): string | null {
   if (!windowDurationMins || windowDurationMins <= 0) return null;
 
@@ -71,7 +87,7 @@ export function formatRateLimitResetLabel(
   }).format(resetsAt);
 }
 
-function getRemainingRateLimitPercent(usedPercent: number): number {
+export function getRemainingRateLimitPercent(usedPercent: number): number {
   return Math.max(0, Math.min(100, Math.round(100 - usedPercent)));
 }
 
@@ -104,6 +120,56 @@ export function formatRateLimitSummary(
   if (parts.length === 0) return null;
 
   return parts.join(" · ");
+}
+
+function formatRateLimitWindowAriaLabel(label: string): string {
+  if (label === "Weekly") return "weekly";
+  return label;
+}
+
+function buildRateLimitRingWindowView(
+  window: CodexRateLimitsSnapshot["primary"],
+): RateLimitRingWindowView | null {
+  if (!window?.windowDurationMins || window.windowDurationMins <= 0) return null;
+
+  const label = formatRateLimitWindowLabel(window.windowDurationMins);
+  const compactLabel = formatRateLimitWindowCompactLabel(window.windowDurationMins);
+  if (!label || !compactLabel) return null;
+
+  return {
+    label,
+    compactLabel,
+    ariaLabel: formatRateLimitWindowAriaLabel(label),
+    remainingPercent: getRemainingRateLimitPercent(window.usedPercent),
+    windowDurationMins: window.windowDurationMins,
+  };
+}
+
+export function buildRateLimitRingViewModel(
+  rateLimits: CodexAccountSnapshot["rateLimits"] | undefined,
+): RateLimitRingViewModel {
+  const windows = [
+    buildRateLimitRingWindowView(rateLimits?.primary),
+    buildRateLimitRingWindowView(rateLimits?.secondary),
+  ]
+    .filter((window): window is RateLimitRingWindowView => window !== null)
+    .sort((left, right) => left.windowDurationMins - right.windowDurationMins);
+
+  const outer = windows[0] ?? null;
+  const inner = windows.length > 1 ? windows[windows.length - 1] ?? null : null;
+  const ariaParts = [outer, inner]
+    .filter((window): window is RateLimitRingWindowView => window !== null)
+    .map((window) => `${window.ariaLabel} ${window.remainingPercent}%`);
+
+  return {
+    outer,
+    inner,
+    ariaLabel: ariaParts.length > 0
+      ? `Usage remaining: ${ariaParts.join(", ")}`
+      : "Usage remaining unavailable",
+    summaryLabel: ariaParts.length > 0 ? ariaParts.join(", ") : null,
+    hasLimits: ariaParts.length > 0,
+  };
 }
 
 export function RateLimitTooltipSection({
