@@ -764,7 +764,7 @@ export const CollapsedRightPanel: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Attached thread with the right panel collapsed, keeping the thread title at the top while rendering the Codex summary toggle at the thread header's right edge before the registry-backed global bottom/side panel slot.",
+        story: "Attached thread with the right panel collapsed, keeping the thread title at the top while the Codex summary toggle stays in the thread header summary lane at the panel boundary.",
       },
     },
   },
@@ -865,6 +865,37 @@ export const FullWidthRightPanel: Story = {
     docs: {
       description: {
         story: "Expanded right panel with tabs aligned to the panel edge, restore in the panel tab header, and the main thread viewport collapsed to zero width under the same fixed toolbar.",
+      },
+    },
+  },
+};
+
+export const FullWidthRightPanelWithBottomPanel: Story = {
+  args: {
+    rightPanel: "full",
+    bottomPanel: "terminal",
+    activeTab: "terminal",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Full-width right panel with the independent bottom panel still visible, matching Codex's zero right-slot reservation while bottom geometry remains separate.",
+      },
+    },
+  },
+};
+
+export const RegularRightAndBottomMotionParity: Story = {
+  args: {
+    thread: "attached",
+    rightPanel: "regular",
+    bottomPanel: "terminal",
+    activeTab: "browser",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Regular side panel plus open bottom panel, showing the animated right header slot for bottom/side toggles while the summary toggle remains in the thread header lane and both panel shells use Codex spring geometry.",
       },
     },
   },

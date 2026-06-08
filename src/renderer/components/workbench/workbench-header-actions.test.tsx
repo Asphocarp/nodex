@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { useMotionValue } from "motion/react";
 import {
   HeaderAction,
   HeaderActionProvider,
@@ -28,6 +29,29 @@ function MiddleActionDeclaration() {
     <HeaderAction actionId="second" slotPosition="right" align="end" order={20}>
       <button type="button">Second</button>
     </HeaderAction>
+  );
+}
+
+function MotionWidthSlot() {
+  const slotWidth = useMotionValue(188);
+  return (
+    <HeaderActionProvider
+      actions={(
+        <HeaderAction actionId="motion-width-action" slotPosition="right" align="end" order={10}>
+          <button type="button">Motion</button>
+        </HeaderAction>
+      )}
+    >
+      <HeaderShellSlot
+        side="right"
+        slotWidth={slotWidth}
+        minWidth={70}
+        fallbackWidth={70}
+        fallbackRailWidth={62}
+        onMeasuredWidthChange={() => undefined}
+        onMeasuredRailWidthChange={() => undefined}
+      />
+    </HeaderActionProvider>
   );
 }
 
@@ -106,5 +130,18 @@ describe("workbench header actions", () => {
     expect(textContent(rail)).toBe("FirstSecondThird");
     expect(measuredWidths[measuredWidths.length - 1]).toBe(70);
     expect(measuredRailWidths[measuredRailWidths.length - 1]).toBe(62);
+  });
+
+  test("accepts a MotionValue as the visible slot width", async () => {
+    const view = render(<MotionWidthSlot />);
+    await settleAsyncRender();
+
+    const slot = view.container.querySelector('[data-test-id="header-shell-slot"]');
+    if (!(slot instanceof HTMLElement)) {
+      throw new Error("Expected visible header shell slot");
+    }
+
+    expect(slot.getAttribute("style")?.includes("width: 188px")).toBeTrue();
+    expect(textContent(slot)).toBe("Motion");
   });
 });

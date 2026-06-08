@@ -14,7 +14,6 @@ import type {
   ThreadStageActions,
   ThreadStageHeaderModel,
   ThreadStageRouteInput,
-  ThreadSummaryPanelMode,
 } from "../thread-stage-types";
 import {
   requestLocalConversationResume,
@@ -46,8 +45,6 @@ import { LocalConversationThreadBody } from "./local-conversation-thread-body";
 import { resolveThreadCardStatus } from "./shared/thread-card-fetch";
 import {
   ThreadFloatingSummaryPanel,
-  ThreadSummaryPanelPopover,
-  ThreadSummaryPanelToggle,
 } from "./summary-panel";
 
 type ConnectedThreadStageInput = Omit<
@@ -95,9 +92,8 @@ interface ConnectedThreadStageProps extends ConnectedThreadStageInput {
   initialUiState?: ThreadBodyUiStateOverrides;
   summaryPanelMounted?: boolean;
   summaryPanelOpen?: boolean;
-  summaryPanelMode?: ThreadSummaryPanelMode;
-  summaryPanelPinnedOpen?: boolean;
-  onSummaryPanelPinnedOpenToggle?: () => void;
+  summaryPanelContentShift?: number;
+  summaryAction?: ReactNode;
 }
 
 function resolveThreadTitle(input: ConnectedThreadStageInput, summary: ReturnType<typeof useConversationSummaryFields>): string {
@@ -541,9 +537,8 @@ export function ConnectedThreadStage({
   initialUiState,
   summaryPanelMounted = false,
   summaryPanelOpen = false,
-  summaryPanelMode = "hidden",
-  summaryPanelPinnedOpen = false,
-  onSummaryPanelPinnedOpenToggle,
+  summaryPanelContentShift = 0,
+  summaryAction,
   ...input
 }: ConnectedThreadStageProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -572,25 +567,6 @@ export function ConnectedThreadStage({
       turns,
     ],
   );
-  const summaryAction = useMemo(() => {
-    if (summaryPanelMode === "hidden") return null;
-    if (summaryPanelMode === "popover") {
-      return <ThreadSummaryPanelPopover {...summaryPanelContentProps} />;
-    }
-    return (
-      <ThreadSummaryPanelToggle
-        label="Toggle pinned summary"
-        pressed={summaryPanelPinnedOpen}
-        onClick={onSummaryPanelPinnedOpenToggle}
-      />
-    );
-  }, [
-    summaryPanelMode,
-    summaryPanelPinnedOpen,
-    onSummaryPanelPinnedOpenToggle,
-    summaryPanelContentProps,
-  ]);
-
   useEffect(() => {
     if (!input.activeThreadId || input.isNewThreadTab) {
       return;
@@ -643,6 +619,7 @@ export function ConnectedThreadStage({
           {...summaryPanelContentProps}
         />
       )}
+      contentShiftX={summaryPanelContentShift}
     />
   );
 }

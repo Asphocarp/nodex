@@ -11,7 +11,7 @@ import {
   type ComponentType,
   type ReactNode,
 } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion, useTransform, type MotionStyle } from "motion/react";
 import {
   CalendarDays,
   Globe2,
@@ -44,6 +44,7 @@ import { toast } from "@/components/ui/toast";
 import {
   ConnectedThreadStage,
   ConnectedReviewDiffPanel,
+  ThreadSummaryPanelHeaderAction,
   useCodexAppServerControl,
   useCodexThreadStartProgress,
   useLocalConversationAccount,
@@ -80,6 +81,13 @@ import {
   readThreadQueueFollowUpsEnabled,
   writeThreadQueueFollowUpsEnabled,
 } from "@/lib/thread-composer-follow-up-mode";
+import {
+  resolveCodexAnimatedPanelSize,
+  resolveCodexSummaryContentShift,
+  resolveCodexSummaryPanelLayoutMode,
+  useCodexAnimatedPanelState,
+  type ThreadSummaryPanelLayoutMode,
+} from "@/lib/codex-panel-motion";
 import {
   readWorktreeStartMode,
   writeWorktreeStartMode,
@@ -556,6 +564,17 @@ function clampRegularRightPanelWidth(width: number, sessionWidth: number): numbe
   return Math.min(maxWidth, Math.max(RIGHT_PANEL_MIN_WIDTH, width));
 }
 
+function readCodexWindowZoom(root: HTMLElement | null): number {
+  const rawZoom = root ? window.getComputedStyle(root).getPropertyValue("--codex-window-zoom") : "";
+  const parsedZoom = Number.parseFloat(rawZoom);
+  return Number.isFinite(parsedZoom) && parsedZoom > 0 ? parsedZoom : 1;
+}
+
+function readCodexViewportWidth(root: HTMLElement | null): number {
+  if (typeof window === "undefined") return 0;
+  return window.innerWidth / readCodexWindowZoom(root);
+}
+
 function clampBottomPanelHeight(height: number, sessionHeight: number): number {
   const maxHeight = sessionHeight > 0
     ? Math.max(BOTTOM_PANEL_MIN_HEIGHT, Math.floor(sessionHeight / 2))
@@ -696,10 +715,14 @@ export function WorkbenchShell({
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [previewTabsByPanel, setPreviewTabsByPanel] = useState<Record<string, ProjectSessionPreviewTab>>({});
+  const [panelCollapsedOverrides, setPanelCollapsedOverrides] = useState<Record<string, boolean>>({});
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT_WIDTH);
   const [rightPanelDragWidth, setRightPanelDragWidth] = useState<number | null>(null);
   const [sessionContentWidth, setSessionContentWidth] = useState(0);
   const [sessionContentHeight, setSessionContentHeight] = useState(0);
+  const [appShellWidth, setAppShellWidth] = useState(() =>
+    typeof window === "undefined" ? 0 : window.innerWidth,
+  );
   const [headerLeftWidth, setHeaderLeftWidth] = useState(0);
   const [, setHeaderLeftRailWidth] = useState(0);
   const [headerRightWidth, setHeaderRightWidth] = useState(RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX);
@@ -768,17 +791,60 @@ export function WorkbenchShell({
     : bottomPanelTabs[0]?.id ?? null;
   const rightActiveTab = rightRenderableTabs.find((tab) => tab.id === rightActiveTabId) ?? rightRenderableTabs[0] ?? null;
   const bottomActiveTab = bottomRenderableTabs.find((tab) => tab.id === bottomActiveTabId) ?? bottomRenderableTabs[0] ?? null;
+  const rightPanelCollapsed = activeSession
+    ? panelCollapsedOverrides[makePanelPreviewKey(activeSession.id, "right")] ?? rightPanel?.collapsed ?? true
+    : true;
+  const bottomPanelCollapsed = activeSession
+    ? panelCollapsedOverrides[makePanelPreviewKey(activeSession.id, "bottom")] ?? bottomPanel?.collapsed ?? true
+    : true;
+  const sidePanelOpen = activeSession ? !rightPanelCollapsed : false;
+  const bottomPanelOpen = activeSession ? !bottomPanelCollapsed : false;
   const rightPanelFullWidth = Boolean(
-    activeSession && !rightPanel?.collapsed && (rightPanel?.size.fullWidth ?? activeSession.isOverview),
+    activeSession && sidePanelOpen && (rightPanel?.size.fullWidth ?? activeSession.isOverview),
   );
+  const rightPanelSizingWidth = Math.max(sessionContentWidth, appShellWidth);
   const regularRightPanelWidth = clampRegularRightPanelWidth(
     rightPanelDragWidth ?? rightPanel?.size.widthPx ?? rightPanelWidth,
-    sessionContentWidth,
+    rightPanelSizingWidth,
   );
   const bottomPanelHeight = clampBottomPanelHeight(
     bottomPanel?.size.heightPx ?? BOTTOM_PANEL_DEFAULT_HEIGHT,
     sessionContentHeight,
   );
+  const rightPanelTargetWidth = rightPanelFullWidth
+    ? Math.max(sessionContentWidth, regularRightPanelWidth)
+    : regularRightPanelWidth;
+  const rightPanelMotion = useCodexAnimatedPanelState({
+    open: sidePanelOpen,
+    targetSize: rightPanelTargetWidth,
+    reducedMotion,
+    resetKey: activeSession?.id ?? null,
+  });
+  const bottomPanelMotion = useCodexAnimatedPanelState({
+    open: bottomPanelOpen,
+    targetSize: bottomPanelHeight,
+    reducedMotion,
+    resetKey: activeSession?.id ?? null,
+  });
+  const rightPanelAnimatedWidth = useTransform(
+    [rightPanelMotion.progress, rightPanelMotion.targetSize],
+    ([latestProgress, latestTargetSize]) =>
+      rightPanelFullWidth
+        ? 0
+        : resolveCodexAnimatedPanelSize(Number(latestProgress), Number(latestTargetSize)),
+  );
+  const bottomPanelAnimatedHeightCss = useTransform(
+    bottomPanelMotion.animatedSize,
+    (latestHeight) => `${latestHeight}px`,
+  );
+  const summaryLayoutContentWidth = Math.max(sessionContentWidth, appShellWidth);
+  const mainContentTargetWidth = activeSession
+    ? rightPanelFullWidth
+      ? 0
+      : Math.max(0, summaryLayoutContentWidth - (sidePanelOpen ? regularRightPanelWidth : 0))
+    : 0;
+  const threadSummaryPanelLayoutMode: ThreadSummaryPanelLayoutMode =
+    resolveCodexSummaryPanelLayoutMode(mainContentTargetWidth);
   const settingsSidebarTopLevelSectionOrder = normalizeSidebarTopLevelSectionOrder(
     sidebar?.topLevelSectionOrder,
   );
@@ -820,6 +886,30 @@ export function WorkbenchShell({
   const threadStageHeaderLeftPadding = sidebarCollapsed
     ? `calc(${effectiveHeaderLeftWidth}px + var(--spacing) * 4)`
     : "calc(var(--spacing) * 3)";
+
+  useEffect(() => {
+    if (!activeSession) {
+      setPanelCollapsedOverrides((current) => Object.keys(current).length === 0 ? current : {});
+      return;
+    }
+
+    const rightKey = makePanelPreviewKey(activeSession.id, "right");
+    const bottomKey = makePanelPreviewKey(activeSession.id, "bottom");
+    setPanelCollapsedOverrides((current) => {
+      const rightMatches = current[rightKey] === activeSession.panels.right.collapsed;
+      const bottomMatches = current[bottomKey] === activeSession.panels.bottom.collapsed;
+      if (!rightMatches && !bottomMatches) {
+        return current;
+      }
+
+      const next = { ...current };
+      if (rightMatches) delete next[rightKey];
+      if (bottomMatches) delete next[bottomKey];
+      return next;
+    });
+  }, [
+    activeSession,
+  ]);
 
   const openSettings = useCallback(() => {
     setSettingsPath(buildSettingsPath("general-settings"));
@@ -927,8 +1017,20 @@ export function WorkbenchShell({
   }, [activeSession?.id]);
 
   useEffect(() => {
-    setRightPanelWidth((current) => clampRegularRightPanelWidth(current, sessionContentWidth));
-  }, [sessionContentWidth]);
+    const measure = () => {
+      setAppShellWidth(readCodexViewportWidth(workbenchRootRef.current));
+    };
+
+    measure();
+    window.addEventListener("resize", measure);
+    return () => {
+      window.removeEventListener("resize", measure);
+    };
+  }, []);
+
+  useEffect(() => {
+    setRightPanelWidth((current) => clampRegularRightPanelWidth(current, rightPanelSizingWidth));
+  }, [rightPanelSizingWidth]);
 
   useEffect(() => {
     if (!projects.some((project) => project.id === activeProjectId)) {
@@ -975,6 +1077,33 @@ export function WorkbenchShell({
     if (options?.refresh !== false) await refreshProjectSessions(updated.projectId);
     return updated;
   }, [activeSession, refreshProjectSessions]);
+
+  const setActivePanelCollapsed = useCallback(async (panelId: PanelId, collapsed: boolean) => {
+    if (!activeSession) return null;
+    const sessionId = activeSession.id;
+    const overrideKey = makePanelPreviewKey(sessionId, panelId);
+    setPanelCollapsedOverrides((current) => ({ ...current, [overrideKey]: collapsed }));
+
+    try {
+      const updated = await updateActivePanel(panelId, { collapsed });
+      setPanelCollapsedOverrides((current) => {
+        if (!(overrideKey in current)) return current;
+        const next = { ...current };
+        delete next[overrideKey];
+        return next;
+      });
+      return updated;
+    } catch (error) {
+      setPanelCollapsedOverrides((current) => {
+        if (!(overrideKey in current)) return current;
+        const next = { ...current };
+        delete next[overrideKey];
+        return next;
+      });
+      toast.danger(error instanceof Error ? error.message : "Unable to update panel");
+      return null;
+    }
+  }, [activeSession, updateActivePanel]);
 
   const clearPanelPreviewTab = useCallback((sessionId: string, panelId: PanelId) => {
     setPreviewTabsByPanel((current) => {
@@ -1268,43 +1397,74 @@ export function WorkbenchShell({
 
   const showActiveRightPanel = useCallback(async () => {
     if (!activeSession) return;
-    await updateActivePanel("right", { collapsed: false });
-  }, [activeSession, updateActivePanel]);
+    await setActivePanelCollapsed("right", false);
+  }, [activeSession, setActivePanelCollapsed]);
 
   const hideActiveRightPanel = useCallback(async () => {
     if (!activeSession) return;
-    await updateActivePanel("right", { collapsed: true });
-  }, [activeSession, updateActivePanel]);
+    await setActivePanelCollapsed("right", true);
+  }, [activeSession, setActivePanelCollapsed]);
 
   const showActiveBottomPanel = useCallback(async () => {
     if (!activeSession) return;
-    await updateActivePanel("bottom", { collapsed: false });
-  }, [activeSession, updateActivePanel]);
+    await setActivePanelCollapsed("bottom", false);
+  }, [activeSession, setActivePanelCollapsed]);
 
   const hideActiveBottomPanel = useCallback(async () => {
     if (!activeSession) return;
-    await updateActivePanel("bottom", { collapsed: true });
-  }, [activeSession, updateActivePanel]);
+    await setActivePanelCollapsed("bottom", true);
+  }, [activeSession, setActivePanelCollapsed]);
 
   const toggleActiveRightPanelFullWidth = useCallback(() => {
     if (!activeSession) return;
-    void updateActivePanel("right", {
-      size: {
-        ...activeSession.panels.right.size,
-        fullWidth: !rightPanelFullWidth,
-      },
-    });
+    const overrideKey = makePanelPreviewKey(activeSession.id, "right");
+    setPanelCollapsedOverrides((current) => ({ ...current, [overrideKey]: false }));
+    void (async () => {
+      try {
+        await updateActivePanel("right", {
+          collapsed: false,
+          size: {
+            ...activeSession.panels.right.size,
+            fullWidth: !rightPanelFullWidth,
+          },
+        });
+      } catch (error) {
+        toast.danger(error instanceof Error ? error.message : "Unable to update panel");
+      } finally {
+        setPanelCollapsedOverrides((current) => {
+          if (!(overrideKey in current)) return current;
+          const next = { ...current };
+          delete next[overrideKey];
+          return next;
+        });
+      }
+    })();
   }, [activeSession, rightPanelFullWidth, updateActivePanel]);
 
   const resizeRightPanel = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
-    const startX = event.clientX;
+    const root = workbenchRootRef.current;
+    const windowZoom = readCodexWindowZoom(root);
+    const sizingWidth = Math.max(rightPanelSizingWidth, readCodexViewportWidth(root));
+    const startX = event.clientX / windowZoom;
     const startWidth = regularRightPanelWidth;
 
     let latestWidth = startWidth;
+    let closedByResize = false;
     setRightPanelDragWidth(startWidth);
     const onMouseMove = (moveEvent: MouseEvent) => {
-      const nextWidth = clampRegularRightPanelWidth(startWidth + startX - moveEvent.clientX, sessionContentWidth);
+      if (closedByResize) return;
+      const pointerX = moveEvent.clientX / windowZoom;
+      const rawWidth = startWidth + startX - pointerX;
+      if (rawWidth < RIGHT_PANEL_MIN_WIDTH) {
+        closedByResize = true;
+        latestWidth = RIGHT_PANEL_MIN_WIDTH;
+        setRightPanelDragWidth(null);
+        void setActivePanelCollapsed("right", true);
+        return;
+      }
+
+      const nextWidth = clampRegularRightPanelWidth(rawWidth, sizingWidth);
       latestWidth = nextWidth;
       setRightPanelDragWidth(nextWidth);
       setRightPanelWidth(nextWidth);
@@ -1317,7 +1477,7 @@ export function WorkbenchShell({
       window.removeEventListener("mouseup", onMouseUp);
       void (async () => {
         try {
-          if (!activeSession) return;
+          if (!activeSession || closedByResize) return;
           await updateActivePanel("right", {
             size: {
               ...activeSession.panels.right.size,
@@ -1334,16 +1494,29 @@ export function WorkbenchShell({
     document.body.style.cursor = "col-resize";
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
-  }, [activeSession, regularRightPanelWidth, sessionContentWidth, updateActivePanel]);
+  }, [activeSession, regularRightPanelWidth, rightPanelSizingWidth, setActivePanelCollapsed, updateActivePanel]);
 
   const resizeBottomPanel = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
-    const startY = event.clientY;
+    const root = workbenchRootRef.current;
+    const windowZoom = readCodexWindowZoom(root);
+    const startY = event.clientY / windowZoom;
     const startHeight = bottomPanelHeight;
     let latestHeight = startHeight;
+    let closedByResize = false;
 
     const onMouseMove = (moveEvent: MouseEvent) => {
-      const nextHeight = clampBottomPanelHeight(startHeight + startY - moveEvent.clientY, sessionContentHeight);
+      if (closedByResize) return;
+      const pointerY = moveEvent.clientY / windowZoom;
+      const rawHeight = startHeight + startY - pointerY;
+      if (rawHeight < BOTTOM_PANEL_MIN_HEIGHT) {
+        closedByResize = true;
+        latestHeight = BOTTOM_PANEL_MIN_HEIGHT;
+        void setActivePanelCollapsed("bottom", true);
+        return;
+      }
+
+      const nextHeight = clampBottomPanelHeight(rawHeight, sessionContentHeight);
       latestHeight = nextHeight;
       if (activeSession) {
         void updateActivePanel("bottom", {
@@ -1361,6 +1534,7 @@ export function WorkbenchShell({
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
       if (activeSession) {
+        if (closedByResize) return;
         void updateActivePanel("bottom", {
           size: {
             ...activeSession.panels.bottom.size,
@@ -1374,7 +1548,7 @@ export function WorkbenchShell({
     document.body.style.cursor = "row-resize";
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
-  }, [activeSession, bottomPanelHeight, sessionContentHeight, updateActivePanel]);
+  }, [activeSession, bottomPanelHeight, sessionContentHeight, setActivePanelCollapsed, updateActivePanel]);
 
   const panelTabItems = useMemo<Record<PanelId, AppShellTabItem[]>>(() => {
     const empty = { right: [], bottom: [] } satisfies Record<PanelId, AppShellTabItem[]>;
@@ -1599,19 +1773,25 @@ export function WorkbenchShell({
     sidebarWidth,
   ]);
 
-  const sidePanelOpen = activeSession ? !activeSession.panels.right.collapsed : false;
-  const bottomPanelOpen = activeSession ? !activeSession.panels.bottom.collapsed : false;
-  const headerShellSlotWidth = sidePanelOpen && !rightPanelFullWidth ? regularRightPanelWidth : 0;
+  const headerShellSlotWidth = rightPanelAnimatedWidth;
   const threadSummaryPanelAvailable = Boolean(activeSession?.thread);
-  const threadSummaryPanelSuppressed = sidePanelOpen || rightPanelFullWidth;
-  const threadSummaryPanelMounted = threadSummaryPanelAvailable && !threadSummaryPanelSuppressed;
+  const threadSummaryPanelSuppressed = rightPanelFullWidth;
+  const threadSummaryPanelMounted = threadSummaryPanelAvailable
+    && !threadSummaryPanelSuppressed
+    && threadSummaryPanelLayoutMode !== "overlay";
   const threadSummaryPanelOpen = threadSummaryPanelMounted
     && threadSummaryPanelPinnedOpen;
   const threadSummaryPanelMode = !threadSummaryPanelAvailable
     ? "hidden"
     : threadSummaryPanelSuppressed
-      ? "popover"
-      : "pinned";
+      ? "hidden"
+      : threadSummaryPanelLayoutMode === "overlay"
+        ? "popover"
+        : "pinned";
+  const threadSummaryPanelContentShift = resolveCodexSummaryContentShift({
+    layoutMode: threadSummaryPanelLayoutMode,
+    pinnedOpen: threadSummaryPanelOpen,
+  });
 
   const toggleThreadSummaryPanel = useCallback(() => {
     setThreadSummaryPanelPinnedOpen((current) => {
@@ -1620,24 +1800,33 @@ export function WorkbenchShell({
       return next;
     });
   }, []);
+  const threadSummaryHeaderAction = threadSummaryPanelMode !== "hidden" && activeSession ? (
+    <ThreadSummaryPanelHeaderAction
+      activeThreadId={activeSession.thread?.threadId ?? null}
+      projectWorkspacePath={activeProject?.workspacePath ?? null}
+      mode={threadSummaryPanelMode}
+      pinnedOpen={threadSummaryPanelPinnedOpen}
+      onPinnedOpenToggle={toggleThreadSummaryPanel}
+    />
+  ) : null;
 
   const toggleActiveSidePanel = useCallback(() => {
     if (!activeSession) return;
-    if (activeSession.panels.right.collapsed) {
+    if (!sidePanelOpen) {
       void showActiveRightPanel();
       return;
     }
     void hideActiveRightPanel();
-  }, [activeSession, hideActiveRightPanel, showActiveRightPanel]);
+  }, [activeSession, hideActiveRightPanel, showActiveRightPanel, sidePanelOpen]);
 
   const toggleActiveBottomPanel = useCallback(() => {
     if (!activeSession) return;
-    if (activeSession.panels.bottom.collapsed) {
+    if (!bottomPanelOpen) {
       void showActiveBottomPanel();
       return;
     }
     void hideActiveBottomPanel();
-  }, [activeSession, hideActiveBottomPanel, showActiveBottomPanel]);
+  }, [activeSession, bottomPanelOpen, hideActiveBottomPanel, showActiveBottomPanel]);
 
   const sidebarCollapseControlLabel = sidebarCollapsed ? "Show sidebar" : "Hide sidebar";
   const sidebarCollapseControlButton = (
@@ -1815,7 +2004,7 @@ export function WorkbenchShell({
         pressed={rightPanelFullWidth}
         onClick={toggleActiveRightPanelFullWidth}
       >
-        {rightPanelFullWidth ? <CodexExpandPanelIcon className="icon-sm" /> : <CodexRestorePanelIcon className="icon-sm" />}
+        {rightPanelFullWidth ? <CodexRestorePanelIcon className="icon-sm" /> : <CodexExpandPanelIcon className="icon-sm" />}
       </ToolbarIconButton>
       <div
         aria-hidden="true"
@@ -1892,16 +2081,17 @@ export function WorkbenchShell({
   return (
     <HeaderActionProvider actions={settingsPath ? null : headerActions}>
       <NodexTooltipProvider>
-        <div
+        <motion.div
           ref={workbenchRootRef}
           className="relative flex flex-col text-token-text-primary"
           style={{
             "--spacing-token-safe-header-left": `${safeHeaderLeftWidth}px`,
             "--spacing-token-safe-header-right": "12px",
+            "--app-shell-bottom-panel-height": bottomPanelAnimatedHeightCss,
             width: "calc(100vw / var(--codex-window-zoom, 1))",
             height: "calc(100vh / var(--codex-window-zoom, 1))",
             zoom: "var(--codex-window-zoom, 1)",
-          } as React.CSSProperties}
+          } as MotionStyle}
         >
           <header
             data-testid="workbench-global-header"
@@ -2076,9 +2266,8 @@ export function WorkbenchShell({
                         sidePanelOpen={sidePanelOpen}
                         summaryPanelMounted={threadSummaryPanelMounted}
                         summaryPanelOpen={threadSummaryPanelOpen}
-                        summaryPanelMode={threadSummaryPanelMode}
-                        summaryPanelPinnedOpen={threadSummaryPanelPinnedOpen}
-                        onSummaryPanelPinnedOpenToggle={toggleThreadSummaryPanel}
+                        summaryPanelContentShift={threadSummaryPanelContentShift}
+                        summaryAction={threadSummaryHeaderAction}
                         onOpenCard={(cardId) => {
                           if (!activeProject) return;
                           void openCardTab(activeProject.id, cardId, cardId);
@@ -2087,15 +2276,18 @@ export function WorkbenchShell({
                     </div>
                   </section>
 
-                  {!activeSession.panels.right.collapsed ? (
-                    <section
+                  {rightPanelMotion.mounted ? (
+                    <motion.aside
                       data-app-shell-focus-area="right-panel"
                       data-testid="session-right-panel"
                       data-right-panel-width-mode={rightPanelFullWidth ? "full" : "regular"}
                       className="relative ml-auto h-full min-h-0 min-w-0 shrink-0 overflow-visible"
-                      style={{ width: rightPanelFullWidth ? "100%" : regularRightPanelWidth }}
+                      style={{
+                        opacity: rightPanelMotion.opacity,
+                        width: rightPanelMotion.animatedSize,
+                      }}
                     >
-                      {!rightPanelFullWidth ? (
+                      {sidePanelOpen && !rightPanelFullWidth ? (
                         <div
                           role="separator"
                           aria-orientation="vertical"
@@ -2114,7 +2306,8 @@ export function WorkbenchShell({
                             !rightPanelFullWidth && "border-l border-token-border",
                           )}
                           style={{
-                            width: rightPanelFullWidth ? "100%" : regularRightPanelWidth,
+                            width: rightPanelTargetWidth,
+                            minWidth: rightPanelTargetWidth,
                             "--thread-content-top-inset": "calc(var(--spacing) * 8)",
                           } as React.CSSProperties}
                         >
@@ -2157,64 +2350,79 @@ export function WorkbenchShell({
                           )}
                         </div>
                       </div>
-                    </section>
+                    </motion.aside>
                   ) : null}
                 </div>
 
-                {!activeSession.panels.bottom.collapsed ? (
-                  <section
+                {bottomPanelMotion.mounted ? (
+                  <motion.section
                     data-app-shell-focus-area="bottom-panel"
                     data-testid="session-bottom-panel"
-                    className="relative min-h-0 w-full shrink-0 overflow-visible border-t border-token-border bg-token-main-surface-primary"
-                    style={{ height: bottomPanelHeight }}
+                    className="relative min-h-0 w-full shrink-0 overflow-visible"
+                    style={{
+                      opacity: bottomPanelMotion.opacity,
+                      height: bottomPanelMotion.animatedSize,
+                    }}
                   >
-                    <div
-                      role="separator"
-                      aria-orientation="horizontal"
-                      aria-label="Resize bottom panel"
-                      className="group absolute top-0 left-0 right-0 z-40 flex h-4 -translate-y-2 cursor-row-resize touch-none select-none active:cursor-row-resize"
-                      onMouseDown={resizeBottomPanel}
-                    >
-                      <div className="pointer-events-none mx-auto h-px w-full bg-linear-to-r from-transparent via-token-foreground/25 to-transparent opacity-0 group-hover:opacity-100 group-active:opacity-100" />
-                    </div>
-                    {panelTabItems.bottom.length > 0 && bottomActiveTab ? (
-                      <AppShellTabs
-                        tabs={panelTabItems.bottom}
-                        activeTabId={bottomActiveTab.id}
-                        panelId="bottom"
-                        controllerId={`session-${activeSession.id}-bottom`}
-                        onSelect={(tabId) => void selectPanelTab("bottom", tabId)}
-                        onCloseTab={(tabId) => void closePanelTab("bottom", tabId)}
-                        onPinTab={(tabId) => void pinPreviewTab("bottom", tabId)}
-                        onMoveTab={(tabId, targetPanelId) => void moveTabToPanel(tabId, targetPanelId)}
-                        onReorderTab={(dragId, overId) => void reorderTabs("bottom", dragId, overId)}
-                        afterListSticky={bottomPanelTabHeaderStickyControls}
-                        afterList={bottomPanelTabHeaderControls}
-                        headerHeight="toolbar"
-                      />
-                    ) : (
-                      <div className="flex h-full min-h-0 flex-col">
-                        <div className="flex h-toolbar min-w-0 shrink-0 items-center bg-token-main-surface-primary px-2">
-                          <div className="min-w-0 flex-1" />
-                          <div className="ml-1 flex shrink-0 items-center gap-1">{bottomPanelTabHeaderStickyControls}</div>
-                          <div className="ml-1 flex shrink-0 items-center gap-1">{bottomPanelTabHeaderControls}</div>
-                        </div>
-                        <EmptyRightPane
-                          actions={availableBottomPanelActions}
-                          cards={[]}
-                          isMac={isMacPlatform}
-                          onAction={(kind) => {
-                            if (isPreviewableProjectSessionTabKind(kind)) {
-                              void openPreviewTab(kind, "bottom");
-                              return;
-                            }
-                            void createManualTab(kind, "bottom");
-                          }}
-                          onOpenCard={(card) => void openCardStageFromPicker(card)}
-                        />
+                    {bottomPanelOpen ? (
+                      <div
+                        role="separator"
+                        aria-orientation="horizontal"
+                        aria-label="Resize bottom panel"
+                        className="group absolute top-0 left-0 right-0 z-40 flex h-4 -translate-y-2 cursor-row-resize touch-none select-none active:cursor-row-resize"
+                        onMouseDown={resizeBottomPanel}
+                      >
+                        <div className="pointer-events-none mx-auto h-px w-full bg-linear-to-r from-transparent via-token-foreground/25 to-transparent opacity-0 group-hover:opacity-100 group-active:opacity-100" />
                       </div>
-                    )}
-                  </section>
+                    ) : null}
+                    <div className="absolute inset-0 min-h-0 overflow-hidden">
+                      <div
+                        className="absolute inset-x-0 top-0 min-h-0 border-t border-token-border bg-token-main-surface-primary"
+                        style={{
+                          height: bottomPanelHeight,
+                          minHeight: bottomPanelHeight,
+                        }}
+                      >
+                        {panelTabItems.bottom.length > 0 && bottomActiveTab ? (
+                          <AppShellTabs
+                            tabs={panelTabItems.bottom}
+                            activeTabId={bottomActiveTab.id}
+                            panelId="bottom"
+                            controllerId={`session-${activeSession.id}-bottom`}
+                            onSelect={(tabId) => void selectPanelTab("bottom", tabId)}
+                            onCloseTab={(tabId) => void closePanelTab("bottom", tabId)}
+                            onPinTab={(tabId) => void pinPreviewTab("bottom", tabId)}
+                            onMoveTab={(tabId, targetPanelId) => void moveTabToPanel(tabId, targetPanelId)}
+                            onReorderTab={(dragId, overId) => void reorderTabs("bottom", dragId, overId)}
+                            afterListSticky={bottomPanelTabHeaderStickyControls}
+                            afterList={bottomPanelTabHeaderControls}
+                            headerHeight="toolbar"
+                          />
+                        ) : (
+                          <div className="flex h-full min-h-0 flex-col">
+                            <div className="flex h-toolbar min-w-0 shrink-0 items-center bg-token-main-surface-primary px-2">
+                              <div className="min-w-0 flex-1" />
+                              <div className="ml-1 flex shrink-0 items-center gap-1">{bottomPanelTabHeaderStickyControls}</div>
+                              <div className="ml-1 flex shrink-0 items-center gap-1">{bottomPanelTabHeaderControls}</div>
+                            </div>
+                            <EmptyRightPane
+                              actions={availableBottomPanelActions}
+                              cards={[]}
+                              isMac={isMacPlatform}
+                              onAction={(kind) => {
+                                if (isPreviewableProjectSessionTabKind(kind)) {
+                                  void openPreviewTab(kind, "bottom");
+                                  return;
+                                }
+                                void createManualTab(kind, "bottom");
+                              }}
+                              onOpenCard={(card) => void openCardStageFromPicker(card)}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </motion.section>
                 ) : null}
               </div>
             ) : (
@@ -2226,7 +2434,7 @@ export function WorkbenchShell({
             </>
           )}
         </div>
-      </div>
+      </motion.div>
       </NodexTooltipProvider>
     </HeaderActionProvider>
   );
@@ -2664,9 +2872,8 @@ function SessionThreadPage({
   sidePanelOpen,
   summaryPanelMounted,
   summaryPanelOpen,
-  summaryPanelMode,
-  summaryPanelPinnedOpen,
-  onSummaryPanelPinnedOpenToggle,
+  summaryPanelContentShift,
+  summaryAction,
 }: {
   session: ProjectSession;
   project: Project | null;
@@ -2683,9 +2890,8 @@ function SessionThreadPage({
   sidePanelOpen: boolean;
   summaryPanelMounted: boolean;
   summaryPanelOpen: boolean;
-  summaryPanelMode: "hidden" | "pinned" | "popover";
-  summaryPanelPinnedOpen: boolean;
-  onSummaryPanelPinnedOpenToggle: () => void;
+  summaryPanelContentShift: number;
+  summaryAction: ReactNode;
 }) {
   const projectId = project?.id ?? session.projectId;
   const summary = session.thread ? makeThreadSummary(session.thread) : null;
@@ -2826,9 +3032,8 @@ function SessionThreadPage({
         searchOpenTick={searchOpenTick}
         summaryPanelMounted={summaryPanelMounted}
         summaryPanelOpen={summaryPanelOpen}
-        summaryPanelMode={summaryPanelMode}
-        summaryPanelPinnedOpen={summaryPanelPinnedOpen}
-        onSummaryPanelPinnedOpenToggle={onSummaryPanelPinnedOpenToggle}
+        summaryPanelContentShift={summaryPanelContentShift}
+        summaryAction={summaryAction}
         actions={actions}
       />
     </div>

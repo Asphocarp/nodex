@@ -1,0 +1,155 @@
+import { useEffect, useRef, useState } from "react";
+import {
+  animate,
+  useMotionValue,
+  useMotionValueEvent,
+  useTransform,
+  type MotionValue,
+} from "motion/react";
+
+export const CODEX_SHELL_PANEL_TRANSITION = {
+  type: "spring",
+  duration: 0.5,
+  bounce: 0.1,
+} as const;
+
+export const CODEX_SUMMARY_PANEL_TRANSITION = {
+  type: "spring",
+  duration: 0.3,
+  bounce: 0.01,
+} as const;
+
+export const CODEX_SUMMARY_PANEL_WIDTH = 300;
+export const CODEX_SUMMARY_PANEL_GAP = 16;
+export const CODEX_SUMMARY_TARGET_CONTENT_WIDTH = 736;
+export const CODEX_SUMMARY_OVERLAY_AVAILABLE_WIDTH = 180;
+export const CODEX_SUMMARY_GUTTER_AVAILABLE_WIDTH = 400;
+export const CODEX_SUMMARY_SHIFT_X = -((CODEX_SUMMARY_PANEL_WIDTH + CODEX_SUMMARY_PANEL_GAP) / 2);
+
+export type ThreadSummaryPanelLayoutMode = "overlay" | "shift" | "gutter";
+
+export interface CodexAnimatedPanelState {
+  progress: MotionValue<number>;
+  opacity: MotionValue<number>;
+  animatedSize: MotionValue<number>;
+  targetSize: MotionValue<number>;
+  mounted: boolean;
+}
+
+export function clampCodexPanelProgress(progress: number): number {
+  if (!Number.isFinite(progress)) return 0;
+  return Math.min(1, Math.max(0, progress));
+}
+
+export function resolveCodexAnimatedPanelSize(progress: number, targetSize: number): number {
+  if (!Number.isFinite(targetSize) || targetSize <= 0) return 0;
+  return clampCodexPanelProgress(progress) * targetSize;
+}
+
+export function resolveCodexSummaryPanelLayoutMode(mainContentTargetWidth: number): ThreadSummaryPanelLayoutMode {
+  const availableWidth = (mainContentTargetWidth - CODEX_SUMMARY_TARGET_CONTENT_WIDTH) / 2;
+  if (availableWidth < CODEX_SUMMARY_OVERLAY_AVAILABLE_WIDTH) return "overlay";
+  if (availableWidth < CODEX_SUMMARY_GUTTER_AVAILABLE_WIDTH) return "shift";
+  return "gutter";
+}
+
+export function resolveCodexSummaryContentShift({
+  layoutMode,
+  pinnedOpen,
+}: {
+  layoutMode: ThreadSummaryPanelLayoutMode;
+  pinnedOpen: boolean;
+}): number {
+  if (!pinnedOpen) return 0;
+  if (layoutMode !== "shift") return 0;
+  return CODEX_SUMMARY_SHIFT_X;
+}
+
+export function shouldSnapCodexMotion(reducedMotion: boolean | null, animateLayout = true): boolean {
+  return reducedMotion === true || !animateLayout;
+}
+
+export function useCodexAnimatedPanelState({
+  open,
+  targetSize,
+  reducedMotion,
+  animateLayout = true,
+  resetKey,
+}: {
+  open: boolean;
+  targetSize: number;
+  reducedMotion: boolean | null;
+  animateLayout?: boolean;
+  resetKey?: string | number | null;
+}): CodexAnimatedPanelState {
+  const initialProgress = open ? 1 : 0;
+  const progress = useMotionValue(initialProgress);
+  const targetSizeMotionValue = useMotionValue(targetSize);
+  const opacity = useTransform(progress, clampCodexPanelProgress);
+  const animatedSize = useTransform([progress, targetSizeMotionValue], ([latestProgress, latestTargetSize]) =>
+    resolveCodexAnimatedPanelSize(Number(latestProgress), Number(latestTargetSize))
+  );
+  const [mounted, setMounted] = useState(open);
+  const mountedRef = useRef(open);
+  const openRef = useRef(open);
+  const resetKeyRef = useRef(resetKey);
+  const animationRef = useRef<ReturnType<typeof animate> | null>(null);
+
+  const setMountedIfChanged = (nextMounted: boolean) => {
+    if (mountedRef.current === nextMounted) return;
+    mountedRef.current = nextMounted;
+    setMounted(nextMounted);
+  };
+
+  useEffect(() => {
+    targetSizeMotionValue.set(targetSize);
+  }, [targetSize, targetSizeMotionValue]);
+
+  useMotionValueEvent(progress, "change", (latestProgress) => {
+    setMountedIfChanged(openRef.current || clampCodexPanelProgress(latestProgress) > 0);
+  });
+
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
+
+  useEffect(() => {
+    const nextProgress = open ? 1 : 0;
+    const resetChanged = resetKeyRef.current !== resetKey;
+    resetKeyRef.current = resetKey;
+    animationRef.current?.stop();
+    animationRef.current = null;
+
+    if (resetChanged || shouldSnapCodexMotion(reducedMotion, animateLayout)) {
+      progress.set(nextProgress);
+      setMountedIfChanged(open);
+      return undefined;
+    }
+
+    if (open) {
+      setMountedIfChanged(true);
+    }
+
+    const controls = animate(progress, nextProgress, {
+      ...CODEX_SHELL_PANEL_TRANSITION,
+      onComplete: () => {
+        if (!open && clampCodexPanelProgress(progress.get()) === 0) {
+          setMountedIfChanged(false);
+        }
+      },
+    });
+    animationRef.current = controls;
+
+    return () => {
+      controls.stop();
+    };
+  }, [animateLayout, open, progress, reducedMotion, resetKey]);
+
+  return {
+    progress,
+    opacity,
+    animatedSize,
+    targetSize: targetSizeMotionValue,
+    mounted,
+  };
+}

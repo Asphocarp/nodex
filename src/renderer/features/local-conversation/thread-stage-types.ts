@@ -543,6 +543,7 @@ export interface ThreadStageScreenProps {
   body: ReactNode;
   footer: ReactNode;
   floatingContent?: ReactNode;
+  contentShiftX?: number;
 }
 
 export interface ThreadBodyUiStateOverrides {

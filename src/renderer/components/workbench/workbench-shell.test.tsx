@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { createElement, createRef, useState } from "react";
+import { createElement, createRef, useState, type ReactNode } from "react";
 import { act, fireEvent, within } from "@testing-library/react";
 import type { Project, ProjectSession, ProjectSessionTab } from "@/lib/types";
 import {
@@ -19,8 +19,8 @@ let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) 
 let startThreadForSessionCalls: unknown[] = [];
 const CODEX_PANEL_VISIBLE_ICON_PREFIX = "M16.835 8.66301";
 const CODEX_BOTTOM_PANEL_HIDDEN_ICON_PREFIX = "M13.334 12.2529";
-const CODEX_EXPAND_PANEL_ICON_PREFIX = "M4.33496 11";
-const CODEX_RESTORE_PANEL_ICON_PREFIX = "M16.0299 3.0293";
+const CODEX_EXPAND_PANEL_ICON_PREFIX = "M16.0299 3.0293";
+const CODEX_RESTORE_PANEL_ICON_PREFIX = "M4.33496 11";
 const CODEX_NEW_CHAT_ICON_PREFIX = "M2.6687 11.333";
 const CODEX_TOP_NEW_CHAT_CLASS = "focus-visible:outline-token-border relative h-token-nav-row px-row-x py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-lg text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background group";
 const CODEX_PROJECT_NEW_CHAT_CLASS = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-muted-foreground enabled:hover:bg-transparent data-[state=open]:bg-transparent hover:text-token-foreground border-transparent electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5 h-6 w-6 rounded-md !p-1";
@@ -91,6 +91,24 @@ mock.module("./workbench-terminal-panel", () => ({
 }));
 
 mock.module("@/features/local-conversation", () => ({
+  ThreadSummaryPanelHeaderAction: (props: {
+    mode: "hidden" | "pinned" | "popover";
+    pinnedOpen: boolean;
+    onPinnedOpenToggle?: () => void;
+  }) => {
+    if (props.mode === "hidden") return null;
+    return createElement(
+      "button",
+      {
+        type: "button",
+        "aria-label": props.mode === "popover" ? "Toggle summary" : "Toggle pinned summary",
+        "aria-pressed": props.mode === "pinned" ? props.pinnedOpen : "false",
+        "data-testid": "mock-summary-action",
+        onClick: props.mode === "pinned" ? props.onPinnedOpenToggle : undefined,
+      },
+      "Summary",
+    );
+  },
   ThreadSummaryPanelToggle: (props: { label?: string; pressed: boolean; onClick: () => void }) => (
     createElement(
       "button",
@@ -124,35 +142,9 @@ mock.module("@/features/local-conversation", () => ({
       worktreeStartMode?: string;
       worktreeBranchPrefix?: string | null;
     } | null | undefined;
-    const summaryPanelMode = String(props.summaryPanelMode ?? "hidden");
-    const summaryAction = summaryPanelMode === "pinned"
-      ? createElement(
-          "button",
-          {
-            type: "button",
-            "aria-label": "Toggle pinned summary",
-            "aria-pressed": props.summaryPanelPinnedOpen === true,
-            "data-testid": "mock-thread-header-summary-action",
-            onClick: props.onSummaryPanelPinnedOpenToggle as (() => void) | undefined,
-          },
-          "Summary",
-        )
-      : summaryPanelMode === "popover"
-        ? createElement(
-            "button",
-            {
-              type: "button",
-              "aria-label": "Toggle summary",
-              "aria-pressed": "false",
-              "data-testid": "mock-thread-header-summary-action",
-            },
-            "Summary",
-          )
-        : null;
     return createElement(
       "div",
       { "data-thread-stage": "true" },
-      summaryAction,
       createElement("span", null, `Thread:${String(props.activeThreadId)}`),
       props.isNewThreadTab
         ? createElement("textarea", { "aria-label": "Prompt", placeholder: "Write the first prompt for this new thread..." })
@@ -176,6 +168,9 @@ mock.module("@/features/local-conversation", () => ({
         : null,
       createElement("span", null, String(props.selectedModel)),
       createElement("span", null, String(props.selectedReasoningEffort)),
+      props.summaryAction
+        ? createElement("div", { "data-testid": "thread-stage-header-summary-actions" }, props.summaryAction as ReactNode)
+        : null,
       createElement("span", {
         "data-summary-panel-mounted": String(props.summaryPanelMounted),
         "data-summary-panel-open": String(props.summaryPanelOpen),
@@ -693,6 +688,7 @@ beforeEach(() => {
   invokeCalls = [];
   startThreadForSessionCalls = [];
   mockInvokeImpl = null;
+  setWindowInnerWidthForTest(1024);
   localStorage.clear();
   delete (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
   delete (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
@@ -731,6 +727,14 @@ function getHeaderShellSlot(
     throw new Error(`Expected ${side} header shell slot`);
   }
   return slot;
+}
+
+function setWindowInnerWidthForTest(width: number): void {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    writable: true,
+    value: width,
+  });
 }
 
 async function moveSidebarPointer(clientX: number, clientY = 80): Promise<void> {
@@ -1463,6 +1467,7 @@ describe("workbench session shell", () => {
   });
 
   test("thread summary toggle defaults to pinned open and persists collapsed state", async () => {
+    setWindowInnerWidthForTest(1400);
     const screen = renderWorkbench({
       sessionsByProject: {
         alpha: [
@@ -1480,11 +1485,15 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     const summaryToggle = screen.getByRole("button", { name: "Toggle pinned summary" });
+    const globalHeader = screen.getByTestId("workbench-global-header");
+    const summaryRail = screen.getByTestId("thread-stage-header-summary-actions");
     let stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(within(globalHeader).queryByRole("button", { name: "Toggle pinned summary" })).toBe(null);
+    expect(within(summaryRail).queryByRole("button", { name: "Toggle pinned summary" }) !== null).toBeTrue();
     expect(summaryToggle.getAttribute("aria-pressed")).toBe("true");
-    expect(stageProps?.summaryPanelMode).toBe("pinned");
     expect(stageProps?.summaryPanelMounted).toBe(true);
     expect(stageProps?.summaryPanelOpen).toBe(true);
+    expect(stageProps?.summaryPanelContentShift).toBe(-158);
 
     await act(async () => {
       fireEvent.click(summaryToggle);
@@ -1494,13 +1503,14 @@ describe("workbench session shell", () => {
 
     stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
     expect(summaryToggle.getAttribute("aria-pressed")).toBe("false");
-    expect(stageProps?.summaryPanelMode).toBe("pinned");
     expect(stageProps?.summaryPanelMounted).toBe(true);
     expect(stageProps?.summaryPanelOpen).toBe(false);
+    expect(stageProps?.summaryPanelContentShift).toBe(0);
     expect(localStorage.getItem("nodex:thread-summary-panel:pinned-open")).toBe("false");
   });
 
   test("thread summary toggle stays visible while the right panel is open and keeps the pinned overlay hidden", async () => {
+    setWindowInnerWidthForTest(1400);
     localStorage.setItem("nodex:thread-summary-panel:pinned-open", "true");
     const screen = renderWorkbench({
       sessionsByProject: {
@@ -1520,11 +1530,13 @@ describe("workbench session shell", () => {
     let stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
     const rightOpenSummaryToggle = screen.getByRole("button", { name: "Toggle summary" });
     const globalHeader = screen.getByTestId("workbench-global-header");
+    const summaryRail = screen.getByTestId("thread-stage-header-summary-actions");
     expect(rightOpenSummaryToggle.getAttribute("aria-pressed")).toBe("false");
     expect(within(globalHeader).queryByRole("button", { name: "Toggle summary" })).toBe(null);
-    expect(stageProps?.summaryPanelMode).toBe("popover");
+    expect(within(summaryRail).queryByRole("button", { name: "Toggle summary" }) !== null).toBeTrue();
     expect(stageProps?.summaryPanelMounted).toBe(false);
     expect(stageProps?.summaryPanelOpen).toBe(false);
+    expect(stageProps?.summaryPanelContentShift).toBe(0);
     expect(localStorage.getItem("nodex:thread-summary-panel:pinned-open")).toBe("true");
 
     await act(async () => {
@@ -1535,9 +1547,9 @@ describe("workbench session shell", () => {
 
     stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
     expect(screen.getByRole("button", { name: "Toggle summary" }).getAttribute("aria-pressed")).toBe("false");
-    expect(stageProps?.summaryPanelMode).toBe("popover");
     expect(stageProps?.summaryPanelMounted).toBe(false);
     expect(stageProps?.summaryPanelOpen).toBe(false);
+    expect(stageProps?.summaryPanelContentShift).toBe(0);
     expect(localStorage.getItem("nodex:thread-summary-panel:pinned-open")).toBe("true");
 
     await act(async () => {
@@ -1549,9 +1561,9 @@ describe("workbench session shell", () => {
     const summaryToggle = screen.getByRole("button", { name: "Toggle pinned summary" });
     stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
     expect(summaryToggle.getAttribute("aria-pressed")).toBe("true");
-    expect(stageProps?.summaryPanelMode).toBe("pinned");
     expect(stageProps?.summaryPanelMounted).toBe(true);
     expect(stageProps?.summaryPanelOpen).toBe(true);
+    expect(stageProps?.summaryPanelContentShift).toBe(-158);
     expect(localStorage.getItem("nodex:thread-summary-panel:pinned-open")).toBe("true");
   });
 
@@ -1683,6 +1695,173 @@ describe("workbench session shell", () => {
     )).toBeTrue();
   });
 
+  test("right panel resize can grow well beyond the default width on wide shells", async () => {
+    setWindowInnerWidthForTest(1800);
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [
+          makeSession({
+            id: "session:alpha:build",
+            title: "Build",
+            isOverview: false,
+            rightCollapsed: false,
+          }),
+        ],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const rightPanel = screen.getByTestId("session-right-panel");
+    const separator = screen.getByRole("separator", { name: "Resize right panel" });
+
+    await act(async () => {
+      fireEvent.mouseDown(separator, { clientX: 1_200 });
+      fireEvent.mouseMove(window, { clientX: 400 });
+      await Promise.resolve();
+    });
+
+    expect(rightPanel.getAttribute("style")?.includes("width: 1400px")).toBeTrue();
+
+    await act(async () => {
+      fireEvent.mouseUp(window);
+      await Promise.resolve();
+    });
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-session-panels:update"
+      && call[1] === "session:alpha:build"
+      && call[2] === "right"
+      && ((call[3] as { size?: { widthPx?: number } })?.size?.widthPx ?? null) === 1400
+    )).toBeTrue();
+  });
+
+  test("right panel resize closes the side panel when dragged below Codex minimum width", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [
+          makeSession({
+            id: "session:alpha:build",
+            title: "Build",
+            isOverview: false,
+            rightCollapsed: false,
+          }),
+        ],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const separator = screen.getByRole("separator", { name: "Resize right panel" });
+    await act(async () => {
+      fireEvent.mouseDown(separator, { clientX: 700 });
+      fireEvent.mouseMove(window, { clientX: 1_020 });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-session-panels:update"
+      && call[1] === "session:alpha:build"
+      && call[2] === "right"
+      && JSON.stringify(call[3]) === JSON.stringify({ collapsed: true })
+    )).toBeTrue();
+    expect(screen.queryByRole("separator", { name: "Resize right panel" })).toBe(null);
+    expect(screen.queryByTestId("session-right-panel") !== null).toBeTrue();
+
+    await act(async () => {
+      fireEvent.mouseUp(window);
+      await Promise.resolve();
+    });
+  });
+
+  test("right panel resize normalizes drag deltas by the Codex window zoom", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [
+          makeSession({
+            id: "session:alpha:build",
+            title: "Build",
+            isOverview: false,
+            rightCollapsed: false,
+          }),
+        ],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const workbenchRoot = screen.getByTestId("workbench-global-header").parentElement as HTMLElement | null;
+    workbenchRoot?.style.setProperty("--codex-window-zoom", "2");
+    const rightPanel = screen.getByTestId("session-right-panel");
+    const separator = screen.getByRole("separator", { name: "Resize right panel" });
+
+    await act(async () => {
+      fireEvent.mouseDown(separator, { clientX: 1_400 });
+      fireEvent.mouseMove(window, { clientX: 1_500 });
+      await Promise.resolve();
+    });
+
+    expect(rightPanel.getAttribute("style")?.includes("width: 550px")).toBeTrue();
+
+    await act(async () => {
+      fireEvent.mouseUp(window);
+      await Promise.resolve();
+    });
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-session-panels:update"
+      && call[1] === "session:alpha:build"
+      && call[2] === "right"
+      && ((call[3] as { size?: { widthPx?: number } })?.size?.widthPx ?? null) === 550
+    )).toBeTrue();
+  });
+
+  test("bottom panel resize closes the bottom panel when dragged below Codex minimum height", async () => {
+    const terminalSession = makeSession({
+      id: "session:alpha:terminal",
+      title: "Terminal",
+      isOverview: false,
+      rightCollapsed: true,
+      tabs: [
+        {
+          id: "terminal-tab",
+          kind: "terminal",
+          title: "Terminal",
+          panelId: "bottom",
+          config: { projectId: "alpha", terminalSessionId: "terminal" },
+        },
+      ],
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [terminalSession] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const separator = screen.getByRole("separator", { name: "Resize bottom panel" });
+    await act(async () => {
+      fireEvent.mouseDown(separator, { clientY: 700 });
+      fireEvent.mouseMove(window, { clientY: 900 });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-session-panels:update"
+      && call[1] === "session:alpha:terminal"
+      && call[2] === "bottom"
+      && JSON.stringify(call[3]) === JSON.stringify({ collapsed: true })
+    )).toBeTrue();
+    expect(screen.queryByRole("separator", { name: "Resize bottom panel" })).toBe(null);
+    expect(screen.queryByTestId("session-bottom-panel") !== null).toBeTrue();
+
+    await act(async () => {
+      fireEvent.mouseUp(window);
+      await Promise.resolve();
+    });
+  });
+
   test("overview regular-width override survives hiding and showing the side panel", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
@@ -1709,7 +1888,8 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     expect(screen.queryByRole("button", { name: "Restore panel width" })).toBe(null);
-    expect(screen.queryByTestId("session-right-panel")).toBe(null);
+    expect(screen.queryByTestId("session-right-panel") !== null).toBeTrue();
+    expect(screen.queryByRole("separator", { name: "Resize right panel" })).toBe(null);
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Toggle side panel" }));

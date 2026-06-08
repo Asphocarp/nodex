@@ -6,11 +6,11 @@ import {
   useContext,
   useEffect,
   useRef,
-  type CSSProperties,
   type Ref,
   type ReactElement,
   type ReactNode,
 } from "react";
+import { motion, type MotionValue } from "motion/react";
 import { cn } from "@/lib/utils";
 
 export type HeaderActionSlotPosition = "left" | "center" | "right";
@@ -146,7 +146,7 @@ export function HeaderShellSlot({
   onMeasuredRailWidthChange,
 }: {
   side: HeaderActionSlotPosition;
-  slotWidth: number;
+  slotWidth: number | MotionValue<number> | MotionValue<string>;
   minWidth: number;
   fallbackWidth: number;
   fallbackRailWidth: number;
@@ -211,7 +211,7 @@ export function HeaderShellSlot({
       >
         <HeaderActionRail entries={entries} railRef={railProbeRef} />
       </div>
-      <div
+      <motion.div
         data-test-id="header-shell-slot"
         data-workbench-header-shell-slot={side}
         className={cn(
@@ -219,10 +219,10 @@ export function HeaderShellSlot({
           side === "right" && "ml-auto",
           paddingClassName,
         )}
-        style={{ width: slotWidth, minWidth } satisfies CSSProperties}
+        style={{ width: slotWidth, minWidth }}
       >
         <HeaderActionRail entries={entries} fillSlot />
-      </div>
+      </motion.div>
     </>
   );
 }

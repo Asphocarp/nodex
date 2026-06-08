@@ -31,7 +31,7 @@ export {
 export { LocalConversationStageScreen as StageThreads } from "./view/local-conversation-stage-screen";
 export { ConnectedThreadStage } from "./view/connected-thread-stage";
 export { ConnectedReviewDiffPanel } from "./view/connected-review-diff-panel";
-export { ThreadSummaryPanelToggle } from "./view/summary-panel";
+export { ThreadSummaryPanelHeaderAction, ThreadSummaryPanelToggle } from "./view/summary-panel";
 export {
   selectBlockedTurnIds,
   selectConversationLiveRequests,

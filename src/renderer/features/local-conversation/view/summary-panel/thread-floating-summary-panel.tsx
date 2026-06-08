@@ -1,5 +1,6 @@
 import { GitPullRequest, UploadCloud } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import { BranchStatusIcon, ChevronRightIcon, LocalStatusIcon } from "@/components/shared/icons";
 import {
   NodexPopover,
@@ -16,6 +17,10 @@ import {
 } from "../shared/branch-selector-state";
 import { DiffStats } from "../shared/tools/diff-file-shared";
 import { invoke } from "../../../../lib/api";
+import {
+  CODEX_SUMMARY_PANEL_TRANSITION,
+  CODEX_SUMMARY_PANEL_WIDTH,
+} from "../../../../lib/codex-panel-motion";
 import { cn } from "../../../../lib/utils";
 import type {
   CodexConversationTurn,
@@ -391,7 +396,7 @@ export function ThreadSummaryPanelPopover(props: ThreadSummaryPanelContentProps)
           maxWidth: "none",
         }}
       >
-        <div data-thread-summary-panel-mode="popover" style={{ width: 300 }}>
+        <div data-thread-summary-panel-mode="popover" style={{ width: CODEX_SUMMARY_PANEL_WIDTH }}>
           <ThreadSummaryPanelSurface {...props} />
         </div>
       </NodexPopoverContent>
@@ -404,6 +409,7 @@ export function ThreadFloatingSummaryPanel({
   open,
   ...props
 }: ThreadFloatingSummaryPanelProps) {
+  const reducedMotion = useReducedMotion();
   if (!mounted) return null;
 
   return (
@@ -413,23 +419,26 @@ export function ThreadFloatingSummaryPanel({
       data-thread-summary-panel-open={String(open)}
     >
       <div className="relative flex max-h-full">
-        <div
+        <motion.div
           className="pointer-events-none max-h-full min-h-0 origin-top-right pe-4"
-          style={{
+          initial={false}
+          animate={{
             opacity: open ? 1 : 0,
-            transform: open ? "none" : "translateX(100%) scale(0.8)",
+            x: open ? 0 : "100%",
+            scale: open ? 1 : 0.8,
           }}
+          transition={reducedMotion ? { duration: 0 } : CODEX_SUMMARY_PANEL_TRANSITION}
         >
           <div
             className={cn(
               "flex max-h-full flex-col",
               open ? "pointer-events-auto" : "pointer-events-none",
             )}
-            style={{ width: 300 }}
+            style={{ width: CODEX_SUMMARY_PANEL_WIDTH }}
           >
             {open ? <ThreadSummaryPanelSurface {...props} /> : null}
           </div>
-        </div>
+        </motion.div>
       </div>
     </div>
   );
