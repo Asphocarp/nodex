@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { waitFor } from "@testing-library/react";
+import { fireEvent, waitFor } from "@testing-library/react";
 import type {
   CodexAccountSnapshot,
   GitReviewSnapshot,
@@ -177,6 +177,45 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(motionShell?.style.transform).toBe("translateX(100%) scale(0.8)");
     expect(widthShell?.className.includes("pointer-events-none")).toBeTrue();
     expect(widthShell?.style.width).toBe("300px");
+  });
+
+  test("renders the right-panel summary as a dismissible popover", async () => {
+    const { ThreadSummaryPanelPopover } = await import("./thread-floating-summary-panel");
+    const view = render(
+      <NodexTooltipProvider>
+        <ThreadSummaryPanelPopover
+          activeThreadId="thread-1"
+          cwd={null}
+          projectWorkspacePath={null}
+          account={authenticatedAccount}
+          connection={{ status: "connected", retries: 0 }}
+          turns={[]}
+          actions={makeActions(async () => authenticatedAccount)}
+          onErrorMessage={() => undefined}
+        />
+      </NodexTooltipProvider>,
+    );
+
+    const trigger = view.getByRole("button", { name: "Toggle summary" });
+    expect(trigger.getAttribute("aria-pressed")).toBe("false");
+    expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(trigger);
+    await waitFor(() => {
+      const popover = view.container.ownerDocument.body.querySelector('[data-thread-summary-panel-mode="popover"]');
+      expect(Boolean(popover)).toBeTrue();
+    });
+    expect(trigger.getAttribute("aria-pressed")).toBe("true");
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+
+    fireEvent.pointerDown(view.container.ownerDocument.body);
+    fireEvent.mouseDown(view.container.ownerDocument.body);
+    fireEvent.click(view.container.ownerDocument.body);
+    await waitFor(() => {
+      const popover = view.container.ownerDocument.body.querySelector('[data-thread-summary-panel-mode="popover"]');
+      expect(Boolean(popover)).toBeFalse();
+    });
   });
 
   test("renders git branch and combined diff stats from IPC snapshots", async () => {

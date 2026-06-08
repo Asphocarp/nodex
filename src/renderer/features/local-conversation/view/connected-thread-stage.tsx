@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { invoke } from "@/lib/api";
 import type {
   CodexCollaborationModeKind,
@@ -14,6 +14,7 @@ import type {
   ThreadStageActions,
   ThreadStageHeaderModel,
   ThreadStageRouteInput,
+  ThreadSummaryPanelMode,
 } from "../thread-stage-types";
 import {
   requestLocalConversationResume,
@@ -43,7 +44,11 @@ import { LocalConversationStageScreen } from "./local-conversation-stage-screen"
 import { ThreadStageHeader } from "./local-conversation-stage-header";
 import { LocalConversationThreadBody } from "./local-conversation-thread-body";
 import { resolveThreadCardStatus } from "./shared/thread-card-fetch";
-import { ThreadFloatingSummaryPanel } from "./summary-panel";
+import {
+  ThreadFloatingSummaryPanel,
+  ThreadSummaryPanelPopover,
+  ThreadSummaryPanelToggle,
+} from "./summary-panel";
 
 type ConnectedThreadStageInput = Omit<
   ThreadStageRouteInput,
@@ -90,6 +95,9 @@ interface ConnectedThreadStageProps extends ConnectedThreadStageInput {
   initialUiState?: ThreadBodyUiStateOverrides;
   summaryPanelMounted?: boolean;
   summaryPanelOpen?: boolean;
+  summaryPanelMode?: ThreadSummaryPanelMode;
+  summaryPanelPinnedOpen?: boolean;
+  onSummaryPanelPinnedOpenToggle?: () => void;
 }
 
 function resolveThreadTitle(input: ConnectedThreadStageInput, summary: ReturnType<typeof useConversationSummaryFields>): string {
@@ -139,11 +147,13 @@ function ConnectedThreadStageHeader({
   input,
   actions,
   onErrorMessage,
+  summaryAction,
 }: {
   activeThreadId: string | null;
   input: ConnectedThreadStageInput;
   actions: ThreadStageActions;
   onErrorMessage: (message: string | null) => void;
+  summaryAction?: ReactNode;
 }) {
   const connection = useLocalConversationConnection();
   const account = useLocalConversationAccount();
@@ -185,6 +195,7 @@ function ConnectedThreadStageHeader({
       activeThreadCardColumnId,
       connection,
       account,
+      summaryAction,
     }),
     [
       account,
@@ -192,6 +203,7 @@ function ConnectedThreadStageHeader({
       activeThreadId,
       connection,
       input,
+      summaryAction,
       summaryFields,
     ],
   );
@@ -529,6 +541,9 @@ export function ConnectedThreadStage({
   initialUiState,
   summaryPanelMounted = false,
   summaryPanelOpen = false,
+  summaryPanelMode = "hidden",
+  summaryPanelPinnedOpen = false,
+  onSummaryPanelPinnedOpenToggle,
   ...input
 }: ConnectedThreadStageProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -542,6 +557,47 @@ export function ConnectedThreadStage({
   const connection = useLocalConversationConnection();
   const account = useLocalConversationAccount();
   const isActiveThreadArchived = input.activeThreadSummary?.archived === true || summaryFields.archived;
+  const summaryPanelContentProps = useMemo(
+    () => ({
+      activeThreadId,
+      cwd,
+      projectWorkspacePath: input.projectWorkspacePath ?? null,
+      account,
+      connection,
+      turns,
+      actions,
+      newThreadStartInSelector: input.newThreadStartInSelector,
+      onErrorMessage: setErrorMessage,
+    }),
+    [
+      account,
+      activeThreadId,
+      actions,
+      connection,
+      cwd,
+      input.newThreadStartInSelector,
+      input.projectWorkspacePath,
+      turns,
+    ],
+  );
+  const summaryAction = useMemo(() => {
+    if (summaryPanelMode === "hidden") return null;
+    if (summaryPanelMode === "popover") {
+      return <ThreadSummaryPanelPopover {...summaryPanelContentProps} />;
+    }
+    return (
+      <ThreadSummaryPanelToggle
+        label="Toggle pinned summary"
+        pressed={summaryPanelPinnedOpen}
+        onClick={onSummaryPanelPinnedOpenToggle}
+      />
+    );
+  }, [
+    summaryPanelMode,
+    summaryPanelPinnedOpen,
+    onSummaryPanelPinnedOpenToggle,
+    summaryPanelContentProps,
+  ]);
 
   useEffect(() => {
     if (!input.activeThreadId || input.isNewThreadTab) {
@@ -567,6 +623,7 @@ export function ConnectedThreadStage({
           input={input}
           actions={actions}
           onErrorMessage={setErrorMessage}
+          summaryAction={summaryAction}
         />
       )}
       body={(
@@ -591,15 +648,7 @@ export function ConnectedThreadStage({
         <ThreadFloatingSummaryPanel
           mounted={summaryPanelMounted}
           open={summaryPanelOpen}
-          activeThreadId={activeThreadId}
-          cwd={cwd}
-          projectWorkspacePath={input.projectWorkspacePath ?? null}
-          account={account}
-          connection={connection}
-          turns={turns}
-          actions={actions}
-          newThreadStartInSelector={input.newThreadStartInSelector}
-          onErrorMessage={setErrorMessage}
+          {...summaryPanelContentProps}
         />
       )}
     />

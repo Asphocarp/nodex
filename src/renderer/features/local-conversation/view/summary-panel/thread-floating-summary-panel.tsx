@@ -1,6 +1,11 @@
 import { GitPullRequest, UploadCloud } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BranchStatusIcon, ChevronRightIcon, LocalStatusIcon } from "@/components/shared/icons";
+import {
+  NodexPopover,
+  NodexPopoverContent,
+  NodexPopoverTrigger,
+} from "@/components/ui/popover";
 import { BranchSelectorPopover } from "../shared/branch-selector-popover";
 import {
   EMPTY_BRANCH_SELECTOR_STATE,
@@ -23,10 +28,9 @@ import type { ThreadStageActions, ThreadStageRouteInput } from "../../thread-sta
 import { ThreadSummaryPanelRateLimitRow } from "./thread-summary-panel-rate-limit-row";
 import { ThreadSummaryPanelRow } from "./thread-summary-panel-row";
 import { ThreadSummaryPanelSection } from "./thread-summary-panel-section";
+import { ThreadSummaryPanelToggleButton } from "./thread-summary-panel-toggle";
 
-interface ThreadFloatingSummaryPanelProps {
-  mounted: boolean;
-  open: boolean;
+export interface ThreadSummaryPanelContentProps {
   activeThreadId: string | null;
   cwd: string | null;
   projectWorkspacePath: string | null;
@@ -36,6 +40,11 @@ interface ThreadFloatingSummaryPanelProps {
   actions: ThreadStageActions;
   newThreadStartInSelector?: ThreadStageRouteInput["newThreadStartInSelector"];
   onErrorMessage: (message: string | null) => void;
+}
+
+interface ThreadFloatingSummaryPanelProps extends ThreadSummaryPanelContentProps {
+  mounted: boolean;
+  open: boolean;
 }
 
 interface GitSummaryState {
@@ -237,7 +246,7 @@ function useSummaryPanelBranchState({
   };
 }
 
-function SummaryPanelSurface({
+export function ThreadSummaryPanelSurface({
   activeThreadId,
   cwd,
   projectWorkspacePath,
@@ -387,6 +396,35 @@ function SummaryPanelSurface({
   );
 }
 
+export function ThreadSummaryPanelPopover(props: ThreadSummaryPanelContentProps) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <NodexPopover open={open} onOpenChange={setOpen}>
+      <NodexPopoverTrigger asChild>
+        <ThreadSummaryPanelToggleButton
+          label="Toggle summary"
+          pressed={open}
+        />
+      </NodexPopoverTrigger>
+      <NodexPopoverContent
+        align="end"
+        side="bottom"
+        sideOffset={8}
+        className="!w-auto !overflow-visible !rounded-3xl !bg-transparent !p-0 !shadow-none !ring-0 !backdrop-blur-none"
+        style={{
+          maxHeight: "none",
+          maxWidth: "none",
+        }}
+      >
+        <div data-thread-summary-panel-mode="popover" style={{ width: 300 }}>
+          <ThreadSummaryPanelSurface {...props} />
+        </div>
+      </NodexPopoverContent>
+    </NodexPopover>
+  );
+}
+
 export function ThreadFloatingSummaryPanel({
   mounted,
   open,
@@ -415,7 +453,7 @@ export function ThreadFloatingSummaryPanel({
             )}
             style={{ width: 300 }}
           >
-            {open ? <SummaryPanelSurface {...props} /> : null}
+            {open ? <ThreadSummaryPanelSurface {...props} /> : null}
           </div>
         </div>
       </div>

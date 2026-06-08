@@ -474,7 +474,10 @@ export interface ThreadStageHeaderModel {
   activeThreadCardColumnId: string | null;
   connection: CodexConnectionState;
   account: CodexAccountSnapshot | null;
+  summaryAction?: ReactNode;
 }
+
+export type ThreadSummaryPanelMode = "hidden" | "pinned" | "popover";
 
 export interface ThreadBodySurfaceModel {
   projectId: string;

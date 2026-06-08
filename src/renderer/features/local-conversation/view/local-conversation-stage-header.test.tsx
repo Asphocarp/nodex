@@ -147,6 +147,41 @@ describe("ThreadStageHeader auth chrome", () => {
     expect(hitbox?.className.includes("z-10")).toBeTrue();
   });
 
+  test("renders the summary action at the right edge of the thread header", async () => {
+    const { ThreadStageHeader } = await import("./local-conversation-stage-header");
+    const { container } = render(
+      <ThreadStageHeader
+        model={buildModel({
+          summaryAction: createElement(
+            "button",
+            { type: "button", "aria-label": "Toggle summary" },
+            "Summary",
+          ),
+        })}
+        actions={buildActions()}
+        onErrorMessage={() => {}}
+      />,
+    );
+
+    const summaryButton = container.querySelector('button[aria-label="Toggle summary"]');
+    const summaryRail = container.querySelector('[data-testid="thread-stage-header-summary-actions"]');
+    const contextSurface = container.querySelector('[data-testid="thread-stage-header-context-menu-surface"]');
+    const globalHitbox = container.querySelector('[data-testid="thread-stage-header-toggle-hitbox"]');
+    const header = container.firstElementChild;
+
+    expect(Boolean(summaryButton)).toBeTrue();
+    expect(header?.className.includes("electron:h-toolbar")).toBeTrue();
+    expect(header?.className.includes("electron:py-0")).toBeTrue();
+    expect(contextSurface?.className.includes("h-full")).toBeTrue();
+    expect(contextSurface?.className.includes("overflow-hidden")).toBeTrue();
+    expect(contextSurface?.contains(summaryButton ?? null)).toBeTrue();
+    expect(summaryRail?.contains(summaryButton ?? null)).toBeTrue();
+    expect(summaryRail?.className.includes("ms-auto")).toBeTrue();
+    expect(summaryRail?.className.includes("shrink-0")).toBeTrue();
+    expect(summaryRail?.className.includes("gap-1.5")).toBeTrue();
+    expect(globalHitbox?.contains(summaryButton ?? null)).toBeFalse();
+  });
+
   test("does not render the authenticated connection badge", async () => {
     connectionBadgeRenderCount = 0;
     const { ThreadStageHeader } = await import("./local-conversation-stage-header");

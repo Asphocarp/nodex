@@ -682,7 +682,7 @@ export const CollapsedRightPanel: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Attached thread with the right panel collapsed, keeping the thread title at the top while reserving the Codex pinned-summary toggle beside the bottom/side panel toggles inside that header row.",
+        story: "Attached thread with the right panel collapsed, keeping the thread title at the top while rendering the Codex summary toggle at the thread header's right edge before the global bottom/side panel slot.",
       },
     },
   },

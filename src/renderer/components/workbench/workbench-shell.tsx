@@ -38,7 +38,6 @@ import { toast } from "@/components/ui/toast";
 import {
   ConnectedThreadStage,
   ConnectedReviewDiffPanel,
-  ThreadSummaryPanelToggle,
   useCodexAppServerControl,
   useCodexThreadStartProgress,
 } from "@/features/local-conversation";
@@ -1447,9 +1446,17 @@ export function WorkbenchShell({
 
   const sidePanelOpen = activeSession ? !activeSession.panels.right.collapsed : false;
   const bottomPanelOpen = activeSession ? !activeSession.panels.bottom.collapsed : false;
-  const threadSummaryPanelMounted = Boolean(activeSession?.thread && !rightPanelFullWidth);
-  const showThreadSummaryPanelControl = threadSummaryPanelMounted && !sidePanelOpen;
-  const threadSummaryPanelOpen = showThreadSummaryPanelControl && threadSummaryPanelPinnedOpen;
+  const headerShellSlotWidth = sidePanelOpen && !rightPanelFullWidth ? regularRightPanelWidth : 0;
+  const threadSummaryPanelAvailable = Boolean(activeSession?.thread);
+  const threadSummaryPanelSuppressed = sidePanelOpen || rightPanelFullWidth;
+  const threadSummaryPanelMounted = threadSummaryPanelAvailable && !threadSummaryPanelSuppressed;
+  const threadSummaryPanelOpen = threadSummaryPanelMounted
+    && threadSummaryPanelPinnedOpen;
+  const threadSummaryPanelMode = !threadSummaryPanelAvailable
+    ? "hidden"
+    : threadSummaryPanelSuppressed
+      ? "popover"
+      : "pinned";
 
   const toggleThreadSummaryPanel = useCallback(() => {
     setThreadSummaryPanelPinnedOpen((current) => {
@@ -1458,17 +1465,6 @@ export function WorkbenchShell({
       return next;
     });
   }, []);
-
-  const renderThreadSummaryPanelHeaderControl = () => {
-    if (!showThreadSummaryPanelControl) return null;
-
-    return (
-      <ThreadSummaryPanelToggle
-        pressed={threadSummaryPanelOpen}
-        onClick={toggleThreadSummaryPanel}
-      />
-    );
-  };
 
   const toggleActiveSidePanel = useCallback(() => {
     if (!activeSession) return;
@@ -1531,7 +1527,11 @@ export function WorkbenchShell({
     return () => {
       resizeObserver.disconnect();
     };
-  }, [activeSession?.id, bottomPanelOpen, sidePanelOpen, showThreadSummaryPanelControl, threadSummaryPanelOpen]);
+  }, [
+    activeSession?.id,
+    bottomPanelOpen,
+    sidePanelOpen,
+  ]);
 
   const rightPanelTabHeaderStickyControls = activeSession ? (
     <NodexDropdownMenu
@@ -1690,7 +1690,6 @@ export function WorkbenchShell({
           >
             <div className="inline-flex h-full items-center gap-1.5 no-drag pointer-events-auto w-auto">
               <div className="no-drag pointer-events-auto flex shrink-0 items-center ms-auto">
-                {renderThreadSummaryPanelHeaderControl()}
                 {renderBottomPanelHeaderControl()}
               </div>
               <div className="no-drag pointer-events-auto flex shrink-0 items-center">
@@ -1701,11 +1700,10 @@ export function WorkbenchShell({
           <div
             data-test-id="header-shell-slot"
             className="pointer-events-none relative h-full shrink-0 [container-type:inline-size] ml-auto pe-2"
-            style={{ width: 0, minWidth: headerRightWidth }}
+            style={{ width: headerShellSlotWidth, minWidth: headerRightWidth }}
           >
             <div className="inline-flex h-full items-center gap-1.5 pointer-events-none w-full">
               <div className="no-drag pointer-events-auto flex shrink-0 items-center ms-auto">
-                {renderThreadSummaryPanelHeaderControl()}
                 {renderBottomPanelHeaderControl()}
               </div>
               <div className="no-drag pointer-events-auto flex shrink-0 items-center">
@@ -1877,6 +1875,9 @@ export function WorkbenchShell({
                         sidePanelOpen={sidePanelOpen}
                         summaryPanelMounted={threadSummaryPanelMounted}
                         summaryPanelOpen={threadSummaryPanelOpen}
+                        summaryPanelMode={threadSummaryPanelMode}
+                        summaryPanelPinnedOpen={threadSummaryPanelPinnedOpen}
+                        onSummaryPanelPinnedOpenToggle={toggleThreadSummaryPanel}
                         onOpenCard={(cardId) => {
                           if (!activeProject) return;
                           void openCardTab(activeProject.id, cardId, cardId);
@@ -2495,6 +2496,9 @@ function SessionThreadPage({
   sidePanelOpen,
   summaryPanelMounted,
   summaryPanelOpen,
+  summaryPanelMode,
+  summaryPanelPinnedOpen,
+  onSummaryPanelPinnedOpenToggle,
 }: {
   session: ProjectSession;
   project: Project | null;
@@ -2510,6 +2514,9 @@ function SessionThreadPage({
   sidePanelOpen: boolean;
   summaryPanelMounted: boolean;
   summaryPanelOpen: boolean;
+  summaryPanelMode: "hidden" | "pinned" | "popover";
+  summaryPanelPinnedOpen: boolean;
+  onSummaryPanelPinnedOpenToggle: () => void;
 }) {
   const projectId = project?.id ?? session.projectId;
   const summary = session.thread ? makeThreadSummary(session.thread) : null;
@@ -2648,6 +2655,9 @@ function SessionThreadPage({
         searchOpenTick={searchOpenTick}
         summaryPanelMounted={summaryPanelMounted}
         summaryPanelOpen={summaryPanelOpen}
+        summaryPanelMode={summaryPanelMode}
+        summaryPanelPinnedOpen={summaryPanelPinnedOpen}
+        onSummaryPanelPinnedOpenToggle={onSummaryPanelPinnedOpenToggle}
         actions={actions}
       />
     </div>

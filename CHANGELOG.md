@@ -21,7 +21,7 @@ All notable changes to this project will be documented in this file.
 - Refined the project session shell to match Codex Electron side-panel control placement, adjacent header-slot spacing, remembered full-width mode, and button styling: the global header now owns `Toggle side panel`, right-panel tab creation and expand/restore actions live in the panel tab header, and the unused attach/detach thread toolbar button is removed.
 - Refined project session thread headers to match Codex Electron title sizing, use the thread title as the session header, and hide the redundant header separator while the right panel is closed.
 - Existing thread composers no longer show the lower run-target/status row under the prompt; that row remains available on new-chat composers.
-- Added a Codex-style top-right thread summary panel for attached local conversation sessions, with the Codex pinned-summary toggle/icon, toolbar-safe overlay placement, hover-revealed section chevrons, and compact authenticated account quota details moved out of the thread header into that panel.
+- Added a Codex-style top-right thread summary surface for attached local conversation sessions, with the Codex pinned-summary toggle/icon, a right-panel-open `Toggle summary` popover, toolbar-safe under-header pinned placement, hover-revealed section chevrons, and compact authenticated account quota details moved out of the thread header into that surface.
 - Project session thread pages without an attached thread now show the Codex-style new-chat composer and start a session-owned Codex thread from the first prompt instead of showing an attach-thread empty state.
 - Codex thread metadata now supports card-owned, session-owned, project-only, and projectless threads without fake card ids.
 - Thread collapsed tool activity groups now has synthesized summaries and flat expanded row hierarchy instead of showing generic completed-action labels or nested exploration subgroups.
@@ -31,6 +31,7 @@ All notable changes to this project will be documented in this file.
 - Removed the old workspace terminal drawer state and right-pane mirror columns; Terminal tabs and panel state now live only in project sessions.
 
 ### Fixed
+- Fixed the right-panel-open thread summary trigger so it sits at the thread/right-panel boundary, keeps the active icon unclipped, and opens the summary popover when clicked.
 - Fixed open right-panel sessions so the thread page no longer leaves an empty toolbar-height row above the thread title.
 - Fixed Codex-style sidebar session rows so titles keep the grouped project indent from Codex Electron.
 - Fixed active project folder toggles so clicking the project title while focused on one of its sessions no longer re-selects the project and flickers back open.

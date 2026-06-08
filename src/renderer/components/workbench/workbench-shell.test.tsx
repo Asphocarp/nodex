@@ -85,12 +85,12 @@ mock.module("./workbench-terminal-panel", () => ({
 }));
 
 mock.module("@/features/local-conversation", () => ({
-  ThreadSummaryPanelToggle: (props: { pressed: boolean; onClick: () => void }) => (
+  ThreadSummaryPanelToggle: (props: { label?: string; pressed: boolean; onClick: () => void }) => (
     createElement(
       "button",
       {
         type: "button",
-        "aria-label": "Toggle pinned summary",
+        "aria-label": props.label ?? "Toggle pinned summary",
         "aria-pressed": props.pressed,
         onClick: props.onClick,
       },
@@ -118,9 +118,35 @@ mock.module("@/features/local-conversation", () => ({
       worktreeStartMode?: string;
       worktreeBranchPrefix?: string | null;
     } | null | undefined;
+    const summaryPanelMode = String(props.summaryPanelMode ?? "hidden");
+    const summaryAction = summaryPanelMode === "pinned"
+      ? createElement(
+          "button",
+          {
+            type: "button",
+            "aria-label": "Toggle pinned summary",
+            "aria-pressed": props.summaryPanelPinnedOpen === true,
+            "data-testid": "mock-thread-header-summary-action",
+            onClick: props.onSummaryPanelPinnedOpenToggle as (() => void) | undefined,
+          },
+          "Summary",
+        )
+      : summaryPanelMode === "popover"
+        ? createElement(
+            "button",
+            {
+              type: "button",
+              "aria-label": "Toggle summary",
+              "aria-pressed": "false",
+              "data-testid": "mock-thread-header-summary-action",
+            },
+            "Summary",
+          )
+        : null;
     return createElement(
       "div",
       { "data-thread-stage": "true" },
+      summaryAction,
       createElement("span", null, `Thread:${String(props.activeThreadId)}`),
       props.isNewThreadTab
         ? createElement("textarea", { "aria-label": "Prompt", placeholder: "Write the first prompt for this new thread..." })
@@ -1363,6 +1389,7 @@ describe("workbench session shell", () => {
     const summaryToggle = screen.getByRole("button", { name: "Toggle pinned summary" });
     let stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
     expect(summaryToggle.getAttribute("aria-pressed")).toBe("true");
+    expect(stageProps?.summaryPanelMode).toBe("pinned");
     expect(stageProps?.summaryPanelMounted).toBe(true);
     expect(stageProps?.summaryPanelOpen).toBe(true);
 
@@ -1374,12 +1401,13 @@ describe("workbench session shell", () => {
 
     stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
     expect(summaryToggle.getAttribute("aria-pressed")).toBe("false");
+    expect(stageProps?.summaryPanelMode).toBe("pinned");
     expect(stageProps?.summaryPanelMounted).toBe(true);
     expect(stageProps?.summaryPanelOpen).toBe(false);
     expect(localStorage.getItem("nodex:thread-summary-panel:pinned-open")).toBe("false");
   });
 
-  test("thread summary toggle is hidden while the right panel is open without changing pinned preference", async () => {
+  test("thread summary toggle stays visible while the right panel is open and keeps the pinned overlay hidden", async () => {
     localStorage.setItem("nodex:thread-summary-panel:pinned-open", "true");
     const screen = renderWorkbench({
       sessionsByProject: {
@@ -1397,8 +1425,25 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     let stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
-    expect(screen.queryByRole("button", { name: "Toggle pinned summary" })).toBe(null);
-    expect(stageProps?.summaryPanelMounted).toBe(true);
+    const rightOpenSummaryToggle = screen.getByRole("button", { name: "Toggle summary" });
+    const globalHeader = screen.getByTestId("workbench-global-header");
+    expect(rightOpenSummaryToggle.getAttribute("aria-pressed")).toBe("false");
+    expect(within(globalHeader).queryByRole("button", { name: "Toggle summary" })).toBe(null);
+    expect(stageProps?.summaryPanelMode).toBe("popover");
+    expect(stageProps?.summaryPanelMounted).toBe(false);
+    expect(stageProps?.summaryPanelOpen).toBe(false);
+    expect(localStorage.getItem("nodex:thread-summary-panel:pinned-open")).toBe("true");
+
+    await act(async () => {
+      fireEvent.click(rightOpenSummaryToggle);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(screen.getByRole("button", { name: "Toggle summary" }).getAttribute("aria-pressed")).toBe("false");
+    expect(stageProps?.summaryPanelMode).toBe("popover");
+    expect(stageProps?.summaryPanelMounted).toBe(false);
     expect(stageProps?.summaryPanelOpen).toBe(false);
     expect(localStorage.getItem("nodex:thread-summary-panel:pinned-open")).toBe("true");
 
@@ -1411,6 +1456,7 @@ describe("workbench session shell", () => {
     const summaryToggle = screen.getByRole("button", { name: "Toggle pinned summary" });
     stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
     expect(summaryToggle.getAttribute("aria-pressed")).toBe("true");
+    expect(stageProps?.summaryPanelMode).toBe("pinned");
     expect(stageProps?.summaryPanelMounted).toBe(true);
     expect(stageProps?.summaryPanelOpen).toBe(true);
     expect(localStorage.getItem("nodex:thread-summary-panel:pinned-open")).toBe("true");
@@ -1458,6 +1504,7 @@ describe("workbench session shell", () => {
     expect(globalHeader?.contains(sidePanelToggle)).toBeTrue();
     expect(headerShellSlot?.contains(sidePanelToggle)).toBeTrue();
     expect(headerShellSlot?.className.includes("pe-2")).toBeTrue();
+    expect(headerShellSlot?.getAttribute("style")?.includes("width: 600px")).toBeTrue();
     expect(headerShellSlot?.getAttribute("style")?.includes("min-width: 70px")).toBeTrue();
     expect(sidePanelToggle.getAttribute("aria-pressed")).toBe("true");
     expect(sidePanelToggle.className.includes("bg-token-foreground/5")).toBeTrue();
@@ -1482,6 +1529,7 @@ describe("workbench session shell", () => {
     expect(threadPage?.getAttribute("data-session-thread-page-hidden")).toBe("true");
     expect(threadPage?.className.includes("w-0")).toBeTrue();
     expect(threadPage?.className.includes("flex-none")).toBeTrue();
+    expect(headerShellSlot?.getAttribute("style")?.includes("width: 0px")).toBeTrue();
     expect(screen.queryByRole("separator", { name: "Resize right panel" })).toBe(null);
     const fullWidthTabHeader = rightPanel?.querySelector('[role="tablist"]')?.parentElement?.parentElement;
     expect(fullWidthTabHeader?.firstElementChild?.querySelector('[role="tablist"]') !== null).toBeTrue();
