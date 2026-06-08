@@ -21,6 +21,7 @@ import {
   useConversationBackgroundTerminalRows,
   useConversationCapabilityFlags,
   useConversationChildMemberships,
+  useConversation,
   useConversationCollaborationMode,
   useConversationCwd,
   useConversationPendingSteers,
@@ -97,6 +98,10 @@ interface ConnectedThreadStageProps extends ConnectedThreadStageInput {
 }
 
 function resolveThreadTitle(input: ConnectedThreadStageInput, summary: ReturnType<typeof useConversationSummaryFields>): string {
+  if (input.sideChatContext?.tabTitle) {
+    return input.sideChatContext.tabTitle;
+  }
+
   return (
     summary.threadName ||
     summary.threadPreview ||
@@ -108,6 +113,10 @@ function resolveThreadTitle(input: ConnectedThreadStageInput, summary: ReturnTyp
 }
 
 function resolveOpenCardTarget(input: ConnectedThreadStageInput, summary: ReturnType<typeof useConversationSummaryFields>, activeThreadCardColumnId: string | null): ThreadOpenCardTarget | null {
+  if (input.sideChatContext) {
+    return null;
+  }
+
   if (summary.cardId) {
     return {
       cardId: summary.cardId,
@@ -191,7 +200,8 @@ function ConnectedThreadStageHeader({
       activeThreadCardColumnId,
       connection,
       account,
-      summaryAction,
+      summaryAction: input.sideChatContext ? null : summaryAction,
+      showSideChatAction: Boolean(activeThreadId && !input.sideChatContext && actions.onOpenSideChat),
     }),
     [
       account,
@@ -322,6 +332,7 @@ function ConnectedThreadStageFooter({
   onErrorMessage: (message: string | null) => void;
 }) {
   const turns = useConversationTurns(activeThreadId);
+  const conversationSnapshot = useConversation(activeThreadId);
   const requests = useConversationRequests(activeThreadId);
   const cwd = useConversationCwd(activeThreadId);
   const resumeState = useConversationResumeState(activeThreadId);
@@ -429,10 +440,11 @@ function ConnectedThreadStageFooter({
       account,
       conversation: activeThreadId
         ? {
+            ...(conversationSnapshot ?? {}),
             threadId: activeThreadId,
             projectId: input.projectId,
             cardId: input.activeThreadSummary?.cardId ?? input.newThreadTarget?.cardId ?? "",
-            source: null,
+            source: conversationSnapshot?.source ?? null,
             threadName: input.activeThreadSummary?.threadName ?? null,
             threadPreview: input.activeThreadSummary?.threadPreview ?? "",
             modelProvider: input.activeThreadSummary?.modelProvider ?? "",
@@ -457,6 +469,7 @@ function ConnectedThreadStageFooter({
               canSearch: true,
               canCollapseTurns: true,
             },
+            ephemeral: conversationSnapshot?.ephemeral,
           }
         : null,
       resumeState,
@@ -491,6 +504,7 @@ function ConnectedThreadStageFooter({
       body,
       backgroundTerminalRows,
       childMemberships,
+      conversationSnapshot,
       composerIntent,
       dictation,
       composerShell,
@@ -545,6 +559,7 @@ export function ConnectedThreadStage({
   const activeThreadId = input.activeThreadId && !input.isNewThreadTab
     ? input.activeThreadId
     : null;
+  const isSideChat = Boolean(input.sideChatContext);
   const resumeState = useConversationResumeState(activeThreadId);
   const summaryFields = useConversationSummaryFields(activeThreadId);
   const turns = useConversationTurns(activeThreadId);
@@ -568,7 +583,7 @@ export function ConnectedThreadStage({
     ],
   );
   useEffect(() => {
-    if (!input.activeThreadId || input.isNewThreadTab) {
+    if (!input.activeThreadId || input.isNewThreadTab || isSideChat) {
       return;
     }
     if (isActiveThreadArchived) {
@@ -581,19 +596,21 @@ export function ConnectedThreadStage({
     }
 
     void requestLocalConversationResume(input.activeThreadId).catch(() => {});
-  }, [isActiveThreadArchived, resumeState, input.activeThreadId, input.isNewThreadTab]);
+  }, [isActiveThreadArchived, isSideChat, resumeState, input.activeThreadId, input.isNewThreadTab]);
 
   return (
     <LocalConversationStageScreen
-      header={(
-        <ConnectedThreadStageHeader
-          activeThreadId={activeThreadId}
-          input={input}
-          actions={actions}
-          onErrorMessage={setErrorMessage}
-          summaryAction={summaryAction}
-        />
-      )}
+      header={isSideChat
+        ? null
+        : (
+            <ConnectedThreadStageHeader
+              activeThreadId={activeThreadId}
+              input={input}
+              actions={actions}
+              onErrorMessage={setErrorMessage}
+              summaryAction={summaryAction}
+            />
+          )}
       body={(
         <ConnectedThreadStageBody
           activeThreadId={activeThreadId}

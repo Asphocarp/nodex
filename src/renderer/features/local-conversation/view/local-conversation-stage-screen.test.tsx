@@ -28,4 +28,19 @@ describe("LocalConversationStageScreen", () => {
     expect(Boolean(container.querySelector(".z-10.w-full.pb-2"))).toBeTrue();
     expect(hasAbsoluteFooterOverlay).toBeFalse();
   });
+
+  test("omits the sticky header wrapper when embedded without a header", async () => {
+    const { LocalConversationStageScreen } = await import("./local-conversation-stage-screen");
+    const { container } = render(
+      <LocalConversationStageScreen
+        header={null}
+        body={createElement("div", { "data-local-conversation-thread-body": "true" })}
+        footer={createElement("div", { "data-local-conversation-footer": "true" })}
+      />,
+    );
+
+    expect(Boolean(container.querySelector("[data-local-conversation-thread-body='true']"))).toBeTrue();
+    expect(Boolean(container.querySelector("[data-local-conversation-footer='true']"))).toBeTrue();
+    expect(Boolean(container.querySelector(".sticky.top-0.z-10"))).toBeFalse();
+  });
 });

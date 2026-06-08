@@ -2,6 +2,7 @@ import { memo, useMemo } from "react";
 import type { CodexConversationTurn, CodexTurnDiffReviewTarget } from "../../../lib/types";
 import type { CodexTurnScopedConversationRequest } from "../conversation-request-helpers";
 import { buildTurnRenderModel } from "../projection/build-turn-render-model";
+import type { ThreadStageActions } from "../thread-stage-types";
 import { ThreadTurn } from "./local-conversation-thread-turn";
 
 interface LocalConversationTurnEntryProps {
@@ -29,6 +30,7 @@ interface LocalConversationTurnEntryProps {
     isLatestTurn: boolean;
   }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onRendered?: (turnId: string) => void;
 }
 
@@ -46,6 +48,7 @@ function LocalConversationTurnEntryComponent({
   onEditLastTurnMessage,
   onForkTurnMessage,
   onOpenTurnDiffReview,
+  onOpenSideChat,
   onRendered,
 }: LocalConversationTurnEntryProps) {
   onRendered?.(turn.turnId);
@@ -88,6 +91,7 @@ function LocalConversationTurnEntryComponent({
         onEditLastUserTurn={onEditLastTurnMessage}
         onForkFromTurn={onForkTurnMessage}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
+        onOpenSideChat={onOpenSideChat}
       />
     </div>
   );
@@ -111,5 +115,6 @@ export const LocalConversationTurnEntry = memo(
     && left.onEditLastTurnMessage === right.onEditLastTurnMessage
     && left.onForkTurnMessage === right.onForkTurnMessage
     && left.onOpenTurnDiffReview === right.onOpenTurnDiffReview
+    && left.onOpenSideChat === right.onOpenSideChat
     && left.onRendered === right.onRendered,
 );

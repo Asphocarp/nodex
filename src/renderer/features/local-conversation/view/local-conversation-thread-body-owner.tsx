@@ -663,6 +663,7 @@ export function LocalConversationThreadBodyOwner({
           projectWorkspacePath={projectWorkspacePath}
           threadCwd={cwd}
           onOpenTurnDiffReview={actions.onOpenTurnDiffReview}
+          onOpenSideChat={actions.onOpenSideChat}
         />
       ) : null}
       <div className="flex flex-col">
@@ -792,6 +793,7 @@ export function LocalConversationThreadBodyOwner({
                 onEditLastTurnMessage={handleEditLastUserTurn}
                 onForkTurnMessage={handleForkFromTurn}
                 onOpenTurnDiffReview={actions.onOpenTurnDiffReview}
+                onOpenSideChat={actions.onOpenSideChat}
                 scrollElement={scrollElement}
                 onApiChange={(api) => {
                   listApiRef.current = api;

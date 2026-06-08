@@ -11,6 +11,7 @@ import type { CodexTurnDiffReviewTarget } from "../../../lib/types";
 import { cn } from "../../../lib/utils";
 import type { VisibleConversationTurnEntry } from "../selectors";
 import type { CodexTurnScopedConversationRequest } from "../conversation-request-helpers";
+import type { ThreadStageActions } from "../thread-stage-types";
 import {
   buildVirtualizedTurnLayout,
   resolveVisibleTurnRange,
@@ -59,6 +60,7 @@ interface LocalConversationVirtualizedTurnListProps {
     isLatestTurn: boolean;
   }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onApiChange?: (api: LocalConversationVirtualizedTurnListApi | null) => void;
   scrollElement: HTMLDivElement | null;
   className?: string;
@@ -95,6 +97,7 @@ interface MeasuredTurnProps {
     isLatestTurn: boolean;
   }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onHeightChange: (turnKey: string, turnIndex: number, nextHeight: number) => void;
 }
 
@@ -111,6 +114,7 @@ function MeasuredTurnComponent({
   onEditLastTurnMessage,
   onForkTurnMessage,
   onOpenTurnDiffReview,
+  onOpenSideChat,
   onHeightChange,
 }: MeasuredTurnProps) {
   const elementRef = useRef<HTMLDivElement | null>(null);
@@ -174,6 +178,7 @@ function MeasuredTurnComponent({
         onEditLastTurnMessage={onEditLastTurnMessage}
         onForkTurnMessage={onForkTurnMessage}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
+        onOpenSideChat={onOpenSideChat}
       />
     </div>
   );
@@ -194,6 +199,7 @@ const MeasuredTurn = memo(
     && left.onEditLastTurnMessage === right.onEditLastTurnMessage
     && left.onForkTurnMessage === right.onForkTurnMessage
     && left.onOpenTurnDiffReview === right.onOpenTurnDiffReview
+    && left.onOpenSideChat === right.onOpenSideChat
     && left.onHeightChange === right.onHeightChange,
 );
 
@@ -209,6 +215,7 @@ export function LocalConversationVirtualizedTurnList({
   onEditLastTurnMessage,
   onForkTurnMessage,
   onOpenTurnDiffReview,
+  onOpenSideChat,
   onApiChange,
   scrollElement,
   className,
@@ -489,6 +496,7 @@ export function LocalConversationVirtualizedTurnList({
               onEditLastTurnMessage={onEditLastTurnMessage}
               onForkTurnMessage={onForkTurnMessage}
               onOpenTurnDiffReview={onOpenTurnDiffReview}
+              onOpenSideChat={onOpenSideChat}
               onHeightChange={handleHeightChange}
             />
           ))}

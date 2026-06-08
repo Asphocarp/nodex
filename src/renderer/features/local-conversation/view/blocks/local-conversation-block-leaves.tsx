@@ -11,7 +11,7 @@ import {
   type FormEvent,
 } from "react";
 import { motion } from "motion/react";
-import { ChevronRightIcon } from "@/components/shared/icons";
+import { ChevronRightIcon, CodexSidePanelSideChatIcon } from "@/components/shared/icons";
 import { MarkdownRenderer } from "../shared/markdown/markdown-renderer";
 import { AutomaticApprovalReviewSurface } from "../shared/automatic-approval-review-surface";
 import { MultiAgentActionSurface } from "../shared/multi-agent-action-surface";
@@ -61,6 +61,7 @@ import { cn } from "../../../../lib/utils";
 import type {
   ThreadAssistantMessageActionsModel,
   ThreadBlockModel,
+  ThreadStageActions,
   ThreadTranscriptBlockModel,
   ThreadWorkedForAdornmentModel,
 } from "../../thread-stage-types";
@@ -78,6 +79,7 @@ export interface ThreadLeafBlockProps {
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   allowInProgressTurnDiff?: boolean;
 }
 
@@ -88,12 +90,19 @@ export interface ThreadSpecialBlockProps {
   projectWorkspacePath?: string | null;
   threadCwd?: string | null;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
 }
 
 interface ExplorationDisplayLine {
   key: string;
   label: string;
   leadingIcon?: ToolActivityIconDescriptor;
+}
+
+function resolveSelectedTranscriptText(fallbackText: string): string {
+  if (typeof window === "undefined") return fallbackText.trim();
+  const selectedText = window.getSelection()?.toString().trim() ?? "";
+  return selectedText.length > 0 ? selectedText : fallbackText.trim();
 }
 
 function SteeringStatusIcon() {
@@ -965,6 +974,7 @@ export function UserMessageBubble({
   isSearchMatch = false,
   isActiveSearchMatch = false,
   onEditLastUserTurn,
+  onOpenSideChat,
 }: ThreadLeafBlockProps) {
   const content = block.entry.markdownText ?? "";
   const userActions = block.userMessageActions;
@@ -1085,6 +1095,20 @@ export function UserMessageBubble({
                     feedbackMs={USER_COPY_FEEDBACK_MS}
                     disabledWhenCopied
                   />
+                  {onOpenSideChat ? (
+                    <ThreadActionIconButton
+                      label="Ask in side chat"
+                      tooltip="Ask in side chat"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void onOpenSideChat({
+                          prompt: resolveSelectedTranscriptText(content),
+                        });
+                      }}
+                    >
+                      <CodexSidePanelSideChatIcon className="icon-xs" />
+                    </ThreadActionIconButton>
+                  ) : null}
                   {canEdit ? (
                     <ThreadActionIconButton
                       label="Edit message"
@@ -1277,12 +1301,14 @@ function AssistantMessageActionsRow({
   turnId,
   isLatestTurn,
   onForkFromTurn,
+  onOpenSideChat,
 }: {
   actions: ThreadAssistantMessageActionsModel;
   threadId: string;
   turnId: string;
   isLatestTurn: boolean;
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
+  onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
 }) {
   const [selectedRating, setSelectedRating] = useState<AssistantMessageRating | null>(null);
   const shouldShowActions = actions.copyText !== null || actions.canFork;
@@ -1309,6 +1335,20 @@ function AssistantMessageActionsRow({
                 onSelect={setSelectedRating}
               />
             </>
+          ) : null}
+          {onOpenSideChat ? (
+            <ThreadActionIconButton
+              label="Ask in side chat"
+              tooltip="Ask in side chat"
+              onClick={(event) => {
+                event.stopPropagation();
+                void onOpenSideChat({
+                  prompt: resolveSelectedTranscriptText(actions.copyText ?? ""),
+                });
+              }}
+            >
+              <CodexSidePanelSideChatIcon className="icon-xs" />
+            </ThreadActionIconButton>
           ) : null}
         </>
       ) : null}
@@ -1341,6 +1381,7 @@ export function ThreadAssistantBodyBlock({
   isSearchMatch = false,
   isActiveSearchMatch = false,
   onForkFromTurn,
+  onOpenSideChat,
 }: ThreadLeafBlockProps) {
   const markdownText = block.entry.markdownText ?? "";
   const isStreamingAssistantText = isStreamingTurn && (block.entry.status === "inProgress" || isLatestTurn);
@@ -1369,6 +1410,7 @@ export function ThreadAssistantBodyBlock({
             turnId={block.turnId}
             isLatestTurn={isLatestTurn}
             onForkFromTurn={onForkFromTurn}
+            onOpenSideChat={onOpenSideChat}
           />
         ) : null}
       </div>
@@ -1380,8 +1422,10 @@ export function ThreadAssistantActionsBlock({
   block,
   isLatestTurn,
   onForkFromTurn,
+  onOpenSideChat,
 }: ThreadSpecialBlockProps & {
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
+  onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
 }) {
   if (block.type !== "assistantActions") return null;
 
@@ -1393,6 +1437,7 @@ export function ThreadAssistantActionsBlock({
         turnId={block.turnId}
         isLatestTurn={isLatestTurn}
         onForkFromTurn={onForkFromTurn}
+        onOpenSideChat={onOpenSideChat}
       />
     </div>
   );

@@ -1,7 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useState } from "react";
-import { Check, FolderGit2, Settings2, Shield, Sparkles } from "lucide-react";
-import { ConfigStatusIcon, EstimatePickerIcon } from "@/components/shared/icons";
+import { Check, FolderGit2, Settings2, Shield, Sparkles, SquareKanban, Table2 } from "lucide-react";
+import {
+  CodexSidePanelBrowserIcon,
+  CodexSidePanelFilesIcon,
+  CodexSidePanelReviewIcon,
+  CodexSidePanelSideChatIcon,
+  ConfigStatusIcon,
+  EstimatePickerIcon,
+} from "@/components/shared/icons";
 import { NodexButton } from "./button";
 import {
   NodexDialog,
@@ -130,6 +137,56 @@ function IconOnlyDropdownDemo() {
           onSelect={() => setValue("sandbox")}
         >
           Sandbox
+        </NodexDropdownItem>
+      </NodexDropdownMenu>
+    </StorySurface>
+  );
+}
+
+function PanelActionIconDropdownDemo() {
+  return (
+    <StorySurface>
+      <NodexDropdownMenu
+        open={true}
+        contentWidth="menuWide"
+        triggerButton={(
+          <NodexDropdownButtonTrigger className="min-w-32">
+            Panel tab
+          </NodexDropdownButtonTrigger>
+        )}
+      >
+        <NodexDropdownItem
+          leftSlot={<CodexSidePanelFilesIcon className="icon-sm" />}
+          keyboardShortcut="⌘P"
+        >
+          Files
+        </NodexDropdownItem>
+        <NodexDropdownItem
+          leftSlot={<CodexSidePanelSideChatIcon className="icon-sm" />}
+        >
+          Side chat
+        </NodexDropdownItem>
+        <NodexDropdownItem
+          leftSlot={<CodexSidePanelBrowserIcon className="icon-sm" />}
+          keyboardShortcut="⌘T"
+        >
+          Browser
+        </NodexDropdownItem>
+        <NodexDropdownItem
+          leftSlot={<CodexSidePanelReviewIcon className="icon-sm" />}
+          keyboardShortcut="⌃⇧G"
+        >
+          Review
+        </NodexDropdownItem>
+        <NodexDropdownItem
+          leftSlot={<Table2 className="icon-sm" />}
+        >
+          DB View
+        </NodexDropdownItem>
+        <NodexDropdownItem
+          leftSlot={<SquareKanban className="icon-sm" />}
+        >
+          Card Stage
         </NodexDropdownItem>
       </NodexDropdownMenu>
     </StorySurface>
@@ -437,6 +494,10 @@ export const DropdownCompactIconLabelTrigger: Story = {
 
 export const DropdownIconOnlyTrigger: Story = {
   render: () => <IconOnlyDropdownDemo />,
+};
+
+export const DropdownPanelActionIcons: Story = {
+  render: () => <PanelActionIconDropdownDemo />,
 };
 
 export const DropdownLongLabelTrigger: Story = {

@@ -8,9 +8,11 @@ export function LocalConversationStageScreen(props: ThreadStageScreenProps) {
   const reducedMotion = useReducedMotion();
   return (
     <div className="relative flex h-full min-h-0 flex-col bg-(--background)">
-      <div className="sticky top-0 z-10">
-        {header}
-      </div>
+      {header ? (
+        <div className="sticky top-0 z-10">
+          {header}
+        </div>
+      ) : null}
       {floatingContent}
       <EnsureLocalConversationThreadScrollController>
         <motion.div

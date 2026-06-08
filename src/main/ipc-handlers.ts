@@ -861,6 +861,30 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       codexService.startThreadForSession(input),
   );
 
+  registerHandle(
+    "codex:thread:side-chat:start",
+    (
+      _,
+      input: {
+        projectId: string;
+        parentThreadId: string;
+        parentNavigationPath?: string | null;
+        prompt?: string;
+        promptInput?: CodexPromptInput;
+        model?: string;
+        serviceTier?: null | "fast";
+        permissionMode?: "auto" | "guardian-approvals" | "full-access" | "custom";
+        reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+        collaborationMode?: "default" | "plan";
+      },
+    ) =>
+      codexService.startSideChat(input),
+  );
+
+  registerHandle("codex:thread:side-chat:discard", (_, threadId: string) =>
+    codexService.discardSideChat(threadId)
+  );
+
   registerHandle("worktrees:list", () =>
     codexService.listManagedWorktrees()
   );

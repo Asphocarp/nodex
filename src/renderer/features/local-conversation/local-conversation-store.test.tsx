@@ -445,6 +445,66 @@ describe("local-conversation-store", () => {
     expect(String(conversation?.statusActiveFlags.length ?? -1)).toBe("0");
   });
 
+  test("keeps side chat snapshots cached without adding them to project thread summaries", async () => {
+    invokeCalls = [];
+    hostMessageListener = null;
+    threadListByProject = {
+      "project-1": [],
+    };
+    const {
+      __resetLocalConversationStoreForTests,
+      LocalConversationProvider,
+      readLocalConversation,
+      useProjectThreadSummaries,
+    } = await import("./local-conversation-store");
+    __resetLocalConversationStoreForTests();
+
+    function Probe() {
+      const summaries = useProjectThreadSummaries("project-1");
+      return createElement("div", null, String(summaries.length));
+    }
+
+    const { container } = render(createElement(LocalConversationProvider, null, createElement(Probe)));
+    await settleAsyncRender();
+
+    await act(async () => {
+      hostMessageListener?.({
+        type: "threadStreamStateChanged",
+        hostId: "default",
+        conversationId: "side-thread-1",
+        change: {
+          type: "snapshot",
+          conversationState: {
+            ...buildConversation("side-thread-1", "project-1"),
+            source: {
+              parentThreadId: "thread-parent",
+              sideConversation: true,
+              sideConversationParentNavigationPath: "project:project-1/session:session-1/thread:thread-parent",
+            },
+            ephemeral: true,
+            capabilityFlags: {
+              canEditLastUserTurn: false,
+              canForkFromTurn: false,
+              canSearch: true,
+              canCollapseTurns: true,
+            },
+          },
+        },
+        version: 1,
+        sourceClientId: null,
+      });
+    });
+    await settleAsyncRender();
+
+    const conversation = readLocalConversation("side-thread-1");
+    expect(conversation?.source?.sideConversation === true).toBeTrue();
+    expect(conversation?.source?.sideConversationParentNavigationPath ?? "").toBe(
+      "project:project-1/session:session-1/thread:thread-parent",
+    );
+    expect(conversation?.ephemeral === true).toBeTrue();
+    expect(textContent(container)).toBe("0");
+  });
+
   test("empty project thread results still count as hydrated", async () => {
     invokeCalls = [];
     hostMessageListener = null;

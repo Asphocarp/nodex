@@ -23,6 +23,9 @@ import type {
 let invokeCalls: unknown[][] = [];
 let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
 let startThreadForSessionCalls: unknown[] = [];
+let startSideChatCalls: unknown[] = [];
+let discardSideChatCalls: string[] = [];
+let sideChatConversations: Record<string, Record<string, unknown>> = {};
 const CODEX_PANEL_VISIBLE_ICON_PREFIX = "M16.835 8.66301";
 const CODEX_BOTTOM_PANEL_HIDDEN_ICON_PREFIX = "M13.334 12.2529";
 const CODEX_EXPAND_PANEL_ICON_PREFIX = "M16.0299 3.0293";
@@ -55,6 +58,55 @@ const mockCodexControl = {
   setPermissionMode: async () => undefined,
   startThreadForSession: async (input: unknown) => {
     startThreadForSessionCalls.push(input);
+  },
+  startSideChat: async (input: unknown) => {
+    startSideChatCalls.push(input);
+    const threadId = `side-thread-${startSideChatCalls.length}`;
+    const conversation = {
+      threadId,
+      projectId: "alpha",
+      cardId: null,
+      source: {
+        parentThreadId: "thread-alpha",
+        sideConversation: true,
+        sideConversationParentNavigationPath: "project:alpha/session:overview:alpha/thread:thread-alpha",
+      },
+      threadName: null,
+      threadPreview: "",
+      modelProvider: "openai",
+      cwd: "/Users/asc/repo/nodex",
+      statusType: "idle",
+      statusActiveFlags: [],
+      archived: false,
+      createdAt: 1,
+      updatedAt: 1,
+      linkedAt: "",
+      resumeState: "resumed",
+      turns: [],
+      requests: [],
+      pendingSteers: [],
+      queuedFollowUps: [],
+      backgroundTerminalRows: [],
+      childMemberships: [],
+      capabilityFlags: {
+        canEditLastUserTurn: false,
+        canForkFromTurn: false,
+        canSearch: true,
+        canCollapseTurns: true,
+      },
+      ephemeral: true,
+    };
+    sideChatConversations[threadId] = conversation;
+    return {
+      parentThreadId: "thread-alpha",
+      threadId,
+      conversation,
+    };
+  },
+  discardSideChat: async (threadId: string) => {
+    discardSideChatCalls.push(threadId);
+    delete sideChatConversations[threadId];
+    return true;
   },
   startTurn: async () => undefined,
   steerTurn: async () => undefined,
@@ -189,6 +241,7 @@ mock.module("@/features/local-conversation", () => ({
     return createElement("div", { "data-review-diff-panel": "true" }, `Review:${String(props.threadId)}`);
   },
   useCodexAppServerControl: () => mockCodexControl,
+  useConversation: (threadId: string | null) => threadId ? sideChatConversations[threadId] ?? null : null,
   useCodexThreadStartProgress: () => null,
   useLocalConversationAccount: () => null,
   useLocalConversationConnection: () => ({ status: "connected", retries: 0 }),
@@ -735,6 +788,9 @@ function renderWorkbench({
 beforeEach(() => {
   invokeCalls = [];
   startThreadForSessionCalls = [];
+  startSideChatCalls = [];
+  discardSideChatCalls = [];
+  sideChatConversations = {};
   mockInvokeImpl = null;
   setWindowInnerWidthForTest(1024);
   localStorage.clear();
@@ -759,6 +815,34 @@ async function openPanelMenu(
   fireEvent.pointerDown(screen.getByRole("button", { name: label }), { button: 0 });
   await settleAsyncRender();
   return screen.getByRole("menu");
+}
+
+function getMenuItemIconClassName(menu: HTMLElement, label: string): string {
+  const item = within(menu).getByText(label).closest('[role="menuitem"]');
+  if (!(item instanceof HTMLElement)) {
+    throw new Error(`Expected ${label} menu item`);
+  }
+
+  const icon = item.querySelector("svg");
+  if (!(icon instanceof SVGElement)) {
+    throw new Error(`Expected ${label} menu item icon`);
+  }
+
+  return icon.getAttribute("class") ?? "";
+}
+
+function expectPanelMenuDescriptionsHidden(menu: HTMLElement): void {
+  for (const description of [
+    "Browse project files",
+    "Start a side conversation",
+    "Open a website",
+    "View code changes",
+    "Start an interactive shell",
+    "Open the project database",
+    "Open a project card",
+  ]) {
+    expect(textContent(menu).includes(description)).toBeFalse();
+  }
 }
 
 function getLastTerminalPanelProps(): Record<string, unknown> {
@@ -1984,6 +2068,31 @@ describe("workbench session shell", () => {
     )).toBeTrue();
   });
 
+  test("right-panel add menu keeps custom action icons compact", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const menu = await openPanelMenu(screen, "Open side panel tab");
+    expectPanelMenuDescriptionsHidden(menu);
+
+    for (const label of ["Files", "Side chat", "Browser", "Review", "Card Stage"]) {
+      const className = getMenuItemIconClassName(menu, label);
+      expect(className.includes("icon-sm")).toBeTrue();
+      expect(className.includes("icon-md")).toBeFalse();
+    }
+  });
+
+  test("bottom-panel add menu hides action descriptions", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+    await openBottomPanel(screen);
+
+    const menu = await openPanelMenu(screen, "Open bottom panel tab");
+    expectPanelMenuDescriptionsHidden(menu);
+  });
+
   test("opening another preview tab replaces the prior same-panel preview", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
@@ -2060,7 +2169,6 @@ describe("workbench session shell", () => {
 
   for (const previewCase of [
     { label: "Files", kind: "files_placeholder", description: "Browse project files" },
-    { label: "Side chat", kind: "side_chat_placeholder", description: "Start a side conversation" },
     { label: "Browser", kind: "browser_placeholder", description: "Open a website" },
   ] as const) {
     test(`bottom ${previewCase.label} preview mounts and pins after interaction`, async () => {
@@ -2088,6 +2196,43 @@ describe("workbench session shell", () => {
       )).toBeTrue();
     });
   }
+
+  test("bottom Side chat action starts an ephemeral side tab instead of a durable preview", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeAttachedSession()] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+    await openBottomPanel(screen);
+
+    const menu = await openPanelMenu(screen, "Open bottom panel tab");
+    await act(async () => {
+      fireEvent.click(within(menu).getByText("Side chat"));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.getByRole("tab", { name: "Side chat" }) !== null).toBeTrue();
+    expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]')).toBe(null);
+    expect(String(startSideChatCalls.length)).toBe("1");
+    expect(JSON.stringify(startSideChatCalls[0]).includes('"parentThreadId":"thread-alpha"')).toBeTrue();
+    expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
+    expect(textContent(screen.container).includes("Thread:side-thread-1")).toBeTrue();
+    const stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(JSON.stringify(stageProps?.sideChatContext ?? null)).toBe(
+      "{\"parentThreadId\":\"thread-alpha\",\"tabTitle\":\"Side chat\"}",
+    );
+    expect(Boolean(stageProps?.summaryPanelMounted)).toBeFalse();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Close Side chat tab" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(String(discardSideChatCalls.length)).toBe("1");
+    expect(discardSideChatCalls[0] ?? "").toBe("side-thread-1");
+  });
 
   test("plus menu hides singleton actions that already exist", async () => {
     const browserTab = makeSessionTab({

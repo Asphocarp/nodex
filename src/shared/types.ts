@@ -796,6 +796,7 @@ export interface CodexThreadSummary {
   projectId: string | null;
   cardId: string | null;
   source: CodexConversationSource | null;
+  ephemeral?: boolean;
   threadName: string | null;
   threadPreview: string;
   modelProvider: string;
@@ -815,6 +816,8 @@ export type CodexConversationResumeState = "needs_resume" | "resuming" | "resume
 
 export interface CodexConversationSource {
   parentThreadId: string | null;
+  sideConversation?: boolean;
+  sideConversationParentNavigationPath?: string | null;
 }
 
 export type CodexReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
@@ -895,6 +898,25 @@ export interface CodexThreadStartForSessionInput {
   runInEnvironmentPath?: string | null;
   worktreeStartMode?: WorktreeStartMode;
   worktreeBranchPrefix?: string;
+}
+
+export interface CodexSideChatStartInput {
+  projectId: string;
+  parentThreadId: string;
+  parentNavigationPath?: string | null;
+  prompt?: string;
+  promptInput?: CodexPromptInput;
+  model?: string;
+  serviceTier?: CodexServiceTier;
+  permissionMode?: CodexPermissionMode;
+  reasoningEffort?: CodexReasoningEffort;
+  collaborationMode?: CodexCollaborationModeKind;
+}
+
+export interface CodexSideChatStartResult {
+  parentThreadId: string;
+  threadId: string;
+  conversation: CodexConversationSnapshot;
 }
 
 export interface CodexTurnStartOptions {

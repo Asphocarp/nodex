@@ -68,6 +68,8 @@ export type {
   CodexThreadSettings,
   CodexThreadStartForCardInput,
   CodexThreadStartForSessionInput,
+  CodexSideChatStartInput,
+  CodexSideChatStartResult,
   CodexTurnStartOptions,
   CodexPromptAgentConfigInput,
   CodexPromptImageInput,

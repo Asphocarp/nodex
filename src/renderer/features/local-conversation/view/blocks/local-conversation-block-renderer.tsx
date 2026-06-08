@@ -24,7 +24,7 @@ import {
   ThreadUserBubbleBlock,
 } from "./local-conversation-block-leaves";
 import type { CodexTurnDiffReviewTarget } from "../../../../lib/types";
-import type { ThreadBlockModel } from "../../thread-stage-types";
+import type { ThreadBlockModel, ThreadStageActions } from "../../thread-stage-types";
 
 interface ThreadBlockRendererProps {
   block: ThreadBlockModel;
@@ -37,6 +37,7 @@ interface ThreadBlockRendererProps {
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   allowInProgressTurnDiff?: boolean;
 }
 
@@ -51,6 +52,7 @@ export function ThreadBlockRenderer({
   onEditLastUserTurn,
   onForkFromTurn,
   onOpenTurnDiffReview,
+  onOpenSideChat,
   allowInProgressTurnDiff = false,
 }: ThreadBlockRendererProps) {
   if (block.type === "explorationGroup") {
@@ -148,6 +150,7 @@ export function ThreadBlockRenderer({
         isActiveSearchMatch={isActiveSearchMatch}
         onEditLastUserTurn={onEditLastUserTurn}
         onForkFromTurn={onForkFromTurn}
+        onOpenSideChat={onOpenSideChat}
       />
     );
   }
@@ -193,6 +196,7 @@ export function ThreadBlockRenderer({
         isSearchMatch={isSearchMatch}
         isActiveSearchMatch={isActiveSearchMatch}
         onForkFromTurn={onForkFromTurn}
+        onOpenSideChat={onOpenSideChat}
       />
     );
   }
@@ -204,6 +208,7 @@ export function ThreadBlockRenderer({
         isLatestTurn={isLatestTurn}
         isStreamingTurn={isStreamingTurn}
         onForkFromTurn={onForkFromTurn}
+        onOpenSideChat={onOpenSideChat}
       />
     );
   }

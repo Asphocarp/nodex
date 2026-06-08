@@ -100,6 +100,10 @@ export interface ThreadStageRouteInput {
   searchOpenTick: number;
   composerIntent: CodexComposerIntent | null;
   primaryRequest: CodexConversationLiveRequest | null;
+  sideChatContext?: {
+    parentThreadId: string;
+    tabTitle: string;
+  } | null;
 }
 
 export interface ThreadStageActions {
@@ -132,6 +136,7 @@ export interface ThreadStageActions {
   onNewThreadProjectChange?: (projectId: string) => void;
   onRequestNewChatProjectCreate?: () => void;
   onSendPrompt: (prompt: string, opts?: { collaborationMode?: CodexCollaborationModeKind; promptInput?: CodexPromptInput }) => Promise<void>;
+  onOpenSideChat?: (input?: { prompt?: string; promptInput?: CodexPromptInput }) => Promise<void>;
   onSteerPrompt: (input: Omit<CodexSteerTurnInput, "threadId">) => Promise<void>;
   onInterruptTurn: (turnId?: string) => Promise<void>;
   onRespondApproval: (requestId: string, decision: CodexApprovalDecision) => Promise<void>;
@@ -475,6 +480,7 @@ export interface ThreadStageHeaderModel {
   connection: CodexConnectionState;
   account: CodexAccountSnapshot | null;
   summaryAction?: ReactNode;
+  showSideChatAction?: boolean;
 }
 
 export type ThreadSummaryPanelMode = "hidden" | "pinned" | "popover";
@@ -539,7 +545,7 @@ export interface ThreadFooterModel {
 }
 
 export interface ThreadStageScreenProps {
-  header: ReactNode;
+  header?: ReactNode;
   body: ReactNode;
   footer: ReactNode;
   floatingContent?: ReactNode;

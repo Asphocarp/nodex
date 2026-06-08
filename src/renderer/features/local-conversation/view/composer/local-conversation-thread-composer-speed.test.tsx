@@ -1,6 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { AppProviders } from "@/app-providers";
+import {
+  __getNodexToastSnapshotForTests,
+  __resetNodexToastStoreForTests,
+} from "@/components/ui/toast";
 import { render } from "@/test/dom";
 import {
   installAsyncRequestAnimationFrame,
@@ -292,7 +296,98 @@ async function renderComposer(
   return view;
 }
 
+async function submitCurrentComposerDraft(view: ReturnType<typeof render>): Promise<void> {
+  const sendButton = view.getByLabelText("Send prompt");
+  await waitFor(() => {
+    expect((sendButton as HTMLButtonElement).disabled).toBeFalse();
+  });
+  await act(async () => {
+    fireEvent.click(sendButton);
+    await Promise.resolve();
+  });
+}
+
 describe("ThreadComposer speed menu", () => {
+  beforeEach(() => {
+    __resetNodexToastStoreForTests();
+  });
+
+  test("/side command opens a side chat instead of sending a parent-thread prompt", async () => {
+    resetStorage();
+    const sentPrompts: string[] = [];
+    const sideChatInputs: string[] = [];
+    const view = await renderComposer(
+      {
+        composerIntent: {
+          prompt: "/side investigate this",
+          focusNonce: 1,
+        },
+      },
+      {
+        onSendPrompt: async (prompt) => {
+          sentPrompts.push(prompt);
+        },
+        onOpenSideChat: async (input) => {
+          sideChatInputs.push(JSON.stringify(input ?? null));
+        },
+      },
+    );
+
+    await submitCurrentComposerDraft(view);
+
+    await waitFor(() => {
+      expect(sideChatInputs.length).toBe(1);
+    });
+    expect(sideChatInputs[0]).toBe("{\"prompt\":\"investigate this\"}");
+    expect(sentPrompts.length).toBe(0);
+  });
+
+  test("/side is unavailable inside an existing side chat", async () => {
+    resetStorage();
+    const baseConversation = buildModel().conversation;
+    if (!baseConversation) {
+      throw new Error("Expected the base conversation fixture.");
+    }
+
+    const sentPrompts: string[] = [];
+    const sideChatInputs: string[] = [];
+    const view = await renderComposer(
+      {
+        conversation: {
+          ...baseConversation,
+          ephemeral: true,
+          source: {
+            parentThreadId: "thread_1",
+            sideConversation: true,
+            sideConversationParentNavigationPath: "session:session_1/thread:thread_1",
+          },
+        },
+        composerIntent: {
+          prompt: "/side nested check",
+          focusNonce: 1,
+        },
+      },
+      {
+        onSendPrompt: async (prompt) => {
+          sentPrompts.push(prompt);
+        },
+        onOpenSideChat: async (input) => {
+          sideChatInputs.push(JSON.stringify(input ?? null));
+        },
+      },
+    );
+
+    await submitCurrentComposerDraft(view);
+
+    const snapshot = __getNodexToastSnapshotForTests();
+    expect(sideChatInputs.length).toBe(0);
+    expect(sentPrompts.length).toBe(0);
+    expect(snapshot.length).toBe(1);
+    expect(String((snapshot[0] as { title?: unknown }).title ?? "")).toBe(
+      "'/side' is unavailable in side chats. Return to the main thread first",
+    );
+  });
+
   test("shows the Codex-style fast indicator before the model label only when Fast is active", async () => {
     resetStorage();
 

@@ -6,6 +6,7 @@ import { cn } from "../../../lib/utils";
 import type {
   ThreadAgentEntryModel,
   ThreadBlockModel,
+  ThreadStageActions,
   ThreadTurnModel,
   ThreadWorkedForAdornmentModel,
 } from "../thread-stage-types";
@@ -28,6 +29,7 @@ interface ThreadTurnProps {
   onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
 }
 
 function ThreadGap() {
@@ -110,6 +112,7 @@ export function ThreadTurn({
   onEditLastUserTurn,
   onForkFromTurn,
   onOpenTurnDiffReview,
+  onOpenSideChat,
 }: ThreadTurnProps) {
   const shouldAllowAgentBodyCollapse =
     turn.hasRenderableAgentBodyEntries
@@ -132,6 +135,7 @@ export function ThreadTurn({
       onEditLastUserTurn={onEditLastUserTurn}
       onForkFromTurn={onForkFromTurn}
       onOpenTurnDiffReview={onOpenTurnDiffReview}
+      onOpenSideChat={onOpenSideChat}
     />
   );
 
@@ -145,6 +149,7 @@ export function ThreadTurn({
       onEditLastUserTurn={onEditLastUserTurn}
       onForkFromTurn={onForkFromTurn}
       onOpenTurnDiffReview={onOpenTurnDiffReview}
+      onOpenSideChat={onOpenSideChat}
     />
   );
 

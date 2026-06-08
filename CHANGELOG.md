@@ -9,7 +9,8 @@ All notable changes to this project will be documented in this file.
 - Added app-window Back/Forward titlebar controls with matching keyboard, mouse, command-palette, and macOS menu entry points.
 - Added the global bottom-panel toggle beside the side-panel toggle, with active/ghost toolbar states.
 - Added right and bottom session panels with shared tab chrome, panel-scoped ordering, cross-panel tab moves, a bottom-panel Terminal default, and eligible bottom actions for Files, Side chat, Browser, Review, and Terminal.
-- Added ephemeral panel previews for placeholder Files, Browser, and Side chat tabs in either right or bottom panel; they replace the prior preview in the same panel and persist only after the user interacts with or pins the preview.
+- Added temporary Side chat conversations in right or bottom panels, including empty-panel, header-menu, `/side`, and transcript `Ask in side chat` entry points, loading/expired states, and background discard on close.
+- Added ephemeral panel previews for placeholder Files and Browser tabs in either right or bottom panel; they replace the prior preview in the same panel and persist only after the user interacts with or pins the preview.
 - Added a public changelog page at `nodex.jyu.app/changelog`, generated from the project changelog file.
 - Added a project session shell with expandable project folders, a sidebar `New chat` entry, project-row new-chat actions, durable sessions, a session thread page, session-owned panel tabs, browser placeholders, and separate optional session-thread attachments.
 - Added SQLite-backed project session, project session tab, and session-thread link storage with default Overview sessions seeded for every project.

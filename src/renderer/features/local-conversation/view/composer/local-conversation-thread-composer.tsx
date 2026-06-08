@@ -41,6 +41,7 @@ import {
   UpArrowIcon,
 } from "@/components/shared/icons";
 import { ShortcutKeycaps } from "@/components/ui/shortcut-keycaps";
+import { toast } from "@/components/ui/toast";
 import type { ThreadFooterModel, ThreadStageActions } from "../../thread-stage-types";
 import { ComposerActionTooltipContent } from "./composer-submit-tooltip";
 import {
@@ -251,6 +252,12 @@ function hasComposerAttachmentStateContent(attachments: ComposerAttachmentState)
   return attachments.fileAttachments.length > 0
     || attachments.imageAttachments.length > 0
     || attachments.skillMentions.length > 0;
+}
+
+function parseSideChatCommand(prompt: string): string | null {
+  const match = prompt.match(/^\/side(?:\s+([\s\S]*))?$/u);
+  if (!match) return null;
+  return (match[1] ?? "").trim();
 }
 
 export const __composerAddContextTestUtils = {
@@ -737,6 +744,45 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     });
 
     if (!nextPrompt && !hasPromptAttachments) {
+      return;
+    }
+
+    const sideChatPrompt = parseSideChatCommand(nextPrompt);
+    if (sideChatPrompt !== null) {
+      if (model.conversation?.source?.sideConversation === true) {
+        toast.danger("'/side' is unavailable in side chats. Return to the main thread first", {
+          id: "side-chat-unavailable-in-side-chat",
+        });
+        return;
+      }
+      if (!model.conversation || !actions.onOpenSideChat) {
+        toast.danger("Failed to open side chat", {
+          id: "side-chat-open-failed",
+        });
+        return;
+      }
+
+      setBusyAction("send");
+      onErrorMessage(null);
+      try {
+        await actions.onOpenSideChat({
+          prompt: sideChatPrompt,
+          promptInput: promptInput
+            ? {
+                ...promptInput,
+                text: sideChatPrompt,
+              }
+            : undefined,
+        });
+        input.reset?.();
+        resetComposerAttachments();
+      } catch {
+        toast.danger("Failed to open side chat", {
+          id: "side-chat-open-failed",
+        });
+      } finally {
+        setBusyAction(null);
+      }
       return;
     }
 

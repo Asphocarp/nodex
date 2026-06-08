@@ -28,6 +28,8 @@ import type {
   CodexPermissionMode,
   CodexPermissionState,
   CodexSteerTurnInput,
+  CodexSideChatStartInput,
+  CodexSideChatStartResult,
   CodexThreadStartForCardInput,
   CodexThreadStartForSessionInput,
   CodexThreadDetail,
@@ -540,6 +542,14 @@ export interface IpcApi {
   "codex:thread:start-for-session": {
     args: [CodexThreadStartForSessionInput];
     result: CodexThreadDetail;
+  };
+  "codex:thread:side-chat:start": {
+    args: [CodexSideChatStartInput];
+    result: CodexSideChatStartResult;
+  };
+  "codex:thread:side-chat:discard": {
+    args: [threadId: string];
+    result: boolean;
   };
   "worktrees:list": { args: []; result: ManagedWorktreeRecord[] };
   "worktrees:environments:list": { args: [projectId: string]; result: WorktreeEnvironmentOption[] };

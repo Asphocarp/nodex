@@ -1,6 +1,6 @@
 import { createPortal } from "react-dom";
 import type { CodexTurnDiffReviewTarget } from "../../../lib/types";
-import type { ThreadBlockModel } from "../thread-stage-types";
+import type { ThreadBlockModel, ThreadStageActions } from "../thread-stage-types";
 import { ThreadBlockRenderer } from "./blocks/local-conversation-block-renderer";
 import { usePortalHost } from "./use-portal-host";
 
@@ -49,6 +49,7 @@ interface LocalConversationAboveComposerPortalProps {
   projectWorkspacePath?: string | null;
   threadCwd?: string | null;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
 }
 
 export function LocalConversationAboveComposerPortal({
@@ -58,6 +59,7 @@ export function LocalConversationAboveComposerPortal({
   projectWorkspacePath,
   threadCwd,
   onOpenTurnDiffReview,
+  onOpenSideChat,
 }: LocalConversationAboveComposerPortalProps) {
   const host = usePortalHost(LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_PORTAL_ID);
   if (blocks.length === 0) return null;
@@ -74,6 +76,7 @@ export function LocalConversationAboveComposerPortal({
           projectWorkspacePath={projectWorkspacePath}
           threadCwd={threadCwd}
           onOpenTurnDiffReview={onOpenTurnDiffReview}
+          onOpenSideChat={onOpenSideChat}
           allowInProgressTurnDiff={true}
         />
       ))}

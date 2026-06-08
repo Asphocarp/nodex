@@ -33,6 +33,8 @@ import type {
   CodexPermissionMode,
   CodexPermissionState,
   CodexQueuedFollowUp,
+  CodexSideChatStartInput,
+  CodexSideChatStartResult,
   CodexSteerTurnInput,
   CodexThreadDetail,
   CodexReasoningEffortOption,
@@ -221,6 +223,9 @@ function areThreadSummariesStructurallyEqual(
     && left.projectId === right.projectId
     && left.cardId === right.cardId
     && left.source?.parentThreadId === right.source?.parentThreadId
+    && left.source?.sideConversation === right.source?.sideConversation
+    && left.source?.sideConversationParentNavigationPath === right.source?.sideConversationParentNavigationPath
+    && left.ephemeral === right.ephemeral
     && left.threadName === right.threadName
     && left.threadPreview === right.threadPreview
     && left.modelProvider === right.modelProvider
@@ -496,12 +501,18 @@ function normalizeConversationSnapshot(
   const nextThreadPreview = typeof conversation.threadPreview === "string" ? conversation.threadPreview : "";
   const nextCreatedAt = Number.isFinite(conversation.createdAt) ? conversation.createdAt : 0;
   const nextUpdatedAt = Number.isFinite(conversation.updatedAt) ? conversation.updatedAt : nextCreatedAt;
-  const nextSource = typeof conversation.source === "object" && conversation.source !== null
+  const nextSource: CodexConversationSource | null = typeof conversation.source === "object" && conversation.source !== null
     ? {
         parentThreadId:
           typeof conversation.source.parentThreadId === "string" && conversation.source.parentThreadId.trim().length > 0
             ? conversation.source.parentThreadId
             : null,
+        ...(conversation.source.sideConversation === true ? { sideConversation: true } : {}),
+        ...(typeof conversation.source.sideConversationParentNavigationPath === "string"
+          ? { sideConversationParentNavigationPath: conversation.source.sideConversationParentNavigationPath }
+          : conversation.source.sideConversation === true
+            ? { sideConversationParentNavigationPath: null }
+            : {}),
       }
     : null;
 
@@ -514,6 +525,8 @@ function normalizeConversationSnapshot(
     || nextChildMemberships !== conversation.childMemberships
     || nextStatusActiveFlags !== conversation.statusActiveFlags
     || nextSource?.parentThreadId !== conversation.source?.parentThreadId
+    || nextSource?.sideConversation !== conversation.source?.sideConversation
+    || nextSource?.sideConversationParentNavigationPath !== conversation.source?.sideConversationParentNavigationPath
     || nextThreadName !== conversation.threadName
     || nextThreadPreview !== conversation.threadPreview
     || nextCreatedAt !== conversation.createdAt
@@ -946,6 +959,31 @@ export class CodexAppServerManager {
     }
 
     return detail;
+  }
+
+  async startSideChat(input: CodexSideChatStartInput): Promise<CodexSideChatStartResult> {
+    await this.loadPermissionState(input.projectId);
+    const result = (await invoke("codex:thread:side-chat:start", {
+      ...input,
+      permissionMode: input.permissionMode ?? this.readPermissionMode(input.projectId),
+    })) as CodexSideChatStartResult;
+    this.applyConversationSnapshot(result.threadId, result.conversation);
+    return result;
+  }
+
+  async discardSideChat(threadId: string): Promise<boolean> {
+    const result = (await invoke("codex:thread:side-chat:discard", threadId)) as boolean;
+    if (result) {
+      this.conversationsById.delete(threadId);
+      this.threadSummariesById.delete(threadId);
+      this.primaryConversationRequestByThread.delete(threadId);
+      this.conversationVersionById.delete(threadId);
+      this.composerIntentsByThread.delete(threadId);
+      this.streamingConversationIds.delete(threadId);
+      this.notifyConversationCallbacks(threadId);
+      this.notifyAnyConversationCallbacks({ forceMeta: true });
+    }
+    return result;
   }
 
   async setThreadName(threadId: string, name: string, projectId: string | null): Promise<boolean> {
@@ -1543,6 +1581,11 @@ export class CodexAppServerManager {
     }
 
     this.threadSummariesById.set(nextThread.threadId, nextThread);
+    if (nextThread.ephemeral || nextThread.source?.sideConversation === true) {
+      this.notifyAnyConversationCallbacks({ forceMeta: true });
+      return;
+    }
+
     this.ensureRecentConversationId(nextThread.threadId);
     if (!nextThread.projectId) {
       this.notifyAnyConversationCallbacks({ forceMeta: true });
@@ -1760,7 +1803,9 @@ export class CodexAppServerManager {
         ? previousPrimaryRequest
         : nextPrimaryRequest,
     );
-    this.ensureRecentConversationId(threadId);
+    if (!nextConversation.ephemeral && nextConversation.source?.sideConversation !== true) {
+      this.ensureRecentConversationId(threadId);
+    }
     if (isConversationStreaming(nextConversation)) {
       this.streamingConversationIds.add(threadId);
     } else {
@@ -2636,6 +2681,26 @@ export function useCodexAppServerControl(activeProjectId: string) {
     return detail;
   }, [availableModels, manager, serviceTierSettings.serviceTier, storedThreadSettings]);
 
+  const startSideChat = useCallback(async (
+    input: CodexSideChatStartInput,
+  ) => {
+    const resolvedSettings = resolveCodexThreadSettings(storedThreadSettings, availableModels);
+    const effectiveServiceTier = resolveCodexRequestServiceTier(input, serviceTierSettings.serviceTier);
+    await manager.loadPermissionState(input.projectId);
+    return manager.startSideChat({
+      ...input,
+      permissionMode: manager.readPermissionMode(input.projectId),
+      model: input.model ?? resolvedSettings.model,
+      reasoningEffort: resolvedSettings.reasoningEffort,
+      ...buildCodexServiceTierRequestOverride(effectiveServiceTier),
+    });
+  }, [availableModels, manager, serviceTierSettings.serviceTier, storedThreadSettings]);
+
+  const discardSideChat = useCallback(
+    async (threadId: string) => manager.discardSideChat(threadId),
+    [manager],
+  );
+
   const setThreadName = useCallback(
     async (threadId: string, name: string, projectId: string) => manager.setThreadName(threadId, name, projectId),
     [manager],
@@ -2741,6 +2806,8 @@ export function useCodexAppServerControl(activeProjectId: string) {
     listCollaborationModes,
     startThreadForCard,
     startThreadForSession,
+    startSideChat,
+    discardSideChat,
     setThreadName,
     archiveThread,
     unarchiveThread,

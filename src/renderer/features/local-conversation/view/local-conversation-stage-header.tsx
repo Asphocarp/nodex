@@ -1,7 +1,9 @@
 import { memo, useCallback, useEffect, useState } from "react";
+import { MoreHorizontal } from "lucide-react";
 import { columnStyles } from "@/components/kanban/column";
 import { cn } from "../../../lib/utils";
 import { CardIcon } from "../../../components/workbench/card-icon";
+import { NodexDropdownItem, NodexDropdownMenu } from "@/components/ui/dropdown";
 import {
   AuthPopover,
   CardInfoHoverCard,
@@ -78,6 +80,15 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
 
   const openCardTarget = model.openCardTarget;
   const openCardTone = openCardTarget?.columnId ? columnStyles[openCardTarget.columnId] : null;
+  const handleOpenSideChat = useCallback(async () => {
+    if (!actions.onOpenSideChat) return;
+    onErrorMessage(null);
+    try {
+      await actions.onOpenSideChat();
+    } catch (error) {
+      onErrorMessage(error instanceof Error ? error.message : "Failed to open side chat");
+    }
+  }, [actions, onErrorMessage]);
 
   return (
     <div
@@ -142,6 +153,31 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
                   onApiKeyLogin={(key) => void handleApiKeyLogin(key)}
                   onCancelLogin={(loginId) => void actions.onCancelLogin(loginId)}
                 />
+                {model.showSideChatAction ? (
+                  <NodexDropdownMenu
+                    align="end"
+                    sideOffset={6}
+                    contentWidth="menu"
+                    triggerButton={(
+                      <button
+                        type="button"
+                        className="inline-flex size-7 items-center justify-center rounded-lg text-token-text-tertiary hover:bg-token-list-hover-background hover:text-token-text-primary"
+                        aria-label="Thread actions"
+                        title="Thread actions"
+                      >
+                        <MoreHorizontal className="icon-sm" />
+                      </button>
+                    )}
+                  >
+                    <NodexDropdownItem
+                      onSelect={() => {
+                        void handleOpenSideChat();
+                      }}
+                    >
+                      Open side chat
+                    </NodexDropdownItem>
+                  </NodexDropdownMenu>
+                ) : null}
               </div>
             </div>
           </div>
@@ -177,6 +213,7 @@ export const ThreadStageHeader = memo(
       && left.model.account === right.model.account
       && left.model.cardId === right.model.cardId
       && left.model.summaryAction === right.model.summaryAction
+      && left.model.showSideChatAction === right.model.showSideChatAction
       && leftOpenCardTarget?.cardId === rightOpenCardTarget?.cardId
       && leftOpenCardTarget?.title === rightOpenCardTarget?.title
       && leftOpenCardTarget?.columnId === rightOpenCardTarget?.columnId

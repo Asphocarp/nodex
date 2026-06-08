@@ -58,6 +58,23 @@ interface TestableCodexService {
     opts?: { serviceTier?: null | "fast" },
   ) => Promise<CodexThreadActionResult>;
   forkConversationFromTurn: (threadId: string, turnId: string, message: string) => Promise<CodexThreadActionResult>;
+  startSideChat: (input: {
+    projectId: string;
+    parentThreadId: string;
+    parentNavigationPath?: string | null;
+    prompt?: string;
+    permissionMode?: CodexPermissionMode;
+    model?: string;
+    serviceTier?: null | "fast";
+    reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+    collaborationMode?: "default" | "plan";
+    promptInput?: CodexPromptInput;
+  }) => Promise<{
+    parentThreadId: string;
+    threadId: string;
+    conversation: CodexConversationSnapshot;
+  }>;
+  discardSideChat: (threadId: string) => Promise<boolean>;
   startTurn: (
     threadId: string,
     prompt: string,
@@ -2371,6 +2388,118 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         expect(result.threadId).toBe("thr_latest_forked");
         expect(snapshot?.turns.length).toBe(2);
         expect(snapshot?.turns[1]?.turnId).toBe("turn_2");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("starts side chat as an ephemeral fork, injects boundary, then sends initial prompt", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "config/read" || method === "configRequirements/read") {
+          throw new Error("Use fallback permissions");
+        }
+        if (method === "thread/fork") {
+          return {
+            thread: {
+              id: "thr_side_chat",
+              modelProvider: "openai",
+              createdAt: 1,
+              updatedAt: 1,
+              turns: [],
+            },
+          };
+        }
+        if (method === "thread/inject_items") {
+          return {};
+        }
+        if (method === "turn/start") {
+          return {
+            turn: {
+              id: "turn_side_chat",
+              status: "in_progress",
+              transcript: [],
+            },
+          };
+        }
+        if (method === "thread/unsubscribe") {
+          return {};
+        }
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+
+      service.readThread = async () => ({
+        ...makeThreadDetail("thr_parent"),
+        projectId: "codex",
+        cardId: null,
+        source: null,
+        threadName: "Parent",
+        cwd: "/tmp/codex",
+        latestCollaborationMode: {
+          mode: "default",
+          settings: {
+            model: "gpt-5-codex",
+            reasoning_effort: "medium",
+            developer_instructions: null,
+          },
+        },
+      });
+
+      try {
+        const result = await service.startSideChat({
+          projectId: "codex",
+          parentThreadId: "thr_parent",
+          parentNavigationPath: "project:codex/session:session-1/thread:thr_parent",
+          prompt: "Investigate this in side chat",
+          model: "gpt-5-codex",
+          reasoningEffort: "high",
+          collaborationMode: "plan",
+        });
+        const sideRequests = requests.filter((request) =>
+          request.method === "thread/fork"
+          || request.method === "thread/inject_items"
+          || request.method === "turn/start"
+        );
+        const forkParams = sideRequests[0]?.params as Record<string, unknown> | undefined;
+        const injectParams = sideRequests[1]?.params as { threadId?: string; items?: unknown[] } | undefined;
+        const turnParams = sideRequests[2]?.params as { threadId?: string; input?: unknown[] } | undefined;
+        const snapshot = service.serializeConversationSnapshot("thr_side_chat");
+
+        expect(sideRequests.map((request) => request.method).join(",")).toBe("thread/fork,thread/inject_items,turn/start");
+        expect(forkParams?.threadId).toBe("thr_parent");
+        expect(forkParams?.ephemeral).toBeTrue();
+        expect(forkParams?.excludeTurns).toBeTrue();
+        expect(String(forkParams?.developerInstructions).includes("You are in a side conversation")).toBeTrue();
+        expect(injectParams?.threadId).toBe("thr_side_chat");
+        expect(JSON.stringify(injectParams?.items ?? []).includes("Side conversation boundary")).toBeTrue();
+        expect(turnParams?.threadId).toBe("thr_side_chat");
+        expect(JSON.stringify(turnParams?.input ?? []).includes("Investigate this in side chat")).toBeTrue();
+        expect(result.threadId).toBe("thr_side_chat");
+        expect(snapshot?.source?.sideConversation === true).toBeTrue();
+        expect(snapshot?.source?.sideConversationParentNavigationPath ?? "").toBe(
+          "project:codex/session:session-1/thread:thr_parent",
+        );
+        expect(snapshot?.ephemeral === true).toBeTrue();
+        expect(snapshot?.capabilityFlags.canForkFromTurn).toBeFalse();
+        expect(snapshot?.capabilityFlags.canEditLastUserTurn).toBeFalse();
+        expect(getCodexCardThreadLink("thr_side_chat") === null).toBeTrue();
+
+        const discarded = await service.discardSideChat("thr_side_chat");
+        expect(discarded).toBeTrue();
+        expect(requests.some((request) => request.method === "thread/unsubscribe")).toBeTrue();
+        expect(service.serializeConversationSnapshot("thr_side_chat") === null).toBeTrue();
       } finally {
         await service.shutdown();
       }
