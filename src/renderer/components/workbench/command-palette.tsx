@@ -10,6 +10,15 @@ import { normalizeProjectIcon } from "@/lib/project-icon";
 import type { Project } from "@/lib/types";
 import { useCommandPaletteCardSearchIndex } from "@/lib/use-command-palette-card-search-index";
 import type { RecentCardSession, StageId, WorkbenchView } from "@/lib/use-workbench-state";
+import {
+  NAVIGATE_BACK_COMMAND_ID,
+  NAVIGATE_FORWARD_COMMAND_ID,
+  TOGGLE_SIDEBAR_COMMAND_ID,
+  resolveWorkbenchNavigationShortcutLabel,
+  resolveWorkbenchSidebarToggleShortcutLabel,
+  type WorkbenchNavigationCommandSource,
+  type WorkbenchSidebarToggleCommandSource,
+} from "../../../shared/window-navigation";
 import { CommandPaletteSurface } from "./command-palette-surface";
 
 interface CommandPaletteProps {
@@ -28,11 +37,12 @@ interface CommandPaletteProps {
   onOpenProjectPicker: () => void;
   onOpenTaskSearch: () => void;
   onToggleTerminal: () => void;
+  onToggleSidebar?: (source: WorkbenchSidebarToggleCommandSource) => void;
   onOpenSettings: () => void;
   canGoBack: boolean;
   canGoForward: boolean;
-  onGoBack: () => void;
-  onGoForward: () => void;
+  onGoBack: (source: WorkbenchNavigationCommandSource) => void;
+  onGoForward: (source: WorkbenchNavigationCommandSource) => void;
   onRequestNewWindow?: () => void;
 }
 
@@ -117,7 +127,7 @@ function useCommandPaletteCards(
   }, [activeProjectId, recentIndexByKey, stores, version]);
 }
 
-function buildCommands(input: {
+export function buildCommands(input: {
   activeProjectName: string;
   activeView: WorkbenchView;
   focusedStage: StageId;
@@ -130,21 +140,21 @@ function buildCommands(input: {
   const commands: CommandPaletteCommand[] = [
     {
       kind: "command",
-      id: "go-back",
-      title: "Go back",
+      id: NAVIGATE_BACK_COMMAND_ID,
+      title: "Back",
       subtitle: "Return to the previous workbench context",
       keywords: ["back", "previous", "history", "navigation"],
-      shortcut: createShortcutLabel("Cmd+[", isMac),
+      shortcut: resolveWorkbenchNavigationShortcutLabel("back", isMac),
       disabled: !canGoBack,
       priority: 500,
     },
     {
       kind: "command",
-      id: "go-forward",
-      title: "Go forward",
+      id: NAVIGATE_FORWARD_COMMAND_ID,
+      title: "Forward",
       subtitle: "Move to the next workbench context",
       keywords: ["forward", "next", "history", "navigation"],
-      shortcut: createShortcutLabel("Cmd+]", isMac),
+      shortcut: resolveWorkbenchNavigationShortcutLabel("forward", isMac),
       disabled: !canGoForward,
       priority: 490,
     },
@@ -173,6 +183,15 @@ function buildCommands(input: {
       keywords: ["terminal", "panel", "shell"],
       shortcut: createShortcutLabel("Cmd+J", isMac),
       priority: 460,
+    },
+    {
+      kind: "command",
+      id: TOGGLE_SIDEBAR_COMMAND_ID,
+      title: "Toggle sidebar",
+      subtitle: "Show or hide the project sidebar",
+      keywords: ["sidebar", "panel", "shell"],
+      shortcut: resolveWorkbenchSidebarToggleShortcutLabel(isMac),
+      priority: 455,
     },
     {
       kind: "command",
@@ -304,6 +323,7 @@ export function CommandPalette({
   onOpenProjectPicker,
   onOpenTaskSearch,
   onToggleTerminal,
+  onToggleSidebar,
   onOpenSettings,
   canGoBack,
   canGoForward,
@@ -341,12 +361,12 @@ export function CommandPalette({
       return;
     }
 
-    if (item.id === "go-back") {
-      onGoBack();
+    if (item.id === NAVIGATE_BACK_COMMAND_ID) {
+      onGoBack("command_palette");
       return;
     }
-    if (item.id === "go-forward") {
-      onGoForward();
+    if (item.id === NAVIGATE_FORWARD_COMMAND_ID) {
+      onGoForward("command_palette");
       return;
     }
     if (item.id === "open-project-picker") {
@@ -359,6 +379,10 @@ export function CommandPalette({
     }
     if (item.id === "toggle-terminal") {
       onToggleTerminal();
+      return;
+    }
+    if (item.id === TOGGLE_SIDEBAR_COMMAND_ID) {
+      onToggleSidebar?.("command_palette");
       return;
     }
     if (item.id === "open-settings") {

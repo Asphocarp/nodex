@@ -22,6 +22,9 @@ declare global {
       onDatabaseMigrationProgress?: (
         callback: (progress: DatabaseMigrationProgress) => void,
       ) => () => void;
+      onNavigateBack?: (callback: () => void) => () => void;
+      onNavigateForward?: (callback: () => void) => () => void;
+      onToggleSidebar?: (callback: () => void) => () => void;
       requestMicrophonePermission?: () => void;
       serverUrl?: string;
       assetPathPrefix?: string;

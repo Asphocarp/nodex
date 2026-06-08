@@ -5,6 +5,7 @@ import {
   BrowserWindow,
   ipcMain,
   nativeImage,
+  nativeTheme,
   powerMonitor,
   screen,
   shell,
@@ -50,6 +51,14 @@ import type {
 } from "../shared/window-session";
 import { getLogger, shutdownBackendLogger } from "./logging/logger";
 import { AppUpdateService } from "./app-update-service";
+import { resolveCodexTitleBarOptions } from "./window-navigation-chrome";
+import {
+  NAVIGATE_BACK_HOST_CHANNEL,
+  NAVIGATE_FORWARD_HOST_CHANNEL,
+  WORKBENCH_SIDEBAR_TOGGLE_COMMAND,
+  type WorkbenchSidebarToggleHostChannel,
+  type WorkbenchNavigationHostChannel,
+} from "../shared/window-navigation";
 // macOS uses the packaged bundle icon from the app resources.
 // We only keep a PNG around for development Dock icon parity and non-macOS window icons.
 const appIconPath = app.isPackaged
@@ -191,6 +200,14 @@ function configureMacWindowMenus(): void {
   ];
   app.dock?.setMenu(Menu.buildFromTemplate(dockMenuTemplate));
 
+  const sendNavigationMessage = (
+    channel: WorkbenchNavigationHostChannel | WorkbenchSidebarToggleHostChannel,
+  ) => {
+    const targetWindow = BrowserWindow.getFocusedWindow() ?? getLastFocusedWindow();
+    if (!targetWindow || targetWindow.isDestroyed()) return;
+    targetWindow.webContents.send(channel);
+  };
+
   const appMenuTemplate: MenuItemConstructorOptions[] = [
     {
       role: "appMenu",
@@ -218,6 +235,33 @@ function configureMacWindowMenus(): void {
       ],
     },
     { role: "editMenu" },
+    {
+      label: "Navigate",
+      submenu: [
+        {
+          label: "Back",
+          accelerator: "CommandOrControl+[",
+          click: () => {
+            sendNavigationMessage(NAVIGATE_BACK_HOST_CHANNEL);
+          },
+        },
+        {
+          label: "Forward",
+          accelerator: "CommandOrControl+]",
+          click: () => {
+            sendNavigationMessage(NAVIGATE_FORWARD_HOST_CHANNEL);
+          },
+        },
+        { type: "separator" },
+        {
+          label: WORKBENCH_SIDEBAR_TOGGLE_COMMAND.label,
+          accelerator: "CommandOrControl+B",
+          click: () => {
+            sendNavigationMessage(WORKBENCH_SIDEBAR_TOGGLE_COMMAND.hostChannel);
+          },
+        },
+      ],
+    },
     { role: "viewMenu" },
     { role: "windowMenu" },
   ];
@@ -374,6 +418,11 @@ function createWindow(
     screen.getAllDisplays(),
   );
   const savedBounds = shouldUseSavedBounds ? options.session.bounds : undefined;
+  const titleBarOptions = resolveCodexTitleBarOptions({
+    platform: process.platform,
+    windowZoom: 1,
+    isDark: nativeTheme.shouldUseDarkColors,
+  });
   const window = new BrowserWindow({
     x: savedBounds?.x,
     y: savedBounds?.y,
@@ -383,8 +432,7 @@ function createWindow(
     minHeight: 600,
     ...(process.platform === "darwin" ? { title: "Nodex" } : {}),
     ...(process.platform === "darwin" ? {} : { icon: appIconPath }),
-    titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 16, y: 16 },
+    ...titleBarOptions,
     ...(process.platform === "darwin"
       ? {
           vibrancy: "menu" as const,

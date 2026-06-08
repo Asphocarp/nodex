@@ -2,7 +2,7 @@
 
 ## Intent
 This document is the source of truth for Auto-review behavior in Nodex.
-It defines the config-backed permission model, visible preset semantics, approval request lifecycle, and the transport literals required for Codex parity.
+It defines the config-backed permission model, visible preset semantics, approval request lifecycle, and required transport literals.
 
 Other product specs should link here instead of restating Auto-review behavior in detail.
 
@@ -13,7 +13,7 @@ This spec covers:
 - visible Thread-stage and Settings UI for permission modes
 - raw config editing rules for permission-related keys
 - approval request attachment, forwarding, and resolution
-- transcript effects that are specific to Auto-review parity
+- transcript effects that are specific to Auto-review
 
 This spec does not cover:
 - general thread transcript rendering outside approval-specific rows
@@ -67,7 +67,7 @@ The only behavioral difference between `auto` and `guardian-approvals` is the re
 They intentionally share the same sandbox and approval policy.
 
 ## Required Literals
-Before claiming parity, these exact literals must exist in the implementation:
+These exact literals must exist in the implementation:
 - `guardian_approval`
 - `approvals_reviewer`
 - `auto_review`
@@ -112,7 +112,7 @@ Preferred fallback order is:
 The tooltip/description for `custom` should reflect the resolved config source, file path, `sandbox_mode`, `approval_policy`, and `approvals_reviewer` when available.
 
 ## Config Keys
-Permission parity depends on these raw config keys:
+Permission resolution depends on these raw config keys:
 - `approval_policy`
 - `sandbox_mode`
 - `approvals_reviewer`
@@ -139,13 +139,13 @@ The resolved permission state should carry:
 - the writable config target
 - the `custom` description when relevant
 
-Thread summaries/snapshots should also carry the effective permission fields needed to preserve parity across resume and projection:
+Thread summaries/snapshots should also carry the effective permission fields needed to preserve behavior across resume and projection:
 - `approvalPolicy`
 - `sandbox`
 - `approvalsReviewer`
 
 ## UI Surfaces
-Auto-review parity is split across multiple surfaces.
+Auto-review is split across multiple surfaces.
 
 ### Thread Footer Picker
 The Thread-stage permission dropdown must use these exact visible labels:
@@ -170,7 +170,7 @@ Tooltip copy:
 ### Settings -> Agent
 The settings shell exposes a dedicated `Agent` section.
 
-It mirrors Codex's split:
+It uses this split:
 - `Permissions modes`
   - `Default permissions mode`
 - `Custom config.toml settings`
@@ -190,7 +190,7 @@ The resolved permission state must be applied consistently in all main-owned thr
 - queued follow-ups / send-now
 - main-owned fallback or prewarm start-turn helper paths
 
-The parity requirement is that all of those paths carry the same effective:
+All of those paths must carry the same effective:
 - `approvalPolicy`
 - `sandbox`
 - `approvalsReviewer`
@@ -202,7 +202,7 @@ The parity requirement is that all of those paths carry the same effective:
 - File approvals attach to existing patch/file-change rows.
 - Automatic approval review rows are transcript items, not separate settings or approval pages.
 
-This attachment behavior is required for parity with Codex's transcript model.
+This attachment behavior is required for the item-attached transcript model.
 
 ## Request Types
 The relevant request ingress literals are:

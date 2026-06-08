@@ -376,7 +376,7 @@ Desktop Electron:
 - supports resolving saved asset paths for open/reveal actions
 
 Browser runtime:
-- does not promise file/folder paste parity
+- does not support native file/folder paste inspection
 - still supports oversized-text prompting
 - still supports rendering existing saved or linked attachment chips
 
@@ -424,4 +424,4 @@ If that text is pasted as plain text only:
 This feature does not currently try to:
 - inline-preview arbitrary linked local file contents
 - support linked oversized plain text
-- provide browser-only parity for desktop folder paste inspection
+- provide browser-only support for desktop folder paste inspection

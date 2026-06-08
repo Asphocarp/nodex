@@ -13,6 +13,7 @@ import {
   SquareKanban,
   Table2,
 } from "lucide-react";
+import { CodexSidebarVisibleIcon } from "@/components/shared/icons";
 import {
   areCommandPaletteCardFiltersEqual,
   cloneCommandPaletteCardFilters,
@@ -33,6 +34,11 @@ import {
   CommandPaletteCardFiltersSummaryRow,
 } from "./command-palette-filters";
 import { NodexIconButton } from "@/components/ui/button";
+import {
+  NAVIGATE_BACK_COMMAND_ID,
+  NAVIGATE_FORWARD_COMMAND_ID,
+  TOGGLE_SIDEBAR_COMMAND_ID,
+} from "../../../shared/window-navigation";
 import { ThreadsIcon } from "./threads-icon";
 import { ToggleListIcon } from "./toggle-list-icon";
 
@@ -52,8 +58,9 @@ interface CommandPaletteSurfaceProps {
 
 function getCommandGlyph(id: string) {
   if (id === "open-project-picker") return FolderSearch2;
-  if (id === "go-back") return ArrowLeft;
-  if (id === "go-forward") return ArrowRight;
+  if (id === NAVIGATE_BACK_COMMAND_ID) return ArrowLeft;
+  if (id === NAVIGATE_FORWARD_COMMAND_ID) return ArrowRight;
+  if (id === TOGGLE_SIDEBAR_COMMAND_ID) return CodexSidebarVisibleIcon;
   if (id === "search-current-project") return Search;
   if (id === "toggle-terminal") return PanelBottom;
   if (id === "open-settings") return Settings2;

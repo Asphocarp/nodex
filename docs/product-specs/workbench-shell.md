@@ -1,7 +1,7 @@
 # Workbench Shell
 
 ## Intent
-The workbench shell presents each project as a folder in the left sidebar. Expanded projects show durable project-owned sessions. The active session renders as a thread page with shell-owned right and bottom panels for session-attached content tabs, matching the Codex desktop shell hierarchy more closely than the previous stage rail.
+The workbench shell presents each project as a folder in the left sidebar. Expanded projects show durable project-owned sessions. The active session renders as a thread page with shell-owned right and bottom panels for session-attached content tabs, replacing the previous stage rail with a denser desktop shell.
 
 Detailed Auto-review preset, config, and approval-lifecycle rules are specified in [Auto-review Behavior](./auto-review-behavior.md).
 
@@ -9,11 +9,11 @@ Detailed Auto-review preset, config, and approval-lifecycle rules are specified 
 - Left sidebar: projects render as expandable folders. Selecting a project expands it and switches the DB project context.
 - Project children: each expanded project lists ordered sessions. Every project has one seeded `Overview` session.
 - Sidebar footer: a compact Settings button remains available without workspace switching controls.
-- Active session header: uses the active thread title row as the session header, without a separate session title, project-name subtitle, or empty toolbar row above it in either regular or narrow layouts. The fixed global header owns the Codex-style `Toggle bottom panel` and `Toggle side panel` controls, ordered bottom first and side second. Right-panel tab creation and expand/restore actions belong to the right-panel tab header; bottom-panel tab creation plus the plain `Close` X action belong to the bottom-panel tab header. There is no attach/detach thread toolbar button.
+- Active session header: uses the active thread title row as the session header, without a separate session title, project-name subtitle, or empty toolbar row above it in either regular or narrow layouts. The fixed global header owns the left chrome (`Sidebar`, `Back`, `Forward`, and collapsed-only `New chat`) plus the top-right `Toggle bottom panel` and `Toggle side panel` controls, ordered bottom first and side second. Right-panel tab creation and expand/restore actions belong to the right-panel tab header; bottom-panel tab creation plus the plain `Close` X action belong to the bottom-panel tab header. There is no attach/detach thread toolbar button.
 - Thread page: the main session viewport always hosts the session thread page. If no thread is attached, it shows the new-thread composer. If the right panel is collapsed, the global top-right side-panel toggle opens it.
-- Pinned summary: attached-thread pages show a Codex Electron-style summary button at the right edge of the thread header, immediately before the right-panel boundary. While the right panel is collapsed, the button is labelled `Toggle pinned summary` and controls the 300px pinned summary panel, which renders below the thread header and never over the top toolbar buttons. Opening the regular right panel hides the pinned overlay, makes the global header slot reserve the right-panel width, and switches the thread-header button to a separate `Toggle summary` popover trigger; that popover dismisses on outside click and does not change the saved pinned-open preference.
+- Pinned summary: attached-thread pages show a summary button at the right edge of the thread header, immediately before the right-panel boundary. While the right panel is collapsed, the button is labelled `Toggle pinned summary` and controls the 300px pinned summary panel, which renders below the thread header and never over the top toolbar buttons. Opening the regular right panel hides the pinned overlay, makes the global header slot reserve the right-panel width, and switches the thread-header button to a separate `Toggle summary` popover trigger; that popover dismisses on outside click and does not change the saved pinned-open preference.
 - Right panel: the v1 right panel renders one tab group with ordered session tabs. It can be collapsed, regular-width, or expanded to the full session content area. New non-Overview sessions start with the right panel collapsed; each seeded `Overview` session starts with the right panel open and full-width expanded on its default DB tab unless the user has changed that session's panel width. Hiding and showing the side panel preserves the session-local regular/full-width mode. The persisted layout shape already supports future split leaves, but v1 does not render multiple split groups.
-- Bottom panel: the v1 bottom panel renders one tab group below the thread/right-panel row and spans the full active session width. It has a top-edge resize handle, defaults to 280px tall, opens when a bottom tab such as Terminal is created or focused, and can be shown or hidden from the fixed global `Toggle bottom panel` button even before any durable bottom tab exists. Its Codex-parity new-tab chooser offers Files, Side chat, Browser, Review, and Terminal when eligible, while DB View and Card Stage remain right-panel-only creation actions.
+- Bottom panel: the v1 bottom panel renders one tab group below the thread/right-panel row and spans the full active session width. It has a top-edge resize handle, defaults to 280px tall, opens when a bottom tab such as Terminal is created or focused, and can be shown or hidden from the fixed global `Toggle bottom panel` button even before any durable bottom tab exists. Its new-tab chooser offers Files, Side chat, Browser, Review, and Terminal when eligible, while DB View and Card Stage remain right-panel-only creation actions.
 - Browser tabs: browser is a real tab kind but renders a nonfunctional placeholder until the browser feature ships.
 - The right panel has a left-edge resize handle in regular mode. Full-width mode collapses the thread viewport to zero width, removes the resize handle and inner left border, and exposes `Restore panel width` from the right-panel tab header.
 
@@ -37,7 +37,9 @@ Detailed Auto-review preset, config, and approval-lifecycle rules are specified 
 
 ## Navigation
 - Session switching changes the thread page plus the right and bottom panel tab groups.
+- App-window Back/Forward controls are available as titlebar buttons, command palette commands, `Cmd/Ctrl+[` and `Cmd/Ctrl+]`, desktop mouse Back/Forward buttons, and the macOS application menu; all routes use the same window-local workbench history callbacks. The command ids are `navigateBack` and `navigateForward`, labels are `Back` and `Forward`, and the disabled state follows the workbench back/forward stacks.
 - Tab switching persists through the owning panel's v1 leaf layout.
+- Browser-sidebar webview navigation remains separate from app-window history. Browser tab `canGoBack` / `canGoForward` and `webContents.goBack` / `goForward` must not drive the top-left workbench Back/Forward buttons.
 - Browser and Review are session singleton tab kinds across both right and bottom panels; creation affordances hide them when either kind already exists, and duplicate create requests focus the existing tab instead of adding another.
 - Tab reorder persists through `project_session_tabs.order` scoped by `panel_id` and updates that panel's leaf tab id order.
 - Closing a durable tab removes that session tab. Closing a preview tab drops only the renderer-local preview and collapses that panel if it has no durable tabs. The Overview DB tab can remain closable only when another tab exists in the same session.
@@ -51,14 +53,15 @@ Detailed Auto-review preset, config, and approval-lifecycle rules are specified 
 - `Ctrl+\`` focuses an existing session terminal tab or creates one in the bottom panel. The global terminal drawer is not part of the project-session shell model.
 
 ## UI Contract
-- Surfaces should use the generated Codex theme layers and token classes before adding local CSS.
+- Surfaces should use the generated theme layers and token classes before adding local CSS.
+- Left titlebar navigation uses one grouped toolbar rail. Back renders lucide `ArrowLeft` with `icon-xs`; Forward reuses the same icon with `icon-xs -scale-x-100`. Each button has matching `aria-label`, `title`, tooltip text, command palette title, and disabled styling.
 - Tabs are dense, use hover-revealed close actions, and support pointer reorder through the shared tab strip.
-- Keep upstream Codex Electron `Timeline` documented as a discovered new-tab registry action, but do not add a Nodex tab kind until a bundle enables it; 26.519.81530 hard-codes the action's eligibility false.
+- Keep `Timeline` hidden until Nodex has a first-class tab kind and eligibility model for it.
 - Project/session rows should be information-dense and shallow: folder disclosure, project label, session title, and subtle thread-attached indicator.
-- The thread page content frame keeps the Codex-style top border but forces the frame top offset to `0px`, so the thread title row starts at the top instead of below an empty toolbar band. The global top-right controls are reserved inside that title row through the thread header right-reserve area.
+- The thread page content frame keeps the shell top border but forces the frame top offset to `0px`, so the thread title row starts at the top instead of below an empty toolbar band. The global top-right controls are reserved inside that title row through the thread header right-reserve area.
 - Do not reintroduce the stage rail as a compatibility layer. DB view, Card Stage, Thread, Diff/review, and Terminal implementations should remain reusable bodies behind sessions and tabs.
 
 ## Storybook And Testing
-- Storybook coverage lives in `src/renderer/components/workbench/workbench-session-shell.stories.tsx` for mixed tabs, empty right/bottom action grids, attached thread page, collapsed right panel, full-width right panel, and long names.
+- Storybook coverage lives in `src/renderer/components/workbench/workbench-session-shell.stories.tsx` for mixed tabs, empty right/bottom action grids, attached thread page, collapsed right panel, full-width right panel, long names, and enabled/disabled left titlebar navigation chrome.
 - Unit tests should cover schema migration, Overview seeding, tab config validation, session ordering, tab ordering, session-thread startup, and the absence of attach/detach toolbar controls.
 - Renderer tests should cover project expansion, session loading/switching, Overview defaults, right-panel collapse/full-width behavior, bottom-panel terminal behavior, tab selection, tab reorder, cross-panel move, and each tab kind.

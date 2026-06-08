@@ -1,5 +1,9 @@
 import { useEffect } from "react";
 import type { StageId } from "./use-workbench-state";
+import type {
+  WorkbenchNavigationCommandSource,
+  WorkbenchSidebarToggleCommandSource,
+} from "../../shared/window-navigation";
 
 export interface WorkbenchShortcutActions {
   spaces: { projectId: string }[];
@@ -16,11 +20,13 @@ export interface WorkbenchShortcutActions {
   onRequestThreadSearch?: (projectId: string) => void;
   onRequestDiffSearch?: (projectId: string) => void;
   onRequestSettingsToggle?: () => void;
-  navigateBack?: () => void;
-  navigateForward?: () => void;
+  navigateBack?: (source: WorkbenchNavigationCommandSource) => void;
+  navigateForward?: (source: WorkbenchNavigationCommandSource) => void;
+  onToggleSidebar?: (source: WorkbenchSidebarToggleCommandSource) => void;
 }
 
 const EDITOR_SURFACE_SELECTOR = ".nfm-editor, .bn-editor, .bn-container";
+const COMPOSER_SURFACE_SELECTOR = "[data-composer-prompt-frame]";
 
 interface ShortcutTargetLike {
   tagName?: string;
@@ -40,6 +46,12 @@ function isEditorSurfaceTarget(target: EventTarget | null): boolean {
   return Boolean(element.closest(EDITOR_SURFACE_SELECTOR));
 }
 
+function isComposerSurfaceTarget(target: EventTarget | null): boolean {
+  const element = target as ShortcutTargetLike | null;
+  if (!element?.closest) return false;
+  return Boolean(element.closest(COMPOSER_SURFACE_SELECTOR));
+}
+
 function isEditableTarget(target: EventTarget | null): boolean {
   const element = target as ShortcutTargetLike | null;
   if (!element) return false;
@@ -54,6 +66,7 @@ export function handleWorkbenchShortcut(
   const modifier = isMac ? e.metaKey : e.ctrlKey;
   const targetIsEditable = isEditableTarget(e.target);
   const targetIsEditorSurface = isEditorSurfaceTarget(e.target);
+  const targetIsComposerSurface = isComposerSurfaceTarget(e.target);
   if (modifier && !e.altKey && e.shiftKey && (e.key === "n" || e.key === "N")) {
     actions.onRequestNewWindow?.();
     return true;
@@ -67,12 +80,18 @@ export function handleWorkbenchShortcut(
   const isBackShortcut = e.code === "BracketLeft" || e.key === "[";
   const isForwardShortcut = e.code === "BracketRight" || e.key === "]";
   if (modifier && !e.altKey && !e.shiftKey && isBackShortcut) {
-    actions.navigateBack?.();
+    actions.navigateBack?.("keyboard_shortcut");
     return true;
   }
 
   if (modifier && !e.altKey && !e.shiftKey && isForwardShortcut) {
-    actions.navigateForward?.();
+    actions.navigateForward?.("keyboard_shortcut");
+    return true;
+  }
+
+  if (modifier && !e.altKey && !e.shiftKey && (e.key === "b" || e.key === "B")) {
+    if (targetIsEditable && !targetIsComposerSurface) return false;
+    actions.onToggleSidebar?.(targetIsComposerSurface ? "composer_sidebar_shortcut" : "keyboard_shortcut");
     return true;
   }
 
@@ -136,6 +155,34 @@ export function handleWorkbenchShortcut(
   return false;
 }
 
+export function resolveWorkbenchMouseNavigationShortcut(
+  e: Pick<MouseEvent, "button">,
+): "back" | "forward" | null {
+  if (e.button === 3) return "back";
+  if (e.button === 4) return "forward";
+  return null;
+}
+
+export function handleWorkbenchMouseNavigationShortcut(
+  e: Pick<MouseEvent, "button">,
+  actions: Pick<WorkbenchShortcutActions, "navigateBack" | "navigateForward">,
+): boolean {
+  const direction = resolveWorkbenchMouseNavigationShortcut(e);
+  if (direction === "back") {
+    if (!actions.navigateBack) return false;
+    actions.navigateBack("mouse_back");
+    return true;
+  }
+
+  if (direction === "forward") {
+    if (!actions.navigateForward) return false;
+    actions.navigateForward("mouse_forward");
+    return true;
+  }
+
+  return false;
+}
+
 export function useWorkbenchShortcuts(actions: WorkbenchShortcutActions): void {
   useEffect(() => {
     const isMac = navigator.platform.toUpperCase().includes("MAC");
@@ -144,8 +191,16 @@ export function useWorkbenchShortcuts(actions: WorkbenchShortcutActions): void {
       if (!handleWorkbenchShortcut(e, actions, isMac)) return;
       e.preventDefault();
     };
+    const onMouseUp = (e: MouseEvent) => {
+      if (!handleWorkbenchMouseNavigationShortcut(e, actions)) return;
+      e.preventDefault();
+    };
 
     document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    document.addEventListener("mouseup", onMouseUp);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
   }, [actions]);
 }

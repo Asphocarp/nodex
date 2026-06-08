@@ -4,6 +4,7 @@
 - Always commit changes after all edits are done (with a prefix like `feat:`/`fix:`/`docs:`/`refactor:`/`chore:`, e.g. `feat: add kanban board`). Do not leave uncommitted changes at the end of a task.
 - This app has no real users or real data yet. Feel free to make ANY huge changes/refactors you want and do not worry about it.
 - For frontend design, prioritize an elegant, information-dense layout with minimal logical/visual redundancy and shallow nesting.
+- Keep implementation notes, docs, changelog entries, and handoff summaries product-native: describe what Nodex does and why, without surfacing private provenance, comparative targets, or reconstruction details unless the user explicitly asks for research notes.
 - Do not read repository contents via web crawling from `raw.githubusercontent.com` because it is not stable for agent workflows. For remote repository inspection, clone the repository into a temporary local directory and read files from the local clone instead.
 - When writing bun unit tests, be aware that `expect` is of type `expect(value: unknown): { toBe: (expected: unknown) => void; toBeTrue: () => void; toBeFalse: () => void; not: { toBeNull: () => void; }; }` 
   - there is ONLY `toBe`, `toBeTrue`, `toBeFalse`, `not.toBeNull`.

@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { createElement, createRef, useState, type ReactNode } from "react";
+import { createElement, createRef, useState, type ComponentProps, type ReactNode } from "react";
 import { act, fireEvent, within } from "@testing-library/react";
 import type { Project, ProjectSession, ProjectSessionTab } from "@/lib/types";
 import {
@@ -435,12 +435,20 @@ function renderWorkbench({
   searchByProject = {},
   dbViewPrefsByProject = {},
   sidebar,
+  canNavigateBack = false,
+  canNavigateForward = false,
+  onNavigateBack,
+  onNavigateForward,
 }: {
   projects?: Project[];
   sessionsByProject?: Record<string, ProjectSession[]>;
   searchByProject?: Record<string, string>;
   dbViewPrefsByProject?: Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>;
   sidebar?: { collapsed: boolean; width: number };
+  canNavigateBack?: boolean;
+  canNavigateForward?: boolean;
+  onNavigateBack?: ComponentProps<typeof WorkbenchShell>["onNavigateBack"];
+  onNavigateForward?: ComponentProps<typeof WorkbenchShell>["onNavigateForward"];
 } = {}) {
   let sessionState = sessionsByProject;
   mockInvokeImpl = async (channel, ...args) => {
@@ -674,6 +682,10 @@ function renderWorkbench({
         setSidebarWidth={(width) => {
           setSidebarState((current) => ({ ...current, width }));
         }}
+        canNavigateBack={canNavigateBack}
+        canNavigateForward={canNavigateForward}
+        onNavigateBack={onNavigateBack}
+        onNavigateForward={onNavigateForward}
       />
     );
   }
@@ -814,9 +826,9 @@ describe("workbench session shell", () => {
       .join(",");
     const topNewChatButton = screen.getByRole("button", { name: "New chat" });
 
-    expect(labels).toBe("Hide sidebar");
+    expect(labels).toBe("Hide sidebar,Back,Forward");
     expect(leftSlot.getAttribute("style")?.includes("width: 312px")).toBeTrue();
-    expect(leftSlot.getAttribute("style")?.includes("min-width: 312px")).toBeTrue();
+    expect(leftSlot.getAttribute("style")?.includes("min-width: 312px")).toBeFalse();
     expect(within(leftSlot).queryByRole("button", { name: "New chat" })).toBe(null);
     expect(topNewChatButton.className).toBe(CODEX_TOP_NEW_CHAT_CLASS);
   });
@@ -2565,6 +2577,52 @@ describe("workbench session shell", () => {
     expect(screen.container.querySelector('[data-testid="app-shell-floating-left-panel"]')).toBe(null);
   });
 
+  test("left sidebar resize closes through the Codex minimum-width threshold", async () => {
+    const screen = renderWorkbench({ sidebar: { collapsed: false, width: 300 } });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const resizeStrip = screen.getByTestId("sidebar-resize-strip");
+    await act(async () => {
+      fireEvent.mouseDown(resizeStrip, { clientX: 300 });
+      fireEvent.mouseMove(document, { clientX: 200 });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.getByRole("button", { name: "Show sidebar" }) !== null).toBeTrue();
+
+    await act(async () => {
+      fireEvent.mouseUp(document);
+      await Promise.resolve();
+    });
+  });
+
+  test("left sidebar resize normalizes drag deltas by the Codex window zoom", async () => {
+    const screen = renderWorkbench({ sidebar: { collapsed: false, width: 300 } });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const workbenchRoot = screen.getByTestId("workbench-global-header").parentElement as HTMLElement | null;
+    workbenchRoot?.style.setProperty("--codex-window-zoom", "2");
+    const sidebar = screen.getByTestId("project-session-sidebar");
+    const resizeStrip = screen.getByTestId("sidebar-resize-strip");
+
+    await act(async () => {
+      fireEvent.mouseDown(resizeStrip, { clientX: 600 });
+      fireEvent.mouseMove(document, { clientX: 720 });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(sidebar.getAttribute("style")?.includes("width: 360px")).toBeTrue();
+
+    await act(async () => {
+      fireEvent.mouseUp(document);
+      await Promise.resolve();
+    });
+  });
+
   test("collapsed sidebar renders Codex-parity left titlebar chrome on macOS", async () => {
     const originalPlatform = navigator.platform;
     Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
@@ -2580,6 +2638,8 @@ describe("workbench session shell", () => {
       const globalHeader = screen.getByTestId("workbench-global-header");
       const leftSlot = getHeaderShellSlot(screen, "left");
       const collapseButton = within(leftSlot).getByRole("button", { name: "Show sidebar" });
+      const backButton = within(leftSlot).getByRole("button", { name: "Back" });
+      const forwardButton = within(leftSlot).getByRole("button", { name: "Forward" });
       const compactNewChatButton = within(leftSlot).getByRole("button", { name: "New chat" });
       const visibleLeftLabels = Array.from(leftSlot.querySelectorAll("button"))
         .map((button) => button.getAttribute("aria-label"))
@@ -2587,21 +2647,35 @@ describe("workbench session shell", () => {
 
       expect(globalHeader.contains(leftSlot)).toBeTrue();
       expect(globalHeader.contains(collapseButton)).toBeTrue();
-      expect(visibleLeftLabels).toBe("Show sidebar,New chat");
+      expect(visibleLeftLabels).toBe("Show sidebar,Back,Forward,New chat");
       expect(leftSlot.className.includes("ps-[max(var(--spacing-token-safe-header-left),0.5rem)]")).toBeTrue();
-      expect(leftSlot.getAttribute("style")?.includes("width: 152px")).toBeTrue();
-      expect(leftSlot.getAttribute("style")?.includes("min-width: 152px")).toBeTrue();
+      expect(leftSlot.getAttribute("style")?.includes("width: 216px")).toBeTrue();
+      expect(leftSlot.getAttribute("style")?.includes("min-width: 216px")).toBeTrue();
       expect(collapseButton.parentElement?.className.includes("fixed")).toBeFalse();
       expect(collapseButton.getAttribute("title")).toBe("Toggle sidebar");
       expect(collapseButton.className).toBe(CODEX_COLLAPSED_CHROME_BUTTON_CLASS);
+      expect(backButton.className).toBe(CODEX_COLLAPSED_CHROME_BUTTON_CLASS);
+      expect(forwardButton.className).toBe(CODEX_COLLAPSED_CHROME_BUTTON_CLASS);
       expect(compactNewChatButton.className).toBe(CODEX_COLLAPSED_CHROME_BUTTON_CLASS);
+      expect(backButton.hasAttribute("disabled")).toBeTrue();
+      expect(forwardButton.hasAttribute("disabled")).toBeTrue();
+      expect(backButton.querySelector("svg")?.getAttribute("class")?.includes("icon-xs")).toBeTrue();
+      expect(forwardButton.querySelector("svg")?.getAttribute("class")?.includes("icon-xs -scale-x-100")).toBeTrue();
       expect(collapseButton.className.includes("h-token-button-composer")).toBeTrue();
+      expect(backButton.className.includes("h-token-button-composer")).toBeTrue();
+      expect(forwardButton.className.includes("h-token-button-composer")).toBeTrue();
       expect(compactNewChatButton.className.includes("h-token-button-composer")).toBeTrue();
       expect(collapseButton.className.includes("text-token-text-tertiary")).toBeTrue();
+      expect(backButton.className.includes("text-token-text-tertiary")).toBeTrue();
+      expect(forwardButton.className.includes("text-token-text-tertiary")).toBeTrue();
       expect(compactNewChatButton.className.includes("text-token-text-tertiary")).toBeTrue();
       expect(collapseButton.className.includes("enabled:hover:bg-token-list-hover-background")).toBeTrue();
+      expect(backButton.className.includes("enabled:hover:bg-token-list-hover-background")).toBeTrue();
+      expect(forwardButton.className.includes("enabled:hover:bg-token-list-hover-background")).toBeTrue();
       expect(compactNewChatButton.className.includes("enabled:hover:bg-token-list-hover-background")).toBeTrue();
       expect(collapseButton.className.includes("enabled:hover:bg-transparent")).toBeFalse();
+      expect(backButton.className.includes("enabled:hover:bg-transparent")).toBeFalse();
+      expect(forwardButton.className.includes("enabled:hover:bg-transparent")).toBeFalse();
       expect(compactNewChatButton.className.includes("enabled:hover:bg-transparent")).toBeFalse();
       expect(compactNewChatButton.querySelector("svg")?.getAttribute("class")?.includes("icon-sm")).toBeTrue();
       expect(compactNewChatButton.querySelector("path")?.getAttribute("d")?.startsWith(CODEX_NEW_CHAT_ICON_PREFIX)).toBeTrue();
@@ -2644,5 +2718,35 @@ describe("workbench session shell", () => {
     } finally {
       Object.defineProperty(navigator, "platform", { configurable: true, value: originalPlatform });
     }
+  });
+
+  test("window navigation chrome dispatches Codex sidebar command sources", async () => {
+    const backSources: string[] = [];
+    const forwardSources: string[] = [];
+    const screen = renderWorkbench({
+      sidebar: { collapsed: true, width: 300 },
+      canNavigateBack: true,
+      canNavigateForward: true,
+      onNavigateBack: (source) => {
+        backSources.push(source);
+      },
+      onNavigateForward: (source) => {
+        forwardSources.push(source);
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const leftSlot = getHeaderShellSlot(screen, "left");
+    const backButton = within(leftSlot).getByRole("button", { name: "Back" });
+    const forwardButton = within(leftSlot).getByRole("button", { name: "Forward" });
+
+    expect(backButton.hasAttribute("disabled")).toBeFalse();
+    expect(forwardButton.hasAttribute("disabled")).toBeFalse();
+    fireEvent.click(backButton);
+    fireEvent.click(forwardButton);
+
+    expect(backSources.join(",")).toBe("sidebar_back");
+    expect(forwardSources.join(",")).toBe("sidebar_forward");
   });
 });

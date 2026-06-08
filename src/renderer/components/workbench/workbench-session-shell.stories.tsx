@@ -13,6 +13,7 @@ type ShellStoryArgs = {
   sidebar: "expanded" | "collapsed";
   sidebarReveal: "idle" | "edge" | "focus";
   sidebarWidth: 240 | 300 | 520;
+  navigationHistory: "disabled" | "back" | "forward" | "both";
   longNames: boolean;
 };
 
@@ -34,6 +35,7 @@ const meta = {
     sidebar: "expanded",
     sidebarReveal: "idle",
     sidebarWidth: 300,
+    navigationHistory: "both",
     longNames: false,
   },
   argTypes: {
@@ -64,6 +66,10 @@ const meta = {
     sidebarWidth: {
       control: "inline-radio",
       options: [240, 300, 520],
+    },
+    navigationHistory: {
+      control: "inline-radio",
+      options: ["disabled", "back", "forward", "both"],
     },
     longNames: {
       control: "boolean",
@@ -392,8 +398,17 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
     [args],
   );
   const [sessionsByProject, setSessionsByProject] = useState(initialSessionsByProject);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(args.sidebar === "collapsed");
+  const [sidebarWidth, setSidebarWidth] = useState<number>(args.sidebarWidth);
+  const canNavigateBack = args.navigationHistory === "back" || args.navigationHistory === "both";
+  const canNavigateForward = args.navigationHistory === "forward" || args.navigationHistory === "both";
 
   installStoryApi(sessionsByProject, setSessionsByProject);
+
+  useEffect(() => {
+    setSidebarCollapsed(args.sidebar === "collapsed");
+    setSidebarWidth(args.sidebarWidth);
+  }, [args.sidebar, args.sidebarWidth]);
 
   useEffect(() => {
     if (args.rightPanel === "collapsed") return undefined;
@@ -428,7 +443,7 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
   return (
     <div className="h-screen">
       <WorkbenchShell
-        key={`${args.thread}:${args.rightPanel}:${args.bottomPanel}:${args.activeTab}:${args.sidebar}:${args.sidebarReveal}:${args.sidebarWidth}:${args.longNames ? "long" : "normal"}`}
+        key={`${args.thread}:${args.rightPanel}:${args.bottomPanel}:${args.activeTab}:${args.sidebar}:${args.sidebarReveal}:${args.sidebarWidth}:${args.navigationHistory}:${args.longNames ? "long" : "normal"}`}
         projects={PROJECTS}
         dbProjectId="nodex"
         activeView={"kanban" as WorkbenchView}
@@ -437,7 +452,9 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
         searchByProject={{ nodex: "" }}
         dbViewPrefsByProject={{}}
         spaces={SPACES}
-        sidebar={{ collapsed: args.sidebar === "collapsed", width: args.sidebarWidth }}
+        sidebar={{ collapsed: sidebarCollapsed, width: sidebarWidth }}
+        setSidebarCollapsed={setSidebarCollapsed}
+        setSidebarWidth={setSidebarWidth}
         cardStageCloseRef={{ current: null }}
         setDbProject={() => undefined}
         setSearchQuery={() => undefined}
@@ -449,6 +466,10 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
         onDeleteProject={async () => false}
         onRequestProjectPickerOpen={() => undefined}
         threadSearchOpenTick={0}
+        canNavigateBack={canNavigateBack}
+        canNavigateForward={canNavigateForward}
+        onNavigateBack={() => undefined}
+        onNavigateForward={() => undefined}
       />
     </div>
   );
@@ -729,7 +750,53 @@ export const ExpandedSidebarParity: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Expanded Codex sidebar parity state with the real app-shell left panel mounted at the 300px default width.",
+        story: "Expanded Codex sidebar parity state with the real app-shell left panel mounted at the 300px default width and enabled Back/Forward chrome in the titlebar.",
+      },
+    },
+  },
+};
+
+export const ExpandedSidebarMinWidth: Story = {
+  args: {
+    thread: "attached",
+    sidebar: "expanded",
+    sidebarWidth: 240,
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Expanded real sidebar at Codex's 240px minimum width, with the titlebar left slot still driven by the sidebar geometry.",
+      },
+    },
+  },
+};
+
+export const ExpandedSidebarMaxWidth: Story = {
+  args: {
+    thread: "attached",
+    sidebar: "expanded",
+    sidebarWidth: 520,
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Expanded real sidebar at Codex's 520px maximum width, preserving the native vibrant shell and animated header slot reservation.",
+      },
+    },
+  },
+};
+
+export const ExpandedSidebarReducedMotion: Story = {
+  args: {
+    thread: "attached",
+    sidebar: "expanded",
+    sidebarWidth: 300,
+  },
+  render: (args) => <ReducedMotionProjectSessionShellStory {...args} />,
+  parameters: {
+    docs: {
+      description: {
+        story: "Expanded real sidebar under prefers-reduced-motion, where explicit sidebar toggles snap instead of running the shell spring.",
       },
     },
   },
@@ -781,7 +848,23 @@ export const CollapsedSidebarThreadChrome: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Collapsed sidebar chrome parity scene: traffic-light safe left rail with sidebar toggle, compact New chat, and a long thread title that truncates in the top chrome.",
+        story: "Collapsed sidebar chrome parity scene: traffic-light safe left rail with sidebar toggle, Back, Forward, compact New chat, and a long thread title that truncates in the top chrome.",
+      },
+    },
+  },
+};
+
+export const DisabledNavigationChrome: Story = {
+  args: {
+    thread: "attached",
+    sidebar: "collapsed",
+    navigationHistory: "disabled",
+    rightPanel: "collapsed",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Collapsed titlebar with Codex Back/Forward buttons present but disabled because the workbench history stacks are empty.",
       },
     },
   },

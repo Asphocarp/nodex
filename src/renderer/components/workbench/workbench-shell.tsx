@@ -11,8 +11,9 @@ import {
   type ComponentType,
   type ReactNode,
 } from "react";
-import { AnimatePresence, motion, useReducedMotion, useTransform, type MotionStyle } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion, useTransform, type MotionStyle, type MotionValue } from "motion/react";
 import {
+  ArrowLeft,
   CalendarDays,
   Globe2,
   PenLine,
@@ -39,6 +40,7 @@ import { buildSettingsPath } from "./workbench-settings-routes";
 import { ProjectManagerPopover } from "./left-sidebar-project-manager";
 import { LeftSidebarFooter } from "./left-sidebar-footer";
 import { NodexDropdownFlyoutSubmenuItem, NodexDropdownItem, NodexDropdownMenu } from "@/components/ui/dropdown";
+import { ShortcutKeycaps } from "@/components/ui/shortcut-keycaps";
 import { NodexTooltip, NodexTooltipProvider } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
 import {
@@ -137,7 +139,6 @@ import {
   CODEX_SIDEBAR_FLOATING_ASIDE_CLASS,
   CODEX_SIDEBAR_FLOATING_HEADER_CLASS,
   CODEX_SIDEBAR_FLOATING_OUTER_CLASS,
-  CODEX_SIDEBAR_FLOATING_PANEL_TRANSITION,
   CODEX_SIDEBAR_POINTER_DEFAULT,
   CODEX_SIDEBAR_WIDTH_DEFAULT_PX,
   CODEX_SIDEBAR_WIDTH_MIN_PX,
@@ -145,7 +146,9 @@ import {
   deriveCodexSidebarFloatingVisibility,
   getCodexSidebarFloatingTransition,
   normalizeCodexSidebarPointer,
+  shouldAnimateCodexSidebarToggle,
   shouldClearCodexSidebarHoverSuppression,
+  shouldSuppressCodexSidebarHoverOpen,
   type CodexSidebarPointerSnapshot,
 } from "@/lib/codex-sidebar-auto-reveal";
 import {
@@ -154,11 +157,11 @@ import {
   CodexExpandPanelIcon,
   CodexPanelBottomHiddenIcon,
   CodexPanelBottomVisibleIcon,
-  CodexPanelLeftHiddenIcon,
-  CodexPanelLeftVisibleIcon,
   CodexPanelRightHiddenIcon,
   CodexPanelRightVisibleIcon,
   CodexRestorePanelIcon,
+  CodexSidebarHiddenIcon,
+  CodexSidebarVisibleIcon,
   CodexSidePanelBrowserIcon,
   CodexSidePanelFilesIcon,
   CodexSidePanelPlusIcon,
@@ -183,6 +186,12 @@ import {
   CodexThreadRow,
   resolveCodexNewChatShortcutLabel,
 } from "./codex-sidebar";
+import {
+  resolveWorkbenchNavigationShortcutLabel,
+  WORKBENCH_NAVIGATION_COMMANDS,
+  type WorkbenchSidebarToggleCommandSource,
+  type WorkbenchNavigationCommandSource,
+} from "../../../shared/window-navigation";
 
 const MAC_TRAFFIC_LIGHT_SAFE_HEADER_LEFT_PX = 90;
 const NON_MAC_SAFE_HEADER_LEFT_PX = 12;
@@ -196,7 +205,7 @@ const TOOLBAR_BUTTON_GHOST_CLASS = "text-token-text-tertiary enabled:hover:bg-to
 const TOOLBAR_BUTTON_SECONDARY_CLASS = "text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent";
 const RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX = 70;
 const RIGHT_PANEL_HEADER_FALLBACK_RAIL_WIDTH_PX = 62;
-const LEFT_HEADER_COLLAPSED_RAIL_FALLBACK_WIDTH_PX = 62;
+const LEFT_HEADER_COLLAPSED_RAIL_FALLBACK_WIDTH_PX = 126;
 const THREAD_SUMMARY_PANEL_STORAGE_KEY = "nodex:thread-summary-panel:pinned-open";
 const PROJECT_SESSION_SINGLETON_TAB_KIND_SET = new Set<string>(PROJECT_SESSION_SINGLETON_TAB_KINDS);
 const PREVIEWABLE_PROJECT_SESSION_TAB_KIND_SET = new Set<ProjectSessionTab["kind"]>([
@@ -409,16 +418,18 @@ interface WorkbenchShellProps {
   commandPaletteOpenTick?: unknown;
   commandPaletteInitialQuery?: unknown;
   settingsToggleTick?: unknown;
+  sidebarToggleRequestTick?: number;
+  sidebarToggleRequestSource?: WorkbenchSidebarToggleCommandSource;
   navigateToStage?: unknown;
   navigateToDbView?: unknown;
   navigateToRecentSession?: unknown;
   navigateToCardsTab?: unknown;
   navigateToThreadTab?: unknown;
   navigateToFilesTab?: unknown;
-  canNavigateBack?: unknown;
-  canNavigateForward?: unknown;
-  onNavigateBack?: unknown;
-  onNavigateForward?: unknown;
+  canNavigateBack?: boolean;
+  canNavigateForward?: boolean;
+  onNavigateBack?: (source: WorkbenchNavigationCommandSource) => void;
+  onNavigateForward?: (source: WorkbenchNavigationCommandSource) => void;
   onRequestNewWindow?: unknown;
 }
 
@@ -704,6 +715,12 @@ export function WorkbenchShell({
   setSidebarWidth,
   setSidebarTopLevelSectionVisible,
   settingsToggleTick,
+  sidebarToggleRequestTick = 0,
+  sidebarToggleRequestSource = "keyboard_shortcut",
+  canNavigateBack = false,
+  canNavigateForward = false,
+  onNavigateBack,
+  onNavigateForward,
 }: WorkbenchShellProps) {
   const fallbackProjectId = projects[0]?.id ?? "default";
   const [activeProjectId, setActiveProjectId] = useState(dbProjectId || fallbackProjectId);
@@ -734,7 +751,8 @@ export function WorkbenchShell({
   const [floatingSidebarVisible, setFloatingSidebarVisible] = useState(false);
   const [sidebarHoverSuppressed, setSidebarHoverSuppressed] = useState(false);
   const [sidebarTriggerHovered, setSidebarTriggerHovered] = useState(false);
-  const [sidebarAnimating, setSidebarAnimating] = useState(false);
+  const [sidebarClickInFlight, setSidebarClickInFlight] = useState(false);
+  const [sidebarAnimateLayout, setSidebarAnimateLayout] = useState(true);
   const [appShellFocusAreaActive, setAppShellFocusAreaActive] = useState(false);
   const [sidebarTaskSearchOpenTick, setSidebarTaskSearchOpenTick] = useState(0);
   const [projectsSectionCollapsed, setProjectsSectionCollapsed] = useState(false);
@@ -742,7 +760,7 @@ export function WorkbenchShell({
   const sessionContentRef = useRef<HTMLDivElement | null>(null);
   const pinningPreviewTabIdsRef = useRef<Set<string>>(new Set());
   const sidebarPointerRef = useRef<CodexSidebarPointerSnapshot>(CODEX_SIDEBAR_POINTER_DEFAULT);
-  const sidebarAnimationTimeoutRef = useRef<number | null>(null);
+  const lastHandledSidebarToggleRequestTickRef = useRef(sidebarToggleRequestTick);
   const sidebarCollapsed = sidebar?.collapsed ?? localSidebarCollapsed;
   const sidebarWidth = sidebar?.width ?? localSidebarWidth;
   const lastHandledSettingsToggleTickRef = useRef(settingsToggleTick);
@@ -759,6 +777,13 @@ export function WorkbenchShell({
   const codexConnection = useLocalConversationConnection();
   const codexAccountActions = useCodexAccountActions();
   const reducedMotion = useReducedMotion();
+  const realSidebarMotion = useCodexAnimatedPanelState({
+    open: !sidebarCollapsed,
+    targetSize: sidebarWidth,
+    reducedMotion,
+    animateLayout: sidebarAnimateLayout,
+  });
+  const sidebarAnimating = realSidebarMotion.animating;
 
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null;
   const activeSessions = activeProject ? sessionsByProject[activeProject.id] ?? [] : [];
@@ -882,8 +907,16 @@ export function WorkbenchShell({
   const effectiveHeaderLeftWidth = sidebarCollapsed
     ? Math.max(headerLeftWidth, collapsedHeaderLeftFallbackWidth)
     : Math.max(headerLeftWidth, safeHeaderLeftWidth + 24);
-  const headerLeftShellSlotWidth = sidebarCollapsed ? effectiveHeaderLeftWidth : sidebarWidth;
-  const threadStageHeaderLeftPadding = sidebarCollapsed
+  const realSidebarMounted = realSidebarMotion.mounted;
+  const headerLeftShellSlotWidth = realSidebarMounted ? realSidebarMotion.animatedSize : effectiveHeaderLeftWidth;
+  const headerLeftShellSlotMinWidth = realSidebarMounted
+    ? sidebarCollapsed
+      ? effectiveHeaderLeftWidth
+      : Math.max(headerLeftWidth, safeHeaderLeftWidth + 24)
+    : effectiveHeaderLeftWidth;
+  const threadStageHeaderLeftPadding = realSidebarMounted
+    ? "calc(var(--spacing) * 3)"
+    : sidebarCollapsed
     ? `calc(${effectiveHeaderLeftWidth}px + var(--spacing) * 4)`
     : "calc(var(--spacing) * 3)";
 
@@ -1622,37 +1655,25 @@ export function WorkbenchShell({
     }
   }, [setSidebarCollapsed]);
 
-  const clearSidebarAnimationTimeout = useCallback(() => {
-    if (sidebarAnimationTimeoutRef.current === null) return;
-    window.clearTimeout(sidebarAnimationTimeoutRef.current);
-    sidebarAnimationTimeoutRef.current = null;
-  }, []);
-
-  const startSidebarAnimationGuard = useCallback((animate: boolean) => {
-    clearSidebarAnimationTimeout();
-    if (!animate || reducedMotion) {
-      setSidebarAnimating(false);
-      return;
-    }
-
-    setSidebarAnimating(true);
-    sidebarAnimationTimeoutRef.current = window.setTimeout(() => {
-      sidebarAnimationTimeoutRef.current = null;
-      setSidebarAnimating(false);
-    }, CODEX_SIDEBAR_FLOATING_PANEL_TRANSITION.duration * 1000);
-  }, [clearSidebarAnimationTimeout, reducedMotion]);
-
   const setSidebarCollapsedWithCodexState = useCallback((
     collapsed: boolean,
     options: { animate?: boolean; suppressHoverOpen?: boolean } = {},
   ) => {
-    const suppressHoverOpen = collapsed && options.suppressHoverOpen !== false;
+    const nextOpen = !collapsed;
+    const suppressHoverOpen = shouldSuppressCodexSidebarHoverOpen({
+      nextOpen,
+      suppressHoverOpen: options.suppressHoverOpen,
+    });
+    const shouldAnimate = shouldAnimateCodexSidebarToggle({
+      animate: options.animate,
+      reducedMotion,
+    });
     setSidebarTriggerHovered(false);
     setSidebarHoverSuppressed(suppressHoverOpen);
     setFloatingSidebarVisible(false);
-    startSidebarAnimationGuard(options.animate !== false);
+    setSidebarAnimateLayout(shouldAnimate);
     applySidebarCollapsed(collapsed);
-  }, [applySidebarCollapsed, startSidebarAnimationGuard]);
+  }, [applySidebarCollapsed, reducedMotion]);
 
   const applySidebarWidth = useCallback((width: number) => {
     if (width < CODEX_SIDEBAR_WIDTH_MIN_PX) {
@@ -1661,12 +1682,13 @@ export function WorkbenchShell({
     }
 
     const nextWidth = clampCodexSidebarWidth(width);
+    realSidebarMotion.targetSize.set(nextWidth);
     if (setSidebarWidth) {
       setSidebarWidth(nextWidth);
     } else {
       setLocalSidebarWidth(nextWidth);
     }
-  }, [setSidebarCollapsedWithCodexState, setSidebarWidth]);
+  }, [realSidebarMotion.targetSize, setSidebarCollapsedWithCodexState, setSidebarWidth]);
 
   const toggleSidebarCollapsed = useCallback(() => {
     setSidebarCollapsedWithCodexState(!sidebarCollapsed);
@@ -1682,27 +1704,32 @@ export function WorkbenchShell({
     });
   }, [setSidebarCollapsedWithCodexState]);
 
-  useEffect(() => () => {
-    clearSidebarAnimationTimeout();
-  }, [clearSidebarAnimationTimeout]);
+  useEffect(() => {
+    if (lastHandledSidebarToggleRequestTickRef.current === sidebarToggleRequestTick) return;
+    lastHandledSidebarToggleRequestTickRef.current = sidebarToggleRequestTick;
+    setSidebarCollapsedWithCodexState(!sidebarCollapsed);
+  }, [
+    setSidebarCollapsedWithCodexState,
+    sidebarCollapsed,
+    sidebarToggleRequestSource,
+    sidebarToggleRequestTick,
+  ]);
 
   useEffect(() => {
     if (sidebarCollapsed) return;
     setFloatingSidebarVisible(false);
     setSidebarHoverSuppressed(false);
-    setSidebarAnimating(false);
-    clearSidebarAnimationTimeout();
-  }, [clearSidebarAnimationTimeout, sidebarCollapsed]);
+  }, [sidebarCollapsed]);
+
+  const getWindowZoom = useCallback(() => {
+    const root = workbenchRootRef.current;
+    if (!root) return 1;
+    const raw = window.getComputedStyle(root).getPropertyValue("--codex-window-zoom");
+    const value = Number.parseFloat(raw);
+    return Number.isFinite(value) && value > 0 ? value : 1;
+  }, []);
 
   useEffect(() => {
-    const getWindowZoom = () => {
-      const root = workbenchRootRef.current;
-      if (!root) return 1;
-      const raw = window.getComputedStyle(root).getPropertyValue("--codex-window-zoom");
-      const value = Number.parseFloat(raw);
-      return Number.isFinite(value) && value > 0 ? value : 1;
-    };
-
     const handlePointerMove = (event: PointerEvent) => {
       const nextPointer = normalizeCodexSidebarPointer(
         {
@@ -1721,7 +1748,7 @@ export function WorkbenchShell({
     return () => {
       window.removeEventListener("pointermove", handlePointerMove);
     };
-  }, []);
+  }, [getWindowZoom]);
 
   useEffect(() => {
     const updateFocusAreaActive = () => {
@@ -1830,30 +1857,68 @@ export function WorkbenchShell({
 
   const sidebarCollapseControlLabel = sidebarCollapsed ? "Show sidebar" : "Hide sidebar";
   const sidebarCollapseControlButton = (
-    <NodexTooltip delayOpen tooltipContent="Toggle sidebar" side="bottom">
+    <NodexTooltip
+      delayOpen
+      tooltipContent="Toggle sidebar"
+      side="bottom"
+      disabled={sidebarAnimating || sidebarClickInFlight}
+    >
       <button
         type="button"
-        onClick={toggleSidebarCollapsed}
+        onClick={() => {
+          setSidebarClickInFlight(true);
+          toggleSidebarCollapsed();
+        }}
         onPointerEnter={() => setSidebarTriggerHovered(true)}
-        onPointerLeave={() => setSidebarTriggerHovered(false)}
+        onPointerLeave={() => {
+          setSidebarTriggerHovered(false);
+          setSidebarHoverSuppressed(false);
+          setSidebarClickInFlight(false);
+        }}
         title="Toggle sidebar"
         aria-label={sidebarCollapseControlLabel}
         className={SIDEBAR_COLLAPSED_CHROME_BUTTON_CLASS}
+        style={{ viewTransitionName: "sidebar-trigger" }}
       >
-        {sidebarCollapsed ? <CodexPanelLeftHiddenIcon className="icon-sm" /> : <CodexPanelLeftVisibleIcon className="icon-sm" />}
+        {sidebarCollapsed ? <CodexSidebarHiddenIcon className="icon-xs" /> : <CodexSidebarVisibleIcon className="icon-xs" />}
       </button>
     </NodexTooltip>
+  );
+  const backCommand = WORKBENCH_NAVIGATION_COMMANDS.back;
+  const forwardCommand = WORKBENCH_NAVIGATION_COMMANDS.forward;
+  const backShortcutLabel = resolveWorkbenchNavigationShortcutLabel("back", isMacPlatform);
+  const forwardShortcutLabel = resolveWorkbenchNavigationShortcutLabel("forward", isMacPlatform);
+  const windowNavigationChrome = (
+    <div className="flex items-center gap-1" data-testid="workbench-window-navigation-chrome">
+      {sidebarCollapseControlButton}
+      <WindowNavigationToolbarButton
+        label={backCommand.label}
+        shortcutLabel={backShortcutLabel}
+        disabled={!canNavigateBack || !onNavigateBack}
+        onClick={() => onNavigateBack?.("sidebar_back")}
+      >
+        <ArrowLeft className="icon-xs" />
+      </WindowNavigationToolbarButton>
+      <WindowNavigationToolbarButton
+        label={forwardCommand.label}
+        shortcutLabel={forwardShortcutLabel}
+        disabled={!canNavigateForward || !onNavigateForward}
+        onClick={() => onNavigateForward?.("sidebar_forward")}
+      >
+        <ArrowLeft className="icon-xs -scale-x-100" />
+      </WindowNavigationToolbarButton>
+    </div>
   );
 
   const sidebarHeaderActions = (
     <>
       <HeaderAction
-        actionId="workbench-sidebar-toggle"
+        actionId="workbench-window-navigation-chrome"
         slotPosition="left"
         align="start"
         order={100}
       >
-        {sidebarCollapseControlButton}
+        {windowNavigationChrome}
       </HeaderAction>
       {sidebarCollapsed ? (
         <HeaderAction
@@ -2024,8 +2089,8 @@ export function WorkbenchShell({
     </ToolbarIconButton>
   ) : null;
 
-  const showFloatingSidebar = sidebarCollapsed && floatingSidebarVisible;
-  const showInlineSidebar = !sidebarCollapsed;
+  const showFloatingSidebar = sidebarCollapsed && !realSidebarMounted && floatingSidebarVisible;
+  const showInlineSidebar = realSidebarMounted;
   const floatingSidebarTransition = getCodexSidebarFloatingTransition(Boolean(reducedMotion));
   const floatingSidebarExitX = reducedMotion ? 0 : -8;
   const floatingSidebarHeaderExitX = reducedMotion ? 0 : 8;
@@ -2044,8 +2109,9 @@ export function WorkbenchShell({
           title="Toggle sidebar"
           aria-label="Show sidebar"
           className={SIDEBAR_COLLAPSED_CHROME_BUTTON_CLASS}
+          style={{ viewTransitionName: "sidebar-trigger" }}
         >
-          <CodexPanelLeftHiddenIcon className="icon-sm" />
+          <CodexSidebarHiddenIcon className="icon-xs" />
         </button>
       </NodexTooltip>
     </motion.div>
@@ -2100,7 +2166,7 @@ export function WorkbenchShell({
             <HeaderShellSlot
               side="left"
               slotWidth={headerLeftShellSlotWidth}
-              minWidth={headerLeftShellSlotWidth}
+              minWidth={headerLeftShellSlotMinWidth}
               fallbackWidth={collapsedHeaderLeftFallbackWidth}
               fallbackRailWidth={LEFT_HEADER_COLLAPSED_RAIL_FALLBACK_WIDTH_PX}
               onMeasuredWidthChange={setHeaderLeftWidth}
@@ -2133,6 +2199,10 @@ export function WorkbenchShell({
               projectsSectionCollapsed={projectsSectionCollapsed}
               loadingSessions={loadingSessions}
               width={sidebarWidth}
+              animatedWidth={realSidebarMotion.animatedSize}
+              contentOpacity={realSidebarMotion.opacity}
+              resizeDisabled={sidebarAnimating}
+              getWindowZoom={getWindowZoom}
               onResizeWidth={applySidebarWidth}
               onToggleProjectsSectionCollapsed={toggleProjectsSectionCollapsed}
               onToggleProjectExpanded={(projectId) => {
@@ -2188,6 +2258,7 @@ export function WorkbenchShell({
                   projectsSectionCollapsed={projectsSectionCollapsed}
                   loadingSessions={loadingSessions}
                   width={sidebarWidth}
+                  getWindowZoom={getWindowZoom}
                   onResizeWidth={applySidebarWidth}
                   onToggleProjectsSectionCollapsed={toggleProjectsSectionCollapsed}
                   onToggleProjectExpanded={(projectId) => {
@@ -2221,7 +2292,12 @@ export function WorkbenchShell({
             ) : null}
           </AnimatePresence>
 
-          <main className="main-surface relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <main
+            className={cn(
+              "main-surface relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
+              realSidebarMounted ? "rounded-s-2xl" : "!rounded-l-none",
+            )}
+          >
             {activeSession ? (
               <div ref={sessionContentRef} className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
                 <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -2452,6 +2528,10 @@ function ProjectSessionSidebar({
   projectsSectionCollapsed,
   loadingSessions,
   width,
+  animatedWidth,
+  contentOpacity,
+  resizeDisabled = false,
+  getWindowZoom,
   onResizeWidth,
   onToggleProjectsSectionCollapsed,
   onToggleProjectExpanded,
@@ -2481,6 +2561,10 @@ function ProjectSessionSidebar({
   projectsSectionCollapsed: boolean;
   loadingSessions: boolean;
   width: number;
+  animatedWidth?: MotionValue<number>;
+  contentOpacity?: MotionValue<number>;
+  resizeDisabled?: boolean;
+  getWindowZoom?: () => number;
   onResizeWidth: (width: number) => void;
   onToggleProjectsSectionCollapsed: () => void;
   onToggleProjectExpanded: (projectId: string) => void;
@@ -2514,16 +2598,18 @@ function ProjectSessionSidebar({
   const [manageProjectsOpen, setManageProjectsOpen] = useState(false);
 
   const handleResizeStart = (event: React.MouseEvent) => {
+    if (resizeDisabled || floating) return;
     event.preventDefault();
 
-    const startX = event.clientX;
+    const resolveZoom = getWindowZoom ?? (() => 1);
+    const startX = event.clientX / resolveZoom();
     const startWidth = width;
 
     document.body.style.userSelect = "none";
     document.body.style.cursor = "col-resize";
 
     const onMouseMove = (nextEvent: MouseEvent) => {
-      onResizeWidth(startWidth + (nextEvent.clientX - startX));
+      onResizeWidth(startWidth + ((nextEvent.clientX / resolveZoom()) - startX));
     };
 
     const onMouseUp = () => {
@@ -2538,7 +2624,7 @@ function ProjectSessionSidebar({
   };
 
   return (
-    <aside
+    <motion.aside
       className={cn(
         floating
           ? CODEX_SIDEBAR_FLOATING_ASIDE_CLASS
@@ -2546,15 +2632,15 @@ function ProjectSessionSidebar({
         "font-sans text-sm",
       )}
       style={{
-        width,
+        width: floating ? width : animatedWidth ?? width,
         ...(!floating ? { paddingTop: "var(--height-toolbar)" } : {}),
       }}
       data-testid={floating ? "app-shell-floating-left-panel" : "project-session-sidebar"}
     >
       {header}
-      <div
+      <motion.div
         className="max-w-full min-h-0 flex-1 overflow-hidden"
-        style={{ minWidth: width, width }}
+        style={{ minWidth: width, width, opacity: floating ? undefined : contentOpacity }}
       >
         <div className="flex h-full min-h-0 flex-col overflow-hidden">
           <div className="shrink-0">
@@ -2662,7 +2748,7 @@ function ProjectSessionSidebar({
             </CodexSidebarSection>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       <LeftSidebarFooter
         onOpenSettings={onOpenSettings}
@@ -2675,14 +2761,19 @@ function ProjectSessionSidebar({
 
       <div
         onMouseDown={handleResizeStart}
-        className="group absolute top-0 right-0 bottom-0 z-20 flex w-3 translate-x-1.5 cursor-col-resize touch-none select-none active:cursor-col-resize"
+        aria-disabled={resizeDisabled}
+        data-testid="sidebar-resize-strip"
+        className={cn(
+          "group absolute top-0 right-0 bottom-0 z-20 flex w-3 translate-x-1.5 touch-none select-none",
+          resizeDisabled ? "cursor-default" : "cursor-col-resize active:cursor-col-resize",
+        )}
       >
         <div
           aria-hidden
           className="pointer-events-none m-auto h-full w-px bg-linear-to-b from-transparent via-(--border) to-transparent group-hover:via-(--foreground-tertiary) group-active:via-(--foreground-tertiary)"
         />
       </div>
-    </aside>
+    </motion.aside>
   );
 }
 
@@ -2848,6 +2939,40 @@ function ToolbarIconButton({
         title={label}
         aria-label={label}
         aria-pressed={pressed}
+        onClick={onClick}
+      >
+        {children}
+      </button>
+    </NodexTooltip>
+  );
+}
+
+function WindowNavigationToolbarButton({
+  label,
+  shortcutLabel,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: "Back" | "Forward";
+  shortcutLabel: string;
+  disabled: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <NodexTooltip
+      delayOpen
+      tooltipContent={label}
+      shortcut={<ShortcutKeycaps keys={[shortcutLabel]} />}
+      side="bottom"
+    >
+      <button
+        type="button"
+        className={`${TOOLBAR_BUTTON_BASE_CLASS} ${TOOLBAR_BUTTON_GHOST_CLASS}`}
+        title={label}
+        aria-label={label}
+        disabled={disabled}
         onClick={onClick}
       >
         {children}

@@ -1,7 +1,7 @@
 # Codex Thread Turn Ordering And Assistant Promotion
 
 ## Intent
-This document is the detailed source of truth for one narrow but high-risk part of local-thread parity:
+This document is the detailed source of truth for one narrow but high-risk part of local-thread rendering:
 
 - how one turn's ordered item stream is classified into semantic render lanes
 - when the latest assistant message gets a dedicated final-assistant slot
@@ -11,7 +11,7 @@ This document is the detailed source of truth for one narrow but high-risk part 
 This doc exists because the most common regression here is subtle but visible: Nodex starts from the right transcript items, then over-promotes the assistant or ties search/placeholder logic to the wrong lane.
 
 ## Authoritative Model
-Codex is authoritative for this feature. The corrected readable-layer conclusion is:
+The authoritative rendering model is:
 
 - the real turn classifier is imported, not a local "latest assistant wins" helper
 - `assistantItem` is conditional, not guaranteed
@@ -34,13 +34,13 @@ Important rules:
 
 - it preserves the canonical per-turn item order from the conversation snapshot
 - it maps raw semantic kinds into renderer block families
-- it can synthesize an internal `workedFor` transcript block for the latest completed/qualifying turn so the downstream classifier sees the same blocking signal Codex Electron sees
+- it can synthesize an internal `workedFor` transcript block for the latest completed/qualifying turn so the downstream classifier sees the required blocking signal
 - pending request cards still stay as dedicated request items instead of becoming ordinary transcript rows
 
 The renderer must not sort transcript blocks by timestamp, id, or local heuristics after this point.
 
 ### 2. Classify ordered items into semantic buckets
-`bucketizeTurnItems(...)` mirrors Codex's imported classifier shape.
+`bucketizeTurnItems(...)` owns the shared classifier shape.
 
 It produces:
 
@@ -123,7 +123,7 @@ After side-slot extraction and trailing automatic-approval-review peel:
 - if the last surviving agent candidate is an `assistantMessage`, that item becomes `assistantItem`
 - otherwise `assistantItem` stays `null` and every assistant remains inline in `agentItems`
 
-This is the central parity rule. The renderer must not "helpfully" promote the latest assistant just because one exists.
+This is the central classifier rule. The renderer must not "helpfully" promote the latest assistant just because one exists.
 
 ### Trailing automatic approval review
 Trailing `automaticApprovalReview` rows are peeled off the end of the agent candidate list first.
@@ -180,7 +180,7 @@ The correct behavior is "canonical item order, then semantic lane order."
 - `agentItems = [assistant, exec]`
 - visible result: `user, inline assistant + exec`
 
-This is the regression-prone case. If Nodex renders `user, assistant, exec` with the assistant pinned in a dedicated final lane, parity is wrong.
+This is the regression-prone case. If Nodex renders `user, assistant, exec` with the assistant pinned in a dedicated final lane, assistant ownership is wrong.
 
 ### `user -> final assistant -> exploration exec -> reasoning`
 - latest assistant stays inline
@@ -261,7 +261,7 @@ It should consider:
 - `worked-for`
 - blocking request surfaces
 
-This keeps `assistant -> exec` parity correct in both `inProgress` and `completed` turns.
+This keeps `assistant -> exec` ownership correct in both `inProgress` and `completed` turns.
 
 ### Agent-body collapse
 The agent body is driven by grouped `agentItems`, not by "all items before the final assistant."
@@ -299,7 +299,7 @@ This causes:
 ### Wrong: filtering `workedFor` before classification
 This causes:
 
-- assistant promoted in `assistant -> worked-for` when Codex would not promote it
+- assistant promoted in `assistant -> worked-for` when the classifier should keep it inline
 - wrong collapse label/divider behavior
 
 ### Wrong: re-sorting transcript rows in the renderer
@@ -319,9 +319,9 @@ This causes:
 - `src/renderer/features/local-conversation/view/local-conversation-turn-entry.test.tsx`
 
 ## Acceptance Criteria
-Any future refactor still has parity only if all are true:
+Any future refactor is valid only if all are true:
 
-- later surviving tool-like rows keep the latest assistant inline when Codex does
+- later surviving tool-like rows keep the latest assistant inline
 - `assistantItem` is conditional
 - `worked-for` blocks assistant promotion before becoming label/divider input
 - latest assistant search ownership survives when `assistantItem` is `null`

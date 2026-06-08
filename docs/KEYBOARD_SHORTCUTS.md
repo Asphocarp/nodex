@@ -15,9 +15,11 @@ All keyboard shortcuts in Nodex. Platform modifier: **⌘ (Cmd)** on Mac, **Ctrl
 | `⌘/Ctrl+Alt+1`–`9` | Jump to project by index | First 9 projects in shell/sidebar order (disabled while focus is in NFM editor because `⌘/Ctrl+Alt+1`–`4` are editor heading shortcuts) |
 | `⌘/Ctrl+Shift+P` | Search commands | Opens the global palette with `>` already seeded, so it starts in command mode; works from editable surfaces too |
 | `⌘/Ctrl+K` | Open command palette | Global launcher for cards; type `>` to switch into command search; works from editable surfaces too |
-| `⌘/Ctrl+P` | Open Files side-panel tab | In project-session context, opens/focuses a Codex-style Files placeholder tab. `⌘/Ctrl+K` remains the global card launcher. |
-| `⌘/Ctrl+[` | Go back | Restores the previous durable workbench context; works from editable surfaces too |
-| `⌘/Ctrl+]` | Go forward | Restores the next durable workbench context; works from editable surfaces too |
+| `⌘/Ctrl+P` | Open Files side-panel tab | In project-session context, opens/focuses the Files placeholder tab. `⌘/Ctrl+K` remains the global card launcher. |
+| `⌘/Ctrl+[` | Back | Restores the previous durable workbench context; works from editable surfaces too |
+| `⌘/Ctrl+]` | Forward | Restores the next durable workbench context; works from editable surfaces too |
+| `MouseBack` | Back | Desktop mouse back button; routes to the same app-window workbench history command |
+| `MouseForward` | Forward | Desktop mouse forward button; routes to the same app-window workbench history command |
 | `⌘/Ctrl+,` | Toggle settings route | Opens/closes the full-window settings route shell |
 | `⌘/Ctrl+N` | Open new app window | Electron desktop only (`window:new` IPC); ignored in browser runtime |
 | `⌘/Ctrl+F` | Open search for the focused stage | In Threads, opens `Find in thread`; in Diffs, opens `Find in review`; otherwise opens the Views-stage floating task search. Thread and review search can open even when focus is inside their stage content |
@@ -26,7 +28,7 @@ All keyboard shortcuts in Nodex. Platform modifier: **⌘ (Cmd)** on Mac, **Ctrl
 
 | Shortcut | Action | Notes |
 |----------|--------|-------|
-| `⌘/Ctrl+P` | Files | Opens a Codex-style mock Files tab |
+| `⌘/Ctrl+P` | Files | Opens a mock Files tab |
 | `⌘/Ctrl+T` | Browser | Opens or focuses the singleton Browser placeholder tab |
 | `Ctrl+Shift+G` | Review | Opens or focuses the singleton Review tab |
 | `Ctrl+\`` | Terminal | Focuses an existing session terminal tab, or creates one in the bottom panel |
@@ -103,7 +105,7 @@ Panel shortcuts are ignored from editable targets and dialog surfaces.
 
 ## Implementation
 
-Workbench navigation shortcuts are in `src/renderer/lib/use-workbench-shortcuts.ts`. Project-session panel shortcuts are owned by `src/renderer/components/workbench/workbench-shell.tsx` because they depend on the active session and tab registry. The remaining stage-focused shortcuts are legacy compatibility until the project/session/tab keyboard map replaces them.
+Workbench navigation keyboard and mouse shortcuts are in `src/renderer/lib/use-workbench-shortcuts.ts`. Project-session panel shortcuts are owned by `src/renderer/components/workbench/workbench-shell.tsx` because they depend on the active session and tab registry. The remaining stage-focused shortcuts are legacy compatibility until the project/session/tab keyboard map replaces them.
 Undo/redo shortcuts are in `src/renderer/lib/use-keyboard-shortcuts.ts`.
 Editor shortcuts are in `src/renderer/components/kanban/editor/nfm-editor-extensions.ts` and `nfm-editor.tsx`.
 Terminal panel shortcut routing is in `src/renderer/lib/use-workbench-shortcuts.ts`.

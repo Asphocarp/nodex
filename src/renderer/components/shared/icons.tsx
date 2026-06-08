@@ -42,6 +42,22 @@ export function CodexPanelLeftHiddenIcon({ className }: IconProps) {
   );
 }
 
+export function CodexSidebarVisibleIcon({ className }: IconProps) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" className={className} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d={CODEX_PANEL_VISIBLE_PATH} fill="currentColor" />
+    </svg>
+  );
+}
+
+export function CodexSidebarHiddenIcon({ className }: IconProps) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" className={className} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d={CODEX_PANEL_HIDDEN_PATH} fill="currentColor" />
+    </svg>
+  );
+}
+
 export function CodexPanelBottomHiddenIcon({ className }: IconProps) {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" className={cn("size-5", className)} fill="none" xmlns="http://www.w3.org/2000/svg">

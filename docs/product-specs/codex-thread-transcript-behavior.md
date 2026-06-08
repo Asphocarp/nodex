@@ -62,8 +62,8 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
 - As soon as a turn starts, the transcript shows the submitted user prompt optimistically and keeps that bubble visible above the pending turn-body `Thinking` state until live response items arrive.
 - When the live user-message item later arrives, it is deduped instead of rendering twice.
 - Follow-up prompts steered into an already-running turn insert an optimistic `steeringUserMessage` transcript bubble labeled `Steering conversation`. When the matching authoritative backend `userMessage` arrives for the same target turn and equivalent input, that bubble becomes `Steered conversation` and the runtime appends a separate `steered` divider row, also labeled `Steered conversation`.
-- While a turn is already running, composer submit mode resolves exactly like Codex Electron: empty draft keeps `Stop`, non-empty draft submits as `Steer` or `Queue` based on the queue-follow-ups preference, and the alternate shortcut temporarily inverts that mode for one submit.
-- `Queue` does not start a turn immediately. It appends a queued follow-up entry above the composer, then the manager-owned drain loop tries to submit that entry through the same non-interrupting follow-up path Codex Electron uses. If a queued entry is sent manually or drained successfully, it disappears from the queued list and any unaccepted steer is restored to that queue if the active turn ends before acceptance.
+- While a turn is already running, composer submit mode resolves from the draft and queue preference: empty draft keeps `Stop`, non-empty draft submits as `Steer` or `Queue` based on the queue-follow-ups preference, and the alternate shortcut temporarily inverts that mode for one submit.
+- `Queue` does not start a turn immediately. It appends a queued follow-up entry above the composer, then the manager-owned drain loop tries to submit that entry through the same non-interrupting follow-up path. If a queued entry is sent manually or drained successfully, it disappears from the queued list and any unaccepted steer is restored to that queue if the active turn ends before acceptance.
 - Dictation is a separate Electron-only composer path, not realtime voice. In ChatGPT-authenticated Electron sessions, the footer shows a `Dictate` mic button with tooltip `Click to dictate or hold` and shortcut label `Ctrl+M`; click starts buffered `MediaRecorder` capture, `Ctrl+M` keydown starts and keyup stops with `insert`, recordings shorter than `250ms` are discarded locally, and the active dictation footer preserves the two stop modes: `insert` and `send` before one `/transcribe` POST appends or submits the returned text.
 - If a turn is active and no visible response item has arrived yet, the transcript may show a pending `Thinking` placeholder at the bottom of that turn.
 
@@ -99,7 +99,7 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
 - If the active turn has no blocking pending request, the turn may append a `Thinking` placeholder after the proposed-plan block and before any completed inline diff.
 - Exploration groups take precedence over that placeholder, incomplete proposed plans suppress it, `workedFor` suppresses it, and unresolved approval / request-user-input / MCP elicitation state suppresses it.
 - Incomplete MCP elicitation blocks the same in-progress surfaces as approval and request-user-input state.
-- Unknown replay/app-server tool payloads do not render a generic transcript tool row. The mounted transcript only renders the Codex Electron tool families with dedicated surfaces (`exec`, `patch`, `mcpToolCall`, `webSearch`, `turnDiff`) and keeps any remaining raw tool metadata internal to the canonical conversation state.
+- Unknown replay/app-server tool payloads do not render a generic transcript tool row. The mounted transcript only renders supported tool families with dedicated surfaces (`exec`, `patch`, `mcpToolCall`, `webSearch`, `turnDiff`) and keeps any remaining raw tool metadata internal to the canonical conversation state.
 
 ## Collapse and Search
 - Agent-body collapse applies only to the activity section of older completed turns with renderable agent work. It does not hide the turn's user message or final assistant answer.
@@ -116,72 +116,72 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
 - `imageView` transcript items render as assistant markdown content; review-mode markers (`enteredReviewMode`, `exitedReviewMode`) are ignored and do not render transcript rows.
 - Active-thread streaming updates are manager-driven: assistant text, plan text, reasoning text, and command output flush into the canonical conversation incrementally during the turn instead of waiting for turn completion to reveal large chunks.
 - Absolute local file links in transcript markdown open in the configured desktop app, and hovering those links shows the full resolved local path plus line/column when present.
-- Reasoning rows follow Codex Electron's summary-first projection: only the reasoning `summary` is rendered into the transcript item, empty summaries produce no reasoning row, and raw `content` remains non-transcript state.
+- Reasoning rows follow summary-first projection: only the reasoning `summary` is rendered into the transcript item, empty summaries produce no reasoning row, and raw `content` remains non-transcript state.
 - Consecutive replay reasoning records in the same turn are coalesced into one visible reasoning row instead of materializing one `Thought` block per raw reasoning event line.
 - Reasoning items stay visible while in progress and remain visible after completion; the turn-bottom `Thinking` placeholder is a separate turn-body state, not a reasoning row.
-- User transcript bubbles expose hover message actions under the bubble in Codex Electron order: timestamp, `Copy message`, and optional `Edit message`.
+- User transcript bubbles expose hover message actions under the bubble in this order: timestamp, `Copy message`, and optional `Edit message`.
 - User message action timestamps are formatted as localized short time from the turn-level `turnStartedAtMs` field. Inline/non-primary user messages in a turn render no timestamp node.
 - `Edit message` only attaches to the last user message of the latest completed editable turn. Later steer or follow-up `userMessage` items in the same turn do not get user-bubble actions.
 - User-sent images and context/file attachments render as a separate right-aligned strip immediately before the owning user bubble. They are derived from non-text `userMessage.content` inputs, not from markdown, so thumbnails are excluded from copy/edit text and from `Find in thread` searchable units. Local images render as 64px cropped thumbnails; remote image pointers render through the same strip slot with 64px contained thumbnails when their file source resolves.
-- Assistant transcript actions are owned by the turn's bucketized final-assistant lane and render after assistant prose in Codex Electron order: `Copy message`, `Good response`, `Bad response`, `Fork from this point`, then timestamp. Earlier assistant commentary rows and running agent-body assistant rows do not get transcript message actions. If a stopped turn keeps the latest assistant inline because later tool activity arrived after it, Nodex uses a renderer-local action-only anchor after the settled agent body so the final tool group stays above the toolbar; this is a local reconstruction of Codex Electron's agent-body-before-assistant-action ordering.
+- Assistant transcript actions are owned by the turn's bucketized final-assistant lane and render after assistant prose in this order: `Copy message`, `Good response`, `Bad response`, `Fork from this point`, then timestamp. Earlier assistant commentary rows and running agent-body assistant rows do not get transcript message actions. If a stopped turn keeps the latest assistant inline because later tool activity arrived after it, Nodex uses a renderer-local action-only anchor after the settled agent body so the final tool group stays above the toolbar.
 - Assistant message action timestamps are formatted as localized short time from `finalAssistantStartedAtMs`, which is updated from live `agentMessage` event timing and is not treated as the turn completion time. Archived/read fallback data may derive this field from protocol `completedAt` only before live assistant timing exists. If either timestamp field is missing, the timestamp node is omitted.
 - Assistant fork targets the owning completed turn. Latest-turn forks execute immediately, while older-turn forks open a confirmation dialog unless the user has opted out; forking opens a new thread tab backed by the forked conversation snapshot and focuses an empty composer in the new thread.
 
 ## Tool and Activity Rendering
 - Tool activity renders as structured expandable cards instead of plain text dumps.
 - Specialized cards exist for command execution, file changes, MCP, and web search.
-- Tool and action surfaces use Codex Electron-style iconography from the local vendored Codex icon asset module:
+- Tool and action surfaces use the shared local icon asset module:
   - semantic tool glyphs cover command execution, file edits, web/search, code search, list-files, approvals, denials, skills, hooks, plugins, connectors, and generic source fallbacks
-  - decorative row glyphs are hidden from assistive technology; website favicons use Codex Electron's decorative empty-alt image contract, while source logos expose meaningful alt text
+  - decorative row glyphs are hidden from assistive technology; website favicons use decorative empty-alt images, while source logos expose meaningful alt text
   - icon rendering is surface-specific, not universal: collapsed activity headers and top-level command/web/MCP surfaces may show glyphs, while nested collapsed-activity body rows often stay text-only
   - visible activity glyphs use the documented `icon-xs` muted contract, chevrons use `icon-2xs`, and source/card glyphs use `icon-sm`
-- Top-level web rows prefer extracted site favicons through the Codex-compatible Google favicon URL helper and fall back to the semantic web-search glyph when no stable domain is available. Expanded/detail web rows render the favicon only when a `faviconUrl` exists; they do not add a globe fallback when no site favicon was resolved.
-- MCP, plugin, connector, and elicitation rows resolve source logos from available metadata, Browser Use / computer-use source identifiers, connector/plugin logo URLs, then the generic copied Codex source fallback.
+- Top-level web rows prefer extracted site favicons through the Google favicon URL helper and fall back to the semantic web-search glyph when no stable domain is available. Expanded/detail web rows render the favicon only when a `faviconUrl` exists; they do not add a globe fallback when no site favicon was resolved.
+- MCP, plugin, connector, and elicitation rows resolve source logos from available metadata, Browser Use / computer-use source identifiers, connector/plugin logo URLs, then the generic source fallback.
 - Connector logos choose light or dark logo URLs from the current theme and fall back to the generic source glyph after an image load error without changing row geometry.
-- Transient tool labels use Nodex's `CodexShimmerText` wrapper, which mirrors Codex Electron's generic `thinking-shimmer` export rather than a Thinking-only component. Active false renders plain text; active true uses the shared `loading-shimmer-pure-text` timing (`2s`, `steps(48,end)`, `-100%` to `250%`, reduced-motion disabled), with Codex's cadenced timing kept as an internal optional variant.
+- Transient tool labels use Nodex's `CodexShimmerText` wrapper. Active false renders plain text; active true uses the shared `loading-shimmer-pure-text` timing (`2s`, `steps(48,end)`, `-100%` to `250%`, reduced-motion disabled), with cadenced timing kept as an internal optional variant.
 - Shimmer placement is source-specific: collapsed activity active labels shimmer only while the latest group is running, completed collapsed summaries stay static, command rows shimmer only the active status phrase, web rows shimmer only the top-level `Searching the web` phrase, MCP rows shimmer only the in-progress label text while logos remain static, and file-change rows do not text-shimmer because live patch motion belongs to the `+N` / `-N` digit wheel.
-- Collapsed activity group headers use Codex Electron's synthesized activity sentence, never a generic `Completed N actions` fallback. Source-backed segments are ordered as file changes, exploration, approvals/denials, hooks, commands, MCP usage, then web searches; mixed groups render summaries such as `Explored 5 files, 1 search, ran 2 commands, searched web 1 time`.
-- Collapsed activity group headers choose their summary icon from the original grouped render units by scanning newest-to-oldest for an active meaningful row, then newest-to-oldest for a completed meaningful row, before falling back to the reconstructed Codex activity-family priority: web, exploration, edits, commands, approvals, hooks/skills, then the first MCP source logo. That header icon does not imply nested row icons.
-- Automatic approval review items render as a dedicated compact status row with Codex Electron's title, status chip, optional risk label, and an expandable rationale/fallback summary.
+- Collapsed activity group headers use synthesized activity sentences, never a generic `Completed N actions` fallback. Source-backed segments are ordered as file changes, exploration, approvals/denials, hooks, commands, MCP usage, then web searches; mixed groups render summaries such as `Explored 5 files, 1 search, ran 2 commands, searched web 1 time`.
+- Collapsed activity group headers choose their summary icon from the original grouped render units by scanning newest-to-oldest for an active meaningful row, then newest-to-oldest for a completed meaningful row, before falling back to the activity-family priority: web, exploration, edits, commands, approvals, hooks/skills, then the first MCP source logo. That header icon does not imply nested row icons.
+- Automatic approval review items render as a dedicated compact status row with the required title, status chip, optional risk label, and an expandable rationale/fallback summary.
 - Multi-agent action items render as a dedicated grouped activity surface instead of falling back to generic system banners. Running actions stay expanded, settled contiguous actions can coalesce into one grouped surface, and `wait`-only collab tool calls stay out of the mounted transcript.
-- Context compaction renders as Codex Electron's dedicated compact divider row instead of a generic system banner:
+- Context compaction renders as a dedicated compact divider row instead of a generic system banner:
   - in progress: `Automatically compacting context` with Codex shimmer text
   - completed: `Context automatically compacted` with the compact completion icon
 - Session-backed reopen/bootstrap preserves the same context-compaction rows, including compaction boundaries that split replayed history across pre-compaction and post-compaction turns.
   - the row stays in the post-assistant transcript lane rather than the grouped agent-body lane
-- Poor-network retry errors render inside the mounted transcript as Codex Electron-style error rows instead of replacing the whole thread shell:
+- Poor-network retry errors render inside the mounted transcript as inline error rows instead of replacing the whole thread shell:
   - retryable transport errors materialize as `streamError` rows, for example `Reconnecting... 2/5`
   - non-retryable turn errors materialize as `systemError` rows
   - both rows may carry expandable `additionalDetails`
   - this feature is distinct from explicit thread reopen/resume; `resumeState` does not own the poor-network reconnect row
-- Codex-parity transcript expanders use Motion and subtype-owned state, not a generic shared accordion:
-  - measured transcript bodies (`commandExecution`, exploration groups, `patch`, MCP, reasoning, completed request-user-input answers, plan/todo disclosure, and other Codex-native expandable rows) animate through explicit `motion.div` height/opacity wrappers fed by a `ResizeObserver`-driven measured-height hook
+- Transcript expanders use Motion and subtype-owned state, not a generic shared accordion:
+  - measured transcript bodies (`commandExecution`, exploration groups, `patch`, MCP, reasoning, completed request-user-input answers, plan/todo disclosure, and other transcript expandable rows) animate through explicit `motion.div` height/opacity wrappers fed by a `ResizeObserver`-driven measured-height hook
   - agent-body collapse is a separate presence animation contract and does not reuse the measured-height transcript-body model
-- `fileChange` and turn-level unified diff are separate surfaces, matching Codex Electron exactly:
+- `fileChange` and turn-level unified diff are separate surfaces:
   - raw `fileChange` items always stay visible as `patch` tool rows (`Edited …`)
   - Nodex starts and resumes Codex app-server threads with `features.apply_patch_streaming_events=true`; without that server-side feature, app-server withholds the drafting-time `item/fileChange/patchUpdated` notifications and only the final completed file-change row can render
   - live `item/fileChange/patchUpdated` notifications own the canonical in-progress patch state; they create or update the in-progress `fileChange` row, may rebind the latest active turn to the notification `turnId`, and can render as a single-entry collapsed activity group while the model is drafting the edit
-  - Codex Electron's live file-edit process row is therefore source-backed as `response.custom_tool_call_input.delta` -> app-server patch parser -> `item/fileChange/patchUpdated`, not as a renderer-only animation layered over the completed row
+  - the live file-edit process row is source-backed as `response.custom_tool_call_input.delta` -> app-server patch parser -> `item/fileChange/patchUpdated`, not as a renderer-only animation layered over the completed row
   - `item/fileChange/outputDelta` burst bytes are deprecated diagnostic output for this surface and do not create or update visible transcript state
   - live `turn/diff/updated` notifications update `turn.diff` for turn-level diff surfaces only; they do not fabricate `fileChange` rows
   - completed turn-level aggregated `turn.diff` renders as a separate `turn-diff` surface
   - completed patch/file-change items synthesize the separate `turn-diff` payload from patch batches before falling back to a turn-level `diff`
-  - active in-progress turn diffs may surface through the Codex-compatible static above-composer portal (`data-above-composer-portal`) as a compact `files changed` banner only when no live file-change row already represents that draft edit
+  - active in-progress turn diffs may surface through the static above-composer portal (`data-above-composer-portal`) as a compact `files changed` banner only when no live file-change row already represents that draft edit
   - the above-composer diff banner is active-turn-owned `in progress` fixed content, not an item-status heuristic: it renders as the summary-only `Review changes` banner with no embedded per-file rows
   - completed turn diffs render as a dedicated files-changed card with per-file collapsed embedded diff rows
   - the unified diff card is never allowed to replace or swallow the underlying `Edited file` tool row
   - patch rows expand inline to reveal their own unified diff frame instead of delegating expansion to the separate turn-level diff card
-  - live patch labels, live collapsed activity patch headers, and in-progress turn-diff banners animate `+N` / `-N` through Codex's CSS digit-wheel contract, while accordion body expansion still uses Motion measured-height transitions
+  - live patch labels, live collapsed activity patch headers, and in-progress turn-diff banners animate `+N` / `-N` through the CSS digit-wheel contract, while accordion body expansion still uses Motion measured-height transitions
   - inline diff previews render the real `@pierre/diffs` `diffs-container` host directly, not a nested wrapper, and rely on the diff library's native line highlighting/indicators instead of adding a second left-side gutter overlay
   - patch headers split the status label and filename into separate elements; the filename is clickable and opens the local file target without toggling the row
   - embedded per-file patch previews suppress the diff library's built-in file header because the surrounding thread row already owns the filename and line-count summary
-- Contiguous activity units can coalesce into a `collapsedToolActivity` group after bucketization only when a source-backed Codex-style summary can be synthesized. A single in-progress file-change item may also become a collapsed activity group so the live `Creating/Editing/Deleting path +N -N` patch header matches Codex Electron while the row body remains subtype-owned.
+- Contiguous activity units can coalesce into a `collapsedToolActivity` group after bucketization only when a source-backed summary can be synthesized. A single in-progress file-change item may also become a collapsed activity group so the live `Creating/Editing/Deleting path +N -N` patch header stays subtype-owned.
 - Expanded collapsed-activity bodies are flat: exploration groups render direct text-only `Read`, `Searched`, and `Listed files` rows through their body-only path, web-search rows render direct detail rows with a favicon only when one was resolved, file-change rows render `Edited`/`Created`/`Deleted` with filename/stats/chevron but no pencil glyph, and nested command rows render muted without the leading command icon. They do not mount nested `Explored...` or `Searched web...` subgroup headers.
 - Tool-call expansion is subtype-owned local UI state; the mounted thread persists collapsed turns, not collapsed tool rows.
 - Tool-call header labels use a scan-friendly two-tone hierarchy where the leading action phrase is visually emphasized over trailing detail text.
 - Command execution cards consume parsed `commandActions` metadata (`read`, `listFiles`, `search`) to show exploration summaries and per-action transcript rows.
 - Consecutive exploration-only command execution items in the same turn are coalesced into one transcript card before render.
-- In Electron-style mounted threads, non-exploration command cards use a local `collapsed | preview | expanded` state machine owned by the command card itself.
+- In mounted threads, non-exploration command cards use a local `collapsed | preview | expanded` state machine owned by the command card itself.
 - The global thread-detail setting controls command-card visibility and the settled default state:
   - `STEPS_PROSE` suppresses command execution cards entirely
   - `STEPS_COMMANDS` shows command cards but keeps settled rows collapsed by default
@@ -194,7 +194,7 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
 - Running-thread activity uses verb-led summaries: contiguous exploration actions coalesce into `Exploring` / `Explored` groups, generic commands render as `Running …` while active and `Ran …` once settled, and MCP calls render as `Calling …` / `Called …`.
 - Command execution headers show `in <cwd>` only when the command ran outside the active project workspace path.
 - Patch rows own their expand/collapse state per file row. MCP tool calls own a local completed-only toggle. Neither surface uses a conversation-level collapsed-tool map.
-- MCP tool-call rows follow Codex Electron's normalized-result contract instead of renderer-local raw fallbacks:
+- MCP tool-call rows follow the normalized-result contract instead of renderer-local raw fallbacks:
   - the primary expanded branch order is `success.content.length > 0` -> protocol error -> `Tool returned no content`
   - `structuredContent` is append-only and never replaces the primary branch
   - structured-only success still shows `Tool returned no content` before the JSON panel
@@ -211,7 +211,7 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
 - When a background child approval exists, its request card renders before the active-thread request card.
 - Background child approvals do not add a separate worker-name header above the card; when the approval prompt needs an actor, that child identity is injected inline into the approval prompt itself.
 - While request cards are present, the normal freeform composer editor is hidden.
-- Request cards use one Codex-style dispatcher family:
+- Request cards use one dispatcher family:
   - `approval` uses the ask-for-permission shell with inline command/network/patch preview, option rows, freeform decline guidance, `Skip`, and `Submit`
   - `userInput` and `implementPlan` use the same shared questionnaire shell with `Dismiss` and keyboard-first multi-question navigation
   - `mcpServerElicitation` uses the dedicated MCP approval card family instead of the questionnaire shell
@@ -220,7 +220,7 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
 ## Persistence and Recovery
 - Snapshot requests only rebroadcast that current manager-owned canonical conversation; they do not invoke `thread/read` or `thread/resume`.
 - Reopened completed threads resume through the manager-owned canonical conversation only; they do not bootstrap from persisted session history, reread the thread, or re-merge transcript history during reconnect.
-- Explicit active-thread resume does not run `thread/read`; it reconnects in place from the canonical manager conversation, matching Codex Electron's host-manager path.
+- Explicit active-thread resume does not run `thread/read`; it reconnects in place from the canonical manager conversation through the host-manager path.
 - Restart recovery depends on the host manager's canonical conversation state and explicit resume path, not on a renderer-side replay/bootstrap layer.
 - Live and restarted threads must show the same visible conversation history for the same underlying session state.
 

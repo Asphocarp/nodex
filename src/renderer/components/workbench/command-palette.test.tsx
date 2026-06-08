@@ -6,6 +6,7 @@ import { getDefaultCommandPaletteCardFilters } from "@/lib/command-palette";
 import type { Card } from "@/lib/types";
 import { createCommandPaletteCardSearchIndex } from "../../lib/command-palette-card-search";
 import { render, textContent } from "../../test/dom";
+import { TOGGLE_SIDEBAR_COMMAND_ID } from "../../../shared/window-navigation";
 
 mock.module("./card-icon", () => ({
   CardIcon: ({ className }: { className?: string }) => createElement("span", { className }, "C"),
@@ -18,6 +19,25 @@ mock.module("./threads-icon", () => ({
 mock.module("./toggle-list-icon", () => ({
   ToggleListIcon: ({ className }: { className?: string }) => createElement("span", { className }, "L"),
 }));
+
+describe("buildCommands", () => {
+  test("includes the Codex toggleSidebar command with Cmd+B shortcut", async () => {
+    const { buildCommands } = await import("./command-palette");
+    const commands = buildCommands({
+      activeProjectName: "Alpha",
+      activeView: "kanban",
+      focusedStage: "db",
+      canGoBack: false,
+      canGoForward: false,
+      canOpenNewWindow: false,
+      isMac: true,
+    });
+    const sidebarCommand = commands.find((command) => command.id === TOGGLE_SIDEBAR_COMMAND_ID);
+
+    expect(sidebarCommand?.title).toBe("Toggle sidebar");
+    expect(sidebarCommand?.shortcut).toBe("⌘B");
+  });
+});
 
 function makeCard(overrides: Partial<Card> = {}): Card {
   return {
@@ -223,5 +243,48 @@ describe("CommandPaletteSurface", () => {
     expect(textContent(container).includes("Ops")).toBeTrue();
     expect(textContent(container).includes("Assignee:")).toBeTrue();
     expect(textContent(container).includes("Alex")).toBeTrue();
+  });
+});
+
+describe("buildCommands", () => {
+  test("builds Codex navigation commands with exact ids, labels, shortcuts, and disabled states", async () => {
+    const { buildCommands } = await import("./command-palette");
+    const commands = buildCommands({
+      activeProjectName: "Alpha",
+      activeView: "kanban",
+      focusedStage: "db",
+      canGoBack: false,
+      canGoForward: true,
+      canOpenNewWindow: false,
+      isMac: true,
+    });
+
+    const backCommand = commands[0];
+    const forwardCommand = commands[1];
+
+    expect(backCommand?.id).toBe("navigateBack");
+    expect(backCommand?.title).toBe("Back");
+    expect(backCommand?.shortcut).toBe("⌘[");
+    expect(backCommand?.disabled).toBeTrue();
+    expect(forwardCommand?.id).toBe("navigateForward");
+    expect(forwardCommand?.title).toBe("Forward");
+    expect(forwardCommand?.shortcut).toBe("⌘]");
+    expect(forwardCommand?.disabled).toBeFalse();
+  });
+
+  test("builds non-mac navigation shortcut labels", async () => {
+    const { buildCommands } = await import("./command-palette");
+    const commands = buildCommands({
+      activeProjectName: "Alpha",
+      activeView: "kanban",
+      focusedStage: "db",
+      canGoBack: true,
+      canGoForward: true,
+      canOpenNewWindow: false,
+      isMac: false,
+    });
+
+    expect(commands[0]?.shortcut).toBe("Ctrl+[");
+    expect(commands[1]?.shortcut).toBe("Ctrl+]");
   });
 });

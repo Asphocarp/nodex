@@ -5,6 +5,11 @@ import type {
   AppInitializationStep,
   DatabaseMigrationProgress,
 } from "../shared/app-startup";
+import {
+  NAVIGATE_BACK_HOST_CHANNEL,
+  NAVIGATE_FORWARD_HOST_CHANNEL,
+  TOGGLE_SIDEBAR_HOST_CHANNEL,
+} from "../shared/window-navigation";
 import { inspectClipboardPasteItems, readClipboardPastePayload } from "../main/clipboard-paste-inspector";
 
 const SERVER_URL_ARG_PREFIX = "--nodex-server-url=";
@@ -72,6 +77,27 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.on("db:migration-progress", listener);
     return () => {
       ipcRenderer.removeListener("db:migration-progress", listener);
+    };
+  },
+  onNavigateBack: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on(NAVIGATE_BACK_HOST_CHANNEL, listener);
+    return () => {
+      ipcRenderer.removeListener(NAVIGATE_BACK_HOST_CHANNEL, listener);
+    };
+  },
+  onNavigateForward: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on(NAVIGATE_FORWARD_HOST_CHANNEL, listener);
+    return () => {
+      ipcRenderer.removeListener(NAVIGATE_FORWARD_HOST_CHANNEL, listener);
+    };
+  },
+  onToggleSidebar: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on(TOGGLE_SIDEBAR_HOST_CHANNEL, listener);
+    return () => {
+      ipcRenderer.removeListener(TOGGLE_SIDEBAR_HOST_CHANNEL, listener);
     };
   },
   requestMicrophonePermission: () => {

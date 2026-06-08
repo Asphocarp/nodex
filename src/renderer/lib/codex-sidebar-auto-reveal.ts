@@ -64,6 +64,13 @@ export interface CodexSidebarSuppressionInput {
   triggerHovered: boolean;
 }
 
+export interface CodexSidebarToggleInput {
+  nextOpen: boolean;
+  animate?: boolean;
+  reducedMotion: boolean | null;
+  suppressHoverOpen?: boolean;
+}
+
 export function clampCodexSidebarWidth(width: number): number {
   if (!Number.isFinite(width)) return CODEX_SIDEBAR_WIDTH_DEFAULT_PX;
   return Math.min(
@@ -111,6 +118,36 @@ export function shouldClearCodexSidebarHoverSuppression(
   if (input.triggerHovered) return false;
   if (input.pointerX === null) return false;
   return !isCodexSidebarEdgeEnterX(input.pointerX);
+}
+
+export function resolveCodexSidebarToggleTargetProgress(nextOpen: boolean): 0 | 1 {
+  return nextOpen ? 1 : 0;
+}
+
+export function shouldSuppressCodexSidebarHoverOpen({
+  nextOpen,
+  suppressHoverOpen,
+}: Pick<CodexSidebarToggleInput, "nextOpen" | "suppressHoverOpen">): boolean {
+  return !nextOpen && suppressHoverOpen !== false;
+}
+
+export function shouldAnimateCodexSidebarToggle({
+  animate,
+  reducedMotion,
+}: Pick<CodexSidebarToggleInput, "animate" | "reducedMotion">): boolean {
+  return animate !== false && reducedMotion !== true;
+}
+
+export function isCodexSidebarExpandedMounted({
+  open,
+  progress,
+}: {
+  open: boolean;
+  progress: number;
+}): boolean {
+  if (open) return true;
+  if (!Number.isFinite(progress)) return false;
+  return Math.max(0, Math.min(1, progress)) > 0;
 }
 
 export function deriveCodexSidebarFloatingVisibility(

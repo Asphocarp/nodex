@@ -15,13 +15,13 @@
 - NFM conversion/parsing: `src/renderer/lib/nfm/`
 - Storybook workspace: `packages/storybook/` with colocated `*.stories.tsx` under `src/renderer/`
 - Workbench shell: `src/renderer/components/workbench/workbench-shell.tsx` renders projects as expandable folders, sessions as durable project children, a session thread page, plus independent right and bottom panels for session-attached tabs.
-- Workbench app-shell parity: top chrome controls must declare through the workbench `HeaderAction` registry so `WorkbenchShell` owns final ordering, `gap-1.5` spacing, measurement, and cross-panel reservation even when declarations come from separate components. Keep the bottom-panel toggle and side-panel toggle in the fixed global header, ordered bottom first and side second, with Codex Electron bottom-panel SVGs and an animated `header-shell-slot` width that follows the regular right-panel spring. Keep the thread summary toggle in the thread header summary lane so it sits at the thread/right-panel boundary. Keep right-panel tab creation plus expand/restore in the right-panel toolbar-height tab header, keep bottom-panel tab creation plus the plain `Close` X action in the bottom tab header, keep the thread-frame toolbar offset at `0px`, and implement right full-width mode by collapsing only the main thread viewport while the bottom panel remains visible.
-- Workbench left-titlebar parity: sidebar toggle and collapsed-sidebar `New chat` must also declare through `HeaderAction` in the fixed global header's left slot. `WorkbenchShell` owns `--spacing-token-safe-header-left`, the measured left-slot width, and `--thread-stage-header-left-padding`; never position left titlebar controls with fixed pixel overlays. Expanded sidebar reserves the sidebar width and shows only the toggle in the left slot, while collapsed sidebar reserves the measured traffic-light-safe rail and orders `Show sidebar`, `New chat`, then the thread title.
-- Panel chooser parity: keep empty-panel actions and panel-header plus menus driven from the same target-aware `PANEL_NEW_TAB_ACTIONS` registry in `WorkbenchShell`. Right defaults are `Files`, `Side chat`, `Browser`, `Review`, `DB View`, and `Card Stage`. Bottom-panel Codex-eligible actions are `Files`, `Side chat`, `Browser`, `Review`, and `Terminal`; keep `Timeline` documented as discovered upstream but hidden because Codex Electron 26.519.81530 hard-codes its eligibility false. Keep Nodex-local `DB View` and `Card Stage` right-panel-only unless the user moves an existing tab through the tab context menu. `db_view`, `review`, and `browser_placeholder` are session singletons and must be filtered/focused consistently across both right and bottom panels, clicks, menu actions, and shortcuts.
-- Panel preview parity: Files, Browser, and Side chat can mount as renderer-local preview tabs before persistence. Keep previews out of shared SQLite state; pinning a preview must go through the same `project-session-tabs:create` API as any other durable tab.
-- Workbench sidebar parity: project/session sidebar chrome lives in `src/renderer/components/workbench/codex-sidebar.tsx`; use Codex Electron row classes and markers (`app-shell-left-panel`, `data-app-action-sidebar-section*`, `data-app-action-sidebar-project-*`, `data-app-action-sidebar-thread-*`, `h-token-nav-row`, `px-row-x`, `py-row-y`) instead of local project-row styling, and keep project folder selection inside the project row actions menu.
-- Workbench sidebar auto-reveal parity: collapsed sidebar behavior follows Codex Electron 26.602.40724. Persist width under `sidebar-width`, default to `300px`, clamp to `240..520px`, and collapse when resizing below `240px`. Do not use an invisible hover strip or timer-based hover open/close. Track window pointer coordinates normalized by `--codex-window-zoom`; show the floating sidebar only when the real sidebar is closed, not animating, not hover-suppressed, and the pointer is in the inclusive `0..12px` left-edge strip or a `[data-app-shell-focus-area]` is active. Once open, keep it visible only while `0 <= x <= sidebarWidth` or focus override remains active. The floating panel must use `motion/react` with opacity `0 -> 1`, x `-8 -> 0`, header counter-motion x `8 -> 0`, spring `{ type: "spring", duration: 0.5, bounce: 0.1 }`, and reduced-motion `{ duration: 0 }`.
-- Thread summary panel parity: `WorkbenchShell` owns the pinned-open preference and passes the summary action into the thread header summary lane. Match Codex Electron labels and modes: `Toggle pinned summary` for pinned shift/gutter modes, and `Toggle summary` as a dismissible popover trigger in overlay mode. Compute the mode from `(mainContentTargetWidth - 736) / 2`: `< 180` uses the popover branch, `< 400` uses pinned shift mode, and wider layouts use pinned gutter mode. The pinned body is a 300px floating panel anchored to the right edge below the thread header; its body/footer companion shift is `-158px` only when pinned, open, and in shift mode. Hide summary controls while there is no active attached thread or while the right panel is full-width. The panel UI lives under `features/local-conversation/view/summary-panel`, renders pinned mode through `LocalConversationStageScreen.floatingContent`, keeps collapsible section chevrons trailing and hover/focus revealed, and snaps all summary motion under reduced motion.
+- Workbench app shell: top chrome controls must declare through the workbench `HeaderAction` registry so `WorkbenchShell` owns final ordering, `gap-1.5` spacing, measurement, and cross-panel reservation even when declarations come from separate components. Keep the bottom-panel toggle and side-panel toggle in the fixed global header, ordered bottom first and side second, with shared bottom-panel SVGs and an animated `header-shell-slot` width that follows the regular right-panel spring. Keep the thread summary toggle in the thread header summary lane so it sits at the thread/right-panel boundary. Keep right-panel tab creation plus expand/restore in the right-panel toolbar-height tab header, keep bottom-panel tab creation plus the plain `Close` X action in the bottom tab header, keep the thread-frame toolbar offset at `0px`, and implement right full-width mode by collapsing only the main thread viewport while the bottom panel remains visible.
+- Workbench left titlebar: sidebar toggle, app-window `Back` / `Forward`, and collapsed-sidebar `New chat` must declare through `HeaderAction` in the fixed global header's left slot. `WorkbenchShell` owns `--spacing-token-safe-header-left`, the measured left-slot width, and `--thread-stage-header-left-padding`; never position left titlebar controls with fixed pixel overlays. Expanded sidebar reserves the sidebar width and orders `Hide sidebar`, `Back`, `Forward`; collapsed sidebar reserves the measured traffic-light-safe rail and orders `Show sidebar`, `Back`, `Forward`, `New chat`, then the thread title. The Back/Forward controls use the exact toolbar ghost button contract, `ArrowLeft icon-xs` for Back, the same icon with `-scale-x-100` for Forward, `disabled:opacity-40`, and workbench-history state only. Do not wire these app-window controls to browser-sidebar `webContents.canGoBack` / `goBack` / `goForward`.
+- Panel chooser behavior: keep empty-panel actions and panel-header plus menus driven from the same target-aware `PANEL_NEW_TAB_ACTIONS` registry in `WorkbenchShell`. Right defaults are `Files`, `Side chat`, `Browser`, `Review`, `DB View`, and `Card Stage`. Bottom-panel eligible actions are `Files`, `Side chat`, `Browser`, `Review`, and `Terminal`; keep `Timeline` hidden until a first-class Nodex tab kind is implemented. Keep Nodex-local `DB View` and `Card Stage` right-panel-only unless the user moves an existing tab through the tab context menu. `db_view`, `review`, and `browser_placeholder` are session singletons and must be filtered/focused consistently across both right and bottom panels, clicks, menu actions, and shortcuts.
+- Panel previews: Files, Browser, and Side chat can mount as renderer-local preview tabs before persistence. Keep previews out of shared SQLite state; pinning a preview must go through the same `project-session-tabs:create` API as any other durable tab.
+- Workbench sidebar: project/session sidebar chrome lives in `src/renderer/components/workbench/codex-sidebar.tsx`; use the shared row classes and markers (`app-shell-left-panel`, `data-app-action-sidebar-section*`, `data-app-action-sidebar-project-*`, `data-app-action-sidebar-thread-*`, `h-token-nav-row`, `px-row-x`, `py-row-y`) instead of local project-row styling, and keep project folder selection inside the project row actions menu.
+- Workbench sidebar toggle and auto-reveal: persist width under `sidebar-width`, default to `300px`, clamp to `240..520px`, and collapse when resizing below `240px`. Explicit toggles must separate logical state from animated geometry: keep the real sidebar mounted while `open || progress > 0`, drive width from `clamp(progress) * sidebarWidth`, fade content by `progress`, move the left `HeaderShellSlot` from the same Motion value, snap when reduced motion or `animate:false` is active, and use the shell spring `{ type: "spring", duration: 0.5, bounce: 0.1 }` otherwise. The toggle trigger labels are `Hide sidebar` / `Show sidebar`, tooltip is `Toggle sidebar`, `view-transition-name` is `sidebar-trigger`, and command/menu/keyboard/palette paths converge through `toggleSidebar` / `toggle-sidebar` with `Cmd/Ctrl+B`. Do not use an invisible hover strip or timer-based hover open/close. Track window pointer coordinates normalized by `--codex-window-zoom`; show the floating sidebar only when the real sidebar is closed, not animating, not hover-suppressed, and the pointer is in the inclusive `0..12px` left-edge strip or a `[data-app-shell-focus-area]` is active. Once open, keep it visible only while `0 <= x <= sidebarWidth` or focus override remains active. The floating panel must use `motion/react` with opacity `0 -> 1`, x `-8 -> 0`, header counter-motion x `8 -> 0`, the same spring, and reduced-motion `{ duration: 0 }`.
+- Thread summary panel: `WorkbenchShell` owns the pinned-open preference and passes the summary action into the thread header summary lane. Use `Toggle pinned summary` for pinned shift/gutter modes, and `Toggle summary` as a dismissible popover trigger in overlay mode. Compute the mode from `(mainContentTargetWidth - 736) / 2`: `< 180` uses the popover branch, `< 400` uses pinned shift mode, and wider layouts use pinned gutter mode. The pinned body is a 300px floating panel anchored to the right edge below the thread header; its body/footer companion shift is `-158px` only when pinned, open, and in shift mode. Hide summary controls while there is no active attached thread or while the right panel is full-width. The panel UI lives under `features/local-conversation/view/summary-panel`, renders pinned mode through `LocalConversationStageScreen.floatingContent`, keeps collapsible section chevrons trailing and hover/focus revealed, and snaps all summary motion under reduced motion.
 
 ## State and Data Access
 - API boundary: always go through `src/renderer/lib/api.ts`.
@@ -39,7 +39,7 @@
 - Active conversation UI: keep Codex host-message ingestion in the singleton external store under `features/local-conversation/`, subscribe through per-thread selectors, then derive renderer-only projection data in `features/local-conversation/projection/*`. Keep transcript projection, composer-shell aggregation, search-unit derivation, turn-request stitching, and background-activity ordering upstream of JSX.
 - Keep active conversation UI ownership inside `features/local-conversation/view/*` and `features/local-conversation/view/shared/*`. Do not reintroduce a second workbench thread renderer path outside that feature.
 - Keep authenticated account quota in the left sidebar footer, not in the thread header or thread summary panel. Signed-out auth remains reachable from the thread header, while the sidebar footer owns the authenticated double-ring quota indicator, account tooltip details, and refresh-on-hover/focus behavior.
-- Keep the thread summary panel pinned state local to `WorkbenchShell`: the pinned-open state persists under `nodex:thread-summary-panel:pinned-open`, defaults open for attached local conversation sessions, and mounts as a pinned stage overlay only in Codex shift/gutter modes. Overlay mode renders the separate `Toggle summary` popover branch through the same thread header summary action and must not mutate the saved pinned preference when dismissed. Keep the top-right global header slot responsible for bottom and side panel controls, and let its visible width accept a Motion value so those controls move with animated right-panel geometry.
+- Keep the thread summary panel pinned state local to `WorkbenchShell`: the pinned-open state persists under `nodex:thread-summary-panel:pinned-open`, defaults open for attached local conversation sessions, and mounts as a pinned stage overlay only in shift/gutter modes. Overlay mode renders the separate `Toggle summary` popover branch through the same thread header summary action and must not mutate the saved pinned preference when dismissed. Keep the top-right global header slot responsible for bottom and side panel controls, and let its visible width accept a Motion value so those controls move with animated right-panel geometry.
 - Use `@tanstack/react-form` for structured renderer forms with real validation or value coercion; keep simple one-field inputs on local state and use `src/renderer/lib/forms.ts` for shared submit/error helpers.
 - Keep runtime validation at boundaries:
   - shared storage / transport / raw JSON schemas live under `src/shared/schemas/*`
@@ -55,55 +55,53 @@
 
 ## Styling Conventions
 - Global styles in `src/renderer/globals.css`.
-- Keep renderer CSS layered the same way Codex Electron does:
+- Keep renderer CSS layered by ownership:
   - `src/renderer/styles/theme-source.css` owns author-maintained theme tokens, Tailwind theme declarations, and the CSS-side `--vscode-*` contract.
-  - `src/renderer/styles/theme-codex-foundation.generated.css` owns the generated Codex Electron foundation layer for radius math, spacing, toolbar sizing, and window-scoped runtime overrides.
-  - `src/renderer/styles/theme-codex-utilities.generated.css` owns the generated Codex Electron utility contract for exact shipped utility selectors and Codex-specific arbitrary/container utility coverage.
-  - `src/renderer/styles/theme-codex-contract.generated.css` owns the generated canonical Codex Electron `--color-token-*` contract and `--vscode-*` window contract.
-  - `src/renderer/styles/theme-token-bridge.css` owns only Tailwind-facing authored aliases that are not part of the generated Codex contract or the generated Codex foundation layer.
-  - `src/renderer/styles/theme-codex-surface.generated.css` owns the generated Codex Electron component/global surface rules that are intentionally synced from the reference CSS.
-  - `src/renderer/styles/theme-utilities.css` owns authored Nodex-local utilities that are intentionally outside the generated Codex utility contract.
+  - `src/renderer/styles/theme-codex-foundation.generated.css` owns the generated foundation layer for radius math, spacing, toolbar sizing, and window-scoped runtime overrides.
+  - `src/renderer/styles/theme-codex-utilities.generated.css` owns the generated utility contract for shipped utility selectors and arbitrary/container utility coverage.
+  - `src/renderer/styles/theme-codex-contract.generated.css` owns the generated canonical `--color-token-*` contract and `--vscode-*` window contract.
+  - `src/renderer/styles/theme-token-bridge.css` owns only Tailwind-facing authored aliases that are not part of the generated contract or generated foundation layer.
+  - `src/renderer/styles/theme-codex-surface.generated.css` owns the generated component/global surface rules.
+  - `src/renderer/styles/theme-utilities.css` owns authored Nodex-local utilities that are intentionally outside the generated utility contract.
   - `src/renderer/styles/theme-surface.css` owns authored surface rules and global renderer CSS.
   - `src/renderer/lib/codex-theme-variant.ts` owns the runtime semantic theme bridge that injects derived foreground/control/border/panel/editor variables onto `document.documentElement`.
-  - Sync `src/renderer/styles/theme-codex-contract.generated.css` from the exact Codex Electron contract blocks only, not by scanning the whole reference CSS for matching prefixes.
-  - Sync `src/renderer/styles/theme-codex-foundation.generated.css`, `src/renderer/styles/theme-codex-utilities.generated.css`, and `src/renderer/styles/theme-codex-surface.generated.css` from exact Codex Electron foundation/utility/component blocks instead of hand-copying declarations into source files.
   - Reuse semantic chip/badge patterns for priority/estimate/status.
   - Avoid duplicating visual rules across board and toggle-list surfaces.
-- Follow Codex Electron's renderer composition order:
+- Follow the renderer composition order:
   - normalize raw runtime data into stable renderer-facing item/view schemas first
   - bucket/project semantic lanes before JSX
   - render those lanes through shared shells and shared token classes
   - only add local CSS when the visual contract cannot be expressed through existing tokens, utilities, or shared primitives
 - Prefer existing token families over new component-local values:
   - use `text-token-*`, `bg-token-*`, `border-token-*`, `rounded-*`, `text-size-*`, `font-vscode-editor`, and window-width/padding vars before inventing new colors, spacing, or radii
-  - keep theme/color ownership in the generated Codex contract/foundation layers plus the runtime theme bridge, not in feature components
+  - keep theme/color ownership in the generated contract/foundation layers plus the runtime theme bridge, not in feature components
 - Keep app-owned SVG icons centralized:
   - prefer `lucide-react` for generic stock icons that already exist in the library
   - you MUST keep ALL custom SVGs in `src/renderer/components/shared/icons.tsx`
-  - Codex Electron-extracted side-panel action SVGs belong in that shared icon file and should be reused by both empty-panel action cards and tab headers
+  - custom side-panel action SVGs belong in that shared icon file and should be reused by both empty-panel action cards and tab headers
 - Prefer shared primitives over bespoke wrappers:
   - if a surface looks like an existing row shell, accordion shell, summary header, fade-mask container, or compact card, reuse or extract a primitive instead of restyling a feature-local wrapper
   - keep visual density aligned to the existing rhythm (`gap-*`, `px-panel`, `var(--conversation-tool-assistant-gap)`) rather than per-component spacing tweaks
-- Mirror Codex Electron's transcript animation split:
-  - for Codex-native expandable transcript surfaces, reuse a shared measured-height hook and let each subtype own its own `motion.div` / `AnimatePresence` wrapper and state machine
-  - keep transcript expand/collapse subtype-owned; reuse the measured-height hook, but let each Codex-parity surface own its own Motion wrapper and state machine
-- Keep Codex Electron's transcript timing exact:
+- Keep transcript animation split by subtype:
+  - for expandable transcript surfaces, reuse a shared measured-height hook and let each subtype own its own `motion.div` / `AnimatePresence` wrapper and state machine
+  - keep transcript expand/collapse subtype-owned; reuse the measured-height hook, but let each product surface own its own Motion wrapper and state machine
+- Keep transcript timing exact:
   - thread-body, transcript-special, and tool-call accordion surfaces should share one exported motion contract (`duration: 0.5`, `ease: [0.19, 1, 0.22, 1]`)
   - do not reintroduce local `0.18` / `easeOut` expand-collapse timings on command shells, composer lanes, or transcript accordions
-  - do not invent a generic y-axis slide-in for transcript rows; Codex Electron's main thread motion language is measured `height + opacity`, not row translation
+  - do not invent a generic y-axis slide-in for transcript rows; the main thread motion language is measured `height + opacity`, not row translation
 - Keep streaming assistant prose animation scoped:
-  - when assistant message markdown is still streaming, use Streamdown's built-in animated word fade (`animated` with `sep: "word"`) to approximate Codex Electron's per-word prose fade
-  - do not enable that animation for completed prose, user messages, or unrelated markdown surfaces unless a Codex parity investigation shows the same behavior there
+  - when assistant message markdown is still streaming, use Streamdown's built-in animated word fade (`animated` with `sep: "word"`)
+  - do not enable that animation for completed prose, user messages, or unrelated markdown surfaces without a product-specific reason
 - Keep markdown inline code on one shared renderer contract:
   - assistant/thread markdown, plan markdown, reasoning markdown, and NFM read-only inline code should all render through the same shared `span.inline-markdown` visual contract instead of feature-local `code` pill CSS
   - keep heading-specific inline-code inheritance (`font-size` / `line-height`) on a scoped hook class such as `heading-inline-code`; do not reintroduce broad `.codex-markdown code` ownership for inline pills
 - Keep assistant markdown block styling renderer-owned:
-  - Streamdown element renderers (`p`, `h1`-`h3`, `ul`, `ol`, `li`, `a`, `blockquote`, `hr`, `table`, `details`, `summary`) should carry the Codex Electron class contract directly
+  - Streamdown element renderers (`p`, `h1`-`h3`, `ul`, `ol`, `li`, `a`, `blockquote`, `hr`, `table`, `details`, `summary`) should carry the shared markdown class contract directly
   - do not use `.codex-markdown` / `.codex-markdown-plan` global prose CSS as the primary owner for markdown font size, line height, heading scale, or list spacing
 - Treat utilities as part of the design contract:
-  - if a class exists as an exact shipped Codex selector, keep it in the generated utility layer
-  - if a class is renderer-local and not recoverable from the shipped Codex CSS, keep it in `theme-utilities.css`
-  - do not re-create shipped utility selectors by hand in local feature CSS
+  - if a class belongs to the generated utility contract, keep it in the generated utility layer
+  - if a class is renderer-local, keep it in `theme-utilities.css`
+  - do not re-create generated utility selectors by hand in local feature CSS
 - Keep tooltip, popover, and menu-style dropdown overlays on the shared Nodex facade layer in `src/renderer/components/ui/`; feature code should consume `tooltip.tsx`, `popover.tsx`, and `dropdown.tsx` directly instead of importing raw Radix overlay primitives. Keep trigger styling local to each surface, but keep overlay chrome and positioning rules centralized.
 - Keep NFM slash-command and mention suggestion menus on the shared Nodex dropdown surface through BlockNote's `SuggestionMenuController` component override instead of styling or globally overriding BlockNote's default `.bn-suggestion-menu` chrome.
 - Keep in-app toasts on the same shared UI facade layer in `src/renderer/components/ui/toast.tsx`; feature code should emit renderer-local feedback through the shared toaster API instead of mounting feature-local fixed overlays or prop-threaded notice surfaces.
@@ -117,38 +115,38 @@
 - Do not expose a separate shared `Select` family. Common single-choice controls should be built from the shared dropdown facade in `src/renderer/components/ui/dropdown.tsx`; do not reintroduce `ui/select.tsx`, a selector-chrome shim, or a parallel select-only styling layer.
 - Selector-style pickers like branch/environment/project-folder choosers should compose `NodexDropdownMenu`, `NodexDropdownSearchInput`, `NodexDropdownSection`, `NodexDropdownItem`, and `NodexDropdownSeparator` directly.
 - Theme `@pierre/diffs` instances through host `style` plus `options.unsafeCSS`; use the shared renderer helper in `src/renderer/lib/diff-presentation.ts` instead of per-surface shadow-DOM CSS or broad global selectors.
-  - Keep the Codex-style utility contract in the generated Codex utility layer so exact shipped selectors remain available even when Tailwind would not regenerate them from the local source graph alone.
-  - Reserve `theme-utilities.css` for Nodex-local additions, not for reconstructed copies of Codex Electron utility families.
+  - Keep the generated utility contract in the generated utility layer so required selectors remain available even when Tailwind would not regenerate them from the local source graph alone.
+  - Reserve `theme-utilities.css` for Nodex-local additions, not for copies of generated utility families.
 - Treat `--tw-*` property registrations as build-output contract: values such as `--tw-leading` or `--tw-contain-layout` come from Tailwind's compiled property layer, not from manual theme-token declarations.
 - For Threads, keep the scroll body and composer separate: unresolved live request cards belong to the composer shell, not the scroll body. The composer shell owns queued follow-ups, background terminal rows, and background child-agent rows; optimistic steering belongs to the scroll body as `steeringUserMessage` transcript items that can later accept into a separate `steered` divider.
-- Codex-style background terminals are not child-thread metadata. Derive them from the current conversation's older still-running `commandExecution` items, skip the newest in-progress turn, and render them as tooltip-backed mono rows (`command` plus optional `previewLine`) inside the composer shell's running-terminals panel.
+- Background terminals are not child-thread metadata. Derive them from the current conversation's older still-running `commandExecution` items, skip the newest in-progress turn, and render them as tooltip-backed mono rows (`command` plus optional `previewLine`) inside the composer shell's running-terminals panel.
 - Keep thread-footer width ownership outside the composer shell:
   - the footer/screen wrapper owns `max-w-[var(--thread-composer-max-width)]` and `px-panel`
   - the fixed above-composer block host (`above-composer-portal`) and the queue/background lane host (`above-composer-queue-portal`) both stay in that footer wrapper as siblings directly above `LocalConversationComposerShell`; do not move either host into the scroll body or a separate overlay layer
   - `LocalConversationComposerShell` should stay a pure stack/layout switcher
   - `ThreadComposer` should render the composer form itself, not re-wrap the whole footer width a second time
-- Keep the queue lane on the Codex Electron row family:
+- Keep the queue lane on the dedicated row family:
   - project raw queued follow-ups into dedicated row models before JSX
   - render queued follow-ups in the shared above-composer lane panel instead of separate cards or footer widgets
-  - keep queued follow-up reorder on the same sortable/dnd row contract as Codex Electron rather than native HTML drag/drop
+  - keep queued follow-up reorder on the same sortable/dnd row contract rather than native HTML drag/drop
   - keep row copy/tooltips/actions source-derived and lane-owned instead of rebuilding those strings or affordances inside generic shell wrappers
-- Keep composer request cards in the Codex Electron family shape:
+- Keep composer request cards in the dedicated request-card family shape:
   - dispatch by request type through one shell-owned renderer (`approval`, `userInput`, `implementPlan`, `mcpServerElicitation`)
   - use one shared questionnaire shell for approval, user-input, and implement-plan cards instead of nesting a second local card inside those request surfaces
   - approval cards own their body preview (`command`, `network`, or `patch`) and pass that preview into the shared questionnaire shell
-  - background-child approvals do not get a separate worker-name header; inject that child identity inline into the approval prompt only when the Codex approval prompt branch calls for it
-  - request-card stories should exercise the dedicated Codex request-card components directly, not older wrapper aliases
+  - background-child approvals do not get a separate worker-name header; inject that child identity inline into the approval prompt only when the approval prompt branch calls for it
+  - request-card stories should exercise the dedicated request-card components directly, not older wrapper aliases
 - Keep the lower composer status strip new-chat-only: render it only for pre-start new-chat surfaces (`isNewThreadTab && conversation === null`). Existing threads keep add-context, permissions, context, Intelligence, dictation, and send/stop inside the composer form footer and rely on the floating thread panel instead of a second under-input status row.
 - Keep local-environments UI as a first-class settings feature:
   - the feature lives in the workbench settings route shell, not in card-stage popovers or OS file-manager escapes
   - card-stage environment pickers should stay thin choosers and route `Environment settings` into the shared settings page with project/config context
   - local-environments stories should use an injected service snapshot instead of browser IPC fallbacks so workspace-selection, summary, parse-error, and edit/save states stay reproducible
-- Keep workbench settings on the Codex-style section shell:
+- Keep workbench settings on the section shell:
   - settings navigation is tab/section based, not a scrollspy over one long document
   - settings shell state is path/slug driven (`/settings/:section`) with redirect-to-default behavior for invalid section ids, and Settings should replace the workbench body instead of mounting as a modal dialog
   - the settings rail should stay a settings-specific adapter that reuses sidebar chrome/tokens without importing project/sidebar semantics such as project management, group actions, or resize handles
   - settings sidebar vibrancy is owned by the same transparent Electron window material as the normal sidebar; individual settings sections should render only the `main-surface` content pane
-  - when adjusting the rail, prefer the exact Codex Electron rail class family (`window-fx-sidebar-surface`, `px-row-x`, `py-row-y`, `icon-xs`, `icon-sm`, `bg-token-list-hover-background`) over local approximations
+  - when adjusting the rail, prefer the shared rail class family (`window-fx-sidebar-surface`, `px-row-x`, `py-row-y`, `icon-xs`, `icon-sm`, `bg-token-list-hover-background`) over local approximations
   - each settings section should render as its own page surface and own its own loading/empty/error state where needed
 - Keep renderer forms boundary-led: use TanStack Form with a colocated zod schema module when a form has structural validation, type coercion, or multi-field constraints. For simple single-field inputs, keep local state and a submit-time guard instead of introducing a separate schema module.
 - For thread search, project stable user/assistant search units in the view model and attach them to rendered blocks; do not implement `Find in thread` by scraping arbitrary DOM text from the whole turn.
@@ -157,13 +155,13 @@
 - Start from existing semantics, not from JSX. New UI behavior should usually begin in a projector, bucketizer, normalizer, or other renderer-facing adapter before touching leaf components.
 - Keep leaf renderers dumb. Message/tool/request components should consume already-derived props such as lane membership, action eligibility, placeholder state, or copy text instead of recomputing those rules locally.
 - Keep one canonical lane per semantic role. Final assistant content, leading user prefix actions, exploration groups, pending-request lanes, and diff lanes should each be derived once and rendered once.
-- Keep transcript-special rows dedicated. Items such as context compaction, automatic approval review, and multi-agent activity should render through their own Codex-style leaf components instead of falling back to generic system banners.
+- Keep transcript-special rows dedicated. Items such as context compaction, automatic approval review, and multi-agent activity should render through their own leaf components instead of falling back to generic system banners.
 - Keep poor-network reconnect in the transcript, not in shell resume state:
   - retryable transport/turn errors should materialize as `streamError` transcript items with expandable details
   - non-retryable turn failures should materialize as `systemError` transcript items
   - do not reuse `resumeState` placeholders or shell overlays for the `Reconnecting... 2/5` feature
-- Prefer shipped behavior over source-looking class strings. If bundle behavior and an apparent source token disagree, treat the shipped CSS/renderer output as authoritative.
-- Keep component chrome subdued. Secondary actions should stay small, low-emphasis, and hover-revealed unless the upstream Codex surface makes them primary.
+- Prefer rendered behavior over source-looking class strings. If runtime behavior and an apparent source token disagree, treat the rendered CSS/output as authoritative.
+- Keep component chrome subdued. Secondary actions should stay small, low-emphasis, and hover-revealed unless the product surface makes them primary.
 
 ## Frontend Testing
 - Run targeted tests while iterating: `bun test src/renderer/...`
@@ -176,7 +174,7 @@
 - Keep `settings/environments` stories flow-complete: workspace root, multi-config project rows, summary, edit, parse error, create-new, and environment-variable popover states should all be separately reproducible.
 - Keep selector stories split by feature. Branch and environment selectors should not share one mixed story page; cover default, empty, busy/loading, long-label/path, and icon-sizing states independently.
 - Keep menu-driven stories open by default through story-only harnesses. Context menus, sidebar menus, and project manager popovers should render their open state directly instead of asking the reviewer to right-click or click to reveal the actual surface.
-- Current thread stories live under `src/renderer/features/local-conversation/view/` for composed stage scenarios and under `src/renderer/features/local-conversation/view/shared/` for focused transcript-special, tool, and request leaf stories. Keep Codex transcript-special surfaces such as reasoning, todo lists, automatic approval review, and multi-agent activity in the transcript-special stories instead of forcing them into tool-call stories.
+- Current thread stories live under `src/renderer/features/local-conversation/view/` for composed stage scenarios and under `src/renderer/features/local-conversation/view/shared/` for focused transcript-special, tool, and request leaf stories. Keep transcript-special surfaces such as reasoning, todo lists, automatic approval review, and multi-agent activity in the transcript-special stories instead of forcing them into tool-call stories.
 - Keep tool-call stories scoped to actual Codex tool families. Transcript-special surfaces that happen to originate from tool-like raw items still belong in transcript-special stories once the projector gives them their own semantic lane.
 - Default renderer component tests to DOM-based coverage with Bun + `happy-dom` + `@testing-library/react`.
 - Assert user-visible structure, labels, and behavior through rendered DOM queries; keep `data-testid` and raw class checks as fallback tools, not the default.

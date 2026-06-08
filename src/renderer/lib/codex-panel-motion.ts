@@ -34,6 +34,7 @@ export interface CodexAnimatedPanelState {
   animatedSize: MotionValue<number>;
   targetSize: MotionValue<number>;
   mounted: boolean;
+  animating: boolean;
 }
 
 export function clampCodexPanelProgress(progress: number): number {
@@ -90,10 +91,12 @@ export function useCodexAnimatedPanelState({
     resolveCodexAnimatedPanelSize(Number(latestProgress), Number(latestTargetSize))
   );
   const [mounted, setMounted] = useState(open);
+  const [animating, setAnimating] = useState(false);
   const mountedRef = useRef(open);
   const openRef = useRef(open);
   const resetKeyRef = useRef(resetKey);
   const animationRef = useRef<ReturnType<typeof animate> | null>(null);
+  const animationGenerationRef = useRef(0);
 
   const setMountedIfChanged = (nextMounted: boolean) => {
     if (mountedRef.current === nextMounted) return;
@@ -116,13 +119,22 @@ export function useCodexAnimatedPanelState({
   useEffect(() => {
     const nextProgress = open ? 1 : 0;
     const resetChanged = resetKeyRef.current !== resetKey;
+    animationGenerationRef.current += 1;
+    const generation = animationGenerationRef.current;
     resetKeyRef.current = resetKey;
     animationRef.current?.stop();
     animationRef.current = null;
 
     if (resetChanged || shouldSnapCodexMotion(reducedMotion, animateLayout)) {
+      setAnimating(false);
       progress.set(nextProgress);
       setMountedIfChanged(open);
+      return undefined;
+    }
+
+    if (clampCodexPanelProgress(progress.get()) === nextProgress) {
+      setAnimating(false);
+      setMountedIfChanged(open || nextProgress > 0);
       return undefined;
     }
 
@@ -130,9 +142,13 @@ export function useCodexAnimatedPanelState({
       setMountedIfChanged(true);
     }
 
+    setAnimating(true);
     const controls = animate(progress, nextProgress, {
       ...CODEX_SHELL_PANEL_TRANSITION,
       onComplete: () => {
+        if (animationGenerationRef.current === generation) {
+          setAnimating(false);
+        }
         if (!open && clampCodexPanelProgress(progress.get()) === 0) {
           setMountedIfChanged(false);
         }
@@ -151,5 +167,6 @@ export function useCodexAnimatedPanelState({
     animatedSize,
     targetSize: targetSizeMotionValue,
     mounted,
+    animating,
   };
 }

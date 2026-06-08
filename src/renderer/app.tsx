@@ -42,6 +42,10 @@ import type {
   AppInitializationStep,
   DatabaseMigrationProgress,
 } from "../shared/app-startup";
+import type {
+  WorkbenchNavigationCommandSource,
+  WorkbenchSidebarToggleCommandSource,
+} from "../shared/window-navigation";
 
 const WORKBENCH_V2_FLAG_KEY = "workbenchV2";
 
@@ -117,6 +121,10 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
   const [diffSearchOpenTick, setDiffSearchOpenTick] = useState(0);
   const [commandPaletteOpenTick, setCommandPaletteOpenTick] = useState(0);
   const [commandPaletteInitialQuery, setCommandPaletteInitialQuery] = useState("");
+  const [sidebarToggleRequest, setSidebarToggleRequest] = useState<{
+    tick: number;
+    source: WorkbenchSidebarToggleCommandSource;
+  }>({ tick: 0, source: "keyboard_shortcut" });
   const [settingsToggleTick, setSettingsToggleTick] = useState(0);
 
   const {
@@ -688,19 +696,47 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     focusStageWithNearestIntent(projectId, "files");
   }, [focusStageWithNearestIntent, recordNavigation, resolveNavigationStageDirection, setActiveFilesTabState]);
 
-  const navigateBack = useCallback(async () => {
+  const navigateBack: (source?: WorkbenchNavigationCommandSource) => Promise<void> = useCallback(async () => {
     const result = navigateBackInHistory(navigationHistory, currentNavigationSnapshotRef.current);
     if (!result.snapshot) return;
     setNavigationHistory(result.historyState);
     await applyNavigationSnapshot(result.snapshot);
   }, [applyNavigationSnapshot, navigationHistory]);
 
-  const navigateForward = useCallback(async () => {
+  const navigateForward: (source?: WorkbenchNavigationCommandSource) => Promise<void> = useCallback(async () => {
     const result = navigateForwardInHistory(navigationHistory, currentNavigationSnapshotRef.current);
     if (!result.snapshot) return;
     setNavigationHistory(result.historyState);
     await applyNavigationSnapshot(result.snapshot);
   }, [applyNavigationSnapshot, navigationHistory]);
+
+  const requestSidebarToggle = useCallback((source: WorkbenchSidebarToggleCommandSource) => {
+    setSidebarToggleRequest((current) => ({
+      tick: current.tick + 1,
+      source,
+    }));
+  }, []);
+
+  useEffect(() => {
+    if (!window.api?.onNavigateBack) return undefined;
+    return window.api.onNavigateBack(() => {
+      void navigateBack("menu");
+    });
+  }, [navigateBack]);
+
+  useEffect(() => {
+    if (!window.api?.onNavigateForward) return undefined;
+    return window.api.onNavigateForward(() => {
+      void navigateForward("menu");
+    });
+  }, [navigateForward]);
+
+  useEffect(() => {
+    if (!window.api?.onToggleSidebar) return undefined;
+    return window.api.onToggleSidebar(() => {
+      requestSidebarToggle("menu");
+    });
+  }, [requestSidebarToggle]);
 
   useEffect(() => {
     if (!window.api) return;
@@ -866,12 +902,13 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     onRequestThreadSearch: handleOpenThreadSearch,
     onRequestDiffSearch: handleOpenDiffSearch,
     onRequestSettingsToggle: handleToggleSettings,
-    navigateBack: () => {
-      void navigateBack();
+    navigateBack: (source) => {
+      void navigateBack(source);
     },
-    navigateForward: () => {
-      void navigateForward();
+    navigateForward: (source) => {
+      void navigateForward(source);
     },
+    onToggleSidebar: requestSidebarToggle,
   });
 
   if (loading) {
@@ -969,6 +1006,8 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       commandPaletteOpenTick={commandPaletteOpenTick}
       commandPaletteInitialQuery={commandPaletteInitialQuery}
       settingsToggleTick={settingsToggleTick}
+      sidebarToggleRequestTick={sidebarToggleRequest.tick}
+      sidebarToggleRequestSource={sidebarToggleRequest.source}
       onCreateProject={handleCreateProject}
       onDeleteProject={handleDeleteProject}
       onRenameProject={handleRenameProject}
@@ -980,11 +1019,11 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       navigateToFilesTab={navigateToFilesTab}
       canNavigateBack={navigationHistory.backStack.length > 0}
       canNavigateForward={navigationHistory.forwardStack.length > 0}
-      onNavigateBack={() => {
-        void navigateBack();
+      onNavigateBack={(source) => {
+        void navigateBack(source);
       }}
-      onNavigateForward={() => {
-        void navigateForward();
+      onNavigateForward={(source) => {
+        void navigateForward(source);
       }}
       onRequestNewWindow={() => {
         void handleRequestNewWindow();

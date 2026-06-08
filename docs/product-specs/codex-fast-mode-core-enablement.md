@@ -1,7 +1,7 @@
 # Codex Fast Mode Core Enablement
 
 ## Intent
-This document is the source of truth for Nodex's core Codex-style Fast-mode enablement path.
+This document is the source of truth for Nodex's core Fast-mode enablement path.
 It defines the single persisted service-tier preference, the UI surfaces that control it, and the request-building rules that apply it to new thread and turn requests.
 
 Other product specs should link here instead of restating Fast-mode behavior in detail.
@@ -34,7 +34,7 @@ This spec does not cover:
 ## Source Of Truth
 - The canonical owner of the preference is the renderer.
 - Persistence lives in renderer `localStorage`, not `.nodex/config.toml` and not main-process config.
-- The persisted key is the single Nodex-scoped storage key analogous to Codex's default-service-tier setting.
+- The persisted key is the single Nodex-scoped storage key for the default service tier.
 - All reads and writes flow through the shared service-tier settings module and hook.
 - UI surfaces must not own parallel local copies of the tier.
 
@@ -71,7 +71,7 @@ This spec does not cover:
 - When the global service tier is `fast`, the composer model selector shows a leading lightning-bolt indicator before the active model label.
 - The indicator is inline with the label, not a separate badge.
 - `standard` omits the indicator entirely.
-- Nodex mirrors the Codex Electron bolt geometry and leading placement, but ties visibility to Nodex's active Fast preference instead of Codex's bundle-specific `gpt-5.4` check.
+- Nodex uses an inline leading bolt indicator whose visibility is tied to the active Fast preference.
 
 ## Request Resolution Rules
 - Request-building code must distinguish between:

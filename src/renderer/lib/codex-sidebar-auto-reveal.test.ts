@@ -7,10 +7,14 @@ import {
   deriveCodexSidebarFloatingVisibility,
   getCodexSidebarFloatingTransition,
   isCodexSidebarEdgeEnterX,
+  isCodexSidebarExpandedMounted,
   isCodexSidebarKeepOpenX,
   normalizeCodexSidebarPointer,
+  resolveCodexSidebarToggleTargetProgress,
   resolveCodexSidebarWidth,
+  shouldAnimateCodexSidebarToggle,
   shouldClearCodexSidebarHoverSuppression,
+  shouldSuppressCodexSidebarHoverOpen,
 } from "./codex-sidebar-auto-reveal";
 
 describe("Codex sidebar auto-reveal contract", () => {
@@ -125,6 +129,28 @@ describe("Codex sidebar auto-reveal contract", () => {
       focusOverride: true,
       currentlyVisible: true,
     })).toBeTrue();
+  });
+
+  test("derives Codex explicit toggle target progress and hover suppression", () => {
+    expect(resolveCodexSidebarToggleTargetProgress(true)).toBe(1);
+    expect(resolveCodexSidebarToggleTargetProgress(false)).toBe(0);
+    expect(shouldSuppressCodexSidebarHoverOpen({ nextOpen: false })).toBeTrue();
+    expect(shouldSuppressCodexSidebarHoverOpen({ nextOpen: false, suppressHoverOpen: false })).toBeFalse();
+    expect(shouldSuppressCodexSidebarHoverOpen({ nextOpen: true })).toBeFalse();
+  });
+
+  test("snaps explicit sidebar toggles for reduced motion or animate false", () => {
+    expect(shouldAnimateCodexSidebarToggle({ animate: true, reducedMotion: false })).toBeTrue();
+    expect(shouldAnimateCodexSidebarToggle({ reducedMotion: null })).toBeTrue();
+    expect(shouldAnimateCodexSidebarToggle({ animate: false, reducedMotion: false })).toBeFalse();
+    expect(shouldAnimateCodexSidebarToggle({ animate: true, reducedMotion: true })).toBeFalse();
+  });
+
+  test("keeps the real sidebar mounted while closing progress remains above zero", () => {
+    expect(isCodexSidebarExpandedMounted({ open: true, progress: 0 })).toBeTrue();
+    expect(isCodexSidebarExpandedMounted({ open: false, progress: 0.25 })).toBeTrue();
+    expect(isCodexSidebarExpandedMounted({ open: false, progress: 0 })).toBeFalse();
+    expect(isCodexSidebarExpandedMounted({ open: false, progress: Number.NaN })).toBeFalse();
   });
 
   test("normalizes pointer coordinates and velocity by the Codex window zoom", () => {

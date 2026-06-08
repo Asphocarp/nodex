@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
+  handleWorkbenchMouseNavigationShortcut,
   handleWorkbenchShortcut,
+  resolveWorkbenchMouseNavigationShortcut,
   type WorkbenchShortcutActions,
 } from "./use-workbench-shortcuts";
 
@@ -14,6 +16,15 @@ function makeNfmEditorTarget(): EventTarget {
     isContentEditable: true,
     closest: (selector: string) =>
       selector.includes(".nfm-editor") ? ({} as Element) : null,
+  } as unknown as EventTarget;
+}
+
+function makeComposerTarget(): EventTarget {
+  return {
+    tagName: "TEXTAREA",
+    isContentEditable: false,
+    closest: (selector: string) =>
+      selector.includes("[data-composer-prompt-frame]") ? ({} as Element) : null,
   } as unknown as EventTarget;
 }
 
@@ -237,6 +248,75 @@ describe("handleWorkbenchShortcut", () => {
     expect(called).toBeTrue();
   });
 
+  test("Cmd+B toggles the sidebar from non-editable shell focus", () => {
+    let source = "";
+    const handled = handleWorkbenchShortcut(
+      {
+        key: "b",
+        ctrlKey: false,
+        metaKey: true,
+        shiftKey: false,
+        altKey: false,
+        target: null,
+      },
+      makeActions({
+        onToggleSidebar: (nextSource) => {
+          source = nextSource;
+        },
+      }),
+      true,
+    );
+
+    expect(handled).toBeTrue();
+    expect(source).toBe("keyboard_shortcut");
+  });
+
+  test("Cmd+B toggles the sidebar from the composer with the Codex composer source", () => {
+    let source = "";
+    const handled = handleWorkbenchShortcut(
+      {
+        key: "B",
+        ctrlKey: false,
+        metaKey: true,
+        shiftKey: false,
+        altKey: false,
+        target: makeComposerTarget(),
+      },
+      makeActions({
+        onToggleSidebar: (nextSource) => {
+          source = nextSource;
+        },
+      }),
+      true,
+    );
+
+    expect(handled).toBeTrue();
+    expect(source).toBe("composer_sidebar_shortcut");
+  });
+
+  test("Cmd+B is left to editable non-composer surfaces", () => {
+    let called = false;
+    const handled = handleWorkbenchShortcut(
+      {
+        key: "b",
+        ctrlKey: false,
+        metaKey: true,
+        shiftKey: false,
+        altKey: false,
+        target: makeNfmEditorTarget(),
+      },
+      makeActions({
+        onToggleSidebar: () => {
+          called = true;
+        },
+      }),
+      true,
+    );
+
+    expect(handled).toBeFalse();
+    expect(called).toBeFalse();
+  });
+
   test("Cmd+F opens thread search when the Threads stage is focused", () => {
     let threadSearchProjectId: string | null = null;
     let taskSearchCalled = false;
@@ -327,6 +407,7 @@ describe("handleWorkbenchShortcut", () => {
 
   test("Cmd+[ navigates back even inside inputs", () => {
     let called = false;
+    let source = "";
     const handled = handleWorkbenchShortcut(
       {
         key: "[",
@@ -338,8 +419,9 @@ describe("handleWorkbenchShortcut", () => {
         target: makeInputTarget(),
       },
       makeActions({
-        navigateBack: () => {
+        navigateBack: (nextSource) => {
           called = true;
+          source = nextSource;
         },
       }),
       true,
@@ -347,10 +429,12 @@ describe("handleWorkbenchShortcut", () => {
 
     expect(handled).toBeTrue();
     expect(called).toBeTrue();
+    expect(source).toBe("keyboard_shortcut");
   });
 
   test("Ctrl+] navigates forward on non-mac platforms", () => {
     let called = false;
+    let source = "";
     const handled = handleWorkbenchShortcut(
       {
         key: "]",
@@ -362,8 +446,9 @@ describe("handleWorkbenchShortcut", () => {
         target: null,
       },
       makeActions({
-        navigateForward: () => {
+        navigateForward: (nextSource) => {
           called = true;
+          source = nextSource;
         },
       }),
       false,
@@ -371,6 +456,7 @@ describe("handleWorkbenchShortcut", () => {
 
     expect(handled).toBeTrue();
     expect(called).toBeTrue();
+    expect(source).toBe("keyboard_shortcut");
   });
 
   test("Cmd+comma toggles settings globally", () => {
@@ -706,5 +792,52 @@ describe("handleWorkbenchShortcut", () => {
 
     expect(handled).toBeFalse();
     expect(direction).toBe(null);
+  });
+});
+
+describe("handleWorkbenchMouseNavigationShortcut", () => {
+  test("classifies browser back and forward mouse buttons", () => {
+    expect(resolveWorkbenchMouseNavigationShortcut({ button: 3 })).toBe("back");
+    expect(resolveWorkbenchMouseNavigationShortcut({ button: 4 })).toBe("forward");
+    expect(resolveWorkbenchMouseNavigationShortcut({ button: 1 })).toBe(null);
+  });
+
+  test("MouseBack runs the back navigation command source", () => {
+    let source = "";
+    const handled = handleWorkbenchMouseNavigationShortcut(
+      { button: 3 },
+      makeActions({
+        navigateBack: (nextSource) => {
+          source = nextSource;
+        },
+      }),
+    );
+
+    expect(handled).toBeTrue();
+    expect(source).toBe("mouse_back");
+  });
+
+  test("MouseForward runs the forward navigation command source", () => {
+    let source = "";
+    const handled = handleWorkbenchMouseNavigationShortcut(
+      { button: 4 },
+      makeActions({
+        navigateForward: (nextSource) => {
+          source = nextSource;
+        },
+      }),
+    );
+
+    expect(handled).toBeTrue();
+    expect(source).toBe("mouse_forward");
+  });
+
+  test("unhandled mouse buttons do not claim the event", () => {
+    const handled = handleWorkbenchMouseNavigationShortcut(
+      { button: 0 },
+      makeActions(),
+    );
+
+    expect(handled).toBeFalse();
   });
 });

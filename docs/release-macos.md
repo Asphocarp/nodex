@@ -132,7 +132,7 @@ Current known target:
 Limitations:
 - no macOS runner emulation
 - no notarization validation
-- no environment-scoped GitHub Actions secret parity
+- no validation for environment-scoped GitHub Actions secrets
 - requires a working Docker-compatible runtime such as Docker Desktop or OrbStack
 
 ## Workflow Details

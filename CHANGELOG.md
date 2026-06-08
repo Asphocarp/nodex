@@ -5,31 +5,32 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
-- Added the Codex-style global bottom-panel toggle beside the side-panel toggle, with Codex Electron bottom-panel icons and active/ghost toolbar states.
-- Added Codex-style right and bottom session panels with shared tab chrome, panel-scoped ordering, cross-panel tab moves, a bottom-panel Terminal default, and Codex-eligible bottom actions for Files, Side chat, Browser, Review, and Terminal.
-- Added Codex-style ephemeral panel previews for placeholder Files, Browser, and Side chat tabs in either right or bottom panel; they replace the prior preview in the same panel and persist only after the user interacts with or pins the preview.
+- Added app-window Back/Forward titlebar controls with matching keyboard, mouse, command-palette, and macOS menu entry points.
+- Added the global bottom-panel toggle beside the side-panel toggle, with active/ghost toolbar states.
+- Added right and bottom session panels with shared tab chrome, panel-scoped ordering, cross-panel tab moves, a bottom-panel Terminal default, and eligible bottom actions for Files, Side chat, Browser, Review, and Terminal.
+- Added ephemeral panel previews for placeholder Files, Browser, and Side chat tabs in either right or bottom panel; they replace the prior preview in the same panel and persist only after the user interacts with or pins the preview.
 - Added a public changelog page at `nodex.jyu.app/changelog`, generated from the project changelog file.
-- Added a Codex-style project session shell with expandable project folders, a sidebar `New chat` entry, project-row new-chat actions, durable sessions, a session thread page, session-owned panel tabs, browser placeholders, and separate optional session-thread attachments.
+- Added a project session shell with expandable project folders, a sidebar `New chat` entry, project-row new-chat actions, durable sessions, a session thread page, session-owned panel tabs, browser placeholders, and separate optional session-thread attachments.
 - Added SQLite-backed project session, project session tab, and session-thread link storage with default Overview sessions seeded for every project.
-- Added a Codex-style project selector in the empty session new-chat status row so a first prompt can target another project before the thread starts.
-- Added a Codex-style `Start in` selector to empty session new-chat composers, including `Work locally` and managed `New worktree` starts with environment setup progress.
+- Added a project selector in the empty session new-chat status row so a first prompt can target another project before the thread starts.
+- Added a `Start in` selector to empty session new-chat composers, including `Work locally` and managed `New worktree` starts with environment setup progress.
 
 ### Changed
 - Replaced the old primary stage-rail workbench model with project sessions that open as a thread page with a collapsible and full-width-expandable right panel plus an independent bottom panel for session tabs.
-- Settings now opens as a Codex-style full-window route shell with the same native vibrant sidebar feel as the normal workbench sidebar instead of a modal overlay.
+- Settings now opens as a full-window route shell with the same native vibrant sidebar feel as the normal workbench sidebar instead of a modal overlay.
 - Card Stage description auto-save now waits 1.5 seconds after edits, reducing save churn while keeping blur and close saves immediate.
 - Window restore and new-window layout seeding are now owned only by window sessions instead of named workspaces.
 - macOS window titles now use `Nodex` instead of a workspace name.
 - Terminal tabs are now session-owned panel tabs with session terminal ids that start from the attached thread cwd before falling back to the project workspace path; cards can request a terminal but no longer own terminal tabs or PTY identity.
-- Matched the project/session sidebar chrome to Codex Electron, moved project folder selection into each project row actions menu, and added Search, Plugins, and Automations rows for layout parity.
-- Refined the project session shell to match Codex Electron side-panel control placement, adjacent header-slot spacing, remembered full-width mode, and button styling: the global header now owns `Toggle side panel`, right-panel tab creation and expand/restore actions live in the panel tab header, and the unused attach/detach thread toolbar button is removed.
-- Refined project session thread headers to match Codex Electron title sizing, use the thread title as the session header, and hide the redundant header separator while the right panel is closed.
+- Refined the project/session sidebar chrome, moved project folder selection into each project row actions menu, and added Search, Plugins, and Automations rows for a denser shell layout.
+- Refined the project session shell side-panel control placement, adjacent header-slot spacing, remembered full-width mode, and button styling: the global header now owns `Toggle side panel`, right-panel tab creation and expand/restore actions live in the panel tab header, and the unused attach/detach thread toolbar button is removed.
+- Refined project session thread headers to use the thread title as the session header and hide the redundant header separator while the right panel is closed.
 - Existing thread composers no longer show the lower run-target/status row under the prompt; that row remains available on new-chat composers.
-- Added a Codex-style top-right thread summary surface for attached local conversation sessions, with the Codex pinned-summary toggle/icon, a right-panel-open `Toggle summary` popover, toolbar-safe under-header pinned placement, and hover-revealed section chevrons.
-- Centralized workbench top-right header controls through a Codex-style header action registry so panel toggles and adjacent panel-header actions keep consistent spacing and reserved width.
-- Collapsed sidebar titlebar chrome now matches Codex Electron with a measured left header rail, compact `New chat` button, and thread title alignment after the macOS traffic-light safe area.
+- Added a top-right thread summary surface for attached local conversation sessions, with a pinned-summary toggle/icon, a right-panel-open `Toggle summary` popover, toolbar-safe under-header pinned placement, and hover-revealed section chevrons.
+- Centralized workbench top-right header controls through a header action registry so panel toggles and adjacent panel-header actions keep consistent spacing and reserved width.
+- Collapsed sidebar titlebar chrome now uses a measured left header rail, compact `New chat` button, and thread title alignment after the macOS traffic-light safe area.
 - Moved authenticated Codex quota visibility from the floating thread summary panel into a double-ring indicator in the sidebar footer, with the existing account details available on hover.
-- Project session thread pages without an attached thread now show the Codex-style new-chat composer and start a session-owned Codex thread from the first prompt instead of showing an attach-thread empty state.
+- Project session thread pages without an attached thread now show the session new-chat composer and start a session-owned Codex thread from the first prompt instead of showing an attach-thread empty state.
 - Codex thread metadata now supports card-owned, session-owned, project-only, and projectless threads without fake card ids.
 - Thread collapsed tool activity groups now has synthesized summaries and flat expanded row hierarchy instead of showing generic completed-action labels or nested exploration subgroups.
 
@@ -43,10 +44,10 @@ All notable changes to this project will be documented in this file.
 - Fixed collapsed sidebar titlebar buttons so they match the top-right toolbar controls for size, color, icon scale, and hover highlight instead of using project-row hover styling.
 - Fixed the right-panel-open thread summary trigger so it sits at the thread/right-panel boundary, keeps the active icon unclipped, and opens the summary popover when clicked.
 - Fixed open right-panel sessions so the thread page no longer leaves an empty toolbar-height row above the thread title.
-- Fixed Codex-style sidebar session rows so titles keep the grouped project indent from Codex Electron.
+- Fixed sidebar session rows so titles keep the grouped project indent.
 - Fixed active project folder toggles so clicking the project title while focused on one of its sessions no longer re-selects the project and flickers back open.
-- Fixed the Codex-style sidebar `Projects` header so clicking it collapses and expands the project/session rows.
-- Restored the native vibrant workbench sidebar background after the Codex sidebar chrome update.
+- Fixed the sidebar `Projects` header so clicking it collapses and expands the project/session rows.
+- Restored the native vibrant workbench sidebar background after the sidebar chrome update.
 - Fixed long Thread composer prompts so the prompt field shows only the textarea scrollbar instead of a second wrapper scrollbar.
 - Fixed full-width right-panel tabs so they start at the panel edge instead of leaving an empty leading gap.
 - Fixed newly created non-Overview project sessions so they start with the right panel collapsed, while Overview sessions still open their DB tab full-width by default.
@@ -57,7 +58,7 @@ All notable changes to this project will be documented in this file.
 - Fixed completed Thread file-edit rows so expanding a file shows the rendered inline diff body again instead of only the patch-frame header.
 - Removed the redundant extra colored gutter line from inline Thread diffs so the diff body relies on the native add/delete indicators.
 - Fixed Threads composer file attachment handling so renderer code can no longer request arbitrary local file bytes; image previews are now read only from files selected through the native picker.
-- Fixed active-turn steering parity so steers now render as optimistic steering user messages, accept against the matching backend user message, show the separate `Steered conversation` divider, and restore unaccepted steers as queued follow-ups.
+- Fixed active-turn steering so steers now render as optimistic steering user messages, accept against the matching backend user message, show the separate `Steered conversation` divider, and restore unaccepted steers as queued follow-ups.
 
 ## [0.1.10] - 2026-05-03
 
@@ -86,30 +87,30 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Added VS Code-style window session reopening, with profile-local per-window layout snapshots, saved window bounds, and a Settings -> General restore policy for reopening all windows, the last window, or a fresh window.
 - Added profile-local workspaces for restoring named workbench layouts across app restarts, with a default workspace, optional workspace icons, footer workspace dots plus a `+` editor trigger, and workspace create/rename/delete controls.
-- Added real Codex-style thread-composer dictation in Electron for ChatGPT-authenticated sessions, including the `Dictate` mic button, `Ctrl+M` hold-to-dictate shortcut, buffered `/transcribe` upload path, and the recording footer with `Stop dictation` plus `Transcribe and send`.
-- Added a global Codex-style `Service tier` preference with `Standard` and `Fast` controls in Settings and the thread composer, plus the Codex-style lightning indicator before the composer model selector while Fast is active, so new thread and turn requests can inherit and send the persisted fast tier without per-thread configuration.
-- Added Codex Electron-style Auto-review parity for local threads: permissions now resolve from Codex config/requirements, reviewer allow-lists are honored, the Thread stage and new `Agent` settings page expose `Default permissions`, `Auto-review`, `Full access`, and `Custom (config.toml)`, Auto-review falls back to the normal reviewer when `guardian_approval` is unavailable, and approval requests stay attached to the matching exec/file-change transcript rows.
+- Added thread-composer dictation in Electron for ChatGPT-authenticated sessions, including the `Dictate` mic button, `Ctrl+M` hold-to-dictate shortcut, buffered `/transcribe` upload path, and the recording footer with `Stop dictation` plus `Transcribe and send`.
+- Added a global `Service tier` preference with `Standard` and `Fast` controls in Settings and the thread composer, plus a lightning indicator before the composer model selector while Fast is active, so new thread and turn requests can inherit and send the persisted fast tier without per-thread configuration.
+- Added Auto-review for local threads: permissions now resolve from Codex config/requirements, reviewer allow-lists are honored, the Thread stage and new `Agent` settings page expose `Default permissions`, `Auto-review`, `Full access`, and `Custom (config.toml)`, Auto-review falls back to the normal reviewer when `guardian_approval` is unavailable, and approval requests stay attached to the matching exec/file-change transcript rows.
 - Added per-snapshot delete actions in Settings -> Backups, with inline confirmation on each backup row so old local snapshots can be removed without leaving the settings page.
 - Added a compact Nodex-native link UI across the NFM editor, including a slimmer formatting-toolbar `Create link` popover plus the hover toolbar with the stored URL as the primary pill action, above-link reveal, a dedicated copy affordance that now uses the shared copied-checkmark feedback pattern, and a single anchored edit dialog that replaces the pill when editing or unlinking, pushing URL/title edits into the current card draft on every keystroke without kicking focus back to the editor.
 - Added native desktop `Copy image` handling for NFM image blocks, so the toolbar now writes real image content to the clipboard and shows a global in-app success/error toast instead of downgrading to a copied URL.
-- Added a global Nodex toast system with a single top-centered renderer overlay, Codex-style deduping/custom-toast support, and immediate migration of undo/history, editor, and review transient feedback onto the shared toaster.
+- Added a global Nodex toast system with a single top-centered renderer overlay, deduping/custom-toast support, and immediate migration of undo/history, editor, and review transient feedback onto the shared toaster.
 
 ### Changed
 - Cards sidebar status groups now list completed work first, from `Done` back to `Draft`, while board and filter ordering stay unchanged.
 
 ### Fixed
 - Fixed nested NFM editor Backspace for bullet, numbered, checklist, and toggle-list child items at block start so they now exit list formatting in place like root-level lists instead of merging into the previous sibling text.
-- Fixed desktop notification parity for local Codex threads so turn-complete, approval, and question notifications now follow Codex Desktop settings, focus suppression, reply/action handling, and interrupted-turn filtering.
+- Fixed desktop notifications for local Codex threads so turn-complete, approval, and question notifications now follow settings, focus suppression, reply/action handling, and interrupted-turn filtering.
 - Fixed NFM ordered-list round-tripping so numbered list markers now persist exactly through editor save/reload, plain-text copy, and raw NFM rendering instead of collapsing every item to `1.`.
-- Fixed thread-composer dictation transcription in ChatGPT-authenticated Electron sessions by mirroring Codex Desktop's authenticated `/transcribe` request envelope and retry behavior.
-- Fixed MCP tool-call transcript parity so MCP rows now render from a canonical normalized result model, match Codex's `Calling`/`Called` summary and expanded branch order, keep `structuredContent` append-only, and hide same-server in-progress MCP rows while an incomplete elicitation for that server is already visible.
-- Fixed local-thread turn ordering parity so later tool-like rows now keep the latest assistant inline when Codex does, while thread search still follows the raw latest assistant message even without a dedicated final-assistant slot.
+- Fixed thread-composer dictation transcription in ChatGPT-authenticated Electron sessions by using the authenticated `/transcribe` request envelope and retry behavior.
+- Fixed MCP tool-call transcript rendering so MCP rows now render from a canonical normalized result model, use stable `Calling`/`Called` summaries and expanded branch order, keep `structuredContent` append-only, and hide same-server in-progress MCP rows while an incomplete elicitation for that server is already visible.
+- Fixed local-thread turn ordering so later tool-like rows now keep the latest assistant inline, while thread search still follows the raw latest assistant message even without a dedicated final-assistant slot.
 - Fixed local-thread request-card ordering after turn-only updates so approval, user-input, and implement-plan selection now invalidates when turn order changes even if the raw request array is unchanged.
 - Fixed local-thread renderer churn so the active thread route now reads narrow conversation slices instead of a whole conversation snapshot, and the mounted transcript body now renders from stable visible-turn entries with parent-turn de-duplication and memoized row measurement.
 - Fixed resumed helper-thread ownership so child threads now carry a canonical `parentThreadId` in their thread summary/snapshot source metadata, letting the mounted body de-duplicate against the parent thread without scanning every renderer-side conversation manager.
 - Fixed local-thread streaming update cost again so hot assistant-text and command-output flushes now patch the materialized conversation state directly instead of rebuilding a full serialized conversation snapshot on every flush.
 - Fixed remaining local-thread patch churn so queued follow-ups, pending steers, request ingress/resolution, and patch-capable turn/item updates now mutate the broadcast conversation cache directly instead of falling back to full conversation reconciliation.
-- Fixed active local-thread parity gaps so streaming turn text and command output now stay on patch-based updates, request ownership follows Codex's newest-turn scan, thread search highlighting is DOM-driven instead of prop-driven, and programmatic find scrolling now settles without forcing full-thread rerenders.
+- Fixed active local-thread streaming gaps so turn text and command output now stay on patch-based updates, request ownership follows newest-turn scan, thread search highlighting is DOM-driven instead of prop-driven, and programmatic find scrolling now settles without forcing full-thread rerenders.
 - Fixed Codex plan-mode follow-ups so clicking `Yes, implement this plan` now immediately switches the active thread back to `Default` mode before sending the follow-up, preventing plan-mode threads from getting stuck read-only.
 - Fixed proposed-plan request cards so `Yes, implement this plan` now reappears reliably after plan generation, reopen, resume, and reconnect by making plan-implementation requests main-owned conversation state instead of renderer-local hidden state.
 - Fixed NFM editor link editing so absolute local paths like `/Users/...` no longer get rewritten to malformed `https:///Users/...` URLs.
@@ -117,27 +118,27 @@ All notable changes to this project will be documented in this file.
 - Fixed command-execution lifecycle ownership so exec rows, background terminals, approvals, and exit-code rendering now consume one canonical protocol-first exec item instead of mixing `toolCall`, `rawItem`, and output-text fallbacks.
 - Fixed the Thread-stage auth chip so authenticated sessions now show concise remaining quota windows in the header instead of a generic `Connected` label.
 - Fixed authenticated Codex quota badges going stale by adding a main-process 60-second quota refresh loop while the app-server connection is live, so thread headers stay current even without opening the tooltip.
-- Fixed background terminal detection so long-running command executions from older completed turns now stay in the `Running terminals` lane until the command itself finishes or is interrupted, matching Codex's background-terminal behavior.
-- Fixed `Stop background terminals` so manually interrupted commands now disappear from the background-terminal lane immediately via turn-level interrupted-command tracking, matching Codex's hide-on-interrupt behavior more closely.
-- Fixed running-thread composer follow-ups so `Cmd+Enter` now keeps messages in the queued-follow-up lane instead of immediately collapsing them into `Steer`, queued follow-ups auto-send in FIFO order after the current turn finishes, and the send-button tooltip now matches the Codex `Steer`/`Queue` shortcut rows.
+- Fixed background terminal detection so long-running command executions from older completed turns now stay in the `Running terminals` lane until the command itself finishes or is interrupted.
+- Fixed `Stop background terminals` so manually interrupted commands now disappear from the background-terminal lane immediately via turn-level interrupted-command tracking.
+- Fixed running-thread composer follow-ups so `Cmd+Enter` now keeps messages in the queued-follow-up lane instead of immediately collapsing them into `Steer`, queued follow-ups auto-send in FIFO order after the current turn finishes, and the send-button tooltip now shows the `Steer`/`Queue` shortcut rows.
 - Fixed `Context automatically compacted` transcript markers so live and replayed compaction rows now stay in the canonical turn item order instead of drifting to the bottom of the thread.
-- Fixed installed-build thread auto-naming so title generation now matches Codex's host-owned flow, with renderer-triggered `generate-thread-title`, persistent title cache/backfill, and explicit thread-title/error host-message sync instead of a repo-relative prompt-file dependency.
+- Fixed installed-build thread auto-naming with renderer-triggered `generate-thread-title`, persistent title cache/backfill, and explicit thread-title/error host-message sync instead of a repo-relative prompt-file dependency.
 - Fixed multi-file thread patch previews so each expanded file row no longer repeats the diff library's inner file header under the thread-owned filename and line-count header.
-- Fixed thread file-change rendering so patch rows now follow Codex's semantic file-change model, synthesizing structured inline diffs and semantic add/delete fallbacks instead of showing raw patch text.
-- Fixed the thread `Restoring thread` state so reopen/resume now uses a centered Nodex logo shimmer loader instead of a bordered spinner card, matching Codex's simpler thread restore shell more closely.
-- Fixed the Threads composer staying visible at the bottom of the stage even when the transcript is long, matching the Codex thread shell layout instead of letting the body push the composer out of view.
+- Fixed thread file-change rendering so patch rows now use a semantic file-change model, synthesizing structured inline diffs and semantic add/delete fallbacks instead of showing raw patch text.
+- Fixed the thread `Restoring thread` state so reopen/resume now uses a centered Nodex logo shimmer loader instead of a bordered spinner card.
+- Fixed the Threads composer staying visible at the bottom of the stage even when the transcript is long instead of letting the body push the composer out of view.
 - Fixed Codex thread sidebar and card-stage thread lists so they hydrate as soon as a project subscribes to thread summaries instead of staying empty until some later thread mutation happens.
-- Fixed heavy streaming thread updates so live thread sync now follows a Codex-style per-thread patch stream and provider-backed conversation manager instead of rebroadcasting full live snapshots through a shell-owned renderer reducer.
+- Fixed heavy streaming thread updates so live thread sync now follows a per-thread patch stream and provider-backed conversation manager instead of rebroadcasting full live snapshots through a shell-owned renderer reducer.
 - Fixed heavy streaming thread sessions repainting the whole Electron shell by moving active thread state to a per-thread external store instead of a WorkbenchShell-owned reducer.
 - Fixed remaining Codex thread control-plane invalidation so permission modes, thread-start progress, model bootstrap, thread summaries, and active conversations now share one manager/registry substrate instead of flowing through a second renderer reducer.
 - Fixed Kanban board horizontal overflow so the board keeps a visible thin scrollbar instead of hiding the only obvious horizontal scroll affordance.
-- Fixed active thread exploration rows so live read/search/list-file sequences now stay in Codex-style `Exploring` preview mode instead of immediately falling back to `Explored`.
+- Fixed active thread exploration rows so live read/search/list-file sequences now stay in `Exploring` preview mode instead of immediately falling back to `Explored`.
 - Fixed release validation for Codex approval and permission unit tests so they no longer require a staged local Codex runtime on CI.
-- Fixed thread-body and tool-call accordion motion timing so transcript reveals now use the same shared easing and duration as Codex instead of a slower misidentified transition.
+- Fixed thread-body and tool-call accordion motion timing so transcript reveals now use the shared easing and duration instead of a slower transition.
 - Fixed streaming proposed-plan cards so active plans now render as `Writing plan` in the collapsed preview state instead of expanding immediately under an extra `Proposed plan` label.
 - Fixed thread tool-call expand/collapse scroll anchoring so opening a visible tool body no longer drags the surrounding turn header and transcript position.
-- Fixed thread transcript scroll behavior so tool-call and body remeasurements now follow the same shared scroll-controller lifecycle as Codex, preserving visible turn headers while keeping follow-latest and search jumps stable.
-- Fixed the mounted thread footer/body geometry so the transcript now keeps Codex-style natural spacing above the composer, the scroll-to-latest control lives with the footer instead of inside the body, and bottom-follow no longer fights an extra resize-observer snap path.
+- Fixed thread transcript scroll behavior so tool-call and body remeasurements now follow the shared scroll-controller lifecycle, preserving visible turn headers while keeping follow-latest and search jumps stable.
+- Fixed the mounted thread footer/body geometry so the transcript now keeps natural spacing above the composer, the scroll-to-latest control lives with the footer instead of inside the body, and bottom-follow no longer fights an extra resize-observer snap path.
 
 ## [0.1.8] - 2026-03-30
 
@@ -149,11 +150,11 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Threads settings now include detail modes for `Steps`, `Steps with code commands`, and `Steps with code output`.
-- Settings and shared form controls now use a cleaner Codex-style shell, thinner inputs, shared validation, and matching theme tokens.
+- Settings and shared form controls now use a cleaner shell, thinner inputs, shared validation, and matching theme tokens.
 - Shared sort controls can now place empty `priority` and `estimate` values first or last.
 - In sliding-window stage mode, `Cmd/Ctrl+H` and `Cmd/Ctrl+L` now move the visible stage window instead of always moving focus.
 - Rebuilt the active Threads experience around a canonical main-process conversation manager, a virtualized turn list, and a unified composer shell for approvals, queued follow-ups, steers, background terminals, and child-agent activity.
-- Active and mounted thread transcripts now match Codex more closely for live-state rendering, request cards, transcript item types, expand/collapse behavior, and above-composer todo/diff surfaces.
+- Active and mounted thread transcripts now use improved live-state rendering, request cards, transcript item types, expand/collapse behavior, and above-composer todo/diff surfaces.
 - Running-thread follow-ups now use a true `queue`/`steer` split instead of starting queued messages immediately.
 
 ### Fixed
@@ -163,7 +164,7 @@ All notable changes to this project will be documented in this file.
 - Fixed mounted and reopened thread reliability issues around resume, replay, duplication, compaction markers, streaming updates, and canonical turn ordering.
 - Fixed thread transcript polish issues across command cards, patch rows, diff banners, message actions, reasoning/todo rows, collapse behavior, and inline message editing.
 - Fixed Kanban drag-and-drop edge cases for sorted columns and auto-collapsed empty lanes.
-- Fixed active thread parity gaps so implement-plan cards now follow the Codex `planImplementation` ownership rule, request-priority selection matches Codex's composer ordering, command-output streams stay bounded with truncation markers, and header/footer surfaces stop re-rendering on plain turn-text streaming.
+- Fixed active thread gaps so implement-plan cards now follow the `planImplementation` ownership rule, request-priority selection uses stable composer ordering, command-output streams stay bounded with truncation markers, and header/footer surfaces stop re-rendering on plain turn-text streaming.
 
 ## [0.1.7] - 2026-03-19
 
@@ -330,7 +331,7 @@ All notable changes to this project will be documented in this file.
 - Added optimistic thread prompts, thread message copy/edit actions, copied-state feedback, and a general UI dev-story page.
 
 ### Changed
-- Fixed running-thread steer prompts so they now match Codex's pending-steer flow: accepted steers stay in the composer shell until the authoritative user-message item arrives, instead of inserting an early optimistic user bubble at the wrong transcript position.
+- Fixed running-thread steer prompts so accepted steers stay in the composer shell until the authoritative user-message item arrives, instead of inserting an early optimistic user bubble at the wrong transcript position.
 
 ### Fixed
 - Fixed request-card keyboard flow, drag-preview cleanup, and pointer hit-testing around copied and draggable thread content.
