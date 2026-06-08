@@ -13,6 +13,7 @@ let invokeCalls: unknown[][] = [];
 let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
 let startThreadForSessionCalls: unknown[] = [];
 const CODEX_PANEL_VISIBLE_ICON_PREFIX = "M16.835 8.66301";
+const CODEX_BOTTOM_PANEL_HIDDEN_ICON_PREFIX = "M13.334 12.2529";
 const CODEX_EXPAND_PANEL_ICON_PREFIX = "M4.33496 11";
 const CODEX_RESTORE_PANEL_ICON_PREFIX = "M16.0299 3.0293";
 const CODEX_NEW_CHAT_ICON_PREFIX = "M2.6687 11.333";
@@ -1128,7 +1129,7 @@ describe("workbench session shell", () => {
     const collapsedFrame = collapsedScreen.container.querySelector(".app-shell-main-content-frame");
     expect(collapsedProps?.showHeaderSeparator).toBeFalse();
     expect(collapsedFrame?.getAttribute("style")?.includes("--app-shell-main-content-frame-top-offset: 0px")).toBeTrue();
-    expect(collapsedFrame?.getAttribute("style")?.includes("--thread-stage-header-right-reserve: 36px")).toBeTrue();
+    expect(collapsedFrame?.getAttribute("style")?.includes("--thread-stage-header-right-reserve: 70px")).toBeTrue();
   });
 
   test("renders the session new-thread composer instead of the old attach placeholder", async () => {
@@ -1306,6 +1307,42 @@ describe("workbench session shell", () => {
     expect(screen.queryAllByRole("tablist").length > 0).toBeTrue();
   });
 
+  test("collapsed bottom panel opens from the global bottom-panel toggle", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeSession({ rightCollapsed: true })] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const globalHeader = screen.container.querySelector('[data-testid="workbench-global-header"]');
+    const bottomPanelToggle = screen.getByRole("button", { name: "Toggle bottom panel" });
+    const sidePanelToggle = screen.getByRole("button", { name: "Toggle side panel" });
+    const toggleIconPath = bottomPanelToggle.querySelector("path")?.getAttribute("d") ?? "";
+    expect(globalHeader?.contains(bottomPanelToggle)).toBeTrue();
+    expect((bottomPanelToggle.compareDocumentPosition(sidePanelToggle) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBeTrue();
+    expect(bottomPanelToggle.getAttribute("aria-pressed")).toBe("false");
+    expect(bottomPanelToggle.className.includes("no-drag")).toBeTrue();
+    expect(bottomPanelToggle.className.includes("rounded-lg")).toBeTrue();
+    expect(bottomPanelToggle.className.includes("h-token-button-composer")).toBeTrue();
+    expect(bottomPanelToggle.className.includes("text-token-text-tertiary")).toBeTrue();
+    expect(toggleIconPath.startsWith(CODEX_BOTTOM_PANEL_HIDDEN_ICON_PREFIX)).toBeTrue();
+    expect(screen.queryByTestId("session-bottom-panel")).toBe(null);
+
+    await act(async () => {
+      fireEvent.click(bottomPanelToggle);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-session-panels:update"
+      && call[1] === "overview:alpha"
+      && call[2] === "bottom"
+      && JSON.stringify(call[3]) === JSON.stringify({ collapsed: false })
+    )).toBeTrue();
+    expect(screen.queryByTestId("session-bottom-panel") !== null).toBeTrue();
+  });
+
   test("thread summary toggle defaults to pinned open and persists collapsed state", async () => {
     const screen = renderWorkbench({
       sessionsByProject: {
@@ -1421,7 +1458,7 @@ describe("workbench session shell", () => {
     expect(globalHeader?.contains(sidePanelToggle)).toBeTrue();
     expect(headerShellSlot?.contains(sidePanelToggle)).toBeTrue();
     expect(headerShellSlot?.className.includes("pe-2")).toBeTrue();
-    expect(headerShellSlot?.getAttribute("style")?.includes("min-width: 36px")).toBeTrue();
+    expect(headerShellSlot?.getAttribute("style")?.includes("min-width: 70px")).toBeTrue();
     expect(sidePanelToggle.getAttribute("aria-pressed")).toBe("true");
     expect(sidePanelToggle.className.includes("bg-token-foreground/5")).toBeTrue();
     expect(globalHeader?.contains(expandButton)).toBeFalse();
@@ -1431,7 +1468,7 @@ describe("workbench session shell", () => {
     expect(expandButton.className.includes("h-token-button-composer")).toBeTrue();
     expect(expandButton.className.includes("text-token-text-tertiary")).toBeTrue();
     expect(expandIconPath.startsWith(CODEX_EXPAND_PANEL_ICON_PREFIX)).toBeTrue();
-    expect(screen.container.querySelector('[data-testid="right-panel-tab-bar-header-spacer"]')?.getAttribute("style")?.includes("width: 36px")).toBeTrue();
+    expect(screen.container.querySelector('[data-testid="right-panel-tab-bar-header-spacer"]')?.getAttribute("style")?.includes("width: 70px")).toBeTrue();
 
     await act(async () => {
       fireEvent.click(expandButton);

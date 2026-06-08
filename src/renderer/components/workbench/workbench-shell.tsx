@@ -127,7 +127,10 @@ import {
 } from "@/lib/floating-sidebar";
 import {
   CodexAutomationsIcon,
+  CodexCloseIcon,
   CodexExpandPanelIcon,
+  CodexPanelBottomHiddenIcon,
+  CodexPanelBottomVisibleIcon,
   CodexPanelLeftHiddenIcon,
   CodexPanelLeftVisibleIcon,
   CodexPanelRightHiddenIcon,
@@ -159,10 +162,10 @@ const RIGHT_PANEL_MIN_WIDTH = 320;
 const RIGHT_PANEL_MAIN_MIN_WIDTH = 352;
 const BOTTOM_PANEL_DEFAULT_HEIGHT = 280;
 const BOTTOM_PANEL_MIN_HEIGHT = 160;
-const TOOLBAR_BUTTON_BASE_CLASS = "border-token-border user-select-none no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg h-token-button-composer px-2 py-0 text-base leading-[18px] aspect-square justify-center !px-0";
+const TOOLBAR_BUTTON_BASE_CLASS = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg h-token-button-composer px-2 py-0 text-base leading-[18px] aspect-square justify-center !px-0";
 const TOOLBAR_BUTTON_GHOST_CLASS = "text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent";
 const TOOLBAR_BUTTON_SECONDARY_CLASS = "text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent";
-const RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX = 36;
+const RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX = 70;
 const THREAD_SUMMARY_PANEL_STORAGE_KEY = "nodex:thread-summary-panel:pinned-open";
 const PROJECT_SESSION_SINGLETON_TAB_KIND_SET = new Set<string>(PROJECT_SESSION_SINGLETON_TAB_KINDS);
 const PREVIEWABLE_PROJECT_SESSION_TAB_KIND_SET = new Set<ProjectSessionTab["kind"]>([
@@ -1495,6 +1498,16 @@ export function WorkbenchShell({
     );
   };
 
+  const renderBottomPanelHeaderControl = () => {
+    if (!activeSession) return null;
+
+    return (
+      <ToolbarIconButton label="Toggle bottom panel" pressed={bottomPanelOpen} onClick={toggleActiveBottomPanel}>
+        {bottomPanelOpen ? <CodexPanelBottomVisibleIcon className="icon-sm" /> : <CodexPanelBottomHiddenIcon className="icon-sm" />}
+      </ToolbarIconButton>
+    );
+  };
+
   useEffect(() => {
     const controlsElement = headerRightProbeRef.current;
     if (!controlsElement) return undefined;
@@ -1518,7 +1531,7 @@ export function WorkbenchShell({
     return () => {
       resizeObserver.disconnect();
     };
-  }, [activeSession?.id, sidePanelOpen, showThreadSummaryPanelControl, threadSummaryPanelOpen]);
+  }, [activeSession?.id, bottomPanelOpen, sidePanelOpen, showThreadSummaryPanelControl, threadSummaryPanelOpen]);
 
   const rightPanelTabHeaderStickyControls = activeSession ? (
     <NodexDropdownMenu
@@ -1634,11 +1647,10 @@ export function WorkbenchShell({
 
   const bottomPanelTabHeaderControls = activeSession ? (
     <ToolbarIconButton
-      label="Close bottom panel"
-      pressed={bottomPanelOpen}
-      onClick={toggleActiveBottomPanel}
+      label="Close"
+      onClick={hideActiveBottomPanel}
     >
-      <CodexPanelRightVisibleIcon className="icon-sm rotate-90" />
+      <CodexCloseIcon className="icon-xs" />
     </ToolbarIconButton>
   ) : null;
 
@@ -1679,6 +1691,9 @@ export function WorkbenchShell({
             <div className="inline-flex h-full items-center gap-1.5 no-drag pointer-events-auto w-auto">
               <div className="no-drag pointer-events-auto flex shrink-0 items-center ms-auto">
                 {renderThreadSummaryPanelHeaderControl()}
+                {renderBottomPanelHeaderControl()}
+              </div>
+              <div className="no-drag pointer-events-auto flex shrink-0 items-center">
                 {renderSidePanelHeaderControl()}
               </div>
             </div>
@@ -1691,6 +1706,9 @@ export function WorkbenchShell({
             <div className="inline-flex h-full items-center gap-1.5 pointer-events-none w-full">
               <div className="no-drag pointer-events-auto flex shrink-0 items-center ms-auto">
                 {renderThreadSummaryPanelHeaderControl()}
+                {renderBottomPanelHeaderControl()}
+              </div>
+              <div className="no-drag pointer-events-auto flex shrink-0 items-center">
                 {renderSidePanelHeaderControl()}
               </div>
             </div>

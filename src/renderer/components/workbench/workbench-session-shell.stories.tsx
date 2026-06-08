@@ -19,7 +19,7 @@ const meta = {
     layout: "fullscreen",
     docs: {
       description: {
-        component: "Codex Electron-style project session shell with fixed global toolbar controls and a top-level right panel.",
+        component: "Codex Electron-style project session shell with fixed global toolbar controls and top-level right and bottom panels.",
       },
     },
   },
@@ -607,7 +607,7 @@ export const MixedRightTabs: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Regular 600px right panel with the global side-panel toggle in the fixed toolbar, expand/restore in the panel tab header, and no empty toolbar row above the thread title.",
+        story: "Regular 600px right panel with global bottom/side panel toggles in the fixed toolbar, expand/restore in the panel tab header, and no empty toolbar row above the thread title.",
       },
     },
   },
@@ -682,7 +682,7 @@ export const CollapsedRightPanel: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Attached thread with the right panel collapsed, keeping the thread title at the top while reserving the Codex pinned-summary toggle beside the side-panel toggle inside that header row.",
+        story: "Attached thread with the right panel collapsed, keeping the thread title at the top while reserving the Codex pinned-summary toggle beside the bottom/side panel toggles inside that header row.",
       },
     },
   },

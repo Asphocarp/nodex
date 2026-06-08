@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added the Codex-style global bottom-panel toggle beside the side-panel toggle, with Codex Electron bottom-panel icons and active/ghost toolbar states.
 - Added Codex-style right and bottom session panels with shared tab chrome, panel-scoped ordering, cross-panel tab moves, and a bottom-panel Terminal default.
 - Added Codex-style ephemeral panel previews for placeholder Files, Browser, and Side chat tabs; they replace the prior preview in the same panel and persist only after the user interacts with or pins the preview.
 - Added a public changelog page at `nodex.jyu.app/changelog`, generated from the project changelog file.
