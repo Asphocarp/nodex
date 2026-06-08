@@ -6,7 +6,7 @@ import { render, settleAsyncRender } from "@/test/dom";
 import { installWindowApi } from "@/test/browser-globals";
 import { __resetWindowRestoreSettingsForTests } from "@/lib/use-window-restore-settings";
 import { __resetThreadNotificationSettingsForTests } from "@/lib/use-thread-notification-settings";
-import { SettingsOverlay } from "./workbench-settings-overlay";
+import { SettingsRouteShell } from "./workbench-settings-overlay";
 import { buildSettingsPath } from "./workbench-settings-routes";
 
 const PROJECTS = [
@@ -48,14 +48,61 @@ function resetStorage(): void {
   localStorageRef.removeItem("nodex-codex-default-service-tier-v1");
 }
 
-function renderOverlay() {
+function installSettingsWindowApi() {
+  installWindowApi({
+    invoke: async (channel: string, ...args: unknown[]) => {
+      invokedChannels.push({ channel, args });
+      switch (channel) {
+        case "settings:thread-notifications:get":
+          return {
+            turnMode: "unfocused",
+            permissionsEnabled: true,
+            questionsEnabled: true,
+          };
+        case "settings:app-updates:get":
+          return { automaticChecksEnabled: true };
+        case "settings:window-restore:get":
+          return { policy: "all" };
+        case "settings:window-restore:update":
+          return args[0];
+        case "app:update:status":
+          return {
+            status: "idle",
+            supported: true,
+            currentVersion: "0.1.0",
+            availableVersion: null,
+            releaseName: null,
+            releaseDate: null,
+            releaseNotes: null,
+            progressPercent: null,
+            transferredBytes: null,
+            totalBytes: null,
+            checkedAt: null,
+            message: null,
+          };
+        case "worktrees:managed:list":
+          return [];
+        default:
+          return null;
+      }
+    },
+    on: () => () => {},
+  });
+}
+
+function renderOverlay({
+  path = buildSettingsPath("general-settings"),
+  onBackToApp = () => {},
+}: {
+  path?: string;
+  onBackToApp?: () => void;
+} = {}) {
   return render(
     <AppProviders>
-      <SettingsOverlay
-        open={true}
-        onOpenChange={() => {}}
-        path={buildSettingsPath("general-settings")}
+      <SettingsRouteShell
+        path={path}
         onPathChange={() => {}}
+        onBackToApp={onBackToApp}
         onRequestProjectPickerOpen={() => {}}
         projects={PROJECTS}
         activeProjectId="default"
@@ -79,50 +126,11 @@ function renderOverlay() {
   );
 }
 
-describe("SettingsOverlay service tier", () => {
+describe("SettingsRouteShell service tier", () => {
   test("reads the stored tier and writes Standard/Fast through the shared setting", async () => {
     resetStorage();
     localStorageRef.setItem("nodex-codex-default-service-tier-v1", "fast");
-
-    installWindowApi({
-      invoke: async (channel: string, ...args: unknown[]) => {
-        invokedChannels.push({ channel, args });
-        switch (channel) {
-          case "settings:thread-notifications:get":
-            return {
-              turnMode: "unfocused",
-              permissionsEnabled: true,
-              questionsEnabled: true,
-            };
-          case "settings:app-updates:get":
-            return { automaticChecksEnabled: true };
-          case "settings:window-restore:get":
-            return { policy: "all" };
-          case "settings:window-restore:update":
-            return args[0];
-          case "app:update:status":
-            return {
-              status: "idle",
-              supported: true,
-              currentVersion: "0.1.0",
-              availableVersion: null,
-              releaseName: null,
-              releaseDate: null,
-              releaseNotes: null,
-              progressPercent: null,
-              transferredBytes: null,
-              totalBytes: null,
-              checkedAt: null,
-              message: null,
-            };
-          case "worktrees:managed:list":
-            return [];
-          default:
-            return null;
-        }
-      },
-      on: () => () => {},
-    });
+    installSettingsWindowApi();
 
     const view = renderOverlay();
     await settleAsyncRender();
@@ -144,6 +152,33 @@ describe("SettingsOverlay service tier", () => {
 
     expect(localStorageRef.getItem("nodex-codex-default-service-tier-v1")).toBe("fast");
     expect(fastButton.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  test("backs out on Escape unless focus is inside an editable setting", async () => {
+    resetStorage();
+    installSettingsWindowApi();
+    let backCalls = 0;
+
+    const view = renderOverlay({
+      path: buildSettingsPath("worktrees"),
+      onBackToApp: () => {
+        backCalls += 1;
+      },
+    });
+    await settleAsyncRender();
+
+    const autoBranchPrefixInput = view.getByLabelText("Auto branch prefix");
+    autoBranchPrefixInput.focus();
+    fireEvent.keyDown(window, { key: "Escape" });
+    await settleAsyncRender();
+
+    expect(backCalls).toBe(0);
+
+    autoBranchPrefixInput.blur();
+    fireEvent.keyDown(window, { key: "Escape" });
+    await settleAsyncRender();
+
+    expect(backCalls).toBe(1);
   });
 
 });

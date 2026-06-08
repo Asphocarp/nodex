@@ -103,6 +103,7 @@ import {
   ManualSnapshotFormSchema,
 } from "./workbench-settings-form-schemas";
 import {
+  type SettingsSectionDefinition,
   type SettingsSectionId,
 } from "./workbench-settings-sections";
 import {
@@ -1587,11 +1588,10 @@ function BackupSettingsControl({ open }: { open: boolean }) {
   );
 }
 
-interface SettingsOverlayProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+export interface SettingsRouteShellProps {
   path: string;
   onPathChange: (path: string) => void;
+  onBackToApp: () => void;
   onRequestProjectPickerOpen: () => void;
   projects: Project[];
   activeProjectId: string;
@@ -1615,7 +1615,7 @@ interface SettingsOverlayProps {
 }
 
 interface SettingsSectionPageProps extends Pick<
-  SettingsOverlayProps,
+  SettingsRouteShellProps,
   | "activeProjectId"
   | "composerEnterBehavior"
   | "initialLocalEnvironmentConfigPath"
@@ -2148,11 +2148,87 @@ const SETTINGS_SECTION_COMPONENTS: Record<SettingsSectionId, ComponentType<Setti
   backups: BackupsSettingsPage,
 };
 
-export function SettingsOverlay({
-  open,
-  onOpenChange,
+function isEditableEscapeElement(element: Element | null): boolean {
+  return Boolean(
+    element?.closest(
+      [
+        "input",
+        "textarea",
+        "select",
+        "[contenteditable='true']",
+        "[contenteditable='']",
+        "[role='dialog']",
+        "[data-slot='dialog-content']",
+        "[data-slot='dropdown-content']",
+        "[data-slot='popover-content']",
+        "[data-radix-popper-content-wrapper]",
+      ].join(","),
+    ),
+  );
+}
+
+function isEditableEscapeTarget(target: EventTarget | null): boolean {
+  const targetElement = target instanceof Element ? target : null;
+  const activeElement = targetElement?.ownerDocument.activeElement
+    ?? (typeof document === "undefined" ? null : document.activeElement);
+
+  return isEditableEscapeElement(targetElement)
+    || isEditableEscapeElement(activeElement);
+}
+
+function SettingsMobileHeader({
+  activeSectionId,
+  sections,
+  onBack,
+  onSelectSection,
+}: {
+  activeSectionId: SettingsSectionId;
+  sections: SettingsSectionDefinition[];
+  onBack: () => void;
+  onSelectSection: (sectionId: SettingsSectionId) => void;
+}) {
+  const activeSection = sections.find((section) => section.id === activeSectionId) ?? sections[0] ?? null;
+
+  return (
+    <div className="absolute inset-x-0 top-0 z-20 flex h-toolbar items-center justify-between gap-2 border-b border-token-border bg-token-main-surface-primary px-panel md:hidden">
+      <button
+        type="button"
+        onClick={onBack}
+        className="cursor-interaction rounded-lg px-2 py-1 text-sm text-token-text-secondary hover:bg-token-list-hover-background hover:text-token-text-primary focus-visible:ring-token-focus focus-visible:ring-1 focus-visible:outline-none"
+      >
+        Back
+      </button>
+      <NodexDropdownMenu
+        align="end"
+        triggerButton={(
+          <NodexDropdownButtonTrigger
+            size="sm"
+            chrome="transparent"
+            style={{ maxWidth: "min(14rem, calc(100vw - 7rem))" }}
+          >
+            <span className="truncate">{activeSection?.label ?? "Settings"}</span>
+          </NodexDropdownButtonTrigger>
+        )}
+      >
+        {sections.map((section) => (
+          <NodexDropdownItem
+            key={section.id}
+            disabled={section.disabled}
+            onSelect={() => onSelectSection(section.id)}
+            rightSlot={section.id === activeSectionId ? <CheckmarkIcon className="size-4" /> : null}
+          >
+            {section.label}
+          </NodexDropdownItem>
+        ))}
+      </NodexDropdownMenu>
+    </div>
+  );
+}
+
+export function SettingsRouteShell({
   path,
   onPathChange,
+  onBackToApp,
   onRequestProjectPickerOpen,
   projects,
   activeProjectId,
@@ -2173,40 +2249,36 @@ export function SettingsOverlay({
   onSmartPrefixParsingEnabledChange,
   stripSmartPrefixFromTitleEnabled,
   onStripSmartPrefixFromTitleEnabledChange,
-}: SettingsOverlayProps) {
+}: SettingsRouteShellProps) {
   const isMacPlatform = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
   const shellRef = useRef<HTMLDivElement>(null);
   const { activeSectionId, redirectPath, visibleSections } = resolveSettingsShellState(path);
   const activeSection = visibleSections.find((section) => section.id === activeSectionId) ?? null;
 
   useEffect(() => {
-    if (!open || !redirectPath) {
+    if (!redirectPath) {
       return;
     }
 
     startTransition(() => {
       onPathChange(redirectPath);
     });
-  }, [onPathChange, open, redirectPath]);
+  }, [onPathChange, redirectPath]);
 
   useEffect(() => {
-    if (!open) return;
     shellRef.current?.focus();
-  }, [open]);
+  }, []);
 
   useEffect(() => {
-    if (!open) return;
-
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      onOpenChange(false);
+      if (event.defaultPrevented || isEditableEscapeTarget(event.target)) return;
+      onBackToApp();
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onOpenChange, open]);
-
-  if (!open) return null;
+  }, [onBackToApp]);
 
   const ActiveSectionComponent = SETTINGS_SECTION_COMPONENTS[activeSectionId];
   const shouldRenderPlaceholder = !ActiveSectionComponent
@@ -2215,21 +2287,20 @@ export function SettingsOverlay({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-token-bg-primary text-(--foreground) electron:bg-token-side-bar-background"
+      data-testid="settings-route-shell"
+      className="flex h-full min-h-0 w-full flex-1 text-(--foreground)"
       style={CODEX_SETTINGS_SHELL_STYLE}
     >
       <div
         ref={shellRef}
-        role="dialog"
-        aria-modal="true"
         aria-label="Settings"
         tabIndex={-1}
-        className="flex h-full min-h-0 outline-none"
+        className="flex h-full min-h-0 w-full flex-1 outline-none"
       >
         <SettingsSidebar
           activeSectionId={activeSectionId}
           sections={visibleSections}
-          onBack={() => onOpenChange(false)}
+          onBack={onBackToApp}
           onSelectSection={(sectionId) => {
             startTransition(() => {
               onPathChange(buildSettingsPath(sectionId));
@@ -2237,7 +2308,17 @@ export function SettingsOverlay({
           }}
         />
 
-        <div className="min-w-0 flex-1 overflow-visible">
+        <div className="relative flex min-w-0 flex-1 overflow-hidden">
+          <SettingsMobileHeader
+            activeSectionId={activeSectionId}
+            sections={visibleSections}
+            onBack={onBackToApp}
+            onSelectSection={(sectionId) => {
+              startTransition(() => {
+                onPathChange(buildSettingsPath(sectionId));
+              });
+            }}
+          />
           {shouldRenderPlaceholder ? (
             <SettingsPlaceholderPage
               label={activeSection?.label ?? "Settings"}
@@ -2249,7 +2330,7 @@ export function SettingsOverlay({
             />
           ) : (
             <ActiveSectionComponent
-              open={open}
+              open={true}
               isMacPlatform={isMacPlatform}
               projects={projects}
               activeProjectId={activeProjectId}

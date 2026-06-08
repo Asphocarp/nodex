@@ -10,11 +10,7 @@ interface SettingsSidebarProps {
 }
 
 function SettingsSidebarList({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1 gap-0">
-      <div className="flex flex-col gap-px">{children}</div>
-    </div>
-  );
+  return <div className="flex flex-col gap-px">{children}</div>;
 }
 
 function SettingsSidebarItem({

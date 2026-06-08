@@ -85,7 +85,7 @@ export function NodexSettingsPageSurface({
 }) {
   return (
     <div
-      className={cn("main-surface flex h-full min-h-0 flex-col", className)}
+      className={cn("main-surface flex h-full min-h-0 w-full flex-col", className)}
       style={CODEX_SETTINGS_SHELL_STYLE}
     >
       <div className="draggable flex items-center px-panel electron:h-toolbar extension:h-toolbar-sm">
@@ -94,7 +94,7 @@ export function NodexSettingsPageSurface({
       <div className="flex-1 overflow-y-auto p-panel">
         <div
           className={cn(
-            "mx-auto flex w-full flex-col",
+            "mx-auto flex w-full min-w-0 flex-col",
             fullWidth ? null : "max-w-2xl",
             contentClassName,
           )}

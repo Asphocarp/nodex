@@ -26,14 +26,13 @@ mock.module("./workbench-settings-overlay-deps", () => ({
 }));
 
 async function renderOverlay() {
-  const { SettingsOverlay } = await import("./workbench-settings-overlay");
+  const { SettingsRouteShell } = await import("./workbench-settings-overlay");
   return render(
     <AppProviders>
-      <SettingsOverlay
-        open={true}
-        onOpenChange={() => {}}
+      <SettingsRouteShell
         path={buildSettingsPath("backups")}
         onPathChange={() => {}}
+        onBackToApp={() => {}}
         onRequestProjectPickerOpen={() => {}}
         projects={PROJECTS}
         activeProjectId="default"
@@ -57,7 +56,7 @@ async function renderOverlay() {
   );
 }
 
-describe("SettingsOverlay backups", () => {
+describe("SettingsRouteShell backups", () => {
   test("treats a malformed backup list response as empty state", async () => {
     mockInvokeImpl = async (channel: string) => {
       switch (channel) {

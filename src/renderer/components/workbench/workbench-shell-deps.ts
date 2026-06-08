@@ -1,7 +1,7 @@
 export { CardIcon } from "./card-icon";
 export { CommandPalette } from "./command-palette";
 export { MainViewHost } from "./main-view-host";
-export { SettingsOverlay } from "./workbench-settings-overlay";
+export { SettingsRouteShell } from "./workbench-settings-overlay";
 export { LeftSidebar } from "./left-sidebar";
 export { ReviewDiffPanel } from "./review-diff-panel";
 export { StageTabStrip } from "./workbench-stage-tab-strip";

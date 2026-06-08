@@ -33,7 +33,7 @@ import { DbViewToolbar } from "./db-view-toolbar";
 import { MainViewHost } from "./main-view-host";
 import { CardStage } from "./workbench-card-stage";
 import { TerminalPanel } from "./workbench-terminal-panel";
-import { SettingsOverlay } from "./workbench-settings-overlay";
+import { SettingsRouteShell } from "./workbench-settings-overlay";
 import { buildSettingsPath } from "./workbench-settings-routes";
 import { ProjectManagerPopover } from "./left-sidebar-project-manager";
 import { LeftSidebarFooter } from "./left-sidebar-footer";
@@ -701,8 +701,7 @@ export function WorkbenchShell({
   const sidebarCollapsed = sidebar?.collapsed ?? localSidebarCollapsed;
   const sidebarWidth = sidebar?.width ?? localSidebarWidth;
   const lastHandledSettingsToggleTickRef = useRef(settingsToggleTick);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsPath, setSettingsPath] = useState(() => buildSettingsPath("general-settings"));
+  const [settingsPath, setSettingsPath] = useState<string | null>(null);
   const [threadQueueFollowUpsEnabled, setThreadQueueFollowUpsEnabled] = useState(readThreadQueueFollowUpsEnabled);
   const [composerEnterBehavior, setComposerEnterBehavior] = useState<ComposerEnterBehavior>(readComposerEnterBehavior);
   const [worktreeStartMode, setWorktreeStartMode] = useState<WorktreeStartMode>(readWorktreeStartMode);
@@ -790,12 +789,14 @@ export function WorkbenchShell({
 
   const openSettings = useCallback(() => {
     setSettingsPath(buildSettingsPath("general-settings"));
-    setSettingsOpen(true);
   }, []);
 
   const openLocalEnvironmentsSettings = useCallback(() => {
     setSettingsPath(buildSettingsPath("local-environments"));
-    setSettingsOpen(true);
+  }, []);
+
+  const closeSettings = useCallback(() => {
+    setSettingsPath(null);
   }, []);
 
   useEffect(() => {
@@ -808,7 +809,7 @@ export function WorkbenchShell({
     }
 
     lastHandledSettingsToggleTickRef.current = settingsToggleTick;
-    setSettingsOpen((current) => !current);
+    setSettingsPath((current) => current ? null : buildSettingsPath("general-settings"));
   }, [settingsToggleTick]);
 
   useEffect(() => {
@@ -1678,9 +1679,36 @@ export function WorkbenchShell({
       {sidebarCollapsed ? <CodexPanelLeftHiddenIcon className="size-4" /> : <CodexPanelLeftVisibleIcon className="size-4" />}
     </button>
   );
+  const settingsRouteShell = settingsPath ? (
+    <SettingsRouteShell
+      path={settingsPath}
+      onPathChange={setSettingsPath}
+      onBackToApp={closeSettings}
+      onRequestProjectPickerOpen={onRequestProjectPickerOpen}
+      projects={projects}
+      activeProjectId={activeProject?.id ?? activeProjectId}
+      initialLocalEnvironmentProjectId={null}
+      initialLocalEnvironmentConfigPath={null}
+      sidebarTopLevelSectionOrder={settingsSidebarTopLevelSectionOrder}
+      sidebarTopLevelSections={settingsSidebarTopLevelSections}
+      onSidebarTopLevelSectionVisibleChange={setSidebarTopLevelSectionVisible ?? (() => undefined)}
+      threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
+      onThreadQueueFollowUpsEnabledChange={handleThreadQueueFollowUpsEnabledChange}
+      composerEnterBehavior={composerEnterBehavior}
+      onComposerEnterBehaviorChange={handleComposerEnterBehaviorChange}
+      worktreeStartMode={worktreeStartMode}
+      onWorktreeStartModeChange={handleWorktreeStartModeChange}
+      worktreeAutoBranchPrefix={worktreeAutoBranchPrefix}
+      onWorktreeAutoBranchPrefixChange={handleWorktreeAutoBranchPrefixChange}
+      smartPrefixParsingEnabled={smartPrefixParsingEnabled}
+      onSmartPrefixParsingEnabledChange={handleSmartPrefixParsingEnabledChange}
+      stripSmartPrefixFromTitleEnabled={stripSmartPrefixFromTitleEnabled}
+      onStripSmartPrefixFromTitleEnabledChange={handleStripSmartPrefixFromTitleEnabledChange}
+    />
+  ) : null;
 
   return (
-    <HeaderActionProvider actions={headerActions}>
+    <HeaderActionProvider actions={settingsPath ? null : headerActions}>
       <NodexTooltipProvider>
         <div
           className="relative flex flex-col text-token-text-primary"
@@ -1707,6 +1735,10 @@ export function WorkbenchShell({
           </header>
 
         <div className="relative flex max-h-full min-h-0 w-full flex-1">
+          {settingsRouteShell ? (
+            settingsRouteShell
+          ) : (
+            <>
           {sidebarCollapsed ? (
             <div
               aria-hidden
@@ -2014,9 +2046,11 @@ export function WorkbenchShell({
               </div>
             )}
           </main>
+            </>
+          )}
         </div>
 
-      {isMacPlatform ? (
+      {!settingsRouteShell && isMacPlatform ? (
         <div
           className="fixed z-50 flex items-center justify-center"
           style={{
@@ -2027,7 +2061,7 @@ export function WorkbenchShell({
         >
           {sidebarCollapseControlButton}
         </div>
-      ) : sidebarCollapsed ? (
+      ) : !settingsRouteShell && sidebarCollapsed ? (
         <div
           className="fixed left-3 top-3 z-50 flex items-center justify-center"
           style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
@@ -2035,33 +2069,6 @@ export function WorkbenchShell({
           {sidebarCollapseControlButton}
         </div>
       ) : null}
-
-        <SettingsOverlay
-          open={settingsOpen}
-          onOpenChange={setSettingsOpen}
-          path={settingsPath}
-          onPathChange={setSettingsPath}
-          onRequestProjectPickerOpen={onRequestProjectPickerOpen}
-          projects={projects}
-          activeProjectId={activeProject?.id ?? activeProjectId}
-          initialLocalEnvironmentProjectId={null}
-          initialLocalEnvironmentConfigPath={null}
-          sidebarTopLevelSectionOrder={settingsSidebarTopLevelSectionOrder}
-          sidebarTopLevelSections={settingsSidebarTopLevelSections}
-          onSidebarTopLevelSectionVisibleChange={setSidebarTopLevelSectionVisible ?? (() => undefined)}
-          threadQueueFollowUpsEnabled={threadQueueFollowUpsEnabled}
-          onThreadQueueFollowUpsEnabledChange={handleThreadQueueFollowUpsEnabledChange}
-          composerEnterBehavior={composerEnterBehavior}
-          onComposerEnterBehaviorChange={handleComposerEnterBehaviorChange}
-          worktreeStartMode={worktreeStartMode}
-          onWorktreeStartModeChange={handleWorktreeStartModeChange}
-          worktreeAutoBranchPrefix={worktreeAutoBranchPrefix}
-          onWorktreeAutoBranchPrefixChange={handleWorktreeAutoBranchPrefixChange}
-          smartPrefixParsingEnabled={smartPrefixParsingEnabled}
-          onSmartPrefixParsingEnabledChange={handleSmartPrefixParsingEnabledChange}
-          stripSmartPrefixFromTitleEnabled={stripSmartPrefixFromTitleEnabled}
-          onStripSmartPrefixFromTitleEnabledChange={handleStripSmartPrefixFromTitleEnabledChange}
-        />
       </div>
       </NodexTooltipProvider>
     </HeaderActionProvider>

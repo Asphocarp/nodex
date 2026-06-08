@@ -998,7 +998,7 @@ describe("workbench session shell", () => {
     expect(JSON.stringify(props?.newThreadTarget).includes('"sessionId":"session:beta:blank"')).toBeTrue();
   });
 
-  test("opens settings from the sidebar settings button", async () => {
+  test("opens settings as a full-window route shell from the sidebar settings button", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
     await settleAsyncRender();
@@ -1015,7 +1015,25 @@ describe("workbench session shell", () => {
     });
     await settleAsyncRender();
 
-    expect(screen.getByRole("dialog", { name: "Settings" }).getAttribute("aria-modal")).toBe("true");
+    expect(screen.queryByRole("dialog", { name: "Settings" })).toBe(null);
+    const routeShell = screen.container.querySelector('[data-testid="settings-route-shell"]');
+    expect(routeShell !== null).toBeTrue();
+    expect(routeShell?.className.includes("w-full") ?? false).toBeTrue();
+    expect(routeShell?.className.includes("flex-1") ?? false).toBeTrue();
+    expect(screen.container.querySelector('[data-thread-stage="true"]')).toBe(null);
+
+    const settingsSidebar = screen.container.querySelector(".window-fx-sidebar-surface");
+    expect(settingsSidebar?.className.includes("w-token-sidebar") ?? false).toBeTrue();
+    expect(screen.container.querySelector('[data-testid="settings-route-shell"] .main-surface') !== null).toBeTrue();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Back to app"));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.container.querySelector('[data-testid="settings-route-shell"]')).toBe(null);
+    expect(screen.container.querySelector('[data-thread-stage="true"]') !== null).toBeTrue();
   });
 
   test("restores the DB toolbar controls inside session DB tabs", async () => {

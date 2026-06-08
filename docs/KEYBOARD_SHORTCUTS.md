@@ -18,7 +18,7 @@ All keyboard shortcuts in Nodex. Platform modifier: **⌘ (Cmd)** on Mac, **Ctrl
 | `⌘/Ctrl+P` | Open Files side-panel tab | In project-session context, opens/focuses a Codex-style Files placeholder tab. `⌘/Ctrl+K` remains the global card launcher. |
 | `⌘/Ctrl+[` | Go back | Restores the previous durable workbench context; works from editable surfaces too |
 | `⌘/Ctrl+]` | Go forward | Restores the next durable workbench context; works from editable surfaces too |
-| `⌘/Ctrl+,` | Toggle settings overlay | Opens/closes the full-page settings overlay |
+| `⌘/Ctrl+,` | Toggle settings route | Opens/closes the full-window settings route shell |
 | `⌘/Ctrl+N` | Open new app window | Electron desktop only (`window:new` IPC); ignored in browser runtime |
 | `⌘/Ctrl+F` | Open search for the focused stage | In Threads, opens `Find in thread`; in Diffs, opens `Find in review`; otherwise opens the Views-stage floating task search. Thread and review search can open even when focus is inside their stage content |
 

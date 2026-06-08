@@ -128,6 +128,12 @@ mark.codex-thread-find-active {
 .window-fx-sidebar-surface:where(
   [data-codex-window-type="electron"] .window-fx-sidebar-surface
 ) {
+  background-color: transparent;
+}
+
+.window-fx-sidebar-surface:where(
+  [data-codex-window-type="electron"].electron-opaque .window-fx-sidebar-surface
+) {
   background-color: var(--color-token-side-bar-background);
 }
 

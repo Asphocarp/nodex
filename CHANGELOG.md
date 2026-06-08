@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Replaced the old primary stage-rail workbench model with project sessions that open as a thread page with a collapsible and full-width-expandable right panel plus an independent bottom panel for session tabs.
+- Settings now opens as a Codex-style full-window route shell with the same native vibrant sidebar feel as the normal workbench sidebar instead of a modal overlay.
 - Card Stage description auto-save now waits 1.5 seconds after edits, reducing save churn while keeping blur and close saves immediate.
 - Window restore and new-window layout seeding are now owned only by window sessions instead of named workspaces.
 - macOS window titles now use `Nodex` instead of a workspace name.

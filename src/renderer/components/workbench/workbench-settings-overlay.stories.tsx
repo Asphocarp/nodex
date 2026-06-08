@@ -7,7 +7,7 @@ import type {
   UpdateWorktreeEnvironmentConfigInput,
   WorktreeEnvironmentSettingsSnapshot,
 } from "@/lib/types";
-import { SettingsOverlay } from "./workbench-settings-overlay";
+import { SettingsRouteShell } from "./workbench-settings-overlay";
 import { buildSettingsPath } from "./workbench-settings-routes";
 
 const PROJECTS: Project[] = [
@@ -198,14 +198,13 @@ function ensureStorybookElectronBridge({
   } as typeof window.api;
 }
 
-function SettingsOverlayStory({
+function SettingsRouteShellStory({
   initialPath,
   initialServiceTier = "standard",
 }: {
   initialPath: string;
   initialServiceTier?: "standard" | "fast";
 }) {
-  const [open, setOpen] = useState(true);
   const [path, setPath] = useState(initialPath);
   const [environmentSnapshots, setEnvironmentSnapshots] = useState<Record<string, WorktreeEnvironmentSettingsSnapshot>>({
     default: buildEnvironmentSnapshot("default"),
@@ -293,12 +292,11 @@ function SettingsOverlayStory({
   }
 
   return (
-    <div className="min-h-screen bg-(--background)">
-      <SettingsOverlay
-        open={open}
-        onOpenChange={setOpen}
+    <div className="h-screen bg-(--background)">
+      <SettingsRouteShell
         path={path}
         onPathChange={setPath}
+        onBackToApp={() => {}}
         onRequestProjectPickerOpen={() => {}}
         projects={PROJECTS}
         activeProjectId="default"
@@ -330,8 +328,8 @@ function SettingsOverlayStory({
 }
 
 const meta = {
-  title: "Workbench/Settings/Overlay",
-  component: SettingsOverlayStory,
+  title: "Workbench/Settings/Route Shell",
+  component: SettingsRouteShellStory,
   args: {
     initialPath: buildSettingsPath("general-settings"),
   },
@@ -340,23 +338,23 @@ const meta = {
     docs: {
       description: {
         component:
-          "Codex-style tab-based settings shell for Nodex. The left rail selects a single section page instead of scrolling within one monolithic settings document.",
+          "Codex-style route-based settings shell for Nodex. The left rail selects a single section page while the main pane keeps the shared settings surface.",
       },
     },
   },
-} satisfies Meta<typeof SettingsOverlayStory>;
+} satisfies Meta<typeof SettingsRouteShellStory>;
 
 export default meta;
 
 type Story = StoryObj<typeof meta>;
 
 export const General: Story = {
-  render: () => <SettingsOverlayStory initialPath={buildSettingsPath("general-settings")} />,
+  render: () => <SettingsRouteShellStory initialPath={buildSettingsPath("general-settings")} />,
 };
 
 export const GeneralFastTier: Story = {
   render: () => (
-    <SettingsOverlayStory
+    <SettingsRouteShellStory
       initialPath={buildSettingsPath("general-settings")}
       initialServiceTier="fast"
     />
@@ -364,13 +362,21 @@ export const GeneralFastTier: Story = {
 };
 
 export const LocalEnvironments: Story = {
-  render: () => <SettingsOverlayStory initialPath={buildSettingsPath("local-environments")} />,
+  render: () => <SettingsRouteShellStory initialPath={buildSettingsPath("local-environments")} />,
 };
 
 export const Backups: Story = {
-  render: () => <SettingsOverlayStory initialPath={buildSettingsPath("backups")} />,
+  render: () => <SettingsRouteShellStory initialPath={buildSettingsPath("backups")} />,
 };
 
 export const InvalidSectionRedirect: Story = {
-  render: () => <SettingsOverlayStory initialPath="/settings/not-real" />,
+  render: () => <SettingsRouteShellStory initialPath="/settings/not-real" />,
+};
+
+export const NarrowViewport: Story = {
+  render: () => (
+    <div className="h-screen w-[390px] overflow-hidden border-r border-token-border">
+      <SettingsRouteShellStory initialPath={buildSettingsPath("appearance")} />
+    </div>
+  ),
 };

@@ -18,6 +18,12 @@ describe("workbench settings routes", () => {
     expect(parseSettingsPath("/not-settings")).toBe(null);
   });
 
+  test("ignores query strings and hashes when parsing settings paths", () => {
+    expect(parseSettingsPath("/settings/general-settings?panel=updates")).toBe("general-settings");
+    expect(parseSettingsPath("/settings/local-environments#project-alpha")).toBe("local-environments");
+    expect(resolveSettingsShellState("/settings/backups?restore=latest#snapshots").activeSectionId).toBe("backups");
+  });
+
   test("redirects the settings root to the default visible section", () => {
     const resolved = resolveSettingsShellState("/settings");
     expect(resolved.activeSectionId).toBe("general-settings");
