@@ -254,12 +254,13 @@ beforeAll(async () => {
   resolveCardStageSessionTabOrder = workbenchShellModule.resolveCardStageSessionTabOrder;
 });
 
-function makeProject(id = "alpha", name = "Alpha"): Project {
+function makeProject(id = "alpha", name = "Alpha", workspacePath?: string): Project {
   return {
     id,
     name,
     description: "",
     icon: "",
+    workspacePath,
     created: new Date("2026-06-07T00:00:00.000Z"),
   };
 }
@@ -686,7 +687,31 @@ beforeEach(() => {
   localStorage.clear();
   delete (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
   delete (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+  delete (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> }).__lastTerminalPanelProps;
 });
+
+async function openBottomPanel(screen: ReturnType<typeof renderWorkbench>): Promise<void> {
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Toggle bottom panel" }));
+    await Promise.resolve();
+  });
+  await settleAsyncRender();
+}
+
+async function openPanelMenu(
+  screen: ReturnType<typeof renderWorkbench>,
+  label: "Open side panel tab" | "Open bottom panel tab",
+): Promise<HTMLElement> {
+  fireEvent.pointerDown(screen.getByRole("button", { name: label }), { button: 0 });
+  await settleAsyncRender();
+  return screen.getByRole("menu");
+}
+
+function getLastTerminalPanelProps(): Record<string, unknown> {
+  const props = (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> }).__lastTerminalPanelProps;
+  if (!props) throw new Error("Expected terminal panel props");
+  return props;
+}
 
 describe("workbench session shell", () => {
   test("keeps card-stage session tab ordering scoped to session ids", () => {
@@ -1670,6 +1695,54 @@ describe("workbench session shell", () => {
     expect(textContent(actionGrid).includes("⌃`")).toBeFalse();
   });
 
+  test("bottom panel add menu shows Codex-eligible non-default actions", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+    await openBottomPanel(screen);
+
+    const menu = await openPanelMenu(screen, "Open bottom panel tab");
+    expect(within(menu).getByText("Files") !== null).toBeTrue();
+    expect(within(menu).getByText("Side chat") !== null).toBeTrue();
+    expect(within(menu).getByText("Browser") !== null).toBeTrue();
+    expect(within(menu).getByText("Review") !== null).toBeTrue();
+    expect(within(menu).getByText("Terminal") !== null).toBeTrue();
+    expect(within(menu).queryByText("DB View")).toBe(null);
+    expect(within(menu).queryByText("Card Stage")).toBe(null);
+    expect(textContent(menu).includes("⌃`")).toBeTrue();
+  });
+
+  for (const previewCase of [
+    { label: "Files", kind: "files_placeholder", description: "Browse project files" },
+    { label: "Side chat", kind: "side_chat_placeholder", description: "Start a side conversation" },
+    { label: "Browser", kind: "browser_placeholder", description: "Open a website" },
+  ] as const) {
+    test(`bottom ${previewCase.label} preview mounts and pins after interaction`, async () => {
+      const screen = renderWorkbench();
+      await settleAsyncRender();
+      await settleAsyncRender();
+      await openBottomPanel(screen);
+
+      const menu = await openPanelMenu(screen, "Open bottom panel tab");
+      fireEvent.click(within(menu).getByText(previewCase.label));
+      await settleAsyncRender();
+
+      expect(screen.getByRole("tab", { name: previewCase.label }) !== null).toBeTrue();
+      expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null).toBeTrue();
+      expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
+
+      fireEvent.pointerDown(screen.getByText(previewCase.description));
+      await settleAsyncRender();
+      await settleAsyncRender();
+
+      expect(invokeCalls.some((call) =>
+        call[0] === "project-session-tabs:create"
+        && JSON.stringify(call[1]).includes('"panelId":"bottom"')
+        && JSON.stringify(call[1]).includes(`"kind":"${previewCase.kind}"`)
+      )).toBeTrue();
+    });
+  }
+
   test("plus menu hides singleton actions that already exist", async () => {
     const browserTab = makeSessionTab({
       id: "overview:alpha:browser",
@@ -1718,6 +1791,52 @@ describe("workbench session shell", () => {
     expect(within(menu).queryByText("Terminal")).toBe(null);
   });
 
+  test("bottom plus menu hides singleton Browser and Review tabs from either panel", async () => {
+    const browserTab = makeSessionTab({
+      id: "overview:alpha:browser",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "browser_placeholder",
+      title: "Browser",
+      order: 1,
+      config: {},
+    });
+    const reviewTab = makeSessionTab({
+      id: "overview:alpha:review",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "review",
+      title: "Review",
+      order: 2,
+      config: { projectId: "alpha" },
+    });
+    const session = makeSession({
+      tabs: [...makeSession().tabs, browserTab, reviewTab],
+      rightLayout: {
+        version: 1,
+        root: {
+          type: "leaf",
+          id: "main",
+          tabIds: ["overview:alpha:db", browserTab.id, reviewTab.id],
+          activeTabId: "overview:alpha:db",
+        },
+      },
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+    await openBottomPanel(screen);
+
+    const menu = await openPanelMenu(screen, "Open bottom panel tab");
+    expect(within(menu).queryByText("Browser")).toBe(null);
+    expect(within(menu).queryByText("Review")).toBe(null);
+    expect(within(menu).getByText("Files") !== null).toBeTrue();
+    expect(within(menu).getByText("Side chat") !== null).toBeTrue();
+    expect(within(menu).getByText("Terminal") !== null).toBeTrue();
+  });
+
   test("review action creates and renders the connected review panel", async () => {
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [makeAttachedSession()] },
@@ -1733,6 +1852,27 @@ describe("workbench session shell", () => {
 
     expect(invokeCalls.some((call) =>
       call[0] === "project-session-tabs:create"
+      && JSON.stringify(call[1]).includes('"kind":"review"')
+    )).toBeTrue();
+    expect(screen.container.querySelector("[data-review-diff-panel]") !== null).toBeTrue();
+  });
+
+  test("bottom review action creates and renders the connected review panel", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeAttachedSession()] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+    await openBottomPanel(screen);
+
+    const menu = await openPanelMenu(screen, "Open bottom panel tab");
+    fireEvent.click(within(menu).getByText("Review"));
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-session-tabs:create"
+      && JSON.stringify(call[1]).includes('"panelId":"bottom"')
       && JSON.stringify(call[1]).includes('"kind":"review"')
     )).toBeTrue();
     expect(screen.container.querySelector("[data-review-diff-panel]") !== null).toBeTrue();
@@ -1813,6 +1953,84 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
+  });
+
+  test("terminal tab default cwd prefers the attached thread cwd", async () => {
+    const terminalSession = makeAttachedSession({
+      id: "session:alpha:terminal-thread",
+      title: "Terminal thread",
+      isOverview: false,
+      tabs: [
+        {
+          id: "terminal-tab",
+          kind: "terminal",
+          title: "Terminal",
+          panelId: "bottom",
+          config: { projectId: "alpha", terminalSessionId: "terminal-thread" },
+        },
+      ],
+    });
+
+    renderWorkbench({
+      projects: [makeProject("alpha", "Alpha", "/Users/asc/repo/project-workspace")],
+      sessionsByProject: { alpha: [terminalSession] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(getLastTerminalPanelProps().cwd).toBe("/Users/asc/repo/nodex");
+  });
+
+  test("terminal tab default cwd falls back to the owning project workspace path", async () => {
+    const terminalSession = makeSession({
+      id: "session:alpha:terminal-project",
+      title: "Project terminal",
+      isOverview: false,
+      tabs: [
+        {
+          id: "terminal-tab",
+          kind: "terminal",
+          title: "Terminal",
+          panelId: "bottom",
+          config: { projectId: "alpha", terminalSessionId: "terminal-project" },
+        },
+      ],
+    });
+
+    renderWorkbench({
+      projects: [makeProject("alpha", "Alpha", "/Users/asc/repo/project-workspace")],
+      sessionsByProject: { alpha: [terminalSession] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(getLastTerminalPanelProps().cwd).toBe("/Users/asc/repo/project-workspace");
+  });
+
+  test("terminal tab default cwd stays unset without thread or project cwd", async () => {
+    const terminalSession = makeSession({
+      id: "session:alpha:terminal-pty-default",
+      title: "Default terminal",
+      isOverview: false,
+      tabs: [
+        {
+          id: "terminal-tab",
+          kind: "terminal",
+          title: "Terminal",
+          panelId: "bottom",
+          config: { projectId: "alpha", terminalSessionId: "terminal-default" },
+        },
+      ],
+    });
+
+    renderWorkbench({
+      projects: [makeProject()],
+      sessionsByProject: { alpha: [terminalSession] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(String(getLastTerminalPanelProps().cwd)).toBe("undefined");
   });
 
   test("panel tab menu creates tabs after opening a collapsed right panel", async () => {

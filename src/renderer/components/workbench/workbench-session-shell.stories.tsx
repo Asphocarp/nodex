@@ -9,6 +9,7 @@ type ShellStoryArgs = {
   activeTab: "browser" | "terminal" | "db" | "review" | "empty";
   thread: "empty" | "attached";
   rightPanel: "regular" | "collapsed" | "full";
+  bottomPanel: "collapsed" | "empty" | "terminal";
   sidebar: "expanded" | "collapsed";
   longNames: boolean;
 };
@@ -27,6 +28,7 @@ const meta = {
     activeTab: "browser",
     thread: "empty",
     rightPanel: "regular",
+    bottomPanel: "collapsed",
     sidebar: "expanded",
     longNames: false,
   },
@@ -42,6 +44,10 @@ const meta = {
     rightPanel: {
       control: "inline-radio",
       options: ["regular", "collapsed", "full"],
+    },
+    bottomPanel: {
+      control: "inline-radio",
+      options: ["collapsed", "empty", "terminal"],
     },
     sidebar: {
       control: "inline-radio",
@@ -211,6 +217,7 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
     const panels = makePanels({
       rightCollapsed: args.rightPanel === "collapsed",
       rightFullWidth: args.rightPanel === "full",
+      bottomCollapsed: args.bottomPanel !== "empty",
     });
     return {
       id: "session:overview",
@@ -287,7 +294,9 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
     rightFullWidth: args.rightPanel === "full",
     bottomTabIds,
     bottomActiveTabId: bottomTabIds.includes(activeTabId) ? activeTabId : bottomTabIds[0] ?? null,
-    bottomCollapsed: args.activeTab !== "terminal",
+    bottomCollapsed: args.bottomPanel === "empty"
+      ? false
+      : args.activeTab !== "terminal" && args.bottomPanel !== "terminal",
   });
 
   return {
@@ -407,7 +416,7 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
   return (
     <div className="h-screen">
       <WorkbenchShell
-        key={`${args.thread}:${args.rightPanel}:${args.activeTab}:${args.longNames ? "long" : "normal"}`}
+        key={`${args.thread}:${args.rightPanel}:${args.bottomPanel}:${args.activeTab}:${args.longNames ? "long" : "normal"}`}
         projects={PROJECTS}
         dbProjectId="nodex"
         activeView={"kanban" as WorkbenchView}
@@ -621,6 +630,21 @@ export const EmptyRightPanelActions: Story = {
     docs: {
       description: {
         story: "Empty right panel showing the Codex-style new-tab action grid with Nodex DB View and Card Stage actions appended.",
+      },
+    },
+  },
+};
+
+export const EmptyBottomPanelActions: Story = {
+  args: {
+    activeTab: "empty",
+    rightPanel: "collapsed",
+    bottomPanel: "empty",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Open empty bottom panel showing the Codex-eligible Files, Side chat, Browser, Review, and Terminal action grid.",
       },
     },
   },

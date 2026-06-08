@@ -6,30 +6,9 @@ import { cn } from "@/lib/utils";
 const TERMINAL_MIN_HEIGHT = 120;
 const TERMINAL_MAX_HEIGHT = 600;
 
-function cwdStorageKey(projectId: string): string {
-  return `terminal-cwd-${projectId}`;
-}
-
-function readStoredCwd(projectId: string): string | undefined {
-  try {
-    return localStorage.getItem(cwdStorageKey(projectId)) || undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function writeStoredCwd(projectId: string, cwd: string): void {
-  try {
-    localStorage.setItem(cwdStorageKey(projectId), cwd);
-  } catch {
-    // ignore
-  }
-}
-
 interface TerminalPanelProps {
-  projectId: string;
   terminalId: string;
-  onClose: () => void;
+  cwd?: string | null;
   panelHeight?: number;
   onPanelHeightChange?: (height: number) => void;
 }
@@ -42,17 +21,21 @@ function clampPanelHeight(height: number): number {
   );
 }
 
+function normalizeCwd(value: string | null | undefined): string | undefined {
+  const trimmedValue = value?.trim();
+  if (!trimmedValue) return undefined;
+  return trimmedValue;
+}
+
 export function TerminalPanel({
-  projectId,
   terminalId,
-  onClose,
+  cwd,
   panelHeight,
   onPanelHeightChange,
 }: TerminalPanelProps) {
   const [uncontrolledPanelHeight, setUncontrolledPanelHeight] = useState(() =>
     getPanelHeight(terminalId),
   );
-  const [cwd, setCwd] = useState(() => readStoredCwd(projectId));
   const isResizingRef = useRef(false);
   const isControlledHeight = typeof panelHeight === "number";
   const resolvedPanelHeight = clampPanelHeight(
@@ -69,8 +52,8 @@ export function TerminalPanel({
     [isControlledHeight, onPanelHeightChange],
   );
 
-  const { containerRef, isExited, exitCode, isUnavailable, error, reconnect } =
-    useTerminal({ terminalId, visible: true, cwd });
+  const { containerRef, isUnavailable } =
+    useTerminal({ terminalId, visible: true, cwd: normalizeCwd(cwd) });
 
   // ── Vertical resize handle ──────────────────────────────────────────
   const handleResizeStart = useCallback(
@@ -130,21 +113,6 @@ export function TerminalPanel({
     storePanelHeight(terminalId, resolvedPanelHeight);
   }, [isControlledHeight, resolvedPanelHeight, terminalId]);
 
-  // ── Cwd picker ──────────────────────────────────────────────────────
-  const pickCwd = useCallback(async () => {
-    if (!window.api) return;
-    const result = (await window.api.invoke("pty:pick-cwd")) as string | null;
-    if (result) {
-      setCwd(result);
-      writeStoredCwd(projectId, result);
-    }
-  }, [projectId]);
-
-  // Short display name for cwd
-  const cwdLabel = cwd
-    ? cwd.split("/").pop() || cwd
-    : undefined;
-
   return (
     <div
       className="flex shrink-0 flex-col"
@@ -168,106 +136,6 @@ export function TerminalPanel({
           "focus-visible:bg-(--accent-blue) focus-visible:ring-2 focus-visible:ring-(--ring)",
         )}
       />
-
-      {/* Header bar */}
-      <div className="flex h-8 shrink-0 items-center justify-between bg-(--background-secondary) px-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="text-xs font-medium text-(--foreground-secondary)">
-            Session Terminal
-          </span>
-          {cwdLabel && (
-            <button
-              onClick={pickCwd}
-              className="max-w-40 truncate text-xs text-(--foreground-tertiary) transition-colors hover:text-(--foreground-secondary)"
-              title={cwd}
-            >
-              {cwdLabel}
-            </button>
-          )}
-          {!cwdLabel && (
-            <button
-              onClick={pickCwd}
-              className={cn(
-                "flex h-5 w-5 items-center justify-center rounded-sm",
-                "text-(--foreground-tertiary)",
-                "hover:bg-(--background-tertiary) hover:text-(--foreground-secondary)",
-                "transition-colors",
-              )}
-              title="Set working directory"
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                <path
-                  d="M2 4.5A1.5 1.5 0 013.5 3h3.172a1.5 1.5 0 011.06.44l.829.828a.5.5 0 00.354.147H12.5A1.5 1.5 0 0114 5.915V11.5A1.5 1.5 0 0112.5 13h-9A1.5 1.5 0 012 11.5v-7z"
-                  stroke="currentColor"
-                  strokeWidth="1.3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </button>
-          )}
-          {isExited && (
-            <span className="text-xs text-(--foreground-tertiary)">
-              exited ({exitCode})
-            </span>
-          )}
-          {error && !isExited && (
-            <span className="max-w-50 truncate text-xs text-(--accent-red)" title={error}>
-              {error}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-0.5">
-          {(isExited || error) && (
-            <button
-              onClick={reconnect}
-              className={cn(
-                "flex h-6 w-6 items-center justify-center rounded-sm",
-                "text-(--foreground-tertiary)",
-                "hover:bg-(--background-tertiary) hover:text-(--foreground-secondary)",
-                "transition-colors duration-100",
-              )}
-              title="Restart terminal"
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                <path
-                  d="M2.5 2.5v4h4M13.5 13.5v-4h-4"
-                  stroke="currentColor"
-                  strokeWidth="1.3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                <path
-                  d="M12.1 6A5 5 0 004.5 4.5L2.5 6.5M3.9 10a5 5 0 007.6 1.5l2-2"
-                  stroke="currentColor"
-                  strokeWidth="1.3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </button>
-          )}
-          <button
-            onClick={onClose}
-            className={cn(
-              "flex h-6 w-6 items-center justify-center rounded-sm",
-              "text-(--foreground-tertiary)",
-              "hover:bg-(--background-tertiary) hover:text-(--foreground-secondary)",
-              "transition-colors duration-100",
-            )}
-            title="Close terminal"
-          >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-              <path
-                d="M12 4L4 12M4 4l8 8"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
-        </div>
-      </div>
 
       {/* Terminal container */}
       {isUnavailable ? (

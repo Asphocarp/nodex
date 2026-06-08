@@ -187,6 +187,7 @@ type PanelActionShortcut = "mod+p" | "mod+t" | "ctrl+shift+g" | "ctrl+backquote"
 interface PanelNewTabAction {
   kind: ProjectSessionTab["kind"];
   defaultPanelId: PanelId;
+  targetPanelIds?: readonly PanelId[];
   label: string;
   description: string;
   shortcut?: PanelActionShortcut;
@@ -207,6 +208,7 @@ const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
   {
     kind: "files_placeholder",
     defaultPanelId: "right",
+    targetPanelIds: ["right", "bottom"],
     label: "Files",
     description: "Browse project files",
     shortcut: "mod+p",
@@ -215,6 +217,7 @@ const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
   {
     kind: "side_chat_placeholder",
     defaultPanelId: "right",
+    targetPanelIds: ["right", "bottom"],
     label: "Side chat",
     description: "Start a side conversation",
     Icon: CodexSidePanelSideChatIcon,
@@ -222,6 +225,7 @@ const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
   {
     kind: "browser_placeholder",
     defaultPanelId: "right",
+    targetPanelIds: ["right", "bottom"],
     label: "Browser",
     description: "Open a website",
     shortcut: "mod+t",
@@ -230,6 +234,7 @@ const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
   {
     kind: "review",
     defaultPanelId: "right",
+    targetPanelIds: ["right", "bottom"],
     label: "Review",
     description: "View code changes",
     shortcut: "ctrl+shift+g",
@@ -468,16 +473,39 @@ function getTabIcon(kind: ProjectSessionTab["kind"]): ComponentType<{ className?
   return Globe2;
 }
 
+function isPanelActionTargetAllowed(action: PanelNewTabAction, panelId: PanelId): boolean {
+  return action.targetPanelIds?.includes(panelId) ?? action.defaultPanelId === panelId;
+}
+
 function filterAvailablePanelActions(
   actions: readonly PanelNewTabAction[],
   tabs: readonly ProjectSessionTab[],
   panelId: PanelId,
 ): PanelNewTabAction[] {
   return actions.filter((action) => {
-    if (action.defaultPanelId !== panelId) return false;
+    if (!isPanelActionTargetAllowed(action, panelId)) return false;
     if (!PROJECT_SESSION_SINGLETON_TAB_KIND_SET.has(action.kind)) return true;
     return !tabs.some((tab) => tab.kind === action.kind);
   });
+}
+
+function normalizeOptionalPath(value: string | null | undefined): string | undefined {
+  const trimmedValue = value?.trim();
+  if (!trimmedValue) return undefined;
+  return trimmedValue;
+}
+
+function resolveSessionTerminalCwd(
+  session: ProjectSession,
+  tab: ProjectSessionTab,
+  projects: readonly Project[],
+): string | undefined {
+  const threadCwd = normalizeOptionalPath(session.thread?.cwd);
+  if (threadCwd) return threadCwd;
+
+  const tabProjectId = "projectId" in tab.config ? tab.config.projectId : session.projectId;
+  return normalizeOptionalPath(projects.find((project) => project.id === tabProjectId)?.workspacePath)
+    ?? normalizeOptionalPath(projects.find((project) => project.id === session.projectId)?.workspacePath);
 }
 
 function resolvePanelShortcutLabel(shortcut: PanelActionShortcut | undefined, isMac: boolean): string | null {
@@ -2935,12 +2963,12 @@ function ProjectSessionTabPanel({
   }
 
   if (tab.kind === "terminal" && "terminalSessionId" in tab.config) {
+    const cwd = resolveSessionTerminalCwd(activeSession, tab, projects);
     return (
       <div className="h-full min-h-0 bg-token-main-surface-primary">
         <TerminalPanel
-          projectId={tab.config.projectId}
           terminalId={tab.config.terminalSessionId}
-          onClose={() => void onCloseTab(tab.id)}
+          cwd={cwd}
           panelHeight={Number.MAX_SAFE_INTEGER}
         />
       </div>

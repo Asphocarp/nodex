@@ -6,8 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - Added the Codex-style global bottom-panel toggle beside the side-panel toggle, with Codex Electron bottom-panel icons and active/ghost toolbar states.
-- Added Codex-style right and bottom session panels with shared tab chrome, panel-scoped ordering, cross-panel tab moves, and a bottom-panel Terminal default.
-- Added Codex-style ephemeral panel previews for placeholder Files, Browser, and Side chat tabs; they replace the prior preview in the same panel and persist only after the user interacts with or pins the preview.
+- Added Codex-style right and bottom session panels with shared tab chrome, panel-scoped ordering, cross-panel tab moves, a bottom-panel Terminal default, and Codex-eligible bottom actions for Files, Side chat, Browser, Review, and Terminal.
+- Added Codex-style ephemeral panel previews for placeholder Files, Browser, and Side chat tabs in either right or bottom panel; they replace the prior preview in the same panel and persist only after the user interacts with or pins the preview.
 - Added a public changelog page at `nodex.jyu.app/changelog`, generated from the project changelog file.
 - Added a Codex-style project session shell with expandable project folders, a sidebar `New chat` entry, project-row new-chat actions, durable sessions, a session thread page, session-owned panel tabs, browser placeholders, and separate optional session-thread attachments.
 - Added SQLite-backed project session, project session tab, and session-thread link storage with default Overview sessions seeded for every project.
@@ -16,7 +16,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Replaced the old primary stage-rail workbench model with project sessions that open as a thread page with a collapsible and full-width-expandable right panel plus an independent bottom panel for session tabs.
-- Terminal tabs are now session-owned panel tabs with session terminal ids; cards can request a terminal but no longer own terminal tabs or PTY identity.
+- Terminal tabs are now session-owned panel tabs with session terminal ids that start from the attached thread cwd before falling back to the project workspace path; cards can request a terminal but no longer own terminal tabs or PTY identity.
 - Matched the project/session sidebar chrome to Codex Electron, moved project folder selection into each project row actions menu, and added Search, Plugins, and Automations rows for layout parity.
 - Refined the project session shell to match Codex Electron side-panel control placement, adjacent header-slot spacing, remembered full-width mode, and button styling: the global header now owns `Toggle side panel`, right-panel tab creation and expand/restore actions live in the panel tab header, and the unused attach/detach thread toolbar button is removed.
 - Refined project session thread headers to match Codex Electron title sizing, use the thread title as the session header, and hide the redundant header separator while the right panel is closed.
@@ -31,6 +31,7 @@ All notable changes to this project will be documented in this file.
 - Removed the old workspace terminal drawer state and right-pane mirror columns; Terminal tabs and panel state now live only in project sessions.
 
 ### Fixed
+- Removed the redundant `Session Terminal` body row from terminal tabs so the terminal content starts directly below the tab chrome.
 - Fixed the right-panel-open thread summary trigger so it sits at the thread/right-panel boundary, keeps the active icon unclipped, and opens the summary popover when clicked.
 - Fixed open right-panel sessions so the thread page no longer leaves an empty toolbar-height row above the thread title.
 - Fixed Codex-style sidebar session rows so titles keep the grouped project indent from Codex Electron.
