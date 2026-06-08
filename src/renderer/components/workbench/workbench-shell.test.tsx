@@ -703,6 +703,17 @@ function getLastTerminalPanelProps(): Record<string, unknown> {
   return props;
 }
 
+function getHeaderShellSlot(
+  screen: ReturnType<typeof renderWorkbench>,
+  side: "left" | "right",
+): HTMLElement {
+  const slot = screen.container.querySelector(`[data-workbench-header-shell-slot="${side}"]`);
+  if (!(slot instanceof HTMLElement)) {
+    throw new Error(`Expected ${side} header shell slot`);
+  }
+  return slot;
+}
+
 describe("workbench session shell", () => {
   test("keeps card-stage session tab ordering scoped to session ids", () => {
     const order = resolveCardStageSessionTabOrder(
@@ -756,6 +767,24 @@ describe("workbench session shell", () => {
     expect(sidebarText.indexOf("New chat") < sidebarText.indexOf("Search")).toBeTrue();
     expect(sidebarText.indexOf("Search") < sidebarText.indexOf("Plugins")).toBeTrue();
     expect(sidebarText.indexOf("Plugins") < sidebarText.indexOf("Automations")).toBeTrue();
+  });
+
+  test("expanded sidebar keeps the sidebar toggle in the left header rail without compact new-chat", async () => {
+    const screen = renderWorkbench({ sidebar: { collapsed: false, width: 312 } });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const leftSlot = getHeaderShellSlot(screen, "left");
+    const labels = Array.from(leftSlot.querySelectorAll("button"))
+      .map((button) => button.getAttribute("aria-label"))
+      .join(",");
+    const topNewChatButton = screen.getByRole("button", { name: "New chat" });
+
+    expect(labels).toBe("Hide sidebar");
+    expect(leftSlot.getAttribute("style")?.includes("width: 312px")).toBeTrue();
+    expect(leftSlot.getAttribute("style")?.includes("min-width: 312px")).toBeTrue();
+    expect(within(leftSlot).queryByRole("button", { name: "New chat" })).toBe(null);
+    expect(topNewChatButton.className).toBe(CODEX_TOP_NEW_CHAT_CLASS);
   });
 
   test("clicking the Projects section header collapses and expands project rows", async () => {
@@ -1529,7 +1558,7 @@ describe("workbench session shell", () => {
     const globalHeader = screen.container.querySelector('[data-testid="workbench-global-header"]');
     const rightPanel = screen.container.querySelector('[data-testid="session-right-panel"]');
     const tabHeader = rightPanel?.querySelector('[role="tablist"]')?.parentElement?.parentElement;
-    const headerShellSlot = screen.container.querySelector('[data-test-id="header-shell-slot"]');
+    const headerShellSlot = getHeaderShellSlot(screen, "right");
     if (!tabHeader) throw new Error("Expected right-panel tab header");
 
     const sidePanelToggle = screen.getByRole("button", { name: "Toggle side panel" });
@@ -2261,7 +2290,7 @@ describe("workbench session shell", () => {
     expect(textContent(screen.container).includes("DB:beta:kanban")).toBeTrue();
   });
 
-  test("collapsed sidebar keeps the titlebar collapse control out of the traffic light zone on macOS", async () => {
+  test("collapsed sidebar renders Codex-parity left titlebar chrome on macOS", async () => {
     const originalPlatform = navigator.platform;
     Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
     try {
@@ -2277,11 +2306,38 @@ describe("workbench session shell", () => {
       expect(floatingShell?.className.includes("overflow-visible")).toBeTrue();
       expect(floatingShell?.className.includes("bg-(")).toBeFalse();
       expect(floatingShell?.className.includes("bg-token")).toBeFalse();
-      const collapseButton = screen.getByRole("button", { name: "Expand sidebar" });
-      const fixedContainer = collapseButton.parentElement as HTMLElement;
-      expect(fixedContainer.style.left).toBe("90px");
-      expect(fixedContainer.style.top).toBe("12px");
+
+      const globalHeader = screen.getByTestId("workbench-global-header");
+      const leftSlot = getHeaderShellSlot(screen, "left");
+      const collapseButton = within(leftSlot).getByRole("button", { name: "Show sidebar" });
+      const compactNewChatButton = within(leftSlot).getByRole("button", { name: "New chat" });
+      const visibleLeftLabels = Array.from(leftSlot.querySelectorAll("button"))
+        .map((button) => button.getAttribute("aria-label"))
+        .join(",");
+
+      expect(globalHeader.contains(leftSlot)).toBeTrue();
+      expect(globalHeader.contains(collapseButton)).toBeTrue();
+      expect(visibleLeftLabels).toBe("Show sidebar,New chat");
+      expect(leftSlot.className.includes("ps-[max(var(--spacing-token-safe-header-left),0.5rem)]")).toBeTrue();
+      expect(leftSlot.getAttribute("style")?.includes("width: 144px")).toBeTrue();
+      expect(leftSlot.getAttribute("style")?.includes("min-width: 144px")).toBeTrue();
+      expect(collapseButton.parentElement?.className.includes("fixed")).toBeFalse();
+      expect(collapseButton.getAttribute("title")).toBe("Toggle sidebar");
+      expect(compactNewChatButton.className).toBe(CODEX_PROJECT_NEW_CHAT_CLASS);
+      expect(compactNewChatButton.querySelector("path")?.getAttribute("d")?.startsWith(CODEX_NEW_CHAT_ICON_PREFIX)).toBeTrue();
       expect(collapseButton.className.includes("no-drag")).toBeTrue();
+
+      await act(async () => {
+        fireEvent.click(compactNewChatButton);
+        await Promise.resolve();
+      });
+      await settleAsyncRender();
+
+      expect(invokeCalls.some((call) =>
+        call[0] === "project-sessions:create"
+        && JSON.stringify(call[1]) === JSON.stringify({ projectId: "alpha", title: "New thread" })
+      )).toBeTrue();
+      expect(screen.getByRole("button", { name: "Show sidebar" }) !== null).toBeTrue();
     } finally {
       Object.defineProperty(navigator, "platform", { configurable: true, value: originalPlatform });
     }

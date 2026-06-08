@@ -101,6 +101,7 @@ describe("workbench header actions", () => {
     expect(slot.getAttribute("style")?.includes("width: 144px")).toBeTrue();
     expect(slot.getAttribute("style")?.includes("min-width: 70px")).toBeTrue();
     expect(rail.className.includes("gap-1.5")).toBeTrue();
+    expect(rail.className.includes("no-drag")).toBeTrue();
     expect(firstActionWrapper.className.includes("ms-auto")).toBeTrue();
     expect(textContent(rail)).toBe("FirstSecondThird");
     expect(measuredWidths[measuredWidths.length - 1]).toBe(70);

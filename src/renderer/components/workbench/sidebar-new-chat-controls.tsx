@@ -88,3 +88,34 @@ export function SidebarProjectNewChatButton({
     </div>
   );
 }
+
+export function SidebarCompactNewChatButton({
+  label = "New chat",
+  tooltipSide = "bottom",
+  disabled,
+  onClick,
+}: {
+  label?: string;
+  tooltipSide?: "top" | "right" | "bottom" | "left";
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <NodexTooltip
+      delayOpen
+      tooltipContent={label}
+      side={tooltipSide}
+    >
+      <button
+        type="button"
+        className={SIDEBAR_PROJECT_NEW_CHAT_BUTTON_CLASS}
+        title={label}
+        aria-label={label}
+        disabled={disabled}
+        onClick={onClick}
+      >
+        <CodexNewChatIcon />
+      </button>
+    </NodexTooltip>
+  );
+}

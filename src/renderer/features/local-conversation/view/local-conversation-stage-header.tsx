@@ -82,13 +82,18 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
   return (
     <div
       className={cn(
-        "draggable relative grid w-full min-w-0 grid-cols-[minmax(0,1fr)] items-center gap-x-4 py-3 pr-3 pl-3 electron:h-toolbar electron:py-0 extension:py-row-y",
+        "draggable relative grid w-full min-w-0 grid-cols-[minmax(0,1fr)] items-center gap-x-4 py-3 pr-3 pl-[var(--thread-stage-header-left-padding,0.75rem)] electron:h-toolbar electron:py-0 extension:py-row-y",
         model.showSeparator && "border-b border-token-border",
       )}
       style={{
         paddingRight: "var(--thread-stage-header-right-reserve, 0px)",
       }}
     >
+      <div
+        aria-hidden="true"
+        data-testid="thread-stage-header-left-chrome-hitbox"
+        className="no-drag pointer-events-auto absolute inset-y-0 left-0 z-10 w-[var(--thread-stage-header-left-padding,0px)]"
+      />
       <div
         aria-hidden="true"
         data-testid="thread-stage-header-toggle-hitbox"

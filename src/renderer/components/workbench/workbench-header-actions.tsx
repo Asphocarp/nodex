@@ -213,6 +213,7 @@ export function HeaderShellSlot({
       </div>
       <div
         data-test-id="header-shell-slot"
+        data-workbench-header-shell-slot={side}
         className={cn(
           "pointer-events-none relative h-full shrink-0 [container-type:inline-size]",
           side === "right" && "ml-auto",
@@ -244,7 +245,7 @@ function HeaderActionRail({
       data-workbench-header-action-rail={fillSlot ? "visible" : "measure"}
       className={cn(
         "inline-flex h-full items-center gap-1.5",
-        fillSlot ? "pointer-events-none w-full" : "no-drag pointer-events-auto w-auto",
+        fillSlot ? "no-drag pointer-events-none w-full" : "no-drag pointer-events-auto w-auto",
       )}
     >
       {startEntries.map((entry) => renderHeaderActionEntry(entry, false))}

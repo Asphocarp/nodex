@@ -151,7 +151,11 @@ import {
   ComposerPluginsIcon,
   SearchIcon,
 } from "@/components/shared/icons";
-import { SidebarNewChatButton } from "./sidebar-new-chat-controls";
+import {
+  SIDEBAR_PROJECT_NEW_CHAT_BUTTON_CLASS,
+  SidebarCompactNewChatButton,
+  SidebarNewChatButton,
+} from "./sidebar-new-chat-controls";
 import { useCodexAccountActions } from "@/lib/use-codex-account-actions";
 import {
   CodexProjectRow,
@@ -163,7 +167,8 @@ import {
   resolveCodexNewChatShortcutLabel,
 } from "./codex-sidebar";
 
-const COLLAPSE_CONTROL_TRAFFIC_LIGHT_OFFSET_PX = 90;
+const MAC_TRAFFIC_LIGHT_SAFE_HEADER_LEFT_PX = 90;
+const NON_MAC_SAFE_HEADER_LEFT_PX = 12;
 const RIGHT_PANEL_DEFAULT_WIDTH = 600;
 const RIGHT_PANEL_MIN_WIDTH = 320;
 const RIGHT_PANEL_MAIN_MIN_WIDTH = 352;
@@ -174,6 +179,7 @@ const TOOLBAR_BUTTON_GHOST_CLASS = "text-token-text-tertiary enabled:hover:bg-to
 const TOOLBAR_BUTTON_SECONDARY_CLASS = "text-token-foreground bg-token-foreground/5 enabled:hover:bg-token-foreground/10 data-[state=open]:bg-token-foreground/10 border-transparent";
 const RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX = 70;
 const RIGHT_PANEL_HEADER_FALLBACK_RAIL_WIDTH_PX = 62;
+const LEFT_HEADER_COLLAPSED_RAIL_FALLBACK_WIDTH_PX = 54;
 const THREAD_SUMMARY_PANEL_STORAGE_KEY = "nodex:thread-summary-panel:pinned-open";
 const PROJECT_SESSION_SINGLETON_TAB_KIND_SET = new Set<string>(PROJECT_SESSION_SINGLETON_TAB_KINDS);
 const PREVIEWABLE_PROJECT_SESSION_TAB_KIND_SET = new Set<ProjectSessionTab["kind"]>([
@@ -684,6 +690,8 @@ export function WorkbenchShell({
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT_WIDTH);
   const [sessionContentWidth, setSessionContentWidth] = useState(0);
   const [sessionContentHeight, setSessionContentHeight] = useState(0);
+  const [headerLeftWidth, setHeaderLeftWidth] = useState(0);
+  const [, setHeaderLeftRailWidth] = useState(0);
   const [headerRightWidth, setHeaderRightWidth] = useState(RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX);
   const [headerRightRailWidth, setHeaderRightRailWidth] = useState(RIGHT_PANEL_HEADER_FALLBACK_RAIL_WIDTH_PX);
   const [threadSummaryPanelPinnedOpen, setThreadSummaryPanelPinnedOpen] = useState(readThreadSummaryPanelPinnedOpen);
@@ -786,6 +794,17 @@ export function WorkbenchShell({
     () => filterAvailablePanelActions(PANEL_NEW_TAB_ACTIONS, activeSession?.tabs ?? [], "bottom"),
     [activeSession?.tabs],
   );
+  const safeHeaderLeftWidth = isMacPlatform
+    ? MAC_TRAFFIC_LIGHT_SAFE_HEADER_LEFT_PX
+    : NON_MAC_SAFE_HEADER_LEFT_PX;
+  const collapsedHeaderLeftFallbackWidth = safeHeaderLeftWidth + LEFT_HEADER_COLLAPSED_RAIL_FALLBACK_WIDTH_PX;
+  const effectiveHeaderLeftWidth = sidebarCollapsed
+    ? Math.max(headerLeftWidth, collapsedHeaderLeftFallbackWidth)
+    : Math.max(headerLeftWidth, safeHeaderLeftWidth + 24);
+  const headerLeftShellSlotWidth = sidebarCollapsed ? effectiveHeaderLeftWidth : sidebarWidth;
+  const threadStageHeaderLeftPadding = sidebarCollapsed
+    ? `calc(${effectiveHeaderLeftWidth}px + var(--spacing) * 4)`
+    : "calc(var(--spacing) * 3)";
 
   const openSettings = useCallback(() => {
     setSettingsPath(buildSettingsPath("general-settings"));
@@ -1520,7 +1539,48 @@ export function WorkbenchShell({
     void hideActiveBottomPanel();
   }, [activeSession, hideActiveBottomPanel, showActiveBottomPanel]);
 
-  const headerActions = activeSession ? (
+  const sidebarCollapseControlLabel = sidebarCollapsed ? "Show sidebar" : "Hide sidebar";
+  const sidebarCollapseControlButton = (
+    <NodexTooltip delayOpen tooltipContent="Toggle sidebar" side="bottom">
+      <button
+        type="button"
+        onClick={toggleSidebarCollapsed}
+        title="Toggle sidebar"
+        aria-label={sidebarCollapseControlLabel}
+        className={SIDEBAR_PROJECT_NEW_CHAT_BUTTON_CLASS}
+      >
+        {sidebarCollapsed ? <CodexPanelLeftHiddenIcon className="icon-sm" /> : <CodexPanelLeftVisibleIcon className="icon-sm" />}
+      </button>
+    </NodexTooltip>
+  );
+
+  const sidebarHeaderActions = (
+    <>
+      <HeaderAction
+        actionId="workbench-sidebar-toggle"
+        slotPosition="left"
+        align="start"
+        order={100}
+      >
+        {sidebarCollapseControlButton}
+      </HeaderAction>
+      {sidebarCollapsed ? (
+        <HeaderAction
+          actionId="workbench-sidebar-new-chat"
+          slotPosition="left"
+          align="start"
+          order={110}
+        >
+          <SidebarCompactNewChatButton
+            label="New chat"
+            onClick={() => void startNewChatInProject(activeProjectId)}
+          />
+        </HeaderAction>
+      ) : null}
+    </>
+  );
+
+  const panelHeaderActions = activeSession ? (
     <>
       <HeaderAction
         actionId="workbench-bottom-panel-toggle"
@@ -1544,6 +1604,13 @@ export function WorkbenchShell({
       </HeaderAction>
     </>
   ) : null;
+
+  const headerActions = (
+    <>
+      {sidebarHeaderActions}
+      {panelHeaderActions}
+    </>
+  );
 
   const rightPanelTabHeaderStickyControls = activeSession ? (
     <NodexDropdownMenu
@@ -1668,17 +1735,6 @@ export function WorkbenchShell({
 
   const showFloatingSidebar = sidebarCollapsed;
   const showInlineSidebar = sidebarVisible && !sidebarCollapsed;
-  const sidebarCollapseControlButton = (
-    <button
-      type="button"
-      onClick={toggleSidebarCollapsed}
-      title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-      aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-      className="no-drag inline-flex size-6 items-center justify-center rounded-lg text-(--foreground-secondary) hover:bg-(--background-secondary) hover:text-(--foreground)"
-    >
-      {sidebarCollapsed ? <CodexPanelLeftHiddenIcon className="size-4" /> : <CodexPanelLeftVisibleIcon className="size-4" />}
-    </button>
-  );
   const settingsRouteShell = settingsPath ? (
     <SettingsRouteShell
       path={settingsPath}
@@ -1713,6 +1769,7 @@ export function WorkbenchShell({
         <div
           className="relative flex flex-col text-token-text-primary"
           style={{
+            "--spacing-token-safe-header-left": `${safeHeaderLeftWidth}px`,
             "--spacing-token-safe-header-right": "12px",
             width: "calc(100vw / var(--codex-window-zoom, 1))",
             height: "calc(100vh / var(--codex-window-zoom, 1))",
@@ -1723,6 +1780,15 @@ export function WorkbenchShell({
             data-testid="workbench-global-header"
             className="app-header-tint draggable pointer-events-none fixed inset-x-0 top-0 z-30 flex h-toolbar min-w-0 items-center"
           >
+            <HeaderShellSlot
+              side="left"
+              slotWidth={headerLeftShellSlotWidth}
+              minWidth={headerLeftShellSlotWidth}
+              fallbackWidth={collapsedHeaderLeftFallbackWidth}
+              fallbackRailWidth={LEFT_HEADER_COLLAPSED_RAIL_FALLBACK_WIDTH_PX}
+              onMeasuredWidthChange={setHeaderLeftWidth}
+              onMeasuredRailWidthChange={setHeaderLeftRailWidth}
+            />
             <HeaderShellSlot
               side="right"
               slotWidth={headerShellSlotWidth}
@@ -1873,6 +1939,7 @@ export function WorkbenchShell({
                       className="app-shell-main-content-frame relative mt-(--app-shell-main-content-frame-top-offset) flex min-h-0 flex-1 flex-col border-t border-token-border-default"
                       style={{
                         "--app-shell-main-content-frame-top-offset": "0px",
+                        "--thread-stage-header-left-padding": threadStageHeaderLeftPadding,
                         "--thread-stage-header-right-reserve": sidePanelOpen ? "0px" : `${headerRightWidth}px`,
                       } as React.CSSProperties}
                     >
@@ -2049,26 +2116,6 @@ export function WorkbenchShell({
             </>
           )}
         </div>
-
-      {!settingsRouteShell && isMacPlatform ? (
-        <div
-          className="fixed z-50 flex items-center justify-center"
-          style={{
-            left: COLLAPSE_CONTROL_TRAFFIC_LIGHT_OFFSET_PX,
-            top: 12,
-            WebkitAppRegion: "no-drag",
-          } as React.CSSProperties}
-        >
-          {sidebarCollapseControlButton}
-        </div>
-      ) : !settingsRouteShell && sidebarCollapsed ? (
-        <div
-          className="fixed left-3 top-3 z-50 flex items-center justify-center"
-          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-        >
-          {sidebarCollapseControlButton}
-        </div>
-      ) : null}
       </div>
       </NodexTooltipProvider>
     </HeaderActionProvider>

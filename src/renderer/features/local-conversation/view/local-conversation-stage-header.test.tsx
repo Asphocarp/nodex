@@ -100,10 +100,13 @@ describe("ThreadStageHeader auth chrome", () => {
     );
 
     const title = container.querySelector('[data-testid="thread-stage-title"]');
+    const header = container.firstElementChild;
     expect(title?.textContent).toBe("Review shell header parity");
     expect(title?.className.includes("max-w-[320px]")).toBeTrue();
     expect(title?.className.includes("text-token-foreground")).toBeTrue();
     expect(title?.parentElement?.className.includes("text-base")).toBeTrue();
+    expect(header?.className.includes("pl-3")).toBeFalse();
+    expect(header?.className.includes("pl-[var(--thread-stage-header-left-padding,0.75rem)]")).toBeTrue();
   });
 
   test("renders the title separator only when requested by the shell", async () => {
@@ -138,9 +141,15 @@ describe("ThreadStageHeader auth chrome", () => {
     );
 
     const header = container.firstElementChild;
+    const leftHitbox = container.querySelector('[data-testid="thread-stage-header-left-chrome-hitbox"]');
     const hitbox = container.querySelector('[data-testid="thread-stage-header-toggle-hitbox"]');
     expect(header?.className.includes("draggable")).toBeTrue();
     expect(header?.className.includes("relative")).toBeTrue();
+    expect(leftHitbox?.className.includes("no-drag")).toBeTrue();
+    expect(leftHitbox?.className.includes("pointer-events-auto")).toBeTrue();
+    expect(leftHitbox?.className.includes("left-0")).toBeTrue();
+    expect(leftHitbox?.className.includes("z-10")).toBeTrue();
+    expect(leftHitbox?.className.includes("w-[var(--thread-stage-header-left-padding,0px)]")).toBeTrue();
     expect(hitbox?.className.includes("no-drag")).toBeTrue();
     expect(hitbox?.className.includes("pointer-events-auto")).toBeTrue();
     expect(hitbox?.className.includes("right-0")).toBeTrue();

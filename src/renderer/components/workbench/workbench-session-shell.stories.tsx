@@ -687,6 +687,22 @@ export const CollapsedRightPanel: Story = {
   },
 };
 
+export const CollapsedSidebarThreadChrome: Story = {
+  args: {
+    thread: "attached",
+    sidebar: "collapsed",
+    rightPanel: "collapsed",
+    longNames: true,
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Collapsed sidebar chrome parity scene: traffic-light safe left rail with sidebar toggle, compact New chat, and a long thread title that truncates in the top chrome.",
+      },
+    },
+  },
+};
+
 export const FullWidthRightPanel: Story = {
   args: {
     rightPanel: "full",
