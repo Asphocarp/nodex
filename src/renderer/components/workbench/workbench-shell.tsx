@@ -209,9 +209,18 @@ import {
 import {
   resolveWorkbenchNavigationShortcutLabel,
   WORKBENCH_NAVIGATION_COMMANDS,
+  type WorkbenchNavigationCommandRequest,
+  type WorkbenchNavigationCommandState,
   type WorkbenchSidebarToggleCommandSource,
-  type WorkbenchNavigationCommandSource,
 } from "../../../shared/window-navigation";
+import {
+  navigateBackInWorkbenchShellHistory,
+  navigateForwardInWorkbenchShellHistory,
+  readWorkbenchShellNavigationHistoryState,
+  recordWorkbenchShellNavigationTransition,
+  writeWorkbenchShellNavigationHistoryState,
+  type WorkbenchShellNavigationSnapshot,
+} from "@/lib/workbench-shell-navigation-history";
 
 const MAC_TRAFFIC_LIGHT_SAFE_HEADER_LEFT_PX = 90;
 const NON_MAC_SAFE_HEADER_LEFT_PX = 12;
@@ -471,16 +480,14 @@ interface WorkbenchShellProps {
   settingsToggleTick?: unknown;
   sidebarToggleRequestTick?: number;
   sidebarToggleRequestSource?: WorkbenchSidebarToggleCommandSource;
+  navigationCommandRequest?: WorkbenchNavigationCommandRequest | null;
+  onNavigationStateChange?: (state: WorkbenchNavigationCommandState) => void;
   navigateToStage?: unknown;
   navigateToDbView?: unknown;
   navigateToRecentSession?: unknown;
   navigateToCardsTab?: unknown;
   navigateToThreadTab?: unknown;
   navigateToFilesTab?: unknown;
-  canNavigateBack?: boolean;
-  canNavigateForward?: boolean;
-  onNavigateBack?: (source: WorkbenchNavigationCommandSource) => void;
-  onNavigateForward?: (source: WorkbenchNavigationCommandSource) => void;
   onRequestNewWindow?: unknown;
 }
 
@@ -737,6 +744,37 @@ function makePreviewProjectSessionTab(
   };
 }
 
+function resolveSessionPanelActiveTabId(session: ProjectSession, panelId: PanelId): string | null {
+  const panel = session.panels[panelId];
+  if (panel.layout.root.type === "leaf") return panel.layout.root.activeTabId;
+  return session.tabs.find((tab) => tab.panelId === panelId)?.id ?? null;
+}
+
+function buildShellNavigationSnapshot(input: {
+  activeProjectId: string;
+  activeSession: ProjectSession | null;
+  activeView: WorkbenchView;
+  rightActiveTabId?: string | null;
+  bottomActiveTabId?: string | null;
+  rightPanelCollapsed?: boolean;
+  bottomPanelCollapsed?: boolean;
+  rightPanelFullWidth?: boolean;
+}): WorkbenchShellNavigationSnapshot {
+  const { activeProjectId, activeSession, activeView } = input;
+  return {
+    activeProjectId,
+    activeSessionId: activeSession?.id ?? null,
+    activeView,
+    rightActiveTabId: input.rightActiveTabId
+      ?? (activeSession ? resolveSessionPanelActiveTabId(activeSession, "right") : null),
+    bottomActiveTabId: input.bottomActiveTabId
+      ?? (activeSession ? resolveSessionPanelActiveTabId(activeSession, "bottom") : null),
+    rightPanelCollapsed: input.rightPanelCollapsed ?? activeSession?.panels.right.collapsed ?? true,
+    bottomPanelCollapsed: input.bottomPanelCollapsed ?? activeSession?.panels.bottom.collapsed ?? true,
+    rightPanelFullWidth: input.rightPanelFullWidth ?? activeSession?.panels.right.size.fullWidth ?? false,
+  };
+}
+
 export function WorkbenchShell({
   projects,
   dbProjectId,
@@ -772,10 +810,8 @@ export function WorkbenchShell({
   settingsToggleTick,
   sidebarToggleRequestTick = 0,
   sidebarToggleRequestSource = "keyboard_shortcut",
-  canNavigateBack = false,
-  canNavigateForward = false,
-  onNavigateBack,
-  onNavigateForward,
+  navigationCommandRequest = null,
+  onNavigationStateChange,
 }: WorkbenchShellProps) {
   const fallbackProjectId = projects[0]?.id ?? "default";
   const [activeProjectId, setActiveProjectId] = useState(dbProjectId || fallbackProjectId);
@@ -815,11 +851,15 @@ export function WorkbenchShell({
   const [appShellFocusAreaActive, setAppShellFocusAreaActive] = useState(false);
   const [sidebarTaskSearchOpenTick, setSidebarTaskSearchOpenTick] = useState(0);
   const [projectsSectionCollapsed, setProjectsSectionCollapsed] = useState(false);
+  const [shellNavigationHistory, setShellNavigationHistory] = useState(readWorkbenchShellNavigationHistoryState);
   const workbenchRootRef = useRef<HTMLDivElement | null>(null);
   const sessionContentRef = useRef<HTMLDivElement | null>(null);
   const pinningPreviewTabIdsRef = useRef<Set<string>>(new Set());
   const sidebarPointerRef = useRef<CodexSidebarPointerSnapshot>(CODEX_SIDEBAR_POINTER_DEFAULT);
   const lastHandledSidebarToggleRequestTickRef = useRef(sidebarToggleRequestTick);
+  const lastHandledNavigationCommandTickRef = useRef(navigationCommandRequest?.tick ?? 0);
+  const currentShellNavigationSnapshotRef = useRef<WorkbenchShellNavigationSnapshot | null>(null);
+  const applyingShellNavigationRef = useRef(false);
   const sidebarCollapsed = sidebar?.collapsed ?? localSidebarCollapsed;
   const sidebarWidth = sidebar?.width ?? localSidebarWidth;
   const lastHandledSettingsToggleTickRef = useRef(settingsToggleTick);
@@ -887,6 +927,30 @@ export function WorkbenchShell({
   const rightPanelFullWidth = Boolean(
     activeSession && sidePanelOpen && (rightPanel?.size.fullWidth ?? activeSession.isOverview),
   );
+  const shellCanNavigateBack = shellNavigationHistory.backStack.length > 0;
+  const shellCanNavigateForward = shellNavigationHistory.forwardStack.length > 0;
+  const currentShellNavigationSnapshot = useMemo<WorkbenchShellNavigationSnapshot | null>(() => {
+    if (!activeProject) return null;
+    return buildShellNavigationSnapshot({
+      activeProjectId: activeProject.id,
+      activeSession,
+      activeView,
+      rightActiveTabId,
+      bottomActiveTabId,
+      rightPanelCollapsed,
+      bottomPanelCollapsed,
+      rightPanelFullWidth,
+    });
+  }, [
+    activeProject,
+    activeSession,
+    activeView,
+    bottomActiveTabId,
+    bottomPanelCollapsed,
+    rightActiveTabId,
+    rightPanelCollapsed,
+    rightPanelFullWidth,
+  ]);
   const rightPanelSizingWidth = Math.max(sessionContentWidth, appShellWidth);
   const regularRightPanelWidth = clampRegularRightPanelWidth(
     rightPanelDragWidth ?? rightPanel?.size.widthPx ?? rightPanelWidth,
@@ -934,6 +998,21 @@ export function WorkbenchShell({
     sidebar?.topLevelSectionOrder,
   );
   const settingsSidebarTopLevelSections = sidebar?.topLevelSections ?? makeDefaultSidebarTopLevelSectionsPrefs();
+  useEffect(() => {
+    currentShellNavigationSnapshotRef.current = currentShellNavigationSnapshot;
+  }, [currentShellNavigationSnapshot]);
+
+  useEffect(() => {
+    writeWorkbenchShellNavigationHistoryState(shellNavigationHistory);
+  }, [shellNavigationHistory]);
+
+  useEffect(() => {
+    onNavigationStateChange?.({
+      canNavigateBack: shellCanNavigateBack,
+      canNavigateForward: shellCanNavigateForward,
+    });
+  }, [onNavigationStateChange, shellCanNavigateBack, shellCanNavigateForward]);
+
   const handleCodexAccountLogout = useCallback(async () => {
     await codexAccountActions.logout();
   }, [codexAccountActions]);
@@ -1162,11 +1241,12 @@ export function WorkbenchShell({
   }, [rightPanelSizingWidth]);
 
   useEffect(() => {
-    if (!projects.some((project) => project.id === activeProjectId)) {
-      const nextProjectId = dbProjectId || fallbackProjectId;
-      setActiveProjectId(nextProjectId);
-      setExpandedProjectIds((current) => new Set([...current, nextProjectId]));
-    }
+    const nextProjectId = projects.some((project) => project.id === dbProjectId)
+      ? dbProjectId
+      : fallbackProjectId;
+    if (nextProjectId === activeProjectId) return;
+    setActiveProjectId(nextProjectId);
+    setExpandedProjectIds((current) => new Set([...current, nextProjectId]));
   }, [activeProjectId, dbProjectId, fallbackProjectId, projects]);
 
   useEffect(() => {
@@ -1188,15 +1268,35 @@ export function WorkbenchShell({
     onActiveProjectSessionChange?.(activeSession?.id ?? null);
   }, [activeSession?.id, onActiveProjectSessionChange]);
 
+  const buildSnapshotForSession = useCallback((session: ProjectSession | null, projectId?: string) =>
+    buildShellNavigationSnapshot({
+      activeProjectId: projectId ?? session?.projectId ?? activeProjectId,
+      activeSession: session,
+      activeView,
+    }), [activeProjectId, activeView]);
+
+  const recordShellNavigation = useCallback((nextSnapshot: WorkbenchShellNavigationSnapshot) => {
+    if (applyingShellNavigationRef.current) return;
+    const currentSnapshot = currentShellNavigationSnapshotRef.current;
+    if (!currentSnapshot) return;
+    setShellNavigationHistory((current) =>
+      recordWorkbenchShellNavigationTransition(current, currentSnapshot, nextSnapshot)
+    );
+  }, []);
+
   const selectProject = useCallback((projectId: string) => {
+    const sessions = sessionsByProject[projectId] ?? [];
+    const overview = sessions.find((session) => session.isOverview) ?? sessions[0] ?? null;
+    recordShellNavigation(buildSnapshotForSession(overview, projectId));
     startTransition(() => {
       setActiveProjectId(projectId);
       setDbProject(projectId);
       setExpandedProjectIds((current) => new Set([...current, projectId]));
     });
-  }, [setDbProject]);
+  }, [buildSnapshotForSession, recordShellNavigation, sessionsByProject, setDbProject]);
 
   const selectSession = useCallback((session: ProjectSession) => {
+    recordShellNavigation(buildSnapshotForSession(session));
     startTransition(() => {
       setActiveProjectId(session.projectId);
       setActiveSessionId(session.id);
@@ -1211,7 +1311,7 @@ export function WorkbenchShell({
         })
         .catch(() => undefined);
     }
-  }, [mergeSessionInState, setDbProject]);
+  }, [buildSnapshotForSession, mergeSessionInState, recordShellNavigation, setDbProject]);
 
   useEffect(() => {
     if (!pendingSessionOpen) return;
@@ -1445,20 +1545,38 @@ export function WorkbenchShell({
     }
   }, [mergeSessionInState, refreshProjectSessions, renameSession, renameSessionTitle]);
 
+  const updateSessionPanel = useCallback(async (
+    sessionId: string,
+    panelId: PanelId,
+    input: Partial<ProjectSession["panels"][PanelId]>,
+    options?: { refresh?: boolean },
+  ) => {
+    const updated = (await invoke("project-session-panels:update", sessionId, panelId, input)) as ProjectSession | null;
+    if (!updated) return null;
+    if (options?.refresh !== false) await refreshProjectSessions(updated.projectId);
+    return updated;
+  }, [refreshProjectSessions]);
+
   const updateActivePanel = useCallback(async (
     panelId: PanelId,
     input: Partial<ProjectSession["panels"][PanelId]>,
     options?: { refresh?: boolean },
   ) => {
     if (!activeSession) return null;
-    const updated = (await invoke("project-session-panels:update", activeSession.id, panelId, input)) as ProjectSession | null;
-    if (!updated) return null;
-    if (options?.refresh !== false) await refreshProjectSessions(updated.projectId);
-    return updated;
-  }, [activeSession, refreshProjectSessions]);
+    return updateSessionPanel(activeSession.id, panelId, input, options);
+  }, [activeSession, updateSessionPanel]);
 
   const setActivePanelCollapsed = useCallback(async (panelId: PanelId, collapsed: boolean) => {
     if (!activeSession) return null;
+    const currentSnapshot = currentShellNavigationSnapshotRef.current;
+    if (currentSnapshot) {
+      recordShellNavigation({
+        ...currentSnapshot,
+        ...(panelId === "right"
+          ? { rightPanelCollapsed: collapsed }
+          : { bottomPanelCollapsed: collapsed }),
+      });
+    }
     const sessionId = activeSession.id;
     const overrideKey = makePanelPreviewKey(sessionId, panelId);
     setPanelCollapsedOverrides((current) => ({ ...current, [overrideKey]: collapsed }));
@@ -1482,7 +1600,7 @@ export function WorkbenchShell({
       toast.danger(error instanceof Error ? error.message : "Unable to update panel");
       return null;
     }
-  }, [activeSession, updateActivePanel]);
+  }, [activeSession, recordShellNavigation, updateActivePanel]);
 
   const clearPanelPreviewTab = useCallback((sessionId: string, panelId: PanelId) => {
     setPreviewTabsByPanel((current) => {
@@ -1499,6 +1617,21 @@ export function WorkbenchShell({
     clearPanelPreviewTab(activeSession.id, panelId);
     const panel = activeSession.panels[panelId];
     if (panel.layout.root.type !== "leaf") return;
+    const currentSnapshot = currentShellNavigationSnapshotRef.current;
+    if (currentSnapshot) {
+      recordShellNavigation({
+        ...currentSnapshot,
+        ...(panelId === "right"
+          ? {
+              rightActiveTabId: tabId,
+              ...(options?.openPanel ? { rightPanelCollapsed: false } : {}),
+            }
+          : {
+              bottomActiveTabId: tabId,
+              ...(options?.openPanel ? { bottomPanelCollapsed: false } : {}),
+            }),
+      });
+    }
     const layout = {
       ...panel.layout,
       root: {
@@ -1510,7 +1643,7 @@ export function WorkbenchShell({
       layout,
       ...(options?.openPanel ? { collapsed: false } : {}),
     });
-  }, [activeSession, clearPanelPreviewTab, updateActivePanel]);
+  }, [activeSession, clearPanelPreviewTab, recordShellNavigation, updateActivePanel]);
 
   const reorderTabs = useCallback(async (panelId: PanelId, activeId: string, overId: string) => {
     if (!activeSession) return;
@@ -1796,6 +1929,14 @@ export function WorkbenchShell({
 
   const toggleActiveRightPanelFullWidth = useCallback(() => {
     if (!activeSession) return;
+    const currentSnapshot = currentShellNavigationSnapshotRef.current;
+    if (currentSnapshot) {
+      recordShellNavigation({
+        ...currentSnapshot,
+        rightPanelCollapsed: false,
+        rightPanelFullWidth: !rightPanelFullWidth,
+      });
+    }
     const overrideKey = makePanelPreviewKey(activeSession.id, "right");
     setPanelCollapsedOverrides((current) => ({ ...current, [overrideKey]: false }));
     void (async () => {
@@ -1818,7 +1959,117 @@ export function WorkbenchShell({
         });
       }
     })();
-  }, [activeSession, rightPanelFullWidth, updateActivePanel]);
+  }, [activeSession, recordShellNavigation, rightPanelFullWidth, updateActivePanel]);
+
+  const applyPanelNavigationSnapshot = useCallback(async (
+    session: ProjectSession,
+    panelId: PanelId,
+    activeTabId: string | null,
+    collapsed: boolean,
+    fullWidth?: boolean,
+  ) => {
+    const panel = session.panels[panelId];
+    const panelTabIds = session.tabs.filter((tab) => tab.panelId === panelId).map((tab) => tab.id);
+    const knownTabIds = new Set(panelTabIds);
+    const layout = panel.layout.root.type === "leaf"
+      ? {
+        ...panel.layout,
+        root: {
+          ...panel.layout.root,
+          activeTabId: activeTabId === null
+            ? null
+            : knownTabIds.has(activeTabId)
+              ? activeTabId
+              : panel.layout.root.activeTabId,
+        },
+      }
+      : panel.layout;
+    await updateSessionPanel(
+      session.id,
+      panelId,
+      {
+        collapsed,
+        layout,
+        ...(panelId === "right"
+          ? { size: { ...panel.size, fullWidth: fullWidth ?? false } }
+          : {}),
+      },
+      { refresh: false },
+    );
+  }, [updateSessionPanel]);
+
+  const applyShellNavigationSnapshot = useCallback(async (snapshot: WorkbenchShellNavigationSnapshot) => {
+    if (!projects.some((candidate) => candidate.id === snapshot.activeProjectId)) return;
+
+    applyingShellNavigationRef.current = true;
+    let overrideSessionId: string | null = null;
+    try {
+      setActiveProjectId(snapshot.activeProjectId);
+      setDbProject(snapshot.activeProjectId);
+      setExpandedProjectIds((current) => new Set([...current, snapshot.activeProjectId]));
+
+      const projectSessions = sessionsByProject[snapshot.activeProjectId] ?? await refreshProjectSessions(snapshot.activeProjectId);
+      const targetSession =
+        projectSessions.find((session) => session.id === snapshot.activeSessionId)
+        ?? projectSessions.find((session) => session.isOverview)
+        ?? projectSessions[0]
+        ?? null;
+
+      setActiveSessionId(targetSession?.id ?? null);
+      if (!targetSession) return;
+
+      overrideSessionId = targetSession.id;
+      setPanelCollapsedOverrides((current) => ({
+        ...current,
+        [makePanelPreviewKey(targetSession.id, "right")]: snapshot.rightPanelCollapsed,
+        [makePanelPreviewKey(targetSession.id, "bottom")]: snapshot.bottomPanelCollapsed,
+      }));
+      await applyPanelNavigationSnapshot(
+        targetSession,
+        "right",
+        snapshot.rightActiveTabId,
+        snapshot.rightPanelCollapsed,
+        snapshot.rightPanelFullWidth,
+      );
+      await applyPanelNavigationSnapshot(
+        targetSession,
+        "bottom",
+        snapshot.bottomActiveTabId,
+        snapshot.bottomPanelCollapsed,
+      );
+      await refreshProjectSessions(targetSession.projectId);
+    } finally {
+      if (overrideSessionId) {
+        const sessionId = overrideSessionId;
+        setPanelCollapsedOverrides((current) => {
+          const next = { ...current };
+          delete next[makePanelPreviewKey(sessionId, "right")];
+          delete next[makePanelPreviewKey(sessionId, "bottom")];
+          return next;
+        });
+      }
+      applyingShellNavigationRef.current = false;
+    }
+  }, [applyPanelNavigationSnapshot, projects, refreshProjectSessions, sessionsByProject, setDbProject]);
+
+  const executeShellNavigation = useCallback(async (direction: "back" | "forward") => {
+    const currentSnapshot = currentShellNavigationSnapshotRef.current;
+    if (!currentSnapshot) return;
+    const result = direction === "back"
+      ? navigateBackInWorkbenchShellHistory(shellNavigationHistory, currentSnapshot)
+      : navigateForwardInWorkbenchShellHistory(shellNavigationHistory, currentSnapshot);
+    if (!result.snapshot) return;
+    setShellNavigationHistory(result.historyState);
+    await applyShellNavigationSnapshot(result.snapshot);
+  }, [applyShellNavigationSnapshot, shellNavigationHistory]);
+
+  useEffect(() => {
+    if (!navigationCommandRequest) return;
+    if (navigationCommandRequest.tick <= 0) return;
+    if (lastHandledNavigationCommandTickRef.current === navigationCommandRequest.tick) return;
+    lastHandledNavigationCommandTickRef.current = navigationCommandRequest.tick;
+    void executeShellNavigation(navigationCommandRequest.direction);
+  }, [executeShellNavigation, navigationCommandRequest]);
 
   const resizeRightPanel = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -2240,16 +2491,16 @@ export function WorkbenchShell({
       <WindowNavigationToolbarButton
         label={backCommand.label}
         shortcutLabel={backShortcutLabel}
-        disabled={!canNavigateBack || !onNavigateBack}
-        onClick={() => onNavigateBack?.("sidebar_back")}
+        disabled={!shellCanNavigateBack}
+        onClick={() => void executeShellNavigation("back")}
       >
         <ArrowLeft className="icon-xs" />
       </WindowNavigationToolbarButton>
       <WindowNavigationToolbarButton
         label={forwardCommand.label}
         shortcutLabel={forwardShortcutLabel}
-        disabled={!canNavigateForward || !onNavigateForward}
-        onClick={() => onNavigateForward?.("sidebar_forward")}
+        disabled={!shellCanNavigateForward}
+        onClick={() => void executeShellNavigation("forward")}
       >
         <ArrowLeft className="icon-xs -scale-x-100" />
       </WindowNavigationToolbarButton>

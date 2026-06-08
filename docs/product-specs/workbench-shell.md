@@ -31,13 +31,14 @@ Detailed Auto-review preset, config, and approval-lifecycle rules are specified 
   - `project_sessions`: project id, title, overview marker, order, left-pane collapse, and `panel_state_json` for right/bottom collapse, layout, size, and active tab.
   - `project_session_tabs`: session/project id, `panel_id`, kind, title, per-panel order, state key/value, and validated kind-specific config JSON.
   - `project_session_threads`: optional session-to-thread attachments; canonical thread metadata lives in `codex_threads`.
-- Window-local shell state owns only active project, active session, and transient focus history.
+- Window-local shell state owns active project, active session, settings route visibility, and transient focus history. App-window Back/Forward history is owned by `WorkbenchShell`, because that component owns active project/session selection plus right/bottom panel layout application.
 - Existing projects are migrated by creating missing Overview sessions. Existing cards, project data, history, and legacy `codex_card_threads` rows are migrated into `codex_threads` plus `codex_thread_card_links`.
 - Old stage-rail/window layout snapshots are best-effort inputs for active project/session defaults only; they are not authoritative shared session data.
 
 ## Navigation
 - Session switching changes the thread page plus the right and bottom panel tab groups.
-- App-window Back/Forward controls are available as titlebar buttons, command palette commands, `Cmd/Ctrl+[` and `Cmd/Ctrl+]`, desktop mouse Back/Forward buttons, and the macOS application menu; all routes use the same window-local workbench history callbacks. The command ids are `navigateBack` and `navigateForward`, labels are `Back` and `Forward`, and the disabled state follows the workbench back/forward stacks.
+- App-window Back/Forward controls are available as titlebar buttons, command palette commands, `Cmd/Ctrl+[` and `Cmd/Ctrl+]`, desktop mouse Back/Forward buttons, and the macOS application menu; all routes enter the same shell-owned navigation executor. The command ids are `navigateBack` and `navigateForward`, labels are `Back` and `Forward`, and the disabled state follows the shell-local back/forward stacks.
+- Each history snapshot stores the visible workbench context: active project id, active session id, active DB view, right/bottom active tab ids, right/bottom collapsed state, and right-panel full-width state. Settings routes, command palette state, task search, and browser-sidebar webview history stay outside this stack.
 - Tab switching persists through the owning panel's v1 leaf layout.
 - Browser-sidebar webview navigation remains separate from app-window history. Browser tab `canGoBack` / `canGoForward` and `webContents.goBack` / `goForward` must not drive the top-left workbench Back/Forward buttons.
 - Browser and Review are session singleton tab kinds across both right and bottom panels; creation affordances hide them when either kind already exists, and duplicate create requests focus the existing tab instead of adding another.

@@ -13,6 +13,12 @@ import {
   type SupportedDbView,
 } from "@/lib/db-view-prefs";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
+import type {
+  WorkbenchNavigationCommandRequest,
+  WorkbenchNavigationCommandState,
+  WorkbenchNavigationCommandSource,
+  WorkbenchNavigationDirection,
+} from "../../../shared/window-navigation";
 
 let invokeCalls: unknown[][] = [];
 let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
@@ -441,20 +447,16 @@ function renderWorkbench({
   searchByProject = {},
   dbViewPrefsByProject = {},
   sidebar,
-  canNavigateBack = false,
-  canNavigateForward = false,
-  onNavigateBack,
-  onNavigateForward,
+  navigationCommandRequest = null,
+  onNavigationStateChange,
 }: {
   projects?: Project[];
   sessionsByProject?: Record<string, ProjectSession[]>;
   searchByProject?: Record<string, string>;
   dbViewPrefsByProject?: Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>;
   sidebar?: { collapsed: boolean; width: number };
-  canNavigateBack?: boolean;
-  canNavigateForward?: boolean;
-  onNavigateBack?: ComponentProps<typeof WorkbenchShell>["onNavigateBack"];
-  onNavigateForward?: ComponentProps<typeof WorkbenchShell>["onNavigateForward"];
+  navigationCommandRequest?: WorkbenchNavigationCommandRequest | null;
+  onNavigationStateChange?: ComponentProps<typeof WorkbenchShell>["onNavigationStateChange"];
 } = {}) {
   let sessionState = sessionsByProject;
   mockInvokeImpl = async (channel, ...args) => {
@@ -652,12 +654,28 @@ function renderWorkbench({
   };
 
   const setDbProjectCalls: string[] = [];
+  const navigationStateChanges: WorkbenchNavigationCommandState[] = [];
+  let requestWorkbenchNavigation: (
+    direction: WorkbenchNavigationDirection,
+    source?: WorkbenchNavigationCommandSource,
+  ) => void = () => undefined;
+
   function WorkbenchShellTestHarness() {
+    const [dbProjectId, setDbProjectId] = useState(projects[0]?.id ?? "alpha");
     const [sidebarState, setSidebarState] = useState(sidebar ?? { collapsed: false, width: 300 });
+    const [currentNavigationCommandRequest, setCurrentNavigationCommandRequest] =
+      useState<WorkbenchNavigationCommandRequest | null>(navigationCommandRequest);
+    requestWorkbenchNavigation = (direction, source = direction === "back" ? "sidebar_back" : "sidebar_forward") => {
+      setCurrentNavigationCommandRequest((current) => ({
+        tick: (current?.tick ?? 0) + 1,
+        direction,
+        source,
+      }));
+    };
     return (
       <WorkbenchShell
         projects={projects}
-        dbProjectId={projects[0]?.id ?? "alpha"}
+        dbProjectId={dbProjectId}
         activeView="kanban"
         activeSearchQuery=""
         activeDbViewPrefs={null}
@@ -672,6 +690,7 @@ function renderWorkbench({
         cardStageCloseRef={createRef()}
         setDbProject={(projectId) => {
           setDbProjectCalls.push(projectId);
+          setDbProjectId(projectId);
         }}
         setSearchQuery={() => undefined}
         setDbViewPrefs={() => undefined}
@@ -688,10 +707,11 @@ function renderWorkbench({
         setSidebarWidth={(width) => {
           setSidebarState((current) => ({ ...current, width }));
         }}
-        canNavigateBack={canNavigateBack}
-        canNavigateForward={canNavigateForward}
-        onNavigateBack={onNavigateBack}
-        onNavigateForward={onNavigateForward}
+        navigationCommandRequest={currentNavigationCommandRequest}
+        onNavigationStateChange={(state) => {
+          navigationStateChanges.push(state);
+          onNavigationStateChange?.(state);
+        }}
       />
     );
   }
@@ -699,7 +719,17 @@ function renderWorkbench({
   const result = render(
     <WorkbenchShellTestHarness />,
   );
-  return { ...result, setDbProjectCalls };
+  return {
+    ...result,
+    setDbProjectCalls,
+    navigationStateChanges,
+    requestWorkbenchNavigation: (
+      direction: WorkbenchNavigationDirection,
+      source?: WorkbenchNavigationCommandSource,
+    ) => {
+      requestWorkbenchNavigation(direction, source);
+    },
+  };
 }
 
 beforeEach(() => {
@@ -708,6 +738,7 @@ beforeEach(() => {
   mockInvokeImpl = null;
   setWindowInnerWidthForTest(1024);
   localStorage.clear();
+  sessionStorage.clear();
   delete (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
   delete (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
   delete (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> }).__lastTerminalPanelProps;
@@ -2726,19 +2757,28 @@ describe("workbench session shell", () => {
     }
   });
 
-  test("window navigation chrome dispatches Codex sidebar command sources", async () => {
-    const backSources: string[] = [];
-    const forwardSources: string[] = [];
+  test("window navigation chrome restores prior and next active sessions", async () => {
+    const overviewSession = makeSession();
+    const workSession = makeSession({
+      id: "session:alpha:work",
+      title: "Work",
+      isOverview: false,
+      order: 1,
+      tabs: [
+        {
+          id: "session:alpha:work:db",
+          sessionId: "session:alpha:work",
+          projectId: "alpha",
+          kind: "db_view",
+          title: "DB View",
+          config: { projectId: "alpha", view: "list" },
+        },
+      ],
+      rightLayout: makePanelLayout(["session:alpha:work:db"], "session:alpha:work:db"),
+    });
     const screen = renderWorkbench({
-      sidebar: { collapsed: true, width: 300 },
-      canNavigateBack: true,
-      canNavigateForward: true,
-      onNavigateBack: (source) => {
-        backSources.push(source);
-      },
-      onNavigateForward: (source) => {
-        forwardSources.push(source);
-      },
+      sidebar: { collapsed: false, width: 300 },
+      sessionsByProject: { alpha: [overviewSession, workSession] },
     });
     await settleAsyncRender();
     await settleAsyncRender();
@@ -2747,12 +2787,158 @@ describe("workbench session shell", () => {
     const backButton = within(leftSlot).getByRole("button", { name: "Back" });
     const forwardButton = within(leftSlot).getByRole("button", { name: "Forward" });
 
-    expect(backButton.hasAttribute("disabled")).toBeFalse();
-    expect(forwardButton.hasAttribute("disabled")).toBeFalse();
-    fireEvent.click(backButton);
-    fireEvent.click(forwardButton);
+    expect(backButton.hasAttribute("disabled")).toBeTrue();
+    expect(textContent(screen.container).includes("DB:alpha:kanban")).toBeTrue();
 
-    expect(backSources.join(",")).toBe("sidebar_back");
-    expect(forwardSources.join(",")).toBe("sidebar_forward");
+    await act(async () => {
+      fireEvent.click(screen.getByText("Work"));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(backButton.hasAttribute("disabled")).toBeFalse();
+    expect(forwardButton.hasAttribute("disabled")).toBeTrue();
+    expect(textContent(screen.container).includes("DB:alpha:list")).toBeTrue();
+
+    await act(async () => {
+      fireEvent.click(backButton);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(textContent(screen.container).includes("DB:alpha:kanban")).toBeTrue();
+    expect(backButton.hasAttribute("disabled")).toBeTrue();
+    expect(forwardButton.hasAttribute("disabled")).toBeFalse();
+
+    await act(async () => {
+      fireEvent.click(forwardButton);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(textContent(screen.container).includes("DB:alpha:list")).toBeTrue();
+  });
+
+  test("window navigation command requests use the same shell history path", async () => {
+    const overviewSession = makeSession();
+    const workSession = makeSession({
+      id: "session:alpha:work",
+      title: "Work",
+      isOverview: false,
+      order: 1,
+      tabs: [
+        {
+          id: "session:alpha:work:db",
+          sessionId: "session:alpha:work",
+          projectId: "alpha",
+          kind: "db_view",
+          title: "DB View",
+          config: { projectId: "alpha", view: "list" },
+        },
+      ],
+      rightLayout: makePanelLayout(["session:alpha:work:db"], "session:alpha:work:db"),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [overviewSession, workSession] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Work"));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    await act(async () => {
+      screen.requestWorkbenchNavigation("back", "command_palette");
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(textContent(screen.container).includes("DB:alpha:kanban")).toBeTrue();
+
+    await act(async () => {
+      screen.requestWorkbenchNavigation("forward", "menu");
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(textContent(screen.container).includes("DB:alpha:list")).toBeTrue();
+  });
+
+  test("window navigation restores right-panel tab selection", async () => {
+    const browserTab = makeSessionTab({
+      id: "overview:alpha:browser",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "browser_placeholder",
+      title: "Browser",
+      order: 1,
+      config: {},
+    });
+    const session = makeSession({
+      tabs: [...makeSession().tabs, browserTab],
+      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id], "overview:alpha:db"),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(textContent(screen.container).includes("DB:alpha:kanban")).toBeTrue();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("tab", { name: "Browser" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(screen.getByText("Open a website") !== null).toBeTrue();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Back" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(textContent(screen.container).includes("DB:alpha:kanban")).toBeTrue();
+  });
+
+  test("window navigation restores right-panel collapsed state", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeSession({ rightCollapsed: false })] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const toggleButton = screen.getByRole("button", { name: "Toggle side panel" });
+    expect(screen.queryByTestId("session-right-panel") !== null).toBeTrue();
+    expect(toggleButton.getAttribute("aria-pressed")).toBe("true");
+
+    await act(async () => {
+      fireEvent.click(toggleButton);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(toggleButton.getAttribute("aria-pressed")).toBe("false");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Back" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(screen.queryByTestId("session-right-panel") !== null).toBeTrue();
+    expect(toggleButton.getAttribute("aria-pressed")).toBe("true");
   });
 });

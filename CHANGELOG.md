@@ -41,6 +41,7 @@ All notable changes to this project will be documented in this file.
 - Removed the old workspace terminal drawer state and right-pane mirror columns; Terminal tabs and panel state now live only in project sessions.
 
 ### Fixed
+- Fixed app-window Back/Forward controls so titlebar clicks, shortcuts, mouse buttons, and menu commands restore the active project/session and panel context in the current shell.
 - Removed the redundant `Session Terminal` body row from terminal tabs so the terminal content starts directly below the tab chrome.
 - Fixed collapsed sidebar titlebar buttons so they match the top-right toolbar controls for size, color, icon scale, and hover highlight instead of using project-row hover styling.
 - Fixed the right-panel-open thread summary trigger so it sits at the thread/right-panel boundary, keeps the active icon unclipped, and opens the summary popover when clicked.

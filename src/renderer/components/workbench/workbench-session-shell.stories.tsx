@@ -3,6 +3,10 @@ import type { Dispatch, SetStateAction } from "react";
 import { useEffect, useMemo, useState } from "react";
 import type { Board, Project, ProjectSession, ProjectSessionTab } from "@/lib/types";
 import type { WorkbenchView } from "@/lib/use-workbench-state";
+import {
+  writeWorkbenchShellNavigationHistoryState,
+  type WorkbenchShellNavigationSnapshot,
+} from "@/lib/workbench-shell-navigation-history";
 import { WorkbenchShell } from "./workbench-shell";
 
 type ShellStoryArgs = {
@@ -382,6 +386,47 @@ function makeSecondarySession(args: ShellStoryArgs): ProjectSession {
   };
 }
 
+function resolveStoryPanelActiveTabId(session: ProjectSession, panelId: "right" | "bottom"): string | null {
+  const panel = session.panels[panelId];
+  if (panel.layout.root.type !== "leaf") return null;
+  return panel.layout.root.activeTabId;
+}
+
+function makeStoryNavigationSnapshot(session: ProjectSession, projectId = session.projectId): WorkbenchShellNavigationSnapshot {
+  return {
+    activeProjectId: projectId,
+    activeSessionId: session.id,
+    activeView: "kanban",
+    rightActiveTabId: resolveStoryPanelActiveTabId(session, "right"),
+    bottomActiveTabId: resolveStoryPanelActiveTabId(session, "bottom"),
+    rightPanelCollapsed: session.panels.right.collapsed,
+    bottomPanelCollapsed: session.panels.bottom.collapsed,
+    rightPanelFullWidth: session.panels.right.size.fullWidth ?? false,
+  };
+}
+
+function writeStoryNavigationHistory(
+  navigationHistory: ShellStoryArgs["navigationHistory"],
+  sessionsByProject: Record<string, ProjectSession[]>,
+): void {
+  const currentSession = sessionsByProject.nodex?.[0] ?? null;
+  const backSession = sessionsByProject.nodex?.[1] ?? currentSession;
+  const forwardSession = sessionsByProject["codex-readable"]?.[0] ?? currentSession;
+  const backStack =
+    navigationHistory === "back" || navigationHistory === "both"
+      ? backSession
+        ? [makeStoryNavigationSnapshot(backSession)]
+        : []
+      : [];
+  const forwardStack =
+    navigationHistory === "forward" || navigationHistory === "both"
+      ? forwardSession
+        ? [makeStoryNavigationSnapshot(forwardSession, forwardSession.projectId)]
+        : []
+      : [];
+  writeWorkbenchShellNavigationHistoryState({ backStack, forwardStack });
+}
+
 function ProjectSessionShellStory(args: ShellStoryArgs) {
   const initialSessionsByProject = useMemo<Record<string, ProjectSession[]>>(
     () => ({
@@ -410,8 +455,8 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
   const [sessionsByProject, setSessionsByProject] = useState(initialSessionsByProject);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(args.sidebar === "collapsed");
   const [sidebarWidth, setSidebarWidth] = useState<number>(args.sidebarWidth);
-  const canNavigateBack = args.navigationHistory === "back" || args.navigationHistory === "both";
-  const canNavigateForward = args.navigationHistory === "forward" || args.navigationHistory === "both";
+
+  writeStoryNavigationHistory(args.navigationHistory, initialSessionsByProject);
 
   installStoryApi(sessionsByProject, setSessionsByProject);
 
@@ -476,10 +521,6 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
         onDeleteProject={async () => false}
         onRequestProjectPickerOpen={() => undefined}
         threadSearchOpenTick={0}
-        canNavigateBack={canNavigateBack}
-        canNavigateForward={canNavigateForward}
-        onNavigateBack={() => undefined}
-        onNavigateForward={() => undefined}
       />
     </div>
   );

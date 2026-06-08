@@ -26,6 +26,19 @@ export type WorkbenchNavigationCommandSource =
   | "menu"
   | "command_palette";
 
+export type WorkbenchNavigationDirection = "back" | "forward";
+
+export interface WorkbenchNavigationCommandRequest {
+  tick: number;
+  direction: WorkbenchNavigationDirection;
+  source: WorkbenchNavigationCommandSource;
+}
+
+export interface WorkbenchNavigationCommandState {
+  canNavigateBack: boolean;
+  canNavigateForward: boolean;
+}
+
 export type WorkbenchSidebarToggleCommandSource =
   | "sidebar_trigger"
   | "composer_sidebar_shortcut"

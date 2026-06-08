@@ -19,8 +19,6 @@ import { useWorkbenchShortcuts } from "@/lib/use-workbench-shortcuts";
 import { invoke } from "@/lib/api";
 import { registerAppCloseFlushHandler } from "@/lib/app-close-flush";
 import {
-  navigateBackInHistory,
-  navigateForwardInHistory,
   readNavigationHistoryState,
   recordNavigationTransition,
   writeNavigationHistoryState,
@@ -43,6 +41,8 @@ import type {
   DatabaseMigrationProgress,
 } from "../shared/app-startup";
 import type {
+  WorkbenchNavigationCommandRequest,
+  WorkbenchNavigationDirection,
   WorkbenchNavigationCommandSource,
   WorkbenchSidebarToggleCommandSource,
 } from "../shared/window-navigation";
@@ -125,6 +125,8 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     tick: number;
     source: WorkbenchSidebarToggleCommandSource;
   }>({ tick: 0, source: "keyboard_shortcut" });
+  const [workbenchNavigationCommandRequest, setWorkbenchNavigationCommandRequest] =
+    useState<WorkbenchNavigationCommandRequest | null>(null);
   const [settingsToggleTick, setSettingsToggleTick] = useState(0);
   const [activeProjectSessionId, setActiveProjectSessionId] = useState<string | null>(
     initialWindowSessionBootstrap.session.layout.activeProjectSessionId ?? null,
@@ -523,33 +525,6 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     return direction;
   }, [focusedStage, slidingWindowPaneCount, stageNavDirection]);
 
-  const applyNavigationSnapshot = useCallback(async (snapshot: NavigationSnapshot) => {
-    setDbProjectState(snapshot.dbProjectId);
-    setWorkbenchView(snapshot.dbProjectId, snapshot.activeView);
-    setActiveCardsTabState(snapshot.dbProjectId, snapshot.activeCardsTabId);
-    setActiveRecentCardSessionState(snapshot.activeRecentSessionId);
-    setThreadsProjectIdState(snapshot.threadsProjectId);
-    setActiveThreadsTabState(snapshot.threadsProjectId, snapshot.activeThreadsTabId);
-    setActiveFilesTabState(snapshot.dbProjectId, snapshot.activeFilesTabId);
-    if (snapshot.cardStage.open && snapshot.cardStage.cardId) {
-      await openCardStageSession(snapshot.cardStage.projectId, snapshot.cardStage.cardId);
-    } else {
-      closeCardStageState();
-    }
-    setFocusedStageState(snapshot.dbProjectId, snapshot.focusedStage, snapshot.stageNavDirection);
-  }, [
-    closeCardStageState,
-    openCardStageSession,
-    setActiveCardsTabState,
-    setActiveFilesTabState,
-    setActiveRecentCardSessionState,
-    setActiveThreadsTabState,
-    setDbProjectState,
-    setFocusedStageState,
-    setThreadsProjectIdState,
-    setWorkbenchView,
-  ]);
-
   const navigateToStage = useCallback((projectId: string, stageId: StageId, fallbackDirection?: StageNavDirection) => {
     const nextSnapshot: NavigationSnapshot = {
       ...currentNavigationSnapshotRef.current,
@@ -703,20 +678,6 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     focusStageWithNearestIntent(projectId, "files");
   }, [focusStageWithNearestIntent, recordNavigation, resolveNavigationStageDirection, setActiveFilesTabState]);
 
-  const navigateBack: (source?: WorkbenchNavigationCommandSource) => Promise<void> = useCallback(async () => {
-    const result = navigateBackInHistory(navigationHistory, currentNavigationSnapshotRef.current);
-    if (!result.snapshot) return;
-    setNavigationHistory(result.historyState);
-    await applyNavigationSnapshot(result.snapshot);
-  }, [applyNavigationSnapshot, navigationHistory]);
-
-  const navigateForward: (source?: WorkbenchNavigationCommandSource) => Promise<void> = useCallback(async () => {
-    const result = navigateForwardInHistory(navigationHistory, currentNavigationSnapshotRef.current);
-    if (!result.snapshot) return;
-    setNavigationHistory(result.historyState);
-    await applyNavigationSnapshot(result.snapshot);
-  }, [applyNavigationSnapshot, navigationHistory]);
-
   const requestSidebarToggle = useCallback((source: WorkbenchSidebarToggleCommandSource) => {
     setSidebarToggleRequest((current) => ({
       tick: current.tick + 1,
@@ -724,19 +685,30 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     }));
   }, []);
 
+  const requestWorkbenchNavigation = useCallback((
+    direction: WorkbenchNavigationDirection,
+    source: WorkbenchNavigationCommandSource,
+  ) => {
+    setWorkbenchNavigationCommandRequest((current) => ({
+      tick: (current?.tick ?? 0) + 1,
+      direction,
+      source,
+    }));
+  }, []);
+
   useEffect(() => {
     if (!window.api?.onNavigateBack) return undefined;
     return window.api.onNavigateBack(() => {
-      void navigateBack("menu");
+      requestWorkbenchNavigation("back", "menu");
     });
-  }, [navigateBack]);
+  }, [requestWorkbenchNavigation]);
 
   useEffect(() => {
     if (!window.api?.onNavigateForward) return undefined;
     return window.api.onNavigateForward(() => {
-      void navigateForward("menu");
+      requestWorkbenchNavigation("forward", "menu");
     });
-  }, [navigateForward]);
+  }, [requestWorkbenchNavigation]);
 
   useEffect(() => {
     if (!window.api?.onToggleSidebar) return undefined;
@@ -956,10 +928,10 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     onRequestDiffSearch: handleOpenDiffSearch,
     onRequestSettingsToggle: handleToggleSettings,
     navigateBack: (source) => {
-      void navigateBack(source);
+      requestWorkbenchNavigation("back", source);
     },
     navigateForward: (source) => {
-      void navigateForward(source);
+      requestWorkbenchNavigation("forward", source);
     },
     onToggleSidebar: requestSidebarToggle,
   });
@@ -1032,7 +1004,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       onReminderHandled={handleReminderHandled}
       onOpenProjectSessionInNewWindow={handleOpenProjectSessionInNewWindow}
       openCardStage={navigateToCard}
-      setDbProject={navigateToProject}
+      setDbProject={setDbProjectState}
       setSearchQuery={setSearchQuery}
       setDbViewPrefs={setDbViewPrefs}
       setSidebarCollapsed={setSidebarCollapsed}
@@ -1055,6 +1027,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       closeCardStage={closeCardStageState}
       onLeaveCardStageCard={recordCardLeave}
       cardStageSessionSnapshotRef={cardStageSessionSnapshotRef}
+      navigationCommandRequest={workbenchNavigationCommandRequest}
       onRequestProjectPickerOpen={handleOpenProjectPicker}
       projectPickerOpenTick={projectPickerOpenTick}
       taskSearchOpenTick={taskSearchOpenTick}
@@ -1074,14 +1047,6 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       navigateToCardsTab={navigateToCardsTab}
       navigateToThreadTab={navigateToThreadTab}
       navigateToFilesTab={navigateToFilesTab}
-      canNavigateBack={navigationHistory.backStack.length > 0}
-      canNavigateForward={navigationHistory.forwardStack.length > 0}
-      onNavigateBack={(source) => {
-        void navigateBack(source);
-      }}
-      onNavigateForward={(source) => {
-        void navigateForward(source);
-      }}
       onRequestNewWindow={() => {
         void handleRequestNewWindow();
       }}
