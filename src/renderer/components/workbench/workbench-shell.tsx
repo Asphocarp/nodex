@@ -697,6 +697,7 @@ export function WorkbenchShell({
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [previewTabsByPanel, setPreviewTabsByPanel] = useState<Record<string, ProjectSessionPreviewTab>>({});
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT_WIDTH);
+  const [rightPanelDragWidth, setRightPanelDragWidth] = useState<number | null>(null);
   const [sessionContentWidth, setSessionContentWidth] = useState(0);
   const [sessionContentHeight, setSessionContentHeight] = useState(0);
   const [headerLeftWidth, setHeaderLeftWidth] = useState(0);
@@ -771,7 +772,7 @@ export function WorkbenchShell({
     activeSession && !rightPanel?.collapsed && (rightPanel?.size.fullWidth ?? activeSession.isOverview),
   );
   const regularRightPanelWidth = clampRegularRightPanelWidth(
-    rightPanel?.size.widthPx ?? rightPanelWidth,
+    rightPanelDragWidth ?? rightPanel?.size.widthPx ?? rightPanelWidth,
     sessionContentWidth,
   );
   const bottomPanelHeight = clampBottomPanelHeight(
@@ -1301,9 +1302,11 @@ export function WorkbenchShell({
     const startWidth = regularRightPanelWidth;
 
     let latestWidth = startWidth;
+    setRightPanelDragWidth(startWidth);
     const onMouseMove = (moveEvent: MouseEvent) => {
       const nextWidth = clampRegularRightPanelWidth(startWidth + startX - moveEvent.clientX, sessionContentWidth);
       latestWidth = nextWidth;
+      setRightPanelDragWidth(nextWidth);
       setRightPanelWidth(nextWidth);
     };
 
@@ -1312,14 +1315,19 @@ export function WorkbenchShell({
       document.body.style.cursor = "";
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
-      if (activeSession) {
-        void updateActivePanel("right", {
-          size: {
-            ...activeSession.panels.right.size,
-            widthPx: latestWidth,
-          },
-        });
-      }
+      void (async () => {
+        try {
+          if (!activeSession) return;
+          await updateActivePanel("right", {
+            size: {
+              ...activeSession.panels.right.size,
+              widthPx: latestWidth,
+            },
+          });
+        } finally {
+          setRightPanelDragWidth(null);
+        }
+      })();
     };
 
     document.body.style.userSelect = "none";

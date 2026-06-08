@@ -1636,6 +1636,53 @@ describe("workbench session shell", () => {
     expect(restoreButton.querySelector("path")?.getAttribute("d")?.startsWith(CODEX_RESTORE_PANEL_ICON_PREFIX)).toBeTrue();
   });
 
+  test("right panel resize previews the dragged width before persistence", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [
+          makeSession({
+            id: "session:alpha:build",
+            title: "Build",
+            isOverview: false,
+            rightCollapsed: false,
+          }),
+        ],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const rightPanel = screen.getByTestId("session-right-panel");
+    const separator = screen.getByRole("separator", { name: "Resize right panel" });
+    expect(rightPanel.getAttribute("style")?.includes("width: 600px")).toBeTrue();
+
+    await act(async () => {
+      fireEvent.mouseDown(separator, { clientX: 700 });
+      fireEvent.mouseMove(window, { clientX: 750 });
+      await Promise.resolve();
+    });
+
+    expect(rightPanel.getAttribute("style")?.includes("width: 550px")).toBeTrue();
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-session-panels:update"
+      && call[1] === "session:alpha:build"
+      && call[2] === "right"
+      && ((call[3] as { size?: { widthPx?: number } })?.size?.widthPx ?? null) === 550
+    )).toBeFalse();
+
+    await act(async () => {
+      fireEvent.mouseUp(window);
+      await Promise.resolve();
+    });
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-session-panels:update"
+      && call[1] === "session:alpha:build"
+      && call[2] === "right"
+      && ((call[3] as { size?: { widthPx?: number } })?.size?.widthPx ?? null) === 550
+    )).toBeTrue();
+  });
+
   test("overview regular-width override survives hiding and showing the side panel", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
