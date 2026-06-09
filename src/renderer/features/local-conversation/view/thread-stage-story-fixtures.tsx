@@ -2226,7 +2226,6 @@ export function buildThreadStageStorySurfaceModels(
     threadId: conversation?.threadId ?? runtime.activeThreadSummary?.threadId ?? activeThreadId,
     cardId: conversation?.cardId ?? runtime.activeThreadSummary?.cardId ?? runtime.newThreadTarget?.cardId ?? null,
     title: resolveStoryThreadTitle(runtime),
-    showSeparator: false,
     openCardTarget: resolveStoryOpenCardTarget(runtime),
     activeThreadCardColumnId: STORY_COLUMN_ID,
     connection: DEFAULT_CONNECTION,

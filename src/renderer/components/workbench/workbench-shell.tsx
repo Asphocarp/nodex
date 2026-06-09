@@ -94,8 +94,14 @@ import {
   readThreadQueueFollowUpsEnabled,
   writeThreadQueueFollowUpsEnabled,
 } from "@/lib/thread-composer-follow-up-mode";
+import { ThreadHeaderPortalProvider } from "@/lib/thread-header-portal";
 import {
+  CODEX_SHELL_MEDIUM_WIDTH_PX,
+  CODEX_SHELL_NARROW_WIDTH_PX,
   resolveCodexAnimatedPanelSize,
+  resolveCodexHeaderEdgeScroll,
+  resolveCodexMainContentFrameBorder,
+  resolveCodexMainContentTargetWidth,
   resolveCodexSummaryContentShift,
   resolveCodexSummaryPanelLayoutMode,
   useCodexAnimatedPanelState,
@@ -147,6 +153,7 @@ import type {
   WorktreeEnvironmentOption,
 } from "@/lib/types";
 import type { ThreadStageActions } from "@/features/local-conversation";
+import type { ThreadSummaryPanelAuxiliaryRow } from "@/features/local-conversation/thread-stage-types";
 import {
   getDefaultDbViewPrefs,
   viewSupportsDbViewPrefs,
@@ -674,6 +681,12 @@ function readCodexViewportWidth(root: HTMLElement | null): number {
   return window.innerWidth / readCodexWindowZoom(root);
 }
 
+function readCodexRootFontSize(): number {
+  if (typeof window === "undefined") return 16;
+  const parsedFontSize = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize);
+  return Number.isFinite(parsedFontSize) && parsedFontSize > 0 ? parsedFontSize : 16;
+}
+
 function clampBottomPanelHeight(height: number, sessionHeight: number): number {
   const maxHeight = sessionHeight > 0
     ? Math.max(BOTTOM_PANEL_MIN_HEIGHT, Math.floor(sessionHeight / 2))
@@ -893,11 +906,14 @@ export function WorkbenchShell({
   const [appShellWidth, setAppShellWidth] = useState(() =>
     typeof window === "undefined" ? 0 : window.innerWidth,
   );
+  const [rootFontSizePx, setRootFontSizePx] = useState(readCodexRootFontSize);
   const [headerLeftWidth, setHeaderLeftWidth] = useState(0);
   const [, setHeaderLeftRailWidth] = useState(0);
   const [headerRightWidth, setHeaderRightWidth] = useState(RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX);
   const [headerRightRailWidth, setHeaderRightRailWidth] = useState(RIGHT_PANEL_HEADER_FALLBACK_RAIL_WIDTH_PX);
+  const [threadHeaderPortalElement, setThreadHeaderPortalElement] = useState<HTMLDivElement | null>(null);
   const [threadSummaryPanelPinnedOpen, setThreadSummaryPanelPinnedOpen] = useState(readThreadSummaryPanelPinnedOpen);
+  const [threadSummaryPanelPopoverOpen, setThreadSummaryPanelPopoverOpen] = useState(false);
   const [localSidebarCollapsed, setLocalSidebarCollapsed] = useState(false);
   const [localSidebarWidth, setLocalSidebarWidth] = useState(CODEX_SIDEBAR_WIDTH_DEFAULT_PX);
   const [sidebarPointer, setSidebarPointer] = useState<CodexSidebarPointerSnapshot>(CODEX_SIDEBAR_POINTER_DEFAULT);
@@ -918,6 +934,8 @@ export function WorkbenchShell({
   const lastHandledNavigationCommandTickRef = useRef(navigationCommandRequest?.tick ?? 0);
   const currentShellNavigationSnapshotRef = useRef<WorkbenchShellNavigationSnapshot | null>(null);
   const applyingShellNavigationRef = useRef(false);
+  const shellAtMediumWidthRef = useRef(false);
+  const shellAtNarrowWidthRef = useRef(false);
   const sidebarCollapsed = sidebar?.collapsed ?? localSidebarCollapsed;
   const sidebarWidth = sidebar?.width ?? localSidebarWidth;
   const lastHandledSettingsToggleTickRef = useRef(settingsToggleTick);
@@ -1033,7 +1051,11 @@ export function WorkbenchShell({
     rightPanelCollapsed,
     rightPanelFullWidth,
   ]);
-  const rightPanelSizingWidth = Math.max(sessionContentWidth, appShellWidth);
+  const shellMainContentWidth = Math.max(
+    0,
+    appShellWidth - (sidebarCollapsed ? 0 : sidebarWidth),
+  );
+  const rightPanelSizingWidth = Math.max(sessionContentWidth, shellMainContentWidth);
   const regularRightPanelWidth = clampRegularRightPanelWidth(
     rightPanelDragWidth ?? rightPanel?.size.widthPx ?? rightPanelWidth,
     rightPanelSizingWidth,
@@ -1068,12 +1090,27 @@ export function WorkbenchShell({
     bottomPanelMotion.animatedSize,
     (latestHeight) => `${latestHeight}px`,
   );
-  const summaryLayoutContentWidth = Math.max(sessionContentWidth, appShellWidth);
   const mainContentTargetWidth = activeSession
-    ? rightPanelFullWidth
-      ? 0
-      : Math.max(0, summaryLayoutContentWidth - (sidePanelOpen ? regularRightPanelWidth : 0))
+    ? resolveCodexMainContentTargetWidth({
+        shellWidth: appShellWidth,
+        leftSidebarOpen: !sidebarCollapsed,
+        leftSidebarWidth: sidebarWidth,
+        rightPanelOpen: sidePanelOpen,
+        rightPanelWidth: regularRightPanelWidth,
+        rightPanelFullWidth,
+      })
     : 0;
+  const appShellMainContentLayout = "thread-edge-scroll" as const;
+  const appShellHeaderEdgeScroll = resolveCodexHeaderEdgeScroll({
+    layout: appShellMainContentLayout,
+    mainContentWidth: mainContentTargetWidth,
+    rootFontSizePx,
+    rightPanelFullWidth,
+  });
+  const appShellMainContentFrameBorderVisible = resolveCodexMainContentFrameBorder({
+    rightPanelOpen: sidePanelOpen,
+    headerEdgeScroll: appShellHeaderEdgeScroll,
+  });
   const threadSummaryPanelLayoutMode: ThreadSummaryPanelLayoutMode =
     resolveCodexSummaryPanelLayoutMode(mainContentTargetWidth);
   const settingsSidebarTopLevelSectionOrder = normalizeSidebarTopLevelSectionOrder(
@@ -1135,11 +1172,6 @@ export function WorkbenchShell({
       ? effectiveHeaderLeftWidth
       : Math.max(headerLeftWidth, safeHeaderLeftWidth + 24)
     : effectiveHeaderLeftWidth;
-  const threadStageHeaderLeftPadding = realSidebarMounted
-    ? "calc(var(--spacing) * 3)"
-    : sidebarCollapsed
-    ? `calc(${effectiveHeaderLeftWidth}px + var(--spacing) * 4)`
-    : "calc(var(--spacing) * 3)";
 
   useEffect(() => {
     if (!activeSession) {
@@ -1309,6 +1341,7 @@ export function WorkbenchShell({
   useEffect(() => {
     const measure = () => {
       setAppShellWidth(readCodexViewportWidth(workbenchRootRef.current));
+      setRootFontSizePx(readCodexRootFontSize());
     };
 
     measure();
@@ -2617,7 +2650,7 @@ export function WorkbenchShell({
     event.preventDefault();
     const root = workbenchRootRef.current;
     const windowZoom = readCodexWindowZoom(root);
-    const sizingWidth = Math.max(rightPanelSizingWidth, readCodexViewportWidth(root));
+    const sizingWidth = rightPanelSizingWidth;
     const startX = event.clientX / windowZoom;
     const startWidth = regularRightPanelWidth;
 
@@ -2925,6 +2958,67 @@ export function WorkbenchShell({
     setSidebarHoverSuppressed(false);
   }, [sidebarCollapsed]);
 
+  useEffect(() => {
+    if (appShellWidth <= 0) return;
+    const atMediumWidth = appShellWidth <= CODEX_SHELL_MEDIUM_WIDTH_PX;
+    const atNarrowWidth = appShellWidth <= CODEX_SHELL_NARROW_WIDTH_PX;
+    const crossedMediumWidth = atMediumWidth !== shellAtMediumWidthRef.current;
+    const crossedNarrowWidth = atNarrowWidth !== shellAtNarrowWidthRef.current;
+    if (!crossedMediumWidth && !crossedNarrowWidth) return;
+
+    shellAtMediumWidthRef.current = atMediumWidth;
+    shellAtNarrowWidthRef.current = atNarrowWidth;
+
+    if (!activeSession) return;
+
+    const shouldClearRightPanel =
+      (crossedMediumWidth && atMediumWidth && !sidebarCollapsed && sidePanelOpen)
+      || (crossedNarrowWidth && atNarrowWidth && sidePanelOpen);
+    if (shouldClearRightPanel) {
+      const currentSnapshot = currentShellNavigationSnapshotRef.current;
+      if (currentSnapshot) {
+        recordShellNavigation({
+          ...currentSnapshot,
+          rightPanelCollapsed: true,
+          rightPanelFullWidth: false,
+        });
+      }
+      setAppShellFocusAreaActive(false);
+      const overrideKey = makePanelPreviewKey(activeSession.id, "right");
+      setPanelCollapsedOverrides((current) => ({ ...current, [overrideKey]: true }));
+      void updateActivePanel("right", {
+        collapsed: true,
+        size: {
+          ...activeSession.panels.right.size,
+          fullWidth: false,
+        },
+      }).catch((error) => {
+        toast.danger(error instanceof Error ? error.message : "Unable to update panel");
+      }).finally(() => {
+        setPanelCollapsedOverrides((current) => {
+          if (!(overrideKey in current)) return current;
+          const next = { ...current };
+          delete next[overrideKey];
+          return next;
+        });
+      });
+    }
+
+    if (crossedNarrowWidth && atNarrowWidth && !sidebarCollapsed) {
+      setSidebarCollapsedWithCodexState(true, {
+        suppressHoverOpen: true,
+      });
+    }
+  }, [
+    activeSession,
+    appShellWidth,
+    recordShellNavigation,
+    setSidebarCollapsedWithCodexState,
+    sidePanelOpen,
+    sidebarCollapsed,
+    updateActivePanel,
+  ]);
+
   const getWindowZoom = useCallback(() => {
     const root = workbenchRootRef.current;
     if (!root) return 1;
@@ -3008,9 +3102,9 @@ export function WorkbenchShell({
   const threadSummaryPanelAvailable = Boolean(activeSession?.thread);
   const threadSummaryPanelSuppressed = rightPanelFullWidth;
   const threadSummaryPanelMounted = threadSummaryPanelAvailable
-    && !threadSummaryPanelSuppressed
-    && threadSummaryPanelLayoutMode !== "overlay";
+    && !threadSummaryPanelSuppressed;
   const threadSummaryPanelOpen = threadSummaryPanelMounted
+    && threadSummaryPanelLayoutMode !== "overlay"
     && threadSummaryPanelPinnedOpen;
   const threadSummaryPanelMode = !threadSummaryPanelAvailable
     ? "hidden"
@@ -3019,10 +3113,42 @@ export function WorkbenchShell({
       : threadSummaryPanelLayoutMode === "overlay"
         ? "popover"
         : "pinned";
+  const threadSummaryPanelHideImmediately = threadSummaryPanelLayoutMode === "overlay"
+    && threadSummaryPanelPopoverOpen;
   const threadSummaryPanelContentShift = resolveCodexSummaryContentShift({
     layoutMode: threadSummaryPanelLayoutMode,
     pinnedOpen: threadSummaryPanelOpen,
   });
+  useEffect(() => {
+    if (threadSummaryPanelMode === "popover") return;
+    setThreadSummaryPanelPopoverOpen(false);
+  }, [threadSummaryPanelMode]);
+  const threadSummarySideChatRows = useMemo<ThreadSummaryPanelAuxiliaryRow[]>(() => {
+    if (!activeSession) return [];
+    return (sideChatTabsBySession[activeSession.id] ?? []).map((tab) => ({
+      id: tab.id,
+      title: tab.title,
+      status: tab.status === "ready" ? "Open" : tab.status === "loading" ? "Starting" : "Expired",
+    }));
+  }, [activeSession, sideChatTabsBySession]);
+  const threadSummaryBrowserRows = useMemo<ThreadSummaryPanelAuxiliaryRow[]>(() => {
+    if (!activeSession) return [];
+    const browserTabs = activeSession.tabs
+      .filter((tab) => tab.kind === "browser_placeholder")
+      .map((tab) => ({
+        id: tab.id,
+        title: tab.title,
+        status: tab.panelId === "right" ? "Right panel" : "Bottom panel",
+      }));
+    const browserPreviewTabs = Object.values(previewTabsByPanel)
+      .filter((tab) => tab.sessionId === activeSession.id && tab.kind === "browser_placeholder")
+      .map((tab) => ({
+        id: tab.id,
+        title: tab.title,
+        status: "Preview",
+      }));
+    return [...browserTabs, ...browserPreviewTabs];
+  }, [activeSession, previewTabsByPanel]);
 
   const toggleThreadSummaryPanel = useCallback(() => {
     setThreadSummaryPanelPinnedOpen((current) => {
@@ -3034,10 +3160,12 @@ export function WorkbenchShell({
   const threadSummaryHeaderAction = threadSummaryPanelMode !== "hidden" && activeSession ? (
     <ThreadSummaryPanelHeaderAction
       activeThreadId={activeSession.thread?.threadId ?? null}
+      onPopoverOpenChange={setThreadSummaryPanelPopoverOpen}
       projectWorkspacePath={activeProject?.workspacePath ?? null}
       mode={threadSummaryPanelMode}
       pinnedOpen={threadSummaryPanelPinnedOpen}
       onPinnedOpenToggle={toggleThreadSummaryPanel}
+      popoverOpen={threadSummaryPanelPopoverOpen}
     />
   ) : null;
 
@@ -3331,6 +3459,7 @@ export function WorkbenchShell({
       onStripSmartPrefixFromTitleEnabledChange={handleStripSmartPrefixFromTitleEnabledChange}
     />
   ) : null;
+  const appShellHeaderCenterVisible = activeSession != null && settingsRouteShell == null;
 
   const renameSessionDialog = (
     <NodexDialog
@@ -3387,20 +3516,22 @@ export function WorkbenchShell({
     <HeaderActionProvider actions={settingsPath ? null : headerActions}>
       <NodexTooltipProvider>
         {renameSessionDialog}
-        <motion.div
-          ref={workbenchRootRef}
-          className="relative flex flex-col text-token-text-primary"
-          style={{
-            "--spacing-token-safe-header-left": `${safeHeaderLeftWidth}px`,
-            "--spacing-token-safe-header-right": "12px",
-            "--app-shell-bottom-panel-height": bottomPanelAnimatedHeightCss,
-            width: "calc(100vw / var(--codex-window-zoom, 1))",
-            height: "calc(100vh / var(--codex-window-zoom, 1))",
-            zoom: "var(--codex-window-zoom, 1)",
-          } as MotionStyle}
-        >
+        <ThreadHeaderPortalProvider target={threadHeaderPortalElement}>
+          <motion.div
+            ref={workbenchRootRef}
+            className="relative flex flex-col text-token-text-primary"
+            style={{
+              "--spacing-token-safe-header-left": `${safeHeaderLeftWidth}px`,
+              "--spacing-token-safe-header-right": "12px",
+              "--app-shell-bottom-panel-height": bottomPanelAnimatedHeightCss,
+              width: "calc(100vw / var(--codex-window-zoom, 1))",
+              height: "calc(100vh / var(--codex-window-zoom, 1))",
+              zoom: "var(--codex-window-zoom, 1)",
+            } as MotionStyle}
+          >
           <header
             data-testid="workbench-global-header"
+            data-app-shell-header-edge-scroll={appShellHeaderEdgeScroll ? "true" : "false"}
             className="app-header-tint draggable pointer-events-none fixed inset-x-0 top-0 z-30 flex h-toolbar min-w-0 items-center"
           >
             <HeaderShellSlot
@@ -3412,6 +3543,28 @@ export function WorkbenchShell({
               onMeasuredWidthChange={setHeaderLeftWidth}
               onMeasuredRailWidthChange={setHeaderLeftRailWidth}
             />
+            {appShellHeaderCenterVisible ? (
+              <div
+                data-testid="app-shell-header-context-menu-surface"
+                className="pointer-events-none ms-4 flex h-full min-w-0 flex-1 isolate items-center gap-1.5 overflow-hidden [contain:layout_paint] pe-1.5"
+              >
+                <div
+                  ref={setThreadHeaderPortalElement}
+                  data-testid="thread-stage-header-portal-target"
+                  className="pointer-events-none w-full min-w-0 flex-1 [&_a]:pointer-events-auto [&_button]:pointer-events-auto [&_input]:pointer-events-auto [&_select]:pointer-events-auto [&_textarea]:pointer-events-auto"
+                />
+                {threadSummaryHeaderAction ? (
+                  <div
+                    data-testid="thread-stage-header-summary-actions"
+                    className="ms-auto flex shrink-0 items-center gap-1.5"
+                  >
+                    <div className="no-drag pointer-events-auto flex shrink-0 items-center">
+                      {threadSummaryHeaderAction}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <HeaderShellSlot
               side="right"
               slotWidth={headerShellSlotWidth}
@@ -3550,7 +3703,7 @@ export function WorkbenchShell({
                   <section
                     data-testid="session-thread-page"
                     data-session-thread-page-hidden={rightPanelFullWidth ? "true" : "false"}
-                    data-app-shell-main-content-layout="thread-edge-scroll"
+                    data-app-shell-main-content-layout={appShellMainContentLayout}
                     aria-hidden={rightPanelFullWidth ? "true" : undefined}
                     className={cn(
                       "app-shell-main-content-viewport relative flex min-h-0 min-w-0 flex-col",
@@ -3558,12 +3711,12 @@ export function WorkbenchShell({
                     )}
                   >
                     <div
-                      className="app-shell-main-content-frame relative mt-(--app-shell-main-content-frame-top-offset) flex min-h-0 flex-1 flex-col border-t border-token-border-default"
-                      style={{
-                        "--app-shell-main-content-frame-top-offset": "0px",
-                        "--thread-stage-header-left-padding": threadStageHeaderLeftPadding,
-                        "--thread-stage-header-right-reserve": sidePanelOpen ? "0px" : `${headerRightWidth}px`,
-                      } as React.CSSProperties}
+                      className={cn(
+                        "app-shell-main-content-frame relative mt-(--app-shell-main-content-frame-top-offset) flex min-h-0 flex-1 flex-col border-t",
+                        appShellMainContentFrameBorderVisible
+                          ? "border-token-border-default"
+                          : "border-transparent",
+                      )}
                     >
                       <div
                         aria-hidden="true"
@@ -3585,11 +3738,12 @@ export function WorkbenchShell({
                         worktreeStartMode={worktreeStartMode}
                         worktreeBranchPrefix={worktreeAutoBranchPrefix}
                         searchOpenTick={threadSearchOpenTick}
-                        sidePanelOpen={sidePanelOpen}
                         summaryPanelMounted={threadSummaryPanelMounted}
                         summaryPanelOpen={threadSummaryPanelOpen}
+                        summaryPanelHideImmediately={threadSummaryPanelHideImmediately}
                         summaryPanelContentShift={threadSummaryPanelContentShift}
-                        summaryAction={threadSummaryHeaderAction}
+                        summarySideChatRows={threadSummarySideChatRows}
+                        summaryBrowserRows={threadSummaryBrowserRows}
                         onOpenCard={(cardId) => {
                           if (!activeProject) return;
                           void openCardTab(activeProject.id, cardId, cardId);
@@ -3793,7 +3947,8 @@ export function WorkbenchShell({
             </>
           )}
         </div>
-      </motion.div>
+          </motion.div>
+        </ThreadHeaderPortalProvider>
       </NodexTooltipProvider>
     </HeaderActionProvider>
   );
@@ -4286,11 +4441,12 @@ function SessionThreadPage({
   worktreeBranchPrefix,
   onOpenCard,
   searchOpenTick,
-  sidePanelOpen,
   summaryPanelMounted,
   summaryPanelOpen,
+  summaryPanelHideImmediately,
   summaryPanelContentShift,
-  summaryAction,
+  summarySideChatRows,
+  summaryBrowserRows,
   onOpenSideChat,
 }: {
   session: ProjectSession;
@@ -4305,11 +4461,12 @@ function SessionThreadPage({
   worktreeBranchPrefix: string;
   onOpenCard: (cardId: string) => void;
   searchOpenTick: number;
-  sidePanelOpen: boolean;
   summaryPanelMounted: boolean;
   summaryPanelOpen: boolean;
+  summaryPanelHideImmediately: boolean;
   summaryPanelContentShift: number;
-  summaryAction: ReactNode;
+  summarySideChatRows: readonly ThreadSummaryPanelAuxiliaryRow[];
+  summaryBrowserRows: readonly ThreadSummaryPanelAuxiliaryRow[];
   onOpenSideChat: (input?: {
     prompt?: string;
     promptInput?: CodexPromptInput;
@@ -4431,7 +4588,6 @@ function SessionThreadPage({
           disabled: false,
           canAddProject: true,
         }}
-        showHeaderSeparator={sidePanelOpen}
         newThreadStartInSelector={summary ? null : {
           target: {
             runInTarget: selectedNewThreadRunInTarget,
@@ -4462,8 +4618,10 @@ function SessionThreadPage({
         searchOpenTick={searchOpenTick}
         summaryPanelMounted={summaryPanelMounted}
         summaryPanelOpen={summaryPanelOpen}
+        summaryPanelHideImmediately={summaryPanelHideImmediately}
         summaryPanelContentShift={summaryPanelContentShift}
-        summaryAction={summaryAction}
+        summarySideChatRows={summarySideChatRows}
+        summaryBrowserRows={summaryBrowserRows}
         actions={actions}
       />
     </div>
@@ -4720,7 +4878,6 @@ function SideChatSessionTab({
         isNewThreadTab={false}
         newThreadTarget={null}
         newThreadProjectSelector={null}
-        showHeaderSeparator
         newThreadStartInSelector={null}
         threadStartProgress={null}
         activeThreadId={tab.threadId}
@@ -4737,8 +4894,8 @@ function SideChatSessionTab({
         searchOpenTick={0}
         summaryPanelMounted={false}
         summaryPanelOpen={false}
+        summaryPanelHideImmediately={false}
         summaryPanelContentShift={0}
-        summaryAction={null}
         sideChatContext={{
           parentThreadId: tab.parentThreadId,
           tabTitle: tab.title,

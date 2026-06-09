@@ -37,6 +37,7 @@ const ROOT_SELECTOR_BLOCKS = [
   ".text-size-chat-sm",
   ".text-size-code",
   ".text-size-code-sm",
+  ".px-toolbar",
   ".font-vscode-editor",
   ".cursor-interaction",
   ".h-token-button-composer, .h-token-button-composer-sm",
@@ -199,6 +200,10 @@ const isAllowedGeneratedUtilityStyleRule = (
 
 const ALLOWED_GENERATED_LAYER_NAMES = new Set(["components", "utilities"]);
 
+const TOOLBAR_PADDING_UTILITY_CSS = `.px-toolbar {
+  padding-inline: var(--padding-toolbar);
+}`;
+
 const buildGeneratedUtilitiesCss = (referenceCss: string): string => {
   const layerNameStack: string[] = [];
   let supportsDepth = 0;
@@ -280,6 +285,9 @@ const buildGeneratedUtilitiesCss = (referenceCss: string): string => {
   }
 
   generatedCss = generatedCss.trim();
+  if (!generatedCss.includes(".px-toolbar")) {
+    generatedCss = `${generatedCss}\n\n${TOOLBAR_PADDING_UTILITY_CSS}`;
+  }
 
   return `/*
  * Synced from the Codex Electron reference CSS.

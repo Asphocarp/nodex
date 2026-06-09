@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { invoke } from "@/lib/api";
+import { useThreadHeaderPortalTarget } from "@/lib/thread-header-portal";
 import type {
   CodexCollaborationModeKind,
   CodexCollaborationModeState,
@@ -95,8 +97,8 @@ interface ConnectedThreadStageProps extends ConnectedThreadStageInput {
   initialUiState?: ThreadBodyUiStateOverrides;
   summaryPanelMounted?: boolean;
   summaryPanelOpen?: boolean;
+  summaryPanelHideImmediately?: boolean;
   summaryPanelContentShift?: number;
-  summaryAction?: ReactNode;
 }
 
 function resolveThreadTitle(input: ConnectedThreadStageInput, summary: ReturnType<typeof useConversationSummaryFields>): string {
@@ -154,13 +156,11 @@ function ConnectedThreadStageHeader({
   input,
   actions,
   onErrorMessage,
-  summaryAction,
 }: {
   activeThreadId: string | null;
   input: ConnectedThreadStageInput;
   actions: ThreadStageActions;
   onErrorMessage: (message: string | null) => void;
-  summaryAction?: ReactNode;
 }) {
   const connection = useLocalConversationConnection();
   const account = useLocalConversationAccount();
@@ -197,12 +197,10 @@ function ConnectedThreadStageHeader({
       threadId: summaryFields.threadId ?? input.activeThreadSummary?.threadId ?? activeThreadId,
       cardId: summaryFields.cardId ?? input.activeThreadSummary?.cardId ?? input.newThreadTarget?.cardId ?? null,
       title: resolveThreadTitle(input, summaryFields),
-      showSeparator: input.showHeaderSeparator,
       openCardTarget: resolveOpenCardTarget(input, summaryFields, activeThreadCardColumnId),
       activeThreadCardColumnId,
       connection,
       account,
-      summaryAction: input.sideChatContext ? null : summaryAction,
       showSideChatAction: Boolean(activeThreadId && !input.sideChatContext && actions.onOpenSideChat),
     }),
     [
@@ -211,7 +209,6 @@ function ConnectedThreadStageHeader({
       activeThreadId,
       connection,
       input,
-      summaryAction,
       summaryFields,
     ],
   );
@@ -224,12 +221,16 @@ function ConnectedThreadStageBody({
   input,
   actions,
   onErrorMessage,
+  contentShiftX,
+  footer,
   initialUiState,
 }: {
   activeThreadId: string | null;
   input: ConnectedThreadStageInput;
   actions: ThreadStageActions;
   onErrorMessage: (message: string | null) => void;
+  contentShiftX?: number;
+  footer?: ReactNode;
   initialUiState?: ThreadBodyUiStateOverrides;
 }) {
   const turns = useConversationTurns(activeThreadId);
@@ -315,6 +316,8 @@ function ConnectedThreadStageBody({
       model={model}
       actions={actions}
       onErrorMessage={onErrorMessage}
+      contentShiftX={contentShiftX}
+      footer={footer}
       initialUiState={initialUiState}
     />
   );
@@ -584,8 +587,8 @@ export function ConnectedThreadStage({
   initialUiState,
   summaryPanelMounted = false,
   summaryPanelOpen = false,
+  summaryPanelHideImmediately = false,
   summaryPanelContentShift = 0,
-  summaryAction,
   ...input
 }: ConnectedThreadStageProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -594,9 +597,11 @@ export function ConnectedThreadStage({
     : null;
   const isSideChat = Boolean(input.sideChatContext);
   const isNewThreadHome = input.isNewThreadTab && activeThreadId === null && !isSideChat;
+  const threadHeaderPortalTarget = useThreadHeaderPortalTarget();
   const resumeState = useConversationResumeState(activeThreadId);
   const summaryFields = useConversationSummaryFields(activeThreadId);
   const turns = useConversationTurns(activeThreadId);
+  const backgroundTerminalRows = useConversationBackgroundTerminalRows(activeThreadId);
   const cwd = useConversationCwd(activeThreadId);
   const isActiveThreadArchived = input.activeThreadSummary?.archived === true || summaryFields.archived;
   const summaryPanelContentProps = useMemo(
@@ -605,11 +610,17 @@ export function ConnectedThreadStage({
       cwd,
       projectWorkspacePath: input.projectWorkspacePath ?? null,
       turns,
+      backgroundTerminalRows,
+      sideChatRows: input.summarySideChatRows ?? [],
+      browserRows: input.summaryBrowserRows ?? [],
       newThreadStartInSelector: input.newThreadStartInSelector,
       onErrorMessage: setErrorMessage,
     }),
     [
       activeThreadId,
+      backgroundTerminalRows,
+      input.summaryBrowserRows,
+      input.summarySideChatRows,
       cwd,
       input.newThreadStartInSelector,
       input.projectWorkspacePath,
@@ -657,6 +668,7 @@ export function ConnectedThreadStage({
         )}
         floatingContent={(
           <ThreadFloatingSummaryPanel
+            hideImmediately={summaryPanelHideImmediately}
             mounted={summaryPanelMounted}
             open={summaryPanelOpen}
             {...summaryPanelContentProps}
@@ -667,45 +679,51 @@ export function ConnectedThreadStage({
     );
   }
 
+  const threadHeaderPortal = !isSideChat && threadHeaderPortalTarget
+    ? createPortal(
+        <ConnectedThreadStageHeader
+          activeThreadId={activeThreadId}
+          input={input}
+          actions={actions}
+          onErrorMessage={setErrorMessage}
+        />,
+        threadHeaderPortalTarget,
+      )
+    : null;
+
   return (
-    <LocalConversationStageScreen
-      header={isSideChat
-        ? null
-        : (
-            <ConnectedThreadStageHeader
-              activeThreadId={activeThreadId}
-              input={input}
-              actions={actions}
-              onErrorMessage={setErrorMessage}
-              summaryAction={summaryAction}
-            />
-          )}
-      body={(
-        <ConnectedThreadStageBody
-          activeThreadId={activeThreadId}
-          input={input}
-          actions={actions}
-          onErrorMessage={setErrorMessage}
-          initialUiState={initialUiState}
-        />
-      )}
-      footer={(
-        <ConnectedThreadStageFooter
-          activeThreadId={activeThreadId}
-          input={input}
-          actions={actions}
-          errorMessage={errorMessage}
-          onErrorMessage={setErrorMessage}
-        />
-      )}
-      floatingContent={(
-        <ThreadFloatingSummaryPanel
-          mounted={summaryPanelMounted}
-          open={summaryPanelOpen}
-          {...summaryPanelContentProps}
-        />
-      )}
-      contentShiftX={summaryPanelContentShift}
-    />
+    <>
+      {threadHeaderPortal}
+      <LocalConversationStageScreen
+        header={null}
+        body={(
+          <ConnectedThreadStageBody
+            activeThreadId={activeThreadId}
+            input={input}
+            actions={actions}
+            onErrorMessage={setErrorMessage}
+            contentShiftX={summaryPanelContentShift}
+            footer={(
+              <ConnectedThreadStageFooter
+                activeThreadId={activeThreadId}
+                input={input}
+                actions={actions}
+                errorMessage={errorMessage}
+                onErrorMessage={setErrorMessage}
+              />
+            )}
+            initialUiState={initialUiState}
+          />
+        )}
+        floatingContent={(
+          <ThreadFloatingSummaryPanel
+            hideImmediately={summaryPanelHideImmediately}
+            mounted={summaryPanelMounted}
+            open={summaryPanelOpen}
+            {...summaryPanelContentProps}
+          />
+        )}
+      />
+    </>
   );
 }

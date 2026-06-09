@@ -1042,7 +1042,7 @@ export const CollapsedRightPanel: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Attached thread with the right panel collapsed, keeping the thread title at the top while the Codex summary toggle stays in the thread header summary lane at the panel boundary.",
+        story: "Attached thread with the right panel collapsed, keeping the thread title and summary toggle in the fixed app-header center surface at the panel boundary.",
       },
     },
   },

@@ -10,6 +10,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { motion, useReducedMotion } from "motion/react";
+import { CODEX_SHELL_PANEL_TRANSITION } from "../../../lib/codex-panel-motion";
 import { cn } from "../../../lib/utils";
 import {
   resolveAdjustedScrollTopForMeasuredTurnHeightDelta,
@@ -56,6 +58,8 @@ export interface LocalConversationThreadScrollLayoutHandle {
 
 interface LocalConversationThreadScrollLayoutProps {
   children: ReactNode;
+  contentX?: number;
+  footer?: ReactNode;
   scrollViewClassName?: string;
   contentWrapperClassName?: string;
 }
@@ -66,10 +70,10 @@ interface LocalConversationThreadScrollControllerContextValue
 }
 
 const THREAD_SCROLL_VIEWPORT_CLASS_NAME =
-  "relative h-full vertical-scroll-fade-mask-top [--edge-fade-distance:2rem] overflow-y-auto [overflow-anchor:none] [scrollbar-gutter:stable] pb-8 pt-[var(--edge-fade-distance)] [container-name:thread-content] [container-type:inline-size]";
+  "thread-scroll-container relative h-full overflow-y-auto [overflow-anchor:none] [scroll-padding-bottom:var(--thread-scroll-padding-bottom,0px)] electron:[scrollbar-gutter:stable_both-edges] pt-(--thread-content-top-inset) [container-name:thread-content] [container-type:inline-size] [&:has([data-thread-scroll-footer='true']:focus-within)]:[scroll-padding-bottom:0px] flex flex-col-reverse";
 
 const THREAD_SCROLL_CONTENT_WRAPPER_CLASS_NAME =
-  "mx-auto w-full max-w-[var(--thread-content-max-width)] px-2.5 md:px-panel";
+  "mx-auto w-full max-w-(--thread-content-max-width) px-toolbar";
 
 const LocalConversationThreadScrollControllerContext =
   createContext<LocalConversationThreadScrollControllerContextValue | null>(null);
@@ -79,7 +83,8 @@ export function isThreadScrollNearBottom({
   scrollTop,
   clientHeight,
 }: ThreadScrollPositionSnapshot): boolean {
-  return scrollHeight - scrollTop - clientHeight <= NEAR_BOTTOM_THRESHOLD_PX;
+  return Math.abs(scrollTop) <= NEAR_BOTTOM_THRESHOLD_PX
+    || scrollHeight - scrollTop - clientHeight <= NEAR_BOTTOM_THRESHOLD_PX;
 }
 
 export function resolveThreadScrollModeForScrollEvent({
@@ -180,7 +185,7 @@ function LocalConversationThreadScrollControllerProvider({
     if (scrollModeRef.current !== "stickToBottom") return;
     const element = scrollElementRef.current;
     if (element === null) return;
-    scrollToTopPx(element.scrollHeight, "auto");
+    scrollToTopPx(0, "auto");
   }, [scrollToTopPx]);
 
   const notifyContentLayout = useCallback(() => {
@@ -207,16 +212,12 @@ function LocalConversationThreadScrollControllerProvider({
 
   const scrollToBottom = useCallback(() => {
     setScrollMode("stickToBottom");
-    const element = scrollElementRef.current;
-    if (element === null) return;
-    scrollToTopPx(element.scrollHeight, "smooth");
+    scrollToTopPx(0, "smooth");
   }, [scrollToTopPx, setScrollMode]);
 
   const jumpToBottom = useCallback(() => {
     setScrollMode("stickToBottom");
-    const element = scrollElementRef.current;
-    if (element === null) return;
-    scrollToTopPx(element.scrollHeight, "auto");
+    scrollToTopPx(0, "auto");
   }, [scrollToTopPx, setScrollMode]);
 
   const suppressAutoStickToBottom = useCallback(() => {
@@ -346,17 +347,49 @@ export const LocalConversationThreadScrollLayout = forwardRef<
   LocalConversationThreadScrollLayoutProps
 >(function LocalConversationThreadScrollLayout({
   children,
+  contentX,
+  footer,
   scrollViewClassName,
   contentWrapperClassName,
 }, ref) {
   const controller = useLocalConversationThreadScrollController();
+  const reducedMotion = useReducedMotion();
+  const footerRef = useRef<HTMLDivElement | null>(null);
 
   useImperativeHandle(ref, () => ({
     scrollToBottom: controller.scrollToBottom,
   }), [controller.scrollToBottom]);
 
+  useEffect(() => {
+    const scrollElement = controller.scrollElement;
+    const footerElement = footerRef.current;
+    if (!scrollElement || !footerElement) return undefined;
+
+    const syncFooterPadding = () => {
+      const footerHeight = footerElement.getBoundingClientRect().height;
+      scrollElement.style.setProperty("--thread-scroll-padding-bottom", `${footerHeight + 16}px`);
+    };
+
+    syncFooterPadding();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", syncFooterPadding);
+      return () => {
+        window.removeEventListener("resize", syncFooterPadding);
+      };
+    }
+
+    const resizeObserver = new ResizeObserver(syncFooterPadding);
+    resizeObserver.observe(footerElement);
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [controller.scrollElement, footer]);
+
+  const motionStyle = contentX == null ? undefined : { x: contentX };
+
   return (
-    <div className="relative h-full">
+    <div className="h-full flex-1 [content-visibility:auto]">
       <div
         ref={controller.registerScrollElement}
         data-local-conversation-thread-body="true"
@@ -365,14 +398,36 @@ export const LocalConversationThreadScrollLayout = forwardRef<
           scrollViewClassName,
         )}
       >
-        <div
-          className={cn(
-            THREAD_SCROLL_CONTENT_WRAPPER_CLASS_NAME,
-            contentWrapperClassName,
-          )}
+        <motion.div
+          style={motionStyle}
+          transition={reducedMotion ? { duration: 0 } : CODEX_SHELL_PANEL_TRANSITION}
+          className="flex min-h-full shrink-0 flex-col justify-start"
         >
-          {children}
-        </div>
+          <div
+            data-mcp-app-portal-target="true"
+            className={cn(
+              THREAD_SCROLL_CONTENT_WRAPPER_CLASS_NAME,
+              "relative flex shrink-0 flex-col pb-8",
+              contentWrapperClassName,
+            )}
+          >
+            {children}
+          </div>
+          {footer ? (
+            <div
+              ref={footerRef}
+              data-thread-scroll-footer="true"
+              className="sticky bottom-0 z-10 mt-auto w-full pb-2"
+            >
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-0 flex h-full w-full justify-center pt-4">
+                <div className="z-0 h-full w-full bg-gradient-to-t from-token-main-surface-primary via-token-main-surface-primary extension:from-token-bg-primary extension:via-token-bg-primary" />
+              </div>
+              <div className="relative z-10 flex flex-col">
+                {footer}
+              </div>
+            </div>
+          ) : null}
+        </motion.div>
       </div>
     </div>
   );

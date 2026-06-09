@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { createElement, createRef, useState, type ComponentProps, type ReactNode } from "react";
-import { act, fireEvent, within } from "@testing-library/react";
+import { Fragment, createElement, createRef, useState, type ComponentProps } from "react";
+import { createPortal } from "react-dom";
+import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import type { Project, ProjectSession, ProjectSessionPanelNode, ProjectSessionTab } from "@/lib/types";
 import {
   CODEX_SIDEBAR_FLOATING_ASIDE_CLASS,
@@ -13,6 +14,7 @@ import {
   type SupportedDbView,
 } from "@/lib/db-view-prefs";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
+import { useThreadHeaderPortalTarget } from "@/lib/thread-header-portal";
 import type {
   WorkbenchNavigationCommandRequest,
   WorkbenchNavigationCommandState,
@@ -153,8 +155,10 @@ mock.module("./workbench-terminal-panel", () => ({
 mock.module("@/features/local-conversation", () => ({
   ThreadSummaryPanelHeaderAction: (props: {
     mode: "hidden" | "pinned" | "popover";
+    onPopoverOpenChange?: (open: boolean) => void;
     pinnedOpen: boolean;
     onPinnedOpenToggle?: () => void;
+    popoverOpen?: boolean;
   }) => {
     if (props.mode === "hidden") return null;
     return createElement(
@@ -162,9 +166,11 @@ mock.module("@/features/local-conversation", () => ({
       {
         type: "button",
         "aria-label": props.mode === "popover" ? "Toggle summary" : "Toggle pinned summary",
-        "aria-pressed": props.mode === "pinned" ? props.pinnedOpen : "false",
+        "aria-pressed": props.mode === "pinned" ? props.pinnedOpen : String(Boolean(props.popoverOpen)),
         "data-testid": "mock-summary-action",
-        onClick: props.mode === "pinned" ? props.onPinnedOpenToggle : undefined,
+        onClick: props.mode === "pinned"
+          ? props.onPinnedOpenToggle
+          : () => props.onPopoverOpenChange?.(!props.popoverOpen),
       },
       "Summary",
     );
@@ -183,6 +189,33 @@ mock.module("@/features/local-conversation", () => ({
   ),
   ConnectedThreadStage: (props: Record<string, unknown>) => {
     (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps = props;
+    const headerPortalTarget = useThreadHeaderPortalTarget();
+    const summary = props.activeThreadSummary as { threadName?: string | null; threadPreview?: string | null } | null | undefined;
+    const threadTitle = summary?.threadName ?? summary?.threadPreview ?? (props.isNewThreadTab ? "New thread" : "No thread");
+    const headerPortal = headerPortalTarget
+      ? createPortal(
+          createElement(
+            "div",
+            {
+              className: "draggable grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 electron:h-toolbar extension:py-row-y",
+            },
+            createElement(
+              "div",
+              { className: "flex min-w-0 items-center gap-2 truncate text-base electron:font-medium" },
+              createElement(
+                "div",
+                { className: "pointer-events-none w-full min-w-0 flex-1" },
+                createElement(
+                  "div",
+                  { "data-testid": "thread-stage-title", className: "max-w-[320px] min-w-0 truncate text-token-foreground" },
+                  threadTitle,
+                ),
+              ),
+            ),
+          ),
+          headerPortalTarget,
+        )
+      : null;
     const actions = props.actions as {
       onStartThreadForSession?: (input: {
         projectId: string;
@@ -203,38 +236,41 @@ mock.module("@/features/local-conversation", () => ({
       worktreeBranchPrefix?: string | null;
     } | null | undefined;
     return createElement(
-      "div",
-      { "data-thread-stage": "true" },
-      createElement("span", null, `Thread:${String(props.activeThreadId)}`),
-      props.isNewThreadTab
-        ? createElement("textarea", { "aria-label": "Prompt", placeholder: "Write the first prompt for this new thread..." })
-        : null,
-      props.isNewThreadTab
-        ? createElement("button", {
-            type: "button",
-            onClick: () => {
-              if (!target?.projectId || !target.sessionId) return;
-              void actions?.onStartThreadForSession?.({
-                projectId: target.projectId,
-                sessionId: target.sessionId,
-                prompt: "Start from session",
-                runInTarget: target.runInTarget,
-                runInEnvironmentPath: target.runInEnvironmentPath,
-                worktreeStartMode: target.worktreeStartMode,
-                worktreeBranchPrefix: target.worktreeBranchPrefix,
-              });
-            },
-          }, "Send")
-        : null,
-      createElement("span", null, String(props.selectedModel)),
-      createElement("span", null, String(props.selectedReasoningEffort)),
-      props.summaryAction
-        ? createElement("div", { "data-testid": "thread-stage-header-summary-actions" }, props.summaryAction as ReactNode)
-        : null,
-      createElement("span", {
-        "data-summary-panel-mounted": String(props.summaryPanelMounted),
-        "data-summary-panel-open": String(props.summaryPanelOpen),
-      }, String(props.summaryPanelMounted)),
+      Fragment,
+      null,
+      headerPortal,
+      createElement(
+        "div",
+        { "data-thread-stage": "true" },
+        createElement("span", null, `Thread:${String(props.activeThreadId)}`),
+        props.isNewThreadTab
+          ? createElement("textarea", { "aria-label": "Prompt", placeholder: "Write the first prompt for this new thread..." })
+          : null,
+        props.isNewThreadTab
+          ? createElement("button", {
+              type: "button",
+              onClick: () => {
+                if (!target?.projectId || !target.sessionId) return;
+                void actions?.onStartThreadForSession?.({
+                  projectId: target.projectId,
+                  sessionId: target.sessionId,
+                  prompt: "Start from session",
+                  runInTarget: target.runInTarget,
+                  runInEnvironmentPath: target.runInEnvironmentPath,
+                  worktreeStartMode: target.worktreeStartMode,
+                  worktreeBranchPrefix: target.worktreeBranchPrefix,
+                });
+              },
+            }, "Send")
+          : null,
+        createElement("span", null, String(props.selectedModel)),
+        createElement("span", null, String(props.selectedReasoningEffort)),
+        createElement("span", {
+          "data-summary-panel-hide-immediately": String(props.summaryPanelHideImmediately),
+          "data-summary-panel-mounted": String(props.summaryPanelMounted),
+          "data-summary-panel-open": String(props.summaryPanelOpen),
+        }, String(props.summaryPanelMounted)),
+      ),
     );
   },
   ConnectedReviewDiffPanel: (props: Record<string, unknown>) => {
@@ -1571,7 +1607,7 @@ describe("workbench session shell", () => {
     expect(JSON.stringify(props?.activeThreadSummary).includes('"cardId":null')).toBeTrue();
   });
 
-  test("uses the thread header as the only top title row", async () => {
+  test("uses the global app header as the only top title row", async () => {
     const screen = renderWorkbench({
       sessionsByProject: {
         alpha: [makeAttachedSession({ id: "session:alpha:thread", title: "Thread", isOverview: false })],
@@ -1581,21 +1617,29 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     const globalHeader = screen.container.querySelector('[data-testid="workbench-global-header"]');
+    const headerContextSurface = screen.container.querySelector('[data-testid="app-shell-header-context-menu-surface"]');
+    const threadStage = screen.container.querySelector('[data-thread-stage="true"]');
     const threadFrame = screen.container.querySelector(".app-shell-main-content-frame");
-    if (!globalHeader || !threadFrame) throw new Error("Expected workbench global header and thread frame");
+    if (!globalHeader || !threadFrame || !threadStage) {
+      throw new Error("Expected workbench global header, thread frame, and thread stage");
+    }
     expect(textContent(globalHeader).includes("Overview")).toBeFalse();
-    expect(textContent(globalHeader).includes("Alpha")).toBeFalse();
+    expect(textContent(globalHeader).includes("Alpha thread")).toBeTrue();
+    expect(textContent(threadStage).includes("Alpha thread")).toBeFalse();
+    expect(headerContextSurface?.className.includes("ms-4")).toBeTrue();
+    expect(headerContextSurface?.className.includes("[contain:layout_paint]")).toBeTrue();
     expect(threadFrame.className.includes("mt-(--app-shell-main-content-frame-top-offset)")).toBeTrue();
     expect(threadFrame.className.includes("border-t")).toBeTrue();
     expect(threadFrame.className.includes("border-token-border-default")).toBeTrue();
-    expect(threadFrame.getAttribute("style")?.includes("--app-shell-main-content-frame-top-offset: 0px")).toBeTrue();
+    expect((threadFrame.getAttribute("style") ?? "").includes("--app-shell-main-content-frame-top-offset")).toBeFalse();
+    expect(screen.container.querySelector("[data-app-shell-main-content-header-divider]") === null).toBeTrue();
     const topFade = screen.container.querySelector(".app-shell-main-content-top-fade");
     expect(topFade?.getAttribute("data-app-shell-main-content-top-fade")).toBe("full-bleed");
     expect(topFade?.className.includes("h-4")).toBeTrue();
     expect(topFade?.className.includes("bg-gradient-to-b")).toBeTrue();
   });
 
-  test("shows the thread-page separator only while the right panel is enabled", async () => {
+  test("keeps the frame border shell-owned while reserving right header actions", async () => {
     const screen = renderWorkbench({
       sessionsByProject: {
         alpha: [
@@ -1613,10 +1657,12 @@ describe("workbench session shell", () => {
 
     const visibleProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
     const visibleFrame = screen.container.querySelector(".app-shell-main-content-frame");
-    expect(visibleProps?.showHeaderSeparator).toBeTrue();
+    expect(Boolean(visibleProps && "showHeaderSeparator" in visibleProps)).toBeFalse();
+    expect(screen.container.querySelector("[data-app-shell-main-content-header-divider]") === null).toBeTrue();
     expect(visibleFrame?.className.includes("border-t")).toBeTrue();
-    expect(visibleFrame?.getAttribute("style")?.includes("--app-shell-main-content-frame-top-offset: 0px")).toBeTrue();
-    expect(visibleFrame?.getAttribute("style")?.includes("--thread-stage-header-right-reserve: 0px")).toBeTrue();
+    expect(visibleFrame?.className.includes("border-token-border-default")).toBeTrue();
+    expect((visibleFrame?.getAttribute("style") ?? "").includes("--app-shell-main-content-frame-top-offset")).toBeFalse();
+    expect((visibleFrame?.getAttribute("style") ?? "").includes("--thread-stage-header-right-reserve")).toBeFalse();
     screen.unmount();
 
     const collapsedScreen = renderWorkbench({
@@ -1636,9 +1682,10 @@ describe("workbench session shell", () => {
 
     const collapsedProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
     const collapsedFrame = collapsedScreen.container.querySelector(".app-shell-main-content-frame");
-    expect(collapsedProps?.showHeaderSeparator).toBeFalse();
-    expect(collapsedFrame?.getAttribute("style")?.includes("--app-shell-main-content-frame-top-offset: 0px")).toBeTrue();
-    expect(collapsedFrame?.getAttribute("style")?.includes("--thread-stage-header-right-reserve: 70px")).toBeTrue();
+    expect(Boolean(collapsedProps && "showHeaderSeparator" in collapsedProps)).toBeFalse();
+    expect(collapsedScreen.container.querySelector("[data-app-shell-main-content-header-divider]") === null).toBeTrue();
+    expect((collapsedFrame?.getAttribute("style") ?? "").includes("--app-shell-main-content-frame-top-offset")).toBeFalse();
+    expect((collapsedFrame?.getAttribute("style") ?? "").includes("--thread-stage-header-right-reserve")).toBeFalse();
   });
 
   test("renders the session new-thread composer instead of the old attach placeholder", async () => {
@@ -1874,7 +1921,8 @@ describe("workbench session shell", () => {
     const globalHeader = screen.getByTestId("workbench-global-header");
     const summaryRail = screen.getByTestId("thread-stage-header-summary-actions");
     let stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
-    expect(within(globalHeader).queryByRole("button", { name: "Toggle pinned summary" })).toBe(null);
+    expect(within(globalHeader).queryByRole("button", { name: "Toggle pinned summary" }) !== null).toBeTrue();
+    expect(globalHeader.contains(summaryRail)).toBeTrue();
     expect(within(summaryRail).queryByRole("button", { name: "Toggle pinned summary" }) !== null).toBeTrue();
     expect(summaryToggle.getAttribute("aria-pressed")).toBe("true");
     expect(stageProps?.summaryPanelMounted).toBe(true);
@@ -1893,6 +1941,172 @@ describe("workbench session shell", () => {
     expect(stageProps?.summaryPanelOpen).toBe(false);
     expect(stageProps?.summaryPanelContentShift).toBe(0);
     expect(localStorage.getItem("nodex:thread-summary-panel:pinned-open")).toBe("false");
+  });
+
+  test("large thread widths use edge-scroll header and gutter summary mode", async () => {
+    setWindowInnerWidthForTest(1902);
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [
+          makeAttachedSession({
+            id: "session:alpha:thread",
+            title: "Thread",
+            isOverview: false,
+            rightCollapsed: true,
+          }),
+        ],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const globalHeader = screen.getByTestId("workbench-global-header");
+    const threadFrame = screen.container.querySelector(".app-shell-main-content-frame");
+    const stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(globalHeader.getAttribute("data-app-shell-header-edge-scroll")).toBe("true");
+    expect(threadFrame?.className.includes("border-transparent")).toBeTrue();
+    expect(screen.container.querySelector("[data-app-shell-main-content-header-divider]") === null).toBeTrue();
+    expect(stageProps?.summaryPanelMounted).toBe(true);
+    expect(stageProps?.summaryPanelOpen).toBe(true);
+    expect(stageProps?.summaryPanelContentShift).toBe(0);
+  });
+
+  test("medium thread widths keep guarded header chrome and shift pinned summary", async () => {
+    setWindowInnerWidthForTest(1801);
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [
+          makeAttachedSession({
+            id: "session:alpha:thread",
+            title: "Thread",
+            isOverview: false,
+            rightCollapsed: true,
+          }),
+        ],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const globalHeader = screen.getByTestId("workbench-global-header");
+    const threadFrame = screen.container.querySelector(".app-shell-main-content-frame");
+    const stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(globalHeader.getAttribute("data-app-shell-header-edge-scroll")).toBe("false");
+    expect(threadFrame?.className.includes("border-token-border-default")).toBeTrue();
+    expect(screen.container.querySelector("[data-app-shell-main-content-header-divider]") === null).toBeTrue();
+    expect(stageProps?.summaryPanelMounted).toBe(true);
+    expect(stageProps?.summaryPanelOpen).toBe(true);
+    expect(stageProps?.summaryPanelContentShift).toBe(-158);
+  });
+
+  test("narrow effective thread widths switch summary to overlay popover", async () => {
+    setWindowInnerWidthForTest(1350);
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [
+          makeAttachedSession({
+            id: "session:alpha:thread",
+            title: "Thread",
+            isOverview: false,
+            rightCollapsed: true,
+          }),
+        ],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    const summaryToggle = screen.getByRole("button", { name: "Toggle summary" });
+    expect(summaryToggle.getAttribute("aria-pressed")).toBe("false");
+    expect(stageProps?.summaryPanelMounted).toBe(true);
+    expect(stageProps?.summaryPanelOpen).toBe(false);
+    expect(stageProps?.summaryPanelHideImmediately).toBe(false);
+    expect(stageProps?.summaryPanelContentShift).toBe(0);
+  });
+
+  test("resize-driven overlay mode keeps the summary mounted so it can animate out", async () => {
+    setWindowInnerWidthForTest(1801);
+    localStorage.setItem("nodex:thread-summary-panel:pinned-open", "true");
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [
+          makeAttachedSession({
+            id: "session:alpha:thread",
+            title: "Thread",
+            isOverview: false,
+            rightCollapsed: true,
+          }),
+        ],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    let stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(stageProps?.summaryPanelMounted).toBe(true);
+    expect(stageProps?.summaryPanelOpen).toBe(true);
+    expect(stageProps?.summaryPanelContentShift).toBe(-158);
+
+    setWindowInnerWidthForTest(1350);
+    await act(async () => {
+      window.dispatchEvent(new Event("resize"));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(screen.getByRole("button", { name: "Toggle summary" }).getAttribute("aria-pressed")).toBe("false");
+    expect(stageProps?.summaryPanelMounted).toBe(true);
+    expect(stageProps?.summaryPanelOpen).toBe(false);
+    expect(stageProps?.summaryPanelHideImmediately).toBe(false);
+    expect(stageProps?.summaryPanelContentShift).toBe(0);
+    expect(localStorage.getItem("nodex:thread-summary-panel:pinned-open")).toBe("true");
+  });
+
+  test("responsive shell guards close competing right panel and sidebar at Codex thresholds", async () => {
+    setWindowInnerWidthForTest(1000);
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [
+          makeAttachedSession({
+            id: "session:alpha:thread",
+            title: "Thread",
+            isOverview: false,
+            rightCollapsed: false,
+          }),
+        ],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    setWindowInnerWidthForTest(959);
+    await act(async () => {
+      window.dispatchEvent(new Event("resize"));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) => {
+      const input = call[3] as { collapsed?: boolean; size?: { fullWidth?: boolean } } | undefined;
+      return call[0] === "project-session-panels:update"
+        && call[1] === "session:alpha:thread"
+        && call[2] === "right"
+        && input?.collapsed === true
+        && input.size?.fullWidth === false;
+    })).toBeTrue();
+
+    setWindowInnerWidthForTest(719);
+    await act(async () => {
+      window.dispatchEvent(new Event("resize"));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("project-session-sidebar") === null).toBeTrue();
+    });
   });
 
   test("thread summary toggle stays visible while the right panel is open and keeps the pinned overlay hidden", async () => {
@@ -1918,10 +2132,12 @@ describe("workbench session shell", () => {
     const globalHeader = screen.getByTestId("workbench-global-header");
     const summaryRail = screen.getByTestId("thread-stage-header-summary-actions");
     expect(rightOpenSummaryToggle.getAttribute("aria-pressed")).toBe("false");
-    expect(within(globalHeader).queryByRole("button", { name: "Toggle summary" })).toBe(null);
+    expect(within(globalHeader).queryByRole("button", { name: "Toggle summary" }) !== null).toBeTrue();
+    expect(globalHeader.contains(summaryRail)).toBeTrue();
     expect(within(summaryRail).queryByRole("button", { name: "Toggle summary" }) !== null).toBeTrue();
-    expect(stageProps?.summaryPanelMounted).toBe(false);
+    expect(stageProps?.summaryPanelMounted).toBe(true);
     expect(stageProps?.summaryPanelOpen).toBe(false);
+    expect(stageProps?.summaryPanelHideImmediately).toBe(false);
     expect(stageProps?.summaryPanelContentShift).toBe(0);
     expect(localStorage.getItem("nodex:thread-summary-panel:pinned-open")).toBe("true");
 
@@ -1932,9 +2148,10 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
-    expect(screen.getByRole("button", { name: "Toggle summary" }).getAttribute("aria-pressed")).toBe("false");
-    expect(stageProps?.summaryPanelMounted).toBe(false);
+    expect(screen.getByRole("button", { name: "Toggle summary" }).getAttribute("aria-pressed")).toBe("true");
+    expect(stageProps?.summaryPanelMounted).toBe(true);
     expect(stageProps?.summaryPanelOpen).toBe(false);
+    expect(stageProps?.summaryPanelHideImmediately).toBe(true);
     expect(stageProps?.summaryPanelContentShift).toBe(0);
     expect(localStorage.getItem("nodex:thread-summary-panel:pinned-open")).toBe("true");
 
@@ -1949,6 +2166,7 @@ describe("workbench session shell", () => {
     expect(summaryToggle.getAttribute("aria-pressed")).toBe("true");
     expect(stageProps?.summaryPanelMounted).toBe(true);
     expect(stageProps?.summaryPanelOpen).toBe(true);
+    expect(stageProps?.summaryPanelHideImmediately).toBe(false);
     expect(stageProps?.summaryPanelContentShift).toBe(-158);
     expect(localStorage.getItem("nodex:thread-summary-panel:pinned-open")).toBe("true");
   });
@@ -2000,7 +2218,7 @@ describe("workbench session shell", () => {
     expect(headerShellSlot?.contains(sidePanelToggle)).toBeTrue();
     expect(visibleGlobalHeaderButtons.map((button) => button.getAttribute("aria-label")).join(",")).toBe("Toggle bottom panel,Toggle side panel");
     expect(headerShellSlot?.className.includes("pe-2")).toBeTrue();
-    expect(headerShellSlot?.getAttribute("style")?.includes("width: 600px")).toBeTrue();
+    expect(headerShellSlot?.getAttribute("style")?.includes("width: 372px")).toBeTrue();
     expect(headerShellSlot?.getAttribute("style")?.includes("min-width: 70px")).toBeTrue();
     expect(sidePanelToggle.getAttribute("aria-pressed")).toBe("true");
     expect(sidePanelToggle.className.includes("bg-token-foreground/5")).toBeTrue();
@@ -2063,7 +2281,7 @@ describe("workbench session shell", () => {
 
     const rightPanel = screen.getByTestId("session-right-panel");
     const separator = screen.getByRole("separator", { name: "Resize right panel" });
-    expect(rightPanel.getAttribute("style")?.includes("width: 600px")).toBeTrue();
+    expect(rightPanel.getAttribute("style")?.includes("width: 372px")).toBeTrue();
 
     await act(async () => {
       fireEvent.mouseDown(separator, { clientX: 700 });
@@ -2071,12 +2289,12 @@ describe("workbench session shell", () => {
       await Promise.resolve();
     });
 
-    expect(rightPanel.getAttribute("style")?.includes("width: 550px")).toBeTrue();
+    expect(rightPanel.getAttribute("style")?.includes("width: 322px")).toBeTrue();
     expect(invokeCalls.some((call) =>
       call[0] === "project-session-panels:update"
       && call[1] === "session:alpha:build"
       && call[2] === "right"
-      && ((call[3] as { size?: { widthPx?: number } })?.size?.widthPx ?? null) === 550
+      && ((call[3] as { size?: { widthPx?: number } })?.size?.widthPx ?? null) === 322
     )).toBeFalse();
 
     await act(async () => {
@@ -2088,7 +2306,7 @@ describe("workbench session shell", () => {
       call[0] === "project-session-panels:update"
       && call[1] === "session:alpha:build"
       && call[2] === "right"
-      && ((call[3] as { size?: { widthPx?: number } })?.size?.widthPx ?? null) === 550
+      && ((call[3] as { size?: { widthPx?: number } })?.size?.widthPx ?? null) === 322
     )).toBeTrue();
   });
 
@@ -2118,7 +2336,7 @@ describe("workbench session shell", () => {
       await Promise.resolve();
     });
 
-    expect(rightPanel.getAttribute("style")?.includes("width: 1400px")).toBeTrue();
+    expect(rightPanel.getAttribute("style")?.includes("width: 1148px")).toBeTrue();
 
     await act(async () => {
       fireEvent.mouseUp(window);
@@ -2129,7 +2347,7 @@ describe("workbench session shell", () => {
       call[0] === "project-session-panels:update"
       && call[1] === "session:alpha:build"
       && call[2] === "right"
-      && ((call[3] as { size?: { widthPx?: number } })?.size?.widthPx ?? null) === 1400
+      && ((call[3] as { size?: { widthPx?: number } })?.size?.widthPx ?? null) === 1148
     )).toBeTrue();
   });
 
@@ -2199,7 +2417,7 @@ describe("workbench session shell", () => {
       await Promise.resolve();
     });
 
-    expect(rightPanel.getAttribute("style")?.includes("width: 550px")).toBeTrue();
+    expect(rightPanel.getAttribute("style")?.includes("width: 322px")).toBeTrue();
 
     await act(async () => {
       fireEvent.mouseUp(window);
@@ -2210,7 +2428,7 @@ describe("workbench session shell", () => {
       call[0] === "project-session-panels:update"
       && call[1] === "session:alpha:build"
       && call[2] === "right"
-      && ((call[3] as { size?: { widthPx?: number } })?.size?.widthPx ?? null) === 550
+      && ((call[3] as { size?: { widthPx?: number } })?.size?.widthPx ?? null) === 322
     )).toBeTrue();
   });
 

@@ -61,4 +61,85 @@ describe("LocalConversationThreadScrollLayout", () => {
 
     expect(resizeObserverInstances).toBe(0);
   });
+
+  test("renders the Codex scroll container and shifted content wrapper", () => {
+    const view = render(
+      <EnsureLocalConversationThreadScrollController>
+        <LocalConversationThreadScrollLayout contentX={-158}>
+          <div>Thread content</div>
+        </LocalConversationThreadScrollLayout>
+      </EnsureLocalConversationThreadScrollController>,
+    );
+
+    const scrollContainer = view.container.querySelector("[data-local-conversation-thread-body='true']");
+    const shiftedContent = scrollContainer?.firstElementChild as HTMLElement | null;
+    const widthWrapper = shiftedContent?.querySelector("[data-mcp-app-portal-target='true']") as HTMLElement | null;
+
+    expect(scrollContainer?.className.includes("thread-scroll-container")).toBeTrue();
+    expect(scrollContainer?.className.includes("pt-(--thread-content-top-inset)")).toBeTrue();
+    expect(scrollContainer?.className.includes("[container-name:thread-content]")).toBeTrue();
+    expect(scrollContainer?.className.includes("flex-col-reverse")).toBeTrue();
+    expect(widthWrapper?.className.includes("max-w-(--thread-content-max-width)")).toBeTrue();
+    expect(widthWrapper?.className.includes("px-toolbar")).toBeTrue();
+    expect(shiftedContent?.style.transform.includes("translateX(-158px)")).toBeTrue();
+  });
+
+  test("measures sticky footer height into Codex scroll padding", () => {
+    const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
+    Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
+      configurable: true,
+      value(this: HTMLElement) {
+        if (this.getAttribute("data-thread-scroll-footer") === "true") {
+          return {
+            bottom: 48,
+            height: 48,
+            left: 0,
+            right: 300,
+            top: 0,
+            width: 300,
+            x: 0,
+            y: 0,
+            toJSON: () => ({}),
+          } as DOMRect;
+        }
+        return originalGetBoundingClientRect.call(this);
+      },
+    });
+
+    class TestResizeObserver {
+      private readonly callback: ResizeObserverCallback;
+
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback;
+      }
+
+      disconnect() {}
+
+      observe(target: Element) {
+        this.callback([{ target } as ResizeObserverEntry], this as unknown as ResizeObserver);
+      }
+
+      unobserve() {}
+    }
+
+    Object.defineProperty(globalThis, "ResizeObserver", {
+      configurable: true,
+      value: TestResizeObserver,
+      writable: true,
+    });
+
+    const view = render(
+      <EnsureLocalConversationThreadScrollController>
+        <LocalConversationThreadScrollLayout footer={<div>Composer</div>}>
+          <div>Thread content</div>
+        </LocalConversationThreadScrollLayout>
+      </EnsureLocalConversationThreadScrollController>,
+    );
+
+    const scrollContainer = view.container.querySelector("[data-local-conversation-thread-body='true']") as HTMLElement | null;
+    const footer = view.container.querySelector("[data-thread-scroll-footer='true']");
+
+    expect(Boolean(footer)).toBeTrue();
+    expect(scrollContainer?.style.getPropertyValue("--thread-scroll-padding-bottom")).toBe("64px");
+  });
 });

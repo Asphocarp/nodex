@@ -25,8 +25,12 @@ export const CODEX_SUMMARY_TARGET_CONTENT_WIDTH = 736;
 export const CODEX_SUMMARY_OVERLAY_AVAILABLE_WIDTH = 180;
 export const CODEX_SUMMARY_GUTTER_AVAILABLE_WIDTH = 400;
 export const CODEX_SUMMARY_SHIFT_X = -((CODEX_SUMMARY_PANEL_WIDTH + CODEX_SUMMARY_PANEL_GAP) / 2);
+export const CODEX_SHELL_MEDIUM_WIDTH_PX = 960;
+export const CODEX_SHELL_NARROW_WIDTH_PX = 720;
+export const CODEX_THREAD_EDGE_SCROLL_MIN_WIDTH_REM = 96;
 
 export type ThreadSummaryPanelLayoutMode = "overlay" | "shift" | "gutter";
+export type AppShellMainContentLayout = "default" | "full-bleed" | "thread-edge-scroll";
 
 export interface CodexAnimatedPanelState {
   progress: MotionValue<number>;
@@ -64,6 +68,59 @@ export function resolveCodexSummaryContentShift({
   if (!pinnedOpen) return 0;
   if (layoutMode !== "shift") return 0;
   return CODEX_SUMMARY_SHIFT_X;
+}
+
+export function resolveCodexMainContentTargetWidth({
+  shellWidth,
+  leftSidebarOpen,
+  leftSidebarWidth,
+  rightPanelOpen,
+  rightPanelWidth,
+  rightPanelFullWidth = false,
+}: {
+  shellWidth: number;
+  leftSidebarOpen: boolean;
+  leftSidebarWidth: number;
+  rightPanelOpen: boolean;
+  rightPanelWidth: number;
+  rightPanelFullWidth?: boolean;
+}): number {
+  if (!Number.isFinite(shellWidth) || shellWidth <= 0) return 0;
+  if (rightPanelFullWidth) return 0;
+  const reservedLeftWidth = leftSidebarOpen && Number.isFinite(leftSidebarWidth)
+    ? Math.max(0, leftSidebarWidth)
+    : 0;
+  const reservedRightWidth = rightPanelOpen && Number.isFinite(rightPanelWidth)
+    ? Math.max(0, rightPanelWidth)
+    : 0;
+  return Math.max(0, shellWidth - reservedLeftWidth - reservedRightWidth);
+}
+
+export function resolveCodexHeaderEdgeScroll({
+  layout,
+  mainContentWidth,
+  rootFontSizePx = 16,
+  rightPanelFullWidth = false,
+}: {
+  layout: AppShellMainContentLayout;
+  mainContentWidth: number;
+  rootFontSizePx?: number;
+  rightPanelFullWidth?: boolean;
+}): boolean {
+  if (layout !== "thread-edge-scroll") return false;
+  if (rightPanelFullWidth) return false;
+  const normalizedRootFontSize = Number.isFinite(rootFontSizePx) && rootFontSizePx > 0 ? rootFontSizePx : 16;
+  return mainContentWidth >= CODEX_THREAD_EDGE_SCROLL_MIN_WIDTH_REM * normalizedRootFontSize;
+}
+
+export function resolveCodexMainContentFrameBorder({
+  rightPanelOpen,
+  headerEdgeScroll,
+}: {
+  rightPanelOpen: boolean;
+  headerEdgeScroll: boolean;
+}): boolean {
+  return rightPanelOpen || !headerEdgeScroll;
 }
 
 export function shouldSnapCodexMotion(reducedMotion: boolean | null, animateLayout = true): boolean {

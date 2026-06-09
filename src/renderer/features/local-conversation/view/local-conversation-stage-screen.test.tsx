@@ -29,7 +29,7 @@ describe("LocalConversationStageScreen", () => {
     expect(hasAbsoluteFooterOverlay).toBeFalse();
   });
 
-  test("omits the sticky header wrapper when embedded without a header", async () => {
+  test("keeps an empty sticky header slot when embedded without a header", async () => {
     const { LocalConversationStageScreen } = await import("./local-conversation-stage-screen");
     const { container } = render(
       <LocalConversationStageScreen
@@ -41,6 +41,8 @@ describe("LocalConversationStageScreen", () => {
 
     expect(Boolean(container.querySelector("[data-local-conversation-thread-body='true']"))).toBeTrue();
     expect(Boolean(container.querySelector("[data-local-conversation-footer='true']"))).toBeTrue();
-    expect(Boolean(container.querySelector(".sticky.top-0.z-10"))).toBeFalse();
+    const stickySlot = container.querySelector(".sticky.top-0.z-10");
+    expect(Boolean(stickySlot)).toBeTrue();
+    expect(stickySlot?.childElementCount).toBe(0);
   });
 });

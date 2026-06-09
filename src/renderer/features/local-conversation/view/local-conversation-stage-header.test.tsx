@@ -38,7 +38,6 @@ function buildModel(overrides?: Partial<ThreadStageHeaderModel>): ThreadStageHea
     threadId: "thread_1",
     cardId: "card_1",
     title: "Thread title",
-    showSeparator: false,
     openCardTarget: null,
     activeThreadCardColumnId: null,
     connection: { status: "connected", retries: 0 },
@@ -89,7 +88,7 @@ function buildActions(): ThreadStageActions {
 }
 
 describe("ThreadStageHeader auth chrome", () => {
-  test("renders the Codex Electron sized single-line thread title", async () => {
+  test("renders the Codex Electron sized single-line global thread title", async () => {
     const { ThreadStageHeader } = await import("./local-conversation-stage-header");
     const { container } = render(
       <ThreadStageHeader
@@ -103,38 +102,54 @@ describe("ThreadStageHeader auth chrome", () => {
     const header = container.firstElementChild;
     expect(title?.textContent).toBe("Review shell header parity");
     expect(title?.className.includes("max-w-[320px]")).toBeTrue();
+    expect(title?.className.includes("truncate")).toBeTrue();
     expect(title?.className.includes("text-token-foreground")).toBeTrue();
     expect(title?.parentElement?.className.includes("text-base")).toBeTrue();
+    expect(header?.className.includes("draggable")).toBeTrue();
+    expect(header?.className.includes("grid-cols-[minmax(0,1fr)_auto]")).toBeTrue();
     expect(header?.className.includes("pl-3")).toBeFalse();
-    expect(header?.className.includes("pl-[var(--thread-stage-header-left-padding,0.75rem)]")).toBeTrue();
+    expect(header?.className.includes("pl-[var(--thread-stage-header-left-padding,0.75rem)]")).toBeFalse();
   });
 
-  test("renders the title separator only when requested by the shell", async () => {
+  test("keeps thread actions left-aligned immediately after the title", async () => {
     const { ThreadStageHeader } = await import("./local-conversation-stage-header");
-    const visible = render(
+    const actions = {
+      ...buildActions(),
+      onOpenSideChat: async () => {},
+    };
+    const { container } = render(
       <ThreadStageHeader
-        model={buildModel({ showSeparator: true })}
-        actions={buildActions()}
+        model={buildModel({ showSideChatAction: true })}
+        actions={actions}
         onErrorMessage={() => {}}
       />,
     );
 
-    expect(visible.container.firstElementChild?.className.includes("border-b")).toBeTrue();
-    expect(visible.container.firstElementChild?.className.includes("border-token-border")).toBeTrue();
-    visible.unmount();
-
-    const hidden = render(
-      <ThreadStageHeader
-        model={buildModel({ showSeparator: false })}
-        actions={buildActions()}
-        onErrorMessage={() => {}}
-      />,
-    );
-
-    expect(hidden.container.firstElementChild?.className.includes("border-b")).toBeFalse();
+    const title = container.querySelector('[data-testid="thread-stage-title"]');
+    const threadActions = container.querySelector('button[aria-label="Thread actions"]');
+    const actionGroup = threadActions?.closest(".no-drag");
+    expect(Boolean(title)).toBeTrue();
+    expect(Boolean(actionGroup)).toBeTrue();
+    expect(actionGroup?.previousElementSibling === title).toBeTrue();
+    expect(title?.className.includes("flex-1")).toBeFalse();
+    expect(title?.className.includes("w-full")).toBeFalse();
   });
 
-  test("reserves the global side-panel toggle area as no-drag", async () => {
+  test("does not render a local title separator", async () => {
+    const { ThreadStageHeader } = await import("./local-conversation-stage-header");
+    const { container } = render(
+      <ThreadStageHeader
+        model={buildModel()}
+        actions={buildActions()}
+        onErrorMessage={() => {}}
+      />,
+    );
+
+    expect(container.firstElementChild?.className.includes("border-b")).toBeFalse();
+    expect(container.firstElementChild?.className.includes("border-token-border")).toBeFalse();
+  });
+
+  test("does not render in-flow titlebar hitboxes", async () => {
     const { ThreadStageHeader } = await import("./local-conversation-stage-header");
     const { container } = render(
       <ThreadStageHeader model={buildModel()} actions={buildActions()} onErrorMessage={() => {}} />,
@@ -144,53 +159,8 @@ describe("ThreadStageHeader auth chrome", () => {
     const leftHitbox = container.querySelector('[data-testid="thread-stage-header-left-chrome-hitbox"]');
     const hitbox = container.querySelector('[data-testid="thread-stage-header-toggle-hitbox"]');
     expect(header?.className.includes("draggable")).toBeTrue();
-    expect(header?.className.includes("relative")).toBeTrue();
-    expect(leftHitbox?.className.includes("no-drag")).toBeTrue();
-    expect(leftHitbox?.className.includes("pointer-events-auto")).toBeTrue();
-    expect(leftHitbox?.className.includes("left-0")).toBeTrue();
-    expect(leftHitbox?.className.includes("z-10")).toBeTrue();
-    expect(leftHitbox?.className.includes("w-[var(--thread-stage-header-left-padding,0px)]")).toBeTrue();
-    expect(hitbox?.className.includes("no-drag")).toBeTrue();
-    expect(hitbox?.className.includes("pointer-events-auto")).toBeTrue();
-    expect(hitbox?.className.includes("right-0")).toBeTrue();
-    expect(hitbox?.className.includes("z-10")).toBeTrue();
-  });
-
-  test("renders the summary action at the right edge of the thread header", async () => {
-    const { ThreadStageHeader } = await import("./local-conversation-stage-header");
-    const { container } = render(
-      <ThreadStageHeader
-        model={buildModel({
-          summaryAction: createElement(
-            "button",
-            { type: "button", "aria-label": "Toggle summary" },
-            "Summary",
-          ),
-        })}
-        actions={buildActions()}
-        onErrorMessage={() => {}}
-      />,
-    );
-
-    const summaryButton = container.querySelector('button[aria-label="Toggle summary"]');
-    const summaryRail = container.querySelector('[data-testid="thread-stage-header-summary-actions"]');
-    const contextSurface = container.querySelector('[data-testid="thread-stage-header-context-menu-surface"]');
-    const globalHitbox = container.querySelector('[data-testid="thread-stage-header-toggle-hitbox"]');
-    const header = container.firstElementChild;
-
-    expect(Boolean(summaryButton)).toBeTrue();
-    expect(header?.className.includes("electron:h-toolbar")).toBeTrue();
-    expect(header?.className.includes("electron:py-0")).toBeTrue();
-    expect(contextSurface?.className.includes("h-full")).toBeTrue();
-    expect(contextSurface?.className.includes("overflow-hidden")).toBeTrue();
-    expect(contextSurface?.className.includes("pe-1.5")).toBeTrue();
-    expect(contextSurface?.contains(summaryButton ?? null)).toBeTrue();
-    expect(summaryRail?.contains(summaryButton ?? null)).toBeTrue();
-    expect(summaryRail?.className.includes("ms-auto")).toBeTrue();
-    expect(summaryRail?.className.includes("shrink-0")).toBeTrue();
-    expect(summaryRail?.className.includes("-translate-y-px")).toBeTrue();
-    expect(summaryRail?.className.includes("gap-1.5")).toBeTrue();
-    expect(globalHitbox?.contains(summaryButton ?? null)).toBeFalse();
+    expect(Boolean(leftHitbox)).toBeFalse();
+    expect(Boolean(hitbox)).toBeFalse();
   });
 
   test("does not render the authenticated connection badge", async () => {

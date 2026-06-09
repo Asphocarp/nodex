@@ -128,7 +128,6 @@ async function renderStage(summary: CodexThreadSummary) {
           newThreadTarget={null}
           newThreadProjectSelector={null}
           newThreadStartInSelector={null}
-          showHeaderSeparator={false}
           threadStartProgress={null}
           activeThreadId={summary.threadId}
           activeThreadSummary={summary}
@@ -231,7 +230,6 @@ async function renderNewThreadHome() {
             worktreeStartMode: "detachedHead",
             worktreeBranchPrefix: "nodex/",
           }}
-          showHeaderSeparator={false}
           threadStartProgress={null}
           activeThreadId={null}
           activeThreadSummary={null}

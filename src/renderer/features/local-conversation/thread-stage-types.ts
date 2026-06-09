@@ -54,6 +54,12 @@ export interface NewChatStartInSelectorModel {
   worktreeBranchPrefix: string;
 }
 
+export interface ThreadSummaryPanelAuxiliaryRow {
+  id: string;
+  title: string;
+  status?: string | null;
+}
+
 export interface ThreadStageRouteInput {
   projectId: string;
   projectWorkspacePath?: string | null;
@@ -73,7 +79,6 @@ export interface ThreadStageRouteInput {
   } | null;
   newThreadProjectSelector?: NewChatProjectSelectorModel | null;
   newThreadStartInSelector?: NewChatStartInSelectorModel | null;
-  showHeaderSeparator: boolean;
   activeThreadCardColumnId: string | null;
   threadStartProgress: {
     phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
@@ -98,6 +103,8 @@ export interface ThreadStageRouteInput {
   isQueueingEnabled: boolean;
   composerEnterBehavior: ComposerEnterBehavior;
   searchOpenTick: number;
+  summarySideChatRows?: readonly ThreadSummaryPanelAuxiliaryRow[];
+  summaryBrowserRows?: readonly ThreadSummaryPanelAuxiliaryRow[];
   composerIntent: CodexComposerIntent | null;
   primaryRequest: CodexConversationLiveRequest | null;
   sideChatContext?: {
@@ -474,12 +481,10 @@ export interface ThreadStageHeaderModel {
   threadId: string | null;
   cardId: string | null;
   title: string;
-  showSeparator: boolean;
   openCardTarget: ThreadOpenCardTarget | null;
   activeThreadCardColumnId: string | null;
   connection: CodexConnectionState;
   account: CodexAccountSnapshot | null;
-  summaryAction?: ReactNode;
   showSideChatAction?: boolean;
 }
 
@@ -547,7 +552,7 @@ export interface ThreadFooterModel {
 export interface ThreadStageScreenProps {
   header?: ReactNode;
   body: ReactNode;
-  footer: ReactNode;
+  footer?: ReactNode;
   floatingContent?: ReactNode;
   contentShiftX?: number;
 }

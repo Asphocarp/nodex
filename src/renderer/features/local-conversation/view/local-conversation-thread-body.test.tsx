@@ -248,18 +248,21 @@ describe("LocalConversationThreadBody", () => {
     const contentRoot = container.querySelector(
       "[data-thread-find-target='conversation']",
     ) as HTMLDivElement | null;
-    const widthWrapper = viewport?.firstElementChild as HTMLDivElement | null;
+    const motionWrapper = viewport?.firstElementChild as HTMLDivElement | null;
+    const widthWrapper = motionWrapper?.firstElementChild as HTMLDivElement | null;
 
     expect(Boolean(viewport)).toBeTrue();
-    expect(viewport?.className.includes("pb-8") ?? false).toBeTrue();
+    expect(viewport?.className.includes("pt-(--thread-content-top-inset)") ?? false).toBeTrue();
+    expect(viewport?.className.includes("flex-col-reverse") ?? false).toBeTrue();
     expect(viewport?.className.includes("px-panel") ?? false).toBeFalse();
 
+    expect(Boolean(motionWrapper)).toBeTrue();
     expect(Boolean(widthWrapper)).toBeTrue();
     expect(
-      widthWrapper?.className.includes("max-w-[var(--thread-content-max-width)]") ?? false,
+      widthWrapper?.className.includes("max-w-(--thread-content-max-width)") ?? false,
     ).toBeTrue();
-    expect(widthWrapper?.className.includes("px-2.5") ?? false).toBeTrue();
-    expect(widthWrapper?.className.includes("md:px-panel") ?? false).toBeTrue();
+    expect(widthWrapper?.className.includes("px-toolbar") ?? false).toBeTrue();
+    expect(widthWrapper?.className.includes("pb-8") ?? false).toBeTrue();
 
     expect(Boolean(contentRoot)).toBeTrue();
     expect(contentRoot?.className.includes("h-full") ?? false).toBeFalse();

@@ -23,11 +23,12 @@ import {
 } from "../../../../lib/codex-panel-motion";
 import { cn } from "../../../../lib/utils";
 import type {
+  CodexBackgroundTerminalRow,
   CodexConversationTurn,
   GitReviewSnapshot,
   GitReviewSource,
 } from "../../../../lib/types";
-import type { ThreadStageRouteInput } from "../../thread-stage-types";
+import type { ThreadStageRouteInput, ThreadSummaryPanelAuxiliaryRow } from "../../thread-stage-types";
 import { ThreadSummaryPanelRow } from "./thread-summary-panel-row";
 import { ThreadSummaryPanelSection } from "./thread-summary-panel-section";
 import { ThreadSummaryPanelToggleButton } from "./thread-summary-panel-toggle";
@@ -37,11 +38,16 @@ export interface ThreadSummaryPanelContentProps {
   cwd: string | null;
   projectWorkspacePath: string | null;
   turns: readonly CodexConversationTurn[];
+  backgroundTerminalRows?: readonly CodexBackgroundTerminalRow[];
+  sideChatRows?: readonly ThreadSummaryPanelAuxiliaryRow[];
+  browserRows?: readonly ThreadSummaryPanelAuxiliaryRow[];
+  isVisible?: boolean;
   newThreadStartInSelector?: ThreadStageRouteInput["newThreadStartInSelector"];
   onErrorMessage: (message: string | null) => void;
 }
 
 interface ThreadFloatingSummaryPanelProps extends ThreadSummaryPanelContentProps {
+  hideImmediately?: boolean;
   mounted: boolean;
   open: boolean;
 }
@@ -101,6 +107,67 @@ function collectMcpSourceNames(turns: readonly CodexConversationTurn[]): string[
   return Array.from(names.values()).slice(0, 8);
 }
 
+function collectWebSearchCount(turns: readonly CodexConversationTurn[]): number {
+  return turns.reduce(
+    (count, turn) => count + turn.items.filter((item) => item.type === "webSearch").length,
+    0,
+  );
+}
+
+function collectProgressRows(turns: readonly CodexConversationTurn[]): string[] {
+  const latestProgressItem = [...turns]
+    .reverse()
+    .flatMap((turn) => [...turn.items].reverse())
+    .find((item) => item.semanticKind === "todoList" || item.semanticKind === "proposedPlan");
+  const markdownText = latestProgressItem?.markdownText?.trim();
+  if (!markdownText) return [];
+
+  return markdownText
+    .split(/\r?\n/u)
+    .map((line) => line.replace(/^[-*]\s+(?:\[[ xX]\]\s*)?/u, "").trim())
+    .filter(Boolean)
+    .slice(0, 4);
+}
+
+function collectOutputRows(turns: readonly CodexConversationTurn[]): string[] {
+  const paths = new Map<string, string>();
+  for (const turn of turns) {
+    for (const item of turn.items) {
+      if (item.fileChange) {
+        for (const path of item.fileChange.paths) {
+          paths.set(path, path);
+        }
+      }
+      if (item.type !== "imageGeneration" && item.type !== "imageView") continue;
+      const rawItem = item.rawItem as { savedPath?: string; path?: string } | undefined;
+      const path = rawItem?.savedPath ?? rawItem?.path;
+      if (path) paths.set(path, path);
+    }
+  }
+  return Array.from(paths.values()).slice(0, 5);
+}
+
+function collectBackgroundSubagentRows(turns: readonly CodexConversationTurn[]): string[] {
+  const labels: string[] = [];
+  for (const turn of turns) {
+    for (const item of turn.items) {
+      if (item.type !== "collabAgentToolCall") continue;
+      const rawItem = item.rawItem as { receiverThreadIds?: string[]; tool?: string } | undefined;
+      const receiverCount = rawItem?.receiverThreadIds?.length ?? 0;
+      labels.push(receiverCount > 1 ? `${receiverCount} subagents` : rawItem?.tool ?? "Subagent");
+    }
+  }
+  return labels.slice(0, 4);
+}
+
+function SummaryCountBadge({ count }: { count: number }) {
+  return (
+    <span className="ms-auto text-size-chat text-token-text-tertiary">
+      {count}
+    </span>
+  );
+}
+
 function useGitSummary(cwd: string | null, open: boolean): GitSummaryState {
   const [state, setState] = useState<GitSummaryState>(EMPTY_GIT_SUMMARY);
 
@@ -141,9 +208,11 @@ function useGitSummary(cwd: string | null, open: boolean): GitSummaryState {
 
 function useSummaryPanelBranchState({
   cwd,
+  enabled,
   onErrorMessage,
 }: {
   cwd: string | null;
+  enabled: boolean;
   onErrorMessage: (message: string | null) => void;
 }) {
   const [branchState, setBranchState] = useState<BranchSelectorState>(EMPTY_BRANCH_SELECTOR_STATE);
@@ -153,6 +222,10 @@ function useSummaryPanelBranchState({
   branchCwdRef.current = cwd;
 
   const refreshBranchState = useCallback(async () => {
+    if (!enabled) {
+      setBranchState(EMPTY_BRANCH_SELECTOR_STATE);
+      return;
+    }
     const requestedCwd = branchCwdRef.current;
     if (!requestedCwd) {
       setBranchState(EMPTY_BRANCH_SELECTOR_STATE);
@@ -167,16 +240,16 @@ function useSummaryPanelBranchState({
       if (branchCwdRef.current !== requestedCwd) return;
       setBranchState(EMPTY_BRANCH_SELECTOR_STATE);
     }
-  }, []);
+  }, [enabled]);
 
   useEffect(() => {
-    if (!cwd) {
+    if (!enabled || !cwd) {
       setBranchState(EMPTY_BRANCH_SELECTOR_STATE);
       return;
     }
 
     void refreshBranchState();
-  }, [cwd, refreshBranchState]);
+  }, [cwd, enabled, refreshBranchState]);
 
   const checkoutBranch = useCallback(async (branch: string) => {
     const requestedCwd = cwd;
@@ -250,6 +323,10 @@ export function ThreadSummaryPanelSurface({
   cwd,
   projectWorkspacePath,
   turns,
+  backgroundTerminalRows = [],
+  sideChatRows = [],
+  browserRows = [],
+  isVisible = true,
   newThreadStartInSelector,
   onErrorMessage,
 }: Omit<ThreadFloatingSummaryPanelProps, "mounted" | "open">) {
@@ -257,9 +334,13 @@ export function ThreadSummaryPanelSurface({
     () => resolveBranchSelectorCwd(cwd, projectWorkspacePath),
     [cwd, projectWorkspacePath],
   );
-  const gitSummary = useGitSummary(branchCwd, true);
-  const branch = useSummaryPanelBranchState({ cwd: branchCwd, onErrorMessage });
+  const gitSummary = useGitSummary(branchCwd, isVisible);
+  const branch = useSummaryPanelBranchState({ cwd: branchCwd, enabled: isVisible, onErrorMessage });
   const sourceNames = useMemo(() => collectMcpSourceNames(turns), [turns]);
+  const webSearchCount = useMemo(() => collectWebSearchCount(turns), [turns]);
+  const progressRows = useMemo(() => collectProgressRows(turns), [turns]);
+  const outputRows = useMemo(() => collectOutputRows(turns), [turns]);
+  const backgroundSubagentRows = useMemo(() => collectBackgroundSubagentRows(turns), [turns]);
   const snapshots = gitSummary.snapshots;
   const unstaged = sumSnapshotFiles(snapshots.unstaged);
   const staged = sumSnapshotFiles(snapshots.staged);
@@ -319,7 +400,7 @@ export function ThreadSummaryPanelSurface({
           <ThreadSummaryPanelRow
             label={currentBranch ?? "No branch"}
             icon={<BranchStatusIcon />}
-            disabled={!branchCwd || branch.busy}
+            disabled={!isVisible || !branchCwd || branch.busy}
             accessory={(
               <BranchSelectorPopover
                 cwd={branchCwd}
@@ -348,9 +429,103 @@ export function ThreadSummaryPanelSurface({
           />
         </ThreadSummaryPanelSection>
 
-        {sourceNames.length > 0 ? (
-          <ThreadSummaryPanelSection title="Sources">
+        {progressRows.length > 0 ? (
+          <ThreadSummaryPanelSection title="Progress" actions={<SummaryCountBadge count={progressRows.length} />}>
+            {progressRows.map((row) => (
+              <ThreadSummaryPanelRow key={row} label={row} />
+            ))}
+          </ThreadSummaryPanelSection>
+        ) : null}
+
+        {outputRows.length > 0 ? (
+          <ThreadSummaryPanelSection title="Outputs" actions={<SummaryCountBadge count={outputRows.length} />}>
+            {outputRows.map((path) => (
+              <ThreadSummaryPanelRow
+                key={path}
+                label={path.split("/").at(-1) ?? path}
+                title={path}
+              />
+            ))}
+          </ThreadSummaryPanelSection>
+        ) : null}
+
+        {sideChatRows.length > 0 ? (
+          <ThreadSummaryPanelSection title="Side chats" actions={<SummaryCountBadge count={sideChatRows.length} />}>
+            {sideChatRows.slice(0, 4).map((row) => (
+              <ThreadSummaryPanelRow
+                key={row.id}
+                label={row.title}
+                title={row.title}
+                trailing={row.status ? (
+                  <span className="block max-w-24 truncate text-size-chat text-token-text-tertiary">
+                    {row.status}
+                  </span>
+                ) : null}
+                trailingVisible={Boolean(row.status)}
+              />
+            ))}
+          </ThreadSummaryPanelSection>
+        ) : null}
+
+        {backgroundSubagentRows.length > 0 ? (
+          <ThreadSummaryPanelSection title="Background subagents" actions={<SummaryCountBadge count={backgroundSubagentRows.length} />}>
+            {backgroundSubagentRows.map((row, index) => (
+              <ThreadSummaryPanelRow key={`${row}:${index}`} label={row} />
+            ))}
+          </ThreadSummaryPanelSection>
+        ) : null}
+
+        {backgroundTerminalRows.length > 0 ? (
+          <ThreadSummaryPanelSection title="Background tasks" actions={<SummaryCountBadge count={backgroundTerminalRows.length} />}>
+            {backgroundTerminalRows.slice(0, 4).map((row) => (
+              <ThreadSummaryPanelRow
+                key={row.id}
+                label={row.command}
+                title={row.command}
+                trailing={row.previewLine ? (
+                  <span className="block max-w-24 truncate text-size-chat text-token-text-tertiary">
+                    {row.previewLine}
+                  </span>
+                ) : null}
+                trailingVisible={Boolean(row.previewLine)}
+              />
+            ))}
+          </ThreadSummaryPanelSection>
+        ) : null}
+
+        {browserRows.length > 0 ? (
+          <ThreadSummaryPanelSection title="Browser" actions={<SummaryCountBadge count={browserRows.length} />}>
+            {browserRows.slice(0, 4).map((row) => (
+              <ThreadSummaryPanelRow
+                key={row.id}
+                label={row.title}
+                title={row.title}
+                trailing={row.status ? (
+                  <span className="block max-w-24 truncate text-size-chat text-token-text-tertiary">
+                    {row.status}
+                  </span>
+                ) : null}
+                trailingVisible={Boolean(row.status)}
+              />
+            ))}
+          </ThreadSummaryPanelSection>
+        ) : null}
+
+        <ThreadSummaryPanelSection
+          title="Sources"
+          actions={<SummaryCountBadge count={sourceNames.length + (webSearchCount > 0 ? 1 : 0)} />}
+        >
+          {sourceNames.length > 0 || webSearchCount > 0 ? (
             <div className="flex flex-wrap gap-1.5 py-0.5" aria-label="Sources">
+              {webSearchCount > 0 ? (
+                <span
+                  title="Web search"
+                  className="inline-flex h-6 max-w-full items-center gap-1 rounded-lg bg-token-foreground/5 px-2 text-size-chat text-token-foreground"
+                >
+                  <span className="size-1.5 shrink-0 rounded-full bg-token-text-link-foreground" aria-hidden="true" />
+                  <span className="truncate">Web search</span>
+                </span>
+              ) : null}
               {sourceNames.map((sourceName) => (
                 <span
                   key={sourceName}
@@ -362,8 +537,10 @@ export function ThreadSummaryPanelSurface({
                 </span>
               ))}
             </div>
-          </ThreadSummaryPanelSection>
-        ) : null}
+          ) : (
+            <div className="py-0.5 text-size-chat text-token-text-tertiary">No sources yet</div>
+          )}
+        </ThreadSummaryPanelSection>
 
         {!activeThreadId ? (
           <div className="px-4 text-size-chat text-token-text-tertiary">
@@ -375,11 +552,25 @@ export function ThreadSummaryPanelSurface({
   );
 }
 
-export function ThreadSummaryPanelPopover(props: ThreadSummaryPanelContentProps) {
-  const [open, setOpen] = useState(false);
+export function ThreadSummaryPanelPopover({
+  onOpenChange,
+  open: controlledOpen,
+  ...props
+}: ThreadSummaryPanelContentProps & {
+  onOpenChange?: (open: boolean) => void;
+  open?: boolean;
+}) {
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const handleOpenChange = useCallback((nextOpen: boolean) => {
+    if (controlledOpen == null) {
+      setUncontrolledOpen(nextOpen);
+    }
+    onOpenChange?.(nextOpen);
+  }, [controlledOpen, onOpenChange]);
 
   return (
-    <NodexPopover open={open} onOpenChange={setOpen}>
+    <NodexPopover open={open} onOpenChange={handleOpenChange}>
       <NodexPopoverTrigger asChild>
         <ThreadSummaryPanelToggleButton
           label="Toggle summary"
@@ -396,8 +587,12 @@ export function ThreadSummaryPanelPopover(props: ThreadSummaryPanelContentProps)
           maxWidth: "none",
         }}
       >
-        <div data-thread-summary-panel-mode="popover" style={{ width: CODEX_SUMMARY_PANEL_WIDTH }}>
-          <ThreadSummaryPanelSurface {...props} />
+        <div
+          data-thread-summary-panel-mode="popover"
+          className="flex max-h-[min(var(--radix-popover-content-available-height),calc(100vh-16px))] flex-col"
+          style={{ width: CODEX_SUMMARY_PANEL_WIDTH }}
+        >
+          <ThreadSummaryPanelSurface {...props} isVisible />
         </div>
       </NodexPopoverContent>
     </NodexPopover>
@@ -405,6 +600,7 @@ export function ThreadSummaryPanelPopover(props: ThreadSummaryPanelContentProps)
 }
 
 export function ThreadFloatingSummaryPanel({
+  hideImmediately = false,
   mounted,
   open,
   ...props
@@ -415,19 +611,23 @@ export function ThreadFloatingSummaryPanel({
   return (
     <div
       className="pointer-events-none absolute top-(--thread-floating-content-top-inset) right-0 bottom-(--thread-floating-content-bottom-inset) z-40"
+      data-thread-summary-panel-hide-immediately={String(hideImmediately)}
       data-thread-summary-panel-mode="pinned"
       data-thread-summary-panel-open={String(open)}
     >
       <div className="relative flex max-h-full">
         <motion.div
-          className="pointer-events-none max-h-full min-h-0 origin-top-right pe-4"
+          className={cn(
+            "pointer-events-none max-h-full min-h-0 origin-top-right pe-4",
+            hideImmediately && "invisible",
+          )}
           initial={false}
           animate={{
             opacity: open ? 1 : 0,
-            x: open ? 0 : "100%",
+            translateX: open ? 0 : "100%",
             scale: open ? 1 : 0.8,
           }}
-          transition={reducedMotion ? { duration: 0 } : CODEX_SUMMARY_PANEL_TRANSITION}
+          transition={hideImmediately || reducedMotion ? { duration: 0 } : CODEX_SUMMARY_PANEL_TRANSITION}
         >
           <div
             className={cn(
@@ -436,7 +636,7 @@ export function ThreadFloatingSummaryPanel({
             )}
             style={{ width: CODEX_SUMMARY_PANEL_WIDTH }}
           >
-            {open ? <ThreadSummaryPanelSurface {...props} /> : null}
+            <ThreadSummaryPanelSurface {...props} isVisible={open} />
           </div>
         </motion.div>
       </div>

@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { MotionConfig } from "motion/react";
+import type { CSSProperties } from "react";
 import { BranchStatusIcon, LocalStatusIcon } from "@/components/shared/icons";
 import { CODEX_SUMMARY_PANEL_WIDTH } from "@/lib/codex-panel-motion";
 import { ThreadFloatingSummaryPanel } from "./thread-floating-summary-panel";
@@ -27,6 +28,25 @@ function SummaryPanelSurfaceStory({ noGit = false }: { noGit?: boolean }) {
             <ThreadSummaryPanelRow label="Commit or push" disabled={noGit} interactive={!noGit} />
             <ThreadSummaryPanelRow label="Create pull request" disabled={noGit} interactive={!noGit} />
           </ThreadSummaryPanelSection>
+          <ThreadSummaryPanelSection title="Progress">
+            <ThreadSummaryPanelRow label="Inspect shell width math" />
+            <ThreadSummaryPanelRow label="Wire summary panel rows" />
+          </ThreadSummaryPanelSection>
+          <ThreadSummaryPanelSection title="Outputs">
+            <ThreadSummaryPanelRow label="thread-layout.tsx" title="src/renderer/features/local-conversation/view/thread-layout.tsx" />
+          </ThreadSummaryPanelSection>
+          <ThreadSummaryPanelSection title="Side chats">
+            <ThreadSummaryPanelRow label="Investigate header edge" trailing={<span className="text-size-chat text-token-text-tertiary">Open</span>} trailingVisible />
+          </ThreadSummaryPanelSection>
+          <ThreadSummaryPanelSection title="Background subagents">
+            <ThreadSummaryPanelRow label="Layout parity agent" />
+          </ThreadSummaryPanelSection>
+          <ThreadSummaryPanelSection title="Background tasks">
+            <ThreadSummaryPanelRow label="bun test" trailing={<span className="text-size-chat text-token-text-tertiary">3 pass</span>} trailingVisible />
+          </ThreadSummaryPanelSection>
+          <ThreadSummaryPanelSection title="Browser">
+            <ThreadSummaryPanelRow label="Release notes" trailing={<span className="text-size-chat text-token-text-tertiary">Right panel</span>} trailingVisible />
+          </ThreadSummaryPanelSection>
           <ThreadSummaryPanelSection title="Sources">
             <div className="flex flex-wrap gap-1.5 py-0.5" aria-label="Sources">
               <span className="inline-flex h-6 items-center gap-1 rounded-lg bg-token-foreground/5 px-2 text-size-chat text-token-foreground">
@@ -44,26 +64,44 @@ function SummaryPanelSurfaceStory({ noGit = false }: { noGit?: boolean }) {
 function FloatingSummaryPanelStory({
   open = true,
   reducedMotion = false,
+  mode = "shift",
+  stageWidth = 1180,
 }: {
   open?: boolean;
   reducedMotion?: boolean;
+  mode?: "gutter" | "shift" | "overlay";
+  stageWidth?: number;
 }) {
   const content = (
-    <div className="flex min-h-screen items-start justify-end bg-token-main-surface-primary p-10 text-token-text-primary">
+    <div className="flex min-h-screen items-start justify-end overflow-x-auto bg-token-main-surface-primary p-10 text-token-text-primary">
       <div
         className="relative h-[640px] w-full max-w-4xl overflow-hidden border border-token-border-default bg-(--background)"
         style={{
           "--thread-floating-content-top-inset": "48px",
           "--thread-floating-content-bottom-inset": "16px",
-        } as React.CSSProperties}
+          width: `${stageWidth}px`,
+          maxWidth: "100%",
+        } as CSSProperties}
       >
+        {mode === "overlay" ? (
+          <div className="absolute top-3 right-3 z-10">
+            <button
+              type="button"
+              className="h-8 rounded-md border border-token-border-default px-2 text-size-chat text-token-text-secondary"
+            >
+              Toggle summary
+            </button>
+          </div>
+        ) : null}
         <ThreadFloatingSummaryPanel
           mounted
           open={open}
-          activeThreadId={null}
+          activeThreadId="thread-story"
           cwd={null}
           projectWorkspacePath={null}
           turns={[]}
+          sideChatRows={[{ id: "side-chat", title: "Investigate layout", status: "Open" }]}
+          browserRows={[{ id: "browser", title: "Release notes", status: "Right panel" }]}
           onErrorMessage={() => undefined}
         />
       </div>
@@ -117,7 +155,7 @@ export const FloatingPinnedShiftOpen: StoryObj<typeof FloatingSummaryPanelStory>
 };
 
 export const FloatingPinnedGutterOpen: StoryObj<typeof FloatingSummaryPanelStory> = {
-  render: () => <FloatingSummaryPanelStory open />,
+  render: () => <FloatingSummaryPanelStory mode="gutter" open />,
   parameters: {
     viewport: {
       defaultViewport: "desktop",
@@ -125,6 +163,39 @@ export const FloatingPinnedGutterOpen: StoryObj<typeof FloatingSummaryPanelStory
     docs: {
       description: {
         story: "Pinned floating summary body in gutter mode, where the panel is visible without shifting thread content.",
+      },
+    },
+  },
+};
+
+export const Viewport1902SidebarOpenGutter: StoryObj<typeof FloatingSummaryPanelStory> = {
+  render: () => <FloatingSummaryPanelStory mode="gutter" stageWidth={1602} open />,
+  parameters: {
+    docs: {
+      description: {
+        story: "Acceptance state for a 1902px shell with a 300px left sidebar and no right panel: effective thread width is 1602px, so the summary panel stays pinned in gutter mode.",
+      },
+    },
+  },
+};
+
+export const Viewport1801SidebarOpenShift: StoryObj<typeof FloatingSummaryPanelStory> = {
+  render: () => <FloatingSummaryPanelStory mode="shift" stageWidth={1501} open />,
+  parameters: {
+    docs: {
+      description: {
+        story: "Acceptance state for a 1801px shell with a 300px left sidebar and no right panel: effective thread width is 1501px, so the summary panel stays pinned and shifts the body/footer by -158px.",
+      },
+    },
+  },
+};
+
+export const Viewport1598SidebarRightPanelOverlay: StoryObj<typeof FloatingSummaryPanelStory> = {
+  render: () => <FloatingSummaryPanelStory mode="overlay" stageWidth={950} open={false} />,
+  parameters: {
+    docs: {
+      description: {
+        story: "Acceptance state for a 1598px shell with the left sidebar and a right panel competing for space: effective thread width falls below 1096px, so the mounted inline panel animates closed while the header trigger controls the popover.",
       },
     },
   },

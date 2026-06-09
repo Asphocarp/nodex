@@ -72,6 +72,20 @@ describe("sync-codex-theme-utilities", () => {
     expect(generatedCss.includes(".ignored-top-level")).toBeFalse();
   });
 
+  test("emits the toolbar padding utility when the reference css omits it", () => {
+    const generatedCss = buildGeneratedUtilitiesCss(`
+      @layer utilities {
+        .ignored-utility {
+          color: red;
+        }
+      }
+    `);
+
+    expect(generatedCss.includes(".px-toolbar")).toBeTrue();
+    expect(generatedCss.includes("padding-inline: var(--padding-toolbar);")).toBeTrue();
+    expect(generatedCss.includes(".ignored-utility")).toBeFalse();
+  });
+
   test("keeps allowlisted selectors from the Codex components layer", () => {
     const css = `
       @layer components {

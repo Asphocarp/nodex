@@ -3,6 +3,9 @@ import {
   CODEX_SUMMARY_SHIFT_X,
   clampCodexPanelProgress,
   resolveCodexAnimatedPanelSize,
+  resolveCodexHeaderEdgeScroll,
+  resolveCodexMainContentFrameBorder,
+  resolveCodexMainContentTargetWidth,
   resolveCodexSummaryContentShift,
   resolveCodexSummaryPanelLayoutMode,
   shouldSnapCodexMotion,
@@ -24,10 +27,71 @@ describe("Codex panel motion helpers", () => {
   });
 
   test("matches Codex summary display breakpoints", () => {
+    expect(resolveCodexSummaryPanelLayoutMode(1095)).toBe("overlay");
+    expect(resolveCodexSummaryPanelLayoutMode(1096)).toBe("shift");
+    expect(resolveCodexSummaryPanelLayoutMode(1535)).toBe("shift");
+    expect(resolveCodexSummaryPanelLayoutMode(1536)).toBe("gutter");
     expect(resolveCodexSummaryPanelLayoutMode(736 + 179 * 2)).toBe("overlay");
     expect(resolveCodexSummaryPanelLayoutMode(736 + 180 * 2)).toBe("shift");
     expect(resolveCodexSummaryPanelLayoutMode(736 + 399 * 2)).toBe("shift");
     expect(resolveCodexSummaryPanelLayoutMode(736 + 400 * 2)).toBe("gutter");
+  });
+
+  test("derives Codex main content target width from shell panel reservations", () => {
+    expect(resolveCodexMainContentTargetWidth({
+      shellWidth: 1800,
+      leftSidebarOpen: false,
+      leftSidebarWidth: 300,
+      rightPanelOpen: false,
+      rightPanelWidth: 600,
+    })).toBe(1800);
+    expect(resolveCodexMainContentTargetWidth({
+      shellWidth: 1800,
+      leftSidebarOpen: true,
+      leftSidebarWidth: 300,
+      rightPanelOpen: true,
+      rightPanelWidth: 500,
+    })).toBe(1000);
+    expect(resolveCodexMainContentTargetWidth({
+      shellWidth: 1800,
+      leftSidebarOpen: true,
+      leftSidebarWidth: 300,
+      rightPanelOpen: true,
+      rightPanelWidth: 500,
+      rightPanelFullWidth: true,
+    })).toBe(0);
+  });
+
+  test("matches Codex thread edge-scroll and frame border guards", () => {
+    expect(resolveCodexHeaderEdgeScroll({
+      layout: "thread-edge-scroll",
+      mainContentWidth: 1535,
+    })).toBeFalse();
+    expect(resolveCodexHeaderEdgeScroll({
+      layout: "thread-edge-scroll",
+      mainContentWidth: 1536,
+    })).toBeTrue();
+    expect(resolveCodexHeaderEdgeScroll({
+      layout: "thread-edge-scroll",
+      mainContentWidth: 1536,
+      rightPanelFullWidth: true,
+    })).toBeFalse();
+    expect(resolveCodexHeaderEdgeScroll({
+      layout: "full-bleed",
+      mainContentWidth: 1536,
+    })).toBeFalse();
+    expect(resolveCodexMainContentFrameBorder({
+      rightPanelOpen: false,
+      headerEdgeScroll: true,
+    })).toBeFalse();
+    expect(resolveCodexMainContentFrameBorder({
+      rightPanelOpen: true,
+      headerEdgeScroll: true,
+    })).toBeTrue();
+    expect(resolveCodexMainContentFrameBorder({
+      rightPanelOpen: false,
+      headerEdgeScroll: false,
+    })).toBeTrue();
   });
 
   test("applies Codex shift only for pinned shift mode", () => {

@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, type ReactNode } from "react";
 import type {
   ThreadBodySurfaceModel,
   ThreadBodyUiStateOverrides,
@@ -14,6 +14,8 @@ interface LocalConversationThreadBodyProps {
   model: ThreadBodySurfaceModel;
   actions: ThreadStageActions;
   onErrorMessage: (message: string | null) => void;
+  contentShiftX?: number;
+  footer?: ReactNode;
   initialUiState?: ThreadBodyUiStateOverrides;
 }
 
@@ -21,11 +23,17 @@ function LocalConversationThreadBodyComponent({
   model,
   actions,
   onErrorMessage,
+  contentShiftX = 0,
+  footer,
   initialUiState,
 }: LocalConversationThreadBodyProps) {
   return (
     <EnsureLocalConversationThreadScrollController>
-      <LocalConversationThreadScrollLayout scrollViewClassName="hide-scrollbar">
+      <LocalConversationThreadScrollLayout
+        contentX={contentShiftX}
+        footer={footer}
+        scrollViewClassName="hide-scrollbar"
+      >
         <LocalConversationThreadBodyOwner
           body={model.body}
           projectId={model.projectId}
@@ -54,6 +62,8 @@ export const LocalConversationThreadBody = memo(
   (left, right) =>
     left.actions === right.actions
     && left.onErrorMessage === right.onErrorMessage
+    && left.contentShiftX === right.contentShiftX
+    && left.footer === right.footer
     && left.initialUiState === right.initialUiState
     && left.model.searchOpenTick === right.model.searchOpenTick
     && left.model.projectWorkspacePath === right.model.projectWorkspacePath

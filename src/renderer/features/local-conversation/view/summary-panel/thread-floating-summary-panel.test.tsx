@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { fireEvent, waitFor } from "@testing-library/react";
 import type {
+  CodexConversationTurn,
   GitReviewSnapshot,
   GitReviewSource,
 } from "../../../../lib/types";
@@ -98,6 +99,31 @@ describe("ThreadFloatingSummaryPanel", () => {
     expect(motionShell?.style.transform).toBe("translateX(100%) scale(0.8)");
     expect(widthShell?.className.includes("pointer-events-none")).toBeTrue();
     expect(widthShell?.style.width).toBe("300px");
+    expect(Boolean(view.container.querySelector("[data-testid='thread-summary-panel']"))).toBeTrue();
+  });
+
+  test("uses the Codex instant invisible branch while overlay popover is open", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+
+    const view = render(
+      <ThreadFloatingSummaryPanel
+        hideImmediately
+        mounted
+        open={false}
+        activeThreadId="thread-1"
+        cwd={null}
+        projectWorkspacePath={null}
+        turns={[]}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    const outer = view.container.querySelector("[data-thread-summary-panel-hide-immediately='true']");
+    const motionShell = outer?.querySelector(".origin-top-right");
+    expect(Boolean(outer)).toBeTrue();
+    expect(motionShell?.className.includes("invisible")).toBeTrue();
+    expect((motionShell as HTMLElement | null)?.style.opacity).toBe("0");
+    expect((motionShell as HTMLElement | null)?.style.transform).toBe("translateX(100%) scale(0.8)");
   });
 
   test("renders the right-panel summary as a dismissible popover", async () => {
@@ -121,6 +147,7 @@ describe("ThreadFloatingSummaryPanel", () => {
     await waitFor(() => {
       const popover = view.container.ownerDocument.body.querySelector('[data-thread-summary-panel-mode="popover"]');
       expect(Boolean(popover)).toBeTrue();
+      expect(popover?.className.includes("max-h-[min(var(--radix-popover-content-available-height),calc(100vh-16px))]")).toBeTrue();
     });
     expect(trigger.getAttribute("aria-pressed")).toBe("true");
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
@@ -176,5 +203,99 @@ describe("ThreadFloatingSummaryPanel", () => {
 
     expect(invokeCalls.some((call) => call[0] === "git:review:snapshot")).toBeTrue();
     expect(invokeCalls.some((call) => call[0] === "git:branch:state")).toBeTrue();
+  });
+
+  test("renders available Codex summary sections in source order", async () => {
+    const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
+    const turns = [
+      {
+        items: [
+          {
+            itemId: "todo",
+            type: "plan",
+            semanticKind: "todoList",
+            markdownText: "- [ ] Inspect shell\n- [x] Wire summary",
+          },
+          {
+            itemId: "file",
+            type: "fileChange",
+            fileChange: {
+              paths: ["src/renderer/app.tsx"],
+            },
+          },
+          {
+            itemId: "agent",
+            type: "collabAgentToolCall",
+            rawItem: {
+              tool: "spawn",
+              receiverThreadIds: ["child-1"],
+            },
+          },
+          {
+            itemId: "mcp",
+            type: "mcpToolCall",
+            mcpToolCall: {
+              invocation: {
+                server: "context7",
+              },
+            },
+          },
+          {
+            itemId: "web",
+            type: "webSearch",
+          },
+        ],
+      },
+    ] as unknown as CodexConversationTurn[];
+
+    const view = render(
+      <ThreadFloatingSummaryPanel
+        mounted
+        open
+        activeThreadId="thread-1"
+        cwd={null}
+        projectWorkspacePath={null}
+        turns={turns}
+        backgroundTerminalRows={[{
+          id: "terminal-1",
+          command: "bun test",
+          cwd: "/repo/project",
+          previewLine: "3 pass",
+        }]}
+        sideChatRows={[{
+          id: "side-chat-1",
+          title: "Investigate layout",
+          status: "Open",
+        }]}
+        browserRows={[{
+          id: "browser-1",
+          title: "Release notes",
+          status: "Right panel",
+        }]}
+        onErrorMessage={() => undefined}
+      />,
+    );
+
+    const content = textContent(view.container);
+    const orderedTitles = [
+      "Environment",
+      "Progress",
+      "Outputs",
+      "Side chats",
+      "Background subagents",
+      "Background tasks",
+      "Browser",
+      "Sources",
+    ];
+    const indexes = orderedTitles.map((title) => content.indexOf(title));
+    expect(indexes.every((index) => index >= 0)).toBeTrue();
+    expect(indexes.join(",")).toBe(indexes.slice().sort((left, right) => left - right).join(","));
+    expect(content.includes("Automations")).toBeFalse();
+    expect(content.includes("app.tsx")).toBeTrue();
+    expect(content.includes("Investigate layout")).toBeTrue();
+    expect(content.includes("Release notes")).toBeTrue();
+    expect(content.includes("Context7")).toBeTrue();
+    expect(content.includes("Web search")).toBeTrue();
+    expect(content.includes("bun test")).toBeTrue();
   });
 });

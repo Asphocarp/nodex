@@ -285,6 +285,6 @@ describe("LocalConversationFooter", () => {
 
     expect(Boolean(container.querySelector(".relative.h-0"))).toBeTrue();
     expect(scrollToCalls.length).toBe(1);
-    expect(scrollToCalls[0]?.top).toBe(1200);
+    expect(scrollToCalls[0]?.top).toBe(0);
   });
 });

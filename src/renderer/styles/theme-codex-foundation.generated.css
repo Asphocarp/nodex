@@ -35,6 +35,7 @@
   --thread-content-max-width: none;
   --thread-composer-max-width: none;
   --markdown-wide-block-max-width: 64rem;
+  --padding-toolbar: calc(var(--spacing) * 4);
 }
 
 :root {
@@ -44,6 +45,7 @@
   --inset-toolbar: var(--height-toolbar);
   --safe-area-left: 0px;
   --safe-area-right: 0px;
+  --padding-toolbar: calc(var(--spacing) * 4);
 }
 
 [data-codex-window-type="electron"] body {

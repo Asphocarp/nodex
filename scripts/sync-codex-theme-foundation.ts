@@ -37,6 +37,7 @@ const FOUNDATION_THEME_VARS = [
   "--padding-row-y",
   "--padding-row-x",
   "--padding-panel",
+  "--padding-toolbar",
   "--height-toolbar",
   "--height-toolbar-sm",
   "--inset-toolbar",
@@ -59,18 +60,24 @@ const FOUNDATION_THEME_VARS = [
 const FOUNDATION_THEME_NORMALIZATIONS = new Map<string, string>([
   ["--padding-row-y", "calc(var(--spacing) * 1)"],
   ["--padding-panel", "var(--padding-panel-base)"],
+  ["--padding-toolbar", "calc(var(--spacing) * 4)"],
 ]);
 
 const ROOT_VARS = [
   "--padding-row-y",
   "--padding-panel-base",
   "--padding-panel",
+  "--padding-toolbar",
   "--inset-toolbar",
   "--safe-area-left",
   "--safe-area-right",
   "--spacing-token-button-composer-sm",
   "--text-heading-md",
 ] as const;
+
+const ROOT_DECLARATION_FALLBACKS = new Map<string, string>([
+  ["--padding-toolbar", "calc(var(--spacing) * 4)"],
+]);
 
 const ELECTRON_BODY_VARS = [
   "--padding-row-y",
@@ -122,6 +129,9 @@ const run = (): void => {
     foundationThemeDeclarations.set(name, value);
   }
   const rootDeclarations = extractSingleBlockDeclarations(matches, ":root", ROOT_VARS);
+  for (const [name, value] of ROOT_DECLARATION_FALLBACKS.entries()) {
+    rootDeclarations.set(name, value);
+  }
   const electronBodyDeclarations = extractSingleBlockDeclarations(
     matches,
     '[data-codex-window-type="electron"] body',
