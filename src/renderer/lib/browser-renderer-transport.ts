@@ -1,6 +1,11 @@
 import { toApiUrl } from "./http-base";
 import { createDefaultWorkbenchLayoutSnapshot } from "../../shared/workbench-layout";
-import type { AppUpdateStatus, WindowSessionBootstrap, WorkbenchLayoutSnapshot } from "./types";
+import type {
+  AppUpdateStatus,
+  ProjectSessionTabDeleteInput,
+  WindowSessionBootstrap,
+  WorkbenchLayoutSnapshot,
+} from "./types";
 import type { BoardChangeEvent } from "../../shared/ipc-api";
 
 function isStorybookRuntime(): boolean {
@@ -203,6 +208,51 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       });
       return res.ok ? res.json() : null;
     }
+    case "project-session-panels:split": {
+      const [input] = args as [{ sessionId: string; panelId: string }];
+      const res = await fetch(toApiUrl(`/api/project-sessions/${input.sessionId}/panels/${input.panelId}/split`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      return res.ok ? res.json() : null;
+    }
+    case "project-session-panels:merge": {
+      const [input] = args as [{ sessionId: string; panelId: string }];
+      const res = await fetch(toApiUrl(`/api/project-sessions/${input.sessionId}/panels/${input.panelId}/merge`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      return res.ok ? res.json() : null;
+    }
+    case "project-session-panels:activate": {
+      const [input] = args as [{ sessionId: string; panelId: string }];
+      const res = await fetch(toApiUrl(`/api/project-sessions/${input.sessionId}/panels/${input.panelId}/active-group`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      return res.ok ? res.json() : null;
+    }
+    case "project-session-panels:resize": {
+      const [input] = args as [{ sessionId: string; panelId: string }];
+      const res = await fetch(toApiUrl(`/api/project-sessions/${input.sessionId}/panels/${input.panelId}/resize-group`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      return res.ok ? res.json() : null;
+    }
+    case "project-session-panels:maximize": {
+      const [input] = args as [{ sessionId: string; panelId: string }];
+      const res = await fetch(toApiUrl(`/api/project-sessions/${input.sessionId}/panels/${input.panelId}/maximized-group`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      return res.ok ? res.json() : null;
+    }
     case "project-session-tabs:state:update": {
       const [tabId, stateKey, state] = args as [string, number, unknown];
       const res = await fetch(toApiUrl(`/api/project-session-tabs/${tabId}/state`), {
@@ -213,22 +263,39 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       return res.ok ? res.json() : null;
     }
     case "project-session-tabs:delete": {
-      const [tabId] = args as [string];
-      const res = await fetch(toApiUrl(`/api/project-session-tabs/${tabId}`), { method: "DELETE" });
+      const [input] = args as [string | ProjectSessionTabDeleteInput];
+      const tabId = typeof input === "string" ? input : input.tabId;
+      const preserveEmptyLeafIds = typeof input === "string" ? undefined : input.preserveEmptyLeafIds;
+      const res = await fetch(toApiUrl(`/api/project-session-tabs/${tabId}`), {
+        method: "DELETE",
+        ...(preserveEmptyLeafIds && preserveEmptyLeafIds.length > 0
+          ? {
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ preserveEmptyLeafIds }),
+            }
+          : {}),
+      });
       const data = await res.json();
       return data.success ?? false;
     }
     case "project-session-tabs:reorder": {
-      const [input] = args as [{ sessionId: string; panelId: string; orderedTabIds: string[] }];
+      const [input] = args as [{ sessionId: string; panelId: string; leafId?: string; orderedTabIds: string[] }];
       const res = await fetch(toApiUrl(`/api/project-sessions/${input.sessionId}/tabs/reorder`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ panelId: input.panelId, orderedTabIds: input.orderedTabIds }),
+        body: JSON.stringify({ panelId: input.panelId, leafId: input.leafId, orderedTabIds: input.orderedTabIds }),
       });
       return res.ok ? res.json() : null;
     }
     case "project-session-tabs:move": {
-      const [input] = args as [{ tabId: string; targetPanelId: string; targetIndex?: number }];
+      const [input] = args as [{
+        tabId: string;
+        targetPanelId: string;
+        targetLeafId?: string;
+        targetIndex?: number;
+        preserveEmptyLeafIds?: string[];
+        splitTarget?: object;
+      }];
       const res = await fetch(toApiUrl(`/api/project-session-tabs/${input.tabId}/move`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },

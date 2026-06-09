@@ -1,7 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { createElement, createRef, useState, type ComponentProps, type ReactNode } from "react";
 import { act, fireEvent, within } from "@testing-library/react";
-import type { Project, ProjectSession, ProjectSessionTab } from "@/lib/types";
+import type { Project, ProjectSession, ProjectSessionPanelNode, ProjectSessionTab } from "@/lib/types";
 import {
   CODEX_SIDEBAR_FLOATING_ASIDE_CLASS,
   CODEX_SIDEBAR_FLOATING_HEADER_CLASS,
@@ -340,6 +340,46 @@ function makePanelLayout(tabIds: string[], activeTabId: string | null) {
   } as const;
 }
 
+function firstPanelLeafId(node: ProjectSessionPanelNode): string {
+  if (node.type === "leaf") return node.id;
+  return firstPanelLeafId(node.first);
+}
+
+function updatePanelLeafActiveTab(
+  node: ProjectSessionPanelNode,
+  leafId: string,
+  tabId: string | null | undefined,
+): ProjectSessionPanelNode {
+  if (node.type === "leaf") {
+    if (node.id !== leafId) return node;
+    return {
+      ...node,
+      activeTabId: tabId ?? node.activeTabId,
+    };
+  }
+  return {
+    ...node,
+    first: updatePanelLeafActiveTab(node.first, leafId, tabId),
+    second: updatePanelLeafActiveTab(node.second, leafId, tabId),
+  };
+}
+
+function activateTestPanelLayout(
+  layout: ProjectSession["panels"]["right"]["layout"],
+  leafId: string | undefined,
+  tabId: string | null | undefined,
+): ProjectSession["panels"]["right"]["layout"] {
+  const activeLeafId = leafId ?? firstPanelLeafId(layout.root);
+  const root = updatePanelLeafActiveTab(layout.root, activeLeafId, tabId);
+  if (layout.version !== 2) return { ...layout, root };
+  return {
+    ...layout,
+    root,
+    activeLeafId,
+    mruLeafIds: [activeLeafId, ...layout.mruLeafIds.filter((id) => id !== activeLeafId)],
+  };
+}
+
 function makePanels(options: {
   rightTabIds?: string[];
   rightActiveTabId?: string | null;
@@ -591,6 +631,29 @@ function renderWorkbench({
               ...session.panels[panelId].size,
               ...(input.size ?? {}),
             },
+          },
+        },
+      };
+      sessionState = replaceSession(sessionState, updated);
+      return updated;
+    }
+    if (channel === "project-session-panels:activate") {
+      const input = (args[0] ?? {}) as {
+        sessionId: string;
+        panelId: ProjectSessionTab["panelId"];
+        leafId?: string;
+        tabId?: string | null;
+      };
+      const session = Object.values(sessionState).flat().find((item) => item.id === input.sessionId);
+      if (!session) return null;
+      const panel = session.panels[input.panelId];
+      const updated = {
+        ...session,
+        panels: {
+          ...session.panels,
+          [input.panelId]: {
+            ...panel,
+            layout: activateTestPanelLayout(panel.layout, input.leafId, input.tabId),
           },
         },
       };
@@ -1928,7 +1991,7 @@ describe("workbench session shell", () => {
     expect(restoreButton.getAttribute("aria-pressed")).toBe("true");
   });
 
-  test("open non-overview right panel keeps side toggle global and expands from the panel header", async () => {
+  test("open non-overview right panel keeps side toggle global and expands from the panel-global header", async () => {
     const screen = renderWorkbench({
       sessionsByProject: {
         alpha: [
@@ -1947,11 +2010,14 @@ describe("workbench session shell", () => {
     const globalHeader = screen.container.querySelector('[data-testid="workbench-global-header"]');
     const rightPanel = screen.container.querySelector('[data-testid="session-right-panel"]');
     const tabHeader = rightPanel?.querySelector('[role="tablist"]')?.parentElement?.parentElement;
+    const rightPanelGlobalHeader = screen.getByTestId("right-panel-global-header-actions");
     const headerShellSlot = getHeaderShellSlot(screen, "right");
     if (!tabHeader) throw new Error("Expected right-panel tab header");
 
     const sidePanelToggle = screen.getByRole("button", { name: "Toggle side panel" });
     const expandButton = screen.getByRole("button", { name: "Expand panel" });
+    const rightPanelGlobalHeaderRail = rightPanelGlobalHeader.firstElementChild;
+    const rightPanelHeaderSpacer = screen.container.querySelector('[data-testid="right-panel-tab-bar-header-spacer"]');
     const expandIconPath = expandButton.querySelector("path")?.getAttribute("d") ?? "";
     const visibleGlobalHeaderButtons = Array.from(headerShellSlot?.querySelectorAll("button") ?? []);
     expect(globalHeader?.contains(sidePanelToggle)).toBeTrue();
@@ -1963,13 +2029,20 @@ describe("workbench session shell", () => {
     expect(sidePanelToggle.getAttribute("aria-pressed")).toBe("true");
     expect(sidePanelToggle.className.includes("bg-token-foreground/5")).toBeTrue();
     expect(globalHeader?.contains(expandButton)).toBeFalse();
-    expect(tabHeader.contains(expandButton)).toBeTrue();
+    expect(tabHeader.contains(expandButton)).toBeFalse();
+    expect(tabHeader.className.includes("draggable")).toBeTrue();
+    expect(rightPanelGlobalHeader.contains(expandButton)).toBeTrue();
+    expect(rightPanelGlobalHeader.className.includes("pointer-events-none")).toBeTrue();
+    expect(rightPanelGlobalHeaderRail?.className.includes("pointer-events-none")).toBeTrue();
+    expect(expandButton.parentElement?.className.includes("pointer-events-auto")).toBeTrue();
+    expect(rightPanelHeaderSpacer?.className.includes("pointer-events-none")).toBeTrue();
+    expect(rightPanelHeaderSpacer?.parentElement?.className.includes("pointer-events-auto")).toBeFalse();
     expect(expandButton.className.includes("no-drag")).toBeTrue();
     expect(expandButton.className.includes("rounded-lg")).toBeTrue();
     expect(expandButton.className.includes("h-token-button-composer")).toBeTrue();
     expect(expandButton.className.includes("text-token-text-tertiary")).toBeTrue();
     expect(expandIconPath.startsWith(CODEX_EXPAND_PANEL_ICON_PREFIX)).toBeTrue();
-    expect(screen.container.querySelector('[data-testid="right-panel-tab-bar-header-spacer"]')?.getAttribute("style")?.includes("width: 62px")).toBeTrue();
+    expect(rightPanelHeaderSpacer?.getAttribute("style")?.includes("width: 62px")).toBeTrue();
 
     await act(async () => {
       fireEvent.click(expandButton);
@@ -1989,7 +2062,8 @@ describe("workbench session shell", () => {
     expect(fullWidthTabHeader?.firstElementChild?.querySelector('[role="tablist"]') !== null).toBeTrue();
     const restoreButton = screen.getByRole("button", { name: "Restore panel width" });
     expect(globalHeader?.contains(restoreButton)).toBeFalse();
-    expect(tabHeader.contains(restoreButton)).toBeTrue();
+    expect(tabHeader.contains(restoreButton)).toBeFalse();
+    expect(screen.getByTestId("right-panel-global-header-actions").contains(restoreButton)).toBeTrue();
     expect(restoreButton.getAttribute("aria-pressed")).toBe("true");
     expect(restoreButton.className.includes("bg-token-foreground/5")).toBeTrue();
     expect(restoreButton.querySelector("path")?.getAttribute("d")?.startsWith(CODEX_RESTORE_PANEL_ICON_PREFIX)).toBeTrue();
@@ -2871,11 +2945,13 @@ describe("workbench session shell", () => {
       await Promise.resolve();
     });
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "project-session-panels:update"
-      && call[1] === "session-1"
-      && call[2] === "bottom"
-    )).toBeTrue();
+    expect(invokeCalls.some((call) => {
+      if (call[0] !== "project-session-panels:activate") return false;
+      const input = call[1] as { sessionId?: string; panelId?: string; tabId?: string };
+      return input.sessionId === "session-1"
+        && input.panelId === "bottom"
+        && input.tabId === "terminal-tab";
+    })).toBeTrue();
   });
 
   test("renders the project session tree on a native-vibrant sidebar beside the rounded main surface", async () => {

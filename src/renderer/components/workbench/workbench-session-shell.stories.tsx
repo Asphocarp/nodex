@@ -7,12 +7,20 @@ import {
   writeWorkbenchShellNavigationHistoryState,
   type WorkbenchShellNavigationSnapshot,
 } from "@/lib/workbench-shell-navigation-history";
+import {
+  activateProjectSessionPanelLeaf,
+  mergeProjectSessionPanelLeaf,
+  setProjectSessionPanelBranchRatio,
+  setProjectSessionPanelMaximizedLeaf,
+  splitProjectSessionPanelLeaf,
+} from "../../../shared/project-session-panel-layout";
 import { WorkbenchShell } from "./workbench-shell";
 
 type ShellStoryArgs = {
   activeTab: "browser" | "terminal" | "db" | "review" | "empty";
   thread: "empty" | "attached";
   rightPanel: "regular" | "collapsed" | "full";
+  rightPanelGroups: "single" | "split";
   bottomPanel: "collapsed" | "empty" | "terminal";
   sidebar: "expanded" | "collapsed";
   sidebarReveal: "idle" | "edge" | "focus";
@@ -35,6 +43,7 @@ const meta = {
     activeTab: "browser",
     thread: "empty",
     rightPanel: "regular",
+    rightPanelGroups: "single",
     bottomPanel: "collapsed",
     sidebar: "expanded",
     sidebarReveal: "idle",
@@ -54,6 +63,10 @@ const meta = {
     rightPanel: {
       control: "inline-radio",
       options: ["regular", "collapsed", "full"],
+    },
+    rightPanelGroups: {
+      control: "inline-radio",
+      options: ["single", "split"],
     },
     bottomPanel: {
       control: "inline-radio",
@@ -161,6 +174,36 @@ function makePanelLayout(tabIds: string[], activeTabId: string | null) {
       activeTabId,
     },
   } as const;
+}
+
+function makeSplitPanelLayout(tabIds: string[], activeTabId: string | null): ProjectSession["panels"]["right"]["layout"] {
+  const firstTabIds = tabIds.filter((tabId) => tabId !== "tab:browser");
+  const secondTabIds: string[] = tabIds.filter((tabId) => tabId === "tab:browser");
+  const activeLeafId = activeTabId === "tab:browser" && secondTabIds.length > 0 ? "leaf:browser" : "leaf:main";
+  return {
+    version: 2,
+    activeLeafId,
+    mruLeafIds: [activeLeafId, activeLeafId === "leaf:main" ? "leaf:browser" : "leaf:main"],
+    maximizedLeafId: null,
+    root: {
+      type: "split",
+      id: "split:right-root",
+      direction: "horizontal",
+      ratio: 0.58,
+      first: {
+        type: "leaf",
+        id: "leaf:main",
+        tabIds: firstTabIds,
+        activeTabId: activeTabId && firstTabIds.includes(activeTabId) ? activeTabId : firstTabIds[0] ?? null,
+      },
+      second: {
+        type: "leaf",
+        id: "leaf:browser",
+        tabIds: secondTabIds,
+        activeTabId: activeTabId && secondTabIds.includes(activeTabId) ? activeTabId : secondTabIds[0] ?? null,
+      },
+    },
+  };
 }
 
 function makePanels(input: {
@@ -306,6 +349,15 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
       ? false
       : args.activeTab !== "terminal" && args.bottomPanel !== "terminal",
   });
+  if (args.rightPanelGroups === "split" && rightTabIds.length > 1) {
+    panels.right = {
+      ...panels.right,
+      layout: makeSplitPanelLayout(
+        rightTabIds,
+        rightTabIds.includes(activeTabId) ? activeTabId : rightTabIds[0] ?? null,
+      ),
+    };
+  }
 
   return {
     id: "session:overview",
@@ -498,7 +550,7 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
   return (
     <div className="h-screen">
       <WorkbenchShell
-        key={`${args.thread}:${args.rightPanel}:${args.bottomPanel}:${args.activeTab}:${args.sidebar}:${args.sidebarReveal}:${args.sidebarWidth}:${args.navigationHistory}:${args.longNames ? "long" : "normal"}`}
+        key={`${args.thread}:${args.rightPanel}:${args.rightPanelGroups}:${args.bottomPanel}:${args.activeTab}:${args.sidebar}:${args.sidebarReveal}:${args.sidebarWidth}:${args.navigationHistory}:${args.longNames ? "long" : "normal"}`}
         projects={PROJECTS}
         dbProjectId="nodex"
         activeView={"kanban" as WorkbenchView}
@@ -599,6 +651,121 @@ function installStoryApi(
               },
             },
             updatedAt: new Date().toISOString(),
+          };
+          setSessionsByProject((current) => replaceSession(current, next));
+          return next;
+        }
+        if (channel === "project-session-panels:activate") {
+          const input = (args[0] ?? {}) as {
+            sessionId: string;
+            panelId: ProjectSessionTab["panelId"];
+            leafId: string;
+            tabId?: string | null;
+          };
+          const session = Object.values(sessionsByProject).flat().find((item) => item.id === input.sessionId);
+          if (!session) return null;
+          const next = {
+            ...session,
+            panels: {
+              ...session.panels,
+              [input.panelId]: {
+                ...session.panels[input.panelId],
+                layout: activateProjectSessionPanelLeaf(session.panels[input.panelId].layout, input.leafId, input.tabId),
+              },
+            },
+          };
+          setSessionsByProject((current) => replaceSession(current, next));
+          return next;
+        }
+        if (channel === "project-session-panels:split") {
+          const input = (args[0] ?? {}) as {
+            sessionId: string;
+            panelId: ProjectSessionTab["panelId"];
+            leafId: string;
+            side: "left" | "right" | "up" | "down";
+            tabId?: string;
+          };
+          const session = Object.values(sessionsByProject).flat().find((item) => item.id === input.sessionId);
+          if (!session) return null;
+          const next = {
+            ...session,
+            panels: {
+              ...session.panels,
+              [input.panelId]: {
+                ...session.panels[input.panelId],
+                layout: splitProjectSessionPanelLeaf(session.panels[input.panelId].layout, {
+                  leafId: input.leafId,
+                  side: input.side,
+                  tabId: input.tabId,
+                  newLeafId: `leaf:story:${Date.now()}`,
+                  newBranchId: `split:story:${Date.now()}`,
+                }),
+              },
+            },
+          };
+          setSessionsByProject((current) => replaceSession(current, next));
+          return next;
+        }
+        if (channel === "project-session-panels:merge") {
+          const input = (args[0] ?? {}) as {
+            sessionId: string;
+            panelId: ProjectSessionTab["panelId"];
+            leafId: string;
+          };
+          const session = Object.values(sessionsByProject).flat().find((item) => item.id === input.sessionId);
+          if (!session) return null;
+          const next = {
+            ...session,
+            panels: {
+              ...session.panels,
+              [input.panelId]: {
+                ...session.panels[input.panelId],
+                layout: mergeProjectSessionPanelLeaf(session.panels[input.panelId].layout, input.leafId),
+              },
+            },
+          };
+          setSessionsByProject((current) => replaceSession(current, next));
+          return next;
+        }
+        if (channel === "project-session-panels:resize") {
+          const input = (args[0] ?? {}) as {
+            sessionId: string;
+            panelId: ProjectSessionTab["panelId"];
+            branchId: string;
+            ratio: number;
+          };
+          const session = Object.values(sessionsByProject).flat().find((item) => item.id === input.sessionId);
+          if (!session) return null;
+          const next = {
+            ...session,
+            panels: {
+              ...session.panels,
+              [input.panelId]: {
+                ...session.panels[input.panelId],
+                layout: setProjectSessionPanelBranchRatio(session.panels[input.panelId].layout, input.branchId, input.ratio),
+              },
+            },
+          };
+          setSessionsByProject((current) => replaceSession(current, next));
+          return next;
+        }
+        if (channel === "project-session-panels:maximize") {
+          const input = (args[0] ?? {}) as {
+            sessionId: string;
+            panelId: ProjectSessionTab["panelId"];
+            leafId: string | null;
+          };
+          const session = Object.values(sessionsByProject).flat().find((item) => item.id === input.sessionId);
+          if (!session) return null;
+          const next = {
+            ...session,
+            panels: {
+              ...session.panels,
+              [input.panelId]: {
+                ...session.panels[input.panelId],
+                layout: setProjectSessionPanelMaximizedLeaf(session.panels[input.panelId].layout, input.leafId),
+              },
+            },
           };
           setSessionsByProject((current) => replaceSession(current, next));
           return next;
@@ -1014,6 +1181,21 @@ export const FullWidthRightPanelWithBottomPanel: Story = {
     docs: {
       description: {
         story: "Full-width right panel with the independent bottom panel still visible, matching Codex's zero right-slot reservation while bottom geometry remains separate.",
+      },
+    },
+  },
+};
+
+export const SplitRightPanelGroups: Story = {
+  args: {
+    rightPanel: "regular",
+    rightPanelGroups: "split",
+    activeTab: "browser",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Right panel with two persisted tab groups, showing the group sash, per-leaf tab strip, and active group chrome.",
       },
     },
   },

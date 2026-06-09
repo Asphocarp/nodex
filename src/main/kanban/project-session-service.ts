@@ -2,8 +2,14 @@ import { randomUUID } from "node:crypto";
 import { getDb } from "./db-service";
 import {
   ProjectSessionCreateInputSchema,
+  ProjectSessionPanelActivateInputSchema,
   ProjectSessionPanelLayoutSchema,
+  ProjectSessionPanelMaximizeInputSchema,
+  ProjectSessionPanelMergeInputSchema,
+  ProjectSessionPanelResizeInputSchema,
+  ProjectSessionPanelSplitInputSchema,
   ProjectSessionPanelsSchema,
+  ProjectSessionTabDeleteInputSchema,
   ProjectSessionTabMoveInputSchema,
   ProjectSessionTabCreateInputSchema,
   ProjectSessionTabReorderInputSchema,
@@ -16,6 +22,25 @@ import {
   parseProjectSessionTabConfig,
   parseProjectSessionTabUpdateInput,
 } from "../../shared/schemas/project-sessions";
+import {
+  activateProjectSessionPanelLeaf,
+  findProjectSessionPanelLeaf,
+  findProjectSessionPanelLeafForTab,
+  flattenProjectSessionPanelTabIds,
+  getProjectSessionPanelActiveLeaf,
+  listProjectSessionPanelLeaves,
+  makeProjectSessionPanelLayout,
+  mergeProjectSessionPanelLeaf,
+  moveProjectSessionPanelLeaf,
+  moveProjectSessionPanelTab,
+  normalizeProjectSessionPanelLayout,
+  pruneEmptyProjectSessionPanelLeaves,
+  removeProjectSessionPanelTab,
+  reorderProjectSessionPanelLeafTabs,
+  setProjectSessionPanelBranchRatio,
+  setProjectSessionPanelMaximizedLeaf,
+  splitProjectSessionPanelLeaf,
+} from "../../shared/project-session-panel-layout";
 import type {
   PanelId,
   ProjectSession,
@@ -23,10 +48,16 @@ import type {
   ProjectSessionListOptions,
   ProjectSessionPanelLayout,
   ProjectSessionPanelState,
+  ProjectSessionPanelActivateInput,
+  ProjectSessionPanelMaximizeInput,
+  ProjectSessionPanelMergeInput,
+  ProjectSessionPanelResizeInput,
+  ProjectSessionPanelSplitInput,
   ProjectSessionPinnedInput,
   ProjectSessionPinnedOrderInput,
   ProjectSessionTab,
   ProjectSessionTabCreateInput,
+  ProjectSessionTabDeleteInput,
   ProjectSessionTabMoveInput,
   ProjectSessionTabReorderInput,
   ProjectSessionTabUpdateInput,
@@ -107,15 +138,7 @@ function parseJson(value: string): unknown {
 }
 
 function makeDefaultPanelLayout(tabIds: string[], activeTabId: string | null): ProjectSessionPanelLayout {
-  return {
-    version: 1,
-    root: {
-      type: "leaf",
-      id: "main",
-      tabIds,
-      activeTabId,
-    },
-  };
+  return makeProjectSessionPanelLayout(tabIds, activeTabId);
 }
 
 function makeDefaultPanelState(panelId: PanelId, tabIds: string[], activeTabId: string | null): ProjectSessionPanelState {
@@ -140,27 +163,7 @@ function normalizePanelLayout(value: unknown, tabs: ProjectSessionTab[]): Projec
   const parsed = ProjectSessionPanelLayoutSchema.safeParse(value);
   const tabIds = tabs.map((tab) => tab.id);
   if (!parsed.success) return makeDefaultPanelLayout(tabIds, tabIds[0] ?? null);
-
-  if (parsed.data.root.type !== "leaf") return parsed.data;
-
-  const knownTabIds = new Set(tabIds);
-  const layoutTabIds = parsed.data.root.tabIds.filter((tabId) => knownTabIds.has(tabId));
-  for (const tabId of tabIds) {
-    if (!layoutTabIds.includes(tabId)) layoutTabIds.push(tabId);
-  }
-
-  const activeTabId = parsed.data.root.activeTabId && knownTabIds.has(parsed.data.root.activeTabId)
-    ? parsed.data.root.activeTabId
-    : layoutTabIds[0] ?? null;
-
-  return {
-    ...parsed.data,
-    root: {
-      ...parsed.data.root,
-      tabIds: layoutTabIds,
-      activeTabId,
-    },
-  };
+  return normalizeProjectSessionPanelLayout(parsed.data, tabIds);
 }
 
 function normalizePanelState(
@@ -466,7 +469,7 @@ export function updateProjectSession(sessionId: string, input: ProjectSessionUpd
     values.push(parsed.leftPaneCollapsed ? 1 : 0);
   }
   if (parsed.panels !== undefined) {
-    const nextPanels: Record<PanelId, ProjectSessionPanelState> = {
+    const mergedPanels: Record<PanelId, ProjectSessionPanelState> = {
       right: {
         ...existing.panels.right,
         ...parsed.panels.right,
@@ -482,6 +485,22 @@ export function updateProjectSession(sessionId: string, input: ProjectSessionUpd
           ...existing.panels.bottom.size,
           ...(parsed.panels.bottom?.size ?? {}),
         },
+      },
+    };
+    const nextPanels: Record<PanelId, ProjectSessionPanelState> = {
+      right: {
+        ...mergedPanels.right,
+        layout: normalizeProjectSessionPanelLayout(
+          mergedPanels.right.layout,
+          existing.tabs.filter((tab) => tab.panelId === "right").map((tab) => tab.id),
+        ),
+      },
+      bottom: {
+        ...mergedPanels.bottom,
+        layout: normalizeProjectSessionPanelLayout(
+          mergedPanels.bottom.layout,
+          existing.tabs.filter((tab) => tab.panelId === "bottom").map((tab) => tab.id),
+        ),
       },
     };
     fields.push("panel_state_json = ?");
@@ -656,16 +675,17 @@ function updatePanelStateForTabs(
 ): Record<PanelId, ProjectSessionPanelState> {
   const panelTabs = tabs.filter((tab) => tab.panelId === panelId);
   const panelTabIds = panelTabs.map((tab) => tab.id);
-  const activeId = activeTabId && panelTabIds.includes(activeTabId)
-    ? activeTabId
-    : panelTabIds[0] ?? null;
+  const currentLayout = session.panels[panelId].layout;
+  const layout = normalizeProjectSessionPanelLayout(currentLayout, panelTabIds, {
+    preferredActiveTabId: activeTabId,
+  });
 
   return {
     ...session.panels,
     [panelId]: {
       ...session.panels[panelId],
       collapsed: options.collapsed ?? (panelTabIds.length === 0 ? true : session.panels[panelId].collapsed),
-      layout: makeDefaultPanelLayout(panelTabIds, activeId),
+      layout,
     },
   };
 }
@@ -684,6 +704,36 @@ function persistPanelStates(sessionId: string, panels: Record<PanelId, ProjectSe
     );
 }
 
+function persistPanelStatesAndOrders(
+  sessionId: string,
+  panels: Record<PanelId, ProjectSessionPanelState>,
+  panelIds: readonly PanelId[] = ["right", "bottom"],
+): void {
+  const database = getDb();
+  const now = new Date().toISOString();
+  const updateTabOrder = database.prepare(
+    'UPDATE project_session_tabs SET panel_id = ?, "order" = ?, updated_at = ? WHERE id = ? AND session_id = ?',
+  );
+
+  for (const panelId of panelIds) {
+    flattenProjectSessionPanelTabIds(panels[panelId].layout).forEach((tabId, index) => {
+      updateTabOrder.run(panelId, index, now, tabId, sessionId);
+    });
+  }
+
+  database
+    .prepare(`
+      UPDATE project_sessions
+      SET panel_state_json = ?, updated_at = ?
+      WHERE id = ?
+    `)
+    .run(
+      stringifyPanels(panels),
+      now,
+      sessionId,
+    );
+}
+
 function getTabsForSession(sessionId: string): ProjectSessionTab[] {
   return (getDb()
     .prepare(`
@@ -695,10 +745,42 @@ function getTabsForSession(sessionId: string): ProjectSessionTab[] {
     .all(sessionId) as DbProjectSessionTab[]).map(rowToTab);
 }
 
-function getPanelTabOrder(session: ProjectSession, panelId: PanelId): string[] {
-  const root = session.panels[panelId].layout.root;
-  if (root.type !== "leaf") return session.tabs.filter((tab) => tab.panelId === panelId).map((tab) => tab.id);
-  return root.tabIds;
+function findProjectSessionPanelLeafForOrderedTabs(
+  layout: ProjectSessionPanelLayout,
+  orderedTabIds: readonly string[],
+) {
+  if (orderedTabIds.length === 0) return getProjectSessionPanelActiveLeaf(layout);
+  const selected = new Set(orderedTabIds);
+  return listProjectSessionPanelLeaves(layout).find((leaf) =>
+    leaf.tabIds.some((tabId) => selected.has(tabId))
+  ) ?? null;
+}
+
+function parseProjectSessionTabDeleteInput(input: string | ProjectSessionTabDeleteInput): ProjectSessionTabDeleteInput {
+  if (typeof input === "string") return { tabId: input };
+  return ProjectSessionTabDeleteInputSchema.parse(input);
+}
+
+function cleanupPanelLayout(
+  layout: ProjectSessionPanelLayout,
+  tabIds: readonly string[],
+  options: {
+    preserveEmptyLeafIds?: readonly string[];
+    preferredActiveLeafId?: string | null;
+    preferredActiveTabId?: string | null;
+  } = {},
+) {
+  const normalizeOptions = {
+    preferredActiveLeafId: options.preferredActiveLeafId,
+    preferredActiveTabId: options.preferredActiveTabId,
+  };
+  return pruneEmptyProjectSessionPanelLeaves(
+    normalizeProjectSessionPanelLayout(layout, tabIds, normalizeOptions),
+    {
+      ...normalizeOptions,
+      preserveLeafIds: options.preserveEmptyLeafIds,
+    },
+  );
 }
 
 function findSingletonTab(session: ProjectSession, kind: ProjectSessionTabCreateInput["kind"]): ProjectSessionTab | null {
@@ -749,7 +831,7 @@ export function createProjectSessionTab(input: ProjectSessionTabCreateInput): Pr
     );
     const tabs = getTabsForSession(parsed.sessionId);
     const panels = updatePanelStateForTabs(session, parsed.panelId, tabs, id, { collapsed: false });
-    persistPanelStates(parsed.sessionId, panels);
+    persistPanelStatesAndOrders(parsed.sessionId, panels, [parsed.panelId]);
   })();
 
   const created = getProjectSession(parsed.sessionId)?.tabs.find((tab) => tab.id === id);
@@ -795,7 +877,9 @@ export function updateProjectSessionTab(tabId: string, input: ProjectSessionTabU
   return nextRow ? rowToTab(nextRow) : null;
 }
 
-export function deleteProjectSessionTab(tabId: string): boolean {
+export function deleteProjectSessionTab(input: string | ProjectSessionTabDeleteInput): boolean {
+  const parsed = parseProjectSessionTabDeleteInput(input);
+  const tabId = parsed.tabId;
   const database = getDb();
   const row = database
     .prepare("SELECT * FROM project_session_tabs WHERE id = ?")
@@ -808,14 +892,23 @@ export function deleteProjectSessionTab(tabId: string): boolean {
   const deleted = database.transaction(() => {
     const result = database.prepare("DELETE FROM project_session_tabs WHERE id = ?").run(tabId);
     const tabs = getTabsForSession(row.session_id);
-    const existingActiveId = session.panels[panelId].layout.root.type === "leaf"
-      ? session.panels[panelId].layout.root.activeTabId
-      : null;
-    const activeTabId = existingActiveId && existingActiveId !== tabId
-      ? existingActiveId
-      : tabs.find((tab) => tab.panelId === panelId)?.id ?? null;
-    const panels = updatePanelStateForTabs(session, panelId, tabs, activeTabId);
-    persistPanelStates(row.session_id, panels);
+    const panelTabIds = tabs.filter((tab) => tab.panelId === panelId).map((tab) => tab.id);
+    const layout = cleanupPanelLayout(
+      removeProjectSessionPanelTab(session.panels[panelId].layout, tabId),
+      panelTabIds,
+      {
+        preserveEmptyLeafIds: parsed.preserveEmptyLeafIds,
+      },
+    );
+    const panels: Record<PanelId, ProjectSessionPanelState> = {
+      ...session.panels,
+      [panelId]: {
+        ...session.panels[panelId],
+        collapsed: panelTabIds.length === 0 ? true : session.panels[panelId].collapsed,
+        layout,
+      },
+    };
+    persistPanelStatesAndOrders(row.session_id, panels, [panelId]);
     return result.changes > 0;
   })();
   return deleted;
@@ -827,23 +920,26 @@ export function reorderProjectSessionTabs(input: ProjectSessionTabReorderInput):
   if (!session) return null;
 
   const panelTabs = session.tabs.filter((tab) => tab.panelId === parsed.panelId);
-  const existingIds = new Set(panelTabs.map((tab) => tab.id));
-  const selected = parsed.orderedTabIds.filter((tabId) => existingIds.has(tabId));
-  const remaining = panelTabs.map((tab) => tab.id).filter((tabId) => !selected.includes(tabId));
-  const finalOrder = [...selected, ...remaining];
-  const now = new Date().toISOString();
+  const panelTabIds = panelTabs.map((tab) => tab.id);
+  const normalizedLayout = normalizeProjectSessionPanelLayout(session.panels[parsed.panelId].layout, panelTabIds);
+  const targetLeaf = parsed.leafId
+    ? findProjectSessionPanelLeaf(normalizedLayout, parsed.leafId)
+    : panelTabs.length === parsed.orderedTabIds.length
+      ? getProjectSessionPanelActiveLeaf(normalizedLayout)
+      : findProjectSessionPanelLeafForOrderedTabs(normalizedLayout, parsed.orderedTabIds);
+  const leafId = targetLeaf?.id ?? getProjectSessionPanelActiveLeaf(normalizedLayout).id;
+  const layout = reorderProjectSessionPanelLeafTabs(normalizedLayout, leafId, parsed.orderedTabIds);
+  const panels: Record<PanelId, ProjectSessionPanelState> = {
+    ...session.panels,
+    [parsed.panelId]: {
+      ...session.panels[parsed.panelId],
+      layout,
+    },
+  };
   const database = getDb();
-  const update = database.prepare('UPDATE project_session_tabs SET "order" = ?, updated_at = ? WHERE id = ? AND session_id = ? AND panel_id = ?');
 
   database.transaction(() => {
-    finalOrder.forEach((tabId, index) => update.run(index, now, tabId, parsed.sessionId, parsed.panelId));
-    const tabs = getTabsForSession(parsed.sessionId);
-    const root = session.panels[parsed.panelId].layout.root;
-    const activeTabId = root.type === "leaf"
-      ? root.activeTabId
-      : finalOrder[0] ?? null;
-    const panels = updatePanelStateForTabs(session, parsed.panelId, tabs, activeTabId);
-    persistPanelStates(parsed.sessionId, panels);
+    persistPanelStatesAndOrders(parsed.sessionId, panels, [parsed.panelId]);
   })();
 
   return getProjectSession(parsed.sessionId);
@@ -861,43 +957,87 @@ export function moveProjectSessionTab(input: ProjectSessionTabMoveInput): Projec
   if (!session) return null;
   const sourcePanelId: PanelId = row.panel_id === "bottom" ? "bottom" : "right";
   const targetPanelId = parsed.targetPanelId;
-  const now = new Date().toISOString();
-
-  const writePanelOrder = database.prepare(
-    'UPDATE project_session_tabs SET panel_id = ?, "order" = ?, updated_at = ? WHERE id = ? AND session_id = ?',
+  const sourcePanelTabIds = session.tabs
+    .filter((tab) => tab.panelId === sourcePanelId)
+    .map((tab) => tab.id);
+  const sourceLayoutBeforeMove = normalizeProjectSessionPanelLayout(
+    session.panels[sourcePanelId].layout,
+    sourcePanelTabIds,
   );
+  const sourceLeaf = findProjectSessionPanelLeafForTab(sourceLayoutBeforeMove, parsed.tabId);
+  if (
+    parsed.splitTarget
+    && sourcePanelId === targetPanelId
+    && sourceLeaf?.id === parsed.splitTarget.leafId
+    && sourceLeaf.tabIds.length <= 1
+  ) {
+    return session;
+  }
 
   database.transaction(() => {
-    const sourceOrder = getPanelTabOrder(session, sourcePanelId).filter((tabId) => tabId !== parsed.tabId);
-    const targetOrderBase = sourcePanelId === targetPanelId
-      ? sourceOrder
-      : getPanelTabOrder(session, targetPanelId).filter((tabId) => tabId !== parsed.tabId);
-    const targetIndex = Math.min(parsed.targetIndex ?? targetOrderBase.length, targetOrderBase.length);
-    const targetOrder = [...targetOrderBase];
-    targetOrder.splice(targetIndex, 0, parsed.tabId);
-
-    sourceOrder.forEach((tabId, index) => {
-      writePanelOrder.run(sourcePanelId, index, now, tabId, row.session_id);
-    });
-    targetOrder.forEach((tabId, index) => {
-      writePanelOrder.run(targetPanelId, index, now, tabId, row.session_id);
-    });
-
-    const tabs = getTabsForSession(row.session_id);
-    const sourceActive = session.panels[sourcePanelId].layout.root.type === "leaf"
-      ? session.panels[sourcePanelId].layout.root.activeTabId
-      : null;
-    const sourcePanels = updatePanelStateForTabs(
-      session,
-      sourcePanelId,
-      tabs,
-      sourceActive === parsed.tabId ? sourceOrder[0] ?? null : sourceActive,
+    const sourceTabIds = session.tabs
+      .filter((tab) => tab.panelId === sourcePanelId && tab.id !== parsed.tabId)
+      .map((tab) => tab.id);
+    const targetTabIds = session.tabs
+      .filter((tab) => tab.panelId === targetPanelId || tab.id === parsed.tabId)
+      .map((tab) => tab.id);
+    const sourceLayout = cleanupPanelLayout(
+      removeProjectSessionPanelTab(session.panels[sourcePanelId].layout, parsed.tabId),
+      sourceTabIds,
+      {
+        preserveEmptyLeafIds: parsed.preserveEmptyLeafIds,
+      },
     );
-    const nextSession = { ...session, panels: sourcePanels, tabs } satisfies ProjectSession;
-    const panels = updatePanelStateForTabs(nextSession, targetPanelId, tabs, parsed.tabId, {
-      collapsed: false,
+    const baseTargetLayout = sourcePanelId === targetPanelId
+      ? sourceLayout
+      : normalizeProjectSessionPanelLayout(session.panels[targetPanelId].layout, targetTabIds);
+    let targetLayout = baseTargetLayout;
+    if (
+      parsed.splitTarget
+      && sourcePanelId === targetPanelId
+      && sourceLeaf
+      && sourceLeaf.tabIds.length === 1
+      && sourceLeaf.id !== parsed.splitTarget.leafId
+    ) {
+      targetLayout = moveProjectSessionPanelLeaf(sourceLayoutBeforeMove, {
+        sourceLeafId: sourceLeaf.id,
+        targetLeafId: parsed.splitTarget.leafId,
+        side: parsed.splitTarget.side,
+        newBranchId: randomUUID(),
+      });
+    } else if (parsed.splitTarget) {
+      targetLayout = splitProjectSessionPanelLeaf(baseTargetLayout, {
+        leafId: parsed.splitTarget.leafId,
+        side: parsed.splitTarget.side,
+        tabId: parsed.tabId,
+        newLeafId: randomUUID(),
+        newBranchId: randomUUID(),
+      });
+    } else {
+      targetLayout = moveProjectSessionPanelTab(baseTargetLayout, {
+        tabId: parsed.tabId,
+        targetLeafId: parsed.targetLeafId,
+        targetIndex: parsed.targetIndex,
+      });
+    }
+    targetLayout = cleanupPanelLayout(targetLayout, targetTabIds, {
+      preserveEmptyLeafIds: parsed.preserveEmptyLeafIds,
+      preferredActiveTabId: parsed.tabId,
     });
-    persistPanelStates(row.session_id, panels);
+    const panels: Record<PanelId, ProjectSessionPanelState> = {
+      ...session.panels,
+      [sourcePanelId]: {
+        ...session.panels[sourcePanelId],
+        collapsed: sourceTabIds.length === 0 ? true : session.panels[sourcePanelId].collapsed,
+        layout: sourcePanelId === targetPanelId ? targetLayout : sourceLayout,
+      },
+      [targetPanelId]: {
+        ...session.panels[targetPanelId],
+        collapsed: false,
+        layout: targetLayout,
+      },
+    };
+    persistPanelStatesAndOrders(row.session_id, panels);
   })();
 
   return getProjectSession(row.session_id);
@@ -909,6 +1049,118 @@ export function updateProjectSessionPanel(
   input: Partial<ProjectSessionPanelState>,
 ): ProjectSession | null {
   return updateProjectSession(sessionId, { panels: { [panelId]: input } });
+}
+
+export function splitProjectSessionPanelGroup(input: ProjectSessionPanelSplitInput): ProjectSession | null {
+  const parsed = ProjectSessionPanelSplitInputSchema.parse(input);
+  const session = getProjectSession(parsed.sessionId);
+  if (!session) return null;
+  if (parsed.tabId && !session.tabs.some((tab) => tab.id === parsed.tabId && tab.panelId === parsed.panelId)) {
+    throw new Error("Tab does not belong to the target panel");
+  }
+
+  const panelTabIds = session.tabs.filter((tab) => tab.panelId === parsed.panelId).map((tab) => tab.id);
+  const layout = cleanupPanelLayout(
+    splitProjectSessionPanelLeaf(session.panels[parsed.panelId].layout, {
+      leafId: parsed.leafId,
+      side: parsed.side,
+      tabId: parsed.tabId,
+      newLeafId: randomUUID(),
+      newBranchId: randomUUID(),
+    }),
+    panelTabIds,
+    {
+      preserveEmptyLeafIds: parsed.preserveEmptyLeafIds,
+      preferredActiveLeafId: parsed.leafId,
+      preferredActiveTabId: parsed.tabId ?? null,
+    },
+  );
+  const panels: Record<PanelId, ProjectSessionPanelState> = {
+    ...session.panels,
+    [parsed.panelId]: {
+      ...session.panels[parsed.panelId],
+      collapsed: false,
+      layout,
+    },
+  };
+  getDb().transaction(() => persistPanelStatesAndOrders(parsed.sessionId, panels, [parsed.panelId]))();
+  return getProjectSession(parsed.sessionId);
+}
+
+export function mergeProjectSessionPanelGroup(input: ProjectSessionPanelMergeInput): ProjectSession | null {
+  const parsed = ProjectSessionPanelMergeInputSchema.parse(input);
+  const session = getProjectSession(parsed.sessionId);
+  if (!session) return null;
+
+  const layout = mergeProjectSessionPanelLeaf(session.panels[parsed.panelId].layout, parsed.leafId);
+  const panels: Record<PanelId, ProjectSessionPanelState> = {
+    ...session.panels,
+    [parsed.panelId]: {
+      ...session.panels[parsed.panelId],
+      layout,
+    },
+  };
+  getDb().transaction(() => persistPanelStatesAndOrders(parsed.sessionId, panels, [parsed.panelId]))();
+  return getProjectSession(parsed.sessionId);
+}
+
+export function activateProjectSessionPanelGroup(input: ProjectSessionPanelActivateInput): ProjectSession | null {
+  const parsed = ProjectSessionPanelActivateInputSchema.parse(input);
+  const session = getProjectSession(parsed.sessionId);
+  if (!session) return null;
+
+  const layout = activateProjectSessionPanelLeaf(
+    session.panels[parsed.panelId].layout,
+    parsed.leafId,
+    parsed.tabId,
+  );
+  const panels: Record<PanelId, ProjectSessionPanelState> = {
+    ...session.panels,
+    [parsed.panelId]: {
+      ...session.panels[parsed.panelId],
+      layout,
+    },
+  };
+  persistPanelStates(parsed.sessionId, panels);
+  return getProjectSession(parsed.sessionId);
+}
+
+export function resizeProjectSessionPanelGroup(input: ProjectSessionPanelResizeInput): ProjectSession | null {
+  const parsed = ProjectSessionPanelResizeInputSchema.parse(input);
+  const session = getProjectSession(parsed.sessionId);
+  if (!session) return null;
+
+  const layout = setProjectSessionPanelBranchRatio(
+    session.panels[parsed.panelId].layout,
+    parsed.branchId,
+    parsed.ratio,
+  );
+  const panels: Record<PanelId, ProjectSessionPanelState> = {
+    ...session.panels,
+    [parsed.panelId]: {
+      ...session.panels[parsed.panelId],
+      layout,
+    },
+  };
+  persistPanelStates(parsed.sessionId, panels);
+  return getProjectSession(parsed.sessionId);
+}
+
+export function maximizeProjectSessionPanelGroup(input: ProjectSessionPanelMaximizeInput): ProjectSession | null {
+  const parsed = ProjectSessionPanelMaximizeInputSchema.parse(input);
+  const session = getProjectSession(parsed.sessionId);
+  if (!session) return null;
+
+  const layout = setProjectSessionPanelMaximizedLeaf(session.panels[parsed.panelId].layout, parsed.leafId);
+  const panels: Record<PanelId, ProjectSessionPanelState> = {
+    ...session.panels,
+    [parsed.panelId]: {
+      ...session.panels[parsed.panelId],
+      layout,
+    },
+  };
+  persistPanelStates(parsed.sessionId, panels);
+  return getProjectSession(parsed.sessionId);
 }
 
 export function updateProjectSessionTabState(tabId: string, stateKey: number, state: unknown): ProjectSessionTab | null {

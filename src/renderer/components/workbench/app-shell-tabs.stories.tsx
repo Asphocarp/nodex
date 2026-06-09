@@ -16,7 +16,7 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-function AppShellTabsStory() {
+function AppShellTabsStory({ showInsertionPreview = false }: { showInsertionPreview?: boolean }) {
   const [activeTabId, setActiveTabId] = useState("session:2");
   const [historyOpen, setHistoryOpen] = useState(true);
   const [sessionTabs, setSessionTabs] = useState([
@@ -35,6 +35,7 @@ function AppShellTabsStory() {
       icon: historyOpen && tab.id === activeTabId ? History : SquareKanban,
       closable: true,
       reorderable: true,
+      splittable: true,
       tooltip: (
         <div className="flex max-w-80 flex-col gap-1">
           <div className="truncate font-medium">
@@ -66,6 +67,19 @@ function AppShellTabsStory() {
         <AppShellTabs
           tabs={tabs}
           activeTabId={activeTabId}
+          panelTabDnd={showInsertionPreview ? {
+            sessionId: "storybook-session",
+            panelId: "right",
+            leafId: "storybook-leaf",
+            activeDragId: "session:2",
+            previewIntent: {
+              kind: "tab-row",
+              panelId: "right",
+              leafId: "storybook-leaf",
+              targetIndex: 3,
+              markerLeft: 438,
+            },
+          } : undefined}
           onSelect={(tabId) => {
             setHistoryOpen(false);
             setActiveTabId(tabId);
@@ -80,27 +94,6 @@ function AppShellTabsStory() {
               setActiveTabId(sessionTabs.find((tab) => tab.id !== tabId)?.id ?? "");
             }
           }}
-          onReorderTab={(activeId, overId) => {
-            setSessionTabs((current) => {
-              if (!activeId.startsWith("session:")) return current;
-
-              const displayedIds = current.map((tab) => tab.id);
-              const activeIndex = displayedIds.indexOf(activeId);
-              const overIndex = displayedIds.indexOf(overId);
-              if (activeIndex < 0 || overIndex < 0 || activeIndex === overIndex) return current;
-
-              const nextIds = [...displayedIds];
-              const [movedId] = nextIds.splice(activeIndex, 1);
-              if (!movedId) return current;
-              nextIds.splice(overIndex, 0, movedId);
-
-              const byId = new Map(current.map((tab) => [tab.id, tab]));
-              return nextIds.flatMap((tabId) => {
-                const tab = byId.get(tabId);
-                return tab ? [tab] : [];
-              });
-            });
-          }}
         />
       </div>
     </NodexTooltipProvider>
@@ -108,3 +101,7 @@ function AppShellTabsStory() {
 }
 
 export const CardStageTabs: Story = {};
+
+export const InsertionPreview: Story = {
+  render: () => <AppShellTabsStory showInsertionPreview />,
+};

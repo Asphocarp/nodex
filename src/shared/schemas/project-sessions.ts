@@ -6,9 +6,16 @@ import type {
   ProjectSessionDbViewTabConfig,
   ProjectSessionProjectScopedTabConfig,
   ProjectSessionPanelLayout,
+  ProjectSessionPanelNode,
   ProjectSessionPanelState,
+  ProjectSessionPanelActivateInput,
+  ProjectSessionPanelMaximizeInput,
+  ProjectSessionPanelMergeInput,
+  ProjectSessionPanelResizeInput,
+  ProjectSessionPanelSplitInput,
   ProjectSessionTabConfig,
   ProjectSessionTabCreateInput,
+  ProjectSessionTabDeleteInput,
   ProjectSessionTabMoveInput,
   ProjectSessionTabReorderInput,
   ProjectSessionTabUpdateInput,
@@ -64,7 +71,7 @@ export function parseProjectSessionTabConfig(kind: string, config: unknown): Pro
 
 export const PanelIdSchema = z.enum(["right", "bottom"]);
 
-const ProjectSessionSplitLeafSchema: z.ZodType<ProjectSessionPanelLayout["root"]> = z.lazy(() =>
+const ProjectSessionSplitLeafSchema: z.ZodType<ProjectSessionPanelNode> = z.lazy(() =>
   z.union([
     z.object({
       type: z.literal("leaf"),
@@ -83,10 +90,23 @@ const ProjectSessionSplitLeafSchema: z.ZodType<ProjectSessionPanelLayout["root"]
   ]),
 );
 
-export const ProjectSessionPanelLayoutSchema = z.object({
+const ProjectSessionPanelLayoutV1Schema = z.object({
   version: z.literal(1),
   root: ProjectSessionSplitLeafSchema,
-}) satisfies z.ZodType<ProjectSessionPanelLayout>;
+});
+
+const ProjectSessionPanelLayoutV2Schema = z.object({
+  version: z.literal(2),
+  root: ProjectSessionSplitLeafSchema,
+  activeLeafId: z.string().min(1),
+  mruLeafIds: z.array(z.string().min(1)),
+  maximizedLeafId: z.string().min(1).nullable().optional(),
+});
+
+export const ProjectSessionPanelLayoutSchema = z.union([
+  ProjectSessionPanelLayoutV1Schema,
+  ProjectSessionPanelLayoutV2Schema,
+]) satisfies z.ZodType<ProjectSessionPanelLayout>;
 
 export const ProjectSessionPanelStateSchema = z.object({
   collapsed: z.boolean(),
@@ -187,17 +207,66 @@ export function parseProjectSessionTabUpdateInput(kind: string, input: unknown):
   };
 }
 
+export const ProjectSessionTabDeleteInputSchema = z.object({
+  tabId: z.string().min(1),
+  preserveEmptyLeafIds: z.array(z.string().min(1)).optional(),
+}) satisfies z.ZodType<ProjectSessionTabDeleteInput>;
+
 export const ProjectSessionTabReorderInputSchema = z.object({
   sessionId: z.string().min(1),
   panelId: PanelIdSchema,
+  leafId: z.string().min(1).optional(),
   orderedTabIds: z.array(z.string()),
 }) satisfies z.ZodType<ProjectSessionTabReorderInput>;
+
+const ProjectSessionPanelSplitSideSchema = z.enum(["left", "right", "up", "down"]);
 
 export const ProjectSessionTabMoveInputSchema = z.object({
   tabId: z.string().min(1),
   targetPanelId: PanelIdSchema,
+  targetLeafId: z.string().min(1).optional(),
   targetIndex: z.number().int().nonnegative().optional(),
+  preserveEmptyLeafIds: z.array(z.string().min(1)).optional(),
+  splitTarget: z.object({
+    leafId: z.string().min(1),
+    side: ProjectSessionPanelSplitSideSchema,
+  }).optional(),
 }) satisfies z.ZodType<ProjectSessionTabMoveInput>;
+
+export const ProjectSessionPanelSplitInputSchema = z.object({
+  sessionId: z.string().min(1),
+  panelId: PanelIdSchema,
+  leafId: z.string().min(1),
+  side: ProjectSessionPanelSplitSideSchema,
+  tabId: z.string().min(1).optional(),
+  preserveEmptyLeafIds: z.array(z.string().min(1)).optional(),
+}) satisfies z.ZodType<ProjectSessionPanelSplitInput>;
+
+export const ProjectSessionPanelMergeInputSchema = z.object({
+  sessionId: z.string().min(1),
+  panelId: PanelIdSchema,
+  leafId: z.string().min(1),
+}) satisfies z.ZodType<ProjectSessionPanelMergeInput>;
+
+export const ProjectSessionPanelActivateInputSchema = z.object({
+  sessionId: z.string().min(1),
+  panelId: PanelIdSchema,
+  leafId: z.string().min(1),
+  tabId: z.string().min(1).nullable().optional(),
+}) satisfies z.ZodType<ProjectSessionPanelActivateInput>;
+
+export const ProjectSessionPanelResizeInputSchema = z.object({
+  sessionId: z.string().min(1),
+  panelId: PanelIdSchema,
+  branchId: z.string().min(1),
+  ratio: z.number().finite(),
+}) satisfies z.ZodType<ProjectSessionPanelResizeInput>;
+
+export const ProjectSessionPanelMaximizeInputSchema = z.object({
+  sessionId: z.string().min(1),
+  panelId: PanelIdSchema,
+  leafId: z.string().min(1).nullable(),
+}) satisfies z.ZodType<ProjectSessionPanelMaximizeInput>;
 
 export const ProjectSessionThreadLinkInputSchema = z.object({
   sessionId: z.string().min(1),

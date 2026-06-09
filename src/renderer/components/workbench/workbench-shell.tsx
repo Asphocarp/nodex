@@ -22,7 +22,8 @@ import {
   SquareKanban,
   Table2,
 } from "lucide-react";
-import { AppShellTabs, type AppShellTabItem } from "./app-shell-tabs";
+import type { AppShellTabItem } from "./app-shell-tabs";
+import { PanelGroupTree } from "./panel-group-tree";
 import {
   HeaderAction,
   HeaderActionProvider,
@@ -101,6 +102,13 @@ import {
   type ThreadSummaryPanelLayoutMode,
 } from "@/lib/codex-panel-motion";
 import {
+  findProjectSessionPanelLeaf,
+  findProjectSessionPanelLeafForTab,
+  getProjectSessionPanelActiveLeaf,
+  listProjectSessionPanelLeaves,
+} from "../../../shared/project-session-panel-layout";
+import { resolveSameLeafInsertionIndex } from "./panel-tab-dnd";
+import {
   readWorktreeStartMode,
   writeWorktreeStartMode,
 } from "@/lib/worktree-start-mode";
@@ -134,6 +142,7 @@ import type {
   ProjectSessionTab,
   ProjectSessionTabCreateInput,
   ProjectSessionThreadLink,
+  ProjectSessionPanelSplitSide,
   WorktreeStartMode,
   WorktreeEnvironmentOption,
 } from "@/lib/types";
@@ -282,6 +291,7 @@ interface SideChatPanelTab {
   sessionId: string;
   projectId: string;
   panelId: PanelId;
+  leafId?: string;
   parentThreadId: string;
   parentNavigationPath: string;
   threadId: string | null;
@@ -675,12 +685,12 @@ function getDefaultPanelIdForTabKind(kind: ProjectSessionTab["kind"]): PanelId {
   return PANEL_NEW_TAB_ACTIONS.find((action) => action.kind === kind)?.defaultPanelId ?? "right";
 }
 
-function makePanelPreviewKey(sessionId: string, panelId: PanelId): string {
-  return `${sessionId}:${panelId}`;
+function makePanelPreviewKey(sessionId: string, panelId: PanelId, leafId?: string | null): string {
+  return leafId ? `${sessionId}:${panelId}:${leafId}` : `${sessionId}:${panelId}`;
 }
 
-function makeSideChatPanelKey(sessionId: string, panelId: PanelId): string {
-  return `${sessionId}:${panelId}`;
+function makeSideChatPanelKey(sessionId: string, panelId: PanelId, leafId?: string | null): string {
+  return leafId ? `${sessionId}:${panelId}:${leafId}` : `${sessionId}:${panelId}`;
 }
 
 function isSideChatPanelTab(tab: ProjectSessionRenderableTab): tab is SideChatPanelTab {
@@ -782,8 +792,18 @@ function makePreviewProjectSessionTab(
 
 function resolveSessionPanelActiveTabId(session: ProjectSession, panelId: PanelId): string | null {
   const panel = session.panels[panelId];
-  if (panel.layout.root.type === "leaf") return panel.layout.root.activeTabId;
-  return session.tabs.find((tab) => tab.panelId === panelId)?.id ?? null;
+  return getProjectSessionPanelActiveLeaf(panel.layout).activeTabId
+    ?? session.tabs.find((tab) => tab.panelId === panelId)?.id
+    ?? null;
+}
+
+function resolveSessionPanelActiveLeafId(session: ProjectSession, panelId: PanelId): string {
+  return getProjectSessionPanelActiveLeaf(session.panels[panelId].layout).id;
+}
+
+function resolveLeafIdForPanelTab(session: ProjectSession, panelId: PanelId, tabId: string): string {
+  return findProjectSessionPanelLeafForTab(session.panels[panelId].layout, tabId)?.id
+    ?? resolveSessionPanelActiveLeafId(session, panelId);
 }
 
 function buildShellNavigationSnapshot(input: {
@@ -935,11 +955,17 @@ export function WorkbenchShell({
   const bottomPanel = activeSession?.panels.bottom ?? null;
   const rightPanelTabs = activeSession?.tabs.filter((tab) => tab.panelId === "right") ?? [];
   const bottomPanelTabs = activeSession?.tabs.filter((tab) => tab.panelId === "bottom") ?? [];
+  const rightActiveLeafId = activeSession ? resolveSessionPanelActiveLeafId(activeSession, "right") : "main";
+  const bottomActiveLeafId = activeSession ? resolveSessionPanelActiveLeafId(activeSession, "bottom") : "main";
   const rightPreviewTab = activeSession
-    ? previewTabsByPanel[makePanelPreviewKey(activeSession.id, "right")] ?? null
+    ? previewTabsByPanel[makePanelPreviewKey(activeSession.id, "right", rightActiveLeafId)]
+      ?? previewTabsByPanel[makePanelPreviewKey(activeSession.id, "right")]
+      ?? null
     : null;
   const bottomPreviewTab = activeSession
-    ? previewTabsByPanel[makePanelPreviewKey(activeSession.id, "bottom")] ?? null
+    ? previewTabsByPanel[makePanelPreviewKey(activeSession.id, "bottom", bottomActiveLeafId)]
+      ?? previewTabsByPanel[makePanelPreviewKey(activeSession.id, "bottom")]
+      ?? null
     : null;
   const activeSessionSideChatTabs = activeSession ? sideChatTabsBySession[activeSession.id] ?? [] : [];
   const rightSideChatTabs = activeSessionSideChatTabs.filter((tab) => tab.panelId === "right");
@@ -951,25 +977,27 @@ export function WorkbenchShell({
     ? [...bottomPanelTabs, ...bottomSideChatTabs, bottomPreviewTab]
     : [...bottomPanelTabs, ...bottomSideChatTabs];
   const rightSideChatActiveTabId = activeSession
-    ? sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, "right")] ?? null
+    ? sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, "right", rightActiveLeafId)]
+      ?? sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, "right")]
+      ?? null
     : null;
   const bottomSideChatActiveTabId = activeSession
-    ? sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, "bottom")] ?? null
+    ? sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, "bottom", bottomActiveLeafId)]
+      ?? sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, "bottom")]
+      ?? null
     : null;
-  const rightActiveTabId = rightPanel?.layout.root.type === "leaf"
-    ? rightPreviewTab?.id
-      ?? (rightSideChatActiveTabId && rightRenderableTabs.some((tab) => tab.id === rightSideChatActiveTabId)
-        ? rightSideChatActiveTabId
-        : rightPanel.layout.root.activeTabId)
-    : rightRenderableTabs[0]?.id ?? null;
-  const bottomActiveTabId = bottomPanel?.layout.root.type === "leaf"
-    ? bottomPreviewTab?.id
-      ?? (bottomSideChatActiveTabId && bottomRenderableTabs.some((tab) => tab.id === bottomSideChatActiveTabId)
-        ? bottomSideChatActiveTabId
-        : bottomPanel.layout.root.activeTabId)
-    : bottomRenderableTabs[0]?.id ?? null;
-  const rightActiveTab = rightRenderableTabs.find((tab) => tab.id === rightActiveTabId) ?? rightRenderableTabs[0] ?? null;
-  const bottomActiveTab = bottomRenderableTabs.find((tab) => tab.id === bottomActiveTabId) ?? bottomRenderableTabs[0] ?? null;
+  const rightActiveTabId = rightPreviewTab?.id
+    ?? (rightSideChatActiveTabId && rightRenderableTabs.some((tab) => tab.id === rightSideChatActiveTabId)
+      ? rightSideChatActiveTabId
+      : rightPanel ? getProjectSessionPanelActiveLeaf(rightPanel.layout).activeTabId : null)
+    ?? rightRenderableTabs[0]?.id
+    ?? null;
+  const bottomActiveTabId = bottomPreviewTab?.id
+    ?? (bottomSideChatActiveTabId && bottomRenderableTabs.some((tab) => tab.id === bottomSideChatActiveTabId)
+      ? bottomSideChatActiveTabId
+      : bottomPanel ? getProjectSessionPanelActiveLeaf(bottomPanel.layout).activeTabId : null)
+    ?? bottomRenderableTabs[0]?.id
+    ?? null;
   const rightPanelCollapsed = activeSession
     ? panelCollapsedOverrides[makePanelPreviewKey(activeSession.id, "right")] ?? rightPanel?.collapsed ?? true
     : true;
@@ -1656,21 +1684,22 @@ export function WorkbenchShell({
     }
   }, [activeSession, recordShellNavigation, updateActivePanel]);
 
-  const clearPanelPreviewTab = useCallback((sessionId: string, panelId: PanelId) => {
+  const clearPanelPreviewTab = useCallback((sessionId: string, panelId: PanelId, leafId?: string | null) => {
     setPreviewTabsByPanel((current) => {
-      const key = makePanelPreviewKey(sessionId, panelId);
-      if (!(key in current)) return current;
+      const keys = leafId
+        ? [makePanelPreviewKey(sessionId, panelId, leafId), makePanelPreviewKey(sessionId, panelId)]
+        : [makePanelPreviewKey(sessionId, panelId)];
+      if (!keys.some((key) => key in current)) return current;
       const next = { ...current };
-      delete next[key];
+      for (const key of keys) delete next[key];
       return next;
     });
   }, []);
 
-  const setActivePanelTab = useCallback(async (panelId: PanelId, tabId: string, options?: { openPanel?: boolean }) => {
+  const setActivePanelTab = useCallback(async (panelId: PanelId, tabId: string, options?: { openPanel?: boolean; leafId?: string }) => {
     if (!activeSession) return;
-    clearPanelPreviewTab(activeSession.id, panelId);
-    const panel = activeSession.panels[panelId];
-    if (panel.layout.root.type !== "leaf") return;
+    const leafId = options?.leafId ?? resolveLeafIdForPanelTab(activeSession, panelId, tabId);
+    clearPanelPreviewTab(activeSession.id, panelId, leafId);
     const currentSnapshot = currentShellNavigationSnapshotRef.current;
     if (currentSnapshot) {
       recordShellNavigation({
@@ -1686,50 +1715,135 @@ export function WorkbenchShell({
             }),
       });
     }
-    const layout = {
-      ...panel.layout,
-      root: {
-        ...panel.layout.root,
-        activeTabId: tabId,
-      },
-    };
-    await updateActivePanel(panelId, {
-      layout,
-      ...(options?.openPanel ? { collapsed: false } : {}),
-    });
-  }, [activeSession, clearPanelPreviewTab, recordShellNavigation, updateActivePanel]);
+    const session = (await invoke("project-session-panels:activate", {
+      sessionId: activeSession.id,
+      panelId,
+      leafId,
+      tabId,
+    })) as ProjectSession | null;
+    if (options?.openPanel) {
+      await updateActivePanel(panelId, { collapsed: false }, { refresh: false });
+    }
+    if (session) await refreshProjectSessions(session.projectId);
+  }, [activeSession, clearPanelPreviewTab, recordShellNavigation, refreshProjectSessions, updateActivePanel]);
 
-  const reorderTabs = useCallback(async (panelId: PanelId, activeId: string, overId: string) => {
+  const reorderTabs = useCallback(async (panelId: PanelId, tabId: string, targetIndex: number, leafId?: string) => {
     if (!activeSession) return;
-    const order = activeSession.tabs.filter((tab) => tab.panelId === panelId).map((tab) => tab.id);
-    const fromIndex = order.indexOf(activeId);
-    const toIndex = order.indexOf(overId);
-    if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
+    const panel = activeSession.panels[panelId];
+    const leaf = leafId ? findProjectSessionPanelLeaf(panel.layout, leafId) : null;
+    const order = leaf?.tabIds ?? activeSession.tabs.filter((tab) => tab.panelId === panelId).map((tab) => tab.id);
+    const fromIndex = order.indexOf(tabId);
+    const normalizedTargetIndex = resolveSameLeafInsertionIndex({
+      tabIds: order,
+      sourceTabId: tabId,
+      targetIndex,
+    });
+    if (fromIndex < 0 || normalizedTargetIndex === null) return;
     const next = [...order];
     const [item] = next.splice(fromIndex, 1);
     if (!item) return;
-    next.splice(toIndex, 0, item);
+    next.splice(normalizedTargetIndex, 0, item);
     const session = (await invoke("project-session-tabs:reorder", {
       sessionId: activeSession.id,
       panelId,
+      leafId,
       orderedTabIds: next,
     })) as ProjectSession | null;
     if (session) await refreshProjectSessions(session.projectId);
   }, [activeSession, refreshProjectSessions]);
 
-  const closeTab = useCallback(async (tabId: string) => {
+  const getPanelVisibleLeafTabCount = useCallback((
+    panelId: PanelId,
+    leafId: string,
+    options: { excludingTabId?: string } = {},
+  ): number => {
+    if (!activeSession) return 0;
+    const excludedTabId = options.excludingTabId ?? null;
+    const activeLeafId = resolveSessionPanelActiveLeafId(activeSession, panelId);
+    const leaf = findProjectSessionPanelLeaf(activeSession.panels[panelId].layout, leafId);
+    const durableCount = (leaf?.tabIds ?? []).filter((tabId) => {
+      if (tabId === excludedTabId) return false;
+      return activeSession.tabs.some((tab) => tab.id === tabId && tab.panelId === panelId);
+    }).length;
+    const sideChatCount = (sideChatTabsBySession[activeSession.id] ?? []).filter((tab) => {
+      if (tab.id === excludedTabId) return false;
+      return tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leafId;
+    }).length;
+    const previewTab = previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId, leafId)]
+      ?? (leafId === activeLeafId ? previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId)] : null)
+      ?? null;
+    const previewCount = previewTab && previewTab.id !== excludedTabId ? 1 : 0;
+    return durableCount + sideChatCount + previewCount;
+  }, [activeSession, previewTabsByPanel, sideChatTabsBySession]);
+
+  const getPanelVisibleTabCount = useCallback((
+    panelId: PanelId,
+    options: { excludingTabId?: string } = {},
+  ): number => {
+    if (!activeSession) return 0;
+    return listProjectSessionPanelLeaves(activeSession.panels[panelId].layout).reduce(
+      (count, leaf) => count + getPanelVisibleLeafTabCount(panelId, leaf.id, options),
+      0,
+    );
+  }, [activeSession, getPanelVisibleLeafTabCount]);
+
+  const getPreserveEmptyLeafIdsAfterDurableRemoval = useCallback((
+    panelId: PanelId,
+    leafId: string,
+    tabId: string,
+  ): string[] => {
+    return getPanelVisibleLeafTabCount(panelId, leafId, { excludingTabId: tabId }) > 0 ? [leafId] : [];
+  }, [getPanelVisibleLeafTabCount]);
+
+  const removeEmptyVisiblePanelLeaf = useCallback(async (
+    panelId: PanelId,
+    leafId: string,
+    options: { excludingTabId?: string } = {},
+  ) => {
     if (!activeSession) return;
-    await invoke("project-session-tabs:delete", tabId);
+    const leaves = listProjectSessionPanelLeaves(activeSession.panels[panelId].layout);
+    if (leaves.length <= 1) return;
+    if (getPanelVisibleLeafTabCount(panelId, leafId, options) > 0) return;
+    const session = (await invoke("project-session-panels:merge", {
+      sessionId: activeSession.id,
+      panelId,
+      leafId,
+    })) as ProjectSession | null;
+    if (session) await refreshProjectSessions(session.projectId);
+  }, [activeSession, getPanelVisibleLeafTabCount, refreshProjectSessions]);
+
+  const closeTab = useCallback(async (tabId: string, options: { preserveEmptyLeafIds?: string[] } = {}) => {
+    if (!activeSession) return;
+    await invoke(
+      "project-session-tabs:delete",
+      options.preserveEmptyLeafIds && options.preserveEmptyLeafIds.length > 0
+        ? { tabId, preserveEmptyLeafIds: options.preserveEmptyLeafIds }
+        : tabId,
+    );
     await refreshProjectSessions(activeSession.projectId);
   }, [activeSession, refreshProjectSessions]);
 
-  const closePreviewTab = useCallback(async (panelId: PanelId) => {
+  const closePreviewTab = useCallback(async (panelId: PanelId, leafId?: string) => {
     if (!activeSession) return;
-    clearPanelPreviewTab(activeSession.id, panelId);
-    const durablePanelTabs = activeSession.tabs.filter((tab) => tab.panelId === panelId);
-    if (durablePanelTabs.length > 0) return;
+    const targetLeafId = leafId ?? resolveSessionPanelActiveLeafId(activeSession, panelId);
+    const previewTab = previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId, targetLeafId)]
+      ?? previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId)]
+      ?? null;
+    clearPanelPreviewTab(activeSession.id, panelId, targetLeafId);
+    if (previewTab && getPanelVisibleLeafTabCount(panelId, targetLeafId, { excludingTabId: previewTab.id }) === 0) {
+      await removeEmptyVisiblePanelLeaf(panelId, targetLeafId, { excludingTabId: previewTab.id });
+    }
+    if (getPanelVisibleTabCount(panelId, { excludingTabId: previewTab?.id }) > 0) return;
     await updateActivePanel(panelId, { collapsed: true });
-  }, [activeSession, clearPanelPreviewTab, updateActivePanel]);
+  }, [
+    activeSession,
+    clearPanelPreviewTab,
+    getPanelVisibleLeafTabCount,
+    getPanelVisibleTabCount,
+    previewTabsByPanel,
+    removeEmptyVisiblePanelLeaf,
+    updateActivePanel,
+  ]);
 
   const closeSideChatPanelTab = useCallback(async (panelId: PanelId, tabId: string) => {
     if (!activeSession) return;
@@ -1745,10 +1859,13 @@ export function WorkbenchShell({
       };
     });
     setSideChatActiveTabByPanel((current) => {
-      const key = makeSideChatPanelKey(activeSession.id, panelId);
-      if (current[key] !== tabId) return current;
+      const keys = [
+        makeSideChatPanelKey(activeSession.id, panelId, sideChatTab.leafId),
+        makeSideChatPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => current[key] === tabId)) return current;
       const next = { ...current };
-      delete next[key];
+      for (const key of keys) delete next[key];
       return next;
     });
 
@@ -1757,13 +1874,28 @@ export function WorkbenchShell({
         console.warn("[side-chat:discard]", error);
       });
     }
-  }, [activeSession, sideChatTabsBySession, workbenchCodexControl]);
+    const targetLeafId = sideChatTab.leafId ?? resolveSessionPanelActiveLeafId(activeSession, panelId);
+    if (getPanelVisibleLeafTabCount(panelId, targetLeafId, { excludingTabId: tabId }) === 0) {
+      await removeEmptyVisiblePanelLeaf(panelId, targetLeafId, { excludingTabId: tabId });
+    }
+    if (getPanelVisibleTabCount(panelId, { excludingTabId: tabId }) > 0) return;
+    await updateActivePanel(panelId, { collapsed: true });
+  }, [
+    activeSession,
+    getPanelVisibleLeafTabCount,
+    getPanelVisibleTabCount,
+    removeEmptyVisiblePanelLeaf,
+    sideChatTabsBySession,
+    updateActivePanel,
+    workbenchCodexControl,
+  ]);
 
-  const closePanelTab = useCallback(async (panelId: PanelId, tabId: string) => {
+  const closePanelTab = useCallback(async (panelId: PanelId, tabId: string, leafId?: string) => {
     if (!activeSession) return;
-    const previewTab = previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId)];
+    const previewTab = (leafId ? previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId, leafId)] : null)
+      ?? previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId)];
     if (previewTab?.id === tabId) {
-      await closePreviewTab(panelId);
+      await closePreviewTab(panelId, leafId);
       return;
     }
     if ((sideChatTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
@@ -1771,39 +1903,65 @@ export function WorkbenchShell({
       return;
     }
 
-    await closeTab(tabId);
-  }, [activeSession, closePreviewTab, closeSideChatPanelTab, closeTab, previewTabsByPanel, sideChatTabsBySession]);
+    const targetLeafId = leafId ?? resolveLeafIdForPanelTab(activeSession, panelId, tabId);
+    const preserveEmptyLeafIds = getPreserveEmptyLeafIdsAfterDurableRemoval(panelId, targetLeafId, tabId);
+    await closeTab(tabId, { preserveEmptyLeafIds });
+    if (preserveEmptyLeafIds.length > 0) {
+      await updateActivePanel(panelId, { collapsed: false });
+    }
+  }, [
+    activeSession,
+    closePreviewTab,
+    closeSideChatPanelTab,
+    closeTab,
+    getPreserveEmptyLeafIdsAfterDurableRemoval,
+    previewTabsByPanel,
+    sideChatTabsBySession,
+    updateActivePanel,
+  ]);
 
-  const selectPanelTab = useCallback(async (panelId: PanelId, tabId: string) => {
+  const selectPanelTab = useCallback(async (panelId: PanelId, tabId: string, leafId?: string) => {
     if (!activeSession) return;
-    const previewTab = previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId)];
+    const targetLeafId = leafId ?? resolveLeafIdForPanelTab(activeSession, panelId, tabId);
+    const previewTab = previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId, targetLeafId)]
+      ?? previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId)];
     if (previewTab?.id === tabId) return;
     if ((sideChatTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
-      clearPanelPreviewTab(activeSession.id, panelId);
+      clearPanelPreviewTab(activeSession.id, panelId, targetLeafId);
       setSideChatActiveTabByPanel((current) => ({
         ...current,
-        [makeSideChatPanelKey(activeSession.id, panelId)]: tabId,
+        [makeSideChatPanelKey(activeSession.id, panelId, targetLeafId)]: tabId,
       }));
       return;
     }
     setSideChatActiveTabByPanel((current) => {
-      const key = makeSideChatPanelKey(activeSession.id, panelId);
-      if (!(key in current)) return current;
+      const keys = [
+        makeSideChatPanelKey(activeSession.id, panelId, targetLeafId),
+        makeSideChatPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => key in current)) return current;
       const next = { ...current };
-      delete next[key];
+      for (const key of keys) delete next[key];
       return next;
     });
-    await setActivePanelTab(panelId, tabId);
+    await setActivePanelTab(panelId, tabId, { leafId: targetLeafId });
   }, [activeSession, clearPanelPreviewTab, previewTabsByPanel, setActivePanelTab, sideChatTabsBySession]);
 
-  const pinPreviewTab = useCallback(async (panelId: PanelId, tabId: string) => {
+  const pinPreviewTab = useCallback(async (panelId: PanelId, tabId: string, leafId?: string) => {
     if (!activeSession) return;
-    const previewTab = previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId)];
+    const targetLeafId = leafId ?? resolveSessionPanelActiveLeafId(activeSession, panelId);
+    const previewTab = previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId, targetLeafId)]
+      ?? previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId)];
     if (!previewTab || previewTab.id !== tabId) return;
     if (pinningPreviewTabIdsRef.current.has(tabId)) return;
 
     pinningPreviewTabIdsRef.current.add(tabId);
     try {
+      await invoke("project-session-panels:activate", {
+        sessionId: activeSession.id,
+        panelId,
+        leafId: targetLeafId,
+      });
       await invoke("project-session-tabs:create", {
         sessionId: activeSession.id,
         projectId: activeSession.projectId,
@@ -1812,44 +1970,112 @@ export function WorkbenchShell({
         title: previewTab.title,
         config: previewTab.config,
       });
-      clearPanelPreviewTab(activeSession.id, panelId);
+      clearPanelPreviewTab(activeSession.id, panelId, targetLeafId);
       await refreshProjectSessions(activeSession.projectId);
     } finally {
       pinningPreviewTabIdsRef.current.delete(tabId);
     }
   }, [activeSession, clearPanelPreviewTab, previewTabsByPanel, refreshProjectSessions]);
 
-  const moveTabToPanel = useCallback(async (tabId: string, targetPanelId: string) => {
+  const moveTabToPanel = useCallback(async (
+    tabId: string,
+    targetPanelId: string,
+    targetLeafId?: string,
+    targetIndex?: number,
+    splitTarget?: { leafId: string; side: ProjectSessionPanelSplitSide },
+  ) => {
     if (!activeSession) return;
     if (targetPanelId !== "right" && targetPanelId !== "bottom") return;
     const sideChatTab = (sideChatTabsBySession[activeSession.id] ?? []).find((tab) => tab.id === tabId);
     if (sideChatTab) {
+      const nextLeafId = targetLeafId ?? resolveSessionPanelActiveLeafId(activeSession, targetPanelId);
       setSideChatTabsBySession((current) => {
         const tabs = current[activeSession.id] ?? [];
         return {
           ...current,
           [activeSession.id]: tabs.map((tab) =>
             tab.id === tabId
-              ? { ...tab, panelId: targetPanelId, stateKey: tab.stateKey + 1 }
+              ? { ...tab, panelId: targetPanelId, leafId: nextLeafId, stateKey: tab.stateKey + 1 }
               : tab
           ),
         };
       });
       setSideChatActiveTabByPanel((current) => {
         const next = { ...current };
+        if (sideChatTab.leafId) delete next[makeSideChatPanelKey(activeSession.id, sideChatTab.panelId, sideChatTab.leafId)];
         delete next[makeSideChatPanelKey(activeSession.id, sideChatTab.panelId)];
-        next[makeSideChatPanelKey(activeSession.id, targetPanelId)] = tabId;
+        next[makeSideChatPanelKey(activeSession.id, targetPanelId, nextLeafId)] = tabId;
         return next;
       });
       await updateActivePanel(targetPanelId, { collapsed: false });
       return;
     }
+    const durableTab = activeSession.tabs.find((tab) => tab.id === tabId) ?? null;
+    const sourceLeafId = durableTab ? resolveLeafIdForPanelTab(activeSession, durableTab.panelId, tabId) : null;
+    const preserveEmptyLeafIds = durableTab && sourceLeafId
+      ? getPreserveEmptyLeafIdsAfterDurableRemoval(durableTab.panelId, sourceLeafId, tabId)
+      : [];
     const session = (await invoke("project-session-tabs:move", {
       tabId,
       targetPanelId,
+      targetLeafId,
+      targetIndex,
+      preserveEmptyLeafIds,
+      splitTarget,
+    })) as ProjectSession | null;
+    if (session && preserveEmptyLeafIds.length > 0) {
+      await updateActivePanel(durableTab?.panelId ?? targetPanelId, { collapsed: false }, { refresh: false });
+    }
+    if (session) await refreshProjectSessions(session.projectId);
+  }, [
+    activeSession,
+    getPreserveEmptyLeafIdsAfterDurableRemoval,
+    refreshProjectSessions,
+    sideChatTabsBySession,
+    updateActivePanel,
+  ]);
+
+  const splitPanelGroup = useCallback(async (
+    panelId: PanelId,
+    leafId: string,
+    side: ProjectSessionPanelSplitSide,
+    tabId?: string,
+  ) => {
+    if (!activeSession) return;
+    if (!tabId) return;
+    const leaf = findProjectSessionPanelLeaf(activeSession.panels[panelId].layout, leafId);
+    if (!leaf || leaf.tabIds.length <= 1 || !leaf.tabIds.includes(tabId)) return;
+    const session = (await invoke("project-session-panels:split", {
+      sessionId: activeSession.id,
+      panelId,
+      leafId,
+      side,
+      tabId,
     })) as ProjectSession | null;
     if (session) await refreshProjectSessions(session.projectId);
-  }, [activeSession, refreshProjectSessions, sideChatTabsBySession, updateActivePanel]);
+  }, [activeSession, refreshProjectSessions]);
+
+  const activatePanelGroup = useCallback(async (panelId: PanelId, leafId: string, tabId?: string | null) => {
+    if (!activeSession) return;
+    const session = (await invoke("project-session-panels:activate", {
+      sessionId: activeSession.id,
+      panelId,
+      leafId,
+      tabId,
+    })) as ProjectSession | null;
+    if (session) await refreshProjectSessions(session.projectId);
+  }, [activeSession, refreshProjectSessions]);
+
+  const resizePanelGroup = useCallback(async (panelId: PanelId, branchId: string, ratio: number) => {
+    if (!activeSession) return;
+    const session = (await invoke("project-session-panels:resize", {
+      sessionId: activeSession.id,
+      panelId,
+      branchId,
+      ratio,
+    })) as ProjectSession | null;
+    if (session) await refreshProjectSessions(session.projectId);
+  }, [activeSession, refreshProjectSessions]);
 
   const ensureActivePanelOpenWithoutRefresh = useCallback(async (panelId: PanelId) => {
     if (!activeSession || !activeSession.panels[panelId].collapsed) return;
@@ -1859,6 +2085,7 @@ export function WorkbenchShell({
   const openSideChat = useCallback(async (
     input: {
       targetPanelId?: PanelId;
+      targetLeafId?: string;
       prompt?: string;
       promptInput?: CodexPromptInput;
       collaborationMode?: CodexCollaborationModeKind;
@@ -1870,6 +2097,7 @@ export function WorkbenchShell({
     }
 
     const panelId = input.targetPanelId ?? "right";
+    const leafId = input.targetLeafId ?? resolveSessionPanelActiveLeafId(activeSession, panelId);
     const parentThreadId = activeSession.thread.threadId;
     const existingPanelSideChats = (sideChatTabsBySession[activeSession.id] ?? []).filter((tab) =>
       tab.panelId === panelId
@@ -1884,6 +2112,7 @@ export function WorkbenchShell({
       sessionId: activeSession.id,
       projectId: activeSession.projectId,
       panelId,
+      leafId,
       parentThreadId,
       parentNavigationPath,
       threadId: null,
@@ -1898,9 +2127,9 @@ export function WorkbenchShell({
     }));
     setSideChatActiveTabByPanel((current) => ({
       ...current,
-      [makeSideChatPanelKey(activeSession.id, panelId)]: loadingTabId,
+      [makeSideChatPanelKey(activeSession.id, panelId, leafId)]: loadingTabId,
     }));
-    clearPanelPreviewTab(activeSession.id, panelId);
+    clearPanelPreviewTab(activeSession.id, panelId, leafId);
     await ensureActivePanelOpenWithoutRefresh(panelId);
 
     try {
@@ -1932,7 +2161,7 @@ export function WorkbenchShell({
       });
       setSideChatActiveTabByPanel((current) => ({
         ...current,
-        [makeSideChatPanelKey(activeSession.id, panelId)]: readyTabId,
+        [makeSideChatPanelKey(activeSession.id, panelId, leafId)]: readyTabId,
       }));
     } catch {
       setSideChatTabsBySession((current) => {
@@ -1944,8 +2173,10 @@ export function WorkbenchShell({
       });
       setSideChatActiveTabByPanel((current) => {
         const key = makeSideChatPanelKey(activeSession.id, panelId);
-        if (current[key] !== loadingTabId) return current;
+        const leafKey = makeSideChatPanelKey(activeSession.id, panelId, leafId);
+        if (current[leafKey] !== loadingTabId && current[key] !== loadingTabId) return current;
         const next = { ...current };
+        delete next[leafKey];
         delete next[key];
         return next;
       });
@@ -1987,7 +2218,7 @@ export function WorkbenchShell({
     });
     setSideChatActiveTabByPanel((current) => ({
       ...current,
-      [makeSideChatPanelKey(activeSession.id, existingTab.panelId)]: loadingTabId,
+      [makeSideChatPanelKey(activeSession.id, existingTab.panelId, existingTab.leafId)]: loadingTabId,
     }));
 
     try {
@@ -2016,7 +2247,7 @@ export function WorkbenchShell({
       });
       setSideChatActiveTabByPanel((current) => ({
         ...current,
-        [makeSideChatPanelKey(activeSession.id, existingTab.panelId)]: readyTabId,
+        [makeSideChatPanelKey(activeSession.id, existingTab.panelId, existingTab.leafId)]: readyTabId,
       }));
     } catch {
       setSideChatTabsBySession((current) => {
@@ -2036,23 +2267,28 @@ export function WorkbenchShell({
       });
       setSideChatActiveTabByPanel((current) => ({
         ...current,
-        [makeSideChatPanelKey(activeSession.id, existingTab.panelId)]: existingTab.id,
+        [makeSideChatPanelKey(activeSession.id, existingTab.panelId, existingTab.leafId)]: existingTab.id,
       }));
       toast.danger("Failed to start a new side chat", { id: "side-chat-recreate-failed" });
     }
   }, [activeSession, sideChatTabsBySession, workbenchCodexControl]);
 
-  const openPreviewTab = useCallback(async (kind: ProjectSessionTab["kind"], targetPanelId?: PanelId) => {
+  const openPreviewTab = useCallback(async (
+    kind: ProjectSessionTab["kind"],
+    targetPanelId?: PanelId,
+    targetLeafId?: string,
+  ) => {
     if (!activeSession) return;
     if (!isPreviewableProjectSessionTabKind(kind)) return;
 
     const panelId = targetPanelId ?? getDefaultPanelIdForTabKind(kind);
+    const leafId = targetLeafId ?? resolveSessionPanelActiveLeafId(activeSession, panelId);
     const draft = makeProjectSessionTabDraft(activeSession, kind);
     if (!draft) return;
 
     setPreviewTabsByPanel((current) => ({
       ...current,
-      [makePanelPreviewKey(activeSession.id, panelId)]: makePreviewProjectSessionTab(activeSession, panelId, draft),
+      [makePanelPreviewKey(activeSession.id, panelId, leafId)]: makePreviewProjectSessionTab(activeSession, panelId, draft),
     }));
     await ensureActivePanelOpenWithoutRefresh(panelId);
     await refreshProjectSessions(activeSession.projectId);
@@ -2283,27 +2519,19 @@ export function WorkbenchShell({
     fullWidth?: boolean,
   ) => {
     const panel = session.panels[panelId];
-    const panelTabIds = session.tabs.filter((tab) => tab.panelId === panelId).map((tab) => tab.id);
-    const knownTabIds = new Set(panelTabIds);
-    const layout = panel.layout.root.type === "leaf"
-      ? {
-        ...panel.layout,
-        root: {
-          ...panel.layout.root,
-          activeTabId: activeTabId === null
-            ? null
-            : knownTabIds.has(activeTabId)
-              ? activeTabId
-              : panel.layout.root.activeTabId,
-        },
-      }
-      : panel.layout;
+    if (activeTabId) {
+      await invoke("project-session-panels:activate", {
+        sessionId: session.id,
+        panelId,
+        leafId: resolveLeafIdForPanelTab(session, panelId, activeTabId),
+        tabId: activeTabId,
+      });
+    }
     await updateSessionPanel(
       session.id,
       panelId,
       {
         collapsed,
-        layout,
         ...(panelId === "right"
           ? { size: { ...panel.size, fullWidth: fullWidth ?? false } }
           : {}),
@@ -2494,8 +2722,17 @@ export function WorkbenchShell({
     window.addEventListener("mouseup", onMouseUp);
   }, [activeSession, bottomPanelHeight, sessionContentHeight, setActivePanelCollapsed, updateActivePanel]);
 
-  const panelTabItems = useMemo<Record<PanelId, AppShellTabItem[]>>(() => {
-    const empty = { right: [], bottom: [] } satisfies Record<PanelId, AppShellTabItem[]>;
+  const panelGroupTabs = useMemo<Record<PanelId, {
+    itemsByLeafId: Record<string, AppShellTabItem[]>;
+    activeTabIdsByLeafId: Record<string, string | null>;
+  }>>(() => {
+    const empty = {
+      right: { itemsByLeafId: {}, activeTabIdsByLeafId: {} },
+      bottom: { itemsByLeafId: {}, activeTabIdsByLeafId: {} },
+    } satisfies Record<PanelId, {
+      itemsByLeafId: Record<string, AppShellTabItem[]>;
+      activeTabIdsByLeafId: Record<string, string | null>;
+    }>;
     if (!activeSession) return empty;
     const makeItem = (tab: ProjectSessionRenderableTab): AppShellTabItem => ({
       id: tab.id,
@@ -2506,6 +2743,7 @@ export function WorkbenchShell({
         : tab.preview === true || !activeSession.isOverview || activeSession.tabs.length > 1,
       preview: isSideChatPanelTab(tab) ? undefined : tab.preview,
       reorderable: isSideChatPanelTab(tab) ? false : tab.preview === true ? false : true,
+      splittable: !isSideChatPanelTab(tab) && tab.preview !== true,
       renderPanel: () => isSideChatPanelTab(tab) ? (
         <SideChatSessionTab
           key={`${activeSession.id}:${tab.id}:${tab.stateKey}`}
@@ -2543,9 +2781,48 @@ export function WorkbenchShell({
         />
       ),
     });
+    const durableById = new Map(activeSession.tabs.map((tab) => [tab.id, tab]));
+    const buildPanelTabs = (panelId: PanelId) => {
+      const panel = activeSession.panels[panelId];
+      const leaves = listProjectSessionPanelLeaves(panel.layout);
+      const activeLeafId = resolveSessionPanelActiveLeafId(activeSession, panelId);
+      const itemsByLeafId: Record<string, AppShellTabItem[]> = {};
+      const activeTabIdsByLeafId: Record<string, string | null> = {};
+
+      for (const leaf of leaves) {
+        const durableTabs = leaf.tabIds.flatMap((tabId) => {
+          const tab = durableById.get(tabId);
+          return tab && tab.panelId === panelId ? [tab] : [];
+        });
+        const sideChatTabs = (sideChatTabsBySession[activeSession.id] ?? []).filter((tab) =>
+          tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leaf.id
+        );
+        const previewTab = previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId, leaf.id)]
+          ?? (leaf.id === activeLeafId ? previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId)] : null)
+          ?? null;
+        const renderableTabs: ProjectSessionRenderableTab[] = previewTab
+          ? [...durableTabs, ...sideChatTabs, previewTab]
+          : [...durableTabs, ...sideChatTabs];
+        const sideChatActiveTabId = sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, panelId, leaf.id)]
+          ?? (leaf.id === activeLeafId ? sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, panelId)] : null)
+          ?? null;
+        const activeTabId = previewTab?.id
+          ?? (sideChatActiveTabId && renderableTabs.some((tab) => tab.id === sideChatActiveTabId)
+            ? sideChatActiveTabId
+            : leaf.activeTabId)
+          ?? renderableTabs[0]?.id
+          ?? null;
+
+        itemsByLeafId[leaf.id] = renderableTabs.map(makeItem);
+        activeTabIdsByLeafId[leaf.id] = activeTabId;
+      }
+
+      return { itemsByLeafId, activeTabIdsByLeafId };
+    };
+
     return {
-      right: rightRenderableTabs.map(makeItem),
-      bottom: bottomRenderableTabs.map(makeItem),
+      right: buildPanelTabs("right"),
+      bottom: buildPanelTabs("bottom"),
     };
   }, [
     activeDbViewPrefs,
@@ -2569,8 +2846,9 @@ export function WorkbenchShell({
     searchByProject,
     setDbViewPrefs,
     setSearchQuery,
-    rightRenderableTabs,
-    bottomRenderableTabs,
+    sideChatActiveTabByPanel,
+    sideChatTabsBySession,
+    previewTabsByPanel,
   ]);
 
   const applySidebarCollapsed = useCallback((collapsed: boolean) => {
@@ -2894,115 +3172,91 @@ export function WorkbenchShell({
     </>
   );
 
-  const rightPanelTabHeaderStickyControls = activeSession ? (
-    <NodexDropdownMenu
-      align="end"
-      sideOffset={6}
-      contentWidth="menuWide"
-      triggerButton={(
-        <button
-          type="button"
-          className={cn(TOOLBAR_BUTTON_BASE_CLASS, TOOLBAR_BUTTON_GHOST_CLASS)}
-          title="Open side panel tab"
-          aria-label="Open side panel tab"
-        >
-          <CodexSidePanelPlusIcon className="icon-xs" />
-        </button>
-      )}
-    >
-      {availableRightPanelActions.map((action) => {
-        const Icon = action.Icon;
-        if (action.kind === "card_stage") {
-          return (
-            <NodexDropdownFlyoutSubmenuItem
-              key={action.kind}
-              label={action.label}
-              leftSlot={<Icon className="icon-sm" />}
-              contentClassName="w-[336px]"
-            >
-              <RightPanelCardStagePicker
-                cards={activeProjectCardOptions}
-                onOpenCard={(card) => void openCardStageFromPicker(card)}
-              />
-            </NodexDropdownFlyoutSubmenuItem>
-          );
-        }
-
-        return (
-          <NodexDropdownItem
-            key={action.kind}
-            leftSlot={<Icon className="icon-sm" />}
-            keyboardShortcut={resolvePanelShortcutLabel(action.shortcut, isMacPlatform)}
-            onSelect={() => {
-              if (action.kind === "side_chat_placeholder") {
-                void openSideChat({ targetPanelId: "right" });
-                return;
-              }
-              if (isPreviewableProjectSessionTabKind(action.kind)) {
-                void openPreviewTab(action.kind, "right");
-                return;
-              }
-              void createManualTab(action.kind, "right");
-            }}
+  const renderPanelNewTabButton = (panelId: PanelId, leafId: string) => {
+    if (!activeSession) return null;
+    const actions = panelId === "right" ? availableRightPanelActions : availableBottomPanelActions;
+    const title = panelId === "right" ? "Open side panel tab" : "Open bottom panel tab";
+    return (
+      <NodexDropdownMenu
+        align="start"
+        sideOffset={6}
+        contentWidth="menuWide"
+        triggerButton={(
+          <button
+            type="button"
+            className={cn(TOOLBAR_BUTTON_BASE_CLASS, TOOLBAR_BUTTON_GHOST_CLASS)}
+            title={title}
+            aria-label={title}
           >
-            {action.label}
-          </NodexDropdownItem>
-        );
-      })}
-    </NodexDropdownMenu>
-  ) : null;
-
-  const bottomPanelTabHeaderStickyControls = activeSession ? (
-    <NodexDropdownMenu
-      align="end"
-      sideOffset={6}
-      contentWidth="menuWide"
-      triggerButton={(
-        <button
-          type="button"
-          className={cn(TOOLBAR_BUTTON_BASE_CLASS, TOOLBAR_BUTTON_GHOST_CLASS)}
-          title="Open bottom panel tab"
-          aria-label="Open bottom panel tab"
-        >
-          <CodexSidePanelPlusIcon className="icon-xs" />
-        </button>
-      )}
-    >
-      {availableBottomPanelActions.map((action) => {
-        const Icon = action.Icon;
-        return (
-          <NodexDropdownItem
-            key={action.kind}
-            leftSlot={<Icon className="icon-sm" />}
-            keyboardShortcut={resolvePanelShortcutLabel(action.shortcut, isMacPlatform)}
-            onSelect={() => {
-              if (action.kind === "side_chat_placeholder") {
-                void openSideChat({ targetPanelId: "bottom" });
-                return;
-              }
-              if (isPreviewableProjectSessionTabKind(action.kind)) {
-                void openPreviewTab(action.kind, "bottom");
-                return;
-              }
-              void createManualTab(action.kind, "bottom");
-            }}
-          >
-            {action.label}
-          </NodexDropdownItem>
-        );
-      })}
-    </NodexDropdownMenu>
-  ) : null;
-
-  const rightPanelTabHeaderControls = activeSession ? (
-    <>
-      <ToolbarIconButton
-        label={rightPanelFullWidth ? "Restore panel width" : "Expand panel"}
-        pressed={rightPanelFullWidth}
-        onClick={toggleActiveRightPanelFullWidth}
+            <CodexSidePanelPlusIcon className="icon-xs" />
+          </button>
+        )}
       >
-        {rightPanelFullWidth ? <CodexRestorePanelIcon className="icon-sm" /> : <CodexExpandPanelIcon className="icon-sm" />}
-      </ToolbarIconButton>
+        {actions.map((action) => {
+          const Icon = action.Icon;
+          if (action.kind === "card_stage") {
+            return (
+              <NodexDropdownFlyoutSubmenuItem
+                key={action.kind}
+                label={action.label}
+                leftSlot={<Icon className="icon-sm" />}
+                contentClassName="w-[336px]"
+              >
+                <RightPanelCardStagePicker
+                  cards={activeProjectCardOptions}
+                  onOpenCard={(card) => {
+                    void (async () => {
+                      await activatePanelGroup(panelId, leafId);
+                      await openCardStageFromPicker(card);
+                    })();
+                  }}
+                />
+              </NodexDropdownFlyoutSubmenuItem>
+            );
+          }
+
+          return (
+            <NodexDropdownItem
+              key={action.kind}
+              leftSlot={<Icon className="icon-sm" />}
+              keyboardShortcut={resolvePanelShortcutLabel(action.shortcut, isMacPlatform)}
+              onSelect={() => {
+                if (action.kind === "side_chat_placeholder") {
+                  void openSideChat({ targetPanelId: panelId, targetLeafId: leafId });
+                  return;
+                }
+                if (isPreviewableProjectSessionTabKind(action.kind)) {
+                  void openPreviewTab(action.kind, panelId, leafId);
+                  return;
+                }
+                void (async () => {
+                  await activatePanelGroup(panelId, leafId);
+                  await createManualTab(action.kind, panelId);
+                })();
+              }}
+            >
+              {action.label}
+            </NodexDropdownItem>
+          );
+        })}
+      </NodexDropdownMenu>
+    );
+  };
+
+  const rightPanelGlobalHeaderInsetWidth = activeSession ? headerRightRailWidth + 40 : 0;
+  const bottomPanelGlobalHeaderInsetWidth = activeSession ? 40 : 0;
+
+  const rightPanelGlobalHeaderControls = activeSession ? (
+    <>
+      <div className="pointer-events-auto flex h-full shrink-0 items-center">
+        <ToolbarIconButton
+          label={rightPanelFullWidth ? "Restore panel width" : "Expand panel"}
+          pressed={rightPanelFullWidth}
+          onClick={toggleActiveRightPanelFullWidth}
+        >
+          {rightPanelFullWidth ? <CodexRestorePanelIcon className="icon-sm" /> : <CodexExpandPanelIcon className="icon-sm" />}
+        </ToolbarIconButton>
+      </div>
       <div
         aria-hidden="true"
         data-testid="right-panel-tab-bar-header-spacer"
@@ -3012,13 +3266,15 @@ export function WorkbenchShell({
     </>
   ) : null;
 
-  const bottomPanelTabHeaderControls = activeSession ? (
-    <ToolbarIconButton
-      label="Close"
-      onClick={hideActiveBottomPanel}
-    >
-      <CodexCloseIcon className="icon-xs" />
-    </ToolbarIconButton>
+  const bottomPanelGlobalHeaderControls = activeSession ? (
+    <div className="pointer-events-auto flex h-full shrink-0 items-center">
+      <ToolbarIconButton
+        label="Close"
+        onClick={hideActiveBottomPanel}
+      >
+        <CodexCloseIcon className="icon-xs" />
+      </ToolbarIconButton>
+    </div>
   ) : null;
 
   const showFloatingSidebar = sidebarCollapsed && !realSidebarMounted && floatingSidebarVisible;
@@ -3378,47 +3634,61 @@ export function WorkbenchShell({
                             "--thread-content-top-inset": "calc(var(--spacing) * 8)",
                           } as React.CSSProperties}
                         >
-                          {panelTabItems.right.length > 0 && rightActiveTab ? (
-                            <AppShellTabs
-                              tabs={panelTabItems.right}
-                              activeTabId={rightActiveTab.id}
-                              panelId="right"
-                              controllerId={`session-${activeSession.id}-right`}
-                              onSelect={(tabId) => void selectPanelTab("right", tabId)}
-                              onCloseTab={(tabId) => void closePanelTab("right", tabId)}
-                              onPinTab={(tabId) => void pinPreviewTab("right", tabId)}
-                              onMoveTab={(tabId, targetPanelId) => void moveTabToPanel(tabId, targetPanelId)}
-                              onReorderTab={(dragId, overId) => void reorderTabs("right", dragId, overId)}
-                              afterListSticky={rightPanelTabHeaderStickyControls}
-                              afterList={rightPanelTabHeaderControls}
-                              headerHeight="toolbar"
-                            />
-                          ) : (
-                            <div className="flex h-full min-h-0 flex-col">
-                              <div className="flex h-toolbar min-w-0 shrink-0 items-center bg-token-main-surface-primary px-2">
-                                <div className="min-w-0 flex-1" />
-                                <div className="ml-1 flex shrink-0 items-center gap-1.5">{rightPanelTabHeaderStickyControls}</div>
-                                <div className="ml-1 flex shrink-0 items-center gap-1.5">{rightPanelTabHeaderControls}</div>
-                              </div>
+                          <PanelGroupTree
+                            sessionId={activeSession.id}
+                            panelId="right"
+                            layout={activeSession.panels.right.layout}
+                            tabItemsByLeafId={panelGroupTabs.right.itemsByLeafId}
+                            activeTabIdsByLeafId={panelGroupTabs.right.activeTabIdsByLeafId}
+                            renderAfterTabs={(leafId) => renderPanelNewTabButton("right", leafId)}
+                            headerEndInsetPx={rightPanelGlobalHeaderInsetWidth}
+                            renderEmptyLeaf={(leafId) => (
                               <EmptyRightPane
                                 actions={availableRightPanelActions}
                                 cards={activeProjectCardOptions}
                                 isMac={isMacPlatform}
                                 onAction={(kind) => {
                                   if (kind === "side_chat_placeholder") {
-                                    void openSideChat({ targetPanelId: "right" });
+                                    void openSideChat({ targetPanelId: "right", targetLeafId: leafId });
                                     return;
                                   }
                                   if (isPreviewableProjectSessionTabKind(kind)) {
-                                    void openPreviewTab(kind, "right");
+                                    void openPreviewTab(kind, "right", leafId);
                                     return;
                                   }
-                                  void createManualTab(kind, "right");
+                                  void (async () => {
+                                    await activatePanelGroup("right", leafId);
+                                    await createManualTab(kind, "right");
+                                  })();
                                 }}
-                                onOpenCard={(card) => void openCardStageFromPicker(card)}
+                                onOpenCard={(card) => {
+                                  void (async () => {
+                                    await activatePanelGroup("right", leafId);
+                                    await openCardStageFromPicker(card);
+                                  })();
+                                }}
                               />
+                            )}
+                            onSelectTab={(leafId, tabId) => void selectPanelTab("right", tabId, leafId)}
+                            onCloseTab={(leafId, tabId) => void closePanelTab("right", tabId, leafId)}
+                            onPinTab={(leafId, tabId) => void pinPreviewTab("right", tabId, leafId)}
+                            onReorderTab={(leafId, tabId, targetIndex) => void reorderTabs("right", tabId, targetIndex, leafId)}
+                            onMoveTab={(tabId, targetPanelId, targetLeafId, targetIndex, splitTarget) =>
+                              void moveTabToPanel(tabId, targetPanelId, targetLeafId, targetIndex, splitTarget)}
+                            onSplitGroup={(leafId, side, tabId) => void splitPanelGroup("right", leafId, side, tabId)}
+                            onActivateGroup={(leafId, tabId) => void activatePanelGroup("right", leafId, tabId)}
+                            onResizeGroup={(branchId, ratio) => void resizePanelGroup("right", branchId, ratio)}
+                          />
+                          {rightPanelGlobalHeaderControls ? (
+                            <div
+                              data-testid="right-panel-global-header-actions"
+                              className="pointer-events-none absolute top-0 right-0 z-30 flex h-toolbar items-center justify-end pr-2"
+                            >
+                              <div className="pointer-events-none flex h-full items-center gap-1">
+                                {rightPanelGlobalHeaderControls}
+                              </div>
                             </div>
-                          )}
+                          ) : null}
                         </div>
                       </div>
                     </motion.aside>
@@ -3454,47 +3724,61 @@ export function WorkbenchShell({
                           minHeight: bottomPanelHeight,
                         }}
                       >
-                        {panelTabItems.bottom.length > 0 && bottomActiveTab ? (
-                          <AppShellTabs
-                            tabs={panelTabItems.bottom}
-                            activeTabId={bottomActiveTab.id}
-                            panelId="bottom"
-                            controllerId={`session-${activeSession.id}-bottom`}
-                            onSelect={(tabId) => void selectPanelTab("bottom", tabId)}
-                            onCloseTab={(tabId) => void closePanelTab("bottom", tabId)}
-                            onPinTab={(tabId) => void pinPreviewTab("bottom", tabId)}
-                            onMoveTab={(tabId, targetPanelId) => void moveTabToPanel(tabId, targetPanelId)}
-                            onReorderTab={(dragId, overId) => void reorderTabs("bottom", dragId, overId)}
-                            afterListSticky={bottomPanelTabHeaderStickyControls}
-                            afterList={bottomPanelTabHeaderControls}
-                            headerHeight="toolbar"
-                          />
-                        ) : (
-                          <div className="flex h-full min-h-0 flex-col">
-                            <div className="flex h-toolbar min-w-0 shrink-0 items-center bg-token-main-surface-primary px-2">
-                              <div className="min-w-0 flex-1" />
-                              <div className="ml-1 flex shrink-0 items-center gap-1">{bottomPanelTabHeaderStickyControls}</div>
-                              <div className="ml-1 flex shrink-0 items-center gap-1">{bottomPanelTabHeaderControls}</div>
-                            </div>
+                        <PanelGroupTree
+                          sessionId={activeSession.id}
+                          panelId="bottom"
+                          layout={activeSession.panels.bottom.layout}
+                          tabItemsByLeafId={panelGroupTabs.bottom.itemsByLeafId}
+                          activeTabIdsByLeafId={panelGroupTabs.bottom.activeTabIdsByLeafId}
+                          renderAfterTabs={(leafId) => renderPanelNewTabButton("bottom", leafId)}
+                          headerEndInsetPx={bottomPanelGlobalHeaderInsetWidth}
+                          renderEmptyLeaf={(leafId) => (
                             <EmptyRightPane
                               actions={availableBottomPanelActions}
                               cards={[]}
                               isMac={isMacPlatform}
                               onAction={(kind) => {
                                 if (kind === "side_chat_placeholder") {
-                                  void openSideChat({ targetPanelId: "bottom" });
+                                  void openSideChat({ targetPanelId: "bottom", targetLeafId: leafId });
                                   return;
                                 }
                                 if (isPreviewableProjectSessionTabKind(kind)) {
-                                  void openPreviewTab(kind, "bottom");
+                                  void openPreviewTab(kind, "bottom", leafId);
                                   return;
                                 }
-                                void createManualTab(kind, "bottom");
+                                void (async () => {
+                                  await activatePanelGroup("bottom", leafId);
+                                  await createManualTab(kind, "bottom");
+                                })();
                               }}
-                              onOpenCard={(card) => void openCardStageFromPicker(card)}
+                              onOpenCard={(card) => {
+                                void (async () => {
+                                  await activatePanelGroup("bottom", leafId);
+                                  await openCardStageFromPicker(card);
+                                })();
+                              }}
                             />
+                          )}
+                          onSelectTab={(leafId, tabId) => void selectPanelTab("bottom", tabId, leafId)}
+                          onCloseTab={(leafId, tabId) => void closePanelTab("bottom", tabId, leafId)}
+                          onPinTab={(leafId, tabId) => void pinPreviewTab("bottom", tabId, leafId)}
+                          onReorderTab={(leafId, tabId, targetIndex) => void reorderTabs("bottom", tabId, targetIndex, leafId)}
+                          onMoveTab={(tabId, targetPanelId, targetLeafId, targetIndex, splitTarget) =>
+                            void moveTabToPanel(tabId, targetPanelId, targetLeafId, targetIndex, splitTarget)}
+                          onSplitGroup={(leafId, side, tabId) => void splitPanelGroup("bottom", leafId, side, tabId)}
+                          onActivateGroup={(leafId, tabId) => void activatePanelGroup("bottom", leafId, tabId)}
+                          onResizeGroup={(branchId, ratio) => void resizePanelGroup("bottom", branchId, ratio)}
+                        />
+                        {bottomPanelGlobalHeaderControls ? (
+                          <div
+                            data-testid="bottom-panel-global-header-actions"
+                            className="pointer-events-none absolute top-0 right-0 z-30 flex h-toolbar items-center justify-end pr-2"
+                          >
+                            <div className="pointer-events-none flex h-full items-center gap-1">
+                              {bottomPanelGlobalHeaderControls}
+                            </div>
                           </div>
-                        )}
+                        ) : null}
                       </div>
                     </div>
                   </motion.section>

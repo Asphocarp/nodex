@@ -604,6 +604,91 @@ app.put("/api/project-sessions/:sessionId/panels/:panelId", async (c) => {
   }
 });
 
+app.post("/api/project-sessions/:sessionId/panels/:panelId/split", async (c) => {
+  const body = await c.req.json();
+  try {
+    const panelId = c.req.param("panelId");
+    if (panelId !== "right" && panelId !== "bottom") return c.json({ error: "Invalid panel" }, 400);
+    const session = projectSessionService.splitProjectSessionPanelGroup({
+      ...body,
+      sessionId: c.req.param("sessionId"),
+      panelId,
+    });
+    if (!session) return c.json({ error: "Not found" }, 404);
+    return c.json(session);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
+app.post("/api/project-sessions/:sessionId/panels/:panelId/merge", async (c) => {
+  const body = await c.req.json();
+  try {
+    const panelId = c.req.param("panelId");
+    if (panelId !== "right" && panelId !== "bottom") return c.json({ error: "Invalid panel" }, 400);
+    const session = projectSessionService.mergeProjectSessionPanelGroup({
+      ...body,
+      sessionId: c.req.param("sessionId"),
+      panelId,
+    });
+    if (!session) return c.json({ error: "Not found" }, 404);
+    return c.json(session);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
+app.put("/api/project-sessions/:sessionId/panels/:panelId/active-group", async (c) => {
+  const body = await c.req.json();
+  try {
+    const panelId = c.req.param("panelId");
+    if (panelId !== "right" && panelId !== "bottom") return c.json({ error: "Invalid panel" }, 400);
+    const session = projectSessionService.activateProjectSessionPanelGroup({
+      ...body,
+      sessionId: c.req.param("sessionId"),
+      panelId,
+    });
+    if (!session) return c.json({ error: "Not found" }, 404);
+    return c.json(session);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
+app.put("/api/project-sessions/:sessionId/panels/:panelId/resize-group", async (c) => {
+  const body = await c.req.json();
+  try {
+    const panelId = c.req.param("panelId");
+    if (panelId !== "right" && panelId !== "bottom") return c.json({ error: "Invalid panel" }, 400);
+    const session = projectSessionService.resizeProjectSessionPanelGroup({
+      ...body,
+      sessionId: c.req.param("sessionId"),
+      panelId,
+    });
+    if (!session) return c.json({ error: "Not found" }, 404);
+    return c.json(session);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
+app.put("/api/project-sessions/:sessionId/panels/:panelId/maximized-group", async (c) => {
+  const body = await c.req.json();
+  try {
+    const panelId = c.req.param("panelId");
+    if (panelId !== "right" && panelId !== "bottom") return c.json({ error: "Invalid panel" }, 400);
+    const session = projectSessionService.maximizeProjectSessionPanelGroup({
+      ...body,
+      sessionId: c.req.param("sessionId"),
+      panelId,
+    });
+    if (!session) return c.json({ error: "Not found" }, 404);
+    return c.json(session);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
 app.delete("/api/project-sessions/:sessionId", (c) => {
   try {
     const sessionId = c.req.param("sessionId");
@@ -672,8 +757,18 @@ app.put("/api/project-session-tabs/:tabId/state", async (c) => {
   }
 });
 
-app.delete("/api/project-session-tabs/:tabId", (c) => {
-  const success = projectSessionService.deleteProjectSessionTab(c.req.param("tabId"));
+app.delete("/api/project-session-tabs/:tabId", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const rawPreserveEmptyLeafIds = typeof body === "object" && body !== null && "preserveEmptyLeafIds" in body
+    ? body.preserveEmptyLeafIds
+    : undefined;
+  const preserveEmptyLeafIds = Array.isArray(rawPreserveEmptyLeafIds)
+    ? rawPreserveEmptyLeafIds.filter((item: unknown): item is string => typeof item === "string")
+    : undefined;
+  const success = projectSessionService.deleteProjectSessionTab({
+    tabId: c.req.param("tabId"),
+    preserveEmptyLeafIds,
+  });
   if (!success) return c.json({ error: "Not found" }, 404);
   return c.json({ success: true });
 });
@@ -688,6 +783,7 @@ app.put("/api/project-sessions/:sessionId/tabs/reorder", async (c) => {
       {
         sessionId,
         panelId,
+        leafId: typeof body.leafId === "string" ? body.leafId : undefined,
         orderedTabIds: orderedTabIds.filter((item: unknown): item is string => typeof item === "string"),
       },
     );
@@ -704,7 +800,12 @@ app.put("/api/project-session-tabs/:tabId/move", async (c) => {
     const session = projectSessionService.moveProjectSessionTab({
       tabId: c.req.param("tabId"),
       targetPanelId: body.targetPanelId,
+      targetLeafId: body.targetLeafId,
       targetIndex: body.targetIndex,
+      preserveEmptyLeafIds: Array.isArray(body.preserveEmptyLeafIds)
+        ? body.preserveEmptyLeafIds.filter((item: unknown): item is string => typeof item === "string")
+        : undefined,
+      splitTarget: body.splitTarget,
     });
     if (!session) return c.json({ error: "Not found" }, 404);
     return c.json(session);

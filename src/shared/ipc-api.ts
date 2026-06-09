@@ -68,10 +68,16 @@ import type {
   ProjectSessionForkResult,
   ProjectSessionListOptions,
   ProjectSessionPanelState,
+  ProjectSessionPanelActivateInput,
+  ProjectSessionPanelMaximizeInput,
+  ProjectSessionPanelMergeInput,
+  ProjectSessionPanelResizeInput,
+  ProjectSessionPanelSplitInput,
   ProjectSessionPinnedInput,
   ProjectSessionPinnedOrderInput,
   ProjectSessionTab,
   ProjectSessionTabCreateInput,
+  ProjectSessionTabDeleteInput,
   ProjectSessionTabMoveInput,
   ProjectSessionTabReorderInput,
   ProjectSessionTabUpdateInput,
@@ -316,11 +322,16 @@ export interface IpcApi {
     args: [tabId: string, input: ProjectSessionTabUpdateInput];
     result: ProjectSessionTab | null;
   };
-  "project-session-tabs:delete": { args: [tabId: string]; result: boolean };
+  "project-session-tabs:delete": { args: [input: string | ProjectSessionTabDeleteInput]; result: boolean };
   "project-session-panels:update": {
     args: [sessionId: string, panelId: "right" | "bottom", input: Partial<ProjectSessionPanelState>];
     result: ProjectSession | null;
   };
+  "project-session-panels:split": { args: [input: ProjectSessionPanelSplitInput]; result: ProjectSession | null };
+  "project-session-panels:merge": { args: [input: ProjectSessionPanelMergeInput]; result: ProjectSession | null };
+  "project-session-panels:activate": { args: [input: ProjectSessionPanelActivateInput]; result: ProjectSession | null };
+  "project-session-panels:resize": { args: [input: ProjectSessionPanelResizeInput]; result: ProjectSession | null };
+  "project-session-panels:maximize": { args: [input: ProjectSessionPanelMaximizeInput]; result: ProjectSession | null };
   "project-session-tabs:state:update": {
     args: [tabId: string, stateKey: number, state: unknown];
     result: ProjectSessionTab | null;

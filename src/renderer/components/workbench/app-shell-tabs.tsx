@@ -1,25 +1,8 @@
 import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
+import { dropTargetForElements, draggable } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
 import {
-  closestCenter,
-  DndContext,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-  type DragMoveEvent,
-  type DragStartEvent,
-} from "@dnd-kit/core";
-import { restrictToHorizontalAxis } from "@dnd-kit/modifiers";
-import {
-  arrayMove,
-  horizontalListSortingStrategy,
-  SortableContext,
-  useSortable,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import {
+  useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   type ComponentType,
@@ -28,7 +11,24 @@ import {
   type RefObject,
 } from "react";
 import { NodexTooltip } from "@/components/ui/tooltip";
+import type { PanelId } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import {
+  buildPanelGroupBodyDropData,
+  buildPanelTabDragData,
+  buildPanelTabRowDropData,
+  isPanelTabDragData,
+  type PanelTabDropIntent,
+} from "./panel-tab-dnd";
+
+export type AppShellTabSplitSide = "left" | "right" | "up" | "down";
+
+const APP_SHELL_SPLIT_ACTIONS: { side: AppShellTabSplitSide; label: string }[] = [
+  { side: "left", label: "left" },
+  { side: "right", label: "right" },
+  { side: "up", label: "up" },
+  { side: "down", label: "down" },
+];
 
 export interface AppShellTabItem {
   id: string;
@@ -37,6 +37,7 @@ export interface AppShellTabItem {
   closable?: boolean;
   preview?: boolean;
   reorderable?: boolean;
+  splittable?: boolean;
   isLabel?: boolean;
   disabled?: boolean;
   titleLabel?: string;
@@ -52,65 +53,44 @@ interface AppShellTabsProps {
   onSelect: (tabId: string) => void;
   onCloseTab?: (tabId: string) => void;
   onPinTab?: (tabId: string) => void;
-  onReorderTab?: (activeId: string, overId: string) => void;
   onMoveTab?: (tabId: string, targetPanelId: string) => void;
+  onSplitTab?: (tabId: string, side: AppShellTabSplitSide) => void;
+  panelTabDnd?: {
+    sessionId: string;
+    panelId: PanelId;
+    leafId: string;
+    activeDragId: string | null;
+    previewIntent: PanelTabDropIntent | null;
+  };
   beforeList?: ReactNode;
+  afterTabsInline?: ReactNode;
   afterListSticky?: ReactNode;
   afterList?: ReactNode;
+  bodyOverlay?: ReactNode;
+  headerEndInsetPx?: number;
   headerHeight?: "pane" | "toolbar";
   className?: string;
 }
 
-export function resolveAppShellTabDrop(
-  tabs: readonly AppShellTabItem[],
-  activeId: string,
-  overId: string | null | undefined,
-): { activeId: string; overId: string } | null {
-  if (!overId) return null;
-  if (activeId === overId) return null;
-
-  const activeIndex = tabs.findIndex((tab) => tab.id === activeId);
-  const overIndex = tabs.findIndex((tab) => tab.id === overId);
-  if (activeIndex < 0 || overIndex < 0) return null;
-
-  if (tabs.length <= 1 || tabs[activeIndex]?.isLabel === true) return null;
-  if (tabs[activeIndex]?.reorderable === false) return null;
-
-  return { activeId, overId };
-}
-
-export function projectAppShellTabOrder(
-  tabIds: readonly string[],
-  activeDragId: string | null,
-  overIndex: number | null,
-): string[] {
-  if (activeDragId == null || overIndex == null) return [...tabIds];
-
-  const activeIndex = tabIds.indexOf(activeDragId);
-  if (activeIndex < 0 || overIndex < 0 || overIndex >= tabIds.length) return [...tabIds];
-
-  return arrayMove([...tabIds], activeIndex, overIndex);
-}
-
 export function shouldShowAppShellTabSeparator({
-  projectedIndex,
-  projectedLength,
-  activeProjectedIndex,
-  dragProjectedIndex,
+  index,
+  tabCount,
+  activeIndex,
+  draggingIndex,
   isActive,
   isDragging,
 }: {
-  projectedIndex: number;
-  projectedLength: number;
-  activeProjectedIndex: number;
-  dragProjectedIndex: number;
+  index: number;
+  tabCount: number;
+  activeIndex: number;
+  draggingIndex: number;
   isActive: boolean;
   isDragging: boolean;
 }): boolean {
-  if (projectedIndex < 0 || projectedIndex >= projectedLength - 1) return false;
+  if (index < 0 || index >= tabCount - 1) return false;
   if (isActive || isDragging) return false;
-  if (projectedIndex === activeProjectedIndex || projectedIndex === activeProjectedIndex - 1) return false;
-  if (projectedIndex === dragProjectedIndex || projectedIndex === dragProjectedIndex - 1) return false;
+  if (index === activeIndex || index === activeIndex - 1) return false;
+  if (index === draggingIndex || index === draggingIndex - 1) return false;
 
   return true;
 }
@@ -123,33 +103,68 @@ export function AppShellTabs({
   onSelect,
   onCloseTab,
   onPinTab,
-  onReorderTab,
   onMoveTab,
+  onSplitTab,
+  panelTabDnd,
   beforeList,
+  afterTabsInline,
   afterListSticky,
   afterList,
+  bodyOverlay,
+  headerEndInsetPx = 0,
   headerHeight = "pane",
   className,
 }: AppShellTabsProps) {
-  const [activeDragId, setActiveDragId] = useState<string | null>(null);
-  const [overIndex, setOverIndex] = useState<number | null>(null);
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 6,
-      },
-    }),
-  );
+  const tabRowRef = useRef<HTMLDivElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0] ?? null;
   const activePanelId = activeTab ? makeTabPanelId(controllerId, activeTab.id) : undefined;
-  const sortableTabIds = useMemo(() => tabs.map((tab) => tab.id), [tabs]);
-  const projectedTabIds = useMemo(
-    () => projectAppShellTabOrder(sortableTabIds, activeDragId, overIndex),
-    [activeDragId, overIndex, sortableTabIds],
-  );
-  const activeTabProjectedIndex = activeTab ? projectedTabIds.indexOf(activeTab.id) : -1;
-  const dragProjectedIndex = activeDragId ? projectedTabIds.indexOf(activeDragId) : -1;
-  const isOnlyTab = tabs.length === 1;
+  const activeIndex = activeTab ? tabs.findIndex((tab) => tab.id === activeTab.id) : -1;
+  const draggingIndex = panelTabDnd?.activeDragId ? tabs.findIndex((tab) => tab.id === panelTabDnd.activeDragId) : -1;
+  const tabRowPreview = panelTabDnd?.previewIntent?.kind === "tab-row"
+    && panelTabDnd.previewIntent.panelId === panelTabDnd.panelId
+    && panelTabDnd.previewIntent.leafId === panelTabDnd.leafId
+    ? panelTabDnd.previewIntent
+    : null;
+  const dndSessionId = panelTabDnd?.sessionId;
+  const dndPanelId = panelTabDnd?.panelId;
+  const dndLeafId = panelTabDnd?.leafId;
+
+  useEffect(() => {
+    if (!dndSessionId || !dndPanelId || !dndLeafId) return undefined;
+    const element = tabRowRef.current;
+    if (!element) return undefined;
+
+    return dropTargetForElements({
+      element,
+      canDrop: ({ source }) => isPanelTabDragData(source.data)
+        && source.data.sessionId === dndSessionId,
+      getIsSticky: () => true,
+      getData: () => buildPanelTabRowDropData({
+        sessionId: dndSessionId,
+        panelId: dndPanelId,
+        leafId: dndLeafId,
+      }),
+    });
+  }, [dndLeafId, dndPanelId, dndSessionId]);
+
+  useEffect(() => {
+    if (!dndSessionId || !dndPanelId || !dndLeafId) return undefined;
+    const element = bodyRef.current;
+    if (!element) return undefined;
+
+    return dropTargetForElements({
+      element,
+      canDrop: ({ source }) => isPanelTabDragData(source.data)
+        && source.data.sessionId === dndSessionId,
+      getIsSticky: () => true,
+      getData: () => buildPanelGroupBodyDropData({
+        sessionId: dndSessionId,
+        panelId: dndPanelId,
+        leafId: dndLeafId,
+      }),
+    });
+  }, [dndLeafId, dndPanelId, dndSessionId]);
 
   const closeTab = (tabId: string) => {
     onCloseTab?.(tabId);
@@ -159,33 +174,33 @@ export function AppShellTabs({
     onPinTab?.(tabId);
   };
 
-  const clearDragState = () => {
-    setActiveDragId(null);
-    setOverIndex(null);
-  };
-
-  const handleDragStart = (event: DragStartEvent) => {
-    setActiveDragId(String(event.active.id));
-  };
-
-  const handleDragMove = (event: DragMoveEvent) => {
-    setOverIndex(event.over?.data.current?.sortable.index ?? null);
-  };
-
-  const handleDragCancel = () => {
-    clearDragState();
-  };
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    clearDragState();
-    const resolvedDrop = resolveAppShellTabDrop(
-      tabs,
-      String(event.active.id),
-      event.over?.id == null ? null : String(event.over.id),
-    );
-    if (!resolvedDrop) return;
-    onReorderTab?.(resolvedDrop.activeId, resolvedDrop.overId);
-  };
+  const tabList = (
+    <div role="tablist" className="relative z-0 flex" style={{ gap: 3 }}>
+      {tabs.map((tab, index) => {
+        const isActive = tab.id === activeTab?.id;
+        return (
+          <AppShellTab
+            key={tab.id}
+            tab={tab}
+            controllerId={controllerId}
+            panelTabDnd={panelTabDnd}
+            isActive={isActive}
+            isDragging={panelTabDnd?.activeDragId === tab.id}
+            panelId={activePanelId}
+            separatorIndex={index}
+            activeTabIndex={activeIndex}
+            draggingIndex={draggingIndex}
+            tabCount={tabs.length}
+            onSelect={onSelect}
+            onClose={tab.closable ? closeTab : undefined}
+            onPin={tab.preview ? pinTab : undefined}
+            onMove={onMoveTab}
+            onSplit={onSplitTab}
+          />
+        );
+      })}
+    </div>
+  );
 
   return (
     <div
@@ -194,56 +209,34 @@ export function AppShellTabs({
     >
       <div
         className={cn(
-          "flex min-w-0 shrink-0 items-center bg-token-main-surface-primary px-2",
+          "draggable flex min-w-0 shrink-0 items-center bg-token-main-surface-primary px-2",
           headerHeight === "toolbar" ? "h-toolbar" : "h-toolbar-pane",
         )}
       >
-        {beforeList ? <div className="flex h-full shrink-0 items-center">{beforeList}</div> : null}
+        {beforeList ? <div className="no-drag flex h-full shrink-0 items-center">{beforeList}</div> : null}
         <div
+          ref={tabRowRef}
+          data-panel-tab-row={panelTabDnd ? `${panelTabDnd.panelId}:${panelTabDnd.leafId}` : undefined}
           className="hide-scrollbar relative flex h-full min-w-0 flex-1 scroll-px-1 items-center overflow-x-auto overflow-y-hidden"
-          style={{ scrollPaddingInlineEnd: 0 }}
+          style={{ scrollPaddingInlineEnd: headerEndInsetPx }}
         >
           <div
             aria-hidden="true"
             className="sticky start-0 z-10 h-full w-0 opacity-0 transition-opacity duration-100 after:absolute after:start-0 after:top-0 after:bottom-0 after:w-10 after:bg-linear-to-l after:from-transparent after:to-token-main-surface-primary after:content-[''] after:pointer-events-none"
           />
           <span aria-hidden="true" />
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            modifiers={[restrictToHorizontalAxis]}
-            onDragStart={handleDragStart}
-            onDragMove={handleDragMove}
-            onDragCancel={handleDragCancel}
-            onDragEnd={handleDragEnd}
-          >
-            <SortableContext items={sortableTabIds} strategy={horizontalListSortingStrategy}>
-              <div role="tablist" className="relative z-0 flex" style={{ gap: 3 }}>
-                {tabs.map((tab) => {
-                  const isActive = tab.id === activeTab?.id;
-                  const projectedIndex = projectedTabIds.indexOf(tab.id);
-                  return (
-                    <SortableAppShellTab
-                      key={tab.id}
-                      tab={tab}
-                      controllerId={controllerId}
-                      isOnlyTab={isOnlyTab}
-                      isActive={isActive}
-                      panelId={activePanelId}
-                      separatorIndex={projectedIndex}
-                      activeTabProjectedIndex={activeTabProjectedIndex}
-                      dragProjectedIndex={dragProjectedIndex}
-                      projectedTabCount={projectedTabIds.length}
-                      onSelect={onSelect}
-                      onClose={tab.closable ? closeTab : undefined}
-                      onPin={tab.preview ? pinTab : undefined}
-                      onMove={onMoveTab}
-                    />
-                  );
-                })}
-              </div>
-            </SortableContext>
-          </DndContext>
+          {tabList}
+          {afterTabsInline ? (
+            <div className="relative z-0 flex h-full shrink-0 items-center ps-1">{afterTabsInline}</div>
+          ) : null}
+          {tabRowPreview ? (
+            <div
+              aria-hidden="true"
+              data-panel-tab-insertion-marker={`${tabRowPreview.panelId}:${tabRowPreview.leafId}:${tabRowPreview.targetIndex}`}
+              className="pointer-events-none absolute top-1/2 z-30 h-4 w-0 -translate-y-1/2 border-l-2 border-token-foreground/80"
+              style={{ left: tabRowPreview.markerLeft }}
+            />
+          ) : null}
           <span aria-hidden="true" />
           <div
             aria-hidden="true"
@@ -251,15 +244,23 @@ export function AppShellTabs({
           />
         </div>
         {afterListSticky ? (
-          <div className="ml-1 flex shrink-0 items-center gap-1.5">{afterListSticky}</div>
+          <div className="no-drag ml-1 flex shrink-0 items-center gap-1.5">{afterListSticky}</div>
         ) : null}
         {afterList ? (
-          <div className="ml-1 flex shrink-0 items-center gap-1.5">{afterList}</div>
+          <div className="no-drag ml-1 flex shrink-0 items-center gap-1.5">{afterList}</div>
+        ) : null}
+        {headerEndInsetPx > 0 ? (
+          <div
+            aria-hidden="true"
+            className="no-drag pointer-events-none h-full shrink-0"
+            style={{ width: headerEndInsetPx }}
+          />
         ) : null}
       </div>
 
       {activeTab ? (
         <div
+          ref={bodyRef}
           role="tabpanel"
           id={activePanelId}
           aria-label={activeTab.titleLabel ?? activeTab.title}
@@ -274,6 +275,7 @@ export function AppShellTabs({
             pinTab(activeTab.id);
           }}
         >
+          {bodyOverlay}
           {activeTab.renderPanel(() => closeTab(activeTab.id))}
         </div>
       ) : null}
@@ -281,50 +283,40 @@ export function AppShellTabs({
   );
 }
 
-function SortableAppShellTab({
+function AppShellTab({
   tab,
   controllerId,
-  isOnlyTab,
+  panelTabDnd,
   isActive,
+  isDragging,
   panelId,
   separatorIndex,
-  activeTabProjectedIndex,
-  dragProjectedIndex,
-  projectedTabCount,
+  activeTabIndex,
+  draggingIndex,
+  tabCount,
   onSelect,
   onClose,
   onPin,
   onMove,
+  onSplit,
 }: {
   tab: AppShellTabItem;
   controllerId: string;
-  isOnlyTab: boolean;
+  panelTabDnd?: AppShellTabsProps["panelTabDnd"];
   isActive: boolean;
+  isDragging: boolean;
   panelId?: string;
   separatorIndex: number;
-  activeTabProjectedIndex: number;
-  dragProjectedIndex: number;
-  projectedTabCount: number;
+  activeTabIndex: number;
+  draggingIndex: number;
+  tabCount: number;
   onSelect: (tabId: string) => void;
   onClose?: (tabId: string) => void;
   onPin?: (tabId: string) => void;
   onMove?: (tabId: string, targetPanelId: string) => void;
+  onSplit?: (tabId: string, side: AppShellTabSplitSide) => void;
 }) {
-  const {
-    attributes,
-    listeners,
-    setActivatorNodeRef,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({
-    id: tab.id,
-    disabled: {
-      draggable: isOnlyTab || tab.isLabel === true || tab.reorderable === false,
-      droppable: false,
-    },
-  });
+  const tabRef = useRef<HTMLDivElement | null>(null);
   const Icon = tab.icon;
   const tabId = makeTabId(controllerId, tab.id);
   const titleRef = useRef<HTMLSpanElement | null>(null);
@@ -349,36 +341,60 @@ function SortableAppShellTab({
   const pinCurrentTab = () => {
     onPin?.(tab.id);
   };
+  const splitCurrentTab = (side: AppShellTabSplitSide) => {
+    onSplit?.(tab.id, side);
+  };
   const showSeparator = shouldShowAppShellTabSeparator({
-    projectedIndex: separatorIndex,
-    projectedLength: projectedTabCount,
-    activeProjectedIndex: activeTabProjectedIndex,
-    dragProjectedIndex,
+    index: separatorIndex,
+    tabCount,
+    activeIndex: activeTabIndex,
+    draggingIndex,
     isActive,
     isDragging,
   });
+  const dndSessionId = panelTabDnd?.sessionId;
+  const dndPanelId = panelTabDnd?.panelId;
+  const dndLeafId = panelTabDnd?.leafId;
+  const isDraggable = Boolean(panelTabDnd && tab.isLabel !== true && tab.reorderable !== false);
+
+  useEffect(() => {
+    if (!dndSessionId || !dndPanelId || !dndLeafId) return undefined;
+    if (tab.isLabel === true || tab.reorderable === false) return undefined;
+    const element = tabRef.current;
+    if (!element) return undefined;
+
+    return draggable({
+      element,
+      canDrag: ({ input }) => {
+        const target = element.ownerDocument.elementFromPoint(input.clientX, input.clientY);
+        if (target?.closest("[data-app-shell-tab-no-drag='true']")) return false;
+        return true;
+      },
+      getInitialData: () => buildPanelTabDragData({
+        sessionId: dndSessionId,
+        panelId: dndPanelId,
+        leafId: dndLeafId,
+        tabId: tab.id,
+      }),
+    });
+  }, [dndLeafId, dndPanelId, dndSessionId, tab.id, tab.isLabel, tab.reorderable]);
 
   const chrome = (
     <div
-      ref={setNodeRef}
+      ref={tabRef}
       data-app-shell-tab-controller={controllerId}
       data-tab-id={tab.id}
+      data-panel-tab-id={tab.id}
       data-app-shell-tab-preview={tab.preview ? "true" : undefined}
       className={cn(
-        "my-auto flex shrink-0 items-center gap-0.5 contain-content relative max-w-40 pe-1",
-        isDragging && "z-10 cursor-grab",
+        "no-drag my-auto flex shrink-0 items-center gap-0.5 contain-content relative max-w-40 pe-1",
+        isDraggable && "cursor-grab",
+        isDragging && "z-10 cursor-grabbing opacity-45",
       )}
-      style={{
-        transform: CSS.Transform.toString(transform),
-        transition,
-      }}
     >
       <div
-        ref={setActivatorNodeRef}
         data-tab-id={tab.id}
         className="group/tab relative flex max-w-39 shrink-0 items-center overflow-hidden rounded-md bg-token-main-surface-primary px-2 py-1"
-        {...attributes}
-        {...listeners}
         role="button"
         tabIndex={tab.disabled ? -1 : 0}
         aria-disabled={tab.disabled ? "true" : "false"}
@@ -427,6 +443,7 @@ function SortableAppShellTab({
           ) : null}
           {onClose ? (
             <div
+              data-app-shell-tab-no-drag="true"
               role="button"
               aria-label={`Close ${tab.titleLabel ?? tab.title} tab`}
               className="no-drag absolute start-0 inset-y-0 z-30 hidden shrink-0 cursor-interaction items-center bg-(--app-shell-tab-background) text-token-text-tertiary hover:text-token-text-primary group-hover/tab:flex after:absolute after:-inset-2 after:content-['']"
@@ -513,9 +530,31 @@ function SortableAppShellTab({
               Move to {targetPanelId === "bottom" ? "bottom panel" : "right panel"}
             </ContextMenuPrimitive.Item>
           ) : null}
+          {onSplit && tab.splittable === true ? (
+            <>
+              <ContextMenuDivider />
+              {APP_SHELL_SPLIT_ACTIONS.map((action) => (
+                <ContextMenuPrimitive.Item
+                  key={action.side}
+                  className="cursor-interaction rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm outline-hidden hover:bg-token-list-hover-background focus:bg-token-list-hover-background"
+                  onSelect={() => splitCurrentTab(action.side)}
+                >
+                  Split tab {action.label}
+                </ContextMenuPrimitive.Item>
+              ))}
+            </>
+          ) : null}
         </ContextMenuPrimitive.Content>
       </ContextMenuPrimitive.Portal>
     </ContextMenuPrimitive.Root>
+  );
+}
+
+function ContextMenuDivider() {
+  return (
+    <div className="w-full px-[var(--padding-row-x)] py-1">
+      <div className="h-px w-full bg-token-menu-border" />
+    </div>
   );
 }
 

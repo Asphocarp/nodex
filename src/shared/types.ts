@@ -330,12 +330,23 @@ export interface ProjectSessionSplitBranch {
 
 export type ProjectSessionPanelNode = ProjectSessionSplitLeaf | ProjectSessionSplitBranch;
 
-export interface ProjectSessionPanelLayout {
+export interface ProjectSessionPanelLayoutV1 {
   version: 1;
   root: ProjectSessionPanelNode;
 }
 
+export interface ProjectSessionPanelLayoutV2 {
+  version: 2;
+  root: ProjectSessionPanelNode;
+  activeLeafId: string;
+  mruLeafIds: string[];
+  maximizedLeafId?: string | null;
+}
+
+export type ProjectSessionPanelLayout = ProjectSessionPanelLayoutV1 | ProjectSessionPanelLayoutV2;
+
 export type PanelId = "right" | "bottom";
+export type ProjectSessionPanelSplitSide = "left" | "right" | "up" | "down";
 
 export interface ProjectSessionPanelSize {
   widthPx?: number;
@@ -456,16 +467,63 @@ export interface ProjectSessionTabUpdateInput {
   state?: unknown;
 }
 
+export interface ProjectSessionTabDeleteInput {
+  tabId: string;
+  preserveEmptyLeafIds?: string[];
+}
+
 export interface ProjectSessionTabReorderInput {
   sessionId: string;
   panelId: PanelId;
+  leafId?: string;
   orderedTabIds: string[];
 }
 
 export interface ProjectSessionTabMoveInput {
   tabId: string;
   targetPanelId: PanelId;
+  targetLeafId?: string;
   targetIndex?: number;
+  preserveEmptyLeafIds?: string[];
+  splitTarget?: {
+    leafId: string;
+    side: ProjectSessionPanelSplitSide;
+  };
+}
+
+export interface ProjectSessionPanelSplitInput {
+  sessionId: string;
+  panelId: PanelId;
+  leafId: string;
+  side: ProjectSessionPanelSplitSide;
+  tabId?: string;
+  preserveEmptyLeafIds?: string[];
+}
+
+export interface ProjectSessionPanelMergeInput {
+  sessionId: string;
+  panelId: PanelId;
+  leafId: string;
+}
+
+export interface ProjectSessionPanelActivateInput {
+  sessionId: string;
+  panelId: PanelId;
+  leafId: string;
+  tabId?: string | null;
+}
+
+export interface ProjectSessionPanelResizeInput {
+  sessionId: string;
+  panelId: PanelId;
+  branchId: string;
+  ratio: number;
+}
+
+export interface ProjectSessionPanelMaximizeInput {
+  sessionId: string;
+  panelId: PanelId;
+  leafId: string | null;
 }
 
 export interface ProjectSessionThreadLinkInput {

@@ -39,7 +39,7 @@ Panel shortcuts are ignored from editable targets and dialog surfaces.
 
 | Shortcut | Action | Scope |
 |----------|--------|-------|
-| `←` / `→` | Resize focused panel separator | Legacy stage border handlers; project-session pane resize is pointer-driven in v1 |
+| `←` / `→` | Resize focused panel separator | Legacy stage border handlers; project-session outer panes and split-group sashes are pointer-driven |
 | `⌘/Ctrl+Z` | Undo | Board-level undo (card ops) outside editor surfaces; inside BlockNote editor this stays editor-local undo |
 | `⌘/Ctrl+Shift+Z` | Redo | Board-level redo outside editor surfaces |
 | `⌘/Ctrl+Y` | Redo | Windows convention |

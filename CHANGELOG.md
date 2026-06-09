@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 - Added app-window Back/Forward titlebar controls with matching keyboard, mouse, command-palette, and macOS menu entry points.
 - Added the global bottom-panel toggle beside the side-panel toggle, with active/ghost toolbar states.
 - Added right and bottom session panels with shared tab chrome, panel-scoped ordering, cross-panel tab moves, a bottom-panel Terminal default, and eligible bottom actions for Files, Side chat, Browser, Review, and Terminal.
+- Added splitable tab groups for right and bottom session panels, including nested horizontal/vertical groups, sash resizing, tab split actions, leaf-scoped previews and side chats, live tab-row insertion previews, and body-edge drag splitting within a panel.
 - Added temporary Side chat conversations in right or bottom panels, including empty-panel, header-menu, `/side`, and transcript `Ask in side chat` entry points, loading/expired states, and background discard on close.
 - Added ephemeral panel previews for placeholder Files and Browser tabs in either right or bottom panel; they replace the prior preview in the same panel and persist only after the user interacts with or pins the preview.
 - Added a public changelog page at `nodex.jyu.app/changelog`, generated from the project changelog file.
@@ -25,7 +26,8 @@ All notable changes to this project will be documented in this file.
 - macOS window titles now use `Nodex` instead of a workspace name.
 - Terminal tabs are now session-owned panel tabs with session terminal ids that start from the attached thread cwd before falling back to the project workspace path; cards can request a terminal but no longer own terminal tabs or PTY identity.
 - Refined the project/session sidebar chrome, moved project folder selection into each project row actions menu, and added Search, Plugins, and Automations rows for a denser shell layout.
-- Refined the project session shell side-panel control placement, adjacent header-slot spacing, remembered full-width mode, and button styling: the global header now owns `Toggle side panel`, right-panel tab creation and expand/restore actions live in the panel tab header, and the unused attach/detach thread toolbar button is removed.
+- Refined project session panel groups so empty non-final groups close automatically, each group's new-tab button sits directly after its tabs, and right-panel expand/restore plus bottom-panel close controls sit at the far-right edge of the whole panel.
+- Refined the project session shell side-panel control placement, adjacent header-slot spacing, remembered full-width mode, and button styling: the global header now owns `Toggle side panel`, tab creation lives in each panel group header, right-panel expand/restore lives in the panel-global header rail, and the unused attach/detach thread toolbar button is removed.
 - Refined project session thread headers to use the thread title as the session header and hide the redundant header separator while the right panel is closed.
 - Existing thread composers no longer show the lower run-target/status row under the prompt; that row remains available on new-chat composers.
 - Added a top-right thread summary surface for attached local conversation sessions, with a pinned-summary toggle/icon, a right-panel-open `Toggle summary` popover, toolbar-safe under-header pinned placement, and hover-revealed section chevrons.

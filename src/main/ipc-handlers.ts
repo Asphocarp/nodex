@@ -315,12 +315,32 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     projectSessionService.updateProjectSessionPanel(sessionId, panelId, input)
   );
 
+  registerHandle("project-session-panels:split", (_, input) =>
+    projectSessionService.splitProjectSessionPanelGroup(input)
+  );
+
+  registerHandle("project-session-panels:merge", (_, input) =>
+    projectSessionService.mergeProjectSessionPanelGroup(input)
+  );
+
+  registerHandle("project-session-panels:activate", (_, input) =>
+    projectSessionService.activateProjectSessionPanelGroup(input)
+  );
+
+  registerHandle("project-session-panels:resize", (_, input) =>
+    projectSessionService.resizeProjectSessionPanelGroup(input)
+  );
+
+  registerHandle("project-session-panels:maximize", (_, input) =>
+    projectSessionService.maximizeProjectSessionPanelGroup(input)
+  );
+
   registerHandle("project-session-tabs:state:update", (_, tabId: string, stateKey: number, state) =>
     projectSessionService.updateProjectSessionTabState(tabId, stateKey, state)
   );
 
-  registerHandle("project-session-tabs:delete", (_, tabId: string) =>
-    projectSessionService.deleteProjectSessionTab(tabId)
+  registerHandle("project-session-tabs:delete", (_, input) =>
+    projectSessionService.deleteProjectSessionTab(input)
   );
 
   registerHandle("project-session-tabs:reorder", (_, input) =>

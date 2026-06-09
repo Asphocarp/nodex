@@ -11,6 +11,7 @@ import {
 import {
   createProjectSession,
   createProjectSessionTab,
+  deleteProjectSessionTab,
   detachProjectSessionThread,
   getProjectSession,
   listProjectSessions,
@@ -21,10 +22,16 @@ import {
   setPinnedProjectSessionOrder,
   setProjectSessionPinned,
   markProjectSessionUnread,
+  splitProjectSessionPanelGroup,
   updateProjectSessionPanel,
   updateProjectSessionTab,
   upsertProjectSessionThreadLink,
 } from "./project-session-service";
+import {
+  flattenProjectSessionPanelTabIds,
+  getProjectSessionPanelActiveLeaf,
+  listProjectSessionPanelLeaves,
+} from "../../shared/project-session-panel-layout";
 
 function isUnsupportedSqliteError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
@@ -422,6 +429,246 @@ describe("project session service", () => {
         expect(moved.panels.bottom.layout.root.activeTabId ?? null).toBe(null);
         expect(JSON.stringify(moved.panels.bottom.layout.root.tabIds)).toBe(JSON.stringify([]));
       }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("persists split group membership and leaf-scoped tab movement", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({ projectId: "default", title: "Split panels" });
+      const review = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: "default",
+        panelId: "right",
+        kind: "review",
+        title: "Review",
+        config: { projectId: "default" },
+      });
+      const shell = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: "default",
+        panelId: "right",
+        kind: "terminal",
+        title: "Shell",
+        config: { projectId: "default", terminalSessionId: "term-1" },
+      });
+
+      const initial = getProjectSession(session.id);
+      const initialLeafId = initial ? getProjectSessionPanelActiveLeaf(initial.panels.right.layout).id : "main";
+      const split = splitProjectSessionPanelGroup({
+        sessionId: session.id,
+        panelId: "right",
+        leafId: initialLeafId,
+        side: "right",
+        tabId: shell.id,
+      });
+      expect(split?.panels.right.layout.root.type).toBe("split");
+      expect(split?.panels.right.layout.version).toBe(2);
+      const splitLeaves = split ? listProjectSessionPanelLeaves(split.panels.right.layout) : [];
+      expect(splitLeaves.length).toBe(2);
+      expect(getProjectSessionPanelActiveLeaf(split!.panels.right.layout).activeTabId).toBe(shell.id);
+
+      const activeLeafId = split ? getProjectSessionPanelActiveLeaf(split.panels.right.layout).id : "";
+      const moved = moveProjectSessionTab({
+        tabId: shell.id,
+        targetPanelId: "right",
+        targetLeafId: initialLeafId,
+        targetIndex: 0,
+      });
+      expect(moved?.tabs.find((tab) => tab.id === shell.id)?.panelId).toBe("right");
+      expect(getProjectSessionPanelActiveLeaf(moved!.panels.right.layout).id).toBe(initialLeafId);
+      expect(JSON.stringify(flattenProjectSessionPanelTabIds(moved!.panels.right.layout))).toBe(
+        JSON.stringify([shell.id, review.id]),
+      );
+
+      const reordered = reorderProjectSessionTabs({
+        sessionId: session.id,
+        panelId: "right",
+        leafId: initialLeafId,
+        orderedTabIds: [review.id, shell.id],
+      });
+      expect(JSON.stringify(flattenProjectSessionPanelTabIds(reordered!.panels.right.layout))).toBe(
+        JSON.stringify([review.id, shell.id]),
+      );
+      expect(reordered?.panels.right.layout.version).toBe(2);
+      expect(activeLeafId.length > 0).toBeTrue();
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("edge-dropping a tab to the right of its own multi-tab group creates a sibling group", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({ projectId: "default", title: "Edge split" });
+      const review = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: "default",
+        panelId: "right",
+        kind: "review",
+        title: "Review",
+        config: { projectId: "default" },
+      });
+      const shell = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: "default",
+        panelId: "right",
+        kind: "terminal",
+        title: "Shell",
+        config: { projectId: "default", terminalSessionId: "term-edge" },
+      });
+      const initial = getProjectSession(session.id);
+      const leafId = initial ? getProjectSessionPanelActiveLeaf(initial.panels.right.layout).id : "main";
+
+      const moved = moveProjectSessionTab({
+        tabId: shell.id,
+        targetPanelId: "right",
+        splitTarget: { leafId, side: "right" },
+      });
+      const leaves = moved ? listProjectSessionPanelLeaves(moved.panels.right.layout) : [];
+
+      expect(leaves.length).toBe(2);
+      expect(JSON.stringify(leaves[0]?.tabIds ?? [])).toBe(JSON.stringify([review.id]));
+      expect(JSON.stringify(leaves[1]?.tabIds ?? [])).toBe(JSON.stringify([shell.id]));
+      expect(getProjectSessionPanelActiveLeaf(moved!.panels.right.layout).activeTabId).toBe(shell.id);
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("deleting the last durable tab in a split group removes the empty group", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({ projectId: "default", title: "Prune delete" });
+      const review = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: "default",
+        panelId: "right",
+        kind: "review",
+        title: "Review",
+        config: { projectId: "default" },
+      });
+      const shell = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: "default",
+        panelId: "right",
+        kind: "terminal",
+        title: "Shell",
+        config: { projectId: "default", terminalSessionId: "term-delete" },
+      });
+      const initial = getProjectSession(session.id);
+      const initialLeafId = initial ? getProjectSessionPanelActiveLeaf(initial.panels.right.layout).id : "main";
+      const split = splitProjectSessionPanelGroup({
+        sessionId: session.id,
+        panelId: "right",
+        leafId: initialLeafId,
+        side: "right",
+        tabId: shell.id,
+      });
+      expect(split ? listProjectSessionPanelLeaves(split.panels.right.layout).length : 0).toBe(2);
+
+      const deleted = deleteProjectSessionTab(shell.id);
+      const next = getProjectSession(session.id);
+
+      expect(deleted).toBeTrue();
+      expect(next ? listProjectSessionPanelLeaves(next.panels.right.layout).length : 0).toBe(1);
+      expect(JSON.stringify(next ? flattenProjectSessionPanelTabIds(next.panels.right.layout) : [])).toBe(
+        JSON.stringify([review.id]),
+      );
+      expect(next?.panels.right.collapsed ?? true).toBeFalse();
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("moving the last durable tab out of a group removes the empty source group", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({ projectId: "default", title: "Prune move" });
+      const review = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: "default",
+        panelId: "right",
+        kind: "review",
+        title: "Review",
+        config: { projectId: "default" },
+      });
+      const shell = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: "default",
+        panelId: "right",
+        kind: "terminal",
+        title: "Shell",
+        config: { projectId: "default", terminalSessionId: "term-move" },
+      });
+      const initial = getProjectSession(session.id);
+      const initialLeafId = initial ? getProjectSessionPanelActiveLeaf(initial.panels.right.layout).id : "main";
+      splitProjectSessionPanelGroup({
+        sessionId: session.id,
+        panelId: "right",
+        leafId: initialLeafId,
+        side: "right",
+        tabId: shell.id,
+      });
+
+      const moved = moveProjectSessionTab({
+        tabId: shell.id,
+        targetPanelId: "bottom",
+      });
+
+      expect(moved?.tabs.find((tab) => tab.id === shell.id)?.panelId).toBe("bottom");
+      expect(listProjectSessionPanelLeaves(moved!.panels.right.layout).length).toBe(1);
+      expect(JSON.stringify(flattenProjectSessionPanelTabIds(moved!.panels.right.layout))).toBe(
+        JSON.stringify([review.id]),
+      );
+      expect(JSON.stringify(flattenProjectSessionPanelTabIds(moved!.panels.bottom.layout))).toBe(
+        JSON.stringify([shell.id]),
+      );
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("preserveEmptyLeafIds keeps an otherwise empty source group for renderer-local tabs", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({ projectId: "default", title: "Preserve local" });
+      createProjectSessionTab({
+        sessionId: session.id,
+        projectId: "default",
+        panelId: "right",
+        kind: "review",
+        title: "Review",
+        config: { projectId: "default" },
+      });
+      const shell = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: "default",
+        panelId: "right",
+        kind: "terminal",
+        title: "Shell",
+        config: { projectId: "default", terminalSessionId: "term-preserve" },
+      });
+      const initial = getProjectSession(session.id);
+      const initialLeafId = initial ? getProjectSessionPanelActiveLeaf(initial.panels.right.layout).id : "main";
+      const split = splitProjectSessionPanelGroup({
+        sessionId: session.id,
+        panelId: "right",
+        leafId: initialLeafId,
+        side: "right",
+        tabId: shell.id,
+      });
+      const sourceLeafId = split ? getProjectSessionPanelActiveLeaf(split.panels.right.layout).id : "";
+
+      const moved = moveProjectSessionTab({
+        tabId: shell.id,
+        targetPanelId: "bottom",
+        preserveEmptyLeafIds: [sourceLeafId],
+      });
+      const sourceLeaf = moved
+        ? listProjectSessionPanelLeaves(moved.panels.right.layout).find((leaf) => leaf.id === sourceLeafId)
+        : null;
+
+      expect(sourceLeaf === null).toBeFalse();
+      expect(JSON.stringify(sourceLeaf?.tabIds ?? [])).toBe(JSON.stringify([]));
+      expect(listProjectSessionPanelLeaves(moved!.panels.right.layout).length).toBe(2);
     });
 
     if (!ran) expect(true).toBeTrue();

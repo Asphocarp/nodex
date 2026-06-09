@@ -43,6 +43,8 @@ Electron draggable regions are not normal DOM hit testing: a button inside or un
 
 The same rule applies on the left side of the titlebar. Sidebar toggle and collapsed-sidebar `New chat` controls must live in the measured left `HeaderAction` slot with `--spacing-token-safe-header-left` reserved for native traffic lights. Fixed-position titlebar overlays drift from the thread title reserve, duplicate no-drag islands, and make it too easy for the title row to overlap the native controls.
 
+Panel group headers add another version of the same Electron trap. A tab group header can be `draggable` only in the blank top area; every real tab, inline new-tab/menu control, and reserved global-control inset must be `no-drag`. `pointer-events: none` alone is not enough for the far-right spacer because Electron app-region hit testing still sees the underlying drag rectangle and can make the panel expand/restore button visually present but unclickable. Keep the panel-global control rail pointer-transparent except for the actual button wrapper, and keep the matching tab-header `headerEndInsetPx` spacer both `no-drag` and pointer-transparent.
+
 App-window Back/Forward belongs to the current shell state owner, not to `App`'s legacy stage-rail history and not to browser-sidebar webview history. Browser-sidebar navigation has its own webview `canGoBack` / `canGoForward` and `goBack` / `goForward` path; do not feed that state into the top-left app chrome. In Nodex, renderer buttons execute inside `WorkbenchShell`, while keyboard/mouse shortcuts, command-palette actions, and native menu IPC enter `WorkbenchShell` through one command-request prop. Keep the history stack shell-local so disabled state and navigation targets can read/apply active project, active session, panel tabs, panel collapsed state, and right-panel full-width state from the same owner.
 
 ### Local-thread patch transport must stay on Immer semantics, and patch-capable paths must mutate the broadcast cache directly
@@ -263,6 +265,9 @@ BlockNote/ProseMirror drop-cursor visuals are driven by editor-native drag/drop 
 
 ### Dense Pragmatic Drag and Drop boards stay responsive when elements own registration and the board owns outcomes
 Pragmatic Drag and Drop removes the list-wide `useSortable` churn, but dense boards still need discipline: keep card and column registrations local to their DOM elements, keep expensive card body rendering in memoized presentational children, and resolve the actual move only in one board-level monitor. Prefer a static source ghost plus one absolutely positioned insertion indicator over live sibling displacement or per-card hover chrome so drag feedback does not trigger unnecessary React work.
+
+### Panel tab DnD must keep header insertion and body splitting as separate targets
+Project-session panel tabs use Pragmatic Drag and Drop with a single panel-tree monitor, but tab rows and panel bodies are different semantic targets. Header rows should resolve only tab insertion/move intents and render a lightweight vertical marker; body surfaces should resolve center merge or 10% edge split intents. Do not let body split overlays cover the tab header, and do not use a generic closest-center collision pass across row tabs plus body zones because that can turn a tab-row drop into an accidental split.
 
 ### Native card drag previews should preserve source offset and source geometry
 Native drag previews are browser-owned, so if the preview size or anchor drifts from the source card the drag appears to "jump" on pickup. For Kanban cards, use Pragmatic Drag and Drop's custom native preview hook with source-offset preservation and lock the preview width/height from the source element rect captured at drag start.

@@ -7,6 +7,7 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 
 ### Shared Contracts (`src/shared`)
 - `types.ts`: canonical domain model (`Card`, `Board`, `Project`, project session/tab/thread-link payloads, block-drop import payloads).
+- `project-session-panel-layout.ts`: pure recursive split-tree helpers for v2 right/bottom project-session panel layouts, including normalization, leaf/tab movement, split/merge, active/MRU leaf tracking, and ratio clamping.
 - `workbench-layout.ts`: canonical serializable workbench layout snapshot types.
 - `ipc-api.ts`: typed IPC channel surface between preload/renderer/main.
 - `codex-thread-title.ts`: shared thread-title sanitization and bounded cache helpers used by both main and renderer.
@@ -22,7 +23,7 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `ipc-handlers.ts`: mirrors core operations through IPC, including project session mutations, side-chat start/discard requests, native context menu selection, asset-path resolution, and clipboard paste inspection for desktop-only file/folder paste flows.
 - `clipboard-paste-inspector.ts`: best-effort Electron clipboard inspection for pasted absolute file/folder paths across supported native formats.
 - `kanban/db-service.ts`: SQLite CRUD, move logic, project lifecycle, atomic block-drop import (`sourceUpdates + card creates`), and atomic card-to-editor move drop (`target updates + source delete`) grouped in one transaction.
-- `kanban/project-session-service.ts`: SQLite CRUD for project-owned sessions, project-local pin/archive/unread state, right/bottom session panels, session-attached tabs, optional session-thread links, Overview seeding, ordering, and v1 single-leaf panel layout JSON.
+- `kanban/project-session-service.ts`: SQLite CRUD for project-owned sessions, project-local pin/archive/unread state, right/bottom session panels, session-attached tabs, optional session-thread links, Overview seeding, ordering, v2 recursive panel layout JSON, and derived flat tab-order compatibility.
 - `kanban/history-service.ts`: undo/redo and change history records, including grouped undo/redo via `history.group_id` and description hydration from revision ids.
 - `kanban/description-revision-service.ts`: top-level NFM block hashing, revision delta/snapshot storage, description reconstruction, and revision/blob garbage collection.
 - `kanban/recurrence-service.ts`: recurrence expansion, exception application, and next-occurrence computation.
@@ -57,7 +58,7 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `styles/theme-codex-surface.generated.css`: generated renderer surface layer for shared component/global rules.
 - `styles/theme-utilities.css`: author-maintained renderer utility source for Nodex-local utility additions that are not part of the generated theme contract.
 - `styles/theme-surface.css`: author-maintained renderer surface rules and global CSS contracts layered on top of the source token files.
-- `components/workbench/*`: project/session shell, shared right/bottom panel tab strip, renderer-local side-chat tabs, DB view host, Card Stage/session-terminal tab wrappers, settings surfaces, and remaining workbench composition helpers.
+- `components/workbench/*`: project/session shell, recursive right/bottom panel group tree, shared leaf-level panel tab strip, renderer-local side-chat tabs, DB view host, Card Stage/session-terminal tab wrappers, settings surfaces, and remaining workbench composition helpers.
 - `components/workbench/review-diff-panel.tsx`: Diff stage surface for `Last turn` and Git-backed review snapshots (`unstaged`, `staged`, `branch`), including toolbar controls, review search, file-tree filtering, lazy full-file loading, capped large-diff mode, and per-file diff rendering/actions.
 - `components/workbench/workbench-settings-*`: settings route shell with a settings-specific sidebar adapter, section metadata registry, path resolver/redirect policy, shared settings page primitives, and one active section page at a time (`/settings/:section` over `general-settings`, `appearance`, `editor`, `card`, `worktrees`, `local-environments`, `backups`).
 - `features/local-conversation/*`: renderer substrate and the public workbench boundary for active conversation stages. It owns the renderer-side app-server manager/registry substrate, host-message + control-event bridge, per-thread/any-conversation/meta selector hooks, connected thread/review stage containers, projection pipeline, stage shell, header/auth shell, footer/composer shell, shared thread controls, turn virtualization, and the thread-body search/scroll/collapse behavior used by the active workbench thread stage.
@@ -90,12 +91,12 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 
 Project sessions flow:
 1. The renderer shell loads `project-sessions:list` for each visible project and renders projects as expandable folders with ordered sessions beneath them.
-2. SQLite owns the shared tree: `project_sessions.pinned`, `pinned_order`, `archived`, `archived_at`, and `unread` store project-local sidebar state, `project_sessions.panel_state_json` stores independent right and bottom panel state, `project_session_tabs.panel_id` stores ordered DB/Card/terminal/browser/review/files tabs plus legacy side-chat placeholder tabs per panel, and `project_session_threads` stores optional session-to-thread attachments while thread metadata lives in `codex_threads`.
-3. Window/session UI state owns only the active project, active session, and transient focus/history. Durable panel collapse, size, active tab, tab order, and tab state belong to project-session storage.
+2. SQLite owns the shared tree: `project_sessions.pinned`, `pinned_order`, `archived`, `archived_at`, and `unread` store project-local sidebar state, `project_sessions.panel_state_json` stores independent right and bottom panel state with a v2 recursive split-tree layout (`root`, `activeLeafId`, `mruLeafIds`, optional `maximizedLeafId`), `project_session_tabs.panel_id` and `"order"` store a flat compatibility order derived from depth-first layout leaves, and `project_session_threads` stores optional session-to-thread attachments while thread metadata lives in `codex_threads`.
+3. Window/session UI state owns only the active project, active session, and transient focus/history. Durable panel collapse, size, split layout, active leaf/tab, tab order, and tab state belong to project-session storage.
 4. Every project has a seeded `Overview` session with one right-panel `db_view` tab for that project. The project-session service also lazily creates the Overview row for projects added after startup. Overview sessions always sort first and cannot be pinned, archived, deleted, or marked unread.
 5. Session singleton right-panel kinds are `db_view`, `review`, and `browser_placeholder`. Terminal tabs are session-owned bottom-panel tabs by default and carry only `projectId` plus `terminalSessionId`; cards never own terminals.
-6. Renderer-local panel previews are intentionally outside SQLite. Files and Browser previews occupy one preview slot per session panel, replace each other within that panel, and are persisted only when pinned through the normal session-tab create API.
-7. Renderer-local side-chat tabs are also outside SQLite but use a separate lifecycle from previews. The renderer creates `sidechat-loading:<parentThreadId>:<index>` tabs, asks main to start an ephemeral fork, replaces the loading tab with `sidechat:<threadId>`, and discards the backing temporary thread when the tab closes.
+6. Renderer-local panel previews are intentionally outside SQLite. Files and Browser previews occupy one preview slot per session panel leaf, replace each other within that leaf, and are persisted only when pinned through the normal session-tab create API.
+7. Renderer-local side-chat tabs are also outside SQLite but use a separate leaf-scoped lifecycle from previews. The renderer creates `sidechat-loading:<parentThreadId>:<index>` tabs, asks main to start an ephemeral fork, replaces the loading tab with `sidechat:<threadId>`, and discards the backing temporary thread when the tab closes.
 
 Codex Threads flow:
 1. Renderer sends `codex:*` IPC actions through `lib/api.ts`, manager-backed control hooks, and the local-conversation app-server manager substrate.
@@ -136,6 +137,8 @@ Workbench reopen flow:
 - Custom editor behavior must preserve NFM round-trip fidelity.
 - Codex threads have optional ownership metadata: a thread can be card-owned, session-owned, project-only, or projectless. Card ownership is represented by `codex_thread_card_links`; session ownership is represented by `project_session_threads`.
 - Session-created threads must not create hidden cards, and session attachments do not create card links.
+- Project-session panel layouts must normalize to at least one leaf per right/bottom panel. Durable tab ids are uniquely owned by one leaf, unknown tab ids are removed, unassigned durable tabs are appended to the active leaf, non-final empty durable leaves are pruned unless the renderer is preserving them for visible preview/side-chat tabs, active leaf/tab ids resolve to valid fallbacks, split ratios are clamped, and the flat `project_session_tabs` panel order is derived from depth-first leaf order after every durable panel mutation.
+- Project-session panel tab drag-and-drop separates tab-row insertion from body split targets: tab-row drops render a non-layout-shifting insertion marker and commit leaf-scoped reorder/move operations, while body drops use a 10% edge threshold for split previews and center drops for group merge.
 - Side-chat threads are ephemeral manager/cache records only. They must not create durable Codex thread links, session thread links, project thread-list entries, project-session tab rows, archive records, or cold-start restore targets.
 - Codex thread creation is card-first and includes immediate first-turn submission for durable thread materialization.
 - Codex thread/turn cwd must use the linked thread cwd when present (not only project workspace fallback).
