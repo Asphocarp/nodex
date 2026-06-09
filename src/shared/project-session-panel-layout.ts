@@ -128,11 +128,8 @@ export function getProjectSessionPanelActiveLeaf(layout: ProjectSessionPanelLayo
   if (leaves.length === 0) {
     return makeLeaf("main", [], null);
   }
-  if (layout.version === 2) {
-    const activeLeaf = leaves.find((leaf) => leaf.id === layout.activeLeafId);
-    if (activeLeaf) return activeLeaf;
-  }
-  return leaves[0] ?? makeLeaf("main", [], null);
+  const activeLeaf = leaves.find((leaf) => leaf.id === layout.activeLeafId);
+  return activeLeaf ?? leaves[0] ?? makeLeaf("main", [], null);
 }
 
 function updateMruLeafIds(layout: ProjectSessionPanelLayoutV2, activeLeafId: string): string[] {
@@ -297,16 +294,7 @@ export function normalizeProjectSessionPanelLayout(
     options.preferredActiveTabId ?? allTabIds[0] ?? null,
   );
   if (!value) return fallback;
-  const layout: ProjectSessionPanelLayoutV2 = value.version === 2
-    ? value
-    : {
-        version: PROJECT_SESSION_PANEL_LAYOUT_VERSION,
-        root: value.root,
-        activeLeafId: getProjectSessionPanelActiveLeaf(value).id,
-        mruLeafIds: [getProjectSessionPanelActiveLeaf(value).id],
-        maximizedLeafId: null,
-      };
-  return normalizeV2Layout(layout, allTabIds, options);
+  return normalizeV2Layout(value, allTabIds, options);
 }
 
 export function activateProjectSessionPanelLeaf(

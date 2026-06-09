@@ -4,6 +4,7 @@ import {
   SESSION_CONTEXT_MENU_ACTION_IDS,
   buildSessionContextMenuItems,
 } from "./session-context-menu-model";
+import { makeProjectSessionPanelLayout } from "../../../shared/project-session-panel-layout";
 
 function makeSession(overrides: Partial<ProjectSession> = {}): ProjectSession {
   const now = "2026-06-08T00:00:00.000Z";
@@ -22,12 +23,12 @@ function makeSession(overrides: Partial<ProjectSession> = {}): ProjectSession {
     panels: {
       right: {
         collapsed: false,
-        layout: { version: 1, root: { type: "leaf", id: "right", tabIds: [], activeTabId: null } },
+        layout: makeProjectSessionPanelLayout([], null, "right"),
         size: { widthPx: 600 },
       },
       bottom: {
         collapsed: true,
-        layout: { version: 1, root: { type: "leaf", id: "bottom", tabIds: [], activeTabId: null } },
+        layout: makeProjectSessionPanelLayout([], null, "bottom"),
         size: { heightPx: 280 },
       },
     },

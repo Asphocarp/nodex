@@ -330,11 +330,6 @@ export interface ProjectSessionSplitBranch {
 
 export type ProjectSessionPanelNode = ProjectSessionSplitLeaf | ProjectSessionSplitBranch;
 
-export interface ProjectSessionPanelLayoutV1 {
-  version: 1;
-  root: ProjectSessionPanelNode;
-}
-
 export interface ProjectSessionPanelLayoutV2 {
   version: 2;
   root: ProjectSessionPanelNode;
@@ -343,7 +338,7 @@ export interface ProjectSessionPanelLayoutV2 {
   maximizedLeafId?: string | null;
 }
 
-export type ProjectSessionPanelLayout = ProjectSessionPanelLayoutV1 | ProjectSessionPanelLayoutV2;
+export type ProjectSessionPanelLayout = ProjectSessionPanelLayoutV2;
 
 export type PanelId = "right" | "bottom";
 export type ProjectSessionPanelSplitSide = "left" | "right" | "up" | "down";

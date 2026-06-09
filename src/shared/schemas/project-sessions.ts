@@ -90,11 +90,6 @@ const ProjectSessionSplitLeafSchema: z.ZodType<ProjectSessionPanelNode> = z.lazy
   ]),
 );
 
-const ProjectSessionPanelLayoutV1Schema = z.object({
-  version: z.literal(1),
-  root: ProjectSessionSplitLeafSchema,
-});
-
 const ProjectSessionPanelLayoutV2Schema = z.object({
   version: z.literal(2),
   root: ProjectSessionSplitLeafSchema,
@@ -103,10 +98,7 @@ const ProjectSessionPanelLayoutV2Schema = z.object({
   maximizedLeafId: z.string().min(1).nullable().optional(),
 });
 
-export const ProjectSessionPanelLayoutSchema = z.union([
-  ProjectSessionPanelLayoutV1Schema,
-  ProjectSessionPanelLayoutV2Schema,
-]) satisfies z.ZodType<ProjectSessionPanelLayout>;
+export const ProjectSessionPanelLayoutSchema = ProjectSessionPanelLayoutV2Schema satisfies z.ZodType<ProjectSessionPanelLayout>;
 
 export const ProjectSessionPanelStateSchema = z.object({
   collapsed: z.boolean(),

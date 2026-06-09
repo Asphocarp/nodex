@@ -15,7 +15,6 @@ import {
 } from "./app-shell-tabs";
 import {
   findProjectSessionPanelLeaf,
-  getProjectSessionPanelActiveLeaf,
   getProjectSessionPanelTopRightLeafId,
 } from "../../../shared/project-session-panel-layout";
 import type {
@@ -137,9 +136,9 @@ export function PanelGroupTree({
     });
   }, [onMoveTab, onReorderTab, panelId, sessionId]);
 
-  const maximizedLeafId = layout.version === 2 ? layout.maximizedLeafId ?? null : null;
+  const maximizedLeafId = layout.maximizedLeafId ?? null;
   const maximizedLeaf = maximizedLeafId ? findProjectSessionPanelLeaf(layout, maximizedLeafId) : null;
-  const activeLeafId = layout.version === 2 ? layout.activeLeafId : getProjectSessionPanelActiveLeaf(layout).id;
+  const activeLeafId = layout.activeLeafId;
   const rootNode = maximizedLeaf ?? layout.root;
   const headerEndInsetLeafId = headerEndInsetPx && headerEndInsetPx > 0
     ? getProjectSessionPanelTopRightLeafId(rootNode)

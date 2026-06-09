@@ -165,12 +165,14 @@ describe("schema initialization", () => {
       expect(overviewTab?.config_json).toBe(JSON.stringify({ projectId: "default", view: "kanban" }));
 
       const parsedPanelState = JSON.parse(overviewSession?.panel_state_json ?? "{}") as {
-        right?: { collapsed?: boolean; size?: { fullWidth?: boolean } };
-        bottom?: { collapsed?: boolean };
+        right?: { collapsed?: boolean; layout?: { version?: number }; size?: { fullWidth?: boolean } };
+        bottom?: { collapsed?: boolean; layout?: { version?: number } };
       };
       expect(parsedPanelState.right?.collapsed).toBeFalse();
+      expect(parsedPanelState.right?.layout?.version).toBe(2);
       expect(parsedPanelState.right?.size?.fullWidth).toBeTrue();
       expect(parsedPanelState.bottom?.collapsed).toBeTrue();
+      expect(parsedPanelState.bottom?.layout?.version).toBe(2);
 
       db.close();
     } catch (error) {
@@ -247,16 +249,22 @@ describe("schema initialization", () => {
         right: {
           collapsed: false,
           layout: {
-            version: 1,
+            version: 2,
             root: { type: "leaf", id: "main", tabIds: ["tab-review"], activeTabId: "tab-review" },
+            activeLeafId: "main",
+            mruLeafIds: ["main"],
+            maximizedLeafId: null,
           },
           size: { widthPx: 620, fullWidth: false },
         },
         bottom: {
           collapsed: false,
           layout: {
-            version: 1,
+            version: 2,
             root: { type: "leaf", id: "main", tabIds: ["tab-terminal"], activeTabId: "tab-terminal" },
+            activeLeafId: "main",
+            mruLeafIds: ["main"],
+            maximizedLeafId: null,
           },
           size: { heightPx: 320 },
         },

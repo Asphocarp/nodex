@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import type { CodexAccountSnapshot, Project, ProjectSession } from "@/lib/types";
 import type { SpaceRef } from "@/lib/use-workbench-state";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
+import { makeProjectSessionPanelLayout } from "../../../shared/project-session-panel-layout";
 import { LeftSidebar, type StageSidebarGroup } from "./left-sidebar";
 import { LeftSidebarFooter } from "./left-sidebar-footer";
 import { ProjectManagerPopover } from "./left-sidebar-project-manager";
@@ -397,28 +398,12 @@ function makeStorySession(input: {
     panels: {
       right: {
         collapsed: false,
-        layout: {
-          version: 1,
-          root: {
-            type: "leaf",
-            id: "main",
-            tabIds: [tabId],
-            activeTabId: tabId,
-          },
-        },
+        layout: makeProjectSessionPanelLayout([tabId], tabId),
         size: { widthPx: 600, fullWidth: input.isOverview ?? false },
       },
       bottom: {
         collapsed: true,
-        layout: {
-          version: 1,
-          root: {
-            type: "leaf",
-            id: "bottom",
-            tabIds: [],
-            activeTabId: null,
-          },
-        },
+        layout: makeProjectSessionPanelLayout([], null, "bottom"),
         size: { heightPx: 280 },
       },
     },

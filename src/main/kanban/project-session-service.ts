@@ -137,6 +137,31 @@ function parseJson(value: string): unknown {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function readRawPanelState(value: unknown, panelId: PanelId): Record<string, unknown> | undefined {
+  if (!isRecord(value)) return undefined;
+  const panelState = value[panelId];
+  return isRecord(panelState) ? panelState : undefined;
+}
+
+function readPanelSize(value: unknown): Partial<ProjectSessionPanelState["size"]> {
+  if (!isRecord(value)) return {};
+  const size: Partial<ProjectSessionPanelState["size"]> = {};
+  if (typeof value.widthPx === "number" && Number.isFinite(value.widthPx) && value.widthPx > 0) {
+    size.widthPx = value.widthPx;
+  }
+  if (typeof value.heightPx === "number" && Number.isFinite(value.heightPx) && value.heightPx > 0) {
+    size.heightPx = value.heightPx;
+  }
+  if (typeof value.fullWidth === "boolean") {
+    size.fullWidth = value.fullWidth;
+  }
+  return size;
+}
+
 function makeDefaultPanelLayout(tabIds: string[], activeTabId: string | null): ProjectSessionPanelLayout {
   return makeProjectSessionPanelLayout(tabIds, activeTabId);
 }
@@ -168,32 +193,34 @@ function normalizePanelLayout(value: unknown, tabs: ProjectSessionTab[]): Projec
 
 function normalizePanelState(
   panelId: PanelId,
-  rawState: ProjectSessionPanelState | undefined,
+  rawState: Record<string, unknown> | undefined,
   tabs: ProjectSessionTab[],
-  fallback?: { collapsed?: boolean; layout?: ProjectSessionPanelLayout },
+  fallback?: { collapsed?: boolean; layout?: unknown },
 ): ProjectSessionPanelState {
   const tabIds = tabs.map((tab) => tab.id);
   const defaultState = makeDefaultPanelState(panelId, tabIds, tabIds[0] ?? null);
   const size = {
     ...defaultState.size,
-    ...(rawState?.size ?? {}),
+    ...readPanelSize(rawState?.size),
   };
 
   return {
-    collapsed: rawState?.collapsed ?? fallback?.collapsed ?? defaultState.collapsed,
+    collapsed: typeof rawState?.collapsed === "boolean"
+      ? rawState.collapsed
+      : fallback?.collapsed ?? defaultState.collapsed,
     layout: normalizePanelLayout(rawState?.layout ?? fallback?.layout ?? defaultState.layout, tabs),
     size,
   };
 }
 
 function parsePanelStates(row: DbProjectSession, tabs: ProjectSessionTab[]): Record<PanelId, ProjectSessionPanelState> {
-  const parsed = ProjectSessionPanelsSchema.safeParse(parseJson(row.panel_state_json));
+  const rawPanels = parseJson(row.panel_state_json);
   const rightTabs = tabs.filter((tab) => tab.panelId === "right");
   const bottomTabs = tabs.filter((tab) => tab.panelId === "bottom");
 
   return {
-    right: normalizePanelState("right", parsed.success ? parsed.data.right : undefined, rightTabs),
-    bottom: normalizePanelState("bottom", parsed.success ? parsed.data.bottom : undefined, bottomTabs),
+    right: normalizePanelState("right", readRawPanelState(rawPanels, "right"), rightTabs),
+    bottom: normalizePanelState("bottom", readRawPanelState(rawPanels, "bottom"), bottomTabs),
   };
 }
 

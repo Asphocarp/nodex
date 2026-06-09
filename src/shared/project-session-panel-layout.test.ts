@@ -15,28 +15,18 @@ import {
   setProjectSessionPanelBranchRatio,
   splitProjectSessionPanelLeaf,
 } from "./project-session-panel-layout";
-import type { ProjectSessionPanelLayout } from "./types";
 
 describe("project session panel layout", () => {
-  test("normalizes v1 layouts into v2 and appends unassigned tabs to the active leaf", () => {
-    const legacy: ProjectSessionPanelLayout = {
-      version: 1,
-      root: {
-        type: "leaf",
-        id: "main",
-        tabIds: ["one", "missing", "one"],
-        activeTabId: "missing",
-      },
-    };
-
-    const normalized = normalizeProjectSessionPanelLayout(legacy, ["one", "two"], {
+  test("falls back to a v2 layout when the stored layout is missing", () => {
+    const normalized = normalizeProjectSessionPanelLayout(null, ["one", "two"], {
       preferredActiveTabId: "two",
     });
 
     expect(normalized.version).toBe(2);
     expect(normalized.activeLeafId).toBe("main");
-    expect(JSON.stringify(flattenProjectSessionPanelTabIds(normalized))).toBe(JSON.stringify(["one", "two"]));
+    expect(JSON.stringify(normalized.mruLeafIds)).toBe(JSON.stringify(["main"]));
     expect(getProjectSessionPanelActiveLeaf(normalized).activeTabId).toBe("two");
+    expect(JSON.stringify(flattenProjectSessionPanelTabIds(normalized))).toBe(JSON.stringify(["one", "two"]));
   });
 
   test("splits a leaf and moves the selected tab into the new group", () => {

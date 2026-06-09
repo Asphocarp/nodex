@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   closeDatabase,
   createProject,
+  getDb,
   initializeDatabase,
   renameProject,
 } from "./db-service";
@@ -89,6 +90,70 @@ describe("project session service", () => {
       expect(alphaSessions[0]?.id).toBe("overview:alpha");
       expect(alphaSessions[0]?.panels.right.collapsed).toBeFalse();
       expect(alphaSessions[0]?.tabs[0]?.id).toBe("overview:alpha:db");
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("loads a stored v1 panel layout as a fresh v2 layout from tab rows", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({ projectId: "default", title: "Legacy layout" });
+      const review = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: "default",
+        panelId: "right",
+        kind: "review",
+        title: "Review",
+        config: { projectId: "default" },
+      });
+      const terminal = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: "default",
+        panelId: "bottom",
+        kind: "terminal",
+        title: "Terminal",
+        config: { projectId: "default", terminalSessionId: "term-legacy" },
+      });
+      getDb().prepare(`
+        UPDATE project_sessions
+        SET panel_state_json = ?
+        WHERE id = ?
+      `).run(
+        JSON.stringify({
+          right: {
+            collapsed: false,
+            layout: {
+              version: 1,
+              root: { type: "leaf", id: "main", tabIds: ["stale"], activeTabId: "stale" },
+            },
+            size: { widthPx: 777, fullWidth: true },
+          },
+          bottom: {
+            collapsed: false,
+            layout: {
+              version: 1,
+              root: { type: "leaf", id: "bottom", tabIds: [], activeTabId: null },
+            },
+            size: { heightPx: 333 },
+          },
+        }),
+        session.id,
+      );
+
+      const loaded = getProjectSession(session.id);
+      expect(loaded?.panels.right.collapsed).toBeFalse();
+      expect(loaded?.panels.right.size.widthPx).toBe(777);
+      expect(loaded?.panels.right.size.fullWidth).toBeTrue();
+      expect(loaded?.panels.right.layout.version).toBe(2);
+      expect(JSON.stringify(flattenProjectSessionPanelTabIds(loaded!.panels.right.layout))).toBe(
+        JSON.stringify([review.id]),
+      );
+      expect(loaded?.panels.bottom.collapsed).toBeFalse();
+      expect(loaded?.panels.bottom.size.heightPx).toBe(333);
+      expect(loaded?.panels.bottom.layout.version).toBe(2);
+      expect(JSON.stringify(flattenProjectSessionPanelTabIds(loaded!.panels.bottom.layout))).toBe(
+        JSON.stringify([terminal.id]),
+      );
     });
 
     if (!ran) expect(true).toBeTrue();

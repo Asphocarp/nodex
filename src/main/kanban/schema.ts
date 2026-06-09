@@ -4,6 +4,7 @@ import * as path from "path";
 import { getDatabasePath } from "./config";
 import type { DatabaseMigrationProgress } from "../../shared/app-startup";
 import { CARD_STATUS_COLUMNS } from "../../shared/card-status";
+import { makeProjectSessionPanelLayout } from "../../shared/project-session-panel-layout";
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
@@ -318,19 +319,8 @@ function makeOverviewDbTabId(projectId: string): string {
   return `overview:${projectId}:db`;
 }
 
-function makePanelLayout(tabIds: string[], activeTabId: string | null): {
-  version: 1;
-  root: { type: "leaf"; id: string; tabIds: string[]; activeTabId: string | null };
-} {
-  return {
-    version: 1,
-    root: {
-      type: "leaf",
-      id: "main",
-      tabIds,
-      activeTabId,
-    },
-  };
+function makePanelLayout(tabIds: string[], activeTabId: string | null) {
+  return makeProjectSessionPanelLayout(tabIds, activeTabId);
 }
 
 function makePanelStateJson(input: {

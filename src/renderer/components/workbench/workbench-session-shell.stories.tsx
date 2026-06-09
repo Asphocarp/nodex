@@ -9,6 +9,7 @@ import {
 } from "@/lib/workbench-shell-navigation-history";
 import {
   activateProjectSessionPanelLeaf,
+  makeProjectSessionPanelLayout,
   mergeProjectSessionPanelLeaf,
   setProjectSessionPanelBranchRatio,
   setProjectSessionPanelMaximizedLeaf,
@@ -165,15 +166,7 @@ function makeTab(
 }
 
 function makePanelLayout(tabIds: string[], activeTabId: string | null) {
-  return {
-    version: 1,
-    root: {
-      type: "leaf",
-      id: "main",
-      tabIds,
-      activeTabId,
-    },
-  } as const;
+  return makeProjectSessionPanelLayout(tabIds, activeTabId);
 }
 
 function makeSplitPanelLayout(tabIds: string[], activeTabId: string | null): ProjectSession["panels"]["right"]["layout"] {

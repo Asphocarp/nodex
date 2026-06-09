@@ -19,6 +19,7 @@ import type {
   WorkbenchNavigationCommandSource,
   WorkbenchNavigationDirection,
 } from "../../../shared/window-navigation";
+import { makeProjectSessionPanelLayout } from "../../../shared/project-session-panel-layout";
 
 let invokeCalls: unknown[][] = [];
 let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
@@ -329,15 +330,7 @@ function makeProject(id = "alpha", name = "Alpha", workspacePath?: string): Proj
 }
 
 function makePanelLayout(tabIds: string[], activeTabId: string | null) {
-  return {
-    version: 1,
-    root: {
-      type: "leaf",
-      id: "main",
-      tabIds,
-      activeTabId,
-    },
-  } as const;
+  return makeProjectSessionPanelLayout(tabIds, activeTabId);
 }
 
 function firstPanelLeafId(node: ProjectSessionPanelNode): string {
@@ -371,7 +364,6 @@ function activateTestPanelLayout(
 ): ProjectSession["panels"]["right"]["layout"] {
   const activeLeafId = leafId ?? firstPanelLeafId(layout.root);
   const root = updatePanelLeafActiveTab(layout.root, activeLeafId, tabId);
-  if (layout.version !== 2) return { ...layout, root };
   return {
     ...layout,
     root,
@@ -1273,15 +1265,7 @@ describe("workbench session shell", () => {
       isOverview: false,
       order: 1,
       rightCollapsed: true,
-      rightLayout: {
-        version: 1,
-        root: {
-          type: "leaf",
-          id: "main",
-          tabIds: [],
-          activeTabId: null,
-        },
-      },
+      rightLayout: makePanelLayout([], null),
       tabs: [],
     });
     const screen = renderWorkbench({
@@ -1525,15 +1509,7 @@ describe("workbench session shell", () => {
         alpha: [
           makeSession({
             tabs: [listTab],
-            rightLayout: {
-              version: 1,
-              root: {
-                type: "leaf",
-                id: "main",
-                tabIds: [listTab.id],
-                activeTabId: listTab.id,
-              },
-            },
+            rightLayout: makePanelLayout([listTab.id], listTab.id),
           }),
         ],
       },
@@ -2408,15 +2384,7 @@ describe("workbench session shell", () => {
       id: "session:alpha:empty",
       isOverview: false,
       tabs: [],
-      rightLayout: {
-        version: 1,
-        root: {
-          type: "leaf",
-          id: "main",
-          tabIds: [],
-          activeTabId: null,
-        },
-      },
+      rightLayout: makePanelLayout([], null),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [emptySession] },
@@ -2543,15 +2511,7 @@ describe("workbench session shell", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab, reviewTab],
-      rightLayout: {
-        version: 1,
-        root: {
-          type: "leaf",
-          id: "main",
-          tabIds: ["overview:alpha:db", browserTab.id, reviewTab.id],
-          activeTabId: "overview:alpha:db",
-        },
-      },
+      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id, reviewTab.id], "overview:alpha:db"),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -2591,15 +2551,7 @@ describe("workbench session shell", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab, reviewTab],
-      rightLayout: {
-        version: 1,
-        root: {
-          type: "leaf",
-          id: "main",
-          tabIds: ["overview:alpha:db", browserTab.id, reviewTab.id],
-          activeTabId: "overview:alpha:db",
-        },
-      },
+      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id, reviewTab.id], "overview:alpha:db"),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -2662,15 +2614,7 @@ describe("workbench session shell", () => {
       id: "session:alpha:empty",
       isOverview: false,
       tabs: [],
-      rightLayout: {
-        version: 1,
-        root: {
-          type: "leaf",
-          id: "main",
-          tabIds: [],
-          activeTabId: null,
-        },
-      },
+      rightLayout: makePanelLayout([], null),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [emptySession] },
@@ -2926,15 +2870,7 @@ describe("workbench session shell", () => {
         },
       ],
       id: "session-1",
-      rightLayout: {
-        version: 1,
-        root: {
-          type: "leaf",
-          id: "main",
-          tabIds: ["db-tab", "terminal-tab"],
-          activeTabId: "db-tab",
-        },
-      },
+      rightLayout: makePanelLayout(["db-tab", "terminal-tab"], "db-tab"),
     });
     const screen = renderWorkbench({ sessionsByProject: { alpha: [session] } });
     await settleAsyncRender();
@@ -3002,15 +2938,7 @@ describe("workbench session shell", () => {
           updatedAt: "2026-06-07T00:00:00.000Z",
         },
       ],
-      rightLayout: {
-        version: 1,
-        root: {
-          type: "leaf",
-          id: "main",
-          tabIds: ["overview:beta:db"],
-          activeTabId: "overview:beta:db",
-        },
-      },
+      rightLayout: makePanelLayout(["overview:beta:db"], "overview:beta:db"),
     });
     const screen = renderWorkbench({
       projects: [makeProject(), beta],
