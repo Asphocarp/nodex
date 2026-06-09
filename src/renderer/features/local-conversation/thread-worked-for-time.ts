@@ -1,4 +1,4 @@
-export type ThreadWorkedForStatus = "working" | "completed";
+export type ThreadWorkedForStatus = "working" | "worked";
 
 export interface ThreadWorkedForTiming {
   status: ThreadWorkedForStatus;
@@ -7,22 +7,26 @@ export interface ThreadWorkedForTiming {
 }
 
 export function formatWorkedForTimeLabel(durationMs: number): string | null {
-  if (!Number.isFinite(durationMs) || durationMs < 0) return null;
+  if (!Number.isFinite(durationMs)) return null;
 
-  const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
+  const totalSeconds = Math.floor(Math.max(durationMs, 0) / 1000);
+  if (totalSeconds < 1) return null;
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+
+  const days = Math.floor(totalSeconds / 86_400);
   const hours = Math.floor(totalSeconds / 3600);
+  const hoursPart = hours % 24;
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
 
-  if (hours > 0) {
-    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  if (days > 0 || hours > 0) {
+    const parts: string[] = [];
+    if (days > 0) parts.push(`${days}d`);
+    parts.push(`${hoursPart}h`, `${minutes}m`, `${seconds}s`);
+    return parts.join(" ");
   }
 
-  if (minutes > 0) {
-    return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
-  }
-
-  return `${seconds}s`;
+  return `${minutes}m ${seconds}s`;
 }
 
 export function resolveWorkedForElapsedMs(
@@ -42,13 +46,15 @@ export function resolveWorkedForLabelText(
 ): string | null {
   if (input.timing) {
     const elapsedMs = resolveWorkedForElapsedMs(input.timing, input.nowMs ?? Date.now());
-    const timeLabel = formatWorkedForTimeLabel(elapsedMs);
-    if (!timeLabel) return null;
-
     if (input.timing.status === "working") {
-      return elapsedMs >= 1000 ? `Working for ${timeLabel}` : "Working";
+      if (elapsedMs < 1000) return "Working";
+      const timeLabel = formatWorkedForTimeLabel(elapsedMs);
+      if (!timeLabel) return "Working";
+      return `Working for ${timeLabel}`;
     }
 
+    const timeLabel = formatWorkedForTimeLabel(elapsedMs);
+    if (!timeLabel) return null;
     return `Worked for ${timeLabel}`;
   }
 

@@ -1,10 +1,14 @@
 import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
 import type { CodexTurnScopedConversationRequest } from "../conversation-request-helpers";
 import { bucketizeTurnItems } from "./bucketize-turn-items";
-import { buildRendererItemStream, resolveWorkedForAdornment } from "./build-renderer-item-stream";
+import { buildRendererItemStream } from "./build-renderer-item-stream";
 import { buildTurnViewModel } from "./build-turn-view-model";
-import type { ThreadTranscriptBlockModel, ThreadTurnModel } from "../thread-stage-types";
-import type { ThreadWorkedForTiming } from "../thread-worked-for-time";
+import type {
+  ThreadRendererItemModel,
+  ThreadTranscriptBlockModel,
+  ThreadTurnModel,
+  ThreadWorkedForBlockModel,
+} from "../thread-stage-types";
 
 export interface BuildTurnRenderModelInput {
   turn: CodexConversationTurn;
@@ -84,67 +88,134 @@ function resolveFiniteTimestamp(value: number | null | undefined): number | null
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function resolveTurnStartedAtMs(
-  turn: CodexConversationTurn,
-  items: ReturnType<typeof buildRendererItemStream>,
-): number | null {
-  const explicitStartedAt = resolveFiniteTimestamp(turn.turnStartedAtMs) ?? resolveFiniteTimestamp(turn.startedAt);
-  if (explicitStartedAt !== null) return explicitStartedAt;
-
-  return items.reduce<number | null>((earliest, item) => {
-    if (!Number.isFinite(item.createdAt)) return earliest;
-    if (earliest === null) return item.createdAt;
-    return Math.min(earliest, item.createdAt);
-  }, null);
+function isTranscriptItem(item: ThreadRendererItemModel): item is ThreadTranscriptBlockModel {
+  return "entry" in item;
 }
 
-function resolveWorkedForTiming(
+function isUserItem(item: ThreadRendererItemModel): boolean {
+  return item.type === "userMessage";
+}
+
+function findFirstNonUserIndex(items: ThreadRendererItemModel[]): number {
+  return items.findIndex((item) => !isUserItem(item));
+}
+
+function findFirstFinalAnswerAssistantIndex(items: ThreadRendererItemModel[]): number {
+  return items.findIndex((item) =>
+    isTranscriptItem(item)
+    && item.type === "assistantMessage"
+    && item.entry.assistantPhase === "final_answer"
+  );
+}
+
+function findLastAssistantIndex(items: ThreadRendererItemModel[]): number {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    if (items[index]?.type === "assistantMessage") return index;
+  }
+  return -1;
+}
+
+function hasNonUserItemBefore(items: ThreadRendererItemModel[], boundaryIndex: number): boolean {
+  return items.slice(0, Math.max(boundaryIndex, 0)).some((item) => !isUserItem(item));
+}
+
+function hasRenderableFinalAssistantContent(item: ThreadRendererItemModel | undefined): boolean {
+  if (!item || !isTranscriptItem(item) || item.type !== "assistantMessage") return false;
+  if (item.entry.assistantPhase !== "final_answer") return false;
+  if ((item.entry.markdownText?.trim().length ?? 0) > 0) return true;
+  return item.status === "completed";
+}
+
+function resolveWorkedForBoundaryIndex(
   turn: CodexConversationTurn,
-  items: ReturnType<typeof buildRendererItemStream>,
-): ThreadWorkedForTiming | null {
-  const startedAtMs = resolveTurnStartedAtMs(turn, items);
+  items: ThreadRendererItemModel[],
+): number {
+  if (turn.status === "interrupted") return -1;
+  if (turn.status === "inProgress") {
+    const finalAnswerIndex = findFirstFinalAnswerAssistantIndex(items);
+    return finalAnswerIndex >= 0 ? finalAnswerIndex : items.length;
+  }
+  return findLastAssistantIndex(items);
+}
+
+function resolveWorkedForCompletedAtMs(
+  turn: CodexConversationTurn,
+  items: ThreadRendererItemModel[],
+  boundaryIndex: number,
+): number | null {
+  const finalAssistantStartedAtMs = resolveFiniteTimestamp(turn.finalAssistantStartedAtMs);
+  if (finalAssistantStartedAtMs === null) return null;
+
+  return hasRenderableFinalAssistantContent(items[boundaryIndex])
+    ? finalAssistantStartedAtMs
+    : null;
+}
+
+function buildWorkedForItem(
+  turn: CodexConversationTurn,
+  items: ThreadRendererItemModel[],
+): ThreadWorkedForBlockModel | null {
+  const startedAtMs = resolveFiniteTimestamp(turn.firstTurnWorkItemStartedAtMs);
   if (startedAtMs === null) return null;
 
-  if (turn.status === "inProgress") {
-    return {
-      status: "working",
-      startedAtMs,
-      completedAtMs: null,
-    };
-  }
+  const boundaryIndex = resolveWorkedForBoundaryIndex(turn, items);
+  if (boundaryIndex < 0) return null;
+  if (!hasNonUserItemBefore(items, boundaryIndex)) return null;
 
-  const explicitCompletedAt = resolveFiniteTimestamp(turn.completedAt);
-  const durationMs = resolveFiniteTimestamp(turn.durationMs);
-  const completedAtMs = explicitCompletedAt ?? (durationMs === null ? null : startedAtMs + durationMs);
-  if (completedAtMs === null) return null;
+  const completedAtMs = resolveWorkedForCompletedAtMs(turn, items, boundaryIndex);
+  if (turn.status !== "inProgress" && completedAtMs === null) return null;
 
   return {
-    status: "completed",
+    id: `${turn.turnId}:worked-for`,
+    turnId: turn.turnId,
+    createdAt: startedAtMs,
+    updatedAt: completedAtMs ?? startedAtMs,
+    searchableText: "",
+    type: "workedFor",
+    status: completedAtMs === null ? "working" : "worked",
     startedAtMs,
     completedAtMs,
   };
+}
+
+function insertWorkedForItem(
+  turn: CodexConversationTurn,
+  items: ThreadRendererItemModel[],
+  workedForItem: ThreadWorkedForBlockModel | null,
+): ThreadRendererItemModel[] {
+  if (!workedForItem) return items;
+
+  const boundaryIndex = turn.status === "inProgress"
+    ? findFirstNonUserIndex(items)
+    : resolveWorkedForBoundaryIndex(turn, items);
+  if (boundaryIndex < 0) return items;
+
+  return [
+    ...items.slice(0, boundaryIndex),
+    workedForItem,
+    ...items.slice(boundaryIndex),
+  ];
 }
 
 export function buildTurnRenderModel(
   input: BuildTurnRenderModelInput,
 ): ThreadTurnModel {
   const entries = appendDerivedTurnDiffEntry(input.turn);
-  const items = buildRendererItemStream({
+  const baseItems = buildRendererItemStream({
     entries,
     requests: input.requests,
     turnStatus: input.turn.status,
     isLatestTurn: input.isLatestTurn,
   });
-  const baseWorkedForAdornment = resolveWorkedForAdornment(
-    items.filter((item): item is ThreadTranscriptBlockModel => "entry" in item),
-  );
-  const workedForTiming = resolveWorkedForTiming(input.turn, items);
-  const workedForAdornment = baseWorkedForAdornment
+  const workedForItem = buildWorkedForItem(input.turn, baseItems);
+  const workedForTiming = workedForItem
     ? {
-        ...baseWorkedForAdornment,
-        timing: workedForTiming,
+        status: workedForItem.status,
+        startedAtMs: workedForItem.startedAtMs,
+        completedAtMs: workedForItem.completedAtMs,
       }
     : null;
+  const items = insertWorkedForItem(input.turn, baseItems, workedForItem);
   const buckets = bucketizeTurnItems({
     items,
     turnStatus: input.turn.status,
@@ -158,7 +229,7 @@ export function buildTurnRenderModel(
     turnId: input.turn.turnId,
     turn: input.turn,
     buckets,
-    workedForAdornment,
+    workedForItem,
     workedForTiming,
     workedDurationMs: resolveFiniteTimestamp(input.turn.durationMs),
     isLatestTurn: input.isLatestTurn,

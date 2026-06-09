@@ -1096,6 +1096,7 @@ export interface CodexTurnSummary {
   diff?: string;
   itemIds: string[];
   turnStartedAtMs?: number | null;
+  firstTurnWorkItemStartedAtMs?: number | null;
   finalAssistantStartedAtMs?: number | null;
   startedAt?: number | null;
   completedAt?: number | null;

@@ -238,6 +238,29 @@ describe("LocalConversationTurnEntry", () => {
     expect(Boolean(view.container.textContent?.includes(expectedTime))).toBeTrue();
     expect(Boolean(view.container.textContent?.includes(staleCompletedTime))).toBeFalse();
 
+    const turnRoot = view.container.querySelector('[data-content-search-turn-key="turn_assistant_actions"]');
+    if (!(turnRoot instanceof HTMLElement)) {
+      throw new Error("expected Codex-style turn root");
+    }
+    const turnRootClassName = turnRoot.getAttribute("class") ?? "";
+    expect(Boolean(turnRootClassName.includes("content-visibility"))).toBeFalse();
+    expect(Boolean(turnRootClassName.includes("contain-intrinsic-size"))).toBeFalse();
+
+    const copyButton = view.getByLabelText("Copy");
+    let ancestor: HTMLElement | null = copyButton;
+    let assistantActionRow: HTMLElement | null = null;
+    while (ancestor !== null) {
+      if (ancestor.className.includes("extension:-translate-x-1.5")) {
+        assistantActionRow = ancestor;
+        break;
+      }
+      ancestor = ancestor.parentElement;
+    }
+    if (!(assistantActionRow instanceof HTMLElement)) {
+      throw new Error("expected Codex translated assistant action row");
+    }
+    expect(Boolean(assistantActionRow.className.includes("electron:-translate-x-2"))).toBeTrue();
+
     fireEvent.click(view.getByLabelText("Fork from this point"));
     expect(forkInputs.length).toBe(1);
     expect(forkInputs[0]?.turnId).toBe("turn_assistant_actions");
@@ -391,6 +414,87 @@ describe("LocalConversationTurnEntry", () => {
 
     expect(Boolean(view.container.textContent?.includes("Worked for 2m 5s"))).toBeTrue();
     expect(Boolean(view.container.textContent?.includes("previous messages"))).toBeFalse();
+
+    const workedForButton = view.getByRole("button", { name: /Worked for 2m 5s/ });
+    expect(workedForButton.getAttribute("aria-expanded")).toBe("false");
+    expect(Boolean(workedForButton.className.includes("w-full"))).toBeTrue();
+    expect(Boolean(workedForButton.className.includes("justify-start"))).toBeTrue();
+    expect(Boolean(workedForButton.className.includes("hover:bg-token-bg-subtle"))).toBeFalse();
+
+    const workedForTextOuter = workedForButton.firstElementChild;
+    const workedForTextInner = workedForTextOuter?.firstElementChild;
+    expect(workedForTextOuter?.tagName).toBe("SPAN");
+    expect(workedForTextInner?.tagName).toBe("SPAN");
+    expect(workedForTextInner?.className).toBe("text-token-foreground/60");
+
+    const workedForShell = workedForButton.parentElement?.parentElement;
+    expect(workedForShell?.className).toBe("flex flex-col");
+    expect(Boolean(
+      workedForShell?.querySelector(
+        ".text-size-chat.pt-1.text-token-text-secondary > .w-full.border-t.border-token-border-light",
+      ),
+    )).toBeTrue();
+  });
+
+  test("renders active working-for as a plain divider without a toggle button", async () => {
+    const stableRequests: [] = [];
+    const { LocalConversationTurnEntry } = await import("./local-conversation-turn-entry");
+    const startedAtMs = Date.now() - 65_000;
+    const turn: CodexConversationTurn = {
+      ...buildTurn("turn_working_for", "Request", ""),
+      status: "inProgress",
+      firstTurnWorkItemStartedAtMs: startedAtMs,
+      itemIds: ["turn_working_for_user", "exec_1"],
+      items: [
+        buildUserEntry("turn_working_for", "turn_working_for_user", "Request"),
+        {
+          threadId: "thread_1",
+          turnId: "turn_working_for",
+          itemId: "exec_1",
+          type: "command_execution",
+          kind: "commandExecution",
+          semanticKind: "exec",
+          createdAt: startedAtMs,
+          updatedAt: startedAtMs,
+          status: "inProgress",
+          commandActions: [{ type: "unknown", command: "bun test" }],
+          toolCall: {
+            subtype: "command",
+            toolName: "exec_command",
+            args: {},
+          },
+        },
+      ],
+    };
+    const view = render(
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(LocalConversationTurnEntry, {
+          conversationId: "thread_1",
+          turnSearchKey: turn.turnId,
+          turn,
+          requests: stableRequests,
+          cwd: "/tmp/project",
+          isMostRecentTurn: true,
+          canEditTurnUserPrefix: false,
+          canForkTurn: true,
+        }),
+      ),
+    );
+
+    expect(Boolean(view.container.textContent?.includes("Working for 1m 5s"))).toBeTrue();
+    expect(view.queryByRole("button", { name: /Working/ }) === null).toBeTrue();
+
+    const workingText = view.getByText("Working for 1m 5s");
+    const dividerBlock = workingText.closest(".min-w-0.text-size-chat.relative.overflow-visible.py-0");
+    if (!(dividerBlock instanceof HTMLElement)) {
+      throw new Error("expected active working-for divider shell");
+    }
+    expect(Boolean(dividerBlock.querySelector(".w-full.border-t.border-current\\/20"))).toBeTrue();
+    expect(Boolean(dividerBlock.textContent?.includes("previous messages"))).toBeFalse();
+    expect(Boolean(dividerBlock.innerHTML.includes("aria-expanded"))).toBeFalse();
+    expect(Boolean(dividerBlock.innerHTML.includes("hover:bg-token-bg-subtle"))).toBeFalse();
   });
 
   test("does not rerender unchanged older turns when a different turn updates", async () => {

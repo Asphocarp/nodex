@@ -455,6 +455,7 @@ describe("LocalConversationThreadBody", () => {
       turns: [
         buildTurn({
           status: "completed",
+          durationMs: 125_000,
           itemIds: ["user_1", "exec_1", "commentary_1", "assistant_1"],
           items: [
             buildUserEntry(),
@@ -496,7 +497,7 @@ describe("LocalConversationThreadBody", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(getByRole("button", { name: /Worked for/i }))).toBeTrue();
+    expect(Boolean(getByRole("button", { name: /Worked for 2m 5s/i }))).toBeTrue();
     expect(Boolean(queryByText("Working"))).toBeFalse();
   });
 

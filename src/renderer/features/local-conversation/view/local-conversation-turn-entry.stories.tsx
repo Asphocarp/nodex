@@ -225,6 +225,46 @@ const historicalWorkedForTurn = buildStoryConversationTurn({
   ],
 });
 
+const workingTurnStartedAtMs = Date.now() - 760_000;
+
+const workingTurnActiveDivider = buildStoryConversationTurn({
+  turnId: "turn_story_working_for_active",
+  status: "inProgress",
+  firstTurnWorkItemStartedAtMs: workingTurnStartedAtMs,
+  items: [
+    buildStoryConversationItem({
+      turnId: "turn_story_working_for_active",
+      itemId: "user_story_working_for_active",
+      type: "user_message",
+      kind: "userMessage",
+      semanticKind: "userMessage",
+      role: "user",
+      markdownText: "Keep the running turn divider aligned with the captured main-surface fixture.",
+      createdAt: workingTurnStartedAtMs - 2_000,
+      updatedAt: workingTurnStartedAtMs - 2_000,
+    }),
+    buildStoryConversationItem({
+      turnId: "turn_story_working_for_active",
+      itemId: "exec_story_working_for_active",
+      type: "command_execution",
+      kind: "commandExecution",
+      semanticKind: "exec",
+      status: "inProgress",
+      createdAt: workingTurnStartedAtMs,
+      updatedAt: workingTurnStartedAtMs,
+      commandActions: [{ type: "unknown", command: "bun test" }],
+      toolCall: {
+        subtype: "command",
+        toolName: "exec_command",
+        args: {
+          command: "bun test",
+        },
+      },
+      aggregatedOutput: "Running tests...",
+    }),
+  ],
+});
+
 const imageDataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
 const singleLocalImageTurn = buildStoryConversationTurn({
@@ -605,6 +645,16 @@ export const HistoricalWorkedForCollapsed: Story = {
     turn: historicalWorkedForTurn,
     isMostRecentTurn: false,
     persistedCollapsed: true,
+    canEditTurnUserPrefix: false,
+    canForkTurn: true,
+  },
+};
+
+export const WorkingTurnActiveDivider: Story = {
+  args: {
+    turnSearchKey: workingTurnActiveDivider.turnId,
+    turn: workingTurnActiveDivider,
+    isMostRecentTurn: true,
     canEditTurnUserPrefix: false,
     canForkTurn: true,
   },

@@ -623,6 +623,24 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+function isFirstTurnWorkItem(item: CodexItemView): boolean {
+  if (item.normalizedKind === "userMessage" || item.normalizedKind === "assistantMessage") {
+    return false;
+  }
+
+  switch (item.semanticKind) {
+    case "modelChanged":
+    case "modelRerouted":
+    case "remoteTaskCreated":
+    case "personalityChanged":
+    case "forkedFromConversation":
+    case "steered":
+      return false;
+    default:
+      return true;
+  }
+}
+
 function parseTurnDiff(value: unknown): string | undefined {
   const candidate = asRecord(value);
   if (!candidate) return undefined;
@@ -3464,6 +3482,8 @@ export class CodexService extends EventEmitter {
     const completedAt = normalizeOptionalTimestamp(candidate.completedAt ?? candidate.completed_at);
     const turnStartedAtMs =
       normalizeOptionalTimestamp(candidate.turnStartedAtMs ?? candidate.turn_started_at_ms) ?? startedAt;
+    const firstTurnWorkItemStartedAtMs =
+      normalizeOptionalTimestamp(candidate.firstTurnWorkItemStartedAtMs ?? candidate.first_turn_work_item_started_at_ms);
     const finalAssistantStartedAtMs =
       normalizeOptionalTimestamp(candidate.finalAssistantStartedAtMs ?? candidate.final_assistant_started_at_ms)
       ?? completedAt;
@@ -3476,6 +3496,7 @@ export class CodexService extends EventEmitter {
       diff: parseTurnDiff(candidate),
       itemIds,
       turnStartedAtMs,
+      firstTurnWorkItemStartedAtMs,
       finalAssistantStartedAtMs,
       startedAt,
       completedAt,
@@ -3512,6 +3533,8 @@ export class CodexService extends EventEmitter {
             ...turn,
             errorMessage: turn.errorMessage ?? existing.errorMessage,
             turnStartedAtMs: turn.turnStartedAtMs ?? existing.turnStartedAtMs,
+            firstTurnWorkItemStartedAtMs:
+              turn.firstTurnWorkItemStartedAtMs ?? existing.firstTurnWorkItemStartedAtMs,
             finalAssistantStartedAtMs: options?.preferIncomingFinalAssistantStartedAtMs
               ? turn.finalAssistantStartedAtMs ?? existing.finalAssistantStartedAtMs
               : existing.finalAssistantStartedAtMs ?? turn.finalAssistantStartedAtMs,
@@ -3543,6 +3566,28 @@ export class CodexService extends EventEmitter {
     this.mergeTurn(threadId, nextTurn, {
       preferIncomingFinalAssistantStartedAtMs: true,
     });
+    return this.getKnownTurn(threadId, turnId) ?? nextTurn;
+  }
+
+  private markFirstTurnWorkItemStartedAt(
+    threadId: string,
+    turnId: string,
+    observedAtMs = Date.now(),
+  ): CodexTurnSummary | null {
+    const existing = this.getKnownTurn(threadId, turnId);
+    if (existing?.firstTurnWorkItemStartedAtMs != null) return existing;
+
+    const nextTurn: CodexTurnSummary = {
+      ...(existing ?? {
+        threadId,
+        turnId,
+        status: "inProgress" as const,
+        itemIds: [],
+      }),
+      turnStartedAtMs: existing?.turnStartedAtMs ?? observedAtMs,
+      firstTurnWorkItemStartedAtMs: observedAtMs,
+    };
+    this.mergeTurn(threadId, nextTurn);
     return this.getKnownTurn(threadId, turnId) ?? nextTurn;
   }
 
@@ -3642,6 +3687,7 @@ export class CodexService extends EventEmitter {
     }, input.threadId, turnId);
     if (!normalizedItem) return;
 
+    this.markFirstTurnWorkItemStartedAt(input.threadId, turnId);
     this.upsertCanonicalTurnItem(input.threadId, turnId, normalizedItem.itemId, "inProgress");
     this.mergeItem(normalizedItem);
     if (reboundFromTurnId) {
@@ -6886,6 +6932,7 @@ export class CodexService extends EventEmitter {
         status: turn.status,
         error: turn.errorMessage ? { message: turn.errorMessage, additionalDetails: null } : null,
         startedAt: turn.startedAt ?? turn.turnStartedAtMs ?? null,
+        firstTurnWorkItemStartedAtMs: turn.firstTurnWorkItemStartedAtMs ?? null,
         completedAt: turn.completedAt ?? null,
         durationMs: turn.durationMs ?? null,
         items: (entriesByTurn.get(turn.turnId) ?? []).map((entry) =>
@@ -8054,8 +8101,11 @@ export class CodexService extends EventEmitter {
               markdownText: normalizedItem.semanticKind === "contextCompaction"
                 ? resolveContextCompactionMarkdown(lifecycleStatus)
                 : normalizedItem.markdownText,
-            };
+      };
       this.upsertCanonicalTurnItem(payload.threadId, payload.turnId, item.itemId, "inProgress");
+      if (isFirstTurnWorkItem(item)) {
+        this.markFirstTurnWorkItemStartedAt(payload.threadId, payload.turnId);
+      }
       this.mergeItem(item);
       if (item.normalizedKind === "assistantMessage" || item.semanticKind === "assistantMessage") {
         this.markFinalAssistantStartedAt(payload.threadId, payload.turnId);

@@ -8,7 +8,6 @@ import type {
   ThreadBlockModel,
   ThreadStageActions,
   ThreadTurnModel,
-  ThreadWorkedForAdornmentModel,
 } from "../thread-stage-types";
 import {
   CODEX_THREAD_ACCORDION_TRANSITION,
@@ -17,7 +16,6 @@ import {
   CODEX_THREAD_DIVIDER_EXIT,
 } from "./shared/thread-motion";
 import { useWorkedForLabelText } from "./shared/use-worked-for-label";
-import { ThreadWorkedForBlock } from "./blocks/local-conversation-block-leaves";
 import { ThreadBlockRenderer } from "./blocks/local-conversation-block-renderer";
 
 interface ThreadTurnProps {
@@ -60,16 +58,23 @@ function AgentBodyToggleRow({
     ?? `${collapsedMessageCount} previous ${collapsedMessageCount === 1 ? "message" : "messages"}`;
 
   return (
-    <div className="text-size-chat text-token-text-secondary">
-      <button
-        type="button"
-        className="text-size-chat hover:bg-token-bg-subtle inline-flex items-center gap-1 rounded-md border border-transparent focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:outline-none"
-        aria-expanded={!collapsed}
-        onClick={onToggle}
-      >
-        <span className="text-token-foreground/60">{label}</span>
-        <ChevronRightIcon className={cn("icon-2xs text-token-foreground/40 transition-transform duration-200", collapsed ? "rotate-0" : "rotate-90")} />
-      </button>
+    <div className="flex flex-col">
+      <div className="text-size-chat text-token-text-secondary">
+        <button
+          type="button"
+          className="text-size-chat inline-flex w-full items-center justify-start gap-1 rounded-md border border-transparent focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:outline-none"
+          aria-expanded={!collapsed}
+          onClick={onToggle}
+        >
+          <span>
+            <span className="text-token-foreground/60">{label}</span>
+          </span>
+          <ChevronRightIcon className={cn("icon-2xs text-token-foreground/40 transition-transform duration-200", collapsed ? "rotate-0" : "rotate-90")} />
+        </button>
+      </div>
+      <div className="text-size-chat pt-1 text-token-text-secondary">
+        <div className="w-full border-t border-token-border-light" />
+      </div>
     </div>
   );
 }
@@ -104,9 +109,14 @@ export function ThreadTurn({
     && (!turn.isLatestTurn || hasPersistedAgentBodyCollapsedState);
   const effectiveAgentBodyCollapsed = shouldAllowAgentBodyCollapse ? agentBodyCollapsed : false;
   const workedForLabel = useWorkedForLabelText({
-    timing: turn.workedForAdornment?.timing ?? (turn.workedForTiming?.status === "working" ? turn.workedForTiming : null),
+    timing: turn.workedForItem
+      ? {
+          status: turn.workedForItem.status,
+          startedAtMs: turn.workedForItem.startedAtMs,
+          completedAtMs: turn.workedForItem.completedAtMs,
+        }
+      : null,
     durationMs: turn.workedDurationMs,
-    fallbackTimeLabel: turn.workedForAdornment?.timeLabel ?? null,
   });
 
   const renderBlock = (block: ThreadBlockModel) => (
@@ -138,29 +148,6 @@ export function ThreadTurn({
       onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
     />
   );
-
-  const trailingRenderItems = turn.trailingBlocks.flatMap((block) => {
-    const items: Array<
-      | { id: string; kind: "workedFor"; adornment: ThreadWorkedForAdornmentModel }
-      | { id: string; kind: "block"; block: ThreadBlockModel }
-    > = [];
-
-    if (turn.workedForAdornment?.anchorBlockId === block.id) {
-      items.push({
-        id: turn.workedForAdornment.id,
-        kind: "workedFor",
-        adornment: turn.workedForAdornment,
-      });
-    }
-
-    items.push({
-      id: block.id,
-      kind: "block",
-      block,
-    });
-
-    return items;
-  });
 
   return (
     <div>
@@ -206,10 +193,7 @@ export function ThreadTurn({
           <>
             {(turn.leadingBlocks.length > 0 || turn.agentBodyEntries.length > 0) ? <ThreadGap /> : null}
             <div className="flex flex-col">
-              {renderSpacedBlocks(trailingRenderItems, (item) =>
-                item.kind === "workedFor"
-                  ? <ThreadWorkedForBlock adornment={item.adornment} />
-                  : renderBlock(item.block))}
+              {renderSpacedBlocks(turn.trailingBlocks, renderBlock)}
             </div>
           </>
         ) : null}

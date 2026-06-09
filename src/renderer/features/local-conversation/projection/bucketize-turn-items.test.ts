@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ThreadTranscriptBlockModel } from "../thread-stage-types";
+import type { ThreadTranscriptBlockModel, ThreadWorkedForBlockModel } from "../thread-stage-types";
 import { bucketizeTurnItems } from "./bucketize-turn-items";
 import { buildTurnViewModel } from "./build-turn-view-model";
 
@@ -20,6 +20,21 @@ function buildItem(overrides: Partial<ThreadTranscriptBlockModel>): ThreadTransc
       createdAt: 1,
       updatedAt: 1,
     },
+    ...overrides,
+  };
+}
+
+function buildWorkedForItem(overrides: Partial<ThreadWorkedForBlockModel>): ThreadWorkedForBlockModel {
+  return {
+    id: "worked_for",
+    turnId: "turn_1",
+    createdAt: 2,
+    updatedAt: 2,
+    searchableText: "",
+    type: "workedFor",
+    status: "worked",
+    startedAtMs: 2,
+    completedAtMs: 6_000,
     ...overrides,
   };
 }
@@ -1141,20 +1156,8 @@ describe("bucketizeTurnItems", () => {
             updatedAt: 1,
           },
         }),
-        buildItem({
+        buildWorkedForItem({
           id: "worked_for",
-          type: "workedFor",
-          entry: {
-            threadId: "thread_1",
-            turnId: "turn_1",
-            itemId: "worked_for",
-            type: "worked_for",
-            kind: "systemEvent",
-            semanticKind: "workedFor",
-            timeLabel: "4s",
-            createdAt: 2,
-            updatedAt: 2,
-          },
         }),
       ],
       turnStatus: "completed",
@@ -1170,14 +1173,7 @@ describe("bucketizeTurnItems", () => {
         items: [],
       },
       buckets,
-      workedForAdornment: {
-        id: "assistant:worked-for",
-        turnId: "turn_1",
-        anchorBlockId: "assistant",
-        timeLabel: "4s",
-        createdAt: 2,
-        updatedAt: 2,
-      },
+      workedForItem: buckets.agentItems.find((item): item is ThreadWorkedForBlockModel => item.type === "workedFor") ?? null,
       isLatestTurn: true,
       isStreamingTurn: false,
       isBlocked: false,

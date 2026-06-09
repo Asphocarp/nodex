@@ -20,6 +20,7 @@ export function mergeCodexTurnSummary(
     ...incoming,
     errorMessage: incoming.errorMessage ?? existing.errorMessage,
     turnStartedAtMs: incoming.turnStartedAtMs ?? existing.turnStartedAtMs,
+    firstTurnWorkItemStartedAtMs: incoming.firstTurnWorkItemStartedAtMs ?? existing.firstTurnWorkItemStartedAtMs,
     finalAssistantStartedAtMs: incoming.finalAssistantStartedAtMs ?? existing.finalAssistantStartedAtMs,
     startedAt: incoming.startedAt ?? existing.startedAt,
     completedAt: incoming.completedAt ?? existing.completedAt,

@@ -7,6 +7,7 @@ import type {
   ThreadCollapsedToolActivityEntryModel,
   ThreadCollapsedToolActivitySummaryStats,
   ThreadAgentEntryModel,
+  ThreadAgentItemModel,
   ThreadDynamicToolCallGroupBlockModel,
   ThreadMultiAgentGroupBlockModel,
   ThreadPendingMcpToolCallsBlockModel,
@@ -18,6 +19,10 @@ type CommandExecutionBlock = ThreadTranscriptBlockModel & { type: "exec" };
 type MultiAgentBlock = ThreadTranscriptBlockModel & { type: "multiAgentAction" };
 type McpToolCallBlock = ThreadTranscriptBlockModel & { type: "mcpToolCall" };
 type DynamicToolCallBlock = ThreadTranscriptBlockModel & { type: "dynamicToolCall" };
+
+function isTranscriptBlock(block: ThreadAgentItemModel): block is ThreadTranscriptBlockModel {
+  return "entry" in block;
+}
 
 function isExplorationCommandBlock(block: ThreadTranscriptBlockModel): block is CommandExecutionBlock {
   if (block.type !== "exec") return false;
@@ -506,7 +511,7 @@ function shouldCollapseSingleActivityEntry(entry: ThreadCollapsedToolActivityEnt
   return entry.type === "fileChange" && entry.status === "inProgress";
 }
 
-export function groupAgentEntries(agentBlocks: ThreadTranscriptBlockModel[]): ThreadAgentEntryModel[] {
+export function groupAgentEntries(agentBlocks: ThreadAgentItemModel[]): ThreadAgentEntryModel[] {
   if (agentBlocks.length === 0) return agentBlocks;
 
   const grouped: ThreadAgentEntryModel[] = [];
@@ -515,6 +520,12 @@ export function groupAgentEntries(agentBlocks: ThreadTranscriptBlockModel[]): Th
   while (index < agentBlocks.length) {
     const current = agentBlocks[index];
     if (!current) break;
+
+    if (current.type === "workedFor") {
+      grouped.push(current);
+      index += 1;
+      continue;
+    }
 
     if (current.type === "mcpToolCall" && current.status === "inProgress") {
       const entries: McpToolCallBlock[] = [current as McpToolCallBlock];
@@ -555,7 +566,7 @@ export function groupAgentEntries(agentBlocks: ThreadTranscriptBlockModel[]): Th
       let cursor = index + 1;
       while (cursor < agentBlocks.length) {
         const candidate = agentBlocks[cursor];
-        if (!candidate || !isSettledMultiAgentBlock(candidate)) break;
+        if (!candidate || !isTranscriptBlock(candidate) || !isSettledMultiAgentBlock(candidate)) break;
         entries.push(candidate.entry);
         cursor += 1;
       }
@@ -575,7 +586,7 @@ export function groupAgentEntries(agentBlocks: ThreadTranscriptBlockModel[]): Th
     while (cursor < agentBlocks.length) {
       const candidate = agentBlocks[cursor];
       if (!candidate) break;
-      if (isExplorationCommandBlock(candidate) || candidate.type === "reasoning") {
+      if (isTranscriptBlock(candidate) && (isExplorationCommandBlock(candidate) || candidate.type === "reasoning")) {
         entries.push(candidate.entry);
         cursor += 1;
         continue;

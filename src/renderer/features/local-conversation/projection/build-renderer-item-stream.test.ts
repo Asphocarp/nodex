@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { CodexConversationItem } from "../../../lib/types";
-import type { ThreadTranscriptBlockModel } from "../thread-stage-types";
-import { buildRendererItemStream, resolveWorkedForAdornment } from "./build-renderer-item-stream";
+import { buildRendererItemStream } from "./build-renderer-item-stream";
 
 function buildEntry(overrides: Partial<CodexConversationItem>): CodexConversationItem {
   return {
@@ -227,7 +226,7 @@ describe("buildRendererItemStream", () => {
     expect(items.map((item) => item.type).join(",")).toBe("approval");
   });
 
-  test("injects a synthetic worked-for item into the transcript stream and resolves adornment metadata from it", () => {
+  test("does not synthesize worked-for rows in the flat renderer item stream", () => {
     const items = buildRendererItemStream({
       entries: [
         buildEntry({
@@ -279,12 +278,8 @@ describe("buildRendererItemStream", () => {
       turnStatus: "completed",
       isLatestTurn: true,
     });
-    const workedForAdornment = resolveWorkedForAdornment(
-      items.filter((item): item is ThreadTranscriptBlockModel => "entry" in item),
-    );
 
-    expect(items.map((item) => item.id).join(",")).toBe("user_1,commentary_1,exec_1,assistant_1,assistant_1:worked_for");
-    expect(workedForAdornment?.anchorBlockId ?? "").toBe("assistant_1");
-    expect(workedForAdornment?.timeLabel ?? "").toBe("4s");
+    expect(items.map((item) => item.id).join(",")).toBe("user_1,commentary_1,exec_1,assistant_1");
+    expect(items.some((item) => item.type === "workedFor")).toBeFalse();
   });
 });

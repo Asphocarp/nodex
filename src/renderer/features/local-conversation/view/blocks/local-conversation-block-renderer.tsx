@@ -24,6 +24,7 @@ import {
   ThreadToolSurfaceBlock,
   ThreadUserInputResponseCard,
   ThreadUserBubbleBlock,
+  ThreadWorkedForBlock,
 } from "./local-conversation-block-leaves";
 import type { CodexTurnDiffReviewTarget } from "../../../../lib/types";
 import type { ThreadBlockModel, ThreadStageActions } from "../../thread-stage-types";
@@ -131,6 +132,10 @@ export function ThreadBlockRenderer({
 
   if (block.type === "userAttachmentStrip") {
     return <ThreadUserAttachmentStripBlock block={block} isLatestTurn={isLatestTurn} isStreamingTurn={isStreamingTurn} />;
+  }
+
+  if (block.type === "workedFor") {
+    return <ThreadWorkedForBlock block={block} />;
   }
 
   if (

@@ -3,6 +3,7 @@ import { groupAgentEntries } from "./group-exploration-blocks";
 import type {
   ThreadAssistantActionsBlockModel,
   ThreadAssistantMessageActionsModel,
+  ThreadAgentItemModel,
   ThreadAgentEntryModel,
   ThreadBlockModel,
   ThreadExplorationGroupBlockModel,
@@ -12,7 +13,7 @@ import type {
   ThreadTurnModel,
   ThreadTurnRenderBuckets,
   ThreadUserAttachmentStripBlockModel,
-  ThreadWorkedForAdornmentModel,
+  ThreadWorkedForBlockModel,
 } from "../thread-stage-types";
 import type { ThreadWorkedForTiming } from "../thread-worked-for-time";
 
@@ -20,7 +21,7 @@ interface BuildTurnViewModelInput {
   turnId: string;
   turn: CodexConversationTurn | null;
   buckets: ThreadTurnRenderBuckets;
-  workedForAdornment?: ThreadWorkedForAdornmentModel | null;
+  workedForItem?: ThreadWorkedForBlockModel | null;
   workedForTiming?: ThreadWorkedForTiming | null;
   workedDurationMs?: number | null;
   isLatestTurn: boolean;
@@ -393,6 +394,7 @@ function resolveThinkingPlaceholderItem(
 ): ThreadThinkingPlaceholderBlockModel | null {
   if (!input.isStreamingTurn || input.isBlocked) return null;
   if (input.isExploring) return null;
+  if (buckets.agentItems.some((block) => block.type === "workedFor")) return null;
 
   if (isIncompleteBlock(buckets.proposedPlanItem, input.isStreamingTurn)) return null;
   if (isIncompleteBlock(buckets.latestAssistantMessage, input.isStreamingTurn)) {
@@ -423,12 +425,15 @@ function decorateAssistantBlock(
 }
 
 export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnModel {
-  const workedForAdornment = input.workedForAdornment ?? null;
+  const workedForItem = input.workedForItem ?? null;
   const workedForTiming = input.workedForTiming ?? null;
   const workedDurationMs = input.workedDurationMs ?? null;
   const isCompletedTurn = input.turn?.status === "completed";
   const isCancelledTurn = input.turn?.status === "interrupted";
-  const initialVisibleAgentItems = input.buckets.agentItems.filter((item) => item.type !== "workedFor");
+  const shouldRenderWorkedForInAgentBody = input.turn?.status === "inProgress";
+  const initialVisibleAgentItems = shouldRenderWorkedForInAgentBody
+    ? input.buckets.agentItems
+    : input.buckets.agentItems.filter((item) => item.type !== "workedFor");
   const initialGroupedAgentItems = groupAgentEntries(initialVisibleAgentItems);
   const initialExplorationState = reconcileExplorationState(initialGroupedAgentItems, input.buckets, input);
 
@@ -460,15 +465,19 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
             ...(buckets.unifiedDiffItem ? [buckets.unifiedDiffItem] : []),
           ].filter((block) => !portalBlockIds.has(block.id)),
         });
-  const nextAgentItems = buckets.agentItems.map((block) =>
-    decorateAssistantBlock(block, latestAssistantId, assistantSearchUnitKey, {
-      ...input,
-      includeActions: false,
-    }));
+  const nextAgentItems = buckets.agentItems.map((block): ThreadAgentItemModel =>
+    block.type === "assistantMessage"
+      ? decorateAssistantBlock(block, latestAssistantId, assistantSearchUnitKey, {
+          ...input,
+          includeActions: false,
+        })
+      : block);
   const nextLatestAssistantMessage =
     nextAssistantItem?.id === latestAssistantId
       ? nextAssistantItem
-      : nextAgentItems.find((block) => block.id === latestAssistantId) ?? buckets.latestAssistantMessage;
+      : nextAgentItems.find((block): block is ThreadTranscriptBlockModel =>
+          block.type === "assistantMessage" && block.id === latestAssistantId
+        ) ?? buckets.latestAssistantMessage;
   const deferredAssistantActionsBlock =
     nextAssistantItem === null
       ? buildDeferredAssistantActionsBlock(nextLatestAssistantMessage, input)
@@ -485,7 +494,9 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
     agentItems: nextAgentItems,
     latestAssistantMessage: nextLatestAssistantMessage,
   };
-  const visibleAgentItems = buckets.agentItems.filter((item) => item.type !== "workedFor");
+  const visibleAgentItems = shouldRenderWorkedForInAgentBody
+    ? buckets.agentItems
+    : buckets.agentItems.filter((item) => item.type !== "workedFor");
   const groupedAgentItems = groupAgentEntries(visibleAgentItems);
   const explorationState = reconcileExplorationState(groupedAgentItems, buckets, input);
 
@@ -528,7 +539,7 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
     trailingBlocks,
     blocks: resolvedBlocks,
     aboveComposerBlocks,
-    workedForAdornment,
+    workedForItem,
     workedForTiming,
     workedDurationMs,
     isLatestTurn: input.isLatestTurn,

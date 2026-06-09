@@ -76,7 +76,6 @@ function LocalConversationTurnEntryComponent({
   return (
     <div
       data-content-search-turn-key={turnSearchKey}
-      className="flex flex-col gap-0 [contain-intrinsic-size:auto_240px] [content-visibility:auto]"
     >
       <ThreadTurn
         turn={turnModel}

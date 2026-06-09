@@ -68,6 +68,64 @@ function buildFileChangeItem(overrides: Partial<CodexConversationItem> = {}): Co
   };
 }
 
+function buildUserItem(overrides: Partial<CodexConversationItem> = {}): CodexConversationItem {
+  return {
+    threadId: "thread_1",
+    turnId: "turn_1",
+    itemId: "user_1",
+    entryId: "user_1",
+    type: "user_message",
+    kind: "userMessage",
+    semanticKind: "userMessage",
+    role: "user",
+    markdownText: "Run the checks",
+    createdAt: 1,
+    updatedAt: 1,
+    ...overrides,
+  };
+}
+
+function buildExecItem(overrides: Partial<CodexConversationItem> = {}): CodexConversationItem {
+  return {
+    threadId: "thread_1",
+    turnId: "turn_1",
+    itemId: "exec_1",
+    entryId: "exec_1",
+    type: "command_execution",
+    kind: "commandExecution",
+    semanticKind: "exec",
+    status: "inProgress",
+    commandActions: [{ type: "unknown", command: "bun test" }],
+    toolCall: {
+      subtype: "command",
+      toolName: "exec_command",
+      args: {},
+    },
+    createdAt: 2,
+    updatedAt: 2,
+    ...overrides,
+  };
+}
+
+function buildAssistantItem(overrides: Partial<CodexConversationItem> = {}): CodexConversationItem {
+  return {
+    threadId: "thread_1",
+    turnId: "turn_1",
+    itemId: "assistant_1",
+    entryId: "assistant_1",
+    type: "assistant_message",
+    kind: "assistantMessage",
+    semanticKind: "assistantMessage",
+    assistantPhase: "final_answer",
+    role: "assistant",
+    markdownText: "Done",
+    status: "completed",
+    createdAt: 5,
+    updatedAt: 5,
+    ...overrides,
+  };
+}
+
 describe("buildTurnRenderModel", () => {
   test("derives live turn-diff from turn.diff before any fileChange item exists", () => {
     const model = buildTurnRenderModel({
@@ -132,5 +190,95 @@ describe("buildTurnRenderModel", () => {
 
     expect(model.aboveComposerBlocks?.length ?? 0).toBe(0);
     expect(model.blocks.map((block) => block.type).join(",")).toBe("turnDiff");
+  });
+
+  test("inserts active working-for before the first non-user item and suppresses thinking placeholder", () => {
+    const model = buildTurnRenderModel({
+      turn: buildTurn({
+        firstTurnWorkItemStartedAtMs: 1_000,
+        itemIds: ["user_1", "exec_1"],
+        items: [
+          buildUserItem(),
+          buildExecItem(),
+        ],
+      }),
+      requests: [],
+      isLatestTurn: true,
+      isStreamingTurn: true,
+    });
+
+    expect(model.agentBodyEntries.map((entry) => entry.type).join(",")).toBe("workedFor,exec");
+    expect(model.blocks.map((block) => block.type).join(",")).toBe("userMessage,workedFor,exec");
+    expect(model.blocks.some((block) => block.type === "thinkingPlaceholder")).toBeFalse();
+    expect(model.searchableText.includes("Working")).toBeFalse();
+  });
+
+  test("consumes completed worked-for rows into the collapsed label source", () => {
+    const model = buildTurnRenderModel({
+      turn: buildTurn({
+        status: "completed",
+        firstTurnWorkItemStartedAtMs: 1_000,
+        finalAssistantStartedAtMs: 8_000,
+        itemIds: ["user_1", "exec_1", "assistant_1"],
+        items: [
+          buildUserItem(),
+          buildExecItem({ status: "completed" }),
+          buildAssistantItem(),
+        ],
+      }),
+      requests: [],
+      isLatestTurn: false,
+      isStreamingTurn: false,
+    });
+
+    expect(model.workedForItem?.status ?? "").toBe("worked");
+    expect(model.workedForItem?.startedAtMs ?? 0).toBe(1_000);
+    expect(model.workedForItem?.completedAtMs ?? 0).toBe(8_000);
+    expect(model.agentBodyEntries.some((entry) => entry.type === "workedFor")).toBeFalse();
+    expect(model.hasRenderableAgentBodyEntries).toBeTrue();
+  });
+
+  test("falls back to completed duration when no explicit worked-for row exists", () => {
+    const model = buildTurnRenderModel({
+      turn: buildTurn({
+        status: "completed",
+        durationMs: 125_000,
+        itemIds: ["user_1", "exec_1", "assistant_1"],
+        items: [
+          buildUserItem(),
+          buildExecItem({ status: "completed" }),
+          buildAssistantItem(),
+        ],
+      }),
+      requests: [],
+      isLatestTurn: false,
+      isStreamingTurn: false,
+    });
+
+    expect(model.workedForItem).toBe(null);
+    expect(model.workedDurationMs).toBe(125_000);
+    expect(model.hasRenderableAgentBodyEntries).toBeTrue();
+  });
+
+  test("does not keep completed worked-for timing without a renderable final assistant boundary", () => {
+    const model = buildTurnRenderModel({
+      turn: buildTurn({
+        status: "completed",
+        firstTurnWorkItemStartedAtMs: 1_000,
+        finalAssistantStartedAtMs: 8_000,
+        itemIds: ["user_1", "exec_1"],
+        items: [
+          buildUserItem(),
+          buildExecItem({ status: "completed" }),
+        ],
+      }),
+      requests: [],
+      isLatestTurn: false,
+      isStreamingTurn: false,
+    });
+
+    expect(model.workedForItem).toBe(null);
+    expect(model.agentBodyEntries.some((entry) => entry.type === "workedFor")).toBeFalse();
+    expect(model.collapsedMessageCount).toBe(1);
   });
 });

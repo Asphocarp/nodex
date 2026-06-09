@@ -212,8 +212,9 @@ This is the regression-prone case. If Nodex renders `user, assistant, exec` with
 ### `user -> final assistant -> worked-for`
 - `workedFor` participates in classification
 - assistant is not promoted because `workedFor` is the last surviving agent candidate
-- `workedFor` is later removed from visible agent rows and reused as label/divider input
-- visible result: `user, inline assistant`, plus worked-for label behavior
+- completed `workedFor` is later removed from visible agent rows and reused as historical collapse-label input
+- active `workedFor` remains visible as the plain running divider before the first non-user work row
+- visible result: `user, inline assistant`, plus worked/working-for label behavior
 
 ### `tool/exploration before final assistant`
 - earlier tool rows stay in `agentItems`
@@ -227,13 +228,15 @@ The correct contract is:
 
 - it enters the internal classifier path as an agent-like item
 - it can block assistant promotion
-- it is filtered back out before visible agent-body rendering
-- it becomes label/divider input via `ThreadWorkedForAdornmentModel`
+- active running turns keep it visible in `agentBodyEntries`
+- completed collapsible turns filter it back out before visible agent-body rendering
+- completed turns reuse it through `ThreadWorkedForBlockModel` as label input for the historical `Worked for ...` toggle
 
 In practice this means:
 
 - do not exclude it from `bucketizeTurnItems(...)`
-- do not leave it visible inside `agentBodyEntries`
+- do not leave completed worked-for blocks visible inside collapsed historical `agentBodyEntries`
+- do keep active running worked-for blocks visible so the transcript renders `Working` / `Working for ...` before tool/commentary rows
 - do not let its visual treatment rewrite assistant ownership
 
 ## Latest Assistant Search Ownership

@@ -8008,6 +8008,7 @@ describe("codex-service terminal turn reconciliation", () => {
         expect(latest).not.toBeNull();
         expect(latest?.turns.length).toBe(1);
         expect(latest?.turns[0]?.items.length).toBe(1);
+        expect(typeof latest?.turns[0]?.firstTurnWorkItemStartedAtMs).toBe("number");
         expect(latest?.turns[0]?.items[0]?.aggregatedOutput).toBe("1340 pass\n");
         expect(typeof latest?.turns[0]?.items[0]?.toolCall?.result).toBe("string");
         expect(latest?.turns[0]?.items[0]?.toolCall?.result).toBe("1340 pass\n");
@@ -8017,6 +8018,69 @@ describe("codex-service terminal turn reconciliation", () => {
     });
 
     if (!ran) expect(true).toBeTrue();
+  });
+
+  test("item completed backfills first work item start without overwriting an existing stamp", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+    };
+
+    try {
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_completed_work_stamp"),
+        turns: [{
+          threadId: "thr_completed_work_stamp",
+          turnId: "turn_completed_work_stamp",
+          status: "inProgress",
+          itemIds: ["exec_completed"],
+        }],
+        transcript: [],
+      });
+
+      await serviceInternals.handleNotification("item/completed", {
+        threadId: "thr_completed_work_stamp",
+        turnId: "turn_completed_work_stamp",
+        item: {
+          id: "exec_completed",
+          type: "commandExecution",
+          command: "bun test",
+          status: "completed",
+        },
+      });
+
+      let snapshot = service.serializeConversationSnapshot("thr_completed_work_stamp");
+      expect(typeof snapshot?.turns[0]?.firstTurnWorkItemStartedAtMs).toBe("number");
+
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_existing_work_stamp"),
+        turns: [{
+          threadId: "thr_existing_work_stamp",
+          turnId: "turn_existing_work_stamp",
+          status: "inProgress",
+          itemIds: ["exec_existing"],
+          firstTurnWorkItemStartedAtMs: 123,
+        }],
+        transcript: [],
+      });
+
+      await serviceInternals.handleNotification("item/completed", {
+        threadId: "thr_existing_work_stamp",
+        turnId: "turn_existing_work_stamp",
+        item: {
+          id: "exec_existing",
+          type: "commandExecution",
+          command: "bun test",
+          status: "completed",
+        },
+      });
+
+      snapshot = service.serializeConversationSnapshot("thr_existing_work_stamp");
+      expect(snapshot?.turns[0]?.firstTurnWorkItemStartedAtMs ?? 0).toBe(123);
+    } finally {
+      await service.shutdown();
+    }
   });
 
   test("avoids full conversation serialization during command-output delta flushes once the broadcast cache is primed", async () => {
@@ -8641,6 +8705,7 @@ describe("codex-service terminal turn reconciliation", () => {
         });
 
         const latest = projectConversationFromHostMessages(hostMessages);
+        expect(typeof latest?.turns[0]?.firstTurnWorkItemStartedAtMs).toBe("number");
         const item = latest?.turns[0]?.items[0] ?? null;
         expect(item?.itemId ?? "").toBe("patch_live");
         expect(item?.status ?? "").toBe("inProgress");

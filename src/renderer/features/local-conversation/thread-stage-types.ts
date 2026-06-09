@@ -237,6 +237,18 @@ export interface ThreadThinkingPlaceholderBlockModel {
   type: "thinkingPlaceholder";
 }
 
+export interface ThreadWorkedForBlockModel {
+  id: string;
+  turnId: string;
+  createdAt: number;
+  updatedAt: number;
+  searchableText: string;
+  type: "workedFor";
+  status: ThreadWorkedForTiming["status"];
+  startedAtMs: number;
+  completedAtMs: number | null;
+}
+
 export interface ThreadTranscriptBlockModel {
   id: string;
   turnId: string;
@@ -269,7 +281,6 @@ export interface ThreadTranscriptBlockModel {
     | "automaticApprovalReview"
     | "multiAgentAction"
     | "steered"
-    | "workedFor"
     | "systemEvent"
     | "userInputResponse";
   entry: CodexConversationItem;
@@ -288,16 +299,6 @@ export interface ThreadUserAttachmentStripBlockModel {
   searchableText: string;
   type: "userAttachmentStrip";
   attachments: CodexUserAttachment[];
-}
-
-export interface ThreadWorkedForAdornmentModel {
-  id: string;
-  turnId: string;
-  anchorBlockId: string;
-  timeLabel: string;
-  timing?: ThreadWorkedForTiming | null;
-  createdAt: number;
-  updatedAt: number;
 }
 
 export interface ThreadExplorationGroupBlockModel {
@@ -406,10 +407,15 @@ export interface ThreadPendingTurnRequestModel {
 
 export type ThreadRendererItemModel =
   | ThreadTranscriptBlockModel
+  | ThreadWorkedForBlockModel
   | ThreadPendingTurnRequestModel;
 
-export type ThreadAgentEntryModel =
+export type ThreadAgentItemModel =
   | ThreadTranscriptBlockModel
+  | ThreadWorkedForBlockModel;
+
+export type ThreadAgentEntryModel =
+  | ThreadAgentItemModel
   | ThreadExplorationGroupBlockModel
   | ThreadMultiAgentGroupBlockModel
   | ThreadPendingMcpToolCallsBlockModel
@@ -420,6 +426,7 @@ export type ThreadBlockModel =
   | ThreadTranscriptBlockModel
   | ThreadAssistantActionsBlockModel
   | ThreadUserAttachmentStripBlockModel
+  | ThreadWorkedForBlockModel
   | ThreadExplorationGroupBlockModel
   | ThreadMultiAgentGroupBlockModel
   | ThreadPendingMcpToolCallsBlockModel
@@ -441,7 +448,7 @@ export interface ThreadTurnRenderBuckets {
   proposedPlanItem: ThreadTranscriptBlockModel | null;
   planImplementationItem: ThreadTranscriptBlockModel | null;
   postAssistantItems: ThreadTranscriptBlockModel[];
-  agentItems: ThreadTranscriptBlockModel[];
+  agentItems: ThreadAgentItemModel[];
   remoteTaskCreatedItems: ThreadTranscriptBlockModel[];
   personalityChangedItems: ThreadTranscriptBlockModel[];
   forkedFromConversationItems: ThreadTranscriptBlockModel[];
@@ -459,7 +466,7 @@ export interface ThreadTurnModel {
   trailingBlocks: ThreadBlockModel[];
   blocks: ThreadBlockModel[];
   aboveComposerBlocks?: ThreadBlockModel[];
-  workedForAdornment: ThreadWorkedForAdornmentModel | null;
+  workedForItem: ThreadWorkedForBlockModel | null;
   workedForTiming: ThreadWorkedForTiming | null;
   workedDurationMs: number | null;
   isLatestTurn: boolean;

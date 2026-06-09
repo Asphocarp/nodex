@@ -94,8 +94,9 @@ When working with coding agents like Claude Code, there's no streamlined way to:
   - the mounted renderer preserves the canonical per-turn item sequence from the conversation snapshot instead of re-sorting turn items by timestamp or id inside the renderer
   - pre-final assistant commentary stays in the agent-work body ahead of the final assistant anchor; only the final assistant message becomes the dedicated assistant block for the turn
   - completed turn diffs render as assistant-after `Edited …` cards before the final assistant action strip when a final assistant exists
-  - collapsed historical agent-work sections prefer `Worked for …` from turn duration data before falling back to `X previous messages`
-  - when the latest visible turn has qualifying prior work and usable timing data, the renderer injects a `Worked for …` divider immediately before the final assistant message
+  - collapsed historical agent-work sections prefer explicit first-work timing, then `durationMs`, then `X previous messages`; timing labels render as `Worked for …`
+  - collapsed historical agent-work toggles render as a full-width left-aligned click target without hover highlight, with nested muted label text, a `rotate-0` / `rotate-90` chevron, and a separate light divider line
+  - active running turns with qualifying first-work timing render a standalone non-button `Working` / `Working for …` divider before the first non-user work row; it has no hover background, chevron, or `aria-expanded`
   - the detailed classifier contract, conditional assistant-promotion rule, and scenario matrix live in [codex-thread-turn-ordering-and-assistant-promotion.md](../codex-thread-turn-ordering-and-assistant-promotion.md)
   - collapsed agent-work sections collapse to the summary row only; their body exits the DOM once collapsed, while collapsed command-tool bodies keep the hidden measured body in the DOM with `height: 0`, `opacity: 0`, and pointer events disabled
   - the mounted thread body uses a flat section layout: no extra turn-level tool card wraps, and tool / exploration / system rows render as direct sections instead of being nested inside additional app-owned shell cards

@@ -100,6 +100,9 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
   - trailing status markers (`remoteTaskCreated`, `personalityChanged`, `forkedFromConversation`)
 - If the active turn has no blocking pending request, the turn may append a `Thinking` placeholder after the proposed-plan block and before any completed inline diff.
 - Exploration groups take precedence over that placeholder, incomplete proposed plans suppress it, `workedFor` suppresses it, and unresolved approval / request-user-input / MCP elicitation state suppresses it.
+- The first visible work-like item in a turn stamps `firstTurnWorkItemStartedAtMs` at the main-process summary layer. `item/started`, `item/completed`, and live patch updates can set it, but later events must not overwrite an existing value.
+- Active running turns with `firstTurnWorkItemStartedAtMs` project a first-class `workedFor` block before the first non-user item. That visible block renders as a plain `Working` label for sub-second elapsed time, then `Working for Xm Ys`, followed by a `border-current/20` divider. It is not a button and has no hover background or chevron.
+- Completed turns with first-work timing project the same internal block before the final assistant boundary, but completed collapsible agent bodies consume it as collapse-label input and remove it from visible expanded body rows.
 - Incomplete MCP elicitation blocks the same in-progress surfaces as approval and request-user-input state.
 - Unknown replay/app-server tool payloads do not render a generic transcript tool row. The mounted transcript only renders supported tool families with dedicated surfaces (`exec`, `patch`, `mcpToolCall`, `dynamicToolCall`, `webSearch`, `turnDiff`) and keeps any remaining raw tool metadata internal to the canonical conversation state.
 
@@ -107,6 +110,8 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
 - Agent-body collapse applies only to the activity section of older completed turns with renderable agent work. It does not hide the turn's user message or final assistant answer.
 - The newest completed turn does not render an agent-body collapse toggle unless that turn already has an explicit persisted collapse state. Older completed turns with renderable agent work default to collapsed.
 - In-progress, interrupted, and failed turns do not render the agent-body collapse toggle.
+- Collapsed historical agent-work labels resolve in this order: explicit completed worked-for timing, completed turn `durationMs`, then `X previous messages`.
+- The completed historical `Worked for ...` row uses a full-width left-aligned toggle button with no hover highlight, nested muted label spans, `aria-expanded`, a rotating `icon-2xs` chevron, and a separate `border-token-border-light` divider row. It is intentionally different from the active running divider, which is non-interactive.
 - Search is modeled as explicit content units, not generic DOM scraping.
 - Only user-message and assistant-message content participates in `Find in thread` searchable units.
 - `Find in thread` stays hidden until explicitly requested, normally through `⌘/Ctrl+F` while the Threads stage is focused.

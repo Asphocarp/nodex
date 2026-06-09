@@ -1,4 +1,5 @@
 import type {
+  ThreadAgentItemModel,
   ThreadPendingTurnRequestModel,
   ThreadRendererItemModel,
   ThreadTranscriptBlockModel,
@@ -39,6 +40,10 @@ function isPendingRequestItem(item: ThreadRendererItemModel): item is ThreadPend
   return item.type === "approval" || item.type === "userInput" || item.type === "implementPlan";
 }
 
+function isTranscriptBlock(item: ThreadRendererItemModel): item is ThreadTranscriptBlockModel {
+  return "entry" in item;
+}
+
 function isPendingApproval(item: ThreadTranscriptBlockModel): boolean {
   return item.type === "fileChange"
     ? item.entry.approvalRequestId != null && item.entry.fileChange == null
@@ -56,7 +61,10 @@ function isTrailingAutomaticApprovalReview(item: ThreadTranscriptBlockModel): bo
   return item.type === "automaticApprovalReview";
 }
 
-function isRenderableAgentItem(item: ThreadTranscriptBlockModel): boolean {
+function isRenderableAgentItem(item: ThreadRendererItemModel): item is ThreadAgentItemModel {
+  if (item.type === "workedFor") return true;
+  if (!isTranscriptBlock(item)) return false;
+
   switch (item.type) {
     case "assistantMessage":
     case "exec":
@@ -72,7 +80,6 @@ function isRenderableAgentItem(item: ThreadTranscriptBlockModel): boolean {
     case "reasoning":
     case "userInputResponse":
     case "mcpServerElicitation":
-    case "workedFor":
       return true;
     case "webSearch":
       return item.searchableText.trim().length > 0;
@@ -117,7 +124,7 @@ function shouldPushHookToAgentItems(
 
 export function bucketizeTurnItems(input: BucketizeTurnItemsInput): ThreadTurnRenderBuckets {
   const buckets = createEmptyBuckets();
-  const agentCandidates: ThreadTranscriptBlockModel[] = [];
+  const agentCandidates: ThreadAgentItemModel[] = [];
   const pendingMcpElicitationServers = new Set<string>();
   let beforeAgentSequence = true;
 
@@ -198,11 +205,11 @@ export function bucketizeTurnItems(input: BucketizeTurnItemsInput): ThreadTurnRe
       continue;
     }
 
-    if (isPendingApproval(item)) {
+    if (isTranscriptBlock(item) && isPendingApproval(item)) {
       continue;
     }
 
-    if (item.type === "hook") {
+    if (isTranscriptBlock(item) && item.type === "hook") {
       if (shouldPushHookToAgentItems(input.items, index)) {
         agentCandidates.push(item);
       } else {
@@ -235,9 +242,13 @@ export function bucketizeTurnItems(input: BucketizeTurnItemsInput): ThreadTurnRe
   }
 
   const trailingReviews: ThreadTranscriptBlockModel[] = [];
-  while (agentCandidates.length > 0 && isTrailingAutomaticApprovalReview(agentCandidates[agentCandidates.length - 1]!)) {
+  while (agentCandidates.length > 0) {
+    const reviewCandidate = agentCandidates[agentCandidates.length - 1];
+    if (!reviewCandidate || !isTranscriptBlock(reviewCandidate) || !isTrailingAutomaticApprovalReview(reviewCandidate)) {
+      break;
+    }
     const review = agentCandidates.pop();
-    if (!review) break;
+    if (!review || !isTranscriptBlock(review)) break;
     trailingReviews.unshift(review);
   }
 

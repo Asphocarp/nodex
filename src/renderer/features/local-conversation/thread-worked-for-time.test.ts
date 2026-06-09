@@ -6,9 +6,12 @@ import {
 
 describe("thread worked-for time helpers", () => {
   test("formats Codex-style compact durations", () => {
-    expect(formatWorkedForTimeLabel(900)).toBe("1s");
-    expect(formatWorkedForTimeLabel(125_000)).toBe("2m 5s");
-    expect(formatWorkedForTimeLabel(3_660_000)).toBe("1h 1m");
+    expect(formatWorkedForTimeLabel(-500)).toBe(null);
+    expect(formatWorkedForTimeLabel(999)).toBe(null);
+    expect(formatWorkedForTimeLabel(1_000)).toBe("1s");
+    expect(formatWorkedForTimeLabel(120_000)).toBe("2m 0s");
+    expect(formatWorkedForTimeLabel(125_999)).toBe("2m 5s");
+    expect(formatWorkedForTimeLabel(3_660_999)).toBe("1h 1m 0s");
   });
 
   test("renders working, worked-for, and duration fallback labels", () => {
@@ -36,5 +39,15 @@ describe("thread worked-for time helpers", () => {
       timing: null,
       durationMs: 125_000,
     })).toBe("Worked for 2m 5s");
+
+    expect(resolveWorkedForLabelText({
+      timing: {
+        status: "worked",
+        startedAtMs: 10_000,
+        completedAtMs: 15_000,
+      },
+      durationMs: null,
+      nowMs: 20_000,
+    })).toBe("Worked for 5s");
   });
 });

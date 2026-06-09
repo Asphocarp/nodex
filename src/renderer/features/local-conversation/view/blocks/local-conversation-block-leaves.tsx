@@ -66,7 +66,7 @@ import type {
   ThreadBlockModel,
   ThreadStageActions,
   ThreadTranscriptBlockModel,
-  ThreadWorkedForAdornmentModel,
+  ThreadWorkedForBlockModel,
 } from "../../thread-stage-types";
 import { THREAD_VISUAL_TOKENS } from "./local-conversation-visual-tokens";
 
@@ -1420,26 +1420,31 @@ export function ThreadHookBlock({ block }: ThreadLeafBlockProps) {
   );
 }
 
-export function ThreadWorkedForBlock({ adornment }: { adornment: ThreadWorkedForAdornmentModel }) {
+export function ThreadWorkedForBlock({ block }: { block: ThreadWorkedForBlockModel }) {
   const label = useWorkedForLabelText({
-    timing: adornment.timing ?? null,
+    timing: {
+      status: block.status,
+      startedAtMs: block.startedAtMs,
+      completedAtMs: block.completedAtMs,
+    },
     durationMs: null,
-    fallbackTimeLabel: adornment.timeLabel,
   });
   if (!label) return null;
 
   return (
-    <motion.div
-      initial={CODEX_THREAD_DIVIDER_ENTER_INITIAL}
-      animate={CODEX_THREAD_DIVIDER_ENTER_ANIMATE}
-      transition={CODEX_THREAD_ACCORDION_TRANSITION}
-      style={{ overflow: "hidden" }}
-    >
-      <div className="text-size-chat flex min-h-0 flex-col items-start gap-2 overflow-hidden text-token-text-secondary">
-        <span className="text-token-foreground/60">{label}</span>
-        <div className="w-full border-t border-current/20" />
-      </div>
-    </motion.div>
+    <div className="min-w-0 text-size-chat relative overflow-visible py-0">
+      <motion.div
+        initial={CODEX_THREAD_DIVIDER_ENTER_INITIAL}
+        animate={CODEX_THREAD_DIVIDER_ENTER_ANIMATE}
+        transition={CODEX_THREAD_ACCORDION_TRANSITION}
+        style={{ overflow: "hidden" }}
+      >
+        <div className="text-size-chat flex min-h-0 flex-col items-start gap-2 overflow-hidden text-token-text-secondary">
+          <span className="text-token-foreground/60">{label}</span>
+          <div className="w-full border-t border-current/20" />
+        </div>
+      </motion.div>
+    </div>
   );
 }
 
