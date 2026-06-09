@@ -42,8 +42,11 @@ import {
 import {
   applyGitReviewPatch,
   initializeGitRepositoryAndReadReviewSnapshot,
+  readBranchDiffStats,
+  readGitReviewDiff,
   readGitReviewFileContents,
   readGitReviewSnapshot,
+  resolveGitMergeBase,
   searchGitReview,
 } from "./git-review-service";
 import type { AppUpdateSettings, AppUpdateStatus, CodexPromptInput } from "../shared/types";
@@ -661,8 +664,21 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     cwd: string;
     source: "unstaged" | "staged" | "branch";
     baseRef?: string | null;
+    hideWhitespace?: boolean;
   }) => {
     return readGitReviewSnapshot(input);
+  });
+
+  registerHandle("git:review:diff", (_, input) => {
+    return readGitReviewDiff(input);
+  });
+
+  registerHandle("git:review:branch-diff-stats", (_, input) => {
+    return readBranchDiffStats(input);
+  });
+
+  registerHandle("git:merge-base", (_, input) => {
+    return resolveGitMergeBase(input);
   });
 
   registerHandle("git:review:file-contents", (_, input) => {
@@ -990,6 +1006,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       },
     ) =>
       codexService.startTurn(threadId, prompt, opts),
+  );
+
+  registerHandle("codex:review:start", (_, input) =>
+    codexService.startReview(input)
   );
 
   registerHandle(

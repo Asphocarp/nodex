@@ -1,31 +1,23 @@
 import type { FileContents } from "@pierre/diffs";
 import type { FileDiffMetadata } from "@pierre/diffs/react";
-import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import {
   ChevronDownIcon,
   CheckmarkIcon,
   FileTreeChevronIcon,
   FileTreeFileIcon,
   FileTreeLockIcon,
-  RefreshIcon,
-  ReviewCollapseAllDiffsIcon,
-  ReviewDisableWordWrapIcon,
-  ReviewEnableWordWrapIcon,
-  ReviewExpandAllDiffsIcon,
-  ReviewFileDocumentIcon,
-  ReviewRichPreviewIcon,
   ReviewSplitDiffIcon,
   ReviewUnifiedDiffIcon,
-  ReviewWordDiffsIcon,
   SearchIcon,
 } from "../shared/icons";
 import {
   NodexDropdownItem,
   NodexDropdownMenu,
+  NodexDropdownSearchInput,
   NodexDropdownSeparator,
 } from "../ui/dropdown";
 import { toast } from "../ui/toast";
-import { writeTextToClipboard } from "@/lib/clipboard";
 import {
   NODEX_DIFF_HOST_CLASS,
   getNodexDiffHostStyle,
@@ -66,17 +58,23 @@ import {
   resolveReviewFileTreeItemHeight,
   type ReviewFileTreeVirtualRange,
 } from "@/lib/review-file-tree-virtualization";
+import {
+  extractReviewCodeCommentsFromConversation,
+  filterReviewCodeCommentsForPath,
+  type ReviewCodeComment,
+} from "@/lib/review-code-comments";
 import { useFileLinkOpener } from "@/lib/use-file-link-opener";
 import type {
+  CodexReviewTarget,
   CodexConversationItem,
   CodexConversationSnapshot,
   CodexTurnDiffReviewTarget,
-  GitApplyPatchResult,
   GitReviewFileContents,
   GitReviewFileStatus,
   GitReviewSearchResult,
   GitReviewSnapshot,
   GitReviewSource,
+  ReviewDiffResult,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
@@ -99,6 +97,7 @@ import {
 type TranscriptReviewSource = "selected-turn" | "last-turn";
 type ReviewSource = TranscriptReviewSource | GitReviewSource;
 type ReviewDiffMode = "unified" | "split";
+type GitReviewLoadStatus = "idle" | "loading" | "loaded" | "load-failed" | "timed-out";
 
 interface ReviewDiffPanelProps {
   conversation: CodexConversationSnapshot | null;
@@ -144,15 +143,11 @@ interface ReviewSnapshot {
   emptyReason: "noDiff" | "noLongerAvailable" | null;
 }
 
-type ReviewGitFileAction = "stage" | "unstage" | "revert";
-type ReviewGitPatchScope = "file" | "hunk";
-
 const REVIEW_FILE_TREE_DEFAULT_WIDTH_PX = 280;
-const REVIEW_FILE_TREE_MIN_WIDTH_PX = 220;
-const REVIEW_FILE_TREE_MAX_WIDTH_PX = 520;
-const REVIEW_SPLIT_HANDLE_WIDTH_PX = 12;
 const LARGE_DIFF_LINE_THRESHOLD = 3_000;
 const REVIEW_FILE_TREE_SEARCH_INPUT_ID = "review-file-search";
+const REVIEW_DIFF_BATCH_DELAY_MS = 16;
+const REVIEW_DIFF_TIMEOUT_MS = 15_000;
 
 type ReviewFileTreeHostStyle = CSSProperties & Record<`--${string}`, string>;
 
@@ -185,16 +180,12 @@ const DEFAULT_REVIEW_DIFF_PANEL_DEPS: ReviewDiffPanelDeps = {
   MultiFileDiff: defaultMultiFileDiff,
 };
 
-function clampReviewFileTreeWidth(value: number): number {
-  return Math.min(REVIEW_FILE_TREE_MAX_WIDTH_PX, Math.max(REVIEW_FILE_TREE_MIN_WIDTH_PX, Math.round(value)));
-}
-
 const SOURCE_LABELS: Record<ReviewSource, string> = {
   "selected-turn": "Selected turn",
   "last-turn": "Last turn",
   branch: "Branch",
   staged: "Staged",
-  unstaged: "Unstaged",
+  unstaged: "Uncommitted",
 };
 
 function isTranscriptReviewSource(source: ReviewSource): source is TranscriptReviewSource {
@@ -272,34 +263,6 @@ function splitPatchByFiles(patch: string): string[] {
   }
 
   return patches;
-}
-
-function splitFilePatchByHunks(filePatch: string): string[] {
-  if (!filePatch.trim()) return [];
-
-  const lines = filePatch.split("\n");
-  const firstHunkIndex = lines.findIndex((line) => line.startsWith("@@ "));
-  if (firstHunkIndex === -1) return [];
-
-  const headerLines = lines.slice(0, firstHunkIndex);
-  const hunkPatches: string[] = [];
-  let currentHunkLines: string[] = [];
-
-  for (const line of lines.slice(firstHunkIndex)) {
-    if (line.startsWith("@@ ") && currentHunkLines.length > 0) {
-      hunkPatches.push([...headerLines, ...currentHunkLines].join("\n").trimEnd());
-      currentHunkLines = [line];
-      continue;
-    }
-
-    currentHunkLines.push(line);
-  }
-
-  if (currentHunkLines.length > 0) {
-    hunkPatches.push([...headerLines, ...currentHunkLines].join("\n").trimEnd());
-  }
-
-  return hunkPatches;
 }
 
 function buildReviewFileEntries(
@@ -425,7 +388,7 @@ function buildSelectedTurnSnapshot(
 }
 
 function buildGitSnapshot(
-  gitSnapshot: GitReviewSnapshot | null,
+  gitSnapshot: GitReviewSnapshot | ReviewDiffResult | null,
   parsePatchFiles: ReviewDiffPanelDeps["parsePatchFiles"],
 ): ReviewSnapshot {
   const cwd = gitSnapshot?.cwd ?? null;
@@ -450,43 +413,6 @@ function buildGitSnapshot(
     defaultBranch: gitSnapshot?.defaultBranch ?? null,
     errorMessage: gitSnapshot?.errorMessage ?? null,
     emptyReason: patch.trim().length === 0 ? "noDiff" : null,
-  };
-}
-
-function buildGitApplyCommand(diffText: string): string {
-  return ` (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF'\n${diffText}\nEOF\n)`;
-}
-
-function actionResultMessage(
-  action: ReviewGitFileAction,
-  displayPath: string,
-  status: GitApplyPatchResult["status"],
-  scope: ReviewGitPatchScope = "file",
-): { level: "success" | "danger"; text: string } {
-  const actionTarget = scope === "hunk" ? `a hunk in ${displayPath}` : displayPath;
-  if (status === "success") {
-    return {
-      level: "success",
-      text: action === "stage"
-        ? `Staged ${actionTarget}.`
-        : action === "unstage"
-          ? `Unstaged ${actionTarget}.`
-          : `Reverted ${actionTarget}.`,
-    };
-  }
-
-  if (status === "partial-success") {
-    return {
-      level: "danger",
-      text: `Partially reverted ${actionTarget}. Refresh review state before continuing.`,
-    };
-  }
-
-  return {
-    level: "danger",
-    text: action === "revert"
-      ? `Could not revert ${actionTarget}.`
-      : `Could not update ${actionTarget}.`,
   };
 }
 
@@ -528,7 +454,6 @@ function ReviewPanelEmptyState({
 
 function ReviewFileRow({
   entry,
-  source,
   diffMode,
   wrap,
   wordDiffsEnabled,
@@ -536,16 +461,13 @@ function ReviewFileRow({
   loadFullFilesEnabled,
   expanded,
   openerId,
-  actionPending,
   fullContents,
   fullContentsLoading,
+  comments,
   deps,
-  onRunGitAction,
-  onRunGitHunkAction,
   onToggleExpanded,
 }: {
   entry: ReviewFileEntry;
-  source: ReviewSource;
   diffMode: ReviewDiffMode;
   wrap: boolean;
   wordDiffsEnabled: boolean;
@@ -553,12 +475,10 @@ function ReviewFileRow({
   loadFullFilesEnabled: boolean;
   expanded: boolean;
   openerId: string;
-  actionPending: boolean;
   fullContents: GitReviewFileContents | null;
   fullContentsLoading: boolean;
+  comments: ReviewCodeComment[];
   deps: ReviewDiffPanelDeps;
-  onRunGitAction: (action: ReviewGitFileAction, entry: ReviewFileEntry) => void;
-  onRunGitHunkAction: (action: ReviewGitFileAction, entry: ReviewFileEntry, hunkIndex: number) => void;
   onToggleExpanded: () => void;
 }) {
   const {
@@ -602,20 +522,6 @@ function ReviewFileRow({
     );
   };
 
-  const actionLabel = source === "staged" ? "File actions" : "Review file actions";
-  const showGitActions = source === "staged" || source === "unstaged";
-  const hunkPatches = splitFilePatchByHunks(entry.patchText);
-  const actionsTrigger = (
-    <button
-      type="button"
-      className={toolbarIconButtonClassName("size-6 shrink-0")}
-      aria-label={actionLabel}
-      disabled={actionPending}
-    >
-      <MoreHorizontalIcon />
-    </button>
-  );
-
   return (
     <section
       data-review-path={entry.displayPath}
@@ -647,65 +553,29 @@ function ReviewFileRow({
           </div>
         </div>
         <div className="flex items-center gap-1">
-          {showGitActions ? (
-            <NodexDropdownMenu
-              triggerButton={actionsTrigger}
-              align="end"
-              sideOffset={8}
-            >
-              {source === "unstaged" ? (
-                <NodexDropdownItem onSelect={() => onRunGitAction("stage", entry)} disabled={actionPending}>
-                  Stage file
-                </NodexDropdownItem>
-              ) : null}
-              {source === "staged" ? (
-                <NodexDropdownItem onSelect={() => onRunGitAction("unstage", entry)} disabled={actionPending}>
-                  Unstage file
-                </NodexDropdownItem>
-              ) : null}
-              <NodexDropdownItem onSelect={() => onRunGitAction("revert", entry)} disabled={actionPending}>
-                Revert file
-              </NodexDropdownItem>
-            </NodexDropdownMenu>
-          ) : null}
           <span className="truncate text-xs text-token-description-foreground">{basename(entry.displayPath)}</span>
         </div>
       </div>
       {expanded ? (
         <div className="bg-token-main-surface-primary">
-          {showGitActions && entry.fileDiff.hunks.length > 0 ? (
-            <div className="flex flex-wrap gap-2 border-b border-token-border px-3 py-2">
-              {entry.fileDiff.hunks.map((_, hunkIndex) => (
-                <div key={`${entry.key}:hunk:${hunkIndex}`} className="flex items-center gap-1 rounded-full bg-token-list-hover-background px-2 py-1 text-xs text-token-description-foreground">
-                  <span>{`Hunk ${hunkIndex + 1}`}</span>
-                  {source === "unstaged" ? (
-                    <button
-                      type="button"
-                      className="cursor-interaction rounded-full px-1.5 py-0.5 text-token-foreground hover:bg-token-main-surface-primary"
-                      onClick={() => onRunGitHunkAction("stage", entry, hunkIndex)}
-                    >
-                      Stage
-                    </button>
-                  ) : null}
-                  {source === "staged" ? (
-                    <button
-                      type="button"
-                      className="cursor-interaction rounded-full px-1.5 py-0.5 text-token-foreground hover:bg-token-main-surface-primary"
-                      onClick={() => onRunGitHunkAction("unstage", entry, hunkIndex)}
-                    >
-                      Unstage
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="cursor-interaction rounded-full px-1.5 py-0.5 text-token-foreground hover:bg-token-main-surface-primary"
-                    onClick={() => onRunGitHunkAction("revert", entry, hunkIndex)}
-                    disabled={!hunkPatches[hunkIndex]}
+          {comments.length > 0 ? (
+            <div className="border-b border-token-border bg-token-list-hover-background/40 px-3 py-2" data-review-code-comments="true">
+              <div className="flex flex-col gap-2">
+                {comments.map((comment) => (
+                  <div
+                    key={`${comment.file}:${comment.start ?? "file"}:${comment.title}:${comment.body}`}
+                    className="grid grid-cols-[auto_1fr] gap-2 rounded-md border border-token-border/70 bg-token-main-surface-primary px-2.5 py-2 text-xs"
                   >
-                    Revert
-                  </button>
-                </div>
-              ))}
+                    <div className="text-token-description-foreground">
+                      {comment.start ? `L${comment.start}${comment.end && comment.end !== comment.start ? `-L${comment.end}` : ""}` : "File"}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="truncate font-medium text-token-foreground">{comment.title}</div>
+                      <div className="text-token-description-foreground">{comment.body}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : null}
           {fullContentsLoading ? (
@@ -1129,7 +999,7 @@ function ReviewFileTreePane({
             id={REVIEW_FILE_TREE_SEARCH_INPUT_ID}
             value={fileFilter}
             onChange={(event) => onFileFilterChange(event.target.value)}
-            placeholder="Filter files…"
+            placeholder="Filter files..."
             data-file-tree-search-input="true"
             aria-controls={treeDomId}
             aria-activedescendant={focusedTreeItemId ? `${treeDomId}-${focusedTreeItemId}` : undefined}
@@ -1245,34 +1115,32 @@ export function ReviewDiffPanel({
   const lastHandledSearchOpenTickRef = useRef(searchOpenTick);
   const [source, setSource] = useState<ReviewSource>(initialSource);
   const [diffMode, setDiffMode] = useState<ReviewDiffMode>("unified");
-  const [wrap, setWrap] = useState(false);
-  const [wordDiffsEnabled, setWordDiffsEnabled] = useState(false);
-  const [richPreviewEnabled, setRichPreviewEnabled] = useState(false);
-  const [loadFullFilesEnabled, setLoadFullFilesEnabled] = useState(isGitReviewSource(initialSource));
+  const [hideWhitespace, setHideWhitespace] = useState(false);
   const [fileTreeOpen, setFileTreeOpen] = useState(initialFileTreeOpen);
-  const [fileTreeWidth, setFileTreeWidth] = useState(REVIEW_FILE_TREE_DEFAULT_WIDTH_PX);
   const [fileFilter, setFileFilter] = useState("");
+  const [jumpToFileQuery, setJumpToFileQuery] = useState("");
   const deferredFileFilter = useDeferredValue(fileFilter);
+  const deferredJumpToFileQuery = useDeferredValue(jumpToFileQuery);
   const [expandedDirectoryPaths, setExpandedDirectoryPaths] = useState<Set<string>>(new Set());
   const [isSearchVisible, setIsSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [selectedTreeItemId, setSelectedTreeItemId] = useState<string | null>(null);
   const [focusedTreeItemId, setFocusedTreeItemId] = useState<string | null>(null);
-  const [gitSnapshot, setGitSnapshot] = useState<GitReviewSnapshot | null>(null);
+  const [gitSnapshot, setGitSnapshot] = useState<GitReviewSnapshot | ReviewDiffResult | null>(null);
   const [reviewSearchResult, setReviewSearchResult] = useState<GitReviewSearchResult | null>(null);
-  const [gitLoading, setGitLoading] = useState(false);
-  const [gitActionKey, setGitActionKey] = useState<string | null>(null);
+  const [gitLoadStatus, setGitLoadStatus] = useState<GitReviewLoadStatus>("idle");
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [fullContentsByPath, setFullContentsByPath] = useState<Record<string, GitReviewFileContents>>({});
   const [fullContentsLoadingPaths, setFullContentsLoadingPaths] = useState<Record<string, boolean>>({});
-  const fileTreeResizeStateRef = useRef<{
-    pointerId: number;
-    startX: number;
-    startWidth: number;
-  } | null>(null);
+  const gitLoadRequestIdRef = useRef(0);
   const rowRefs = useRef<Map<string, HTMLElement>>(new Map());
   const [visibleSearchMatchCount, setVisibleSearchMatchCount] = useState(REVIEW_CAPPED_MATCH_PAGE_SIZE);
+  const gitLoading = gitLoadStatus === "loading";
+  const wrap = false;
+  const wordDiffsEnabled = false;
+  const richPreviewEnabled = false;
+  const loadFullFilesEnabled = false;
 
   const reviewCwd = isTranscriptReviewSource(source)
     ? (source === "selected-turn"
@@ -1306,7 +1174,6 @@ export function ReviewDiffPanel({
     }
 
     setSource("selected-turn");
-    setLoadFullFilesEnabled(false);
   }, [selectedTurnDiff?.entryId, selectedTurnDiff?.patch]);
 
   const lastTurnSnapshot = useMemo(
@@ -1321,11 +1188,13 @@ export function ReviewDiffPanel({
   const loadGitSnapshot = async (
     nextSource: GitReviewSource,
     nextCwd: string,
-  ): Promise<GitReviewSnapshot> => {
-    return invoke("git:review:snapshot", {
+  ): Promise<ReviewDiffResult> => {
+    return invoke("git:review:diff", {
       cwd: nextCwd,
       source: nextSource,
-    }) as Promise<GitReviewSnapshot>;
+      hideWhitespace,
+      operationSource: "review_model",
+    }) as Promise<ReviewDiffResult>;
   };
 
   const loadReviewFileContents = async (
@@ -1386,14 +1255,30 @@ export function ReviewDiffPanel({
     }
 
     let cancelled = false;
-    setGitLoading(true);
-    void loadGitSnapshot(source, normalizedCwd)
+    const requestId = gitLoadRequestIdRef.current + 1;
+    gitLoadRequestIdRef.current = requestId;
+    setGitLoadStatus("loading");
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      window.setTimeout(() => {
+        reject(new Error("timed-out"));
+      }, REVIEW_DIFF_TIMEOUT_MS);
+    });
+    const loadPromise = new Promise<ReviewDiffResult>((resolve, reject) => {
+      window.setTimeout(() => {
+        void loadGitSnapshot(source, normalizedCwd).then(resolve, reject);
+      }, REVIEW_DIFF_BATCH_DELAY_MS);
+    });
+
+    void Promise.race([loadPromise, timeoutPromise])
       .then((result) => {
-        if (cancelled) return;
+        if (cancelled || gitLoadRequestIdRef.current !== requestId) return;
         setGitSnapshot(result as GitReviewSnapshot);
+        setGitLoadStatus("loaded");
       })
       .catch((error) => {
-        if (cancelled) return;
+        if (cancelled || gitLoadRequestIdRef.current !== requestId) return;
+        const timedOut = error instanceof Error && error.message === "timed-out";
         setGitSnapshot({
           cwd: normalizedCwd,
           source,
@@ -1403,24 +1288,29 @@ export function ReviewDiffPanel({
           baseRef: null,
           currentBranch: null,
           defaultBranch: null,
-          errorMessage: error instanceof Error ? error.message : "Could not load Git review snapshot.",
+          errorMessage: timedOut
+            ? null
+            : error instanceof Error
+              ? error.message
+              : "Could not load Git review snapshot.",
         });
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setGitLoading(false);
+        setGitLoadStatus(timedOut ? "timed-out" : "load-failed");
       });
 
     return () => {
       cancelled = true;
     };
-  }, [reviewCwd, source]);
+  }, [hideWhitespace, reviewCwd, source]);
 
   const snapshot = useMemo(() => {
     if (source === "selected-turn") return selectedTurnSnapshot;
     if (source === "last-turn") return lastTurnSnapshot;
     return buildGitSnapshot(gitSnapshot, parsePatchFiles);
   }, [gitSnapshot, lastTurnSnapshot, parsePatchFiles, selectedTurnSnapshot, source]);
+  const reviewCodeComments = useMemo(
+    () => extractReviewCodeCommentsFromConversation(conversation),
+    [conversation],
+  );
   const totalChangedLines = useMemo(
     () => getReviewTotalChangedLines(snapshot.files),
     [snapshot.files],
@@ -1432,10 +1322,11 @@ export function ReviewDiffPanel({
   const isCappedMode = useMemo(
     () => isReviewLargeDiff({
       fileCount: snapshot.files.length,
+      largestFileChangedLines: snapshot.files.reduce((largest, file) => Math.max(largest, file.additions + file.deletions), 0),
       totalChangedBytes,
       totalChangedLines,
     }),
-    [snapshot.files.length, totalChangedBytes, totalChangedLines],
+    [snapshot.files, snapshot.files.length, totalChangedBytes, totalChangedLines],
   );
 
   useEffect(() => {
@@ -1654,6 +1545,16 @@ export function ReviewDiffPanel({
     if (snapshot.files.length === 0) return false;
     return snapshot.files.every((entry) => expandedKeys.has(entry.key));
   }, [expandedKeys, snapshot.files]);
+  const jumpToFileMatches = useMemo(() => {
+    const query = deferredJumpToFileQuery.trim().toLowerCase();
+    const files = query.length === 0
+      ? snapshot.files
+      : snapshot.files.filter((file) => {
+          const normalizedPath = file.displayPath.toLowerCase();
+          return normalizedPath.includes(query) || basename(normalizedPath).includes(query);
+        });
+    return files.slice(0, 80);
+  }, [deferredJumpToFileQuery, snapshot.files]);
 
   useEffect(() => {
     if (!selectedPath) return;
@@ -1682,7 +1583,6 @@ export function ReviewDiffPanel({
     >
       <ReviewFileRow
         entry={entry}
-        source={source}
         diffMode={diffMode}
         wrap={wrap}
         wordDiffsEnabled={wordDiffsEnabled}
@@ -1690,16 +1590,10 @@ export function ReviewDiffPanel({
         loadFullFilesEnabled={loadFullFilesEnabled}
         expanded={expandedKeys.has(entry.key)}
         openerId={opener}
-        actionPending={gitActionKey === entry.key}
         fullContents={fullContentsByPath[entry.displayPath] ?? null}
         fullContentsLoading={Boolean(fullContentsLoadingPaths[entry.displayPath])}
+        comments={filterReviewCodeCommentsForPath(reviewCodeComments, entry.displayPath)}
         deps={resolvedDeps}
-        onRunGitAction={(action, targetEntry) => {
-          void handleRunGitFileAction(action, targetEntry);
-        }}
-        onRunGitHunkAction={(action, targetEntry, hunkIndex) => {
-          void handleRunGitHunkAction(action, targetEntry, hunkIndex);
-        }}
         onToggleExpanded={() => {
           setExpandedKeys((current) => {
             const next = new Set(current);
@@ -1723,18 +1617,18 @@ export function ReviewDiffPanel({
     const normalizedCwd = reviewCwd?.trim() ?? "";
     if (!normalizedCwd) return;
 
-    setGitLoading(true);
+    setGitLoadStatus("loading");
     try {
       const result = await loadGitSnapshot(source, normalizedCwd);
       startTransition(() => {
         setGitSnapshot(result);
       });
+      setGitLoadStatus("loaded");
     } catch (error) {
+      setGitLoadStatus("load-failed");
       toast.danger(error instanceof Error ? error.message : "Could not refresh review.", {
         id: "review-diff-notice",
       });
-    } finally {
-      setGitLoading(false);
     }
   };
 
@@ -1807,188 +1701,87 @@ export function ReviewDiffPanel({
     const normalizedCwd = reviewCwd?.trim() ?? "";
     if (!normalizedCwd) return;
 
-    setGitLoading(true);
+    setGitLoadStatus("loading");
     try {
       const result = await invoke("git:init", normalizedCwd) as GitReviewSnapshot;
       startTransition(() => {
         setGitSnapshot(result);
       });
+      setGitLoadStatus("loaded");
       toast.success("Created a Git repository for this workspace.", {
         id: "review-diff-notice",
       });
     } finally {
-      setGitLoading(false);
+      setGitLoadStatus("idle");
     }
   };
 
-  const handleCopyGitApplyCommand = async () => {
-    if (!snapshot.patch.trim()) return;
-    const copied = await writeTextToClipboard(buildGitApplyCommand(snapshot.patch));
-    const message = copied
-      ? "Copied git apply command to the clipboard."
-      : "Could not copy the git apply command.";
-
-    if (copied) {
-      toast.success(message, {
+  const startProtocolReview = async (target: CodexReviewTarget) => {
+    const threadId = conversation?.threadId ?? null;
+    if (!threadId) {
+      toast.danger("Open a thread before starting a review.", {
         id: "review-diff-notice",
       });
       return;
     }
 
-    toast.danger(message, {
-      id: "review-diff-notice",
-    });
-  };
-
-  const handleRunGitFileAction = async (action: ReviewGitFileAction, entry: ReviewFileEntry) => {
-    if (source !== "staged" && source !== "unstaged") return;
-
-    const normalizedCwd = reviewCwd?.trim() ?? "";
-    if (!normalizedCwd) return;
-
-    setGitActionKey(entry.key);
-
-    const applyPatch = async (
-      target: "staged" | "unstaged",
-      revert: boolean,
-    ): Promise<GitApplyPatchResult> => {
-      return invoke("git:apply-patch", {
-        cwd: normalizedCwd,
-        diff: entry.patchText,
-        target,
-        revert,
-      }) as Promise<GitApplyPatchResult>;
-    };
-
     try {
-      let result: GitApplyPatchResult;
-      if (source === "unstaged" && action === "stage") {
-        result = await applyPatch("staged", false);
-      } else if (source === "unstaged" && action === "revert") {
-        result = await applyPatch("unstaged", true);
-      } else if (source === "staged" && action === "unstage") {
-        result = await applyPatch("staged", true);
-      } else if (source === "staged" && action === "revert") {
-        const unstagedRemoval = await applyPatch("staged", true);
-        if (unstagedRemoval.status !== "success") {
-          result = unstagedRemoval;
-        } else {
-          const worktreeRemoval = await applyPatch("unstaged", true);
-          result = worktreeRemoval.status === "success"
-            ? worktreeRemoval
-            : {
-                ...worktreeRemoval,
-                status: "partial-success",
-              };
-        }
-      } else {
-        result = {
-          status: "error",
-          appliedPaths: [],
-          skippedPaths: [],
-          conflictedPaths: [],
-          errorCode: "unsupportedAction",
-          errorMessage: "Unsupported review file action.",
-        };
-      }
-
-      const message = actionResultMessage(action, entry.displayPath, result.status);
-      if (message.level === "success") {
-        toast.success(message.text, {
-          id: "review-diff-notice",
-        });
-      } else {
-        toast.danger(message.text, {
-          id: "review-diff-notice",
-        });
-      }
-      if (result.status !== "error") {
-        await refreshGitSnapshot();
-      }
-    } finally {
-      setGitActionKey(null);
+      await invoke("codex:review:start", {
+        threadId,
+        target,
+        delivery: "inline",
+      });
+      toast.success("Started review.", {
+        id: "review-diff-notice",
+      });
+    } catch (error) {
+      toast.danger(error instanceof Error ? error.message : "Could not start review.", {
+        id: "review-diff-notice",
+      });
     }
   };
 
-  const handleRunGitHunkAction = async (
-    action: ReviewGitFileAction,
-    entry: ReviewFileEntry,
-    hunkIndex: number,
-  ) => {
-    if (source !== "staged" && source !== "unstaged") return;
+  const handleReviewUncommittedChanges = () => {
+    setSource("unstaged");
+    void startProtocolReview({ type: "uncommittedChanges" });
+  };
 
+  const handleReviewBaseBranch = async () => {
+    const baseBranch = snapshot.baseRef ?? snapshot.defaultBranch ?? "main";
+    setSource("branch");
     const normalizedCwd = reviewCwd?.trim() ?? "";
-    if (!normalizedCwd) return;
-
-    const hunkPatch = splitFilePatchByHunks(entry.patchText)[hunkIndex];
-    if (!hunkPatch) return;
-
-    setGitActionKey(`${entry.key}:hunk:${hunkIndex}`);
-
-    const applyPatch = async (
-      target: "staged" | "unstaged",
-      revert: boolean,
-    ): Promise<GitApplyPatchResult> => {
-      return invoke("git:apply-patch", {
+    if (normalizedCwd) {
+      await invoke("git:merge-base", {
         cwd: normalizedCwd,
-        diff: hunkPatch,
-        target,
-        revert,
-      }) as Promise<GitApplyPatchResult>;
-    };
+        baseBranch,
+      }).catch((error) => {
+        toast.danger(error instanceof Error ? error.message : "Could not resolve merge base.", {
+          id: "review-diff-notice",
+        });
+      });
+    }
+    void startProtocolReview({ type: "baseBranch", branch: baseBranch });
+  };
+
+  const startThreadPrompt = async (prompt: string) => {
+    const threadId = conversation?.threadId ?? null;
+    if (!threadId) return;
 
     try {
-      let result: GitApplyPatchResult;
-      if (source === "unstaged" && action === "stage") {
-        result = await applyPatch("staged", false);
-      } else if (source === "unstaged" && action === "revert") {
-        result = await applyPatch("unstaged", true);
-      } else if (source === "staged" && action === "unstage") {
-        result = await applyPatch("staged", true);
-      } else if (source === "staged" && action === "revert") {
-        const unstagedRemoval = await applyPatch("staged", true);
-        if (unstagedRemoval.status !== "success") {
-          result = unstagedRemoval;
-        } else {
-          const worktreeRemoval = await applyPatch("unstaged", true);
-          result = worktreeRemoval.status === "success"
-            ? worktreeRemoval
-            : {
-                ...worktreeRemoval,
-                status: "partial-success",
-              };
-        }
-      } else {
-        result = {
-          status: "error",
-          appliedPaths: [],
-          skippedPaths: [],
-          conflictedPaths: [],
-          errorCode: "unsupportedAction",
-          errorMessage: "Unsupported review hunk action.",
-        };
-      }
-
-      const message = actionResultMessage(action, entry.displayPath, result.status, "hunk");
-      if (message.level === "success") {
-        toast.success(message.text, {
-          id: "review-diff-notice",
-        });
-      } else {
-        toast.danger(message.text, {
-          id: "review-diff-notice",
-        });
-      }
-      if (result.status !== "error") {
-        await refreshGitSnapshot();
-      }
-    } finally {
-      setGitActionKey(null);
+      await invoke("codex:turn:start", threadId, prompt);
+    } catch (error) {
+      toast.danger(error instanceof Error ? error.message : "Could not start Codex turn.", {
+        id: "review-diff-notice",
+      });
     }
   };
+
+  const commitOrPushPrompt = "Commit or push the reviewed workspace changes. Inspect the current Git state first, then choose the smallest appropriate commit or push action.";
+  const createPrPrompt = "Create a pull request for the reviewed branch changes. Inspect the branch, remote, and merge base first, then open a PR with an accurate title and summary.";
+  const canUseThreadGitActions = Boolean(conversation?.threadId && snapshot.isGitRepository && reviewCwd);
 
   const sourceTrigger = (
-    <button type="button" className={toolbarSourceButtonClassName()}>
+    <button type="button" className={toolbarSourceButtonClassName()} aria-label="Review source">
       <span className="flex max-w-full min-w-0 items-center gap-1.5 truncate">{SOURCE_LABELS[source]}</span>
       <ChevronDownIcon className="icon-2xs text-token-description-foreground" />
     </button>
@@ -2000,7 +1793,13 @@ export function ReviewDiffPanel({
     </button>
   );
 
-  const toggleFileTreeLabel = fileTreeOpen ? "Hide file tree" : "Show file tree";
+  const jumpToFileTrigger = (
+    <button type="button" className={toolbarIconButtonClassName()} aria-label="Jump to file">
+      <SearchIcon className="icon-xs" />
+    </button>
+  );
+  const diffModeLabel = diffMode === "unified" ? "Switch to split diff" : "Switch to unified diff";
+  const toggleFileTreeLabel = fileTreeOpen ? "Hide files" : "Show files";
   const handleToggleDirectory = (path: string) => {
     setExpandedDirectoryPaths((current) => {
       const next = new Set(current);
@@ -2011,29 +1810,6 @@ export function ReviewDiffPanel({
       }
       return next;
     });
-  };
-  const clearFileTreeResizeState = () => {
-    fileTreeResizeStateRef.current = null;
-  };
-  const handleFileTreeResizePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    fileTreeResizeStateRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startWidth: fileTreeWidth,
-    };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
-  const handleFileTreeResizePointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    const resizeState = fileTreeResizeStateRef.current;
-    if (!resizeState || resizeState.pointerId !== event.pointerId) return;
-    const nextWidth = clampReviewFileTreeWidth(resizeState.startWidth + (resizeState.startX - event.clientX));
-    setFileTreeWidth(nextWidth);
-  };
-  const handleFileTreeResizeKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-    event.preventDefault();
-    const delta = event.key === "ArrowLeft" ? 16 : -16;
-    setFileTreeWidth((current) => clampReviewFileTreeWidth(current + delta));
   };
 
   if (!reviewCwd) {
@@ -2050,110 +1826,121 @@ export function ReviewDiffPanel({
   return (
     <div className="relative h-full min-h-0 bg-token-main-surface-primary">
       <div className="relative grid h-full min-h-0 w-full grid-rows-[auto_1fr]">
-        <div className="flex flex-col px-2 py-1 text-token-description-foreground">
-          <div className="flex h-9 items-center justify-between">
-            <div className="flex min-w-0 items-center text-base">
-              <div className="min-w-0 font-medium text-token-foreground">
-                <NodexDropdownMenu triggerButton={sourceTrigger} align="start" sideOffset={8}>
-                  {selectedTurnDiff ? (
-                    <NodexDropdownItem onSelect={() => setSource("selected-turn")} rightSlot={source === "selected-turn" ? <CheckmarkIcon className="size-4" /> : null}>
-                      Selected turn
-                    </NodexDropdownItem>
-                  ) : null}
-                  <NodexDropdownItem onSelect={() => setSource("last-turn")} rightSlot={source === "last-turn" ? <CheckmarkIcon className="size-4" /> : null}>
-                    Last turn
-                  </NodexDropdownItem>
-                  <NodexDropdownItem onSelect={() => setSource("branch")} rightSlot={source === "branch" ? <CheckmarkIcon className="size-4" /> : null}>
-                    Branch
-                  </NodexDropdownItem>
-                  <NodexDropdownItem onSelect={() => setSource("staged")} rightSlot={source === "staged" ? <CheckmarkIcon className="size-4" /> : null}>
-                    Staged
-                  </NodexDropdownItem>
-                  <NodexDropdownItem onSelect={() => setSource("unstaged")} rightSlot={source === "unstaged" ? <CheckmarkIcon className="size-4" /> : null}>
-                    Unstaged
-                  </NodexDropdownItem>
-                </NodexDropdownMenu>
-              </div>
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-b border-token-border px-2 py-1 text-token-description-foreground">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="min-w-0 font-medium text-token-foreground">
+              <NodexDropdownMenu triggerButton={sourceTrigger} align="start" sideOffset={8}>
+                <NodexDropdownItem onSelect={() => setSource("last-turn")} rightSlot={source === "last-turn" || source === "selected-turn" ? <CheckmarkIcon className="size-4" /> : null}>
+                  Last turn
+                </NodexDropdownItem>
+                <NodexDropdownItem onSelect={handleReviewUncommittedChanges} rightSlot={source === "unstaged" ? <CheckmarkIcon className="size-4" /> : null}>
+                  Review uncommitted changes
+                </NodexDropdownItem>
+                <NodexDropdownItem onSelect={() => setSource("staged")} rightSlot={source === "staged" ? <CheckmarkIcon className="size-4" /> : null}>
+                  Review staged changes
+                </NodexDropdownItem>
+                <NodexDropdownItem onSelect={handleReviewBaseBranch} rightSlot={source === "branch" ? <CheckmarkIcon className="size-4" /> : null}>
+                  Review against a base branch
+                </NodexDropdownItem>
+              </NodexDropdownMenu>
             </div>
-            <div className="mr-1 flex h-9 flex-shrink-0 items-center">
-              <div className="flex items-center gap-1.5">
-                <NodexDropdownMenu triggerButton={optionsTrigger} align="end" sideOffset={8}>
-                  {isGitReviewSource(source) ? (
-                    <NodexDropdownItem
-                      onSelect={() => void refreshGitSnapshot()}
-                      leftSlot={<RefreshIcon className="icon-xs" />}
-                      disabled={gitLoading || gitActionKey !== null}
-                    >
-                      Refresh
-                    </NodexDropdownItem>
-                  ) : null}
-                  <NodexDropdownItem
-                    onSelect={() => setDiffMode((current) => current === "unified" ? "split" : "unified")}
-                    leftSlot={diffMode === "unified"
-                      ? <ReviewSplitDiffIcon className="icon-xs" />
-                      : <ReviewUnifiedDiffIcon className="icon-xs" />}
-                  >
-                    {diffMode === "unified" ? "Switch to split diff" : "Switch to unified diff"}
-                  </NodexDropdownItem>
-                  <NodexDropdownItem
-                    onSelect={() => setWrap((current) => !current)}
-                    leftSlot={wrap
-                      ? <ReviewDisableWordWrapIcon className="icon-xs" />
-                      : <ReviewEnableWordWrapIcon className="icon-xs" />}
-                  >
-                    {wrap ? "Disable word wrap" : "Enable word wrap"}
-                  </NodexDropdownItem>
-                  <NodexDropdownItem
-                    onSelect={() => setExpandedKeys(areAllDiffsExpanded ? new Set() : new Set(snapshot.files.map((file) => file.key)))}
-                    leftSlot={areAllDiffsExpanded
-                      ? <ReviewCollapseAllDiffsIcon className="icon-xs" />
-                      : <ReviewExpandAllDiffsIcon className="icon-xs" />}
-                  >
-                    {areAllDiffsExpanded ? "Collapse all diffs" : "Expand all diffs"}
-                  </NodexDropdownItem>
-                  <NodexDropdownSeparator />
-                  <NodexDropdownItem
-                    onSelect={() => setLoadFullFilesEnabled((current) => !current)}
-                    leftSlot={<ReviewFileDocumentIcon className="icon-xs" />}
-                    disabled={!isGitReviewSource(source)}
-                  >
-                    {loadFullFilesEnabled ? "Don't load full files" : "Load full files"}
-                  </NodexDropdownItem>
-                  <NodexDropdownItem
-                    onSelect={() => setRichPreviewEnabled((current) => !current)}
-                    leftSlot={<ReviewRichPreviewIcon className="icon-xs" />}
-                    disabled={!loadFullFilesEnabled || !isGitReviewSource(source)}
-                  >
-                    {richPreviewEnabled ? "Disable rich preview" : "Enable rich preview"}
-                  </NodexDropdownItem>
-                  <NodexDropdownItem
-                    onSelect={() => setWordDiffsEnabled((current) => !current)}
-                    leftSlot={<ReviewWordDiffsIcon className="icon-xs" />}
-                  >
-                    {wordDiffsEnabled ? "Disable word diffs" : "Enable word diffs"}
-                  </NodexDropdownItem>
-                  {isGitReviewSource(source) ? (
-                    <NodexDropdownItem
-                      onSelect={() => void handleCopyGitApplyCommand()}
-                      leftSlot={<ReviewFileDocumentIcon className="icon-xs" />}
-                    >
-                      Copy git apply command
-                    </NodexDropdownItem>
-                  ) : null}
-                </NodexDropdownMenu>
-                <button
-                  type="button"
-                  className={toolbarIconButtonClassName()}
-                  aria-label={toggleFileTreeLabel}
-                  onClick={() => setFileTreeOpen((current) => !current)}
+            <DiffStats additions={snapshot.files.reduce((total, file) => total + file.additions, 0)} deletions={snapshot.files.reduce((total, file) => total + file.deletions, 0)} className="text-xs" />
+          </div>
+          <div className="flex min-w-0 flex-shrink-0 items-center gap-1">
+            <NodexDropdownMenu triggerButton={optionsTrigger} align="end" sideOffset={8}>
+              <NodexDropdownItem onSelect={handleReviewUncommittedChanges}>
+                Review uncommitted changes
+              </NodexDropdownItem>
+              <NodexDropdownItem onSelect={handleReviewBaseBranch}>
+                Review against a base branch
+              </NodexDropdownItem>
+              <NodexDropdownSeparator />
+              <NodexDropdownItem
+                onSelect={() => setHideWhitespace((current) => !current)}
+                rightSlot={hideWhitespace ? <CheckmarkIcon className="size-4" /> : null}
+                disabled={!isGitReviewSource(source)}
+              >
+                Hide whitespace
+              </NodexDropdownItem>
+              <NodexDropdownItem
+                onSelect={() => setExpandedKeys(areAllDiffsExpanded ? new Set() : new Set(snapshot.files.map((file) => file.key)))}
+              >
+                {areAllDiffsExpanded ? "Collapse all diffs" : "Expand all diffs"}
+              </NodexDropdownItem>
+              {isGitReviewSource(source) ? (
+                <NodexDropdownItem
+                  onSelect={() => void refreshGitSnapshot()}
+                  disabled={gitLoading}
                 >
-                  <ReviewTreeIcon />
-                </button>
-                <button type="button" className={toolbarIconButtonClassName()} aria-label="Review">
-                  <ReviewPanelIcon />
-                </button>
-              </div>
-            </div>
+                  Refresh
+                </NodexDropdownItem>
+              ) : null}
+            </NodexDropdownMenu>
+            <NodexDropdownMenu
+              triggerButton={jumpToFileTrigger}
+              align="end"
+              sideOffset={8}
+              contentWidth="panelWide"
+              contentMaxHeight="tall"
+            >
+              <NodexDropdownSearchInput
+                value={jumpToFileQuery}
+                onChange={(event) => setJumpToFileQuery(event.target.value)}
+                placeholder="Jump to file"
+                aria-label="Jump to file"
+              />
+              <NodexDropdownSeparator />
+              {jumpToFileMatches.length === 0 ? (
+                <div className="px-2 py-2 text-sm text-token-description-foreground">No files</div>
+              ) : (
+                jumpToFileMatches.map((file) => (
+                  <NodexDropdownItem
+                    key={file.key}
+                    onSelect={() => {
+                      setSelectedPath(file.displayPath);
+                      setJumpToFileQuery("");
+                    }}
+                    rightSlot={selectedPath === file.displayPath ? <CheckmarkIcon className="size-4" /> : null}
+                  >
+                    <span className="block max-w-[300px] truncate">{file.displayPath}</span>
+                  </NodexDropdownItem>
+                ))
+              )}
+            </NodexDropdownMenu>
+            <button
+              type="button"
+              className={toolbarIconButtonClassName()}
+              aria-label={diffModeLabel}
+              onClick={() => setDiffMode((current) => current === "unified" ? "split" : "unified")}
+            >
+              {diffMode === "unified" ? <ReviewSplitDiffIcon className="icon-xs" /> : <ReviewUnifiedDiffIcon className="icon-xs" />}
+            </button>
+            <button
+              type="button"
+              className={toolbarIconButtonClassName()}
+              aria-label={toggleFileTreeLabel}
+              onClick={() => setFileTreeOpen((current) => !current)}
+            >
+              <ReviewTreeIcon />
+            </button>
+            <button
+              type="button"
+              className="border-token-border user-select-none no-drag cursor-interaction flex h-7 items-center gap-1 whitespace-nowrap rounded-md border border-transparent px-2 text-sm text-token-foreground outline-hidden enabled:hover:bg-token-list-hover-background disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Commit or push"
+              disabled={!canUseThreadGitActions}
+              onClick={() => void startThreadPrompt(commitOrPushPrompt)}
+            >
+              Commit or push
+            </button>
+            <button
+              type="button"
+              className="border-token-border user-select-none no-drag cursor-interaction flex h-7 items-center gap-1 whitespace-nowrap rounded-md border border-transparent px-2 text-sm text-token-foreground outline-hidden enabled:hover:bg-token-list-hover-background disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Create PR"
+              disabled={!canUseThreadGitActions}
+              onClick={() => void startThreadPrompt(createPrPrompt)}
+            >
+              Create PR
+            </button>
           </div>
         </div>
 
@@ -2182,8 +1969,22 @@ export function ReviewDiffPanel({
               </div>
             </div>
           ) : null}
-          {gitLoading && isGitReviewSource(source) ? (
+          {gitLoadStatus === "loading" && isGitReviewSource(source) ? (
             <div className="flex h-full items-center justify-center text-sm text-token-description-foreground">Loading review…</div>
+          ) : gitLoadStatus === "timed-out" && isGitReviewSource(source) ? (
+            <ReviewPanelEmptyState
+              title="Review timed out"
+              description="The diff request took longer than 15 seconds. Try again or narrow the review target."
+              action={(
+                <button
+                  type="button"
+                  className="rounded-full bg-token-foreground px-3 py-1.5 text-sm text-token-background hover:brightness-[1.05]"
+                  onClick={() => void refreshGitSnapshot()}
+                >
+                  Retry
+                </button>
+              )}
+            />
           ) : snapshot.errorMessage ? (
             <ReviewPanelEmptyState
               title="Could not load review"
@@ -2249,30 +2050,10 @@ export function ReviewDiffPanel({
               </div>
 
               {fileTreeOpen ? (
-                <>
-                  <button
-                    type="button"
-                    role="separator"
-                    aria-label="Resize file tree"
-                    aria-orientation="vertical"
-                    aria-valuemin={REVIEW_FILE_TREE_MIN_WIDTH_PX}
-                    aria-valuemax={REVIEW_FILE_TREE_MAX_WIDTH_PX}
-                    aria-valuenow={fileTreeWidth}
-                    className="group relative shrink-0 touch-none select-none cursor-col-resize outline-none"
-                    style={{ width: REVIEW_SPLIT_HANDLE_WIDTH_PX }}
-                    onPointerDown={handleFileTreeResizePointerDown}
-                    onPointerMove={handleFileTreeResizePointerMove}
-                    onPointerUp={clearFileTreeResizeState}
-                    onPointerCancel={clearFileTreeResizeState}
-                    onLostPointerCapture={clearFileTreeResizeState}
-                    onKeyDown={handleFileTreeResizeKeyDown}
-                  >
-                    <span className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-token-border transition-colors duration-relaxed ease-basic group-hover:bg-token-foreground/25 group-active:bg-token-foreground/25" />
-                  </button>
-                  <div
-                    className="h-full shrink-0 overflow-hidden pl-2"
-                    style={{ width: fileTreeWidth }}
-                  >
+                <div
+                  className="h-full shrink-0 overflow-hidden border-l border-token-border pl-2"
+                  style={{ width: REVIEW_FILE_TREE_DEFAULT_WIDTH_PX }}
+                >
                     <aside
                       className="h-full shrink-0 overflow-hidden bg-token-main-surface-primary"
                     data-file-tree-virtualized={isReviewFileTreeVirtualizationEnabled(fileTreeState.rows.length, REVIEW_FILE_TREE_VIRTUALIZE_THRESHOLD) ? "true" : undefined}
@@ -2290,8 +2071,7 @@ export function ReviewDiffPanel({
                       onToggleDirectory={handleToggleDirectory}
                     />
                     </aside>
-                  </div>
-                </>
+                </div>
               ) : null}
             </div>
           )}

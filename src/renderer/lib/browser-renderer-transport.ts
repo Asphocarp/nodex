@@ -44,6 +44,83 @@ function createBrowserWindowSessionBootstrap(layout: WorkbenchLayoutSnapshot): W
   };
 }
 
+interface StoryGitReviewFile {
+  path: string;
+  previousPath: string | null;
+  status: "modified" | "added" | "deleted" | "renamed";
+  additions: number;
+  deletions: number;
+}
+
+interface StoryGitReviewSnapshot {
+  cwd: string;
+  source: "unstaged" | "staged" | "branch";
+  patch: string;
+  files: StoryGitReviewFile[];
+  isGitRepository: boolean;
+  baseRef: string | null;
+  currentBranch: string | null;
+  defaultBranch: string | null;
+  errorMessage: string | null;
+}
+
+function splitStoryPatchFileDiffs(patch: string): string[] {
+  const matches = Array.from(patch.matchAll(/^diff --git .+$/gm));
+  if (matches.length === 0) return [];
+
+  return matches.map((match, index) => {
+    const start = match.index ?? 0;
+    const end = matches[index + 1]?.index ?? patch.length;
+    return patch.slice(start, end).trimEnd();
+  });
+}
+
+function buildStoryFileFromDiff(diff: string, index: number): StoryGitReviewFile {
+  const header = diff.match(/^diff --git a\/(.+?) b\/(.+)$/m);
+  const path = header?.[2] ?? `src/file-${index + 1}.ts`;
+  const previousPath = header?.[1] && header[1] !== path ? header[1] : null;
+  const additions = diff.split("\n").filter((line) => line.startsWith("+") && !line.startsWith("+++")).length;
+  const deletions = diff.split("\n").filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
+  const status = diff.includes("--- /dev/null")
+    ? "added"
+    : diff.includes("+++ /dev/null")
+      ? "deleted"
+      : previousPath
+        ? "renamed"
+        : "modified";
+
+  return {
+    path,
+    previousPath,
+    status,
+    additions,
+    deletions,
+  };
+}
+
+function toStoryReviewDiffResult(snapshot: StoryGitReviewSnapshot) {
+  const fileDiffs = splitStoryPatchFileDiffs(snapshot.patch);
+  const files = (snapshot.files.length > 0 ? snapshot.files : fileDiffs.map(buildStoryFileFromDiff))
+    .map((file, index) => {
+      const diff = fileDiffs[index] ?? "";
+      return {
+        ...file,
+        diff,
+        loadStatus: "loaded" as const,
+        renderKey: `${file.previousPath ?? ""}->${file.path}:${file.additions}:${file.deletions}:${diff.length}`,
+        changedBytes: diff.length,
+        tooLarge: file.additions + file.deletions > 15_000,
+        tooLargeReason: null,
+      };
+    });
+
+  return {
+    ...snapshot,
+    patch: files.map((file) => file.diff).filter(Boolean).join("\n"),
+    files,
+  };
+}
+
 async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
   switch (channel) {
     case "projects:list": {
@@ -865,6 +942,66 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         errorMessage: "Git review is unavailable outside Electron.",
       };
     }
+    case "git:review:diff": {
+      const [input] = args as [{
+        cwd: string;
+        source: "unstaged" | "staged" | "branch";
+        files?: string[];
+        baseRef?: string | null;
+        baseBranch?: string | null;
+      }];
+      const snapshot = await invoke("git:review:snapshot", {
+        cwd: input.cwd,
+        source: input.source,
+        baseRef: input.baseBranch ?? input.baseRef ?? null,
+      }) as StoryGitReviewSnapshot;
+      const result = toStoryReviewDiffResult(snapshot);
+      const requestedPaths = new Set(input.files ?? []);
+      if (requestedPaths.size === 0) return result;
+
+      const files = result.files.filter((file) =>
+        requestedPaths.has(file.path) || (file.previousPath ? requestedPaths.has(file.previousPath) : false)
+      );
+      return {
+        ...result,
+        patch: files.map((file) => file.diff).filter(Boolean).join("\n"),
+        files,
+      };
+    }
+    case "git:review:branch-diff-stats": {
+      const [input] = args as [{ cwd: string; baseRef?: string | null; baseBranch?: string | null }];
+      const result = await invoke("git:review:diff", {
+        cwd: input.cwd,
+        source: "branch",
+        baseRef: input.baseBranch ?? input.baseRef ?? null,
+      }) as ReturnType<typeof toStoryReviewDiffResult>;
+      return {
+        cwd: result.cwd,
+        baseRef: result.baseRef,
+        files: result.files.map((file) => ({
+          path: file.path,
+          previousPath: file.previousPath,
+          status: file.status,
+          additions: file.additions,
+          deletions: file.deletions,
+        })),
+        additions: result.files.reduce((total, file) => total + file.additions, 0),
+        deletions: result.files.reduce((total, file) => total + file.deletions, 0),
+        isGitRepository: result.isGitRepository,
+        currentBranch: result.currentBranch,
+        defaultBranch: result.defaultBranch,
+        errorMessage: result.errorMessage,
+      };
+    }
+    case "git:merge-base": {
+      const [input] = args as [{ cwd: string; baseBranch: string }];
+      return {
+        cwd: input.cwd,
+        baseBranch: input.baseBranch,
+        mergeBaseSha: input.baseBranch.trim() ? "1111111111111111111111111111111111111111" : null,
+        errorMessage: input.baseBranch.trim() ? null : "Base branch is required.",
+      };
+    }
     case "git:review:file-contents": {
       const [input] = args as [{
         cwd: string;
@@ -945,6 +1082,16 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         currentBranch: "main",
         defaultBranch: "main",
         errorMessage: null,
+      };
+    }
+    case "codex:review:start": {
+      const [input] = args as [{ threadId: string }];
+      return {
+        reviewThreadId: input.threadId,
+        turn: {
+          id: "storybook-review-turn",
+          status: "in_progress",
+        },
       };
     }
     case "git:apply-patch": {

@@ -48,7 +48,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Opening Card Stage from the right-panel action chooser uses an active-project card picker instead of prompting for a card id.
 - Terminal opens as a session-attached bottom-panel tab with a session-tab-scoped terminal id and starts in the attached thread cwd when present, otherwise the owning project workspace path, otherwise the PTY process default. Cards can request a terminal, but terminal tabs no longer carry card ownership or card ids.
 - Panel action shortcuts are `Cmd/Ctrl+P` for Files, `Cmd/Ctrl+T` for Browser, `Ctrl+Shift+G` for Review, and `Ctrl+\`` for Terminal. They are ignored while focus is inside editor/input/dialog surfaces.
-- The active session can show, collapse, resize, or full-width expand the right panel, and can show/collapse/resize the bottom panel independently. The fixed global header exposes `Toggle bottom panel` and `Toggle side panel` buttons, ordered bottom first and side second. The right panel owns its expand/restore button at the far-right edge of the whole panel, and the bottom panel owns its close button at the far-right edge of the whole bottom panel. New non-Overview sessions default to collapsed right panels; bottom opens when a terminal tab is created or focused. Overview sessions default to open full-width right panels unless the user has changed that session's panel width.
+- The active session can show, collapse, resize, or full-width expand the right panel, and can show/collapse/resize the bottom panel independently. The fixed global header exposes `Toggle bottom panel` and `Toggle side panel` buttons, ordered bottom first and side second, and keeps those persistent top-right toggles visible and clickable over regular and full-width right panels. The right panel owns its expand/restore button at the far-right edge of the whole panel, and the bottom panel owns its close button at the far-right edge of the whole bottom panel. When the right panel is full-width, its tab header visually owns the top row and hides the thread title/header area. New non-Overview sessions default to collapsed right panels; bottom opens when a terminal tab is created or focused. Overview sessions default to open full-width right panels unless the user has changed that session's panel width.
 - Right and bottom panels support splitable tab groups. Users can split the selected tab from a multi-tab group into a new neighboring group, drag tabs between leaf tab strips with a live insertion marker, drag tabs near the body edge of a leaf to create a split, and resize split groups with sashes. Header tab rows insert or move tabs into that group; body drops merge into the group center or split from the body edges. Durable tabs are uniquely owned by one leaf; when the last visible tab leaves or closes from a non-final group, that empty group is removed automatically. The final empty group remains as the panel fallback, and collapsed panels restore their split tree when reopened.
 - URL sync: `/?project=<id>`, persisted to localStorage
 - Selecting a project expands its folder and switches the active DB project context. Selecting a session switches the thread page plus both panel tab groups and clears that session's unread flag.
@@ -114,16 +114,16 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - User-interrupted turns must never produce a turn-complete desktop notification, even if later terminal updates arrive for that turn through the local stream.
 - Packaged macOS builds can check for stable app updates on launch in the background, download them automatically when found, expose a manual `Check now` action in Settings -> General -> `App updates`, expose `Check for Updates…` in the macOS app menu, and require an explicit `Restart to Update` action before installation.
 - Diff stage is a review panel bound to the active thread/project workspace:
-  - review sources include `Last turn`, `Branch`, `Staged`, and `Unstaged`
+  - review sources include `Last turn`, `Review uncommitted changes`, `Review staged changes`, and `Review against a base branch`
   - the panel can initialize Git for a workspace that is not yet a repository
-  - the toolbar exposes source selection, review options, unified/split diff mode, line wrapping, word-diff toggles, full-file loading, rich-preview toggles, and file-tree visibility
-  - Git-backed review sources expose refresh plus `Copy git apply command`
-  - the panel includes `Find in review` search across changed file paths and loaded review content
-  - the right-side file tree can filter changed files and focus one file in large-diff mode
-  - `Last turn` renders from the active conversation's turn diff, while `Branch` / `Staged` / `Unstaged` load workspace Git snapshots through main-process IPC
-  - Git-backed review sources can lazily load old/new file contents for partial diffs, enabling full-file diff rendering inside the panel
-  - `Staged` and `Unstaged` review rows can run file-level `Stage`, `Unstage`, and `Revert` actions in place
-  - very large reviews fall back to a capped one-file-at-a-time mode instead of trying to expand every diff at once
+  - the toolbar exposes source selection, `+N` / `-N` stats, `Review options`, `Jump to file`, unified/split diff mode, `Hide files` / `Show files`, `Commit or push`, and `Create PR`
+  - the panel does not expose word-diff toggles, rich-preview toggles, full-file loading toggles, manual file-tree resizing, copy-git-apply commands, or inline stage/unstage/revert actions
+  - Git-backed review sources load through main-process `git:review:diff`, branch stats, and merge-base IPC, preserving separate loading, load-failed, timed-out, non-git, empty, and large-diff states
+  - `Last turn` renders from the active conversation's turn diff, while Git-backed sources load workspace diffs with optional hidden-whitespace review options
+  - the right-side file tree is fixed-width, can filter changed files with `Filter files...`, and can be hidden without resetting diff selection or comments
+  - model-produced `::code-comment{...}` directives render as path/line anchored review annotations above the matching file diff
+  - very large reviews fall back to a capped one-file-at-a-time mode when they exceed file-count, total-line, total-byte, or single-file changed-line thresholds
+  - detailed Review panel behavior lives in [Review Right Panel Behavior](./review-right-panel-behavior.md)
 - Create/delete projects via switcher dropdown or CLI
 - Default project "default" seeded on first boot
 - In Electron, startup opens into a blocking bootstrap surface until local initialization completes; if a future supported SQLite schema migration is running, that surface shows determinate migration progress and migration-specific status copy

@@ -6,8 +6,11 @@ import path from "node:path";
 import {
   applyGitReviewPatch,
   initializeGitRepositoryAndReadReviewSnapshot,
+  readBranchDiffStats,
+  readGitReviewDiff,
   readGitReviewFileContents,
   readGitReviewSnapshot,
+  resolveGitMergeBase,
   searchGitReview,
 } from "./git-review-service";
 
@@ -119,6 +122,52 @@ describe("git review service", () => {
     expect(snapshot.baseRef).toBe("main");
     expect(snapshot.files.length).toBe(1);
     expect(snapshot.files[0]?.path).toBe("feature.ts");
+  });
+
+  test("returns codex-shaped per-file review diffs", async () => {
+    const cwd = createTempDir("nodex-git-review-diff-");
+    initializeRepository(cwd);
+    writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
+    commitAll(cwd, "initial");
+
+    writeFileSync(path.join(cwd, "README.md"), "alpha\nbeta\n", "utf8");
+    writeFileSync(path.join(cwd, "feature.ts"), "export const feature = true;\n", "utf8");
+
+    const result = await readGitReviewDiff({
+      cwd,
+      source: "unstaged",
+      files: ["feature.ts"],
+    });
+
+    expect(result.isGitRepository).toBeTrue();
+    expect(result.files.length).toBe(1);
+    expect(result.files[0]?.path).toBe("feature.ts");
+    expect(result.files[0]?.loadStatus).toBe("loaded");
+    expect(result.patch.includes("README.md")).toBeFalse();
+  });
+
+  test("returns branch diff stats and merge base", async () => {
+    const cwd = createTempDir("nodex-git-review-branch-stats-");
+    initializeRepository(cwd);
+    writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
+    commitAll(cwd, "initial");
+    const mainHead = runGit(cwd, ["rev-parse", "HEAD"]).trim();
+    runGit(cwd, ["checkout", "--quiet", "-b", "feature/review"]);
+    writeFileSync(path.join(cwd, "feature.ts"), "export const branchDiff = true;\n", "utf8");
+    commitAll(cwd, "feature");
+
+    const stats = await readBranchDiffStats({
+      cwd,
+      baseBranch: "main",
+    });
+    const mergeBase = await resolveGitMergeBase({
+      cwd,
+      baseBranch: "main",
+    });
+
+    expect(stats.files.length).toBe(1);
+    expect(stats.additions).toBe(1);
+    expect(mergeBase.mergeBaseSha).toBe(mainHead);
   });
 
   test("initializes a git repository when requested", async () => {

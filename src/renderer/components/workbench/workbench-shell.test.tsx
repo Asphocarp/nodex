@@ -2178,9 +2178,15 @@ describe("workbench session shell", () => {
 
     const rightPanel = screen.getByTestId("session-right-panel");
     const threadPage = screen.container.querySelector('[data-testid="session-thread-page"]');
+    const globalHeader = screen.getByTestId("workbench-global-header");
+    const headerCenterSurface = screen.getByTestId("app-shell-header-context-menu-surface");
     const restoreButton = screen.getByRole("button", { name: "Restore panel width" });
+    expect(globalHeader.className.includes("z-[42]")).toBeTrue();
+    expect(headerCenterSurface.getAttribute("aria-hidden")).toBe("true");
+    expect(headerCenterSurface.className.includes("invisible")).toBeTrue();
     expect(rightPanel.getAttribute("data-right-panel-width-mode")).toBe("full");
     expect(rightPanel.getAttribute("data-app-shell-focus-area")).toBe("right-panel");
+    expect(rightPanel.className.includes("z-[41]")).toBeTrue();
     expect(threadPage?.getAttribute("data-session-thread-page-hidden")).toBe("true");
     expect(restoreButton.getAttribute("aria-pressed")).toBe("true");
   });
@@ -2203,6 +2209,7 @@ describe("workbench session shell", () => {
 
     const globalHeader = screen.container.querySelector('[data-testid="workbench-global-header"]');
     const rightPanel = screen.container.querySelector('[data-testid="session-right-panel"]');
+    const headerCenterSurface = screen.getByTestId("app-shell-header-context-menu-surface");
     const tabHeader = rightPanel?.querySelector('[role="tablist"]')?.parentElement?.parentElement;
     const rightPanelGlobalHeader = screen.getByTestId("right-panel-global-header-actions");
     const headerShellSlot = getHeaderShellSlot(screen, "right");
@@ -2217,6 +2224,10 @@ describe("workbench session shell", () => {
     expect(globalHeader?.contains(sidePanelToggle)).toBeTrue();
     expect(headerShellSlot?.contains(sidePanelToggle)).toBeTrue();
     expect(visibleGlobalHeaderButtons.map((button) => button.getAttribute("aria-label")).join(",")).toBe("Toggle bottom panel,Toggle side panel");
+    expect(rightPanel?.className.includes("z-[41]")).toBeTrue();
+    expect(globalHeader?.className.includes("z-[42]")).toBeTrue();
+    expect(headerCenterSurface.getAttribute("aria-hidden")).toBe(null);
+    expect(headerCenterSurface.className.includes("invisible")).toBeFalse();
     expect(headerShellSlot?.className.includes("pe-2")).toBeTrue();
     expect(headerShellSlot?.getAttribute("style")?.includes("width: 372px")).toBeTrue();
     expect(headerShellSlot?.getAttribute("style")?.includes("min-width: 70px")).toBeTrue();
@@ -2246,6 +2257,10 @@ describe("workbench session shell", () => {
     const threadPage = screen.container.querySelector('[data-testid="session-thread-page"]');
     expect(rightPanel?.getAttribute("data-right-panel-width-mode")).toBe("full");
     expect(rightPanel?.getAttribute("data-app-shell-focus-area")).toBe("right-panel");
+    expect(rightPanel?.className.includes("z-[41]")).toBeTrue();
+    expect(globalHeader?.className.includes("z-[42]")).toBeTrue();
+    expect(headerCenterSurface.getAttribute("aria-hidden")).toBe("true");
+    expect(headerCenterSurface.className.includes("invisible")).toBeTrue();
     expect(rightPanel?.className.includes("shadow-xl")).toBeFalse();
     expect(threadPage?.getAttribute("data-session-thread-page-hidden")).toBe("true");
     expect(threadPage?.className.includes("w-0")).toBeTrue();

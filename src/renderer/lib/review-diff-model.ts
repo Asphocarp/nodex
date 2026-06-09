@@ -20,6 +20,7 @@ export interface ReviewLargeDiffStats {
   fileCount: number;
   totalChangedBytes: number;
   totalChangedLines: number;
+  largestFileChangedLines?: number;
 }
 
 export interface ReviewRenderPlan<TFile> {
@@ -31,6 +32,7 @@ export interface ReviewRenderPlan<TFile> {
 const REVIEW_LARGE_DIFF_FILE_THRESHOLD = 128;
 const REVIEW_LARGE_DIFF_LINE_THRESHOLD = 9_000;
 const REVIEW_LARGE_DIFF_BYTE_THRESHOLD = 12 * 1024 * 1024;
+const REVIEW_LARGE_DIFF_SINGLE_FILE_CHANGED_LINE_THRESHOLD = 15_000;
 export const REVIEW_CAPPED_MATCH_PAGE_SIZE = 20;
 export const REVIEW_DEFERRED_RENDER_FALLBACK_COUNT = 2;
 const REVIEW_CONTAIN_INTRINSIC_BASE_HEIGHT = 56;
@@ -48,7 +50,8 @@ export function getReviewTotalChangedBytes(patch: string): number {
 export function isReviewLargeDiff(stats: ReviewLargeDiffStats): boolean {
   return stats.fileCount > REVIEW_LARGE_DIFF_FILE_THRESHOLD
     || stats.totalChangedLines > REVIEW_LARGE_DIFF_LINE_THRESHOLD
-    || stats.totalChangedBytes > REVIEW_LARGE_DIFF_BYTE_THRESHOLD;
+    || stats.totalChangedBytes > REVIEW_LARGE_DIFF_BYTE_THRESHOLD
+    || (stats.largestFileChangedLines ?? 0) > REVIEW_LARGE_DIFF_SINGLE_FILE_CHANGED_LINE_THRESHOLD;
 }
 
 export function filterReviewFiles<TFile extends ReviewDiffModelFile>(

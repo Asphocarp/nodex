@@ -9,6 +9,9 @@ import type {
   NetworkApprovalContext as CodexAppServerNetworkApprovalContext,
   SandboxMode as CodexAppServerSandboxMode,
   SandboxPolicy as CodexAppServerSandboxPolicy,
+  ReviewStartParams as CodexAppServerReviewStartParams,
+  ReviewStartResponse as CodexAppServerReviewStartResponse,
+  ReviewTarget as CodexAppServerReviewTarget,
   ThreadItem as CodexAppServerThreadItem,
   UserInput as CodexAppServerUserInput,
 } from "@nodex/codex-app-server-protocol/v2";
@@ -1541,7 +1544,16 @@ export interface CodexBackgroundTerminalRow {
 
 export type GitReviewSource = "unstaged" | "staged" | "branch";
 
+export type ReviewDiffFilter = "last-turn" | GitReviewSource;
+
 export type GitReviewFileStatus = "modified" | "added" | "deleted" | "renamed";
+
+export type ReviewDiffLoadStatus =
+  | "loading"
+  | "loaded"
+  | "load-failed"
+  | "timed-out"
+  | "diff-too-large";
 
 export type GitApplyPatchTarget = "staged" | "unstaged";
 
@@ -1566,6 +1578,75 @@ export interface GitReviewSnapshot {
   defaultBranch: string | null;
   errorMessage: string | null;
 }
+
+export interface ReviewDiffEntry extends GitReviewFileSummary {
+  diff: string;
+  loadStatus: ReviewDiffLoadStatus;
+  renderKey: string;
+  changedBytes: number;
+  tooLarge: boolean;
+  tooLargeReason: string | null;
+}
+
+export interface ReviewDiffRequest {
+  cwd: string;
+  source: GitReviewSource;
+  files?: string[];
+  baseRef?: string | null;
+  baseBranch?: string | null;
+  commitSha?: string | null;
+  hideWhitespace?: boolean;
+  operationSource?: string | null;
+}
+
+export interface ReviewDiffResult {
+  cwd: string;
+  source: GitReviewSource;
+  patch: string;
+  files: ReviewDiffEntry[];
+  isGitRepository: boolean;
+  baseRef: string | null;
+  currentBranch: string | null;
+  defaultBranch: string | null;
+  errorMessage: string | null;
+}
+
+export interface BranchDiffStatsRequest {
+  cwd: string;
+  baseRef?: string | null;
+  baseBranch?: string | null;
+  commitSha?: string | null;
+  hideWhitespace?: boolean;
+}
+
+export interface BranchDiffStatsResult {
+  cwd: string;
+  baseRef: string | null;
+  files: GitReviewFileSummary[];
+  additions: number;
+  deletions: number;
+  isGitRepository: boolean;
+  currentBranch: string | null;
+  defaultBranch: string | null;
+  errorMessage: string | null;
+}
+
+export interface GitMergeBaseRequest {
+  cwd: string;
+  gitRoot?: string | null;
+  baseBranch: string;
+}
+
+export interface GitMergeBaseResult {
+  cwd: string;
+  baseBranch: string;
+  mergeBaseSha: string | null;
+  errorMessage: string | null;
+}
+
+export type CodexReviewTarget = CodexAppServerReviewTarget;
+export type CodexReviewStartParams = CodexAppServerReviewStartParams;
+export type CodexReviewStartResponse = CodexAppServerReviewStartResponse;
 
 export interface GitReviewFileContentsInput {
   cwd: string;

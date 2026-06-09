@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useEffect, type ComponentProps } from "react";
 import type { CodexConversationSnapshot } from "@/lib/types";
 import { ReviewDiffPanel } from "./review-diff-panel";
 
@@ -68,6 +69,44 @@ function buildStoryConversation(): CodexConversationSnapshot {
   };
 }
 
+function buildCommentStoryConversation(): CodexConversationSnapshot {
+  const conversation = buildStoryConversation();
+  conversation.turns[0]!.items = [
+    {
+      threadId: "thr_story_review",
+      turnId: "turn_1",
+      itemId: "item_review_comment",
+      type: "message",
+      kind: "assistantMessage",
+      role: "assistant",
+      markdownText: '::code-comment{title="Tighten guard" body="This branch should return early before the expensive path." file="src/renderer/components/workbench/workbench-shell.tsx" start=1768 end=1768 priority=1}',
+      createdAt: 1,
+      updatedAt: 1,
+    },
+  ];
+  return conversation;
+}
+
+function ReviewStorySurface({
+  openControlLabel,
+  ...args
+}: ComponentProps<typeof ReviewDiffPanel> & { openControlLabel?: string }) {
+  useEffect(() => {
+    if (!openControlLabel) return;
+    const timerId = window.setTimeout(() => {
+      const button = document.querySelector<HTMLButtonElement>(`button[aria-label="${openControlLabel}"]`);
+      button?.click();
+    }, 100);
+    return () => window.clearTimeout(timerId);
+  }, [openControlLabel]);
+
+  return (
+    <div className="h-screen overflow-hidden bg-token-main-surface-primary">
+      <ReviewDiffPanel {...args} />
+    </div>
+  );
+}
+
 const meta = {
   title: "Workbench/Review Diff Panel",
   component: ReviewDiffPanel,
@@ -75,11 +114,7 @@ const meta = {
     conversation: buildStoryConversation(),
     projectWorkspacePath: "/Users/asc/repo/nodex",
   },
-  render: (args) => (
-    <div className="h-screen overflow-hidden bg-token-main-surface-primary">
-      <ReviewDiffPanel {...args} />
-    </div>
-  ),
+  render: (args) => <ReviewStorySurface {...args} />,
   parameters: {
     layout: "fullscreen",
   },
@@ -101,6 +136,14 @@ export const NoDiff: Story = {
   args: {
     initialSource: "unstaged",
     projectWorkspacePath: "/tmp/storybook/no-diff",
+  },
+};
+
+export const BranchReview: Story = {
+  args: {
+    initialSource: "branch",
+    initialFileTreeOpen: true,
+    projectWorkspacePath: "/Users/asc/repo/nodex",
   },
 };
 
@@ -157,7 +200,7 @@ export const StagedEmpty: Story = {
   },
 };
 
-export const UnstagedWithHunkActions: Story = {
+export const UnstagedChanges: Story = {
   args: {
     initialSource: "unstaged",
     projectWorkspacePath: "/Users/asc/repo/nodex",
@@ -167,6 +210,23 @@ export const UnstagedWithHunkActions: Story = {
 export const OptionsMenuOpen: Story = {
   args: {
     initialSource: "unstaged",
+    projectWorkspacePath: "/Users/asc/repo/nodex",
+  },
+  render: (args) => <ReviewStorySurface {...args} openControlLabel="Review options" />,
+};
+
+export const JumpToFileOpen: Story = {
+  args: {
+    initialSource: "unstaged",
+    initialFileTreeOpen: true,
+    projectWorkspacePath: "/tmp/storybook/virtualized-tree",
+  },
+  render: (args) => <ReviewStorySurface {...args} openControlLabel="Jump to file" />,
+};
+
+export const InlineComment: Story = {
+  args: {
+    conversation: buildCommentStoryConversation(),
     projectWorkspacePath: "/Users/asc/repo/nodex",
   },
 };

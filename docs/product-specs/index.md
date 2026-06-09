@@ -7,6 +7,7 @@
 | desktop-notification-behavior.md | Active | 2026-04-09 | Detailed Electron desktop notification contract for thread turn-complete, approval, and question notifications, including suppression, payloads, and action routing |
 | codex-fast-mode-core-enablement.md | Active | 2026-04-09 | Detailed global Fast-mode preference contract covering persistence, shared renderer ownership, UI surfaces, request fallback, queue freezing, and reporting normalization |
 | codex-thread-transcript-behavior.md | Active | 2026-03-20 | Source of truth for visible Codex Threads transcript projection, rendering, optimistic prompts, tool/reasoning rows, and restart recovery |
+| review-right-panel-behavior.md | Active | 2026-06-09 | Detailed Review right-panel contract for toolbar controls, diff sources, Git IPC, large-diff limits, file tree behavior, and code-comment annotations |
 | kanban-drag-and-drop-behavior.md | Active | 2026-03-17 | Detailed Kanban DnD contract covering same-column reorder, filtered/sorted behavior, editor interop, and persistence invariants |
 | command-palette-behavior.md | Active | 2026-03-14 | Detailed command-palette launch, mode switching, ranking, previews, highlights, and execution behavior |
 | description-history-revisions.md | Active | 2026-03-11 | Detailed storage, migration, hydration, pruning, and disk-reclamation behavior for revision-based card description history |

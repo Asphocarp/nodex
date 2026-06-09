@@ -3532,7 +3532,7 @@ export function WorkbenchShell({
           <header
             data-testid="workbench-global-header"
             data-app-shell-header-edge-scroll={appShellHeaderEdgeScroll ? "true" : "false"}
-            className="app-header-tint draggable pointer-events-none fixed inset-x-0 top-0 z-30 flex h-toolbar min-w-0 items-center"
+            className="app-header-tint draggable pointer-events-none fixed inset-x-0 top-0 z-[42] flex h-toolbar min-w-0 items-center"
           >
             <HeaderShellSlot
               side="left"
@@ -3545,8 +3545,12 @@ export function WorkbenchShell({
             />
             {appShellHeaderCenterVisible ? (
               <div
+                aria-hidden={rightPanelFullWidth ? "true" : undefined}
                 data-testid="app-shell-header-context-menu-surface"
-                className="pointer-events-none ms-4 flex h-full min-w-0 flex-1 isolate items-center gap-1.5 overflow-hidden [contain:layout_paint] pe-1.5"
+                className={cn(
+                  "pointer-events-none ms-4 flex h-full min-w-0 flex-1 isolate items-center gap-1.5 overflow-hidden [contain:layout_paint] pe-1.5",
+                  rightPanelFullWidth && "invisible",
+                )}
               >
                 <div
                   ref={setThreadHeaderPortalElement}
@@ -3758,7 +3762,7 @@ export function WorkbenchShell({
                       data-app-shell-focus-area="right-panel"
                       data-testid="session-right-panel"
                       data-right-panel-width-mode={rightPanelFullWidth ? "full" : "regular"}
-                      className="relative ml-auto h-full min-h-0 min-w-0 shrink-0 overflow-visible"
+                      className="relative z-[41] ml-auto h-full min-h-0 min-w-0 shrink-0 overflow-visible"
                       style={{
                         opacity: rightPanelMotion.opacity,
                         width: rightPanelMotion.animatedSize,
@@ -3776,7 +3780,7 @@ export function WorkbenchShell({
                         </div>
                       ) : null}
 
-                      <div className="absolute inset-0 min-w-0 overflow-hidden">
+                      <div className="absolute inset-0 min-h-0 min-w-0 overflow-hidden">
                         <div
                           className={cn(
                             "absolute top-0 bottom-0 left-0 min-w-0 bg-token-main-surface-primary",

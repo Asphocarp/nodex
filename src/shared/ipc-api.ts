@@ -14,15 +14,23 @@ import type {
   CodexCollaborationModePreset,
   CodexCollaborationModeState,
   CodexEvent,
+  CodexReviewStartParams,
+  CodexReviewStartResponse,
   CodexServiceTier,
+  BranchDiffStatsRequest,
+  BranchDiffStatsResult,
   GitApplyPatchInput,
   GitApplyPatchResult,
+  GitMergeBaseRequest,
+  GitMergeBaseResult,
   GitReviewFileContents,
   GitReviewFileContentsInput,
   GitReviewSearchInput,
   GitReviewSearchResult,
   GitReviewSnapshot,
   GitReviewSource,
+  ReviewDiffRequest,
+  ReviewDiffResult,
   CodexHostMessage,
   CodexModelOption,
   CodexPermissionMode,
@@ -500,6 +508,18 @@ export interface IpcApi {
     args: [input: { cwd: string; source: GitReviewSource; baseRef?: string | null }];
     result: GitReviewSnapshot;
   };
+  "git:review:diff": {
+    args: [input: ReviewDiffRequest];
+    result: ReviewDiffResult;
+  };
+  "git:review:branch-diff-stats": {
+    args: [input: BranchDiffStatsRequest];
+    result: BranchDiffStatsResult;
+  };
+  "git:merge-base": {
+    args: [input: GitMergeBaseRequest];
+    result: GitMergeBaseResult;
+  };
   "git:review:file-contents": {
     args: [input: GitReviewFileContentsInput];
     result: GitReviewFileContents;
@@ -603,6 +623,10 @@ export interface IpcApi {
   "codex:turn:start": {
     args: [threadId: string, prompt: string, opts?: CodexTurnStartOptions];
     result: CodexTurnSummary | null;
+  };
+  "codex:review:start": {
+    args: [input: CodexReviewStartParams];
+    result: CodexReviewStartResponse;
   };
   "codex:thread:follow-up:enqueue": {
     args: [threadId: string, prompt: string, opts?: CodexTurnStartOptions];

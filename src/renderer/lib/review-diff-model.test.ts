@@ -59,6 +59,21 @@ describe("review diff model", () => {
     })).toBeFalse();
   });
 
+  test("detects codex-style single-file large diffs", () => {
+    expect(isReviewLargeDiff({
+      fileCount: 1,
+      totalChangedLines: 1,
+      totalChangedBytes: 1,
+      largestFileChangedLines: 15_001,
+    })).toBeTrue();
+    expect(isReviewLargeDiff({
+      fileCount: 1,
+      totalChangedLines: 1,
+      totalChangedBytes: 1,
+      largestFileChangedLines: 15_000,
+    })).toBeFalse();
+  });
+
   test("filters review files by file path only", () => {
     expect(filterReviewFiles(FILES, "src/b").length).toBe(1);
   });

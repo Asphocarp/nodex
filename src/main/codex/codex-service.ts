@@ -35,6 +35,8 @@ import type { ThreadStartParams } from "@nodex/codex-app-server-protocol/v2/Thre
 import type { ThreadStartResponse } from "@nodex/codex-app-server-protocol/v2/ThreadStartResponse";
 import type { ThreadUnarchiveResponse } from "@nodex/codex-app-server-protocol/v2/ThreadUnarchiveResponse";
 import type { ThreadUnsubscribeResponse } from "@nodex/codex-app-server-protocol/v2/ThreadUnsubscribeResponse";
+import type { ReviewStartParams } from "@nodex/codex-app-server-protocol/v2/ReviewStartParams";
+import type { ReviewStartResponse } from "@nodex/codex-app-server-protocol/v2/ReviewStartResponse";
 import type { TurnStartParams } from "@nodex/codex-app-server-protocol/v2/TurnStartParams";
 import type { TurnStartResponse } from "@nodex/codex-app-server-protocol/v2/TurnStartResponse";
 import type { TurnSteerParams } from "@nodex/codex-app-server-protocol/v2/TurnSteerParams";
@@ -6225,6 +6227,11 @@ export class CodexService extends EventEmitter {
       durationMs: Date.now() - startedAt,
     });
     return detail.turns[detail.turns.length - 1];
+  }
+
+  async startReview(params: ReviewStartParams): Promise<ReviewStartResponse> {
+    await this.ensureClientReady();
+    return this.client.request<"review/start", ReviewStartResponse>("review/start", params);
   }
 
   async sendQueuedFollowUpNow(threadId: string, followUpId: string): Promise<void> {
