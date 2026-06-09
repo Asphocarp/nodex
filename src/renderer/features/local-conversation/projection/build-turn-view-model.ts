@@ -91,6 +91,12 @@ function collectSearchableText(blocks: ThreadBlockModel[]): string {
           ...block.entries.map((entry) => stringifyToolCall(entry)),
         ];
       }
+      if (block.type === "pendingMcpToolCalls" || block.type === "dynamicToolCallGroup") {
+        return [
+          block.summary,
+          ...block.entries.map((entry) => entry.searchableText),
+        ];
+      }
       if (block.type === "collapsedToolActivity") {
         return [
           block.summary,
@@ -119,6 +125,8 @@ function withSearchUnitKey<TBlock extends ThreadBlockModel | null>(
   if (
     block.type === "explorationGroup"
     || block.type === "multiAgentGroup"
+    || block.type === "pendingMcpToolCalls"
+    || block.type === "dynamicToolCallGroup"
     || block.type === "collapsedToolActivity"
     || block.type === "assistantActions"
     || block.type === "thinkingPlaceholder"

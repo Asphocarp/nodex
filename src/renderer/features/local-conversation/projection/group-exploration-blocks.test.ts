@@ -100,6 +100,76 @@ describe("groupAgentEntries collapsed tool activity", () => {
     expect(grouped.map((entry) => entry.type).join(",")).toBe("exec,mcpServerElicitation,exec");
   });
 
+  test("groups pending MCP tool calls before collapsed historical activity", () => {
+    const grouped = groupAgentEntries([
+      buildBlock("mcp-1", "mcpToolCall", {
+        kind: "toolCall",
+        semanticKind: "mcpToolCall",
+        status: "inProgress",
+        mcpToolCall: {
+          callId: "mcp-1",
+          functionName: "browser-use__click",
+          invocation: { server: "browser-use", tool: "click", arguments: {} },
+          result: null,
+          durationMs: null,
+          completed: false,
+        },
+      }),
+      buildBlock("mcp-2", "mcpToolCall", {
+        kind: "toolCall",
+        semanticKind: "mcpToolCall",
+        status: "inProgress",
+        mcpToolCall: {
+          callId: "mcp-2",
+          functionName: "browser-use__scroll",
+          invocation: { server: "browser-use", tool: "scroll", arguments: {} },
+          result: null,
+          durationMs: null,
+          completed: false,
+        },
+      }),
+    ]);
+
+    expect(grouped.map((entry) => entry.type).join(",")).toBe("pendingMcpToolCalls");
+    const group = grouped[0];
+    expect(group?.type === "pendingMcpToolCalls" ? group.entries.length : 0).toBe(2);
+    expect(group?.type === "pendingMcpToolCalls" ? group.summary : "").toBe("Using the browser");
+  });
+
+  test("groups repeated dynamic tool calls by stable arguments and outputs", () => {
+    const dynamicEntry = {
+      kind: "toolCall" as const,
+      semanticKind: "dynamicToolCall" as const,
+      status: "completed" as const,
+      dynamicToolCall: {
+        callId: "dynamic-1",
+        namespace: "codex_app",
+        tool: "read_thread",
+        arguments: { threadId: "thread-1" },
+        status: "completed" as const,
+        contentItems: [{ type: "inputText" as const, text: "{\"schemaVersion\":1}" }],
+        success: true,
+        durationMs: 1,
+        completed: true,
+      },
+    };
+    const grouped = groupAgentEntries([
+      buildBlock("dynamic-1", "dynamicToolCall", dynamicEntry),
+      buildBlock("dynamic-2", "dynamicToolCall", {
+        ...dynamicEntry,
+        dynamicToolCall: {
+          ...dynamicEntry.dynamicToolCall,
+          callId: "dynamic-2",
+        },
+      }),
+    ]);
+
+    expect(grouped.map((entry) => entry.type).join(",")).toBe("dynamicToolCallGroup");
+    const group = grouped[0];
+    expect(group?.type === "dynamicToolCallGroup" ? group.repeatCount : 0).toBe(2);
+    expect(group?.type === "dynamicToolCallGroup" ? group.summary : "").toBe("Read thread");
+  });
+
   test("formats file and list-only summaries without Completed actions fallback", () => {
     const fileStats = collectCollapsedToolActivitySummaryStats([
       buildBlock("create", "fileChange", {
@@ -175,5 +245,26 @@ describe("groupAgentEntries collapsed tool activity", () => {
     ]);
 
     expect(grouped.map((entry) => entry.type).join(",")).toBe("fileChange");
+  });
+
+  test("counts running MCP calls for collapsed summary shimmer state", () => {
+    const stats = collectCollapsedToolActivitySummaryStats([
+      buildBlock("mcp-running", "mcpToolCall", {
+        kind: "toolCall",
+        semanticKind: "mcpToolCall",
+        status: "inProgress",
+        mcpToolCall: {
+          callId: "mcp-running",
+          functionName: "computer-use__click",
+          invocation: { server: "computer-use", tool: "click", arguments: {} },
+          result: null,
+          durationMs: null,
+          completed: false,
+        },
+      }),
+    ]);
+
+    expect(stats.mcpToolCallCount).toBe(1);
+    expect(stats.runningMcpToolCallCount).toBe(1);
   });
 });

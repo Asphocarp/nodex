@@ -40,6 +40,7 @@ import {
   ToolActivityIcon,
   resolveCollapsedToolActivityIcon,
   resolveExplorationEntriesIcon,
+  resolveMcpSourceIcon,
   semanticToolIcon,
   type ToolActivityIconDescriptor,
 } from "../shared/tools/tool-call-icons";
@@ -561,6 +562,133 @@ export function ThreadMultiAgentGroupBlock({
   return <MultiAgentActionSurface items={block.entries} />;
 }
 
+export function ThreadPendingMcpToolCallsBlock({
+  block,
+  isLatestTurn,
+  isStreamingTurn,
+  projectWorkspacePath,
+  threadCwd,
+  onOpenTurnDiffReview,
+}: ThreadSpecialBlockProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  if (block.type !== "pendingMcpToolCalls") return null;
+  const firstEntry = block.entries[0]?.entry;
+  const icon = firstEntry ? resolveMcpSourceIcon(firstEntry) : semanticToolIcon("connector");
+
+  return (
+    <div className="flex min-w-0 flex-col pt-0 text-token-conversation-body">
+      <button
+        type="button"
+        className="group/summary inline-flex w-fit max-w-full cursor-interaction items-center gap-1.5 self-start text-left"
+        aria-expanded={isExpanded}
+        onClick={() => {
+          setIsExpanded((value) => !value);
+        }}
+      >
+        <ToolActivityIcon descriptor={icon} />
+        <CodexShimmerText active className="min-w-0 truncate text-token-description-foreground/90 group-hover/summary:text-token-foreground">
+          {block.summary}
+        </CodexShimmerText>
+        <ChevronRightIcon
+          className={cn(
+            "icon-2xs flex-shrink-0 text-token-input-placeholder-foreground opacity-0 transition-transform duration-300 group-hover/summary:opacity-100",
+            isExpanded && "rotate-90 opacity-100",
+          )}
+        />
+      </button>
+      <motion.div
+        initial={false}
+        animate={isExpanded ? { height: "auto", opacity: 1 } : { height: 0, opacity: 0 }}
+        transition={CODEX_THREAD_ACCORDION_TRANSITION}
+        className={isExpanded ? "overflow-visible" : "overflow-hidden"}
+        data-testid="pending-mcp-tool-calls-body"
+        data-thread-find-skip={isExpanded ? undefined : true}
+        style={{ pointerEvents: isExpanded ? "auto" : "none" }}
+      >
+        <div className="-mx-2.5 mt-1 flex flex-col gap-1 rounded-none border-0 px-2.5">
+          {block.entries.map((entry) => (
+            <ThreadToolSurfaceBlock
+              key={entry.id}
+              block={entry}
+              isLatestTurn={isLatestTurn}
+              isStreamingTurn={isStreamingTurn}
+              projectWorkspacePath={projectWorkspacePath}
+              threadCwd={threadCwd}
+              onOpenTurnDiffReview={onOpenTurnDiffReview}
+              nestedInCollapsedActivity
+            />
+          ))}
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+export function ThreadDynamicToolCallGroupBlock({
+  block,
+  isLatestTurn,
+  isStreamingTurn,
+  projectWorkspacePath,
+  threadCwd,
+  onOpenTurnDiffReview,
+}: ThreadSpecialBlockProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  if (block.type !== "dynamicToolCallGroup") return null;
+  const repeatText = `${block.repeatCount} times`;
+
+  return (
+    <div className="flex min-w-0 flex-col">
+      <button
+        type="button"
+        className="group/summary inline-flex w-fit max-w-full cursor-interaction items-center gap-1.5 self-start text-left"
+        aria-expanded={isExpanded}
+        onClick={() => {
+          setIsExpanded((value) => !value);
+        }}
+      >
+        <ToolActivityIcon descriptor={semanticToolIcon("plugin")} />
+        <span className="min-w-0 truncate text-token-description-foreground/90 group-hover/summary:text-token-foreground">
+          {block.summary}
+        </span>
+        <span className="text-token-foreground/40">·</span>
+        <span className="shrink-0 text-token-foreground/40">{repeatText}</span>
+        <ChevronRightIcon
+          className={cn(
+            "icon-2xs flex-shrink-0 text-token-input-placeholder-foreground opacity-0 transition-transform duration-300 group-hover/summary:opacity-100",
+            isExpanded && "rotate-90 opacity-100",
+          )}
+        />
+      </button>
+      <motion.div
+        initial={false}
+        animate={isExpanded ? { height: "auto", opacity: 1 } : { height: 0, opacity: 0 }}
+        transition={CODEX_THREAD_ACCORDION_TRANSITION}
+        className={isExpanded ? "overflow-visible" : "overflow-hidden"}
+        data-testid="dynamic-tool-call-group-body"
+        data-thread-find-skip={isExpanded ? undefined : true}
+        style={{ pointerEvents: isExpanded ? "auto" : "none" }}
+      >
+        <div className="-mx-2.5 mt-1 flex flex-col gap-1 text-token-conversation-body">
+          {block.entries.map((entry) => (
+            <ThreadToolSurfaceBlock
+              key={entry.id}
+              block={entry}
+              isLatestTurn={isLatestTurn}
+              isStreamingTurn={isStreamingTurn}
+              projectWorkspacePath={projectWorkspacePath}
+              threadCwd={threadCwd}
+              onOpenTurnDiffReview={onOpenTurnDiffReview}
+              nestedInCollapsedActivity
+            />
+          ))}
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 function renderCollapsedActivityEntry({
   entry,
   isLatestTurn,
@@ -716,6 +844,7 @@ function shouldShimmerCollapsedActivitySummary(
     || stats.runningListCount > 0
     || stats.runningHookCount > 0
     || stats.runningCommandCount > 0
+    || stats.runningMcpToolCallCount > 0
     || stats.runningWebSearchCount > 0;
 }
 

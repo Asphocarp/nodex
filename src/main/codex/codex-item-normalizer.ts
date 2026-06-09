@@ -4,10 +4,12 @@ import type {
   CodexFileChangeKind,
   CodexFileChangeView,
   CodexItemStatus,
+  CodexDynamicToolCallView,
   CodexMcpToolCallContentBlock,
   CodexMcpToolCallView,
   CodexItemView,
   CodexUserAttachment,
+  ProtocolDynamicToolCallItem,
   ProtocolMcpToolCallError,
   ProtocolMcpToolCallItem,
   ProtocolMcpToolCallResult,
@@ -342,6 +344,7 @@ function normalizeMcpToolCallContentBlock(
       type: "text",
       text,
       annotations: candidate.annotations as ProtocolMcpToolCallItem["arguments"] | undefined,
+      meta: candidate._meta,
     };
   }
 
@@ -359,6 +362,7 @@ function normalizeMcpToolCallContentBlock(
       data,
       mimeType: getString(candidate, ["mimeType"]) ?? "image/png",
       annotations: candidate.annotations as ProtocolMcpToolCallItem["arguments"] | undefined,
+      meta: candidate._meta,
     };
   }
 
@@ -376,6 +380,7 @@ function normalizeMcpToolCallContentBlock(
       data,
       mimeType: getString(candidate, ["mimeType"]) ?? "audio/wav",
       annotations: candidate.annotations as ProtocolMcpToolCallItem["arguments"] | undefined,
+      meta: candidate._meta,
     };
   }
 
@@ -396,6 +401,7 @@ function normalizeMcpToolCallContentBlock(
       description: getString(candidate, ["description"]),
       mimeType: getString(candidate, ["mimeType"]),
       annotations: candidate.annotations as ProtocolMcpToolCallItem["arguments"] | undefined,
+      meta: candidate._meta,
     };
   }
 
@@ -422,7 +428,9 @@ function normalizeMcpToolCallContentBlock(
         text: getString(resource, ["text"]),
         blob: getString(resource, ["blob"]),
         annotations: resource.annotations as ProtocolMcpToolCallItem["arguments"] | undefined,
+        meta: resource._meta,
       },
+      meta: candidate._meta,
     };
   }
 
@@ -453,9 +461,11 @@ function normalizeMcpToolCallResult(
     type: "success",
     content: content.map(normalizeMcpToolCallContentBlock),
     structuredContent: result?.structuredContent ?? null,
+    meta: result?._meta ?? null,
     raw: {
       content,
       structuredContent: result?.structuredContent ?? null,
+      meta: result?._meta ?? null,
     },
   };
 }
@@ -473,12 +483,63 @@ function buildMcpToolCallView(
   return {
     callId: getString(candidate, ["id"]) ?? itemId,
     functionName: `${server}__${tool}`,
+    pluginId: typeof candidate.pluginId === "string" ? candidate.pluginId : null,
+    mcpAppResourceUri: getString(candidate, ["mcpAppResourceUri"]) ?? null,
     invocation: {
       server,
       tool,
       arguments: (candidate.arguments ?? null) as ProtocolMcpToolCallItem["arguments"],
     },
     result: normalizeMcpToolCallResult(result, error),
+    durationMs: getNumber(candidate, ["durationMs", "duration_ms"]) ?? null,
+    completed: status === "completed" || status === "failed",
+  };
+}
+
+function normalizeDynamicToolCallStatus(value: unknown): ProtocolDynamicToolCallItem["status"] {
+  if (value === "completed" || value === "failed") return value;
+  return "inProgress";
+}
+
+function normalizeDynamicToolCallContentItems(
+  value: unknown,
+): ProtocolDynamicToolCallItem["contentItems"] {
+  if (!Array.isArray(value)) return null;
+
+  const contentItems: NonNullable<ProtocolDynamicToolCallItem["contentItems"]> = [];
+  for (const item of value) {
+    const candidate = asRecord(item);
+    if (!candidate) continue;
+    const type = getString(candidate, ["type"]);
+    if (type === "inputText") {
+      const text = getString(candidate, ["text"]);
+      if (text !== undefined) contentItems.push({ type, text });
+      continue;
+    }
+    if (type === "inputImage") {
+      const imageUrl = getString(candidate, ["imageUrl"]);
+      if (imageUrl) contentItems.push({ type, imageUrl });
+    }
+  }
+
+  return contentItems.length > 0 ? contentItems : null;
+}
+
+function buildDynamicToolCallView(
+  candidate: Record<string, unknown>,
+  itemId: string,
+): CodexDynamicToolCallView {
+  const status = normalizeDynamicToolCallStatus(candidate.status);
+  const success = typeof candidate.success === "boolean" ? candidate.success : null;
+
+  return {
+    callId: getString(candidate, ["id"]) ?? itemId,
+    namespace: getString(candidate, ["namespace"]) ?? null,
+    tool: getString(candidate, ["tool"]) ?? "dynamic_tool",
+    arguments: (candidate.arguments ?? null) as ProtocolDynamicToolCallItem["arguments"],
+    status,
+    contentItems: normalizeDynamicToolCallContentItems(candidate.contentItems),
+    success,
     durationMs: getNumber(candidate, ["durationMs", "duration_ms"]) ?? null,
     completed: status === "completed" || status === "failed",
   };
@@ -803,6 +864,24 @@ export function normalizeThreadItem(item: unknown, threadId: string, turnId: str
       error,
     });
     result.mcpToolCall = buildMcpToolCallView(candidate, status, result.itemId);
+    return applyFallbackContent(result, itemType);
+  }
+
+  if (isType(itemType, ["dynamicToolCall", "dynamic_tool_call"])) {
+    const tool = getString(candidate, ["tool"]) ?? "dynamic_tool";
+    const namespace = getString(candidate, ["namespace"]);
+    const status = normalizeItemStatus(getUnknown(candidate, ["status"]));
+
+    result.normalizedKind = "toolCall";
+    result.semanticKind = "dynamicToolCall";
+    result.status = status;
+    result.toolCall = buildToolCall("dynamic", tool, {
+      server: namespace,
+      args: candidate.arguments,
+      result: candidate.contentItems,
+      error: candidate.success === false ? "Dynamic tool call failed" : undefined,
+    });
+    result.dynamicToolCall = buildDynamicToolCallView(candidate, result.itemId);
     return applyFallbackContent(result, itemType);
   }
 

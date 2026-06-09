@@ -70,7 +70,7 @@ function buildMcpEntry(overrides?: Partial<CodexTranscriptEntry>): CodexTranscri
 }
 
 describe("McpToolCall", () => {
-  test("renders the Codex-style collapsed summary text", () => {
+  test("renders the Codex-style collapsed summary text", async () => {
     const { getByRole } = render(
       <TooltipProvider>
         <McpToolCall
@@ -102,18 +102,20 @@ describe("McpToolCall", () => {
         />
       </TooltipProvider>,
     );
+    await settleAsyncRender();
 
     const summary = textContent(getByRole("button", { name: /Query Docs tool from Context 7/i }));
     expect(summary.includes("Called")).toBeTrue();
     expect(summary.includes("Query Docs tool from Context 7")).toBeTrue();
   });
 
-  test("renders a source icon in the summary row", () => {
+  test("renders a source icon in the summary row", async () => {
     const { container } = render(
       <TooltipProvider>
         <McpToolCall item={buildMcpEntry()} />
       </TooltipProvider>,
     );
+    await settleAsyncRender();
 
     expect(Boolean(container.querySelector("[data-tool-activity-icon='connector']"))).toBeTrue();
   });

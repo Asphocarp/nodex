@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChevronRightIcon, CodeBracketsIcon } from "@/components/shared/icons";
 import {
   NodexDialog as Dialog,
@@ -12,7 +12,10 @@ import type {
   CodexMcpToolCallContentBlock,
   CodexMcpToolCallView,
   CodexTranscriptEntry,
+  ProtocolMcpResourceReadResponse,
+  ProtocolMcpServerStatus,
 } from "../../../../../lib/types";
+import { invoke } from "../../../../../lib/api";
 import { cn } from "../../../../../lib/utils";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
 import { useMeasuredElementHeight } from "../use-measured-element-height";
@@ -24,6 +27,13 @@ import {
   humanizeIdentifier,
 } from "./tool-call-utils";
 import { ToolActivityIcon, resolveMcpSourceIcon } from "./tool-call-icons";
+import { McpCapabilityViewFrame } from "./mcp-capability-view-frame";
+import {
+  resolveMcpAppResourceUri,
+  resolveMcpRenderableResource,
+  shouldHideDuplicateMcpTextContent,
+  type McpRenderableResource,
+} from "./mcp-tool-call-resource-utils";
 
 const electronToolIconSizeClassName = `electron:[&>svg]:${"icon-sm"}`;
 
@@ -36,6 +46,36 @@ interface McpToolCallProps {
 function formatServerName(server: string): string {
   const humanized = humanizeIdentifier(server);
   return humanized.length > 0 ? humanized : "MCP";
+}
+
+function normalizeIdentifier(value: string): string {
+  return value.trim().toLowerCase().replace(/[_\s]+/g, "-");
+}
+
+function resolveMcpToolCallLabel(payload: CodexMcpToolCallView): { leading: string; trailing: string } {
+  const server = normalizeIdentifier(payload.invocation.server);
+  const tool = normalizeIdentifier(payload.invocation.tool);
+  const completed = payload.completed;
+  const activeVerb = completed ? "Used" : "Using";
+
+  if (server.includes("browser-use")) return { leading: activeVerb, trailing: "the browser" };
+  if (server.includes("computer-use") || server.includes("computer")) {
+    if (tool.includes("click")) return { leading: completed ? "Clicked" : "Clicking", trailing: "on screen" };
+    if (tool.includes("drag")) return { leading: completed ? "Dragged" : "Dragging", trailing: "on screen" };
+    if (tool.includes("key") || tool.includes("type")) return { leading: completed ? "Typed" : "Typing", trailing: "on screen" };
+    if (tool.includes("scroll")) return { leading: completed ? "Scrolled" : "Scrolling", trailing: "on screen" };
+    return { leading: activeVerb, trailing: "computer" };
+  }
+  if (server.includes("github")) return { leading: activeVerb, trailing: "GitHub" };
+  if (server.includes("gmail")) return { leading: completed ? "Read" : "Reading", trailing: "Gmail" };
+  if (server.includes("calendar")) return { leading: activeVerb, trailing: "Google Calendar" };
+  if (server.includes("drive")) return { leading: activeVerb, trailing: "Google Drive" };
+  if (server.includes("figma")) return { leading: activeVerb, trailing: "Figma" };
+
+  return {
+    leading: payload.completed ? "Called" : "Calling",
+    trailing: `${humanizeIdentifier(payload.invocation.tool)} tool from ${formatServerName(payload.invocation.server)}`,
+  };
 }
 
 function stringifyMcpValue(value: unknown, spacing = 2): string {
@@ -328,16 +368,22 @@ function McpRawOutputDialog({
 function McpResultBody({
   payload,
   rawOutput,
+  resource,
+  resourceError,
   rawDialogOpen,
   onRawDialogOpenChange,
 }: {
   payload: CodexMcpToolCallView;
   rawOutput: string;
+  resource: McpRenderableResource | null;
+  resourceError: string | null;
   rawDialogOpen: boolean;
   onRawDialogOpenChange: (open: boolean) => void;
 }) {
   const result = payload.result;
-  const successContent = result?.type === "success" ? result.content : [];
+  const successContent = result?.type === "success"
+    ? result.content.filter((block) => !shouldHideDuplicateMcpTextContent(block, resource))
+    : [];
   const errorText = result?.type === "error" ? result.error : null;
   const structuredContent = result?.type === "success" && result.structuredContent != null
     ? stringifyMcpValue(result.structuredContent, 2)
@@ -345,6 +391,12 @@ function McpResultBody({
 
   return (
     <>
+      {resource ? (
+        <McpCapabilityViewFrame resource={resource} />
+      ) : null}
+      {resourceError ? (
+        <ToolErrorDetail error={resourceError} showLabel={false} />
+      ) : null}
       {successContent.length > 0 ? (
         <div className="[&_*]:text-token-foreground/50 flex flex-col gap-0.5">
           {successContent.map((block, index) => (
@@ -353,7 +405,7 @@ function McpResultBody({
         </div>
       ) : errorText ? (
         <ToolErrorDetail error={errorText} showLabel={false} />
-      ) : (
+      ) : resource ? null : (
         <p className="text-token-description-foreground/80">Tool returned no content</p>
       )}
       {structuredContent ? (
@@ -409,21 +461,73 @@ export function McpToolCall({
   const payload = item.mcpToolCall ?? null;
   const [isExpanded, setIsExpanded] = useState(false);
   const [isRawDialogOpen, setIsRawDialogOpen] = useControllableBoolean(rawDialogOpen, onRawDialogOpenChange);
+  const [serverStatuses, setServerStatuses] = useState<ProtocolMcpServerStatus[]>([]);
+  const [resourceResponse, setResourceResponse] = useState<ProtocolMcpResourceReadResponse | null>(null);
+  const [resourceError, setResourceError] = useState<string | null>(null);
   const { elementHeightPx, elementRef } = useMeasuredElementHeight();
 
+  const resourceUri = useMemo(
+    () => payload ? resolveMcpAppResourceUri({ payload, serverStatuses }) : null,
+    [payload, serverStatuses],
+  );
+  const renderableResource = useMemo(
+    () => resourceUri ? resolveMcpRenderableResource(resourceUri, resourceResponse) : null,
+    [resourceResponse, resourceUri],
+  );
+  const rawOutput = payload
+    ? stringifyMcpValue({
+        callId: payload.callId,
+        pluginId: payload.pluginId,
+        mcpAppResourceUri: payload.mcpAppResourceUri,
+        invocation: payload.invocation,
+        durationMs: payload.durationMs,
+        result: payload.result,
+      }, 2)
+    : "";
+  const summary = payload ? resolveMcpToolCallLabel(payload) : { leading: "", trailing: "" };
+
+  useEffect(() => {
+    if (!payload) return undefined;
+    let disposed = false;
+    void invoke("codex:mcp-server-statuses:list", item.threadId)
+      .then((result) => {
+        if (disposed) return;
+        setServerStatuses(Array.isArray(result) ? result as ProtocolMcpServerStatus[] : []);
+      })
+      .catch(() => {
+        if (!disposed) setServerStatuses([]);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [item.threadId, payload]);
+
+  useEffect(() => {
+    setResourceResponse(null);
+    setResourceError(null);
+    if (!payload || !resourceUri) return undefined;
+
+    let disposed = false;
+    void invoke("codex:mcp-resource:read", {
+      threadId: item.threadId,
+      server: payload.invocation.server,
+      uri: resourceUri,
+    })
+      .then((result) => {
+        if (disposed) return;
+        setResourceResponse(result as ProtocolMcpResourceReadResponse);
+      })
+      .catch((error) => {
+        if (disposed) return;
+        setResourceError(error instanceof Error ? error.message : String(error));
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [item.threadId, payload, resourceUri]);
+
   if (!payload) return null;
-
-  const toolName = humanizeIdentifier(payload.invocation.tool);
-  const serverName = formatServerName(payload.invocation.server);
-  const rawOutput = stringifyMcpValue({
-    callId: payload.callId,
-    invocation: payload.invocation,
-    durationMs: payload.durationMs,
-    result: payload.result,
-  }, 2);
-
-  const summaryVerb = payload.completed ? "Called" : "Calling";
-  const summaryDetail = `${toolName} tool from ${serverName}`;
 
   return (
     <div className="min-w-0 text-size-chat relative overflow-visible py-0">
@@ -447,10 +551,10 @@ export function McpToolCall({
             className="text-size-chat flex min-w-0 items-center gap-1"
           >
             <span className="text-token-description-foreground/90 group-hover:text-token-foreground flex-shrink-0">
-              {summaryVerb}
+              {summary.leading}
             </span>
             <span className="text-token-foreground/40 group-hover:text-token-foreground truncate">
-              {summaryDetail}
+              {summary.trailing}
             </span>
           </CodexShimmerText>
           {payload.completed ? (
@@ -480,6 +584,8 @@ export function McpToolCall({
               <McpResultBody
                 payload={payload}
                 rawOutput={rawOutput}
+                resource={renderableResource}
+                resourceError={resourceError}
                 rawDialogOpen={isRawDialogOpen}
                 onRawDialogOpenChange={setIsRawDialogOpen}
               />

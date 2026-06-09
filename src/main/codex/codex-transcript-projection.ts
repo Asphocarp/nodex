@@ -41,6 +41,7 @@ function projectItemToTranscriptEntry(
     sequence,
     toolCall: item.toolCall,
     mcpToolCall: item.mcpToolCall,
+    dynamicToolCall: item.dynamicToolCall,
     command: item.command,
     cwd: item.cwd,
     processId: item.processId,

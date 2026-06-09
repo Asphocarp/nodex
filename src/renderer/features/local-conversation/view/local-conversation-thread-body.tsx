@@ -32,7 +32,6 @@ function LocalConversationThreadBodyComponent({
       <LocalConversationThreadScrollLayout
         contentX={contentShiftX}
         footer={footer}
-        scrollViewClassName="hide-scrollbar"
       >
         <LocalConversationThreadBodyOwner
           body={model.body}

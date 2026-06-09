@@ -30,6 +30,12 @@ function resolveSearchableText(entry: CodexConversationItem): string {
     entry.additionalDetails ?? "",
     entry.toolCall?.toolName ?? "",
     entry.toolCall?.server ?? "",
+    entry.dynamicToolCall?.namespace ?? "",
+    entry.dynamicToolCall?.tool ?? "",
+    stringifyValue(entry.dynamicToolCall?.arguments),
+    stringifyValue(entry.dynamicToolCall?.contentItems),
+    entry.mcpToolCall?.pluginId ?? "",
+    entry.mcpToolCall?.mcpAppResourceUri ?? "",
     stringifyValue(entry.fileChange),
     stringifyValue(entry.toolCall?.args),
     stringifyValue(entry.toolCall?.result),
@@ -72,6 +78,8 @@ function resolveRendererType(entry: CodexConversationItem): ThreadTranscriptBloc
       return "turnDiff";
     case "mcpToolCall":
       return "mcpToolCall";
+    case "dynamicToolCall":
+      return "dynamicToolCall";
     case "webSearch":
       return "webSearch";
     case "mcpServerElicitation":
@@ -208,6 +216,7 @@ function hasAboveAssistantWork(items: ThreadTranscriptBlockModel[], anchorIndex:
       case "exec":
       case "fileChange":
       case "mcpToolCall":
+      case "dynamicToolCall":
       case "automaticApprovalReview":
       case "hook":
       case "streamError":

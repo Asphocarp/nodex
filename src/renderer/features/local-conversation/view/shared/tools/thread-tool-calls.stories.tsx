@@ -4,15 +4,18 @@ import type { CodexFileChange, CodexTranscriptEntry } from "@/lib/types";
 import type {
   ThreadCollapsedToolActivityBlockModel,
   ThreadCollapsedToolActivityEntryModel,
+  ThreadPendingMcpToolCallsBlockModel,
 } from "../../../thread-stage-types";
 import { buildCodexFileChangeUnifiedDiff } from "../../../../../../shared/codex-file-change";
 import {
   ThreadCollapsedToolActivityBlock,
   ThreadExplorationGroupBlock,
+  ThreadPendingMcpToolCallsBlock,
 } from "../../blocks/local-conversation-block-leaves";
 import { LOCAL_CONVERSATION_CONTENT_CLASS_NAME } from "../local-conversation-view-constants";
 import { TurnDiffSurface } from "../turn-diff-surface";
 import { getToolComponent } from "./get-tool-component";
+import { DynamicToolCall } from "./dynamic-tool-call";
 import { McpToolCall } from "./mcp-tool-call";
 import { ToolActivityIcon, semanticToolIcon } from "./tool-call-icons";
 import { THREAD_TOOL_CALL_STORY_ITEMS } from "../../thread-stage-story-fixtures";
@@ -349,6 +352,7 @@ function buildLiveFileChangeCollapsedActivityStoryBlock(lineCount = 85, itemId =
       commandCount: 0,
       runningCommandCount: 0,
       mcpToolCallCount: 0,
+      runningMcpToolCallCount: 0,
       mcpToolCallSources: [],
       webSearchCount: 0,
       runningWebSearchCount: 0,
@@ -1119,6 +1123,115 @@ export const CollapsedActivityGroupLiveFileChange: Story = {
           isStreamingTurn={true}
           projectWorkspacePath="/workspace/nodex"
           threadCwd="/workspace/nodex"
+        />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+function buildReadThreadDynamicStoryItem(): CodexTranscriptEntry {
+  return {
+    threadId: "thread-story",
+    turnId: "turn-story",
+    itemId: "dynamic-read-thread",
+    entryId: "dynamic-read-thread",
+    type: "dynamicToolCall",
+    kind: "toolCall",
+    semanticKind: "dynamicToolCall",
+    status: "completed",
+    toolCall: {
+      subtype: "dynamic",
+      toolName: "read_thread",
+      server: "codex_app",
+      args: { threadId: "thread-story", turnLimit: 2 },
+      result: [{ type: "inputText", text: "{\"schemaVersion\":1}" }],
+    },
+    dynamicToolCall: {
+      callId: "dynamic-read-thread",
+      namespace: "codex_app",
+      tool: "read_thread",
+      arguments: { threadId: "thread-story", turnLimit: 2 },
+      status: "completed",
+      contentItems: [{
+        type: "inputText",
+        text: JSON.stringify({
+          schemaVersion: 1,
+          thread: { id: "thread-story", title: "Parity research", cwd: "/workspace/nodex" },
+          page: { order: "newest_first", limit: 2, nextCursor: null, hasMore: false },
+          turns: [],
+        }),
+      }],
+      success: true,
+      durationMs: 18,
+      completed: true,
+    },
+    createdAt: 1,
+    updatedAt: 1,
+  };
+}
+
+function buildPendingMcpStoryBlock(): ThreadPendingMcpToolCallsBlockModel {
+  const entry = THREAD_TOOL_CALL_STORY_ITEMS.mcpInProgress;
+  return {
+    id: "pending-mcp-story",
+    turnId: entry.turnId,
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+    searchableText: "Using the browser",
+    type: "pendingMcpToolCalls",
+    summary: "Using the browser",
+    status: "inProgress",
+    entries: [{
+      id: entry.entryId ?? entry.itemId,
+      turnId: entry.turnId,
+      createdAt: entry.createdAt,
+      updatedAt: entry.updatedAt,
+      searchableText: "Using the browser",
+      type: "mcpToolCall",
+      status: "inProgress",
+      entry: {
+        ...entry,
+        mcpToolCall: {
+          ...(entry.mcpToolCall ?? {
+            callId: "mcp-story",
+            functionName: "browser-use__click",
+            invocation: { server: "browser-use", tool: "click", arguments: {} },
+            result: null,
+            durationMs: null,
+            completed: false,
+          }),
+          invocation: { server: "browser-use", tool: "click", arguments: {} },
+          completed: false,
+        },
+      },
+    }],
+  };
+}
+
+export const DynamicToolCallReadThread: Story = {
+  render: () => (
+    <StorySurface
+      title="Dynamic Tool Call Read Thread"
+      description="Codex app-server dynamic thread tools render as compact expandable rows with JSON output."
+    >
+      <ConversationStorySurface>
+        <DynamicToolCall item={buildReadThreadDynamicStoryItem()} />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const PendingMcpToolCalls: Story = {
+  render: () => (
+    <StorySurface
+      title="Pending MCP Tool Calls"
+      description="Pending MCP calls group into the Codex pending body surface with browser-use labeling."
+    >
+      <ConversationStorySurface>
+        <ThreadPendingMcpToolCallsBlock
+          block={buildPendingMcpStoryBlock()}
+          isLatestTurn
+          isStreamingTurn
         />
       </ConversationStorySurface>
     </StorySurface>

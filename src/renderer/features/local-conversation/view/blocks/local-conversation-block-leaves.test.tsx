@@ -8,6 +8,7 @@ import {
   ThreadContextCompactionBlock,
   ThreadCollapsedToolActivityBlock,
   ThreadExplorationGroupBlock,
+  ThreadPendingMcpToolCallsBlock,
   ThreadPlanCardBlock,
   ThreadStreamErrorBlock,
   ThreadSystemErrorBlock,
@@ -126,6 +127,7 @@ function buildCollapsedSummaryStats(
     hookCount: 0,
     runningHookCount: 0,
     mcpToolCallCount: 0,
+    runningMcpToolCallCount: 0,
     mcpToolCallSources: [],
     webSearchCount: 0,
     runningWebSearchCount: 0,
@@ -411,6 +413,68 @@ describe("ThreadExplorationGroupBlock", () => {
     const summaryText = textContent(getByRole("button"));
     expect(summaryText.includes("Exploring")).toBeTrue();
     expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeTrue();
+  });
+});
+
+describe("ThreadPendingMcpToolCallsBlock", () => {
+  test("expands with the Codex pending MCP body marker", async () => {
+    const entry: ThreadTranscriptBlockModel & { type: "mcpToolCall" } = {
+      id: "mcp-1",
+      turnId: "turn-1",
+      createdAt: 1,
+      updatedAt: 1,
+      searchableText: "browser click",
+      type: "mcpToolCall",
+      status: "inProgress",
+      entry: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "mcp-1",
+        entryId: "mcp-1",
+        type: "mcpToolCall",
+        kind: "toolCall",
+        semanticKind: "mcpToolCall",
+        status: "inProgress",
+        mcpToolCall: {
+          callId: "mcp-1",
+          functionName: "browser-use__click",
+          invocation: { server: "browser-use", tool: "click", arguments: {} },
+          result: null,
+          durationMs: null,
+          completed: false,
+        },
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    };
+
+    const { getAllByRole, getByTestId } = render(
+      <TooltipProvider>
+        <ThreadPendingMcpToolCallsBlock
+          block={{
+            id: "pending-mcp",
+            turnId: "turn-1",
+            createdAt: 1,
+            updatedAt: 1,
+            searchableText: "Using the browser",
+            type: "pendingMcpToolCalls",
+            entries: [entry],
+            summary: "Using the browser",
+            status: "inProgress",
+          }}
+          isLatestTurn
+          isStreamingTurn
+        />
+      </TooltipProvider>,
+    );
+
+    const button = getAllByRole("button", { name: "Using the browser" })[0];
+    expect(button.getAttribute("aria-expanded") ?? "").toBe("false");
+    fireEvent.click(button);
+    await settleAsyncRender();
+
+    expect(button.getAttribute("aria-expanded") ?? "").toBe("true");
+    expect(Boolean(getByTestId("pending-mcp-tool-calls-body"))).toBeTrue();
   });
 });
 

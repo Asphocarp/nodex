@@ -1119,6 +1119,18 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     codexService.cleanBackgroundTerminals(threadId)
   );
 
+  registerHandle("codex:mcp-resource:read", (_, params) =>
+    codexService.readMcpResource(params)
+  );
+
+  registerHandle("codex:mcp-apps:list", (_, threadId?: string | null) =>
+    codexService.listMcpApps(threadId)
+  );
+
+  registerHandle("codex:mcp-server-statuses:list", (_, threadId?: string | null) =>
+    codexService.listMcpServerStatuses(threadId)
+  );
+
   registerHandle("codex:approval:respond", (_, requestId: string, decision) =>
     codexService.respondToApproval(requestId, decision)
   );

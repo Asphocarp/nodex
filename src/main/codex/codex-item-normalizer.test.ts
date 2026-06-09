@@ -186,6 +186,61 @@ describe("codex-item-normalizer", () => {
     expect(item?.mcpToolCall?.result?.type === "success" ? item.mcpToolCall.result.content.length : -1).toBe(1);
   });
 
+  test("preserves MCP plugin, app resource, and metadata fields", () => {
+    const item = normalizeMcpItem({
+      pluginId: "plugin_docs",
+      mcpAppResourceUri: "ui://docs/search.html",
+      result: {
+        content: [
+          {
+            type: "resource",
+            uri: "ui://docs/search.html",
+            mimeType: "text/html",
+            text: "<main>Docs</main>",
+            _meta: { "openai/widgetHeightHint": 420 },
+          },
+        ],
+        structuredContent: null,
+        _meta: { "openai/outputTemplate": "ui://docs/search.html" },
+      },
+    });
+
+    expect(item?.mcpToolCall?.pluginId ?? null).toBe("plugin_docs");
+    expect(item?.mcpToolCall?.mcpAppResourceUri ?? null).toBe("ui://docs/search.html");
+    expect(item?.mcpToolCall?.result?.type).toBe("success");
+    const result = item?.mcpToolCall?.result?.type === "success" ? item.mcpToolCall.result : null;
+    expect((result?.meta as { "openai/outputTemplate"?: string } | null)?.["openai/outputTemplate"] ?? "").toBe("ui://docs/search.html");
+    const block = result?.content[0];
+    expect(block?.type ?? "").toBe("embedded_resource");
+    expect(block?.type === "embedded_resource" ? (block.resource.meta as { "openai/widgetHeightHint"?: number })["openai/widgetHeightHint"] ?? 0 : 0).toBe(420);
+  });
+
+  test("normalizes dynamicToolCall items into dedicated renderer state", () => {
+    const item = normalizeThreadItem(
+      {
+        id: "item-dynamic",
+        type: "dynamicToolCall",
+        namespace: "codex_app",
+        tool: "read_thread",
+        status: "completed",
+        arguments: { threadId: "thread-1", turnLimit: 2 },
+        contentItems: [{ type: "inputText", text: "{\"schemaVersion\":1}" }],
+        success: true,
+        durationMs: 123,
+      },
+      "thread-1",
+      "turn-1",
+    );
+
+    expect(item?.normalizedKind).toBe("toolCall");
+    expect(item?.semanticKind).toBe("dynamicToolCall");
+    expect(item?.toolCall?.subtype).toBe("dynamic");
+    expect(item?.dynamicToolCall?.namespace).toBe("codex_app");
+    expect(item?.dynamicToolCall?.tool).toBe("read_thread");
+    expect(item?.dynamicToolCall?.completed).toBeTrue();
+    expect(item?.dynamicToolCall?.contentItems?.[0]?.type ?? "").toBe("inputText");
+  });
+
   test("normalizes protocol MCP errors as completed expandable error results", () => {
     const item = normalizeMcpItem({
       status: "failed",

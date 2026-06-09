@@ -42,6 +42,10 @@ import type {
   CodexThreadStartForSessionInput,
   CodexThreadDetail,
   CodexThreadSummary,
+  ProtocolAppInfo,
+  ProtocolMcpResourceReadParams,
+  ProtocolMcpResourceReadResponse,
+  ProtocolMcpServerStatus,
   CodexTurnStartOptions,
   CodexTurnSummary,
   ManagedWorktreeRecord,
@@ -684,6 +688,18 @@ export interface IpcApi {
   "codex:thread:background-terminals:clean": {
     args: [threadId: string];
     result: boolean;
+  };
+  "codex:mcp-resource:read": {
+    args: [params: ProtocolMcpResourceReadParams];
+    result: ProtocolMcpResourceReadResponse;
+  };
+  "codex:mcp-apps:list": {
+    args: [threadId?: string | null];
+    result: ProtocolAppInfo[];
+  };
+  "codex:mcp-server-statuses:list": {
+    args: [threadId?: string | null];
+    result: ProtocolMcpServerStatus[];
   };
   "codex:approval:respond": {
     args: [requestId: string, decision: CodexApprovalDecision];

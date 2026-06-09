@@ -62,6 +62,7 @@ function isRenderableAgentItem(item: ThreadTranscriptBlockModel): boolean {
     case "exec":
     case "fileChange":
     case "mcpToolCall":
+    case "dynamicToolCall":
     case "automaticApprovalReview":
     case "multiAgentAction":
     case "streamError":

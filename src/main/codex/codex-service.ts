@@ -8,21 +8,29 @@ import { StringDecoder } from "node:string_decoder";
 import { produceWithPatches } from "immer";
 import type { GetAuthStatusResponse } from "@nodex/codex-app-server-protocol";
 import type { CollaborationModeListResponse } from "@nodex/codex-app-server-protocol/v2/CollaborationModeListResponse";
+import type { AppInfo } from "@nodex/codex-app-server-protocol/v2/AppInfo";
+import type { AppsListResponse } from "@nodex/codex-app-server-protocol/v2/AppsListResponse";
 import type { ConfigBatchWriteParams } from "@nodex/codex-app-server-protocol/v2/ConfigBatchWriteParams";
 import type { ConfigReadParams } from "@nodex/codex-app-server-protocol/v2/ConfigReadParams";
 import type { ConfigReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigReadResponse";
 import type { ConfigRequirementsReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigRequirementsReadResponse";
 import type { CommandExecutionRequestApprovalParams } from "@nodex/codex-app-server-protocol/v2/CommandExecutionRequestApprovalParams";
 import type { CommandExecutionRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/CommandExecutionRequestApprovalResponse";
+import type { DynamicToolCallParams } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallParams";
+import type { DynamicToolCallResponse } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallResponse";
 import type { GetAccountRateLimitsResponse } from "@nodex/codex-app-server-protocol/v2/GetAccountRateLimitsResponse";
 import type { GetAccountResponse } from "@nodex/codex-app-server-protocol/v2/GetAccountResponse";
 import type { LoginAccountResponse } from "@nodex/codex-app-server-protocol/v2/LoginAccountResponse";
+import type { ListMcpServerStatusResponse } from "@nodex/codex-app-server-protocol/v2/ListMcpServerStatusResponse";
 import type { CancelLoginAccountResponse } from "@nodex/codex-app-server-protocol/v2/CancelLoginAccountResponse";
 import type { FileChangeRequestApprovalParams } from "@nodex/codex-app-server-protocol/v2/FileChangeRequestApprovalParams";
 import type { FileChangeRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/FileChangeRequestApprovalResponse";
 import type { FileUpdateChange } from "@nodex/codex-app-server-protocol/v2/FileUpdateChange";
 import type { McpServerElicitationRequestParams } from "@nodex/codex-app-server-protocol/v2/McpServerElicitationRequestParams";
 import type { McpServerElicitationRequestResponse } from "@nodex/codex-app-server-protocol/v2/McpServerElicitationRequestResponse";
+import type { McpResourceReadParams } from "@nodex/codex-app-server-protocol/v2/McpResourceReadParams";
+import type { McpResourceReadResponse } from "@nodex/codex-app-server-protocol/v2/McpResourceReadResponse";
+import type { McpServerStatus } from "@nodex/codex-app-server-protocol/v2/McpServerStatus";
 import type { ModelListResponse } from "@nodex/codex-app-server-protocol/v2/ModelListResponse";
 import type { ThreadReadResponse } from "@nodex/codex-app-server-protocol/v2/ThreadReadResponse";
 import type { ThreadForkParams } from "@nodex/codex-app-server-protocol/v2/ThreadForkParams";
@@ -2789,6 +2797,46 @@ export class CodexService extends EventEmitter {
     opts?: { cardId?: string; includeArchived?: boolean },
   ): Promise<CodexThreadSummary[]> {
     return listCodexProjectThreads(projectId, opts);
+  }
+
+  async readMcpResource(params: McpResourceReadParams): Promise<McpResourceReadResponse> {
+    await this.ensureClientReady();
+    return this.client.request<"mcpServer/resource/read", McpResourceReadResponse>("mcpServer/resource/read", params);
+  }
+
+  async listMcpApps(threadId?: string | null): Promise<AppInfo[]> {
+    await this.ensureClientReady();
+    const apps: AppInfo[] = [];
+    let cursor: string | null = null;
+
+    do {
+      const response: AppsListResponse = await this.client.request<"app/list", AppsListResponse>("app/list", {
+        threadId: threadId ?? null,
+        cursor,
+      });
+      apps.push(...response.data);
+      cursor = response.nextCursor;
+    } while (cursor);
+
+    return apps;
+  }
+
+  async listMcpServerStatuses(threadId?: string | null): Promise<McpServerStatus[]> {
+    await this.ensureClientReady();
+    const statuses: McpServerStatus[] = [];
+    let cursor: string | null = null;
+
+    do {
+      const response: ListMcpServerStatusResponse = await this.client.request<"mcpServerStatus/list", ListMcpServerStatusResponse>("mcpServerStatus/list", {
+        threadId: threadId ?? null,
+        detail: "full",
+        cursor,
+      });
+      statuses.push(...response.data);
+      cursor = response.nextCursor;
+    } while (cursor);
+
+    return statuses;
   }
 
   async listWorktreeEnvironments(projectId: string): Promise<WorktreeEnvironmentOption[]> {
@@ -6663,6 +6711,309 @@ export class CodexService extends EventEmitter {
     return true;
   }
 
+  private buildDynamicToolSuccess(value: unknown): DynamicToolCallResponse {
+    return {
+      contentItems: [{ type: "inputText", text: JSON.stringify(value ?? null) }],
+      success: true,
+    };
+  }
+
+  private buildDynamicToolFailure(message: string): DynamicToolCallResponse {
+    return {
+      contentItems: [{ type: "inputText", text: message }],
+      success: false,
+    };
+  }
+
+  private clampDynamicInt(value: unknown, fallback: number, min: number, max: number): number {
+    if (typeof value !== "number" || !Number.isInteger(value)) return fallback;
+    return Math.min(max, Math.max(min, value));
+  }
+
+  private truncateDynamicOutput(value: string, maxChars: number): string {
+    if (maxChars <= 0) return "";
+    if (value.length <= maxChars) return value;
+    return `${value.slice(0, Math.max(0, maxChars - 3))}...`;
+  }
+
+  private serializeDynamicThreadItem(
+    item: CodexTranscriptEntry,
+    includeOutputs: boolean,
+    maxOutputCharsPerItem: number,
+  ): Record<string, unknown> {
+    if (item.semanticKind === "userMessage" || item.kind === "userMessage") {
+      return {
+        type: "userMessage",
+        id: item.itemId,
+        text: item.markdownText ?? "",
+      };
+    }
+
+    if (item.semanticKind === "assistantMessage" || item.kind === "assistantMessage") {
+      return {
+        type: "agentMessage",
+        id: item.itemId,
+        text: item.markdownText ?? "",
+        phase: item.assistantPhase ?? null,
+      };
+    }
+
+    if (item.semanticKind === "reasoning") {
+      return {
+        type: "reasoning",
+        id: item.itemId,
+        summary: item.markdownText ?? "",
+        ...(includeOutputs ? { content: this.truncateDynamicOutput(item.markdownText ?? "", maxOutputCharsPerItem) } : {}),
+      };
+    }
+
+    if (item.kind === "commandExecution") {
+      return {
+        type: "commandExecution",
+        id: item.itemId,
+        command: item.command ?? null,
+        cwd: item.cwd ?? null,
+        status: item.status ?? null,
+        exitCode: item.exitCode ?? null,
+        durationMs: item.durationMs ?? null,
+        ...(includeOutputs && item.aggregatedOutput != null
+          ? { output: this.truncateDynamicOutput(item.aggregatedOutput, maxOutputCharsPerItem) }
+          : {}),
+      };
+    }
+
+    if (item.kind === "fileChange") {
+      return {
+        type: "fileChange",
+        id: item.itemId,
+        status: item.status ?? null,
+        changes: (item.fileChange?.changes ?? []).map((change) => ({
+          path: change.path,
+          kind: change.type,
+          ...(includeOutputs
+            ? {
+                diff: this.truncateDynamicOutput(
+                  "unifiedDiff" in change ? change.unifiedDiff : change.content,
+                  maxOutputCharsPerItem,
+                ),
+              }
+            : {}),
+        })),
+      };
+    }
+
+    if (item.semanticKind === "mcpToolCall" && item.mcpToolCall) {
+      return {
+        type: "mcpToolCall",
+        id: item.itemId,
+        server: item.mcpToolCall.invocation.server,
+        tool: item.mcpToolCall.invocation.tool,
+        arguments: item.mcpToolCall.invocation.arguments,
+        status: item.status ?? null,
+        durationMs: item.mcpToolCall.durationMs,
+      };
+    }
+
+    if (item.semanticKind === "dynamicToolCall" && item.dynamicToolCall) {
+      return {
+        type: "dynamicToolCall",
+        id: item.itemId,
+        tool: item.dynamicToolCall.tool,
+        arguments: item.dynamicToolCall.arguments,
+        status: item.dynamicToolCall.status,
+        success: item.dynamicToolCall.success,
+        durationMs: item.dynamicToolCall.durationMs,
+      };
+    }
+
+    return {
+      type: item.semanticKind ?? item.kind,
+      id: item.itemId,
+      status: item.status ?? null,
+      text: item.markdownText ?? null,
+    };
+  }
+
+  private buildDynamicReadThreadResponse(args: Record<string, unknown>): Record<string, unknown> {
+    const threadId = typeof args.threadId === "string" ? args.threadId.trim() : "";
+    if (!threadId) throw new Error("read_thread requires threadId");
+
+    const detail = this.serializeThreadDetail(threadId);
+    if (!detail) throw new Error(`Thread '${threadId}' was not found`);
+
+    const cursor = typeof args.cursor === "string" && args.cursor.trim() ? args.cursor.trim() : null;
+    const turnLimit = this.clampDynamicInt(args.turnLimit, 5, 1, 10);
+    const includeOutputs = args.includeOutputs === true;
+    const maxOutputCharsPerItem = this.clampDynamicInt(args.maxOutputCharsPerItem, 20_000, 0, 20_000);
+    const cursorIndex = cursor === null
+      ? detail.turns.length
+      : detail.turns.findIndex((turn) => turn.turnId === cursor);
+    if (cursorIndex < 0) throw new Error(`Unknown cursor for thread ${threadId}: ${cursor}`);
+
+    const precedingTurns = detail.turns.slice(0, cursorIndex);
+    const pageTurns = precedingTurns.slice(-turnLimit).reverse();
+    const pageTurnIds = new Set(pageTurns.map((turn) => turn.turnId));
+    const entriesByTurn = detail.transcript.reduce<Map<string, CodexTranscriptEntry[]>>((acc, entry) => {
+      if (!pageTurnIds.has(entry.turnId)) return acc;
+      const entries = acc.get(entry.turnId) ?? [];
+      entries.push(entry);
+      acc.set(entry.turnId, entries);
+      return acc;
+    }, new Map());
+
+    return {
+      schemaVersion: 1,
+      thread: {
+        id: detail.threadId,
+        title: detail.threadName,
+        preview: detail.threadPreview,
+        status: {
+          type: detail.statusType,
+          ...(detail.statusActiveFlags.length > 0 ? { activeFlags: detail.statusActiveFlags } : {}),
+        },
+        cwd: detail.cwd,
+        createdAt: detail.createdAt,
+        updatedAt: detail.updatedAt,
+      },
+      page: {
+        order: "newest_first",
+        limit: turnLimit,
+        nextCursor: precedingTurns.length > pageTurns.length ? pageTurns.at(-1)?.turnId ?? null : null,
+        hasMore: precedingTurns.length > pageTurns.length,
+      },
+      turns: pageTurns.map((turn) => ({
+        id: turn.turnId,
+        status: turn.status,
+        error: turn.errorMessage ? { message: turn.errorMessage, additionalDetails: null } : null,
+        startedAt: turn.startedAt ?? turn.turnStartedAtMs ?? null,
+        completedAt: turn.completedAt ?? null,
+        durationMs: turn.durationMs ?? null,
+        items: (entriesByTurn.get(turn.turnId) ?? []).map((entry) =>
+          this.serializeDynamicThreadItem(entry, includeOutputs, maxOutputCharsPerItem)
+        ),
+      })),
+    };
+  }
+
+  private async handleDynamicToolCall(params: DynamicToolCallParams): Promise<DynamicToolCallResponse> {
+    const args = asRecord(params.arguments) ?? {};
+
+    try {
+      if (params.tool === "read_thread") {
+        return this.buildDynamicToolSuccess(this.buildDynamicReadThreadResponse(args));
+      }
+
+      if (params.tool === "list_threads") {
+        const sourceRef = this.parseThreadRef(params.threadId);
+        const limit = this.clampDynamicInt(args.limit, 20, 1, 50);
+        const query = typeof args.query === "string" ? args.query.trim().toLowerCase() : "";
+        const threads = sourceRef?.projectId
+          ? await this.listProjectThreads(sourceRef.projectId, { includeArchived: true })
+          : Array.from(this.conversationRecords.keys())
+              .map((threadId) => this.serializeThreadDetail(threadId))
+              .filter((thread): thread is CodexThreadDetail => thread !== null);
+        const filtered = threads
+          .filter((thread) => {
+            if (!query) return true;
+            return [
+              thread.threadId,
+              thread.threadName ?? "",
+              thread.threadPreview,
+              thread.cwd ?? "",
+            ].join(" ").toLowerCase().includes(query);
+          })
+          .slice(0, limit)
+          .map((thread) => ({
+            threadId: thread.threadId,
+            title: thread.threadName,
+            preview: thread.threadPreview,
+            status: thread.statusType,
+            cwd: thread.cwd,
+            archived: thread.archived,
+            updatedAt: thread.updatedAt,
+          }));
+        return this.buildDynamicToolSuccess({ threads: filtered });
+      }
+
+      if (params.tool === "send_message_to_thread") {
+        const threadId = typeof args.threadId === "string" ? args.threadId.trim() : "";
+        const prompt = typeof args.prompt === "string" ? args.prompt.trim() : "";
+        if (!threadId || !prompt) throw new Error("send_message_to_thread requires threadId and prompt");
+        const turn = await this.startTurn(threadId, prompt, {
+          model: typeof args.model === "string" ? args.model : undefined,
+        });
+        return this.buildDynamicToolSuccess({ threadId, turnId: turn?.turnId ?? null });
+      }
+
+      if (params.tool === "set_thread_title") {
+        const threadId = typeof args.threadId === "string" ? args.threadId.trim() : "";
+        const title = typeof args.title === "string" ? args.title.trim() : "";
+        if (!threadId || !title) throw new Error("set_thread_title requires threadId and title");
+        await this.setThreadName(threadId, title);
+        return this.buildDynamicToolSuccess({ threadId, title });
+      }
+
+      if (params.tool === "set_thread_archived") {
+        const threadId = typeof args.threadId === "string" ? args.threadId.trim() : "";
+        if (!threadId || typeof args.archived !== "boolean") {
+          throw new Error("set_thread_archived requires threadId and archived");
+        }
+        if (args.archived) await this.archiveThread(threadId);
+        else await this.unarchiveThread(threadId);
+        return this.buildDynamicToolSuccess({ threadId, archived: args.archived });
+      }
+
+      if (params.tool === "set_thread_pinned") {
+        const threadId = typeof args.threadId === "string" ? args.threadId.trim() : "";
+        if (!threadId || typeof args.pinned !== "boolean") {
+          throw new Error("set_thread_pinned requires threadId and pinned");
+        }
+        return this.buildDynamicToolSuccess({ threadId, pinned: args.pinned });
+      }
+
+      if (params.tool === "fork_thread") {
+        const sourceThreadId = typeof args.threadId === "string" && args.threadId.trim()
+          ? args.threadId.trim()
+          : params.threadId;
+        const sourceDetail = this.serializeThreadDetail(sourceThreadId) ?? await this.readThread(sourceThreadId, false);
+        if (!sourceDetail) throw new Error(`Thread '${sourceThreadId}' was not found`);
+        const result = await this.client.request<"thread/fork", ThreadForkResponse>("thread/fork", {
+          threadId: sourceThreadId,
+          cwd: sourceDetail.cwd,
+        });
+        const { detail, summary } = this.materializeThreadDetailFromThreadPayload(result.thread, null, sourceDetail.cwd);
+        this.setConversationRecordDetail(detail);
+        if (summary) this.emitEvent({ type: "threadSummary", thread: summary });
+        this.emitThreadStreamSnapshotFromRecord(detail.threadId);
+        return this.buildDynamicToolSuccess({ threadId: detail.threadId });
+      }
+
+      if (params.tool === "create_thread") {
+        const prompt = typeof args.prompt === "string" ? args.prompt.trim() : "";
+        if (!prompt) throw new Error("create_thread requires prompt");
+        const sourceDetail = this.serializeThreadDetail(params.threadId);
+        const result = await this.client.request<"thread/start", ThreadStartResponse>("thread/start", {
+          cwd: sourceDetail?.cwd ?? null,
+          model: typeof args.model === "string" ? args.model : null,
+          config: buildCodexThreadConfigOverrides(),
+          experimentalRawEvents: THREAD_START_EXPERIMENTAL_RAW_EVENTS,
+        });
+        const { detail, summary } = this.materializeThreadDetailFromThreadPayload(result.thread, null, sourceDetail?.cwd ?? null);
+        this.setConversationRecordDetail(detail);
+        if (summary) this.emitEvent({ type: "threadSummary", thread: summary });
+        const turn = await this.startTurn(detail.threadId, prompt, {
+          model: typeof args.model === "string" ? args.model : undefined,
+        });
+        this.emitThreadStreamSnapshotFromRecord(detail.threadId);
+        return this.buildDynamicToolSuccess({ threadId: detail.threadId, turnId: turn?.turnId ?? null });
+      }
+
+      return this.buildDynamicToolFailure(`Unsupported dynamic tool: ${params.tool}`);
+    } catch (error) {
+      return this.buildDynamicToolFailure(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   private async handleServerRequest(request: CodexServerRequest): Promise<unknown> {
     this.logger.info("Handling Codex server request", {
       requestId: String(request.id),
@@ -6697,7 +7048,7 @@ export class CodexService extends EventEmitter {
     }
 
     if (request.method === "item/tool/call") {
-      throw new Error("Dynamic tool calls are not supported in this Nodex release");
+      return this.handleDynamicToolCall(request.params as DynamicToolCallParams);
     }
 
     throw new Error(`Unsupported server request method: ${request.method}`);

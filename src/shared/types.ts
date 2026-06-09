@@ -1,9 +1,15 @@
 import type {
   ApprovalsReviewer as CodexAppServerApprovalsReviewer,
+  AppInfo as CodexAppServerAppInfo,
   AskForApproval as CodexAppServerAskForApproval,
   CommandAction as CodexAppServerCommandAction,
   CommandExecutionRequestApprovalParams as CodexAppServerCommandExecutionRequestApprovalParams,
+  DynamicToolCallOutputContentItem as CodexAppServerDynamicToolCallOutputContentItem,
   ExecPolicyAmendment as CodexAppServerExecPolicyAmendment,
+  ListMcpServerStatusResponse as CodexAppServerListMcpServerStatusResponse,
+  McpResourceReadParams as CodexAppServerMcpResourceReadParams,
+  McpResourceReadResponse as CodexAppServerMcpResourceReadResponse,
+  McpServerStatus as CodexAppServerMcpServerStatus,
   McpToolCallError as CodexAppServerMcpToolCallError,
   McpToolCallResult as CodexAppServerMcpToolCallResult,
   NetworkApprovalContext as CodexAppServerNetworkApprovalContext,
@@ -1123,6 +1129,7 @@ export type CodexSemanticItemKind =
   | "diff"
   | "toolCall"
   | "mcpToolCall"
+  | "dynamicToolCall"
   | "webSearch"
   | "workedFor"
   | "mcpServerElicitation"
@@ -1142,7 +1149,7 @@ export type CodexSemanticItemKind =
   | "planImplementation"
   | "systemEvent";
 
-export type CodexToolCallSubtype = "mcp" | "webSearch" | "generic" | "command" | "fileChange";
+export type CodexToolCallSubtype = "mcp" | "dynamic" | "webSearch" | "generic" | "command" | "fileChange";
 export type CodexItemStatus = "inProgress" | "completed" | "failed" | "declined" | "interrupted";
 export type CodexTranscriptEntryKind = CodexItemNormalizedKind;
 export type CodexTranscriptEntryStatus = CodexItemStatus;
@@ -1172,9 +1179,16 @@ export type CodexUserAttachment =
 export type ProtocolThreadItem = CodexAppServerThreadItem;
 export type ProtocolCommandExecutionItem = Extract<ProtocolThreadItem, { type: "commandExecution" }>;
 export type ProtocolMcpToolCallItem = Extract<ProtocolThreadItem, { type: "mcpToolCall" }>;
+export type ProtocolDynamicToolCallItem = Extract<ProtocolThreadItem, { type: "dynamicToolCall" }>;
+export type ProtocolDynamicToolCallOutputContentItem = CodexAppServerDynamicToolCallOutputContentItem;
 export type ProtocolCommandAction = CodexAppServerCommandAction;
 export type ProtocolMcpToolCallResult = CodexAppServerMcpToolCallResult;
 export type ProtocolMcpToolCallError = CodexAppServerMcpToolCallError;
+export type ProtocolMcpResourceReadParams = CodexAppServerMcpResourceReadParams;
+export type ProtocolMcpResourceReadResponse = CodexAppServerMcpResourceReadResponse;
+export type ProtocolMcpServerStatus = CodexAppServerMcpServerStatus;
+export type ProtocolListMcpServerStatusResponse = CodexAppServerListMcpServerStatusResponse;
+export type ProtocolAppInfo = CodexAppServerAppInfo;
 export type ProtocolCommandExecutionApprovalParams = CodexAppServerCommandExecutionRequestApprovalParams;
 export type ProtocolExecPolicyAmendment = CodexAppServerExecPolicyAmendment;
 export type ProtocolNetworkApprovalContext = CodexAppServerNetworkApprovalContext;
@@ -1245,23 +1259,38 @@ export interface CodexMcpToolCallInvocation {
   arguments: unknown;
 }
 
+export interface CodexDynamicToolCallView {
+  callId: ProtocolDynamicToolCallItem["id"];
+  namespace: ProtocolDynamicToolCallItem["namespace"];
+  tool: ProtocolDynamicToolCallItem["tool"];
+  arguments: ProtocolDynamicToolCallItem["arguments"];
+  status: ProtocolDynamicToolCallItem["status"];
+  contentItems: ProtocolDynamicToolCallItem["contentItems"];
+  success: ProtocolDynamicToolCallItem["success"];
+  durationMs: ProtocolDynamicToolCallItem["durationMs"];
+  completed: boolean;
+}
+
 export type CodexMcpToolCallContentBlock =
   | {
       type: "text";
       text: string;
       annotations?: unknown;
+      meta?: unknown;
     }
   | {
       type: "image";
       data: string;
       mimeType: string;
       annotations?: unknown;
+      meta?: unknown;
     }
   | {
       type: "audio";
       data: string;
       mimeType: string;
       annotations?: unknown;
+      meta?: unknown;
     }
   | {
       type: "resource_link";
@@ -1271,6 +1300,7 @@ export type CodexMcpToolCallContentBlock =
       description?: string;
       mimeType?: string;
       annotations?: unknown;
+      meta?: unknown;
     }
   | {
       type: "embedded_resource";
@@ -1283,7 +1313,9 @@ export type CodexMcpToolCallContentBlock =
         text?: string;
         blob?: string;
         annotations?: unknown;
+        meta?: unknown;
       };
+      meta?: unknown;
     }
   | {
       type: "unknown";
@@ -1296,9 +1328,11 @@ export type CodexMcpToolCallNormalizedResult =
       type: "success";
       content: CodexMcpToolCallContentBlock[];
       structuredContent: unknown;
+      meta?: unknown;
       raw: {
         content: unknown[];
         structuredContent: unknown;
+        meta?: unknown;
       };
     }
   | {
@@ -1312,6 +1346,8 @@ export type CodexMcpToolCallNormalizedResult =
 export interface CodexMcpToolCallView {
   callId: ProtocolMcpToolCallItem["id"];
   functionName: string;
+  pluginId?: ProtocolMcpToolCallItem["pluginId"];
+  mcpAppResourceUri?: ProtocolMcpToolCallItem["mcpAppResourceUri"] | null;
   invocation: CodexMcpToolCallInvocation;
   result: CodexMcpToolCallNormalizedResult;
   durationMs: ProtocolMcpToolCallItem["durationMs"];
@@ -1331,6 +1367,7 @@ export interface CodexItemView extends CodexCommandExecutionAttachmentFields {
   role?: "user" | "assistant";
   toolCall?: CodexToolCallView;
   mcpToolCall?: CodexMcpToolCallView;
+  dynamicToolCall?: CodexDynamicToolCallView;
   fileChange?: CodexFileChangeView;
   markdownText?: string;
   userAttachments?: CodexUserAttachment[];
@@ -1366,6 +1403,7 @@ export interface CodexTranscriptEntry extends CodexCommandExecutionAttachmentFie
   sequence?: number;
   toolCall?: CodexToolCallView;
   mcpToolCall?: CodexMcpToolCallView;
+  dynamicToolCall?: CodexDynamicToolCallView;
   fileChange?: CodexFileChangeView;
   markdownText?: string;
   userAttachments?: CodexUserAttachment[];

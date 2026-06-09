@@ -1,17 +1,23 @@
 import type { CodexConversationItem } from "../../../lib/types";
 import { extractCommandActions, isExplorationAction } from "../view/shared/tools/command-actions";
+import { buildDynamicToolCallGroupKey, resolveDynamicToolLabel } from "../view/shared/tools/dynamic-tool-call-utils";
+import { humanizeIdentifier } from "../view/shared/tools/tool-call-utils";
 import type {
   ThreadCollapsedToolActivityBlockModel,
   ThreadCollapsedToolActivityEntryModel,
   ThreadCollapsedToolActivitySummaryStats,
   ThreadAgentEntryModel,
+  ThreadDynamicToolCallGroupBlockModel,
   ThreadMultiAgentGroupBlockModel,
+  ThreadPendingMcpToolCallsBlockModel,
   ThreadTranscriptBlockModel,
   ThreadExplorationGroupBlockModel,
 } from "../thread-stage-types";
 
 type CommandExecutionBlock = ThreadTranscriptBlockModel & { type: "exec" };
 type MultiAgentBlock = ThreadTranscriptBlockModel & { type: "multiAgentAction" };
+type McpToolCallBlock = ThreadTranscriptBlockModel & { type: "mcpToolCall" };
+type DynamicToolCallBlock = ThreadTranscriptBlockModel & { type: "dynamicToolCall" };
 
 function isExplorationCommandBlock(block: ThreadTranscriptBlockModel): block is CommandExecutionBlock {
   if (block.type !== "exec") return false;
@@ -67,6 +73,60 @@ function resolveExplorationSummary(entries: CodexConversationItem[]): string {
 function resolveMultiAgentSummary(entries: CodexConversationItem[]): string {
   if (entries.length <= 1) return "Multi-agent action";
   return `Multi-agent actions (${entries.length})`;
+}
+
+function resolveMcpSourceDisplayName(entry: CodexConversationItem): string | null {
+  const sourceName = getMcpSourceName(entry);
+  if (!sourceName) return null;
+  if (sourceName === "browser-use") return "the browser";
+  if (sourceName === "computer-use") return "Computer";
+  return humanizeIdentifier(sourceName) || sourceName;
+}
+
+function resolvePendingMcpSummary(entries: McpToolCallBlock[]): string {
+  const sources = entries
+    .map((entry) => resolveMcpSourceDisplayName(entry.entry))
+    .filter((source): source is string => Boolean(source));
+  const uniqueSources = Array.from(new Set(sources));
+  if (uniqueSources.length === 1) return `Using ${uniqueSources[0]}`;
+  if (uniqueSources.length > 1) return `Using ${uniqueSources.slice(0, -1).join(", ")} and ${uniqueSources[uniqueSources.length - 1]}`;
+  return entries.length === 1 ? "Using tool" : `Using ${entries.length} tools`;
+}
+
+function buildPendingMcpToolCallsGroup(
+  entries: McpToolCallBlock[],
+  seed: McpToolCallBlock,
+): ThreadPendingMcpToolCallsBlockModel {
+  return {
+    id: `${seed.id}::pending-mcp-tool-calls`,
+    turnId: seed.turnId,
+    createdAt: entries[0]?.createdAt ?? seed.createdAt,
+    updatedAt: Math.max(...entries.map((entry) => entry.updatedAt)),
+    searchableText: entries.map((entry) => entry.searchableText).join("\n"),
+    type: "pendingMcpToolCalls",
+    entries,
+    summary: resolvePendingMcpSummary(entries),
+    status: mergeActivityStatus(entries),
+  };
+}
+
+function buildDynamicToolCallGroup(
+  entries: DynamicToolCallBlock[],
+  seed: DynamicToolCallBlock,
+): ThreadDynamicToolCallGroupBlockModel {
+  const summary = resolveDynamicToolLabel(seed.entry);
+  return {
+    id: `${seed.id}::dynamic-tool-call-group`,
+    turnId: seed.turnId,
+    createdAt: entries[0]?.createdAt ?? seed.createdAt,
+    updatedAt: Math.max(...entries.map((entry) => entry.updatedAt)),
+    searchableText: [summary, ...entries.map((entry) => entry.searchableText)].join("\n"),
+    type: "dynamicToolCallGroup",
+    entries,
+    summary,
+    repeatCount: entries.length,
+    status: mergeActivityStatus(entries),
+  };
 }
 
 function buildExplorationGroup(entries: CodexConversationItem[], seed: ThreadTranscriptBlockModel): ThreadExplorationGroupBlockModel {
@@ -151,6 +211,7 @@ function emptyCollapsedToolActivitySummaryStats(): ThreadCollapsedToolActivitySu
     hookCount: 0,
     runningHookCount: 0,
     mcpToolCallCount: 0,
+    runningMcpToolCallCount: 0,
     mcpToolCallSources: [],
     webSearchCount: 0,
     runningWebSearchCount: 0,
@@ -274,6 +335,7 @@ export function collectCollapsedToolActivitySummaryStats(
 
     if (entry.type === "mcpToolCall") {
       stats.mcpToolCallCount += 1;
+      if (entry.status === "inProgress") stats.runningMcpToolCallCount += 1;
       const sourceName = getMcpSourceName(entry.entry);
       if (sourceName) incrementMcpSource(stats, sourceName);
       continue;
@@ -453,6 +515,40 @@ export function groupAgentEntries(agentBlocks: ThreadTranscriptBlockModel[]): Th
   while (index < agentBlocks.length) {
     const current = agentBlocks[index];
     if (!current) break;
+
+    if (current.type === "mcpToolCall" && current.status === "inProgress") {
+      const entries: McpToolCallBlock[] = [current as McpToolCallBlock];
+      let cursor = index + 1;
+      while (cursor < agentBlocks.length) {
+        const candidate = agentBlocks[cursor];
+        if (!candidate || candidate.type !== "mcpToolCall" || candidate.status !== "inProgress") break;
+        entries.push(candidate as McpToolCallBlock);
+        cursor += 1;
+      }
+      grouped.push(buildPendingMcpToolCallsGroup(entries, current as McpToolCallBlock));
+      index = cursor;
+      continue;
+    }
+
+    if (current.type === "dynamicToolCall") {
+      const currentKey = buildDynamicToolCallGroupKey(current.entry.dynamicToolCall);
+      const entries: DynamicToolCallBlock[] = [current as DynamicToolCallBlock];
+      let cursor = index + 1;
+      while (cursor < agentBlocks.length) {
+        const candidate = agentBlocks[cursor];
+        if (!candidate || candidate.type !== "dynamicToolCall") break;
+        if (buildDynamicToolCallGroupKey(candidate.entry.dynamicToolCall) !== currentKey) break;
+        entries.push(candidate as DynamicToolCallBlock);
+        cursor += 1;
+      }
+      if (entries.length === 1) {
+        grouped.push(current);
+      } else {
+        grouped.push(buildDynamicToolCallGroup(entries, current as DynamicToolCallBlock));
+      }
+      index = cursor;
+      continue;
+    }
 
     if (isSettledMultiAgentBlock(current)) {
       const entries = [current.entry];

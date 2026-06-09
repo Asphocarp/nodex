@@ -134,6 +134,10 @@
   - the fixed above-composer block host (`above-composer-portal`) and the queue/background lane host (`above-composer-queue-portal`) both stay in that footer wrapper as siblings directly above `LocalConversationComposerShell`; do not move either host into the transcript body or a separate overlay layer
   - `LocalConversationComposerShell` should stay a pure stack/layout switcher
   - `ThreadComposer` should render the composer form itself, not re-wrap the whole footer width a second time
+- Keep Codex tool-call parity inside the local-conversation projection and leaf renderers:
+  - pending MCP calls render as a first-class `pendingMcpToolCalls` block with `data-testid="pending-mcp-tool-calls-body"`
+  - repeated identical dynamic app-server calls render as `dynamicToolCallGroup` with `data-testid="dynamic-tool-call-group-body"` and repeat text
+  - MCP app/resource frames must mount inside the thread body under the existing `data-mcp-app-portal-target` scroll wrapper, preserve sandboxed iframe boundaries, and resolve resource/widget metadata before falling back to text or JSON output
 - Keep the queue lane on the dedicated row family:
   - project raw queued follow-ups into dedicated row models before JSX
   - render queued follow-ups in the shared above-composer lane panel instead of separate cards or footer widgets

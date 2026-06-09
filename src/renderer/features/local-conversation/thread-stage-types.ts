@@ -223,6 +223,7 @@ export interface ThreadTranscriptBlockModel {
     | "fileChange"
     | "turnDiff"
     | "mcpToolCall"
+    | "dynamicToolCall"
     | "webSearch"
     | "hook"
     | "planImplementation"
@@ -291,6 +292,31 @@ export interface ThreadMultiAgentGroupBlockModel {
   status?: CodexConversationItem["status"];
 }
 
+export interface ThreadPendingMcpToolCallsBlockModel {
+  id: string;
+  turnId: string;
+  createdAt: number;
+  updatedAt: number;
+  searchableText: string;
+  type: "pendingMcpToolCalls";
+  entries: Array<ThreadTranscriptBlockModel & { type: "mcpToolCall" }>;
+  summary: string;
+  status?: CodexConversationItem["status"];
+}
+
+export interface ThreadDynamicToolCallGroupBlockModel {
+  id: string;
+  turnId: string;
+  createdAt: number;
+  updatedAt: number;
+  searchableText: string;
+  type: "dynamicToolCallGroup";
+  entries: Array<ThreadTranscriptBlockModel & { type: "dynamicToolCall" }>;
+  summary: string;
+  repeatCount: number;
+  status?: CodexConversationItem["status"];
+}
+
 export type ThreadCollapsedToolActivityEntryModel =
   | ThreadTranscriptBlockModel
   | ThreadExplorationGroupBlockModel;
@@ -316,6 +342,7 @@ export interface ThreadCollapsedToolActivitySummaryStats {
   hookCount: number;
   runningHookCount: number;
   mcpToolCallCount: number;
+  runningMcpToolCallCount: number;
   mcpToolCallSources: Array<{ name: string; count: number }>;
   webSearchCount: number;
   runningWebSearchCount: number;
@@ -353,6 +380,8 @@ export type ThreadAgentEntryModel =
   | ThreadTranscriptBlockModel
   | ThreadExplorationGroupBlockModel
   | ThreadMultiAgentGroupBlockModel
+  | ThreadPendingMcpToolCallsBlockModel
+  | ThreadDynamicToolCallGroupBlockModel
   | ThreadCollapsedToolActivityBlockModel;
 
 export type ThreadBlockModel =
@@ -361,6 +390,8 @@ export type ThreadBlockModel =
   | ThreadUserAttachmentStripBlockModel
   | ThreadExplorationGroupBlockModel
   | ThreadMultiAgentGroupBlockModel
+  | ThreadPendingMcpToolCallsBlockModel
+  | ThreadDynamicToolCallGroupBlockModel
   | ThreadCollapsedToolActivityBlockModel
   | ThreadThinkingPlaceholderBlockModel;
 

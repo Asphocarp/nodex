@@ -1,6 +1,7 @@
 import {
   ThreadAutomaticApprovalReviewBlock,
   ThreadCollapsedToolActivityBlock,
+  ThreadDynamicToolCallGroupBlock,
   ThreadMultiAgentGroupBlock,
   ThreadMultiAgentActionBlock,
   ThreadAssistantActionsBlock,
@@ -9,6 +10,7 @@ import {
   ThreadExplorationGroupBlock,
   ThreadHookBlock,
   ThreadMcpServerElicitationBlock,
+  ThreadPendingMcpToolCallsBlock,
   ThreadPlanCardBlock,
   ThreadPlanImplementationBlock,
   ThreadReasoningBlock,
@@ -79,6 +81,32 @@ export function ThreadBlockRenderer({
     );
   }
 
+  if (block.type === "pendingMcpToolCalls") {
+    return (
+      <ThreadPendingMcpToolCallsBlock
+        block={block}
+        isLatestTurn={isLatestTurn}
+        isStreamingTurn={isStreamingTurn}
+        projectWorkspacePath={projectWorkspacePath}
+        threadCwd={threadCwd}
+        onOpenTurnDiffReview={onOpenTurnDiffReview}
+      />
+    );
+  }
+
+  if (block.type === "dynamicToolCallGroup") {
+    return (
+      <ThreadDynamicToolCallGroupBlock
+        block={block}
+        isLatestTurn={isLatestTurn}
+        isStreamingTurn={isStreamingTurn}
+        projectWorkspacePath={projectWorkspacePath}
+        threadCwd={threadCwd}
+        onOpenTurnDiffReview={onOpenTurnDiffReview}
+      />
+    );
+  }
+
   if (block.type === "collapsedToolActivity") {
     return (
       <ThreadCollapsedToolActivityBlock
@@ -104,6 +132,7 @@ export function ThreadBlockRenderer({
     block.type === "exec"
     || block.type === "fileChange"
     || block.type === "mcpToolCall"
+    || block.type === "dynamicToolCall"
     || block.type === "webSearch"
   ) {
     return (

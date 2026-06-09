@@ -14,6 +14,7 @@ This spec covers:
 - visible item kinds and transcript rendering rules
 - turn bucketing and composer-shell request rules
 - transcript-only UI behaviors such as request-user-input rows, plan follow-up prompts, exploration coalescing, searchable content units, and agent-body collapse
+- Codex-style tool-call grouping for pending MCP calls, dynamic app-server tools, and collapsed historical activity
 - persistence and restart recovery rules
 - internal bootstrap/context visibility rules
 
@@ -56,6 +57,7 @@ The visible transcript can contain these projected kinds:
 - `systemEvent`
 
 Not every runtime payload becomes a transcript row. Only entries explicitly projected into these visible kinds render in chat.
+MCP and dynamic app-server tool calls are specialized `toolCall` rows with canonical renderer state: MCP rows preserve plugin ids, app resource URIs, result metadata, and normalized resource content; dynamic rows preserve namespace/tool/arguments/status/output content for tools such as `read_thread`.
 
 ## Prompt and Turn Behavior
 - Sending from `New thread` creates the thread and switches focus to the newly created thread tab.
@@ -87,7 +89,7 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
   - leading `hook` items that appear before the first user message
   - `userMessage`
   - selected `modelRerouted`
-  - activity blocks (`reasoning`, `commandExecution`, `patch`, `mcpToolCall`, `webSearch`, `multiAgentAction`, inline `hook`, completed `mcpServerElicitation`, completed `userInputResponse`, `contextCompaction`, plus derived exploration groups)
+  - activity blocks (`reasoning`, `commandExecution`, `patch`, `mcpToolCall`, `dynamicToolCall`, `webSearch`, `multiAgentAction`, inline `hook`, completed `mcpServerElicitation`, completed `userInputResponse`, `contextCompaction`, plus derived exploration groups)
   - `systemEvent`
   - `assistantMessage`
   - post-assistant artifacts such as trailing `hook` items and trailing automatic approval review
@@ -99,7 +101,7 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
 - If the active turn has no blocking pending request, the turn may append a `Thinking` placeholder after the proposed-plan block and before any completed inline diff.
 - Exploration groups take precedence over that placeholder, incomplete proposed plans suppress it, `workedFor` suppresses it, and unresolved approval / request-user-input / MCP elicitation state suppresses it.
 - Incomplete MCP elicitation blocks the same in-progress surfaces as approval and request-user-input state.
-- Unknown replay/app-server tool payloads do not render a generic transcript tool row. The mounted transcript only renders supported tool families with dedicated surfaces (`exec`, `patch`, `mcpToolCall`, `webSearch`, `turnDiff`) and keeps any remaining raw tool metadata internal to the canonical conversation state.
+- Unknown replay/app-server tool payloads do not render a generic transcript tool row. The mounted transcript only renders supported tool families with dedicated surfaces (`exec`, `patch`, `mcpToolCall`, `dynamicToolCall`, `webSearch`, `turnDiff`) and keeps any remaining raw tool metadata internal to the canonical conversation state.
 
 ## Collapse and Search
 - Agent-body collapse applies only to the activity section of older completed turns with renderable agent work. It does not hide the turn's user message or final assistant answer.
@@ -138,6 +140,9 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
 - Top-level web rows prefer extracted site favicons through the Google favicon URL helper and fall back to the semantic web-search glyph when no stable domain is available. Expanded/detail web rows render the favicon only when a `faviconUrl` exists; they do not add a globe fallback when no site favicon was resolved.
 - MCP, plugin, connector, and elicitation rows resolve source logos from available metadata, Browser Use / computer-use source identifiers, connector/plugin logo URLs, then the generic source fallback.
 - Connector logos choose light or dark logo URLs from the current theme and fall back to the generic source glyph after an image load error without changing row geometry.
+- In-progress MCP rows group into a pending MCP disclosure with `pending-mcp-tool-calls-body`; repeated identical dynamic tool rows group into a dynamic disclosure with `dynamic-tool-call-group-body` and `{count} times` repeat text.
+- MCP tool rows resolve app resources from tool metadata, result metadata, and item-level `mcpAppResourceUri`, then render supported `text/html`, `text/html;profile=mcp-app`, and `text/x-dil;profile=mcp-app` resources in a sandboxed inline frame. Unsupported or failed resources fall back to text, structured JSON, error, or no-content branches.
+- The app-server `read_thread` dynamic tool returns `schemaVersion: 1`, thread metadata, newest-first paged turns, and optional truncated outputs as a successful `inputText` JSON result.
 - Transient tool labels use Nodex's `CodexShimmerText` wrapper. Active false renders plain text; active true uses the shared `loading-shimmer-pure-text` timing (`2s`, `steps(48,end)`, `-100%` to `250%`, reduced-motion disabled), with cadenced timing kept as an internal optional variant.
 - Shimmer placement is source-specific: collapsed activity active labels shimmer only while the latest group is running, completed collapsed summaries stay static, command rows shimmer only the active status phrase, web rows shimmer only the top-level `Searching the web` phrase, MCP rows shimmer only the in-progress label text while logos remain static, and file-change rows do not text-shimmer because live patch motion belongs to the `+N` / `-N` digit wheel.
 - Collapsed activity group headers use synthesized activity sentences, never a generic `Completed N actions` fallback. Source-backed segments are ordered as file changes, exploration, approvals/denials, hooks, commands, MCP usage, then web searches; mixed groups render summaries such as `Explored 5 files, 1 search, ran 2 commands, searched web 1 time`.

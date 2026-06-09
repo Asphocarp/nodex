@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
 import { CommandToolCall } from "./command-tool-call";
+import { DynamicToolCall } from "./dynamic-tool-call";
 import { FileChangeToolCall } from "./file-change-tool-call";
 import { McpToolCall } from "./mcp-tool-call";
 import { WebSearchToolCall } from "./web-search-tool-call";
@@ -32,6 +33,10 @@ export function getToolComponent(item: CodexTranscriptEntry): ToolComponent | nu
 
   if (item.semanticKind === "mcpToolCall" || item.toolCall?.subtype === "mcp") {
     return McpToolCall;
+  }
+
+  if (item.semanticKind === "dynamicToolCall" || item.toolCall?.subtype === "dynamic") {
+    return DynamicToolCall;
   }
 
   return null;
