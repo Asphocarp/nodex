@@ -494,6 +494,31 @@ function replaceSession(
   );
 }
 
+function sortProjectSessionsForTest(sessions: ProjectSession[]): ProjectSession[] {
+  return [...sessions].sort((a, b) => {
+    const rank = (session: ProjectSession) => session.isOverview ? 0 : session.pinned ? 1 : 2;
+    const rankDelta = rank(a) - rank(b);
+    if (rankDelta !== 0) return rankDelta;
+    if (a.pinned || b.pinned) {
+      return (a.pinnedOrder ?? Number.MAX_SAFE_INTEGER) - (b.pinnedOrder ?? Number.MAX_SAFE_INTEGER);
+    }
+    return a.order - b.order;
+  });
+}
+
+function getThreadRow(container: HTMLElement, title: string): HTMLElement {
+  const row = container.querySelector(`[data-app-action-sidebar-thread-title="${title}"]`);
+  if (!(row instanceof HTMLElement)) {
+    throw new Error(`Expected thread row ${title}`);
+  }
+  return row;
+}
+
+function getThreadRowTitles(container: HTMLElement): string[] {
+  return Array.from(container.querySelectorAll("[data-app-action-sidebar-thread-row]"))
+    .map((row) => row.getAttribute("data-app-action-sidebar-thread-title") ?? "");
+}
+
 function renderWorkbench({
   projects = [makeProject()],
   sessionsByProject = { alpha: [makeSession()] },
@@ -524,6 +549,29 @@ function renderWorkbench({
       if (!session) return null;
       const updated = { ...session, ...input };
       sessionState = replaceSession(sessionState, updated);
+      return updated;
+    }
+    if (channel === "project-sessions:set-pinned") {
+      const sessionId = String(args[0]);
+      const input = (args[1] ?? {}) as { pinned?: boolean };
+      const session = Object.values(sessionState).flat().find((item) => item.id === sessionId);
+      if (!session) return null;
+      const projectSessions = sessionState[session.projectId] ?? [];
+      const nextPinned = input.pinned === true;
+      const nextPinnedOrder = nextPinned
+        ? session.pinnedOrder ?? Math.max(-1, ...projectSessions.map((item) => item.pinnedOrder ?? -1)) + 1
+        : null;
+      const updated = {
+        ...session,
+        pinned: nextPinned,
+        pinnedOrder: nextPinnedOrder,
+      };
+      sessionState = {
+        ...sessionState,
+        [session.projectId]: sortProjectSessionsForTest(
+          projectSessions.map((item) => item.id === updated.id ? updated : item),
+        ),
+      };
       return updated;
     }
     if (channel === "project-session-panels:update") {
@@ -934,6 +982,172 @@ describe("workbench session shell", () => {
     expect(sidebarText.indexOf("New chat") < sidebarText.indexOf("Search")).toBeTrue();
     expect(sidebarText.indexOf("Search") < sidebarText.indexOf("Plugins")).toBeTrue();
     expect(sidebarText.indexOf("Plugins") < sidebarText.indexOf("Automations")).toBeTrue();
+  });
+
+  test("sidebar pin button toggles a session without selecting it", async () => {
+    const target = makeAttachedSession({
+      id: "session:alpha:pin-target",
+      title: "Pin target",
+      isOverview: false,
+      order: 1,
+      rightCollapsed: true,
+      tabs: [],
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeSession(), target] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const row = getThreadRow(screen.container, "Pin target");
+    const pinButton = row.querySelector("[data-app-action-sidebar-thread-pin-session]");
+    if (!(pinButton instanceof HTMLButtonElement)) {
+      throw new Error("Expected Pin target pin button");
+    }
+    expect(pinButton.querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 20 20");
+    const setDbProjectCallCount = screen.setDbProjectCalls.length;
+
+    await act(async () => {
+      fireEvent.click(pinButton);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(screen.setDbProjectCalls.length).toBe(setDbProjectCallCount);
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-sessions:set-pinned"
+      && call[1] === "session:alpha:pin-target"
+      && (call[2] as { pinned?: boolean } | undefined)?.pinned === true
+    )).toBeTrue();
+    const updatedRow = getThreadRow(screen.container, "Pin target");
+    expect(updatedRow.getAttribute("data-app-action-sidebar-thread-pinned")).toBe("true");
+    const updatedButton = updatedRow.querySelector("[data-app-action-sidebar-thread-pin-session]");
+    expect(updatedButton?.getAttribute("aria-label")).toBe("Unpin chat");
+    expect(updatedButton?.querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 24 24");
+  });
+
+  test("sidebar pin button promotes pinned sessions above unpinned siblings", async () => {
+    const first = makeAttachedSession({
+      id: "session:alpha:first",
+      title: "First unpinned",
+      isOverview: false,
+      order: 1,
+      rightCollapsed: true,
+      tabs: [],
+    });
+    const second = makeAttachedSession({
+      id: "session:alpha:second",
+      title: "Second target",
+      isOverview: false,
+      order: 2,
+      rightCollapsed: true,
+      tabs: [],
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeSession(), first, second] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const pinButton = getThreadRow(screen.container, "Second target")
+      .querySelector("[data-app-action-sidebar-thread-pin-session]");
+    if (!(pinButton instanceof HTMLButtonElement)) {
+      throw new Error("Expected Second target pin button");
+    }
+
+    await act(async () => {
+      fireEvent.click(pinButton);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(JSON.stringify(getThreadRowTitles(screen.container).slice(0, 3))).toBe(
+      JSON.stringify(["Overview", "Second target", "First unpinned"]),
+    );
+  });
+
+  test("sidebar unpin button clears pinned state after refresh", async () => {
+    const pinned = makeAttachedSession({
+      id: "session:alpha:pinned",
+      title: "Pinned target",
+      isOverview: false,
+      order: 1,
+      pinned: true,
+      pinnedOrder: 0,
+      rightCollapsed: true,
+      tabs: [],
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeSession(), pinned] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const unpinButton = getThreadRow(screen.container, "Pinned target")
+      .querySelector("[data-app-action-sidebar-thread-pin-session]");
+    if (!(unpinButton instanceof HTMLButtonElement)) {
+      throw new Error("Expected Pinned target unpin button");
+    }
+    expect(unpinButton.getAttribute("aria-label")).toBe("Unpin chat");
+    expect(unpinButton.querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 24 24");
+
+    await act(async () => {
+      fireEvent.click(unpinButton);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-sessions:set-pinned"
+      && call[1] === "session:alpha:pinned"
+      && (call[2] as { pinned?: boolean } | undefined)?.pinned === false
+    )).toBeTrue();
+    const row = getThreadRow(screen.container, "Pinned target");
+    expect(row.getAttribute("data-app-action-sidebar-thread-pinned")).toBe("false");
+    const pinButton = row.querySelector("[data-app-action-sidebar-thread-pin-session]");
+    expect(pinButton?.getAttribute("aria-label")).toBe("Pin chat");
+    expect(pinButton?.querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 20 20");
+  });
+
+  test("sidebar pin slot excludes overview, reserves unread rows, and protects long titles", async () => {
+    const unread = makeAttachedSession({
+      id: "session:alpha:unread",
+      title: "Unread target",
+      isOverview: false,
+      order: 1,
+      unread: true,
+      rightCollapsed: true,
+      tabs: [],
+    });
+    const long = makeAttachedSession({
+      id: "session:alpha:long",
+      title: "Very long session title that should truncate before colliding with row actions",
+      isOverview: false,
+      order: 2,
+      rightCollapsed: true,
+      tabs: [],
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeSession(), unread, long] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const overviewRow = getThreadRow(screen.container, "Overview");
+    expect(overviewRow.querySelector("[data-app-action-sidebar-thread-pin-slot]") === null).toBeTrue();
+    expect(overviewRow.querySelector("[data-app-action-sidebar-thread-pin-session]") === null).toBeTrue();
+
+    const unreadRow = getThreadRow(screen.container, "Unread target");
+    expect(unreadRow.querySelector("[data-app-action-sidebar-thread-pin-slot]") !== null).toBeTrue();
+    expect(unreadRow.querySelector("[data-app-action-sidebar-thread-pin-session]") === null).toBeTrue();
+
+    const longRow = getThreadRow(screen.container, "Very long session title that should truncate before colliding with row actions");
+    expect(longRow.querySelector("[data-app-action-sidebar-thread-pin-slot]") !== null).toBeTrue();
+    expect(longRow.querySelector("[data-app-action-sidebar-thread-actions-menu]") !== null).toBeTrue();
+    expect(longRow.querySelector("[data-thread-title]")?.className.includes("truncate")).toBeTrue();
   });
 
   test("expanded sidebar keeps the sidebar toggle in the left header rail without compact new-chat", async () => {

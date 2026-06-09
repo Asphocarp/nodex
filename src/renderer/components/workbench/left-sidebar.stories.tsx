@@ -496,6 +496,7 @@ function CodexProjectSessionRowsHarness() {
                           contextMenuOpen={index === 3}
                           onSelect={() => {}}
                           onOpenContextMenu={() => {}}
+                          onTogglePinned={() => {}}
                         />
                       ))}
                     </CodexProjectSessionList>

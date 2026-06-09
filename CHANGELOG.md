@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
-- Added Codex-style project session shell parity for session pinning and native sidebar session context menus, including archive/unread state, copy/reveal/fork/open actions, and `nodex://sessions/<session-id>` deeplinks.
+- Added Codex-style project session shell parity for session pinning and native sidebar session context menus, including direct filled row pin buttons, archive/unread state, copy/reveal/fork/open actions, and `nodex://sessions/<session-id>` deeplinks.
 - Added app-window Back/Forward titlebar controls with matching keyboard, mouse, command-palette, and macOS menu entry points.
 - Added the global bottom-panel toggle beside the side-panel toggle, with active/ghost toolbar states.
 - Added right and bottom session panels with shared tab chrome, panel-scoped ordering, cross-panel tab moves, a bottom-panel Terminal default, and eligible bottom actions for Files, Side chat, Browser, Review, and Terminal.

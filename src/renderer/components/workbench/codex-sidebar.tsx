@@ -5,11 +5,13 @@ import type {
   ReactNode,
 } from "react";
 import { useState } from "react";
-import { FolderOpen, Pin, Settings } from "lucide-react";
+import { FolderOpen, Settings } from "lucide-react";
 import {
   CodexFolderIcon,
   CodexProjectActionsIcon,
   CodexProjectHoverIcon,
+  CodexSessionPinFilledIcon,
+  CodexSessionPinIcon,
   ChevronDownIcon,
 } from "@/components/shared/icons";
 import {
@@ -348,14 +350,18 @@ export function CodexThreadRow({
   contextMenuOpen = false,
   onSelect,
   onOpenContextMenu,
+  onTogglePinned,
 }: {
   session: ProjectSession;
   active: boolean;
   contextMenuOpen?: boolean;
   onSelect: () => void;
   onOpenContextMenu?: (session: ProjectSession, event: MouseEvent<HTMLElement>) => void;
+  onTogglePinned?: (session: ProjectSession) => void | Promise<void>;
 }) {
   const showSessionActions = !session.isOverview && Boolean(onOpenContextMenu);
+  const showPinSlot = !session.isOverview && Boolean(onTogglePinned);
+  const pinButtonLabel = session.pinned ? "Unpin chat" : "Pin chat";
 
   return (
     <div className="after:block after:h-px after:content-[''] last:after:hidden" role="listitem">
@@ -415,9 +421,35 @@ export function CodexThreadRow({
                 </span>
               </div>
             </div>
-            {session.pinned ? (
-              <div className="ml-1 flex h-5 w-5 shrink-0 items-center justify-center text-token-description-foreground">
-                <Pin className="icon-xs" aria-hidden="true" />
+            {showPinSlot ? (
+              <div
+                className="ml-1 flex h-5 w-5 shrink-0 items-center justify-center"
+                data-app-action-sidebar-thread-pin-slot=""
+              >
+                {session.unread ? (
+                  <span aria-hidden="true" className="block h-5 w-5" />
+                ) : (
+                  <button
+                    type="button"
+                    aria-label={pinButtonLabel}
+                    className={cn(
+                      "flex h-5 w-5 items-center justify-center leading-none text-token-foreground/50 hover:text-token-foreground",
+                      !session.pinned && "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100",
+                    )}
+                    data-state={contextMenuOpen ? "open" : "closed"}
+                    data-app-action-sidebar-thread-pin-session=""
+                    onPointerDown={stopCodexSidebarRowActionPropagation}
+                    onMouseDown={stopCodexSidebarRowActionPropagation}
+                    onKeyDown={stopCodexSidebarRowActionPropagation}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void onTogglePinned?.(session);
+                    }}
+                  >
+                    {session.pinned ? <CodexSessionPinFilledIcon /> : <CodexSessionPinIcon />}
+                  </button>
+                )}
               </div>
             ) : null}
             {session.isOverview ? (

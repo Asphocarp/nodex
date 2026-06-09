@@ -3201,6 +3201,7 @@ export function WorkbenchShell({
               onSelectProject={selectProject}
               onSelectSession={selectSession}
               onOpenSessionContextMenu={openSessionContextMenu}
+              onToggleSessionPinned={toggleSessionPin}
               onStartNewChatInProject={(projectId) => void startNewChatInProject(projectId)}
               onOpenTaskSearch={openSidebarTaskSearch}
               onShowUnavailableProduct={showSidebarUnavailableProduct}
@@ -3259,6 +3260,7 @@ export function WorkbenchShell({
                   onSelectProject={selectProject}
                   onSelectSession={selectSession}
                   onOpenSessionContextMenu={openSessionContextMenu}
+                  onToggleSessionPinned={toggleSessionPin}
                   onStartNewChatInProject={(projectId) => void startNewChatInProject(projectId)}
                   onOpenTaskSearch={openSidebarTaskSearch}
                   onShowUnavailableProduct={showSidebarUnavailableProduct}
@@ -3536,6 +3538,7 @@ function ProjectSessionSidebar({
   onSelectProject,
   onSelectSession,
   onOpenSessionContextMenu,
+  onToggleSessionPinned,
   onStartNewChatInProject,
   onOpenTaskSearch,
   onShowUnavailableProduct,
@@ -3571,6 +3574,7 @@ function ProjectSessionSidebar({
   onSelectProject: (projectId: string) => void;
   onSelectSession: (session: ProjectSession) => void;
   onOpenSessionContextMenu?: (session: ProjectSession, event: ReactMouseEvent<HTMLElement>) => void;
+  onToggleSessionPinned?: (session: ProjectSession) => void | Promise<void>;
   onStartNewChatInProject: (projectId: string) => void | Promise<void>;
   onOpenTaskSearch: () => void;
   onShowUnavailableProduct: (label: string) => void;
@@ -3733,6 +3737,7 @@ function ProjectSessionSidebar({
                                 contextMenuOpen={contextMenuSessionId === session.id}
                                 onSelect={() => onSelectSession(session)}
                                 onOpenContextMenu={onOpenSessionContextMenu}
+                                onTogglePinned={onToggleSessionPinned}
                               />
                             ))}
                             {sessions.length === 0 && loadingSessions ? (
