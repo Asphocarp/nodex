@@ -37,6 +37,8 @@ import { DbViewToolbar } from "./db-view-toolbar";
 import { MainViewHost } from "./main-view-host";
 import { CardStage } from "./workbench-card-stage";
 import { TerminalPanel } from "./workbench-terminal-panel";
+import { BrowserSidebarHiddenWebviewHosts } from "@/features/browser-sidebar/browser-sidebar-hidden-webview-hosts";
+import { BrowserSidebarPanel } from "@/features/browser-sidebar/browser-sidebar-panel";
 import { SettingsRouteShell } from "./workbench-settings-overlay";
 import { buildSettingsPath } from "./workbench-settings-routes";
 import { ProjectManagerPopover } from "./left-sidebar-project-manager";
@@ -257,7 +259,7 @@ const LEFT_HEADER_COLLAPSED_RAIL_FALLBACK_WIDTH_PX = 126;
 const THREAD_SUMMARY_PANEL_STORAGE_KEY = "nodex:thread-summary-panel:pinned-open";
 const PROJECT_SESSION_SINGLETON_TAB_KIND_SET = new Set<string>(PROJECT_SESSION_SINGLETON_TAB_KINDS);
 const PREVIEWABLE_PROJECT_SESSION_TAB_KIND_SET = new Set<ProjectSessionTab["kind"]>([
-  "browser_placeholder",
+  "browser",
   "files_placeholder",
 ]);
 const PANEL_ACTION_CARD_CLASS = "cursor-interaction min-h-32 w-full max-w-[330px] rounded-xl bg-token-bg-secondary px-4 py-6 text-center hover:bg-token-list-hover-background focus-visible:outline focus-visible:outline-2 focus-visible:outline-token-border-xstrong";
@@ -330,7 +332,7 @@ const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
     Icon: CodexSidePanelSideChatIcon,
   },
   {
-    kind: "browser_placeholder",
+    kind: "browser",
     defaultPanelId: "right",
     targetPanelIds: ["right", "bottom"],
     label: "Browser",
@@ -598,11 +600,35 @@ function getTabIcon(kind: ProjectSessionTab["kind"]): ComponentType<{ className?
   if (kind === "db_view") return Table2;
   if (kind === "card_stage") return SquareKanban;
   if (kind === "terminal") return CodexSidePanelTerminalIcon;
-  if (kind === "browser_placeholder") return CodexSidePanelBrowserIcon;
+  if (kind === "browser") return CodexSidePanelBrowserIcon;
   if (kind === "review") return CodexSidePanelReviewIcon;
   if (kind === "files_placeholder") return CodexSidePanelFilesIcon;
   if (kind === "side_chat_placeholder") return CodexSidePanelSideChatIcon;
   return Globe2;
+}
+
+function makeBrowserFaviconIcon(faviconUrl: string): ComponentType<{ className?: string }> {
+  return function BrowserFaviconIcon({ className }: { className?: string }) {
+    return (
+      <img
+        src={faviconUrl}
+        alt=""
+        className={cn("rounded-[2px] object-contain", className)}
+      />
+    );
+  };
+}
+
+function getBrowserTabIcon(tab: ProjectSessionTab): ComponentType<{ className?: string }> {
+  if (
+    tab.kind === "browser"
+    && "faviconUrl" in tab.config
+    && typeof tab.config.faviconUrl === "string"
+    && tab.config.faviconUrl.trim().length > 0
+  ) {
+    return makeBrowserFaviconIcon(tab.config.faviconUrl);
+  }
+  return getTabIcon(tab.kind);
 }
 
 function isPanelActionTargetAllowed(action: PanelNewTabAction, panelId: PanelId): boolean {
@@ -750,7 +776,7 @@ function makeProjectSessionTabDraft(
     };
   }
 
-  if (kind === "browser_placeholder") {
+  if (kind === "browser") {
     return {
       kind,
       title: "Browser",
@@ -2434,6 +2460,48 @@ export function WorkbenchShell({
     await refreshProjectSessions(activeSession.projectId);
   }, [activeSession, ensureActivePanelOpenWithoutRefresh, refreshProjectSessions]);
 
+  const createBrowserTabToRight = useCallback(async (sourceTab: ProjectSessionTab, duplicate: boolean) => {
+    if (!activeSession) return;
+    const panelId = sourceTab.panelId;
+    const panelTabs = activeSession.tabs.filter((tab) => tab.panelId === panelId);
+    const sourceIndex = panelTabs.findIndex((tab) => tab.id === sourceTab.id);
+    const sourceConfig = sourceTab.kind === "browser" && "projectId" in sourceTab.config
+      ? sourceTab.config
+      : { projectId: activeSession.projectId };
+    const created = await invoke("project-session-tabs:create", {
+      sessionId: activeSession.id,
+      projectId: activeSession.projectId,
+      panelId,
+      kind: "browser",
+      title: duplicate ? sourceTab.title || "Browser" : "Browser",
+      config: duplicate
+        ? {
+            projectId: activeSession.projectId,
+            ...("url" in sourceConfig && typeof sourceConfig.url === "string" ? { url: sourceConfig.url } : {}),
+            ...("title" in sourceConfig && typeof sourceConfig.title === "string" ? { title: sourceConfig.title } : {}),
+            ...("faviconUrl" in sourceConfig && typeof sourceConfig.faviconUrl === "string" ? { faviconUrl: sourceConfig.faviconUrl } : {}),
+            ...("deviceToolbarVisible" in sourceConfig && typeof sourceConfig.deviceToolbarVisible === "boolean"
+              ? { deviceToolbarVisible: sourceConfig.deviceToolbarVisible }
+              : {}),
+          }
+        : { projectId: activeSession.projectId },
+    }) as ProjectSessionTab;
+
+    if (sourceIndex >= 0) {
+      await invoke("project-session-tabs:move", {
+        tabId: created.id,
+        targetPanelId: panelId,
+        targetIndex: sourceIndex + 1,
+      });
+    }
+    await setActivePanelTab(panelId, created.id, { openPanel: true });
+    await refreshProjectSessions(activeSession.projectId);
+  }, [activeSession, refreshProjectSessions, setActivePanelTab]);
+
+  const reloadBrowserTab = useCallback((tabId: string) => {
+    void invoke("browser-sidebar-command", { type: "reload", tabId });
+  }, []);
+
   const focusOrCreateSessionTerminalTab = useCallback(async () => {
     if (!activeSession) return;
     const existing =
@@ -2770,13 +2838,32 @@ export function WorkbenchShell({
     const makeItem = (tab: ProjectSessionRenderableTab): AppShellTabItem => ({
       id: tab.id,
       title: tab.title,
-      icon: isSideChatPanelTab(tab) ? CodexSidePanelSideChatIcon : getTabIcon(tab.kind),
+      icon: isSideChatPanelTab(tab) ? CodexSidePanelSideChatIcon : getBrowserTabIcon(tab),
       closable: isSideChatPanelTab(tab)
         ? tab.status !== "loading"
         : tab.preview === true || !activeSession.isOverview || activeSession.tabs.length > 1,
       preview: isSideChatPanelTab(tab) ? undefined : tab.preview,
       reorderable: isSideChatPanelTab(tab) ? false : tab.preview === true ? false : true,
       splittable: !isSideChatPanelTab(tab) && tab.preview !== true,
+      contextMenuItems: !isSideChatPanelTab(tab) && tab.kind === "browser"
+        ? [
+            {
+              id: "browser-new-tab-right",
+              label: "New tab to the right",
+              onSelect: () => void createBrowserTabToRight(tab, false),
+            },
+            {
+              id: "browser-reload",
+              label: "Reload",
+              onSelect: () => reloadBrowserTab(tab.id),
+            },
+            {
+              id: "browser-duplicate",
+              label: "Duplicate",
+              onSelect: () => void createBrowserTabToRight(tab, true),
+            },
+          ]
+        : undefined,
       renderPanel: () => isSideChatPanelTab(tab) ? (
         <SideChatSessionTab
           key={`${activeSession.id}:${tab.id}:${tab.stateKey}`}
@@ -2866,6 +2953,7 @@ export function WorkbenchShell({
     cardStagePersistRef,
     cardStageSessionSnapshotRef,
     closeTab,
+    createBrowserTabToRight,
     onLeaveCardStageCard,
     onReminderHandled,
     openSideChat,
@@ -2874,6 +2962,7 @@ export function WorkbenchShell({
     projects,
     recreateSideChatPanelTab,
     refreshProjectSessions,
+    reloadBrowserTab,
     sidebarTaskSearchOpenTick,
     dbViewPrefsByProject,
     searchByProject,
@@ -2883,6 +2972,36 @@ export function WorkbenchShell({
     sideChatTabsBySession,
     previewTabsByPanel,
   ]);
+
+  const browserRetentionTabs = useMemo<ProjectSessionTab[]>(() => {
+    if (!activeSession) return [];
+    const durableBrowserTabs = activeSession.tabs.filter((tab) => tab.kind === "browser");
+    const previewBrowserTabs = Object.values(previewTabsByPanel).filter((tab): tab is ProjectSessionPreviewTab =>
+      tab.sessionId === activeSession.id && tab.kind === "browser"
+    );
+    return [...durableBrowserTabs, ...previewBrowserTabs];
+  }, [activeSession, previewTabsByPanel]);
+
+  const visibleBrowserTabIds = useMemo<ReadonlySet<string>>(() => {
+    const visibleIds = new Set<string>();
+    if (!activeSession) return visibleIds;
+    const browserTabIds = new Set(browserRetentionTabs.map((tab) => tab.id));
+    const collectPanelVisibleTabs = (panelId: PanelId, panelOpen: boolean) => {
+      if (!panelOpen) return;
+      const layout = activeSession.panels[panelId].layout;
+      const leafIds = layout.maximizedLeafId
+        ? [layout.maximizedLeafId]
+        : listProjectSessionPanelLeaves(layout).map((leaf) => leaf.id);
+      for (const leafId of leafIds) {
+        const tabId = panelGroupTabs[panelId].activeTabIdsByLeafId[leafId];
+        if (tabId && browserTabIds.has(tabId)) visibleIds.add(tabId);
+      }
+    };
+
+    collectPanelVisibleTabs("right", sidePanelOpen);
+    collectPanelVisibleTabs("bottom", bottomPanelOpen);
+    return visibleIds;
+  }, [activeSession, bottomPanelOpen, browserRetentionTabs, panelGroupTabs, sidePanelOpen]);
 
   const applySidebarCollapsed = useCallback((collapsed: boolean) => {
     if (setSidebarCollapsed) {
@@ -3134,14 +3253,14 @@ export function WorkbenchShell({
   const threadSummaryBrowserRows = useMemo<ThreadSummaryPanelAuxiliaryRow[]>(() => {
     if (!activeSession) return [];
     const browserTabs = activeSession.tabs
-      .filter((tab) => tab.kind === "browser_placeholder")
+      .filter((tab) => tab.kind === "browser")
       .map((tab) => ({
         id: tab.id,
         title: tab.title,
         status: tab.panelId === "right" ? "Right panel" : "Bottom panel",
       }));
     const browserPreviewTabs = Object.values(previewTabsByPanel)
-      .filter((tab) => tab.sessionId === activeSession.id && tab.kind === "browser_placeholder")
+      .filter((tab) => tab.sessionId === activeSession.id && tab.kind === "browser")
       .map((tab) => ({
         id: tab.id,
         title: tab.title,
@@ -3529,7 +3648,14 @@ export function WorkbenchShell({
               zoom: "var(--codex-window-zoom, 1)",
             } as MotionStyle}
           >
-          <header
+            {activeSession ? (
+              <BrowserSidebarHiddenWebviewHosts
+                sessionId={activeSession.id}
+                tabs={browserRetentionTabs}
+                visibleTabIds={visibleBrowserTabIds}
+              />
+            ) : null}
+            <header
             data-testid="workbench-global-header"
             data-app-shell-header-edge-scroll={appShellHeaderEdgeScroll ? "true" : "false"}
             className="app-header-tint draggable pointer-events-none fixed inset-x-0 top-0 z-[42] flex h-toolbar min-w-0 items-center"
@@ -4993,7 +5119,7 @@ function ProjectSessionTabPanel({
   onCloseTab,
   onOpenSideChat,
 }: {
-  tab: ProjectSessionTab;
+  tab: ProjectSessionTab & { preview?: true };
   activeSession: ProjectSession;
   projects: Project[];
   activeView: WorkbenchView;
@@ -5105,9 +5231,18 @@ function ProjectSessionTabPanel({
     );
   }
 
+  if (tab.kind === "browser") {
+    return (
+      <BrowserSidebarPanel
+        tab={tab}
+        activeSession={activeSession}
+        onRefreshSessions={onRefreshSessions}
+      />
+    );
+  }
+
   if (
-    tab.kind === "browser_placeholder"
-    || tab.kind === "files_placeholder"
+    tab.kind === "files_placeholder"
     || tab.kind === "side_chat_placeholder"
   ) {
     return <ProjectSessionMockTab kind={tab.kind} onOpenSideChat={onOpenSideChat} />;
@@ -5124,7 +5259,7 @@ function ProjectSessionMockTab({
   kind,
   onOpenSideChat,
 }: {
-  kind: "browser_placeholder" | "files_placeholder" | "side_chat_placeholder";
+  kind: "files_placeholder" | "side_chat_placeholder";
   onOpenSideChat?: () => void;
 }) {
   if (kind === "side_chat_placeholder") {

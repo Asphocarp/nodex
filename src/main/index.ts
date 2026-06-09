@@ -60,6 +60,7 @@ import {
   type WorkbenchSidebarToggleHostChannel,
   type WorkbenchNavigationHostChannel,
 } from "../shared/window-navigation";
+import { BROWSER_SIDEBAR_PARTITION } from "../shared/browser-sidebar";
 // macOS uses the packaged bundle icon from the app resources.
 // We only keep a PNG around for development Dock icon parity and non-macOS window icons.
 const appIconPath = app.isPackaged
@@ -512,6 +513,7 @@ function createWindow(
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       sandbox: false,
+      webviewTag: true,
       additionalArguments: [
         `--nodex-server-url=${serverUrl}`,
         `--nodex-asset-path-prefix=${encodeURIComponent(getAssetsPathPrefix())}`,
@@ -535,6 +537,24 @@ function createWindow(
   window.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
+  });
+  window.webContents.on("will-attach-webview", (_event, webPreferences, params) => {
+    const webviewParams = params as typeof params & {
+      nodeintegration?: string;
+      preload?: string;
+      webpreferences?: string;
+    };
+    params.partition = BROWSER_SIDEBAR_PARTITION;
+    delete webviewParams.nodeintegration;
+    delete webviewParams.preload;
+    delete webviewParams.webpreferences;
+    delete webPreferences.preload;
+    delete (webPreferences as typeof webPreferences & { preloadURL?: string }).preloadURL;
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+    webPreferences.sandbox = true;
+    webPreferences.webSecurity = true;
+    webPreferences.allowRunningInsecureContent = false;
   });
 
   // In dev mode, load the vite dev server URL

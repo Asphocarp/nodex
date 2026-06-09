@@ -32,6 +32,10 @@ import type {
 } from "../shared/window-session";
 import type { NativeContextMenuItem, NativeContextMenuOptions } from "../shared/native-context-menu";
 import { buildSessionContextMenuIconSvg } from "../shared/session-context-menu-icons";
+import {
+  browserSidebarService,
+  broadcastBrowserSidebarEvent,
+} from "./browser-sidebar-service";
 import type { DesktopNotificationManager } from "./desktop-notification-manager";
 import {
   checkoutGitBranch,
@@ -50,6 +54,12 @@ import {
   searchGitReview,
 } from "./git-review-service";
 import type { AppUpdateSettings, AppUpdateStatus, CodexPromptInput } from "../shared/types";
+import type {
+  BrowserBrowsingDataKind,
+  BrowserSidebarCommand,
+  BrowserSidebarWebviewDestroyed,
+  BrowserSidebarWebviewHostCreated,
+} from "../shared/browser-sidebar";
 
 function registerHandle(
   channel: string,
@@ -143,6 +153,22 @@ function showNativeContextMenu(
   });
 }
 
+let browserSidebarEventBridgeRegistered = false;
+
+function ensureBrowserSidebarEventBridge(): void {
+  if (browserSidebarEventBridgeRegistered) return;
+  browserSidebarEventBridgeRegistered = true;
+  browserSidebarService.on("state", (snapshot) => broadcastBrowserSidebarEvent("state", snapshot));
+  browserSidebarService.on("localServers", (snapshot) => broadcastBrowserSidebarEvent("localServers", snapshot));
+  browserSidebarService.on("browserUseState", (snapshot) => broadcastBrowserSidebarEvent("browserUseState", snapshot));
+  browserSidebarService.on("browserUseViewport", (event) => broadcastBrowserSidebarEvent("browserUseViewport", event));
+  browserSidebarService.on("browserUseCaptureSurface", (event) => broadcastBrowserSidebarEvent("browserUseCaptureSurface", event));
+  browserSidebarService.on("browserUseCursor", (event) => broadcastBrowserSidebarEvent("browserUseCursor", event));
+  browserSidebarService.on("pageReleased", (event) => broadcastBrowserSidebarEvent("pageReleased", event));
+  browserSidebarService.on("webviewAttached", (event) => broadcastBrowserSidebarEvent("webviewAttached", event));
+  browserSidebarService.on("destroyWebview", (event) => broadcastBrowserSidebarEvent("destroyWebview", event));
+}
+
 interface RegisterIpcHandlersOptions {
   onCreateWindow?: (seed?: WindowSessionSeed) => void;
   onBootstrapWindowSession?: (webContentsId: number) => WindowSessionBootstrap;
@@ -159,6 +185,8 @@ interface RegisterIpcHandlersOptions {
 }
 
 export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): void {
+  ensureBrowserSidebarEventBridge();
+
   const gitBranchWatches = new Map<number, { cwd: string; dispose: () => void }>();
   const gitBranchWatchCleanupBound = new Set<number>();
 
@@ -792,6 +820,21 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     return prepareComposerPickedFiles(result.filePaths);
   });
 
+  // Browser sidebar
+  registerHandle("browser-sidebar-command", async (_event, command: BrowserSidebarCommand) =>
+    browserSidebarService.handleCommand(command)
+  );
+
+  registerHandle("browser-browsing-data-clear", async (_event, kind: BrowserBrowsingDataKind) =>
+    browserSidebarService.clearBrowsingData(kind)
+  );
+  registerHandle("browser-sidebar-webview-host-created", async (_event, event: BrowserSidebarWebviewHostCreated) =>
+    browserSidebarService.handleWebviewHostCreated(event)
+  );
+  registerHandle("browser-sidebar-webview-destroyed", async (_event, event: BrowserSidebarWebviewDestroyed) =>
+    browserSidebarService.handleWebviewDestroyed(event)
+  );
+
   // Terminal
   registerHandle(
     "pty:spawn",
@@ -800,7 +843,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       return ptyManager.spawn(
         sessionId,
         opts,
-        (data) => { if (!sender.isDestroyed()) sender.send("pty:data", { sessionId, data }); },
+        (data) => {
+          browserSidebarService.observePtyData(sessionId, data);
+          if (!sender.isDestroyed()) sender.send("pty:data", { sessionId, data });
+        },
         (exitCode) => { if (!sender.isDestroyed()) sender.send("pty:exit", { sessionId, exitCode }); },
       );
     },

@@ -186,9 +186,10 @@ describe("project session service", () => {
         sessionId: session.id,
         projectId: "default",
         panelId: "right",
-        kind: "browser_placeholder",
+        kind: "browser",
         title: "Browser",
         config: {
+          projectId: "default",
           title: "Browser",
           url: "https://example.com",
         },
@@ -336,19 +337,19 @@ describe("project session service", () => {
         sessionId: session.id,
         projectId: "default",
         panelId: "right",
-        kind: "browser_placeholder",
+        kind: "browser",
         title: "Browser",
-        config: {},
+        config: { projectId: "default" },
       });
       const duplicateBrowser = createProjectSessionTab({
         sessionId: session.id,
         projectId: "default",
         panelId: "right",
-        kind: "browser_placeholder",
+        kind: "browser",
         title: "Website",
-        config: { url: "https://example.com" },
+        config: { projectId: "default", url: "https://example.com" },
       });
-      expect(duplicateBrowser.id).toBe(browser.id);
+      expect(duplicateBrowser.id === browser.id).toBeFalse();
 
       const terminalOne = createProjectSessionTab({
         sessionId: session.id,
@@ -371,7 +372,7 @@ describe("project session service", () => {
       const updated = getProjectSession(session.id);
       expect(updated?.tabs.filter((tab) => tab.kind === "db_view").length).toBe(1);
       expect(updated?.tabs.filter((tab) => tab.kind === "review").length).toBe(1);
-      expect(updated?.tabs.filter((tab) => tab.kind === "browser_placeholder").length).toBe(1);
+      expect(updated?.tabs.filter((tab) => tab.kind === "browser").length).toBe(2);
       expect(updated?.tabs.filter((tab) => tab.kind === "terminal").length).toBe(2);
       if (updated?.panels.bottom.layout.root.type === "leaf") {
         expect(updated.panels.bottom.layout.root.activeTabId).toBe(terminalTwo.id);

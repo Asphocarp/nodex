@@ -8,10 +8,11 @@ import { makeProjectSessionPanelLayout } from "../../shared/project-session-pane
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 32;
+export const CURRENT_SCHEMA_VERSION = 33;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
-  "'db_view', 'card_stage', 'terminal', 'browser_placeholder', 'review', 'files_placeholder', 'side_chat_placeholder'";
+  "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files_placeholder', 'side_chat_placeholder'";
 const PROJECT_SESSION_PANEL_ID_CHECK_VALUES = "'right', 'bottom'";
+const LEGACY_BROWSER_TAB_KIND = "browser_placeholder";
 
 const RESETTABLE_TABLES = [
   "project_session_threads",
@@ -39,9 +40,10 @@ export interface EnsureDatabaseOptions {
 
 export function getSchemaMigrationTargets(currentVersion: number): number[] | null {
   if (currentVersion === CURRENT_SCHEMA_VERSION) return [];
-  if (currentVersion === 26) return [31, 32];
-  if (currentVersion === 30) return [31, 32];
-  if (currentVersion === 31) return [32];
+  if (currentVersion === 26) return [31, 32, 33];
+  if (currentVersion === 30) return [31, 32, 33];
+  if (currentVersion === 31) return [32, 33];
+  if (currentVersion === 32) return [33];
   return null;
 }
 
@@ -524,6 +526,130 @@ function migrateSchema31To32(db: Database.Database): void {
   setUserVersion(db, 32);
 }
 
+interface ProjectSessionTabMigrationRow {
+  id: string;
+  session_id: string;
+  project_id: string;
+  panel_id: string;
+  kind: string;
+  title: string;
+  config_json: string;
+  state_key: number;
+  state_json: string;
+  order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+function normalizeBrowserTabConfigJson(projectId: string, configJson: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(configJson);
+  } catch {
+    parsed = {};
+  }
+
+  const config = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? { ...(parsed as Record<string, unknown>) }
+    : {};
+
+  const normalized: Record<string, unknown> = {
+    projectId,
+  };
+
+  if (typeof config.url === "string" && config.url.trim()) {
+    normalized.url = config.url;
+  }
+  if (typeof config.title === "string" && config.title.trim()) {
+    normalized.title = config.title;
+  }
+  if (typeof config.faviconUrl === "string" && config.faviconUrl.trim()) {
+    normalized.faviconUrl = config.faviconUrl;
+  }
+  if (typeof config.deviceToolbarVisible === "boolean") {
+    normalized.deviceToolbarVisible = config.deviceToolbarVisible;
+  }
+
+  return JSON.stringify(normalized);
+}
+
+function migrateSchema32To33(db: Database.Database): void {
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.exec(`
+      DROP TABLE IF EXISTS project_session_tabs_next;
+
+      CREATE TABLE project_session_tabs_next (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES project_sessions(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        panel_id TEXT NOT NULL DEFAULT 'right',
+        kind TEXT NOT NULL,
+        title TEXT NOT NULL,
+        config_json TEXT NOT NULL,
+        state_key INTEGER NOT NULL DEFAULT 0,
+        state_json TEXT NOT NULL DEFAULT '{}',
+        "order" INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK (kind IN (${PROJECT_SESSION_TAB_KIND_CHECK_VALUES})),
+        CHECK (panel_id IN (${PROJECT_SESSION_PANEL_ID_CHECK_VALUES}))
+      );
+    `);
+
+    const rows = db.prepare(`
+      SELECT
+        id, session_id, project_id, panel_id, kind, title, config_json, state_key, state_json,
+        "order", created_at, updated_at
+      FROM project_session_tabs
+      ORDER BY session_id ASC, panel_id ASC, "order" ASC, created_at ASC
+    `).all() as ProjectSessionTabMigrationRow[];
+
+    const insert = db.prepare(`
+      INSERT INTO project_session_tabs_next (
+        id, session_id, project_id, panel_id, kind, title, config_json, state_key, state_json,
+        "order", created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const row of rows) {
+      const kind = row.kind === LEGACY_BROWSER_TAB_KIND ? "browser" : row.kind;
+      const configJson = row.kind === LEGACY_BROWSER_TAB_KIND
+        ? normalizeBrowserTabConfigJson(row.project_id, row.config_json)
+        : row.config_json;
+
+      insert.run(
+        row.id,
+        row.session_id,
+        row.project_id,
+        row.panel_id,
+        kind,
+        row.title,
+        configJson,
+        row.state_key,
+        row.state_json,
+        row.order,
+        row.created_at,
+        row.updated_at,
+      );
+    }
+
+    db.exec(`
+      DROP TABLE project_session_tabs;
+      ALTER TABLE project_session_tabs_next RENAME TO project_session_tabs;
+
+      CREATE INDEX IF NOT EXISTS idx_project_session_tabs_session_order
+        ON project_session_tabs(session_id, panel_id, "order", created_at);
+      CREATE INDEX IF NOT EXISTS idx_project_session_tabs_project
+        ON project_session_tabs(project_id);
+    `);
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+
+  setUserVersion(db, 33);
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -547,6 +673,14 @@ function runMigrations(
       }
       migrateSchema31To32(db);
       fromVersion = 32;
+      continue;
+    }
+    if (target === 33) {
+      if (fromVersion !== 32) {
+        throw new Error(`Unsupported Nodex database migration target 33 from ${fromVersion}`);
+      }
+      migrateSchema32To33(db);
+      fromVersion = 33;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);

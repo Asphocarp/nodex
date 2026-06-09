@@ -35,6 +35,7 @@ export interface AppShellTabItem {
   title: string;
   icon?: ComponentType<{ className?: string }>;
   closable?: boolean;
+  keepMounted?: boolean;
   preview?: boolean;
   reorderable?: boolean;
   splittable?: boolean;
@@ -42,7 +43,15 @@ export interface AppShellTabItem {
   disabled?: boolean;
   titleLabel?: string;
   tooltip?: ReactNode;
+  contextMenuItems?: AppShellTabContextMenuItem[];
   renderPanel: (closeTab: () => void) => ReactNode;
+}
+
+export interface AppShellTabContextMenuItem {
+  id: string;
+  label: string;
+  disabled?: boolean;
+  onSelect: () => void;
 }
 
 interface AppShellTabsProps {
@@ -279,6 +288,19 @@ export function AppShellTabs({
           {activeTab.renderPanel(() => closeTab(activeTab.id))}
         </div>
       ) : null}
+      {tabs
+        .filter((tab) => tab.keepMounted === true && tab.id !== activeTab?.id)
+        .map((tab) => (
+          <div
+            key={`hidden:${tab.id}`}
+            aria-hidden="true"
+            hidden
+            data-app-shell-tabpanel-retained={tab.id}
+            className="hidden"
+          >
+            {tab.renderPanel(() => closeTab(tab.id))}
+          </div>
+        ))}
     </div>
   );
 }
@@ -394,7 +416,7 @@ function AppShellTab({
     >
       <div
         data-tab-id={tab.id}
-        className="group/tab relative flex max-w-39 shrink-0 items-center overflow-hidden rounded-md bg-token-main-surface-primary px-2 py-1"
+        className="group/tab relative flex h-7 max-w-39 shrink-0 items-center overflow-hidden rounded-lg bg-token-main-surface-primary px-2 py-1"
         role="button"
         tabIndex={tab.disabled ? -1 : 0}
         aria-disabled={tab.disabled ? "true" : "false"}
@@ -410,7 +432,7 @@ function AppShellTab({
       >
         <div
           className={cn(
-            "pointer-events-none absolute inset-0 z-0 rounded-md group-hover/tab:bg-[var(--app-shell-tab-background)]",
+            "pointer-events-none absolute inset-0 z-0 rounded-lg group-hover/tab:bg-[var(--app-shell-tab-background)]",
             (isActive || isDragging) && "bg-[var(--app-shell-tab-background)]",
           )}
         />
@@ -446,7 +468,7 @@ function AppShellTab({
               data-app-shell-tab-no-drag="true"
               role="button"
               aria-label={`Close ${tab.titleLabel ?? tab.title} tab`}
-              className="no-drag absolute start-0 inset-y-0 z-30 hidden shrink-0 cursor-interaction items-center bg-(--app-shell-tab-background) text-token-text-tertiary hover:text-token-text-primary group-hover/tab:flex after:absolute after:-inset-2 after:content-['']"
+              className="no-drag absolute start-0 inset-y-0 z-30 hidden shrink-0 cursor-interaction items-center bg-(--app-shell-tab-background) text-token-text-tertiary hover:text-token-text-primary group-hover/tab:flex after:absolute after:-inset-1 after:content-['']"
               onMouseDown={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -508,6 +530,20 @@ function AppShellTab({
         <ContextMenuPrimitive.Content
           className="no-drag bg-token-dropdown-background/90 text-token-foreground ring-token-border z-50 m-px min-w-36 select-none overflow-hidden rounded-xl px-1 py-1 shadow-xl-spread ring-[0.5px] backdrop-blur-sm"
         >
+          {tab.contextMenuItems?.map((item) => (
+            <ContextMenuPrimitive.Item
+              key={item.id}
+              disabled={item.disabled}
+              className={cn(
+                "cursor-interaction rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm outline-hidden hover:bg-token-list-hover-background focus:bg-token-list-hover-background",
+                item.disabled && "cursor-default opacity-50",
+              )}
+              onSelect={item.disabled ? undefined : item.onSelect}
+            >
+              {item.label}
+            </ContextMenuPrimitive.Item>
+          ))}
+          {tab.contextMenuItems && tab.contextMenuItems.length > 0 ? <ContextMenuDivider /> : null}
           <ContextMenuPrimitive.Item
             className="cursor-interaction rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm outline-hidden hover:bg-token-list-hover-background focus:bg-token-list-hover-background"
             onSelect={closeCurrentTab}

@@ -5,15 +5,16 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added Browser tabs with Electron webview navigation chrome, local-server new-tab discovery, full-bleed retained page hosting across tab switches and panel hide/show, device toolbar presets, zoom and browsing-data controls, screenshot/comment affordances, browser-use overlay state, and multi-tab context actions.
 - Added Codex-style project session shell parity for session pinning and native sidebar session context menus, including direct filled row pin buttons, archive/unread state, copy/reveal/fork/open actions, and `nodex://sessions/<session-id>` deeplinks.
 - Added app-window Back/Forward titlebar controls with matching keyboard, mouse, command-palette, and macOS menu entry points.
 - Added the global bottom-panel toggle beside the side-panel toggle, with active/ghost toolbar states.
 - Added right and bottom session panels with shared tab chrome, panel-scoped ordering, cross-panel tab moves, a bottom-panel Terminal default, and eligible bottom actions for Files, Side chat, Browser, Review, and Terminal.
 - Added splitable tab groups for right and bottom session panels, including nested horizontal/vertical groups, sash resizing, tab split actions, leaf-scoped previews and side chats, live tab-row insertion previews, and body-edge drag splitting within a panel.
 - Added temporary Side chat conversations in right or bottom panels, including empty-panel, header-menu, `/side`, and transcript `Ask in side chat` entry points, loading/expired states, and background discard on close.
-- Added ephemeral panel previews for placeholder Files and Browser tabs in either right or bottom panel; they replace the prior preview in the same panel and persist only after the user interacts with or pins the preview.
+- Added ephemeral panel previews for Files and Browser tabs in either right or bottom panel; they replace the prior preview in the same panel and persist only after the user interacts with or pins the preview.
 - Added a public changelog page at `nodex.jyu.app/changelog`, generated from the project changelog file.
-- Added a project session shell with expandable project folders, a sidebar `New chat` entry, project-row new-chat actions, durable sessions, a session thread page, session-owned panel tabs, browser placeholders, and separate optional session-thread attachments.
+- Added a project session shell with expandable project folders, a sidebar `New chat` entry, project-row new-chat actions, durable sessions, a session thread page, session-owned panel tabs, browsers, and separate optional session-thread attachments.
 - Added SQLite-backed project session, project session tab, and session-thread link storage with default Overview sessions seeded for every project.
 - Added a project selector in the empty session new-chat status row so a first prompt can target another project before the thread starts.
 - Added a `Start in` selector to empty session new-chat composers, including `Work locally` and managed `New worktree` starts with environment setup progress.
@@ -45,6 +46,7 @@ All notable changes to this project will be documented in this file.
 - Removed the old workspace terminal drawer state and right-pane mirror columns; Terminal tabs and panel state now live only in project sessions.
 
 ### Fixed
+- Fixed Browser tabs so Electron page navigation is owned by the main-process webview lifecycle instead of competing renderer and main navigations, while the address bar, page actions, local-server cards, loaded page stage, and app tab strip now use the shipped compact panel contract, including a clickable no-drag address bar inside the draggable toolbar.
 - Fixed full-width right-panel mode so the panel header hides the thread header while keeping the persistent top-right panel toggles visible.
 - Fixed app-window Back/Forward controls so titlebar clicks, shortcuts, mouse buttons, and menu commands restore the active project/session and panel context in the current shell.
 - Removed the redundant `Session Terminal` body row from terminal tabs so the terminal content starts directly below the tab chrome.

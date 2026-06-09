@@ -1259,13 +1259,17 @@ export function ReviewDiffPanel({
     gitLoadRequestIdRef.current = requestId;
     setGitLoadStatus("loading");
 
+    let timeoutTimerId: number | null = null;
+    let loadTimerId: number | null = null;
+
     const timeoutPromise = new Promise<never>((_, reject) => {
-      window.setTimeout(() => {
+      timeoutTimerId = window.setTimeout(() => {
         reject(new Error("timed-out"));
       }, REVIEW_DIFF_TIMEOUT_MS);
     });
     const loadPromise = new Promise<ReviewDiffResult>((resolve, reject) => {
-      window.setTimeout(() => {
+      loadTimerId = window.setTimeout(() => {
+        if (cancelled || gitLoadRequestIdRef.current !== requestId) return;
         void loadGitSnapshot(source, normalizedCwd).then(resolve, reject);
       }, REVIEW_DIFF_BATCH_DELAY_MS);
     });
@@ -1299,6 +1303,12 @@ export function ReviewDiffPanel({
 
     return () => {
       cancelled = true;
+      if (timeoutTimerId !== null) {
+        window.clearTimeout(timeoutTimerId);
+      }
+      if (loadTimerId !== null) {
+        window.clearTimeout(loadTimerId);
+      }
     };
   }, [hideWhitespace, reviewCwd, source]);
 

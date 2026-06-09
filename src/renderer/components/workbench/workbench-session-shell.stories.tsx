@@ -304,10 +304,10 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
     }),
     makeTab({
       id: "tab:browser",
-      kind: "browser_placeholder",
+      kind: "browser",
       title: "Browser",
       order: 3,
-      config: { title: "Browser" },
+      config: { projectId: "nodex", title: "Browser" },
     }),
   ];
   const tabs = args.activeTab === "review"
@@ -404,10 +404,10 @@ function makeSecondarySession(args: ShellStoryArgs): ProjectSession {
     makeTab({
       id: "tab:release-browser",
       sessionId: "session:release",
-      kind: "browser_placeholder",
+      kind: "browser",
       title: "Browser",
       order: 1,
-      config: { title: "Browser" },
+      config: { projectId: "nodex", title: "Browser" },
     }),
   ];
   const rightTabIds = tabs.filter((tab) => tab.panelId === "right").map((tab) => tab.id);
@@ -487,9 +487,9 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
               id: "tab:codex-browser",
               sessionId: "session:codex-overview",
               projectId: "codex-readable",
-              kind: "browser_placeholder",
+              kind: "browser",
               title: "Browser",
-              config: { title: "Browser" },
+              config: { projectId: "codex-readable", title: "Browser" },
             }),
           ],
         }, { right: "tab:codex-browser" }),
@@ -818,7 +818,7 @@ function installStoryApi(
             .flat()
             .find((item) => item.id === input.sessionId);
           if (!session) return null;
-          if (["db_view", "review", "browser_placeholder"].includes(input.kind)) {
+          if (["db_view", "review", "browser"].includes(input.kind)) {
             const existing = session.tabs.find((tab) => tab.kind === input.kind);
             if (existing) {
               const next = withPanelLayouts(session, { [existing.panelId]: existing.id });
@@ -939,14 +939,14 @@ export const ReviewRightTab: Story = {
   },
 };
 
-export const MockBrowserRightTab: Story = {
+export const BrowserRightTab: Story = {
   args: {
     activeTab: "browser",
   },
   parameters: {
     docs: {
       description: {
-        story: "Browser placeholder tab rendered as a Codex-style mock surface until browser support is implemented.",
+        story: "Real Browser tab with Codex-parity chrome. Storybook renders the desktop-only unavailable state because Electron webview is not present.",
       },
     },
   },
@@ -1028,7 +1028,7 @@ export const SingletonFilteredActions: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Session with DB View, Browser, and Review already present so the plus menu filters those singleton actions.",
+        story: "Session with DB View, Browser, and Review already present; DB View and Review filter as singletons while Browser remains available for more tabs.",
       },
     },
   },

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { createElement, type ComponentProps } from "react";
-import { fireEvent, waitFor } from "@testing-library/react";
-import { render, settleAsyncRender, textContent } from "../../test/dom";
+import { act, fireEvent, waitFor } from "@testing-library/react";
+import { render, settleAsyncRender as settleBaseAsyncRender, textContent } from "../../test/dom";
 import {
   __resetNodexToastStoreForTests,
   NodexToastProvider,
@@ -249,6 +249,19 @@ async function waitForGitReviewDiffCall(): Promise<void> {
       throw new Error("Expected git review diff call.");
     }
   });
+  await settleAsyncRender();
+}
+
+async function waitPastGitReviewBatchDelay(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 25));
+}
+
+async function settleAsyncRender(): Promise<void> {
+  await settleBaseAsyncRender();
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  });
+  await settleBaseAsyncRender();
 }
 
 describe("review diff panel", () => {
@@ -752,6 +765,39 @@ describe("review diff panel", () => {
       ? (payload as { cwd: string }).cwd
       : "";
     expect(cwd).toBe("/tmp/storybook/large-diff");
+  });
+
+  test("cancels delayed git review snapshot loading after unmount", async () => {
+    const { ReviewDiffPanel } = await loadReviewDiffPanelModule();
+    mockInvokeImpl = async (channel: unknown) => {
+      if (channel !== "git:review:diff") return null;
+      return {
+        cwd: "/tmp/codex",
+        source: "unstaged",
+        patch: "",
+        files: [],
+        isGitRepository: true,
+        baseRef: null,
+        currentBranch: "feature",
+        defaultBranch: "main",
+        errorMessage: null,
+      };
+    };
+
+    const view = render(
+      <NodexTooltipProvider>
+        <ReviewDiffPanel
+          conversation={buildConversation()}
+          projectWorkspacePath="/tmp/codex"
+          initialSource="unstaged"
+        />
+      </NodexTooltipProvider>,
+    );
+
+    view.unmount();
+    await waitPastGitReviewBatchDelay();
+
+    expect(invokeCalls.some((call) => call[0] === "git:review:diff")).toBeFalse();
   });
 
   test("starts commit and pull-request prompts from the parity action buttons", async () => {

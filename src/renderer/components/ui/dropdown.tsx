@@ -171,6 +171,7 @@ export interface NodexDropdownMenuProps {
   onCloseAutoFocus?: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content>["onCloseAutoFocus"];
   onEscapeKeyDown?: ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content>["onEscapeKeyDown"];
   contentClassName?: string;
+  contentStyle?: CSSProperties;
   surface?: NodexDropdownSurface;
   contentWidth?: NodexDropdownContentWidth;
   contentMaxHeight?: NodexDropdownContentMaxHeight;
@@ -191,6 +192,7 @@ export function NodexDropdownMenu({
   onCloseAutoFocus,
   onEscapeKeyDown,
   contentClassName,
+  contentStyle,
   surface = "menu",
   contentWidth,
   contentMaxHeight,
@@ -214,6 +216,7 @@ export function NodexDropdownMenu({
             alignOffset={alignOffset}
             onCloseAutoFocus={onCloseAutoFocus}
             onEscapeKeyDown={onEscapeKeyDown}
+            style={contentStyle}
             className={cn(
               resolveDropdownWidthClass(contentWidth),
               resolveDropdownMaxHeightClass(contentMaxHeight),

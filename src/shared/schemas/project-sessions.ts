@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type {
-  ProjectSessionBrowserPlaceholderTabConfig,
+  ProjectSessionBrowserTabConfig,
   ProjectSessionCardStageTabConfig,
   ProjectSessionCreateInput,
   ProjectSessionDbViewTabConfig,
@@ -48,11 +48,13 @@ export const ProjectSessionTerminalTabConfigSchema = z.object({
   terminalSessionId: z.string().min(1),
 }) satisfies z.ZodType<ProjectSessionTerminalTabConfig>;
 
-export const ProjectSessionBrowserPlaceholderTabConfigSchema = z.object({
-  projectId: z.string().min(1).optional(),
+export const ProjectSessionBrowserTabConfigSchema = z.object({
+  projectId: z.string().min(1),
   url: z.string().optional(),
   title: z.string().optional(),
-}) satisfies z.ZodType<ProjectSessionBrowserPlaceholderTabConfig>;
+  faviconUrl: z.string().optional(),
+  deviceToolbarVisible: z.boolean().optional(),
+}) satisfies z.ZodType<ProjectSessionBrowserTabConfig>;
 
 export const ProjectSessionProjectScopedTabConfigSchema = z.object({
   projectId: z.string().min(1),
@@ -62,7 +64,7 @@ export function parseProjectSessionTabConfig(kind: string, config: unknown): Pro
   if (kind === "db_view") return ProjectSessionDbViewTabConfigSchema.parse(config);
   if (kind === "card_stage") return ProjectSessionCardStageTabConfigSchema.parse(config);
   if (kind === "terminal") return ProjectSessionTerminalTabConfigSchema.parse(config);
-  if (kind === "browser_placeholder") return ProjectSessionBrowserPlaceholderTabConfigSchema.parse(config);
+  if (kind === "browser") return ProjectSessionBrowserTabConfigSchema.parse(config);
   if (kind === "review") return ProjectSessionProjectScopedTabConfigSchema.parse(config);
   if (kind === "files_placeholder") return ProjectSessionProjectScopedTabConfigSchema.parse(config);
   if (kind === "side_chat_placeholder") return ProjectSessionProjectScopedTabConfigSchema.parse(config);
@@ -165,7 +167,7 @@ export const ProjectSessionTabKindSchema = z.enum([
   "db_view",
   "card_stage",
   "terminal",
-  "browser_placeholder",
+  "browser",
   "review",
   "files_placeholder",
   "side_chat_placeholder",

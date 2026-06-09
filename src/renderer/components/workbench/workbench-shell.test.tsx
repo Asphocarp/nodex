@@ -717,7 +717,7 @@ function renderWorkbench({
       };
       const session = Object.values(sessionState).flat().find((item) => item.id === input.sessionId);
       if (!session) return null;
-      if (["db_view", "review", "browser_placeholder"].includes(input.kind)) {
+      if (["db_view", "review", "browser"].includes(input.kind)) {
         const existing = session.tabs.find((tab) => tab.kind === input.kind);
         if (existing) {
           const panel = session.panels[existing.panelId];
@@ -2657,8 +2657,8 @@ describe("workbench session shell", () => {
   });
 
   for (const previewCase of [
-    { label: "Files", kind: "files_placeholder", description: "Browse project files" },
-    { label: "Browser", kind: "browser_placeholder", description: "Open a website" },
+    { label: "Files", kind: "files_placeholder", pinText: "Browse project files" },
+    { label: "Browser", kind: "browser", pinText: "Browser is available in the desktop app" },
   ] as const) {
     test(`bottom ${previewCase.label} preview mounts and pins after interaction`, async () => {
       const screen = renderWorkbench();
@@ -2674,7 +2674,7 @@ describe("workbench session shell", () => {
       expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null).toBeTrue();
       expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
 
-      fireEvent.pointerDown(screen.getByText(previewCase.description));
+      fireEvent.pointerDown(screen.getByText(previewCase.pinText));
       await settleAsyncRender();
       await settleAsyncRender();
 
@@ -2723,15 +2723,15 @@ describe("workbench session shell", () => {
     expect(discardSideChatCalls[0] ?? "").toBe("side-thread-1");
   });
 
-  test("plus menu hides singleton actions that already exist", async () => {
+  test("plus menu hides singleton actions that already exist while keeping Browser multi-tab", async () => {
     const browserTab = makeSessionTab({
       id: "overview:alpha:browser",
       sessionId: "overview:alpha",
       projectId: "alpha",
-      kind: "browser_placeholder",
+      kind: "browser",
       title: "Browser",
       order: 1,
-      config: {},
+      config: { projectId: "alpha" },
     });
     const reviewTab = makeSessionTab({
       id: "overview:alpha:review",
@@ -2757,21 +2757,21 @@ describe("workbench session shell", () => {
 
     const menu = screen.getByRole("menu");
     expect(within(menu).queryByText("DB View")).toBe(null);
-    expect(within(menu).queryByText("Browser")).toBe(null);
+    expect(within(menu).getByText("Browser") !== null).toBeTrue();
     expect(within(menu).queryByText("Review")).toBe(null);
     expect(within(menu).getByText("Files") !== null).toBeTrue();
     expect(within(menu).queryByText("Terminal")).toBe(null);
   });
 
-  test("bottom plus menu hides singleton Browser and Review tabs from either panel", async () => {
+  test("bottom plus menu keeps Browser multi-tab and hides singleton Review tabs from either panel", async () => {
     const browserTab = makeSessionTab({
       id: "overview:alpha:browser",
       sessionId: "overview:alpha",
       projectId: "alpha",
-      kind: "browser_placeholder",
+      kind: "browser",
       title: "Browser",
       order: 1,
-      config: {},
+      config: { projectId: "alpha" },
     });
     const reviewTab = makeSessionTab({
       id: "overview:alpha:review",
@@ -2794,7 +2794,7 @@ describe("workbench session shell", () => {
     await openBottomPanel(screen);
 
     const menu = await openPanelMenu(screen, "Open bottom panel tab");
-    expect(within(menu).queryByText("Browser")).toBe(null);
+    expect(within(menu).getByText("Browser") !== null).toBeTrue();
     expect(within(menu).queryByText("Review")).toBe(null);
     expect(within(menu).getByText("Files") !== null).toBeTrue();
     expect(within(menu).getByText("Side chat") !== null).toBeTrue();
@@ -3472,10 +3472,10 @@ describe("workbench session shell", () => {
       id: "overview:alpha:browser",
       sessionId: "overview:alpha",
       projectId: "alpha",
-      kind: "browser_placeholder",
+      kind: "browser",
       title: "Browser",
       order: 1,
-      config: {},
+      config: { projectId: "alpha" },
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab],
@@ -3496,7 +3496,7 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(screen.getByText("Open a website") !== null).toBeTrue();
+    expect(screen.getByText("Browser is available in the desktop app") !== null).toBeTrue();
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Back" }));

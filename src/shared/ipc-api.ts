@@ -119,6 +119,21 @@ import type {
   FileLinkOpenerId,
   FileLinkTarget,
 } from "./file-link-openers";
+import type {
+  BrowserBrowsingDataClearResult,
+  BrowserBrowsingDataKind,
+  BrowserSidebarBrowserUseCaptureSurfaceEvent,
+  BrowserSidebarBrowserUseViewportEvent,
+  BrowserSidebarDestroyWebviewRequest,
+  BrowserSidebarBrowserUseStateSnapshot,
+  BrowserSidebarCommand,
+  BrowserSidebarCommandResult,
+  BrowserSidebarLocalServersSnapshot,
+  BrowserSidebarStateSnapshot,
+  BrowserSidebarWebviewAttached,
+  BrowserSidebarWebviewDestroyed,
+  BrowserSidebarWebviewHostCreated,
+} from "./browser-sidebar";
 
 export interface HistoryEntry {
   id: number;
@@ -503,6 +518,24 @@ export interface IpcApi {
   // Internal app lifecycle handshake used to flush renderer state before window close.
   "app:flush-before-close:done": { args: [webContentsId: number]; result: void };
 
+  // Browser sidebar
+  "browser-sidebar-command": {
+    args: [command: BrowserSidebarCommand];
+    result: BrowserSidebarCommandResult;
+  };
+  "browser-browsing-data-clear": {
+    args: [kind: BrowserBrowsingDataKind];
+    result: BrowserBrowsingDataClearResult;
+  };
+  "browser-sidebar-webview-host-created": {
+    args: [event: BrowserSidebarWebviewHostCreated];
+    result: BrowserSidebarCommandResult;
+  };
+  "browser-sidebar-webview-destroyed": {
+    args: [event: BrowserSidebarWebviewDestroyed];
+    result: BrowserSidebarCommandResult;
+  };
+
   // Git review
   "git:review:snapshot": {
     args: [input: { cwd: string; source: GitReviewSource; baseRef?: string | null }];
@@ -694,6 +727,15 @@ export interface IpcEvents {
   "pty:exit": { sessionId: string; exitCode: number };
   "codex:event": CodexEvent;
   "codex:host-message": CodexHostMessage;
+  "browser-sidebar-state": BrowserSidebarStateSnapshot;
+  "browser-sidebar-local-servers": BrowserSidebarLocalServersSnapshot;
+  "browser-sidebar-browser-use-state": BrowserSidebarBrowserUseStateSnapshot;
+  "browser-sidebar-browser-use-viewport": BrowserSidebarBrowserUseViewportEvent;
+  "browser-sidebar-browser-use-capture-surface": BrowserSidebarBrowserUseCaptureSurfaceEvent;
+  "browser-sidebar-browser-use-cursor-state": BrowserSidebarBrowserUseStateSnapshot["cursor"];
+  "browser-sidebar-browser-use-page-released": { tabId: string };
+  "browser-sidebar-webview-attached": BrowserSidebarWebviewAttached;
+  "browser-sidebar-destroy-webview": BrowserSidebarDestroyWebviewRequest;
   "desktop-notification:action": DesktopNotificationActionPayload & {
     conversationId: string | null;
     requestId: string | null;

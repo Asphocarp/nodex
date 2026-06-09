@@ -29,7 +29,7 @@ All keyboard shortcuts in Nodex. Platform modifier: **⌘ (Cmd)** on Mac, **Ctrl
 | Shortcut | Action | Notes |
 |----------|--------|-------|
 | `⌘/Ctrl+P` | Files | Opens a mock Files tab |
-| `⌘/Ctrl+T` | Browser | Opens or focuses the singleton Browser placeholder tab |
+| `⌘/Ctrl+T` | Browser | Opens a Browser preview in the side panel; interacting with it pins a durable Browser tab |
 | `Ctrl+Shift+G` | Review | Opens or focuses the singleton Review tab |
 | `Ctrl+\`` | Terminal | Focuses an existing session terminal tab, or creates one in the bottom panel |
 
