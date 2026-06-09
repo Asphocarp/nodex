@@ -664,6 +664,7 @@ export function LocalConversationThreadBodyOwner({
           threadCwd={cwd}
           onOpenTurnDiffReview={actions.onOpenTurnDiffReview}
           onOpenSideChat={actions.onOpenSideChat}
+          onOpenMcpAppSidePanel={actions.onOpenMcpAppSidePanel}
         />
       ) : null}
       <div className="flex flex-col">
@@ -794,6 +795,7 @@ export function LocalConversationThreadBodyOwner({
                 onForkTurnMessage={handleForkFromTurn}
                 onOpenTurnDiffReview={actions.onOpenTurnDiffReview}
                 onOpenSideChat={actions.onOpenSideChat}
+                onOpenMcpAppSidePanel={actions.onOpenMcpAppSidePanel}
                 scrollElement={scrollElement}
                 onApiChange={(api) => {
                   listApiRef.current = api;

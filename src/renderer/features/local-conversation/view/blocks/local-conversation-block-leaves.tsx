@@ -81,6 +81,7 @@ export interface ThreadLeafBlockProps {
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
+  onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
   allowInProgressTurnDiff?: boolean;
 }
 
@@ -92,6 +93,7 @@ export interface ThreadSpecialBlockProps {
   threadCwd?: string | null;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
+  onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
 }
 
 interface ExplorationDisplayLine {
@@ -569,6 +571,7 @@ export function ThreadPendingMcpToolCallsBlock({
   projectWorkspacePath,
   threadCwd,
   onOpenTurnDiffReview,
+  onOpenMcpAppSidePanel,
 }: ThreadSpecialBlockProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -616,6 +619,7 @@ export function ThreadPendingMcpToolCallsBlock({
               projectWorkspacePath={projectWorkspacePath}
               threadCwd={threadCwd}
               onOpenTurnDiffReview={onOpenTurnDiffReview}
+              onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
               nestedInCollapsedActivity
             />
           ))}
@@ -632,6 +636,7 @@ export function ThreadDynamicToolCallGroupBlock({
   projectWorkspacePath,
   threadCwd,
   onOpenTurnDiffReview,
+  onOpenMcpAppSidePanel,
 }: ThreadSpecialBlockProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -680,6 +685,7 @@ export function ThreadDynamicToolCallGroupBlock({
               projectWorkspacePath={projectWorkspacePath}
               threadCwd={threadCwd}
               onOpenTurnDiffReview={onOpenTurnDiffReview}
+              onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
               nestedInCollapsedActivity
             />
           ))}
@@ -696,6 +702,7 @@ function renderCollapsedActivityEntry({
   projectWorkspacePath,
   threadCwd,
   onOpenTurnDiffReview,
+  onOpenMcpAppSidePanel,
 }: {
   entry: Extract<ThreadBlockModel, { type: "collapsedToolActivity" }>["entries"][number];
   isLatestTurn: boolean;
@@ -703,6 +710,7 @@ function renderCollapsedActivityEntry({
   projectWorkspacePath?: string | null;
   threadCwd?: string | null;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
+  onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
 }) {
   const sharedProps = {
     isLatestTurn,
@@ -710,6 +718,7 @@ function renderCollapsedActivityEntry({
     projectWorkspacePath,
     threadCwd,
     onOpenTurnDiffReview,
+    onOpenMcpAppSidePanel,
   };
 
   if (entry.type === "explorationGroup") return <ThreadExplorationBodyOnly entries={entry.entries} />;
@@ -910,6 +919,7 @@ export function ThreadCollapsedToolActivityBlock({
   projectWorkspacePath,
   threadCwd,
   onOpenTurnDiffReview,
+  onOpenMcpAppSidePanel,
 }: ThreadSpecialBlockProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isBodyMounted, setIsBodyMounted] = useState(false);
@@ -1006,6 +1016,7 @@ export function ThreadCollapsedToolActivityBlock({
                   projectWorkspacePath,
                   threadCwd,
                   onOpenTurnDiffReview,
+                  onOpenMcpAppSidePanel,
                 })}
               </div>
             ))}
@@ -1034,6 +1045,7 @@ export function ThreadToolSurfaceBlock({
   block,
   projectWorkspacePath,
   threadCwd,
+  onOpenMcpAppSidePanel,
   nestedInCollapsedActivity = false,
 }: ThreadLeafBlockProps) {
   const { settings } = useCodexThreadSettings();
@@ -1055,6 +1067,7 @@ export function ThreadToolSurfaceBlock({
       execSummaryTone={nestedInCollapsedActivity ? "muted" : "default"}
       hideHeader={nestedInCollapsedActivity && block.type === "webSearch"}
       showExecSummaryIcon={!nestedInCollapsedActivity}
+      onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
     />
   );
 }

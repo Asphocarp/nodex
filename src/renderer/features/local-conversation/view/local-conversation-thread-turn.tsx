@@ -30,6 +30,7 @@ interface ThreadTurnProps {
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
+  onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
 }
 
 function ThreadGap() {
@@ -113,6 +114,7 @@ export function ThreadTurn({
   onForkFromTurn,
   onOpenTurnDiffReview,
   onOpenSideChat,
+  onOpenMcpAppSidePanel,
 }: ThreadTurnProps) {
   const shouldAllowAgentBodyCollapse =
     turn.hasRenderableAgentBodyEntries
@@ -136,6 +138,7 @@ export function ThreadTurn({
       onForkFromTurn={onForkFromTurn}
       onOpenTurnDiffReview={onOpenTurnDiffReview}
       onOpenSideChat={onOpenSideChat}
+      onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
     />
   );
 
@@ -150,6 +153,7 @@ export function ThreadTurn({
       onForkFromTurn={onForkFromTurn}
       onOpenTurnDiffReview={onOpenTurnDiffReview}
       onOpenSideChat={onOpenSideChat}
+      onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
     />
   );
 

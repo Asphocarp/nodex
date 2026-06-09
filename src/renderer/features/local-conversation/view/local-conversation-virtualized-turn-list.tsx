@@ -61,6 +61,7 @@ interface LocalConversationVirtualizedTurnListProps {
   }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
+  onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
   onApiChange?: (api: LocalConversationVirtualizedTurnListApi | null) => void;
   scrollElement: HTMLDivElement | null;
   className?: string;
@@ -98,6 +99,7 @@ interface MeasuredTurnProps {
   }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
+  onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
   onHeightChange: (turnKey: string, turnIndex: number, nextHeight: number) => void;
 }
 
@@ -115,6 +117,7 @@ function MeasuredTurnComponent({
   onForkTurnMessage,
   onOpenTurnDiffReview,
   onOpenSideChat,
+  onOpenMcpAppSidePanel,
   onHeightChange,
 }: MeasuredTurnProps) {
   const elementRef = useRef<HTMLDivElement | null>(null);
@@ -179,6 +182,7 @@ function MeasuredTurnComponent({
         onForkTurnMessage={onForkTurnMessage}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
         onOpenSideChat={onOpenSideChat}
+        onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
       />
     </div>
   );
@@ -200,6 +204,7 @@ const MeasuredTurn = memo(
     && left.onForkTurnMessage === right.onForkTurnMessage
     && left.onOpenTurnDiffReview === right.onOpenTurnDiffReview
     && left.onOpenSideChat === right.onOpenSideChat
+    && left.onOpenMcpAppSidePanel === right.onOpenMcpAppSidePanel
     && left.onHeightChange === right.onHeightChange,
 );
 
@@ -216,6 +221,7 @@ export function LocalConversationVirtualizedTurnList({
   onForkTurnMessage,
   onOpenTurnDiffReview,
   onOpenSideChat,
+  onOpenMcpAppSidePanel,
   onApiChange,
   scrollElement,
   className,
@@ -497,6 +503,7 @@ export function LocalConversationVirtualizedTurnList({
               onForkTurnMessage={onForkTurnMessage}
               onOpenTurnDiffReview={onOpenTurnDiffReview}
               onOpenSideChat={onOpenSideChat}
+              onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
               onHeightChange={handleHeightChange}
             />
           ))}

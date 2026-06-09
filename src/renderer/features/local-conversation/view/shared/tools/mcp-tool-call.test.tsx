@@ -3,7 +3,7 @@ import { fireEvent } from "@testing-library/react";
 import type { CodexMcpToolCallView, CodexTranscriptEntry } from "../../../../../lib/types";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../../components/ui/tooltip";
 import { render, settleAsyncRender, textContent } from "../../../../../test/dom";
-import { McpToolCall } from "./mcp-tool-call";
+import { buildMcpAppSidePanelInput, McpToolCall } from "./mcp-tool-call";
 
 function buildMcpView(overrides?: Partial<CodexMcpToolCallView>): CodexMcpToolCallView {
   return {
@@ -309,5 +309,30 @@ describe("McpToolCall", () => {
 
     expect(Boolean(textContent(container).includes("Read Docs"))).toBeTrue();
     expect(Boolean(textContent(container).includes("audience=agent"))).toBeTrue();
+  });
+
+  test("builds Codex-style MCP app side-panel ids from renderable resources", () => {
+    const sidePanelInput = buildMcpAppSidePanelInput({
+      threadId: "thread-1",
+      payload: buildMcpView({
+        mcpAppResourceUri: "ui://context7/docs",
+      }),
+      resource: {
+        uri: "ui://context7/docs",
+        mode: "html",
+        html: "<!doctype html><html><body>Docs app</body></html>",
+        mimeType: "text/html;profile=mcp-app",
+        metadata: {
+          domain: null,
+          csp: null,
+          heightHint: 420,
+          prefersBorder: false,
+        },
+      },
+    });
+
+    expect(sidePanelInput.mcpAppId).toBe("context7:ui://context7/docs");
+    expect(sidePanelInput.capabilityId).toBe("mcp-capability:thread-1:context7:resolve-library-id:call_9L9LUlz6nkg1Jp2LA4mrAL8o");
+    expect(sidePanelInput.resource.metadata.heightHint).toBe(420);
   });
 });

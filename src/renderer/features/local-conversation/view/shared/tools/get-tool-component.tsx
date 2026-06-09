@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
+import type { ThreadStageActions } from "../../../thread-stage-types";
 import { CommandToolCall } from "./command-tool-call";
 import { DynamicToolCall } from "./dynamic-tool-call";
 import { FileChangeToolCall } from "./file-change-tool-call";
@@ -14,6 +15,7 @@ export interface ToolComponentProps {
   execSummaryTone?: "default" | "muted";
   hideHeader?: boolean;
   showExecSummaryIcon?: boolean;
+  onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
 }
 
 type ToolComponent = ComponentType<ToolComponentProps>;

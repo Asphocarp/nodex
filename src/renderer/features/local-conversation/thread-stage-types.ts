@@ -144,6 +144,7 @@ export interface ThreadStageActions {
   onRequestNewChatProjectCreate?: () => void;
   onSendPrompt: (prompt: string, opts?: { collaborationMode?: CodexCollaborationModeKind; promptInput?: CodexPromptInput }) => Promise<void>;
   onOpenSideChat?: (input?: { prompt?: string; promptInput?: CodexPromptInput }) => Promise<void>;
+  onOpenMcpAppSidePanel?: (input: ThreadMcpAppSidePanelInput) => Promise<void>;
   onSteerPrompt: (input: Omit<CodexSteerTurnInput, "threadId">) => Promise<void>;
   onInterruptTurn: (turnId?: string) => Promise<void>;
   onRespondApproval: (requestId: string, decision: CodexApprovalDecision) => Promise<void>;
@@ -167,6 +168,34 @@ export interface ThreadStageActions {
   onOpenThread: (threadId: string) => void;
   onCleanBackgroundTerminals: (threadId: string) => Promise<void>;
   onOpenCard: (cardId: string) => void;
+}
+
+export interface ThreadMcpWidgetCspModel {
+  connectDomains?: string[];
+  resourceDomains?: string[];
+}
+
+export interface ThreadMcpWidgetMetadataModel {
+  domain: string | null;
+  csp: ThreadMcpWidgetCspModel | null;
+  heightHint: number | null;
+  prefersBorder: boolean;
+}
+
+export interface ThreadMcpAppSidePanelInput {
+  mcpAppId: string;
+  capabilityId: string;
+  title: string;
+  threadId: string;
+  server: string;
+  tool: string;
+  resource: {
+    uri: string;
+    mode: "html" | "dil";
+    html: string;
+    mimeType: string | null;
+    metadata: ThreadMcpWidgetMetadataModel;
+  };
 }
 
 export interface ThreadUserMessageActionsModel {

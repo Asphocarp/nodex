@@ -1,6 +1,6 @@
 import { motion } from "motion/react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { ChevronRightIcon, CodeBracketsIcon } from "@/components/shared/icons";
+import { ChevronRightIcon, CodeBracketsIcon, CodexPanelRightVisibleIcon } from "@/components/shared/icons";
 import {
   NodexDialog as Dialog,
   NodexDialogContent as DialogContent,
@@ -15,6 +15,7 @@ import type {
   ProtocolMcpResourceReadResponse,
   ProtocolMcpServerStatus,
 } from "../../../../../lib/types";
+import type { ThreadMcpAppSidePanelInput, ThreadStageActions } from "../../../thread-stage-types";
 import { invoke } from "../../../../../lib/api";
 import { cn } from "../../../../../lib/utils";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
@@ -41,6 +42,7 @@ interface McpToolCallProps {
   item: CodexTranscriptEntry;
   rawDialogOpen?: boolean;
   onRawDialogOpenChange?: (open: boolean) => void;
+  onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
 }
 
 function formatServerName(server: string): string {
@@ -88,6 +90,26 @@ function stringifyMcpValue(value: unknown, spacing = 2): string {
   } catch {
     return "";
   }
+}
+
+export function buildMcpAppSidePanelInput(input: {
+  threadId: string;
+  payload: CodexMcpToolCallView;
+  resource: McpRenderableResource;
+}): ThreadMcpAppSidePanelInput {
+  const server = input.payload.invocation.server;
+  const tool = input.payload.invocation.tool;
+  const title = `${humanizeIdentifier(tool)} - ${formatServerName(server)}`;
+
+  return {
+    mcpAppId: `${server}:${input.resource.uri}`,
+    capabilityId: `mcp-capability:${input.threadId}:${server}:${tool}:${input.payload.callId}`,
+    title,
+    threadId: input.threadId,
+    server,
+    tool,
+    resource: input.resource,
+  };
 }
 
 function formatAnnotationValue(value: unknown): string | null {
@@ -367,18 +389,22 @@ function McpRawOutputDialog({
 
 function McpResultBody({
   payload,
+  threadId,
   rawOutput,
   resource,
   resourceError,
   rawDialogOpen,
   onRawDialogOpenChange,
+  onOpenMcpAppSidePanel,
 }: {
   payload: CodexMcpToolCallView;
+  threadId: string;
   rawOutput: string;
   resource: McpRenderableResource | null;
   resourceError: string | null;
   rawDialogOpen: boolean;
   onRawDialogOpenChange: (open: boolean) => void;
+  onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
 }) {
   const result = payload.result;
   const successContent = result?.type === "success"
@@ -415,7 +441,28 @@ function McpResultBody({
           preClassName="font-vscode-editor text-size-chat text-token-description-foreground/80"
         />
       ) : null}
-      <div className="inline-flex w-fit">
+      <div className="inline-flex w-fit items-center gap-1">
+        {resource && onOpenMcpAppSidePanel ? (
+          <NodexTooltip
+            tooltipContent="Open app in side panel"
+            side="top"
+            delayDuration={0}
+          >
+            <button
+              type="button"
+              className={cn(
+                "border-token-border user-select-none no-drag cursor-interaction flex items-center gap-1 border focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-description-foreground enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent electron:p-1 justify-center p-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100",
+                electronToolIconSizeClassName,
+              )}
+              aria-label="Open MCP app in side panel"
+              onClick={() => {
+                void onOpenMcpAppSidePanel(buildMcpAppSidePanelInput({ threadId, payload, resource }));
+              }}
+            >
+              <CodexPanelRightVisibleIcon />
+            </button>
+          </NodexTooltip>
+        ) : null}
         <McpRawOutputDialog
           open={rawDialogOpen}
           onOpenChange={onRawDialogOpenChange}
@@ -456,6 +503,7 @@ export function McpToolCall({
   item,
   rawDialogOpen,
   onRawDialogOpenChange,
+  onOpenMcpAppSidePanel,
 }: McpToolCallProps) {
   const bodyId = useId();
   const payload = item.mcpToolCall ?? null;
@@ -583,11 +631,13 @@ export function McpToolCall({
             <div id={bodyId}>
               <McpResultBody
                 payload={payload}
+                threadId={item.threadId}
                 rawOutput={rawOutput}
                 resource={renderableResource}
                 resourceError={resourceError}
                 rawDialogOpen={isRawDialogOpen}
                 onRawDialogOpenChange={setIsRawDialogOpen}
+                onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
               />
             </div>
           </div>

@@ -137,7 +137,7 @@
 - Keep Codex tool-call parity inside the local-conversation projection and leaf renderers:
   - pending MCP calls render as a first-class `pendingMcpToolCalls` block with `data-testid="pending-mcp-tool-calls-body"`
   - repeated identical dynamic app-server calls render as `dynamicToolCallGroup` with `data-testid="dynamic-tool-call-group-body"` and repeat text
-  - MCP app/resource frames must mount inside the thread body under the existing `data-mcp-app-portal-target` scroll wrapper, preserve sandboxed iframe boundaries, and resolve resource/widget metadata before falling back to text or JSON output
+  - MCP app/resource frames must mount inside the thread body under the existing `data-mcp-app-portal-target` scroll wrapper, preserve sandboxed iframe boundaries, and resolve resource/widget metadata before falling back to text or JSON output; the right-panel `mcp-app:${mcpAppId}` tab is renderer-local like side chats and must not be written to project session tabs
 - Keep the queue lane on the dedicated row family:
   - project raw queued follow-ups into dedicated row models before JSX
   - render queued follow-ups in the shared above-composer lane panel instead of separate cards or footer widgets

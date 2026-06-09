@@ -6,6 +6,7 @@ import type { McpRenderableResource } from "./mcp-tool-call-resource-utils";
 
 interface McpCapabilityViewFrameProps {
   resource: McpRenderableResource;
+  mode?: "inline" | "side-panel";
 }
 
 function buildSrcDoc(resource: McpRenderableResource): string {
@@ -13,22 +14,25 @@ function buildSrcDoc(resource: McpRenderableResource): string {
   return `<!doctype html><html><head><meta charset="utf-8"></head><body><script type="application/json" id="mcp-dil">${JSON.stringify(resource.html)}</script></body></html>`;
 }
 
-export function McpCapabilityViewFrame({ resource }: McpCapabilityViewFrameProps) {
+export function McpCapabilityViewFrame({ resource, mode = "inline" }: McpCapabilityViewFrameProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [isExpanded, setIsExpanded] = useState(false);
   const heightHint = resource.metadata.heightHint ?? 360;
+  const isSidePanel = mode === "side-panel";
 
   return (
     <div
       className={cn(
         "relative overflow-hidden bg-token-input-background",
         resource.metadata.prefersBorder ? "rounded-lg border border-token-border" : "rounded-md",
+        isSidePanel && "h-full rounded-none border-0",
         isExpanded && "fixed inset-3 z-50 rounded-xl border border-token-border shadow-2xl",
       )}
+      data-mcp-app-frame-mode={mode}
       data-mcp-app-loading={isLoading ? "true" : "false"}
       data-mcp-app-expanded={isExpanded ? "true" : "false"}
       style={{
-        height: isExpanded ? undefined : Math.max(180, Math.min(heightHint, 720)),
+        height: isSidePanel || isExpanded ? undefined : Math.max(180, Math.min(heightHint, 720)),
       }}
     >
       <div className="absolute right-1.5 top-1.5 z-10 flex items-center gap-1">

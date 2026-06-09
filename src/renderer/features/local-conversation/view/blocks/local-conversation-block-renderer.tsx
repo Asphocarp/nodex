@@ -40,6 +40,7 @@ interface ThreadBlockRendererProps {
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
+  onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
   allowInProgressTurnDiff?: boolean;
 }
 
@@ -55,6 +56,7 @@ export function ThreadBlockRenderer({
   onForkFromTurn,
   onOpenTurnDiffReview,
   onOpenSideChat,
+  onOpenMcpAppSidePanel,
   allowInProgressTurnDiff = false,
 }: ThreadBlockRendererProps) {
   if (block.type === "explorationGroup") {
@@ -90,6 +92,7 @@ export function ThreadBlockRenderer({
         projectWorkspacePath={projectWorkspacePath}
         threadCwd={threadCwd}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
+        onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
       />
     );
   }
@@ -103,6 +106,7 @@ export function ThreadBlockRenderer({
         projectWorkspacePath={projectWorkspacePath}
         threadCwd={threadCwd}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
+        onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
       />
     );
   }
@@ -116,6 +120,7 @@ export function ThreadBlockRenderer({
         projectWorkspacePath={projectWorkspacePath}
         threadCwd={threadCwd}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
+        onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
       />
     );
   }
@@ -143,6 +148,7 @@ export function ThreadBlockRenderer({
         projectWorkspacePath={projectWorkspacePath}
         threadCwd={threadCwd}
         onOpenTurnDiffReview={onOpenTurnDiffReview}
+        onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
       />
     );
   }

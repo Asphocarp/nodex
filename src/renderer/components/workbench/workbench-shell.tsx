@@ -65,6 +65,7 @@ import {
   useLocalConversationAccount,
   useLocalConversationConnection,
 } from "@/features/local-conversation";
+import { McpCapabilityViewFrame } from "@/features/local-conversation/view/shared/tools/mcp-capability-view-frame";
 import {
   loadCalendarViewState,
   normalizeCalendarAnchorDate,
@@ -155,7 +156,10 @@ import type {
   WorktreeEnvironmentOption,
 } from "@/lib/types";
 import type { ThreadStageActions } from "@/features/local-conversation";
-import type { ThreadSummaryPanelAuxiliaryRow } from "@/features/local-conversation/thread-stage-types";
+import type {
+  ThreadMcpAppSidePanelInput,
+  ThreadSummaryPanelAuxiliaryRow,
+} from "@/features/local-conversation/thread-stage-types";
 import {
   getDefaultDbViewPrefs,
   viewSupportsDbViewPrefs,
@@ -309,7 +313,19 @@ interface SideChatPanelTab {
   stateKey: number;
 }
 
-type ProjectSessionRenderableTab = DurableProjectSessionRenderableTab | SideChatPanelTab;
+interface McpAppPanelTab {
+  mcpApp: true;
+  id: string;
+  sessionId: string;
+  projectId: string;
+  panelId: PanelId;
+  leafId?: string;
+  title: string;
+  stateKey: number;
+  app: ThreadMcpAppSidePanelInput;
+}
+
+type ProjectSessionRenderableTab = DurableProjectSessionRenderableTab | SideChatPanelTab | McpAppPanelTab;
 
 type ProjectSessionTabDraft = Pick<ProjectSessionTabCreateInput, "kind" | "title" | "config">;
 
@@ -732,8 +748,16 @@ function makeSideChatPanelKey(sessionId: string, panelId: PanelId, leafId?: stri
   return leafId ? `${sessionId}:${panelId}:${leafId}` : `${sessionId}:${panelId}`;
 }
 
+function makeMcpAppPanelKey(sessionId: string, panelId: PanelId, leafId?: string | null): string {
+  return leafId ? `${sessionId}:${panelId}:${leafId}` : `${sessionId}:${panelId}`;
+}
+
 function isSideChatPanelTab(tab: ProjectSessionRenderableTab): tab is SideChatPanelTab {
   return "sideChat" in tab && tab.sideChat === true;
+}
+
+function isMcpAppPanelTab(tab: ProjectSessionRenderableTab): tab is McpAppPanelTab {
+  return "mcpApp" in tab && tab.mcpApp === true;
 }
 
 function getSideChatTabTitle(index: number): string {
@@ -924,6 +948,8 @@ export function WorkbenchShell({
   const [previewTabsByPanel, setPreviewTabsByPanel] = useState<Record<string, ProjectSessionPreviewTab>>({});
   const [sideChatTabsBySession, setSideChatTabsBySession] = useState<Record<string, SideChatPanelTab[]>>({});
   const [sideChatActiveTabByPanel, setSideChatActiveTabByPanel] = useState<Record<string, string>>({});
+  const [mcpAppTabsBySession, setMcpAppTabsBySession] = useState<Record<string, McpAppPanelTab[]>>({});
+  const [mcpAppActiveTabByPanel, setMcpAppActiveTabByPanel] = useState<Record<string, string>>({});
   const [panelCollapsedOverrides, setPanelCollapsedOverrides] = useState<Record<string, boolean>>({});
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT_WIDTH);
   const [rightPanelDragWidth, setRightPanelDragWidth] = useState<number | null>(null);
@@ -1014,12 +1040,15 @@ export function WorkbenchShell({
   const activeSessionSideChatTabs = activeSession ? sideChatTabsBySession[activeSession.id] ?? [] : [];
   const rightSideChatTabs = activeSessionSideChatTabs.filter((tab) => tab.panelId === "right");
   const bottomSideChatTabs = activeSessionSideChatTabs.filter((tab) => tab.panelId === "bottom");
+  const activeSessionMcpAppTabs = activeSession ? mcpAppTabsBySession[activeSession.id] ?? [] : [];
+  const rightMcpAppTabs = activeSessionMcpAppTabs.filter((tab) => tab.panelId === "right");
+  const bottomMcpAppTabs = activeSessionMcpAppTabs.filter((tab) => tab.panelId === "bottom");
   const rightRenderableTabs: ProjectSessionRenderableTab[] = rightPreviewTab
-    ? [...rightPanelTabs, ...rightSideChatTabs, rightPreviewTab]
-    : [...rightPanelTabs, ...rightSideChatTabs];
+    ? [...rightPanelTabs, ...rightSideChatTabs, ...rightMcpAppTabs, rightPreviewTab]
+    : [...rightPanelTabs, ...rightSideChatTabs, ...rightMcpAppTabs];
   const bottomRenderableTabs: ProjectSessionRenderableTab[] = bottomPreviewTab
-    ? [...bottomPanelTabs, ...bottomSideChatTabs, bottomPreviewTab]
-    : [...bottomPanelTabs, ...bottomSideChatTabs];
+    ? [...bottomPanelTabs, ...bottomSideChatTabs, ...bottomMcpAppTabs, bottomPreviewTab]
+    : [...bottomPanelTabs, ...bottomSideChatTabs, ...bottomMcpAppTabs];
   const rightSideChatActiveTabId = activeSession
     ? sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, "right", rightActiveLeafId)]
       ?? sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, "right")]
@@ -1030,13 +1059,29 @@ export function WorkbenchShell({
       ?? sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, "bottom")]
       ?? null
     : null;
+  const rightMcpAppActiveTabId = activeSession
+    ? mcpAppActiveTabByPanel[makeMcpAppPanelKey(activeSession.id, "right", rightActiveLeafId)]
+      ?? mcpAppActiveTabByPanel[makeMcpAppPanelKey(activeSession.id, "right")]
+      ?? null
+    : null;
+  const bottomMcpAppActiveTabId = activeSession
+    ? mcpAppActiveTabByPanel[makeMcpAppPanelKey(activeSession.id, "bottom", bottomActiveLeafId)]
+      ?? mcpAppActiveTabByPanel[makeMcpAppPanelKey(activeSession.id, "bottom")]
+      ?? null
+    : null;
   const rightActiveTabId = rightPreviewTab?.id
+    ?? (rightMcpAppActiveTabId && rightRenderableTabs.some((tab) => tab.id === rightMcpAppActiveTabId)
+      ? rightMcpAppActiveTabId
+      : null)
     ?? (rightSideChatActiveTabId && rightRenderableTabs.some((tab) => tab.id === rightSideChatActiveTabId)
       ? rightSideChatActiveTabId
       : rightPanel ? getProjectSessionPanelActiveLeaf(rightPanel.layout).activeTabId : null)
     ?? rightRenderableTabs[0]?.id
     ?? null;
   const bottomActiveTabId = bottomPreviewTab?.id
+    ?? (bottomMcpAppActiveTabId && bottomRenderableTabs.some((tab) => tab.id === bottomMcpAppActiveTabId)
+      ? bottomMcpAppActiveTabId
+      : null)
     ?? (bottomSideChatActiveTabId && bottomRenderableTabs.some((tab) => tab.id === bottomSideChatActiveTabId)
       ? bottomSideChatActiveTabId
       : bottomPanel ? getProjectSessionPanelActiveLeaf(bottomPanel.layout).activeTabId : null)
@@ -1828,12 +1873,16 @@ export function WorkbenchShell({
       if (tab.id === excludedTabId) return false;
       return tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leafId;
     }).length;
+    const mcpAppCount = (mcpAppTabsBySession[activeSession.id] ?? []).filter((tab) => {
+      if (tab.id === excludedTabId) return false;
+      return tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leafId;
+    }).length;
     const previewTab = previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId, leafId)]
       ?? (leafId === activeLeafId ? previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId)] : null)
       ?? null;
     const previewCount = previewTab && previewTab.id !== excludedTabId ? 1 : 0;
-    return durableCount + sideChatCount + previewCount;
-  }, [activeSession, previewTabsByPanel, sideChatTabsBySession]);
+    return durableCount + sideChatCount + mcpAppCount + previewCount;
+  }, [activeSession, mcpAppTabsBySession, previewTabsByPanel, sideChatTabsBySession]);
 
   const getPanelVisibleTabCount = useCallback((
     panelId: PanelId,
@@ -1949,6 +1998,44 @@ export function WorkbenchShell({
     workbenchCodexControl,
   ]);
 
+  const closeMcpAppPanelTab = useCallback(async (panelId: PanelId, tabId: string) => {
+    if (!activeSession) return;
+    const mcpAppTab = (mcpAppTabsBySession[activeSession.id] ?? []).find((tab) => tab.id === tabId);
+    if (!mcpAppTab) return;
+
+    setMcpAppTabsBySession((current) => {
+      const tabs = current[activeSession.id] ?? [];
+      return {
+        ...current,
+        [activeSession.id]: tabs.filter((tab) => tab.id !== tabId),
+      };
+    });
+    setMcpAppActiveTabByPanel((current) => {
+      const keys = [
+        makeMcpAppPanelKey(activeSession.id, panelId, mcpAppTab.leafId),
+        makeMcpAppPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => current[key] === tabId)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
+
+    const targetLeafId = mcpAppTab.leafId ?? resolveSessionPanelActiveLeafId(activeSession, panelId);
+    if (getPanelVisibleLeafTabCount(panelId, targetLeafId, { excludingTabId: tabId }) === 0) {
+      await removeEmptyVisiblePanelLeaf(panelId, targetLeafId, { excludingTabId: tabId });
+    }
+    if (getPanelVisibleTabCount(panelId, { excludingTabId: tabId }) > 0) return;
+    await updateActivePanel(panelId, { collapsed: true });
+  }, [
+    activeSession,
+    getPanelVisibleLeafTabCount,
+    getPanelVisibleTabCount,
+    mcpAppTabsBySession,
+    removeEmptyVisiblePanelLeaf,
+    updateActivePanel,
+  ]);
+
   const closePanelTab = useCallback(async (panelId: PanelId, tabId: string, leafId?: string) => {
     if (!activeSession) return;
     const previewTab = (leafId ? previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId, leafId)] : null)
@@ -1961,6 +2048,10 @@ export function WorkbenchShell({
       await closeSideChatPanelTab(panelId, tabId);
       return;
     }
+    if ((mcpAppTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
+      await closeMcpAppPanelTab(panelId, tabId);
+      return;
+    }
 
     const targetLeafId = leafId ?? resolveLeafIdForPanelTab(activeSession, panelId, tabId);
     const preserveEmptyLeafIds = getPreserveEmptyLeafIdsAfterDurableRemoval(panelId, targetLeafId, tabId);
@@ -1971,9 +2062,11 @@ export function WorkbenchShell({
   }, [
     activeSession,
     closePreviewTab,
+    closeMcpAppPanelTab,
     closeSideChatPanelTab,
     closeTab,
     getPreserveEmptyLeafIdsAfterDurableRemoval,
+    mcpAppTabsBySession,
     previewTabsByPanel,
     sideChatTabsBySession,
     updateActivePanel,
@@ -1987,12 +2080,50 @@ export function WorkbenchShell({
     if (previewTab?.id === tabId) return;
     if ((sideChatTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
       clearPanelPreviewTab(activeSession.id, panelId, targetLeafId);
+      setMcpAppActiveTabByPanel((current) => {
+        const keys = [
+          makeMcpAppPanelKey(activeSession.id, panelId, targetLeafId),
+          makeMcpAppPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
       setSideChatActiveTabByPanel((current) => ({
         ...current,
         [makeSideChatPanelKey(activeSession.id, panelId, targetLeafId)]: tabId,
       }));
       return;
     }
+    if ((mcpAppTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
+      clearPanelPreviewTab(activeSession.id, panelId, targetLeafId);
+      setSideChatActiveTabByPanel((current) => {
+        const keys = [
+          makeSideChatPanelKey(activeSession.id, panelId, targetLeafId),
+          makeSideChatPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
+      setMcpAppActiveTabByPanel((current) => ({
+        ...current,
+        [makeMcpAppPanelKey(activeSession.id, panelId, targetLeafId)]: tabId,
+      }));
+      return;
+    }
+    setMcpAppActiveTabByPanel((current) => {
+      const keys = [
+        makeMcpAppPanelKey(activeSession.id, panelId, targetLeafId),
+        makeMcpAppPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => key in current)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
     setSideChatActiveTabByPanel((current) => {
       const keys = [
         makeSideChatPanelKey(activeSession.id, panelId, targetLeafId),
@@ -2004,7 +2135,7 @@ export function WorkbenchShell({
       return next;
     });
     await setActivePanelTab(panelId, tabId, { leafId: targetLeafId });
-  }, [activeSession, clearPanelPreviewTab, previewTabsByPanel, setActivePanelTab, sideChatTabsBySession]);
+  }, [activeSession, clearPanelPreviewTab, mcpAppTabsBySession, previewTabsByPanel, setActivePanelTab, sideChatTabsBySession]);
 
   const pinPreviewTab = useCallback(async (panelId: PanelId, tabId: string, leafId?: string) => {
     if (!activeSession) return;
@@ -2069,6 +2200,30 @@ export function WorkbenchShell({
       await updateActivePanel(targetPanelId, { collapsed: false });
       return;
     }
+    const mcpAppTab = (mcpAppTabsBySession[activeSession.id] ?? []).find((tab) => tab.id === tabId);
+    if (mcpAppTab) {
+      const nextLeafId = targetLeafId ?? resolveSessionPanelActiveLeafId(activeSession, targetPanelId);
+      setMcpAppTabsBySession((current) => {
+        const tabs = current[activeSession.id] ?? [];
+        return {
+          ...current,
+          [activeSession.id]: tabs.map((tab) =>
+            tab.id === tabId
+              ? { ...tab, panelId: targetPanelId, leafId: nextLeafId, stateKey: tab.stateKey + 1 }
+              : tab
+          ),
+        };
+      });
+      setMcpAppActiveTabByPanel((current) => {
+        const next = { ...current };
+        if (mcpAppTab.leafId) delete next[makeMcpAppPanelKey(activeSession.id, mcpAppTab.panelId, mcpAppTab.leafId)];
+        delete next[makeMcpAppPanelKey(activeSession.id, mcpAppTab.panelId)];
+        next[makeMcpAppPanelKey(activeSession.id, targetPanelId, nextLeafId)] = tabId;
+        return next;
+      });
+      await updateActivePanel(targetPanelId, { collapsed: false });
+      return;
+    }
     const durableTab = activeSession.tabs.find((tab) => tab.id === tabId) ?? null;
     const sourceLeafId = durableTab ? resolveLeafIdForPanelTab(activeSession, durableTab.panelId, tabId) : null;
     const preserveEmptyLeafIds = durableTab && sourceLeafId
@@ -2089,6 +2244,7 @@ export function WorkbenchShell({
   }, [
     activeSession,
     getPreserveEmptyLeafIdsAfterDurableRemoval,
+    mcpAppTabsBySession,
     refreshProjectSessions,
     sideChatTabsBySession,
     updateActivePanel,
@@ -2248,6 +2404,60 @@ export function WorkbenchShell({
     sideChatTabsBySession,
     workbenchCodexControl,
   ]);
+
+  const openMcpAppSidePanel = useCallback(async (input: ThreadMcpAppSidePanelInput) => {
+    if (!activeSession) return;
+
+    const panelId: PanelId = "right";
+    const leafId = resolveSessionPanelActiveLeafId(activeSession, panelId);
+    const tabId = `mcp-app:${input.mcpAppId}`;
+    const tab: McpAppPanelTab = {
+      mcpApp: true,
+      id: tabId,
+      sessionId: activeSession.id,
+      projectId: activeSession.projectId,
+      panelId,
+      leafId,
+      title: input.title.trim() || input.server,
+      stateKey: Date.now(),
+      app: input,
+    };
+
+    setMcpAppTabsBySession((current) => {
+      const tabs = current[activeSession.id] ?? [];
+      const existingIndex = tabs.findIndex((candidate) => candidate.id === tabId);
+      if (existingIndex < 0) {
+        return {
+          ...current,
+          [activeSession.id]: [...tabs, tab],
+        };
+      }
+      return {
+        ...current,
+        [activeSession.id]: tabs.map((candidate) =>
+          candidate.id === tabId
+            ? { ...candidate, ...tab, stateKey: candidate.stateKey + 1 }
+            : candidate
+        ),
+      };
+    });
+    clearPanelPreviewTab(activeSession.id, panelId, leafId);
+    setSideChatActiveTabByPanel((current) => {
+      const keys = [
+        makeSideChatPanelKey(activeSession.id, panelId, leafId),
+        makeSideChatPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => key in current)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
+    setMcpAppActiveTabByPanel((current) => ({
+      ...current,
+      [makeMcpAppPanelKey(activeSession.id, panelId, leafId)]: tabId,
+    }));
+    await ensureActivePanelOpenWithoutRefresh(panelId);
+  }, [activeSession, clearPanelPreviewTab, ensureActivePanelOpenWithoutRefresh]);
 
   const recreateSideChatPanelTab = useCallback(async (tabId: string) => {
     if (!activeSession) return;
@@ -2838,14 +3048,20 @@ export function WorkbenchShell({
     const makeItem = (tab: ProjectSessionRenderableTab): AppShellTabItem => ({
       id: tab.id,
       title: tab.title,
-      icon: isSideChatPanelTab(tab) ? CodexSidePanelSideChatIcon : getBrowserTabIcon(tab),
+      icon: isSideChatPanelTab(tab)
+        ? CodexSidePanelSideChatIcon
+        : isMcpAppPanelTab(tab)
+          ? ComposerPluginsIcon
+          : getBrowserTabIcon(tab),
       closable: isSideChatPanelTab(tab)
         ? tab.status !== "loading"
+        : isMcpAppPanelTab(tab)
+          ? true
         : tab.preview === true || !activeSession.isOverview || activeSession.tabs.length > 1,
-      preview: isSideChatPanelTab(tab) ? undefined : tab.preview,
-      reorderable: isSideChatPanelTab(tab) ? false : tab.preview === true ? false : true,
-      splittable: !isSideChatPanelTab(tab) && tab.preview !== true,
-      contextMenuItems: !isSideChatPanelTab(tab) && tab.kind === "browser"
+      preview: isSideChatPanelTab(tab) || isMcpAppPanelTab(tab) ? undefined : tab.preview,
+      reorderable: isSideChatPanelTab(tab) || isMcpAppPanelTab(tab) ? false : tab.preview === true ? false : true,
+      splittable: !isSideChatPanelTab(tab) && !isMcpAppPanelTab(tab) && tab.preview !== true,
+      contextMenuItems: !isSideChatPanelTab(tab) && !isMcpAppPanelTab(tab) && tab.kind === "browser"
         ? [
             {
               id: "browser-new-tab-right",
@@ -2864,42 +3080,51 @@ export function WorkbenchShell({
             },
           ]
         : undefined,
-      renderPanel: () => isSideChatPanelTab(tab) ? (
-        <SideChatSessionTab
-          key={`${activeSession.id}:${tab.id}:${tab.stateKey}`}
-          tab={tab}
-          activeSession={activeSession}
-          projects={projects}
-          onOpenCardTab={openCardTab}
-          onRefreshSessions={refreshProjectSessions}
-          onRecreateSideChat={() => void recreateSideChatPanelTab(tab.id)}
-        />
-      ) : (
-        <ProjectSessionTabPanel
-          key={`${activeSession.id}:${tab.id}:${tab.stateKey}`}
-          tab={tab}
-          activeSession={activeSession}
-          projects={projects}
-          activeView={activeView}
-          activeSearchQuery={activeSearchQuery}
-          activeDbViewPrefs={activeDbViewPrefs}
-          searchByProject={searchByProject}
-          dbViewPrefsByProject={dbViewPrefsByProject}
-          cardStageCloseRef={cardStageCloseRef}
-          cardStagePersistRef={cardStagePersistRef}
-          cardStageSessionSnapshotRef={cardStageSessionSnapshotRef}
-          pendingReminderOpen={pendingReminderOpen}
-          taskSearchOpenTick={sidebarTaskSearchOpenTick}
-          setSearchQuery={setSearchQuery}
-          setDbViewPrefs={setDbViewPrefs}
-          onReminderHandled={onReminderHandled}
-          onLeaveCardStageCard={onLeaveCardStageCard}
-          onOpenCardTab={openCardTab}
-          onRefreshSessions={refreshProjectSessions}
-          onCloseTab={closeTab}
-          onOpenSideChat={() => void openSideChat({ targetPanelId: tab.panelId })}
-        />
-      ),
+      renderPanel: () => {
+        if (isSideChatPanelTab(tab)) {
+          return (
+            <SideChatSessionTab
+              key={`${activeSession.id}:${tab.id}:${tab.stateKey}`}
+              tab={tab}
+              activeSession={activeSession}
+              projects={projects}
+              onOpenCardTab={openCardTab}
+              onRefreshSessions={refreshProjectSessions}
+              onRecreateSideChat={() => void recreateSideChatPanelTab(tab.id)}
+              onOpenMcpAppSidePanel={openMcpAppSidePanel}
+            />
+          );
+        }
+        if (isMcpAppPanelTab(tab)) {
+          return <McpAppSessionTab key={`${activeSession.id}:${tab.id}:${tab.stateKey}`} tab={tab} />;
+        }
+        return (
+          <ProjectSessionTabPanel
+            key={`${activeSession.id}:${tab.id}:${tab.stateKey}`}
+            tab={tab}
+            activeSession={activeSession}
+            projects={projects}
+            activeView={activeView}
+            activeSearchQuery={activeSearchQuery}
+            activeDbViewPrefs={activeDbViewPrefs}
+            searchByProject={searchByProject}
+            dbViewPrefsByProject={dbViewPrefsByProject}
+            cardStageCloseRef={cardStageCloseRef}
+            cardStagePersistRef={cardStagePersistRef}
+            cardStageSessionSnapshotRef={cardStageSessionSnapshotRef}
+            pendingReminderOpen={pendingReminderOpen}
+            taskSearchOpenTick={sidebarTaskSearchOpenTick}
+            setSearchQuery={setSearchQuery}
+            setDbViewPrefs={setDbViewPrefs}
+            onReminderHandled={onReminderHandled}
+            onLeaveCardStageCard={onLeaveCardStageCard}
+            onOpenCardTab={openCardTab}
+            onRefreshSessions={refreshProjectSessions}
+            onCloseTab={closeTab}
+            onOpenSideChat={() => void openSideChat({ targetPanelId: tab.panelId })}
+          />
+        );
+      },
     });
     const durableById = new Map(activeSession.tabs.map((tab) => [tab.id, tab]));
     const buildPanelTabs = (panelId: PanelId) => {
@@ -2917,16 +3142,25 @@ export function WorkbenchShell({
         const sideChatTabs = (sideChatTabsBySession[activeSession.id] ?? []).filter((tab) =>
           tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leaf.id
         );
+        const mcpAppTabs = (mcpAppTabsBySession[activeSession.id] ?? []).filter((tab) =>
+          tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leaf.id
+        );
         const previewTab = previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId, leaf.id)]
           ?? (leaf.id === activeLeafId ? previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId)] : null)
           ?? null;
         const renderableTabs: ProjectSessionRenderableTab[] = previewTab
-          ? [...durableTabs, ...sideChatTabs, previewTab]
-          : [...durableTabs, ...sideChatTabs];
+          ? [...durableTabs, ...sideChatTabs, ...mcpAppTabs, previewTab]
+          : [...durableTabs, ...sideChatTabs, ...mcpAppTabs];
         const sideChatActiveTabId = sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, panelId, leaf.id)]
           ?? (leaf.id === activeLeafId ? sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, panelId)] : null)
           ?? null;
+        const mcpAppActiveTabId = mcpAppActiveTabByPanel[makeMcpAppPanelKey(activeSession.id, panelId, leaf.id)]
+          ?? (leaf.id === activeLeafId ? mcpAppActiveTabByPanel[makeMcpAppPanelKey(activeSession.id, panelId)] : null)
+          ?? null;
         const activeTabId = previewTab?.id
+          ?? (mcpAppActiveTabId && renderableTabs.some((tab) => tab.id === mcpAppActiveTabId)
+            ? mcpAppActiveTabId
+            : null)
           ?? (sideChatActiveTabId && renderableTabs.some((tab) => tab.id === sideChatActiveTabId)
             ? sideChatActiveTabId
             : leaf.activeTabId)
@@ -2954,9 +3188,12 @@ export function WorkbenchShell({
     cardStageSessionSnapshotRef,
     closeTab,
     createBrowserTabToRight,
+    mcpAppActiveTabByPanel,
+    mcpAppTabsBySession,
     onLeaveCardStageCard,
     onReminderHandled,
     openSideChat,
+    openMcpAppSidePanel,
     openCardTab,
     pendingReminderOpen,
     projects,
@@ -3879,6 +4116,7 @@ export function WorkbenchShell({
                           void openCardTab(activeProject.id, cardId, cardId);
                         }}
                         onOpenSideChat={(input) => openSideChat({ ...input, targetPanelId: "right" })}
+                        onOpenMcpAppSidePanel={openMcpAppSidePanel}
                       />
                     </div>
                   </section>
@@ -4578,6 +4816,7 @@ function SessionThreadPage({
   summarySideChatRows,
   summaryBrowserRows,
   onOpenSideChat,
+  onOpenMcpAppSidePanel,
 }: {
   session: ProjectSession;
   project: Project | null;
@@ -4602,6 +4841,7 @@ function SessionThreadPage({
     promptInput?: CodexPromptInput;
     collaborationMode?: CodexCollaborationModeKind;
   }) => Promise<void>;
+  onOpenMcpAppSidePanel: ThreadStageActions["onOpenMcpAppSidePanel"];
 }) {
   const projectId = project?.id ?? session.projectId;
   const summary = session.thread ? makeThreadSummary(session.thread) : null;
@@ -4678,6 +4918,7 @@ function SessionThreadPage({
         collaborationMode: selectedCollaborationMode,
       });
     },
+    onOpenMcpAppSidePanel,
     selectedCollaborationMode,
     setSelectedCollaborationMode,
   }), [
@@ -4689,6 +4930,7 @@ function SessionThreadPage({
     onRequestProjectPickerOpen,
     onOpenLocalEnvironmentsSettings,
     onOpenSideChat,
+    onOpenMcpAppSidePanel,
     refreshNewThreadEnvironments,
     effectiveProjectId,
     session.projectId,
@@ -4798,6 +5040,7 @@ function makeNoopThreadStageActions(onOpenCard: (cardId: string) => void): Threa
     onStartThreadForCard: noopAsync,
     onSendPrompt: noopAsync,
     onOpenSideChat: noopAsync,
+    onOpenMcpAppSidePanel: noopAsync,
     onSteerPrompt: async () => undefined,
     onInterruptTurn: async () => undefined,
     onRespondApproval: async () => undefined,
@@ -4835,6 +5078,7 @@ function makeSessionThreadStageActions(input: {
   onRefreshNewThreadStartInEnvironments: NonNullable<ThreadStageActions["onRefreshNewThreadStartInEnvironments"]>;
   onOpenNewThreadLocalEnvironmentsSettings: NonNullable<ThreadStageActions["onOpenNewThreadLocalEnvironmentsSettings"]>;
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
+  onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
   projectId: string;
   selectedCollaborationMode: CodexCollaborationModeKind;
   setSelectedCollaborationMode: (mode: CodexCollaborationModeKind) => void;
@@ -4890,6 +5134,7 @@ function makeSessionThreadStageActions(input: {
     onRefreshNewThreadStartInEnvironments: input.onRefreshNewThreadStartInEnvironments,
     onOpenNewThreadLocalEnvironmentsSettings: input.onOpenNewThreadLocalEnvironmentsSettings,
     onOpenSideChat: input.onOpenSideChat ?? base.onOpenSideChat,
+    onOpenMcpAppSidePanel: input.onOpenMcpAppSidePanel ?? base.onOpenMcpAppSidePanel,
     onSendPrompt: async (prompt, opts) => {
       if (!input.activeThreadId) return;
       await input.codexControl.startTurn(input.activeThreadId, prompt, {
@@ -4932,6 +5177,18 @@ function makeSessionThreadStageActions(input: {
   };
 }
 
+function McpAppSessionTab({ tab }: { tab: McpAppPanelTab }) {
+  return (
+    <div
+      className="h-full min-h-0 bg-token-main-surface-primary"
+      data-mcp-app-side-panel-tab={tab.id}
+      data-mcp-capability-id={tab.app.capabilityId}
+    >
+      <McpCapabilityViewFrame resource={tab.app.resource} mode="side-panel" />
+    </div>
+  );
+}
+
 function SideChatSessionTab({
   tab,
   activeSession,
@@ -4939,6 +5196,7 @@ function SideChatSessionTab({
   onOpenCardTab,
   onRefreshSessions,
   onRecreateSideChat,
+  onOpenMcpAppSidePanel,
 }: {
   tab: SideChatPanelTab;
   activeSession: ProjectSession;
@@ -4946,6 +5204,7 @@ function SideChatSessionTab({
   onOpenCardTab: (projectId: string, cardId: string, titleSnapshot?: string) => Promise<void>;
   onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
   onRecreateSideChat: () => void;
+  onOpenMcpAppSidePanel: ThreadStageActions["onOpenMcpAppSidePanel"];
 }) {
   const project = projects.find((candidate) => candidate.id === tab.projectId) ?? null;
   const conversation = useConversation(tab.threadId);
@@ -4979,6 +5238,7 @@ function SideChatSessionTab({
     onNewThreadStartInEnvironmentChange: () => undefined,
     onRefreshNewThreadStartInEnvironments: async () => undefined,
     onOpenNewThreadLocalEnvironmentsSettings: () => undefined,
+    onOpenMcpAppSidePanel,
     selectedCollaborationMode,
     setSelectedCollaborationMode,
   }), [
@@ -4986,6 +5246,7 @@ function SideChatSessionTab({
     activeSession,
     codexControl,
     onOpenCardTab,
+    onOpenMcpAppSidePanel,
     onRefreshSessions,
     selectedCollaborationMode,
     tab.projectId,

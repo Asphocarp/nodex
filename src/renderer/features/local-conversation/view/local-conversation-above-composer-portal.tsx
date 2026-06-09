@@ -50,6 +50,7 @@ interface LocalConversationAboveComposerPortalProps {
   threadCwd?: string | null;
   onOpenTurnDiffReview?: (target: CodexTurnDiffReviewTarget) => void;
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
+  onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
 }
 
 export function LocalConversationAboveComposerPortal({
@@ -60,6 +61,7 @@ export function LocalConversationAboveComposerPortal({
   threadCwd,
   onOpenTurnDiffReview,
   onOpenSideChat,
+  onOpenMcpAppSidePanel,
 }: LocalConversationAboveComposerPortalProps) {
   const host = usePortalHost(LOCAL_CONVERSATION_FIXED_ABOVE_COMPOSER_PORTAL_ID);
   if (blocks.length === 0) return null;
@@ -77,6 +79,7 @@ export function LocalConversationAboveComposerPortal({
           threadCwd={threadCwd}
           onOpenTurnDiffReview={onOpenTurnDiffReview}
           onOpenSideChat={onOpenSideChat}
+          onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
           allowInProgressTurnDiff={true}
         />
       ))}
