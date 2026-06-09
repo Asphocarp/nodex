@@ -272,14 +272,14 @@ Consequences:
 - completion can change collapse affordance
 - completion must not silently promote the assistant into a dedicated final slot
 
-### Final message divider
-The `Final message` divider appears only when:
+### Worked-for divider
+The collapsed agent-body summary uses the Codex worked-for precedence:
 
-- `assistantItem` exists in the dedicated final lane
-- the agent body is expanded
-- there is no `worked-for` timing label taking over that label path
+- explicit live worked-for timing, with `Working` / `Working for …` while the turn is active
+- completed turn `durationMs`, rendered as `Worked for …`
+- `X previous messages` only when no timing exists
 
-If `assistantItem` is `null`, there is no final-assistant divider.
+If `assistantItem` is `null`, assistant actions stay on the deferred action-only anchor after the settled agent body so later tool rows remain above the toolbar.
 
 ## Common Regression Traps
 

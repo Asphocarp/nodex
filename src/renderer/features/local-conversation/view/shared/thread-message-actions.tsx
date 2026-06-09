@@ -9,12 +9,12 @@ const ASSISTANT_COPY_FEEDBACK_MS = 2000;
 const electronMessageActionSvgSizeClassName = `electron:[&>svg]:${"icon-sm"}`;
 
 export const threadMessageActionButtonClassName = `
-  border-token-border user-select-none no-drag cursor-interaction flex items-center
+  border-token-border no-drag cursor-interaction flex items-center
   gap-1 border whitespace-nowrap focus:outline-none disabled:cursor-not-allowed
-  disabled:opacity-40 rounded-full electron:rounded-md text-token-description-foreground
+  disabled:opacity-40 rounded-full electron:rounded-md text-token-text-tertiary
   enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background
   border-transparent electron:p-1 ${electronMessageActionSvgSizeClassName}
-  justify-center p-0.5
+  flex items-center justify-center p-0.5 select-none
 `;
 
 const threadMessageActionButtonActiveClassName = `
@@ -78,7 +78,7 @@ export function ThreadMessageActionRow({
       className={cn(
         align === "end"
           ? "mr-1 ms-1 flex items-center gap-2 transition-opacity opacity-0 group-hover:opacity-100"
-          : "mt-3 flex h-5 items-center justify-start gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100",
+          : "extension:-translate-x-1.5 electron:-translate-x-2 mt-1.5 flex h-5 items-center justify-start gap-0.5 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100",
         className,
       )}
     >
@@ -91,8 +91,10 @@ export function MessageTimestamp({ sentAtMs }: { sentAtMs: number | null | undef
   if (sentAtMs == null) return null;
 
   return (
-    <span className="text-xs text-token-description-foreground">
-      {new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date(sentAtMs))}
+    <span className="ml-1.5 flex h-full items-center opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
+      <span className="text-xs text-token-text-tertiary text-size-chat leading-5 text-token-input-placeholder-foreground">
+        {new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date(sentAtMs))}
+      </span>
     </span>
   );
 }
@@ -214,7 +216,7 @@ export function ThumbRatingIcon({ className }: { className?: string }) {
       viewBox="0 0 20 21"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
-      className={cn("icon-2xs", className)}
+      className={cn("icon-xs", className)}
       aria-hidden="true"
     >
       <path
@@ -266,15 +268,9 @@ export function ForkMessageIcon({ className }: { className?: string }) {
       className={cn("icon-xs", className)}
       aria-hidden="true"
     >
-      <circle cx="5.4165" cy="5" r="1.875" stroke="currentColor" strokeWidth="1.33" />
-      <circle cx="5.4165" cy="15" r="1.875" stroke="currentColor" strokeWidth="1.33" />
-      <circle cx="14.5833" cy="5" r="1.875" stroke="currentColor" strokeWidth="1.33" />
-      <path d="M5.4165 6.66664V13.3333" stroke="currentColor" strokeWidth="1.33" strokeLinejoin="round" />
       <path
-        d="M5.41658 12.5V11.6667C5.41658 10.7462 6.16278 10 7.08325 10H12.9166C13.8371 10 14.5833 9.25381 14.5833 8.33333V7.5"
-        stroke="currentColor"
-        strokeWidth="1.33"
-        strokeLinejoin="round"
+        d="M15.8 11.535c.367 0 .665.298.665.665v5a.665.665 0 0 1-.665.665h-5a.665.665 0 1 1 0-1.33h3.394l-3.565-3.564a.666.666 0 0 1 .942-.942l3.564 3.565V12.2c0-.367.298-.665.665-.665Zm0-9.4c.367 0 .665.298.665.665v5a.665.665 0 0 1-1.33 0V4.405l-5.128 5.128c-.323.324-.558.565-.842.74a2.668 2.668 0 0 1-.771.319c-.324.078-.662.073-1.12.073H1.93a.665.665 0 1 1 0-1.33h5.345c.52 0 .673-.005.809-.037.136-.033.266-.086.385-.16.12-.072.23-.177.598-.545l5.128-5.128H10.8a.665.665 0 0 1 0-1.33h5Z"
+        fill="currentColor"
       />
     </svg>
   );

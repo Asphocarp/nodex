@@ -84,17 +84,17 @@ When working with coding agents like Claude Code, there's no streamlined way to:
   - `Ask in side chat` starts a temporary side conversation from the selected user-message text, or the full message when no selected text is available.
   - `Edit message` is shown only on the last user message of the latest completed editable turn; activating it swaps that bubble for an inline edit prompt in place, and the actual rollback-plus-resend happens only after the user clicks `Send`.
 - Assistant-message transcript actions:
-  - Completed final assistant messages can expose `Copy message`, `Good response`, `Bad response`, `Fork from this point`, and sent timestamp actions.
+  - Completed final assistant messages can expose `Copy`, `Good response`, `Bad response`, `Fork from this point`, and sent timestamp actions.
   - The assistant sent timestamp comes from `finalAssistantStartedAtMs`, refreshed from live agent-message event timing; protocol `completedAt` is only an archived/read fallback and is not the renderer's display source.
   - `Fork from this point` is shown on eligible completed final assistant messages; latest-turn forks execute immediately, while older-turn forks open a confirmation dialog unless the user has opted out of that confirmation.
   - Forking opens a new thread tab backed by the forked conversation snapshot and focuses the composer in the new thread.
-  - `Ask in side chat` starts a temporary side conversation from the selected assistant text, or the completed final assistant message text when no selected text is available.
 - Mounted thread turn rendering follows the turn projection pipeline:
   - each visible turn is projected from an ordered item stream into semantic render buckets, then rendered in a fixed order instead of category-priority reshuffling
-  - visible order is `model changed -> user -> model reroute -> agent/exploration body -> system event -> assistant -> post-assistant artifacts -> MCP elicitation -> proposed plan / todo -> in-progress placeholder -> unified diff -> provenance markers`
+  - visible order is `model changed -> user -> model reroute -> agent/exploration body -> system event -> assistant with assistant-after artifacts/actions -> MCP elicitation -> proposed plan / todo -> in-progress placeholder -> provenance markers`
   - the mounted renderer preserves the canonical per-turn item sequence from the conversation snapshot instead of re-sorting turn items by timestamp or id inside the renderer
   - pre-final assistant commentary stays in the agent-work body ahead of the final assistant anchor; only the final assistant message becomes the dedicated assistant block for the turn
-  - when an expanded collapsible agent-work section has no worked-for timing label, the renderer inserts the `Final message` divider immediately before the final assistant block
+  - completed turn diffs render as assistant-after `Edited …` cards before the final assistant action strip when a final assistant exists
+  - collapsed historical agent-work sections prefer `Worked for …` from turn duration data before falling back to `X previous messages`
   - when the latest visible turn has qualifying prior work and usable timing data, the renderer injects a `Worked for …` divider immediately before the final assistant message
   - the detailed classifier contract, conditional assistant-promotion rule, and scenario matrix live in [codex-thread-turn-ordering-and-assistant-promotion.md](../codex-thread-turn-ordering-and-assistant-promotion.md)
   - collapsed agent-work sections collapse to the summary row only; their body exits the DOM once collapsed, while collapsed command-tool bodies keep the hidden measured body in the DOM with `height: 0`, `opacity: 0`, and pointer events disabled

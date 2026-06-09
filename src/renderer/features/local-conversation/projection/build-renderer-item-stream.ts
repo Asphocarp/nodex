@@ -6,6 +6,7 @@ import type {
   ThreadTranscriptBlockModel,
   ThreadWorkedForAdornmentModel,
 } from "../thread-stage-types";
+import { formatWorkedForTimeLabel } from "../thread-worked-for-time";
 
 interface BuildRendererItemStreamInput {
   entries: CodexConversationItem[];
@@ -238,31 +239,9 @@ function hasAboveAssistantWork(items: ThreadTranscriptBlockModel[], anchorIndex:
   return false;
 }
 
-function formatWorkedForTimeLabel(durationMs: number): string | null {
-  if (!Number.isFinite(durationMs) || durationMs < 0) return null;
-
-  const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-
-  if (hours > 0) {
-    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
-  }
-
-  if (minutes > 0) {
-    return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
-  }
-
-  return `${seconds}s`;
-}
-
 export function resolveWorkedForAdornment(
   items: ThreadTranscriptBlockModel[],
-  turnStatus?: BuildRendererItemStreamInput["turnStatus"],
-  isLatestTurn?: boolean,
 ): ThreadWorkedForAdornmentModel | null {
-  if (!isLatestTurn) return null;
   const workedForIndex = items.findLastIndex((item) => item.type === "workedFor");
   if (workedForIndex < 0) return null;
 

@@ -9,6 +9,7 @@ import {
   useState,
   type CSSProperties,
   type FormEvent,
+  type ReactNode,
 } from "react";
 import { motion } from "motion/react";
 import { ChevronRightIcon, CodexSidePanelSideChatIcon } from "@/components/shared/icons";
@@ -54,6 +55,7 @@ import { useMeasuredElementHeight } from "../shared/use-measured-element-height"
 import { CodexShimmerText } from "../shared/codex-shimmer-text";
 import { AnsweredUserInputBlock } from "../composer/request-cards/answered-user-input-block";
 import { UserAttachmentStrip } from "../shared/user-message-attachments";
+import { useWorkedForLabelText } from "../shared/use-worked-for-label";
 import type { CodexCommandAction } from "../../../../lib/types";
 import type { CodexConversationItem, CodexTurnDiffReviewTarget } from "../../../../lib/types";
 import { resolveCodexThreadDetailLevel } from "../../../../lib/codex-thread-settings";
@@ -83,6 +85,7 @@ export interface ThreadLeafBlockProps {
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
   allowInProgressTurnDiff?: boolean;
+  assistantAfter?: ReactNode;
 }
 
 export interface ThreadSpecialBlockProps {
@@ -1418,8 +1421,12 @@ export function ThreadHookBlock({ block }: ThreadLeafBlockProps) {
 }
 
 export function ThreadWorkedForBlock({ adornment }: { adornment: ThreadWorkedForAdornmentModel }) {
-  const timeLabel = adornment.timeLabel.trim();
-  if (!timeLabel) return null;
+  const label = useWorkedForLabelText({
+    timing: adornment.timing ?? null,
+    durationMs: null,
+    fallbackTimeLabel: adornment.timeLabel,
+  });
+  if (!label) return null;
 
   return (
     <motion.div
@@ -1428,10 +1435,9 @@ export function ThreadWorkedForBlock({ adornment }: { adornment: ThreadWorkedFor
       transition={CODEX_THREAD_ACCORDION_TRANSITION}
       style={{ overflow: "hidden" }}
     >
-      <div className="flex items-center gap-2 overflow-hidden text-size-chat text-token-text-secondary">
-        <div className="flex-1 border-t border-current/20" />
-        <span>Worked for {timeLabel}</span>
-        <div className="flex-1 border-t border-current/20" />
+      <div className="text-size-chat flex min-h-0 flex-col items-start gap-2 overflow-hidden text-token-text-secondary">
+        <span className="text-token-foreground/60">{label}</span>
+        <div className="w-full border-t border-current/20" />
       </div>
     </motion.div>
   );
@@ -1443,14 +1449,12 @@ function AssistantMessageActionsRow({
   turnId,
   isLatestTurn,
   onForkFromTurn,
-  onOpenSideChat,
 }: {
   actions: ThreadAssistantMessageActionsModel;
   threadId: string;
   turnId: string;
   isLatestTurn: boolean;
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
-  onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
 }) {
   const [selectedRating, setSelectedRating] = useState<AssistantMessageRating | null>(null);
   const shouldShowActions = actions.copyText !== null || actions.canFork;
@@ -1462,6 +1466,7 @@ function AssistantMessageActionsRow({
         <>
           <CopyMessageActionButton
             text={actions.copyText}
+            label="Copy"
             stopPropagation
           />
           {actions.canRate ? (
@@ -1477,20 +1482,6 @@ function AssistantMessageActionsRow({
                 onSelect={setSelectedRating}
               />
             </>
-          ) : null}
-          {onOpenSideChat ? (
-            <ThreadActionIconButton
-              label="Ask in side chat"
-              tooltip="Ask in side chat"
-              onClick={(event) => {
-                event.stopPropagation();
-                void onOpenSideChat({
-                  prompt: resolveSelectedTranscriptText(actions.copyText ?? ""),
-                });
-              }}
-            >
-              <CodexSidePanelSideChatIcon className="icon-xs" />
-            </ThreadActionIconButton>
           ) : null}
         </>
       ) : null}
@@ -1523,7 +1514,7 @@ export function ThreadAssistantBodyBlock({
   isSearchMatch = false,
   isActiveSearchMatch = false,
   onForkFromTurn,
-  onOpenSideChat,
+  assistantAfter,
 }: ThreadLeafBlockProps) {
   const markdownText = block.entry.markdownText ?? "";
   const isStreamingAssistantText = isStreamingTurn && (block.entry.status === "inProgress" || isLatestTurn);
@@ -1545,6 +1536,11 @@ export function ThreadAssistantBodyBlock({
             animateStreamingText={isStreamingAssistantText}
           />
         </div>
+        {assistantAfter ? (
+          <div className="mt-3">
+            {assistantAfter}
+          </div>
+        ) : null}
         {assistantActions ? (
           <AssistantMessageActionsRow
             actions={assistantActions}
@@ -1552,7 +1548,6 @@ export function ThreadAssistantBodyBlock({
             turnId={block.turnId}
             isLatestTurn={isLatestTurn}
             onForkFromTurn={onForkFromTurn}
-            onOpenSideChat={onOpenSideChat}
           />
         ) : null}
       </div>
@@ -1564,10 +1559,8 @@ export function ThreadAssistantActionsBlock({
   block,
   isLatestTurn,
   onForkFromTurn,
-  onOpenSideChat,
 }: ThreadSpecialBlockProps & {
   onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
-  onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
 }) {
   if (block.type !== "assistantActions") return null;
 
@@ -1579,7 +1572,6 @@ export function ThreadAssistantActionsBlock({
         turnId={block.turnId}
         isLatestTurn={isLatestTurn}
         onForkFromTurn={onForkFromTurn}
-        onOpenSideChat={onOpenSideChat}
       />
     </div>
   );

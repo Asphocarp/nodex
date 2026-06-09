@@ -225,7 +225,7 @@ describe("LocalConversationTurnEntry", () => {
 
     const labels = Array.from(view.container.querySelectorAll("button[aria-label]"))
       .map((button) => button.getAttribute("aria-label") ?? "");
-    const assistantCopyIndex = labels.lastIndexOf("Copy message");
+    const assistantCopyIndex = labels.lastIndexOf("Copy");
     const thumbsUpIndex = labels.indexOf("Good response");
     const thumbsDownIndex = labels.indexOf("Bad response");
     const forkIndex = labels.indexOf("Fork from this point");
@@ -234,6 +234,7 @@ describe("LocalConversationTurnEntry", () => {
     expect(thumbsUpIndex > assistantCopyIndex).toBeTrue();
     expect(thumbsDownIndex > thumbsUpIndex).toBeTrue();
     expect(forkIndex > thumbsDownIndex).toBeTrue();
+    expect(labels.includes("Ask in side chat")).toBeFalse();
     expect(Boolean(view.container.textContent?.includes(expectedTime))).toBeTrue();
     expect(Boolean(view.container.textContent?.includes(staleCompletedTime))).toBeFalse();
 
@@ -242,6 +243,47 @@ describe("LocalConversationTurnEntry", () => {
     expect(forkInputs[0]?.turnId).toBe("turn_assistant_actions");
     expect(forkInputs[0]?.message).toBe("");
     expect(forkInputs[0]?.isLatestTurn).toBeFalse();
+  });
+
+  test("nests completed turn diff before assistant actions inside the final assistant DOM", async () => {
+    const stableRequests: [] = [];
+    const { LocalConversationTurnEntry } = await import("./local-conversation-turn-entry");
+    const turn = buildTurn("turn_diff_after", "Request", "Assistant reply", {
+      diff: [
+        "--- a/src/one.ts",
+        "+++ b/src/one.ts",
+        "@@ -1 +1 @@",
+        "-old",
+        "+new",
+      ].join("\n"),
+      finalAssistantStartedAtMs: 180_000,
+    });
+    const view = render(
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(LocalConversationTurnEntry, {
+          conversationId: "thread_1",
+          turnSearchKey: turn.turnId,
+          turn,
+          requests: stableRequests,
+          cwd: "/tmp/project",
+          isMostRecentTurn: true,
+          canEditTurnUserPrefix: false,
+          canForkTurn: true,
+        }),
+      ),
+    );
+
+    const finalAssistant = view.container.querySelector('[data-local-conversation-final-assistant="true"]');
+    const diffCard = finalAssistant?.querySelector('[data-assistant-after-blocks="turn_diff_after_assistant"]');
+    const copyButton = finalAssistant?.querySelector('button[aria-label="Copy"]');
+    if (!(finalAssistant instanceof HTMLElement) || !(diffCard instanceof HTMLElement) || !(copyButton instanceof HTMLElement)) {
+      throw new Error("expected final assistant wrapper, assistant-after diff, and copy button");
+    }
+
+    expect(Boolean(diffCard.textContent?.includes("Edited"))).toBeTrue();
+    expect(Boolean(diffCard.compareDocumentPosition(copyButton) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
   });
 
   test("suppresses assistant copy and rating while streaming or empty", async () => {
@@ -299,6 +341,56 @@ describe("LocalConversationTurnEntry", () => {
     expect(view.queryByLabelText("Good response") === null).toBeTrue();
     expect(view.queryByLabelText("Bad response") === null).toBeTrue();
     expect(Boolean(view.getByLabelText("Fork from this point"))).toBeTrue();
+  });
+
+  test("renders historical collapsed agent body as worked duration instead of previous messages", async () => {
+    const stableRequests: [] = [];
+    const { LocalConversationTurnEntry } = await import("./local-conversation-turn-entry");
+    const turn: CodexConversationTurn = {
+      ...buildTurn("turn_worked_for", "Request", "Done"),
+      durationMs: 125_000,
+      itemIds: ["turn_worked_for_user", "exec_1", "turn_worked_for_assistant"],
+      items: [
+        buildUserEntry("turn_worked_for", "turn_worked_for_user", "Request"),
+        {
+          threadId: "thread_1",
+          turnId: "turn_worked_for",
+          itemId: "exec_1",
+          type: "command_execution",
+          kind: "commandExecution",
+          semanticKind: "exec",
+          createdAt: 2,
+          updatedAt: 2,
+          status: "completed",
+          commandActions: [{ type: "read", command: "", name: "read", path: "src/app.ts" }],
+          toolCall: {
+            subtype: "command",
+            toolName: "exec_command",
+            args: {},
+          },
+        },
+        buildAssistantEntry("turn_worked_for", "turn_worked_for_assistant", "Done"),
+      ],
+    };
+    const view = render(
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(LocalConversationTurnEntry, {
+          conversationId: "thread_1",
+          turnSearchKey: turn.turnId,
+          turn,
+          requests: stableRequests,
+          cwd: "/tmp/project",
+          isMostRecentTurn: false,
+          canEditTurnUserPrefix: false,
+          canForkTurn: true,
+        }),
+      ),
+    );
+
+    expect(Boolean(view.container.textContent?.includes("Worked for 2m 5s"))).toBeTrue();
+    expect(Boolean(view.container.textContent?.includes("previous messages"))).toBeFalse();
   });
 
   test("does not rerender unchanged older turns when a different turn updates", async () => {
@@ -683,7 +775,7 @@ describe("LocalConversationTurnEntry", () => {
 
     const assistantBlock = view.container.querySelector('[data-content-search-unit-key="turn_stopped_order:assistant"]');
     const explorationButton = view.getByRole("button", { name: /Explored 1 file/i });
-    const copyButton = view.getByLabelText("Copy message");
+    const copyButton = view.getByLabelText("Copy");
     const actionAnchor = view.container.querySelector('[data-assistant-actions-anchor="assistant_1"]');
     if (
       !(assistantBlock instanceof HTMLElement)
@@ -694,7 +786,7 @@ describe("LocalConversationTurnEntry", () => {
       throw new Error("expected stopped assistant, exploration group, and deferred action anchor");
     }
 
-    expect(assistantBlock.querySelector('[aria-label="Copy message"]') === null).toBeTrue();
+    expect(assistantBlock.querySelector('[aria-label="Copy"]') === null).toBeTrue();
     expect(Boolean(assistantBlock.compareDocumentPosition(explorationButton) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
     expect(Boolean(explorationButton.compareDocumentPosition(actionAnchor) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
     expect(Boolean(explorationButton.compareDocumentPosition(copyButton) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();

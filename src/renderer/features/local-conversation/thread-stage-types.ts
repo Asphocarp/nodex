@@ -35,6 +35,7 @@ import type { ComposerEnterBehavior } from "../../lib/composer-enter-behavior";
 import type { CodexTurnScopedConversationRequest } from "./conversation-request-helpers";
 import type { NewChatProjectSelectorOption } from "../../lib/new-chat-project-selector";
 import type { NewChatStartInTarget } from "../../lib/new-chat-start-in-selector";
+import type { ThreadWorkedForTiming } from "./thread-worked-for-time";
 
 export interface NewChatProjectSelectorModel {
   projects: NewChatProjectSelectorOption[];
@@ -275,6 +276,7 @@ export interface ThreadTranscriptBlockModel {
   status?: CodexConversationItem["status"];
   userMessageActions?: ThreadUserMessageActionsModel;
   assistantMessageActions?: ThreadAssistantMessageActionsModel;
+  assistantAfterBlocks?: ThreadBlockModel[];
   searchUnitKey?: string;
 }
 
@@ -293,6 +295,7 @@ export interface ThreadWorkedForAdornmentModel {
   turnId: string;
   anchorBlockId: string;
   timeLabel: string;
+  timing?: ThreadWorkedForTiming | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -457,6 +460,8 @@ export interface ThreadTurnModel {
   blocks: ThreadBlockModel[];
   aboveComposerBlocks?: ThreadBlockModel[];
   workedForAdornment: ThreadWorkedForAdornmentModel | null;
+  workedForTiming: ThreadWorkedForTiming | null;
+  workedDurationMs: number | null;
   isLatestTurn: boolean;
   isStreamingTurn: boolean;
   isBlocked: boolean;

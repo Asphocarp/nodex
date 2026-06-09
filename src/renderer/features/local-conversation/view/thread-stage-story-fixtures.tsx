@@ -1024,7 +1024,7 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
         "@@ -125,6 +125,8 @@",
         "   - turn-level aggregated `turn.diff` renders as a separate `turn-diff` surface",
         "   - active in-progress turn diffs surface as a compact above-composer `files changed` banner instead of a generic inline diff viewer",
-        "   - completed turn diffs render as a dedicated files-changed card with per-file collapsed embedded diff rows",
+        "   - completed turn diffs render as a dedicated `Edited …` card with per-file collapsed embedded diff rows",
         "+  - completed turn-diff cards summarize multi-file changes before any embedded rows expand.",
         "+  - embedded turn-diff rows are collapsed by default and open files from the filename button when a workspace path is available.",
         "   - the unified diff card is never allowed to replace or swallow the underlying `Edited file` tool row",

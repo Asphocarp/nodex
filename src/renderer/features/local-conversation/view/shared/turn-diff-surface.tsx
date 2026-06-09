@@ -184,12 +184,24 @@ function summarizeRows(rows: TurnDiffRowModel[], fallbackDiff: string | undefine
   );
 }
 
-function TurnDiffFilesChangedLabel({ fileCount }: { fileCount: number }) {
-  if (fileCount <= 0) return <span className="text-size-chat min-w-0 truncate py-2 text-token-input-foreground">Files changed</span>;
+function TurnDiffEditedLabel({
+  fileCount,
+  firstPath,
+}: {
+  fileCount: number;
+  firstPath: string | null;
+}) {
+  const fileName = firstPath?.split("/").filter(Boolean).at(-1) ?? null;
+  const label =
+    fileCount <= 0
+      ? "Edited files"
+      : fileCount === 1 && fileName
+        ? `Edited ${fileName}`
+        : `Edited ${fileCount} ${fileCount === 1 ? "file" : "files"}`;
 
   return (
     <span className="text-size-chat min-w-0 truncate py-2 text-token-input-foreground">
-      {fileCount} {fileCount === 1 ? "file" : "files"} changed
+      {label}
     </span>
   );
 }
@@ -207,7 +219,7 @@ function ReviewChangesIcon() {
 
 function turnDiffActionButtonClassName(tone: "default" | "destructive" = "default"): string {
   return cn(
-    "group text-size-chat ml-auto inline-flex cursor-pointer items-center gap-1 rounded-full px-2 py-1 text-token-input-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
+    "group text-size-chat inline-flex cursor-pointer items-center gap-1 rounded-full px-2 py-1 text-token-input-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
     tone === "destructive" ? "hover:bg-token-charts-red/10" : "hover:bg-token-foreground/5",
   );
 }
@@ -486,27 +498,29 @@ export function TurnDiffSurface({
   }
 
   return (
-    <div className="mb-2 flex flex-col overflow-hidden rounded-xl bg-token-list-hover-background/60 text-base">
-      <div className="flex items-center gap-2">
+    <div className="mb-2 flex max-w-full flex-col overflow-hidden rounded-lg border border-token-border bg-token-dropdown-background/50 text-base text-token-foreground shadow-sm extension:bg-token-input-background/50 [--turn-diff-row-padding-x:0.75rem] [--turn-diff-row-padding-y:0.25rem]">
+      <div className="group/turn-diff-header relative flex items-center gap-2 focus-within:[&_.turn-diff-default-subtitle]:hidden hover:[&_.turn-diff-default-subtitle]:hidden focus-within:[&_.turn-diff-hover-subtitle]:inline-flex hover:[&_.turn-diff-hover-subtitle]:inline-flex">
         <div className="flex w-full min-w-0 flex-nowrap items-center gap-1 pr-1 pl-3">
-          <TurnDiffFilesChangedLabel fileCount={summary.fileCount} />
+          <TurnDiffEditedLabel fileCount={summary.fileCount} firstPath={rows[0]?.displayPath ?? null} />
           {summary.fileCount > 1 ? (
             <DiffStats additions={summary.additions} deletions={summary.deletions} className="text-size-chat" />
           ) : null}
           <div className="flex-1" />
-          {handleTogglePatch ? (
-            <TurnDiffActionButton
-              label={isPatchApplied ? "Revert changes" : "Reapply changes"}
-              onClick={() => {
-                void handleTogglePatch();
-              }}
-              tone={isPatchApplied ? "destructive" : "default"}
-              disabled={patchActionInFlight}
-            />
-          ) : null}
-          {handleOpenReview ? (
-            <TurnDiffActionButton label="Review changes" onClick={handleOpenReview} disabled={patchActionInFlight} />
-          ) : null}
+          <div className="pointer-events-auto flex items-center gap-2">
+            {handleTogglePatch ? (
+              <TurnDiffActionButton
+                label={isPatchApplied ? "Undo" : "Reapply"}
+                onClick={() => {
+                  void handleTogglePatch();
+                }}
+                tone={isPatchApplied ? "destructive" : "default"}
+                disabled={patchActionInFlight}
+              />
+            ) : null}
+            {handleOpenReview ? (
+              <TurnDiffActionButton label="Review" onClick={handleOpenReview} disabled={patchActionInFlight} />
+            ) : null}
+          </div>
         </div>
       </div>
       <div className="flex flex-col divide-y-[0.5px] divide-token-border">

@@ -14,12 +14,15 @@ import type {
   ThreadUserAttachmentStripBlockModel,
   ThreadWorkedForAdornmentModel,
 } from "../thread-stage-types";
+import type { ThreadWorkedForTiming } from "../thread-worked-for-time";
 
 interface BuildTurnViewModelInput {
   turnId: string;
   turn: CodexConversationTurn | null;
   buckets: ThreadTurnRenderBuckets;
   workedForAdornment?: ThreadWorkedForAdornmentModel | null;
+  workedForTiming?: ThreadWorkedForTiming | null;
+  workedDurationMs?: number | null;
   isLatestTurn: boolean;
   isStreamingTurn: boolean;
   isBlocked: boolean;
@@ -84,17 +87,23 @@ function stringifyToolCall(entry: CodexConversationItem): string {
 function collectSearchableText(blocks: ThreadBlockModel[]): string {
   return blocks
     .flatMap((block) => {
+      const nestedAssistantAfter =
+        block.type === "assistantMessage" && block.assistantAfterBlocks
+          ? collectSearchableText(block.assistantAfterBlocks)
+          : "";
       if (block.type === "explorationGroup" || block.type === "multiAgentGroup") {
         return [
           block.summary,
           ...block.entries.map((entry) => entry.markdownText ?? ""),
           ...block.entries.map((entry) => stringifyToolCall(entry)),
+          nestedAssistantAfter,
         ];
       }
       if (block.type === "pendingMcpToolCalls" || block.type === "dynamicToolCallGroup") {
         return [
           block.summary,
           ...block.entries.map((entry) => entry.searchableText),
+          nestedAssistantAfter,
         ];
       }
       if (block.type === "collapsedToolActivity") {
@@ -105,12 +114,13 @@ function collectSearchableText(blocks: ThreadBlockModel[]): string {
               ? [entry.summary, ...entry.entries.map((item) => item.markdownText ?? ""), ...entry.entries.map((item) => stringifyToolCall(item))]
               : [entry.searchableText],
           ),
+          nestedAssistantAfter,
         ];
       }
       if ("entry" in block) {
-        return [block.searchableText];
+        return [block.searchableText, nestedAssistantAfter];
       }
-      return [block.searchableText];
+      return [block.searchableText, nestedAssistantAfter];
     })
     .map((segment) => segment.trim())
     .filter((segment) => segment.length > 0)
@@ -231,6 +241,19 @@ function applyAssistantMessageActions(
   return {
     ...assistantItem,
     assistantMessageActions,
+  };
+}
+
+function applyAssistantAfterBlocks(
+  assistantItem: ThreadTranscriptBlockModel | null,
+  assistantAfterBlocks: ThreadBlockModel[],
+): ThreadTranscriptBlockModel | null {
+  if (!assistantItem || assistantItem.type !== "assistantMessage") return assistantItem;
+  if (assistantAfterBlocks.length === 0) return assistantItem;
+
+  return {
+    ...assistantItem,
+    assistantAfterBlocks,
   };
 }
 
@@ -386,19 +409,23 @@ function decorateAssistantBlock(
   assistantSearchUnitKey: string,
   input: Pick<BuildTurnViewModelInput, "canForkTurn" | "isStreamingTurn" | "turn"> & {
     includeActions: boolean;
+    assistantAfterBlocks?: ThreadBlockModel[];
   },
 ): ThreadTranscriptBlockModel {
   if (block.type !== "assistantMessage") return block;
   if (latestAssistantId === null || block.id !== latestAssistantId) return block;
 
   const blockWithSearchKey = withSearchUnitKey(block, assistantSearchUnitKey);
+  const blockWithAfter = applyAssistantAfterBlocks(blockWithSearchKey, input.assistantAfterBlocks ?? []) ?? blockWithSearchKey;
   if (!input.includeActions) return blockWithSearchKey;
 
-  return applyAssistantMessageActions(blockWithSearchKey, input) ?? blockWithSearchKey;
+  return applyAssistantMessageActions(blockWithAfter, input) ?? blockWithAfter;
 }
 
 export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnModel {
   const workedForAdornment = input.workedForAdornment ?? null;
+  const workedForTiming = input.workedForTiming ?? null;
+  const workedDurationMs = input.workedDurationMs ?? null;
   const isCompletedTurn = input.turn?.status === "completed";
   const isCancelledTurn = input.turn?.status === "interrupted";
   const initialVisibleAgentItems = input.buckets.agentItems.filter((item) => item.type !== "workedFor");
@@ -420,12 +447,18 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
     .map((unit) => unit.key);
   const assistantSearchUnitKey = searchUnits.find((unit) => unit.blockType === "assistantMessage")?.key ?? `${input.turnId}:assistant`;
   const latestAssistantId = buckets.latestAssistantMessage?.id ?? null;
+  const aboveComposerBlocks = resolveAboveComposerBlocks(buckets, input);
+  const portalBlockIds = new Set(aboveComposerBlocks.map((block) => block.id));
   const nextAssistantItem =
     buckets.assistantItem === null
       ? null
       : decorateAssistantBlock(buckets.assistantItem, latestAssistantId, assistantSearchUnitKey, {
           ...input,
           includeActions: true,
+          assistantAfterBlocks: [
+            ...buckets.postAssistantItems,
+            ...(buckets.unifiedDiffItem ? [buckets.unifiedDiffItem] : []),
+          ].filter((block) => !portalBlockIds.has(block.id)),
         });
   const nextAgentItems = buckets.agentItems.map((block) =>
     decorateAssistantBlock(block, latestAssistantId, assistantSearchUnitKey, {
@@ -462,8 +495,9 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
     ...expandUserBlocksWithAttachmentStrips(buckets.userItems),
     ...buckets.modelReroutedItems,
   ];
-  const aboveComposerBlocks = resolveAboveComposerBlocks(buckets, input);
-  const portalBlockIds = new Set(aboveComposerBlocks.map((block) => block.id));
+  const assistantAfterBlockIds = new Set(
+    nextAssistantItem?.assistantAfterBlocks?.map((block) => block.id) ?? [],
+  );
   const trailingBlocks: ThreadBlockModel[] = [
     ...(buckets.systemEventItem ? [buckets.systemEventItem] : []),
     ...(buckets.assistantItem ? [buckets.assistantItem] : []),
@@ -477,7 +511,7 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
     ...buckets.remoteTaskCreatedItems,
     ...buckets.personalityChangedItems,
     ...buckets.forkedFromConversationItems,
-  ].filter((block) => !portalBlockIds.has(block.id));
+  ].filter((block) => !portalBlockIds.has(block.id) && !assistantAfterBlockIds.has(block.id));
   const resolvedBlocks = flattenBlocks(leadingBlocks, explorationState.groupedAgentItems, trailingBlocks);
   const hasRenderableAgentBodyEntries =
     explorationState.groupedAgentItems.length > 0
@@ -495,6 +529,8 @@ export function buildTurnViewModel(input: BuildTurnViewModelInput): ThreadTurnMo
     blocks: resolvedBlocks,
     aboveComposerBlocks,
     workedForAdornment,
+    workedForTiming,
+    workedDurationMs,
     isLatestTurn: input.isLatestTurn,
     isStreamingTurn: input.isStreamingTurn,
     isBlocked: input.isBlocked,

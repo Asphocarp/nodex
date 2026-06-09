@@ -223,7 +223,30 @@ export function ThreadBlockRenderer({
   }
 
   if (block.type === "assistantMessage") {
-    return (
+    const assistantAfter =
+      block.assistantAfterBlocks && block.assistantAfterBlocks.length > 0
+        ? (
+            <div className="flex w-full flex-col gap-3" data-assistant-after-blocks={block.id}>
+              {block.assistantAfterBlocks.map((assistantAfterBlock) => (
+                <ThreadBlockRenderer
+                  key={assistantAfterBlock.id}
+                  block={assistantAfterBlock}
+                  isLatestTurn={isLatestTurn}
+                  isStreamingTurn={isStreamingTurn}
+                  projectWorkspacePath={projectWorkspacePath}
+                  threadCwd={threadCwd}
+                  onEditLastUserTurn={onEditLastUserTurn}
+                  onForkFromTurn={onForkFromTurn}
+                  onOpenTurnDiffReview={onOpenTurnDiffReview}
+                  onOpenSideChat={onOpenSideChat}
+                  onOpenMcpAppSidePanel={onOpenMcpAppSidePanel}
+                  allowInProgressTurnDiff={allowInProgressTurnDiff}
+                />
+              ))}
+            </div>
+          )
+        : null;
+    const body = (
       <ThreadAssistantBodyBlock
         block={block}
         isLatestTurn={isLatestTurn}
@@ -232,8 +255,19 @@ export function ThreadBlockRenderer({
         isActiveSearchMatch={isActiveSearchMatch}
         onForkFromTurn={onForkFromTurn}
         onOpenSideChat={onOpenSideChat}
+        assistantAfter={assistantAfter}
       />
     );
+
+    if (block.assistantMessageActions || assistantAfter) {
+      return (
+        <div className="flex flex-col" data-local-conversation-final-assistant="true">
+          {body}
+        </div>
+      );
+    }
+
+    return body;
   }
 
   if (block.type === "assistantActions") {

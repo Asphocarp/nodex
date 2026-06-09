@@ -87,7 +87,7 @@ describe("TurnDiffSurface", () => {
     });
   });
 
-  test("renders a Codex-style files-changed card with collapsed per-file rows", () => {
+  test("renders a Codex-style edited-files card with collapsed per-file rows", () => {
     const { container } = render(
       <TooltipProvider>
         <TurnDiffSurface
@@ -98,7 +98,7 @@ describe("TurnDiffSurface", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(container.textContent?.includes("2 files changed"))).toBeTrue();
+    expect(Boolean(container.textContent?.includes("Edited 2 files"))).toBeTrue();
     expect(Boolean(container.textContent?.includes("+2"))).toBeTrue();
     expect(Boolean(container.textContent?.includes("-2"))).toBeTrue();
     expect(container.querySelectorAll('[role="button"][aria-expanded="false"]').length).toBe(2);
@@ -273,16 +273,16 @@ describe("TurnDiffSurface", () => {
       </NodexToastProvider>,
     );
 
-    const revertButton = view.container.querySelector('button[aria-label="Revert changes"]');
-    expect(Boolean(revertButton)).toBeTrue();
-    fireEvent.click(revertButton as HTMLElement);
+    const undoButton = view.container.querySelector('button[aria-label="Undo"]');
+    expect(Boolean(undoButton)).toBeTrue();
+    fireEvent.click(undoButton as HTMLElement);
     await settleAsyncRender();
 
     expect(invokeCalls[0]?.[0] ?? null).toBe("git:apply-patch");
     expect(Boolean(String(JSON.stringify(invokeCalls[0]?.[1] ?? {})).includes("\"revert\":true"))).toBeTrue();
     expect(Boolean(view.baseElement.textContent?.includes("Reverted thread changes."))).toBeTrue();
 
-    const reapplyButton = view.container.querySelector('button[aria-label="Reapply changes"]');
+    const reapplyButton = view.container.querySelector('button[aria-label="Reapply"]');
     expect(Boolean(reapplyButton)).toBeTrue();
     fireEvent.click(reapplyButton as HTMLElement);
     await settleAsyncRender();

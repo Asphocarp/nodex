@@ -140,6 +140,91 @@ const stoppedToolGroupBeforeActionsTurn = buildStoryConversationTurn({
   ],
 });
 
+const assistantAfterDiffTurn = buildStoryConversationTurn({
+  turnId: "turn_story_assistant_after_diff",
+  status: "completed",
+  diff: [
+    "--- a/src/renderer/features/local-conversation/view/local-conversation-thread-turn.tsx",
+    "+++ b/src/renderer/features/local-conversation/view/local-conversation-thread-turn.tsx",
+    "@@ -1,3 +1,4 @@",
+    " import { ThreadTurn } from \"./local-conversation-thread-turn\";",
+    "+import { useWorkedForLabelText } from \"./shared/use-worked-for-label\";",
+  ].join("\n"),
+  finalAssistantStartedAtMs: 180_000,
+  items: [
+    buildStoryConversationItem({
+      turnId: "turn_story_assistant_after_diff",
+      itemId: "user_story_assistant_after_diff",
+      type: "user_message",
+      kind: "userMessage",
+      semanticKind: "userMessage",
+      role: "user",
+      markdownText: "Make the transcript row match the current Codex ordering.",
+      createdAt: 1_000,
+      updatedAt: 1_000,
+    }),
+    buildStoryConversationItem({
+      turnId: "turn_story_assistant_after_diff",
+      itemId: "assistant_story_assistant_after_diff",
+      type: "assistant_message",
+      kind: "assistantMessage",
+      semanticKind: "assistantMessage",
+      role: "assistant",
+      assistantPhase: "final_answer",
+      markdownText: "The final assistant owns the completed file summary before the action strip.",
+      createdAt: 2_000,
+      updatedAt: 2_000,
+    }),
+  ],
+});
+
+const historicalWorkedForTurn = buildStoryConversationTurn({
+  turnId: "turn_story_historical_worked_for",
+  status: "completed",
+  durationMs: 125_000,
+  items: [
+    buildStoryConversationItem({
+      turnId: "turn_story_historical_worked_for",
+      itemId: "user_story_historical_worked_for",
+      type: "user_message",
+      kind: "userMessage",
+      semanticKind: "userMessage",
+      role: "user",
+      markdownText: "Audit the old turn collapse label.",
+      createdAt: 1_000,
+      updatedAt: 1_000,
+    }),
+    buildStoryConversationItem({
+      turnId: "turn_story_historical_worked_for",
+      itemId: "exec_story_historical_worked_for",
+      type: "command_execution",
+      kind: "commandExecution",
+      semanticKind: "exec",
+      status: "completed",
+      createdAt: 2_000,
+      updatedAt: 2_000,
+      commandActions: [{ type: "read", command: "", name: "read", path: "src/renderer/features/local-conversation/view/local-conversation-thread-turn.tsx" }],
+      toolCall: {
+        subtype: "command",
+        toolName: "exec_command",
+        args: {},
+      },
+    }),
+    buildStoryConversationItem({
+      turnId: "turn_story_historical_worked_for",
+      itemId: "assistant_story_historical_worked_for",
+      type: "assistant_message",
+      kind: "assistantMessage",
+      semanticKind: "assistantMessage",
+      role: "assistant",
+      assistantPhase: "final_answer",
+      markdownText: "Historical collapsed turns now show their worked duration.",
+      createdAt: 3_000,
+      updatedAt: 3_000,
+    }),
+  ],
+});
+
 const imageDataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
 const singleLocalImageTurn = buildStoryConversationTurn({
@@ -492,6 +577,37 @@ export const ActionStripParity: Story = {
       </div>
     ),
   ],
+};
+
+export const AssistantAfterDiffBeforeActions: Story = {
+  args: {
+    turnSearchKey: assistantAfterDiffTurn.turnId,
+    turn: assistantAfterDiffTurn,
+    isMostRecentTurn: true,
+    canEditTurnUserPrefix: false,
+    canForkTurn: true,
+  },
+  decorators: [
+    (Story) => (
+      <div className="thread-action-strip-story">
+        <style>
+          {".thread-action-strip-story .opacity-0{opacity:1!important}"}
+        </style>
+        <Story />
+      </div>
+    ),
+  ],
+};
+
+export const HistoricalWorkedForCollapsed: Story = {
+  args: {
+    turnSearchKey: historicalWorkedForTurn.turnId,
+    turn: historicalWorkedForTurn,
+    isMostRecentTurn: false,
+    persistedCollapsed: true,
+    canEditTurnUserPrefix: false,
+    canForkTurn: true,
+  },
 };
 
 export const SingleLocalImage: Story = {

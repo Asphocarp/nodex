@@ -281,8 +281,6 @@ describe("buildRendererItemStream", () => {
     });
     const workedForAdornment = resolveWorkedForAdornment(
       items.filter((item): item is ThreadTranscriptBlockModel => "entry" in item),
-      "completed",
-      true,
     );
 
     expect(items.map((item) => item.id).join(",")).toBe("user_1,commentary_1,exec_1,assistant_1,assistant_1:worked_for");

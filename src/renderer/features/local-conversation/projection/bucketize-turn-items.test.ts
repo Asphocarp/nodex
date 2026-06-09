@@ -49,8 +49,10 @@ describe("bucketizeTurnItems", () => {
     });
 
     expect(turn.blocks.map((block) => block.type).join(",")).toBe(
-      "modelChanged,userMessage,exec,reasoning,assistantMessage,proposedPlan,turnDiff,forkedFromConversation",
+      "modelChanged,userMessage,exec,reasoning,assistantMessage,proposedPlan,forkedFromConversation",
     );
+    const assistantBlock = turn.blocks.find((block) => block.type === "assistantMessage");
+    expect(assistantBlock?.type === "assistantMessage" ? assistantBlock.assistantAfterBlocks?.map((block) => block.type).join(",") ?? "" : "").toBe("turnDiff");
   });
 
   test("lifts streaming turn diffs into above-composer blocks only", () => {
