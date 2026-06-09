@@ -312,6 +312,14 @@
   color: var(--foreground-tertiary);
 }
 
+[data-codex-composer="true"] p.placeholder[data-placeholder]::before {
+  color: var(--color-token-input-placeholder-foreground);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
 .nfm-editor .bn-block-content {
   padding: 4px 2px;
 }

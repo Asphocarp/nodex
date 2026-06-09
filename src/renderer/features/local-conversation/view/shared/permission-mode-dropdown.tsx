@@ -49,10 +49,16 @@ function resolvePermissionModeTooltip(input: {
   return input.customDescription?.trim() || CUSTOM_TOOLTIP_FALLBACK;
 }
 
-function PermissionModeMenuIcon({ mode }: { mode: CodexPermissionMode }) {
-  if (mode === "auto" || mode === "guardian-approvals") return <PermissionDefaultIcon className="shrink-0" />;
-  if (mode === "full-access") return <PermissionFullAccessIcon className="shrink-0" />;
-  return <ConfigStatusIcon className="shrink-0" />;
+function PermissionModeMenuIcon({
+  mode,
+  className,
+}: {
+  mode: CodexPermissionMode;
+  className?: string;
+}) {
+  if (mode === "auto" || mode === "guardian-approvals") return <PermissionDefaultIcon className={cn("shrink-0", className)} />;
+  if (mode === "full-access") return <PermissionFullAccessIcon className={cn("shrink-0", className)} />;
+  return <ConfigStatusIcon className={cn("shrink-0", className)} />;
 }
 
 export function PermissionModeDropdown({
@@ -80,15 +86,18 @@ export function PermissionModeDropdown({
           type="button"
           aria-label="Permission mode"
           className={cn(
-            "inline-flex h-7 min-w-0 items-center gap-1 rounded-full border border-transparent px-1.5 text-sm/4.5 text-token-description-foreground hover:bg-token-foreground/5 hover:text-token-foreground",
-            accentFullAccess && "text-(--orange-text) hover:bg-(--orange-bg)/40 hover:text-(--orange-text)",
+            "border-token-border no-drag cursor-interaction flex h-token-button-composer-sm min-w-0 items-center gap-1 rounded-full border border-transparent px-1.5 py-0 text-sm leading-[18px] whitespace-nowrap text-token-text-tertiary select-none focus:outline-none enabled:hover:bg-token-list-hover-background disabled:cursor-not-allowed disabled:opacity-40 data-[state=open]:bg-token-list-hover-background",
+            accentFullAccess && "text-token-editor-warning-foreground hover:text-token-editor-warning-foreground",
           )}
         >
-          <PermissionModeMenuIcon mode={selectedMode} />
-          <span className="max-w-40 truncate text-left text-sm">
+          <PermissionModeMenuIcon
+            mode={selectedMode}
+            className={accentFullAccess ? "text-token-editor-warning-foreground" : undefined}
+          />
+          <span className={cn("max-w-40 truncate text-left text-token-editor-warning-foreground", !accentFullAccess && "text-token-text-tertiary")}>
             {formatPermissionModeLabel(selectedMode)}
           </span>
-          <ChevronDownIcon />
+          <ChevronDownIcon className={accentFullAccess ? "icon-2xs text-token-editor-warning-foreground" : "icon-2xs text-token-input-placeholder-foreground"} />
         </button>
       )}
       side="top"

@@ -1,5 +1,5 @@
 import { useForm, useStore } from "@tanstack/react-form";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { handleFormSubmit } from "@/lib/forms";
 import {
   formatCodexModelLabel,
@@ -23,7 +23,6 @@ import {
   type StageThreadsBusyAction,
   type StageThreadsComposerSubmitAction,
 } from "../shared/composer-action";
-import { resolvePromptTextareaSize } from "../shared/prompt-textarea-size";
 import { cn } from "../../../../lib/utils";
 import {
   CodexFastModeIcon,
@@ -62,12 +61,16 @@ import {
   NodexDropdownTitle,
   NodexTooltip,
   PermissionModeDropdown,
-  resolvePromptTextareaMaxHeightPx,
 } from "./local-conversation-thread-composer-deps";
 import {
   shouldShowThreadComposerStatusStrip,
   ThreadComposerStatusStrip,
 } from "./local-conversation-thread-composer-status-strip";
+import {
+  ComposerPromptEditor,
+  type ComposerPromptEditorHandle,
+  type ComposerPromptEditorKeyboardEvent,
+} from "./composer-prompt-editor";
 
 interface ThreadComposerProps {
   model: ThreadFooterModel;
@@ -99,29 +102,6 @@ function isElectronLikeComposerEnvironment(): boolean {
   }
 
   return document.documentElement.dataset.codexWindowType === "electron";
-}
-
-function resizePromptTextareaElement(textarea: HTMLTextAreaElement): void {
-  if (textarea.value.length === 0) {
-    textarea.style.height = "";
-    textarea.style.overflowY = "hidden";
-    return;
-  }
-
-  textarea.style.height = "auto";
-  const { heightPx, hasOverflow } = resolvePromptTextareaSize({
-    scrollHeight: textarea.scrollHeight,
-    maxHeightPx: resolvePromptTextareaMaxHeightPx(),
-  });
-
-  if (heightPx <= 0) {
-    textarea.style.height = "";
-    textarea.style.overflowY = "hidden";
-    return;
-  }
-
-  textarea.style.height = `${heightPx}px`;
-  textarea.style.overflowY = hasOverflow ? "auto" : "hidden";
 }
 
 function renderModelSelectorLabel(input: {
@@ -313,12 +293,12 @@ function ComposerAddContextDropdown({
       triggerButton={(
         <button
           type="button"
-          className="inline-flex size-7 items-center justify-center rounded-full border border-transparent px-0 text-(--foreground-tertiary) hover:bg-(--background-tertiary) hover:text-(--foreground-secondary)"
+          className="border-token-border no-drag cursor-interaction flex h-token-button-composer aspect-square items-center justify-center gap-1 rounded-full border border-transparent px-0 py-0 text-sm leading-[18px] whitespace-nowrap text-token-text-tertiary select-none focus:outline-none enabled:hover:bg-token-list-hover-background disabled:cursor-not-allowed disabled:opacity-40 data-[state=open]:bg-token-list-hover-background"
           aria-label={triggerLabel}
           title={triggerLabel}
           disabled={disabled}
         >
-          <PlusIcon className="size-4" />
+          <PlusIcon className="icon-sm" />
         </button>
       )}
       side="top"
@@ -593,13 +573,15 @@ function IntelligenceSelectorDropdown({
         <button
           type="button"
           aria-label="Select Codex model and reasoning"
-          className="inline-flex h-7 min-w-0 items-center gap-1 rounded-full border border-transparent px-1.5 text-sm/4.5 text-token-description-foreground hover:bg-token-foreground/5 hover:text-token-foreground"
+          className="border-token-border no-drag cursor-interaction flex h-token-button-composer min-w-0 items-center gap-1 rounded-full border border-transparent px-2 py-0 text-sm leading-[18px] whitespace-nowrap text-token-text-tertiary select-none focus:outline-none enabled:hover:bg-token-list-hover-background disabled:cursor-not-allowed disabled:opacity-40 data-[state=open]:bg-token-list-hover-background"
         >
-          <span className="flex min-w-0 items-center gap-1">
-            <span className="min-w-0 max-w-24 truncate">{modelLabel}</span>
-            <span className="shrink-0 text-token-input-placeholder-foreground">{reasoningLabel}</span>
+          <span className="flex max-w-40 min-w-0 items-center gap-1.5">
+            <span className="flex min-w-0 items-center gap-1 tabular-nums">
+              <span className="min-w-0 max-w-24 truncate whitespace-nowrap text-token-foreground">{modelLabel}</span>
+            </span>
+            <span className="shrink-0 text-token-description-foreground">{reasoningLabel}</span>
           </span>
-          <ChevronDownIcon />
+          <ChevronDownIcon className="icon-2xs text-token-input-placeholder-foreground" />
         </button>
       )}
       side="top"
@@ -704,7 +686,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const [fileAttachments, setFileAttachments] = useState<ComposerFileAttachment[]>([]);
   const [imageAttachments, setImageAttachments] = useState<ComposerImageAttachment[]>([]);
   const [skillMentions, setSkillMentions] = useState<ComposerSkillMentionAttachment[]>([]);
-  const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const promptEditorRef = useRef<ComposerPromptEditorHandle>(null);
   const dictationShortcutActiveRef = useRef(false);
   const attachmentGenerationRef = useRef(0);
   const { serviceTierSettings, setServiceTier } = useCodexServiceTierSettings();
@@ -885,23 +867,14 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   );
 
   const insertDictationTranscript = useCallback((transcript: string): string => {
-    const textarea = promptTextareaRef.current;
     const normalizedTranscript = transcript.trim();
     if (normalizedTranscript.length === 0) {
       return prompt;
     }
 
-    if (textarea) {
-      const selectionStart = textarea.selectionStart ?? prompt.length;
-      const selectionEnd = textarea.selectionEnd ?? selectionStart;
-      const nextPrompt = `${prompt.slice(0, selectionStart)}${normalizedTranscript}${prompt.slice(selectionEnd)}`;
-      promptForm.setFieldValue("prompt", nextPrompt);
-      requestAnimationFrame(() => {
-        textarea.focus();
-        const nextSelection = selectionStart + normalizedTranscript.length;
-        textarea.setSelectionRange(nextSelection, nextSelection);
-      });
-      return nextPrompt;
+    const editor = promptEditorRef.current;
+    if (editor) {
+      return editor.insertText(normalizedTranscript);
     }
 
     const nextPrompt = `${prompt}${normalizedTranscript}`;
@@ -910,21 +883,13 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   }, [prompt, promptForm]);
 
   const insertComposerTextAtSelection = useCallback((text: string) => {
-    const textarea = promptTextareaRef.current;
-    if (!textarea) {
+    const editor = promptEditorRef.current;
+    if (!editor) {
       promptForm.setFieldValue("prompt", `${prompt}${text}`);
       return;
     }
 
-    const selectionStart = textarea.selectionStart ?? prompt.length;
-    const selectionEnd = textarea.selectionEnd ?? selectionStart;
-    const nextPrompt = `${prompt.slice(0, selectionStart)}${text}${prompt.slice(selectionEnd)}`;
-    promptForm.setFieldValue("prompt", nextPrompt);
-    requestAnimationFrame(() => {
-      textarea.focus();
-      const nextSelection = selectionStart + text.length;
-      textarea.setSelectionRange(nextSelection, nextSelection);
-    });
+    editor.insertText(text);
   }, [prompt, promptForm]);
 
   const handleInsertPluginMention = useCallback((plugin: NonNullable<ThreadFooterModel["composerPlugins"]>[number]) => {
@@ -1055,31 +1020,6 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     stopDictationRef.current = stopDictation;
   }, [startDictation, stopDictation]);
 
-  const resizePromptTextarea = useCallback(() => {
-    const textarea = promptTextareaRef.current;
-    if (!textarea) return;
-    resizePromptTextareaElement(textarea);
-  }, []);
-
-  useLayoutEffect(() => {
-    resizePromptTextarea();
-  }, [model.isNewThreadTab, model.threadId, prompt, resizePromptTextarea]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const handleResize = () => {
-      resizePromptTextarea();
-    };
-
-    const animationFrame = window.requestAnimationFrame(handleResize);
-    window.addEventListener("resize", handleResize);
-    return () => {
-      window.cancelAnimationFrame(animationFrame);
-      window.removeEventListener("resize", handleResize);
-    };
-  }, [model.isNewThreadTab, model.threadId, resizePromptTextarea]);
-
   useEffect(() => {
     if (!isDictationSupported || model.dictation.isRealtimeVoiceActive) {
       dictationShortcutActiveRef.current = false;
@@ -1142,11 +1082,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     resetComposerAttachments();
     promptForm.setFieldValue("prompt", composerIntent.prompt);
     requestAnimationFrame(() => {
-      const textarea = promptTextareaRef.current;
-      if (!textarea) return;
-      textarea.focus();
-      const selectionStart = composerIntent.prompt.length;
-      textarea.setSelectionRange(selectionStart, selectionStart);
+      promptEditorRef.current?.focusAtEnd();
     });
     actions.onConsumeComposerIntent(threadId, composerIntent.focusNonce);
   }, [actions, model.body.threadId, model.composerIntent, model.conversation?.threadId, promptForm, resetComposerAttachments]);
@@ -1201,8 +1137,11 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     setSkillMentions((current) => current.filter((attachment) => attachment.id !== attachmentId));
   }, [incrementAttachmentGeneration]);
 
-  const handleKeyDown = useCallback((event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = useCallback((event: ComposerPromptEditorKeyboardEvent): boolean => {
     const hasMultilinePrompt = prompt.includes("\n");
+    const isComposing = "nativeEvent" in event
+      ? event.nativeEvent.isComposing
+      : event.isComposing;
 
     if (shouldInvertThreadInProgressFollowUpModeFromKeyDown({
       enterBehavior: model.composerEnterBehavior,
@@ -1211,7 +1150,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
       metaKey: event.metaKey,
       shiftKey: event.shiftKey,
       altKey: event.altKey,
-      isComposing: event.nativeEvent.isComposing,
+      isComposing,
     }) && model.conversation && model.isThreadRunning) {
       event.preventDefault();
       void submitPrompt({
@@ -1221,7 +1160,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
         },
         invertInProgressFollowUpMode: true,
       });
-      return;
+      return true;
     }
 
     if (!shouldSubmitComposerPromptFromKeyDown({
@@ -1232,13 +1171,14 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
       metaKey: event.metaKey,
       shiftKey: event.shiftKey,
       altKey: event.altKey,
-      isComposing: event.nativeEvent.isComposing,
+      isComposing,
     })) {
-      return;
+      return false;
     }
 
     event.preventDefault();
     void promptForm.handleSubmit();
+    return true;
   }, [model.composerEnterBehavior, model.conversation, model.isThreadRunning, prompt, promptForm, submitPrompt]);
 
   const hasDraftContent = prompt.trim().length > 0 || hasAttachments;
@@ -1257,6 +1197,16 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     hasDraftContent &&
     (model.conversation !== null || canStartNewThreadTarget(model)),
   );
+  const promptPlaceholder = model.conversation
+    ? "Ask for follow-up changes"
+    : model.isNewThreadTab
+      ? model.newThreadTarget
+        ? model.isCloudNewThreadTarget
+          ? "Cloud run target is currently mock-only"
+          : "Do anything"
+        : "Select a card or session before starting a new thread"
+      : "Select a thread";
+  const isPromptEditorDisabled = (model.conversation === null && !canStartNewThreadTarget(model)) || busyAction !== null;
   const primaryShortcutKeys = resolveShortcutKeycapTokens({
     accelerator: resolveThreadComposerPrimaryShortcutAccelerator({
       enterBehavior: model.composerEnterBehavior,
@@ -1291,7 +1241,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
           </button>
         ) : null}
         <form
-          className="relative overflow-hidden rounded-3xl bg-token-input-background/90 bg-clip-padding shadow-card-md ring ring-black/10 backdrop-blur-lg electron:shadow-[0_4px_16px_0_rgba(0,0,0,0.05)] electron:dark:bg-token-dropdown-background"
+          className="relative z-10 flex flex-col overflow-y-auto rounded-3xl bg-token-input-background/90 backdrop-blur-lg extension:border extension:border-token-border/50 electron:ring electron:ring-black/10 electron:shadow-[0_4px_16px_0_rgba(0,0,0,0.05)] electron:dark:bg-token-dropdown-background"
           onSubmit={(event) => handleFormSubmit(event, promptForm.handleSubmit)}
         >
           <div className="relative z-10">
@@ -1302,29 +1252,17 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
             <div className="mb-2 grow px-3">
               <div
                 data-composer-prompt-frame="true"
-                className="h-auto max-h-[25dvh] min-h-[4dvh] overflow-hidden text-sm text-(--foreground)"
+                className="h-auto max-h-[25dvh] min-h-[4dvh] overflow-hidden text-token-foreground"
               >
-                <textarea
-                  ref={promptTextareaRef}
+                <ComposerPromptEditor
+                  ref={promptEditorRef}
                   value={prompt}
-                  placeholder={
-                    model.conversation
-                      ? "Ask for follow-up changes"
-                      : model.isNewThreadTab
-                        ? model.newThreadTarget
-                          ? model.isCloudNewThreadTarget
-                            ? "Cloud run target is currently mock-only"
-                            : "Write the first prompt for this new thread..."
-                          : "Select a card or session before starting a new thread"
-                        : "Select a thread"
-                  }
-                  onChange={(event) => {
-                    promptForm.setFieldValue("prompt", event.target.value);
+                  placeholder={promptPlaceholder}
+                  disabled={isPromptEditorDisabled}
+                  onChange={(nextPrompt) => {
+                    promptForm.setFieldValue("prompt", nextPrompt);
                   }}
                   onKeyDown={handleKeyDown}
-                  rows={1}
-                  className="scrollbar-token min-h-10 w-full resize-none overflow-y-auto border-0 bg-transparent p-0 text-sm/editor text-(--foreground) placeholder:text-(--foreground-tertiary) focus:outline-none"
-                  disabled={(model.conversation === null && !canStartNewThreadTarget(model)) || busyAction !== null}
                 />
               </div>
             </div>
@@ -1424,9 +1362,9 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
             ) : (
               <div
                 data-composer-form-footer="true"
-                className="mb-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1.25 px-2"
+                className="mb-2 grid grid-cols-[minmax(0,auto)_auto_minmax(0,1fr)] items-center gap-[5px] px-2 select-none"
               >
-                <div className="flex w-full min-w-0 flex-nowrap items-center justify-start gap-1.25">
+                <div className="flex min-w-0 items-center gap-[5px]">
                   <ComposerAddContextDropdown
                     model={model}
                     actions={actions}
@@ -1449,7 +1387,9 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
                   />
                 </div>
 
-                <div className="flex min-w-0 items-center justify-end gap-2">
+                <div className="flex items-center" />
+
+                <div className="flex min-w-0 items-center justify-end gap-2 w-full">
                   <ContextWindowIndicator
                     state={contextWindowIndicatorState}
                     account={model.account}
@@ -1471,7 +1411,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
                     >
                       <button
                         type="button"
-                        className="inline-flex size-7 items-center justify-center rounded-full border border-transparent px-0 text-(--foreground-tertiary) transition-colors duration-100 hover:bg-(--background-tertiary) hover:text-(--foreground-secondary)"
+                        className="border-token-border no-drag cursor-interaction flex h-token-button-composer aspect-square items-center justify-center gap-1 rounded-full border border-transparent px-0 py-0 text-sm leading-[18px] whitespace-nowrap text-token-text-tertiary select-none transition-colors duration-100 focus:outline-none enabled:hover:bg-token-list-hover-background enabled:hover:text-token-foreground disabled:cursor-not-allowed disabled:opacity-40 data-[state=open]:bg-token-list-hover-background"
                         aria-label="Dictate"
                         onClick={() => {
                           void startDictation();
@@ -1479,9 +1419,9 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
                         disabled={model.dictation.isRealtimeVoiceActive}
                       >
                         {isTranscribing ? (
-                          <SpinnerIcon className="size-4" />
+                          <SpinnerIcon className="icon-xs" />
                         ) : (
-                          <MicIcon className="size-4" />
+                          <MicIcon className="icon-xs" />
                         )}
                       </button>
                     </NodexTooltip>
@@ -1500,8 +1440,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
                       <button
                         type={composerActionState.action === "stop" ? "button" : "submit"}
                         className={cn(
-                          "inline-flex size-7 items-center justify-center rounded-full p-0.5 focus-visible:outline-2 focus-visible:outline-(--ring)",
-                          "bg-(--foreground) text-(--background)",
+                          "focus-visible:outline-token-button-background cursor-interaction flex h-token-button-composer aspect-square items-center justify-center rounded-full bg-token-foreground p-0.5 text-token-dropdown-background transition-opacity focus-visible:outline-2",
                           (composerActionState.disabled || (composerActionState.action !== "stop" && !canRunPrimaryAction)) && !isSendPending && "opacity-50",
                           isSendPending && "cursor-wait",
                         )}
@@ -1512,11 +1451,11 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
                         aria-label={composerActionState.label}
                       >
                         {isSendPending ? (
-                          <SpinnerIcon className="size-5" />
+                          <SpinnerIcon className="icon-sm" />
                         ) : composerActionState.action === "stop" ? (
-                          <StopIcon className="size-4" />
+                          <StopIcon className="icon-xs" />
                         ) : (
-                          <UpArrowIcon className="size-5" />
+                          <UpArrowIcon className="icon-sm" />
                         )}
                       </button>
                     </span>

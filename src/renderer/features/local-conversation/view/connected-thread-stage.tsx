@@ -40,9 +40,11 @@ import {
   useLocalConversationConnection,
 } from "../local-conversation-store";
 import { LocalConversationFooter } from "./local-conversation-footer";
+import { LocalConversationNewThreadHomeScreen } from "./local-conversation-new-thread-home-screen";
 import { LocalConversationStageScreen } from "./local-conversation-stage-screen";
 import { ThreadStageHeader } from "./local-conversation-stage-header";
 import { LocalConversationThreadBody } from "./local-conversation-thread-body";
+import { NewChatProjectSelector } from "./composer/new-chat-project-selector";
 import { resolveThreadCardStatus } from "./shared/thread-card-fetch";
 import {
   ThreadFloatingSummaryPanel,
@@ -324,12 +326,14 @@ function ConnectedThreadStageFooter({
   actions,
   errorMessage,
   onErrorMessage,
+  variant = "thread",
 }: {
   activeThreadId: string | null;
   input: ConnectedThreadStageInput;
   actions: ThreadStageActions;
   errorMessage: string | null;
   onErrorMessage: (message: string | null) => void;
+  variant?: "thread" | "newThreadHome";
 }) {
   const turns = useConversationTurns(activeThreadId);
   const conversationSnapshot = useConversation(activeThreadId);
@@ -542,7 +546,36 @@ function ConnectedThreadStageFooter({
       actions={actions}
       errorMessage={errorMessage}
       onErrorMessage={onErrorMessage}
+      variant={variant}
     />
+  );
+}
+
+function NewThreadHomeHero({
+  input,
+  actions,
+}: {
+  input: ConnectedThreadStageInput;
+  actions: ThreadStageActions;
+}) {
+  const projectName = input.newThreadTarget?.projectName ?? "this project";
+
+  return (
+    <div className="heading-xl flex max-w-full min-w-0 items-end justify-center text-center font-normal whitespace-pre-wrap text-token-foreground select-none">
+      <span className="group/title inline-block max-w-full">
+        {"What should we build in "}
+        {input.newThreadProjectSelector ? (
+          <NewChatProjectSelector
+            model={input.newThreadProjectSelector}
+            actions={actions}
+            variant="heading"
+          />
+        ) : (
+          projectName
+        )}
+        ?
+      </span>
+    </div>
   );
 }
 
@@ -560,6 +593,7 @@ export function ConnectedThreadStage({
     ? input.activeThreadId
     : null;
   const isSideChat = Boolean(input.sideChatContext);
+  const isNewThreadHome = input.isNewThreadTab && activeThreadId === null && !isSideChat;
   const resumeState = useConversationResumeState(activeThreadId);
   const summaryFields = useConversationSummaryFields(activeThreadId);
   const turns = useConversationTurns(activeThreadId);
@@ -597,6 +631,41 @@ export function ConnectedThreadStage({
 
     void requestLocalConversationResume(input.activeThreadId).catch(() => {});
   }, [isActiveThreadArchived, isSideChat, resumeState, input.activeThreadId, input.isNewThreadTab]);
+
+  if (isNewThreadHome) {
+    return (
+      <LocalConversationNewThreadHomeScreen
+        hero={<NewThreadHomeHero input={input} actions={actions} />}
+        body={input.threadStartProgress ? (
+          <ConnectedThreadStageBody
+            activeThreadId={activeThreadId}
+            input={input}
+            actions={actions}
+            onErrorMessage={setErrorMessage}
+            initialUiState={initialUiState}
+          />
+        ) : null}
+        footer={(
+          <ConnectedThreadStageFooter
+            activeThreadId={activeThreadId}
+            input={input}
+            actions={actions}
+            errorMessage={errorMessage}
+            onErrorMessage={setErrorMessage}
+            variant="newThreadHome"
+          />
+        )}
+        floatingContent={(
+          <ThreadFloatingSummaryPanel
+            mounted={summaryPanelMounted}
+            open={summaryPanelOpen}
+            {...summaryPanelContentProps}
+          />
+        )}
+        contentShiftX={summaryPanelContentShift}
+      />
+    );
+  }
 
   return (
     <LocalConversationStageScreen

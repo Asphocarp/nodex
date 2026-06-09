@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LocalConversationFooter } from "./local-conversation-footer";
+import { LocalConversationNewThreadHomeScreen } from "./local-conversation-new-thread-home-screen";
 import { LocalConversationStageScreen } from "./local-conversation-stage-screen";
 import { ThreadStageHeader } from "./local-conversation-stage-header";
 import { LocalConversationThreadBody } from "./local-conversation-thread-body";
+import { NewChatProjectSelector } from "./composer/new-chat-project-selector";
 import {
   StorybookElectronTransportBoundary,
   THREAD_STAGE_STORY_PRESETS,
@@ -275,6 +277,34 @@ function interruptActiveTurn(conversation: CodexConversationSnapshot): CodexConv
     turns: interruptedTurns,
     requests: [],
   };
+}
+
+function NewThreadHomeStoryHero({
+  model,
+  actions,
+}: {
+  model: ReturnType<typeof buildThreadStageStorySurfaceModels>["footerModel"];
+  actions: ThreadStageActions;
+}) {
+  const projectName = model.newThreadTarget?.projectName ?? "this project";
+
+  return (
+    <div className="heading-xl flex max-w-full min-w-0 items-end justify-center text-center font-normal whitespace-pre-wrap text-token-foreground select-none">
+      <span className="group/title inline-block max-w-full">
+        {"What should we build in "}
+        {model.newThreadProjectSelector ? (
+          <NewChatProjectSelector
+            model={model.newThreadProjectSelector}
+            actions={actions}
+            variant="heading"
+          />
+        ) : (
+          projectName
+        )}
+        ?
+      </span>
+    </div>
+  );
 }
 
 function setStoryLog(runtime: ThreadStageStoryRuntimeState, message: string): ThreadStageStoryRuntimeState {
@@ -627,6 +657,9 @@ export function ThreadStageDevStoryPage({
     });
   }, [renderPreview, scenario]);
 
+  const isNewThreadHome = surfaceModels.footerModel.isNewThreadTab
+    && surfaceModels.footerModel.conversation === null;
+
   return (
     <div className="min-h-[calc(100vh-3rem)] bg-[linear-gradient(180deg,var(--background),color-mix(in_srgb,var(--background),var(--background-secondary)_42%))] text-(--foreground)">
       <div className="mx-auto flex w-full max-w-[1420px] flex-col gap-4">
@@ -681,25 +714,48 @@ export function ThreadStageDevStoryPage({
               permissionDescription={scenario.permissionDescription}
             >
               <div ref={previewRef} className="min-h-[760px]">
-                <LocalConversationStageScreen
-                  header={<ThreadStageHeader model={surfaceModels.headerModel} actions={actions} onErrorMessage={() => {}} />}
-                  body={
-                    <LocalConversationThreadBody
-                      model={surfaceModels.bodyModel}
-                      actions={actions}
-                      onErrorMessage={() => {}}
-                      initialUiState={scenario.initialUiState}
-                    />
-                  }
-                  footer={
-                    <LocalConversationFooter
-                      model={surfaceModels.footerModel}
-                      actions={actions}
-                      errorMessage={null}
-                      onErrorMessage={() => {}}
-                    />
-                  }
-                />
+                {isNewThreadHome ? (
+                  <LocalConversationNewThreadHomeScreen
+                    hero={<NewThreadHomeStoryHero model={surfaceModels.footerModel} actions={actions} />}
+                    body={surfaceModels.bodyModel.body.showThreadStartProgressPanel ? (
+                      <LocalConversationThreadBody
+                        model={surfaceModels.bodyModel}
+                        actions={actions}
+                        onErrorMessage={() => {}}
+                        initialUiState={scenario.initialUiState}
+                      />
+                    ) : null}
+                    footer={(
+                      <LocalConversationFooter
+                        model={surfaceModels.footerModel}
+                        actions={actions}
+                        errorMessage={null}
+                        onErrorMessage={() => {}}
+                        variant="newThreadHome"
+                      />
+                    )}
+                  />
+                ) : (
+                  <LocalConversationStageScreen
+                    header={<ThreadStageHeader model={surfaceModels.headerModel} actions={actions} onErrorMessage={() => {}} />}
+                    body={
+                      <LocalConversationThreadBody
+                        model={surfaceModels.bodyModel}
+                        actions={actions}
+                        onErrorMessage={() => {}}
+                        initialUiState={scenario.initialUiState}
+                      />
+                    }
+                    footer={
+                      <LocalConversationFooter
+                        model={surfaceModels.footerModel}
+                        actions={actions}
+                        errorMessage={null}
+                        onErrorMessage={() => {}}
+                      />
+                    }
+                  />
+                )}
               </div>
             </StorybookElectronTransportBoundary>
           ) : (

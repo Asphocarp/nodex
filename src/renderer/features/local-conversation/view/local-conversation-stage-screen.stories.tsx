@@ -55,6 +55,17 @@ export const NewThread: Story = {
   },
 };
 
+export const NewThreadNarrow: Story = {
+  args: {
+    isQueueingEnabled: false,
+  },
+  parameters: {
+    chromatic: {
+      viewports: [390],
+    },
+  },
+};
+
 export const ExistingEmpty: Story = {
   args: {
     preset: "existing-empty",

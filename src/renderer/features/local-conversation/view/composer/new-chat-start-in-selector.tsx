@@ -1,4 +1,4 @@
-import { CloudOff, ExternalLink } from "lucide-react";
+import { CloudOff } from "lucide-react";
 import {
   LocalStatusIcon,
   WorktreeStatusIcon,
@@ -16,7 +16,6 @@ import {
   NodexDropdownItem,
   NodexDropdownMenu,
   NodexDropdownSelectedIcon,
-  NodexDropdownSeparator,
   NodexDropdownTitle,
   NodexTooltip,
 } from "./local-conversation-thread-composer-deps";
@@ -39,7 +38,7 @@ export function NewChatStartInSelector({
     selectedRunInTarget: model.target.runInTarget,
     worktreeAvailable: model.worktreeAvailable && worktreeAvailable,
     cloudAvailable: false,
-  });
+  }).filter((option) => option.value !== "cloud");
   const triggerIconKey = getNewChatStartInTriggerIconKey(model.target.runInTarget);
 
   return (
@@ -72,7 +71,7 @@ export function NewChatStartInSelector({
         >
           <NodexDropdownTitle>Start in</NodexDropdownTitle>
 
-          {options.slice(0, 2).map((option) => (
+          {options.map((option) => (
             <NodexDropdownItem
               key={option.value}
               leftSlot={<StartInIcon iconKey={option.iconKey} className="text-token-description-foreground" />}
@@ -93,43 +92,6 @@ export function NewChatStartInSelector({
               {option.label}
             </NodexDropdownItem>
           ))}
-
-          <NodexDropdownItem
-            leftSlot={<ExternalLink className="icon-xs text-token-description-foreground" />}
-            rightSlot={<ExternalLink className="icon-2xs text-token-description-foreground" />}
-            onSelect={() => {
-              window.open("https://chatgpt.com/codex", "_blank", "noopener,noreferrer");
-            }}
-            data-new-chat-start-in-connect-web="true"
-          >
-            Connect Codex web
-          </NodexDropdownItem>
-
-          {options.slice(2).map((option) => (
-            <NodexDropdownItem
-              key={option.value}
-              leftSlot={<StartInIcon iconKey={option.iconKey} className="text-token-description-foreground" />}
-              rightSlot={option.selected ? <NodexDropdownSelectedIcon /> : null}
-              disabled={option.disabled}
-              tooltipText={option.tooltipText}
-              tooltipSide="right"
-              data-new-chat-start-in-option={option.value}
-              data-selected={option.selected ? "true" : undefined}
-            >
-              {option.label}
-            </NodexDropdownItem>
-          ))}
-
-          <NodexDropdownSeparator />
-          <NodexDropdownItem
-            rightSlot={<ExternalLink className="icon-2xs text-token-description-foreground" />}
-            onSelect={() => {
-              window.open("https://help.openai.com/en/articles/11369540-codex-in-chatgpt", "_blank", "noopener,noreferrer");
-            }}
-            data-new-chat-start-in-learn-more="true"
-          >
-            Learn more
-          </NodexDropdownItem>
         </NodexDropdownMenu>
       </div>
     </NodexTooltip>

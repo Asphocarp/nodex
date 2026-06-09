@@ -92,12 +92,13 @@ async function openMenu(trigger: HTMLElement): Promise<void> {
 async function renderSelector(
   model: NewChatProjectSelectorModel,
   actions = buildActions(),
+  variant: "footer" | "heading" = "footer",
 ): Promise<ReturnType<typeof render>> {
   let view!: ReturnType<typeof render>;
   await act(async () => {
     view = render(
       <TooltipProvider>
-        <NewChatProjectSelector model={model} actions={actions} />
+        <NewChatProjectSelector model={model} actions={actions} variant={variant} />
       </TooltipProvider>,
     );
     await Promise.resolve();
@@ -148,6 +149,35 @@ describe("NewChatProjectSelector", () => {
     );
 
     await openMenu(view.getByRole("button", { name: "Select project" }));
+    const devtoolsRow = document.body.querySelector("[data-new-chat-project-option='devtools-codex']");
+    if (!(devtoolsRow instanceof HTMLElement)) {
+      throw new Error("Expected Devtools Codex row.");
+    }
+    await act(async () => {
+      fireEvent.click(devtoolsRow);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    expect(selected[0]).toBe("devtools-codex");
+  });
+
+  test("emits project selection from the heading variant", async () => {
+    const selected: string[] = [];
+    const view = await renderSelector(
+      buildModel(),
+      buildActions({
+        onNewThreadProjectChange: (projectId) => {
+          selected.push(projectId);
+        },
+      }),
+      "heading",
+    );
+
+    const trigger = view.getByRole("button", { name: "Select project" });
+    expect(trigger.textContent?.includes("Nodex")).toBeTrue();
+    expect(Boolean(trigger.className.includes("inline-block"))).toBeTrue();
+
+    await openMenu(trigger);
     const devtoolsRow = document.body.querySelector("[data-new-chat-project-option='devtools-codex']");
     if (!(devtoolsRow instanceof HTMLElement)) {
       throw new Error("Expected Devtools Codex row.");

@@ -14,6 +14,7 @@ interface LocalConversationFooterProps {
   actions: ThreadStageActions;
   errorMessage: string | null;
   onErrorMessage: (message: string | null) => void;
+  variant?: "thread" | "newThreadHome";
 }
 
 function LocalConversationFooterComponent({
@@ -21,6 +22,7 @@ function LocalConversationFooterComponent({
   actions,
   errorMessage,
   onErrorMessage,
+  variant = "thread",
 }: LocalConversationFooterProps) {
   const { isScrolledFromBottom, scrollToBottom } =
     useLocalConversationThreadScrollController();
@@ -56,7 +58,7 @@ function LocalConversationFooterComponent({
 
   if (isResumingActiveThread) {
     return (
-      <div className="mx-auto flex w-full max-w-[var(--thread-composer-max-width)] flex-col px-panel">
+      <div className={variant === "newThreadHome" ? "min-w-0 w-full" : "mx-auto flex w-full max-w-[var(--thread-composer-max-width)] flex-col px-panel"}>
         {catchUpControl}
         <LocalConversationAboveComposerPortalHost conversationId={model.threadId} />
         <LocalConversationAboveComposerQueuePortalHost conversationId={model.threadId} />
@@ -65,7 +67,7 @@ function LocalConversationFooterComponent({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-[var(--thread-composer-max-width)] flex-col px-panel">
+    <div className={variant === "newThreadHome" ? "min-w-0 w-full" : "mx-auto flex w-full max-w-[var(--thread-composer-max-width)] flex-col px-panel"}>
       {catchUpControl}
       <LocalConversationAboveComposerPortalHost conversationId={model.threadId} />
       <LocalConversationAboveComposerQueuePortalHost conversationId={model.threadId} />

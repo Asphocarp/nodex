@@ -207,9 +207,12 @@ function ThreadComposerStatusStripContent({
   return (
     <div
       data-composer-lower-status-row="true"
-      className={cn("flex flex-wrap items-center gap-2 overflow-visible px-2 py-1.5", className)}
+      className={cn(
+        "relative z-0 -mx-px -mt-4.5 flex flex-wrap items-center gap-2 overflow-visible rounded-b-2xl bg-token-side-bar-background px-2 pt-[25px] pb-2 select-none dark:bg-token-bg-fog",
+        className,
+      )}
     >
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+      <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1">
         {showNewChatProjectSelector && model.newThreadProjectSelector ? (
           <NewChatProjectSelector
             model={model.newThreadProjectSelector}

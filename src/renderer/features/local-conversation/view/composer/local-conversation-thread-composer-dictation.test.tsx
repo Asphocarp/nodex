@@ -295,7 +295,7 @@ describe("ThreadComposer dictation", () => {
       });
     }) as typeof fetch;
 
-    const { getByLabelText, getByPlaceholderText } = await renderThreadComposer();
+    const { container, getByLabelText } = await renderThreadComposer();
 
     await act(async () => {
       fireEvent.click(getByLabelText("Dictate"));
@@ -312,7 +312,8 @@ describe("ThreadComposer dictation", () => {
     });
 
     await waitFor(() => {
-      expect((getByPlaceholderText("Ask for follow-up changes") as HTMLTextAreaElement).value).toBe("transcribed text");
+      const editor = container.querySelector<HTMLElement>("[data-codex-composer='true']");
+      expect(editor?.textContent ?? "").toBe("transcribed text");
     });
   });
 
@@ -328,7 +329,7 @@ describe("ThreadComposer dictation", () => {
       });
     }) as typeof fetch;
 
-    const { getByPlaceholderText } = await renderThreadComposer();
+    const { container } = await renderThreadComposer();
 
     await act(async () => {
       fireEvent.keyDown(document, { key: "m", ctrlKey: true });
@@ -347,7 +348,8 @@ describe("ThreadComposer dictation", () => {
       expect(fetchCallCount).toBe(1);
     });
     await waitFor(() => {
-      expect((getByPlaceholderText("Ask for follow-up changes") as HTMLTextAreaElement).value).toBe("send me");
+      const editor = container.querySelector<HTMLElement>("[data-codex-composer='true']");
+      expect(editor?.textContent ?? "").toBe("send me");
     });
   });
 

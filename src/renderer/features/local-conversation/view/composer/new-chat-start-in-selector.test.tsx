@@ -131,11 +131,11 @@ describe("NewChatStartInSelector", () => {
     expect(bodyText.includes("Start in")).toBeTrue();
     expect(bodyText.includes("Work locally")).toBeTrue();
     expect(bodyText.includes("New worktree")).toBeTrue();
-    expect(bodyText.includes("Connect Codex web")).toBeTrue();
-    expect(bodyText.includes("Send to cloud")).toBeTrue();
+    expect(bodyText.includes("Connect Codex web")).toBeFalse();
+    expect(bodyText.includes("Send to cloud")).toBeFalse();
     expect(bodyText.includes("Usage remaining")).toBeFalse();
     expect(bodyText.includes("Upgrade for more usage")).toBeFalse();
-    expect(bodyText.includes("Learn more")).toBeTrue();
+    expect(bodyText.includes("Learn more")).toBeFalse();
   });
 
   test("emits worktree selection", async () => {

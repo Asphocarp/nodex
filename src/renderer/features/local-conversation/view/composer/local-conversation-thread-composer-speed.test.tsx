@@ -38,22 +38,6 @@ function resetStorage(): void {
   localStorageRef.removeItem("nodex-codex-default-service-tier-v1");
 }
 
-function installPromptTextareaScrollHeight(input: {
-  emptyScrollHeight: number;
-  filledScrollHeight: number;
-}): void {
-  Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
-    configurable: true,
-    get() {
-      if (this instanceof HTMLTextAreaElement) {
-        return this.value.length === 0 ? input.emptyScrollHeight : input.filledScrollHeight;
-      }
-
-      return input.filledScrollHeight;
-    },
-  });
-}
-
 type TestInvoke = (channel: string, ...args: unknown[]) => Promise<unknown>;
 
 function installComposerWindowApi(testInvoke?: TestInvoke): void {
@@ -674,7 +658,7 @@ describe("ThreadComposer speed menu", () => {
     expect(Boolean(composerForm?.className.includes("backdrop-blur-lg"))).toBeTrue();
   });
 
-  test("keeps prompt scrolling owned by the textarea", async () => {
+  test("keeps prompt scrolling owned by the ProseMirror prompt editor", async () => {
     resetStorage();
     const longPrompt = Array.from({ length: 80 }, (_, index) => `line ${index + 1}`).join("\n");
     const view = await renderComposer({
@@ -683,43 +667,55 @@ describe("ThreadComposer speed menu", () => {
         focusNonce: 1,
       },
     });
-    const textarea = view.container.querySelector("textarea");
-    const composerForm = textarea?.closest("form");
+    const composer = view.container.querySelector<HTMLElement>('[data-codex-composer="true"]');
+    const composerForm = composer?.closest("form");
     const promptFrame = view.container.querySelector<HTMLElement>('[data-composer-prompt-frame="true"]');
-    const wrapperScrollContainers = Array.from(composerForm?.querySelectorAll<HTMLElement>(".overflow-y-auto") ?? [])
-      .filter((element) => element !== textarea);
+    const editorScrollContainer = composer?.parentElement;
 
-    expect(textarea !== null).toBeTrue();
+    expect(composer !== null).toBeTrue();
+    expect(composer?.classList.contains("ProseMirror") ?? false).toBeTrue();
+    expect(Boolean(composer?.getAttribute("style")?.includes("min-height: 2.75rem"))).toBeTrue();
     expect(promptFrame !== null).toBeTrue();
-    expect(Boolean(textarea?.className.includes("scrollbar-token"))).toBeTrue();
-    expect(Boolean(textarea?.className.includes("overflow-y-auto"))).toBeTrue();
+    expect(composerForm !== null).toBeTrue();
     expect(Boolean(promptFrame?.className.includes("max-h-[25dvh]"))).toBeTrue();
     expect(Boolean(promptFrame?.className.includes("overflow-hidden"))).toBeTrue();
-    expect(wrapperScrollContainers.length).toBe(0);
+    expect(Boolean(editorScrollContainer?.className.includes("max-h-[25dvh]"))).toBeTrue();
+    expect(Boolean(editorScrollContainer?.className.includes("overflow-y-auto"))).toBeTrue();
   });
 
-  test("does not let placeholder measurement inflate empty prompt height after mount", async () => {
+  test("renders the Codex new-chat placeholder inside the ProseMirror document", async () => {
     resetStorage();
-    installPromptTextareaScrollHeight({
-      emptyScrollHeight: 220,
-      filledScrollHeight: 40,
-    });
-    const view = await renderComposer();
-    const textarea = view.container.querySelector("textarea") as HTMLTextAreaElement | null;
-
-    expect(textarea !== null).toBeTrue();
-    expect(textarea?.style.height ?? "").toBe("");
-
-    const filledView = await renderComposer({
-      composerIntent: {
-        prompt: "x",
-        focusNonce: 1,
+    const view = await renderComposer({
+      threadId: null,
+      conversation: null,
+      isNewThreadTab: true,
+      newThreadTarget: {
+        projectId: "project_1",
+        projectName: "Nodex",
+        sessionId: "session_1",
+        threadTitle: "New thread",
+        runInTarget: "localProject",
+      },
+      body: {
+        threadId: null,
+        turnCount: 0,
+        hasAboveComposerBlocks: false,
+        isThreadRunning: false,
+        activeTurnId: null,
+        latestTurnId: null,
+        emptyState: { type: "newThread", title: "Start a new thread", description: "" },
+        showThreadStartProgressPanel: false,
       },
     });
-    const filledTextarea = filledView.container.querySelector("textarea") as HTMLTextAreaElement | null;
+    const composer = view.container.querySelector<HTMLElement>('[data-codex-composer="true"]');
 
+    expect(composer !== null).toBeTrue();
     await waitFor(() => {
-      expect(filledTextarea?.style.height ?? "").toBe("40px");
+      const placeholder = view.container.querySelector<HTMLElement>('[data-placeholder="Do anything"]');
+      if (!placeholder) {
+        throw new Error("Expected Codex placeholder.");
+      }
+      expect(placeholder.classList.contains("placeholder")).toBeTrue();
     });
   });
 
