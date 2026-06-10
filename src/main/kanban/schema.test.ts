@@ -20,10 +20,11 @@ function tableColumnNames(db: Database.Database, tableName: string): string[] {
 describe("schema initialization", () => {
   test("exposes only the supported in-app migration target", () => {
     expect(JSON.stringify(getSchemaMigrationTargets(CURRENT_SCHEMA_VERSION))).toBe("[]");
-    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[31,32,33]");
-    expect(JSON.stringify(getSchemaMigrationTargets(30))).toBe("[31,32,33]");
-    expect(JSON.stringify(getSchemaMigrationTargets(31))).toBe("[32,33]");
-    expect(JSON.stringify(getSchemaMigrationTargets(32))).toBe("[33]");
+    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[31,32,33,34]");
+    expect(JSON.stringify(getSchemaMigrationTargets(30))).toBe("[31,32,33,34]");
+    expect(JSON.stringify(getSchemaMigrationTargets(31))).toBe("[32,33,34]");
+    expect(JSON.stringify(getSchemaMigrationTargets(32))).toBe("[33,34]");
+    expect(JSON.stringify(getSchemaMigrationTargets(33))).toBe("[34]");
     expect(getSchemaMigrationTargets(29) === null).toBeTrue();
     expect(getSchemaMigrationTargets(20) === null).toBeTrue();
   });
@@ -151,6 +152,23 @@ describe("schema initialization", () => {
         legacyBrowserKindRejected = true;
       }
       expect(legacyBrowserKindRejected).toBeTrue();
+
+      let durableSideChatKindRejected = false;
+      try {
+        db.prepare(`
+          INSERT INTO project_session_tabs (
+            id, session_id, project_id, panel_id, kind, title, config_json,
+            state_key, state_json, "order", created_at, updated_at
+          ) VALUES (
+            'durable-side-chat', 'overview:default', 'default', 'right', 'side_chat_placeholder', 'Side chat',
+            '{"projectId":"default"}', 0, '{}', 1,
+            '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+          )
+        `).run();
+      } catch {
+        durableSideChatKindRejected = true;
+      }
+      expect(durableSideChatKindRejected).toBeTrue();
 
       const overviewSession = db.prepare(`
         SELECT id, project_id, title, is_overview, left_pane_collapsed, panel_state_json
@@ -357,11 +375,17 @@ describe("schema initialization", () => {
         INSERT INTO project_session_tabs (
           id, session_id, project_id, panel_id, kind, title, config_json,
           state_key, state_json, "order", created_at, updated_at
-        ) VALUES (
-          'tab-browser', 'session-1', 'alpha', 'right', 'browser_placeholder', 'Browser',
-          '{"title":"Example","url":"https://example.com"}', 0, '{}', 0,
-          '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
-        );
+        ) VALUES
+          (
+            'tab-browser', 'session-1', 'alpha', 'right', 'browser_placeholder', 'Browser',
+            '{"title":"Example","url":"https://example.com"}', 0, '{}', 0,
+            '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+          ),
+          (
+            'tab-side', 'session-1', 'alpha', 'right', 'side_chat_placeholder', 'Side chat',
+            '{"projectId":"alpha"}', 0, '{}', 1,
+            '2026-01-01T00:00:01.000Z', '2026-01-01T00:00:01.000Z'
+          );
         PRAGMA user_version = 32;
       `);
     } finally {
@@ -391,6 +415,13 @@ describe("schema initialization", () => {
         expect(config.projectId).toBe("alpha");
         expect(config.title).toBe("Example");
         expect(config.url).toBe("https://example.com");
+
+        const sideChatRow = migrated.prepare(`
+          SELECT 1
+          FROM project_session_tabs
+          WHERE id = 'tab-side'
+        `).get();
+        expect(sideChatRow === undefined).toBeTrue();
       } finally {
         migrated.close();
       }
@@ -398,6 +429,205 @@ describe("schema initialization", () => {
       closeDatabase();
       fs.rmSync(tempDir, { recursive: true, force: true });
       delete process.env.KANBAN_DIR;
+    }
+  });
+
+  test("migrates v33 by removing durable side chat placeholder tabs", async () => {
+    closeDatabase();
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-schema-side-chat-migration-"));
+    process.env.KANBAN_DIR = tempDir;
+
+    let initializationRan = true;
+    try {
+      const dbPath = getDatabasePath();
+      fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+      const db = new Database(dbPath);
+      const panelStateJson = JSON.stringify({
+        right: {
+          collapsed: false,
+          layout: {
+            version: 2,
+            root: {
+              type: "leaf",
+              id: "main",
+              tabIds: ["tab-review", "tab-side"],
+              activeTabId: "tab-side",
+            },
+            activeLeafId: "main",
+            mruLeafIds: ["main"],
+            maximizedLeafId: null,
+          },
+          size: { widthPx: 640, fullWidth: false },
+        },
+        bottom: {
+          collapsed: false,
+          layout: {
+            version: 2,
+            root: {
+              type: "leaf",
+              id: "main",
+              tabIds: ["tab-side-bottom"],
+              activeTabId: "tab-side-bottom",
+            },
+            activeLeafId: "main",
+            mruLeafIds: ["main"],
+            maximizedLeafId: null,
+          },
+          size: { heightPx: 300 },
+        },
+      });
+
+      try {
+        db.exec(`
+          CREATE TABLE projects (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            icon TEXT NOT NULL DEFAULT '',
+            workspace_path TEXT,
+            created TEXT NOT NULL
+          );
+          CREATE TABLE project_sessions (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            title TEXT NOT NULL,
+            is_overview INTEGER NOT NULL DEFAULT 0,
+            "order" INTEGER NOT NULL,
+            pinned INTEGER NOT NULL DEFAULT 0,
+            pinned_order INTEGER,
+            archived INTEGER NOT NULL DEFAULT 0,
+            archived_at TEXT,
+            unread INTEGER NOT NULL DEFAULT 0,
+            left_pane_collapsed INTEGER NOT NULL DEFAULT 0,
+            panel_state_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            CHECK (is_overview IN (0, 1)),
+            CHECK (pinned IN (0, 1)),
+            CHECK (archived IN (0, 1)),
+            CHECK (unread IN (0, 1)),
+            CHECK (left_pane_collapsed IN (0, 1))
+          );
+          CREATE TABLE project_session_tabs (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES project_sessions(id) ON DELETE CASCADE,
+            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            panel_id TEXT NOT NULL DEFAULT 'right',
+            kind TEXT NOT NULL,
+            title TEXT NOT NULL,
+            config_json TEXT NOT NULL,
+            state_key INTEGER NOT NULL DEFAULT 0,
+            state_json TEXT NOT NULL DEFAULT '{}',
+            "order" INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            CHECK (kind IN ('db_view', 'card_stage', 'terminal', 'browser', 'review', 'files_placeholder', 'side_chat_placeholder')),
+            CHECK (panel_id IN ('right', 'bottom'))
+          );
+          INSERT INTO projects (id, name, description, icon, created)
+          VALUES ('alpha', 'Alpha', '', '', '2026-01-01T00:00:00.000Z');
+        `);
+        db.prepare(`
+          INSERT INTO project_sessions (
+            id, project_id, title, is_overview, "order", pinned, pinned_order, archived, archived_at,
+            unread, left_pane_collapsed, panel_state_json, created_at, updated_at
+          ) VALUES (
+            'session-1', 'alpha', 'Session', 0, 0, 0, NULL, 0, NULL,
+            0, 0, ?, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+          )
+        `).run(panelStateJson);
+        db.exec(`
+          INSERT INTO project_session_tabs (
+            id, session_id, project_id, panel_id, kind, title, config_json,
+            state_key, state_json, "order", created_at, updated_at
+          ) VALUES
+            (
+              'tab-review', 'session-1', 'alpha', 'right', 'review', 'Review',
+              '{"projectId":"alpha"}', 0, '{}', 0,
+              '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+            ),
+            (
+              'tab-side', 'session-1', 'alpha', 'right', 'side_chat_placeholder', 'Side chat',
+              '{"projectId":"alpha"}', 0, '{}', 1,
+              '2026-01-01T00:00:01.000Z', '2026-01-01T00:00:01.000Z'
+            ),
+            (
+              'tab-side-bottom', 'session-1', 'alpha', 'bottom', 'side_chat_placeholder', 'Side chat 2',
+              '{"projectId":"alpha"}', 0, '{}', 0,
+              '2026-01-01T00:00:02.000Z', '2026-01-01T00:00:02.000Z'
+            );
+          PRAGMA user_version = 33;
+        `);
+      } finally {
+        db.close();
+      }
+
+      await initializeDatabase();
+
+      const migrated = new Database(dbPath);
+      try {
+        const version = migrated.prepare("PRAGMA user_version").get() as
+          | { user_version: number }
+          | undefined;
+        expect(version?.user_version).toBe(CURRENT_SCHEMA_VERSION);
+
+        const tabs = migrated.prepare(`
+          SELECT id, kind
+          FROM project_session_tabs
+          WHERE session_id = 'session-1'
+          ORDER BY "order" ASC
+        `).all() as Array<{ id: string; kind: string }>;
+        expect(JSON.stringify(tabs)).toBe(JSON.stringify([{ id: "tab-review", kind: "review" }]));
+
+        const stateRow = migrated.prepare(`
+          SELECT panel_state_json
+          FROM project_sessions
+          WHERE id = 'session-1'
+        `).get() as { panel_state_json: string } | undefined;
+        expect((stateRow?.panel_state_json ?? "").includes("tab-side")).toBeFalse();
+        const panels = JSON.parse(stateRow?.panel_state_json ?? "{}") as {
+          right?: { layout?: { root?: { tabIds?: string[]; activeTabId?: string | null } } };
+          bottom?: { collapsed?: boolean; layout?: { root?: { tabIds?: string[]; activeTabId?: string | null } } };
+        };
+        expect(JSON.stringify(panels.right?.layout?.root?.tabIds ?? [])).toBe(JSON.stringify(["tab-review"]));
+        expect(panels.right?.layout?.root?.activeTabId).toBe("tab-review");
+        expect(JSON.stringify(panels.bottom?.layout?.root?.tabIds ?? [])).toBe("[]");
+        expect(panels.bottom?.collapsed).toBeTrue();
+
+        let sideChatKindRejected = false;
+        try {
+          migrated.prepare(`
+            INSERT INTO project_session_tabs (
+              id, session_id, project_id, panel_id, kind, title, config_json,
+              state_key, state_json, "order", created_at, updated_at
+            ) VALUES (
+              'tab-side-new', 'session-1', 'alpha', 'right', 'side_chat_placeholder', 'Side chat',
+              '{"projectId":"alpha"}', 0, '{}', 2,
+              '2026-01-01T00:00:03.000Z', '2026-01-01T00:00:03.000Z'
+            )
+          `).run();
+        } catch {
+          sideChatKindRejected = true;
+        }
+        expect(sideChatKindRejected).toBeTrue();
+      } finally {
+        migrated.close();
+      }
+    } catch (error) {
+      if (isUnsupportedSqliteError(error)) {
+        initializationRan = false;
+      } else {
+        throw error;
+      }
+    } finally {
+      closeDatabase();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      delete process.env.KANBAN_DIR;
+    }
+
+    if (!initializationRan) {
+      expect(true).toBeTrue();
     }
   });
 

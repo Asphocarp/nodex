@@ -278,12 +278,14 @@ const PREVIEWABLE_PROJECT_SESSION_TAB_KIND_SET = new Set<ProjectSessionTab["kind
 ]);
 const PANEL_ACTION_ROW_CLASS = "cursor-interaction flex min-h-10 w-full items-center gap-2 rounded-md bg-token-bg-secondary px-2.5 py-2 text-left hover:bg-token-list-hover-background focus-visible:outline focus-visible:outline-2 focus-visible:outline-token-border-xstrong";
 const PANEL_ACTION_KBD_CLASS = "inline-flex !rounded-md !border-0 !bg-current/10 !font-sans !text-xs !text-current !shadow-none !px-1.5 !py-0.5 !leading-none";
-const CODEX_PANEL_OPTION_ACTION_ORDER: ProjectSessionTab["kind"][] = [
+type PanelNewTabActionKind = ProjectSessionTab["kind"] | "side_chat";
+
+const CODEX_PANEL_OPTION_ACTION_ORDER: PanelNewTabActionKind[] = [
   "review",
   "terminal",
   "browser",
   "files_placeholder",
-  "side_chat_placeholder",
+  "side_chat",
 ];
 const NODEX_PANEL_OPTION_ACTION_ORDER: ProjectSessionTab["kind"][] = [
   "db_view",
@@ -303,7 +305,7 @@ const DB_VIEW_TABS: Array<{ id: ProjectSessionDbView; label: string; icon: Compo
 type PanelActionShortcut = "mod+p" | "mod+t" | "ctrl+shift+g" | "ctrl+backquote" | "alt+mod+s";
 
 interface PanelNewTabAction {
-  kind: ProjectSessionTab["kind"];
+  kind: PanelNewTabActionKind;
   defaultPanelId: PanelId;
   targetPanelIds?: readonly PanelId[];
   label: string;
@@ -364,7 +366,7 @@ const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
     Icon: CodexSidePanelFilesIcon,
   },
   {
-    kind: "side_chat_placeholder",
+    kind: "side_chat",
     defaultPanelId: "right",
     targetPanelIds: ["right", "bottom"],
     label: "Side chat",
@@ -645,7 +647,6 @@ function getTabIcon(kind: ProjectSessionTab["kind"]): ComponentType<{ className?
   if (kind === "browser") return CodexSidePanelBrowserIcon;
   if (kind === "review") return CodexSidePanelReviewIcon;
   if (kind === "files_placeholder") return CodexSidePanelFilesIcon;
-  if (kind === "side_chat_placeholder") return CodexSidePanelSideChatIcon;
   return Globe2;
 }
 
@@ -677,6 +678,10 @@ function isPanelActionTargetAllowed(action: PanelNewTabAction, panelId: PanelId)
   return action.targetPanelIds?.includes(panelId) ?? action.defaultPanelId === panelId;
 }
 
+function isProjectSessionTabKind(kind: PanelNewTabActionKind): kind is ProjectSessionTab["kind"] {
+  return kind !== "side_chat";
+}
+
 function filterAvailablePanelActions(
   actions: readonly PanelNewTabAction[],
   tabs: readonly ProjectSessionTab[],
@@ -691,7 +696,11 @@ function filterAvailablePanelActions(
     const action = actionsByKind.get(kind);
     if (!action) return [];
     if (!isPanelActionTargetAllowed(action, panelId)) return [];
-    if (PROJECT_SESSION_SINGLETON_TAB_KIND_SET.has(action.kind) && tabs.some((tab) => tab.kind === action.kind)) {
+    if (
+      isProjectSessionTabKind(action.kind)
+      && PROJECT_SESSION_SINGLETON_TAB_KIND_SET.has(action.kind)
+      && tabs.some((tab) => tab.kind === action.kind)
+    ) {
       return [];
     }
     return [action];
@@ -699,7 +708,7 @@ function filterAvailablePanelActions(
 }
 
 function isNodexPanelOptionAction(action: PanelNewTabAction): boolean {
-  return NODEX_PANEL_OPTION_ACTION_KIND_SET.has(action.kind);
+  return isProjectSessionTabKind(action.kind) && NODEX_PANEL_OPTION_ACTION_KIND_SET.has(action.kind);
 }
 
 function normalizeOptionalPath(value: string | null | undefined): string | undefined {
@@ -845,14 +854,6 @@ function makeProjectSessionTabDraft(
     return {
       kind,
       title: "Files",
-      config: { projectId: session.projectId },
-    };
-  }
-
-  if (kind === "side_chat_placeholder") {
-    return {
-      kind,
-      title: "Side chat",
       config: { projectId: session.projectId },
     };
   }
@@ -2812,10 +2813,12 @@ export function WorkbenchShell({
       return true;
     }
 
-    if (action.kind === "side_chat_placeholder") {
+    if (action.kind === "side_chat") {
       void openSideChat({ targetPanelId: action.defaultPanelId });
       return true;
     }
+
+    if (!isProjectSessionTabKind(action.kind)) return true;
 
     if (isPreviewableProjectSessionTabKind(action.kind)) {
       void openPreviewTab(action.kind, action.defaultPanelId);
@@ -3189,7 +3192,6 @@ export function WorkbenchShell({
             onOpenCardTab={openCardTab}
             onRefreshSessions={refreshProjectSessions}
             onCloseTab={closeTab}
-            onOpenSideChat={() => void openSideChat({ targetPanelId: tab.panelId })}
           />
         );
       },
@@ -3774,17 +3776,19 @@ export function WorkbenchShell({
                 leftSlot={<Icon className="icon-sm" />}
                 keyboardShortcut={resolvePanelShortcutLabel(action.shortcut, isMacPlatform)}
                 onSelect={() => {
-                  if (action.kind === "side_chat_placeholder") {
+                  if (action.kind === "side_chat") {
                     void openSideChat({ targetPanelId: panelId, targetLeafId: leafId });
                     return;
                   }
+                  if (!isProjectSessionTabKind(action.kind)) return;
                   if (isPreviewableProjectSessionTabKind(action.kind)) {
                     void openPreviewTab(action.kind, panelId, leafId);
                     return;
                   }
+                  const durableKind = action.kind;
                   void (async () => {
                     await activatePanelGroup(panelId, leafId);
-                    await createManualTab(action.kind, panelId);
+                    await createManualTab(durableKind, panelId);
                   })();
                 }}
               >
@@ -4256,10 +4260,11 @@ export function WorkbenchShell({
                                 cards={activeProjectCardOptions}
                                 isMac={isMacPlatform}
                                 onAction={(kind) => {
-                                  if (kind === "side_chat_placeholder") {
+                                  if (kind === "side_chat") {
                                     void openSideChat({ targetPanelId: "right", targetLeafId: leafId });
                                     return;
                                   }
+                                  if (!isProjectSessionTabKind(kind)) return;
                                   if (isPreviewableProjectSessionTabKind(kind)) {
                                     void openPreviewTab(kind, "right", leafId);
                                     return;
@@ -4346,10 +4351,11 @@ export function WorkbenchShell({
                               cards={[]}
                               isMac={isMacPlatform}
                               onAction={(kind) => {
-                                if (kind === "side_chat_placeholder") {
+                                if (kind === "side_chat") {
                                   void openSideChat({ targetPanelId: "bottom", targetLeafId: leafId });
                                   return;
                                 }
+                                if (!isProjectSessionTabKind(kind)) return;
                                 if (isPreviewableProjectSessionTabKind(kind)) {
                                   void openPreviewTab(kind, "bottom", leafId);
                                   return;
@@ -4759,7 +4765,7 @@ function EmptyRightPane({
   actions: PanelNewTabAction[];
   cards: Array<{ card: Card; columnName: string }>;
   isMac: boolean;
-  onAction: (kind: ProjectSessionTab["kind"]) => void;
+  onAction: (kind: PanelNewTabActionKind) => void;
   onOpenCard: (card: Card) => void;
 }) {
   const codexActions = actions.filter((action) => !isNodexPanelOptionAction(action));
@@ -5423,28 +5429,6 @@ export function SideChatExpiredPanel({ onRecreateSideChat }: { onRecreateSideCha
   );
 }
 
-export function SideChatPlaceholderPanel({ onOpenSideChat }: { onOpenSideChat?: () => void }) {
-  return (
-    <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary p-6 select-none">
-      <div className="mx-auto flex h-full w-full max-w-2xl flex-col items-center justify-center text-center">
-        <div className="mb-3 flex size-10 items-center justify-center rounded-xl bg-token-bg-secondary text-token-text-secondary">
-          <CodexSidePanelSideChatIcon className="icon-md" />
-        </div>
-        <div className="text-base font-semibold text-token-text-primary">Side chat</div>
-        <div className="mt-1 text-sm text-token-text-secondary">Start a side conversation</div>
-        <NodexButton
-          type="button"
-          size="sm"
-          className="mt-4"
-          onClick={onOpenSideChat}
-        >
-          Start side chat
-        </NodexButton>
-      </div>
-    </div>
-  );
-}
-
 function ProjectSessionTabPanel({
   tab,
   activeSession,
@@ -5466,7 +5450,6 @@ function ProjectSessionTabPanel({
   onOpenCardTab,
   onRefreshSessions,
   onCloseTab,
-  onOpenSideChat,
 }: {
   tab: ProjectSessionTab & { preview?: true };
   activeSession: ProjectSession;
@@ -5500,7 +5483,6 @@ function ProjectSessionTabPanel({
   onOpenCardTab: (projectId: string, cardId: string, titleSnapshot?: string) => Promise<void>;
   onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
   onCloseTab: (tabId: string) => Promise<void>;
-  onOpenSideChat: () => void;
 }) {
   if (tab.kind === "db_view" && "view" in tab.config) {
     return (
@@ -5590,11 +5572,8 @@ function ProjectSessionTabPanel({
     );
   }
 
-  if (
-    tab.kind === "files_placeholder"
-    || tab.kind === "side_chat_placeholder"
-  ) {
-    return <ProjectSessionMockTab kind={tab.kind} onOpenSideChat={onOpenSideChat} />;
+  if (tab.kind === "files_placeholder") {
+    return <ProjectSessionMockTab kind={tab.kind} />;
   }
 
   return (
@@ -5606,15 +5585,9 @@ function ProjectSessionTabPanel({
 
 function ProjectSessionMockTab({
   kind,
-  onOpenSideChat,
 }: {
-  kind: "files_placeholder" | "side_chat_placeholder";
-  onOpenSideChat?: () => void;
+  kind: "files_placeholder";
 }) {
-  if (kind === "side_chat_placeholder") {
-    return <SideChatPlaceholderPanel onOpenSideChat={onOpenSideChat} />;
-  }
-
   const action = PANEL_NEW_TAB_ACTIONS.find((candidate) => candidate.kind === kind);
   const Icon = action?.Icon ?? CodexSidePanelBrowserIcon;
   return (

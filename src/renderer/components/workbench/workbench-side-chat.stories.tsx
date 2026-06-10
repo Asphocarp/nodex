@@ -3,7 +3,6 @@ import { useState, type ReactNode } from "react";
 import {
   SideChatExpiredPanel,
   SideChatLoadingPanel,
-  SideChatPlaceholderPanel,
 } from "./workbench-shell";
 
 function SideChatStoryFrame({
@@ -46,7 +45,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Focused side-chat panel states for the right and bottom workbench panels. The live ready state uses the normal connected thread stage; these stories cover the renderer-local loading, expired, and legacy-placeholder panels.",
+          "Focused side-chat panel states for the right and bottom workbench panels. The live ready state uses the normal connected thread stage; these stories cover the renderer-local loading and expired panels.",
       },
     },
   },
@@ -76,14 +75,6 @@ export const Expired: Story = {
   render: () => (
     <SideChatStoryFrame width={420} height={560}>
       <ExpiredHarness />
-    </SideChatStoryFrame>
-  ),
-};
-
-export const CompatibilityPlaceholder: Story = {
-  render: () => (
-    <SideChatStoryFrame width={420} height={560}>
-      <SideChatPlaceholderPanel onOpenSideChat={() => undefined} />
     </SideChatStoryFrame>
   ),
 };

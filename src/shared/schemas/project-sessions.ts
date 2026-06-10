@@ -67,7 +67,6 @@ export function parseProjectSessionTabConfig(kind: string, config: unknown): Pro
   if (kind === "browser") return ProjectSessionBrowserTabConfigSchema.parse(config);
   if (kind === "review") return ProjectSessionProjectScopedTabConfigSchema.parse(config);
   if (kind === "files_placeholder") return ProjectSessionProjectScopedTabConfigSchema.parse(config);
-  if (kind === "side_chat_placeholder") return ProjectSessionProjectScopedTabConfigSchema.parse(config);
   throw new Error(`Unknown project session tab kind: ${kind}`);
 }
 
@@ -170,7 +169,6 @@ export const ProjectSessionTabKindSchema = z.enum([
   "browser",
   "review",
   "files_placeholder",
-  "side_chat_placeholder",
 ]);
 
 export const ProjectSessionTabCreateInputSchema = z.object({

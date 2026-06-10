@@ -277,8 +277,7 @@ export type ProjectSessionTabKind =
   | "terminal"
   | "browser"
   | "review"
-  | "files_placeholder"
-  | "side_chat_placeholder";
+  | "files_placeholder";
 
 export const PROJECT_SESSION_SINGLETON_TAB_KINDS = [
   "db_view",

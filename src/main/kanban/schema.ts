@@ -4,12 +4,19 @@ import * as path from "path";
 import { getDatabasePath } from "./config";
 import type { DatabaseMigrationProgress } from "../../shared/app-startup";
 import { CARD_STATUS_COLUMNS } from "../../shared/card-status";
-import { makeProjectSessionPanelLayout } from "../../shared/project-session-panel-layout";
+import {
+  makeProjectSessionPanelLayout,
+  normalizeProjectSessionPanelLayout,
+  pruneEmptyProjectSessionPanelLeaves,
+} from "../../shared/project-session-panel-layout";
+import type { PanelId, ProjectSessionPanelLayout } from "../../shared/types";
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 33;
+export const CURRENT_SCHEMA_VERSION = 34;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
+  "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files_placeholder'";
+const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V33 =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files_placeholder', 'side_chat_placeholder'";
 const PROJECT_SESSION_PANEL_ID_CHECK_VALUES = "'right', 'bottom'";
 const LEGACY_BROWSER_TAB_KIND = "browser_placeholder";
@@ -40,10 +47,11 @@ export interface EnsureDatabaseOptions {
 
 export function getSchemaMigrationTargets(currentVersion: number): number[] | null {
   if (currentVersion === CURRENT_SCHEMA_VERSION) return [];
-  if (currentVersion === 26) return [31, 32, 33];
-  if (currentVersion === 30) return [31, 32, 33];
-  if (currentVersion === 31) return [32, 33];
-  if (currentVersion === 32) return [33];
+  if (currentVersion === 26) return [31, 32, 33, 34];
+  if (currentVersion === 30) return [31, 32, 33, 34];
+  if (currentVersion === 31) return [32, 33, 34];
+  if (currentVersion === 32) return [33, 34];
+  if (currentVersion === 33) return [34];
   return null;
 }
 
@@ -541,6 +549,12 @@ interface ProjectSessionTabMigrationRow {
   updated_at: string;
 }
 
+interface ProjectSessionPanelMigrationRow {
+  id: string;
+  is_overview: number;
+  panel_state_json: string;
+}
+
 function normalizeBrowserTabConfigJson(projectId: string, configJson: string): string {
   let parsed: unknown;
   try {
@@ -592,7 +606,7 @@ function migrateSchema32To33(db: Database.Database): void {
         "order" INTEGER NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        CHECK (kind IN (${PROJECT_SESSION_TAB_KIND_CHECK_VALUES})),
+        CHECK (kind IN (${PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V33})),
         CHECK (panel_id IN (${PROJECT_SESSION_PANEL_ID_CHECK_VALUES}))
       );
     `);
@@ -650,6 +664,184 @@ function migrateSchema32To33(db: Database.Database): void {
   setUserVersion(db, 33);
 }
 
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseJsonRecord(value: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return isJsonRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function getSurvivingPanelTabIds(
+  survivingIdsBySessionPanel: Map<string, Map<PanelId, string[]>>,
+  sessionId: string,
+  panelId: PanelId,
+): string[] {
+  return survivingIdsBySessionPanel.get(sessionId)?.get(panelId) ?? [];
+}
+
+function normalizePanelStateAfterRemovedTabs(
+  value: unknown,
+  tabIds: readonly string[],
+  fallbackSize: Record<string, unknown>,
+): Record<string, unknown> {
+  const panel = isJsonRecord(value) ? value : {};
+  const rawCollapsed = typeof panel.collapsed === "boolean" ? panel.collapsed : tabIds.length === 0;
+  const layout = pruneEmptyProjectSessionPanelLeaves(
+    normalizeProjectSessionPanelLayout(
+      isJsonRecord(panel.layout) ? panel.layout as unknown as ProjectSessionPanelLayout : null,
+      tabIds,
+    ),
+  );
+
+  return {
+    collapsed: tabIds.length === 0 ? true : rawCollapsed,
+    layout,
+    size: isJsonRecord(panel.size) ? panel.size : fallbackSize,
+  };
+}
+
+function pruneRemovedSideChatTabsFromPanelStateJson(
+  panelStateJson: string,
+  sessionId: string,
+  overview: boolean,
+  survivingIdsBySessionPanel: Map<string, Map<PanelId, string[]>>,
+): string {
+  const panels = parseJsonRecord(panelStateJson);
+  const rightTabIds = getSurvivingPanelTabIds(survivingIdsBySessionPanel, sessionId, "right");
+  const bottomTabIds = getSurvivingPanelTabIds(survivingIdsBySessionPanel, sessionId, "bottom");
+
+  return JSON.stringify({
+    right: normalizePanelStateAfterRemovedTabs(
+      panels.right,
+      rightTabIds,
+      { widthPx: 600, fullWidth: overview },
+    ),
+    bottom: normalizePanelStateAfterRemovedTabs(
+      panels.bottom,
+      bottomTabIds,
+      { heightPx: 280 },
+    ),
+  });
+}
+
+function migrateSchema33To34(db: Database.Database): void {
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.exec(`
+      DROP TABLE IF EXISTS project_session_tabs_next;
+
+      CREATE TABLE project_session_tabs_next (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES project_sessions(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        panel_id TEXT NOT NULL DEFAULT 'right',
+        kind TEXT NOT NULL,
+        title TEXT NOT NULL,
+        config_json TEXT NOT NULL,
+        state_key INTEGER NOT NULL DEFAULT 0,
+        state_json TEXT NOT NULL DEFAULT '{}',
+        "order" INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK (kind IN (${PROJECT_SESSION_TAB_KIND_CHECK_VALUES})),
+        CHECK (panel_id IN (${PROJECT_SESSION_PANEL_ID_CHECK_VALUES}))
+      );
+    `);
+
+    const rows = db.prepare(`
+      SELECT
+        id, session_id, project_id, panel_id, kind, title, config_json, state_key, state_json,
+        "order", created_at, updated_at
+      FROM project_session_tabs
+      ORDER BY session_id ASC, panel_id ASC, "order" ASC, created_at ASC
+    `).all() as ProjectSessionTabMigrationRow[];
+
+    const removedSessionIds = new Set<string>();
+    const survivingIdsBySessionPanel = new Map<string, Map<PanelId, string[]>>();
+    const insert = db.prepare(`
+      INSERT INTO project_session_tabs_next (
+        id, session_id, project_id, panel_id, kind, title, config_json, state_key, state_json,
+        "order", created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const row of rows) {
+      if (row.kind === "side_chat_placeholder") {
+        removedSessionIds.add(row.session_id);
+        continue;
+      }
+
+      insert.run(
+        row.id,
+        row.session_id,
+        row.project_id,
+        row.panel_id,
+        row.kind,
+        row.title,
+        row.config_json,
+        row.state_key,
+        row.state_json,
+        row.order,
+        row.created_at,
+        row.updated_at,
+      );
+
+      if (row.panel_id === "right" || row.panel_id === "bottom") {
+        const byPanel = survivingIdsBySessionPanel.get(row.session_id) ?? new Map<PanelId, string[]>();
+        const tabIds = byPanel.get(row.panel_id) ?? [];
+        tabIds.push(row.id);
+        byPanel.set(row.panel_id, tabIds);
+        survivingIdsBySessionPanel.set(row.session_id, byPanel);
+      }
+    }
+
+    db.exec(`
+      DROP TABLE project_session_tabs;
+      ALTER TABLE project_session_tabs_next RENAME TO project_session_tabs;
+
+      CREATE INDEX IF NOT EXISTS idx_project_session_tabs_session_order
+        ON project_session_tabs(session_id, panel_id, "order", created_at);
+      CREATE INDEX IF NOT EXISTS idx_project_session_tabs_project
+        ON project_session_tabs(project_id);
+    `);
+
+    if (removedSessionIds.size > 0) {
+      const sessionRows = db.prepare(`
+        SELECT id, is_overview, panel_state_json
+        FROM project_sessions
+      `).all() as ProjectSessionPanelMigrationRow[];
+      const updateSession = db.prepare(`
+        UPDATE project_sessions
+        SET panel_state_json = ?
+        WHERE id = ?
+      `);
+
+      for (const session of sessionRows) {
+        if (!removedSessionIds.has(session.id)) continue;
+        updateSession.run(
+          pruneRemovedSideChatTabsFromPanelStateJson(
+            session.panel_state_json,
+            session.id,
+            session.is_overview === 1,
+            survivingIdsBySessionPanel,
+          ),
+          session.id,
+        );
+      }
+    }
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+
+  setUserVersion(db, 34);
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -681,6 +873,14 @@ function runMigrations(
       }
       migrateSchema32To33(db);
       fromVersion = 33;
+      continue;
+    }
+    if (target === 34) {
+      if (fromVersion !== 33) {
+        throw new Error(`Unsupported Nodex database migration target 34 from ${fromVersion}`);
+      }
+      migrateSchema33To34(db);
+      fromVersion = 34;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);
