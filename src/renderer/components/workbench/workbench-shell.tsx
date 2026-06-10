@@ -1010,6 +1010,7 @@ export function WorkbenchShell({
   const [panelCollapsedOverrides, setPanelCollapsedOverrides] = useState<Record<string, boolean>>({});
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT_WIDTH);
   const [rightPanelDragWidth, setRightPanelDragWidth] = useState<number | null>(null);
+  const [bottomPanelDragHeight, setBottomPanelDragHeight] = useState<number | null>(null);
   const [sessionContentWidth, setSessionContentWidth] = useState(0);
   const [sessionContentHeight, setSessionContentHeight] = useState(0);
   const [appShellWidth, setAppShellWidth] = useState(() =>
@@ -1200,7 +1201,7 @@ export function WorkbenchShell({
     rightPanelSizingWidth,
   );
   const bottomPanelHeight = clampBottomPanelHeight(
-    bottomPanel?.size.heightPx ?? BOTTOM_PANEL_DEFAULT_HEIGHT,
+    bottomPanelDragHeight ?? bottomPanel?.size.heightPx ?? BOTTOM_PANEL_DEFAULT_HEIGHT,
     sessionContentHeight,
   );
   const rightPanelTargetWidth = rightPanelFullWidth
@@ -3055,6 +3056,7 @@ export function WorkbenchShell({
     const startHeight = bottomPanelHeight;
     let latestHeight = startHeight;
     let closedByResize = false;
+    setBottomPanelDragHeight(startHeight);
 
     const onMouseMove = (moveEvent: MouseEvent) => {
       if (closedByResize) return;
@@ -3063,20 +3065,14 @@ export function WorkbenchShell({
       if (rawHeight < BOTTOM_PANEL_MIN_HEIGHT) {
         closedByResize = true;
         latestHeight = BOTTOM_PANEL_MIN_HEIGHT;
+        setBottomPanelDragHeight(null);
         void setActivePanelCollapsed("bottom", true);
         return;
       }
 
       const nextHeight = clampBottomPanelHeight(rawHeight, sessionContentHeight);
       latestHeight = nextHeight;
-      if (activeSession) {
-        void updateActivePanel("bottom", {
-          size: {
-            ...activeSession.panels.bottom.size,
-            heightPx: nextHeight,
-          },
-        }, { refresh: false });
-      }
+      setBottomPanelDragHeight(nextHeight);
     };
 
     const onMouseUp = () => {
@@ -3084,15 +3080,19 @@ export function WorkbenchShell({
       document.body.style.cursor = "";
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
-      if (activeSession) {
-        if (closedByResize) return;
-        void updateActivePanel("bottom", {
-          size: {
-            ...activeSession.panels.bottom.size,
-            heightPx: latestHeight,
-          },
-        });
-      }
+      void (async () => {
+        try {
+          if (!activeSession || closedByResize) return;
+          await updateActivePanel("bottom", {
+            size: {
+              ...activeSession.panels.bottom.size,
+              heightPx: latestHeight,
+            },
+          });
+        } finally {
+          setBottomPanelDragHeight(null);
+        }
+      })();
     };
 
     document.body.style.userSelect = "none";

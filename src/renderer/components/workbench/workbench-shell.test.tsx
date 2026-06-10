@@ -586,6 +586,25 @@ function makeBlankSession(overrides: SessionFixtureOverrides = {}): ProjectSessi
   });
 }
 
+function makeBottomPanelTerminalSession(overrides: SessionFixtureOverrides = {}): ProjectSession {
+  return makeSession({
+    id: "session:alpha:terminal",
+    title: "Terminal",
+    isOverview: false,
+    rightCollapsed: true,
+    tabs: [
+      {
+        id: "terminal-tab",
+        kind: "terminal",
+        title: "Terminal",
+        panelId: "bottom",
+        config: { projectId: "alpha", terminalSessionId: "terminal" },
+      },
+    ],
+    ...overrides,
+  });
+}
+
 function replaceSession(
   current: Record<string, ProjectSession[]>,
   nextSession: ProjectSession,
@@ -621,6 +640,13 @@ function getThreadRow(container: HTMLElement, title: string): HTMLElement {
 function getThreadRowTitles(container: HTMLElement): string[] {
   return Array.from(container.querySelectorAll("[data-app-action-sidebar-thread-row]"))
     .map((row) => row.getAttribute("data-app-action-sidebar-thread-title") ?? "");
+}
+
+function getBottomPanelContentSizer(container: HTMLElement): HTMLElement {
+  const sizer = Array.from(container.querySelectorAll<HTMLElement>('[style*="min-height"]'))
+    .find((element) => element.getAttribute("style")?.includes("height:"));
+  if (!sizer) throw new Error("Expected bottom panel content sizer");
+  return sizer;
 }
 
 function renderWorkbench({
@@ -2685,22 +2711,48 @@ describe("workbench session shell", () => {
     )).toBeTrue();
   });
 
-  test("bottom panel resize closes the bottom panel when dragged below Codex minimum height", async () => {
-    const terminalSession = makeSession({
-      id: "session:alpha:terminal",
-      title: "Terminal",
-      isOverview: false,
-      rightCollapsed: true,
-      tabs: [
-        {
-          id: "terminal-tab",
-          kind: "terminal",
-          title: "Terminal",
-          panelId: "bottom",
-          config: { projectId: "alpha", terminalSessionId: "terminal" },
-        },
-      ],
+  test("bottom panel resize previews the dragged height before persistence", async () => {
+    const terminalSession = makeBottomPanelTerminalSession();
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [terminalSession] },
     });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const bottomPanel = screen.getByTestId("session-bottom-panel");
+    const bottomPanelSizer = getBottomPanelContentSizer(bottomPanel);
+    const separator = screen.getByRole("separator", { name: "Resize bottom panel" });
+    expect(bottomPanelSizer.getAttribute("style")?.includes("height: 280px")).toBeTrue();
+
+    await act(async () => {
+      fireEvent.mouseDown(separator, { clientY: 700 });
+      fireEvent.mouseMove(window, { clientY: 740 });
+      await Promise.resolve();
+    });
+
+    expect(bottomPanelSizer.getAttribute("style")?.includes("height: 240px")).toBeTrue();
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-session-panels:update"
+      && call[1] === "session:alpha:terminal"
+      && call[2] === "bottom"
+      && ((call[3] as { size?: { heightPx?: number } })?.size?.heightPx ?? null) === 240
+    )).toBeFalse();
+
+    await act(async () => {
+      fireEvent.mouseUp(window);
+      await Promise.resolve();
+    });
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-session-panels:update"
+      && call[1] === "session:alpha:terminal"
+      && call[2] === "bottom"
+      && ((call[3] as { size?: { heightPx?: number } })?.size?.heightPx ?? null) === 240
+    )).toBeTrue();
+  });
+
+  test("bottom panel resize closes the bottom panel when dragged below Codex minimum height", async () => {
+    const terminalSession = makeBottomPanelTerminalSession();
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [terminalSession] },
     });

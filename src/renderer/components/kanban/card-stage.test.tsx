@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { render, textContent } from "../../test/dom";
 import type { Card } from "@/lib/types";
 import { writeCardStageShowRawContentPreference } from "@/lib/card-stage-layout";
+import { NodexTooltipProvider } from "@/components/ui/tooltip";
 
 let lastNfmEditorProps: Record<string, unknown> | null = null;
 
@@ -18,10 +19,6 @@ mock.module("./card-stage/inline-property-strip", () => ({
 
 mock.module("./card-stage/properties-section", () => ({
   CardStagePropertiesSection: () => <div>Properties section</div>,
-}));
-
-mock.module("./card-stage/toolbar", () => ({
-  CardStageToolbar: () => <div>Toolbar</div>,
 }));
 
 function buildCard(overrides: Partial<Card> = {}): Card {
@@ -49,18 +46,20 @@ describe("card stage", () => {
     writeCardStageShowRawContentPreference(false);
     const { CardStage } = await import("./card-stage");
     const { getByText, queryByText } = render(
-      <CardStage
-        onClose={() => undefined}
-        card={buildCard()}
-        columnId="in_progress"
-        columnName="In progress"
-        projectId="default"
-        availableTags={[]}
-        onUpdate={async () => ({ status: "updated", card: {} as never })}
-        onPatch={() => undefined}
-        onDelete={async () => undefined}
-        onMove={async () => undefined}
-      />,
+      <NodexTooltipProvider>
+        <CardStage
+          onClose={() => undefined}
+          card={buildCard()}
+          columnId="in_progress"
+          columnName="In progress"
+          projectId="default"
+          availableTags={[]}
+          onUpdate={async () => ({ status: "updated", card: {} as never })}
+          onPatch={() => undefined}
+          onDelete={async () => undefined}
+          onMove={async () => undefined}
+        />
+      </NodexTooltipProvider>,
     );
 
     expect(getByText("Mock editor").textContent).toBe("Mock editor");
@@ -73,18 +72,20 @@ describe("card stage", () => {
     writeCardStageShowRawContentPreference(true);
     const { CardStage } = await import("./card-stage");
     const { container, getByText, queryByText } = render(
-      <CardStage
-        onClose={() => undefined}
-        card={buildCard()}
-        columnId="in_progress"
-        columnName="In progress"
-        projectId="default"
-        availableTags={[]}
-        onUpdate={async () => ({ status: "updated", card: {} as never })}
-        onPatch={() => undefined}
-        onDelete={async () => undefined}
-        onMove={async () => undefined}
-      />,
+      <NodexTooltipProvider>
+        <CardStage
+          onClose={() => undefined}
+          card={buildCard()}
+          columnId="in_progress"
+          columnName="In progress"
+          projectId="default"
+          availableTags={[]}
+          onUpdate={async () => ({ status: "updated", card: {} as never })}
+          onPatch={() => undefined}
+          onDelete={async () => undefined}
+          onMove={async () => undefined}
+        />
+      </NodexTooltipProvider>,
     );
 
     expect(getByText("Raw format").textContent).toBe("Raw format");
