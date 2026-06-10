@@ -74,7 +74,7 @@ When behavior changes, update the narrowest source-of-truth doc:
 - New implementation caveat/regression learning: `docs/ENGINEERING_LEARNINGS.md`
 - New reliability/security expectation: `docs/RELIABILITY.md` or `docs/SECURITY.md`
 
-Treat `CHANGELOG.md` as a required deliverable for **relatively large** user-visible changes:
+Treat `CHANGELOG.md` as a required deliverable for **relatively large** user-visible changes (UI tweaks NOT included):
 - Keep an `Unreleased` section at the top.
 - Write for humans, not commit-log style.
 - Only include externally relevant changes:
