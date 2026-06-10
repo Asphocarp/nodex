@@ -79,8 +79,13 @@ import {
   groupComposerSlashCommandMatches,
   inactiveSlashTrigger,
   resolveNextSlashHighlight,
+  resolvePreservedSlashHighlight,
 } from "./slash-command-menu/slash-command-filter";
-import type { ComposerSlashCommand, ComposerSlashTriggerState } from "./slash-command-menu/slash-command-types";
+import type {
+  ComposerSlashCommand,
+  ComposerSlashCommandHighlightSource,
+  ComposerSlashTriggerState,
+} from "./slash-command-menu/slash-command-types";
 
 interface ThreadComposerProps {
   model: ThreadFooterModel;
@@ -101,6 +106,11 @@ const SERVICE_TIER_OPTIONS = [
     description: "1.5x speed, increased usage",
   },
 ];
+
+interface SlashHighlightState {
+  commandId: string | null;
+  source: ComposerSlashCommandHighlightSource;
+}
 
 function isElectronLikeComposerEnvironment(): boolean {
   if (typeof window === "undefined") {
@@ -697,7 +707,10 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const [imageAttachments, setImageAttachments] = useState<ComposerImageAttachment[]>([]);
   const [skillMentions, setSkillMentions] = useState<ComposerSkillMentionAttachment[]>([]);
   const [slashTrigger, setSlashTrigger] = useState<ComposerSlashTriggerState>(() => inactiveSlashTrigger());
-  const [highlightedSlashCommandId, setHighlightedSlashCommandId] = useState<string | null>(null);
+  const [slashHighlight, setSlashHighlight] = useState<SlashHighlightState>({
+    commandId: null,
+    source: "programmatic",
+  });
   const [nestedSlashCommand, setNestedSlashCommand] = useState<ComposerSlashCommand | null>(null);
   const [slashDialogOpen, setSlashDialogOpen] = useState(false);
   const [desktopPetVisible, setDesktopPetVisible] = useState(false);
@@ -1179,26 +1192,33 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   }), [prompt, slashCommands, slashTrigger.active, slashTrigger.query]);
   const slashGroups = useMemo(() => groupComposerSlashCommandMatches(slashMatches), [slashMatches]);
   const slashMenuOpen = slashTrigger.active || nestedSlashCommand !== null;
+  const highlightedSlashCommandId = slashHighlight.commandId;
+  const highlightedSlashCommandSource = slashHighlight.source;
 
   useEffect(() => {
     if (!slashMenuOpen) {
-      setHighlightedSlashCommandId(null);
+      setSlashHighlight((current) => {
+        if (current.commandId === null && current.source === "programmatic") return current;
+        return { commandId: null, source: "programmatic" };
+      });
       return;
     }
 
-    setHighlightedSlashCommandId((current) =>
-      resolveNextSlashHighlight({
+    setSlashHighlight((current) => {
+      const commandId = resolvePreservedSlashHighlight({
         matches: slashMatches,
-        currentCommandId: current,
-        direction: "first",
-      })
-    );
+        currentCommandId: current.commandId,
+      });
+      const source = commandId === current.commandId ? current.source : "programmatic";
+      if (current.commandId === commandId && current.source === source) return current;
+      return { commandId, source };
+    });
   }, [slashMatches, slashMenuOpen]);
 
   const closeSlashMenu = useCallback(() => {
     setSlashTrigger(inactiveSlashTrigger());
     setNestedSlashCommand(null);
-    setHighlightedSlashCommandId(null);
+    setSlashHighlight({ commandId: null, source: "programmatic" });
   }, []);
 
   const handleSlashTriggerChange = useCallback((nextTrigger: ComposerSlashTriggerState) => {
@@ -1273,10 +1293,13 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
 
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
-        setHighlightedSlashCommandId((current) => resolveNextSlashHighlight({
-          matches: slashMatches,
-          currentCommandId: current,
-          direction: event.key === "ArrowDown" ? "next" : "previous",
+        setSlashHighlight((current) => ({
+          commandId: resolveNextSlashHighlight({
+            matches: slashMatches,
+            currentCommandId: current.commandId,
+            direction: event.key === "ArrowDown" ? "next" : "previous",
+          }),
+          source: "keyboard",
         }));
         return true;
       }
@@ -1403,8 +1426,9 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
           groups={slashGroups}
           matches={slashMatches}
           highlightedCommandId={highlightedSlashCommandId}
+          highlightedSource={highlightedSlashCommandSource}
           nestedCommand={nestedSlashCommand}
-          onHighlight={setHighlightedSlashCommandId}
+          onHighlight={(commandId, source) => setSlashHighlight({ commandId, source })}
           onSelect={(command) => selectSlashCommand(command, "inline")}
           onClose={closeSlashMenu}
           onBack={() => setNestedSlashCommand(null)}
@@ -1660,7 +1684,8 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
         commands={slashCommands}
         composerText={prompt}
         highlightedCommandId={highlightedSlashCommandId}
-        onHighlight={setHighlightedSlashCommandId}
+        highlightedSource={highlightedSlashCommandSource}
+        onHighlight={(commandId, source) => setSlashHighlight({ commandId, source })}
         onSelect={(command) => selectSlashCommand(command, "dialog")}
         onClose={() => setSlashDialogOpen(false)}
       />

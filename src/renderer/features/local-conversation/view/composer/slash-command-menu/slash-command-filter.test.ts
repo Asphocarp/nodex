@@ -3,6 +3,7 @@ import {
   detectComposerSlashTrigger,
   filterComposerSlashCommands,
   resolveNextSlashHighlight,
+  resolvePreservedSlashHighlight,
 } from "./slash-command-filter";
 import type { ComposerSlashCommand } from "./slash-command-types";
 
@@ -67,5 +68,20 @@ describe("composer slash command filtering", () => {
     expect(resolveNextSlashHighlight({ matches, currentCommandId: null, direction: "first" })).toBe("compact");
     expect(resolveNextSlashHighlight({ matches, currentCommandId: "compact", direction: "next" })).toBe("model");
     expect(resolveNextSlashHighlight({ matches, currentCommandId: "compact", direction: "previous" })).toBe("model");
+  });
+
+  test("preserves the highlighted row across equivalent item updates", () => {
+    const matches = [
+      { command: command({ id: "compact", title: "Compact" }), score: 1, matchedTitleIndexes: [] },
+      { command: command({ id: "model", title: "Model" }), score: 1, matchedTitleIndexes: [] },
+    ];
+    const updatedMatches = [
+      { command: command({ id: "compact", title: "Compact" }), score: 1, matchedTitleIndexes: [] },
+      { command: command({ id: "model", title: "Model" }), score: 1, matchedTitleIndexes: [] },
+    ];
+
+    expect(resolvePreservedSlashHighlight({ matches, currentCommandId: null })).toBe("compact");
+    expect(resolvePreservedSlashHighlight({ matches: updatedMatches, currentCommandId: "model" })).toBe("model");
+    expect(resolvePreservedSlashHighlight({ matches, currentCommandId: "missing" })).toBe("compact");
   });
 });

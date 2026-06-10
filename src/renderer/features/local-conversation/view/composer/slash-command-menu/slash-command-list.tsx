@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils";
 import type {
   ComposerSlashCommand,
   ComposerSlashCommandGroup,
+  ComposerSlashCommandHighlightSource,
   ComposerSlashCommandMatch,
 } from "./slash-command-types";
 
@@ -10,7 +11,8 @@ interface SlashCommandListProps {
   groups: ComposerSlashCommandGroup[];
   matches: readonly ComposerSlashCommandMatch[];
   highlightedCommandId: string | null;
-  onHighlight: (commandId: string) => void;
+  highlightedSource: ComposerSlashCommandHighlightSource;
+  onHighlight: (commandId: string, source: ComposerSlashCommandHighlightSource) => void;
   onSelect: (command: ComposerSlashCommand) => void;
 }
 
@@ -18,6 +20,7 @@ export function SlashCommandList({
   groups,
   matches,
   highlightedCommandId,
+  highlightedSource,
   onHighlight,
   onSelect,
 }: SlashCommandListProps) {
@@ -46,6 +49,7 @@ export function SlashCommandList({
           group={group}
           showLabel={showGroupLabels}
           highlightedCommandId={highlightedCommandId}
+          highlightedSource={highlightedSource}
           onHighlight={onHighlight}
           onSelect={onSelect}
         />
@@ -58,13 +62,15 @@ function SlashCommandGroup({
   group,
   showLabel,
   highlightedCommandId,
+  highlightedSource,
   onHighlight,
   onSelect,
 }: {
   group: ComposerSlashCommandGroup;
   showLabel: boolean;
   highlightedCommandId: string | null;
-  onHighlight: (commandId: string) => void;
+  highlightedSource: ComposerSlashCommandHighlightSource;
+  onHighlight: (commandId: string, source: ComposerSlashCommandHighlightSource) => void;
   onSelect: (command: ComposerSlashCommand) => void;
 }) {
   return (
@@ -79,6 +85,7 @@ function SlashCommandGroup({
           key={command.id}
           command={command}
           selected={command.id === highlightedCommandId}
+          shouldScrollIntoView={highlightedSource !== "pointer"}
           onHighlight={onHighlight}
           onSelect={onSelect}
         />
@@ -90,12 +97,14 @@ function SlashCommandGroup({
 function SlashCommandRow({
   command,
   selected,
+  shouldScrollIntoView,
   onHighlight,
   onSelect,
 }: {
   command: ComposerSlashCommand;
   selected: boolean;
-  onHighlight: (commandId: string) => void;
+  shouldScrollIntoView: boolean;
+  onHighlight: (commandId: string, source: ComposerSlashCommandHighlightSource) => void;
   onSelect: (command: ComposerSlashCommand) => void;
 }) {
   const rowRef = useRef<HTMLButtonElement | null>(null);
@@ -103,8 +112,9 @@ function SlashCommandRow({
 
   useEffect(() => {
     if (!selected) return;
+    if (!shouldScrollIntoView) return;
     rowRef.current?.scrollIntoView({ block: "nearest" });
-  }, [selected]);
+  }, [selected, shouldScrollIntoView]);
 
   return (
     <button
@@ -119,7 +129,7 @@ function SlashCommandRow({
         "disabled:cursor-not-allowed disabled:opacity-45",
         selected ? "bg-token-list-hover-background" : "hover:bg-token-list-hover-background",
       )}
-      onMouseEnter={() => onHighlight(command.id)}
+      onMouseEnter={() => onHighlight(command.id, "pointer")}
       onClick={() => {
         if (disabled) return;
         onSelect(command);

@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils";
 import type {
   ComposerSlashCommand,
   ComposerSlashCommandGroup,
+  ComposerSlashCommandHighlightSource,
   ComposerSlashCommandMatch,
 } from "./slash-command-types";
 import { SlashCommandList } from "./slash-command-list";
@@ -12,8 +13,9 @@ interface InlineSlashCommandMenuProps {
   groups: ComposerSlashCommandGroup[];
   matches: readonly ComposerSlashCommandMatch[];
   highlightedCommandId: string | null;
+  highlightedSource: ComposerSlashCommandHighlightSource;
   nestedCommand: ComposerSlashCommand | null;
-  onHighlight: (commandId: string) => void;
+  onHighlight: (commandId: string, source: ComposerSlashCommandHighlightSource) => void;
   onSelect: (command: ComposerSlashCommand) => void;
   onClose: () => void;
   onBack: () => void;
@@ -24,6 +26,7 @@ export function InlineSlashCommandMenu({
   groups,
   matches,
   highlightedCommandId,
+  highlightedSource,
   nestedCommand,
   onHighlight,
   onSelect,
@@ -77,6 +80,7 @@ export function InlineSlashCommandMenu({
           groups={groups}
           matches={matches}
           highlightedCommandId={highlightedCommandId}
+          highlightedSource={highlightedSource}
           onHighlight={onHighlight}
           onSelect={onSelect}
         />

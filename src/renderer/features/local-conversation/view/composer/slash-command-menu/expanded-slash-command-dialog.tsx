@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { SearchIcon } from "lucide-react";
 import { groupComposerSlashCommandMatches, filterComposerSlashCommands } from "./slash-command-filter";
-import type { ComposerSlashCommand } from "./slash-command-types";
+import type { ComposerSlashCommand, ComposerSlashCommandHighlightSource } from "./slash-command-types";
 import { SlashCommandList } from "./slash-command-list";
 
 interface ExpandedSlashCommandDialogProps {
@@ -9,7 +9,8 @@ interface ExpandedSlashCommandDialogProps {
   commands: readonly ComposerSlashCommand[];
   composerText: string;
   highlightedCommandId: string | null;
-  onHighlight: (commandId: string) => void;
+  highlightedSource: ComposerSlashCommandHighlightSource;
+  onHighlight: (commandId: string, source: ComposerSlashCommandHighlightSource) => void;
   onSelect: (command: ComposerSlashCommand) => void;
   onClose: () => void;
 }
@@ -19,6 +20,7 @@ export function ExpandedSlashCommandDialog({
   commands,
   composerText,
   highlightedCommandId,
+  highlightedSource,
   onHighlight,
   onSelect,
   onClose,
@@ -95,6 +97,7 @@ export function ExpandedSlashCommandDialog({
               groups={groups}
               matches={matches}
               highlightedCommandId={highlightedCommandId}
+              highlightedSource={highlightedSource}
               onHighlight={onHighlight}
               onSelect={handleSelect}
             />

@@ -573,6 +573,93 @@ describe("ThreadComposer speed menu", () => {
     });
   });
 
+  test("keeps slash menu scroll position stable across hover and item recompute", async () => {
+    resetStorage();
+    const elementPrototype = HTMLElement.prototype as unknown as {
+      scrollIntoView?: (options?: unknown) => void;
+    };
+    const originalScrollIntoView = elementPrototype.scrollIntoView;
+    let scrollIntoViewCalls = 0;
+
+    elementPrototype.scrollIntoView = function scrollIntoViewMock(this: HTMLElement) {
+      scrollIntoViewCalls += 1;
+      const list = this.closest('[role="listbox"]');
+      if (list instanceof HTMLElement) {
+        list.scrollTop = 0;
+      }
+    };
+
+    try {
+      const initialModel = buildModel({
+        composerIntent: {
+          prompt: "/",
+          focusNonce: 1,
+        },
+      });
+      const view = await renderComposer(initialModel);
+      const modelRow = await waitFor(() => {
+        const row = view.container.querySelector('[data-slash-command-row="model"]');
+        if (!(row instanceof HTMLElement)) throw new Error("Expected Model slash command row.");
+        return row;
+      });
+      const compactRow = view.container.querySelector('[data-slash-command-row="compact"]');
+      const list = view.container.querySelector('[role="listbox"]');
+      if (!(compactRow instanceof HTMLElement) || !(list instanceof HTMLElement)) {
+        throw new Error("Expected slash command list rows.");
+      }
+
+      scrollIntoViewCalls = 0;
+      list.scrollTop = 180;
+      await act(async () => {
+        fireEvent.mouseEnter(modelRow);
+        await Promise.resolve();
+      });
+
+      expect(scrollIntoViewCalls).toBe(0);
+      expect(list.scrollTop).toBe(180);
+      expect(modelRow.getAttribute("aria-selected")).toBe("true");
+
+      scrollIntoViewCalls = 0;
+      list.scrollTop = 180;
+      await act(async () => {
+        view.rerender(
+          <AppProviders>
+            <ThreadComposer
+              model={buildModel({
+                composerIntent: {
+                  prompt: "/",
+                  focusNonce: 1,
+                },
+                selectedModel: "gpt-5.5",
+              })}
+              actions={buildActions()}
+              errorMessage={null}
+              onErrorMessage={() => {}}
+            />
+          </AppProviders>,
+        );
+        await Promise.resolve();
+      });
+
+      const nextModelRow = view.container.querySelector('[data-slash-command-row="model"]');
+      const nextCompactRow = view.container.querySelector('[data-slash-command-row="compact"]');
+      if (!(nextModelRow instanceof HTMLElement) || !(nextCompactRow instanceof HTMLElement)) {
+        throw new Error("Expected slash command rows after rerender.");
+      }
+
+      expect(scrollIntoViewCalls).toBe(0);
+      expect(list.scrollTop).toBe(180);
+      expect(nextModelRow.getAttribute("aria-selected")).toBe("true");
+      expect(nextCompactRow.getAttribute("aria-selected")).toBe("false");
+    } finally {
+      if (originalScrollIntoView) {
+        elementPrototype.scrollIntoView = originalScrollIntoView;
+      } else {
+        delete elementPrototype.scrollIntoView;
+      }
+    }
+  });
+
   test("filters slash commands and selects Fast from the inline menu", async () => {
     resetStorage();
     const view = await renderComposer({

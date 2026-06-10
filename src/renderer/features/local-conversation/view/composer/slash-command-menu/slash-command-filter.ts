@@ -112,6 +112,19 @@ export function resolveNextSlashHighlight(input: {
   return input.matches[(currentIndex - 1 + input.matches.length) % input.matches.length]?.command.id ?? null;
 }
 
+export function resolvePreservedSlashHighlight(input: {
+  matches: readonly ComposerSlashCommandMatch[];
+  currentCommandId: string | null;
+}): string | null {
+  if (input.matches.length === 0) return null;
+  if (!input.currentCommandId) return input.matches[0]?.command.id ?? null;
+
+  const currentStillVisible = input.matches.some((match) => match.command.id === input.currentCommandId);
+  if (currentStillVisible) return input.currentCommandId;
+
+  return input.matches[0]?.command.id ?? null;
+}
+
 function matchSlashCommand(command: ComposerSlashCommand, normalizedQuery: string): ComposerSlashCommandMatch | null {
   if (!normalizedQuery) {
     return {
