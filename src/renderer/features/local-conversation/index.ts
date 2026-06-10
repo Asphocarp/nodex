@@ -33,6 +33,10 @@ export { ConnectedThreadStage } from "./view/connected-thread-stage";
 export { ConnectedReviewDiffPanel } from "./view/connected-review-diff-panel";
 export { ThreadSummaryPanelHeaderAction, ThreadSummaryPanelToggle } from "./view/summary-panel";
 export {
+  createThreadStageActions,
+  type ThreadActionControllerInput,
+} from "./thread-action-controller";
+export {
   selectBlockedTurnIds,
   selectConversationLiveRequests,
   selectConversationSearchUnits,

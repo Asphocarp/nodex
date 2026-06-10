@@ -311,6 +311,17 @@ export interface ProjectSessionsChangeEvent {
   sessionId?: string;
 }
 
+export interface GitBranchState {
+  currentBranch: string | null;
+  defaultBranch: string | null;
+  branches: string[];
+}
+
+export interface GitBranchInput {
+  cwd: string;
+  branch: string;
+}
+
 export interface IpcApi {
   "projects:list": { args: []; result: Project[] };
   "projects:get": { args: [projectId: string]; result: Project | null };
@@ -546,6 +557,28 @@ export interface IpcApi {
     result: BrowserSidebarCommandResult;
   };
 
+  // Git branch state
+  "git:branch:state": {
+    args: [cwd: string];
+    result: GitBranchState;
+  };
+  "git:branch:checkout": {
+    args: [input: GitBranchInput];
+    result: GitBranchState;
+  };
+  "git:branch:create": {
+    args: [input: GitBranchInput];
+    result: GitBranchState;
+  };
+  "git:branch:watch:start": {
+    args: [cwd: string];
+    result: void;
+  };
+  "git:branch:watch:stop": {
+    args: [];
+    result: void;
+  };
+
   // Git review
   "git:review:snapshot": {
     args: [input: { cwd: string; source: GitReviewSource; baseRef?: string | null }];
@@ -673,6 +706,18 @@ export interface IpcApi {
   };
   "codex:thread:follow-up:enqueue": {
     args: [threadId: string, prompt: string, opts?: CodexTurnStartOptions];
+    result: void;
+  };
+  "codex:thread:follow-up:remove": {
+    args: [threadId: string, followUpId: string];
+    result: void;
+  };
+  "codex:thread:follow-up:reorder": {
+    args: [threadId: string, orderedFollowUpIds: string[]];
+    result: void;
+  };
+  "codex:thread:follow-up:send-now": {
+    args: [threadId: string, followUpId: string];
     result: void;
   };
   "codex:thread:edit-last-user-turn": {

@@ -25,6 +25,7 @@ export function buildComposerQueuedFollowUpRows(
     followUpId: entry.followUpId,
     threadId: entry.threadId,
     prompt: entry.prompt,
+    ...(entry.promptInput ? { promptInput: entry.promptInput } : {}),
     displayText: resolveComposerFollowUpDisplayText(entry.prompt),
     collaborationMode: entry.collaborationMode ?? null,
     pausedReason: entry.pausedReason ?? null,

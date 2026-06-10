@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, dialog, ipcMain, nativeImage, type MenuItemConstructorOptions } from "electron";
+import { app, BrowserWindow, Menu, dialog, ipcMain, nativeImage, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from "electron";
 import { writeImageToClipboard } from "./clipboard-image-writer";
 import { inspectClipboardPasteItems } from "./clipboard-paste-inspector";
 import { prepareComposerPickedFiles } from "./composer-picked-files";
@@ -25,6 +25,7 @@ import { codexService } from "./codex/codex-service";
 import { openFileLinkTarget } from "./file-link-opener";
 import { dbNotifier } from "./kanban/db-notifier";
 import type { WorkbenchLayoutSnapshot } from "../shared/workbench-layout";
+import type { IpcApi } from "../shared/ipc-api";
 import type {
   WindowSessionBootstrap,
   WindowSessionBounds,
@@ -61,9 +62,14 @@ import type {
   BrowserSidebarWebviewHostCreated,
 } from "../shared/browser-sidebar";
 
-function registerHandle(
-  channel: string,
-  listener: Parameters<typeof ipcMain.handle>[1],
+type TypedIpcHandler<Channel extends keyof IpcApi> = (
+  event: IpcMainInvokeEvent,
+  ...args: IpcApi[Channel]["args"]
+) => IpcApi[Channel]["result"] | Promise<IpcApi[Channel]["result"]>;
+
+function registerHandle<Channel extends keyof IpcApi>(
+  channel: Channel,
+  listener: TypedIpcHandler<Channel>,
 ): void {
   // Make registration idempotent so hot-reloads cannot leave partial channel maps.
   ipcMain.removeHandler(channel);

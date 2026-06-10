@@ -9,6 +9,8 @@ import {
   useRef,
   useSyncExternalStore,
 } from "react";
+import type { ThreadMemoryMode } from "@nodex/codex-app-server-protocol";
+import type { FeedbackUploadParams, ThreadGoal } from "@nodex/codex-app-server-protocol/v2";
 import type {
   CodexAccountSnapshot,
   CodexApprovalDecision,
@@ -36,6 +38,7 @@ import type {
   CodexSideChatStartInput,
   CodexSideChatStartResult,
   CodexSteerTurnInput,
+  CodexThreadActionResult,
   CodexThreadDetail,
   CodexReasoningEffortOption,
   CodexServiceTier,
@@ -1063,6 +1066,78 @@ export class CodexAppServerManager {
 
   async enqueueQueuedFollowUp(threadId: string, prompt: string, opts?: CodexTurnStartOptions): Promise<void> {
     await invoke("codex:thread:follow-up:enqueue", threadId, prompt, opts);
+  }
+
+  async removeQueuedFollowUp(threadId: string, followUpId: string): Promise<void> {
+    await invoke("codex:thread:follow-up:remove", threadId, followUpId);
+  }
+
+  async reorderQueuedFollowUps(threadId: string, orderedFollowUpIds: string[]): Promise<void> {
+    await invoke("codex:thread:follow-up:reorder", threadId, orderedFollowUpIds);
+  }
+
+  async sendQueuedFollowUpNow(threadId: string, followUpId: string): Promise<void> {
+    await invoke("codex:thread:follow-up:send-now", threadId, followUpId);
+  }
+
+  async editLastUserTurn(
+    threadId: string,
+    turnId: string,
+    message: string,
+    opts?: { serviceTier?: CodexServiceTier },
+  ): Promise<CodexThreadActionResult> {
+    return (await invoke(
+      "codex:thread:edit-last-user-turn",
+      threadId,
+      turnId,
+      message,
+      opts,
+    )) as CodexThreadActionResult;
+  }
+
+  async forkConversationFromTurn(
+    threadId: string,
+    turnId: string,
+    message: string,
+  ): Promise<CodexThreadActionResult> {
+    return (await invoke("codex:thread:fork-from-turn", threadId, turnId, message)) as CodexThreadActionResult;
+  }
+
+  async compactThread(threadId: string): Promise<void> {
+    await invoke("codex:thread:compact:start", threadId);
+  }
+
+  async getThreadGoal(threadId: string): Promise<ThreadGoal | null> {
+    return (await invoke("codex:thread:goal:get", threadId)) as ThreadGoal | null;
+  }
+
+  async setThreadGoal(input: {
+    threadId: string;
+    objective: string;
+    tokenBudget?: number | null;
+  }): Promise<ThreadGoal | null> {
+    return (await invoke(
+      "codex:thread:goal:set",
+      input.threadId,
+      input.objective,
+      input.tokenBudget,
+    )) as ThreadGoal | null;
+  }
+
+  async clearThreadGoal(threadId: string): Promise<void> {
+    await invoke("codex:thread:goal:clear", threadId);
+  }
+
+  async setThreadMemoryMode(input: { threadId: string; mode: ThreadMemoryMode }): Promise<void> {
+    await invoke("codex:thread:memory-mode:set", input.threadId, input.mode);
+  }
+
+  async uploadFeedback(params: FeedbackUploadParams): Promise<void> {
+    await invoke("codex:feedback:upload", params);
+  }
+
+  async cleanBackgroundTerminals(threadId: string): Promise<boolean> {
+    return (await invoke("codex:thread:background-terminals:clean", threadId)) as boolean;
   }
 
   async steerTurn(input: CodexSteerTurnInput): Promise<{ turnId: string } | null> {
@@ -2640,6 +2715,10 @@ export function useCodexAppServerControl(activeProjectId: string) {
   );
   const loadModels = useCallback(async () => manager.loadAvailableModels(), [manager]);
   const listCollaborationModes = useCallback(async () => manager.listCollaborationModes(), [manager]);
+  const requestThreadStreamSnapshot = useCallback(
+    async (threadId: string) => manager.requestThreadStreamSnapshot(threadId),
+    [manager],
+  );
 
   const startThreadForCard = useCallback(async (
     input: CodexThreadStartForCardInput & {
@@ -2754,6 +2833,83 @@ export function useCodexAppServerControl(activeProjectId: string) {
     await manager.enqueueQueuedFollowUp(threadId, prompt, turnOpts);
   }, [activeProjectId, availableModels, manager, serviceTierSettings.serviceTier, storedThreadSettings]);
 
+  const removeQueuedFollowUp = useCallback(
+    async (threadId: string, followUpId: string) => manager.removeQueuedFollowUp(threadId, followUpId),
+    [manager],
+  );
+  const reorderQueuedFollowUps = useCallback(
+    async (threadId: string, orderedFollowUpIds: string[]) => manager.reorderQueuedFollowUps(threadId, orderedFollowUpIds),
+    [manager],
+  );
+  const sendQueuedFollowUpNow = useCallback(
+    async (threadId: string, followUpId: string) => manager.sendQueuedFollowUpNow(threadId, followUpId),
+    [manager],
+  );
+  const editLastUserTurn = useCallback(async (
+    threadId: string,
+    turnId: string,
+    message: string,
+    opts?: { serviceTier?: CodexServiceTier },
+  ) => {
+    const effectiveServiceTier = resolveCodexRequestServiceTier(opts, serviceTierSettings.serviceTier);
+    return manager.editLastUserTurn(
+      threadId,
+      turnId,
+      message,
+      buildCodexServiceTierRequestOverride(effectiveServiceTier),
+    );
+  }, [manager, serviceTierSettings.serviceTier]);
+  const forkConversationFromTurn = useCallback(
+    async (threadId: string, turnId: string, message: string) =>
+      manager.forkConversationFromTurn(threadId, turnId, message),
+    [manager],
+  );
+  const compactThread = useCallback(
+    async (threadId: string) => manager.compactThread(threadId),
+    [manager],
+  );
+  const getThreadGoal = useCallback(
+    async (threadId: string) => manager.getThreadGoal(threadId),
+    [manager],
+  );
+  const setThreadGoal = useCallback(
+    async (input: { threadId: string; objective: string; tokenBudget?: number | null }) => manager.setThreadGoal(input),
+    [manager],
+  );
+  const clearThreadGoal = useCallback(
+    async (threadId: string) => manager.clearThreadGoal(threadId),
+    [manager],
+  );
+  const setThreadMemoryMode = useCallback(
+    async (input: { threadId: string; mode: ThreadMemoryMode }) => manager.setThreadMemoryMode(input),
+    [manager],
+  );
+  const uploadFeedback = useCallback(
+    async (params: FeedbackUploadParams) => manager.uploadFeedback(params),
+    [manager],
+  );
+  const cleanBackgroundTerminals = useCallback(
+    async (threadId: string) => manager.cleanBackgroundTerminals(threadId),
+    [manager],
+  );
+  const setComposerIntent = useCallback(
+    (threadId: string, composerIntent: CodexComposerIntent) => manager.setComposerIntent(threadId, composerIntent),
+    [manager],
+  );
+  const consumeComposerIntent = useCallback(
+    (threadId: string, focusNonce: number) => manager.consumeComposerIntent(threadId, focusNonce),
+    [manager],
+  );
+  const setConversationCollaborationMode = useCallback(
+    async (threadId: string, mode: CodexCollaborationModeKind) =>
+      manager.setLatestCollaborationModeForConversation(threadId, mode),
+    [manager],
+  );
+  const removePlanImplementationRequest = useCallback(
+    async (threadId: string, turnId: string) => manager.removePlanImplementationRequest(threadId, turnId),
+    [manager],
+  );
+
   const steerTurn = useCallback(
     async (input: CodexSteerTurnInput) => {
       const effectiveServiceTier = resolveCodexRequestServiceTier(input, serviceTierSettings.serviceTier);
@@ -2804,6 +2960,7 @@ export function useCodexAppServerControl(activeProjectId: string) {
     loadThreads,
     loadModels,
     listCollaborationModes,
+    requestThreadStreamSnapshot,
     startThreadForCard,
     startThreadForSession,
     startSideChat,
@@ -2813,6 +2970,22 @@ export function useCodexAppServerControl(activeProjectId: string) {
     unarchiveThread,
     startTurn,
     enqueueQueuedFollowUp,
+    removeQueuedFollowUp,
+    reorderQueuedFollowUps,
+    sendQueuedFollowUpNow,
+    editLastUserTurn,
+    forkConversationFromTurn,
+    compactThread,
+    getThreadGoal,
+    setThreadGoal,
+    clearThreadGoal,
+    setThreadMemoryMode,
+    uploadFeedback,
+    cleanBackgroundTerminals,
+    setComposerIntent,
+    consumeComposerIntent,
+    setConversationCollaborationMode,
+    removePlanImplementationRequest,
     steerTurn,
     interruptTurn,
     respondApproval,

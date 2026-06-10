@@ -88,7 +88,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
   - Completed final assistant messages can expose `Copy`, `Good response`, `Bad response`, `Fork from this point`, and sent timestamp actions.
   - The assistant sent timestamp comes from `finalAssistantStartedAtMs`, refreshed from live agent-message event timing; protocol `completedAt` is only an archived/read fallback and is not the renderer's display source.
   - `Fork from this point` is shown on eligible completed final assistant messages; latest-turn forks execute immediately, while older-turn forks open a confirmation dialog unless the user has opted out of that confirmation.
-  - Forking opens a new thread tab backed by the forked conversation snapshot and focuses the composer in the new thread.
+  - Forking from a session-backed thread opens a new project session backed by the forked conversation snapshot and focuses the composer in that new session. Non-session legacy thread surfaces may still open the forked thread directly.
 - Mounted thread turn rendering follows the turn projection pipeline:
   - each visible turn is projected from an ordered item stream into semantic render buckets, then rendered in a fixed order instead of category-priority reshuffling
   - visible order is `model changed -> user -> model reroute -> agent/exploration body -> system event -> assistant with assistant-after artifacts/actions -> MCP elicitation -> proposed plan / todo -> in-progress placeholder -> provenance markers`
@@ -655,7 +655,7 @@ nodex/
 | PUT | `/api/project-sessions/[sessionId]/archive` | Archive a non-Overview session and linked Codex thread when attached |
 | PUT | `/api/project-sessions/[sessionId]/unarchive` | Unarchive a non-Overview session and linked Codex thread when attached |
 | PUT | `/api/project-sessions/[sessionId]/unread` | Mark a non-Overview session read/unread (body: `{unread}`) |
-| POST | `/api/project-sessions/[sessionId]/fork` | Fork an attached session thread into a new project session (body: `{target: "local" \| "newWorktree"}`) |
+| POST | `/api/project-sessions/[sessionId]/fork` | Fork an attached session thread into a new project session (body: `{target: "local" \| "newWorktree", turnId?, message?, collaborationMode?}`) |
 | PUT | `/api/project-sessions/[sessionId]/panels/[panelId]` | Update a `right` or `bottom` panel's collapsed state, layout, or size |
 | POST | `/api/project-sessions/[sessionId]/panels/[panelId]/split` | Split a panel group left/right/up/down, optionally moving a selected tab into the new group |
 | POST | `/api/project-sessions/[sessionId]/panels/[panelId]/merge` | Close or merge a panel group; non-empty groups merge tabs into the nearest visual neighbor first |

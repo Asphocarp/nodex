@@ -5647,8 +5647,24 @@ export class CodexService extends EventEmitter {
           createdManagedWorktree: false,
         };
 
+    const sourceThreadId = sourceSession.thread.threadId;
+    const sourceDetail = parsed.turnId ? this.serializeThreadDetail(sourceThreadId) : null;
+    if (parsed.turnId && !sourceDetail) {
+      throw new Error(`Thread '${sourceThreadId}' is not loaded for turn-scoped fork`);
+    }
+    const sourceTurnIndex = parsed.turnId && sourceDetail
+      ? sourceDetail.turns.findIndex((turn) => turn.turnId === parsed.turnId)
+      : -1;
+    if (parsed.turnId && sourceDetail && sourceTurnIndex < 0) {
+      throw new Error(`Turn '${parsed.turnId}' was not found in thread '${sourceThreadId}'`);
+    }
+    const sourceTurn = sourceTurnIndex >= 0 ? sourceDetail?.turns[sourceTurnIndex] : null;
+    if (sourceTurn && sourceTurn.status === "inProgress") {
+      throw new Error("Only completed turns can be forked");
+    }
+
     const forkParams: ThreadForkParams = {
-      threadId: sourceSession.thread.threadId,
+      threadId: sourceThreadId,
       cwd: runLocation.cwd,
     };
     const forkResult = await this.client.request<"thread/fork", ThreadForkResponse>("thread/fork", forkParams);
@@ -5656,13 +5672,22 @@ export class CodexService extends EventEmitter {
     if (typeof forkedThreadId !== "string" || forkedThreadId.length === 0) {
       throw new Error("Thread fork did not return a valid thread id");
     }
+    const turnsToDrop = sourceDetail && sourceTurnIndex >= 0
+      ? sourceDetail.turns.length - sourceTurnIndex - 1
+      : 0;
+    const finalThreadPayload = turnsToDrop > 0
+      ? (await this.client.request<"thread/rollback", ThreadRollbackResponse>("thread/rollback", {
+          threadId: forkedThreadId,
+          numTurns: turnsToDrop,
+        })).thread
+      : forkResult.thread;
 
     const nextSession = projectSessionService.createProjectSession({
       projectId: sourceSession.projectId,
       title: sourceSession.title,
     });
     const summary = this.upsertSessionLinkFromThread(
-      forkResult.thread,
+      finalThreadPayload,
       {
         projectId: sourceSession.projectId,
         sessionId: nextSession.id,
@@ -5673,12 +5698,19 @@ export class CodexService extends EventEmitter {
       throw new Error("Thread fork completed but could not be attached to a project session");
     }
 
-    const detail = this.buildThreadDetailFromRead(forkResult.thread)
+    const detail = this.buildThreadDetailFromRead(finalThreadPayload)
       ?? this.serializeThreadDetail(forkedThreadId);
     if (!detail) {
       throw new Error(`Thread fork completed but canonical conversation '${forkedThreadId}' is unavailable`);
     }
     this.setConversationRecordDetail(detail);
+    if (parsed.collaborationMode) {
+      const latestCollaborationMode = this.buildCollaborationModeState({
+        collaborationMode: parsed.collaborationMode,
+        fallback: detail.latestCollaborationMode,
+      });
+      this.setLatestCollaborationModeForThread(detail.threadId, latestCollaborationMode);
+    }
     this.emitEvent({ type: "threadSummary", thread: summary });
     this.emitThreadStreamSnapshotFromRecord(summary.threadId);
 
@@ -5690,6 +5722,7 @@ export class CodexService extends EventEmitter {
     return {
       session,
       threadId: summary.threadId,
+      ...(parsed.turnId ? { composerIntent: this.buildComposerIntent(parsed.message ?? "") } : {}),
     };
   }
 

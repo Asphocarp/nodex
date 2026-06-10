@@ -71,6 +71,7 @@ import {
   useLocalConversationAccount,
   useLocalConversationConnection,
 } from "@/features/local-conversation";
+import { createThreadStageActions } from "@/features/local-conversation/thread-action-controller";
 import { McpCapabilityViewFrame } from "@/features/local-conversation/view/shared/tools/mcp-capability-view-frame";
 import {
   loadCalendarViewState,
@@ -152,6 +153,7 @@ import type {
   CodexConnectionState,
   CodexCollaborationModePreset,
   CodexThreadSummary,
+  CodexTurnDiffReviewTarget,
   CodexPromptInput,
   PanelId,
   Project,
@@ -165,7 +167,7 @@ import type {
   WorktreeStartMode,
   WorktreeEnvironmentOption,
 } from "@/lib/types";
-import type { ThreadStageActions } from "@/features/local-conversation";
+import type { ThreadActionControllerInput, ThreadStageActions } from "@/features/local-conversation";
 import type {
   ThreadMcpAppSidePanelInput,
   ThreadSummaryPanelAuxiliaryRow,
@@ -1060,6 +1062,8 @@ export function WorkbenchShell({
   const [stripSmartPrefixFromTitleEnabled, setStripSmartPrefixFromTitleEnabled] = useState(
     readStripSmartPrefixFromTitleEnabled,
   );
+  const [selectedTurnDiffReviewTarget, setSelectedTurnDiffReviewTarget] =
+    useState<CodexTurnDiffReviewTarget | null>(null);
   const codexAccount = useLocalConversationAccount();
   const codexConnection = useLocalConversationConnection();
   const codexAccountActions = useCodexAccountActions();
@@ -1366,6 +1370,12 @@ export function WorkbenchShell({
   useEffect(() => {
     void activeProjectKanban.refresh();
   }, [activeProjectKanban.refresh, activeProject?.id, activeSession?.id]);
+
+  useEffect(() => {
+    if (!selectedTurnDiffReviewTarget) return;
+    if (activeSession?.thread?.threadId === selectedTurnDiffReviewTarget.threadId) return;
+    setSelectedTurnDiffReviewTarget(null);
+  }, [activeSession?.thread?.threadId, selectedTurnDiffReviewTarget]);
 
   const handleThreadQueueFollowUpsEnabledChange = useCallback((value: boolean) => {
     setThreadQueueFollowUpsEnabled(writeThreadQueueFollowUpsEnabled(value));
@@ -2740,6 +2750,52 @@ export function WorkbenchShell({
     await refreshProjectSessions(activeSession.projectId);
   }, [activeSession, ensureActivePanelOpenWithoutRefresh, refreshProjectSessions]);
 
+  const openAttachedThreadSession = useCallback((threadId: string) => {
+    const session = Object.values(sessionsByProject)
+      .flat()
+      .find((candidate) => candidate.thread?.threadId === threadId);
+    if (!session) {
+      toast.info("That thread is not attached to a chat in this workspace", {
+        id: `thread-open-unattached-${threadId}`,
+      });
+      return;
+    }
+
+    selectSession(session);
+  }, [selectSession, sessionsByProject]);
+
+  const openTurnDiffReview = useCallback((target: CodexTurnDiffReviewTarget) => {
+    setSelectedTurnDiffReviewTarget(target);
+    void createManualTab("review", "right");
+  }, [createManualTab]);
+
+  const forkSessionFromTurn = useCallback(async (input: {
+    threadId: string;
+    turnId: string;
+    message: string;
+    collaborationMode: CodexCollaborationModeKind;
+  }) => {
+    const sourceSession = Object.values(sessionsByProject)
+      .flat()
+      .find((candidate) => candidate.thread?.threadId === input.threadId);
+    if (!sourceSession) {
+      throw new Error("This thread is not attached to a project session");
+    }
+
+    const result = await invoke("project-sessions:fork", sourceSession.id, {
+      target: "local",
+      turnId: input.turnId,
+      message: input.message,
+      collaborationMode: input.collaborationMode,
+    }) as ProjectSessionForkResult;
+    await refreshProjectSessions(result.session.projectId);
+    selectSession(result.session);
+    if (result.composerIntent) {
+      workbenchCodexControl.setComposerIntent(result.threadId, result.composerIntent);
+    }
+    await workbenchCodexControl.requestThreadStreamSnapshot(result.threadId);
+  }, [refreshProjectSessions, selectSession, sessionsByProject, workbenchCodexControl]);
+
   const createBrowserTabToRight = useCallback(async (sourceTab: ProjectSessionTab, duplicate: boolean) => {
     if (!activeSession) return;
     const panelId = sourceTab.panelId;
@@ -3163,6 +3219,9 @@ export function WorkbenchShell({
               onRefreshSessions={refreshProjectSessions}
               onRecreateSideChat={() => void recreateSideChatPanelTab(tab.id)}
               onOpenMcpAppSidePanel={openMcpAppSidePanel}
+              onQueueingEnabledChange={handleThreadQueueFollowUpsEnabledChange}
+              onOpenThread={openAttachedThreadSession}
+              onOpenTurnDiffReview={openTurnDiffReview}
             />
           );
         }
@@ -3192,6 +3251,7 @@ export function WorkbenchShell({
             onOpenCardTab={openCardTab}
             onRefreshSessions={refreshProjectSessions}
             onCloseTab={closeTab}
+            selectedTurnDiffReviewTarget={selectedTurnDiffReviewTarget}
           />
         );
       },
@@ -3265,6 +3325,9 @@ export function WorkbenchShell({
     openSideChat,
     openMcpAppSidePanel,
     openCardTab,
+    handleThreadQueueFollowUpsEnabledChange,
+    openAttachedThreadSession,
+    openTurnDiffReview,
     pendingReminderOpen,
     projects,
     recreateSideChatPanelTab,
@@ -3277,6 +3340,7 @@ export function WorkbenchShell({
     setSearchQuery,
     sideChatActiveTabByPanel,
     sideChatTabsBySession,
+    selectedTurnDiffReviewTarget,
     previewTabsByPanel,
   ]);
 
@@ -4184,6 +4248,10 @@ export function WorkbenchShell({
                         onEnsureBlankSessionForProject={ensureBlankSessionForProject}
                         onRequestProjectPickerOpen={onRequestProjectPickerOpen}
                         onOpenLocalEnvironmentsSettings={openLocalEnvironmentsSettings}
+                        onQueueingEnabledChange={handleThreadQueueFollowUpsEnabledChange}
+                        onOpenThread={openAttachedThreadSession}
+                        onOpenTurnDiffReview={openTurnDiffReview}
+                        onForkSessionFromTurn={forkSessionFromTurn}
                         accountActions={codexAccountActions}
                         worktreeStartMode={worktreeStartMode}
                         worktreeBranchPrefix={worktreeAutoBranchPrefix}
@@ -4892,6 +4960,10 @@ function SessionThreadPage({
   onEnsureBlankSessionForProject,
   onRequestProjectPickerOpen,
   onOpenLocalEnvironmentsSettings,
+  onQueueingEnabledChange,
+  onOpenThread,
+  onOpenTurnDiffReview,
+  onForkSessionFromTurn,
   accountActions,
   worktreeStartMode,
   worktreeBranchPrefix,
@@ -4915,6 +4987,10 @@ function SessionThreadPage({
   onEnsureBlankSessionForProject: (projectId: string) => Promise<ProjectSession>;
   onRequestProjectPickerOpen: () => void;
   onOpenLocalEnvironmentsSettings: () => void;
+  onQueueingEnabledChange: ThreadStageActions["onQueueingEnabledChange"];
+  onOpenThread: ThreadStageActions["onOpenThread"];
+  onOpenTurnDiffReview: ThreadStageActions["onOpenTurnDiffReview"];
+  onForkSessionFromTurn: NonNullable<ThreadActionControllerInput["onForkSessionFromTurn"]>;
   accountActions: ReturnType<typeof useCodexAccountActions>;
   worktreeStartMode: WorktreeStartMode;
   worktreeBranchPrefix: string;
@@ -4986,13 +5062,17 @@ function SessionThreadPage({
     void refreshNewThreadEnvironments();
   }, [refreshNewThreadEnvironments, selectedNewThreadRunInTarget, summary]);
 
-  const actions = useMemo(() => makeSessionThreadStageActions({
+  const actions = useMemo(() => createThreadStageActions({
     activeThreadId: summary?.threadId ?? null,
     accountActions,
     codexControl,
     onOpenCard,
     onEnsureBlankSessionForProject,
     onRefreshProjectSessions,
+    onQueueingEnabledChange,
+    onOpenThread,
+    onOpenTurnDiffReview,
+    onForkSessionFromTurn,
     currentSessionProjectId: session.projectId,
     projectId: effectiveProjectId,
     onNewThreadProjectChange: setSelectedNewThreadProjectId,
@@ -5019,6 +5099,10 @@ function SessionThreadPage({
     onOpenCard,
     onEnsureBlankSessionForProject,
     onRefreshProjectSessions,
+    onQueueingEnabledChange,
+    onOpenThread,
+    onOpenTurnDiffReview,
+    onForkSessionFromTurn,
     onRequestProjectPickerOpen,
     onOpenLocalEnvironmentsSettings,
     onOpenSideChat,
@@ -5113,164 +5197,6 @@ function makeThreadSummary(thread: ProjectSessionThreadLink): CodexThreadSummary
   };
 }
 
-function makeNoopThreadStageActions(onOpenCard: (cardId: string) => void): ThreadStageActions {
-  const noopAsync = async () => undefined;
-  return {
-    onCollaborationModeChange: () => undefined,
-    onModelChange: () => undefined,
-    onReasoningEffortChange: () => undefined,
-    onPermissionModeChange: () => undefined,
-    onQueueingEnabledChange: () => undefined,
-    onRefreshAccount: async () => ({
-      isAuthenticated: false,
-      authMethod: null,
-      account: null,
-      requiresOpenAiAuth: false,
-    }) as unknown as CodexAccountSnapshot,
-    onStartChatGptLogin: async () => ({ type: "apiKey" }),
-    onStartApiKeyLogin: async () => ({ type: "apiKey" }),
-    onCancelLogin: noopAsync,
-    onLogout: noopAsync,
-    onStartThreadForCard: noopAsync,
-    onSendPrompt: noopAsync,
-    onOpenSideChat: noopAsync,
-    onOpenMcpAppSidePanel: noopAsync,
-    onSteerPrompt: async () => undefined,
-    onInterruptTurn: async () => undefined,
-    onRespondApproval: async () => undefined,
-    onRespondUserInput: async () => undefined,
-    onRespondMcpElicitation: async () => undefined,
-    onResolvePlanImplementationRequest: noopAsync,
-    onEnqueueQueuedFollowUp: noopAsync,
-    onRemoveQueuedFollowUp: noopAsync,
-    onReorderQueuedFollowUps: noopAsync,
-    onSendQueuedFollowUpNow: noopAsync,
-    onEditQueuedFollowUp: noopAsync,
-    onEditLastUserTurn: noopAsync,
-    onForkFromTurn: noopAsync,
-    onUnarchiveThread: noopAsync,
-    onOpenTurnDiffReview: () => undefined,
-    onConsumeComposerIntent: () => undefined,
-    onOpenThread: () => undefined,
-    onCleanBackgroundTerminals: async () => undefined,
-    onOpenCard,
-  };
-}
-
-function makeSessionThreadStageActions(input: {
-  activeThreadId: string | null;
-  accountActions: ReturnType<typeof useCodexAccountActions>;
-  codexControl: ReturnType<typeof useCodexAppServerControl>;
-  currentSessionProjectId: string;
-  onOpenCard: (cardId: string) => void;
-  onEnsureBlankSessionForProject: (projectId: string) => Promise<ProjectSession>;
-  onRefreshProjectSessions: (projectId: string) => Promise<ProjectSession[]>;
-  onNewThreadProjectChange: (projectId: string) => void;
-  onRequestNewChatProjectCreate: () => void;
-  onNewThreadStartInTargetChange: ThreadStageActions["onNewThreadStartInTargetChange"];
-  onNewThreadStartInEnvironmentChange: ThreadStageActions["onNewThreadStartInEnvironmentChange"];
-  onRefreshNewThreadStartInEnvironments: NonNullable<ThreadStageActions["onRefreshNewThreadStartInEnvironments"]>;
-  onOpenNewThreadLocalEnvironmentsSettings: NonNullable<ThreadStageActions["onOpenNewThreadLocalEnvironmentsSettings"]>;
-  onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
-  onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
-  projectId: string;
-  selectedCollaborationMode: CodexCollaborationModeKind;
-  setSelectedCollaborationMode: (mode: CodexCollaborationModeKind) => void;
-}): ThreadStageActions {
-  const base = makeNoopThreadStageActions(input.onOpenCard);
-  return {
-    ...base,
-    onRefreshAccount: input.accountActions.refreshAccount,
-    onStartChatGptLogin: input.accountActions.startChatGptLogin,
-    onStartApiKeyLogin: input.accountActions.startApiKeyLogin,
-    onCancelLogin: async (loginId) => {
-      await input.accountActions.cancelLogin(loginId);
-    },
-    onLogout: async () => {
-      await input.accountActions.logout();
-    },
-    onCollaborationModeChange: input.setSelectedCollaborationMode,
-    onModelChange: input.codexControl.setThreadModel,
-    onReasoningEffortChange: input.codexControl.setThreadReasoningEffort,
-    onPermissionModeChange: (mode) => {
-      void input.codexControl.setPermissionMode(input.projectId, mode);
-    },
-    onStartThreadForSession: async ({
-      projectId,
-      sessionId,
-      prompt,
-      promptInput,
-      runInTarget,
-      runInEnvironmentPath,
-      worktreeStartMode,
-      worktreeBranchPrefix,
-    }) => {
-      const targetSession = projectId === input.currentSessionProjectId
-        ? null
-        : await input.onEnsureBlankSessionForProject(projectId);
-      await input.codexControl.startThreadForSession({
-        projectId,
-        sessionId: targetSession?.id ?? sessionId,
-        prompt,
-        promptInput,
-        runInTarget,
-        runInEnvironmentPath,
-        worktreeStartMode,
-        worktreeBranchPrefix: worktreeBranchPrefix ?? undefined,
-        collaborationMode: input.selectedCollaborationMode,
-      });
-      await input.onRefreshProjectSessions(projectId);
-    },
-    onNewThreadProjectChange: input.onNewThreadProjectChange,
-    onRequestNewChatProjectCreate: input.onRequestNewChatProjectCreate,
-    onNewThreadStartInTargetChange: input.onNewThreadStartInTargetChange,
-    onNewThreadStartInEnvironmentChange: input.onNewThreadStartInEnvironmentChange,
-    onRefreshNewThreadStartInEnvironments: input.onRefreshNewThreadStartInEnvironments,
-    onOpenNewThreadLocalEnvironmentsSettings: input.onOpenNewThreadLocalEnvironmentsSettings,
-    onOpenSideChat: input.onOpenSideChat ?? base.onOpenSideChat,
-    onOpenMcpAppSidePanel: input.onOpenMcpAppSidePanel ?? base.onOpenMcpAppSidePanel,
-    onSendPrompt: async (prompt, opts) => {
-      if (!input.activeThreadId) return;
-      await input.codexControl.startTurn(input.activeThreadId, prompt, {
-        projectId: input.projectId,
-        collaborationMode: opts?.collaborationMode,
-        promptInput: opts?.promptInput,
-      });
-    },
-    onSteerPrompt: async (steerInput) => {
-      if (!input.activeThreadId) return;
-      await input.codexControl.steerTurn({
-        ...steerInput,
-        threadId: input.activeThreadId,
-      });
-    },
-    onInterruptTurn: async (turnId) => {
-      if (!input.activeThreadId) return;
-      await input.codexControl.interruptTurn(input.activeThreadId, turnId);
-    },
-    onRespondApproval: async (requestId, decision) => {
-      await input.codexControl.respondApproval(requestId, decision);
-    },
-    onRespondUserInput: async (requestId, answers) => {
-      await input.codexControl.respondUserInput(requestId, answers);
-    },
-    onRespondMcpElicitation: async (requestId, action) => {
-      await input.codexControl.respondMcpElicitation(requestId, action);
-    },
-    onEnqueueQueuedFollowUp: async (threadId, prompt, opts) => {
-      await input.codexControl.enqueueQueuedFollowUp(threadId, prompt, {
-        projectId: input.projectId,
-        collaborationMode: opts?.collaborationMode,
-        promptInput: opts?.promptInput,
-      });
-    },
-    onUnarchiveThread: async (threadId, projectId) => {
-      await input.codexControl.unarchiveThread(threadId, projectId);
-      await input.onRefreshProjectSessions(projectId);
-    },
-  };
-}
-
 function McpAppSessionTab({ tab }: { tab: McpAppPanelTab }) {
   return (
     <div
@@ -5291,6 +5217,9 @@ function SideChatSessionTab({
   onRefreshSessions,
   onRecreateSideChat,
   onOpenMcpAppSidePanel,
+  onQueueingEnabledChange,
+  onOpenThread,
+  onOpenTurnDiffReview,
 }: {
   tab: SideChatPanelTab;
   activeSession: ProjectSession;
@@ -5299,6 +5228,9 @@ function SideChatSessionTab({
   onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
   onRecreateSideChat: () => void;
   onOpenMcpAppSidePanel: ThreadStageActions["onOpenMcpAppSidePanel"];
+  onQueueingEnabledChange: ThreadStageActions["onQueueingEnabledChange"];
+  onOpenThread: ThreadStageActions["onOpenThread"];
+  onOpenTurnDiffReview: ThreadStageActions["onOpenTurnDiffReview"];
 }) {
   const project = projects.find((candidate) => candidate.id === tab.projectId) ?? null;
   const conversation = useConversation(tab.threadId);
@@ -5315,7 +5247,7 @@ function SideChatSessionTab({
       .catch(() => setCollaborationModes([]));
   }, [codexControl.loadModels, codexControl.listCollaborationModes, tab.status]);
 
-  const actions = useMemo(() => makeSessionThreadStageActions({
+  const actions = useMemo(() => createThreadStageActions({
     activeThreadId: tab.threadId,
     accountActions,
     codexControl,
@@ -5324,6 +5256,9 @@ function SideChatSessionTab({
     },
     onEnsureBlankSessionForProject: async () => activeSession,
     onRefreshProjectSessions: onRefreshSessions,
+    onQueueingEnabledChange,
+    onOpenThread,
+    onOpenTurnDiffReview,
     currentSessionProjectId: activeSession.projectId,
     projectId: tab.projectId,
     onNewThreadProjectChange: () => undefined,
@@ -5341,6 +5276,9 @@ function SideChatSessionTab({
     codexControl,
     onOpenCardTab,
     onOpenMcpAppSidePanel,
+    onOpenThread,
+    onOpenTurnDiffReview,
+    onQueueingEnabledChange,
     onRefreshSessions,
     selectedCollaborationMode,
     tab.projectId,
@@ -5450,6 +5388,7 @@ function ProjectSessionTabPanel({
   onOpenCardTab,
   onRefreshSessions,
   onCloseTab,
+  selectedTurnDiffReviewTarget,
 }: {
   tab: ProjectSessionTab & { preview?: true };
   activeSession: ProjectSession;
@@ -5483,6 +5422,7 @@ function ProjectSessionTabPanel({
   onOpenCardTab: (projectId: string, cardId: string, titleSnapshot?: string) => Promise<void>;
   onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
   onCloseTab: (tabId: string) => Promise<void>;
+  selectedTurnDiffReviewTarget: CodexTurnDiffReviewTarget | null;
 }) {
   if (tab.kind === "db_view" && "view" in tab.config) {
     return (
@@ -5558,6 +5498,7 @@ function ProjectSessionTabPanel({
         threadId={activeSession.thread?.threadId ?? null}
         projectWorkspacePath={project?.workspacePath ?? null}
         searchOpenTick={0}
+        selectedTurnDiff={selectedTurnDiffReviewTarget}
       />
     );
   }

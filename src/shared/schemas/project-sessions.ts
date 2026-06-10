@@ -160,6 +160,9 @@ export const ProjectSessionForkInputSchema = z.object({
   target: z.enum(["local", "newWorktree"]),
   worktreeStartMode: z.enum(["autoBranch", "detachedHead"]).optional(),
   worktreeBranchPrefix: z.string().trim().min(1).max(48).optional(),
+  turnId: z.string().trim().min(1).optional(),
+  message: z.string().optional(),
+  collaborationMode: z.enum(["default", "plan"]).optional(),
 }) satisfies z.ZodType<ProjectSessionForkInput>;
 
 export const ProjectSessionTabKindSchema = z.enum([

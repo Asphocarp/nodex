@@ -391,6 +391,7 @@ function QueuedFollowUpRow({
                   threadId,
                   followUpId: row.followUpId,
                   prompt: row.prompt,
+                  promptInput: row.promptInput,
                 });
               }}
               leftSlot={<EditIcon />}

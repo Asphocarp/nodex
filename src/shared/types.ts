@@ -448,11 +448,15 @@ export interface ProjectSessionForkInput {
   target: ProjectSessionForkTarget;
   worktreeStartMode?: WorktreeStartMode;
   worktreeBranchPrefix?: string;
+  turnId?: string;
+  message?: string;
+  collaborationMode?: CodexCollaborationModeKind;
 }
 
 export interface ProjectSessionForkResult {
   session: ProjectSession;
   threadId: string;
+  composerIntent?: CodexComposerIntent;
 }
 
 export interface ProjectSessionTabCreateInput {
@@ -1043,6 +1047,7 @@ export interface CodexSteerTurnInput {
 export interface CodexComposerIntent {
   prompt: string;
   focusNonce: number;
+  promptInput?: CodexPromptInput;
 }
 
 export interface CodexThreadActionResult {

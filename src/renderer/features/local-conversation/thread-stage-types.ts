@@ -162,7 +162,12 @@ export interface ThreadStageActions {
   onRemoveQueuedFollowUp: (threadId: string, followUpId: string) => Promise<void>;
   onReorderQueuedFollowUps: (threadId: string, orderedFollowUpIds: string[]) => Promise<void>;
   onSendQueuedFollowUpNow: (threadId: string, followUpId: string) => Promise<void>;
-  onEditQueuedFollowUp: (input: { threadId: string; followUpId: string; prompt: string }) => Promise<void>;
+  onEditQueuedFollowUp: (input: {
+    threadId: string;
+    followUpId: string;
+    prompt: string;
+    promptInput?: CodexPromptInput;
+  }) => Promise<void>;
   onEditLastUserTurn: (input: { threadId: string; turnId: string; message: string }) => Promise<void>;
   onForkFromTurn: (input: { threadId: string; turnId: string; message: string }) => Promise<void>;
   onCompactThread?: (threadId: string) => Promise<void>;
@@ -533,6 +538,7 @@ export interface ThreadComposerShellQueuedFollowUpRowModel {
   followUpId: string;
   threadId: string;
   prompt: string;
+  promptInput?: CodexPromptInput;
   displayText: string;
   collaborationMode?: CodexCollaborationModeKind | null;
   pausedReason?: string | null;

@@ -18,6 +18,7 @@ import type {
   CodexTranscriptEntry,
   CodexTurnSummary,
   ManagedWorktreeRecord,
+  ProjectSessionForkResult,
 } from "../../shared/types";
 import { applyCodexConversationStateUpdates } from "../../shared/codex-conversation-patches";
 import {
@@ -31,6 +32,7 @@ import {
 import {
   createProjectSession,
   getProjectSession,
+  upsertProjectSessionThreadLink,
 } from "../kanban/project-session-service";
 import { CodexRpcError } from "./codex-app-server-client";
 import {
@@ -58,6 +60,12 @@ interface TestableCodexService {
     opts?: { serviceTier?: null | "fast" },
   ) => Promise<CodexThreadActionResult>;
   forkConversationFromTurn: (threadId: string, turnId: string, message: string) => Promise<CodexThreadActionResult>;
+  forkProjectSessionThread: (sessionId: string, input: {
+    target: "local" | "newWorktree";
+    turnId?: string;
+    message?: string;
+    collaborationMode?: "default" | "plan";
+  }) => Promise<ProjectSessionForkResult>;
   startSideChat: (input: {
     projectId: string;
     parentThreadId: string;
@@ -3948,6 +3956,185 @@ describe("codex-service startThreadForCard", () => {
         expect(detail.threadId).toBe("thr_session_start");
         expect(detail.projectId).toBe("codex");
         expect(detail.cardId ?? null).toBe(null);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("forks a session thread from a selected turn and attaches the branch to a new project session", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({ projectId: "codex", title: "Session branch" });
+      upsertProjectSessionThreadLink({
+        sessionId: session.id,
+        projectId: "codex",
+        threadId: "thr_session_source",
+        threadName: "Source session thread",
+        threadPreview: "Source preview",
+        modelProvider: "openai",
+        cwd: "/tmp/codex",
+        statusType: "idle",
+        statusActiveFlags: [],
+        archived: false,
+        createdAt: 1,
+        updatedAt: 3,
+      });
+
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "thread/fork") {
+          return {
+            thread: {
+              id: "thr_session_forked",
+              modelProvider: "openai",
+              cwd: "/tmp/codex",
+              createdAt: 1,
+              updatedAt: 4,
+              turns: [
+                {
+                  id: "turn_1",
+                  status: "completed",
+                  items: [
+                    { id: "user_1", type: "userMessage", content: [{ type: "text", text: "Prompt 1" }] },
+                  ],
+                },
+                {
+                  id: "turn_2",
+                  status: "completed",
+                  items: [
+                    { id: "user_2", type: "userMessage", content: [{ type: "text", text: "Prompt 2" }] },
+                  ],
+                },
+                {
+                  id: "turn_3",
+                  status: "completed",
+                  items: [
+                    { id: "user_3", type: "userMessage", content: [{ type: "text", text: "Prompt 3" }] },
+                  ],
+                },
+              ],
+            },
+          };
+        }
+        if (method === "thread/rollback") {
+          return {
+            thread: {
+              id: "thr_session_forked",
+              modelProvider: "openai",
+              cwd: "/tmp/codex",
+              createdAt: 1,
+              updatedAt: 5,
+              turns: [
+                {
+                  id: "turn_1",
+                  status: "completed",
+                  items: [
+                    { id: "user_1", type: "userMessage", content: [{ type: "text", text: "Prompt 1" }] },
+                  ],
+                },
+                {
+                  id: "turn_2",
+                  status: "completed",
+                  items: [
+                    { id: "user_2", type: "userMessage", content: [{ type: "text", text: "Prompt 2" }] },
+                  ],
+                },
+              ],
+            },
+          };
+        }
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+
+      service.serializeThreadDetail = (threadId: string) => ({
+        ...makeThreadDetail(threadId),
+        projectId: "codex",
+        cardId: null,
+        threadName: "Source session thread",
+        cwd: "/tmp/codex",
+        turns: [
+          { threadId, turnId: "turn_1", status: "completed", itemIds: ["user_1"] },
+          { threadId, turnId: "turn_2", status: "completed", itemIds: ["user_2"] },
+          { threadId, turnId: "turn_3", status: "completed", itemIds: ["user_3"] },
+        ],
+        transcript: [
+          {
+            threadId,
+            turnId: "turn_1",
+            itemId: "user_1",
+            type: "user_message",
+            kind: "userMessage",
+            semanticKind: "userMessage",
+            role: "user",
+            sequence: 1,
+            markdownText: "Prompt 1",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          {
+            threadId,
+            turnId: "turn_2",
+            itemId: "user_2",
+            type: "user_message",
+            kind: "userMessage",
+            semanticKind: "userMessage",
+            role: "user",
+            sequence: 2,
+            markdownText: "Prompt 2",
+            createdAt: 2,
+            updatedAt: 2,
+          },
+          {
+            threadId,
+            turnId: "turn_3",
+            itemId: "user_3",
+            type: "user_message",
+            kind: "userMessage",
+            semanticKind: "userMessage",
+            role: "user",
+            sequence: 3,
+            markdownText: "Prompt 3",
+            createdAt: 3,
+            updatedAt: 3,
+          },
+        ],
+      });
+
+      try {
+        const result = await service.forkProjectSessionThread(session.id, {
+          target: "local",
+          turnId: "turn_2",
+          message: "Continue from turn 2",
+          collaborationMode: "plan",
+        });
+        const forkParams = requests[0]?.params as { threadId?: string; cwd?: string } | undefined;
+        const rollbackParams = requests[1]?.params as { threadId?: string; numTurns?: number } | undefined;
+        const linked = getProjectSession(result.session.id)?.thread;
+        const snapshot = service.serializeConversationSnapshot("thr_session_forked");
+
+        expect(requests[0]?.method).toBe("thread/fork");
+        expect(forkParams?.threadId).toBe("thr_session_source");
+        expect(forkParams?.cwd).toBe("/tmp/codex");
+        expect(requests[1]?.method).toBe("thread/rollback");
+        expect(rollbackParams?.threadId).toBe("thr_session_forked");
+        expect(rollbackParams?.numTurns).toBe(1);
+        expect(result.threadId).toBe("thr_session_forked");
+        expect(result.composerIntent?.prompt).toBe("Continue from turn 2");
+        expect(linked?.threadId).toBe("thr_session_forked");
+        expect(linked?.projectId).toBe("codex");
+        expect(snapshot?.turns.length).toBe(2);
+        expect(snapshot?.turns[1]?.turnId).toBe("turn_2");
+        expect(snapshot?.latestCollaborationMode?.mode).toBe("plan");
       } finally {
         await service.shutdown();
       }

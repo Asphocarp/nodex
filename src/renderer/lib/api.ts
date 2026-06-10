@@ -1,5 +1,14 @@
 import { resolveInvokeTransport, resolveRendererTransport } from "./renderer-transport";
+import type { IpcApi } from "../../shared/ipc-api";
 
+export async function invoke<Channel extends keyof IpcApi>(
+  channel: Channel,
+  ...args: IpcApi[Channel]["args"]
+): Promise<IpcApi[Channel]["result"]>;
+export async function invoke(
+  channel: string,
+  ...args: unknown[]
+): Promise<unknown>;
 export async function invoke(
   channel: string,
   ...args: unknown[]

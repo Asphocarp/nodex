@@ -61,20 +61,16 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
       group: "Commands",
       icon: <ClipboardListIcon className={iconClassName} />,
       requiresEmptyComposer: true,
-      isVisible: canUseExistingThread,
+      isVisible: canUseExistingThread && Boolean(input.actions.onCompactThread),
       isEnabled: !input.model.isThreadRunning,
       onSelect: async () => {
-        if (!threadId) return;
+        if (!threadId || !input.actions.onCompactThread) return;
         if (input.model.isThreadRunning) {
           toast.danger("Wait for Codex to finish responding before compacting");
           return;
         }
         await runCommand("Failed to compact thread", async () => {
-          if (input.actions.onCompactThread) {
-            await input.actions.onCompactThread(threadId);
-            return;
-          }
-          await invoke("codex:thread:compact:start", threadId);
+          await input.actions.onCompactThread?.(threadId);
         });
       },
     },
@@ -96,6 +92,7 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
       group: "Commands",
       icon: <HeartHandshakeIcon className={iconClassName} />,
       requiresEmptyComposer: true,
+      isVisible: Boolean(input.actions.onUploadFeedback),
       Content: (props) => (
         <FeedbackCommandContent
           threadId={threadId}
@@ -129,7 +126,10 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
       group: "Commands",
       icon: <FlagIcon className={iconClassName} />,
       requiresEmptyComposer: true,
-      isVisible: canUseExistingThread,
+      isVisible: canUseExistingThread
+        && Boolean(input.actions.onGetThreadGoal)
+        && Boolean(input.actions.onSetThreadGoal)
+        && Boolean(input.actions.onClearThreadGoal),
       Content: (props) => (
         <GoalCommandContent
           threadId={threadId}
@@ -154,7 +154,7 @@ export function buildComposerSlashCommands(input: BuildSlashCommandsInput): Comp
       group: "Commands",
       icon: <SparklesIcon className={iconClassName} />,
       requiresEmptyComposer: true,
-      isVisible: canUseExistingThread,
+      isVisible: canUseExistingThread && Boolean(input.actions.onSetThreadMemoryMode),
       Content: (props) => (
         <MemoryCommandContent
           threadId={threadId}
@@ -464,18 +464,14 @@ function GoalCommandContent({
   const [loading, setLoading] = useState(Boolean(threadId));
 
   useEffect(() => {
-    if (!threadId) return;
+    if (!threadId || !actions.onGetThreadGoal) return;
     let cancelled = false;
     setLoading(true);
-    const readGoal = actions.onGetThreadGoal
-      ? actions.onGetThreadGoal(threadId)
-      : invoke("codex:thread:goal:get", threadId);
-    void readGoal
+    void actions.onGetThreadGoal(threadId)
       .then((nextGoal) => {
         if (cancelled) return;
-        const resolvedGoal = nextGoal as ThreadGoal | null;
-        setGoal(resolvedGoal);
-        setObjective(resolvedGoal?.objective ?? "");
+        setGoal(nextGoal);
+        setObjective(nextGoal?.objective ?? "");
       })
       .catch(() => {
         if (!cancelled) setGoal(null);
@@ -489,6 +485,9 @@ function GoalCommandContent({
   }, [actions, threadId]);
 
   if (!threadId) return <CommandMessage>No active thread</CommandMessage>;
+  if (!actions.onSetThreadGoal || !actions.onClearThreadGoal) {
+    return <CommandMessage>Goals are not available in this context</CommandMessage>;
+  }
 
   return (
     <div className="space-y-2 p-2">
@@ -508,8 +507,7 @@ function GoalCommandContent({
             className="rounded-md px-2 py-1 text-sm text-token-description-foreground hover:bg-token-list-hover-background hover:text-token-foreground"
             onClick={async () => {
               await runCommand("Failed to clear goal", async () => {
-                if (actions.onClearThreadGoal) await actions.onClearThreadGoal(threadId);
-                else await invoke("codex:thread:goal:clear", threadId);
+                await actions.onClearThreadGoal?.(threadId);
                 close();
               });
             }}
@@ -524,8 +522,7 @@ function GoalCommandContent({
               const nextObjective = objective.trim();
               if (!nextObjective) return;
               await runCommand("Failed to save goal", async () => {
-                if (actions.onSetThreadGoal) await actions.onSetThreadGoal({ threadId, objective: nextObjective });
-                else await invoke("codex:thread:goal:set", threadId, nextObjective);
+                await actions.onSetThreadGoal?.({ threadId, objective: nextObjective });
                 close();
               });
             }}
@@ -547,13 +544,14 @@ function MemoryCommandContent({
   setMemoryMode?: (input: { threadId: string; mode: ThreadMemoryMode }) => Promise<void>;
 }) {
   const selectMode = async (mode: ThreadMemoryMode) => {
-    if (!threadId) return;
+    if (!threadId || !setMemoryMode) return;
     await runCommand("Failed to update memories", async () => {
-      if (setMemoryMode) await setMemoryMode({ threadId, mode });
-      else await invoke("codex:thread:memory-mode:set", threadId, mode);
+      await setMemoryMode({ threadId, mode });
       close();
     });
   };
+
+  if (!setMemoryMode) return <CommandMessage>Memories are not available in this context</CommandMessage>;
 
   return (
     <CommandPanel>
@@ -617,6 +615,8 @@ function FeedbackCommandContent({
   const [reason, setReason] = useState("");
   const [includeLogs, setIncludeLogs] = useState(true);
 
+  if (!uploadFeedback) return <CommandMessage>Feedback is not available in this context</CommandMessage>;
+
   return (
     <div className="space-y-2 p-2">
       <textarea
@@ -646,8 +646,7 @@ function FeedbackCommandContent({
               includeLogs,
             };
             await runCommand("Failed to send feedback", async () => {
-              if (uploadFeedback) await uploadFeedback(params);
-              else await invoke("codex:feedback:upload", params);
+              await uploadFeedback(params);
               toast.success("Feedback sent");
               close();
             });

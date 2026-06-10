@@ -30,6 +30,14 @@ import { makeProjectSessionPanelLayout } from "../../../shared/project-session-p
 let invokeCalls: unknown[][] = [];
 let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
 let startThreadForSessionCalls: unknown[] = [];
+let requestThreadStreamSnapshotCalls: string[] = [];
+let removeQueuedFollowUpCalls: unknown[][] = [];
+let reorderQueuedFollowUpsCalls: unknown[][] = [];
+let sendQueuedFollowUpNowCalls: unknown[][] = [];
+let editLastUserTurnCalls: unknown[][] = [];
+let setComposerIntentCalls: unknown[][] = [];
+let removePlanImplementationRequestCalls: unknown[][] = [];
+let cleanBackgroundTerminalsCalls: string[] = [];
 let startSideChatCalls: unknown[] = [];
 let discardSideChatCalls: string[] = [];
 let sideChatConversations: Record<string, Record<string, unknown>> = {};
@@ -122,6 +130,62 @@ const mockCodexControl = {
   respondUserInput: async () => undefined,
   respondMcpElicitation: async () => undefined,
   enqueueQueuedFollowUp: async () => undefined,
+  requestThreadStreamSnapshot: async (threadId: string) => {
+    requestThreadStreamSnapshotCalls.push(threadId);
+    return null;
+  },
+  removeQueuedFollowUp: async (threadId: string, followUpId: string) => {
+    removeQueuedFollowUpCalls.push([threadId, followUpId]);
+  },
+  reorderQueuedFollowUps: async (threadId: string, orderedFollowUpIds: string[]) => {
+    reorderQueuedFollowUpsCalls.push([threadId, orderedFollowUpIds]);
+  },
+  sendQueuedFollowUpNow: async (threadId: string, followUpId: string) => {
+    sendQueuedFollowUpNowCalls.push([threadId, followUpId]);
+  },
+  editLastUserTurn: async (threadId: string, turnId: string, message: string) => {
+    editLastUserTurnCalls.push([threadId, turnId, message]);
+    return {
+      threadId,
+      composerIntent: {
+        prompt: message,
+        focusNonce: 1,
+      },
+    };
+  },
+  forkConversationFromTurn: async (threadId: string, turnId: string, message: string) => ({
+    threadId: `${threadId}:forked:${turnId}`,
+    composerIntent: {
+      prompt: message,
+      focusNonce: 1,
+    },
+  }),
+  compactThread: async () => undefined,
+  getThreadGoal: async () => null,
+  setThreadGoal: async () => null,
+  clearThreadGoal: async () => undefined,
+  setThreadMemoryMode: async () => undefined,
+  uploadFeedback: async () => undefined,
+  cleanBackgroundTerminals: async (threadId: string) => {
+    cleanBackgroundTerminalsCalls.push(threadId);
+    return true;
+  },
+  setComposerIntent: (threadId: string, composerIntent: unknown) => {
+    setComposerIntentCalls.push([threadId, composerIntent]);
+  },
+  consumeComposerIntent: () => undefined,
+  setConversationCollaborationMode: async () => ({
+    mode: "default",
+    settings: {
+      model: null,
+      reasoning_effort: null,
+      developer_instructions: null,
+    },
+  }),
+  removePlanImplementationRequest: async (threadId: string, turnId: string) => {
+    removePlanImplementationRequestCalls.push([threadId, turnId]);
+    return true;
+  },
 };
 
 mock.module("@/lib/api", () => ({
@@ -989,6 +1053,14 @@ function renderWorkbench({
 beforeEach(() => {
   invokeCalls = [];
   startThreadForSessionCalls = [];
+  requestThreadStreamSnapshotCalls = [];
+  removeQueuedFollowUpCalls = [];
+  reorderQueuedFollowUpsCalls = [];
+  sendQueuedFollowUpNowCalls = [];
+  editLastUserTurnCalls = [];
+  setComposerIntentCalls = [];
+  removePlanImplementationRequestCalls = [];
+  cleanBackgroundTerminalsCalls = [];
   startSideChatCalls = [];
   discardSideChatCalls = [];
   sideChatConversations = {};
@@ -1061,6 +1133,15 @@ function getLastTerminalPanelProps(): Record<string, unknown> {
   const props = (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> }).__lastTerminalPanelProps;
   if (!props) throw new Error("Expected terminal panel props");
   return props;
+}
+
+function getLastThreadStageActions(): Record<string, unknown> {
+  const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+  const actions = props?.actions;
+  if (!actions || typeof actions !== "object") {
+    throw new Error("Expected ConnectedThreadStage actions");
+  }
+  return actions as Record<string, unknown>;
 }
 
 function getHeaderShellSlot(
@@ -1803,6 +1884,120 @@ describe("workbench session shell", () => {
       collaborationMode: "default",
     }));
     expect(invokeCalls.some((call) => call[0] === "project-sessions:list" && call[1] === "alpha")).toBeTrue();
+  });
+
+  test("inline message edit calls rollback edit and refreshes the active snapshot without seeding composer intent", async () => {
+    renderWorkbench({
+      sessionsByProject: { alpha: [makeAttachedSession({ isOverview: false })] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const actions = getLastThreadStageActions();
+    const onEditLastUserTurn = actions.onEditLastUserTurn as ((input: {
+      threadId: string;
+      turnId: string;
+      message: string;
+    }) => Promise<void>) | undefined;
+    expect(typeof onEditLastUserTurn).toBe("function");
+
+    await act(async () => {
+      await onEditLastUserTurn?.({
+        threadId: "thread-alpha",
+        turnId: "turn-latest",
+        message: "Rewrite the latest prompt",
+      });
+    });
+    await settleAsyncRender();
+
+    expect(JSON.stringify(editLastUserTurnCalls)).toBe(JSON.stringify([
+      ["thread-alpha", "turn-latest", "Rewrite the latest prompt"],
+    ]));
+    expect(JSON.stringify(requestThreadStreamSnapshotCalls)).toBe(JSON.stringify(["thread-alpha"]));
+    expect(setComposerIntentCalls.length).toBe(0);
+  });
+
+  test("session thread actions wire queued follow-up, plan, and background terminal commands", async () => {
+    renderWorkbench({
+      sessionsByProject: { alpha: [makeAttachedSession({ isOverview: false })] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const actions = getLastThreadStageActions();
+    for (const actionName of [
+      "onRemoveQueuedFollowUp",
+      "onReorderQueuedFollowUps",
+      "onSendQueuedFollowUpNow",
+      "onEditQueuedFollowUp",
+      "onResolvePlanImplementationRequest",
+      "onCleanBackgroundTerminals",
+    ]) {
+      expect(typeof actions[actionName]).toBe("function");
+    }
+
+    await act(async () => {
+      await (actions.onRemoveQueuedFollowUp as (threadId: string, followUpId: string) => Promise<void>)(
+        "thread-alpha",
+        "follow-1",
+      );
+      await (actions.onReorderQueuedFollowUps as (threadId: string, orderedFollowUpIds: string[]) => Promise<void>)(
+        "thread-alpha",
+        ["follow-2", "follow-1"],
+      );
+      await (actions.onSendQueuedFollowUpNow as (threadId: string, followUpId: string) => Promise<void>)(
+        "thread-alpha",
+        "follow-2",
+      );
+      await (actions.onEditQueuedFollowUp as (input: {
+        threadId: string;
+        followUpId: string;
+        prompt: string;
+        promptInput?: unknown;
+      }) => Promise<void>)({
+        threadId: "thread-alpha",
+        followUpId: "follow-3",
+        prompt: "Edit queued message",
+        promptInput: {
+          text: "Edit queued message",
+          mentions: [{ name: "README.md", path: "/repo/README.md" }],
+        },
+      });
+      await (actions.onResolvePlanImplementationRequest as (threadId: string, turnId: string) => Promise<void>)(
+        "thread-alpha",
+        "turn-plan",
+      );
+      await (actions.onCleanBackgroundTerminals as (threadId: string) => Promise<void>)("thread-alpha");
+    });
+    await settleAsyncRender();
+
+    expect(JSON.stringify(removeQueuedFollowUpCalls)).toBe(JSON.stringify([
+      ["thread-alpha", "follow-1"],
+      ["thread-alpha", "follow-3"],
+    ]));
+    expect(JSON.stringify(reorderQueuedFollowUpsCalls)).toBe(JSON.stringify([
+      ["thread-alpha", ["follow-2", "follow-1"]],
+    ]));
+    expect(JSON.stringify(sendQueuedFollowUpNowCalls)).toBe(JSON.stringify([
+      ["thread-alpha", "follow-2"],
+    ]));
+    expect(JSON.stringify(setComposerIntentCalls)).toBe(JSON.stringify([
+      [
+        "thread-alpha",
+        {
+          prompt: "Edit queued message",
+          promptInput: {
+            text: "Edit queued message",
+            mentions: [{ name: "README.md", path: "/repo/README.md" }],
+          },
+          focusNonce: (setComposerIntentCalls[0]?.[1] as { focusNonce?: number } | undefined)?.focusNonce,
+        },
+      ],
+    ]));
+    expect(JSON.stringify(removePlanImplementationRequestCalls)).toBe(JSON.stringify([
+      ["thread-alpha", "turn-plan"],
+    ]));
+    expect(JSON.stringify(cleanBackgroundTerminalsCalls)).toBe(JSON.stringify(["thread-alpha"]));
   });
 
   test("session composer submit creates an owning session when the new-chat project changes", async () => {

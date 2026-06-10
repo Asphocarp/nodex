@@ -239,6 +239,31 @@ function buildComposerPromptInput(input: {
   };
 }
 
+function getComposerAttachmentNameFromPath(path: string, fallback: string): string {
+  return path.split(/[\\/]/u).filter(Boolean).at(-1) ?? fallback;
+}
+
+function buildComposerAttachmentStateFromPromptInput(promptInput?: CodexPromptInput): ComposerAttachmentState {
+  return {
+    imageAttachments: (promptInput?.images ?? []).map((image) => ({
+      id: createComposerAttachmentId("image"),
+      filename: image.caption?.trim() || getComposerAttachmentNameFromPath(image.source, "Image"),
+      path: image.source,
+      dataUrl: image.source,
+    })),
+    fileAttachments: (promptInput?.mentions ?? []).map((mention) => ({
+      id: createComposerAttachmentId("file"),
+      label: mention.name.trim() || getComposerAttachmentNameFromPath(mention.path, "Attachment"),
+      path: mention.path,
+    })),
+    skillMentions: (promptInput?.skills ?? []).map((skill) => ({
+      id: createComposerAttachmentId("skill"),
+      name: skill.name.trim() || getComposerAttachmentNameFromPath(skill.path, "Skill"),
+      path: skill.path,
+    })),
+  };
+}
+
 function canStartNewThreadTarget(model: ThreadFooterModel): boolean {
   return Boolean(
     model.isNewThreadTab &&
@@ -1111,13 +1136,24 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     const threadId = model.conversation?.threadId ?? model.body.threadId;
     if (!composerIntent || !threadId) return;
 
-    resetComposerAttachments();
+    const restoredAttachments = buildComposerAttachmentStateFromPromptInput(composerIntent.promptInput);
+    incrementAttachmentGeneration();
+    setFileAttachments(restoredAttachments.fileAttachments);
+    setImageAttachments(restoredAttachments.imageAttachments);
+    setSkillMentions(restoredAttachments.skillMentions);
     promptForm.setFieldValue("prompt", composerIntent.prompt);
     requestAnimationFrame(() => {
       promptEditorRef.current?.focusAtEnd();
     });
     actions.onConsumeComposerIntent(threadId, composerIntent.focusNonce);
-  }, [actions, model.body.threadId, model.composerIntent, model.conversation?.threadId, promptForm, resetComposerAttachments]);
+  }, [
+    actions,
+    incrementAttachmentGeneration,
+    model.body.threadId,
+    model.composerIntent,
+    model.conversation?.threadId,
+    promptForm,
+  ]);
 
   useEffect(() => {
     resetComposerAttachments();
