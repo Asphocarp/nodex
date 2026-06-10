@@ -9,6 +9,8 @@ import { EditorState, Plugin, TextSelection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, EditorView } from "@tiptap/pm/view";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { cn } from "@/lib/utils";
+import type { ComposerSlashTriggerState } from "./slash-command-menu/slash-command-types";
+import { detectComposerSlashTrigger, inactiveSlashTrigger } from "./slash-command-menu/slash-command-filter";
 
 const promptSchema = new Schema({
   nodes: {
@@ -32,6 +34,10 @@ export interface ComposerPromptEditorHandle {
   focus: () => void;
   focusAtEnd: () => void;
   insertText: (text: string) => string;
+  replaceTextRange: (range: { from: number; to: number; text: string }) => string;
+  clearRange: (range: { from: number; to: number }) => string;
+  getSelection: () => { from: number; to: number } | null;
+  getText: () => string;
 }
 
 interface ComposerPromptEditorProps {
@@ -40,6 +46,7 @@ interface ComposerPromptEditorProps {
   disabled: boolean;
   onChange: (value: string) => void;
   onKeyDown: (event: KeyboardEvent) => boolean;
+  onSlashTriggerChange?: (state: ComposerSlashTriggerState) => void;
   className?: string;
 }
 
@@ -55,6 +62,21 @@ function buildPromptDoc(value: string): ProseMirrorNode {
 
 function readPromptDocText(doc: ProseMirrorNode): string {
   return doc.textBetween(0, doc.content.size, "\n");
+}
+
+function promptDocPositionToTextOffset(doc: ProseMirrorNode, position: number): number {
+  return doc.textBetween(0, position, "\n").length;
+}
+
+function promptTextOffsetToDocPosition(doc: ProseMirrorNode, offset: number): number {
+  const targetOffset = Math.max(0, offset);
+  for (let position = 0; position <= doc.content.size; position += 1) {
+    if (doc.textBetween(0, position, "\n").length >= targetOffset) {
+      return position;
+    }
+  }
+
+  return doc.content.size;
 }
 
 function isPromptDocEmpty(doc: ProseMirrorNode): boolean {
@@ -96,6 +118,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
     disabled,
     onChange,
     onKeyDown,
+    onSlashTriggerChange,
     className,
   }, ref) {
     const mountRef = useRef<HTMLDivElement | null>(null);
@@ -103,11 +126,52 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
     const valueRef = useRef(value);
     const onChangeRef = useRef(onChange);
     const onKeyDownRef = useRef(onKeyDown);
+    const onSlashTriggerChangeRef = useRef(onSlashTriggerChange);
     const placeholderRef = useRef(placeholder);
     valueRef.current = value;
     onChangeRef.current = onChange;
     onKeyDownRef.current = onKeyDown;
+    onSlashTriggerChangeRef.current = onSlashTriggerChange;
     placeholderRef.current = placeholder;
+
+    const emitSlashTriggerState = (view: EditorView | null) => {
+      const handler = onSlashTriggerChangeRef.current;
+      if (!handler) return;
+      if (!view || !view.state.selection.empty) {
+        handler(inactiveSlashTrigger());
+        return;
+      }
+
+      const text = readPromptDocText(view.state.doc);
+      const cursorOffset = promptDocPositionToTextOffset(view.state.doc, view.state.selection.from);
+      const trigger = detectComposerSlashTrigger({ text, cursor: cursorOffset });
+      if (!trigger.active) {
+        handler(trigger);
+        return;
+      }
+
+      handler({
+        ...trigger,
+        from: promptTextOffsetToDocPosition(view.state.doc, trigger.from),
+        to: promptTextOffsetToDocPosition(view.state.doc, trigger.to),
+      });
+    };
+
+    const replaceTextRange = (range: { from: number; to: number; text: string }) => {
+      const view = viewRef.current;
+      if (!view) {
+        const nextValue = `${valueRef.current.slice(0, range.from)}${range.text}${valueRef.current.slice(range.to)}`;
+        onChangeRef.current(nextValue);
+        return nextValue;
+      }
+
+      const from = Math.max(0, Math.min(range.from, view.state.doc.content.size));
+      const to = Math.max(from, Math.min(range.to, view.state.doc.content.size));
+      view.dispatch(view.state.tr.insertText(range.text, from, to).scrollIntoView());
+      view.focus();
+      emitSlashTriggerState(view);
+      return readPromptDocText(view.state.doc);
+    };
 
     useImperativeHandle(ref, () => ({
       focus: () => {
@@ -133,6 +197,20 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
         view.focus();
         return readPromptDocText(view.state.doc);
       },
+      replaceTextRange,
+      clearRange: (range) => replaceTextRange({ ...range, text: "" }),
+      getSelection: () => {
+        const view = viewRef.current;
+        if (!view) return null;
+        return {
+          from: view.state.selection.from,
+          to: view.state.selection.to,
+        };
+      },
+      getText: () => {
+        const view = viewRef.current;
+        return view ? readPromptDocText(view.state.doc) : valueRef.current;
+      },
     }), []);
 
     useEffect(() => {
@@ -148,6 +226,16 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
           style: "font-size: var(--codex-chat-font-size); height: auto; resize: none; min-height: 2.75rem;",
         },
         handleKeyDown: (_view, event) => onKeyDownRef.current(event),
+        handleDOMEvents: {
+          mouseup(view) {
+            window.setTimeout(() => emitSlashTriggerState(view), 0);
+            return false;
+          },
+          keyup(view) {
+            emitSlashTriggerState(view);
+            return false;
+          },
+        },
         dispatchTransaction(transaction) {
           const currentView = viewRef.current;
           if (!currentView) return;
@@ -159,6 +247,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
           if (nextValue !== valueRef.current) {
             onChangeRef.current(nextValue);
           }
+          emitSlashTriggerState(currentView);
         },
       });
 
@@ -176,6 +265,16 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
       view.setProps({
         editable: () => !disabled,
         handleKeyDown: (_view, event) => onKeyDownRef.current(event),
+        handleDOMEvents: {
+          mouseup(view) {
+            window.setTimeout(() => emitSlashTriggerState(view), 0);
+            return false;
+          },
+          keyup(view) {
+            emitSlashTriggerState(view);
+            return false;
+          },
+        },
       });
     }, [disabled]);
 
@@ -186,6 +285,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
       const currentValue = readPromptDocText(view.state.doc);
       if (currentValue !== value) {
         view.updateState(createPromptEditorState(value, placeholderRef));
+        emitSlashTriggerState(view);
         return;
       }
 

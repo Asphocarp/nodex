@@ -6,7 +6,7 @@ import { homedir } from "node:os";
 import * as path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { produceWithPatches } from "immer";
-import type { GetAuthStatusResponse } from "@nodex/codex-app-server-protocol";
+import type { GetAuthStatusResponse, ThreadMemoryMode } from "@nodex/codex-app-server-protocol";
 import type { CollaborationModeListResponse } from "@nodex/codex-app-server-protocol/v2/CollaborationModeListResponse";
 import type { AppInfo } from "@nodex/codex-app-server-protocol/v2/AppInfo";
 import type { AppsListResponse } from "@nodex/codex-app-server-protocol/v2/AppsListResponse";
@@ -18,6 +18,7 @@ import type { CommandExecutionRequestApprovalParams } from "@nodex/codex-app-ser
 import type { CommandExecutionRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/CommandExecutionRequestApprovalResponse";
 import type { DynamicToolCallParams } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallParams";
 import type { DynamicToolCallResponse } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallResponse";
+import type { FeedbackUploadParams } from "@nodex/codex-app-server-protocol/v2/FeedbackUploadParams";
 import type { GetAccountRateLimitsResponse } from "@nodex/codex-app-server-protocol/v2/GetAccountRateLimitsResponse";
 import type { GetAccountResponse } from "@nodex/codex-app-server-protocol/v2/GetAccountResponse";
 import type { LoginAccountResponse } from "@nodex/codex-app-server-protocol/v2/LoginAccountResponse";
@@ -37,6 +38,9 @@ import type { ThreadForkParams } from "@nodex/codex-app-server-protocol/v2/Threa
 import type { ThreadForkResponse } from "@nodex/codex-app-server-protocol/v2/ThreadForkResponse";
 import type { ThreadInjectItemsResponse } from "@nodex/codex-app-server-protocol/v2/ThreadInjectItemsResponse";
 import type { ThreadRollbackResponse } from "@nodex/codex-app-server-protocol/v2/ThreadRollbackResponse";
+import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2/ThreadGoal";
+import type { ThreadGoalGetResponse } from "@nodex/codex-app-server-protocol/v2/ThreadGoalGetResponse";
+import type { ThreadGoalSetResponse } from "@nodex/codex-app-server-protocol/v2/ThreadGoalSetResponse";
 import type { ThreadResumeParams } from "@nodex/codex-app-server-protocol/v2/ThreadResumeParams";
 import type { ThreadResumeResponse } from "@nodex/codex-app-server-protocol/v2/ThreadResumeResponse";
 import type { ThreadStartParams } from "@nodex/codex-app-server-protocol/v2/ThreadStartParams";
@@ -6193,6 +6197,47 @@ export class CodexService extends EventEmitter {
       syncLatestCollaborationMode: true,
     });
     return nextMode;
+  }
+
+  async startThreadCompaction(threadId: string): Promise<void> {
+    await this.ensureClientReady();
+    await this.client.request("thread/compact/start", { threadId });
+  }
+
+  async getThreadGoal(threadId: string): Promise<ThreadGoal | null> {
+    await this.ensureClientReady();
+    const response = await this.client.request<"thread/goal/get", ThreadGoalGetResponse>("thread/goal/get", {
+      threadId,
+    });
+    return response.goal ?? null;
+  }
+
+  async setThreadGoal(input: { threadId: string; objective: string; tokenBudget?: number | null }): Promise<ThreadGoal | null> {
+    await this.ensureClientReady();
+    const response = await this.client.request<"thread/goal/set", ThreadGoalSetResponse>("thread/goal/set", {
+      threadId: input.threadId,
+      objective: input.objective,
+      tokenBudget: input.tokenBudget ?? null,
+    });
+    return response.goal ?? null;
+  }
+
+  async clearThreadGoal(threadId: string): Promise<void> {
+    await this.ensureClientReady();
+    await this.client.request("thread/goal/clear", { threadId });
+  }
+
+  async setThreadMemoryMode(input: { threadId: string; mode: ThreadMemoryMode }): Promise<void> {
+    await this.ensureClientReady();
+    await this.client.request("thread/memoryMode/set", {
+      threadId: input.threadId,
+      mode: input.mode,
+    });
+  }
+
+  async uploadFeedback(params: FeedbackUploadParams): Promise<void> {
+    await this.ensureClientReady();
+    await this.client.request("feedback/upload", params);
   }
 
   async startTurn(

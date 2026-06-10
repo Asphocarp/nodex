@@ -1106,6 +1106,30 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
       codexService.forkConversationFromTurn(threadId, turnId, message),
   );
 
+  registerHandle("codex:thread:compact:start", (_, threadId: string) =>
+    codexService.startThreadCompaction(threadId)
+  );
+
+  registerHandle("codex:thread:goal:get", (_, threadId: string) =>
+    codexService.getThreadGoal(threadId)
+  );
+
+  registerHandle("codex:thread:goal:set", (_, threadId: string, objective: string, tokenBudget?: number | null) =>
+    codexService.setThreadGoal({ threadId, objective, tokenBudget })
+  );
+
+  registerHandle("codex:thread:goal:clear", (_, threadId: string) =>
+    codexService.clearThreadGoal(threadId)
+  );
+
+  registerHandle("codex:thread:memory-mode:set", (_, threadId: string, mode: "enabled" | "disabled") =>
+    codexService.setThreadMemoryMode({ threadId, mode })
+  );
+
+  registerHandle("codex:feedback:upload", (_, params) =>
+    codexService.uploadFeedback(params)
+  );
+
   registerHandle(
     "codex:turn:steer",
     (_, input) => codexService.steerTurn(input),

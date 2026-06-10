@@ -138,6 +138,12 @@ import type {
   BrowserSidebarWebviewDestroyed,
   BrowserSidebarWebviewHostCreated,
 } from "./browser-sidebar";
+import type {
+  FeedbackUploadParams,
+  FeedbackUploadResponse,
+  ThreadGoal,
+} from "@nodex/codex-app-server-protocol/v2";
+import type { ThreadMemoryMode } from "@nodex/codex-app-server-protocol";
 
 export interface HistoryEntry {
   id: number;
@@ -676,6 +682,30 @@ export interface IpcApi {
   "codex:thread:fork-from-turn": {
     args: [threadId: string, turnId: string, message: string];
     result: CodexThreadActionResult;
+  };
+  "codex:thread:compact:start": {
+    args: [threadId: string];
+    result: void;
+  };
+  "codex:thread:goal:get": {
+    args: [threadId: string];
+    result: ThreadGoal | null;
+  };
+  "codex:thread:goal:set": {
+    args: [threadId: string, objective: string, tokenBudget?: number | null];
+    result: ThreadGoal | null;
+  };
+  "codex:thread:goal:clear": {
+    args: [threadId: string];
+    result: void;
+  };
+  "codex:thread:memory-mode:set": {
+    args: [threadId: string, mode: ThreadMemoryMode];
+    result: void;
+  };
+  "codex:feedback:upload": {
+    args: [params: FeedbackUploadParams];
+    result: FeedbackUploadResponse | void;
   };
   "codex:turn:steer": {
     args: [input: CodexSteerTurnInput];

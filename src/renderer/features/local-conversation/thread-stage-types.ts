@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import type { ThreadGoal, FeedbackUploadParams } from "@nodex/codex-app-server-protocol/v2";
+import type { ThreadMemoryMode } from "@nodex/codex-app-server-protocol";
 import type {
   Card,
   CardRunInTarget,
@@ -163,6 +165,14 @@ export interface ThreadStageActions {
   onEditQueuedFollowUp: (input: { threadId: string; followUpId: string; prompt: string }) => Promise<void>;
   onEditLastUserTurn: (input: { threadId: string; turnId: string; message: string }) => Promise<void>;
   onForkFromTurn: (input: { threadId: string; turnId: string; message: string }) => Promise<void>;
+  onCompactThread?: (threadId: string) => Promise<void>;
+  onGetThreadGoal?: (threadId: string) => Promise<ThreadGoal | null>;
+  onSetThreadGoal?: (input: { threadId: string; objective: string; tokenBudget?: number | null }) => Promise<ThreadGoal | null>;
+  onClearThreadGoal?: (threadId: string) => Promise<void>;
+  onSetThreadMemoryMode?: (input: { threadId: string; mode: ThreadMemoryMode }) => Promise<void>;
+  onUploadFeedback?: (params: FeedbackUploadParams) => Promise<void>;
+  onOpenStatusPanel?: (threadId: string) => void;
+  onToggleDesktopPet?: () => void;
   onUnarchiveThread: (threadId: string, projectId: string) => Promise<void>;
   onOpenTurnDiffReview: (target: CodexTurnDiffReviewTarget) => void;
   onConsumeComposerIntent: (threadId: string, focusNonce: number) => void;

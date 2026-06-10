@@ -71,6 +71,16 @@ import {
   type ComposerPromptEditorHandle,
   type ComposerPromptEditorKeyboardEvent,
 } from "./composer-prompt-editor";
+import { InlineSlashCommandMenu } from "./slash-command-menu/inline-slash-command-menu";
+import { ExpandedSlashCommandDialog } from "./slash-command-menu/expanded-slash-command-dialog";
+import { buildComposerSlashCommands } from "./slash-command-menu/slash-command-registry";
+import {
+  filterComposerSlashCommands,
+  groupComposerSlashCommandMatches,
+  inactiveSlashTrigger,
+  resolveNextSlashHighlight,
+} from "./slash-command-menu/slash-command-filter";
+import type { ComposerSlashCommand, ComposerSlashTriggerState } from "./slash-command-menu/slash-command-types";
 
 interface ThreadComposerProps {
   model: ThreadFooterModel;
@@ -686,6 +696,11 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   const [fileAttachments, setFileAttachments] = useState<ComposerFileAttachment[]>([]);
   const [imageAttachments, setImageAttachments] = useState<ComposerImageAttachment[]>([]);
   const [skillMentions, setSkillMentions] = useState<ComposerSkillMentionAttachment[]>([]);
+  const [slashTrigger, setSlashTrigger] = useState<ComposerSlashTriggerState>(() => inactiveSlashTrigger());
+  const [highlightedSlashCommandId, setHighlightedSlashCommandId] = useState<string | null>(null);
+  const [nestedSlashCommand, setNestedSlashCommand] = useState<ComposerSlashCommand | null>(null);
+  const [slashDialogOpen, setSlashDialogOpen] = useState(false);
+  const [desktopPetVisible, setDesktopPetVisible] = useState(false);
   const promptEditorRef = useRef<ComposerPromptEditorHandle>(null);
   const dictationShortcutActiveRef = useRef(false);
   const attachmentGenerationRef = useRef(0);
@@ -907,6 +922,10 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     ]);
     insertComposerTextAtSelection(`${prompt.trim().length === 0 ? "" : " "}@${pluginName} `);
   }, [incrementAttachmentGeneration, insertComposerTextAtSelection, prompt]);
+
+  const handleToggleDesktopPet = useCallback(() => {
+    setDesktopPetVisible((current) => !current);
+  }, []);
 
   const handlePickComposerFiles = useCallback(async () => {
     const imagesOnly = model.isCloudNewThreadTarget;
@@ -1137,7 +1156,143 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     setSkillMentions((current) => current.filter((attachment) => attachment.id !== attachmentId));
   }, [incrementAttachmentGeneration]);
 
+  const slashCommands = useMemo(() => buildComposerSlashCommands({
+    model,
+    actions,
+    serviceTier: serviceTierSettings.serviceTier,
+    setServiceTier,
+    insertPluginMention: handleInsertPluginMention,
+    openExpandedDialog: () => setSlashDialogOpen(true),
+    onPetToggle: handleToggleDesktopPet,
+  }), [
+    actions,
+    handleInsertPluginMention,
+    handleToggleDesktopPet,
+    model,
+    serviceTierSettings.serviceTier,
+    setServiceTier,
+  ]);
+  const slashMatches = useMemo(() => filterComposerSlashCommands({
+    commands: slashCommands,
+    query: slashTrigger.active ? slashTrigger.query : "",
+    composerText: prompt,
+  }), [prompt, slashCommands, slashTrigger.active, slashTrigger.query]);
+  const slashGroups = useMemo(() => groupComposerSlashCommandMatches(slashMatches), [slashMatches]);
+  const slashMenuOpen = slashTrigger.active || nestedSlashCommand !== null;
+
+  useEffect(() => {
+    if (!slashMenuOpen) {
+      setHighlightedSlashCommandId(null);
+      return;
+    }
+
+    setHighlightedSlashCommandId((current) =>
+      resolveNextSlashHighlight({
+        matches: slashMatches,
+        currentCommandId: current,
+        direction: "first",
+      })
+    );
+  }, [slashMatches, slashMenuOpen]);
+
+  const closeSlashMenu = useCallback(() => {
+    setSlashTrigger(inactiveSlashTrigger());
+    setNestedSlashCommand(null);
+    setHighlightedSlashCommandId(null);
+  }, []);
+
+  const handleSlashTriggerChange = useCallback((nextTrigger: ComposerSlashTriggerState) => {
+    setSlashTrigger(nextTrigger);
+    if (nextTrigger.active) {
+      setNestedSlashCommand(null);
+    }
+  }, []);
+
+  const clearInlineSlashTrigger = useCallback((trigger: ComposerSlashTriggerState) => {
+    promptEditorRef.current?.clearRange({ from: trigger.from, to: trigger.to });
+    setSlashTrigger(inactiveSlashTrigger());
+  }, []);
+
+  const selectSlashCommand = useCallback((command: ComposerSlashCommand, source: "inline" | "dialog") => {
+    if (command.isEnabled === false) return;
+
+    if (source === "inline") {
+      const trigger = slashTrigger;
+      if (command.Content) {
+        clearInlineSlashTrigger(trigger);
+        setNestedSlashCommand(command);
+        return;
+      }
+
+      if (command.onSelectFromInlineSlash) {
+        void command.onSelectFromInlineSlash({
+          source: "inline",
+          trigger,
+          clearTrigger: () => clearInlineSlashTrigger(trigger),
+          replaceTrigger: (text) => {
+            promptEditorRef.current?.replaceTextRange({ from: trigger.from, to: trigger.to, text });
+            setSlashTrigger(inactiveSlashTrigger());
+          },
+        });
+        closeSlashMenu();
+        return;
+      }
+
+      clearInlineSlashTrigger(trigger);
+      void command.onSelect?.({ source: "inline" });
+      closeSlashMenu();
+      return;
+    }
+
+    if (command.Content) {
+      setNestedSlashCommand(command);
+      setSlashDialogOpen(false);
+      return;
+    }
+    void command.onSelect?.({ source: "dialog" });
+    setSlashDialogOpen(false);
+  }, [clearInlineSlashTrigger, closeSlashMenu, slashTrigger]);
+
   const handleKeyDown = useCallback((event: ComposerPromptEditorKeyboardEvent): boolean => {
+    if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "p") {
+      event.preventDefault();
+      setSlashDialogOpen(true);
+      return true;
+    }
+
+    if (slashMenuOpen) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (nestedSlashCommand) {
+          setNestedSlashCommand(null);
+          return true;
+        }
+        closeSlashMenu();
+        return true;
+      }
+
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        setHighlightedSlashCommandId((current) => resolveNextSlashHighlight({
+          matches: slashMatches,
+          currentCommandId: current,
+          direction: event.key === "ArrowDown" ? "next" : "previous",
+        }));
+        return true;
+      }
+
+      if (event.key === "Enter" && !nestedSlashCommand) {
+        const highlighted = slashMatches.find((match) => match.command.id === highlightedSlashCommandId)?.command
+          ?? slashMatches[0]?.command
+          ?? null;
+        if (highlighted) {
+          event.preventDefault();
+          selectSlashCommand(highlighted, "inline");
+          return true;
+        }
+      }
+    }
+
     const hasMultilinePrompt = prompt.includes("\n");
     const isComposing = "nativeEvent" in event
       ? event.nativeEvent.isComposing
@@ -1179,7 +1334,20 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
     event.preventDefault();
     void promptForm.handleSubmit();
     return true;
-  }, [model.composerEnterBehavior, model.conversation, model.isThreadRunning, prompt, promptForm, submitPrompt]);
+  }, [
+    closeSlashMenu,
+    highlightedSlashCommandId,
+    model.composerEnterBehavior,
+    model.conversation,
+    model.isThreadRunning,
+    nestedSlashCommand,
+    prompt,
+    promptForm,
+    selectSlashCommand,
+    slashMatches,
+    slashMenuOpen,
+    submitPrompt,
+  ]);
 
   const hasDraftContent = prompt.trim().length > 0 || hasAttachments;
   const hasMultilinePrompt = prompt.includes("\n");
@@ -1230,6 +1398,17 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   return (
     <>
       <div className="relative">
+        <InlineSlashCommandMenu
+          open={slashMenuOpen}
+          groups={slashGroups}
+          matches={slashMatches}
+          highlightedCommandId={highlightedSlashCommandId}
+          nestedCommand={nestedSlashCommand}
+          onHighlight={setHighlightedSlashCommandId}
+          onSelect={(command) => selectSlashCommand(command, "inline")}
+          onClose={closeSlashMenu}
+          onBack={() => setNestedSlashCommand(null)}
+        />
         {dictationToastMessage ? (
           <button
             type="button"
@@ -1263,6 +1442,7 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
                     promptForm.setFieldValue("prompt", nextPrompt);
                   }}
                   onKeyDown={handleKeyDown}
+                  onSlashTriggerChange={handleSlashTriggerChange}
                 />
               </div>
             </div>
@@ -1474,6 +1654,26 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
           onErrorMessage={onErrorMessage}
           projectSelectorDisabled={busyAction !== null}
         />
+      ) : null}
+      <ExpandedSlashCommandDialog
+        open={slashDialogOpen}
+        commands={slashCommands}
+        composerText={prompt}
+        highlightedCommandId={highlightedSlashCommandId}
+        onHighlight={setHighlightedSlashCommandId}
+        onSelect={(command) => selectSlashCommand(command, "dialog")}
+        onClose={() => setSlashDialogOpen(false)}
+      />
+      {desktopPetVisible ? (
+        <button
+          type="button"
+          className="fixed right-5 bottom-5 z-50 flex size-14 items-center justify-center rounded-full bg-token-dropdown-background/95 text-token-foreground shadow-xl-spread ring-[0.5px] ring-token-border/50 backdrop-blur-sm hover:bg-token-list-hover-background"
+          aria-label="Hide desktop pet"
+          title="Hide desktop pet"
+          onClick={() => setDesktopPetVisible(false)}
+        >
+          <span className="text-lg" aria-hidden="true">Codex</span>
+        </button>
       ) : null}
     </>
   );

@@ -552,6 +552,135 @@ describe("ThreadComposer speed menu", () => {
     expect(Boolean((sentPromptInputs[0] ?? "").includes("\"skills\":[{\"name\":\"Computer Use\",\"path\":\"/plugins/computer-use\"}]"))).toBeTrue();
   });
 
+  test("opens the Codex-style inline slash command menu above the composer", async () => {
+    resetStorage();
+    const view = await renderComposer({
+      composerIntent: {
+        prompt: "/",
+        focusNonce: 1,
+      },
+    });
+
+    await waitFor(() => {
+      const menu = view.container.querySelector('[data-slash-command-menu="true"]');
+      if (!menu) throw new Error("Expected the slash command menu.");
+      expect(Boolean(menu.textContent?.includes("Compact"))).toBeTrue();
+      expect(Boolean(menu.textContent?.includes("Fast"))).toBeTrue();
+      expect(Boolean(menu.textContent?.includes("Feedback"))).toBeTrue();
+      expect(Boolean(menu.textContent?.includes("MCP"))).toBeTrue();
+      expect(Boolean(menu.textContent?.includes("Model"))).toBeTrue();
+      expect(Boolean(menu.textContent?.includes("No commands"))).toBeFalse();
+    });
+  });
+
+  test("filters slash commands and selects Fast from the inline menu", async () => {
+    resetStorage();
+    const view = await renderComposer({
+      composerIntent: {
+        prompt: "/fa",
+        focusNonce: 1,
+      },
+    });
+
+    await waitFor(() => {
+      const fastRow = view.container.querySelector('[data-slash-command-row="service-tier:fast"]');
+      if (!(fastRow instanceof HTMLElement)) throw new Error("Expected Fast slash command row.");
+      expect(Boolean(view.container.textContent?.includes("Compact"))).toBeFalse();
+    });
+
+    const fastRow = view.container.querySelector('[data-slash-command-row="service-tier:fast"]');
+    if (!(fastRow instanceof HTMLElement)) {
+      throw new Error("Expected Fast slash command row.");
+    }
+
+    await act(async () => {
+      fireEvent.click(fastRow);
+      await Promise.resolve();
+    });
+
+    expect(localStorageRef.getItem("nodex-codex-default-service-tier-v1")).toBe("fast");
+    expect(view.container.querySelector('[data-slash-command-menu="true"]') === null).toBeTrue();
+  });
+
+  test("runs the Compact slash command through the thread action boundary", async () => {
+    resetStorage();
+    const compactedThreadIds: string[] = [];
+    const view = await renderComposer(
+      {
+        composerIntent: {
+          prompt: "/compact",
+          focusNonce: 1,
+        },
+      },
+      {
+        onCompactThread: async (threadId) => {
+          compactedThreadIds.push(threadId);
+        },
+      },
+    );
+
+    const compactRow = await waitFor(() => {
+      const row = view.container.querySelector('[data-slash-command-row="compact"]');
+      if (!(row instanceof HTMLElement)) throw new Error("Expected Compact slash command row.");
+      return row;
+    });
+
+    await act(async () => {
+      fireEvent.click(compactRow);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(compactedThreadIds[0]).toBe("thread_1");
+    });
+  });
+
+  test("opens nested Model content and selects a model from the slash menu", async () => {
+    resetStorage();
+    const selectedModels: string[] = [];
+    const view = await renderComposer(
+      {
+        composerIntent: {
+          prompt: "/model",
+          focusNonce: 1,
+        },
+      },
+      {
+        onModelChange: (model) => {
+          selectedModels.push(model);
+        },
+      },
+    );
+
+    const modelRow = await waitFor(() => {
+      const row = view.container.querySelector('[data-slash-command-row="model"]');
+      if (!(row instanceof HTMLElement)) throw new Error("Expected Model slash command row.");
+      return row;
+    });
+
+    await act(async () => {
+      fireEvent.click(modelRow);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(Boolean(view.container.textContent?.includes("GPT-5.5"))).toBeTrue();
+    });
+
+    const nextModelButton = Array.from(view.container.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("GPT-5.5"));
+    if (!(nextModelButton instanceof HTMLElement)) {
+      throw new Error("Expected GPT-5.5 model option.");
+    }
+
+    await act(async () => {
+      fireEvent.click(nextModelButton);
+      await Promise.resolve();
+    });
+
+    expect(selectedModels[0]).toBe("gpt-5.5");
+  });
+
   test("places permissions and context inside the existing-thread composer footer without a lower status row", async () => {
     resetStorage();
     const invokedChannels: string[] = [];

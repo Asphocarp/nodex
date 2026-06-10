@@ -517,6 +517,27 @@ export const AddContextPlugins: Story = {
   },
 };
 
+export const InlineSlashCommandMenu: Story = {
+  args: {
+    draftPrompt: "/",
+    modelCatalog: "expanded",
+    addContextState: "plugins",
+  },
+};
+
+export const InlineSlashCommandMenuFiltered: Story = {
+  args: {
+    draftPrompt: "/mo",
+    modelCatalog: "expanded",
+  },
+};
+
+export const InlineSlashCommandMenuEmpty: Story = {
+  args: {
+    draftPrompt: "/zzzz",
+  },
+};
+
 export const FullAccessPermissions: Story = {
   args: {
     permissionMode: "full-access",
