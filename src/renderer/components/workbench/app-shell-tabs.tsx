@@ -11,6 +11,7 @@ import {
   type RefObject,
 } from "react";
 import { NodexTooltip } from "@/components/ui/tooltip";
+import { APP_SHELL_FLOATING_UI_LAYER_CLASS } from "@/lib/app-shell-layers";
 import type { PanelId } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
@@ -47,11 +48,21 @@ export interface AppShellTabItem {
   renderPanel: (closeTab: () => void) => ReactNode;
 }
 
-export interface AppShellTabContextMenuItem {
+export type AppShellTabContextMenuItem =
+  | AppShellTabContextMenuActionItem
+  | AppShellTabContextMenuSeparatorItem;
+
+export interface AppShellTabContextMenuActionItem {
   id: string;
+  type?: "item";
   label: string;
   disabled?: boolean;
   onSelect: () => void;
+}
+
+export interface AppShellTabContextMenuSeparatorItem {
+  id: string;
+  type: "separator";
 }
 
 interface AppShellTabsProps {
@@ -200,6 +211,7 @@ export function AppShellTabs({
             activeTabIndex={activeIndex}
             draggingIndex={draggingIndex}
             tabCount={tabs.length}
+            tabs={tabs}
             onSelect={onSelect}
             onClose={tab.closable ? closeTab : undefined}
             onPin={tab.preview ? pinTab : undefined}
@@ -316,6 +328,7 @@ function AppShellTab({
   activeTabIndex,
   draggingIndex,
   tabCount,
+  tabs,
   onSelect,
   onClose,
   onPin,
@@ -332,6 +345,7 @@ function AppShellTab({
   activeTabIndex: number;
   draggingIndex: number;
   tabCount: number;
+  tabs: AppShellTabItem[];
   onSelect: (tabId: string) => void;
   onClose?: (tabId: string) => void;
   onPin?: (tabId: string) => void;
@@ -356,6 +370,21 @@ function AppShellTab({
   const closeCurrentTab = () => {
     onClose?.(tab.id);
   };
+  const closeOtherTabs = () => {
+    for (const candidate of tabs) {
+      if (candidate.id === tab.id) continue;
+      if (candidate.closable !== true) continue;
+      onClose?.(candidate.id);
+    }
+  };
+  const closeTabsToRight = () => {
+    const tabIndex = tabs.findIndex((candidate) => candidate.id === tab.id);
+    if (tabIndex === -1) return;
+    for (const candidate of tabs.slice(tabIndex + 1)) {
+      if (candidate.closable !== true) continue;
+      onClose?.(candidate.id);
+    }
+  };
   const targetPanelId = controllerId.includes("bottom") ? "right" : "bottom";
   const moveCurrentTab = () => {
     onMove?.(tab.id, targetPanelId);
@@ -378,6 +407,9 @@ function AppShellTab({
   const dndPanelId = panelTabDnd?.panelId;
   const dndLeafId = panelTabDnd?.leafId;
   const isDraggable = Boolean(panelTabDnd && tab.isLabel !== true && tab.reorderable !== false);
+  const tabIndex = tabs.findIndex((candidate) => candidate.id === tab.id);
+  const hasOtherClosableTabs = tabs.some((candidate) => candidate.id !== tab.id && candidate.closable === true);
+  const hasClosableTabsToRight = tabIndex !== -1 && tabs.slice(tabIndex + 1).some((candidate) => candidate.closable === true);
 
   useEffect(() => {
     if (!dndSessionId || !dndPanelId || !dndLeafId) return undefined;
@@ -523,67 +555,132 @@ function AppShellTab({
     return chrome;
   }
 
+  const contextMenuItems = buildAppShellTabContextMenuItems({
+    customItems: tab.contextMenuItems,
+    canCloseOtherTabs: hasOtherClosableTabs,
+    canCloseTabsToRight: hasClosableTabsToRight,
+    canPinTab: tab.preview === true && Boolean(onPin),
+    canMoveTab: Boolean(onMove) && tab.preview !== true,
+    canSplitTab: Boolean(onSplit) && tab.splittable === true,
+    targetPanelId,
+    onClose: closeCurrentTab,
+    onCloseOtherTabs: closeOtherTabs,
+    onCloseTabsToRight: closeTabsToRight,
+    onPin: pinCurrentTab,
+    onMove: moveCurrentTab,
+    onSplit: splitCurrentTab,
+  });
+
   return (
     <ContextMenuPrimitive.Root>
       <ContextMenuPrimitive.Trigger asChild>{chrome}</ContextMenuPrimitive.Trigger>
       <ContextMenuPrimitive.Portal>
         <ContextMenuPrimitive.Content
-          className="no-drag bg-token-dropdown-background/90 text-token-foreground ring-token-border z-50 m-px min-w-36 select-none overflow-hidden rounded-xl px-1 py-1 shadow-xl-spread ring-[0.5px] backdrop-blur-sm"
+          className={cn(
+            "no-drag bg-token-dropdown-background/90 text-token-foreground ring-token-border m-px min-w-36 select-none overflow-hidden rounded-xl px-1 py-1 shadow-xl-spread ring-[0.5px] backdrop-blur-sm",
+            APP_SHELL_FLOATING_UI_LAYER_CLASS,
+          )}
         >
-          {tab.contextMenuItems?.map((item) => (
-            <ContextMenuPrimitive.Item
-              key={item.id}
-              disabled={item.disabled}
-              className={cn(
-                "cursor-interaction rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm outline-hidden hover:bg-token-list-hover-background focus:bg-token-list-hover-background",
-                item.disabled && "cursor-default opacity-50",
-              )}
-              onSelect={item.disabled ? undefined : item.onSelect}
-            >
-              {item.label}
-            </ContextMenuPrimitive.Item>
+          {contextMenuItems.map((item) => (
+            item.type === "separator" ? (
+              <ContextMenuDivider key={item.id} />
+            ) : (
+              <ContextMenuPrimitive.Item
+                key={item.id}
+                disabled={item.disabled}
+                className={cn(
+                  "cursor-interaction rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm outline-hidden hover:bg-token-list-hover-background focus:bg-token-list-hover-background",
+                  item.disabled && "cursor-default opacity-50",
+                )}
+                onSelect={item.disabled ? undefined : item.onSelect}
+              >
+                {item.label}
+              </ContextMenuPrimitive.Item>
+            )
           ))}
-          {tab.contextMenuItems && tab.contextMenuItems.length > 0 ? <ContextMenuDivider /> : null}
-          <ContextMenuPrimitive.Item
-            className="cursor-interaction rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm outline-hidden hover:bg-token-list-hover-background focus:bg-token-list-hover-background"
-            onSelect={closeCurrentTab}
-          >
-            Close tab
-          </ContextMenuPrimitive.Item>
-          {tab.preview && onPin ? (
-            <ContextMenuPrimitive.Item
-              className="cursor-interaction rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm outline-hidden hover:bg-token-list-hover-background focus:bg-token-list-hover-background"
-              onSelect={pinCurrentTab}
-            >
-              Pin tab
-            </ContextMenuPrimitive.Item>
-          ) : null}
-          {onMove && !tab.preview ? (
-            <ContextMenuPrimitive.Item
-              className="cursor-interaction rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm outline-hidden hover:bg-token-list-hover-background focus:bg-token-list-hover-background"
-              onSelect={moveCurrentTab}
-            >
-              Move to {targetPanelId === "bottom" ? "bottom panel" : "right panel"}
-            </ContextMenuPrimitive.Item>
-          ) : null}
-          {onSplit && tab.splittable === true ? (
-            <>
-              <ContextMenuDivider />
-              {APP_SHELL_SPLIT_ACTIONS.map((action) => (
-                <ContextMenuPrimitive.Item
-                  key={action.side}
-                  className="cursor-interaction rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-sm outline-hidden hover:bg-token-list-hover-background focus:bg-token-list-hover-background"
-                  onSelect={() => splitCurrentTab(action.side)}
-                >
-                  Split tab {action.label}
-                </ContextMenuPrimitive.Item>
-              ))}
-            </>
-          ) : null}
         </ContextMenuPrimitive.Content>
       </ContextMenuPrimitive.Portal>
     </ContextMenuPrimitive.Root>
   );
+}
+
+function buildAppShellTabContextMenuItems({
+  customItems,
+  canCloseOtherTabs,
+  canCloseTabsToRight,
+  canPinTab,
+  canMoveTab,
+  canSplitTab,
+  targetPanelId,
+  onClose,
+  onCloseOtherTabs,
+  onCloseTabsToRight,
+  onPin,
+  onMove,
+  onSplit,
+}: {
+  customItems: AppShellTabContextMenuItem[] | undefined;
+  canCloseOtherTabs: boolean;
+  canCloseTabsToRight: boolean;
+  canPinTab: boolean;
+  canMoveTab: boolean;
+  canSplitTab: boolean;
+  targetPanelId: string;
+  onClose: () => void;
+  onCloseOtherTabs: () => void;
+  onCloseTabsToRight: () => void;
+  onPin: () => void;
+  onMove: () => void;
+  onSplit: (side: AppShellTabSplitSide) => void;
+}): AppShellTabContextMenuItem[] {
+  const items: AppShellTabContextMenuItem[] = [...(customItems ?? [])];
+  if (items.length > 0) {
+    items.push({ id: "close-tab-separator", type: "separator" });
+  }
+  items.push(
+    {
+      id: "close-tab",
+      label: "Close",
+      onSelect: onClose,
+    },
+    {
+      id: "close-other-tabs",
+      label: "Close other tabs",
+      disabled: !canCloseOtherTabs,
+      onSelect: onCloseOtherTabs,
+    },
+    {
+      id: "close-tabs-to-the-right",
+      label: "Close tabs to the right",
+      disabled: !canCloseTabsToRight,
+      onSelect: onCloseTabsToRight,
+    },
+  );
+  if (canPinTab) {
+    items.push({
+      id: "pin-tab",
+      label: "Pin tab",
+      onSelect: onPin,
+    });
+  }
+  if (canMoveTab) {
+    items.push({
+      id: "move-tab",
+      label: `Move to ${targetPanelId === "bottom" ? "bottom panel" : "right panel"}`,
+      onSelect: onMove,
+    });
+  }
+  if (canSplitTab) {
+    items.push({ id: "split-tab-separator", type: "separator" });
+    for (const action of APP_SHELL_SPLIT_ACTIONS) {
+      items.push({
+        id: `split-tab-${action.side}`,
+        label: `Split tab ${action.label}`,
+        onSelect: () => onSplit(action.side),
+      });
+    }
+  }
+  return items;
 }
 
 function ContextMenuDivider() {

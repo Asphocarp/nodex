@@ -9,6 +9,10 @@ import {
   CODEX_SIDEBAR_FLOATING_OUTER_CLASS,
 } from "@/lib/codex-sidebar-auto-reveal";
 import {
+  APP_SHELL_GLOBAL_HEADER_LAYER_CLASS,
+  APP_SHELL_RIGHT_PANEL_LAYER_CLASS,
+} from "@/lib/app-shell-layers";
+import {
   getDefaultDbViewPrefs,
   type DbViewPrefs,
   type SupportedDbView,
@@ -141,7 +145,39 @@ mock.module("./workbench-card-stage", () => ({
   CardStage: (props: Record<string, unknown>) => {
     (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps = props;
     const card = props.card as { id?: string } | null | undefined;
-    return createElement("div", { "data-card-stage": "true" }, `Card:${String(card?.id ?? "missing")}`);
+    return createElement(
+      "div",
+      { "data-card-stage": "true" },
+      `Card:${String(card?.id ?? "missing")}`,
+      createElement(
+        "button",
+        {
+          type: "button",
+          "aria-label": "History",
+          onClick: () => {
+            const current = (globalThis as { __mockCardStageHistoryClicks?: number }).__mockCardStageHistoryClicks ?? 0;
+            (globalThis as { __mockCardStageHistoryClicks?: number }).__mockCardStageHistoryClicks = current + 1;
+          },
+        },
+        "History",
+      ),
+      createElement(
+        "button",
+        {
+          type: "button",
+          "aria-label": "Delete",
+          onClick: () => {
+            const current = (globalThis as { __mockCardStageDeleteClicks?: number }).__mockCardStageDeleteClicks ?? 0;
+            (globalThis as { __mockCardStageDeleteClicks?: number }).__mockCardStageDeleteClicks = current + 1;
+            void (props.onDelete as ((nextColumnId: string, cardId: string) => Promise<void>) | undefined)?.(
+              "in_progress",
+              card?.id ?? "card-1",
+            );
+          },
+        },
+        "Delete",
+      ),
+    );
   },
 }));
 
@@ -937,11 +973,22 @@ beforeEach(() => {
   delete (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
   delete (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
   delete (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> }).__lastTerminalPanelProps;
+  delete (globalThis as { __mockCardStageHistoryClicks?: number }).__mockCardStageHistoryClicks;
+  delete (globalThis as { __mockCardStageDeleteClicks?: number }).__mockCardStageDeleteClicks;
 });
 
 async function openBottomPanel(screen: ReturnType<typeof renderWorkbench>): Promise<void> {
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Toggle bottom panel" }));
+    await Promise.resolve();
+  });
+  await settleAsyncRender();
+}
+
+async function pointerActivate(element: HTMLElement): Promise<void> {
+  await act(async () => {
+    fireEvent.pointerDown(element, { button: 0 });
+    fireEvent.click(element);
     await Promise.resolve();
   });
   await settleAsyncRender();
@@ -2181,14 +2228,205 @@ describe("workbench session shell", () => {
     const globalHeader = screen.getByTestId("workbench-global-header");
     const headerCenterSurface = screen.getByTestId("app-shell-header-context-menu-surface");
     const restoreButton = screen.getByRole("button", { name: "Restore panel width" });
-    expect(globalHeader.className.includes("z-[42]")).toBeTrue();
+    expect(globalHeader.className.includes(APP_SHELL_GLOBAL_HEADER_LAYER_CLASS)).toBeTrue();
     expect(headerCenterSurface.getAttribute("aria-hidden")).toBe("true");
     expect(headerCenterSurface.className.includes("invisible")).toBeTrue();
     expect(rightPanel.getAttribute("data-right-panel-width-mode")).toBe("full");
     expect(rightPanel.getAttribute("data-app-shell-focus-area")).toBe("right-panel");
-    expect(rightPanel.className.includes("z-[41]")).toBeTrue();
+    expect(rightPanel.className.includes(APP_SHELL_RIGHT_PANEL_LAYER_CLASS)).toBeTrue();
     expect(threadPage?.getAttribute("data-session-thread-page-hidden")).toBe("true");
     expect(restoreButton.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  test("full-width eligible attached right-panel tabs pass the composer overlay host to the root thread", async () => {
+    const attachedSession = makeAttachedSession();
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [attachedSession] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const rightPanel = screen.getByTestId("session-right-panel");
+    const host = rightPanel.querySelector('[data-right-panel-composer-overlay-host="true"]');
+    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(host !== null).toBeTrue();
+    expect(props?.rightPanelComposerOverlayEnabled).toBe(true);
+    expect(props?.rightPanelComposerOverlayTarget).toBe(host);
+  });
+
+  test("full-width overlay state keeps the bottom-panel toggle clickable after pointerdown", async () => {
+    const session = makeAttachedSession({
+      id: "session:alpha:overlay-bottom-toggle",
+      tabs: [
+        {
+          id: "db-tab",
+          kind: "db_view",
+          title: "DB View",
+          config: { projectId: "alpha", view: "kanban" },
+        },
+        {
+          id: "terminal-tab",
+          kind: "terminal",
+          title: "Terminal",
+          panelId: "bottom",
+          config: { projectId: "alpha", terminalSessionId: "terminal" },
+        },
+      ],
+      panels: makePanels({
+        rightTabIds: ["db-tab"],
+        rightActiveTabId: "db-tab",
+        rightFullWidth: true,
+        bottomTabIds: ["terminal-tab"],
+        bottomActiveTabId: "terminal-tab",
+        bottomCollapsed: true,
+      }),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(props?.rightPanelComposerOverlayEnabled).toBe(true);
+    expect(screen.queryByTestId("session-bottom-panel")).toBe(null);
+
+    await pointerActivate(screen.getByRole("button", { name: "Toggle bottom panel" }));
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-session-panels:update"
+      && call[1] === "session:alpha:overlay-bottom-toggle"
+      && call[2] === "bottom"
+      && JSON.stringify(call[3]) === JSON.stringify({ collapsed: false })
+    )).toBeTrue();
+    expect(screen.queryByTestId("session-bottom-panel") !== null).toBeTrue();
+  });
+
+  test("full-width overlay state keeps the side-panel toggle clickable after pointerdown", async () => {
+    const session = makeAttachedSession({
+      id: "session:alpha:overlay-side-toggle",
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(props?.rightPanelComposerOverlayEnabled).toBe(true);
+
+    await pointerActivate(screen.getByRole("button", { name: "Toggle side panel" }));
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-session-panels:update"
+      && call[1] === "session:alpha:overlay-side-toggle"
+      && call[2] === "right"
+      && JSON.stringify(call[3]) === JSON.stringify({ collapsed: true })
+    )).toBeTrue();
+  });
+
+  test("full-width overlay state keeps restore-panel-width clickable after pointerdown", async () => {
+    const session = makeAttachedSession({
+      id: "session:alpha:overlay-restore",
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(props?.rightPanelComposerOverlayEnabled).toBe(true);
+
+    await pointerActivate(screen.getByRole("button", { name: "Restore panel width" }));
+
+    expect(invokeCalls.some((call) => {
+      const input = call[3] as { size?: { fullWidth?: boolean } } | undefined;
+      return call[0] === "project-session-panels:update"
+        && call[1] === "session:alpha:overlay-restore"
+        && call[2] === "right"
+        && input?.size?.fullWidth === false;
+    })).toBeTrue();
+  });
+
+  test("full-width card-stage overlay state keeps card toolbar actions clickable after pointerdown", async () => {
+    const session = makeAttachedSession({
+      id: "session:alpha:overlay-card-stage",
+      tabs: [
+        {
+          id: "card-stage-tab",
+          kind: "card_stage",
+          title: "Card One",
+          config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
+        },
+      ],
+      panels: makePanels({
+        rightTabIds: ["card-stage-tab"],
+        rightActiveTabId: "card-stage-tab",
+        rightFullWidth: true,
+      }),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(props?.rightPanelComposerOverlayEnabled).toBe(true);
+    expect(screen.getByTestId("session-right-panel").getAttribute("data-right-panel-width-mode")).toBe("full");
+
+    await pointerActivate(screen.getByRole("button", { name: "History" }));
+    await pointerActivate(screen.getByRole("button", { name: "Delete" }));
+
+    expect((globalThis as { __mockCardStageHistoryClicks?: number }).__mockCardStageHistoryClicks).toBe(1);
+    expect((globalThis as { __mockCardStageDeleteClicks?: number }).__mockCardStageDeleteClicks).toBe(1);
+  });
+
+  test("regular width and terminal right-panel tabs do not enable the root composer overlay", async () => {
+    const regularSession = makeAttachedSession({
+      id: "session:alpha:regular",
+      isOverview: false,
+      rightCollapsed: false,
+    });
+    const regularScreen = renderWorkbench({
+      sessionsByProject: { alpha: [regularSession] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    let props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(props?.rightPanelComposerOverlayEnabled).toBe(false);
+    regularScreen.unmount();
+
+    const terminalSession = makeAttachedSession({
+      id: "session:alpha:terminal-right",
+      tabs: [
+        {
+          id: "terminal-tab",
+          kind: "terminal",
+          title: "Terminal",
+          panelId: "right",
+          config: { projectId: "alpha", terminalSessionId: "terminal" },
+        },
+      ],
+      rightLayout: makePanelLayout(["terminal-tab"], "terminal-tab"),
+    });
+    const terminalScreen = renderWorkbench({
+      sessionsByProject: { alpha: [terminalSession] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    expect(terminalScreen.getByTestId("session-right-panel").getAttribute("data-right-panel-width-mode")).toBe("full");
+    expect(props?.rightPanelComposerOverlayEnabled).toBe(false);
   });
 
   test("open non-overview right panel keeps side toggle global and expands from the panel-global header", async () => {
@@ -2224,8 +2462,8 @@ describe("workbench session shell", () => {
     expect(globalHeader?.contains(sidePanelToggle)).toBeTrue();
     expect(headerShellSlot?.contains(sidePanelToggle)).toBeTrue();
     expect(visibleGlobalHeaderButtons.map((button) => button.getAttribute("aria-label")).join(",")).toBe("Toggle bottom panel,Toggle side panel");
-    expect(rightPanel?.className.includes("z-[41]")).toBeTrue();
-    expect(globalHeader?.className.includes("z-[42]")).toBeTrue();
+    expect(rightPanel?.className.includes(APP_SHELL_RIGHT_PANEL_LAYER_CLASS)).toBeTrue();
+    expect(globalHeader?.className.includes(APP_SHELL_GLOBAL_HEADER_LAYER_CLASS)).toBeTrue();
     expect(headerCenterSurface.getAttribute("aria-hidden")).toBe(null);
     expect(headerCenterSurface.className.includes("invisible")).toBeFalse();
     expect(headerShellSlot?.className.includes("pe-2")).toBeTrue();
@@ -2257,8 +2495,8 @@ describe("workbench session shell", () => {
     const threadPage = screen.container.querySelector('[data-testid="session-thread-page"]');
     expect(rightPanel?.getAttribute("data-right-panel-width-mode")).toBe("full");
     expect(rightPanel?.getAttribute("data-app-shell-focus-area")).toBe("right-panel");
-    expect(rightPanel?.className.includes("z-[41]")).toBeTrue();
-    expect(globalHeader?.className.includes("z-[42]")).toBeTrue();
+    expect(rightPanel?.className.includes(APP_SHELL_RIGHT_PANEL_LAYER_CLASS)).toBeTrue();
+    expect(globalHeader?.className.includes(APP_SHELL_GLOBAL_HEADER_LAYER_CLASS)).toBeTrue();
     expect(headerCenterSurface.getAttribute("aria-hidden")).toBe("true");
     expect(headerCenterSurface.className.includes("invisible")).toBeTrue();
     expect(rightPanel?.className.includes("shadow-xl")).toBeFalse();
@@ -2573,7 +2811,7 @@ describe("workbench session shell", () => {
     const menu = await openPanelMenu(screen, "Open side panel tab");
     expectPanelMenuDescriptionsHidden(menu);
 
-    for (const label of ["Files", "Side chat", "Browser", "Review", "Card Stage"]) {
+    for (const label of ["Review", "Terminal", "Browser", "Files", "Side chat"]) {
       const className = getMenuItemIconClassName(menu, label);
       expect(className.includes("icon-sm")).toBeTrue();
       expect(className.includes("icon-md")).toBeFalse();
@@ -2628,15 +2866,27 @@ describe("workbench session shell", () => {
     const actionGrid = screen.container.querySelector('[data-thread-side-panel-new-tab-action-grid="true"]');
     expect(actionGrid !== null).toBeTrue();
     if (!actionGrid) throw new Error("Expected right-panel action grid");
+    const actionText = textContent(actionGrid);
+    expect(actionText.indexOf("Review") < actionText.indexOf("Terminal")).toBeTrue();
+    expect(actionText.indexOf("Terminal") < actionText.indexOf("Browser")).toBeTrue();
+    expect(actionText.indexOf("Browser") < actionText.indexOf("Files")).toBeTrue();
+    expect(actionText.indexOf("Files") < actionText.indexOf("Side chat")).toBeTrue();
+    expect(screen.getByRole("button", { name: /Review/ }) !== null).toBeTrue();
+    expect(screen.getByRole("button", { name: /Terminal/ }) !== null).toBeTrue();
+    expect(screen.getByRole("button", { name: /Browser/ }) !== null).toBeTrue();
     expect(screen.getByRole("button", { name: /Files/ }) !== null).toBeTrue();
     expect(screen.getByRole("button", { name: /Side chat/ }) !== null).toBeTrue();
-    expect(screen.getByRole("button", { name: /Browser/ }) !== null).toBeTrue();
-    expect(screen.getByRole("button", { name: /Review/ }) !== null).toBeTrue();
-    expect(screen.queryByRole("button", { name: /Terminal/ })).toBe(null);
     expect(screen.getByRole("button", { name: /DB View/ }) !== null).toBeTrue();
     expect(screen.getByRole("button", { name: /Card Stage/ }) !== null).toBeTrue();
+    expect(actionText.indexOf("Side chat") < actionText.indexOf("DB View")).toBeTrue();
+    expect(actionText.indexOf("DB View") < actionText.indexOf("Card Stage")).toBeTrue();
+    expect(actionGrid.className.includes("gap-1")).toBeTrue();
+    expect(screen.getByRole("button", { name: /Review/ }).className.includes("min-h-10")).toBeTrue();
     expect(textContent(actionGrid).includes("⌃⇧G")).toBeTrue();
-    expect(textContent(actionGrid).includes("⌃`")).toBeFalse();
+    expect(textContent(actionGrid).includes("⌃`")).toBeTrue();
+    expect(textContent(actionGrid).includes("Ctrl+T")).toBeTrue();
+    expect(textContent(actionGrid).includes("Ctrl+P")).toBeTrue();
+    expect(textContent(actionGrid).includes("Alt+Ctrl+S")).toBeTrue();
   });
 
   test("bottom panel add menu shows Codex-eligible non-default actions", async () => {
@@ -2654,6 +2904,33 @@ describe("workbench session shell", () => {
     expect(within(menu).queryByText("DB View")).toBe(null);
     expect(within(menu).queryByText("Card Stage")).toBe(null);
     expect(textContent(menu).includes("⌃`")).toBeTrue();
+  });
+
+  test("right panel keeps Nodex-only actions after Codex actions", async () => {
+    const emptySession = makeSession({
+      id: "session:alpha:nodex-actions",
+      isOverview: false,
+      tabs: [],
+      rightLayout: makePanelLayout([], null),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [emptySession] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const menu = await openPanelMenu(screen, "Open side panel tab");
+    const menuText = textContent(menu);
+    expect(menuText.indexOf("Review") < menuText.indexOf("Terminal")).toBeTrue();
+    expect(menuText.indexOf("Side chat") < menuText.indexOf("DB View")).toBeTrue();
+    expect(menuText.indexOf("DB View") < menuText.indexOf("Card Stage")).toBeTrue();
+
+    fireEvent.click(within(menu).getByText("DB View"));
+    await settleAsyncRender();
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-session-tabs:create"
+      && JSON.stringify(call[1]).includes('"kind":"db_view"')
+    )).toBeTrue();
   });
 
   for (const previewCase of [
@@ -2757,10 +3034,11 @@ describe("workbench session shell", () => {
 
     const menu = screen.getByRole("menu");
     expect(within(menu).queryByText("DB View")).toBe(null);
+    expect(within(menu).getByText("Card Stage") !== null).toBeTrue();
     expect(within(menu).getByText("Browser") !== null).toBeTrue();
     expect(within(menu).queryByText("Review")).toBe(null);
     expect(within(menu).getByText("Files") !== null).toBeTrue();
-    expect(within(menu).queryByText("Terminal")).toBe(null);
+    expect(within(menu).getByText("Terminal") !== null).toBeTrue();
   });
 
   test("bottom plus menu keeps Browser multi-tab and hides singleton Review tabs from either panel", async () => {
@@ -2842,33 +3120,8 @@ describe("workbench session shell", () => {
     expect(screen.container.querySelector("[data-review-diff-panel]") !== null).toBeTrue();
   });
 
-  test("card stage chooser opens a real card tab without prompting", async () => {
-    const emptySession = makeSession({
-      id: "session:alpha:empty",
-      isOverview: false,
-      tabs: [],
-      rightLayout: makePanelLayout([], null),
-    });
-    const screen = renderWorkbench({
-      sessionsByProject: { alpha: [emptySession] },
-    });
-    await settleAsyncRender();
-    await settleAsyncRender();
-
-    fireEvent.pointerDown(screen.getByRole("button", { name: /Card Stage/ }), { button: 0 });
-    await settleAsyncRender();
-    fireEvent.click(screen.getByText("Card One"));
-    await settleAsyncRender();
-
-    expect(invokeCalls.some((call) =>
-      call[0] === "project-session-tabs:create"
-      && JSON.stringify(call[1]).includes('"kind":"card_stage"')
-      && JSON.stringify(call[1]).includes('"cardId":"card-1"')
-    )).toBeTrue();
-  });
-
   test("right-panel shortcuts create tabs and ignore editable targets", async () => {
-    renderWorkbench({
+    const screen = renderWorkbench({
       sessionsByProject: { alpha: [makeAttachedSession()] },
     });
     await settleAsyncRender();
@@ -2897,6 +3150,17 @@ describe("workbench session shell", () => {
       && JSON.stringify(call[1]).includes('"panelId":"bottom"')
       && JSON.stringify(call[1]).includes('"kind":"terminal"')
     )).toBeTrue();
+
+    invokeCalls = [];
+    startSideChatCalls = [];
+    await act(async () => {
+      fireEvent.keyDown(document, { key: "s", altKey: true, ctrlKey: true });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(String(startSideChatCalls.length)).toBe("1");
+    expect(screen.getByRole("tab", { name: "Side chat" }) !== null).toBeTrue();
 
     invokeCalls = [];
     const input = document.createElement("input");
@@ -3009,7 +3273,7 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     await act(async () => {
-      fireEvent.click(screen.getByText("DB View"));
+      fireEvent.click(screen.getByText("Review"));
       await Promise.resolve();
     });
     await settleAsyncRender();

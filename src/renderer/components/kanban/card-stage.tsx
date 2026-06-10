@@ -6,6 +6,7 @@ import { CardStageRawContent } from "./card-stage/raw-content";
 import { CardStageToolbar } from "./card-stage/toolbar";
 import { useCardStageController } from "./card-stage/use-card-stage-controller";
 import type { CardStageProps } from "./card-stage/types";
+import { RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE } from "@/lib/right-panel-composer-overlay-reserve";
 
 export type { CardStageProps } from "./card-stage/types";
 
@@ -64,6 +65,7 @@ export function CardStage(props: CardStageProps) {
         ref={controller.scrollContainerRef}
         onScroll={controller.handleScroll}
         className="scrollbar-token min-h-0 flex-1 overflow-y-auto"
+        style={RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE}
       >
         <div className={controller.contentGutterClassName}>
           <div className={controller.contentShellClassName}>

@@ -64,6 +64,10 @@ import {
 } from "./browser-sidebar-ui-model";
 import type { ProjectSession, ProjectSessionTab } from "@/lib/types";
 import { invoke } from "@/lib/api";
+import {
+  RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE,
+  RIGHT_PANEL_COMPOSER_OVERLAY_ZERO_RESERVE_VALUE,
+} from "@/lib/right-panel-composer-overlay-reserve";
 import { cn } from "@/lib/utils";
 import {
   CodexBrowserAnnotateIcon,
@@ -546,7 +550,13 @@ export function BrowserSidebarPanel({
         </div>
       </div>
 
-      <div className="relative h-[calc(100%-var(--height-toolbar-pane))] min-h-0 overflow-hidden bg-token-main-surface-primary">
+      <div
+        className="relative min-h-0 overflow-hidden bg-token-main-surface-primary"
+        style={{
+          height: `calc(100% - var(--height-toolbar-pane) - ${RIGHT_PANEL_COMPOSER_OVERLAY_ZERO_RESERVE_VALUE})`,
+          scrollPaddingBottom: RIGHT_PANEL_COMPOSER_OVERLAY_ZERO_RESERVE_VALUE,
+        }}
+      >
         {isBlank ? (
           <BrowserNewTabState
             projectId={tab.projectId}
@@ -886,6 +896,7 @@ export function BrowserWebviewStage({
             "relative h-full w-full overflow-hidden",
             fixedViewport && "flex items-center justify-center overflow-auto p-6",
           )}
+          style={fixedViewport ? RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE : undefined}
         >
           <div
             className={cn(

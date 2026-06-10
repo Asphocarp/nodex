@@ -1,4 +1,5 @@
 import {
+  Fragment,
   forwardRef,
   startTransition,
   useCallback,
@@ -43,7 +44,12 @@ import { SettingsRouteShell } from "./workbench-settings-overlay";
 import { buildSettingsPath } from "./workbench-settings-routes";
 import { ProjectManagerPopover } from "./left-sidebar-project-manager";
 import { LeftSidebarFooter } from "./left-sidebar-footer";
-import { NodexDropdownFlyoutSubmenuItem, NodexDropdownItem, NodexDropdownMenu } from "@/components/ui/dropdown";
+import {
+  NodexDropdownFlyoutSubmenuItem,
+  NodexDropdownItem,
+  NodexDropdownMenu,
+  NodexDropdownSeparator,
+} from "@/components/ui/dropdown";
 import { NodexButton } from "@/components/ui/button";
 import {
   NodexDialog,
@@ -74,6 +80,10 @@ import {
   shiftCalendarAnchorDateByDays,
   type CalendarViewState,
 } from "@/lib/calendar-view-state";
+import {
+  APP_SHELL_GLOBAL_HEADER_LAYER_CLASS,
+  APP_SHELL_RIGHT_PANEL_LAYER_CLASS,
+} from "@/lib/app-shell-layers";
 import type { CalendarRangeState } from "@/lib/calendar-range";
 import { resolveCalendarVisibleDayCount } from "@/lib/calendar-range";
 import { KANBAN_STATUS_LABELS } from "@/lib/kanban-options";
@@ -266,8 +276,22 @@ const PREVIEWABLE_PROJECT_SESSION_TAB_KIND_SET = new Set<ProjectSessionTab["kind
   "browser",
   "files_placeholder",
 ]);
-const PANEL_ACTION_CARD_CLASS = "cursor-interaction min-h-32 w-full max-w-[330px] rounded-xl bg-token-bg-secondary px-4 py-6 text-center hover:bg-token-list-hover-background focus-visible:outline focus-visible:outline-2 focus-visible:outline-token-border-xstrong";
+const PANEL_ACTION_ROW_CLASS = "cursor-interaction flex min-h-10 w-full items-center gap-2 rounded-md bg-token-bg-secondary px-2.5 py-2 text-left hover:bg-token-list-hover-background focus-visible:outline focus-visible:outline-2 focus-visible:outline-token-border-xstrong";
 const PANEL_ACTION_KBD_CLASS = "inline-flex !rounded-md !border-0 !bg-current/10 !font-sans !text-xs !text-current !shadow-none !px-1.5 !py-0.5 !leading-none";
+const CODEX_PANEL_OPTION_ACTION_ORDER: ProjectSessionTab["kind"][] = [
+  "review",
+  "terminal",
+  "browser",
+  "files_placeholder",
+  "side_chat_placeholder",
+];
+const NODEX_PANEL_OPTION_ACTION_ORDER: ProjectSessionTab["kind"][] = [
+  "db_view",
+  "card_stage",
+];
+const NODEX_PANEL_OPTION_ACTION_KIND_SET = new Set<ProjectSessionTab["kind"]>(
+  NODEX_PANEL_OPTION_ACTION_ORDER,
+);
 const DB_VIEW_TABS: Array<{ id: ProjectSessionDbView; label: string; icon: ComponentType<{ className?: string }> }> = [
   { id: "kanban", label: "Board", icon: SquareKanban },
   { id: "list", label: "Table", icon: Table2 },
@@ -276,7 +300,7 @@ const DB_VIEW_TABS: Array<{ id: ProjectSessionDbView; label: string; icon: Compo
   { id: "calendar", label: "Calendar", icon: CalendarDays },
 ];
 
-type PanelActionShortcut = "mod+p" | "mod+t" | "ctrl+shift+g" | "ctrl+backquote";
+type PanelActionShortcut = "mod+p" | "mod+t" | "ctrl+shift+g" | "ctrl+backquote" | "alt+mod+s";
 
 interface PanelNewTabAction {
   kind: ProjectSessionTab["kind"];
@@ -345,6 +369,7 @@ const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
     targetPanelIds: ["right", "bottom"],
     label: "Side chat",
     description: "Start a side conversation",
+    shortcut: "alt+mod+s",
     Icon: CodexSidePanelSideChatIcon,
   },
   {
@@ -368,6 +393,7 @@ const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
   {
     kind: "terminal",
     defaultPanelId: "bottom",
+    targetPanelIds: ["right", "bottom"],
     label: "Terminal",
     description: "Start an interactive shell",
     shortcut: "ctrl+backquote",
@@ -656,11 +682,24 @@ function filterAvailablePanelActions(
   tabs: readonly ProjectSessionTab[],
   panelId: PanelId,
 ): PanelNewTabAction[] {
-  return actions.filter((action) => {
-    if (!isPanelActionTargetAllowed(action, panelId)) return false;
-    if (!PROJECT_SESSION_SINGLETON_TAB_KIND_SET.has(action.kind)) return true;
-    return !tabs.some((tab) => tab.kind === action.kind);
+  const actionsByKind = new Map(actions.map((action) => [action.kind, action]));
+  const orderedKinds = [
+    ...CODEX_PANEL_OPTION_ACTION_ORDER,
+    ...NODEX_PANEL_OPTION_ACTION_ORDER,
+  ];
+  return orderedKinds.flatMap((kind) => {
+    const action = actionsByKind.get(kind);
+    if (!action) return [];
+    if (!isPanelActionTargetAllowed(action, panelId)) return [];
+    if (PROJECT_SESSION_SINGLETON_TAB_KIND_SET.has(action.kind) && tabs.some((tab) => tab.kind === action.kind)) {
+      return [];
+    }
+    return [action];
   });
+}
+
+function isNodexPanelOptionAction(action: PanelNewTabAction): boolean {
+  return NODEX_PANEL_OPTION_ACTION_KIND_SET.has(action.kind);
 }
 
 function normalizeOptionalPath(value: string | null | undefined): string | undefined {
@@ -687,6 +726,7 @@ function resolvePanelShortcutLabel(shortcut: PanelActionShortcut | undefined, is
   if (shortcut === "mod+p") return isMac ? "⌘P" : "Ctrl+P";
   if (shortcut === "mod+t") return isMac ? "⌘T" : "Ctrl+T";
   if (shortcut === "ctrl+shift+g") return "⌃⇧G";
+  if (shortcut === "alt+mod+s") return isMac ? "⌥⌘S" : "Alt+Ctrl+S";
   return "⌃`";
 }
 
@@ -701,6 +741,9 @@ function matchesPanelShortcut(
   if (shortcut === "mod+t") return modifier && !event.altKey && !event.shiftKey && key === "t";
   if (shortcut === "ctrl+shift+g") {
     return event.ctrlKey && !event.metaKey && !event.altKey && event.shiftKey && key === "g";
+  }
+  if (shortcut === "alt+mod+s") {
+    return modifier && event.altKey && !event.shiftKey && key === "s";
   }
   return event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && (event.key === "`" || event.code === "Backquote");
 }
@@ -758,6 +801,20 @@ function isSideChatPanelTab(tab: ProjectSessionRenderableTab): tab is SideChatPa
 
 function isMcpAppPanelTab(tab: ProjectSessionRenderableTab): tab is McpAppPanelTab {
   return "mcpApp" in tab && tab.mcpApp === true;
+}
+
+function isRootThreadRightPanelComposerOverlayEligibleTab(
+  tab: ProjectSessionRenderableTab | null,
+): boolean {
+  if (!tab) return false;
+  if (isSideChatPanelTab(tab) || isMcpAppPanelTab(tab)) return false;
+
+  return (
+    tab.kind === "review"
+    || tab.kind === "browser"
+    || tab.kind === "db_view"
+    || tab.kind === "card_stage"
+  );
 }
 
 function getSideChatTabTitle(index: number): string {
@@ -964,6 +1021,7 @@ export function WorkbenchShell({
   const [headerRightWidth, setHeaderRightWidth] = useState(RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX);
   const [headerRightRailWidth, setHeaderRightRailWidth] = useState(RIGHT_PANEL_HEADER_FALLBACK_RAIL_WIDTH_PX);
   const [threadHeaderPortalElement, setThreadHeaderPortalElement] = useState<HTMLDivElement | null>(null);
+  const [rightPanelComposerOverlayTarget, setRightPanelComposerOverlayTarget] = useState<HTMLElement | null>(null);
   const [threadSummaryPanelPinnedOpen, setThreadSummaryPanelPinnedOpen] = useState(readThreadSummaryPanelPinnedOpen);
   const [threadSummaryPanelPopoverOpen, setThreadSummaryPanelPopoverOpen] = useState(false);
   const [localSidebarCollapsed, setLocalSidebarCollapsed] = useState(false);
@@ -1097,6 +1155,16 @@ export function WorkbenchShell({
   const bottomPanelOpen = activeSession ? !bottomPanelCollapsed : false;
   const rightPanelFullWidth = Boolean(
     activeSession && sidePanelOpen && (rightPanel?.size.fullWidth ?? activeSession.isOverview),
+  );
+  const rightActiveRenderableTab = rightActiveTabId
+    ? rightRenderableTabs.find((tab) => tab.id === rightActiveTabId) ?? null
+    : null;
+  const rightPanelComposerOverlayEnabled = Boolean(
+    activeSession?.thread
+    && sidePanelOpen
+    && rightPanelFullWidth
+    && rightPanelComposerOverlayTarget
+    && isRootThreadRightPanelComposerOverlayEligibleTab(rightActiveRenderableTab),
   );
   const shellCanNavigateBack = shellNavigationHistory.backStack.length > 0;
   const shellCanNavigateForward = shellNavigationHistory.forwardStack.length > 0;
@@ -3676,51 +3744,59 @@ export function WorkbenchShell({
           </button>
         )}
       >
-        {actions.map((action) => {
+        {actions.map((action, index) => {
           const Icon = action.Icon;
-          if (action.kind === "card_stage") {
-            return (
-              <NodexDropdownFlyoutSubmenuItem
-                key={action.kind}
-                label={action.label}
-                leftSlot={<Icon className="icon-sm" />}
-                contentClassName="w-[336px]"
-              >
-                <RightPanelCardStagePicker
-                  cards={activeProjectCardOptions}
-                  onOpenCard={(card) => {
-                    void (async () => {
-                      await activatePanelGroup(panelId, leafId);
-                      await openCardStageFromPicker(card);
-                    })();
-                  }}
-                />
-              </NodexDropdownFlyoutSubmenuItem>
-            );
-          }
+          const showNodexSeparator = isNodexPanelOptionAction(action)
+            && !isNodexPanelOptionAction(actions[index - 1] ?? action);
+          const item = (() => {
+            if (action.kind === "card_stage") {
+              return (
+                <NodexDropdownFlyoutSubmenuItem
+                  label={action.label}
+                  leftSlot={<Icon className="icon-sm" />}
+                  contentClassName="w-[336px]"
+                >
+                  <RightPanelCardStagePicker
+                    cards={activeProjectCardOptions}
+                    onOpenCard={(card) => {
+                      void (async () => {
+                        await activatePanelGroup(panelId, leafId);
+                        await openCardStageFromPicker(card);
+                      })();
+                    }}
+                  />
+                </NodexDropdownFlyoutSubmenuItem>
+              );
+            }
 
+            return (
+              <NodexDropdownItem
+                leftSlot={<Icon className="icon-sm" />}
+                keyboardShortcut={resolvePanelShortcutLabel(action.shortcut, isMacPlatform)}
+                onSelect={() => {
+                  if (action.kind === "side_chat_placeholder") {
+                    void openSideChat({ targetPanelId: panelId, targetLeafId: leafId });
+                    return;
+                  }
+                  if (isPreviewableProjectSessionTabKind(action.kind)) {
+                    void openPreviewTab(action.kind, panelId, leafId);
+                    return;
+                  }
+                  void (async () => {
+                    await activatePanelGroup(panelId, leafId);
+                    await createManualTab(action.kind, panelId);
+                  })();
+                }}
+              >
+                {action.label}
+              </NodexDropdownItem>
+            );
+          })();
           return (
-            <NodexDropdownItem
-              key={action.kind}
-              leftSlot={<Icon className="icon-sm" />}
-              keyboardShortcut={resolvePanelShortcutLabel(action.shortcut, isMacPlatform)}
-              onSelect={() => {
-                if (action.kind === "side_chat_placeholder") {
-                  void openSideChat({ targetPanelId: panelId, targetLeafId: leafId });
-                  return;
-                }
-                if (isPreviewableProjectSessionTabKind(action.kind)) {
-                  void openPreviewTab(action.kind, panelId, leafId);
-                  return;
-                }
-                void (async () => {
-                  await activatePanelGroup(panelId, leafId);
-                  await createManualTab(action.kind, panelId);
-                })();
-              }}
-            >
-              {action.label}
-            </NodexDropdownItem>
+            <Fragment key={action.kind}>
+              {showNodexSeparator ? <NodexDropdownSeparator /> : null}
+              {item}
+            </Fragment>
           );
         })}
       </NodexDropdownMenu>
@@ -3895,7 +3971,10 @@ export function WorkbenchShell({
             <header
             data-testid="workbench-global-header"
             data-app-shell-header-edge-scroll={appShellHeaderEdgeScroll ? "true" : "false"}
-            className="app-header-tint draggable pointer-events-none fixed inset-x-0 top-0 z-[42] flex h-toolbar min-w-0 items-center"
+            className={cn(
+              "app-header-tint draggable pointer-events-none fixed inset-x-0 top-0 flex h-toolbar min-w-0 items-center",
+              APP_SHELL_GLOBAL_HEADER_LAYER_CLASS,
+            )}
           >
             <HeaderShellSlot
               side="left"
@@ -4111,6 +4190,8 @@ export function WorkbenchShell({
                         summaryPanelContentShift={threadSummaryPanelContentShift}
                         summarySideChatRows={threadSummarySideChatRows}
                         summaryBrowserRows={threadSummaryBrowserRows}
+                        rightPanelComposerOverlayEnabled={rightPanelComposerOverlayEnabled}
+                        rightPanelComposerOverlayTarget={rightPanelComposerOverlayTarget}
                         onOpenCard={(cardId) => {
                           if (!activeProject) return;
                           void openCardTab(activeProject.id, cardId, cardId);
@@ -4126,7 +4207,10 @@ export function WorkbenchShell({
                       data-app-shell-focus-area="right-panel"
                       data-testid="session-right-panel"
                       data-right-panel-width-mode={rightPanelFullWidth ? "full" : "regular"}
-                      className="relative z-[41] ml-auto h-full min-h-0 min-w-0 shrink-0 overflow-visible"
+                      className={cn(
+                        "relative ml-auto h-full min-h-0 min-w-0 shrink-0 overflow-visible",
+                        APP_SHELL_RIGHT_PANEL_LAYER_CLASS,
+                      )}
                       style={{
                         opacity: rightPanelMotion.opacity,
                         width: rightPanelMotion.animatedSize,
@@ -4146,6 +4230,8 @@ export function WorkbenchShell({
 
                       <div className="absolute inset-0 min-h-0 min-w-0 overflow-hidden">
                         <div
+                          ref={setRightPanelComposerOverlayTarget}
+                          data-right-panel-composer-overlay-host="true"
                           className={cn(
                             "absolute top-0 bottom-0 left-0 min-w-0 bg-token-main-surface-primary",
                             !rightPanelFullWidth && "border-l border-token-border",
@@ -4610,36 +4696,23 @@ const PanelActionCard = forwardRef<HTMLButtonElement, PanelActionCardProps>(
       <button
         ref={ref}
         type="button"
-        className={cn(PANEL_ACTION_CARD_CLASS, className)}
+        className={cn(PANEL_ACTION_ROW_CLASS, className)}
         {...buttonProps}
       >
-        <div className="flex min-w-0 flex-col items-center gap-3">
-          <span className="flex size-7 shrink-0 items-center justify-center text-token-text-secondary">
-            <Icon className="icon-md" />
+        <span className="icon-xs flex shrink-0 items-center justify-center text-token-text-secondary">
+          <Icon className="icon-xs" />
+        </span>
+        <span
+          data-thread-side-panel-new-tab-action-label="true"
+          className="min-w-0 flex-1 truncate text-sm font-normal text-token-text-primary"
+        >
+          {action.label}
+        </span>
+        {shortcut ? (
+          <span className="ml-auto shrink-0 pl-2 text-token-text-secondary">
+            <kbd className={PANEL_ACTION_KBD_CLASS}>{shortcut}</kbd>
           </span>
-          <span className="flex min-w-0 flex-col items-center gap-1">
-            <span
-              data-thread-side-panel-new-tab-action-label="true"
-              className="w-max max-w-full truncate text-base font-semibold text-token-text-primary"
-            >
-              {action.label}
-            </span>
-            <span
-              data-thread-side-panel-new-tab-action-label="true"
-              className="w-max max-w-full truncate text-sm text-token-text-secondary"
-            >
-              {action.description}
-            </span>
-            {shortcut ? (
-              <span
-                data-thread-side-panel-new-tab-action-label="true"
-                className="pt-1 text-token-text-secondary"
-              >
-                <kbd className={PANEL_ACTION_KBD_CLASS}>{shortcut}</kbd>
-              </span>
-            ) : null}
-          </span>
-        </div>
+        ) : null}
       </button>
     );
   },
@@ -4689,39 +4762,48 @@ function EmptyRightPane({
   onAction: (kind: ProjectSessionTab["kind"]) => void;
   onOpenCard: (card: Card) => void;
 }) {
+  const codexActions = actions.filter((action) => !isNodexPanelOptionAction(action));
+  const nodexActions = actions.filter(isNodexPanelOptionAction);
+  const renderAction = (action: PanelNewTabAction) => {
+    if (action.kind === "card_stage") {
+      return (
+        <NodexDropdownMenu
+          key={action.kind}
+          align="center"
+          sideOffset={8}
+          contentWidth="panelWide"
+          triggerButton={<PanelActionCard action={action} isMac={isMac} />}
+        >
+          <RightPanelCardStagePicker cards={cards} onOpenCard={onOpenCard} />
+        </NodexDropdownMenu>
+      );
+    }
+
+    return (
+      <PanelActionCard
+        key={action.kind}
+        action={action}
+        isMac={isMac}
+        onClick={() => onAction(action.kind)}
+      />
+    );
+  };
+
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-x-hidden overflow-y-auto bg-token-main-surface-primary p-6 select-none">
-      <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center">
-        <div className="sticky top-0 z-10 flex flex-col gap-8 bg-token-main-surface-primary">
+    <div className="flex h-full min-h-0 flex-col overflow-x-hidden overflow-y-auto bg-token-main-surface-primary p-2 select-none">
+      <div className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center">
+        <div className="sticky top-0 z-10 flex flex-col gap-6 bg-token-main-surface-primary">
           <div
             data-thread-side-panel-new-tab-action-grid="true"
-            className="grid w-full grid-cols-1 justify-center justify-items-center gap-3"
-            style={{ gridTemplateColumns: "repeat(1, minmax(0px, 330px))" }}
+            className="flex w-full flex-col gap-1 px-panel"
           >
-            {actions.map((action) => {
-              if (action.kind === "card_stage") {
-                return (
-                  <NodexDropdownMenu
-                    key={action.kind}
-                    align="center"
-                    sideOffset={8}
-                    contentWidth="panelWide"
-                    triggerButton={<PanelActionCard action={action} isMac={isMac} />}
-                  >
-                    <RightPanelCardStagePicker cards={cards} onOpenCard={onOpenCard} />
-                  </NodexDropdownMenu>
-                );
-              }
-
-              return (
-                <PanelActionCard
-                  key={action.kind}
-                  action={action}
-                  isMac={isMac}
-                  onClick={() => onAction(action.kind)}
-                />
-              );
-            })}
+            {codexActions.map(renderAction)}
+            {nodexActions.length > 0 ? (
+              <div aria-hidden="true" className="px-2.5 py-1">
+                <div className="h-px w-full bg-token-menu-border" />
+              </div>
+            ) : null}
+            {nodexActions.map(renderAction)}
           </div>
         </div>
       </div>
@@ -4815,6 +4897,8 @@ function SessionThreadPage({
   summaryPanelContentShift,
   summarySideChatRows,
   summaryBrowserRows,
+  rightPanelComposerOverlayEnabled,
+  rightPanelComposerOverlayTarget,
   onOpenSideChat,
   onOpenMcpAppSidePanel,
 }: {
@@ -4836,6 +4920,8 @@ function SessionThreadPage({
   summaryPanelContentShift: number;
   summarySideChatRows: readonly ThreadSummaryPanelAuxiliaryRow[];
   summaryBrowserRows: readonly ThreadSummaryPanelAuxiliaryRow[];
+  rightPanelComposerOverlayEnabled: boolean;
+  rightPanelComposerOverlayTarget: HTMLElement | null;
   onOpenSideChat: (input?: {
     prompt?: string;
     promptInput?: CodexPromptInput;
@@ -4994,6 +5080,8 @@ function SessionThreadPage({
         summaryPanelContentShift={summaryPanelContentShift}
         summarySideChatRows={summarySideChatRows}
         summaryBrowserRows={summaryBrowserRows}
+        rightPanelComposerOverlayEnabled={rightPanelComposerOverlayEnabled}
+        rightPanelComposerOverlayTarget={rightPanelComposerOverlayTarget}
         actions={actions}
       />
     </div>

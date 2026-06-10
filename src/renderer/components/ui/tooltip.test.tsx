@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { act, useState } from "react";
+import { fireEvent } from "@testing-library/react";
+import { act, useEffect, useState } from "react";
 import { render } from "@/test/dom";
 import {
   NodexTooltip,
@@ -61,6 +62,63 @@ describe("codex tooltip", () => {
     });
 
     expect(tooltipIsMounted()).toBeFalse();
+  });
+
+  test("dismisses an open tooltip without remounting the trigger", async () => {
+    const view = await renderOpenTooltip();
+    const triggerBefore = view.getByRole("button", { name: "Hover me" });
+
+    expect(tooltipIsMounted()).toBeTrue();
+
+    await act(async () => {
+      dismissNodexTooltips();
+    });
+
+    expect(tooltipIsMounted()).toBeFalse();
+    expect(view.getByRole("button", { name: "Hover me" })).toBe(triggerBefore);
+  });
+
+  test("preserves tooltip-wrapped clicks after a capture-phase pointerdown dismissal", async () => {
+    let clickCount = 0;
+
+    function CaptureDismissHarness() {
+      useEffect(() => {
+        const dismissOnPointerDown = () => {
+          dismissNodexTooltips();
+        };
+
+        document.addEventListener("pointerdown", dismissOnPointerDown, true);
+        return () => {
+          document.removeEventListener("pointerdown", dismissOnPointerDown, true);
+        };
+      }, []);
+
+      return (
+        <NodexTooltipProvider>
+          <NodexTooltip tooltipContent="Shared tooltip body" defaultOpen>
+            <button
+              type="button"
+              onClick={() => {
+                clickCount += 1;
+              }}
+            >
+              Click through
+            </button>
+          </NodexTooltip>
+        </NodexTooltipProvider>
+      );
+    }
+
+    const view = render(<CaptureDismissHarness />);
+    const trigger = view.getByRole("button", { name: "Click through" });
+
+    await act(async () => {
+      fireEvent.pointerDown(trigger);
+      fireEvent.click(trigger);
+    });
+
+    expect(clickCount).toBe(1);
+    expect(view.getByRole("button", { name: "Click through" })).toBe(trigger);
   });
 
   test("dismisses open tooltips when the window blurs", async () => {

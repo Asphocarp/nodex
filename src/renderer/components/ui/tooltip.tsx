@@ -8,6 +8,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { APP_SHELL_FLOATING_UI_LAYER_CLASS } from "@/lib/app-shell-layers";
 import { cn } from "@/lib/utils";
 
 const CODEX_TOOLTIP_DISMISS_EVENT = "codex:dismiss-tooltips";
@@ -89,15 +90,12 @@ export function NodexTooltip({
   const contentRef = useRef<HTMLDivElement>(null);
   const isControlled = open !== undefined;
   const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen ?? false);
-  const [dismissVersion, setDismissVersion] = useState(0);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
 
     const handleDismiss = () => {
       const isOpen = isControlled ? open : uncontrolledOpen;
-
-      setDismissVersion((version) => version + 1);
 
       if (!isControlled) setUncontrolledOpen(false);
       if (isOpen) {
@@ -118,7 +116,6 @@ export function NodexTooltip({
 
   return (
     <RadixTooltip.Root
-      key={dismissVersion}
       open={resolvedOpen}
       defaultOpen={defaultOpen}
       onOpenChange={(nextOpen) => {
@@ -144,7 +141,8 @@ export function NodexTooltip({
           sideOffset={sideOffset}
           collisionPadding={8}
           className={cn(
-            "bg-token-dropdown-background text-token-foreground border-token-border z-50 w-fit select-none rounded-lg border px-2 py-1 text-sm whitespace-normal break-words",
+            "bg-token-dropdown-background text-token-foreground border-token-border w-fit select-none rounded-lg border px-2 py-1 text-sm whitespace-normal break-words",
+            APP_SHELL_FLOATING_UI_LAYER_CLASS,
             tooltipClassName,
           )}
           style={{

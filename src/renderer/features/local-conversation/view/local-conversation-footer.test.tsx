@@ -4,6 +4,7 @@ import { installAsyncRequestAnimationFrame } from "../../../test/browser-globals
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
 import { render } from "../../../test/dom";
 import type { ThreadFooterModel, ThreadStageActions } from "../thread-stage-types";
+import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
 import {
   EnsureLocalConversationThreadScrollController,
   LocalConversationThreadScrollLayout,
@@ -139,6 +140,52 @@ function buildActions(): ThreadStageActions {
     onCleanBackgroundTerminals: async () => {},
     onOpenCard: () => {},
   };
+}
+
+function buildUserItem(overrides?: Partial<CodexConversationItem>): CodexConversationItem {
+  return {
+    threadId: "thread_1",
+    turnId: "turn_1",
+    itemId: "user_1",
+    entryId: "user_1",
+    type: "user_message",
+    kind: "userMessage",
+    semanticKind: "userMessage",
+    role: "user",
+    markdownText: "Run the checks",
+    createdAt: 1,
+    updatedAt: 1,
+    ...overrides,
+  };
+}
+
+function buildRenderableTurn(overrides?: Partial<CodexConversationTurn>): CodexConversationTurn {
+  return {
+    threadId: "thread_1",
+    turnId: "turn_1",
+    status: "completed",
+    itemIds: ["user_1"],
+    items: [buildUserItem()],
+    ...overrides,
+  };
+}
+
+function buildModelWithRenderableLatestTurn(): ThreadFooterModel {
+  const baseModel = buildModel();
+  const latestTurn = buildRenderableTurn();
+  if (!baseModel.conversation) return baseModel;
+
+  return buildModel({
+    conversation: {
+      ...baseModel.conversation,
+      turns: [latestTurn],
+    },
+    body: {
+      ...baseModel.body,
+      turnCount: 1,
+      latestTurnId: latestTurn.turnId,
+    },
+  });
 }
 
 describe("LocalConversationFooter", () => {
@@ -286,5 +333,125 @@ describe("LocalConversationFooter", () => {
     expect(Boolean(container.querySelector(".relative.h-0"))).toBeTrue();
     expect(scrollToCalls.length).toBe(1);
     expect(scrollToCalls[0]?.top).toBe(0);
+  });
+
+  test("overlay mode renders portals, latest-turn preview, and composer in fixture order", async () => {
+    const { LocalConversationFooter } = await import("./local-conversation-footer");
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+
+    render(
+      <TooltipProvider>
+        <EnsureLocalConversationThreadScrollController>
+          <LocalConversationFooter
+            model={buildModelWithRenderableLatestTurn()}
+            actions={buildActions()}
+            errorMessage={null}
+            onErrorMessage={() => {}}
+            rightPanelComposerOverlay={{ enabled: true, target }}
+          />
+        </EnsureLocalConversationThreadScrollController>
+      </TooltipProvider>,
+    );
+
+    await waitFor(() => {
+      const overlay = target.querySelector('[data-testid="right-panel-composer-overlay"]');
+      if (!overlay) throw new Error("Expected right-panel overlay");
+      expect(overlay.querySelector("#above-composer-portal") !== null).toBeTrue();
+      expect(overlay.querySelector("#above-composer-queue-portal") !== null).toBeTrue();
+      expect(overlay.querySelector('[data-right-panel-latest-turn-preview="true"]') !== null).toBeTrue();
+      expect(overlay.querySelector('[data-local-conversation-composer-shell="true"]') !== null).toBeTrue();
+    });
+
+    const overlay = target.querySelector('[data-testid="right-panel-composer-overlay"]') as HTMLElement;
+    const aboveComposerPortal = overlay.querySelector("#above-composer-portal");
+    const queuePortal = overlay.querySelector("#above-composer-queue-portal");
+    const latestTurnPreview = overlay.querySelector('[data-right-panel-latest-turn-preview="true"]');
+    const composerShell = overlay.querySelector('[data-local-conversation-composer-shell="true"]');
+    if (!aboveComposerPortal || !queuePortal || !latestTurnPreview || !composerShell) {
+      throw new Error("Expected overlay fixture nodes");
+    }
+
+    expect(Boolean(aboveComposerPortal.compareDocumentPosition(queuePortal) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
+    expect(Boolean(queuePortal.compareDocumentPosition(latestTurnPreview) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
+    expect(Boolean(latestTurnPreview.compareDocumentPosition(composerShell) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
+
+    fireEvent.animationEnd(overlay);
+    await waitFor(() => {
+      expect(overlay.getAttribute("aria-hidden")).toBe("false");
+    });
+
+    const previewToggle = latestTurnPreview.querySelector("button");
+    expect(previewToggle?.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.pointerDown(document.body);
+    expect(previewToggle?.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  test("overlay outside pointerdown collapses preview without globally dismissing tooltips", async () => {
+    const { LocalConversationFooter } = await import("./local-conversation-footer");
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+    let tooltipDismissEvents = 0;
+    const handleTooltipDismiss = () => {
+      tooltipDismissEvents += 1;
+    };
+    window.addEventListener("codex:dismiss-tooltips", handleTooltipDismiss);
+
+    try {
+      render(
+        <TooltipProvider>
+          <EnsureLocalConversationThreadScrollController>
+            <LocalConversationFooter
+              model={buildModelWithRenderableLatestTurn()}
+              actions={buildActions()}
+              errorMessage={null}
+              onErrorMessage={() => {}}
+              rightPanelComposerOverlay={{ enabled: true, target }}
+            />
+          </EnsureLocalConversationThreadScrollController>
+        </TooltipProvider>,
+      );
+
+      const overlay = target.querySelector('[data-testid="right-panel-composer-overlay"]') as HTMLElement;
+      fireEvent.animationEnd(overlay);
+
+      await waitFor(() => {
+        expect(overlay.getAttribute("aria-hidden")).toBe("false");
+      });
+
+      const latestTurnPreview = overlay.querySelector('[data-right-panel-latest-turn-preview="true"]');
+      const previewToggle = latestTurnPreview?.querySelector("button");
+      expect(previewToggle?.getAttribute("aria-expanded")).toBe("true");
+
+      fireEvent.pointerDown(document.body);
+
+      expect(previewToggle?.getAttribute("aria-expanded")).toBe("false");
+      expect(tooltipDismissEvents).toBe(0);
+    } finally {
+      window.removeEventListener("codex:dismiss-tooltips", handleTooltipDismiss);
+    }
+  });
+
+  test("resuming active threads keep overlay composer ownership disabled", async () => {
+    const { LocalConversationFooter } = await import("./local-conversation-footer");
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+
+    const { container } = render(
+      <TooltipProvider>
+        <EnsureLocalConversationThreadScrollController>
+          <LocalConversationFooter
+            model={buildModel({ resumeState: "needs_resume" })}
+            actions={buildActions()}
+            errorMessage={null}
+            onErrorMessage={() => {}}
+            rightPanelComposerOverlay={{ enabled: true, target }}
+          />
+        </EnsureLocalConversationThreadScrollController>
+      </TooltipProvider>,
+    );
+
+    expect(target.querySelector('[data-testid="right-panel-composer-overlay"]') === null).toBeTrue();
+    expect(container.querySelector('[data-local-conversation-composer-shell="true"]') === null).toBeTrue();
   });
 });

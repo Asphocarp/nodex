@@ -36,6 +36,7 @@ export function CardStageToolbar({
         <NodexTooltip tooltipContent="Close" side="bottom" delayDuration={0}>
           <button
             type="button"
+            aria-label="Close"
             onClick={onClose}
             className={cn(
               cardStageToolbarButtonChrome,
@@ -52,6 +53,7 @@ export function CardStageToolbar({
         <NodexTooltip tooltipContent="Copy deeplink" side="bottom" delayDuration={0}>
           <button
             type="button"
+            aria-label="Copy deeplink"
             className={cn(
               cardStageToolbarButtonChrome,
               "text-(--foreground-tertiary)",
@@ -129,6 +131,8 @@ export function CardStageToolbar({
           <button
             type="button"
             onClick={onOpenHistoryPanel}
+            aria-pressed={historyPanelActive}
+            aria-label="History"
             className={cn(
               cardStageToolbarButtonChrome,
               historyPanelActive
@@ -153,6 +157,7 @@ export function CardStageToolbar({
           <button
             type="button"
             onClick={onDelete}
+            aria-label="Delete"
             className={cn(
               cardStageToolbarButtonChrome,
               "text-(--foreground-tertiary)",

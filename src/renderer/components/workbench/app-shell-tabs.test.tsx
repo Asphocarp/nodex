@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { fireEvent } from "@testing-library/react";
+import { fireEvent, within } from "@testing-library/react";
 import { act } from "react";
 import type { ComponentProps, ReactNode } from "react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
@@ -48,6 +48,8 @@ function renderAppShellTabs(props: {
   activeTabId?: string;
   onSelect?: (tabId: string) => void;
   onCloseTab?: (tabId: string) => void;
+  onMoveTab?: ComponentProps<typeof AppShellTabs>["onMoveTab"];
+  onSplitTab?: ComponentProps<typeof AppShellTabs>["onSplitTab"];
   panelTabDnd?: ComponentProps<typeof AppShellTabs>["panelTabDnd"];
   beforeList?: ReactNode;
   afterTabsInline?: ReactNode;
@@ -63,6 +65,8 @@ function renderAppShellTabs(props: {
         activeTabId={props.activeTabId ?? "one"}
         onSelect={props.onSelect ?? (() => undefined)}
         onCloseTab={props.onCloseTab}
+        onMoveTab={props.onMoveTab}
+        onSplitTab={props.onSplitTab}
         panelTabDnd={props.panelTabDnd}
         beforeList={props.beforeList}
         afterTabsInline={props.afterTabsInline}
@@ -226,10 +230,105 @@ describe("AppShellTabs", () => {
     if (!closableChrome) throw new Error("Expected closable tab chrome");
     fireEvent.contextMenu(closableChrome);
     await settleAsyncRender();
-    fireEvent.click(view.getByText("Close tab"));
+    fireEvent.click(view.getByText("Close"));
 
     expect(closed.join(",")).toBe("two");
     expect(view.queryByLabelText("Close History tab")).toBe(null);
+  });
+
+  test("context menu appends Codex close actions after feature actions", async () => {
+    const tabs = makeTabs();
+    tabs[1] = {
+      ...tabs[1],
+      splittable: true,
+      contextMenuItems: [
+        {
+          id: "browser-new-tab-right",
+          label: "New tab to the right",
+          onSelect: () => undefined,
+        },
+        {
+          id: "browser-reload",
+          label: "Reload",
+          onSelect: () => undefined,
+        },
+        {
+          id: "browser-duplicate",
+          label: "Duplicate",
+          onSelect: () => undefined,
+        },
+      ],
+    };
+    const closed: string[] = [];
+    const view = renderAppShellTabs({
+      tabs,
+      activeTabId: "two",
+      onCloseTab: (tabId) => closed.push(tabId),
+      onMoveTab: () => undefined,
+      onSplitTab: () => undefined,
+    });
+
+    const tabChrome = view.container.querySelector('[data-app-shell-tab-controller][data-tab-id="two"]');
+    if (!tabChrome) throw new Error("Expected tab chrome");
+    fireEvent.contextMenu(tabChrome);
+    await settleAsyncRender();
+
+    const menu = view.getByRole("menu");
+    const menuText = textContent(menu);
+    expect(menuText.indexOf("New tab to the right") < menuText.indexOf("Close")).toBeTrue();
+    expect(menuText.indexOf("Reload") < menuText.indexOf("Close")).toBeTrue();
+    expect(menuText.indexOf("Duplicate") < menuText.indexOf("Close")).toBeTrue();
+    expect(within(menu).getByText("Close other tabs") !== null).toBeTrue();
+    expect(within(menu).getByText("Close tabs to the right") !== null).toBeTrue();
+    expect(within(menu).getByText("Move to bottom panel") !== null).toBeTrue();
+    expect(within(menu).getByText("Split tab right") !== null).toBeTrue();
+
+    const closeTabsToRightItem = within(menu).getByText("Close tabs to the right").closest('[role="menuitem"]');
+    expect(closeTabsToRightItem?.getAttribute("data-disabled")).toBe("");
+
+    fireEvent.click(within(menu).getByText("Close other tabs"));
+    expect(closed.join(",")).toBe("one");
+  });
+
+  test("context menu disables close-tabs-to-right when only non-closable tabs follow", async () => {
+    const view = renderAppShellTabs({
+      activeTabId: "two",
+      onCloseTab: () => undefined,
+    });
+
+    const tabChrome = view.container.querySelector('[data-app-shell-tab-controller][data-tab-id="two"]');
+    if (!tabChrome) throw new Error("Expected tab chrome");
+    fireEvent.contextMenu(tabChrome);
+    await settleAsyncRender();
+
+    const closeTabsToRightItem = view.getByText("Close tabs to the right").closest('[role="menuitem"]');
+    expect(closeTabsToRightItem?.getAttribute("data-disabled")).toBe("");
+  });
+
+  test("context menu closes closable tabs to the right only", async () => {
+    const closed: string[] = [];
+    const tabs: AppShellTabItem[] = [
+      ...makeTabs(),
+      {
+        id: "three",
+        title: "Three",
+        closable: true,
+        renderPanel: () => <div>Panel three</div>,
+      },
+    ];
+    const view = renderAppShellTabs({
+      tabs,
+      activeTabId: "one",
+      onCloseTab: (tabId) => closed.push(tabId),
+    });
+
+    const tabChrome = view.container.querySelector('[data-app-shell-tab-controller][data-tab-id="one"]');
+    if (!tabChrome) throw new Error("Expected tab chrome");
+    fireEvent.contextMenu(tabChrome);
+    await settleAsyncRender();
+    fireEvent.click(view.getByText("Close tabs to the right"));
+
+    expect(closed.join(",")).toBe("two,three");
   });
 
   test("places tab ids on the wrapper and leaves native DnD opt-in", () => {

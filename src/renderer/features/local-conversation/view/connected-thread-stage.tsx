@@ -95,6 +95,8 @@ function resolveEffectiveCollaborationMode({
 interface ConnectedThreadStageProps extends ConnectedThreadStageInput {
   actions: ThreadStageActions;
   initialUiState?: ThreadBodyUiStateOverrides;
+  rightPanelComposerOverlayEnabled?: boolean;
+  rightPanelComposerOverlayTarget?: HTMLElement | null;
   summaryPanelMounted?: boolean;
   summaryPanelOpen?: boolean;
   summaryPanelHideImmediately?: boolean;
@@ -330,6 +332,8 @@ function ConnectedThreadStageFooter({
   errorMessage,
   onErrorMessage,
   variant = "thread",
+  rightPanelComposerOverlayEnabled = false,
+  rightPanelComposerOverlayTarget = null,
 }: {
   activeThreadId: string | null;
   input: ConnectedThreadStageInput;
@@ -337,6 +341,8 @@ function ConnectedThreadStageFooter({
   errorMessage: string | null;
   onErrorMessage: (message: string | null) => void;
   variant?: "thread" | "newThreadHome";
+  rightPanelComposerOverlayEnabled?: boolean;
+  rightPanelComposerOverlayTarget?: HTMLElement | null;
 }) {
   const turns = useConversationTurns(activeThreadId);
   const conversationSnapshot = useConversation(activeThreadId);
@@ -550,6 +556,10 @@ function ConnectedThreadStageFooter({
       errorMessage={errorMessage}
       onErrorMessage={onErrorMessage}
       variant={variant}
+      rightPanelComposerOverlay={{
+        enabled: rightPanelComposerOverlayEnabled,
+        target: rightPanelComposerOverlayTarget,
+      }}
     />
   );
 }
@@ -585,6 +595,8 @@ function NewThreadHomeHero({
 export function ConnectedThreadStage({
   actions,
   initialUiState,
+  rightPanelComposerOverlayEnabled = false,
+  rightPanelComposerOverlayTarget = null,
   summaryPanelMounted = false,
   summaryPanelOpen = false,
   summaryPanelHideImmediately = false,
@@ -664,6 +676,8 @@ export function ConnectedThreadStage({
             errorMessage={errorMessage}
             onErrorMessage={setErrorMessage}
             variant="newThreadHome"
+            rightPanelComposerOverlayEnabled={false}
+            rightPanelComposerOverlayTarget={null}
           />
         )}
         floatingContent={(
@@ -710,6 +724,8 @@ export function ConnectedThreadStage({
                 actions={actions}
                 errorMessage={errorMessage}
                 onErrorMessage={setErrorMessage}
+                rightPanelComposerOverlayEnabled={rightPanelComposerOverlayEnabled && !isSideChat}
+                rightPanelComposerOverlayTarget={rightPanelComposerOverlayTarget}
               />
             )}
             initialUiState={initialUiState}

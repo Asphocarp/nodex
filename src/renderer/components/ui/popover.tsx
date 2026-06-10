@@ -1,5 +1,6 @@
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { forwardRef, type ComponentPropsWithoutRef, type CSSProperties } from "react";
+import { APP_SHELL_FLOATING_UI_LAYER_CLASS } from "@/lib/app-shell-layers";
 import { cn } from "@/lib/utils";
 
 const CODEX_POPOVER_BOUNDARY_STYLE: CSSProperties = {
@@ -52,7 +53,8 @@ export const NodexPopoverContent = forwardRef<
         sideOffset={sideOffset}
         collisionPadding={collisionPadding}
         className={cn(
-          "bg-token-dropdown-background/90 text-token-foreground ring-token-border z-50 flex w-72 origin-[var(--radix-popover-content-transform-origin)] flex-col overflow-y-auto rounded-xl px-1 py-1 shadow-lg ring-[0.5px] backdrop-blur-sm outline-hidden",
+          "bg-token-dropdown-background/90 text-token-foreground ring-token-border flex w-72 origin-[var(--radix-popover-content-transform-origin)] flex-col overflow-y-auto rounded-xl px-1 py-1 shadow-lg ring-[0.5px] backdrop-blur-sm outline-hidden",
+          APP_SHELL_FLOATING_UI_LAYER_CLASS,
           className,
         )}
         style={{ ...CODEX_POPOVER_BOUNDARY_STYLE, ...style }}

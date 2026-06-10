@@ -23,6 +23,7 @@ import {
   getNodexDiffHostStyle,
   getNodexDiffOptions,
 } from "@/lib/diff-presentation";
+import { RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE } from "@/lib/right-panel-composer-overlay-reserve";
 import {
   buildReviewRenderPlan,
   buildReviewSearchMatches,
@@ -988,7 +989,10 @@ function ReviewFileTreePane({
     <div
       className="flex h-full min-h-0 flex-col bg-token-main-surface-primary pr-2"
       data-file-tree-virtualized-wrapper={isVirtualized ? "true" : undefined}
-      style={REVIEW_FILE_TREE_HOST_STYLE as CSSProperties}
+      style={{
+        ...(REVIEW_FILE_TREE_HOST_STYLE as CSSProperties),
+        ...RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE,
+      }}
     >
       <div data-file-tree-search-container="true" className="shrink-0 pr-2 pb-1">
         <label className="sr-only" htmlFor={REVIEW_FILE_TREE_SEARCH_INPUT_ID}>
@@ -1020,6 +1024,7 @@ function ReviewFileTreePane({
           ref={scrollRef}
           className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-token-main-surface-primary"
           data-file-tree-virtualized-scroll={isVirtualized ? "true" : undefined}
+          style={RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE}
         >
           {rows.length === 0 ? (
             <div className="px-2 py-2 text-sm text-token-description-foreground">No matching files</div>
@@ -2030,7 +2035,10 @@ export function ReviewDiffPanel({
             />
           ) : (
             <div className="absolute inset-0 flex min-w-0 overflow-hidden">
-              <div className="min-w-0 flex-1 overflow-auto px-2 pb-3">
+              <div
+                className="min-w-0 flex-1 overflow-auto px-2 pb-3"
+                style={RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE}
+              >
                 {isCappedMode ? (
                   <div className="bg-token-surface-muted text-token-foreground-muted mb-3 rounded-md px-3 py-2 text-xs">
                     Large diff detected — showing one file at a time.

@@ -105,3 +105,95 @@ export const CardStageTabs: Story = {};
 export const InsertionPreview: Story = {
   render: () => <AppShellTabsStory showInsertionPreview />,
 };
+
+export const ContextMenuTabStates: Story = {
+  render: () => {
+    const tabs: AppShellTabItem[] = [
+      {
+        id: "browser",
+        title: "Browser",
+        icon: SquareKanban,
+        closable: true,
+        reorderable: true,
+        splittable: true,
+        contextMenuItems: [
+          {
+            id: "browser-new-tab-right",
+            label: "New tab to the right",
+            onSelect: () => undefined,
+          },
+          {
+            id: "browser-reload",
+            label: "Reload",
+            onSelect: () => undefined,
+          },
+          {
+            id: "browser-duplicate",
+            label: "Duplicate",
+            onSelect: () => undefined,
+          },
+        ],
+        renderPanel: () => (
+          <div className="flex h-full items-center justify-center text-sm text-token-description-foreground">
+            Browser surface
+          </div>
+        ),
+      },
+      {
+        id: "preview",
+        title: "Files",
+        icon: History,
+        closable: true,
+        preview: true,
+        reorderable: false,
+        renderPanel: () => (
+          <div className="flex h-full items-center justify-center text-sm text-token-description-foreground">
+            Files preview
+          </div>
+        ),
+      },
+      {
+        id: "review",
+        title: "Review",
+        icon: SquareKanban,
+        closable: true,
+        reorderable: true,
+        splittable: true,
+        renderPanel: () => (
+          <div className="flex h-full items-center justify-center text-sm text-token-description-foreground">
+            Review surface
+          </div>
+        ),
+      },
+      {
+        id: "history",
+        title: "History",
+        icon: History,
+        isLabel: true,
+        closable: false,
+        reorderable: false,
+        renderPanel: () => (
+          <div className="flex h-full items-center justify-center text-sm text-token-description-foreground">
+            History surface
+          </div>
+        ),
+      },
+    ];
+
+    return (
+      <NodexTooltipProvider>
+        <div className="h-screen bg-token-main-surface-primary text-token-foreground">
+          <AppShellTabs
+            tabs={tabs}
+            activeTabId="browser"
+            onSelect={() => undefined}
+            onCloseTab={() => undefined}
+            onPinTab={() => undefined}
+            onMoveTab={() => undefined}
+            onSplitTab={() => undefined}
+          />
+        </div>
+      </NodexTooltipProvider>
+    );
+  },
+};

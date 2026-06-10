@@ -12,6 +12,7 @@ import {
   ChevronRightIcon,
   SearchIcon,
 } from "@/components/shared/icons";
+import { APP_SHELL_FLOATING_UI_LAYER_CLASS } from "@/lib/app-shell-layers";
 import { cn } from "@/lib/utils";
 import { NodexTooltip } from "./tooltip";
 
@@ -98,7 +99,10 @@ const NodexDropdownSubmenuContent = forwardRef<
       style={{ ...CONTENT_BOUNDARY_STYLE, ...style }}
       className={cn(
         surface === "bare"
-          ? "z-50 m-0 flex min-w-[180px] select-none flex-col overflow-y-auto p-0"
+          ? cn(
+              "m-0 flex min-w-[180px] select-none flex-col overflow-y-auto p-0",
+              APP_SHELL_FLOATING_UI_LAYER_CLASS,
+            )
           : dropdownContentSurfaceClassName,
         className,
       )}
@@ -108,7 +112,8 @@ const NodexDropdownSubmenuContent = forwardRef<
 });
 
 const dropdownContentSurfaceClassName = cn(
-  "no-drag bg-token-dropdown-background/90 text-token-foreground ring-token-border z-50 m-px flex select-none flex-col overflow-y-auto rounded-xl ring-[0.5px] px-1 py-1 shadow-xl-spread backdrop-blur-sm",
+  "no-drag bg-token-dropdown-background/90 text-token-foreground ring-token-border m-px flex select-none flex-col overflow-y-auto rounded-xl ring-[0.5px] px-1 py-1 shadow-xl-spread backdrop-blur-sm",
+  APP_SHELL_FLOATING_UI_LAYER_CLASS,
   "[transform-origin:var(--radix-dropdown-menu-content-transform-origin)] [will-change:opacity,transform]",
 );
 

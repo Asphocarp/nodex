@@ -1194,6 +1194,21 @@ export const SplitRightPanelGroups: Story = {
   },
 };
 
+export const EmptyRightPanelOptionMenu: Story = {
+  args: {
+    activeTab: "empty",
+    rightPanel: "regular",
+    bottomPanel: "collapsed",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Codex-parity empty right-panel option menu with the compact Review, Terminal, Browser, Files, and Side chat action rows.",
+      },
+    },
+  },
+};
+
 export const RegularRightAndBottomMotionParity: Story = {
   args: {
     thread: "attached",
