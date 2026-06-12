@@ -3681,7 +3681,7 @@ describe("workbench session shell", () => {
     expect(String(leadingSlot?.className).includes("w-4")).toBeTrue();
   });
 
-  test("selecting another project expands it and falls back to its overview session", async () => {
+  test("clicking another project group header expands without switching session", async () => {
     const beta = makeProject("beta", "Beta");
     const betaSession = makeSession({
       id: "overview:beta",
@@ -3716,8 +3716,17 @@ describe("workbench session shell", () => {
     });
     await settleAsyncRender();
 
-    expect(screen.setDbProjectCalls.includes("beta")).toBeTrue();
+    expect(screen.setDbProjectCalls.includes("beta")).toBeFalse();
     expect(textContent(screen.container).includes("Beta Overview")).toBeTrue();
+    expect(textContent(screen.container).includes("DB:beta:kanban")).toBeFalse();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Beta Overview"));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.setDbProjectCalls.includes("beta")).toBeTrue();
     expect(textContent(screen.container).includes("DB:beta:kanban")).toBeTrue();
   });
 

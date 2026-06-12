@@ -2789,6 +2789,15 @@ export function WorkbenchShell({
     setProjectsSectionCollapsed((current) => !current);
   }, []);
 
+  const toggleProjectExpanded = useCallback((projectId: string) => {
+    setExpandedProjectIds((current) => {
+      const next = new Set(current);
+      if (next.has(projectId)) next.delete(projectId);
+      else next.add(projectId);
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     const isMacPlatformForShortcut = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
 
@@ -4198,14 +4207,7 @@ export function WorkbenchShell({
               getWindowZoom={getWindowZoom}
               onResizeWidth={applySidebarWidth}
               onToggleProjectsSectionCollapsed={toggleProjectsSectionCollapsed}
-              onToggleProjectExpanded={(projectId) => {
-                setExpandedProjectIds((current) => {
-                  const next = new Set(current);
-                  if (next.has(projectId)) next.delete(projectId);
-                  else next.add(projectId);
-                  return next;
-                });
-              }}
+              onToggleProjectExpanded={toggleProjectExpanded}
               onSelectProject={selectProject}
               onSelectSession={selectSession}
               onOpenSessionContextMenu={openSessionContextMenu}
@@ -4257,14 +4259,7 @@ export function WorkbenchShell({
                   getWindowZoom={getWindowZoom}
                   onResizeWidth={applySidebarWidth}
                   onToggleProjectsSectionCollapsed={toggleProjectsSectionCollapsed}
-                  onToggleProjectExpanded={(projectId) => {
-                    setExpandedProjectIds((current) => {
-                      const next = new Set(current);
-                      if (next.has(projectId)) next.delete(projectId);
-                      else next.add(projectId);
-                      return next;
-                    });
-                  }}
+                  onToggleProjectExpanded={toggleProjectExpanded}
                   onSelectProject={selectProject}
                   onSelectSession={selectSession}
                   onOpenSessionContextMenu={openSessionContextMenu}
@@ -4795,14 +4790,7 @@ function ProjectSessionSidebar({
                           project={project}
                           active={isActiveProject}
                           expanded={expanded}
-                          onActivate={() => {
-                            if (isActiveProject) {
-                              onToggleProjectExpanded(project.id);
-                              return;
-                            }
-
-                            onSelectProject(project.id);
-                          }}
+                          onActivate={() => onToggleProjectExpanded(project.id)}
                           onStartNewChat={() => void onStartNewChatInProject(project.id)}
                           onRenameProject={onRenameProject}
                           onManageProject={() => setManageProjectsOpen(true)}
