@@ -5,6 +5,7 @@ import {
   useMotionValueEvent,
   useTransform,
   type MotionValue,
+  type Transition,
 } from "motion/react";
 
 export const CODEX_SHELL_PANEL_TRANSITION = {
@@ -18,6 +19,11 @@ export const CODEX_SUMMARY_PANEL_TRANSITION = {
   duration: 0.3,
   bounce: 0.01,
 } as const;
+
+export const CODEX_SIDEBAR_PROJECT_FOLDER_TRANSITION: Transition = {
+  duration: 0.5,
+  ease: [0.19, 1, 0.22, 1],
+};
 
 export const CODEX_SUMMARY_PANEL_WIDTH = 300;
 export const CODEX_SUMMARY_PANEL_GAP = 16;

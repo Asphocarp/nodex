@@ -1491,7 +1491,8 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     expect(projectRow.getAttribute("data-app-action-sidebar-project-collapsed")).toBe("true");
-    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Active thread"]')).toBe(null);
+    const exitingThreadRow = screen.container.querySelector('[data-app-action-sidebar-thread-title="Active thread"]');
+    expect(Boolean(exitingThreadRow?.closest("[data-app-action-sidebar-project-list-motion]"))).toBeTrue();
     expect(screen.setDbProjectCalls.length).toBe(projectSelectionCallCountBeforeProjectClick);
   });
 

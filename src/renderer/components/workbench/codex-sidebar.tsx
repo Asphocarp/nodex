@@ -6,6 +6,7 @@ import type {
 } from "react";
 import { useState } from "react";
 import { FolderOpen, Settings } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import {
   CodexFolderIcon,
   CodexProjectActionsIcon,
@@ -21,6 +22,7 @@ import {
 } from "@/components/ui/dropdown";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { invoke } from "@/lib/api";
+import { CODEX_SIDEBAR_PROJECT_FOLDER_TRANSITION } from "@/lib/codex-panel-motion";
 import type { Project, ProjectSession } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
@@ -247,6 +249,7 @@ export function CodexProjectRow({
   project,
   active,
   expanded,
+  animateChildren = true,
   onActivate,
   onStartNewChat,
   onRenameProject,
@@ -256,6 +259,7 @@ export function CodexProjectRow({
   project: Project;
   active: boolean;
   expanded: boolean;
+  animateChildren?: boolean;
   onActivate: () => void;
   onStartNewChat?: () => void;
   onRenameProject: (
@@ -268,6 +272,16 @@ export function CodexProjectRow({
   onManageProject: () => void;
   children?: ReactNode;
 }) {
+  const projectChildren = children ? (
+    <CodexProjectChildrenDisclosure
+      animate={animateChildren}
+      expanded={expanded}
+      motionKey={`${project.id}-tasks`}
+    >
+      {children}
+    </CodexProjectChildrenDisclosure>
+  ) : null;
+
   return (
     <div className="group/cwd flex flex-col" role="listitem" aria-label={project.name}>
       <div
@@ -314,12 +328,56 @@ export function CodexProjectRow({
           ) : null}
         </div>
       </div>
-      {expanded && children ? (
-        <div className="pt-0.5">
-          {children}
-        </div>
-      ) : null}
+      {projectChildren}
     </div>
+  );
+}
+
+function CodexProjectChildrenDisclosure({
+  animate,
+  expanded,
+  motionKey,
+  children,
+}: {
+  animate: boolean;
+  expanded: boolean;
+  motionKey: string;
+  children: ReactNode;
+}) {
+  if (!animate) {
+    if (!expanded) return null;
+
+    return (
+      <div className="mt-0.5" data-app-action-sidebar-project-list-static="">
+        {children}
+      </div>
+    );
+  }
+
+  return (
+    <AnimatePresence initial={false}>
+      {expanded ? (
+        <motion.div
+          key={motionKey}
+          initial={{ height: 0, opacity: 0 }}
+          animate={{
+            height: "auto",
+            opacity: 1,
+            transitionEnd: {
+              overflow: "visible",
+            },
+          }}
+          exit={{ height: 0, opacity: 0, overflow: "hidden" }}
+          transition={CODEX_SIDEBAR_PROJECT_FOLDER_TRANSITION}
+          className="overflow-hidden"
+          data-app-action-sidebar-project-list-motion=""
+        >
+          <div className="pt-0.5">
+            {children}
+          </div>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
   );
 }
 

@@ -5,6 +5,8 @@ import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { render, textContent } from "../../test/dom";
 
 let SidebarProjectsSection: typeof import("./left-sidebar-projects-section")["SidebarProjectsSection"];
+let CodexProjectRow: typeof import("./codex-sidebar")["CodexProjectRow"];
+let CodexProjectSessionList: typeof import("./codex-sidebar")["CodexProjectSessionList"];
 let invokeCalls: unknown[][] = [];
 let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
 
@@ -35,8 +37,13 @@ const PROJECTS: Project[] = [
 ];
 
 beforeAll(async () => {
-  const module = await import("./left-sidebar-projects-section");
-  SidebarProjectsSection = module.SidebarProjectsSection;
+  const [sectionModule, sidebarModule] = await Promise.all([
+    import("./left-sidebar-projects-section"),
+    import("./codex-sidebar"),
+  ]);
+  SidebarProjectsSection = sectionModule.SidebarProjectsSection;
+  CodexProjectRow = sidebarModule.CodexProjectRow;
+  CodexProjectSessionList = sidebarModule.CodexProjectSessionList;
 });
 
 beforeEach(() => {
@@ -49,6 +56,32 @@ function renderProjectsSection(element: Parameters<typeof render>[0]) {
     <NodexTooltipProvider>
       {element}
     </NodexTooltipProvider>,
+  );
+}
+
+function renderProjectRowWithSessions({
+  expanded = true,
+  animateChildren = true,
+}: {
+  expanded?: boolean;
+  animateChildren?: boolean;
+} = {}) {
+  const project = PROJECTS[0] as Project;
+
+  return renderProjectsSection(
+    <CodexProjectRow
+      project={project}
+      active
+      expanded={expanded}
+      animateChildren={animateChildren}
+      onActivate={() => undefined}
+      onRenameProject={async () => null}
+      onManageProject={() => undefined}
+    >
+      <CodexProjectSessionList project={project}>
+        <div role="listitem">Alpha session</div>
+      </CodexProjectSessionList>
+    </CodexProjectRow>,
   );
 }
 
@@ -155,5 +188,36 @@ describe("SidebarProjectsSection", () => {
 
     expect(invokeCalls.some((call) => call[0] === "pty:pick-cwd")).toBeTrue();
     expect(JSON.stringify(renameCalls[0])).toBe(JSON.stringify(["beta", "beta", "Beta", undefined, "/repo/selected"]));
+  });
+
+  test("wraps expanded project sessions in the Codex height and opacity motion disclosure", () => {
+    const { container, getByText } = renderProjectRowWithSessions();
+
+    const motionDisclosure = container.querySelector("[data-app-action-sidebar-project-list-motion]");
+    expect(Boolean(motionDisclosure)).toBeTrue();
+    expect((motionDisclosure as HTMLElement).className.includes("overflow-hidden")).toBeTrue();
+    expect(Boolean(motionDisclosure?.querySelector(".pt-0\\.5"))).toBeTrue();
+
+    const sessionList = container.querySelector("[data-app-action-sidebar-project-list-id='alpha']");
+    expect(Boolean(sessionList)).toBeTrue();
+    expect(sessionList?.getAttribute("data-app-action-sidebar-project-show-all")).toBe("false");
+    expect(getByText("Alpha session").textContent).toBe("Alpha session");
+  });
+
+  test("unmounts project session children when collapsed", () => {
+    const { container, queryByText } = renderProjectRowWithSessions({ expanded: false });
+
+    expect(container.querySelector("[data-app-action-sidebar-project-list-motion]")).toBe(null);
+    expect(queryByText("Alpha session")).toBe(null);
+  });
+
+  test("keeps the Codex non-animated project children fallback available", () => {
+    const { container, getByText } = renderProjectRowWithSessions({ animateChildren: false });
+
+    const staticDisclosure = container.querySelector("[data-app-action-sidebar-project-list-static]");
+    expect(Boolean(staticDisclosure)).toBeTrue();
+    expect((staticDisclosure as HTMLElement).className.includes("mt-0.5")).toBeTrue();
+    expect(container.querySelector("[data-app-action-sidebar-project-list-motion]")).toBe(null);
+    expect(getByText("Alpha session").textContent).toBe("Alpha session");
   });
 });
