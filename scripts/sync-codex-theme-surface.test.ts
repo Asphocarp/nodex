@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { findMatches, flattenCssNodes, parseCssNodes } from "./codex-css-extract";
 
@@ -54,5 +56,20 @@ describe("sync-codex-theme-surface", () => {
       findMatches(matches, ".dark .loading-shimmer-pure-text, .dark .loading-shimmer").length,
     ).toBe(1);
     expect(findMatches(matches, "@keyframes loading-shimmer").length).toBe(1);
+  });
+
+  test("generated CSS includes the Codex Electron left sidebar surface rules", () => {
+    const generatedCss = readFileSync(
+      resolve(process.cwd(), "src/renderer/styles/theme-codex-surface.generated.css"),
+      "utf8",
+    );
+
+    expect(generatedCss.includes(
+      '[data-codex-window-type="electron"]:not([data-codex-window-chrome="application-menu"]) .app-shell-left-panel',
+    )).toBeTrue();
+    expect(generatedCss.includes("background: color-mix(in srgb, var(--color-token-editor-background) 55%, transparent);")).toBeTrue();
+    expect(generatedCss.includes("overflow: visible;")).toBeTrue();
+    expect(generatedCss.includes(".app-shell-left-panel:after")).toBeTrue();
+    expect(generatedCss.includes("background: inherit;")).toBeTrue();
   });
 });

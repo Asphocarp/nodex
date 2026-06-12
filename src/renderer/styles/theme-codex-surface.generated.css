@@ -136,3 +136,23 @@
   background-position: 250% 0;
   }
 }
+
+[data-codex-window-type="electron"]:not([data-codex-window-chrome="application-menu"]) .app-shell-left-panel {
+  background: var(--color-token-editor-background);
+  overflow: visible;
+}
+
+@supports (color: color-mix(in lab, red, red)) {
+  [data-codex-window-type="electron"]:not([data-codex-window-chrome="application-menu"]) .app-shell-left-panel {
+    background: color-mix(in srgb, var(--color-token-editor-background) 55%, transparent);
+  }
+}
+
+[data-codex-window-type="electron"]:not([data-codex-window-chrome="application-menu"]) .app-shell-left-panel:after {
+  inset: 0 calc(-1 * var(--radius-2xl)) 0 auto;
+  width: var(--radius-2xl);
+  background: inherit;
+  content: "";
+  pointer-events: none;
+  position: absolute;
+}

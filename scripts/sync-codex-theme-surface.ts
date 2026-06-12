@@ -17,6 +17,9 @@ const outputPath = resolve(
   "src/renderer/styles/theme-codex-surface.generated.css",
 );
 
+const ELECTRON_SIDEBAR_SELECTOR =
+  '[data-codex-window-type="electron"]:not([data-codex-window-chrome="application-menu"]) .app-shell-left-panel';
+
 const getMergedBody = (
   matches: ReturnType<typeof flattenCssNodes>,
   selector: string,
@@ -128,6 +131,22 @@ const run = (): void => {
     formatRawKeyframes(
       "loading-shimmer",
       getMergedBody(matches, "@keyframes loading-shimmer"),
+    ),
+    "",
+    formatRawBlock(
+      ELECTRON_SIDEBAR_SELECTOR,
+      "background: var(--color-token-editor-background);\noverflow: visible;",
+    ),
+    "",
+    formatRawNestedBlock(
+      "@supports (color: color-mix(in lab, red, red))",
+      ELECTRON_SIDEBAR_SELECTOR,
+      "background: color-mix(in srgb, var(--color-token-editor-background) 55%, transparent);",
+    ),
+    "",
+    formatRawBlock(
+      `${ELECTRON_SIDEBAR_SELECTOR}:after`,
+      'inset: 0 calc(-1 * var(--radius-2xl)) 0 auto;\nwidth: var(--radius-2xl);\nbackground: inherit;\ncontent: "";\npointer-events: none;\nposition: absolute;',
     ),
     "",
   ];

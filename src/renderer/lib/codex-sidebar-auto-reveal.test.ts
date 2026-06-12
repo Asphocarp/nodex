@@ -2,9 +2,12 @@ import { describe, expect, test } from "bun:test";
 import {
   CODEX_SIDEBAR_FLOATING_PANEL_REDUCED_MOTION_TRANSITION,
   CODEX_SIDEBAR_FLOATING_PANEL_TRANSITION,
+  CODEX_SIDEBAR_FLOATING_OUTER_APPLICATION_MENU_CLASS,
+  CODEX_SIDEBAR_FLOATING_OUTER_CLASS,
   CODEX_SIDEBAR_POINTER_DEFAULT,
   clampCodexSidebarWidth,
   deriveCodexSidebarFloatingVisibility,
+  getCodexSidebarFloatingOuterClassName,
   getCodexSidebarFloatingTransition,
   isCodexSidebarEdgeEnterX,
   isCodexSidebarExpandedMounted,
@@ -182,5 +185,10 @@ describe("Codex sidebar auto-reveal contract", () => {
     expect(JSON.stringify(getCodexSidebarFloatingTransition(true))).toBe(
       JSON.stringify(CODEX_SIDEBAR_FLOATING_PANEL_REDUCED_MOTION_TRANSITION),
     );
+  });
+
+  test("selects the Codex floating top inset for application menu windows", () => {
+    expect(getCodexSidebarFloatingOuterClassName(false)).toBe(CODEX_SIDEBAR_FLOATING_OUTER_CLASS);
+    expect(getCodexSidebarFloatingOuterClassName(true)).toBe(CODEX_SIDEBAR_FLOATING_OUTER_APPLICATION_MENU_CLASS);
   });
 });

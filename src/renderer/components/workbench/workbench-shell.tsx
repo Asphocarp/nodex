@@ -11,6 +11,7 @@ import {
   type ComponentPropsWithoutRef,
   type ComponentType,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { AnimatePresence, motion, useReducedMotion, useTransform, type MotionStyle, type MotionValue } from "motion/react";
@@ -200,12 +201,12 @@ import { ToggleListIcon } from "./toggle-list-icon";
 import {
   CODEX_SIDEBAR_FLOATING_ASIDE_CLASS,
   CODEX_SIDEBAR_FLOATING_HEADER_CLASS,
-  CODEX_SIDEBAR_FLOATING_OUTER_CLASS,
   CODEX_SIDEBAR_POINTER_DEFAULT,
   CODEX_SIDEBAR_WIDTH_DEFAULT_PX,
   CODEX_SIDEBAR_WIDTH_MIN_PX,
   clampCodexSidebarWidth,
   deriveCodexSidebarFloatingVisibility,
+  getCodexSidebarFloatingOuterClassName,
   getCodexSidebarFloatingTransition,
   normalizeCodexSidebarPointer,
   shouldAnimateCodexSidebarToggle,
@@ -280,6 +281,7 @@ const RIGHT_PANEL_HEADER_FALLBACK_RAIL_WIDTH_PX = 62;
 const LEFT_HEADER_COLLAPSED_RAIL_FALLBACK_WIDTH_PX = 126;
 const THREAD_SUMMARY_PANEL_STORAGE_KEY = "nodex:thread-summary-panel:pinned-open";
 const PROJECT_SESSION_SINGLETON_TAB_KIND_SET = new Set<string>(PROJECT_SESSION_SINGLETON_TAB_KINDS);
+type SidebarResizePhase = "live" | "end" | "reset";
 const PREVIEWABLE_PROJECT_SESSION_TAB_KIND_SET = new Set<ProjectSessionTab["kind"]>([
   "browser",
   "files",
@@ -1073,6 +1075,7 @@ export function WorkbenchShell({
   const [appShellFocusAreaActive, setAppShellFocusAreaActive] = useState(false);
   const [sidebarTaskSearchOpenTick, setSidebarTaskSearchOpenTick] = useState(0);
   const [projectsSectionCollapsed, setProjectsSectionCollapsed] = useState(false);
+  const [sidebarDragWidth, setSidebarDragWidth] = useState<number | null>(null);
   const [shellNavigationHistory, setShellNavigationHistory] = useState(readWorkbenchShellNavigationHistoryState);
   const workbenchRootRef = useRef<HTMLDivElement | null>(null);
   const sessionContentRef = useRef<HTMLDivElement | null>(null);
@@ -1085,7 +1088,8 @@ export function WorkbenchShell({
   const shellAtMediumWidthRef = useRef(false);
   const shellAtNarrowWidthRef = useRef(false);
   const sidebarCollapsed = sidebar?.collapsed ?? localSidebarCollapsed;
-  const sidebarWidth = sidebar?.width ?? localSidebarWidth;
+  const persistedSidebarWidth = sidebar?.width ?? localSidebarWidth;
+  const sidebarWidth = sidebarDragWidth ?? persistedSidebarWidth;
   const lastHandledSettingsToggleTickRef = useRef(settingsToggleTick);
   const [settingsPath, setSettingsPath] = useState<string | null>(null);
   const [threadQueueFollowUpsEnabled, setThreadQueueFollowUpsEnabled] = useState(readThreadQueueFollowUpsEnabled);
@@ -3473,14 +3477,21 @@ export function WorkbenchShell({
     applySidebarCollapsed(collapsed);
   }, [applySidebarCollapsed, reducedMotion]);
 
-  const applySidebarWidth = useCallback((width: number) => {
+  const applySidebarWidth = useCallback((width: number, phase: SidebarResizePhase = "end") => {
     if (width < CODEX_SIDEBAR_WIDTH_MIN_PX) {
+      setSidebarDragWidth(null);
       setSidebarCollapsedWithCodexState(true);
       return;
     }
 
     const nextWidth = clampCodexSidebarWidth(width);
     realSidebarMotion.targetSize.set(nextWidth);
+    if (phase === "live") {
+      setSidebarDragWidth(nextWidth);
+      return;
+    }
+
+    setSidebarDragWidth(null);
     if (setSidebarWidth) {
       setSidebarWidth(nextWidth);
     } else {
@@ -3981,10 +3992,13 @@ export function WorkbenchShell({
   const floatingSidebarTransition = getCodexSidebarFloatingTransition(Boolean(reducedMotion));
   const floatingSidebarExitX = reducedMotion ? 0 : -8;
   const floatingSidebarHeaderExitX = reducedMotion ? 0 : 8;
+  const applicationMenuBarEnabled = typeof document !== "undefined"
+    && document.documentElement.getAttribute("data-codex-window-chrome") === "application-menu";
+  const floatingSidebarOuterClassName = getCodexSidebarFloatingOuterClassName(applicationMenuBarEnabled);
   const floatingSidebarHeader = (
     <motion.div
       className={CODEX_SIDEBAR_FLOATING_HEADER_CLASS}
-      initial={{ x: 8 }}
+      initial={reducedMotion ? false : { x: 8 }}
       animate={{ x: 0 }}
       exit={{ x: floatingSidebarHeaderExitX }}
       transition={floatingSidebarTransition}
@@ -4220,9 +4234,9 @@ export function WorkbenchShell({
               <motion.div
                 key="codex-floating-left-panel"
                 data-testid="floating-project-session-sidebar-shell"
-                className={CODEX_SIDEBAR_FLOATING_OUTER_CLASS}
+                className={floatingSidebarOuterClassName}
                 style={{ width: sidebarWidth }}
-                initial={{ opacity: 0, x: -8 }}
+                initial={reducedMotion ? false : { opacity: 0, x: -8 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: floatingSidebarExitX }}
                 transition={floatingSidebarTransition}
@@ -4606,7 +4620,7 @@ function ProjectSessionSidebar({
   contentOpacity?: MotionValue<number>;
   resizeDisabled?: boolean;
   getWindowZoom?: () => number;
-  onResizeWidth: (width: number) => void;
+  onResizeWidth: (width: number, phase?: SidebarResizePhase) => void;
   onToggleProjectsSectionCollapsed: () => void;
   onToggleProjectExpanded: (projectId: string) => void;
   onSelectProject: (projectId: string) => void;
@@ -4639,31 +4653,57 @@ function ProjectSessionSidebar({
   onAccountErrorMessage: (message: string | null) => void;
 }) {
   const [manageProjectsOpen, setManageProjectsOpen] = useState(false);
+  const [sidebarResizing, setSidebarResizing] = useState(false);
+  const sidebarResizeDisabled = resizeDisabled || floating;
 
-  const handleResizeStart = (event: React.MouseEvent) => {
-    if (resizeDisabled || floating) return;
+  const handleResizePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (sidebarResizeDisabled) return;
+    if (event.button !== 0) return;
     event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
 
     const resolveZoom = getWindowZoom ?? (() => 1);
     const startX = event.clientX / resolveZoom();
     const startWidth = width;
+    let didMove = false;
 
-    document.body.style.userSelect = "none";
-    document.body.style.cursor = "col-resize";
+    setSidebarResizing(true);
 
-    const onMouseMove = (nextEvent: MouseEvent) => {
-      onResizeWidth(startWidth + ((nextEvent.clientX / resolveZoom()) - startX));
-    };
+    const resolveNextWidth = (nextEvent: PointerEvent) =>
+      startWidth + ((nextEvent.clientX / resolveZoom()) - startX);
 
-    const onMouseUp = () => {
-      document.body.style.userSelect = "";
-      document.body.style.cursor = "";
-      document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseup", onMouseUp);
-    };
+    function stopResize() {
+      setSidebarResizing(false);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+    }
 
-    document.addEventListener("mousemove", onMouseMove);
-    document.addEventListener("mouseup", onMouseUp);
+    function onPointerMove(nextEvent: PointerEvent) {
+      nextEvent.preventDefault();
+      didMove = didMove || nextEvent.clientX / resolveZoom() !== startX;
+      onResizeWidth(resolveNextWidth(nextEvent), "live");
+    }
+
+    function onPointerUp(nextEvent: PointerEvent) {
+      nextEvent.preventDefault();
+      if (didMove) {
+        onResizeWidth(resolveNextWidth(nextEvent), "end");
+      }
+      stopResize();
+    }
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
+  };
+
+  const handleResizeClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (sidebarResizeDisabled) return;
+    if (event.detail !== 2) return;
+    event.preventDefault();
+    setSidebarResizing(false);
+    onResizeWidth(CODEX_SIDEBAR_WIDTH_DEFAULT_PX, "reset");
   };
 
   return (
@@ -4672,6 +4712,7 @@ function ProjectSessionSidebar({
         floating
           ? CODEX_SIDEBAR_FLOATING_ASIDE_CLASS
           : "app-shell-left-panel pointer-events-auto relative flex h-full min-h-0 shrink-0 flex-col overflow-visible browser:bg-token-main-surface-primary",
+        sidebarResizing && !floating && "cursor-col-resize",
         "font-sans text-sm",
       )}
       style={{
@@ -4793,30 +4834,37 @@ function ProjectSessionSidebar({
               ) : null}
             </CodexSidebarSection>
           </div>
+
+          <LeftSidebarFooter
+            onOpenSettings={onOpenSettings}
+            account={account}
+            connection={connection}
+            onRefreshAccount={onRefreshAccount}
+            onLogout={onLogout}
+            onErrorMessage={onAccountErrorMessage}
+          />
         </div>
       </motion.div>
 
-      <LeftSidebarFooter
-        onOpenSettings={onOpenSettings}
-        account={account}
-        connection={connection}
-        onRefreshAccount={onRefreshAccount}
-        onLogout={onLogout}
-        onErrorMessage={onAccountErrorMessage}
-      />
-
       <div
-        onMouseDown={handleResizeStart}
-        aria-disabled={resizeDisabled}
+        role="separator"
+        aria-orientation="vertical"
+        aria-disabled={sidebarResizeDisabled || undefined}
+        onClick={handleResizeClick}
+        onPointerDown={handleResizePointerDown}
         data-testid="sidebar-resize-strip"
         className={cn(
-          "group absolute top-0 right-0 bottom-0 z-20 flex w-3 translate-x-1.5 touch-none select-none",
-          resizeDisabled ? "cursor-default" : "cursor-col-resize active:cursor-col-resize",
+          "group absolute flex touch-none select-none z-20 -top-toolbar right-0 bottom-0 w-4 translate-x-2",
+          sidebarResizeDisabled ? "pointer-events-none" : "cursor-col-resize active:cursor-col-resize",
         )}
       >
         <div
           aria-hidden
-          className="pointer-events-none m-auto h-full w-px bg-linear-to-b from-transparent via-(--border) to-transparent group-hover:via-(--foreground-tertiary) group-active:via-(--foreground-tertiary)"
+          className={cn(
+            "sidebar-resize-handle-line pointer-events-none m-auto opacity-0",
+            "h-full w-px bg-gradient-to-b from-transparent via-token-foreground/25 to-transparent",
+            sidebarResizing ? "opacity-100" : "group-hover:opacity-100 group-active:opacity-100",
+          )}
         />
       </div>
     </motion.aside>

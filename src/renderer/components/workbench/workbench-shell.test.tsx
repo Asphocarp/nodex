@@ -3656,6 +3656,15 @@ describe("workbench session shell", () => {
     expect(mainSurface?.className.includes("overflow-hidden")).toBeTrue();
     const dragStrip = screen.container.querySelector('[data-testid="sidebar-drag-strip"]');
     expect(dragStrip).toBe(null);
+    const resizeStrip = screen.getByTestId("sidebar-resize-strip");
+    expect(resizeStrip.getAttribute("role")).toBe("separator");
+    expect(resizeStrip.getAttribute("aria-orientation")).toBe("vertical");
+    expect(resizeStrip.className).toBe(
+      "group absolute flex touch-none select-none z-20 -top-toolbar right-0 bottom-0 w-4 translate-x-2 cursor-col-resize active:cursor-col-resize",
+    );
+    expect(resizeStrip.firstElementChild?.className).toBe(
+      "sidebar-resize-handle-line pointer-events-none m-auto opacity-0 h-full w-px bg-gradient-to-b from-transparent via-token-foreground/25 to-transparent group-hover:opacity-100 group-active:opacity-100",
+    );
     expect(textContent(screen.container).includes("Overview")).toBeTrue();
     const threadRow = screen.container.querySelector("[data-app-action-sidebar-thread-row]");
     expect(threadRow !== null).toBeTrue();
@@ -3736,8 +3745,8 @@ describe("workbench session shell", () => {
 
     const resizeStrip = screen.getByTestId("sidebar-resize-strip");
     await act(async () => {
-      fireEvent.mouseDown(resizeStrip, { clientX: 300 });
-      fireEvent.mouseMove(document, { clientX: 200 });
+      fireEvent.pointerDown(resizeStrip, { button: 0, pointerId: 1, clientX: 300 });
+      fireEvent.pointerMove(window, { pointerId: 1, clientX: 200 });
       await Promise.resolve();
     });
     await settleAsyncRender();
@@ -3745,12 +3754,12 @@ describe("workbench session shell", () => {
     expect(screen.getByRole("button", { name: "Show sidebar" }) !== null).toBeTrue();
 
     await act(async () => {
-      fireEvent.mouseUp(document);
+      fireEvent.pointerUp(window, { pointerId: 1, clientX: 200 });
       await Promise.resolve();
     });
   });
 
-  test("left sidebar resize normalizes drag deltas by the Codex window zoom", async () => {
+  test("left sidebar resize normalizes pointer drag deltas by the Codex window zoom", async () => {
     const screen = renderWorkbench({ sidebar: { collapsed: false, width: 300 } });
     await settleAsyncRender();
     await settleAsyncRender();
@@ -3761,8 +3770,8 @@ describe("workbench session shell", () => {
     const resizeStrip = screen.getByTestId("sidebar-resize-strip");
 
     await act(async () => {
-      fireEvent.mouseDown(resizeStrip, { clientX: 600 });
-      fireEvent.mouseMove(document, { clientX: 720 });
+      fireEvent.pointerDown(resizeStrip, { button: 0, pointerId: 1, clientX: 600 });
+      fireEvent.pointerMove(window, { pointerId: 1, clientX: 720 });
       await Promise.resolve();
     });
     await settleAsyncRender();
@@ -3770,9 +3779,26 @@ describe("workbench session shell", () => {
     expect(sidebar.getAttribute("style")?.includes("width: 360px")).toBeTrue();
 
     await act(async () => {
-      fireEvent.mouseUp(document);
+      fireEvent.pointerUp(window, { pointerId: 1, clientX: 720 });
       await Promise.resolve();
     });
+  });
+
+  test("left sidebar resize double-click resets to the Codex default width", async () => {
+    const screen = renderWorkbench({ sidebar: { collapsed: false, width: 420 } });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const sidebar = screen.getByTestId("project-session-sidebar");
+    const resizeStrip = screen.getByTestId("sidebar-resize-strip");
+
+    await act(async () => {
+      fireEvent.click(resizeStrip, { detail: 2 });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(sidebar.getAttribute("style")?.includes("width: 300px")).toBeTrue();
   });
 
   test("collapsed sidebar renders Codex-parity left titlebar chrome on macOS", async () => {

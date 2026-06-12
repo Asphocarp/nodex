@@ -16,8 +16,14 @@ export const CODEX_SIDEBAR_FLOATING_PANEL_REDUCED_MOTION_TRANSITION = {
   duration: 0,
 } as const;
 
+export const CODEX_SIDEBAR_FLOATING_OUTER_BASE_CLASS =
+  "pointer-events-auto fixed bottom-0 left-0 z-30 min-h-0";
+
 export const CODEX_SIDEBAR_FLOATING_OUTER_CLASS =
-  "pointer-events-auto fixed bottom-0 left-0 z-30 min-h-0 top-0";
+  `${CODEX_SIDEBAR_FLOATING_OUTER_BASE_CLASS} top-0`;
+
+export const CODEX_SIDEBAR_FLOATING_OUTER_APPLICATION_MENU_CLASS =
+  `${CODEX_SIDEBAR_FLOATING_OUTER_BASE_CLASS} top-(--height-toolbar-sm)`;
 
 export const CODEX_SIDEBAR_FLOATING_ASIDE_CLASS =
   "flex h-full min-h-0 flex-col overflow-hidden rounded-lg bg-token-main-surface-primary shadow-[1px_0_0_0_var(--color-token-border-default),0_20px_25px_-5px_rgb(0_0_0/0.1),0_8px_10px_-6px_rgb(0_0_0/0.1)]";
@@ -212,4 +218,10 @@ export function getCodexSidebarFloatingTransition(reducedMotion: boolean) {
   return reducedMotion
     ? CODEX_SIDEBAR_FLOATING_PANEL_REDUCED_MOTION_TRANSITION
     : CODEX_SIDEBAR_FLOATING_PANEL_TRANSITION;
+}
+
+export function getCodexSidebarFloatingOuterClassName(applicationMenuBarEnabled: boolean): string {
+  return applicationMenuBarEnabled
+    ? CODEX_SIDEBAR_FLOATING_OUTER_APPLICATION_MENU_CLASS
+    : CODEX_SIDEBAR_FLOATING_OUTER_CLASS;
 }
