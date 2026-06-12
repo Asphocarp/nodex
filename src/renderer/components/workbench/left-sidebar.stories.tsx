@@ -460,33 +460,31 @@ function CodexProjectSessionRowsHarness() {
       <div data-codex-window-type="electron" className="min-h-screen bg-token-bg-primary p-8">
         <div className="app-shell-left-panel w-[300px] overflow-visible py-4">
           <CodexSidebarSection heading="Projects" collapsed={false} onToggle={() => {}}>
-            <div className="pt-0.5">
-              <div className="isolate flex flex-col [contain:layout]">
-                <div className="flex flex-col" role="list" aria-label="Projects">
-                  <CodexProjectRow
-                    project={project}
-                    active
-                    expanded
-                    onActivate={() => {}}
-                    onStartNewChat={() => {}}
-                    onRenameProject={async () => project}
-                    onManageProject={() => {}}
-                  >
-                    <CodexProjectSessionList project={project}>
-                      {sessions.map((session, index) => (
-                        <CodexThreadRow
-                          key={session.id}
-                          session={session}
-                          active={index === 2}
-                          contextMenuOpen={index === 3}
-                          onSelect={() => {}}
-                          onOpenContextMenu={() => {}}
-                          onTogglePinned={() => {}}
-                        />
-                      ))}
-                    </CodexProjectSessionList>
-                  </CodexProjectRow>
-                </div>
+            <div className="isolate flex flex-col [contain:layout]">
+              <div className="flex flex-col" role="list" aria-label="Projects">
+                <CodexProjectRow
+                  project={project}
+                  active
+                  expanded
+                  onActivate={() => {}}
+                  onStartNewChat={() => {}}
+                  onRenameProject={async () => project}
+                  onManageProject={() => {}}
+                >
+                  <CodexProjectSessionList project={project}>
+                    {sessions.map((session, index) => (
+                      <CodexThreadRow
+                        key={session.id}
+                        session={session}
+                        active={index === 2}
+                        contextMenuOpen={index === 3}
+                        onSelect={() => {}}
+                        onOpenContextMenu={() => {}}
+                        onTogglePinned={() => {}}
+                      />
+                    ))}
+                  </CodexProjectSessionList>
+                </CodexProjectRow>
               </div>
             </div>
           </CodexSidebarSection>

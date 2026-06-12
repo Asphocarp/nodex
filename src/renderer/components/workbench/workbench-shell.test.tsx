@@ -1435,6 +1435,7 @@ describe("workbench session shell", () => {
 
     expect(section.getAttribute("data-app-action-sidebar-section-collapsed")).toBe("false");
     expect(section.querySelectorAll("[data-app-action-sidebar-project-row]").length).toBe(1);
+    expect(Boolean(section.querySelector("[data-app-action-sidebar-section-body-motion]"))).toBeTrue();
 
     await act(async () => {
       fireEvent.click(toggle);
@@ -1442,7 +1443,10 @@ describe("workbench session shell", () => {
     });
 
     expect(section.getAttribute("data-app-action-sidebar-section-collapsed")).toBe("true");
-    expect(section.querySelectorAll("[data-app-action-sidebar-project-row]").length).toBe(0);
+    const exitingSectionBody = section.querySelector("[data-app-action-sidebar-section-body-motion]");
+    expect(Boolean(exitingSectionBody)).toBeTrue();
+    expect(section.querySelectorAll("[data-app-action-sidebar-project-row]").length).toBe(1);
+    expect(Boolean(section.querySelector("[data-app-action-sidebar-project-row]")?.closest("[data-app-action-sidebar-section-body-motion]"))).toBeTrue();
 
     await act(async () => {
       fireEvent.click(toggle);
@@ -1450,6 +1454,7 @@ describe("workbench session shell", () => {
     });
 
     expect(section.getAttribute("data-app-action-sidebar-section-collapsed")).toBe("false");
+    expect(Boolean(section.querySelector("[data-app-action-sidebar-section-body-motion]"))).toBeTrue();
     expect(section.querySelectorAll("[data-app-action-sidebar-project-row]").length).toBe(1);
   });
 

@@ -4775,51 +4775,47 @@ function ProjectSessionSidebar({
                 />
               )}
             >
-              {!projectsSectionCollapsed ? (
-                <div className="pt-0.5">
-                <div className="isolate flex flex-col [contain:layout]">
-                  <div className="flex flex-col" role="list" aria-label="Projects">
-                    {projects.map((project) => {
-                      const sessions = sessionsByProject[project.id] ?? [];
-                      const expanded = expandedProjectIds.has(project.id);
-                      const isActiveProject = project.id === activeProjectId;
+              <div className="isolate flex flex-col [contain:layout]">
+                <div className="flex flex-col" role="list" aria-label="Projects">
+                  {projects.map((project) => {
+                    const sessions = sessionsByProject[project.id] ?? [];
+                    const expanded = expandedProjectIds.has(project.id);
+                    const isActiveProject = project.id === activeProjectId;
 
-                      return (
-                        <CodexProjectRow
-                          key={project.id}
-                          project={project}
-                          active={isActiveProject}
-                          expanded={expanded}
-                          onActivate={() => onToggleProjectExpanded(project.id)}
-                          onStartNewChat={() => void onStartNewChatInProject(project.id)}
-                          onRenameProject={onRenameProject}
-                          onManageProject={() => setManageProjectsOpen(true)}
-                        >
-                          <CodexProjectSessionList project={project}>
-                            {sessions.map((session) => (
-                              <CodexThreadRow
-                                key={session.id}
-                                session={session}
-                                active={activeSessionId === session.id}
-                                contextMenuOpen={contextMenuSessionId === session.id}
-                                onSelect={() => onSelectSession(session)}
-                                onOpenContextMenu={onOpenSessionContextMenu}
-                                onTogglePinned={onToggleSessionPinned}
-                              />
-                            ))}
-                            {sessions.length === 0 && loadingSessions ? (
-                              <div className="px-row-x py-row-y text-sm text-token-description-foreground">
-                                Loading sessions...
-                              </div>
-                            ) : null}
-                          </CodexProjectSessionList>
-                        </CodexProjectRow>
-                      );
-                    })}
-                  </div>
+                    return (
+                      <CodexProjectRow
+                        key={project.id}
+                        project={project}
+                        active={isActiveProject}
+                        expanded={expanded}
+                        onActivate={() => onToggleProjectExpanded(project.id)}
+                        onStartNewChat={() => void onStartNewChatInProject(project.id)}
+                        onRenameProject={onRenameProject}
+                        onManageProject={() => setManageProjectsOpen(true)}
+                      >
+                        <CodexProjectSessionList project={project}>
+                          {sessions.map((session) => (
+                            <CodexThreadRow
+                              key={session.id}
+                              session={session}
+                              active={activeSessionId === session.id}
+                              contextMenuOpen={contextMenuSessionId === session.id}
+                              onSelect={() => onSelectSession(session)}
+                              onOpenContextMenu={onOpenSessionContextMenu}
+                              onTogglePinned={onToggleSessionPinned}
+                            />
+                          ))}
+                          {sessions.length === 0 && loadingSessions ? (
+                            <div className="px-row-x py-row-y text-sm text-token-description-foreground">
+                              Loading sessions...
+                            </div>
+                          ) : null}
+                        </CodexProjectSessionList>
+                      </CodexProjectRow>
+                    );
+                  })}
                 </div>
-                </div>
-              ) : null}
+              </div>
             </CodexSidebarSection>
           </div>
 

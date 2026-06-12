@@ -113,6 +113,10 @@ describe("SidebarProjectsSection", () => {
 
     const section = container.querySelector('[data-app-action-sidebar-section-heading="Projects"]');
     expect(section?.getAttribute("data-app-action-sidebar-section-collapsed")).toBe("false");
+    const sectionBody = section?.querySelector("[data-app-action-sidebar-section-body-motion]");
+    expect(Boolean(sectionBody)).toBeTrue();
+    expect((sectionBody as HTMLElement).className.includes("overflow-hidden")).toBeTrue();
+    expect(Boolean(sectionBody?.querySelector(".flex.flex-col.gap-px.pt-1"))).toBeTrue();
 
     const rows = Array.from(container.querySelectorAll("[data-app-action-sidebar-project-row]"));
     expect(rows.length).toBe(2);
@@ -122,8 +126,8 @@ describe("SidebarProjectsSection", () => {
     expect(rows[0]?.className.includes("h-token-nav-row")).toBeTrue();
   });
 
-  test("keeps only the active project row visible when collapsed", () => {
-    const { getByText, queryByText } = renderProjectsSection(
+  test("hides project rows when the Projects section is initially collapsed", () => {
+    const { container, queryByText } = renderProjectsSection(
       <SidebarProjectsSection
         projects={PROJECTS}
         spaces={[
@@ -141,7 +145,10 @@ describe("SidebarProjectsSection", () => {
       />,
     );
 
-    expect(getByText("Beta").textContent).toBe("Beta");
+    const section = container.querySelector('[data-app-action-sidebar-section-heading="Projects"]');
+    expect(section?.getAttribute("data-app-action-sidebar-section-collapsed")).toBe("true");
+    expect(section?.querySelector("[data-app-action-sidebar-section-body-motion]")).toBe(null);
+    expect(queryByText("Beta")).toBe(null);
     expect(queryByText("Alpha")).toBe(null);
   });
 

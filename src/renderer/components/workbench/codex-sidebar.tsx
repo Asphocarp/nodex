@@ -153,7 +153,28 @@ export function CodexSidebarSection({
             </div>
           </div>
         </div>
-        {children}
+        <AnimatePresence initial={false}>
+          {!collapsed ? (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{
+                height: "auto",
+                opacity: 1,
+                transitionEnd: {
+                  overflow: "visible",
+                },
+              }}
+              exit={{ height: 0, opacity: 0, overflow: "hidden" }}
+              transition={CODEX_SIDEBAR_PROJECT_FOLDER_TRANSITION}
+              className="overflow-hidden"
+              data-app-action-sidebar-section-body-motion=""
+            >
+              <div className="flex flex-col gap-px pt-1">
+                {children}
+              </div>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
       </div>
     </div>
   );

@@ -58,9 +58,6 @@ export function SidebarProjectsSection({
     () => resolveOrderedProjects(projects, spaces),
     [projects, spaces],
   );
-  const visibleProjects = expanded
-    ? orderedProjects
-    : orderedProjects.filter(({ project }) => project.id === activeProjectId);
 
   useEffect(() => {
     if (!shouldOpenProjectManagerForRequest(projectPickerOpenTick, lastHandledProjectPickerOpenTickRef.current)) {
@@ -98,25 +95,23 @@ export function SidebarProjectsSection({
         />
       )}
     >
-      <div className="pt-0.5">
-        <div className="isolate flex flex-col [contain:layout]">
-          <div className="flex flex-col" role="list" aria-label="Projects">
-            {visibleProjects.map(({ project }) => {
-              const isActive = project.id === activeProjectId;
+      <div className="isolate flex flex-col [contain:layout]">
+        <div className="flex flex-col" role="list" aria-label="Projects">
+          {orderedProjects.map(({ project }) => {
+            const isActive = project.id === activeProjectId;
 
-              return (
-                <CodexProjectRow
-                  key={project.id}
-                  project={project}
-                  active={isActive}
-                  expanded={isActive}
-                  onActivate={() => onSelectSpace(project.id)}
-                  onRenameProject={onRenameProject}
-                  onManageProject={() => setManageOpen(true)}
-                />
-              );
-            })}
-          </div>
+            return (
+              <CodexProjectRow
+                key={project.id}
+                project={project}
+                active={isActive}
+                expanded={isActive}
+                onActivate={() => onSelectSpace(project.id)}
+                onRenameProject={onRenameProject}
+                onManageProject={() => setManageOpen(true)}
+              />
+            );
+          })}
         </div>
       </div>
     </CodexSidebarSection>
