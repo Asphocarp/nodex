@@ -1129,6 +1129,11 @@ function expectPanelMenuDescriptionsHidden(menu: HTMLElement): void {
   }
 }
 
+function getFilesPreviewInteractionTarget(screen: ReturnType<typeof renderWorkbench>): HTMLElement {
+  return screen.queryByPlaceholderText("Filter files...")
+    ?? screen.getByText("This project does not have a workspace folder.");
+}
+
 function getLastTerminalPanelProps(): Record<string, unknown> {
   const props = (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> }).__lastTerminalPanelProps;
   if (!props) throw new Error("Expected terminal panel props");
@@ -3040,13 +3045,13 @@ describe("workbench session shell", () => {
     expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null).toBeTrue();
     expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
 
-    fireEvent.pointerDown(screen.getByText("Browse project files"));
+    fireEvent.pointerDown(getFilesPreviewInteractionTarget(screen));
     await settleAsyncRender();
     await settleAsyncRender();
 
     expect(invokeCalls.some((call) =>
       call[0] === "project-session-tabs:create"
-      && JSON.stringify(call[1]).includes('"kind":"files_placeholder"')
+      && JSON.stringify(call[1]).includes('"kind":"files"')
     )).toBeTrue();
   });
 
@@ -3181,7 +3186,7 @@ describe("workbench session shell", () => {
   });
 
   for (const previewCase of [
-    { label: "Files", kind: "files_placeholder", pinText: "Browse project files" },
+    { label: "Files", kind: "files", pinText: "Filter files..." },
     { label: "Browser", kind: "browser", pinText: "Browser is available in the desktop app" },
   ] as const) {
     test(`bottom ${previewCase.label} preview mounts and pins after interaction`, async () => {
@@ -3198,7 +3203,10 @@ describe("workbench session shell", () => {
       expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null).toBeTrue();
       expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
 
-      fireEvent.pointerDown(screen.getByText(previewCase.pinText));
+      const pinTarget = previewCase.kind === "files"
+        ? getFilesPreviewInteractionTarget(screen)
+        : screen.getByText(previewCase.pinText);
+      fireEvent.pointerDown(pinTarget);
       await settleAsyncRender();
       await settleAsyncRender();
 

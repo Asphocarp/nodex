@@ -108,6 +108,17 @@ import type {
   UpdateWindowRestoreSettingsInput,
   WindowRestoreSettings,
   DesktopNotificationActionPayload,
+  WorkspaceDirectoryEntriesInput,
+  WorkspaceDirectoryEntriesResult,
+  WorkspaceFileBinaryReadResult,
+  WorkspaceFileMetadata,
+  WorkspaceFileReadInput,
+  WorkspaceFileReadResult,
+  WorkspaceFileRequest,
+  WorkspaceFileWriteInput,
+  WorkspaceFileWriteResult,
+  WorkspacePathsExistInput,
+  WorkspacePathsExistResult,
 } from "./types";
 import type {
   NativeContextMenuItem,
@@ -513,6 +524,23 @@ export interface IpcApi {
   "app:update:check": { args: []; result: AppUpdateStatus };
   "app:update:install": { args: []; result: boolean };
   "shell:open-file-link": {
+    args: [target: FileLinkTarget, openerId: FileLinkOpenerId];
+    result: boolean;
+  };
+  "workspace-directory-entries": {
+    args: [input: WorkspaceDirectoryEntriesInput];
+    result: WorkspaceDirectoryEntriesResult;
+  };
+  "remote-workspace-directory-entries": {
+    args: [input: WorkspaceDirectoryEntriesInput];
+    result: WorkspaceDirectoryEntriesResult;
+  };
+  "read-file": { args: [input: WorkspaceFileReadInput]; result: WorkspaceFileReadResult };
+  "read-file-metadata": { args: [input: WorkspaceFileRequest]; result: WorkspaceFileMetadata };
+  "read-file-binary": { args: [input: WorkspaceFileRequest]; result: WorkspaceFileBinaryReadResult };
+  "write-file": { args: [input: WorkspaceFileWriteInput]; result: WorkspaceFileWriteResult };
+  "paths-exist": { args: [input: WorkspacePathsExistInput]; result: WorkspacePathsExistResult };
+  "open-file": {
     args: [target: FileLinkTarget, openerId: FileLinkOpenerId];
     result: boolean;
   };

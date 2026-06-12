@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added a real project Files tab with a workspace tree, Codex-style filtering and file tab ids, local file previews, external-open actions, and migration from older placeholder tabs.
 - Added a slash-command menu above the Thread composer, including inline grouped filtering, keyboard selection, nested command panels, app-server-backed Compact/Goal/Memory/Feedback actions, MCP status, model/reasoning/service-tier controls, contextual hidden commands, and Storybook coverage.
 - Added Browser tabs with Electron webview navigation chrome, local-server new-tab discovery, full-bleed retained page hosting across tab switches and panel hide/show, device toolbar presets, zoom and browsing-data controls, screenshot/comment affordances, browser-use overlay state, and multi-tab context actions.
 - Added Codex-style project session shell parity for session pinning and native sidebar session context menus, including direct filled row pin buttons, archive/unread state, copy/reveal/fork/open actions, and `nodex://sessions/<session-id>` deeplinks.

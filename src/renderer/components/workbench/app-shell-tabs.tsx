@@ -33,6 +33,7 @@ const APP_SHELL_SPLIT_ACTIONS: { side: AppShellTabSplitSide; label: string }[] =
 
 export interface AppShellTabItem {
   id: string;
+  domTabId?: string;
   title: string;
   icon?: ComponentType<{ className?: string }>;
   closable?: boolean;
@@ -354,6 +355,7 @@ function AppShellTab({
 }) {
   const tabRef = useRef<HTMLDivElement | null>(null);
   const Icon = tab.icon;
+  const dataTabId = tab.domTabId ?? tab.id;
   const tabId = makeTabId(controllerId, tab.id);
   const titleRef = useRef<HTMLSpanElement | null>(null);
   const titleOverflows = useAppShellTabTitleOverflow(titleRef, tab.title);
@@ -437,7 +439,7 @@ function AppShellTab({
     <div
       ref={tabRef}
       data-app-shell-tab-controller={controllerId}
-      data-tab-id={tab.id}
+      data-tab-id={dataTabId}
       data-panel-tab-id={tab.id}
       data-app-shell-tab-preview={tab.preview ? "true" : undefined}
       className={cn(
@@ -447,7 +449,7 @@ function AppShellTab({
       )}
     >
       <div
-        data-tab-id={tab.id}
+        data-tab-id={dataTabId}
         className="group/tab relative flex h-7 max-w-39 shrink-0 items-center overflow-hidden rounded-lg bg-token-main-surface-primary px-2 py-1"
         role="button"
         tabIndex={tab.disabled ? -1 : 0}

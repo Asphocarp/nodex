@@ -277,7 +277,7 @@ export type ProjectSessionTabKind =
   | "terminal"
   | "browser"
   | "review"
-  | "files_placeholder";
+  | "files";
 
 export const PROJECT_SESSION_SINGLETON_TAB_KINDS = [
   "db_view",
@@ -306,6 +306,13 @@ export interface ProjectSessionProjectScopedTabConfig {
   projectId: string;
 }
 
+export interface ProjectSessionFilesTabConfig {
+  projectId: string;
+  hostId: "local";
+  workspaceRoot: string;
+  path?: string;
+}
+
 export interface ProjectSessionBrowserTabConfig {
   projectId: string;
   url?: string;
@@ -319,7 +326,97 @@ export type ProjectSessionTabConfig =
   | ProjectSessionCardStageTabConfig
   | ProjectSessionTerminalTabConfig
   | ProjectSessionBrowserTabConfig
+  | ProjectSessionFilesTabConfig
   | ProjectSessionProjectScopedTabConfig;
+
+export type WorkspaceFileHostId = "local";
+
+export type WorkspaceFileEntryKind = "directory" | "file" | "symlink" | "other";
+
+export interface WorkspaceFileDirectoryEntry {
+  name: string;
+  path: string;
+  kind: WorkspaceFileEntryKind;
+  isDirectory: boolean;
+  isFile: boolean;
+  isSymlink: boolean;
+  size: number;
+  modifiedAtMs: number;
+  hidden: boolean;
+}
+
+export interface WorkspaceDirectoryEntriesInput {
+  hostId?: WorkspaceFileHostId;
+  workspaceRoot: string;
+  path?: string;
+  includeHidden?: boolean;
+  includeGenerated?: boolean;
+}
+
+export interface WorkspaceDirectoryEntriesResult {
+  hostId: WorkspaceFileHostId;
+  workspaceRoot: string;
+  path: string;
+  entries: WorkspaceFileDirectoryEntry[];
+}
+
+export interface WorkspaceFileRequest {
+  hostId?: WorkspaceFileHostId;
+  workspaceRoot?: string;
+  path: string;
+}
+
+export interface WorkspaceFileReadInput extends WorkspaceFileRequest {
+  maxBytes?: number;
+}
+
+export interface WorkspaceFileReadResult {
+  path: string;
+  content: string;
+  encoding: "utf8";
+  size: number;
+  truncated: boolean;
+  binary: boolean;
+}
+
+export interface WorkspaceFileBinaryReadResult {
+  path: string;
+  dataBase64: string;
+  size: number;
+  mimeType: string | null;
+}
+
+export interface WorkspaceFileMetadata {
+  path: string;
+  kind: WorkspaceFileEntryKind;
+  isDirectory: boolean;
+  isFile: boolean;
+  isSymlink: boolean;
+  size: number;
+  createdAtMs: number;
+  modifiedAtMs: number;
+  binary: boolean;
+  mimeType: string | null;
+}
+
+export interface WorkspaceFileWriteInput extends WorkspaceFileRequest {
+  content: string;
+}
+
+export interface WorkspaceFileWriteResult {
+  path: string;
+  size: number;
+  modifiedAtMs: number;
+}
+
+export interface WorkspacePathsExistInput {
+  hostId?: WorkspaceFileHostId;
+  paths: string[];
+}
+
+export interface WorkspacePathsExistResult {
+  paths: Record<string, boolean>;
+}
 
 export interface ProjectSessionSplitLeaf {
   type: "leaf";

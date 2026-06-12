@@ -40,6 +40,12 @@ import { CardStage } from "./workbench-card-stage";
 import { TerminalPanel } from "./workbench-terminal-panel";
 import { BrowserSidebarHiddenWebviewHosts } from "@/features/browser-sidebar/browser-sidebar-hidden-webview-hosts";
 import { BrowserSidebarPanel } from "@/features/browser-sidebar/browser-sidebar-panel";
+import {
+  WorkspaceFilesPanel,
+  getWorkspaceFileDomTabId,
+  getWorkspaceFileName,
+  type WorkspaceFilesTab,
+} from "@/features/workspace-files";
 import { SettingsRouteShell } from "./workbench-settings-overlay";
 import { buildSettingsPath } from "./workbench-settings-routes";
 import { ProjectManagerPopover } from "./left-sidebar-project-manager";
@@ -276,7 +282,7 @@ const THREAD_SUMMARY_PANEL_STORAGE_KEY = "nodex:thread-summary-panel:pinned-open
 const PROJECT_SESSION_SINGLETON_TAB_KIND_SET = new Set<string>(PROJECT_SESSION_SINGLETON_TAB_KINDS);
 const PREVIEWABLE_PROJECT_SESSION_TAB_KIND_SET = new Set<ProjectSessionTab["kind"]>([
   "browser",
-  "files_placeholder",
+  "files",
 ]);
 const PANEL_ACTION_ROW_CLASS = "cursor-interaction flex min-h-10 w-full items-center gap-2 rounded-md bg-token-bg-secondary px-2.5 py-2 text-left hover:bg-token-list-hover-background focus-visible:outline focus-visible:outline-2 focus-visible:outline-token-border-xstrong";
 const PANEL_ACTION_KBD_CLASS = "inline-flex !rounded-md !border-0 !bg-current/10 !font-sans !text-xs !text-current !shadow-none !px-1.5 !py-0.5 !leading-none";
@@ -286,7 +292,7 @@ const CODEX_PANEL_OPTION_ACTION_ORDER: PanelNewTabActionKind[] = [
   "review",
   "terminal",
   "browser",
-  "files_placeholder",
+  "files",
   "side_chat",
 ];
 const NODEX_PANEL_OPTION_ACTION_ORDER: ProjectSessionTab["kind"][] = [
@@ -359,7 +365,7 @@ type ProjectSessionTabDraft = Pick<ProjectSessionTabCreateInput, "kind" | "title
 
 const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
   {
-    kind: "files_placeholder",
+    kind: "files",
     defaultPanelId: "right",
     targetPanelIds: ["right", "bottom"],
     label: "Files",
@@ -648,7 +654,7 @@ function getTabIcon(kind: ProjectSessionTab["kind"]): ComponentType<{ className?
   if (kind === "terminal") return CodexSidePanelTerminalIcon;
   if (kind === "browser") return CodexSidePanelBrowserIcon;
   if (kind === "review") return CodexSidePanelReviewIcon;
-  if (kind === "files_placeholder") return CodexSidePanelFilesIcon;
+  if (kind === "files") return CodexSidePanelFilesIcon;
   return Globe2;
 }
 
@@ -852,11 +858,11 @@ function makeProjectSessionTabDraft(
     };
   }
 
-  if (kind === "files_placeholder") {
+  if (kind === "files") {
     return {
       kind,
       title: "Files",
-      config: { projectId: session.projectId },
+      config: { projectId: session.projectId, hostId: "local", workspaceRoot: "" },
     };
   }
 
@@ -905,6 +911,34 @@ function makePreviewProjectSessionTab(
     title: draft.title,
     order: session.tabs.filter((tab) => tab.panelId === panelId).length,
     config: draft.config,
+    stateKey: 0,
+    state: {},
+    preview: true,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function makePreviewWorkspaceFileTab(
+  session: ProjectSession,
+  panelId: PanelId,
+  input: { path: string; title: string; workspaceRoot: string },
+): ProjectSessionPreviewTab {
+  const now = new Date().toISOString();
+  return {
+    id: `preview:${session.id}:${panelId}:files:${input.path}`,
+    sessionId: session.id,
+    projectId: session.projectId,
+    panelId,
+    kind: "files",
+    title: input.title,
+    order: session.tabs.filter((tab) => tab.panelId === panelId).length,
+    config: {
+      projectId: session.projectId,
+      hostId: "local",
+      workspaceRoot: input.workspaceRoot,
+      path: input.path,
+    },
     stateKey: 0,
     state: {},
     preview: true,
@@ -2643,6 +2677,38 @@ export function WorkbenchShell({
     await refreshProjectSessions(activeSession.projectId);
   }, [activeSession, ensureActivePanelOpenWithoutRefresh, refreshProjectSessions]);
 
+  const openWorkspaceFileTab = useCallback(async (input: {
+    path: string;
+    title: string;
+    panelId: PanelId;
+  }) => {
+    if (!activeSession) return;
+    const project = projects.find((candidate) => candidate.id === activeSession.projectId) ?? null;
+    const workspaceRoot = project?.workspacePath?.trim() ?? "";
+    const existing = activeSession.tabs.find((tab) =>
+      tab.kind === "files"
+      && tab.panelId === input.panelId
+      && "path" in tab.config
+      && tab.config.path === input.path,
+    );
+    if (existing) {
+      await setActivePanelTab(input.panelId, existing.id, { openPanel: true });
+      return;
+    }
+
+    const leafId = resolveSessionPanelActiveLeafId(activeSession, input.panelId);
+    setPreviewTabsByPanel((current) => ({
+      ...current,
+      [makePanelPreviewKey(activeSession.id, input.panelId, leafId)]: makePreviewWorkspaceFileTab(activeSession, input.panelId, {
+        path: input.path,
+        title: input.title || getWorkspaceFileName(input.path),
+        workspaceRoot,
+      }),
+    }));
+    await ensureActivePanelOpenWithoutRefresh(input.panelId);
+    await refreshProjectSessions(activeSession.projectId);
+  }, [activeSession, ensureActivePanelOpenWithoutRefresh, projects, refreshProjectSessions, setActivePanelTab]);
+
   const openCardTab = useCallback(async (projectId: string, cardId: string, titleSnapshot?: string) => {
     if (!activeSession) {
       openCardStage(projectId, cardId, titleSnapshot);
@@ -3174,6 +3240,9 @@ export function WorkbenchShell({
     if (!activeSession) return empty;
     const makeItem = (tab: ProjectSessionRenderableTab): AppShellTabItem => ({
       id: tab.id,
+      domTabId: !isSideChatPanelTab(tab) && !isMcpAppPanelTab(tab) && tab.kind === "files" && "path" in tab.config
+        ? getWorkspaceFileDomTabId("hostId" in tab.config ? tab.config.hostId : "local", tab.config.path)
+        : undefined,
       title: tab.title,
       icon: isSideChatPanelTab(tab)
         ? CodexSidePanelSideChatIcon
@@ -3249,6 +3318,7 @@ export function WorkbenchShell({
             onReminderHandled={onReminderHandled}
             onLeaveCardStageCard={onLeaveCardStageCard}
             onOpenCardTab={openCardTab}
+            onOpenFileTab={openWorkspaceFileTab}
             onRefreshSessions={refreshProjectSessions}
             onCloseTab={closeTab}
             selectedTurnDiffReviewTarget={selectedTurnDiffReviewTarget}
@@ -3325,6 +3395,7 @@ export function WorkbenchShell({
     openSideChat,
     openMcpAppSidePanel,
     openCardTab,
+    openWorkspaceFileTab,
     handleThreadQueueFollowUpsEnabledChange,
     openAttachedThreadSession,
     openTurnDiffReview,
@@ -5386,6 +5457,7 @@ function ProjectSessionTabPanel({
   onReminderHandled,
   onLeaveCardStageCard,
   onOpenCardTab,
+  onOpenFileTab,
   onRefreshSessions,
   onCloseTab,
   selectedTurnDiffReviewTarget,
@@ -5420,6 +5492,7 @@ function ProjectSessionTabPanel({
   }) => void;
   onLeaveCardStageCard: (snapshot: CardStageSessionSnapshot) => void;
   onOpenCardTab: (projectId: string, cardId: string, titleSnapshot?: string) => Promise<void>;
+  onOpenFileTab: (input: { path: string; title: string; panelId: PanelId }) => Promise<void>;
   onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
   onCloseTab: (tabId: string) => Promise<void>;
   selectedTurnDiffReviewTarget: CodexTurnDiffReviewTarget | null;
@@ -5513,33 +5586,20 @@ function ProjectSessionTabPanel({
     );
   }
 
-  if (tab.kind === "files_placeholder") {
-    return <ProjectSessionMockTab kind={tab.kind} />;
+  if (tab.kind === "files") {
+    return (
+      <WorkspaceFilesPanel
+        tab={tab as WorkspaceFilesTab}
+        activeSession={activeSession}
+        project={projects.find((item) => item.id === tab.projectId) ?? null}
+        onOpenFileTab={onOpenFileTab}
+      />
+    );
   }
 
   return (
     <div className="flex h-full items-center justify-center bg-token-main-surface-primary text-sm text-token-text-secondary">
       Unsupported tab.
-    </div>
-  );
-}
-
-function ProjectSessionMockTab({
-  kind,
-}: {
-  kind: "files_placeholder";
-}) {
-  const action = PANEL_NEW_TAB_ACTIONS.find((candidate) => candidate.kind === kind);
-  const Icon = action?.Icon ?? CodexSidePanelBrowserIcon;
-  return (
-    <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary p-6 select-none">
-      <div className="mx-auto flex h-full w-full max-w-2xl flex-col items-center justify-center text-center">
-        <div className="mb-3 flex size-10 items-center justify-center rounded-xl bg-token-bg-secondary text-token-text-secondary">
-          <Icon className="icon-md" />
-        </div>
-        <div className="text-base font-semibold text-token-text-primary">{action?.label ?? "Browser"}</div>
-        <div className="mt-1 text-sm text-token-text-secondary">{action?.description ?? "Open a website"}</div>
-      </div>
     </div>
   );
 }

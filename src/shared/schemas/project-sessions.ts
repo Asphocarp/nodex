@@ -4,6 +4,7 @@ import type {
   ProjectSessionCardStageTabConfig,
   ProjectSessionCreateInput,
   ProjectSessionDbViewTabConfig,
+  ProjectSessionFilesTabConfig,
   ProjectSessionProjectScopedTabConfig,
   ProjectSessionPanelLayout,
   ProjectSessionPanelNode,
@@ -60,13 +61,28 @@ export const ProjectSessionProjectScopedTabConfigSchema = z.object({
   projectId: z.string().min(1),
 }) satisfies z.ZodType<ProjectSessionProjectScopedTabConfig>;
 
+export const ProjectSessionFilesTabConfigSchema = z.object({
+  projectId: z.string().min(1),
+  hostId: z.literal("local").default("local"),
+  workspaceRoot: z.string().trim().default(""),
+  path: z.string().trim().min(1).optional(),
+}) satisfies z.ZodType<ProjectSessionFilesTabConfig>;
+
 export function parseProjectSessionTabConfig(kind: string, config: unknown): ProjectSessionTabConfig {
   if (kind === "db_view") return ProjectSessionDbViewTabConfigSchema.parse(config);
   if (kind === "card_stage") return ProjectSessionCardStageTabConfigSchema.parse(config);
   if (kind === "terminal") return ProjectSessionTerminalTabConfigSchema.parse(config);
   if (kind === "browser") return ProjectSessionBrowserTabConfigSchema.parse(config);
   if (kind === "review") return ProjectSessionProjectScopedTabConfigSchema.parse(config);
-  if (kind === "files_placeholder") return ProjectSessionProjectScopedTabConfigSchema.parse(config);
+  if (kind === "files") return ProjectSessionFilesTabConfigSchema.parse(config);
+  if (kind === "files_placeholder") {
+    const scopedConfig = ProjectSessionProjectScopedTabConfigSchema.parse(config);
+    return {
+      projectId: scopedConfig.projectId,
+      hostId: "local",
+      workspaceRoot: "",
+    };
+  }
   throw new Error(`Unknown project session tab kind: ${kind}`);
 }
 
@@ -171,7 +187,7 @@ export const ProjectSessionTabKindSchema = z.enum([
   "terminal",
   "browser",
   "review",
-  "files_placeholder",
+  "files",
 ]);
 
 export const ProjectSessionTabCreateInputSchema = z.object({

@@ -13,8 +13,10 @@ import type { PanelId, ProjectSessionPanelLayout } from "../../shared/types";
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 34;
+export const CURRENT_SCHEMA_VERSION = 35;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
+  "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
+const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V34 =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files_placeholder'";
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V33 =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files_placeholder', 'side_chat_placeholder'";
@@ -47,11 +49,12 @@ export interface EnsureDatabaseOptions {
 
 export function getSchemaMigrationTargets(currentVersion: number): number[] | null {
   if (currentVersion === CURRENT_SCHEMA_VERSION) return [];
-  if (currentVersion === 26) return [31, 32, 33, 34];
-  if (currentVersion === 30) return [31, 32, 33, 34];
-  if (currentVersion === 31) return [32, 33, 34];
-  if (currentVersion === 32) return [33, 34];
-  if (currentVersion === 33) return [34];
+  if (currentVersion === 26) return [31, 32, 33, 34, 35];
+  if (currentVersion === 30) return [31, 32, 33, 34, 35];
+  if (currentVersion === 31) return [32, 33, 34, 35];
+  if (currentVersion === 32) return [33, 34, 35];
+  if (currentVersion === 33) return [34, 35];
+  if (currentVersion === 34) return [35];
   return null;
 }
 
@@ -749,7 +752,7 @@ function migrateSchema33To34(db: Database.Database): void {
         "order" INTEGER NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        CHECK (kind IN (${PROJECT_SESSION_TAB_KIND_CHECK_VALUES})),
+        CHECK (kind IN (${PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V34})),
         CHECK (panel_id IN (${PROJECT_SESSION_PANEL_ID_CHECK_VALUES}))
       );
     `);
@@ -842,6 +845,89 @@ function migrateSchema33To34(db: Database.Database): void {
   setUserVersion(db, 34);
 }
 
+function normalizeFilesTabConfigJson(projectId: string, configJson: string): string {
+  const config = parseJsonRecord(configJson);
+  return JSON.stringify({
+    projectId,
+    hostId: "local",
+    workspaceRoot: typeof config.workspaceRoot === "string" ? config.workspaceRoot : "",
+    ...(typeof config.path === "string" && config.path.trim() ? { path: config.path } : {}),
+  });
+}
+
+function migrateSchema34To35(db: Database.Database): void {
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.exec(`
+      DROP TABLE IF EXISTS project_session_tabs_next;
+
+      CREATE TABLE project_session_tabs_next (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES project_sessions(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        panel_id TEXT NOT NULL DEFAULT 'right',
+        kind TEXT NOT NULL,
+        title TEXT NOT NULL,
+        config_json TEXT NOT NULL,
+        state_key INTEGER NOT NULL DEFAULT 0,
+        state_json TEXT NOT NULL DEFAULT '{}',
+        "order" INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK (kind IN (${PROJECT_SESSION_TAB_KIND_CHECK_VALUES})),
+        CHECK (panel_id IN (${PROJECT_SESSION_PANEL_ID_CHECK_VALUES}))
+      );
+    `);
+
+    const rows = db.prepare(`
+      SELECT
+        id, session_id, project_id, panel_id, kind, title, config_json, state_key, state_json,
+        "order", created_at, updated_at
+      FROM project_session_tabs
+      ORDER BY session_id ASC, panel_id ASC, "order" ASC, created_at ASC
+    `).all() as ProjectSessionTabMigrationRow[];
+
+    const insert = db.prepare(`
+      INSERT INTO project_session_tabs_next (
+        id, session_id, project_id, panel_id, kind, title, config_json, state_key, state_json,
+        "order", created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const row of rows) {
+      const legacyFiles = row.kind === "files_placeholder";
+      insert.run(
+        row.id,
+        row.session_id,
+        row.project_id,
+        row.panel_id,
+        legacyFiles ? "files" : row.kind,
+        row.title,
+        legacyFiles ? normalizeFilesTabConfigJson(row.project_id, row.config_json) : row.config_json,
+        row.state_key,
+        row.state_json,
+        row.order,
+        row.created_at,
+        row.updated_at,
+      );
+    }
+
+    db.exec(`
+      DROP TABLE project_session_tabs;
+      ALTER TABLE project_session_tabs_next RENAME TO project_session_tabs;
+
+      CREATE INDEX IF NOT EXISTS idx_project_session_tabs_session_order
+        ON project_session_tabs(session_id, panel_id, "order", created_at);
+      CREATE INDEX IF NOT EXISTS idx_project_session_tabs_project
+        ON project_session_tabs(project_id);
+    `);
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+
+  setUserVersion(db, 35);
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -881,6 +967,14 @@ function runMigrations(
       }
       migrateSchema33To34(db);
       fromVersion = 34;
+      continue;
+    }
+    if (target === 35) {
+      if (fromVersion !== 34) {
+        throw new Error(`Unsupported Nodex database migration target 35 from ${fromVersion}`);
+      }
+      migrateSchema34To35(db);
+      fromVersion = 35;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);

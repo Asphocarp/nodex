@@ -20,11 +20,12 @@ function tableColumnNames(db: Database.Database, tableName: string): string[] {
 describe("schema initialization", () => {
   test("exposes only the supported in-app migration target", () => {
     expect(JSON.stringify(getSchemaMigrationTargets(CURRENT_SCHEMA_VERSION))).toBe("[]");
-    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[31,32,33,34]");
-    expect(JSON.stringify(getSchemaMigrationTargets(30))).toBe("[31,32,33,34]");
-    expect(JSON.stringify(getSchemaMigrationTargets(31))).toBe("[32,33,34]");
-    expect(JSON.stringify(getSchemaMigrationTargets(32))).toBe("[33,34]");
-    expect(JSON.stringify(getSchemaMigrationTargets(33))).toBe("[34]");
+    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[31,32,33,34,35]");
+    expect(JSON.stringify(getSchemaMigrationTargets(30))).toBe("[31,32,33,34,35]");
+    expect(JSON.stringify(getSchemaMigrationTargets(31))).toBe("[32,33,34,35]");
+    expect(JSON.stringify(getSchemaMigrationTargets(32))).toBe("[33,34,35]");
+    expect(JSON.stringify(getSchemaMigrationTargets(33))).toBe("[34,35]");
+    expect(JSON.stringify(getSchemaMigrationTargets(34))).toBe("[35]");
     expect(getSchemaMigrationTargets(29) === null).toBeTrue();
     expect(getSchemaMigrationTargets(20) === null).toBeTrue();
   });
@@ -169,6 +170,23 @@ describe("schema initialization", () => {
         durableSideChatKindRejected = true;
       }
       expect(durableSideChatKindRejected).toBeTrue();
+
+      let legacyFilesKindRejected = false;
+      try {
+        db.prepare(`
+          INSERT INTO project_session_tabs (
+            id, session_id, project_id, panel_id, kind, title, config_json,
+            state_key, state_json, "order", created_at, updated_at
+          ) VALUES (
+            'legacy-files', 'overview:default', 'default', 'right', 'files_placeholder', 'Files',
+            '{"projectId":"default"}', 0, '{}', 1,
+            '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+          )
+        `).run();
+      } catch {
+        legacyFilesKindRejected = true;
+      }
+      expect(legacyFilesKindRejected).toBeTrue();
 
       const overviewSession = db.prepare(`
         SELECT id, project_id, title, is_overview, left_pane_collapsed, panel_state_json
@@ -795,6 +813,146 @@ describe("schema initialization", () => {
           state_json: "{}",
         },
       ]));
+
+      const foreignKeyProblems = migrated.prepare("PRAGMA foreign_key_check").all();
+      expect(JSON.stringify(foreignKeyProblems)).toBe("[]");
+      migrated.close();
+    } catch (error) {
+      if (isUnsupportedSqliteError(error)) {
+        initializationRan = false;
+      } else {
+        throw error;
+      }
+    } finally {
+      closeDatabase();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      delete process.env.KANBAN_DIR;
+    }
+
+    if (!initializationRan) {
+      expect(true).toBeTrue();
+    }
+  });
+
+  test("migrates files placeholder tabs into files tabs", async () => {
+    closeDatabase();
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-schema-v34-files-"));
+    process.env.KANBAN_DIR = tempDir;
+
+    let initializationRan = true;
+    try {
+      const dbPath = getDatabasePath();
+      fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+      const db = new Database(dbPath);
+      const panelStateJson = JSON.stringify({
+        right: {
+          collapsed: false,
+          layout: {
+            version: 2,
+            root: { type: "leaf", id: "main", tabIds: ["tab-files"], activeTabId: "tab-files" },
+            activeLeafId: "main",
+            mruLeafIds: ["main"],
+          },
+          size: { widthPx: 600 },
+        },
+        bottom: {
+          collapsed: true,
+          layout: {
+            version: 2,
+            root: { type: "leaf", id: "main", tabIds: [], activeTabId: null },
+            activeLeafId: "main",
+            mruLeafIds: ["main"],
+          },
+          size: { heightPx: 280 },
+        },
+      });
+      db.exec(`
+        CREATE TABLE projects (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          icon TEXT NOT NULL DEFAULT '',
+          workspace_path TEXT,
+          created TEXT NOT NULL
+        );
+        CREATE TABLE project_sessions (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          title TEXT NOT NULL,
+          is_overview INTEGER NOT NULL DEFAULT 0,
+          "order" INTEGER NOT NULL,
+          pinned INTEGER NOT NULL DEFAULT 0,
+          pinned_order INTEGER,
+          archived INTEGER NOT NULL DEFAULT 0,
+          archived_at TEXT,
+          unread INTEGER NOT NULL DEFAULT 0,
+          left_pane_collapsed INTEGER NOT NULL DEFAULT 0,
+          panel_state_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE project_session_tabs (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL REFERENCES project_sessions(id) ON DELETE CASCADE,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          panel_id TEXT NOT NULL DEFAULT 'right',
+          kind TEXT NOT NULL,
+          title TEXT NOT NULL,
+          config_json TEXT NOT NULL,
+          state_key INTEGER NOT NULL DEFAULT 0,
+          state_json TEXT NOT NULL DEFAULT '{}',
+          "order" INTEGER NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          CHECK (kind IN ('db_view', 'card_stage', 'terminal', 'browser', 'review', 'files_placeholder')),
+          CHECK (panel_id IN ('right', 'bottom'))
+        );
+        CREATE TABLE project_session_threads (
+          session_id TEXT PRIMARY KEY REFERENCES project_sessions(id) ON DELETE CASCADE,
+          thread_id TEXT NOT NULL,
+          linked_at TEXT NOT NULL
+        ) WITHOUT ROWID;
+        INSERT INTO projects (id, name, description, icon, workspace_path, created)
+        VALUES ('alpha', 'Alpha', '', '', '/tmp/alpha', '2026-01-01T00:00:00.000Z');
+      `);
+      db.prepare(`
+        INSERT INTO project_sessions (
+          id, project_id, title, is_overview, "order", pinned, pinned_order, archived, archived_at,
+          unread, left_pane_collapsed, panel_state_json, created_at, updated_at
+        ) VALUES (
+          'session-1', 'alpha', 'Session', 0, 0, 0, NULL, 0, NULL,
+          0, 0, ?, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+        )
+      `).run(panelStateJson);
+      db.exec(`
+        INSERT INTO project_session_tabs (
+          id, session_id, project_id, panel_id, kind, title, config_json,
+          state_key, state_json, "order", created_at, updated_at
+        ) VALUES (
+          'tab-files', 'session-1', 'alpha', 'right', 'files_placeholder', 'Files',
+          '{"projectId":"alpha"}', 0, '{}', 0,
+          '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+        );
+        PRAGMA user_version = 34;
+      `);
+      db.close();
+
+      await initializeDatabase();
+
+      const migrated = new Database(dbPath, { readonly: true });
+      const version = migrated.prepare("PRAGMA user_version").get() as
+        | { user_version: number }
+        | undefined;
+      expect(version?.user_version).toBe(CURRENT_SCHEMA_VERSION);
+
+      const tab = migrated.prepare(`
+        SELECT kind, config_json
+        FROM project_session_tabs
+        WHERE id = 'tab-files'
+      `).get() as { kind: string; config_json: string } | undefined;
+      expect(tab?.kind).toBe("files");
+      expect(tab?.config_json).toBe(JSON.stringify({ projectId: "alpha", hostId: "local", workspaceRoot: "" }));
 
       const foreignKeyProblems = migrated.prepare("PRAGMA foreign_key_check").all();
       expect(JSON.stringify(foreignKeyProblems)).toBe("[]");

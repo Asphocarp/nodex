@@ -23,6 +23,14 @@ import { resolveAssetPath } from "./kanban/asset-service";
 import { parseAssetSource } from "../shared/assets";
 import { codexService } from "./codex/codex-service";
 import { openFileLinkTarget } from "./file-link-opener";
+import {
+  listWorkspaceDirectoryEntries,
+  readWorkspaceFile,
+  readWorkspaceFileBinary,
+  readWorkspaceFileMetadata,
+  readWorkspacePathsExist,
+  writeWorkspaceFile,
+} from "./workspace-files-service";
 import { dbNotifier } from "./kanban/db-notifier";
 import type { WorkbenchLayoutSnapshot } from "../shared/workbench-layout";
 import type { IpcApi } from "../shared/ipc-api";
@@ -637,6 +645,38 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerHandle("app:update:install", () => options.onInstallAppUpdate?.() ?? false);
 
   registerHandle("shell:open-file-link", (_, target, openerId) =>
+    openFileLinkTarget(target, openerId)
+  );
+
+  registerHandle("workspace-directory-entries", (_, input) =>
+    listWorkspaceDirectoryEntries(input)
+  );
+
+  registerHandle("remote-workspace-directory-entries", (_, input) =>
+    listWorkspaceDirectoryEntries(input)
+  );
+
+  registerHandle("read-file", (_, input) =>
+    readWorkspaceFile(input)
+  );
+
+  registerHandle("read-file-metadata", (_, input) =>
+    readWorkspaceFileMetadata(input)
+  );
+
+  registerHandle("read-file-binary", (_, input) =>
+    readWorkspaceFileBinary(input)
+  );
+
+  registerHandle("write-file", (_, input) =>
+    writeWorkspaceFile(input)
+  );
+
+  registerHandle("paths-exist", (_, input) =>
+    readWorkspacePathsExist(input)
+  );
+
+  registerHandle("open-file", (_, target, openerId) =>
     openFileLinkTarget(target, openerId)
   );
 
