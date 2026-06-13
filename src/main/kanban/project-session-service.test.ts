@@ -574,6 +574,58 @@ describe("project session service", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("creates a new tab in the requested target leaf", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({ projectId: projectId, title: "Target leaf" });
+      const review = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: projectId,
+        panelId: "right",
+        kind: "review",
+        title: "Review",
+        config: { projectId: projectId },
+      });
+      const shell = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: projectId,
+        panelId: "right",
+        kind: "terminal",
+        title: "Shell",
+        config: { projectId: projectId, terminalSessionId: "term-target-leaf" },
+      });
+      const initial = getProjectSession(session.id);
+      const initialLeafId = initial ? getProjectSessionPanelActiveLeaf(initial.panels.right.layout).id : "main";
+      const split = splitProjectSessionPanelGroup({
+        sessionId: session.id,
+        panelId: "right",
+        leafId: initialLeafId,
+        side: "right",
+        tabId: shell.id,
+      });
+      expect(getProjectSessionPanelActiveLeaf(split!.panels.right.layout).activeTabId).toBe(shell.id);
+
+      const card = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: projectId,
+        panelId: "right",
+        targetLeafId: initialLeafId,
+        kind: "card_stage",
+        title: "Card One",
+        config: { projectId: projectId, cardId: "card-1", titleSnapshot: "Card One" },
+      });
+      const updated = getProjectSession(session.id);
+      const targetLeaf = listProjectSessionPanelLeaves(updated!.panels.right.layout)
+        .find((leaf) => leaf.id === initialLeafId);
+
+      expect(card.kind).toBe("card_stage");
+      expect(JSON.stringify(targetLeaf?.tabIds ?? [])).toBe(JSON.stringify([review.id, card.id]));
+      expect(getProjectSessionPanelActiveLeaf(updated!.panels.right.layout).id).toBe(initialLeafId);
+      expect(getProjectSessionPanelActiveLeaf(updated!.panels.right.layout).activeTabId).toBe(card.id);
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("edge-dropping a tab to the right of its own multi-tab group creates a sibling group", async () => {
     const ran = await withTempDatabase(async () => {
       const session = createProjectSession({ projectId: projectId, title: "Edge split" });

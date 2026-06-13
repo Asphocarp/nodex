@@ -103,6 +103,77 @@ export function getProjectSessionPanelTopRightLeafId(node: ProjectSessionPanelNo
   return getProjectSessionPanelTopRightLeafId(node.direction === "horizontal" ? node.second : node.first);
 }
 
+interface PanelLeafRect {
+  id: string;
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+const RECT_EPSILON = 0.000001;
+
+function collectProjectSessionPanelLeafRects(
+  node: ProjectSessionPanelNode,
+  rect: Omit<PanelLeafRect, "id">,
+): PanelLeafRect[] {
+  if (node.type === "leaf") return [{ ...rect, id: node.id }];
+
+  const ratio = clampRatio(node.ratio);
+  if (node.direction === "horizontal") {
+    const splitX = rect.left + (rect.right - rect.left) * ratio;
+    return [
+      ...collectProjectSessionPanelLeafRects(node.first, { ...rect, right: splitX }),
+      ...collectProjectSessionPanelLeafRects(node.second, { ...rect, left: splitX }),
+    ];
+  }
+
+  const splitY = rect.top + (rect.bottom - rect.top) * ratio;
+  return [
+    ...collectProjectSessionPanelLeafRects(node.first, { ...rect, bottom: splitY }),
+    ...collectProjectSessionPanelLeafRects(node.second, { ...rect, top: splitY }),
+  ];
+}
+
+function rectsVerticallyOverlap(left: PanelLeafRect, right: PanelLeafRect): boolean {
+  return Math.min(left.bottom, right.bottom) - Math.max(left.top, right.top) > RECT_EPSILON;
+}
+
+export function findNearestProjectSessionPanelLeafToRight(
+  layout: ProjectSessionPanelLayout,
+  sourceLeafId: string,
+): string | null {
+  const rects = collectProjectSessionPanelLeafRects(layout.root, {
+    left: 0,
+    top: 0,
+    right: 1,
+    bottom: 1,
+  });
+  const sourceRect = rects.find((rect) => rect.id === sourceLeafId);
+  if (!sourceRect) return null;
+
+  const sourceCenterY = (sourceRect.top + sourceRect.bottom) / 2;
+  const candidates = rects
+    .filter((rect) =>
+      rect.id !== sourceLeafId
+      && rect.left >= sourceRect.right - RECT_EPSILON
+      && rectsVerticallyOverlap(sourceRect, rect)
+    )
+    .map((rect) => ({
+      rect,
+      horizontalDistance: Math.max(0, rect.left - sourceRect.right),
+      verticalDistance: Math.abs(((rect.top + rect.bottom) / 2) - sourceCenterY),
+    }))
+    .sort((left, right) =>
+      left.horizontalDistance - right.horizontalDistance
+      || left.verticalDistance - right.verticalDistance
+      || left.rect.top - right.rect.top
+      || left.rect.left - right.rect.left
+    );
+
+  return candidates[0]?.rect.id ?? null;
+}
+
 export function flattenProjectSessionPanelTabIds(layout: ProjectSessionPanelLayout): string[] {
   return listProjectSessionPanelLeaves(layout).flatMap((leaf) => leaf.tabIds);
 }

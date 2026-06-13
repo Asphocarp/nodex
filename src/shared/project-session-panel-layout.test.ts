@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import type { ProjectSessionPanelLayout } from "./types";
 import {
   flattenProjectSessionPanelTabIds,
+  findNearestProjectSessionPanelLeafToRight,
   getProjectSessionPanelActiveLeaf,
   getProjectSessionPanelTopRightLeafId,
   listProjectSessionPanelLeaves,
@@ -146,6 +148,76 @@ describe("project session panel layout", () => {
 
     expect(getProjectSessionPanelTopRightLeafId(rightSplit.root)).toBe("leaf:right");
     expect(getProjectSessionPanelTopRightLeafId(topSplit.root)).toBe("leaf:top-right");
+  });
+
+  test("resolves the nearest leaf to the right for a direct horizontal split", () => {
+    const split = splitProjectSessionPanelLeaf(makeProjectSessionPanelLayout(["one", "two"], "one"), {
+      leafId: "main",
+      side: "right",
+      tabId: "two",
+      newLeafId: "leaf:right",
+      newBranchId: "branch:root",
+    });
+
+    expect(findNearestProjectSessionPanelLeafToRight(split, "main")).toBe("leaf:right");
+  });
+
+  test("resolves the vertically aligned nearest leaf when multiple right leaves exist", () => {
+    const layout: ProjectSessionPanelLayout = {
+      version: 2,
+      activeLeafId: "leaf:left-top",
+      mruLeafIds: ["leaf:left-top"],
+      maximizedLeafId: null,
+      root: {
+        type: "split",
+        id: "branch:root",
+        direction: "horizontal",
+        ratio: 0.5,
+        first: {
+          type: "split",
+          id: "branch:left",
+          direction: "vertical",
+          ratio: 0.5,
+          first: { type: "leaf", id: "leaf:left-top", tabIds: ["one"], activeTabId: "one" },
+          second: { type: "leaf", id: "leaf:left-bottom", tabIds: ["two"], activeTabId: "two" },
+        },
+        second: {
+          type: "split",
+          id: "branch:right",
+          direction: "vertical",
+          ratio: 0.5,
+          first: { type: "leaf", id: "leaf:right-top", tabIds: ["three"], activeTabId: "three" },
+          second: { type: "leaf", id: "leaf:right-bottom", tabIds: ["four"], activeTabId: "four" },
+        },
+      },
+    };
+
+    expect(findNearestProjectSessionPanelLeafToRight(layout, "leaf:left-top")).toBe("leaf:right-top");
+    expect(findNearestProjectSessionPanelLeafToRight(layout, "leaf:left-bottom")).toBe("leaf:right-bottom");
+  });
+
+  test("does not resolve a right leaf for vertical-only layouts", () => {
+    const split = splitProjectSessionPanelLeaf(makeProjectSessionPanelLayout(["one", "two"], "one"), {
+      leafId: "main",
+      side: "down",
+      tabId: "two",
+      newLeafId: "leaf:bottom",
+      newBranchId: "branch:root",
+    });
+
+    expect(findNearestProjectSessionPanelLeafToRight(split, "main")).toBe(null);
+  });
+
+  test("returns null when the source leaf is already rightmost", () => {
+    const split = splitProjectSessionPanelLeaf(makeProjectSessionPanelLayout(["one", "two"], "one"), {
+      leafId: "main",
+      side: "right",
+      tabId: "two",
+      newLeafId: "leaf:right",
+      newBranchId: "branch:root",
+    });
+
+    expect(findNearestProjectSessionPanelLeafToRight(split, "leaf:right")).toBe(null);
   });
 
   test("merges a non-empty leaf into its nearest visual neighbor", () => {

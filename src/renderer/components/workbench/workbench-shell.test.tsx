@@ -25,7 +25,10 @@ import type {
   WorkbenchNavigationCommandSource,
   WorkbenchNavigationDirection,
 } from "../../../shared/window-navigation";
-import { makeProjectSessionPanelLayout } from "../../../shared/project-session-panel-layout";
+import {
+  makeProjectSessionPanelLayout,
+  splitProjectSessionPanelLeaf,
+} from "../../../shared/project-session-panel-layout";
 
 let invokeCalls: unknown[][] = [];
 let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
@@ -3598,6 +3601,140 @@ describe("workbench session shell", () => {
         sessionId: "overview:alpha",
         projectId: "alpha",
         panelId: "right",
+        kind: "card_stage",
+        title: "Card One",
+        config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
+      }),
+    );
+  });
+
+  test("focusing an existing card tab from the DB tab preserves full-width right panel mode", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [
+          makeSession({
+            tabs: [
+              {
+                id: "overview:alpha:db",
+                sessionId: "overview:alpha",
+                projectId: "alpha",
+                kind: "db_view",
+                title: "DB View",
+                panelId: "right",
+                config: { projectId: "alpha", view: "kanban" },
+              },
+              {
+                id: "card-tab",
+                sessionId: "overview:alpha",
+                projectId: "alpha",
+                kind: "card_stage",
+                title: "Card One",
+                panelId: "right",
+                config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
+              },
+            ],
+            rightLayout: makePanelLayout(["overview:alpha:db", "card-tab"], "overview:alpha:db"),
+          }),
+        ],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
+    expect(typeof props?.openCardStage).toBe("function");
+    await act(async () => {
+      await (props?.openCardStage as (projectId: string, cardId: string, title?: string) => Promise<void> | void)(
+        "alpha",
+        "card-1",
+        "Card One",
+      );
+    });
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
+    expect(invokeCalls.some((call) => {
+      const input = call[3] as { size?: { fullWidth?: boolean } } | undefined;
+      return call[0] === "project-session-panels:update"
+        && call[1] === "overview:alpha"
+        && call[2] === "right"
+        && input?.size?.fullWidth === false;
+    })).toBeFalse();
+    expect(screen.queryByRole("button", { name: "Restore panel width" }) !== null).toBeTrue();
+  });
+
+  test("opens cards from a split DB tab in the nearest right tab group", async () => {
+    const rightLayout = splitProjectSessionPanelLeaf(
+      makePanelLayout(["db-tab", "browser-tab"], "db-tab"),
+      {
+        leafId: "main",
+        side: "right",
+        tabId: "browser-tab",
+        newLeafId: "leaf:browser",
+        newBranchId: "branch:root",
+      },
+    );
+    const panels = makePanels({
+      rightTabIds: ["db-tab", "browser-tab"],
+      rightActiveTabId: "db-tab",
+      rightFullWidth: false,
+    });
+    renderWorkbench({
+      sessionsByProject: {
+        alpha: [
+          makeSession({
+            panels: {
+              ...panels,
+              right: {
+                ...panels.right,
+                layout: rightLayout,
+              },
+            },
+            tabs: [
+              {
+                id: "db-tab",
+                sessionId: "overview:alpha",
+                projectId: "alpha",
+                kind: "db_view",
+                title: "DB View",
+                panelId: "right",
+                config: { projectId: "alpha", view: "kanban" },
+              },
+              {
+                id: "browser-tab",
+                sessionId: "overview:alpha",
+                projectId: "alpha",
+                kind: "browser",
+                title: "Browser",
+                panelId: "right",
+                config: { projectId: "alpha" },
+              },
+            ],
+          }),
+        ],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
+    expect(typeof props?.openCardStage).toBe("function");
+    await act(async () => {
+      await (props?.openCardStage as (projectId: string, cardId: string, title?: string) => Promise<void> | void)(
+        "alpha",
+        "card-1",
+        "Card One",
+      );
+    });
+
+    const createCall = invokeCalls.find((call) => call[0] === "project-session-tabs:create");
+    expect(createCall !== undefined).toBeTrue();
+    expect(JSON.stringify(createCall?.[1])).toBe(
+      JSON.stringify({
+        sessionId: "overview:alpha",
+        projectId: "alpha",
+        panelId: "right",
+        targetLeafId: "leaf:browser",
         kind: "card_stage",
         title: "Card One",
         config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },

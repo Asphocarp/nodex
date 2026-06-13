@@ -698,12 +698,13 @@ function updatePanelStateForTabs(
   panelId: PanelId,
   tabs: ProjectSessionTab[],
   activeTabId: string | null,
-  options: { collapsed?: boolean } = {},
+  options: { collapsed?: boolean; preferredActiveLeafId?: string | null } = {},
 ): Record<PanelId, ProjectSessionPanelState> {
   const panelTabs = tabs.filter((tab) => tab.panelId === panelId);
   const panelTabIds = panelTabs.map((tab) => tab.id);
   const currentLayout = session.panels[panelId].layout;
   const layout = normalizeProjectSessionPanelLayout(currentLayout, panelTabIds, {
+    preferredActiveLeafId: options.preferredActiveLeafId,
     preferredActiveTabId: activeTabId,
   });
 
@@ -858,7 +859,10 @@ export function createProjectSessionTab(input: ProjectSessionTabCreateInput): Pr
       now,
     );
     const tabs = getTabsForSession(parsed.sessionId);
-    const panels = updatePanelStateForTabs(session, parsed.panelId, tabs, id, { collapsed: false });
+    const panels = updatePanelStateForTabs(session, parsed.panelId, tabs, id, {
+      collapsed: false,
+      preferredActiveLeafId: parsed.targetLeafId,
+    });
     persistPanelStatesAndOrders(parsed.sessionId, panels, [parsed.panelId]);
   })();
 

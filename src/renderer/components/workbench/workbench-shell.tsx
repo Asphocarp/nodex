@@ -128,6 +128,7 @@ import {
   type ThreadSummaryPanelLayoutMode,
 } from "@/lib/codex-panel-motion";
 import {
+  findNearestProjectSessionPanelLeafToRight,
   findProjectSessionPanelLeaf,
   findProjectSessionPanelLeafForTab,
   getProjectSessionPanelActiveLeaf,
@@ -572,6 +573,17 @@ interface WorkbenchShellProps {
   onRequestNewWindow?: unknown;
 }
 
+interface OpenCardTabOptions {
+  sourceTabId?: string;
+}
+
+type OpenCardTabHandler = (
+  projectId: string,
+  cardId: string,
+  titleSnapshot?: string,
+  options?: OpenCardTabOptions,
+) => Promise<void>;
+
 export function resolveCardStageSessionTabOrder(
   tabs: readonly { id: string; kind?: string; sessionId?: string; isLabel?: boolean }[],
   activeId: string,
@@ -960,6 +972,15 @@ function resolveSessionPanelActiveLeafId(session: ProjectSession, panelId: Panel
 function resolveLeafIdForPanelTab(session: ProjectSession, panelId: PanelId, tabId: string): string {
   return findProjectSessionPanelLeafForTab(session.panels[panelId].layout, tabId)?.id
     ?? resolveSessionPanelActiveLeafId(session, panelId);
+}
+
+function resolveCardTabTargetLeafId(session: ProjectSession, sourceTabId: string | undefined): string | undefined {
+  if (!sourceTabId) return undefined;
+  const sourceTab = session.tabs.find((tab) => tab.id === sourceTabId && tab.panelId === "right");
+  if (!sourceTab) return undefined;
+  const sourceLeafId = findProjectSessionPanelLeafForTab(session.panels.right.layout, sourceTab.id)?.id;
+  if (!sourceLeafId) return undefined;
+  return findNearestProjectSessionPanelLeafToRight(session.panels.right.layout, sourceLeafId) ?? undefined;
 }
 
 function buildShellNavigationSnapshot(input: {
@@ -2711,7 +2732,7 @@ export function WorkbenchShell({
     await refreshProjectSessions(activeSession.projectId);
   }, [activeSession, ensureActivePanelOpenWithoutRefresh, projects, refreshProjectSessions, setActivePanelTab]);
 
-  const openCardTab = useCallback(async (projectId: string, cardId: string, titleSnapshot?: string) => {
+  const openCardTab = useCallback<OpenCardTabHandler>(async (projectId, cardId, titleSnapshot, options) => {
     if (!activeSession) {
       openCardStage(projectId, cardId, titleSnapshot);
       return;
@@ -2725,18 +2746,17 @@ export function WorkbenchShell({
       && tab.config.projectId === projectId,
     );
     if (existing) {
-      await updateActivePanel("right", {
-        collapsed: false,
-        size: { ...activeSession.panels.right.size, fullWidth: false },
-      });
+      await updateActivePanel("right", { collapsed: false });
       await setActivePanelTab("right", existing.id, { openPanel: true });
       return;
     }
 
+    const targetLeafId = resolveCardTabTargetLeafId(activeSession, options?.sourceTabId);
     await invoke("project-session-tabs:create", {
       sessionId: activeSession.id,
       projectId: activeSession.projectId,
       panelId: "right",
+      ...(targetLeafId ? { targetLeafId } : {}),
       kind: "card_stage",
       title: titleSnapshot || cardId,
       config: { projectId, cardId, titleSnapshot },
@@ -5299,7 +5319,7 @@ function SideChatSessionTab({
   tab: SideChatPanelTab;
   activeSession: ProjectSession;
   projects: Project[];
-  onOpenCardTab: (projectId: string, cardId: string, titleSnapshot?: string) => Promise<void>;
+  onOpenCardTab: OpenCardTabHandler;
   onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
   onRecreateSideChat: () => void;
   onOpenMcpAppSidePanel: ThreadStageActions["onOpenMcpAppSidePanel"];
@@ -5495,7 +5515,7 @@ function ProjectSessionTabPanel({
     occurrenceStart: string;
   }) => void;
   onLeaveCardStageCard: (snapshot: CardStageSessionSnapshot) => void;
-  onOpenCardTab: (projectId: string, cardId: string, titleSnapshot?: string) => Promise<void>;
+  onOpenCardTab: OpenCardTabHandler;
   onOpenFileTab: (input: { path: string; title: string; panelId: PanelId }) => Promise<void>;
   onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
   onCloseTab: (tabId: string) => Promise<void>;
@@ -5650,7 +5670,7 @@ function DbViewSessionTab({
     cardId: string;
     occurrenceStart: string;
   }) => void;
-  onOpenCardTab: (projectId: string, cardId: string, titleSnapshot?: string) => Promise<void>;
+  onOpenCardTab: OpenCardTabHandler;
   onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
 }) {
   const config = "view" in tab.config ? tab.config : { projectId: tab.projectId, view: activeView };
@@ -5814,7 +5834,7 @@ function DbViewSessionTab({
           onCalendarAnchorDateChange={handleCalendarAnchorDateChange}
           onReminderHandled={onReminderHandled}
           openCardStage={(projectId, cardId, titleSnapshot) => {
-            void onOpenCardTab(projectId, cardId, titleSnapshot);
+            void onOpenCardTab(projectId, cardId, titleSnapshot, { sourceTabId: tab.id });
           }}
         />
       </div>
