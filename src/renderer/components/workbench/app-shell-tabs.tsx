@@ -30,6 +30,9 @@ const APP_SHELL_SPLIT_ACTIONS: { side: AppShellTabSplitSide; label: string }[] =
   { side: "up", label: "up" },
   { side: "down", label: "down" },
 ];
+const APP_SHELL_TAB_ROW_WHEEL_LINE_HEIGHT_PX = 16;
+const APP_SHELL_TAB_ROW_WHEEL_DELTA_LINE = 1;
+const APP_SHELL_TAB_ROW_WHEEL_DELTA_PAGE = 2;
 
 export interface AppShellTabItem {
   id: string;
@@ -168,6 +171,20 @@ export function AppShellTabs({
       }),
     });
   }, [dndLeafId, dndPanelId, dndSessionId]);
+
+  useEffect(() => {
+    const element = tabRowRef.current;
+    if (!element) return undefined;
+
+    const handleWheel = (event: WheelEvent) => {
+      handleAppShellTabRowWheel(element, event);
+    };
+
+    element.addEventListener("wheel", handleWheel, { passive: false });
+    return () => {
+      element.removeEventListener("wheel", handleWheel);
+    };
+  }, []);
 
   useEffect(() => {
     if (!dndSessionId || !dndPanelId || !dndLeafId) return undefined;
@@ -316,6 +333,50 @@ export function AppShellTabs({
         ))}
     </div>
   );
+}
+
+function handleAppShellTabRowWheel(element: HTMLElement, event: WheelEvent) {
+  if (event.ctrlKey || event.metaKey) return;
+
+  const maxScrollLeft = element.scrollWidth - element.clientWidth;
+  if (maxScrollLeft <= 0) return;
+
+  const deltaPx = normalizeAppShellTabRowWheelDeltaPx(event, element.clientWidth);
+  if (deltaPx === 0) return;
+
+  const currentScrollLeft = element.scrollLeft;
+  const nextScrollLeft = Math.min(maxScrollLeft, Math.max(0, currentScrollLeft + deltaPx));
+  if (nextScrollLeft === currentScrollLeft) return;
+
+  event.stopPropagation();
+  if (event.cancelable) event.preventDefault();
+  element.scrollLeft = nextScrollLeft;
+}
+
+function normalizeAppShellTabRowWheelDeltaPx(
+  event: Pick<WheelEvent, "deltaMode" | "deltaX" | "deltaY">,
+  pageWidthPx: number,
+): number {
+  const rawDelta = getDominantAppShellTabRowWheelDelta(event);
+  if (rawDelta === 0) return 0;
+
+  if (event.deltaMode === APP_SHELL_TAB_ROW_WHEEL_DELTA_LINE) {
+    return rawDelta * APP_SHELL_TAB_ROW_WHEEL_LINE_HEIGHT_PX;
+  }
+  if (event.deltaMode === APP_SHELL_TAB_ROW_WHEEL_DELTA_PAGE && pageWidthPx > 0) {
+    return rawDelta * pageWidthPx;
+  }
+  return rawDelta;
+}
+
+function getDominantAppShellTabRowWheelDelta({
+  deltaX,
+  deltaY,
+}: Pick<WheelEvent, "deltaX" | "deltaY">): number {
+  if (deltaX === 0) return deltaY;
+  if (deltaY === 0) return deltaX;
+
+  return Math.abs(deltaX) >= Math.abs(deltaY) ? deltaX : deltaY;
 }
 
 function AppShellTab({

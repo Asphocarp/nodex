@@ -219,6 +219,30 @@ describe("AppShellTabs", () => {
     expect(selected.join(",")).toBe("two");
   });
 
+  test("scrolls the tab row horizontally from wheel input", async () => {
+    const view = renderAppShellTabs({});
+    await settleAsyncRender();
+    const tabRow = getTabRowElement(view.getByRole("tablist"));
+    makeScrollable(tabRow, { clientWidth: 200, scrollWidth: 600 });
+
+    const verticalWheel = dispatchWheel(tabRow, { deltaY: 120 });
+    expect(tabRow.scrollLeft).toBe(120);
+    expect(verticalWheel.defaultPrevented).toBeTrue();
+
+    const horizontalWheel = dispatchWheel(tabRow, { deltaX: -40 });
+    expect(tabRow.scrollLeft).toBe(80);
+    expect(horizontalWheel.defaultPrevented).toBeTrue();
+
+    const lineWheel = dispatchWheel(tabRow, { deltaY: 2, deltaMode: 1 });
+    expect(tabRow.scrollLeft).toBe(112);
+    expect(lineWheel.defaultPrevented).toBeTrue();
+
+    tabRow.scrollLeft = 0;
+    const edgeWheel = dispatchWheel(tabRow, { deltaY: -20 });
+    expect(tabRow.scrollLeft).toBe(0);
+    expect(edgeWheel.defaultPrevented).toBeFalse();
+  });
+
   test("context menu close is available only for closable tabs", async () => {
     const closed: string[] = [];
     const view = renderAppShellTabs({
@@ -405,3 +429,58 @@ describe("AppShellTabs", () => {
     })).toBeFalse();
   });
 });
+
+function getTabRowElement(tablist: HTMLElement): HTMLElement {
+  const tabRow = tablist.parentElement;
+  if (!(tabRow instanceof HTMLElement)) throw new Error("Expected tab row element");
+  return tabRow;
+}
+
+function makeScrollable(
+  element: HTMLElement,
+  {
+    clientWidth,
+    scrollWidth,
+  }: {
+    clientWidth: number;
+    scrollWidth: number;
+  },
+) {
+  Object.defineProperty(element, "clientWidth", {
+    configurable: true,
+    value: clientWidth,
+  });
+  Object.defineProperty(element, "scrollWidth", {
+    configurable: true,
+    value: scrollWidth,
+  });
+  element.scrollLeft = 0;
+}
+
+function dispatchWheel(
+  target: HTMLElement,
+  {
+    deltaX = 0,
+    deltaY = 0,
+    deltaMode = 0,
+    ctrlKey = false,
+    metaKey = false,
+  }: {
+    deltaX?: number;
+    deltaY?: number;
+    deltaMode?: number;
+    ctrlKey?: boolean;
+    metaKey?: boolean;
+  },
+): Event {
+  const event = new Event("wheel", { bubbles: true, cancelable: true });
+  Object.defineProperties(event, {
+    ctrlKey: { value: ctrlKey },
+    deltaMode: { value: deltaMode },
+    deltaX: { value: deltaX },
+    deltaY: { value: deltaY },
+    metaKey: { value: metaKey },
+  });
+  target.dispatchEvent(event);
+  return event;
+}
