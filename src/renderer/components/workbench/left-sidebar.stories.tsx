@@ -315,11 +315,13 @@ function CodexProjectsHarness({
   activeProjectId = "nodex",
   openActionsFor,
   projects = SIDEBAR_PARITY_PROJECTS,
+  revealProjectDisclosureChevrons = false,
 }: {
   expanded?: boolean;
   activeProjectId?: string;
   openActionsFor?: string;
   projects?: Project[];
+  revealProjectDisclosureChevrons?: boolean;
 }) {
   useEffect(() => {
     if (!openActionsFor) return;
@@ -336,7 +338,16 @@ function CodexProjectsHarness({
 
   return (
     <NodexTooltipProvider>
-      <div data-codex-window-type="electron" className="min-h-screen bg-token-bg-primary p-8">
+      <div
+        data-codex-window-type="electron"
+        data-story-project-chevron-reveal={revealProjectDisclosureChevrons ? "" : undefined}
+        className="min-h-screen bg-token-bg-primary p-8"
+      >
+        {revealProjectDisclosureChevrons ? (
+          <style>
+            {"[data-story-project-chevron-reveal] [data-app-action-sidebar-project-toggle-chevron] svg { opacity: 1; }"}
+          </style>
+        ) : null}
         <div className="app-shell-left-panel w-[300px] overflow-visible py-4">
           <SidebarProjectsSection
             projects={projects}
@@ -524,6 +535,10 @@ export const NewChatControls: Story = {
 
 export const CodexProjectsExpanded: Story = {
   render: () => <CodexProjectsHarness expanded activeProjectId="nodex" />,
+};
+
+export const CodexProjectDisclosureChevronsRevealed: Story = {
+  render: () => <CodexProjectsHarness expanded activeProjectId="nodex" revealProjectDisclosureChevrons />,
 };
 
 export const CodexProjectsCollapsed: Story = {

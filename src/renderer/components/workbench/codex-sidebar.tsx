@@ -46,6 +46,7 @@ type SidebarRowActionEvent =
   | KeyboardEvent<HTMLElement>;
 
 export const CODEX_SIDEBAR_PROJECT_ROW_CLASS = "text-token-foreground group/folder-row flex h-token-nav-row items-center justify-between overflow-x-hidden rounded-lg text-sm hover:bg-token-list-hover-background focus-visible:outline focus-visible:outline-offset-2 electron:opacity-75";
+export const CODEX_SIDEBAR_DISCLOSURE_CHEVRON_CLASS = "icon-2xs shrink-0 opacity-0 transition-transform";
 export const CODEX_SIDEBAR_SECTION_ACTIONS_CLASS = "flex items-center gap-1 pointer-events-none opacity-0 group-focus-within/projects-section-header:pointer-events-auto group-focus-within/projects-section-header:opacity-100 group-hover/projects-section-header:pointer-events-auto group-hover/projects-section-header:opacity-100 has-[[data-state=open]]:pointer-events-auto has-[[data-state=open]]:opacity-100";
 export const CODEX_SIDEBAR_SECTION_ACTION_BUTTON_CLASS = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-foreground enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5 h-6 w-6 rounded-md !p-1 text-token-foreground opacity-75 hover:opacity-100";
 export const CODEX_SIDEBAR_PROJECT_ACTIONS_BUTTON_CLASS = SIDEBAR_PROJECT_NEW_CHAT_BUTTON_CLASS;
@@ -152,7 +153,8 @@ export function CodexSidebarSection({
                   <span className="min-w-0 truncate">{heading}</span>
                   <ChevronDownIcon
                     className={cn(
-                      "icon-2xs shrink-0 opacity-0 transition-transform group-hover/section-toggle:opacity-100 group-focus-visible/section-toggle:opacity-100",
+                      CODEX_SIDEBAR_DISCLOSURE_CHEVRON_CLASS,
+                      "group-hover/section-toggle:opacity-100 group-focus-visible/section-toggle:opacity-100",
                       collapsed && "-rotate-90",
                     )}
                   />
@@ -496,7 +498,18 @@ export function CodexProjectRow({
           <div className="flex min-w-0 flex-1 items-center gap-2 whitespace-nowrap rounded-md py-1 pr-0 text-left text-base text-token-foreground">
             <span className="flex min-w-0 flex-1 items-center gap-2 whitespace-nowrap">
               <span className="flex min-w-0 flex-1 items-center gap-1.5 whitespace-nowrap">
-                <span className="min-w-0 truncate pr-1">{project.name}</span>
+                <span className="min-w-0 truncate" data-app-action-sidebar-project-label-text="">
+                  {project.name}
+                </span>
+                <span aria-hidden="true" data-app-action-sidebar-project-toggle-chevron="">
+                  <ChevronDownIcon
+                    className={cn(
+                      CODEX_SIDEBAR_DISCLOSURE_CHEVRON_CLASS,
+                      "group-hover/folder-row:opacity-100 group-focus-visible/folder-row:opacity-100",
+                      !expanded && "-rotate-90",
+                    )}
+                  />
+                </span>
               </span>
             </span>
           </div>

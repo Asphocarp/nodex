@@ -246,6 +246,46 @@ describe("SidebarProjectsSection", () => {
     expect(getByText("Alpha session").textContent).toBe("Alpha session");
   });
 
+  test("renders a hover-revealed project disclosure chevron after the project label", () => {
+    const { container, rerender } = renderProjectRowWithSessions();
+
+    const expandedRow = container.querySelector("[data-app-action-sidebar-project-row]");
+    const expandedLabel = expandedRow?.querySelector("[data-app-action-sidebar-project-label-text]");
+    const expandedChevron = expandedRow?.querySelector("[data-app-action-sidebar-project-toggle-chevron]");
+    const expandedChevronIcon = expandedChevron?.querySelector("svg");
+    const expandedChevronClassName = expandedChevronIcon?.getAttribute("class") ?? "";
+
+    if (!expandedLabel || !expandedChevron) {
+      throw new Error("Expected project label and disclosure chevron");
+    }
+
+    expect(Boolean(expandedLabel.compareDocumentPosition(expandedChevron) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
+    expect(expandedChevronClassName.includes("opacity-0")).toBeTrue();
+    expect(expandedChevronClassName.includes("group-hover/folder-row:opacity-100")).toBeTrue();
+    expect(expandedChevronClassName.includes("group-focus-visible/folder-row:opacity-100")).toBeTrue();
+    expect(expandedChevronClassName.includes("-rotate-90")).toBeFalse();
+
+    rerender(
+      <NodexTooltipProvider>
+        <CodexProjectRow
+          project={PROJECTS[0] as Project}
+          active
+          expanded={false}
+          onActivate={() => undefined}
+          onUpdateProject={async () => null}
+          onDeleteProject={async () => false}
+        >
+          <CodexProjectSessionList project={PROJECTS[0] as Project}>
+            <div role="listitem">Alpha session</div>
+          </CodexProjectSessionList>
+        </CodexProjectRow>
+      </NodexTooltipProvider>,
+    );
+
+    const collapsedChevronIcon = container.querySelector("[data-app-action-sidebar-project-toggle-chevron] svg");
+    expect(collapsedChevronIcon?.getAttribute("class")?.includes("-rotate-90")).toBeTrue();
+  });
+
   test("unmounts project session children when collapsed", () => {
     const { container, queryByText } = renderProjectRowWithSessions({ expanded: false });
 
