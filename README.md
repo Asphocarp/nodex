@@ -1,48 +1,60 @@
 # Nodex
 
-Block-based Agent Orchestrator.
+![Nodex preview](packages/landing/public/og.png)
 
-## System Requirements
+**Local-first orchestration for coding agents.** Nodex gives your agent work a real workspace: tasks, threads, terminals, files, diffs, and history stay together instead of scattering across chat tabs and terminal windows.
 
-- Desktop app: macOS 12 Monterey or later
-- CPU: Apple silicon and Intel Macs are supported
+[Download for macOS](https://github.com/junyudev/nodex/releases/latest/download/Nodex-latest-arm64.dmg) · [Intel Mac download](https://github.com/junyudev/nodex/releases/latest/download/Nodex-latest-x64.dmg) · [Product page](https://nodex.jyu.app) · [Changelog](https://nodex.jyu.app/changelog/)
 
-Release packaging currently runs on macOS 26 CI runners because the Icon Composer build path requires Xcode 26 `actool`, but that is a build-time requirement, not a user runtime requirement.
+## Why Nodex
 
-## Features
+Coding agents are powerful, but the surrounding workflow can get messy fast. One task turns into a chat, a terminal, a diff, a browser tab, a note, and a half-remembered branch name.
 
-[TODO]
+Nodex is built for that moment. It turns agent work into a visible operating surface where every project has its own board, every session has context, and every change can be reviewed where the conversation happened.
 
-## Getting Started
+## What You Can Do
 
-[TODO]
+- **Coordinate work on a live board.** Track ideas, bugs, experiments, and implementation tasks across project-specific views.
+- **Keep the agent close to the task.** Start Codex sessions from cards or project chats, then keep the thread attached to the work it belongs to.
+- **Review changes in context.** Open diffs next to the conversation that produced them, with files and terminals available in the same workspace.
+- **Work safely in local projects or new worktrees.** Keep exploratory agent runs isolated without losing the thread, task, or review trail.
+- **Capture richer task context.** Write card notes with blocks, attachments, images, toggles, and runnable thread sections.
+- **Resume without losing context.** Reopen windows, sessions, panels, and project state so long-running work stays organized.
 
-## Landing Site
+## Who It Is For
 
-The public landing site lives in [`packages/landing`](packages/landing/) and is intended to publish to [nodex.jyu.app](https://nodex.jyu.app).
+Nodex is for builders who use coding agents as part of real development work:
 
-Local commands:
+- solo developers running several agent tasks at once
+- founders turning product ideas into working software
+- engineers who want a local, inspectable command center for agent-assisted changes
+- anyone who wants agent output tied back to tasks, branches, files, and review
 
-```bash
-bun run dev:landing
-bun run build:landing
-bun run preview:landing
-```
+## The Shape of the App
 
-Operational details for GitHub Pages publishing live in [`docs/landing-site.md`](docs/landing-site.md).
+Think of Nodex as a local desktop workbench:
 
-## Local GitHub Actions Debugging
+- a project board for deciding what should happen next
+- a session space for talking to agents
+- a card editor for durable product and implementation notes
+- side panels for files, browser previews, terminals, and reviews
+- local history and backups so the workspace remains yours
 
-To reproduce the Ubuntu `prepare` job from `Prepare Release` locally with [`act`](https://github.com/nektos/act):
+It is intentionally local-first. The core task state lives on your machine, and the app is designed around project folders you already own.
 
-```bash
-brew install act
-bun run release:prepare:act:list
-bun run release:prepare:act -- --release-type patch
-```
+## Try Nodex
 
-Notes:
-- The local harness only runs the `prepare` job from `.github/workflows/prepare-release.yml`.
-- Local `act` runs stop after validation (`bun install`, `typecheck`, `lint`, `test`) and skip the version bump, changelog rewrite, commit, tag, push, and downstream `publish` job.
-- Copy `.github/act/prepare-release.secrets.example` to `.github/act/prepare-release.secrets.local` only if you need to provide explicit secrets; otherwise the wrapper tries to use `gh auth token` automatically.
-- `act` does not emulate the macOS release jobs, notarization, or GitHub environment-scoped secret behavior. Use it to debug the Ubuntu validation path first.
+Nodex is in beta for macOS 12 and later, with builds for Apple silicon and Intel Macs.
+
+Start with the [public product page](https://nodex.jyu.app), or download the latest build directly:
+
+- [Apple silicon Mac](https://github.com/junyudev/nodex/releases/latest/download/Nodex-latest-arm64.dmg)
+- [Intel Mac](https://github.com/junyudev/nodex/releases/latest/download/Nodex-latest-x64.dmg)
+
+## Project Notes
+
+Contributor setup, build, release, and deployment details are kept outside this pitch page:
+
+- [Developer guide](docs/development.md)
+- [macOS release notes](docs/release-macos.md)
+- [Landing site operations](docs/landing-site.md)
