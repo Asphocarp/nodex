@@ -570,3 +570,6 @@ Also restore browser constructors like `Node`, `Element`, `HTMLElement`, `HTMLDi
 
 - Codex session JSONL replay can emit compaction as a standalone `type: "compacted"` line followed by `event_msg.type === "context_compacted"` and a fresh `turn_context`.
 - Replay/bootstrap materialization must treat that as a transcript `contextCompaction` row and must also advance `currentTurnId` from `turn_context`, otherwise post-compaction items get attached to the wrong turn on reopen.
+
+### Live elapsed counters should not key timers by payload object identity
+Streaming thread surfaces can rerender more often than their elapsed-label tick cadence. For live labels such as `Working for 1m 5s`, keep interval effects keyed by stable activation state or delay, and use `useEffectEvent` for the tick callback so new-but-equal timing objects do not repeatedly clear and restart the timer.

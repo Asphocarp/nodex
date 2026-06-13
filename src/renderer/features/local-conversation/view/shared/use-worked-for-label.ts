@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 import {
   resolveWorkedForLabelText,
   type ThreadWorkedForTiming,
@@ -14,18 +14,23 @@ export function useWorkedForLabelText({
   fallbackTimeLabel?: string | null;
 }): string | null {
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const isWorking = timing?.status === "working" && timing.completedAtMs === null;
+  const tick = useEffectEvent(() => {
+    setNowMs(Date.now());
+  });
 
   useEffect(() => {
-    if (timing?.status !== "working" || timing.completedAtMs !== null) return undefined;
+    if (!isWorking) return undefined;
 
+    tick();
     const intervalId = window.setInterval(() => {
-      setNowMs(Date.now());
+      tick();
     }, 1000);
 
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [timing]);
+  }, [isWorking]);
 
   return resolveWorkedForLabelText({
     timing,

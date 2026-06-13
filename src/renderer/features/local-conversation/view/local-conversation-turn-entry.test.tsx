@@ -417,9 +417,9 @@ describe("LocalConversationTurnEntry", () => {
 
     const workedForButton = view.getByRole("button", { name: /Worked for 2m 5s/ });
     expect(workedForButton.getAttribute("aria-expanded")).toBe("false");
-    expect(Boolean(workedForButton.className.includes("w-full"))).toBeTrue();
-    expect(Boolean(workedForButton.className.includes("justify-start"))).toBeTrue();
-    expect(Boolean(workedForButton.className.includes("hover:bg-token-bg-subtle"))).toBeFalse();
+    expect(Boolean(workedForButton.className.includes("w-full"))).toBeFalse();
+    expect(Boolean(workedForButton.className.includes("justify-start"))).toBeFalse();
+    expect(Boolean(workedForButton.className.includes("hover:bg-token-bg-subtle"))).toBeTrue();
 
     const workedForTextOuter = workedForButton.firstElementChild;
     const workedForTextInner = workedForTextOuter?.firstElementChild;

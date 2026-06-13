@@ -62,7 +62,7 @@ function AgentBodyToggleRow({
       <div className="text-size-chat text-token-text-secondary">
         <button
           type="button"
-          className="text-size-chat inline-flex w-full items-center justify-start gap-1 rounded-md border border-transparent focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:outline-none"
+          className="text-size-chat hover:bg-token-bg-subtle inline-flex items-center gap-1 rounded-md border border-transparent focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:outline-none"
           aria-expanded={!collapsed}
           onClick={onToggle}
         >
