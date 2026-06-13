@@ -129,7 +129,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       return data.projects;
     }
     case "projects:create": {
-      const [input] = args as [{ id: string; name: string; description?: string; icon?: string }];
+      const [input] = args as [{ name?: string; description?: string; icon?: string; sources?: string[] }];
       const res = await fetch(toApiUrl("/api/projects"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -145,16 +145,15 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       const data = await res.json();
       return data.success ?? false;
     }
-    case "projects:rename": {
-      const [oldId, newId, updates] = args as [
+    case "projects:update": {
+      const [projectId, updates] = args as [
         string,
-        string,
-        { name?: string; description?: string; icon?: string }?,
+        { name?: string; description?: string; icon?: string; sources?: string[] },
       ];
-      const res = await fetch(toApiUrl(`/api/projects/${oldId}`), {
+      const res = await fetch(toApiUrl(`/api/projects/${projectId}`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ newId, ...updates }),
+        body: JSON.stringify(updates),
       });
       return res.json();
     }

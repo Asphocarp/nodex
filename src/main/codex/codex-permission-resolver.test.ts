@@ -71,7 +71,7 @@ function resolveState(input: {
     origins: {},
     requirements: input.requirements ?? null,
     defaultUserConfigPath: "/Users/test/.codex/config.toml",
-    workspacePath: "/Users/test/project",
+    workspaceRoots: ["/Users/test/project"],
   });
 }
 

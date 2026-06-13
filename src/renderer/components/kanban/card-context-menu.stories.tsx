@@ -7,13 +7,13 @@ const PROJECTS = [
     id: "project-a",
     name: "Alpha workspace",
     icon: "A",
-    workspacePath: "/Users/asc/repo/nodex",
+    primaryWorkspaceRoot: "/Users/asc/repo/nodex",
   },
   {
     id: "project-b",
     name: "Beta workspace",
     icon: "B",
-    workspacePath: "/Users/asc/repo/devtools-codex",
+    primaryWorkspaceRoot: "/Users/asc/repo/devtools-codex",
   },
   {
     id: "project-c",

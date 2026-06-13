@@ -10,6 +10,7 @@ import {
 } from "../../shared/schemas/codex";
 import { parseJsonStringWithSchema } from "../../shared/schemas/storage";
 import { getDb } from "../kanban/db-service";
+import { requireProjectId } from "../kanban/project-service";
 
 interface DbCodexThread {
   project_id: string | null;
@@ -81,6 +82,7 @@ function rowToSummary(row: DbCodexThread): CodexThreadSummary {
 
 export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSummary {
   const database = getDb();
+  const projectId = input.projectId ? requireProjectId(input.projectId) : null;
   const nowMs = Date.now();
   const createdAt = Number.isFinite(input.createdAt) ? Number(input.createdAt) : nowMs;
   const updatedAt = Number.isFinite(input.updatedAt) ? Number(input.updatedAt) : nowMs;
@@ -118,7 +120,7 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
       updated_at = excluded.updated_at,
       linked_at = COALESCE(codex_threads.linked_at, excluded.linked_at)
   `).run(
-    input.projectId ?? null,
+    projectId,
     input.cardId ?? null,
     input.threadId,
     input.threadName ?? null,
@@ -142,7 +144,8 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
 }
 
 export function linkCodexThreadToCard(input: LinkCodexThreadToCardInput): CodexThreadSummary {
-  const summary = upsertCodexThread(input);
+  const projectId = requireProjectId(input.projectId);
+  const summary = upsertCodexThread({ ...input, projectId });
   const linkedAt = input.linkedAt || summary.linkedAt || new Date().toISOString();
   getDb().prepare(`
     INSERT INTO codex_thread_card_links (thread_id, project_id, card_id, linked_at)
@@ -151,7 +154,7 @@ export function linkCodexThreadToCard(input: LinkCodexThreadToCardInput): CodexT
       project_id = excluded.project_id,
       card_id = excluded.card_id,
       linked_at = excluded.linked_at
-  `).run(input.threadId, input.projectId, input.cardId, linkedAt);
+  `).run(input.threadId, projectId, input.cardId, linkedAt);
   return getCodexThread(input.threadId) ?? summary;
 }
 
@@ -166,6 +169,7 @@ export function listCodexProjectThreads(
   projectId: string,
   opts?: { cardId?: string; includeArchived?: boolean },
 ): CodexThreadSummary[] {
+  projectId = requireProjectId(projectId);
   const includeArchived = opts?.includeArchived === true;
   const byCard = opts?.cardId;
 

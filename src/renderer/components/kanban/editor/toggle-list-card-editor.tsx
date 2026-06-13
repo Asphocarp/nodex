@@ -257,7 +257,7 @@ export function ToggleListCardEditor({
     [cards, hiddenProperties, projectId, propertyOrder, showEmptyEstimate, showEmptyPriority],
   );
   const projectWorkspacePath = useMemo(
-    () => projects.find((project) => project.id === projectId)?.workspacePath ?? null,
+    () => projects.find((project) => project.id === projectId)?.primaryWorkspaceRoot ?? null,
     [projectId, projects],
   );
 

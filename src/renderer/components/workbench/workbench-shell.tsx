@@ -20,7 +20,6 @@ import {
   CalendarDays,
   Globe2,
   PenLine,
-  Plus,
   SquareKanban,
   Table2,
 } from "lucide-react";
@@ -49,8 +48,8 @@ import {
 } from "@/features/workspace-files";
 import { SettingsRouteShell } from "./workbench-settings-overlay";
 import { buildSettingsPath } from "./workbench-settings-routes";
-import { ProjectManagerPopover } from "./left-sidebar-project-manager";
 import { LeftSidebarFooter } from "./left-sidebar-footer";
+import { SidebarProjectAddMenu } from "./sidebar-project-add-menu";
 import {
   NodexDropdownFlyoutSubmenuItem,
   NodexDropdownItem,
@@ -164,6 +163,8 @@ import type {
   CodexPromptInput,
   PanelId,
   Project,
+  ProjectCreateInput,
+  ProjectUpdateInput,
   ProjectSession,
   ProjectSessionDbView,
   ProjectSessionForkResult,
@@ -244,7 +245,6 @@ import { useCodexAccountActions } from "@/lib/use-codex-account-actions";
 import {
   CodexProjectRow,
   CodexProjectSessionList,
-  CodexSidebarActionButton,
   CodexSidebarSection,
   CodexSidebarTopAction,
   CodexThreadRow,
@@ -515,20 +515,8 @@ interface WorkbenchShellProps {
   }) => void;
   onOpenProjectSessionInNewWindow?: (session: ProjectSession) => Promise<void>;
   onLeaveCardStageCard: (snapshot: CardStageSessionSnapshot) => void;
-  onCreateProject: (
-    id: string,
-    name: string,
-    description?: string,
-    icon?: string,
-    workspacePath?: string | null,
-  ) => Promise<Project | null>;
-  onRenameProject: (
-    oldId: string,
-    newId: string,
-    name?: string,
-    icon?: string,
-    workspacePath?: string | null,
-  ) => Promise<Project | null>;
+  onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
+  onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
   onDeleteProject: (projectId: string) => Promise<boolean>;
   onRequestProjectPickerOpen: () => void;
   threadSearchOpenTick: number;
@@ -565,7 +553,7 @@ interface WorkbenchShellProps {
   closeRecentCardSession?: unknown;
   reorderRecentCardSessions?: unknown;
   closeCardStage?: unknown;
-  projectPickerOpenTick?: unknown;
+  projectPickerOpenTick?: number;
   taskSearchOpenTick?: unknown;
   diffSearchOpenTick?: unknown;
   commandPaletteOpenTick?: unknown;
@@ -727,6 +715,15 @@ function normalizeOptionalPath(value: string | null | undefined): string | undef
   return trimmedValue;
 }
 
+function normalizeProjectPrimaryWorkspaceRoot(project: Project | null | undefined): string | undefined {
+  return normalizeOptionalPath(project?.primaryWorkspaceRoot)
+    ?? normalizeOptionalPath(project?.sources[0]?.root);
+}
+
+function projectWorkspaceRootOrNull(project: Project | null | undefined): string | null {
+  return normalizeProjectPrimaryWorkspaceRoot(project) ?? null;
+}
+
 function resolveSessionTerminalCwd(
   session: ProjectSession,
   tab: ProjectSessionTab,
@@ -736,8 +733,8 @@ function resolveSessionTerminalCwd(
   if (threadCwd) return threadCwd;
 
   const tabProjectId = "projectId" in tab.config ? tab.config.projectId : session.projectId;
-  return normalizeOptionalPath(projects.find((project) => project.id === tabProjectId)?.workspacePath)
-    ?? normalizeOptionalPath(projects.find((project) => project.id === session.projectId)?.workspacePath);
+  return normalizeProjectPrimaryWorkspaceRoot(projects.find((project) => project.id === tabProjectId))
+    ?? normalizeProjectPrimaryWorkspaceRoot(projects.find((project) => project.id === session.projectId));
 }
 
 function resolvePanelShortcutLabel(shortcut: PanelActionShortcut | undefined, isMac: boolean): string | null {
@@ -1015,9 +1012,10 @@ export function WorkbenchShell({
   onOpenProjectSessionInNewWindow,
   onLeaveCardStageCard,
   onCreateProject,
-  onRenameProject,
+  onUpdateProject,
   onDeleteProject,
   onRequestProjectPickerOpen,
+  projectPickerOpenTick = 0,
   threadSearchOpenTick,
   setSidebarCollapsed,
   setSidebarWidth,
@@ -1690,7 +1688,7 @@ export function WorkbenchShell({
     const project = projects.find((candidate) => candidate.id === session.projectId) ?? null;
     const revealPath = resolveSessionRevealPath({
       session,
-      projectWorkspacePath: project?.workspacePath ?? null,
+      projectWorkspacePath: projectWorkspaceRootOrNull(project),
     });
     if (!revealPath) return;
     try {
@@ -1812,7 +1810,7 @@ export function WorkbenchShell({
     const isGitRepository = await resolveSessionHasGitRepository(session);
     const items = buildSessionContextMenuItems({
       session,
-      projectWorkspacePath: project?.workspacePath ?? null,
+      projectWorkspacePath: projectWorkspaceRootOrNull(project),
       platform: readRendererPlatform(),
       isGitRepository,
     });
@@ -2688,7 +2686,7 @@ export function WorkbenchShell({
   }) => {
     if (!activeSession) return;
     const project = projects.find((candidate) => candidate.id === activeSession.projectId) ?? null;
-    const workspaceRoot = project?.workspacePath?.trim() ?? "";
+    const workspaceRoot = normalizeProjectPrimaryWorkspaceRoot(project) ?? "";
     const existing = activeSession.tabs.find((tab) =>
       tab.kind === "files"
       && tab.panelId === input.panelId
@@ -3742,7 +3740,7 @@ export function WorkbenchShell({
     <ThreadSummaryPanelHeaderAction
       activeThreadId={activeSession.thread?.threadId ?? null}
       onPopoverOpenChange={setThreadSummaryPanelPopoverOpen}
-      projectWorkspacePath={activeProject?.workspacePath ?? null}
+      projectWorkspacePath={projectWorkspaceRootOrNull(activeProject)}
       mode={threadSummaryPanelMode}
       pinnedOpen={threadSummaryPanelPinnedOpen}
       onPinnedOpenToggle={toggleThreadSummaryPanel}
@@ -4215,12 +4213,13 @@ export function WorkbenchShell({
               onStartNewChatInProject={(projectId) => void startNewChatInProject(projectId)}
               onOpenTaskSearch={openSidebarTaskSearch}
               onShowUnavailableProduct={showSidebarUnavailableProduct}
-              onCreateProject={async (...args) => {
-                const project = await onCreateProject(...args);
+              projectPickerOpenTick={projectPickerOpenTick}
+              onCreateProject={async (input) => {
+                const project = await onCreateProject(input);
                 await refreshAllSessions();
                 return project;
               }}
-              onRenameProject={onRenameProject ?? (async () => null)}
+              onUpdateProject={onUpdateProject ?? (async () => null)}
               onDeleteProject={onDeleteProject ?? (async () => false)}
               onOpenSettings={openSettings}
               account={codexAccount}
@@ -4267,12 +4266,13 @@ export function WorkbenchShell({
                   onStartNewChatInProject={(projectId) => void startNewChatInProject(projectId)}
                   onOpenTaskSearch={openSidebarTaskSearch}
                   onShowUnavailableProduct={showSidebarUnavailableProduct}
-                  onCreateProject={async (...args) => {
-                    const project = await onCreateProject(...args);
+                  projectPickerOpenTick={projectPickerOpenTick}
+                  onCreateProject={async (input) => {
+                    const project = await onCreateProject(input);
                     await refreshAllSessions();
                     return project;
                   }}
-                  onRenameProject={onRenameProject ?? (async () => null)}
+                  onUpdateProject={onUpdateProject ?? (async () => null)}
                   onDeleteProject={onDeleteProject ?? (async () => false)}
                   onOpenSettings={openSettings}
                   account={codexAccount}
@@ -4566,7 +4566,6 @@ function ProjectSessionSidebar({
   floating = false,
   header,
   projects,
-  spaces,
   activeProjectId,
   activeSessionId,
   contextMenuSessionId,
@@ -4582,15 +4581,15 @@ function ProjectSessionSidebar({
   onResizeWidth,
   onToggleProjectsSectionCollapsed,
   onToggleProjectExpanded,
-  onSelectProject,
   onSelectSession,
   onOpenSessionContextMenu,
   onToggleSessionPinned,
   onStartNewChatInProject,
   onOpenTaskSearch,
   onShowUnavailableProduct,
+  projectPickerOpenTick = 0,
   onCreateProject,
-  onRenameProject,
+  onUpdateProject,
   onDeleteProject,
   onOpenSettings,
   account,
@@ -4625,20 +4624,9 @@ function ProjectSessionSidebar({
   onStartNewChatInProject: (projectId: string) => void | Promise<void>;
   onOpenTaskSearch: () => void;
   onShowUnavailableProduct: (label: string) => void;
-  onCreateProject: (
-    id: string,
-    name: string,
-    description?: string,
-    icon?: string,
-    workspacePath?: string | null,
-  ) => Promise<Project | null>;
-  onRenameProject: (
-    oldId: string,
-    newId: string,
-    name?: string,
-    icon?: string,
-    workspacePath?: string | null,
-  ) => Promise<Project | null>;
+  projectPickerOpenTick?: number;
+  onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
+  onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
   onDeleteProject: (projectId: string) => Promise<boolean>;
   onOpenSettings: () => void;
   account: CodexAccountSnapshot | null;
@@ -4647,7 +4635,6 @@ function ProjectSessionSidebar({
   onLogout: () => Promise<void>;
   onAccountErrorMessage: (message: string | null) => void;
 }) {
-  const [manageProjectsOpen, setManageProjectsOpen] = useState(false);
   const [sidebarResizing, setSidebarResizing] = useState(false);
   const sidebarResizeDisabled = resizeDisabled || floating;
 
@@ -4754,24 +4741,9 @@ function ProjectSessionSidebar({
               collapsed={projectsSectionCollapsed}
               onToggle={onToggleProjectsSectionCollapsed}
               actions={(
-                <ProjectManagerPopover
-                  projects={projects}
-                  spaces={spaces}
-                  activeProjectId={activeProjectId}
-                  onSelectSpace={onSelectProject}
+                <SidebarProjectAddMenu
                   onCreateProject={onCreateProject}
-                  onDeleteProject={onDeleteProject}
-                  onRenameProject={onRenameProject}
-                  open={manageProjectsOpen}
-                  onOpenChange={setManageProjectsOpen}
-                  side="bottom"
-                  align="end"
-                  contentClassName="w-80"
-                  trigger={(
-                    <CodexSidebarActionButton label="Manage projects" title="Manage projects">
-                      <Plus className="size-3.5" />
-                    </CodexSidebarActionButton>
-                  )}
+                  openSetupTick={projectPickerOpenTick}
                 />
               )}
             >
@@ -4790,8 +4762,8 @@ function ProjectSessionSidebar({
                         expanded={expanded}
                         onActivate={() => onToggleProjectExpanded(project.id)}
                         onStartNewChat={() => void onStartNewChatInProject(project.id)}
-                        onRenameProject={onRenameProject}
-                        onManageProject={() => setManageProjectsOpen(true)}
+                        onUpdateProject={onUpdateProject}
+                        onDeleteProject={onDeleteProject}
                       >
                         <CodexProjectSessionList project={project}>
                           {sessions.map((session) => (
@@ -5221,7 +5193,7 @@ function SessionThreadPage({
     <div className="h-full min-h-0">
       <ConnectedThreadStage
         projectId={effectiveProjectId}
-        projectWorkspacePath={summary ? project?.workspacePath ?? null : selectedNewThreadProject?.workspacePath ?? null}
+        projectWorkspacePath={summary ? projectWorkspaceRootOrNull(project) : projectWorkspaceRootOrNull(selectedNewThreadProject)}
         isNewThreadTab={!summary}
         newThreadTarget={summary ? null : {
           projectId: effectiveProjectId,
@@ -5247,7 +5219,7 @@ function SessionThreadPage({
             worktreeBranchPrefix,
           },
           disabled: false,
-          worktreeAvailable: Boolean(selectedNewThreadProject?.workspacePath),
+          worktreeAvailable: Boolean(normalizeProjectPrimaryWorkspaceRoot(selectedNewThreadProject)),
           environments: newThreadEnvironmentOptions,
           environmentsLoading: newThreadEnvironmentsLoading,
           selectedEnvironmentPath: selectedNewThreadEnvironmentPath,
@@ -5400,7 +5372,7 @@ function SideChatSessionTab({
     <div className="h-full min-h-0 bg-token-main-surface-primary">
       <ConnectedThreadStage
         projectId={tab.projectId}
-        projectWorkspacePath={project?.workspacePath ?? null}
+        projectWorkspacePath={projectWorkspaceRootOrNull(project)}
         isNewThreadTab={false}
         newThreadTarget={null}
         newThreadProjectSelector={null}
@@ -5601,7 +5573,7 @@ function ProjectSessionTabPanel({
     return (
       <ConnectedReviewDiffPanel
         threadId={activeSession.thread?.threadId ?? null}
-        projectWorkspacePath={project?.workspacePath ?? null}
+        projectWorkspacePath={projectWorkspaceRootOrNull(project)}
         searchOpenTick={0}
         selectedTurnDiff={selectedTurnDiffReviewTarget}
       />
@@ -5904,7 +5876,7 @@ function CardStageSessionTab({
       columnId={columnId}
       columnName={columnName}
       projectId={tab.config.projectId}
-      projectWorkspacePath={project.workspacePath ?? null}
+      projectWorkspacePath={projectWorkspaceRootOrNull(project)}
       availableTags={availableTags}
       closeRef={closeRef as React.MutableRefObject<(() => Promise<void>) | null>}
       persistRef={persistRef}

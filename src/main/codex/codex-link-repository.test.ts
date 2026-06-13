@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { closeDatabase, createCard, createProject, initializeDatabase, renameProject } from "../kanban/db-service";
+import { closeDatabase, createCard, createProject, initializeDatabase, updateProject } from "../kanban/db-service";
 import {
   getCodexCardThreadLink,
   listCodexProjectThreads,
@@ -17,6 +17,8 @@ function isUnsupportedSqliteError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return message.includes("better-sqlite3") && message.includes("not yet supported");
 }
+
+let projectId = "";
 
 async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
   closeDatabase();
@@ -34,7 +36,7 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
     throw error;
   }
 
-  createProject({ id: "codex", name: "Codex", workspacePath: "/tmp/codex" });
+  projectId = createProject({ name: "Codex", sources: ["/tmp/codex"] }).id;
 
   try {
     await run();
@@ -49,10 +51,10 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
 describe("codex-link-repository", () => {
   test("upserts and queries thread links", async () => {
     const ran = await withTempDatabase(async () => {
-      const card = await createCard("codex", "in_progress", { title: "Implement Codex integration" });
+      const card = await createCard(projectId, "in_progress", { title: "Implement Codex integration" });
 
       const first = upsertCodexCardThreadLink({
-        projectId: "codex",
+        projectId: projectId,
         cardId: card.id,
         threadId: "thr_test_1",
         source: { parentThreadId: "thr_parent" },
@@ -69,7 +71,7 @@ describe("codex-link-repository", () => {
       expect(first.source?.parentThreadId).toBe("thr_parent");
 
       const second = upsertCodexCardThreadLink({
-        projectId: "codex",
+        projectId: projectId,
         cardId: card.id,
         threadId: "thr_test_1",
         threadName: "Thread One Updated",
@@ -85,11 +87,11 @@ describe("codex-link-repository", () => {
       expect(second.statusActiveFlags.length).toBe(1);
       expect(second.source?.parentThreadId).toBe("thr_parent");
 
-      const byProject = listCodexProjectThreads("codex");
+      const byProject = listCodexProjectThreads(projectId);
       expect(byProject.length).toBe(1);
       expect(byProject[0]?.threadId).toBe("thr_test_1");
 
-      const byCard = listCodexProjectThreads("codex", { cardId: card.id });
+      const byCard = listCodexProjectThreads(projectId, { cardId: card.id });
       expect(byCard.length).toBe(1);
       expect(byCard[0]?.cardId).toBe(card.id);
       expect(byCard[0]?.source?.parentThreadId).toBe("thr_parent");
@@ -100,10 +102,10 @@ describe("codex-link-repository", () => {
 
   test("archives, renames, and status updates links", async () => {
     const ran = await withTempDatabase(async () => {
-      const card = await createCard("codex", "in_progress", { title: "Review links" });
+      const card = await createCard(projectId, "in_progress", { title: "Review links" });
 
       upsertCodexCardThreadLink({
-        projectId: "codex",
+        projectId: projectId,
         cardId: card.id,
         threadId: "thr_test_2",
       });
@@ -118,10 +120,10 @@ describe("codex-link-repository", () => {
       const archived = updateCodexThreadArchived("thr_test_2", true);
       expect(archived?.archived).toBe(true);
 
-      const visible = listCodexProjectThreads("codex", { includeArchived: false });
+      const visible = listCodexProjectThreads(projectId, { includeArchived: false });
       expect(visible.length).toBe(0);
 
-      const withArchived = listCodexProjectThreads("codex", { includeArchived: true });
+      const withArchived = listCodexProjectThreads(projectId, { includeArchived: true });
       expect(withArchived.length).toBe(1);
       expect(withArchived[0]?.threadId).toBe("thr_test_2");
     });
@@ -132,7 +134,7 @@ describe("codex-link-repository", () => {
   test("stores project-only and projectless threads without card ownership", async () => {
     const ran = await withTempDatabase(async () => {
       const projectOnly = upsertCodexThread({
-        projectId: "codex",
+        projectId: projectId,
         threadId: "thr_project_only",
         threadName: "Project thread",
         cwd: "/tmp/codex",
@@ -146,12 +148,12 @@ describe("codex-link-repository", () => {
         statusType: "idle",
       });
 
-      expect(projectOnly.projectId).toBe("codex");
+      expect(projectOnly.projectId).toBe(projectId);
       expect(projectOnly.cardId ?? null).toBe(null);
       expect(projectless.projectId ?? null).toBe(null);
       expect(projectless.cardId ?? null).toBe(null);
 
-      const byProject = listCodexProjectThreads("codex");
+      const byProject = listCodexProjectThreads(projectId);
       expect(byProject.length).toBe(1);
       expect(byProject[0]?.threadId).toBe("thr_project_only");
 
@@ -165,25 +167,25 @@ describe("codex-link-repository", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
-  test("project rename keeps linked thread rows", async () => {
+  test("project update keeps linked thread rows", async () => {
     const ran = await withTempDatabase(async () => {
-      const card = await createCard("codex", "in_progress", { title: "Rename project" });
+      const card = await createCard(projectId, "in_progress", { title: "Rename project" });
 
       upsertCodexCardThreadLink({
-        projectId: "codex",
+        projectId: projectId,
         cardId: card.id,
         threadId: "thr_test_rename",
       });
 
-      const renamed = renameProject("codex", "codex-renamed", {
+      const updated = updateProject(projectId, {
         name: "Codex Renamed",
-        workspacePath: "/tmp/codex-renamed",
+        sources: ["/tmp/codex-renamed"],
       });
-      expect(renamed?.id).toBe("codex-renamed");
-      expect(renamed?.workspacePath).toBe("/tmp/codex-renamed");
+      expect(updated?.id).toBe(projectId);
+      expect(updated?.primaryWorkspaceRoot).toBe("/tmp/codex-renamed");
 
       const link = getCodexCardThreadLink("thr_test_rename");
-      expect(link?.projectId).toBe("codex-renamed");
+      expect(link?.projectId).toBe(projectId);
     });
 
     if (!ran) expect(true).toBeTrue();

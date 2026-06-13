@@ -207,7 +207,7 @@ async function renderNewThreadHome() {
                 id: "project_1",
                 label: "Nodex",
                 description: "/tmp/nodex",
-                workspacePath: "/tmp/nodex",
+                primaryWorkspaceRoot: "/tmp/nodex",
                 searchText: "nodex /tmp/nodex",
               },
             ],

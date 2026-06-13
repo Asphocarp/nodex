@@ -1,6 +1,7 @@
 import { EventEmitter } from "events";
 
 export type ChangeType = "create" | "update" | "delete" | "move" | "undo" | "redo" | "revert" | "restore";
+export type ProjectChangeType = "create" | "update" | "delete" | "reorder";
 export type ProjectSessionChangeType =
   | "create"
   | "update"
@@ -25,6 +26,11 @@ export interface ProjectSessionsChangeEvent {
   sessionId?: string;
 }
 
+export interface ProjectsChangeEvent {
+  projectId?: string;
+  changeType: ProjectChangeType;
+}
+
 class DatabaseNotifier extends EventEmitter {
   constructor() {
     super();
@@ -35,6 +41,10 @@ class DatabaseNotifier extends EventEmitter {
 
   notifyChange(projectId: string, changeType: ChangeType, columnId: string, cardId?: string): void {
     this.emit("board-changed", { projectId, changeType, columnId, cardId });
+  }
+
+  notifyProjectsChanged(changeType: ProjectChangeType, projectId?: string): void {
+    this.emit("projects-changed", { projectId, changeType });
   }
 
   notifyProjectSessionsChanged(

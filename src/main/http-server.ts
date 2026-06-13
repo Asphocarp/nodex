@@ -57,6 +57,7 @@ const SSE_PING_INTERVAL_MS = 30_000;
 const app = new Hono();
 const LOOPBACK_HOST = "127.0.0.1";
 const MUTATING_HTTP_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const LEGACY_PROJECT_FIELDS = ["id", "newId", "workspacePath", "aliases"] as const;
 const TRUSTED_BROWSER_ORIGINS = new Set([
   "http://localhost:51284",
   "http://127.0.0.1:51284",
@@ -82,6 +83,12 @@ const defaultHttpServerDependencies: HttpServerDependencies = {
 };
 
 let httpServerDependencies: HttpServerDependencies = defaultHttpServerDependencies;
+
+function getLegacyProjectField(body: unknown): string | null {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  const record = body as Record<string, unknown>;
+  return LEGACY_PROJECT_FIELDS.find((field) => Object.prototype.hasOwnProperty.call(record, field)) ?? null;
+}
 
 function isTrustedBrowserOrigin(originHeader: string | undefined): boolean {
   if (!originHeader || originHeader.trim().length === 0) return false;
@@ -426,7 +433,16 @@ app.get("/api/projects", (c) => {
 app.post("/api/projects", async (c) => {
   const body = await c.req.json();
   try {
-    const project = dbService.createProject(body);
+    const legacyField = getLegacyProjectField(body);
+    if (legacyField) {
+      return c.json({ error: `Unsupported legacy project field: ${legacyField}` }, 400);
+    }
+    const project = dbService.createProject({
+      name: typeof body.name === "string" ? body.name : undefined,
+      description: typeof body.description === "string" ? body.description : undefined,
+      icon: typeof body.icon === "string" ? body.icon : undefined,
+      sources: Array.isArray(body.sources) ? body.sources : undefined,
+    });
     return c.json(project, 201);
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
@@ -443,16 +459,16 @@ app.put("/api/projects/:projectId", async (c) => {
   const projectId = c.req.param("projectId");
   const body = await c.req.json();
   try {
-    const result = dbService.renameProject(
-      projectId,
-      body.newId || projectId,
-      {
-        name: body.name,
-        description: body.description,
-        icon: body.icon,
-        workspacePath: body.workspacePath,
-      }
-    );
+    const legacyField = getLegacyProjectField(body);
+    if (legacyField) {
+      return c.json({ error: `Unsupported legacy project field: ${legacyField}` }, 400);
+    }
+    const result = dbService.updateProject(projectId, {
+      name: typeof body.name === "string" ? body.name : undefined,
+      description: typeof body.description === "string" ? body.description : undefined,
+      icon: typeof body.icon === "string" ? body.icon : undefined,
+      sources: Array.isArray(body.sources) ? body.sources : undefined,
+    });
     if (!result) return c.json({ error: "Not found" }, 404);
     return c.json(result);
   } catch (err) {
@@ -485,7 +501,7 @@ app.post("/api/projects/:projectId/sessions", async (c) => {
   const body = await c.req.json();
   try {
     const session = projectSessionService.createProjectSession({ ...body, projectId });
-    dbNotifier.notifyProjectSessionsChanged(projectId, "create", session.id);
+    dbNotifier.notifyProjectSessionsChanged(session.projectId, "create", session.id);
     return c.json(session, 201);
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
@@ -527,7 +543,8 @@ app.put("/api/projects/:projectId/sessions/pinned-order", async (c) => {
   const body = await c.req.json();
   try {
     const sessions = projectSessionService.setPinnedProjectSessionOrder(projectId, body);
-    dbNotifier.notifyProjectSessionsChanged(projectId, "pin");
+    const canonicalProjectId = sessions[0]?.projectId ?? dbService.getProject(projectId)?.id ?? projectId;
+    dbNotifier.notifyProjectSessionsChanged(canonicalProjectId, "pin");
     return c.json({ sessions });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
@@ -713,7 +730,8 @@ app.put("/api/projects/:projectId/sessions/reorder", async (c) => {
       projectId,
       orderedSessionIds.filter((item: unknown): item is string => typeof item === "string"),
     );
-    dbNotifier.notifyProjectSessionsChanged(projectId, "reorder");
+    const canonicalProjectId = sessions[0]?.projectId ?? dbService.getProject(projectId)?.id ?? projectId;
+    dbNotifier.notifyProjectSessionsChanged(canonicalProjectId, "reorder");
     return c.json({ sessions });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);
@@ -1287,7 +1305,7 @@ app.put(
 // === SSE events ===
 
 app.get("/api/projects/:projectId/events", (c) => {
-  const projectId = c.req.param("projectId");
+  const projectId = dbService.getProject(c.req.param("projectId"))?.id ?? c.req.param("projectId");
 
   const stream = new ReadableStream({
     start(controller) {

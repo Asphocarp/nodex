@@ -50,8 +50,7 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
 describe("nullable card priority", () => {
   test("creates cards without assigning a default priority", async () => {
     const ran = await withTempDatabase(async () => {
-      const projectId = "default";
-      createProject({ id: projectId, name: "Default" });
+      const projectId = createProject({ name: "Default" }).id;
 
       const created = await createCard(projectId, "draft", {
         title: "No default priority",
@@ -74,8 +73,7 @@ describe("nullable card priority", () => {
 
   test("clears persisted priority when updated to null", async () => {
     const ran = await withTempDatabase(async () => {
-      const projectId = "default";
-      createProject({ id: projectId, name: "Default" });
+      const projectId = createProject({ name: "Default" }).id;
 
       const created = await createCard(projectId, "draft", {
         title: "Clear priority",
@@ -102,8 +100,7 @@ describe("nullable card priority", () => {
 
   test("redo and restore preserve cleared priority history entries", async () => {
     const ran = await withTempDatabase(async () => {
-      const projectId = "default";
-      createProject({ id: projectId, name: "Default" });
+      const projectId = createProject({ name: "Default" }).id;
 
       const created = await createCard(projectId, "draft", {
         title: "History keeps cleared priority",

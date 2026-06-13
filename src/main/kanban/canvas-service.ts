@@ -1,5 +1,6 @@
 import type { CanvasData } from "../../shared/types";
 import { getDb } from "./db-service";
+import { requireProjectId } from "./project-service";
 
 interface DbCanvas {
   project_id: string;
@@ -10,6 +11,7 @@ interface DbCanvas {
 }
 
 export function getCanvas(projectId: string): CanvasData | null {
+  projectId = requireProjectId(projectId);
   const db = getDb();
   const row = db
     .prepare("SELECT elements, app_state, files, updated FROM canvas WHERE project_id = ?")
@@ -26,6 +28,7 @@ export function getCanvas(projectId: string): CanvasData | null {
 }
 
 export function saveCanvas(projectId: string, data: CanvasData): void {
+  projectId = requireProjectId(projectId);
   const db = getDb();
   db.prepare(
     `INSERT INTO canvas (project_id, elements, app_state, files, updated)

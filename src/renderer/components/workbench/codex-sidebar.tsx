@@ -5,8 +5,8 @@ import type {
   PointerEvent,
   ReactNode,
 } from "react";
-import { forwardRef, useState } from "react";
-import { FolderOpen, Settings } from "lucide-react";
+import { forwardRef, useEffect, useState } from "react";
+import { FolderOpen, FolderPlus, Pencil, Smile, Trash2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   CodexFolderIcon,
@@ -21,10 +21,18 @@ import {
   NodexDropdownMenu,
   NodexDropdownSeparator,
 } from "@/components/ui/dropdown";
+import { NodexButton } from "@/components/ui/button";
+import {
+  NodexDialog,
+  NodexDialogContent,
+  NodexDialogFooter,
+  NodexDialogHeader,
+  NodexDialogTitle,
+} from "@/components/ui/dialog";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { invoke } from "@/lib/api";
 import { CODEX_SIDEBAR_PROJECT_FOLDER_TRANSITION } from "@/lib/codex-panel-motion";
-import type { Project, ProjectSession } from "@/lib/types";
+import type { Project, ProjectSession, ProjectUpdateInput } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
   SIDEBAR_NEW_CHAT_ROW_CLASS,
@@ -51,8 +59,12 @@ function isMacPlatform() {
   return typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
 }
 
-function normalizeWorkspacePath(project: Project) {
-  return project.workspacePath?.trim() ?? "";
+function normalizePrimaryWorkspaceRoot(project: Project) {
+  return project.primaryWorkspaceRoot?.trim() || "";
+}
+
+function normalizeProjectSources(project: Project): string[] {
+  return project.sources.map((source) => source.root).filter((root) => root.trim().length > 0);
 }
 
 function handleProjectRowKeyboard(
@@ -183,87 +195,246 @@ export function CodexSidebarSection({
 
 export function CodexProjectActionsMenu({
   project,
-  onRenameProject,
-  onManageProject,
+  onUpdateProject,
+  onDeleteProject,
 }: {
   project: Project;
-  onRenameProject: (
-    oldId: string,
-    newId: string,
-    name?: string,
-    icon?: string,
-    workspacePath?: string | null,
-  ) => Promise<Project | null>;
-  onManageProject: () => void;
+  onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
+  onDeleteProject: (projectId: string) => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
-  const workspacePath = normalizeWorkspacePath(project);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [iconOpen, setIconOpen] = useState(false);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [draftName, setDraftName] = useState(project.name);
+  const [draftIcon, setDraftIcon] = useState(project.icon ?? "");
+  const [draftSources, setDraftSources] = useState<string[]>(() => normalizeProjectSources(project));
+  const primaryWorkspaceRoot = normalizePrimaryWorkspaceRoot(project);
 
-  const chooseProjectFolder = async () => {
-    const pickedPath = (await invoke("pty:pick-cwd")) as string | null;
+  useEffect(() => {
+    if (renameOpen) setDraftName(project.name);
+  }, [project.name, renameOpen]);
+
+  useEffect(() => {
+    if (iconOpen) setDraftIcon(project.icon ?? "");
+  }, [iconOpen, project.icon]);
+
+  useEffect(() => {
+    if (sourcesOpen) setDraftSources(normalizeProjectSources(project));
+  }, [project, sourcesOpen]);
+
+  const pickProjectSourceRoot = async () => {
+    const pickedPath = (await invoke("projects:pick-source-root")) as string | null;
     if (!pickedPath) return;
-    await onRenameProject(project.id, project.id, project.name, undefined, pickedPath);
+    return pickedPath;
+  };
+
+  const addProjectSource = async () => {
+    const pickedPath = await pickProjectSourceRoot();
+    if (!pickedPath) return;
+    const sources = [...normalizeProjectSources(project), pickedPath];
+    await onUpdateProject(project.id, { sources });
   };
 
   const openProjectFolder = async () => {
-    if (!workspacePath) return;
-    await invoke("shell:open-file-link", { path: workspacePath }, "fileManager");
+    if (!primaryWorkspaceRoot) return;
+    await invoke("shell:open-file-link", { path: primaryWorkspaceRoot }, "fileManager");
+  };
+
+  const submitRename = async () => {
+    const nextName = draftName.trim();
+    if (!nextName) return;
+    const updated = await onUpdateProject(project.id, { name: nextName });
+    if (!updated) return;
+    setRenameOpen(false);
+  };
+
+  const submitIcon = async () => {
+    const updated = await onUpdateProject(project.id, { icon: draftIcon.trim() || undefined });
+    if (!updated) return;
+    setIconOpen(false);
+  };
+
+  const submitSources = async () => {
+    const sources = draftSources.map((source) => source.trim()).filter(Boolean);
+    const updated = await onUpdateProject(project.id, { sources });
+    if (!updated) return;
+    setSourcesOpen(false);
+  };
+
+  const deleteProject = async () => {
+    const confirmed = window.confirm(`Delete ${project.name}?`);
+    if (!confirmed) return;
+    await onDeleteProject(project.id);
   };
 
   return (
-    <div
-      className={open ? "opacity-100" : "opacity-0 group-hover/folder-row:opacity-100"}
-      onPointerDown={stopCodexSidebarRowActionPropagation}
-      onMouseDown={stopCodexSidebarRowActionPropagation}
-      onKeyDown={stopCodexSidebarRowActionPropagation}
-      onClick={stopCodexSidebarRowActionPropagation}
-    >
-      <NodexDropdownMenu
-        open={open}
-        onOpenChange={setOpen}
-        side="bottom"
-        align="end"
-        contentWidth="sm"
-        triggerButton={(
-          <button
-            type="button"
-            className={CODEX_SIDEBAR_PROJECT_ACTIONS_BUTTON_CLASS}
-            aria-label={`Project actions for ${project.name}`}
-            data-app-action-sidebar-project-actions-menu=""
-          >
-            <CodexProjectActionsIcon />
-          </button>
-        )}
+    <>
+      <div
+        className={open ? "opacity-100" : "opacity-0 group-hover/folder-row:opacity-100"}
+        onPointerDown={stopCodexSidebarRowActionPropagation}
+        onMouseDown={stopCodexSidebarRowActionPropagation}
+        onKeyDown={stopCodexSidebarRowActionPropagation}
+        onClick={stopCodexSidebarRowActionPropagation}
       >
-        {workspacePath ? (
+        <NodexDropdownMenu
+          open={open}
+          onOpenChange={setOpen}
+          side="bottom"
+          align="end"
+          contentWidth="menu"
+          triggerButton={(
+            <button
+              type="button"
+              className={CODEX_SIDEBAR_PROJECT_ACTIONS_BUTTON_CLASS}
+              aria-label={`Project actions for ${project.name}`}
+              data-app-action-sidebar-project-actions-menu=""
+            >
+              <CodexProjectActionsIcon />
+            </button>
+          )}
+        >
           <NodexDropdownItem
-            leftSlot={<FolderOpen className="icon-sm" />}
-            subText={workspacePath}
+            leftSlot={<Pencil className="icon-sm" />}
+            onSelect={() => setRenameOpen(true)}
+          >
+            Rename
+          </NodexDropdownItem>
+          <NodexDropdownItem
+            leftSlot={<Smile className="icon-sm" />}
+            onSelect={() => setIconOpen(true)}
+          >
+            Choose icon
+          </NodexDropdownItem>
+          <NodexDropdownSeparator />
+          {primaryWorkspaceRoot ? (
+            <NodexDropdownItem
+              leftSlot={<FolderOpen className="icon-sm" />}
+              subText={primaryWorkspaceRoot}
+              onSelect={() => {
+                void openProjectFolder();
+              }}
+            >
+              Open in Finder
+            </NodexDropdownItem>
+          ) : null}
+          <NodexDropdownItem
+            leftSlot={<FolderPlus className="icon-sm" />}
             onSelect={() => {
-              void openProjectFolder();
+              void addProjectSource();
             }}
           >
-            Open in Finder
+            Add source folder
           </NodexDropdownItem>
-        ) : null}
-        {workspacePath ? <NodexDropdownSeparator /> : null}
-        <NodexDropdownItem
-          leftSlot={<CodexFolderIcon className="icon-sm" />}
-          onSelect={() => {
-            void chooseProjectFolder();
-          }}
-        >
-          Choose project folder...
-        </NodexDropdownItem>
-        <NodexDropdownSeparator />
-        <NodexDropdownItem
-          leftSlot={<Settings className="icon-sm" />}
-          onSelect={onManageProject}
-        >
-          Manage project...
-        </NodexDropdownItem>
-      </NodexDropdownMenu>
-    </div>
+          <NodexDropdownItem
+            leftSlot={<CodexFolderIcon className="icon-sm" />}
+            onSelect={() => setSourcesOpen(true)}
+          >
+            Edit sources
+          </NodexDropdownItem>
+          <NodexDropdownSeparator />
+          <NodexDropdownItem
+            leftSlot={<Trash2 className="icon-sm text-(--red-text)" />}
+            className="text-(--red-text)"
+            onSelect={() => {
+              void deleteProject();
+            }}
+          >
+            Delete project
+          </NodexDropdownItem>
+        </NodexDropdownMenu>
+      </div>
+
+      <NodexDialog open={renameOpen} onOpenChange={setRenameOpen}>
+        <NodexDialogContent className="max-w-sm">
+          <NodexDialogHeader>
+            <NodexDialogTitle>Rename project</NodexDialogTitle>
+          </NodexDialogHeader>
+          <input
+            autoFocus
+            value={draftName}
+            onChange={(event) => setDraftName(event.target.value)}
+            className="h-9 rounded-lg border border-token-border bg-token-main-surface-secondary px-3 text-sm outline-none focus:border-token-focus"
+          />
+          <NodexDialogFooter>
+            <NodexButton variant="outline" onClick={() => setRenameOpen(false)}>Cancel</NodexButton>
+            <NodexButton onClick={() => void submitRename()}>Save</NodexButton>
+          </NodexDialogFooter>
+        </NodexDialogContent>
+      </NodexDialog>
+
+      <NodexDialog open={iconOpen} onOpenChange={setIconOpen}>
+        <NodexDialogContent className="max-w-sm">
+          <NodexDialogHeader>
+            <NodexDialogTitle>Choose icon</NodexDialogTitle>
+          </NodexDialogHeader>
+          <input
+            autoFocus
+            value={draftIcon}
+            onChange={(event) => setDraftIcon(event.target.value)}
+            placeholder="Emoji or short label"
+            className="h-9 rounded-lg border border-token-border bg-token-main-surface-secondary px-3 text-sm outline-none focus:border-token-focus"
+          />
+          <NodexDialogFooter>
+            <NodexButton variant="outline" onClick={() => setIconOpen(false)}>Cancel</NodexButton>
+            <NodexButton onClick={() => void submitIcon()}>Save</NodexButton>
+          </NodexDialogFooter>
+        </NodexDialogContent>
+      </NodexDialog>
+
+      <NodexDialog open={sourcesOpen} onOpenChange={setSourcesOpen}>
+        <NodexDialogContent className="max-w-lg">
+          <NodexDialogHeader>
+            <NodexDialogTitle>Edit sources</NodexDialogTitle>
+          </NodexDialogHeader>
+          <div className="grid gap-2">
+            {draftSources.length === 0 ? (
+              <div className="rounded-lg border border-token-border bg-token-main-surface-secondary p-3 text-sm text-token-description-foreground">
+                No source folders.
+              </div>
+            ) : (
+              draftSources.map((source, index) => (
+                <div key={`${source}:${index}`} className="flex items-center gap-2">
+                  <input
+                    value={source}
+                    onChange={(event) => {
+                      const next = [...draftSources];
+                      next[index] = event.target.value;
+                      setDraftSources(next);
+                    }}
+                    className="h-8 min-w-0 flex-1 rounded-lg border border-token-border bg-token-main-surface-secondary px-2 text-sm outline-none focus:border-token-focus"
+                  />
+                  <NodexButton
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setDraftSources(draftSources.filter((_, candidateIndex) => candidateIndex !== index))}
+                  >
+                    Remove
+                  </NodexButton>
+                </div>
+              ))
+            )}
+            <NodexButton
+              variant="outline"
+              size="sm"
+              className="justify-self-start"
+              onClick={async () => {
+                const picked = await pickProjectSourceRoot();
+                if (!picked) return;
+                setDraftSources([...draftSources, picked]);
+              }}
+            >
+              <FolderPlus className="size-4" />
+              Add folder
+            </NodexButton>
+          </div>
+          <NodexDialogFooter>
+            <NodexButton variant="outline" onClick={() => setSourcesOpen(false)}>Cancel</NodexButton>
+            <NodexButton onClick={() => void submitSources()}>Save</NodexButton>
+          </NodexDialogFooter>
+        </NodexDialogContent>
+      </NodexDialog>
+    </>
   );
 }
 
@@ -274,8 +445,8 @@ export function CodexProjectRow({
   animateChildren = true,
   onActivate,
   onStartNewChat,
-  onRenameProject,
-  onManageProject,
+  onUpdateProject,
+  onDeleteProject,
   children,
 }: {
   project: Project;
@@ -284,14 +455,8 @@ export function CodexProjectRow({
   animateChildren?: boolean;
   onActivate: () => void;
   onStartNewChat?: () => void;
-  onRenameProject: (
-    oldId: string,
-    newId: string,
-    name?: string,
-    icon?: string,
-    workspacePath?: string | null,
-  ) => Promise<Project | null>;
-  onManageProject: () => void;
+  onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
+  onDeleteProject: (projectId: string) => Promise<boolean>;
   children?: ReactNode;
 }) {
   const projectChildren = children ? (
@@ -339,8 +504,8 @@ export function CodexProjectRow({
         <div className="flex gap-1">
           <CodexProjectActionsMenu
             project={project}
-            onRenameProject={onRenameProject}
-            onManageProject={onManageProject}
+            onUpdateProject={onUpdateProject}
+            onDeleteProject={onDeleteProject}
           />
           {onStartNewChat ? (
             <SidebarProjectNewChatButton

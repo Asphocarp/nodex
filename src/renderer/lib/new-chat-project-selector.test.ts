@@ -10,15 +10,18 @@ function makeProject(input: {
   id: string;
   name: string;
   description?: string;
-  workspacePath?: string;
+  primaryWorkspaceRoot?: string;
 }): Project {
+  const primaryWorkspaceRoot = input.primaryWorkspaceRoot?.trim() || null;
   return {
     id: input.id,
     name: input.name,
     description: input.description ?? "",
     icon: "",
-    workspacePath: input.workspacePath,
+    sources: primaryWorkspaceRoot ? [{ root: primaryWorkspaceRoot, order: 0 }] : [],
+    primaryWorkspaceRoot,
     created: new Date("2026-06-07T00:00:00.000Z"),
+    updated: new Date("2026-06-07T00:00:00.000Z"),
   };
 }
 
@@ -28,12 +31,12 @@ describe("new-chat project selector options", () => {
       id: "nodex",
       name: "Nodex",
       description: "Local-first agent orchestrator",
-      workspacePath: "/Users/asc/repo/nodex",
+      primaryWorkspaceRoot: "/Users/asc/repo/nodex",
     }),
     makeProject({
       id: "devtools-codex",
       name: "Devtools Codex",
-      workspacePath: "/Users/asc/repo/devtools-codex",
+      primaryWorkspaceRoot: "/Users/asc/repo/devtools-codex",
     }),
     makeProject({
       id: "videos",
@@ -64,6 +67,6 @@ describe("new-chat project selector options", () => {
   test("preserves selected-project metadata", () => {
     const selected = resolveSelectedNewChatProjectSelectorOption(options, "devtools-codex");
     expect(selected?.label).toBe("Devtools Codex");
-    expect(selected?.workspacePath).toBe("/Users/asc/repo/devtools-codex");
+    expect(selected?.primaryWorkspaceRoot).toBe("/Users/asc/repo/devtools-codex");
   });
 });

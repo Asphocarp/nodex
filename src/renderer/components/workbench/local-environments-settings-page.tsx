@@ -170,9 +170,14 @@ const DEFAULT_LOCAL_ENVIRONMENTS_SETTINGS_SERVICE: LocalEnvironmentsSettingsServ
   },
 };
 
+function getPrimaryWorkspaceRoot(project: Project): string {
+  return project.primaryWorkspaceRoot?.trim() || project.sources[0]?.root.trim() || "";
+}
+
 function buildEmptyEnvironmentDefinition(project: Project): WorktreeEnvironmentDefinition {
-  const fallbackName = project.workspacePath?.trim()
-    ? project.workspacePath.trim().split(/[\\/]/).filter(Boolean).at(-1) ?? project.name
+  const primaryWorkspaceRoot = getPrimaryWorkspaceRoot(project);
+  const fallbackName = primaryWorkspaceRoot
+    ? primaryWorkspaceRoot.split(/[\\/]/).filter(Boolean).at(-1) ?? project.name
     : project.name;
 
   return {
@@ -804,7 +809,7 @@ function WorkspaceProjectEnvironmentGroup({
               <span className="truncate font-medium">{project.name}</span>
             </div>
             <span className="truncate text-xs text-token-text-secondary">
-              {project.workspacePath?.trim() || "No workspace path"}
+              {getPrimaryWorkspaceRoot(project) || "No source folder"}
             </span>
           </div>
         </button>
@@ -927,7 +932,7 @@ export function LocalEnvironmentsSettingsPage({
   renderShell,
   service = DEFAULT_LOCAL_ENVIRONMENTS_SETTINGS_SERVICE,
 }: LocalEnvironmentsSettingsPageProps) {
-  const workspaceProjects = projects.filter((project) => project.workspacePath?.trim());
+  const workspaceProjects = projects.filter((project) => getPrimaryWorkspaceRoot(project));
   const workspaceProjectIdsKey = workspaceProjects.map((project) => project.id).join("|");
   const [mode, setMode] = useState<LocalEnvironmentsPageMode>("workspace");
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -1222,7 +1227,7 @@ export function LocalEnvironmentsSettingsPage({
                     <span className="truncate">{selectedProject.name}</span>
                   </div>
                   <span className="truncate text-xs text-token-text-secondary">
-                    {selectedProject.workspacePath?.trim() || "No workspace path"}
+                    {getPrimaryWorkspaceRoot(selectedProject) || "No source folder"}
                   </span>
                 </div>
               </div>
@@ -1392,7 +1397,7 @@ export function LocalEnvironmentsSettingsPage({
                     <span className="truncate">{selectedProject.name}</span>
                   </div>
                   <span className="truncate text-xs text-token-text-secondary">
-                    {selectedProject.workspacePath?.trim() || "No workspace path"}
+                    {getPrimaryWorkspaceRoot(selectedProject) || "No source folder"}
                   </span>
                 </div>
               </div>

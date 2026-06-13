@@ -15,8 +15,10 @@ const PROJECTS: Project[] = [
     id: "default",
     name: "Nodex",
     description: "",
-    workspacePath: "/Users/asc/repo/nodex",
+    sources: [{ root: "/Users/asc/repo/nodex", order: 0 }],
+    primaryWorkspaceRoot: "/Users/asc/repo/nodex",
     created: new Date("2026-03-01T00:00:00.000Z"),
+    updated: new Date("2026-03-01T00:00:00.000Z"),
   },
 ];
 
@@ -29,7 +31,7 @@ function buildEnvironmentSnapshot(
   return {
     projectId: project.id,
     projectName: project.name,
-    workspacePath: project.workspacePath ?? "",
+    workspacePath: project.primaryWorkspaceRoot ?? "",
     configPath: ".codex/environments/environment.toml",
     nextConfigPath: ".codex/environments/environment-2.toml",
     configExists: true,

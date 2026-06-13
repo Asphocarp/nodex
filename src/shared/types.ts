@@ -252,21 +252,34 @@ export interface CardDropMoveToEditorResult {
   groupId: string;
 }
 
+export interface ProjectSource {
+  root: string;
+  order: number;
+}
+
 export interface Project {
   id: string;
   name: string;
   description: string;
   icon?: string;
-  workspacePath?: string;
+  sources: ProjectSource[];
+  primaryWorkspaceRoot: string | null;
   created: Date;
+  updated: Date;
 }
 
-export interface ProjectInput {
-  id: string;
-  name: string;
+export interface ProjectCreateInput {
+  name?: string;
   description?: string;
   icon?: string;
-  workspacePath?: string | null;
+  sources?: string[];
+}
+
+export interface ProjectUpdateInput {
+  name?: string;
+  description?: string;
+  icon?: string;
+  sources?: string[];
 }
 
 export type ProjectSessionDbView = "kanban" | "list" | "toggle-list" | "canvas" | "calendar";

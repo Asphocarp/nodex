@@ -43,7 +43,7 @@ describe("card context menu model", () => {
     const targets = getCardMoveTargets(
       [
         { id: "default", name: "Default", description: "Core workspace" },
-        { id: "ops", name: "Ops", workspacePath: "/work/ops" },
+        { id: "ops", name: "Ops", primaryWorkspaceRoot: "/work/ops" },
         { id: "research", name: "Research" },
       ],
       "ops",
@@ -60,7 +60,7 @@ describe("card context menu model", () => {
     const targets = getCardMoveTargets(
       [
         { id: "default", name: "Default", description: "Core workspace" },
-        { id: "ops", name: "Ops", workspacePath: "/work/ops" },
+        { id: "ops", name: "Ops", primaryWorkspaceRoot: "/work/ops" },
         { id: "research", name: "Research" },
       ],
       "default",

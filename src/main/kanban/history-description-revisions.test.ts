@@ -59,8 +59,7 @@ async function findCardDescription(projectId: string, cardId: string): Promise<s
 describe("history description revisions", () => {
   test("hydrates descriptions back into history while keeping raw payloads compact", async () => {
     const ran = await withTempDatabase(async () => {
-      const projectId = "history-description-project";
-      createProject({ id: projectId, name: "History descriptions" });
+      const projectId = createProject({ name: "History descriptions" }).id;
 
       const initialDescription = "# Heading\n\nOriginal body";
       const updatedDescription = "# Heading\n\nUpdated body\n\nThird block";
@@ -129,8 +128,7 @@ describe("history description revisions", () => {
 
   test("builds panel entries with block-level description deltas instead of hydrated full texts", async () => {
     const ran = await withTempDatabase(async () => {
-      const projectId = "history-panel-project";
-      createProject({ id: projectId, name: "History panel" });
+      const projectId = createProject({ name: "History panel" }).id;
 
       const created = await createCard(projectId, "draft", {
         title: "Panel card",
@@ -165,8 +163,7 @@ describe("history description revisions", () => {
 
   test("undo redo and restore operate on description revisions", async () => {
     const ran = await withTempDatabase(async () => {
-      const projectId = "history-restore-project";
-      createProject({ id: projectId, name: "History restore" });
+      const projectId = createProject({ name: "History restore" }).id;
 
       const created = await createCard(projectId, "draft", {
         title: "Restorable card",

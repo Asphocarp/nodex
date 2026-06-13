@@ -13,15 +13,19 @@ const PROJECTS: Project[] = [
     id: "project-alpha",
     name: "Alpha",
     description: "",
-    workspacePath: "/Users/asc/repo/alpha",
+    sources: [{ root: "/Users/asc/repo/alpha", order: 0 }],
+    primaryWorkspaceRoot: "/Users/asc/repo/alpha",
     created: new Date("2026-03-01T00:00:00.000Z"),
+    updated: new Date("2026-03-01T00:00:00.000Z"),
   },
   {
     id: "project-beta",
     name: "Beta",
     description: "",
-    workspacePath: "/Users/asc/repo/beta",
+    sources: [{ root: "/Users/asc/repo/beta", order: 0 }],
+    primaryWorkspaceRoot: "/Users/asc/repo/beta",
     created: new Date("2026-03-02T00:00:00.000Z"),
+    updated: new Date("2026-03-02T00:00:00.000Z"),
   },
 ];
 
@@ -31,7 +35,7 @@ function buildSnapshot(projectId: string, overrides?: Partial<WorktreeEnvironmen
   return {
     projectId: project.id,
     projectName: project.name,
-    workspacePath: project.workspacePath ?? "",
+    workspacePath: project.primaryWorkspaceRoot ?? "",
     configPath: ".codex/environments/environment.toml",
     nextConfigPath: ".codex/environments/environment-2.toml",
     configExists: true,

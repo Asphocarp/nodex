@@ -46,8 +46,7 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
 describe("card tag JSON resilience", () => {
   test("falls back to empty tags when persisted tags JSON is malformed", async () => {
     const ran = await withTempDatabase(async () => {
-      const projectId = "default";
-      createProject({ id: projectId, name: "Default" });
+      const projectId = createProject({ name: "Default" }).id;
       const created = await createCard(projectId, "draft", {
         title: "Resilience card",
         tags: ["alpha"],

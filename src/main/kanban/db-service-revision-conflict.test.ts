@@ -45,8 +45,7 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
 describe("card update revision conflict handling", () => {
   test("returns conflict without mutating on stale expectedRevision", async () => {
     const ran = await withTempDatabase(async () => {
-      const projectId = "default";
-      createProject({ id: projectId, name: "Default" });
+      const projectId = createProject({ name: "Default" }).id;
 
       const created = await createCard(projectId, "draft", {
         title: "Original title",

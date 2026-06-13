@@ -30,7 +30,7 @@ export interface CardContextMenuProjectSummary {
   name: string;
   icon?: string;
   description?: string;
-  workspacePath?: string;
+  primaryWorkspaceRoot?: string | null;
 }
 
 const CARD_ACTION_MENU_ENTRIES: CardActionMenuEntry[] = [
@@ -129,14 +129,14 @@ export function getCardMoveTargets(
         project.name,
         project.id,
         project.description ?? "",
-        project.workspacePath ?? "",
+        project.primaryWorkspaceRoot ?? "",
       ].join(" ").toLowerCase();
       return haystack.includes(normalizedQuery);
     })
     .map((project) => {
       const isCurrent = project.id === currentProjectId;
       const secondaryText = project.description?.trim()
-        || project.workspacePath?.trim();
+        || project.primaryWorkspaceRoot?.trim();
 
       return {
         id: project.id,

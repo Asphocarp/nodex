@@ -21,7 +21,7 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
 - No role-based access control model (single-user/local trust assumption).
 - Security logging/auditing is still local-only and not audit-grade, but backend logs now redact common secret-bearing fields (for example authorization headers, tokens, API keys, passwords, cookies, and session values) before writing JSON-line log records.
 - `full-access` mode is convenience-first and auto-accepts any approval requests that still surface.
-- Workspace path allow-listing/sandboxing is not enforced beyond user-configured project `workspacePath`.
+- Workspace-write sandbox roots are derived from user-configured project sources. Additional allow-listing beyond those local source roots remains future hardening work.
 
 ## Safe Operating Practices
 - Bind HTTP server to loopback-only contexts where possible.

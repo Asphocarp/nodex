@@ -33,6 +33,9 @@ import { AppStartupScreen } from "@/components/app-startup-screen";
 import { NodexToastProvider } from "@/components/ui/toast";
 import type { CardStageSessionSnapshot } from "@/components/kanban/card-stage/types";
 import type {
+  Project,
+  ProjectCreateInput,
+  ProjectUpdateInput,
   WorkbenchLayoutSnapshot,
   WindowSessionBootstrap,
 } from "@/lib/types";
@@ -57,9 +60,35 @@ function readWorkbenchV2Flag(): boolean {
   }
 }
 
+function findProjectById(projects: readonly Project[], projectId: string): Project | null {
+  return projects.find((project) => project.id === projectId) ?? null;
+}
+
+function readProjectQueryParam(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const value = new URL(window.location.href).searchParams.get("project")?.trim();
+    return value || null;
+  } catch {
+    return null;
+  }
+}
+
+function replaceProjectQueryParam(projectId: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("project") === projectId) return;
+    url.searchParams.set("project", projectId);
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  } catch {
+    // Ignore URL replacement failures; state reconciliation still selects the canonical project.
+  }
+}
+
 function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionBootstrap: WindowSessionBootstrap }) {
   const workbenchV2Enabled = readWorkbenchV2Flag();
-  const { projects, loading, createProject, deleteProject, renameProject, refresh } = useProjects();
+  const { projects, loading, createProject, deleteProject, updateProject, refresh } = useProjects();
   const {
     dbProjectId,
     threadsProjectId,
@@ -162,10 +191,23 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     initialWindowSessionBootstrap.session.layout,
   );
   const layoutSaveTimerRef = useRef<number | null>(null);
+  const reconciledProjectQueryRef = useRef<string | null>(null);
 
   useEffect(() => {
     cardStageStateRef.current = cardStageState;
   }, [cardStageState]);
+
+  useEffect(() => {
+    if (projects.length === 0) return;
+    const queryProjectId = readProjectQueryParam();
+    if (!queryProjectId || reconciledProjectQueryRef.current === queryProjectId) return;
+    const project = findProjectById(projects, queryProjectId);
+    if (!project) return;
+    reconciledProjectQueryRef.current = queryProjectId;
+    setDbProjectState(project.id);
+    setThreadsProjectIdState(project.id);
+    replaceProjectQueryParam(project.id);
+  }, [projects, setDbProjectState, setThreadsProjectIdState]);
 
   const currentLayout = useMemo(
     () => buildLayoutSnapshot(cardStageState, activeProjectSessionId),
@@ -198,7 +240,8 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
   }, [currentLayout, flushWindowSessionLayout]);
 
   const resolvedDbProjectId = useMemo(() => {
-    if (projects.some((project) => project.id === dbProjectId)) return dbProjectId;
+    const project = findProjectById(projects, dbProjectId);
+    if (project) return project.id;
     return projects[0]?.id ?? "default";
   }, [dbProjectId, projects]);
 
@@ -332,14 +375,8 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
   }, [closeCardStageState, closeRecentCardSession, initialWindowSessionBootstrap.session.layout, loading]);
 
   const handleCreateProject = useCallback(
-    async (
-      id: string,
-      name: string,
-      description?: string,
-      icon?: string,
-      workspacePath?: string | null,
-    ) => {
-      const result = await createProject(id, name, description, icon, workspacePath);
+    async (input: ProjectCreateInput) => {
+      const result = await createProject(input);
       if (result) await refresh();
       return result;
     },
@@ -355,19 +392,13 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     [deleteProject, refresh],
   );
 
-  const handleRenameProject = useCallback(
-    async (
-      oldId: string,
-      newId: string,
-      name?: string,
-      icon?: string,
-      workspacePath?: string | null,
-    ) => {
-      const result = await renameProject(oldId, newId, name, undefined, icon, workspacePath);
+  const handleUpdateProject = useCallback(
+    async (projectId: string, updates: ProjectUpdateInput) => {
+      const result = await updateProject(projectId, updates);
       if (result) await refresh();
       return result;
     },
-    [renameProject, refresh],
+    [refresh, updateProject],
   );
 
   const recordCardLeave = useCallback((snapshot: CardStageSessionSnapshot) => {
@@ -1040,7 +1071,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       sidebarToggleRequestSource={sidebarToggleRequest.source}
       onCreateProject={handleCreateProject}
       onDeleteProject={handleDeleteProject}
-      onRenameProject={handleRenameProject}
+      onUpdateProject={handleUpdateProject}
       navigateToStage={navigateToStage}
       navigateToDbView={navigateToDbView}
       navigateToRecentSession={navigateToRecentSession}

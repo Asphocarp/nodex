@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Project } from "./types";
+import type { Project, ProjectCreateInput, ProjectUpdateInput } from "./types";
 import { invoke } from "./api";
 
 export function useProjects() {
@@ -24,21 +24,9 @@ export function useProjects() {
   }, [fetchProjects]);
 
   const createProject = useCallback(
-    async (
-      id: string,
-      name: string,
-      description?: string,
-      icon?: string,
-      workspacePath?: string | null,
-    ): Promise<Project | null> => {
+    async (input: ProjectCreateInput): Promise<Project | null> => {
       try {
-        const project = (await invoke("projects:create", {
-          id,
-          name,
-          description,
-          icon,
-          workspacePath,
-        })) as Project;
+        const project = (await invoke("projects:create", input)) as Project;
         await fetchProjects();
         return project;
       } catch (err) {
@@ -63,22 +51,10 @@ export function useProjects() {
     [fetchProjects]
   );
 
-  const renameProject = useCallback(
-    async (
-      oldId: string,
-      newId: string,
-      name?: string,
-      description?: string,
-      icon?: string,
-      workspacePath?: string | null,
-    ): Promise<Project | null> => {
+  const updateProject = useCallback(
+    async (projectId: string, updates: ProjectUpdateInput): Promise<Project | null> => {
       try {
-        const project = (await invoke(
-          "projects:rename",
-          oldId,
-          newId,
-          { name, description, icon, workspacePath }
-        )) as Project;
+        const project = (await invoke("projects:update", projectId, updates)) as Project;
         await fetchProjects();
         return project;
       } catch (err) {
@@ -96,6 +72,6 @@ export function useProjects() {
     refresh: fetchProjects,
     createProject,
     deleteProject,
-    renameProject,
+    updateProject,
   };
 }

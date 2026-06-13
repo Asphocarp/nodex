@@ -19,7 +19,7 @@ function isUnsupportedSqliteError(error: unknown): boolean {
   return message.includes("better-sqlite3") && message.includes("not yet supported");
 }
 
-async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
+async function withTempDatabase(run: (projectId: string) => Promise<void>): Promise<boolean> {
   closeDatabase();
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-block-drop-import-"));
   process.env.KANBAN_DIR = tempDir;
@@ -34,10 +34,10 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
     }
     throw error;
   }
-  createProject({ id: "default", name: "Default" });
+  const project = createProject({ name: "Default" });
 
   try {
-    await run();
+    await run(project.id);
     return true;
   } finally {
     closeDatabase();
@@ -48,30 +48,30 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
 
 describe("importBlockDropAsCards", () => {
   test("supports grouped source updates even when no new cards are created", async () => {
-    const ran = await withTempDatabase(async () => {
-      const source = await createCard("default", "in_progress", {
+    const ran = await withTempDatabase(async (projectId) => {
+      const source = await createCard(projectId, "in_progress", {
         title: "Source card",
         description: "Source before",
       });
-      const target = await createCard("default", "in_progress", {
+      const target = await createCard(projectId, "in_progress", {
         title: "Target card",
         description: "Target before",
       });
 
       const result = await importBlockDropAsCards(
-        "default",
+        projectId,
         {
           targetStatus: "in_progress",
           cards: [],
           sourceUpdates: [
             {
-              projectId: "default",
+              projectId,
               status: "in_progress",
               cardId: source.id,
               updates: { description: "Source after" },
             },
             {
-              projectId: "default",
+              projectId,
               status: "in_progress",
               cardId: target.id,
               updates: { description: "Target after" },
@@ -85,26 +85,26 @@ describe("importBlockDropAsCards", () => {
       expect(result.cards.length).toBe(0);
       expect(result.groupId).toBe("group-send-blocks");
 
-      const sourceAfter = await getCard("default", source.id, "in_progress");
-      const targetAfter = await getCard("default", target.id, "in_progress");
+      const sourceAfter = await getCard(projectId, source.id, "in_progress");
+      const targetAfter = await getCard(projectId, target.id, "in_progress");
       expect(sourceAfter?.description).toBe("Source after");
       expect(targetAfter?.description).toBe("Target after");
 
-      const groupedEntries = getRecentHistory("default", 20, 0)
+      const groupedEntries = getRecentHistory(projectId, 20, 0)
         .filter((entry) => entry.groupId === "group-send-blocks");
       expect(groupedEntries.length).toBe(2);
 
-      const undoResult = undoLatest("default", "session-1");
+      const undoResult = undoLatest(projectId, "session-1");
       expect(undoResult.success).toBeTrue();
-      const sourceAfterUndo = await getCard("default", source.id, "in_progress");
-      const targetAfterUndo = await getCard("default", target.id, "in_progress");
+      const sourceAfterUndo = await getCard(projectId, source.id, "in_progress");
+      const targetAfterUndo = await getCard(projectId, target.id, "in_progress");
       expect(sourceAfterUndo?.description).toBe("Source before");
       expect(targetAfterUndo?.description).toBe("Target before");
 
-      const redoResult = redoLatest("default", "session-1");
+      const redoResult = redoLatest(projectId, "session-1");
       expect(redoResult.success).toBeTrue();
-      const sourceAfterRedo = await getCard("default", source.id, "in_progress");
-      const targetAfterRedo = await getCard("default", target.id, "in_progress");
+      const sourceAfterRedo = await getCard(projectId, source.id, "in_progress");
+      const targetAfterRedo = await getCard(projectId, target.id, "in_progress");
       expect(sourceAfterRedo?.description).toBe("Source after");
       expect(targetAfterRedo?.description).toBe("Target after");
     });

@@ -7,7 +7,8 @@ import {
   createProject,
   getDb,
   initializeDatabase,
-  renameProject,
+  listProjects,
+  updateProject,
 } from "./db-service";
 import {
   createProjectSession,
@@ -39,6 +40,8 @@ function isUnsupportedSqliteError(error: unknown): boolean {
   return message.includes("better-sqlite3") && message.includes("not yet supported");
 }
 
+let projectId = "";
+
 async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
   closeDatabase();
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-project-sessions-"));
@@ -55,6 +58,10 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
     throw error;
   }
 
+  const defaultProject = listProjects()[0];
+  if (!defaultProject) throw new Error("Missing default project");
+  projectId = defaultProject.id;
+
   try {
     await run();
     return true;
@@ -68,9 +75,11 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
 describe("project session service", () => {
   test("returns a default overview session for every project", async () => {
     const ran = await withTempDatabase(async () => {
-      const defaultSessions = listProjectSessions("default");
+      const defaultProject = listProjects()[0];
+      if (!defaultProject) throw new Error("Missing default project");
+      const defaultSessions = listProjectSessions(defaultProject.id);
       expect(defaultSessions.length).toBe(1);
-      expect(defaultSessions[0]?.id).toBe("overview:default");
+      expect(defaultSessions[0]?.id).toBe(`overview:${defaultProject.id}`);
       expect(defaultSessions[0]?.title).toBe("Overview");
       expect(defaultSessions[0]?.isOverview).toBeTrue();
       expect(defaultSessions[0]?.leftPaneCollapsed).toBeTrue();
@@ -81,15 +90,15 @@ describe("project session service", () => {
       expect(defaultSessions[0]?.tabs[0]?.panelId).toBe("right");
       expect(defaultSessions[0]?.tabs[0]?.kind).toBe("db_view");
       expect(JSON.stringify(defaultSessions[0]?.tabs[0]?.config)).toBe(
-        JSON.stringify({ projectId: "default", view: "kanban" }),
+        JSON.stringify({ projectId: defaultProject.id, view: "kanban" }),
       );
 
-      createProject({ id: "alpha", name: "Alpha", workspacePath: "/tmp/alpha" });
-      const alphaSessions = listProjectSessions("alpha");
+      const alphaProject = createProject({ name: "Alpha", sources: ["/tmp/alpha"] });
+      const alphaSessions = listProjectSessions(alphaProject.id);
       expect(alphaSessions.length).toBe(1);
-      expect(alphaSessions[0]?.id).toBe("overview:alpha");
+      expect(alphaSessions[0]?.id).toBe(`overview:${alphaProject.id}`);
       expect(alphaSessions[0]?.panels.right.collapsed).toBeFalse();
-      expect(alphaSessions[0]?.tabs[0]?.id).toBe("overview:alpha:db");
+      expect(alphaSessions[0]?.tabs[0]?.id).toBe(`overview:${alphaProject.id}:db`);
     });
 
     if (!ran) expect(true).toBeTrue();
@@ -97,22 +106,22 @@ describe("project session service", () => {
 
   test("loads a stored v1 panel layout as a fresh v2 layout from tab rows", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: "default", title: "Legacy layout" });
+      const session = createProjectSession({ projectId: projectId, title: "Legacy layout" });
       const review = createProjectSessionTab({
         sessionId: session.id,
-        projectId: "default",
+        projectId: projectId,
         panelId: "right",
         kind: "review",
         title: "Review",
-        config: { projectId: "default" },
+        config: { projectId: projectId },
       });
       const terminal = createProjectSessionTab({
         sessionId: session.id,
-        projectId: "default",
+        projectId: projectId,
         panelId: "bottom",
         kind: "terminal",
         title: "Terminal",
-        config: { projectId: "default", terminalSessionId: "term-legacy" },
+        config: { projectId: projectId, terminalSessionId: "term-legacy" },
       });
       getDb().prepare(`
         UPDATE project_sessions
@@ -161,35 +170,35 @@ describe("project session service", () => {
 
   test("creates and reorders sessions and tabs with validated tab config", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: "default", title: "Build" });
+      const session = createProjectSession({ projectId: projectId, title: "Build" });
       expect(session.isOverview).toBeFalse();
       expect(session.panels.right.collapsed).toBeTrue();
       expect(session.panels.bottom.collapsed).toBeTrue();
 
-      const sessions = reorderProjectSessions("default", [session.id, "overview:default"]);
+      const sessions = reorderProjectSessions(projectId, [session.id, `overview:${projectId}`]);
       expect(JSON.stringify(sessions.map((item) => item.id))).toBe(
-        JSON.stringify(["overview:default", session.id]),
+        JSON.stringify([`overview:${projectId}`, session.id]),
       );
 
       const terminal = createProjectSessionTab({
         sessionId: session.id,
-        projectId: "default",
+        projectId: projectId,
         panelId: "bottom",
         kind: "terminal",
         title: "Terminal",
         config: {
-          projectId: "default",
+          projectId: projectId,
           terminalSessionId: "term-1",
         },
       });
       const browser = createProjectSessionTab({
         sessionId: session.id,
-        projectId: "default",
+        projectId: projectId,
         panelId: "right",
         kind: "browser",
         title: "Browser",
         config: {
-          projectId: "default",
+          projectId: projectId,
           title: "Browser",
           url: "https://example.com",
         },
@@ -198,13 +207,13 @@ describe("project session service", () => {
       const updatedTerminal = updateProjectSessionTab(terminal.id, {
         title: "Shell",
         config: {
-          projectId: "default",
+          projectId: projectId,
           terminalSessionId: "term-2",
         },
       });
       expect(updatedTerminal?.title).toBe("Shell");
       expect(JSON.stringify(updatedTerminal?.config)).toBe(
-        JSON.stringify({ projectId: "default", terminalSessionId: "term-2" }),
+        JSON.stringify({ projectId: projectId, terminalSessionId: "term-2" }),
       );
 
       const reordered = reorderProjectSessionTabs({
@@ -234,12 +243,12 @@ describe("project session service", () => {
       try {
         createProjectSessionTab({
           sessionId: session.id,
-          projectId: "default",
+          projectId: projectId,
           panelId: "bottom",
           kind: "terminal",
           title: "Broken",
           config: {
-            projectId: "default",
+            projectId: projectId,
           } as never,
         });
       } catch (error) {
@@ -253,9 +262,9 @@ describe("project session service", () => {
 
   test("pins, reorders pinned sessions, and archives without deleting sessions", async () => {
     const ran = await withTempDatabase(async () => {
-      const alpha = createProjectSession({ projectId: "default", title: "Alpha" });
-      const beta = createProjectSession({ projectId: "default", title: "Beta" });
-      const gamma = createProjectSession({ projectId: "default", title: "Gamma" });
+      const alpha = createProjectSession({ projectId: projectId, title: "Alpha" });
+      const beta = createProjectSession({ projectId: projectId, title: "Beta" });
+      const gamma = createProjectSession({ projectId: projectId, title: "Gamma" });
 
       const pinnedAlpha = setProjectSessionPinned(alpha.id, { pinned: true });
       const pinnedGamma = setProjectSessionPinned(gamma.id, { pinned: true });
@@ -263,14 +272,14 @@ describe("project session service", () => {
       expect(pinnedAlpha?.pinnedOrder).toBe(0);
       expect(pinnedGamma?.pinnedOrder).toBe(1);
 
-      let sessions = listProjectSessions("default");
+      let sessions = listProjectSessions(projectId);
       expect(JSON.stringify(sessions.map((session) => session.id))).toBe(
-        JSON.stringify(["overview:default", alpha.id, gamma.id, beta.id]),
+        JSON.stringify([`overview:${projectId}`, alpha.id, gamma.id, beta.id]),
       );
 
-      sessions = setPinnedProjectSessionOrder("default", { orderedSessionIds: [gamma.id, alpha.id] });
+      sessions = setPinnedProjectSessionOrder(projectId, { orderedSessionIds: [gamma.id, alpha.id] });
       expect(JSON.stringify(sessions.map((session) => session.id))).toBe(
-        JSON.stringify(["overview:default", gamma.id, alpha.id, beta.id]),
+        JSON.stringify([`overview:${projectId}`, gamma.id, alpha.id, beta.id]),
       );
 
       const unreadGamma = markProjectSessionUnread(gamma.id, { unread: true });
@@ -281,12 +290,12 @@ describe("project session service", () => {
       expect(archivedGamma?.pinnedOrder).toBe(null);
       expect(archivedGamma?.unread).toBeFalse();
 
-      sessions = listProjectSessions("default");
+      sessions = listProjectSessions(projectId);
       expect(JSON.stringify(sessions.map((session) => session.id))).toBe(
-        JSON.stringify(["overview:default", alpha.id, beta.id]),
+        JSON.stringify([`overview:${projectId}`, alpha.id, beta.id]),
       );
 
-      const archivedVisible = listProjectSessions("default", { includeArchived: true });
+      const archivedVisible = listProjectSessions(projectId, { includeArchived: true });
       expect(archivedVisible.some((session) => session.id === gamma.id)).toBeTrue();
     });
 
@@ -295,77 +304,77 @@ describe("project session service", () => {
 
   test("returns existing fixed tabs instead of creating duplicate singleton tabs", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: "default", title: "Fixed tabs" });
+      const session = createProjectSession({ projectId: projectId, title: "Fixed tabs" });
 
       const dbView = createProjectSessionTab({
         sessionId: session.id,
-        projectId: "default",
+        projectId: projectId,
         panelId: "right",
         kind: "db_view",
         title: "DB View",
-        config: { projectId: "default", view: "kanban" },
+        config: { projectId: projectId, view: "kanban" },
       });
       const duplicateDbView = createProjectSessionTab({
         sessionId: session.id,
-        projectId: "default",
+        projectId: projectId,
         panelId: "right",
         kind: "db_view",
         title: "Another DB View",
-        config: { projectId: "default", view: "list" },
+        config: { projectId: projectId, view: "list" },
       });
       expect(duplicateDbView.id).toBe(dbView.id);
 
       const review = createProjectSessionTab({
         sessionId: session.id,
-        projectId: "default",
+        projectId: projectId,
         panelId: "right",
         kind: "review",
         title: "Review",
-        config: { projectId: "default" },
+        config: { projectId: projectId },
       });
       const duplicateReview = createProjectSessionTab({
         sessionId: session.id,
-        projectId: "default",
+        projectId: projectId,
         panelId: "right",
         kind: "review",
         title: "Review changes",
-        config: { projectId: "default" },
+        config: { projectId: projectId },
       });
       expect(duplicateReview.id).toBe(review.id);
 
       const browser = createProjectSessionTab({
         sessionId: session.id,
-        projectId: "default",
+        projectId: projectId,
         panelId: "right",
         kind: "browser",
         title: "Browser",
-        config: { projectId: "default" },
+        config: { projectId: projectId },
       });
       const duplicateBrowser = createProjectSessionTab({
         sessionId: session.id,
-        projectId: "default",
+        projectId: projectId,
         panelId: "right",
         kind: "browser",
         title: "Website",
-        config: { projectId: "default", url: "https://example.com" },
+        config: { projectId: projectId, url: "https://example.com" },
       });
       expect(duplicateBrowser.id === browser.id).toBeFalse();
 
       const terminalOne = createProjectSessionTab({
         sessionId: session.id,
-        projectId: "default",
+        projectId: projectId,
         panelId: "bottom",
         kind: "terminal",
         title: "Terminal",
-        config: { projectId: "default", terminalSessionId: "term-1" },
+        config: { projectId: projectId, terminalSessionId: "term-1" },
       });
       const terminalTwo = createProjectSessionTab({
         sessionId: session.id,
-        projectId: "default",
+        projectId: projectId,
         panelId: "bottom",
         kind: "terminal",
         title: "Terminal",
-        config: { projectId: "default", terminalSessionId: "term-2" },
+        config: { projectId: projectId, terminalSessionId: "term-2" },
       });
       expect(terminalOne.id === terminalTwo.id).toBeFalse();
 
@@ -384,10 +393,10 @@ describe("project session service", () => {
 
   test("attaches and detaches session-owned thread metadata", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: "default", title: "Agent run" });
+      const session = createProjectSession({ projectId: projectId, title: "Agent run" });
       const attached = upsertProjectSessionThreadLink({
         sessionId: session.id,
-        projectId: "default",
+        projectId: projectId,
         threadId: "thread-1",
         parentThreadId: "parent-1",
         threadName: "Thread One",
@@ -408,7 +417,7 @@ describe("project session service", () => {
 
       const updated = upsertProjectSessionThreadLink({
         sessionId: session.id,
-        projectId: "default",
+        projectId: projectId,
         threadId: "thread-2",
         threadPreview: "Follow-up",
       });
@@ -424,23 +433,24 @@ describe("project session service", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
-  test("keeps session tab configs project-scoped after project rename", async () => {
+  test("keeps session tab configs project-scoped after project name update", async () => {
     const ran = await withTempDatabase(async () => {
-      createProject({ id: "alpha", name: "Alpha", workspacePath: "/tmp/alpha" });
-      const sessions = listProjectSessions("alpha");
+      const project = createProject({ name: "Alpha", sources: ["/tmp/alpha"] });
+      const sessions = listProjectSessions(project.id);
       const overview = sessions[0];
       expect(JSON.stringify(overview?.tabs[0]?.config)).toBe(
-        JSON.stringify({ projectId: "alpha", view: "kanban" }),
+        JSON.stringify({ projectId: project.id, view: "kanban" }),
       );
 
-      const renamed = renameProject("alpha", "beta", { name: "Beta" });
-      expect(renamed?.id).toBe("beta");
+      const updated = updateProject(project.id, { name: "Beta" });
+      expect(updated?.id).toBe(project.id);
+      expect(updated?.name).toBe("Beta");
 
-      const renamedSessions = listProjectSessions("beta");
-      expect(renamedSessions[0]?.projectId).toBe("beta");
-      expect(renamedSessions[0]?.tabs[0]?.projectId).toBe("beta");
-      expect(JSON.stringify(renamedSessions[0]?.tabs[0]?.config)).toBe(
-        JSON.stringify({ projectId: "beta", view: "kanban" }),
+      const updatedSessions = listProjectSessions(project.id);
+      expect(updatedSessions[0]?.projectId).toBe(project.id);
+      expect(updatedSessions[0]?.tabs[0]?.projectId).toBe(project.id);
+      expect(JSON.stringify(updatedSessions[0]?.tabs[0]?.config)).toBe(
+        JSON.stringify({ projectId: project.id, view: "kanban" }),
       );
     });
 
@@ -449,22 +459,22 @@ describe("project session service", () => {
 
   test("updates panel state and moves tabs between panels while preserving state", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: "default", title: "Panels" });
+      const session = createProjectSession({ projectId: projectId, title: "Panels" });
       const review = createProjectSessionTab({
         sessionId: session.id,
-        projectId: "default",
+        projectId: projectId,
         panelId: "right",
         kind: "review",
         title: "Review",
-        config: { projectId: "default" },
+        config: { projectId: projectId },
       });
       const terminal = createProjectSessionTab({
         sessionId: session.id,
-        projectId: "default",
+        projectId: projectId,
         panelId: "bottom",
         kind: "terminal",
         title: "Terminal",
-        config: { projectId: "default", terminalSessionId: "term-1" },
+        config: { projectId: projectId, terminalSessionId: "term-1" },
       });
 
       const stateful = updateProjectSessionTab(terminal.id, { stateKey: 2, state: { cwd: "/tmp/default" } });
@@ -502,22 +512,22 @@ describe("project session service", () => {
 
   test("persists split group membership and leaf-scoped tab movement", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: "default", title: "Split panels" });
+      const session = createProjectSession({ projectId: projectId, title: "Split panels" });
       const review = createProjectSessionTab({
         sessionId: session.id,
-        projectId: "default",
+        projectId: projectId,
         panelId: "right",
         kind: "review",
         title: "Review",
-        config: { projectId: "default" },
+        config: { projectId: projectId },
       });
       const shell = createProjectSessionTab({
         sessionId: session.id,
-        projectId: "default",
+        projectId: projectId,
         panelId: "right",
         kind: "terminal",
         title: "Shell",
-        config: { projectId: "default", terminalSessionId: "term-1" },
+        config: { projectId: projectId, terminalSessionId: "term-1" },
       });
 
       const initial = getProjectSession(session.id);
@@ -566,22 +576,22 @@ describe("project session service", () => {
 
   test("edge-dropping a tab to the right of its own multi-tab group creates a sibling group", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: "default", title: "Edge split" });
+      const session = createProjectSession({ projectId: projectId, title: "Edge split" });
       const review = createProjectSessionTab({
         sessionId: session.id,
-        projectId: "default",
+        projectId: projectId,
         panelId: "right",
         kind: "review",
         title: "Review",
-        config: { projectId: "default" },
+        config: { projectId: projectId },
       });
       const shell = createProjectSessionTab({
         sessionId: session.id,
-        projectId: "default",
+        projectId: projectId,
         panelId: "right",
         kind: "terminal",
         title: "Shell",
-        config: { projectId: "default", terminalSessionId: "term-edge" },
+        config: { projectId: projectId, terminalSessionId: "term-edge" },
       });
       const initial = getProjectSession(session.id);
       const leafId = initial ? getProjectSessionPanelActiveLeaf(initial.panels.right.layout).id : "main";
@@ -604,22 +614,22 @@ describe("project session service", () => {
 
   test("deleting the last durable tab in a split group removes the empty group", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: "default", title: "Prune delete" });
+      const session = createProjectSession({ projectId: projectId, title: "Prune delete" });
       const review = createProjectSessionTab({
         sessionId: session.id,
-        projectId: "default",
+        projectId: projectId,
         panelId: "right",
         kind: "review",
         title: "Review",
-        config: { projectId: "default" },
+        config: { projectId: projectId },
       });
       const shell = createProjectSessionTab({
         sessionId: session.id,
-        projectId: "default",
+        projectId: projectId,
         panelId: "right",
         kind: "terminal",
         title: "Shell",
-        config: { projectId: "default", terminalSessionId: "term-delete" },
+        config: { projectId: projectId, terminalSessionId: "term-delete" },
       });
       const initial = getProjectSession(session.id);
       const initialLeafId = initial ? getProjectSessionPanelActiveLeaf(initial.panels.right.layout).id : "main";
@@ -648,22 +658,22 @@ describe("project session service", () => {
 
   test("moving the last durable tab out of a group removes the empty source group", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: "default", title: "Prune move" });
+      const session = createProjectSession({ projectId: projectId, title: "Prune move" });
       const review = createProjectSessionTab({
         sessionId: session.id,
-        projectId: "default",
+        projectId: projectId,
         panelId: "right",
         kind: "review",
         title: "Review",
-        config: { projectId: "default" },
+        config: { projectId: projectId },
       });
       const shell = createProjectSessionTab({
         sessionId: session.id,
-        projectId: "default",
+        projectId: projectId,
         panelId: "right",
         kind: "terminal",
         title: "Shell",
-        config: { projectId: "default", terminalSessionId: "term-move" },
+        config: { projectId: projectId, terminalSessionId: "term-move" },
       });
       const initial = getProjectSession(session.id);
       const initialLeafId = initial ? getProjectSessionPanelActiveLeaf(initial.panels.right.layout).id : "main";
@@ -695,22 +705,22 @@ describe("project session service", () => {
 
   test("preserveEmptyLeafIds keeps an otherwise empty source group for renderer-local tabs", async () => {
     const ran = await withTempDatabase(async () => {
-      const session = createProjectSession({ projectId: "default", title: "Preserve local" });
+      const session = createProjectSession({ projectId: projectId, title: "Preserve local" });
       createProjectSessionTab({
         sessionId: session.id,
-        projectId: "default",
+        projectId: projectId,
         panelId: "right",
         kind: "review",
         title: "Review",
-        config: { projectId: "default" },
+        config: { projectId: projectId },
       });
       const shell = createProjectSessionTab({
         sessionId: session.id,
-        projectId: "default",
+        projectId: projectId,
         panelId: "right",
         kind: "terminal",
         title: "Shell",
-        config: { projectId: "default", terminalSessionId: "term-preserve" },
+        config: { projectId: projectId, terminalSessionId: "term-preserve" },
       });
       const initial = getProjectSession(session.id);
       const initialLeafId = initial ? getProjectSessionPanelActiveLeaf(initial.panels.right.layout).id : "main";

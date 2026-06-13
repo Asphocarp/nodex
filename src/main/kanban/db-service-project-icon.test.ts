@@ -7,7 +7,7 @@ import {
   createProject,
   getProject,
   initializeDatabase,
-  renameProject,
+  updateProject,
 } from "./db-service";
 
 function isUnsupportedSqliteError(error: unknown): boolean {
@@ -44,17 +44,17 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
 describe("project icon persistence", () => {
   test("stores icon on create and update", async () => {
     const ran = await withTempDatabase(async () => {
-      const project = createProject({ id: "alpha", name: "Alpha", icon: "🚀", workspacePath: "/tmp/alpha" });
+      const project = createProject({ name: "Alpha", icon: "🚀", sources: ["/tmp/alpha"] });
       expect(project.icon).toBe("🚀");
-      expect(project.workspacePath).toBe("/tmp/alpha");
-      expect(getProject("alpha")?.icon).toBe("🚀");
-      expect(getProject("alpha")?.workspacePath).toBe("/tmp/alpha");
+      expect(project.primaryWorkspaceRoot).toBe("/tmp/alpha");
+      expect(getProject(project.id)?.icon).toBe("🚀");
+      expect(getProject(project.id)?.primaryWorkspaceRoot).toBe("/tmp/alpha");
 
-      const renamed = renameProject("alpha", "alpha", { icon: "🧠", workspacePath: "/tmp/alpha-2" });
-      expect(renamed?.icon).toBe("🧠");
-      expect(renamed?.workspacePath).toBe("/tmp/alpha-2");
-      expect(getProject("alpha")?.icon).toBe("🧠");
-      expect(getProject("alpha")?.workspacePath).toBe("/tmp/alpha-2");
+      const updated = updateProject(project.id, { icon: "🧠", sources: ["/tmp/alpha-2"] });
+      expect(updated?.icon).toBe("🧠");
+      expect(updated?.primaryWorkspaceRoot).toBe("/tmp/alpha-2");
+      expect(getProject(project.id)?.icon).toBe("🧠");
+      expect(getProject(project.id)?.primaryWorkspaceRoot).toBe("/tmp/alpha-2");
     });
 
     if (!ran) expect(true).toBeTrue();
@@ -62,11 +62,11 @@ describe("project icon persistence", () => {
 
   test("stores empty icon when icon is missing or invalid", async () => {
     const ran = await withTempDatabase(async () => {
-      const project = createProject({ id: "beta", name: "Beta", workspacePath: null });
+      const project = createProject({ name: "Beta" });
       expect(project.icon).toBe("");
 
-      const renamed = renameProject("beta", "beta", { icon: "not-an-emoji" });
-      expect(renamed?.icon).toBe("");
+      const updated = updateProject(project.id, { icon: "not-an-emoji" });
+      expect(updated?.icon).toBe("");
     });
 
     if (!ran) expect(true).toBeTrue();

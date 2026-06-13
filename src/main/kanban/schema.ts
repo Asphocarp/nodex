@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { randomUUID } from "node:crypto";
 import * as fs from "fs";
 import * as path from "path";
 import { getDatabasePath } from "./config";
@@ -13,7 +14,7 @@ import type { PanelId, ProjectSessionPanelLayout } from "../../shared/types";
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 35;
+export const CURRENT_SCHEMA_VERSION = 37;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V34 =
@@ -38,6 +39,8 @@ const RESETTABLE_TABLES = [
   "description_revisions",
   "description_blocks",
   "cards",
+  "project_order",
+  "project_sources",
   "projects",
   // Kept here so a versionless local file can still be reset safely.
   "recurrence_occurrence_log",
@@ -49,12 +52,14 @@ export interface EnsureDatabaseOptions {
 
 export function getSchemaMigrationTargets(currentVersion: number): number[] | null {
   if (currentVersion === CURRENT_SCHEMA_VERSION) return [];
-  if (currentVersion === 26) return [31, 32, 33, 34, 35];
-  if (currentVersion === 30) return [31, 32, 33, 34, 35];
-  if (currentVersion === 31) return [32, 33, 34, 35];
-  if (currentVersion === 32) return [33, 34, 35];
-  if (currentVersion === 33) return [34, 35];
-  if (currentVersion === 34) return [35];
+  if (currentVersion === 26) return [31, 32, 33, 34, 35, 37];
+  if (currentVersion === 30) return [31, 32, 33, 34, 35, 37];
+  if (currentVersion === 31) return [32, 33, 34, 35, 37];
+  if (currentVersion === 32) return [33, 34, 35, 37];
+  if (currentVersion === 33) return [34, 35, 37];
+  if (currentVersion === 34) return [35, 37];
+  if (currentVersion === 35) return [37];
+  if (currentVersion === 36) return [37];
   return null;
 }
 
@@ -76,8 +81,27 @@ function createLatestSchema(db: Database.Database): void {
       name TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
       icon TEXT NOT NULL DEFAULT '',
-      workspace_path TEXT,
-      created TEXT NOT NULL
+      created TEXT NOT NULL,
+      updated TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS project_sources (
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      root TEXT NOT NULL,
+      root_key TEXT NOT NULL,
+      "order" INTEGER NOT NULL,
+      created TEXT NOT NULL,
+      updated TEXT NOT NULL,
+      PRIMARY KEY (project_id, root_key)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_project_sources_project_order
+      ON project_sources(project_id, "order", created);
+
+    CREATE TABLE IF NOT EXISTS project_order (
+      project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+      "order" INTEGER NOT NULL,
+      updated TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS cards (
@@ -928,6 +952,191 @@ function migrateSchema34To35(db: Database.Database): void {
   setUserVersion(db, 35);
 }
 
+interface ProjectIdMigrationRow {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  workspace_path: string | null;
+  created: string;
+}
+
+function normalizeMigratedSourceRoot(value: string | null): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  return path.resolve(trimmed);
+}
+
+function migratedSourceKey(root: string): string {
+  const resolved = path.resolve(root);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+function rewriteProjectIdsInJson(value: unknown, idMap: Map<string, string>): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => rewriteProjectIdsInJson(item, idMap));
+  }
+  if (typeof value !== "object" || value === null) return value;
+
+  const next: Record<string, unknown> = {};
+  for (const [key, childValue] of Object.entries(value)) {
+    if (key === "projectId" && typeof childValue === "string") {
+      next[key] = idMap.get(childValue) ?? childValue;
+      continue;
+    }
+    next[key] = rewriteProjectIdsInJson(childValue, idMap);
+  }
+  return next;
+}
+
+function rewriteProjectIdsInConfigJson(configJson: string, idMap: Map<string, string>): string {
+  try {
+    return JSON.stringify(rewriteProjectIdsInJson(JSON.parse(configJson) as unknown, idMap));
+  } catch {
+    return configJson;
+  }
+}
+
+function migrateSchema35To37(db: Database.Database): void {
+  db.pragma("foreign_keys = OFF");
+  try {
+    const projects = db.prepare(`
+      SELECT id, name, description, icon, workspace_path, created
+      FROM projects
+      ORDER BY created ASC
+    `).all() as ProjectIdMigrationRow[];
+    const idMap = new Map(projects.map((project) => [project.id, randomUUID()]));
+
+    db.exec(`
+      DROP TABLE IF EXISTS projects_next;
+      DROP TABLE IF EXISTS project_id_aliases;
+      DROP TABLE IF EXISTS project_sources;
+      DROP TABLE IF EXISTS project_order;
+
+      CREATE TABLE projects_next (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        icon TEXT NOT NULL DEFAULT '',
+        created TEXT NOT NULL,
+        updated TEXT NOT NULL
+      );
+
+      CREATE TABLE project_sources (
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        root TEXT NOT NULL,
+        root_key TEXT NOT NULL,
+        "order" INTEGER NOT NULL,
+        created TEXT NOT NULL,
+        updated TEXT NOT NULL,
+        PRIMARY KEY (project_id, root_key)
+      );
+
+      CREATE TABLE project_order (
+        project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+        "order" INTEGER NOT NULL,
+        updated TEXT NOT NULL
+      );
+    `);
+
+    const insertProject = db.prepare(`
+      INSERT INTO projects_next (id, name, description, icon, created, updated)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    const insertSource = db.prepare(`
+      INSERT INTO project_sources (project_id, root, root_key, "order", created, updated)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    const insertOrder = db.prepare(`
+      INSERT INTO project_order (project_id, "order", updated)
+      VALUES (?, ?, ?)
+    `);
+
+    projects.forEach((project, index) => {
+      const nextId = idMap.get(project.id);
+      if (!nextId) return;
+      insertProject.run(
+        nextId,
+        project.name,
+        project.description,
+        project.icon,
+        project.created,
+        project.created,
+      );
+      insertOrder.run(nextId, index, project.created);
+
+      const sourceRoot = normalizeMigratedSourceRoot(project.workspace_path);
+      if (sourceRoot) {
+        insertSource.run(nextId, sourceRoot, migratedSourceKey(sourceRoot), 0, project.created, project.created);
+      }
+    });
+
+    const projectIdTables = [
+      "cards",
+      "history",
+      "canvas",
+      "recurrence_exceptions",
+      "reminder_receipts",
+      "reminder_snoozes",
+      "codex_threads",
+      "codex_thread_card_links",
+      "project_sessions",
+      "project_session_tabs",
+      "project_session_threads",
+    ].filter((tableName) => tableHasColumn(db, tableName, "project_id"));
+    for (const [oldId, nextId] of idMap) {
+      for (const tableName of projectIdTables) {
+        db.prepare(`UPDATE ${tableName} SET project_id = ? WHERE project_id = ?`).run(nextId, oldId);
+      }
+      const oldOverviewSessionId = makeOverviewSessionId(oldId);
+      const nextOverviewSessionId = makeOverviewSessionId(nextId);
+      const oldOverviewTabId = makeOverviewDbTabId(oldId);
+      const nextOverviewTabId = makeOverviewDbTabId(nextId);
+      db.prepare("UPDATE project_session_tabs SET session_id = ? WHERE session_id = ?")
+        .run(nextOverviewSessionId, oldOverviewSessionId);
+      db.prepare("UPDATE project_session_threads SET session_id = ? WHERE session_id = ?")
+        .run(nextOverviewSessionId, oldOverviewSessionId);
+      db.prepare("UPDATE project_session_tabs SET id = ? WHERE id = ?")
+        .run(nextOverviewTabId, oldOverviewTabId);
+      db.prepare("UPDATE project_sessions SET id = ?, panel_state_json = replace(panel_state_json, ?, ?) WHERE id = ?")
+        .run(nextOverviewSessionId, oldOverviewTabId, nextOverviewTabId, oldOverviewSessionId);
+    }
+
+    const tabRows = db.prepare("SELECT id, config_json FROM project_session_tabs").all() as Array<{
+      id: string;
+      config_json: string;
+    }>;
+    const updateTabConfig = db.prepare("UPDATE project_session_tabs SET config_json = ?, updated_at = ? WHERE id = ?");
+    const now = new Date().toISOString();
+    for (const tab of tabRows) {
+      updateTabConfig.run(rewriteProjectIdsInConfigJson(tab.config_json, idMap), now, tab.id);
+    }
+
+    db.exec(`
+      DROP TABLE projects;
+      ALTER TABLE projects_next RENAME TO projects;
+
+      CREATE INDEX IF NOT EXISTS idx_project_sources_project_order
+        ON project_sources(project_id, "order", created);
+    `);
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+
+  setUserVersion(db, 37);
+}
+
+function migrateSchema36To37(db: Database.Database): void {
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.exec("DROP TABLE IF EXISTS project_id_aliases");
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+
+  setUserVersion(db, 37);
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -977,6 +1186,19 @@ function runMigrations(
       fromVersion = 35;
       continue;
     }
+    if (target === 37) {
+      if (fromVersion !== 35) {
+        if (fromVersion !== 36) {
+          throw new Error(`Unsupported Nodex database migration target 37 from ${fromVersion}`);
+        }
+        migrateSchema36To37(db);
+        fromVersion = 37;
+        continue;
+      }
+      migrateSchema35To37(db);
+      fromVersion = 37;
+      continue;
+    }
     throw new Error(`Unsupported Nodex database migration target ${target}`);
   }
   options.onMigrationProgress?.({ type: "Done" });
@@ -1002,9 +1224,14 @@ function seedDefaultProjectIfMissing(db: Database.Database): void {
   };
   if (projectCount.count > 0) return;
 
+  const now = new Date().toISOString();
+  const projectId = randomUUID();
   db.prepare(
-    "INSERT INTO projects (id, name, description, icon, created) VALUES (?, ?, ?, ?, ?)",
-  ).run("default", "Default", "", "", new Date().toISOString());
+    "INSERT INTO projects (id, name, description, icon, created, updated) VALUES (?, ?, ?, ?, ?, ?)",
+  ).run(projectId, "Default", "", "", now, now);
+  db.prepare(
+    'INSERT INTO project_order (project_id, "order", updated) VALUES (?, ?, ?)',
+  ).run(projectId, 0, now);
 }
 
 export function ensureDatabase(options: EnsureDatabaseOptions = {}): void {

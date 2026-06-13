@@ -107,17 +107,21 @@ const PROJECTS: Project[] = [
     id: "nodex",
     name: "Nodex",
     description: "",
-    workspacePath: "/Users/asc/repo/nodex",
     icon: "",
+    sources: [{ root: "/Users/asc/repo/nodex", order: 0 }],
+    primaryWorkspaceRoot: "/Users/asc/repo/nodex",
     created: new Date(CREATED_AT),
+    updated: new Date(CREATED_AT),
   },
   {
     id: "codex-readable",
     name: "Codex readable pack",
     description: "",
-    workspacePath: "/Users/asc/repo/devtools-codex",
     icon: "",
+    sources: [{ root: "/Users/asc/repo/devtools-codex", order: 0 }],
+    primaryWorkspaceRoot: "/Users/asc/repo/devtools-codex",
     created: new Date(CREATED_AT),
+    updated: new Date(CREATED_AT),
   },
 ];
 
@@ -562,7 +566,7 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
         openCardStage={() => undefined}
         onLeaveCardStageCard={() => undefined}
         onCreateProject={async () => null}
-        onRenameProject={async () => null}
+        onUpdateProject={async () => null}
         onDeleteProject={async () => false}
         onRequestProjectPickerOpen={() => undefined}
         threadSearchOpenTick={0}

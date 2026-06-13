@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, dialog, ipcMain, nativeImage, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from "electron";
+import { app, BrowserWindow, Menu, dialog, ipcMain, nativeImage, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type OpenDialogOptions } from "electron";
 import { writeImageToClipboard } from "./clipboard-image-writer";
 import { inspectClipboardPasteItems } from "./clipboard-paste-inspector";
 import { prepareComposerPickedFiles } from "./composer-picked-files";
@@ -246,9 +246,21 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     dbService.createProject(input)
   );
 
-  registerHandle("projects:rename", (_, oldId: string, newId: string, updates?) =>
-    dbService.renameProject(oldId, newId, updates)
+  registerHandle("projects:update", (_, projectId: string, updates) =>
+    dbService.updateProject(projectId, updates)
   );
+
+  registerHandle("projects:pick-source-root", async (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    const dialogOptions: OpenDialogOptions = {
+      title: "Choose source folder",
+      properties: ["openDirectory", "createDirectory"],
+    };
+    const result = window
+      ? await dialog.showOpenDialog(window, dialogOptions)
+      : await dialog.showOpenDialog(dialogOptions);
+    return result.canceled ? null : result.filePaths[0] ?? null;
+  });
 
   registerHandle("projects:delete", (_, projectId: string) =>
     dbService.deleteProject(projectId)

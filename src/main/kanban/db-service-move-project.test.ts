@@ -46,26 +46,27 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
 describe("moveCardToProject", () => {
   test("moves a card to another project in the same workflow column", async () => {
     const ran = await withTempDatabase(async () => {
-      createProject({ id: "ops", name: "Ops" });
+      const sourceProject = createProject({ name: "Default" });
+      const targetProject = createProject({ name: "Ops" });
 
-      await createCard("default", "in_progress", {
+      await createCard(sourceProject.id, "in_progress", {
         title: "Default head",
         description: "",
       });
-      const movedCard = await createCard("default", "in_progress", {
+      const movedCard = await createCard(sourceProject.id, "in_progress", {
         title: "Move me",
         description: "Cross-project transfer",
       });
-      await createCard("ops", "in_progress", {
+      await createCard(targetProject.id, "in_progress", {
         title: "Ops tail",
         description: "",
       });
 
       const result = await moveCardToProject({
         cardId: movedCard.id,
-        sourceProjectId: "default",
+        sourceProjectId: sourceProject.id,
         sourceStatus: "in_progress",
-        targetProjectId: "ops",
+        targetProjectId: targetProject.id,
       });
 
       if (typeof result === "string") {
@@ -75,13 +76,13 @@ describe("moveCardToProject", () => {
       expect(result.sourceStatus).toBe("in_progress");
       expect(result.targetStatus).toBe("in_progress");
 
-      const sourceAfterMove = await getCard("default", movedCard.id);
-      const targetAfterMove = await getCard("ops", movedCard.id);
+      const sourceAfterMove = await getCard(sourceProject.id, movedCard.id);
+      const targetAfterMove = await getCard(targetProject.id, movedCard.id);
       expect(sourceAfterMove === null).toBeTrue();
       expect(targetAfterMove?.status).toBe("in_progress");
 
-      const defaultBoard = await getBoard("default");
-      const opsBoard = await getBoard("ops");
+      const defaultBoard = await getBoard(sourceProject.id);
+      const opsBoard = await getBoard(targetProject.id);
       const defaultColumn = defaultBoard.columns.find((column) => column.id === "in_progress");
       const opsColumn = opsBoard.columns.find((column) => column.id === "in_progress");
 
@@ -98,21 +99,22 @@ describe("moveCardToProject", () => {
 
   test("returns target_project_not_found when the destination project is missing", async () => {
     const ran = await withTempDatabase(async () => {
-      const source = await createCard("default", "in_progress", {
+      const sourceProject = createProject({ name: "Default" });
+      const source = await createCard(sourceProject.id, "in_progress", {
         title: "Source",
         description: "",
       });
 
       const result = await moveCardToProject({
         cardId: source.id,
-        sourceProjectId: "default",
+        sourceProjectId: sourceProject.id,
         sourceStatus: "in_progress",
         targetProjectId: "missing",
       });
 
       expect(result).toBe("target_project_not_found");
 
-      const sourceAfterFailure = await getCard("default", source.id);
+      const sourceAfterFailure = await getCard(sourceProject.id, source.id);
       expect(sourceAfterFailure?.status).toBe("in_progress");
     });
 

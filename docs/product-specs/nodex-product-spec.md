@@ -40,13 +40,13 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Each project has an independent kanban board, history, and undo/redo
 - Single-page app with a project/session shell: projects render as folders in the left sidebar, expanded projects show durable sessions, and the active session renders as a thread page with shell-owned right and bottom panels for content tabs
 - Every project has a seeded `Overview` session with one open full-width right-panel `db_view` tab for that project's primary DB view; new non-Overview sessions start with the right panel collapsed
-- Session panel tabs support `db_view`, `card_stage`, `terminal`, `browser`, `review`, and `files` kinds; Browser renders the Electron browser-sidebar feature with isolated main-owned webview content, a compact navigation toolbar, address commit/skip behavior, local-server discovery cards, full-bleed responsive page hosting, retained page lifetime across tab switches and panel hide/show, device toolbar presets, zoom/data clearing, screenshot/comment affordances, and browser-use overlay state. Files renders the project workspace tree, search/filter input, file preview area, Codex-style file tab ids, external-open actions, and markdown/text/image/PDF/unsupported preview routing. Review renders the active thread's connected review diff panel, and Side chat actions create renderer-local temporary thread tabs instead of durable `project_session_tabs` rows. Older saved durable Side chat launcher rows are pruned during schema migration, and older `files_placeholder` rows are normalized to `files`.
+- Session panel tabs support `db_view`, `card_stage`, `terminal`, `browser`, `review`, and `files` kinds; Browser renders the Electron browser-sidebar feature with isolated main-owned webview content, a compact navigation toolbar, address commit/skip behavior, local-server discovery cards, full-bleed responsive page hosting, retained page lifetime across tab switches and panel hide/show, device toolbar presets, zoom/data clearing, screenshot/comment affordances, and browser-use overlay state. Files renders the primary source tree, search/filter input, file preview area, Codex-style file tab ids, external-open actions, and markdown/text/image/PDF/unsupported preview routing. Review renders the active thread's connected review diff panel, and Side chat actions create renderer-local temporary thread tabs instead of durable `project_session_tabs` rows. Older saved durable Side chat launcher rows are pruned during schema migration, and older `files_placeholder` rows are normalized to `files`.
 - Empty panels and each panel-group tab strip use the same target-aware new-tab action registry. Each group's plus button sits immediately after that group's tabs and creates or previews content in that leaf. The Codex-parity chooser order is Review, Terminal, Browser, Files, and Side chat, filtered by target panel and singleton availability. Right-panel choosers then append a separated Nodex-only section for DB View and Card Stage when eligible. Timeline remains hidden until Nodex has a first-class tab kind and eligibility model for it. Review is a singleton tab per session across both right and bottom panels. Browser is multi-tab, remains available when Browser tabs already exist, and supports New tab to the right, Reload, and Duplicate before generic close actions from the tab context menu.
 - Files and Browser can open as preview tabs in either right or bottom panel. A project session panel leaf owns at most one preview at a time; opening a second preview in the same leaf replaces the first, and the preview is ephemeral until the user interacts with the preview body or pins it. Side chat uses a separate renderer-local leaf-scoped tab lifecycle: the empty-panel action, panel menu, thread overflow action, `/side`, and transcript `Ask in side chat` actions create `sidechat-loading:<parentThreadId>:<index>` tabs, replace them with closable `sidechat:<threadId>` tabs after the temporary fork starts, and never pin or persist those tabs.
 - DB view tabs keep the DB view selector pinned above board, list, toggle-list, canvas, and calendar content, with task search and supported view-local filter/sort/display controls inside that tab body
 - Card Stage opens as a session-attached tab. Opening a card from a DB tab creates or focuses the matching card tab in the active session instead of switching a global Card stage.
 - Opening Card Stage from the right-panel action chooser uses an active-project card picker instead of prompting for a card id.
-- Terminal opens as a session-attached bottom-panel tab with a session-tab-scoped terminal id and starts in the attached thread cwd when present, otherwise the owning project workspace path, otherwise the PTY process default. Cards can request a terminal, but terminal tabs no longer carry card ownership or card ids.
+- Terminal opens as a session-attached bottom-panel tab with a session-tab-scoped terminal id and starts in the attached thread cwd when present, otherwise the owning project's primary source, otherwise the PTY process default. Cards can request a terminal, but terminal tabs no longer carry card ownership or card ids.
 - Panel action shortcuts are `Ctrl+Shift+G` for Review, `Ctrl+\`` for Terminal, `Cmd/Ctrl+T` for Browser, `Cmd/Ctrl+P` for Files, and `Alt+Cmd/Ctrl+S` for Side chat. They are ignored while focus is inside editor/input/dialog surfaces.
 - The active session can show, collapse, resize, or full-width expand the right panel, and can show/collapse/resize the bottom panel independently. The fixed global header exposes `Toggle bottom panel` and `Toggle side panel` buttons, ordered bottom first and side second, and keeps those persistent top-right toggles visible and clickable over regular and full-width right panels. The right panel owns its expand/restore button at the far-right edge of the whole panel, and the bottom panel owns its close button at the far-right edge of the whole bottom panel. When the right panel is full-width, its tab header visually owns the top row and hides the thread title/header area. New non-Overview sessions default to collapsed right panels; bottom opens when a terminal tab is created or focused. Overview sessions default to open full-width right panels unless the user has changed that session's panel width.
 - Attached root-thread sessions use a floating composer overlay at the bottom of the full-width right panel for `review`, `browser`, `db_view`, and `card_stage` tabs. The overlay preserves the normal follow-up composer behavior, latest-turn preview, queued/background lanes, model/reasoning selector, dictation, stop/send controls, and app-shell bottom-panel offset. Side chats, Terminal, Files, blank new-thread homes, and resuming attached threads do not show the root-thread overlay.
@@ -73,8 +73,8 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - On macOS, traffic-light window controls stay visible at top-left; when the sidebar is expanded, the sidebar collapse control plus Back/Forward controls sit beside them in the sidebar top strip, and when collapsed the titlebar left region renders the sidebar toggle, Back/Forward, then a compact `New chat` button before the thread title section.
 - Card Stage session selection lives in the active session's right-panel tab groups; leaf tab strips support hover tooltips, close, pointer-only drag reorder, cross-leaf tab moves, and edge-drop splitting through the shared tab strip/tree
 - Settings can choose which optional card-stage rows start behind the Card Stage `more properties` toggle (`Tags`, `Assignee`, `Threads`, `Schedule`, `Agent blocked`, and `Agent status`)
-- Terminal is a session-attached panel tab that defaults to the bottom panel, starts from the active session/thread cwd before falling back to the project workspace path, and can be moved to the right panel. Card Stage may request a session terminal, but cards cannot own terminal tabs or PTY ids.
-- The session thread page is a live Codex workspace in Electron. Without an attached thread, it shows a centered new-chat home headed `What should we build in <project>?`, with the inline project selector sharing state with the lower composer project selector. The sticky composer exposes add-context, Plan mode, permissions, model/reasoning, dictation, send controls, a project selector, and a `Start in` selector in the attached lower status strip. The `Start in` selector supports `Work locally` and `New worktree`; cloud, connected-app, suggestion, and projectless rows stay hidden until those backend paths are intentionally added. Submitting the first prompt starts a session-owned Codex thread for the selected project and stores the link in `project_session_threads`; if the selected project differs from the current blank session's project, Nodex first reuses or creates a blank session owned by that project, then starts the thread there so session/project ownership remains valid. `Work locally` uses the selected project workspace path. `New worktree` creates a managed Git worktree, runs the selected local-environment setup script when configured, starts `thread/start` and `turn/start` in that worktree cwd, streams setup progress, and links the resulting thread to the owning session. Thread-id attachment storage remains available at the transport layer, but the workbench header does not expose an attach/detach thread button. Projectless new-chat startup remains hidden until a backend projectless session path exists.
+- Terminal is a session-attached panel tab that defaults to the bottom panel, starts from the active session/thread cwd before falling back to the project primary source, and can be moved to the right panel. Card Stage may request a session terminal, but cards cannot own terminal tabs or PTY ids.
+- The session thread page is a live Codex workspace in Electron. Without an attached thread, it shows a centered new-chat home headed `What should we build in <project>?`, with the inline project selector sharing state with the lower composer project selector. The sticky composer exposes add-context, Plan mode, permissions, model/reasoning, dictation, send controls, a project selector, and a `Start in` selector in the attached lower status strip. The `Start in` selector supports `Work locally` and `New worktree`; cloud, connected-app, suggestion, and projectless rows stay hidden until those backend paths are intentionally added. Submitting the first prompt starts a session-owned Codex thread for the selected project and stores the link in `project_session_threads`; if the selected project differs from the current blank session's project, Nodex first reuses or creates a blank session owned by that project, then starts the thread there so session/project ownership remains valid. `Work locally` uses the selected project's primary source when one exists, otherwise a generated per-thread local workspace. `New worktree` requires a primary source, creates a managed Git worktree, runs the selected local-environment setup script when configured, starts `thread/start` and `turn/start` in that worktree cwd, streams setup progress, and links the resulting thread to the owning session. Thread-id attachment storage remains available at the transport layer, but the workbench header does not expose an attach/detach thread button. Projectless new-chat startup remains hidden until a backend projectless session path exists.
 - Side chats are temporary forked conversations for questions and lightweight exploration. Starting a side chat sends an ephemeral `thread/fork` with excluded parent turns, injects a side-conversation boundary before any initial prompt, and renders the resulting thread through the same connected local conversation stage inside the right or bottom panel. Inherited parent history is reference-only; workspace mutation is allowed only when the user explicitly asks for mutation inside that side conversation. Side chats are excluded from project thread lists, session thread links, durable tab ordering, archive/title flows, and cold-start restoration. Closing a side-chat tab discards its cached temporary thread in the background; missing or discarded side chats render `Side chat expired` with `Start new side chat`.
 - Opening a session with an archived attached thread shows an archived-thread restore state. Nodex must not call `thread/resume` for archived thread metadata; the user explicitly restores the thread through `thread/unarchive`, then the normal resume flow can continue after the thread is active again.
 - Detailed visible transcript behavior for Threads lives in [Codex Thread Transcript Behavior](./codex-thread-transcript-behavior.md), including answered `request_user_input` rows, plan-implementation follow-up flow, optimistic prompt dedupe, tool/reasoning rendering, and restart recovery rules.
@@ -115,7 +115,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Opening a desktop notification focuses the origin window and opens the matching thread tab. Reply sends a new turn into that thread. Approval actions route back through the existing approval-response flow. Navigating to a real thread tab dismisses all desktop notifications for that conversation.
 - User-interrupted turns must never produce a turn-complete desktop notification, even if later terminal updates arrive for that turn through the local stream.
 - Packaged macOS builds can check for stable app updates on launch in the background, download them automatically when found, expose a manual `Check now` action in Settings -> General -> `App updates`, expose `Check for Updates…` in the macOS app menu, and require an explicit `Restart to Update` action before installation.
-- Diff stage is a review panel bound to the active thread/project workspace:
+- Diff stage is a review panel bound to the active thread cwd or project primary source:
   - review sources include `Last turn`, `Review uncommitted changes`, `Review staged changes`, and `Review against a base branch`
   - the panel can initialize Git for a workspace that is not yet a repository
   - the toolbar exposes source selection, `+N` / `-N` stats, `Review options`, `Jump to file`, unified/split diff mode, `Hide files` / `Show files`, `Commit or push`, and `Create PR`
@@ -126,14 +126,15 @@ When working with coding agents like Claude Code, there's no streamlined way to:
   - model-produced `::code-comment{...}` directives render as path/line anchored review annotations above the matching file diff
   - very large reviews fall back to a capped one-file-at-a-time mode when they exceed file-count, total-line, total-byte, or single-file changed-line thresholds
   - detailed Review panel behavior lives in [Review Right Panel Behavior](./review-right-panel-behavior.md)
-- Create/delete projects via switcher dropdown or CLI
-- Default project "default" seeded on first boot
+- Create/delete projects from the sidebar Projects header or project-row action menus.
+- Default project is seeded on first boot with a UUID canonical ID and a retained `default` legacy alias.
 - In Electron, startup opens into a blocking bootstrap surface until local initialization completes; if a future supported SQLite schema migration is running, that surface shows determinate migration progress and migration-specific status copy
-- Project ID: lowercase alphanumeric with hyphens (e.g., `my-project`)
+- Project ID: opaque UUID generated server-side. Legacy slug IDs resolve through aliases, but responses return canonical UUIDs.
 - Project icon: optional per-project emoji persisted in SQLite; when empty, UI shows a project-colored dot
-- Project workspace path: optional filesystem path persisted per project and used as Codex thread `cwd`
-- Sidebar project rows do not show the workspace path inline. Each project row actions menu exposes `Open in Finder` when a workspace path is set and `Choose project folder...` to open the native directory picker and save the selection.
-- Project icon input in the spaces switcher includes a button that opens the native macOS emoji picker panel
+- Project sources: ordered source folders persisted separately from the project row. The first source is the primary workspace root for Git, Files, Review, local thread cwd, and managed worktree base repository; all configured sources are writable workspace roots for sandboxing.
+- Empty-source projects are valid Nodex data containers. Work-local thread starts allocate a generated per-thread workspace; managed worktree and local-environment flows require a primary source and surface a clear error when missing.
+- Sidebar project rows do not show the source path inline. Each project row actions menu exposes rename, choose icon, edit sources, add source folder, `Open in Finder` for the primary source, and delete.
+- The Projects header add button opens a submenu with `Start from scratch` and `Use an existing folder`. `Start from scratch` opens the local project setup dialog with optional name/source collection. `Use an existing folder` opens the native folder picker, names the project from the folder basename, and stores that folder as the first source.
 - CASCADE delete removes all cards and history for a project
 - Codex thread links are one-owner: one card can own many threads, each thread belongs to one card
 
@@ -217,7 +218,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 | `agentStatus` | string | No | Current agent status message (max 1,024 chars) |
 | `agentBlocked` | boolean | No | Whether agent is blocked (default: false) |
 | `runInTarget` | enum | No | Where new card threads run: `localProject` (default), `newWorktree`, `cloud` (mock/blocked) |
-| `runInLocalPath` | string | No | Optional local folder override used when `runInTarget=localProject`; empty means project workspace path |
+| `runInLocalPath` | string | No | Optional local folder override used when `runInTarget=localProject`; empty means project primary source or generated per-thread workspace for empty-source projects |
 | `runInBaseBranch` | string | No | Optional base branch for new worktree creation (`runInTarget=newWorktree`) |
 | `runInWorktreePath` | string | No | Persisted managed worktree path used for sticky reuse when `runInTarget=newWorktree` |
 | `runInEnvironmentPath` | string | No | Optional repo-relative `.codex/environments/*.toml` path used when creating a new managed worktree; selected in Card Stage and edited in Settings -> Local environments |
@@ -252,7 +253,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - NFM link labels are escape-normalized on parse, so repeated auto-save cycles remain idempotent (prevents exponential backslash growth on escaped markdown markers inside link text)
 - NFM autolink behavior is renderer-configurable: typing and paste recognition can be toggled independently, bare-domain recognition defaults on, and paste-time matching is intentionally strict enough to leave repo paths, slash-separated path segments, local file paths, and filename-like text such as `foo/bar/baz.md`, `local/code-block-mock-ui/action-menu-popper.com`, or `nfm-editor-copy-behavior.md` plain by default
 - Manual link creation/editing in the NFM editor trims surrounding whitespace only and otherwise preserves the entered target exactly, so absolute local paths, slash-separated relative file paths, `file://` URLs, and protocol-less domains are all stored as authored
-- Preserved manual NFM links are classified only at open time: bare domains open as `https://...`, absolute/file URLs open through the local-file path, relative file-like links resolve against the active project workspace, and unresolved file-like links fail closed instead of navigating browser-relative
+- Preserved manual NFM links are classified only at open time: bare domains open as `https://...`, absolute/file URLs open through the local-file path, relative file-like links resolve against the active project primary source, and unresolved file-like links fail closed instead of navigating browser-relative
 - Detailed autolink rules and examples: [NFM Editor Autolink Behavior](./nfm-editor-autolink-behavior.md)
 - Detailed manual-link rules and examples: [NFM Editor Link Behavior](./nfm-editor-link-behavior.md)
 - Card writes are validated before persistence (field limits + enum/type checks), and oversized HTTP payloads for create/update are rejected with `413`
@@ -399,7 +400,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Thread stage always includes a persistent `New thread` tab.
 - In Card Stage `Threads`, pressing `New` focuses the Thread stage `New thread` tab (no inline Card Stage prompt composer).
 - The `New thread` tab shows the selected project/card context and uses the stage composer for the first prompt.
-- Card `Run in` defaults to `Local project`, so new threads run in `runInLocalPath` (when set) or the project workspace path.
+- Card `Run in` defaults to `Local project`, so new threads run in `runInLocalPath` (when set) or the project primary source.
 - `New worktree` run target creates a managed Git worktree under `${serverDir}/worktrees/<rand4>/<project-id>` and links thread cwd to that worktree.
 - For `New worktree`, first thread creation persists the managed worktree path on the card (`runInWorktreePath`), and subsequent new threads for that card reuse it.
 - If the persisted managed worktree path is missing/invalid (for example deleted outside Nodex), thread start recreates a managed worktree and overwrites `runInWorktreePath`.
@@ -449,7 +450,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Thread stage composer shell uses static chrome: rounded input background, subtle ring, backdrop blur, and a fixed shallow shadow with no added focus-within elevation when the editor is active.
 - Add-context picker non-image files become prompt mentions, picked images are read as data URLs and sent as image inputs, and picker attachments remain separate from paste/drop/Add-to-chat file provenance. Running-turn steer sends the same normalized prompt input shape as normal turns; unaccepted steers are restored as queued follow-ups if the active turn ends too early.
 - Thread stage request cards replace the normal composer editor, attachments, add-context, permission, context, Intelligence, dictation, and send/stop footer controls while they are active. Existing-thread request cards do not render the new-chat-only lower status strip.
-- Thread stage composer lower status row is a pre-start new-chat-only attached strip. It shows the selected project when available, the local run target (`Work locally`) or `Start in` selector, optional environment selection for `New worktree`, and the real Git branch for the selected workspace path; once a conversation exists, existing-thread composers do not mount this lower row.
+- Thread stage composer lower status row is a pre-start new-chat-only attached strip. It shows the selected project when available, the local run target (`Work locally`) or `Start in` selector, optional environment selection for `New worktree`, and the real Git branch for the selected primary source; once a conversation exists, existing-thread composers do not mount this lower row.
 - Thread stage composer shows the context-window meter tooltip from the composer footer: unavailable data falls back to `0% used (100% left)`, ready data rounds token counts to whole thousands, usage below `50%` reads `{usage}% used ({remaining}% left)`, usage at or above `50%` reads `{usage}% full`, and the `Codex automatically compacts its context` line appears only for ChatGPT-authenticated sessions without an explicit `modelProvider`.
 - Thread stage composer includes dictation as a separate buffered speech-to-text feature in Electron: the mic button is shown in supported ChatGPT-authenticated sessions, tooltip copy is `Click to dictate or hold`, `Ctrl+M` starts on keydown and stops on keyup with `insert`, button click starts recording, recordings shorter than `250ms` are discarded locally, and stop actions stay split between `Stop dictation` (`insert`) and `Transcribe and send` (`send`) before one `/transcribe` POST returns transcript text.
 - Threads composer uses one round icon button: it sends when idle, shows a spinner immediately while the prompt send is pending, and switches to a stop icon while Codex is running so users can interrupt immediately.
@@ -637,9 +638,9 @@ nodex/
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/projects` | List all projects |
-| POST | `/api/projects` | Create project (body: `{id, name, description?, icon?, workspacePath?}` where `icon` is an optional emoji) |
-| GET | `/api/projects/[projectId]` | Get project details |
-| PUT | `/api/projects/[projectId]` | Rename/update project (body: `{newId?, name?, description?, icon?, workspacePath?}`) |
+| POST | `/api/projects` | Create project (body: `{name?, description?, icon?, sources?}` where `icon` is an optional emoji and the canonical ID is generated server-side) |
+| GET | `/api/projects/[projectId]` | Get project details; `[projectId]` may be a UUID or retained legacy alias |
+| PUT | `/api/projects/[projectId]` | Update project display fields and sources (body: `{name?, description?, icon?, sources?}`); ID changes are rejected |
 | DELETE | `/api/projects/[projectId]` | Delete project (cascades cards + history) |
 
 #### Project Session Routes
@@ -713,12 +714,28 @@ nodex/
 
 -- Projects table
 CREATE TABLE projects (
-  id TEXT PRIMARY KEY,              -- slug: lowercase alphanumeric + hyphens
+  id TEXT PRIMARY KEY,              -- opaque UUID generated by the main process
   name TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
   icon TEXT NOT NULL DEFAULT '',    -- optional project emoji icon
-  workspace_path TEXT,              -- optional filesystem cwd for Codex threads
-  created TEXT NOT NULL             -- ISO datetime
+  created TEXT NOT NULL,            -- ISO datetime
+  updated TEXT NOT NULL             -- ISO datetime
+);
+
+CREATE TABLE project_sources (
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  root TEXT NOT NULL,               -- absolute source folder
+  root_key TEXT NOT NULL,           -- normalized dedupe key
+  "order" INTEGER NOT NULL,
+  created TEXT NOT NULL,
+  updated TEXT NOT NULL,
+  PRIMARY KEY (project_id, root_key)
+);
+
+CREATE TABLE project_order (
+  project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  "order" INTEGER NOT NULL,
+  updated TEXT NOT NULL
 );
 
 -- Project sessions and session tabs

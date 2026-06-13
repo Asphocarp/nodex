@@ -447,6 +447,28 @@ function makeSpaceRef(projectId: string): SpaceRef {
   return { projectId, colorToken, initial };
 }
 
+function buildProjectIdSet(projects: Project[]): Set<string> {
+  return new Set(projects.map((project) => project.id));
+}
+
+function pruneProjectRecord<T>(
+  record: Record<string, T>,
+  projectIds: ReadonlySet<string>,
+): Record<string, T> {
+  return Object.entries(record).reduce<Record<string, T>>((acc, [projectId, value]) => {
+    if (!projectIds.has(projectId)) return acc;
+    acc[projectId] = value;
+    return acc;
+  }, {});
+}
+
+function pruneRecentSessions(
+  recentSessions: RecentCardSession[],
+  projectIds: ReadonlySet<string>,
+): RecentCardSession[] {
+  return recentSessions.filter((session) => projectIds.has(session.projectId));
+}
+
 interface LoadInitialStateOptions {
   layoutSnapshot?: WorkbenchLayoutSnapshot | null;
 }
@@ -564,9 +586,16 @@ function loadInitialState(options: LoadInitialStateOptions = {}): WorkbenchState
   };
 }
 
-function reconcileSpaceOrder(order: string[], projects: Project[]): string[] {
-  const projectIds = new Set(projects.map((project) => project.id));
-  const next = order.filter((projectId) => projectIds.has(projectId));
+function reconcileSpaceOrder(
+  order: string[],
+  projects: Project[],
+): string[] {
+  const projectIds = buildProjectIdSet(projects);
+  const next = order.reduce<string[]>((acc, projectId) => {
+    if (!projectIds.has(projectId) || acc.includes(projectId)) return acc;
+    acc.push(projectId);
+    return acc;
+  }, []);
 
   projects.forEach((project) => {
     if (next.includes(project.id)) return;
@@ -576,8 +605,11 @@ function reconcileSpaceOrder(order: string[], projects: Project[]): string[] {
   return next;
 }
 
-function ensureActiveProject(current: string, projects: Project[]): string {
-  if (projects.some((project) => project.id === current)) return current;
+function ensureActiveProject(
+  current: string,
+  projects: Project[],
+): string {
+  if (buildProjectIdSet(projects).has(current)) return current;
   return projects[0]?.id ?? "default";
 }
 
@@ -915,14 +947,14 @@ export function useWorkbenchState(
     if (projects.length === 0) return;
 
     setState((prev) => {
+      const projectIds = buildProjectIdSet(projects);
       const spaceOrder = reconcileSpaceOrder(prev.spaceOrder, projects);
       const dbProjectId = ensureActiveProject(prev.dbProjectId, projects);
       const threadsProjectId = ensureActiveProject(prev.threadsProjectId, projects);
 
-      const viewsByProject = { ...prev.viewsByProject };
-      const searchByProject = { ...prev.searchByProject };
-      const dbViewPrefsByProject = { ...prev.dbViewPrefsByProject };
-      const projectIds = new Set(projects.map((project) => project.id));
+      const viewsByProject = pruneProjectRecord(prev.viewsByProject, projectIds);
+      const searchByProject = pruneProjectRecord(prev.searchByProject, projectIds);
+      const dbViewPrefsByProject = pruneProjectRecord(prev.dbViewPrefsByProject, projectIds);
 
       Object.keys(viewsByProject).forEach((projectId) => {
         if (projectIds.has(projectId)) return;
@@ -943,9 +975,7 @@ export function useWorkbenchState(
         viewsByProject[project.id] = "kanban";
       });
 
-      const recentCardSessions = prev.recentCardSessions.filter((session) =>
-        projectIds.has(session.projectId),
-      );
+      const recentCardSessions = pruneRecentSessions(prev.recentCardSessions, projectIds);
 
       const activeRecentSessionId =
         prev.activeRecentSessionId &&
@@ -953,9 +983,9 @@ export function useWorkbenchState(
           ? prev.activeRecentSessionId
           : null;
 
-      const sidebarStageExpandedByProject = { ...prev.sidebarStageExpandedByProject };
-      const sidebarSectionExpandedByProject = { ...prev.sidebarSectionExpandedByProject };
-      const sidebarSectionShowAllByProject = { ...prev.sidebarSectionShowAllByProject };
+      const sidebarStageExpandedByProject = pruneProjectRecord(prev.sidebarStageExpandedByProject, projectIds);
+      const sidebarSectionExpandedByProject = pruneProjectRecord(prev.sidebarSectionExpandedByProject, projectIds);
+      const sidebarSectionShowAllByProject = pruneProjectRecord(prev.sidebarSectionShowAllByProject, projectIds);
       const slidingWindowPaneCount = clampSlidingWindowPaneCount(prev.slidingWindowPaneCount);
 
       Object.keys(sidebarStageExpandedByProject).forEach((projectId) => {

@@ -56,7 +56,7 @@ const EMPTY_PREVIEW_STATE: WorkspaceFilePreviewState = {
 function resolveWorkspaceRoot(tab: WorkspaceFilesTab, project: Project | null): string {
   const configuredRoot = tab.config.workspaceRoot?.trim();
   if (configuredRoot) return configuredRoot;
-  return project?.workspacePath?.trim() ?? "";
+  return project?.primaryWorkspaceRoot?.trim() || project?.sources[0]?.root.trim() || "";
 }
 
 function formatBytes(size: number): string {

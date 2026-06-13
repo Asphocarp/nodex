@@ -1,4 +1,4 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { assertUuidV7, createUuidV7 } from "../../shared/card-id";
 import {
@@ -21,7 +21,8 @@ import {
   type MoveCardToProjectResult,
   type MoveCardsInput,
   type Project,
-  type ProjectInput,
+  type ProjectCreateInput,
+  type ProjectUpdateInput,
   type RecurrenceConfig,
   type ReminderConfig,
 } from "../../shared/types";
@@ -29,13 +30,18 @@ import {
   DEFAULT_CARD_STATUS,
   type CardStatus,
 } from "../../shared/card-status";
-import {
-  normalizeProjectIcon,
-  normalizeProjectIconUpdate,
-} from "../../shared/project-icon";
-import { getDatabasePath, getKanbanDir } from "./config";
 import { dbNotifier } from "./db-notifier";
 import { ensureDatabase, COLUMNS, type EnsureDatabaseOptions } from "./schema";
+import {
+  createProject as createProjectRecord,
+  deleteProject as deleteProjectRecord,
+  getProject as getProjectRecord,
+  listProjects as listProjectRecords,
+  updateProject as updateProjectRecord,
+  requireProjectId,
+  resolveProjectId,
+} from "./project-service";
+import { getDb } from "./database";
 import * as historyService from "./history-service";
 import * as descriptionRevisionService from "./description-revision-service";
 import { assertValidCardInput } from "./card-input-validation";
@@ -45,7 +51,7 @@ import {
   shiftUntilDateByDays,
   type RecurrenceException,
 } from "./recurrence-service";
-import * as fs from "fs";
+export { closeDatabase, getDb } from "./database";
 
 interface DbCard {
   id: string;
@@ -88,39 +94,6 @@ interface DbRecurrenceException {
   override_end: string | null;
   override_reminders_json: string | null;
   created: string;
-}
-
-interface DbProject {
-  id: string;
-  name: string;
-  description: string;
-  icon: string;
-  workspace_path: string | null;
-  created: string;
-}
-
-// Module-level singleton (Electron main process is a single long-lived process)
-let db: Database.Database | null = null;
-
-export function getDb(): Database.Database {
-  if (!db) {
-    const dbPath = getDatabasePath();
-    const dir = getKanbanDir();
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    db = new Database(dbPath);
-    db.pragma("journal_mode = WAL");
-    db.pragma("foreign_keys = ON");
-    db.pragma("busy_timeout = 5000");
-  }
-  return db;
-}
-
-export function closeDatabase(): void {
-  if (!db) return;
-  db.close();
-  db = null;
 }
 
 function normalizeCardIdInput(value: string | undefined): string | null {
@@ -248,41 +221,6 @@ function parseTags(value: string): string[] {
   } catch {
     return [];
   }
-}
-
-function updateProjectSessionTabConfigsForProjectRename(
-  database: Database.Database,
-  oldId: string,
-  newId: string,
-): void {
-  const rows = database
-    .prepare("SELECT id, config_json FROM project_session_tabs WHERE project_id = ?")
-    .all(newId) as Array<{ id: string; config_json: string }>;
-  const update = database.prepare("UPDATE project_session_tabs SET config_json = ?, updated_at = ? WHERE id = ?");
-  const now = new Date().toISOString();
-
-  for (const row of rows) {
-    try {
-      const config = JSON.parse(row.config_json) as unknown;
-      if (typeof config !== "object" || config === null) continue;
-      const configWithProject = config as { projectId?: unknown };
-      if (configWithProject.projectId !== oldId) continue;
-      update.run(JSON.stringify({ ...configWithProject, projectId: newId }), now, row.id);
-    } catch {
-      continue;
-    }
-  }
-}
-
-function rowToProject(row: DbProject): Project {
-  return {
-    id: row.id,
-    name: row.name,
-    description: row.description,
-    icon: normalizeProjectIcon(row.icon),
-    workspacePath: row.workspace_path || undefined,
-    created: new Date(row.created),
-  };
 }
 
 interface CardUpdateMutation {
@@ -489,118 +427,36 @@ function applyMoveFieldPatch(args: {
 // === Project CRUD ===
 
 export function listProjects(): Project[] {
-  const database = getDb();
-  const rows = database
-    .prepare("SELECT * FROM projects ORDER BY created ASC")
-    .all() as DbProject[];
-  return rows.map(rowToProject);
+  return listProjectRecords();
 }
 
 export function getProject(projectId: string): Project | null {
-  const database = getDb();
-  const row = database
-    .prepare("SELECT * FROM projects WHERE id = ?")
-    .get(projectId) as DbProject | undefined;
-  return row ? rowToProject(row) : null;
+  return getProjectRecord(projectId);
 }
 
-export function createProject(input: ProjectInput): Project {
-  const database = getDb();
-  const now = new Date();
-  const icon = normalizeProjectIcon(input.icon);
-  const workspacePath = input.workspacePath?.trim() || null;
-
-  database.prepare(
-    "INSERT INTO projects (id, name, description, icon, workspace_path, created) VALUES (?, ?, ?, ?, ?, ?)"
-  ).run(input.id, input.name, input.description || "", icon, workspacePath, now.toISOString());
-
-  return {
-    id: input.id,
-    name: input.name,
-    description: input.description || "",
-    icon,
-    workspacePath: workspacePath || undefined,
-    created: now,
-  };
+export function createProject(input: ProjectCreateInput): Project {
+  return createProjectRecord(input);
 }
 
 export function deleteProject(projectId: string): boolean {
-  const database = getDb();
-  const result = database
-    .prepare("DELETE FROM projects WHERE id = ?")
-    .run(projectId);
-  return result.changes > 0;
+  return deleteProjectRecord(projectId);
 }
 
-export function renameProject(
-  oldId: string,
-  newId: string,
-  updates?: { name?: string; description?: string; icon?: string; workspacePath?: string | null }
-): Project | null {
-  const database = getDb();
-  const existing = database
-    .prepare("SELECT * FROM projects WHERE id = ?")
-    .get(oldId) as DbProject | undefined;
-  if (!existing) return null;
-
-  if (oldId !== newId) {
-    const conflict = database
-      .prepare("SELECT id FROM projects WHERE id = ?")
-      .get(newId);
-    if (conflict) throw new Error(`Project "${newId}" already exists`);
-  }
-
-  // Disable FK checks so we can update the PK + FK references atomically
-  database.pragma("foreign_keys = OFF");
-  try {
-    const txn = database.transaction(() => {
-      if (oldId !== newId) {
-        database.prepare("UPDATE projects SET id = ? WHERE id = ?").run(newId, oldId);
-        database.prepare("UPDATE cards SET project_id = ? WHERE project_id = ?").run(newId, oldId);
-        database.prepare("UPDATE history SET project_id = ? WHERE project_id = ?").run(newId, oldId);
-        database.prepare("UPDATE canvas SET project_id = ? WHERE project_id = ?").run(newId, oldId);
-        database.prepare("UPDATE recurrence_exceptions SET project_id = ? WHERE project_id = ?").run(newId, oldId);
-        database.prepare("UPDATE reminder_receipts SET project_id = ? WHERE project_id = ?").run(newId, oldId);
-        database.prepare("UPDATE reminder_snoozes SET project_id = ? WHERE project_id = ?").run(newId, oldId);
-        database.prepare("UPDATE codex_threads SET project_id = ? WHERE project_id = ?").run(newId, oldId);
-        database.prepare("UPDATE codex_thread_card_links SET project_id = ? WHERE project_id = ?").run(newId, oldId);
-        database.prepare("UPDATE project_sessions SET project_id = ? WHERE project_id = ?").run(newId, oldId);
-        database.prepare("UPDATE project_session_tabs SET project_id = ? WHERE project_id = ?").run(newId, oldId);
-        updateProjectSessionTabConfigsForProjectRename(database, oldId, newId);
-      }
-      if (updates?.name !== undefined) {
-        database.prepare("UPDATE projects SET name = ? WHERE id = ?").run(updates.name, newId);
-      }
-      if (updates?.description !== undefined) {
-        database.prepare("UPDATE projects SET description = ? WHERE id = ?").run(updates.description, newId);
-      }
-      if (updates?.workspacePath !== undefined) {
-        const workspacePath = updates.workspacePath?.trim() || null;
-        database.prepare("UPDATE projects SET workspace_path = ? WHERE id = ?").run(workspacePath, newId);
-      }
-      const normalizedIcon = normalizeProjectIconUpdate(updates?.icon);
-      if (normalizedIcon !== undefined) {
-        database.prepare("UPDATE projects SET icon = ? WHERE id = ?").run(normalizedIcon, newId);
-      }
-    });
-    txn();
-  } finally {
-    database.pragma("foreign_keys = ON");
-  }
-
-  return getProject(newId);
+export function updateProject(projectId: string, updates: ProjectUpdateInput): Project | null {
+  return updateProjectRecord(projectId, updates);
 }
 
 // === Card CRUD ===
 
 export async function readColumn(projectId: string, columnId: CardStatus): Promise<Column> {
+  const canonicalProjectId = requireProjectId(projectId);
   const columnMeta = COLUMNS.find((c) => c.id === columnId);
   if (!columnMeta) throw new Error(`Unknown column: ${columnId}`);
 
   const stmt = getDb().prepare(
     'SELECT * FROM cards WHERE project_id = ? AND archived = 0 AND status = ? ORDER BY "order" ASC'
   );
-  const rows = stmt.all(projectId, columnId) as DbCard[];
+  const rows = stmt.all(canonicalProjectId, columnId) as DbCard[];
 
   return {
     id: columnId,
@@ -610,7 +466,8 @@ export async function readColumn(projectId: string, columnId: CardStatus): Promi
 }
 
 export async function getBoard(projectId: string): Promise<Board> {
-  const columns = await Promise.all(COLUMNS.map((c) => readColumn(projectId, c.id)));
+  const canonicalProjectId = requireProjectId(projectId);
+  const columns = await Promise.all(COLUMNS.map((c) => readColumn(canonicalProjectId, c.id)));
   return { columns };
 }
 
@@ -621,6 +478,7 @@ export async function createCard(
   sessionId?: string,
   placement: CardCreatePlacement = "bottom",
 ): Promise<Card> {
+  const canonicalProjectId = requireProjectId(projectId);
   assertValidCardInput(input, "create");
 
   const database = getDb();
@@ -641,13 +499,13 @@ export async function createCard(
             `UPDATE cards SET "order" = "order" + 1
              WHERE project_id = ? AND archived = 0 AND status = ?`,
           )
-          .run(projectId, columnId);
+          .run(canonicalProjectId, columnId);
         return 0;
       }
 
       const maxOrderRow = database
         .prepare('SELECT MAX("order") as maxOrder FROM cards WHERE project_id = ? AND archived = 0 AND status = ?')
-        .get(projectId, columnId) as { maxOrder: number | null } | undefined;
+        .get(canonicalProjectId, columnId) as { maxOrder: number | null } | undefined;
       return (maxOrderRow?.maxOrder ?? -1) + 1;
     })();
     const descriptionRevisionId = descriptionRevisionService.createInitialDescriptionRevision(
@@ -665,7 +523,7 @@ export async function createCard(
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
-      projectId,
+      canonicalProjectId,
       columnId,
       0,
       input.title,
@@ -722,10 +580,10 @@ export async function createCard(
       order,
     };
 
-    historyService.clearRedoStack(projectId, sessionId);
+    historyService.clearRedoStack(canonicalProjectId, sessionId);
     historyService.recordCreate(
       result,
-      projectId,
+      canonicalProjectId,
       columnId,
       descriptionRevisionId,
       sessionId,
@@ -734,7 +592,7 @@ export async function createCard(
     return result;
   })();
 
-  dbNotifier.notifyChange(projectId, "create", columnId, id);
+  dbNotifier.notifyChange(canonicalProjectId, "create", columnId, id);
 
   return card;
 }
@@ -747,18 +605,19 @@ export async function updateCard(
   sessionId?: string,
   expectedRevision?: number,
 ): Promise<CardUpdateResult> {
+  const canonicalProjectId = requireProjectId(projectId);
   assertValidCardInput(updates, "update");
   const database = getDb();
 
   const result = database.transaction(() => {
-    const resolvedState = resolveCardState(database, projectId, cardId, columnId);
+    const resolvedState = resolveCardState(database, canonicalProjectId, cardId, columnId);
     if (!resolvedState || resolvedState.archived) {
       return { status: "not_found" } as const;
     }
 
     const existing = database
       .prepare("SELECT * FROM cards WHERE id = ? AND project_id = ? AND archived = 0 AND status = ?")
-      .get(cardId, projectId, resolvedState.status) as DbCard | undefined;
+      .get(cardId, canonicalProjectId, resolvedState.status) as DbCard | undefined;
 
     if (!existing) {
       return { status: "not_found" } as const;
@@ -812,10 +671,10 @@ export async function updateCard(
         `UPDATE cards SET ${fields.join(", ")}, revision = revision + 1 WHERE id = ?`
       ).run(...values);
 
-      historyService.clearRedoStack(projectId, sessionId);
+      historyService.clearRedoStack(canonicalProjectId, sessionId);
       historyService.recordUpdate(
         cardId,
-        projectId,
+        canonicalProjectId,
         resolvedState.status,
         previousValues,
         newValues,
@@ -841,7 +700,7 @@ export async function updateCard(
   }
 
   if (result.didMutate) {
-    dbNotifier.notifyChange(projectId, "update", result.card.status, cardId);
+    dbNotifier.notifyChange(canonicalProjectId, "update", result.card.status, cardId);
   }
 
   return {
@@ -856,15 +715,16 @@ export async function deleteCard(
   cardId: string,
   sessionId?: string
 ): Promise<boolean> {
+  const canonicalProjectId = requireProjectId(projectId);
   const database = getDb();
 
   const result = database.transaction(() => {
-    const resolvedState = resolveCardState(database, projectId, cardId, columnId);
+    const resolvedState = resolveCardState(database, canonicalProjectId, cardId, columnId);
     if (!resolvedState || resolvedState.archived) return null;
 
     const cardRow = database
       .prepare("SELECT * FROM cards WHERE id = ? AND project_id = ? AND archived = 0 AND status = ?")
-      .get(cardId, projectId, resolvedState.status) as DbCard | undefined;
+      .get(cardId, canonicalProjectId, resolvedState.status) as DbCard | undefined;
 
     if (!cardRow) return null;
 
@@ -876,12 +736,12 @@ export async function deleteCard(
       .prepare(
         `UPDATE cards SET "order" = "order" - 1 WHERE project_id = ? AND archived = 0 AND status = ? AND "order" > ?`
       )
-      .run(projectId, resolvedState.status, cardRow.order);
+      .run(canonicalProjectId, resolvedState.status, cardRow.order);
 
-    historyService.clearRedoStack(projectId, sessionId);
+    historyService.clearRedoStack(canonicalProjectId, sessionId);
     historyService.recordDelete(
       card,
-      projectId,
+      canonicalProjectId,
       resolvedState.status,
       cardRow.description_revision_id,
       sessionId,
@@ -892,7 +752,7 @@ export async function deleteCard(
 
   if (!result) return false;
 
-  dbNotifier.notifyChange(projectId, "delete", result, cardId);
+  dbNotifier.notifyChange(canonicalProjectId, "delete", result, cardId);
   return true;
 }
 
@@ -974,6 +834,7 @@ function readCardRowsByIds(
 }
 
 export async function moveCard(input: MoveCardInputWithSession): Promise<"moved" | "not_found" | "wrong_column"> {
+  input = { ...input, projectId: requireProjectId(input.projectId) };
   const database = getDb();
   assertValidMoveFieldPatch(input.fieldPatch);
 
@@ -1119,6 +980,7 @@ export async function moveCard(input: MoveCardInputWithSession): Promise<"moved"
 export async function moveCards(
   input: MoveCardsInputWithSession,
 ): Promise<"moved" | "not_found" | "wrong_column"> {
+  input = { ...input, projectId: requireProjectId(input.projectId) };
   if (!Array.isArray(input.cardIds) || input.cardIds.length === 0) {
     throw new Error("cardIds must be a non-empty array");
   }
@@ -1273,6 +1135,13 @@ export async function moveCards(
 export async function moveCardToProject(
   input: MoveCardToProjectInputWithSession,
 ): Promise<MoveCardToProjectResult | "not_found" | "wrong_column" | "target_project_not_found"> {
+  const targetProjectId = resolveProjectId(input.targetProjectId);
+  if (!targetProjectId) return "target_project_not_found";
+  input = {
+    ...input,
+    sourceProjectId: requireProjectId(input.sourceProjectId),
+    targetProjectId,
+  };
   if (input.sourceProjectId === input.targetProjectId) {
     throw new Error("Target project must be different from source project");
   }
@@ -1388,6 +1257,7 @@ export async function importBlockDropAsCards(
   input: BlockDropImportInput,
   sessionId?: string,
 ): Promise<BlockDropImportResult> {
+  projectId = requireProjectId(projectId);
   if (!Array.isArray(input.cards)) {
     throw new Error("cards must be an array");
   }
@@ -1395,6 +1265,13 @@ export async function importBlockDropAsCards(
   if (!Array.isArray(input.sourceUpdates)) {
     throw new Error("sourceUpdates must be an array");
   }
+  input = {
+    ...input,
+    sourceUpdates: input.sourceUpdates.map((update) => ({
+      ...update,
+      projectId: requireProjectId(update.projectId),
+    })),
+  };
   if (input.cards.length === 0 && input.sourceUpdates.length === 0) {
     throw new Error("At least one card or source update is required");
   }
@@ -1632,9 +1509,10 @@ export async function moveCardDropToEditor(
   input: CardDropMoveToEditorInput,
   sessionId?: string,
 ): Promise<CardDropMoveToEditorResult> {
+  projectId = requireProjectId(projectId);
   const sourceProjectId = typeof input.sourceProjectId === "string"
     && input.sourceProjectId.length > 0
-    ? input.sourceProjectId
+    ? requireProjectId(input.sourceProjectId)
     : projectId;
 
   if (typeof input.sourceCardId !== "string" || input.sourceCardId.length === 0) {
@@ -1652,6 +1530,13 @@ export async function moveCardDropToEditor(
   if (!Array.isArray(input.targetUpdates) || input.targetUpdates.length === 0) {
     throw new Error("At least one target update is required");
   }
+  input = {
+    ...input,
+    targetUpdates: input.targetUpdates.map((targetUpdate) => ({
+      ...targetUpdate,
+      projectId: requireProjectId(targetUpdate.projectId),
+    })),
+  };
 
   for (const targetUpdate of input.targetUpdates) {
     if (targetUpdate.projectId !== projectId) {
@@ -1834,6 +1719,7 @@ export async function getCard(
   cardId: string,
   columnId?: CardStatus,
 ): Promise<Card | null> {
+  projectId = requireProjectId(projectId);
   const database = getDb();
   const row = columnId
     ? database
@@ -1869,6 +1755,7 @@ export function getCardSync(
   projectId: string,
   cardId: string,
 ): { title: string } | null {
+  projectId = requireProjectId(projectId);
   const database = getDb();
   const row = database
     .prepare("SELECT title FROM cards WHERE id = ? AND project_id = ?")
@@ -1998,6 +1885,7 @@ export async function listCalendarOccurrences(
   windowEnd: Date,
   searchQuery?: string,
 ): Promise<CalendarOccurrence[]> {
+  projectId = requireProjectId(projectId);
   const database = getDb();
   const rows = database.prepare(`
     SELECT * FROM cards
@@ -2092,6 +1980,7 @@ export async function completeCardOccurrence(
   input: CardOccurrenceActionInput,
   sessionId?: string,
 ): Promise<{ success: boolean; error?: string }> {
+  projectId = requireProjectId(projectId);
   const target = await getCard(projectId, input.cardId);
   if (!target) return { success: false, error: "Card not found" };
   if (!target.scheduledStart || !target.scheduledEnd) {
@@ -2251,6 +2140,7 @@ export async function skipCardOccurrence(
   input: CardOccurrenceActionInput,
   sessionId?: string,
 ): Promise<{ success: boolean; error?: string }> {
+  projectId = requireProjectId(projectId);
   const target = await getCard(projectId, input.cardId);
   if (!target) return { success: false, error: "Card not found" };
   if (!target.scheduledStart || !target.scheduledEnd) {
@@ -2313,6 +2203,7 @@ export async function updateCardOccurrence(
   input: CardOccurrenceUpdateInput,
   sessionId?: string,
 ): Promise<{ success: boolean; error?: string }> {
+  projectId = requireProjectId(projectId);
   const target = await getCard(projectId, input.cardId);
   if (!target) return { success: false, error: "Card not found" };
   const card = target;
@@ -2716,6 +2607,7 @@ export function undoLatest(
   projectId: string,
   sessionId?: string,
 ): { success: boolean; entry?: { operation: string; cardId: string }; error?: string; canUndo: boolean; canRedo: boolean; undoDescription: string | null; redoDescription: string | null } {
+  projectId = requireProjectId(projectId);
   const target = historyService.getUndoTarget(projectId, sessionId);
   if (!target) {
     const state = historyService.getUndoRedoState(projectId, sessionId);
@@ -2736,6 +2628,7 @@ export function redoLatest(
   projectId: string,
   sessionId?: string,
 ): { success: boolean; entry?: { operation: string; cardId: string }; error?: string; canUndo: boolean; canRedo: boolean; undoDescription: string | null; redoDescription: string | null } {
+  projectId = requireProjectId(projectId);
   const target = historyService.getRedoTarget(projectId, sessionId);
   if (!target) {
     const state = historyService.getUndoRedoState(projectId, sessionId);

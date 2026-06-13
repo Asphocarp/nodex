@@ -40,9 +40,22 @@ const localStorageRef =
 const sessionStorageRef =
   (globalThis as { sessionStorage?: typeof mockStorage }).sessionStorage ?? mockStorage;
 
+function makeProject(id: string, name: string) {
+  const created = new Date();
+  return {
+    id,
+    name,
+    description: "",
+    sources: [],
+    primaryWorkspaceRoot: null,
+    created,
+    updated: created,
+  };
+}
+
 const PROJECTS = [
-  { id: "default", name: "Default", description: "", created: new Date() },
-  { id: "ops", name: "Ops", description: "", created: new Date() },
+  makeProject("default", "Default"),
+  makeProject("ops", "Ops"),
 ];
 
 function resetStorage(): void {
@@ -62,9 +75,9 @@ describe("use-workbench-state helpers", () => {
     const result = workbenchTestHelpers.reconcileSpaceOrder(
       ["b", "a"],
       [
-        { id: "a", name: "A", description: "", created: new Date() },
-        { id: "b", name: "B", description: "", created: new Date() },
-        { id: "c", name: "C", description: "", created: new Date() },
+        makeProject("a", "A"),
+        makeProject("b", "B"),
+        makeProject("c", "C"),
       ],
     );
 
@@ -74,7 +87,7 @@ describe("use-workbench-state helpers", () => {
   test("ensureActiveProject falls back to first project", () => {
     resetStorage();
     const result = workbenchTestHelpers.ensureActiveProject("missing", [
-      { id: "first", name: "First", description: "", created: new Date() },
+      makeProject("first", "First"),
     ]);
 
     expect(result).toBe("first");
@@ -381,7 +394,7 @@ describe("use-workbench-state helpers", () => {
 
     let latestState: ReturnType<typeof useWorkbenchState> | null = null;
     const projects = [
-      { id: "default", name: "Default", description: "", created: new Date("2026-03-01T00:00:00.000Z") },
+      makeProject("default", "Default"),
     ];
 
     function Harness() {

@@ -73,7 +73,8 @@ import type {
   MoveCardToProjectResult,
   MoveCardsInput,
   Project,
-  ProjectInput,
+  ProjectCreateInput,
+  ProjectUpdateInput,
   ProjectSession,
   ProjectSessionCreateInput,
   ProjectSessionForkInput,
@@ -336,15 +337,12 @@ export interface GitBranchInput {
 export interface IpcApi {
   "projects:list": { args: []; result: Project[] };
   "projects:get": { args: [projectId: string]; result: Project | null };
-  "projects:create": { args: [input: ProjectInput]; result: Project };
-  "projects:rename": {
-    args: [
-      oldId: string,
-      newId: string,
-      updates?: { name?: string; description?: string; icon?: string; workspacePath?: string | null },
-    ];
+  "projects:create": { args: [input: ProjectCreateInput]; result: Project };
+  "projects:update": {
+    args: [projectId: string, updates: ProjectUpdateInput];
     result: Project | null;
   };
+  "projects:pick-source-root": { args: []; result: string | null };
   "projects:delete": { args: [projectId: string]; result: boolean };
   "project-sessions:list": { args: [projectId: string, options?: ProjectSessionListOptions]; result: ProjectSession[] };
   "project-sessions:create": { args: [input: ProjectSessionCreateInput]; result: ProjectSession };

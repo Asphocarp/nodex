@@ -6,7 +6,6 @@ import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { makeProjectSessionPanelLayout } from "../../../shared/project-session-panel-layout";
 import { LeftSidebar, type StageSidebarGroup } from "./left-sidebar";
 import { LeftSidebarFooter } from "./left-sidebar-footer";
-import { ProjectManagerPopover } from "./left-sidebar-project-manager";
 import { SidebarProjectsSection } from "./left-sidebar-projects-section";
 import {
   SidebarNewChatButton,
@@ -24,15 +23,19 @@ const PROJECTS: Project[] = [
     id: "default",
     name: "Nodex",
     description: "",
-    workspacePath: "/Users/asc/repo/nodex",
+    sources: [{ root: "/Users/asc/repo/nodex", order: 0 }],
+    primaryWorkspaceRoot: "/Users/asc/repo/nodex",
     created: new Date("2026-03-01T00:00:00.000Z"),
+    updated: new Date("2026-03-01T00:00:00.000Z"),
   },
   {
     id: "bundle",
     name: "Codex bundle",
     description: "",
-    workspacePath: "/Users/asc/repo/devtools-codex",
+    sources: [{ root: "/Users/asc/repo/devtools-codex", order: 0 }],
+    primaryWorkspaceRoot: "/Users/asc/repo/devtools-codex",
     created: new Date("2026-03-02T00:00:00.000Z"),
+    updated: new Date("2026-03-02T00:00:00.000Z"),
   },
 ];
 
@@ -46,22 +49,28 @@ const SIDEBAR_PARITY_PROJECTS: Project[] = [
     id: "nodex",
     name: "Nodex",
     description: "",
-    workspacePath: "/Users/asc/repo/nodex",
+    sources: [{ root: "/Users/asc/repo/nodex", order: 0 }],
+    primaryWorkspaceRoot: "/Users/asc/repo/nodex",
     created: new Date("2026-06-01T00:00:00.000Z"),
+    updated: new Date("2026-06-01T00:00:00.000Z"),
   },
   {
     id: "codex-electron-readable-bundle-with-a-very-long-name",
     name: "Codex Electron readable bundle with a very long project label",
     description: "",
-    workspacePath: "/Users/asc/repo/devtools-codex/codex_electron_26.519.81530_to_be_readable",
+    sources: [{ root: "/Users/asc/repo/devtools-codex/codex_electron_26.519.81530_to_be_readable", order: 0 }],
+    primaryWorkspaceRoot: "/Users/asc/repo/devtools-codex/codex_electron_26.519.81530_to_be_readable",
     created: new Date("2026-06-02T00:00:00.000Z"),
+    updated: new Date("2026-06-02T00:00:00.000Z"),
   },
   {
     id: "missing-workspace",
     name: "Missing workspace path",
     description: "",
-    workspacePath: "",
+    sources: [],
+    primaryWorkspaceRoot: null,
     created: new Date("2026-06-03T00:00:00.000Z"),
+    updated: new Date("2026-06-03T00:00:00.000Z"),
   },
 ];
 
@@ -182,7 +191,7 @@ function SidebarSectionMenuHarness() {
         projectPickerOpenTick={0}
         onCreateProject={async () => PROJECTS[0]}
         onDeleteProject={async () => true}
-        onRenameProject={async () => PROJECTS[0]}
+        onUpdateProject={async () => PROJECTS[0]}
       />
     </div>
   );
@@ -273,33 +282,7 @@ function StatusGroupOrderHarness() {
         projectPickerOpenTick={0}
         onCreateProject={async () => PROJECTS[0]}
         onDeleteProject={async () => true}
-        onRenameProject={async () => PROJECTS[0]}
-      />
-    </div>
-  );
-}
-
-function ProjectManagerHarness() {
-  return (
-    <div className="min-h-screen bg-(--background) p-8">
-      <ProjectManagerPopover
-        projects={PROJECTS}
-        spaces={SPACES}
-        activeProjectId="default"
-        onSelectSpace={() => {}}
-        onCreateProject={async () => PROJECTS[0]}
-        onDeleteProject={async () => true}
-        onRenameProject={async () => PROJECTS[0]}
-        open={true}
-        onOpenChange={() => {}}
-        trigger={(
-          <button
-            type="button"
-            className="inline-flex size-8 items-center justify-center rounded-lg bg-token-main-surface-secondary text-token-foreground ring-1 ring-token-border"
-          >
-            +
-          </button>
-        )}
+        onUpdateProject={async () => PROJECTS[0]}
       />
     </div>
   );
@@ -364,7 +347,7 @@ function CodexProjectsHarness({
             onSelectSpace={() => {}}
             onCreateProject={async () => projects[0] ?? null}
             onDeleteProject={async () => true}
-            onRenameProject={async () => projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null}
+            onUpdateProject={async () => projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null}
             projectPickerOpenTick={0}
           />
         </div>
@@ -468,8 +451,8 @@ function CodexProjectSessionRowsHarness() {
                   expanded
                   onActivate={() => {}}
                   onStartNewChat={() => {}}
-                  onRenameProject={async () => project}
-                  onManageProject={() => {}}
+                  onUpdateProject={async () => project}
+                  onDeleteProject={async () => false}
                 >
                   <CodexProjectSessionList project={project}>
                     {sessions.map((session, index) => (
@@ -533,10 +516,6 @@ export const SectionMenuOpen: Story = {
 
 export const StatusGroupsReversed: Story = {
   render: () => <StatusGroupOrderHarness />,
-};
-
-export const ProjectManagerOpen: Story = {
-  render: () => <ProjectManagerHarness />,
 };
 
 export const NewChatControls: Story = {

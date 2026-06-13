@@ -23,16 +23,20 @@ const PROJECTS: Project[] = [
     name: "Alpha",
     description: "",
     icon: "A",
-    workspacePath: "",
+    sources: [],
+    primaryWorkspaceRoot: null,
     created: new Date("2026-03-15T00:00:00.000Z"),
+    updated: new Date("2026-03-15T00:00:00.000Z"),
   },
   {
     id: "beta",
     name: "Beta",
     description: "",
     icon: "B",
-    workspacePath: "/repo/beta",
+    sources: [{ root: "/repo/beta", order: 0 }],
+    primaryWorkspaceRoot: "/repo/beta",
     created: new Date("2026-03-15T00:00:00.000Z"),
+    updated: new Date("2026-03-15T00:00:00.000Z"),
   },
 ];
 
@@ -75,8 +79,8 @@ function renderProjectRowWithSessions({
       expanded={expanded}
       animateChildren={animateChildren}
       onActivate={() => undefined}
-      onRenameProject={async () => null}
-      onManageProject={() => undefined}
+      onUpdateProject={async () => null}
+      onDeleteProject={async () => false}
     >
       <CodexProjectSessionList project={project}>
         <div role="listitem">Alpha session</div>
@@ -100,13 +104,13 @@ describe("SidebarProjectsSection", () => {
         onSelectSpace={() => undefined}
         onCreateProject={async () => null}
         onDeleteProject={async () => false}
-        onRenameProject={async () => null}
+        onUpdateProject={async () => null}
         projectPickerOpenTick={0}
       />,
     );
 
     expect(getByText("Projects").textContent).toBe("Projects");
-    expect(getByLabelText("Manage projects").getAttribute("aria-label")).toBe("Manage projects");
+    expect(getByLabelText("Add project").getAttribute("aria-label")).toBe("Add project");
     expect(textContent(container).indexOf("Beta") < textContent(container).indexOf("Alpha")).toBeTrue();
     expect(textContent(container).includes("/repo/beta")).toBeFalse();
     expect(textContent(container).includes("/alpha")).toBeFalse();
@@ -126,7 +130,7 @@ describe("SidebarProjectsSection", () => {
     expect(rows[0]?.className.includes("h-token-nav-row")).toBeTrue();
   });
 
-  test("opens the project manager popover from the section action button", async () => {
+  test("opens the add-project submenu from the section action button", async () => {
     const { getByLabelText, getByText } = renderProjectsSection(
       <SidebarProjectsSection
         projects={PROJECTS}
@@ -140,17 +144,18 @@ describe("SidebarProjectsSection", () => {
         onSelectSpace={() => undefined}
         onCreateProject={async () => null}
         onDeleteProject={async () => false}
-        onRenameProject={async () => null}
+        onUpdateProject={async () => null}
         projectPickerOpenTick={0}
       />,
     );
 
     await act(async () => {
-      fireEvent.click(getByLabelText("Manage projects"));
+      fireEvent.pointerDown(getByLabelText("Add project"), { button: 0, ctrlKey: false });
       await Promise.resolve();
     });
 
-    expect(getByText("New Project").textContent).toBe("New Project");
+    expect(getByText("Start from scratch").textContent).toBe("Start from scratch");
+    expect(getByText("Use an existing folder").textContent).toBe("Use an existing folder");
   });
 
   test("hides project rows when the Projects section is initially collapsed", () => {
@@ -167,7 +172,7 @@ describe("SidebarProjectsSection", () => {
         onSelectSpace={() => undefined}
         onCreateProject={async () => null}
         onDeleteProject={async () => false}
-        onRenameProject={async () => null}
+        onUpdateProject={async () => null}
         projectPickerOpenTick={0}
       />,
     );
@@ -180,9 +185,9 @@ describe("SidebarProjectsSection", () => {
   });
 
   test("moves project folder selection into the project actions menu", async () => {
-    const renameCalls: unknown[][] = [];
+    const updateCalls: unknown[][] = [];
     mockInvokeImpl = async (channel) => {
-      if (channel === "pty:pick-cwd") return "/repo/selected";
+      if (channel === "projects:pick-source-root") return "/repo/selected";
       return null;
     };
 
@@ -199,8 +204,8 @@ describe("SidebarProjectsSection", () => {
         onSelectSpace={() => undefined}
         onCreateProject={async () => null}
         onDeleteProject={async () => false}
-        onRenameProject={async (...args) => {
-          renameCalls.push(args);
+        onUpdateProject={async (projectId, updates) => {
+          updateCalls.push([projectId, updates]);
           return null;
         }}
         projectPickerOpenTick={0}
@@ -213,15 +218,18 @@ describe("SidebarProjectsSection", () => {
     });
 
     expect(getByText("Open in Finder").textContent).toBe("Open in Finder");
-    expect(getByText("Choose project folder...").textContent).toBe("Choose project folder...");
+    expect(getByText("Add source folder").textContent).toBe("Add source folder");
 
     await act(async () => {
-      fireEvent.click(getByText("Choose project folder..."));
+      fireEvent.click(getByText("Add source folder"));
       await Promise.resolve();
     });
 
-    expect(invokeCalls.some((call) => call[0] === "pty:pick-cwd")).toBeTrue();
-    expect(JSON.stringify(renameCalls[0])).toBe(JSON.stringify(["beta", "beta", "Beta", undefined, "/repo/selected"]));
+    expect(invokeCalls.some((call) => call[0] === "projects:pick-source-root")).toBeTrue();
+    expect(JSON.stringify(updateCalls[0])).toBe(JSON.stringify([
+      "beta",
+      { sources: ["/repo/beta", "/repo/selected"] },
+    ]));
   });
 
   test("wraps expanded project sessions in the Codex height and opacity motion disclosure", () => {

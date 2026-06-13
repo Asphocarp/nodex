@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import * as path from "node:path";
@@ -148,6 +149,7 @@ import {
 } from "../../shared/codex-item-identity";
 import { mergeOrderedStringIds, upsertOrderedStringId } from "../../shared/codex-turn-order";
 import * as dbService from "../kanban/db-service";
+import { resolveProjectRunContext } from "../kanban/project-service";
 import { resolveAssetPath } from "../kanban/asset-service";
 import { getKanbanDir } from "../kanban/config";
 import {
@@ -254,6 +256,7 @@ type StartTurnOverrides = CodexTurnStartOptions;
 
 interface ResolvedThreadRunLocation {
   cwd: string;
+  workspaceRoots: string[];
   runInTarget: CardRunInTarget;
   createdManagedWorktree: boolean;
 }
@@ -2415,10 +2418,10 @@ export class CodexService extends EventEmitter {
       return cached;
     }
 
-    let workspacePath: string | null = null;
+    let workspaceRoots: string[] = [];
     try {
       const project = dbService.getProject(projectId);
-      workspacePath = project?.workspacePath?.trim() || null;
+      workspaceRoots = project?.sources.map((source) => source.root).filter((root) => root.trim().length > 0) ?? [];
     } catch (error) {
       if (!isUnavailableSqliteBindingError(error)) {
         throw error;
@@ -2440,14 +2443,14 @@ export class CodexService extends EventEmitter {
         origins: configResult.origins,
         requirements: requirementsResult.requirements,
         defaultUserConfigPath: path.join(resolveCodexHomeDir(), "config.toml"),
-        workspacePath,
+        workspaceRoots,
       });
       this.permissionStateByProject.set(projectId, nextState);
       return nextState;
     } catch {
       const fallbackState = this.buildFallbackPermissionState(
         this.permissionStateByProject.get(projectId)?.mode ?? "auto",
-        workspacePath,
+        workspaceRoots,
         this.permissionStateByProject.get(projectId) ?? null,
       );
       this.permissionStateByProject.set(projectId, fallbackState);
@@ -2457,7 +2460,7 @@ export class CodexService extends EventEmitter {
 
   private buildFallbackPermissionState(
     mode: CodexPermissionMode,
-    workspacePath: string | null,
+    workspaceRoots: readonly string[],
     previous: CodexPermissionState | null,
   ): CodexPermissionState {
     const configTarget = previous?.configTarget ?? {
@@ -2486,10 +2489,10 @@ export class CodexService extends EventEmitter {
       : "user";
     const sandbox = mode === "full-access"
       ? { type: "dangerFullAccess" as const }
-      : workspacePath
+      : workspaceRoots.length > 0
         ? {
             type: "workspaceWrite" as const,
-            writableRoots: [workspacePath],
+            writableRoots: [...workspaceRoots],
             networkAccess: previous?.sandbox?.type === "workspaceWrite"
               ? previous.sandbox.networkAccess
               : false,
@@ -2519,13 +2522,13 @@ export class CodexService extends EventEmitter {
   private resolvePermissionStateForRequest(
     permissionState: CodexPermissionState,
     mode: CodexPermissionMode | undefined,
-    workspacePath: string | null,
+    workspaceRoots: readonly string[],
   ): CodexPermissionState {
     if (!mode || mode === permissionState.mode) {
       return permissionState;
     }
 
-    return this.buildFallbackPermissionState(mode, workspacePath, permissionState);
+    return this.buildFallbackPermissionState(mode, workspaceRoots, permissionState);
   }
 
   private invalidatePermissionState(projectId: string | null): void {
@@ -2550,7 +2553,7 @@ export class CodexService extends EventEmitter {
 
     const edits = buildPermissionModeConfigEdits(mode);
     if (edits.length === 0) {
-      const nextState = this.buildFallbackPermissionState(mode, null, current);
+      const nextState = this.buildFallbackPermissionState(mode, [], current);
       this.permissionStateByProject.set(projectId, nextState);
       return nextState;
     }
@@ -2563,14 +2566,14 @@ export class CodexService extends EventEmitter {
     try {
       await this.client.request("config/batchWrite", params);
     } catch {
-      const nextState = this.buildFallbackPermissionState(mode, null, current);
+      const nextState = this.buildFallbackPermissionState(mode, [], current);
       this.permissionStateByProject.set(projectId, nextState);
       return nextState;
     }
     this.invalidatePermissionState(projectId);
     const nextState = await this.readPermissionState(projectId);
     if (mode !== "custom" && nextState.mode !== mode) {
-      const fallbackState = this.buildFallbackPermissionState(mode, null, nextState);
+      const fallbackState = this.buildFallbackPermissionState(mode, [], nextState);
       this.permissionStateByProject.set(projectId, fallbackState);
       return fallbackState;
     }
@@ -2863,7 +2866,7 @@ export class CodexService extends EventEmitter {
 
   async listWorktreeEnvironments(projectId: string): Promise<WorktreeEnvironmentOption[]> {
     const project = dbService.getProject(projectId);
-    const workspacePath = project?.workspacePath?.trim();
+    const workspacePath = project?.primaryWorkspaceRoot?.trim();
     if (!workspacePath) return [];
     try {
       return await listWorktreeEnvironmentOptions(workspacePath);
@@ -2874,7 +2877,7 @@ export class CodexService extends EventEmitter {
 
   async listWorktreeEnvironmentConfigs(projectId: string): Promise<WorktreeEnvironmentConfigRecord[]> {
     const project = dbService.getProject(projectId);
-    const workspacePath = project?.workspacePath?.trim();
+    const workspacePath = project?.primaryWorkspaceRoot?.trim();
     if (!workspacePath) return [];
 
     try {
@@ -2889,9 +2892,9 @@ export class CodexService extends EventEmitter {
     configPath?: string | null,
   ): Promise<WorktreeEnvironmentSettingsSnapshot> {
     const project = dbService.getProject(projectId);
-    const workspacePath = project?.workspacePath?.trim();
+    const workspacePath = project?.primaryWorkspaceRoot?.trim();
     if (!project || !workspacePath) {
-      throw new Error("Project workspace path is required for local environments.");
+      throw new Error("Project source folder is required for local environments.");
     }
 
     return readWorktreeEnvironmentSettingsRecord({
@@ -2906,9 +2909,9 @@ export class CodexService extends EventEmitter {
     input: UpdateWorktreeEnvironmentConfigInput,
   ): Promise<WorktreeEnvironmentSettingsSnapshot> {
     const project = dbService.getProject(input.projectId);
-    const workspacePath = project?.workspacePath?.trim();
+    const workspacePath = project?.primaryWorkspaceRoot?.trim();
     if (!project || !workspacePath) {
-      throw new Error("Project workspace path is required for local environments.");
+      throw new Error("Project source folder is required for local environments.");
     }
 
     return saveWorktreeEnvironmentSettingsRecord({
@@ -3183,6 +3186,78 @@ export class CodexService extends EventEmitter {
     };
   }
 
+  private resolveProjectRuntimeContext(projectId: string): {
+    canonicalProjectId: string;
+    primaryWorkspaceRoot: string | null;
+    workspaceRoots: string[];
+  } {
+    const context = resolveProjectRunContext(projectId);
+    return {
+      canonicalProjectId: context.canonicalProjectId,
+      primaryWorkspaceRoot: context.cwd,
+      workspaceRoots: context.workspaceRoots,
+    };
+  }
+
+  private maybeResolveProjectRuntimeContext(projectId: string): {
+    canonicalProjectId: string;
+    primaryWorkspaceRoot: string | null;
+    workspaceRoots: string[];
+  } | null {
+    try {
+      return this.resolveProjectRuntimeContext(projectId);
+    } catch (error) {
+      if (isUnavailableSqliteBindingError(error)) return null;
+      throw error;
+    }
+  }
+
+  private requirePrimaryWorkspaceRoot(projectId: string): {
+    canonicalProjectId: string;
+    primaryWorkspaceRoot: string;
+    workspaceRoots: string[];
+  } {
+    const context = this.resolveProjectRuntimeContext(projectId);
+    if (!context.primaryWorkspaceRoot) {
+      throw new Error("Project requires at least one source folder for this action.");
+    }
+    return {
+      canonicalProjectId: context.canonicalProjectId,
+      primaryWorkspaceRoot: context.primaryWorkspaceRoot,
+      workspaceRoots: context.workspaceRoots,
+    };
+  }
+
+  private createProjectlessThreadWorkspace(projectId: string): string {
+    const context = this.resolveProjectRuntimeContext(projectId);
+    const workspacePath = path.resolve(
+      getKanbanDir(),
+      "projectless-workspaces",
+      context.canonicalProjectId,
+      randomUUID(),
+    );
+    mkdirSync(workspacePath, { recursive: true });
+    return workspacePath;
+  }
+
+  private resolveLocalProjectThreadRoot(projectId: string): {
+    cwd: string;
+    workspaceRoots: string[];
+  } {
+    const context = this.resolveProjectRuntimeContext(projectId);
+    if (context.primaryWorkspaceRoot) {
+      return {
+        cwd: context.primaryWorkspaceRoot,
+        workspaceRoots: context.workspaceRoots,
+      };
+    }
+    const cwd = this.createProjectlessThreadWorkspace(projectId);
+    return {
+      cwd,
+      workspaceRoots: [cwd],
+    };
+  }
+
   private async resolveThreadRunLocation(input: {
     projectId: string;
     cardId: string;
@@ -3202,9 +3277,9 @@ export class CodexService extends EventEmitter {
       throw new Error("Cloud run target is not available yet. Choose Local project or New worktree.");
     }
 
-    const workspacePath = this.parseWorkspacePath(input.projectId);
-
     if (runInTarget === "newWorktree") {
+      const projectContext = this.requirePrimaryWorkspaceRoot(input.projectId);
+      const workspacePath = projectContext.primaryWorkspaceRoot;
       const managedRoot = path.resolve(getKanbanDir(), "worktrees");
       const persistedWorktreePath = cardRecord.runInWorktreePath?.trim();
       if (persistedWorktreePath) {
@@ -3212,6 +3287,7 @@ export class CodexService extends EventEmitter {
         if (isPathWithin(managedRoot, resolvedPersistedPath) && existsSync(resolvedPersistedPath)) {
           return {
             cwd: resolvedPersistedPath,
+            workspaceRoots: [resolvedPersistedPath, ...projectContext.workspaceRoots],
             runInTarget,
             createdManagedWorktree: false,
           };
@@ -3233,7 +3309,7 @@ export class CodexService extends EventEmitter {
       const createdWorktree = await createManagedWorktree({
         repositoryPath: workspacePath,
         serverDir: getKanbanDir(),
-        projectId: input.projectId,
+        projectId: projectContext.canonicalProjectId,
         cardId: input.cardId,
         threadTitle: input.threadTitle?.trim() || cardRecord.title.trim() || cardRecord.id,
         branchPrefix: input.worktreeBranchPrefix,
@@ -3312,6 +3388,7 @@ export class CodexService extends EventEmitter {
       }
       return {
         cwd: resolvedWorktreePath,
+        workspaceRoots: [resolvedWorktreePath, ...projectContext.workspaceRoots],
         runInTarget,
         createdManagedWorktree: true,
       };
@@ -3319,13 +3396,17 @@ export class CodexService extends EventEmitter {
 
     const localOverride = cardRecord.runInLocalPath?.trim();
     if (!localOverride) {
+      const localContext = this.resolveLocalProjectThreadRoot(input.projectId);
       return {
-        cwd: workspacePath,
+        cwd: localContext.cwd,
+        workspaceRoots: localContext.workspaceRoots,
         runInTarget: "localProject",
         createdManagedWorktree: false,
       };
     }
 
+    const projectContext = this.requirePrimaryWorkspaceRoot(input.projectId);
+    const workspacePath = projectContext.primaryWorkspaceRoot;
     const resolvedLocalPath = path.isAbsolute(localOverride)
       ? localOverride
       : path.resolve(workspacePath, localOverride);
@@ -3335,6 +3416,7 @@ export class CodexService extends EventEmitter {
 
     return {
       cwd: resolvedLocalPath,
+      workspaceRoots: [resolvedLocalPath, ...projectContext.workspaceRoots],
       runInTarget: "localProject",
       createdManagedWorktree: false,
     };
@@ -3357,15 +3439,18 @@ export class CodexService extends EventEmitter {
       throw new Error("Cloud run target is not available yet. Choose Work locally or New worktree.");
     }
 
-    const workspacePath = this.parseWorkspacePath(input.projectId);
-
     if (runInTarget !== "newWorktree") {
+      const localContext = this.resolveLocalProjectThreadRoot(input.projectId);
       return {
-        cwd: workspacePath,
+        cwd: localContext.cwd,
+        workspaceRoots: localContext.workspaceRoots,
         runInTarget: "localProject",
         createdManagedWorktree: false,
       };
     }
+
+    const projectContext = this.requirePrimaryWorkspaceRoot(input.projectId);
+    const workspacePath = projectContext.primaryWorkspaceRoot;
 
     input.onProgress?.({
       phase: "creatingWorktree",
@@ -3382,7 +3467,7 @@ export class CodexService extends EventEmitter {
     const createdWorktree = await createManagedWorktree({
       repositoryPath: workspacePath,
       serverDir: getKanbanDir(),
-      projectId: input.projectId,
+      projectId: projectContext.canonicalProjectId,
       cardId: input.sessionId,
       threadTitle: input.threadTitle?.trim() || input.sessionTitle?.trim() || input.sessionId,
       branchPrefix: input.worktreeBranchPrefix,
@@ -3451,6 +3536,7 @@ export class CodexService extends EventEmitter {
 
     return {
       cwd: resolvedWorktreePath,
+      workspaceRoots: [resolvedWorktreePath, ...projectContext.workspaceRoots],
       runInTarget,
       createdManagedWorktree: true,
     };
@@ -4836,17 +4922,7 @@ export class CodexService extends EventEmitter {
   }
 
   private parseWorkspacePath(projectId: string): string {
-    const project = dbService.getProject(projectId);
-    if (!project) {
-      throw new Error(`Project '${projectId}' not found`);
-    }
-
-    const workspacePath = project.workspacePath?.trim();
-    if (!workspacePath) {
-      throw new Error(`Project '${projectId}' must configure workspace path before using Codex threads`);
-    }
-
-    return workspacePath;
+    return this.requirePrimaryWorkspaceRoot(projectId).primaryWorkspaceRoot;
   }
 
   private emitThreadTitleUpdated(threadId: string, title: string): void {
@@ -5190,7 +5266,7 @@ export class CodexService extends EventEmitter {
     const permissionState = this.resolvePermissionStateForRequest(
       resolvedPermissionState,
       input.permissionMode,
-      null,
+      [],
     );
     const permissionMode = permissionState.mode;
 
@@ -5232,11 +5308,11 @@ export class CodexService extends EventEmitter {
       const effectivePermissionState = this.resolvePermissionStateForRequest(
         permissionState,
         input.permissionMode,
-        runLocation.cwd,
+        runLocation.workspaceRoots,
       );
       const turnPermissionOverrides = buildTurnPermissionOverrides({
         permissionState: effectivePermissionState,
-        workspacePath: runLocation.cwd,
+        workspaceRoots: runLocation.workspaceRoots,
       });
       const threadPermissionOverrides = buildThreadPermissionOverrides({
         permissionState: effectivePermissionState,
@@ -5444,12 +5520,12 @@ export class CodexService extends EventEmitter {
       const effectivePermissionState = this.resolvePermissionStateForRequest(
         resolvedPermissionState,
         input.permissionMode,
-        runLocation.cwd,
+        runLocation.workspaceRoots,
       );
       const permissionMode = effectivePermissionState.mode;
       const turnPermissionOverrides = buildTurnPermissionOverrides({
         permissionState: effectivePermissionState,
-        workspacePath: runLocation.cwd,
+        workspaceRoots: runLocation.workspaceRoots,
       });
       const threadPermissionOverrides = buildThreadPermissionOverrides({
         permissionState: effectivePermissionState,
@@ -5643,6 +5719,7 @@ export class CodexService extends EventEmitter {
         })
       : {
           cwd: sourceSession.thread.cwd,
+          workspaceRoots: [sourceSession.thread.cwd],
           runInTarget: "localProject" as const,
           createdManagedWorktree: false,
         };
@@ -6023,12 +6100,18 @@ export class CodexService extends EventEmitter {
       throw new Error("Side chats cannot be started from another side chat");
     }
 
-    const cwd = parentDetail.cwd?.trim() || this.parseWorkspacePath(input.projectId);
+    const fallbackContext = parentDetail.cwd?.trim()
+      ? null
+      : this.resolveLocalProjectThreadRoot(input.projectId);
+    const cwd = parentDetail.cwd?.trim() || fallbackContext?.cwd || "";
+    const workspaceRoots = parentDetail.cwd?.trim()
+      ? [cwd]
+      : fallbackContext?.workspaceRoots ?? [];
     const resolvedPermissionState = await this.readPermissionState(input.projectId);
     const permissionState = this.resolvePermissionStateForRequest(
       resolvedPermissionState,
       input.permissionMode,
-      cwd,
+      workspaceRoots,
     );
     const threadPermissionOverrides = buildThreadPermissionOverrides({
       permissionState,
@@ -6287,18 +6370,34 @@ export class CodexService extends EventEmitter {
     const effectiveCollaborationMode = preparedPrompt.agentConfigOverrides.collaborationMode ?? overrides?.collaborationMode;
 
     const threadRef = this.parseThreadRef(threadId);
-    const workspacePath = threadRef?.cwd?.trim()
-      || (threadRef?.projectId ? this.parseWorkspacePath(threadRef.projectId) : null);
+    const threadCwd = threadRef?.cwd?.trim() || null;
+    const projectRunContext = !threadCwd && threadRef?.projectId
+      ? this.maybeResolveProjectRuntimeContext(threadRef.projectId)
+      : null;
+    const fallbackWorkspacePath = !threadCwd && !projectRunContext?.primaryWorkspaceRoot && threadRef?.projectId
+      ? (() => {
+          try {
+            return this.parseWorkspacePath(threadRef.projectId);
+          } catch (error) {
+            if (isUnavailableSqliteBindingError(error)) return null;
+            throw error;
+          }
+        })()
+      : null;
+    const workspacePath = threadCwd || projectRunContext?.primaryWorkspaceRoot || fallbackWorkspacePath || null;
+    const workspaceRoots = threadCwd
+      ? [threadCwd]
+      : projectRunContext?.workspaceRoots ?? (fallbackWorkspacePath ? [fallbackWorkspacePath] : []);
     const resolvedPermissionState = await this.readPermissionState(threadRef?.projectId ?? null);
     const permissionState = this.resolvePermissionStateForRequest(
       resolvedPermissionState,
       overrides?.permissionMode,
-      workspacePath,
+      workspaceRoots,
     );
     const permissionMode = permissionState.mode;
     const turnPermissionOverrides = buildTurnPermissionOverrides({
       permissionState,
-      workspacePath,
+      workspaceRoots,
     });
     this.applyThreadPermissionState(threadId, permissionState);
     const collaborationMode = this.buildCollaborationModePayload({

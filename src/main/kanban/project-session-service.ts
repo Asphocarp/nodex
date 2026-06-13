@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db-service";
+import { requireProjectId } from "./project-service";
 import {
   ProjectSessionCreateInputSchema,
   ProjectSessionPanelActivateInputSchema,
@@ -327,9 +328,8 @@ function buildSession(row: DbProjectSession): ProjectSession {
   };
 }
 
-function ensureProjectExists(projectId: string): void {
-  const project = getDb().prepare("SELECT 1 FROM projects WHERE id = ?").get(projectId);
-  if (!project) throw new Error(`Project not found: ${projectId}`);
+function ensureProjectExists(projectId: string): string {
+  return requireProjectId(projectId);
 }
 
 function ensureOverviewSession(projectId: string): void {
@@ -384,8 +384,8 @@ export function listProjectSessions(
   projectId: string,
   options?: ProjectSessionListOptions,
 ): ProjectSession[] {
+  projectId = ensureProjectExists(projectId);
   const parsedOptions = ProjectSessionListOptionsSchema.parse(options) ?? {};
-  ensureProjectExists(projectId);
   ensureOverviewSession(projectId);
   const rows = getDb()
     .prepare(`
@@ -447,13 +447,13 @@ export function getProjectSessionThreadLink(threadId: string): ProjectSessionThr
 
 export function createProjectSession(input: ProjectSessionCreateInput): ProjectSession {
   const parsed = ProjectSessionCreateInputSchema.parse(input);
-  ensureProjectExists(parsed.projectId);
+  const projectId = ensureProjectExists(parsed.projectId);
 
   const database = getDb();
   const now = new Date().toISOString();
   const maxOrder = database
     .prepare('SELECT MAX("order") AS maxOrder FROM project_sessions WHERE project_id = ?')
-    .get(parsed.projectId) as { maxOrder: number | null } | undefined;
+    .get(projectId) as { maxOrder: number | null } | undefined;
   const id = randomUUID();
   const panels = {
     right: makeDefaultPanelState("right", [], null),
@@ -467,7 +467,7 @@ export function createProjectSession(input: ProjectSessionCreateInput): ProjectS
     ) VALUES (?, ?, ?, 0, ?, 0, NULL, 0, NULL, 0, 0, ?, ?, ?)
   `).run(
     id,
-    parsed.projectId,
+    projectId,
     parsed.title,
     (maxOrder?.maxOrder ?? -1) + 1,
     stringifyPanels(panels),
@@ -552,7 +552,7 @@ export function deleteProjectSession(sessionId: string): boolean {
 }
 
 export function reorderProjectSessions(projectId: string, orderedSessionIds: string[]): ProjectSession[] {
-  ensureProjectExists(projectId);
+  projectId = ensureProjectExists(projectId);
   const existing = listProjectSessions(projectId);
   const movableSessions = existing.filter((session) => !session.isOverview);
   const existingIds = new Set(movableSessions.map((session) => session.id));
@@ -618,7 +618,7 @@ export function setPinnedProjectSessionOrder(
   input: ProjectSessionPinnedOrderInput,
 ): ProjectSession[] {
   const parsed = ProjectSessionPinnedOrderInputSchema.parse(input);
-  ensureProjectExists(projectId);
+  projectId = ensureProjectExists(projectId);
   const existing = listProjectSessions(projectId, { includeArchived: true })
     .filter((session) => session.pinned && !session.archived && !session.isOverview);
   const existingIds = new Set(existing.map((session) => session.id));
@@ -817,9 +817,10 @@ function findSingletonTab(session: ProjectSession, kind: ProjectSessionTabCreate
 
 export function createProjectSessionTab(input: ProjectSessionTabCreateInput): ProjectSessionTab {
   const parsed = ProjectSessionTabCreateInputSchema.parse(input);
+  const projectId = ensureProjectExists(parsed.projectId);
   const session = getProjectSession(parsed.sessionId);
   if (!session) throw new Error(`Project session not found: ${parsed.sessionId}`);
-  if (session.projectId !== parsed.projectId) {
+  if (session.projectId !== projectId) {
     throw new Error("Tab project must match the owning session project");
   }
 
@@ -847,11 +848,11 @@ export function createProjectSessionTab(input: ProjectSessionTabCreateInput): Pr
     `).run(
       id,
       parsed.sessionId,
-      parsed.projectId,
+      projectId,
       parsed.panelId,
       parsed.kind,
       parsed.title,
-      JSON.stringify(parsed.config),
+      JSON.stringify({ ...parsed.config, projectId }),
       (maxOrder?.maxOrder ?? -1) + 1,
       now,
       now,
@@ -881,8 +882,11 @@ export function updateProjectSessionTab(tabId: string, input: ProjectSessionTabU
     values.push(parsed.title);
   }
   if (parsed.config !== undefined) {
+    const configProjectId = "projectId" in parsed.config && typeof parsed.config.projectId === "string"
+      ? requireProjectId(parsed.config.projectId)
+      : row.project_id;
     fields.push("config_json = ?");
-    values.push(JSON.stringify(parsed.config));
+    values.push(JSON.stringify({ ...parsed.config, projectId: configProjectId }));
   }
   if (parsed.stateKey !== undefined) {
     fields.push("state_key = ?");
@@ -1196,9 +1200,10 @@ export function updateProjectSessionTabState(tabId: string, stateKey: number, st
 
 export function upsertProjectSessionThreadLink(input: ProjectSessionThreadLinkInput): ProjectSessionThreadLink {
   const parsed = ProjectSessionThreadLinkInputSchema.parse(input);
+  const projectId = ensureProjectExists(parsed.projectId);
   const session = getProjectSession(parsed.sessionId);
   if (!session) throw new Error(`Project session not found: ${parsed.sessionId}`);
-  if (session.projectId !== parsed.projectId) {
+  if (session.projectId !== projectId) {
     throw new Error("Thread project must match the owning session project");
   }
 
@@ -1206,7 +1211,7 @@ export function upsertProjectSessionThreadLink(input: ProjectSessionThreadLinkIn
   const linkedAt = new Date().toISOString();
   const existing = getCodexThread(parsed.threadId);
   upsertCodexThread({
-    projectId: parsed.projectId,
+    projectId,
     cardId: existing?.cardId ?? null,
     threadId: parsed.threadId,
     source: parsed.parentThreadId

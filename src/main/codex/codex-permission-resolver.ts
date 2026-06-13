@@ -100,13 +100,28 @@ function normalizeApprovalsReviewer(
   return guardianApprovalEnabled ? AUTO_REVIEW_APPROVALS_REVIEWER : DEFAULT_APPROVALS_REVIEWER;
 }
 
+function normalizeWorkspaceRoots(workspaceRoots: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const root of workspaceRoots) {
+    const trimmed = root.trim();
+    if (!trimmed) continue;
+    const resolved = path.resolve(trimmed);
+    const key = process.platform === "win32" ? resolved.toLowerCase() : resolved;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push(resolved);
+  }
+  return normalized;
+}
+
 function buildWorkspaceWriteSandboxPolicy(
-  workspacePath: string,
+  workspaceRoots: readonly string[],
   sandboxWorkspaceWrite: SandboxWorkspaceWrite | null | undefined,
 ): Extract<SandboxPolicy, { type: "workspaceWrite" }> {
   return {
     type: "workspaceWrite",
-    writableRoots: [workspacePath],
+    writableRoots: normalizeWorkspaceRoots(workspaceRoots),
     networkAccess: sandboxWorkspaceWrite?.network_access ?? false,
     excludeTmpdirEnvVar: sandboxWorkspaceWrite?.exclude_tmpdir_env_var ?? false,
     excludeSlashTmp: sandboxWorkspaceWrite?.exclude_slash_tmp ?? false,
@@ -115,7 +130,7 @@ function buildWorkspaceWriteSandboxPolicy(
 
 function buildSandboxPolicy(
   sandboxMode: CodexSandboxMode | null,
-  workspacePath: string | null,
+  workspaceRoots: readonly string[],
   sandboxWorkspaceWrite: SandboxWorkspaceWrite | null | undefined,
 ): SandboxPolicy | null {
   if (sandboxMode === "danger-full-access") {
@@ -129,8 +144,8 @@ function buildSandboxPolicy(
     };
   }
 
-  if (sandboxMode === "workspace-write" && workspacePath) {
-    return buildWorkspaceWriteSandboxPolicy(workspacePath, sandboxWorkspaceWrite);
+  if (sandboxMode === "workspace-write" && workspaceRoots.length > 0) {
+    return buildWorkspaceWriteSandboxPolicy(workspaceRoots, sandboxWorkspaceWrite);
   }
 
   return null;
@@ -313,7 +328,7 @@ export function resolveCodexPermissionState(input: {
   origins: ConfigReadResponse["origins"];
   requirements: ConfigRequirements | null;
   defaultUserConfigPath: string;
-  workspacePath: string | null;
+  workspaceRoots: string[];
 }): CodexPermissionState {
   const guardianApprovalEnabled = resolveAutoReviewGate(input.config);
   const sandboxMode = input.config.sandbox_mode ?? null;
@@ -370,7 +385,7 @@ export function resolveCodexPermissionState(input: {
     sandboxMode: effectiveResolvedPreset?.sandboxMode ?? sandboxMode,
     sandbox: buildSandboxPolicy(
       effectiveResolvedPreset?.sandboxMode ?? sandboxMode,
-      input.workspacePath,
+      input.workspaceRoots,
       input.config.sandbox_workspace_write,
     ),
     guardianApprovalEnabled,
@@ -416,7 +431,7 @@ export function buildPermissionModeConfigEdits(mode: CodexPermissionMode): Confi
 
 export function buildTurnPermissionOverrides(input: {
   permissionState: CodexPermissionState;
-  workspacePath: string | null;
+  workspaceRoots: string[];
 }): {
   approvalPolicy?: CodexApprovalPolicy;
   approvalsReviewer?: CodexApprovalsReviewer;
@@ -428,9 +443,9 @@ export function buildTurnPermissionOverrides(input: {
 
   const sandboxPolicy = buildSandboxPolicy(
     input.permissionState.sandboxMode,
-    input.workspacePath,
+    input.workspaceRoots,
     {
-      writable_roots: input.workspacePath ? [input.workspacePath] : [],
+      writable_roots: input.workspaceRoots,
       network_access: input.permissionState.sandbox?.type === "workspaceWrite"
         ? input.permissionState.sandbox.networkAccess
         : false,

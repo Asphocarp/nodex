@@ -259,7 +259,7 @@ export function KanbanBoard({
       name: project.name,
       icon: project.icon,
       description: project.description,
-      workspacePath: project.workspacePath,
+      primaryWorkspaceRoot: project.primaryWorkspaceRoot,
     })),
     [projects],
   );

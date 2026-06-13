@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dropdown";
 import { cn } from "@/lib/utils";
 import { formatElapsedSince } from "@/lib/elapsed-time";
-import type { Project } from "@/lib/types";
+import type { Project, ProjectCreateInput, ProjectUpdateInput } from "@/lib/types";
 import type { SpaceRef } from "@/lib/use-workbench-state";
 import { resolveStageSidebarSectionRenderState } from "./left-sidebar-section-state";
 import { LeftSidebarFooter, type LeftSidebarFooterProps } from "./left-sidebar-footer";
@@ -83,21 +83,9 @@ interface LeftSidebarProps {
   onSelectSpace: (projectId: string) => void;
   onOpenSettings: () => void;
   projectPickerOpenTick: number;
-  onCreateProject: (
-    id: string,
-    name: string,
-    description?: string,
-    icon?: string,
-    workspacePath?: string | null,
-  ) => Promise<Project | null>;
+  onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
   onDeleteProject: (projectId: string) => Promise<boolean>;
-  onRenameProject: (
-    oldId: string,
-    newId: string,
-    name?: string,
-    icon?: string,
-    workspacePath?: string | null,
-  ) => Promise<Project | null>;
+  onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
   footerAccount?: Omit<LeftSidebarFooterProps, "onOpenSettings">;
 }
 
@@ -221,7 +209,7 @@ export function LeftSidebar({
   projectPickerOpenTick,
   onCreateProject,
   onDeleteProject,
-  onRenameProject,
+  onUpdateProject,
   footerAccount,
 }: LeftSidebarProps) {
   const projectsStageGroup = useMemo(
@@ -305,7 +293,7 @@ export function LeftSidebar({
           onSelectSpace={onSelectSpace}
           onCreateProject={onCreateProject}
           onDeleteProject={onDeleteProject}
-          onRenameProject={onRenameProject}
+          onUpdateProject={onUpdateProject}
           projectPickerOpenTick={projectPickerOpenTick}
         />
 

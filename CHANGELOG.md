@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added source-backed local projects with ordered source folders, UUID-only project identity, and server-side project creation.
+- Added a sidebar add-project menu with `Start from scratch` and `Use an existing folder` flows.
 - Added a real project Files tab with a workspace tree, Codex-style filtering and file tab ids, local file previews, external-open actions, and migration from older placeholder tabs.
 - Added a slash-command menu above the Thread composer, including inline grouped filtering, keyboard selection, nested command panels, app-server-backed Compact/Goal/Memory/Feedback actions, MCP status, model/reasoning/service-tier controls, contextual hidden commands, and Storybook coverage.
 - Added Browser tabs with Electron webview navigation chrome, local-server new-tab discovery, full-bleed retained page hosting across tab switches and panel hide/show, device toolbar presets, zoom and browsing-data controls, screenshot/comment affordances, browser-use overlay state, and multi-tab context actions.
@@ -22,6 +24,8 @@ All notable changes to this project will be documented in this file.
 - Added a `Start in` selector to empty session new-chat composers, including `Work locally` and managed `New worktree` starts with environment setup progress.
 
 ### Changed
+- Project names are now display-only: renaming a project no longer changes its stable server-generated UUID.
+- Project row actions now own rename, icon, source-folder, Finder, and delete management directly from the sidebar.
 - Matched the Workbench Projects header and project folder fold animations to the shipped Codex sidebar motion.
 - Blank project session thread pages now open on a centered new-chat home with a project-aware hero prompt, attached composer/footer strip, ProseMirror prompt editor, and local/worktree-only start controls.
 - Replaced the old primary stage-rail workbench model with project sessions that open as a thread page with a collapsible and full-width-expandable right panel plus an independent bottom panel for session tabs.
@@ -29,7 +33,7 @@ All notable changes to this project will be documented in this file.
 - Card Stage description auto-save now waits 1.5 seconds after edits, reducing save churn while keeping blur and close saves immediate.
 - Window restore and new-window layout seeding are now owned only by window sessions instead of named workspaces.
 - macOS window titles now use `Nodex` instead of a workspace name.
-- Terminal tabs are now session-owned panel tabs with session terminal ids that start from the attached thread cwd before falling back to the project workspace path; cards can request a terminal but no longer own terminal tabs or PTY identity.
+- Terminal tabs are now session-owned panel tabs with session terminal ids that start from the attached thread cwd before falling back to the project primary source; cards can request a terminal but no longer own terminal tabs or PTY identity.
 - Refined the project/session sidebar chrome, moved project folder selection into each project row actions menu, and added Search, Plugins, and Automations rows for a denser shell layout.
 - Refined project session panel groups so empty non-final groups close automatically, each group's new-tab button sits directly after its tabs, and right-panel expand/restore plus bottom-panel close controls sit at the far-right edge of the whole panel.
 - Refined the project session shell side-panel control placement, adjacent header-slot spacing, remembered full-width mode, and button styling: the global header now owns `Toggle side panel`, tab creation lives in each panel group header, right-panel expand/restore lives in the panel-global header rail, and the unused attach/detach thread toolbar button is removed.
@@ -44,6 +48,8 @@ All notable changes to this project will be documented in this file.
 - Thread collapsed tool activity groups now has synthesized summaries and flat expanded row hierarchy instead of showing generic completed-action labels or nested exploration subgroups.
 
 ### Removed
+- Removed the floating Manage Projects popover entry points.
+- Removed legacy project slugs, project-level workspace paths, and runtime alias compatibility from the project model.
 - Removed the legacy Full rail stage layout mode, its General settings controls, and the adjacent-panel peek setting.
 - Removed profile-local named workspaces, the workspace switcher/footer dots, and workspace create/rename/delete controls.
 - Removed the old workspace terminal drawer state and right-pane mirror columns; Terminal tabs and panel state now live only in project sessions.

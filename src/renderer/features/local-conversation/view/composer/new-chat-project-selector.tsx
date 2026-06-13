@@ -143,7 +143,7 @@ function ProjectSelectorMenuContent({
                   leftSlot={<Folder className="icon-xs text-token-description-foreground" />}
                   rightSlot={selected ? <NodexDropdownSelectedIcon /> : null}
                   subText={option.description}
-                  tooltipText={option.workspacePath ?? undefined}
+                  tooltipText={option.primaryWorkspaceRoot ?? undefined}
                   onSelect={() => {
                     actions.onNewThreadProjectChange?.(option.id);
                   }}

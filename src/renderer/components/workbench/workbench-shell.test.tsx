@@ -454,14 +454,17 @@ beforeAll(async () => {
   resolveCardStageSessionTabOrder = workbenchShellModule.resolveCardStageSessionTabOrder;
 });
 
-function makeProject(id = "alpha", name = "Alpha", workspacePath?: string): Project {
+function makeProject(id = "alpha", name = "Alpha", primarySourceRoot?: string): Project {
+  const normalizedPrimarySourceRoot = primarySourceRoot?.trim() || null;
   return {
     id,
     name,
     description: "",
     icon: "",
-    workspacePath,
+    sources: normalizedPrimarySourceRoot ? [{ root: normalizedPrimarySourceRoot, order: 0 }] : [],
+    primaryWorkspaceRoot: normalizedPrimarySourceRoot,
     created: new Date("2026-06-07T00:00:00.000Z"),
+    updated: new Date("2026-06-07T00:00:00.000Z"),
   };
 }
 
@@ -1015,7 +1018,7 @@ function renderWorkbench({
         openCardStage={() => undefined}
         onLeaveCardStageCard={() => undefined}
         onCreateProject={async () => null}
-        onRenameProject={async () => null}
+        onUpdateProject={async () => null}
         onDeleteProject={async () => false}
         onRequestProjectPickerOpen={() => undefined}
         threadSearchOpenTick={0}
@@ -1615,7 +1618,8 @@ describe("workbench session shell", () => {
     });
 
     expect(screen.setDbProjectCalls.includes("beta")).toBeFalse();
-    expect(textContent(document.body).includes("Choose project folder...")).toBeTrue();
+    expect(textContent(document.body).includes("Add source folder")).toBeTrue();
+    expect(textContent(document.body).includes("Edit sources")).toBeTrue();
   });
 
   test("project row new-chat button reuses an existing blank session", async () => {

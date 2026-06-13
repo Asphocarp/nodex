@@ -1,19 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { Project } from "../../lib/types";
+import { useMemo } from "react";
+import type { Project, ProjectCreateInput, ProjectUpdateInput } from "../../lib/types";
 import type { SpaceRef } from "../../lib/use-workbench-state";
-import { Plus } from "lucide-react";
-import {
-  ProjectManagerPopover,
-  type SidebarProjectManagerDataProps,
-} from "./left-sidebar-project-manager";
-import { shouldOpenProjectManagerForRequest } from "./left-sidebar-project-manager-open-request";
 import {
   CodexProjectRow,
-  CodexSidebarActionButton,
   CodexSidebarSection,
 } from "./codex-sidebar";
+import { SidebarProjectAddMenu } from "./sidebar-project-add-menu";
 
-interface SidebarProjectsSectionProps extends SidebarProjectManagerDataProps {
+interface SidebarProjectsSectionProps {
+  projects: Project[];
+  spaces: SpaceRef[];
+  activeProjectId: string;
+  onSelectSpace: (projectId: string) => void;
+  onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
+  onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
+  onDeleteProject: (projectId: string) => Promise<boolean>;
   expanded: boolean;
   onToggleExpanded: () => void;
   projectPickerOpenTick: number;
@@ -49,24 +50,13 @@ export function SidebarProjectsSection({
   onSelectSpace,
   onCreateProject,
   onDeleteProject,
-  onRenameProject,
+  onUpdateProject,
   projectPickerOpenTick,
 }: SidebarProjectsSectionProps) {
-  const [manageOpen, setManageOpen] = useState(false);
-  const lastHandledProjectPickerOpenTickRef = useRef(projectPickerOpenTick);
   const orderedProjects = useMemo(
     () => resolveOrderedProjects(projects, spaces),
     [projects, spaces],
   );
-
-  useEffect(() => {
-    if (!shouldOpenProjectManagerForRequest(projectPickerOpenTick, lastHandledProjectPickerOpenTickRef.current)) {
-      return;
-    }
-
-    lastHandledProjectPickerOpenTickRef.current = projectPickerOpenTick;
-    setManageOpen(true);
-  }, [projectPickerOpenTick]);
 
   return (
     <CodexSidebarSection
@@ -74,24 +64,9 @@ export function SidebarProjectsSection({
       collapsed={!expanded}
       onToggle={onToggleExpanded}
       actions={(
-        <ProjectManagerPopover
-          projects={projects}
-          spaces={spaces}
-          activeProjectId={activeProjectId}
-          onSelectSpace={onSelectSpace}
+        <SidebarProjectAddMenu
           onCreateProject={onCreateProject}
-          onDeleteProject={onDeleteProject}
-          onRenameProject={onRenameProject}
-          open={manageOpen}
-          onOpenChange={setManageOpen}
-          side="bottom"
-          align="end"
-          contentClassName="w-80"
-          trigger={(
-            <CodexSidebarActionButton label="Manage projects" title="Manage projects">
-              <Plus className="size-3.5" />
-            </CodexSidebarActionButton>
-          )}
+          openSetupTick={projectPickerOpenTick}
         />
       )}
     >
@@ -107,8 +82,8 @@ export function SidebarProjectsSection({
                 active={isActive}
                 expanded={isActive}
                 onActivate={() => onSelectSpace(project.id)}
-                onRenameProject={onRenameProject}
-                onManageProject={() => setManageOpen(true)}
+                onUpdateProject={onUpdateProject}
+                onDeleteProject={onDeleteProject}
               />
             );
           })}

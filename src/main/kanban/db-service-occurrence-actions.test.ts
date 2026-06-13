@@ -10,7 +10,6 @@ import {
   createProject,
   executeReadOnlyQuery,
   getCard,
-  getProject,
   initializeDatabase,
   listCalendarOccurrences,
   redoLatest,
@@ -23,6 +22,8 @@ function isUnsupportedSqliteError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return message.includes("better-sqlite3") && message.includes("not yet supported");
 }
+
+let projectId = "";
 
 async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
   closeDatabase();
@@ -40,9 +41,7 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
     throw error;
   }
 
-  if (!getProject("default")) {
-    createProject({ id: "default", name: "Default" });
-  }
+  projectId = createProject({ name: "Default" }).id;
 
   try {
     await run();
@@ -106,7 +105,7 @@ function archiveRows() {
      FROM cards
      WHERE project_id = ? AND status = 'done' AND archived = 1
      ORDER BY created DESC`,
-    ["default"],
+    [projectId],
   ).rows;
 }
 
@@ -115,10 +114,10 @@ describe("occurrence actions", () => {
     const ran = await withTempDatabase(async () => {
       const startIso = "2026-03-01T10:00:00.000Z";
       const endIso = "2026-03-01T11:00:00.000Z";
-      const card = await createCard("default", "in_progress", recurringInput(startIso, endIso));
+      const card = await createCard(projectId, "in_progress", recurringInput(startIso, endIso));
 
       const result = await completeCardOccurrence(
-        "default",
+        projectId,
         {
           cardId: card.id,
           occurrenceStart: new Date(startIso),
@@ -129,7 +128,7 @@ describe("occurrence actions", () => {
 
       expect(result.success).toBeTrue();
 
-      const master = await getCard("default", card.id);
+      const master = await getCard(projectId, card.id);
       expect(master?.scheduledStart?.toISOString()).toBe("2026-03-02T10:00:00.000Z");
       expect(master?.scheduledEnd?.toISOString()).toBe("2026-03-02T11:00:00.000Z");
 
@@ -152,10 +151,10 @@ describe("occurrence actions", () => {
       const endIso = "2026-03-01T11:00:00.000Z";
       const futureIso = "2026-03-05T10:00:00.000Z";
       const futureEndIso = "2026-03-05T11:00:00.000Z";
-      const card = await createCard("default", "in_progress", recurringInput(startIso, endIso));
+      const card = await createCard(projectId, "in_progress", recurringInput(startIso, endIso));
 
       const result = await completeCardOccurrence(
-        "default",
+        projectId,
         {
           cardId: card.id,
           occurrenceStart: new Date(futureIso),
@@ -165,7 +164,7 @@ describe("occurrence actions", () => {
 
       expect(result.success).toBeTrue();
 
-      const master = await getCard("default", card.id);
+      const master = await getCard(projectId, card.id);
       expect(master?.scheduledStart?.toISOString()).toBe(startIso);
       expect(master?.scheduledEnd?.toISOString()).toBe(endIso);
 
@@ -178,7 +177,7 @@ describe("occurrence actions", () => {
         `SELECT exception_type, occurrence_start
          FROM recurrence_exceptions
          WHERE project_id = ? AND card_id = ?`,
-        ["default", card.id],
+        [projectId, card.id],
       ).rows;
       expect(exceptions.length).toBe(1);
       expect(exceptions[0]?.exception_type).toBe("skip");
@@ -194,14 +193,14 @@ describe("occurrence actions", () => {
     const ran = await withTempDatabase(async () => {
       const startIso = "2026-03-01T10:00:00.000Z";
       const endIso = "2026-03-01T11:00:00.000Z";
-      const card = await createCard("default", "in_progress", {
+      const card = await createCard(projectId, "in_progress", {
         title: "One-time event",
         scheduledStart: new Date(startIso),
         scheduledEnd: new Date(endIso),
       });
 
       const result = await completeCardOccurrence(
-        "default",
+        projectId,
         {
           cardId: card.id,
           occurrenceStart: new Date(startIso),
@@ -211,7 +210,7 @@ describe("occurrence actions", () => {
 
       expect(result.success).toBeTrue();
 
-      const master = await getCard("default", card.id);
+      const master = await getCard(projectId, card.id);
       expect(master?.scheduledStart).toBe(undefined);
       expect(master?.scheduledEnd).toBe(undefined);
 
@@ -230,10 +229,10 @@ describe("occurrence actions", () => {
     const ran = await withTempDatabase(async () => {
       const startIso = "2026-03-01T10:00:00.000Z";
       const endIso = "2026-03-01T11:00:00.000Z";
-      const card = await createCard("default", "in_progress", recurringInput(startIso, endIso));
+      const card = await createCard(projectId, "in_progress", recurringInput(startIso, endIso));
 
       const result = await skipCardOccurrence(
-        "default",
+        projectId,
         {
           cardId: card.id,
           occurrenceStart: new Date(startIso),
@@ -258,9 +257,9 @@ describe("occurrence actions", () => {
       const endIso = "2026-03-01T11:00:00.000Z";
       const detachedStartIso = "2026-03-01T12:00:00.000Z";
       const detachedEndIso = "2026-03-01T13:00:00.000Z";
-      const card = await createCard("default", "in_progress", recurringInput(startIso, endIso));
+      const card = await createCard(projectId, "in_progress", recurringInput(startIso, endIso));
 
-      const result = await updateCardOccurrence("default", {
+      const result = await updateCardOccurrence(projectId, {
         cardId: card.id,
         occurrenceStart: new Date(startIso),
         source: "calendar",
@@ -272,7 +271,7 @@ describe("occurrence actions", () => {
       });
       expect(result.success).toBeTrue();
 
-      const master = await getCard("default", card.id);
+      const master = await getCard(projectId, card.id);
       expect(master?.scheduledStart?.toISOString()).toBe(startIso);
       expect(master?.scheduledEnd?.toISOString()).toBe(endIso);
 
@@ -280,7 +279,7 @@ describe("occurrence actions", () => {
         `SELECT exception_type, occurrence_start, override_start, override_end
          FROM recurrence_exceptions
          WHERE project_id = ? AND card_id = ?`,
-        ["default", card.id],
+        [projectId, card.id],
       ).rows;
       expect(exceptions.length).toBe(1);
       expect(exceptions[0]?.exception_type).toBe("skip");
@@ -293,7 +292,7 @@ describe("occurrence actions", () => {
          FROM cards
          WHERE project_id = ? AND status = ? AND archived = 0
          ORDER BY "order" ASC`,
-        ["default", "in_progress"],
+        [projectId, "in_progress"],
       ).rows;
       expect(rows.length).toBe(2);
       const detachedRow = rows.find((row) => row.id !== card.id);
@@ -303,7 +302,7 @@ describe("occurrence actions", () => {
       expect(detachedRow?.recurrence_json).toBe(null);
 
       const occurrences = await listCalendarOccurrences(
-        "default",
+        projectId,
         new Date("2026-03-01T00:00:00.000Z"),
         new Date("2026-03-03T00:00:00.000Z"),
       );
@@ -327,10 +326,10 @@ describe("occurrence actions", () => {
     const ran = await withTempDatabase(async () => {
       const startIso = "2026-03-01T10:00:00.000Z";
       const endIso = "2026-03-01T11:00:00.000Z";
-      const card = await createCard("default", "in_progress", recurringInput(startIso, endIso));
+      const card = await createCard(projectId, "in_progress", recurringInput(startIso, endIso));
 
       const occurrences = await listCalendarOccurrences(
-        "default",
+        projectId,
         new Date("2026-03-01T00:00:00.000Z"),
         new Date("2026-03-04T00:00:00.000Z"),
       );
@@ -355,13 +354,13 @@ describe("occurrence actions", () => {
   test("calendar occurrences return explicit all-day flag", async () => {
     const ran = await withTempDatabase(async () => {
       await createCard(
-        "default",
+        projectId,
         "in_progress",
         allDayInput("2026-03-10T00:00:00.000Z", "2026-03-11T00:00:00.000Z"),
       );
 
       const occurrences = await listCalendarOccurrences(
-        "default",
+        projectId,
         new Date("2026-03-09T00:00:00.000Z"),
         new Date("2026-03-12T00:00:00.000Z"),
       );
@@ -382,9 +381,9 @@ describe("occurrence actions", () => {
       const splitOccurrenceIso = "2026-03-03T10:00:00.000Z";
       const splitStartIso = "2026-03-03T15:00:00.000Z";
       const splitEndIso = "2026-03-03T16:00:00.000Z";
-      const card = await createCard("default", "in_progress", recurringInput(startIso, endIso));
+      const card = await createCard(projectId, "in_progress", recurringInput(startIso, endIso));
 
-      const result = await updateCardOccurrence("default", {
+      const result = await updateCardOccurrence(projectId, {
         cardId: card.id,
         occurrenceStart: new Date(splitOccurrenceIso),
         source: "calendar",
@@ -396,7 +395,7 @@ describe("occurrence actions", () => {
       });
       expect(result.success).toBeTrue();
 
-      const master = await getCard("default", card.id);
+      const master = await getCard(projectId, card.id);
       expect(master?.scheduledStart?.toISOString()).toBe(startIso);
       expect(master?.scheduledEnd?.toISOString()).toBe(endIso);
       expect(master?.recurrence?.endCondition?.type).toBe("untilDate");
@@ -409,7 +408,7 @@ describe("occurrence actions", () => {
          FROM cards
          WHERE project_id = ? AND status = ? AND archived = 0
          ORDER BY "order" ASC`,
-        ["default", "in_progress"],
+        [projectId, "in_progress"],
       ).rows;
       expect(rows.length).toBe(2);
 
@@ -425,7 +424,7 @@ describe("occurrence actions", () => {
 
       const exceptions = executeReadOnlyQuery(
         `SELECT * FROM recurrence_exceptions WHERE project_id = ? AND card_id = ?`,
-        ["default", card.id],
+        [projectId, card.id],
       ).rows;
       expect(exceptions.length).toBe(0);
     });
@@ -441,9 +440,9 @@ describe("occurrence actions", () => {
       const endIso = "2026-03-01T11:00:00.000Z";
       const updatedStartIso = "2026-03-01T14:00:00.000Z";
       const updatedEndIso = "2026-03-01T15:00:00.000Z";
-      const card = await createCard("default", "in_progress", recurringInput(startIso, endIso));
+      const card = await createCard(projectId, "in_progress", recurringInput(startIso, endIso));
 
-      const result = await updateCardOccurrence("default", {
+      const result = await updateCardOccurrence(projectId, {
         cardId: card.id,
         occurrenceStart: new Date(startIso),
         source: "calendar",
@@ -460,7 +459,7 @@ describe("occurrence actions", () => {
          FROM cards
          WHERE project_id = ? AND status = ? AND archived = 0
          ORDER BY "order" ASC`,
-        ["default", "in_progress"],
+        [projectId, "in_progress"],
       ).rows;
       expect(rows.length).toBe(1);
       expect(rows[0]?.id).toBe(card.id);
@@ -483,9 +482,9 @@ describe("occurrence actions", () => {
       const endIso = "2026-03-01T11:00:00.000Z";
       const allStartIso = "2026-03-01T14:00:00.000Z";
       const allEndIso = "2026-03-01T15:00:00.000Z";
-      const card = await createCard("default", "in_progress", recurringInput(startIso, endIso));
+      const card = await createCard(projectId, "in_progress", recurringInput(startIso, endIso));
 
-      const result = await updateCardOccurrence("default", {
+      const result = await updateCardOccurrence(projectId, {
         cardId: card.id,
         occurrenceStart: new Date(startIso),
         source: "calendar",
@@ -497,14 +496,14 @@ describe("occurrence actions", () => {
       });
       expect(result.success).toBeTrue();
 
-      const master = await getCard("default", card.id);
+      const master = await getCard(projectId, card.id);
       expect(master?.scheduledStart?.toISOString()).toBe(allStartIso);
       expect(master?.scheduledEnd?.toISOString()).toBe(allEndIso);
       expect(master?.recurrence?.frequency).toBe("daily");
 
       const exceptions = executeReadOnlyQuery(
         `SELECT * FROM recurrence_exceptions WHERE project_id = ? AND card_id = ?`,
-        ["default", card.id],
+        [projectId, card.id],
       ).rows;
       expect(exceptions.length).toBe(0);
     });
@@ -521,12 +520,12 @@ describe("occurrence actions", () => {
       const shiftedStartIso = "2026-03-03T10:00:00.000Z";
       const shiftedEndIso = "2026-03-03T11:00:00.000Z";
       const card = await createCard(
-        "default",
+        projectId,
         "in_progress",
         recurringInputWithUntilDate(startIso, endIso, "2026-03-10"),
       );
 
-      const result = await updateCardOccurrence("default", {
+      const result = await updateCardOccurrence(projectId, {
         cardId: card.id,
         occurrenceStart: new Date(startIso),
         source: "calendar",
@@ -538,7 +537,7 @@ describe("occurrence actions", () => {
       });
       expect(result.success).toBeTrue();
 
-      const master = await getCard("default", card.id);
+      const master = await getCard(projectId, card.id);
       expect(master?.scheduledStart?.toISOString()).toBe(shiftedStartIso);
       expect(master?.scheduledEnd?.toISOString()).toBe(shiftedEndIso);
       if (master?.recurrence?.endCondition?.type === "untilDate") {
@@ -559,12 +558,12 @@ describe("occurrence actions", () => {
       const shiftedSplitStartIso = "2026-03-07T10:00:00.000Z";
       const shiftedSplitEndIso = "2026-03-07T11:00:00.000Z";
       const card = await createCard(
-        "default",
+        projectId,
         "in_progress",
         recurringInputWithUntilDate(startIso, endIso, "2026-03-10"),
       );
 
-      const result = await updateCardOccurrence("default", {
+      const result = await updateCardOccurrence(projectId, {
         cardId: card.id,
         occurrenceStart: new Date(splitOccurrenceIso),
         source: "calendar",
@@ -581,7 +580,7 @@ describe("occurrence actions", () => {
          FROM cards
          WHERE project_id = ? AND status = ? AND archived = 0
          ORDER BY "order" ASC`,
-        ["default", "in_progress"],
+        [projectId, "in_progress"],
       ).rows;
       expect(rows.length).toBe(2);
 
@@ -608,10 +607,10 @@ describe("occurrence actions", () => {
       const startIso = "2026-03-01T10:00:00.000Z";
       const endIso = "2026-03-01T11:00:00.000Z";
       const sessionId = "session-recurring-undo-redo";
-      const card = await createCard("default", "in_progress", recurringInput(startIso, endIso));
+      const card = await createCard(projectId, "in_progress", recurringInput(startIso, endIso));
 
       const completeResult = await completeCardOccurrence(
-        "default",
+        projectId,
         {
           cardId: card.id,
           occurrenceStart: new Date(startIso),
@@ -621,21 +620,21 @@ describe("occurrence actions", () => {
       );
       expect(completeResult.success).toBeTrue();
 
-      let master = await getCard("default", card.id);
+      let master = await getCard(projectId, card.id);
       expect(master?.scheduledStart?.toISOString()).toBe("2026-03-02T10:00:00.000Z");
       expect(archiveRows().length).toBe(1);
 
-      const undoResult = undoLatest("default", sessionId);
+      const undoResult = undoLatest(projectId, sessionId);
       expect(undoResult.success).toBeTrue();
 
-      master = await getCard("default", card.id);
+      master = await getCard(projectId, card.id);
       expect(master?.scheduledStart?.toISOString()).toBe(startIso);
       expect(archiveRows().length).toBe(0);
 
-      const redoResult = redoLatest("default", sessionId);
+      const redoResult = redoLatest(projectId, sessionId);
       expect(redoResult.success).toBeTrue();
 
-      master = await getCard("default", card.id);
+      master = await getCard(projectId, card.id);
       expect(master?.scheduledStart?.toISOString()).toBe("2026-03-02T10:00:00.000Z");
       expect(archiveRows().length).toBe(1);
     });

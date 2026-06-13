@@ -7,7 +7,6 @@ import {
   closeDatabase,
   createCard,
   createProject,
-  getProject,
   getBoard,
   initializeDatabase,
   redoLatest,
@@ -19,7 +18,7 @@ function isUnsupportedSqliteError(error: unknown): boolean {
   return message.includes("better-sqlite3") && message.includes("not yet supported");
 }
 
-async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
+async function withTempDatabase(run: (projectId: string) => Promise<void>): Promise<boolean> {
   closeDatabase();
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-card-create-placement-"));
   process.env.KANBAN_DIR = tempDir;
@@ -34,12 +33,10 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
     }
     throw error;
   }
-  if (!getProject("default")) {
-    createProject({ id: "default", name: "Default" });
-  }
+  const project = createProject({ name: "Default" });
 
   try {
-    await run();
+    await run(project.id);
     return true;
   } finally {
     closeDatabase();
@@ -50,16 +47,16 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
 
 describe("createCard placement", () => {
   test("inserts at top when placement is top and shifts existing order", async () => {
-    const ran = await withTempDatabase(async () => {
-      const first = await createCard("default", "in_progress", { title: "First" });
-      const second = await createCard("default", "in_progress", { title: "Second" });
-      const top = await createCard("default", "in_progress", { title: "Top" }, undefined, "top");
+    const ran = await withTempDatabase(async (projectId) => {
+      const first = await createCard(projectId, "in_progress", { title: "First" });
+      const second = await createCard(projectId, "in_progress", { title: "Second" });
+      const top = await createCard(projectId, "in_progress", { title: "Top" }, undefined, "top");
 
       expect(first.order).toBe(0);
       expect(second.order).toBe(1);
       expect(top.order).toBe(0);
 
-      const board = await getBoard("default");
+      const board = await getBoard(projectId);
       const column = board.columns.find((entry) => entry.id === "in_progress");
       expect(column !== undefined).toBeTrue();
       expect(column?.cards.map((card) => card.title).join(",")).toBe("Top,First,Second");
@@ -70,28 +67,28 @@ describe("createCard placement", () => {
   });
 
   test("redo preserves top insertion position", async () => {
-    const ran = await withTempDatabase(async () => {
+    const ran = await withTempDatabase(async (projectId) => {
       const sessionId = "session-create-top";
-      await createCard("default", "in_progress", { title: "First" });
-      await createCard("default", "in_progress", { title: "Second" });
-      await createCard("default", "in_progress", { title: "Top" }, sessionId, "top");
+      await createCard(projectId, "in_progress", { title: "First" });
+      await createCard(projectId, "in_progress", { title: "Second" });
+      await createCard(projectId, "in_progress", { title: "Top" }, sessionId, "top");
 
-      let board = await getBoard("default");
+      let board = await getBoard(projectId);
       let column = board.columns.find((entry) => entry.id === "in_progress");
       expect(column?.cards.map((card) => card.title).join(",")).toBe("Top,First,Second");
 
-      const undoResult = undoLatest("default", sessionId);
+      const undoResult = undoLatest(projectId, sessionId);
       expect(undoResult.success).toBeTrue();
 
-      board = await getBoard("default");
+      board = await getBoard(projectId);
       column = board.columns.find((entry) => entry.id === "in_progress");
       expect(column?.cards.map((card) => card.title).join(",")).toBe("First,Second");
       expect(column?.cards.map((card) => card.order).join(",")).toBe("0,1");
 
-      const redoResult = redoLatest("default", sessionId);
+      const redoResult = redoLatest(projectId, sessionId);
       expect(redoResult.success).toBeTrue();
 
-      board = await getBoard("default");
+      board = await getBoard(projectId);
       column = board.columns.find((entry) => entry.id === "in_progress");
       expect(column?.cards.map((card) => card.title).join(",")).toBe("Top,First,Second");
       expect(column?.cards.map((card) => card.order).join(",")).toBe("0,1,2");
@@ -101,8 +98,8 @@ describe("createCard placement", () => {
   });
 
   test("generates canonical UUID-v7 ids by default", async () => {
-    const ran = await withTempDatabase(async () => {
-      const card = await createCard("default", "in_progress", { title: "Generated id" });
+    const ran = await withTempDatabase(async (projectId) => {
+      const card = await createCard(projectId, "in_progress", { title: "Generated id" });
       expect(isUuidV7(card.id)).toBeTrue();
     });
 
@@ -110,9 +107,9 @@ describe("createCard placement", () => {
   });
 
   test("preserves a caller-provided UUID-v7 id", async () => {
-    const ran = await withTempDatabase(async () => {
+    const ran = await withTempDatabase(async (projectId) => {
       const requestedId = "018f0f85-6d56-7625-bdea-000000000123";
-      const card = await createCard("default", "in_progress", {
+      const card = await createCard(projectId, "in_progress", {
         id: requestedId,
         title: "Requested id",
       });
@@ -124,11 +121,11 @@ describe("createCard placement", () => {
   });
 
   test("rejects non-UUID-v7 create ids", async () => {
-    const ran = await withTempDatabase(async () => {
+    const ran = await withTempDatabase(async (projectId) => {
       let message = "";
 
       try {
-        await createCard("default", "in_progress", {
+        await createCard(projectId, "in_progress", {
           id: "legacy-card",
           title: "Invalid id",
         });

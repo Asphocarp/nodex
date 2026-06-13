@@ -12,8 +12,10 @@ const project: Project = {
   name: "Nodex",
   description: "",
   icon: "",
-  workspacePath: WORKSPACE_ROOT,
+  sources: [{ root: WORKSPACE_ROOT, order: 0 }],
+  primaryWorkspaceRoot: WORKSPACE_ROOT,
   created: new Date(CREATED_AT),
+  updated: new Date(CREATED_AT),
 };
 
 const session: ProjectSession = {
