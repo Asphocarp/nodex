@@ -1,10 +1,11 @@
 import type {
+  ComponentPropsWithoutRef,
   KeyboardEvent,
   MouseEvent,
   PointerEvent,
   ReactNode,
 } from "react";
-import { useState } from "react";
+import { forwardRef, useState } from "react";
 import { FolderOpen, Settings } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import {
@@ -567,37 +568,54 @@ export function CodexThreadRow({
   );
 }
 
-export function CodexSidebarActionButton({
+type CodexSidebarActionButtonProps = Omit<ComponentPropsWithoutRef<"button">, "children"> & {
+  label: string;
+  children: ReactNode;
+};
+
+export const CodexSidebarActionButton = forwardRef<HTMLButtonElement, CodexSidebarActionButtonProps>(
+function CodexSidebarActionButton({
   label,
   title,
   children,
   onClick,
-}: {
-  label: string;
-  title?: string;
-  children: ReactNode;
-  onClick?: () => void;
-}) {
+  onPointerDown,
+  onMouseDown,
+  onKeyDown,
+  className,
+  ...buttonProps
+}, ref) {
   return (
     <NodexTooltip delayOpen tooltipContent={title ?? label} side="right">
       <button
+        {...buttonProps}
+        ref={ref}
         type="button"
-        className={CODEX_SIDEBAR_SECTION_ACTION_BUTTON_CLASS}
+        className={cn(CODEX_SIDEBAR_SECTION_ACTION_BUTTON_CLASS, className)}
         title={title}
         aria-label={label}
-        onPointerDown={stopCodexSidebarRowActionPropagation}
-        onMouseDown={stopCodexSidebarRowActionPropagation}
-        onKeyDown={stopCodexSidebarRowActionPropagation}
+        onPointerDown={(event) => {
+          stopCodexSidebarRowActionPropagation(event);
+          onPointerDown?.(event);
+        }}
+        onMouseDown={(event) => {
+          stopCodexSidebarRowActionPropagation(event);
+          onMouseDown?.(event);
+        }}
+        onKeyDown={(event) => {
+          stopCodexSidebarRowActionPropagation(event);
+          onKeyDown?.(event);
+        }}
         onClick={(event) => {
           event.stopPropagation();
-          onClick?.();
+          onClick?.(event);
         }}
       >
         {children}
       </button>
     </NodexTooltip>
   );
-}
+});
 
 export function resolveCodexNewChatShortcutLabel() {
   return isMacPlatform() ? "⌘N" : "Ctrl+N";

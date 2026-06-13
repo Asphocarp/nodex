@@ -126,6 +126,33 @@ describe("SidebarProjectsSection", () => {
     expect(rows[0]?.className.includes("h-token-nav-row")).toBeTrue();
   });
 
+  test("opens the project manager popover from the section action button", async () => {
+    const { getByLabelText, getByText } = renderProjectsSection(
+      <SidebarProjectsSection
+        projects={PROJECTS}
+        spaces={[
+          { projectId: "alpha", colorToken: "var(--accent-green)", initial: "A" },
+          { projectId: "beta", colorToken: "var(--accent-blue)", initial: "B" },
+        ]}
+        activeProjectId="alpha"
+        expanded
+        onToggleExpanded={() => undefined}
+        onSelectSpace={() => undefined}
+        onCreateProject={async () => null}
+        onDeleteProject={async () => false}
+        onRenameProject={async () => null}
+        projectPickerOpenTick={0}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(getByLabelText("Manage projects"));
+      await Promise.resolve();
+    });
+
+    expect(getByText("New Project").textContent).toBe("New Project");
+  });
+
   test("hides project rows when the Projects section is initially collapsed", () => {
     const { container, queryByText } = renderProjectsSection(
       <SidebarProjectsSection
