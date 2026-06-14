@@ -1915,13 +1915,15 @@ export function NfmEditor({
     [cancelScheduledSerializedEmit, editor, projectId, sendBlocksDialog, serializeEditorToNfm, sourceCardContext],
   );
 
+  const sourceCardId = sourceCardContext?.cardId;
+  const sourceColumnId = sourceCardContext?.columnId;
   const externalDropAdapter = useMemo(() => {
-    if (!sourceCardContext) return null;
+    if (!sourceCardId || !sourceColumnId) return null;
     return createCardStageDropAdapter(
       {
         projectId,
-        cardId: sourceCardContext.cardId,
-        columnId: sourceCardContext.columnId,
+        cardId: sourceCardId,
+        columnId: sourceColumnId,
       },
       () => {
         suppressExternalDropRef.current = true;
@@ -1930,7 +1932,7 @@ export function NfmEditor({
         };
       },
     );
-  }, [projectId, sourceCardContext]);
+  }, [projectId, sourceCardId, sourceColumnId]);
 
   useEditorDragBehaviors({
     editor,

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { RefObject } from "react";
 import type { ExternalDropAdapter } from "./external-block-drag-session";
 import {
@@ -31,6 +31,12 @@ export function useEditorDragBehaviors({
   containerRef,
   externalDropAdapter,
 }: UseEditorDragBehaviorsOptions) {
+  const latestOptionsRef = useRef({ editor, externalDropAdapter });
+
+  useEffect(() => {
+    latestOptionsRef.current = { editor, externalDropAdapter };
+  }, [editor, externalDropAdapter]);
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -48,19 +54,22 @@ export function useEditorDragBehaviors({
       el.removeAttribute("data-dragging");
       endExternalEditorDragSession(dragSessionId);
       dragSessionId = undefined;
-      if (hadLocalDragState && editor) {
-        finalizeSideMenuBlockDrag(editor);
+      const currentEditor = latestOptionsRef.current.editor;
+      if (hadLocalDragState && currentEditor) {
+        finalizeSideMenuBlockDrag(currentEditor);
       }
     };
 
     const onDragStart = () => {
       el.setAttribute("data-dragging", "");
-      if (!editor || !externalDropAdapter) return;
-      if (!supportsExternalDropEditor(editor)) return;
+      const currentEditor = latestOptionsRef.current.editor;
+      const currentExternalDropAdapter = latestOptionsRef.current.externalDropAdapter;
+      if (!currentEditor || !currentExternalDropAdapter) return;
+      if (!supportsExternalDropEditor(currentEditor)) return;
       dragSessionId = startExternalEditorDragSession(
-        editor as unknown as EditorForExternalBlockDrop,
+        currentEditor as unknown as EditorForExternalBlockDrop,
         el,
-        externalDropAdapter,
+        currentExternalDropAdapter,
       );
     };
 
@@ -91,7 +100,7 @@ export function useEditorDragBehaviors({
       window.removeEventListener("dragend", scheduleDropCleanup, true);
       cleanupNativeDrag();
     };
-  }, [containerRef, editor, externalDropAdapter]);
+  }, [containerRef]);
 
   useEffect(() => {
     const el = containerRef.current;
