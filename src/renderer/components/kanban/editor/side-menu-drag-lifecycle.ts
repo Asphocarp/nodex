@@ -12,6 +12,10 @@ interface SideMenuDragCleanupEditor {
   getExtension?: (extension: unknown) => unknown;
 }
 
+type ProseMirrorDragView = NonNullable<
+  SideMenuDragCleanupEditor["prosemirrorView"]
+>;
+
 function supportsSideMenuDragLifecycle(
   value: unknown,
 ): value is SideMenuDragLifecycle {
@@ -30,12 +34,44 @@ function removeDanglingDragPreviews(
 
 function getMountedProseMirrorView(
   editor: SideMenuDragCleanupEditor,
-): {
-  dragging?: unknown;
-  root?: Document | ShadowRoot;
-} | undefined {
+): ProseMirrorDragView | undefined {
   try {
     return editor.prosemirrorView;
+  } catch {
+    return undefined;
+  }
+}
+
+function getMountedProseMirrorRoot(
+  pmView: ProseMirrorDragView | undefined,
+): Document | ShadowRoot | undefined {
+  if (!pmView) return undefined;
+  try {
+    return pmView.root;
+  } catch {
+    return undefined;
+  }
+}
+
+function clearProseMirrorDragging(
+  pmView: ProseMirrorDragView | undefined,
+): void {
+  if (!pmView || !("dragging" in pmView)) return;
+  try {
+    pmView.dragging = null;
+  } catch {
+    // Tiptap can invalidate view-backed properties before React cleanup runs.
+  }
+}
+
+function getSideMenuDragLifecycle(
+  editor: SideMenuDragCleanupEditor,
+): SideMenuDragLifecycle | undefined {
+  if (typeof editor.getExtension !== "function") return undefined;
+  try {
+    const sideMenuExtension = editor.getExtension(SideMenuExtension);
+    if (!supportsSideMenuDragLifecycle(sideMenuExtension)) return undefined;
+    return sideMenuExtension;
   } catch {
     return undefined;
   }
@@ -44,24 +80,16 @@ function getMountedProseMirrorView(
 export function finalizeSideMenuBlockDrag(
   editor: SideMenuDragCleanupEditor,
 ): void {
-  const pmView = getMountedProseMirrorView(editor) as {
-    dragging?: unknown;
-    root?: Document | ShadowRoot;
-  } | undefined;
+  const pmView = getMountedProseMirrorView(editor);
+  const rootEl = getMountedProseMirrorRoot(pmView);
 
-  if (pmView && "dragging" in pmView) {
-    pmView.dragging = null;
+  clearProseMirrorDragging(pmView);
+
+  const sideMenuExtension = getSideMenuDragLifecycle(editor);
+  if (rootEl && sideMenuExtension) {
+    sideMenuExtension.blockDragEnd();
   }
-
-  if (typeof editor.getExtension === "function") {
-    const sideMenuExtension = editor.getExtension(SideMenuExtension);
-    if (pmView?.root && supportsSideMenuDragLifecycle(sideMenuExtension)) {
-      sideMenuExtension.blockDragEnd();
-    }
-  }
-
   removeDanglingDragPreviews(
-    pmView?.root
-    ?? (typeof document !== "undefined" ? document : undefined),
+    rootEl ?? (typeof document !== "undefined" ? document : undefined),
   );
 }

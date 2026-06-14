@@ -48,4 +48,28 @@ describe("finalizeSideMenuBlockDrag", () => {
     expect(editor.prosemirrorView.dragging).toBe(null);
     expect(removed).toBe(2);
   });
+
+  test("does not throw when Tiptap root is unavailable during unmount cleanup", () => {
+    let blockDragEnded = false;
+    const editor = {
+      prosemirrorView: {
+        dragging: { id: "dragging" },
+        get root(): Document | ShadowRoot {
+          throw new Error("[tiptap error]: The editor view is not available.");
+        },
+      },
+      getExtension: () => ({
+        blockDragEnd: () => {
+          blockDragEnded = true;
+        },
+      }),
+    };
+
+    finalizeSideMenuBlockDrag(
+      editor as unknown as Parameters<typeof finalizeSideMenuBlockDrag>[0],
+    );
+
+    expect(editor.prosemirrorView.dragging).toBe(null);
+    expect(blockDragEnded).toBeFalse();
+  });
 });
