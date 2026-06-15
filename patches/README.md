@@ -4,7 +4,7 @@ This directory stores local patches applied to upstream BlockNote packages. They
 
 ## Patch List
 
-### `@blocknote%2Fcore@0.47.1.patch`
+### `@blocknote%2Fcore@0.51.4.patch`
 
 - Target package: `@blocknote/core`
 - Purpose: fixes toggle block collapse behavior when child blocks are added.
@@ -12,7 +12,7 @@ This directory stores local patches applied to upstream BlockNote packages. They
 - Source touched: `src/blocks/ToggleWrapper/createToggleWrapper.ts`
 - Why it exists: Nodex needs stable, predictable collapsed state. Adding or editing child blocks should not force headings or toggle nodes open.
 
-### `@blocknote%2Freact@0.47.1.patch`
+### `@blocknote%2Freact@0.51.4.patch`
 
 - Target package: `@blocknote/react`
 - Purpose: keeps the React `ToggleWrapper` behavior aligned with the patched `@blocknote/core` collapse semantics.
@@ -20,7 +20,7 @@ This directory stores local patches applied to upstream BlockNote packages. They
 - Source touched: `src/blocks/ToggleWrapper/ToggleWrapper.tsx`
 - Why it exists: patching `core` alone is not enough. The React UI layer can still auto-expand collapsed toggles unless this layer is patched too.
 
-### `@blocknote%2Fshadcn@0.47.1.patch`
+### `@blocknote%2Fshadcn@0.51.4.patch`
 
 - Target package: `@blocknote/shadcn`
 - Purpose: fixes focus loss in BlockNote's shadcn/radix menus during mouse interaction.

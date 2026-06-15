@@ -418,13 +418,13 @@
   transition: none !important;
 }
 
-.bn-container[data-color-scheme="dark"] {
+.bn-root[data-color-scheme="dark"] {
   --bn-colors-editor-background: #202020;
 }
 
 /* ===== Code Block Theme Overrides ===== */
 /* BlockNote core hardcodes dark bg (#161616) on code blocks. Override it with our own theme variable. */
-.bn-container .bn-block-content[data-content-type="codeBlock"] {
+.bn-root .bn-block-content[data-content-type="codeBlock"] {
   background: var(--code-block-bg);
   color: var(--foreground);
   border-radius: 10px;
@@ -437,14 +437,14 @@
 }
 
 /* Code block language selector: adapt text color per theme */
-.bn-container[data-color-scheme="light"]
+.bn-root[data-color-scheme="light"]
   .bn-block-content[data-content-type="codeBlock"]
   > div
   > select {
   color: var(--foreground);
 }
 
-.bn-container[data-color-scheme="dark"]
+.bn-root[data-color-scheme="dark"]
   .bn-block-content[data-content-type="codeBlock"]
   .shiki {
   color: var(--shiki-dark, var(--foreground)) !important;
