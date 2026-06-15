@@ -5,7 +5,7 @@ import {
   __getNodexToastSnapshotForTests,
   __resetNodexToastStoreForTests,
 } from "@/components/ui/toast";
-import { render } from "@/test/dom";
+import { render, settleAsyncRender } from "@/test/dom";
 import {
   installAsyncRequestAnimationFrame,
   installWindowApi,
@@ -282,6 +282,7 @@ async function renderComposer(
       </AppProviders>,
     );
   });
+  await settleAsyncRender();
 
   return view;
 }
