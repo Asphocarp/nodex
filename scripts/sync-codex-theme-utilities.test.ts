@@ -72,6 +72,29 @@ describe("sync-codex-theme-utilities", () => {
     expect(generatedCss.includes(".ignored-top-level")).toBeFalse();
   });
 
+  test("drops reference font-face rules while preserving allowlisted utilities", () => {
+    const css = `
+      @font-face {
+        font-family: KaTeX_Main;
+        src: url("./KaTeX_Main-Regular-B22Nviop.woff2") format("woff2");
+        font-weight: 400;
+        font-style: normal;
+      }
+
+      .icon-2xs {
+        width: 14px;
+        height: 14px;
+      }
+    `;
+
+    const generatedCss = buildGeneratedUtilitiesCss(css);
+
+    expect(generatedCss.includes("@font-face")).toBeFalse();
+    expect(generatedCss.includes("KaTeX_Main")).toBeFalse();
+    expect(generatedCss.includes("KaTeX_Main-Regular-B22Nviop.woff2")).toBeFalse();
+    expect(generatedCss.includes(".icon-2xs")).toBeTrue();
+  });
+
   test("emits the toolbar padding utility when the reference css omits it", () => {
     const generatedCss = buildGeneratedUtilitiesCss(`
       @layer utilities {

@@ -215,6 +215,10 @@ const buildGeneratedUtilitiesCss = (referenceCss: string): string => {
     analyzeDependencies: false,
     visitor: {
       Rule(rule) {
+        if (rule.type === "font-face") {
+          return [];
+        }
+
         if (rule.type === "layer-block") {
           layerNameStack.push((rule.value.name ?? []).join("."));
           return;
