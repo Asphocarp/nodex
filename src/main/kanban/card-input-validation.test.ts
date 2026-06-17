@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { CardInput } from "../../shared/types";
-import { MAX_CARD_DESCRIPTION_LENGTH } from "../../shared/card-limits";
+import { MAX_CARD_DESCRIPTION_LENGTH, MAX_CARD_TITLE_LENGTH } from "../../shared/card-limits";
 import { assertValidCardInput } from "./card-input-validation";
 
 function createValidInput(): CardInput {
@@ -54,6 +54,18 @@ describe("card input validation", () => {
     expect(
       runValidation(() => assertValidCardInput({ title: "   " }, "update")),
     ).toBe("Card title cannot be empty");
+  });
+
+  test("accepts title at max length", () => {
+    expect(
+      runValidation(() => assertValidCardInput({ title: "x".repeat(MAX_CARD_TITLE_LENGTH) }, "update")),
+    ).toBe(null);
+  });
+
+  test("rejects title above max length", () => {
+    expect(
+      runValidation(() => assertValidCardInput({ title: "x".repeat(MAX_CARD_TITLE_LENGTH + 1) }, "update")),
+    ).toBe(`title exceeds ${MAX_CARD_TITLE_LENGTH} characters`);
   });
 
   test("rejects description above max length", () => {

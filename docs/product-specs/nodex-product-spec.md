@@ -206,7 +206,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `id` | string | Yes | Canonical lowercase UUID-v7 |
-| `title` | string | Yes | Task name (max 512 chars) |
+| `title` | string | Yes | Task name (max 2,000 chars) |
 | `description` | string | No | [Notion-flavored Markdown (NFM)](../references/notion-flavored-markdown-spec.md) details (default: ""), including `<image ...>` blocks and inline `<attachment kind="text|file|folder" mode="materialized|link" ... />` chips with local or managed asset URIs (max 1,000,000 chars) |
 | `priority` | enum | No | Optional priority tier: p0-critical, p1-high, p2-medium, p3-low, p4-later |
 | `estimate` | enum | No | xs, s, m, l, xl |
@@ -762,7 +762,7 @@ CREATE TABLE pinned_project_order (
 CREATE TABLE project_sessions (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  title TEXT NOT NULL,
+  title TEXT NOT NULL,              -- max 2,000 chars
   is_overview INTEGER NOT NULL DEFAULT 0,
   "order" INTEGER NOT NULL,
   pinned INTEGER NOT NULL DEFAULT 0,

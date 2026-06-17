@@ -31,7 +31,9 @@ import type {
 } from "../types";
 import { WorkbenchViewSchema } from "./workbench";
 
-const titleSchema = z.string().trim().min(1).max(160);
+export const MAX_PROJECT_SESSION_TITLE_LENGTH = 2_000;
+
+const titleSchema = z.string().trim().min(1).max(MAX_PROJECT_SESSION_TITLE_LENGTH);
 
 export const ProjectSessionDbViewTabConfigSchema = z.object({
   projectId: z.string().min(1),

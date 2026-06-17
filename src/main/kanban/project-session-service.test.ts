@@ -34,6 +34,7 @@ import {
   getProjectSessionPanelActiveLeaf,
   listProjectSessionPanelLeaves,
 } from "../../shared/project-session-panel-layout";
+import { MAX_PROJECT_SESSION_TITLE_LENGTH } from "../../shared/schemas/project-sessions";
 
 function isUnsupportedSqliteError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
@@ -72,6 +73,15 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
   }
 }
 
+function runValidation(fn: () => void): string | null {
+  try {
+    fn();
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
 describe("project session service", () => {
   test("returns a default overview session for every project", async () => {
     const ran = await withTempDatabase(async () => {
@@ -99,6 +109,51 @@ describe("project session service", () => {
       expect(alphaSessions[0]?.id).toBe(`overview:${alphaProject.id}`);
       expect(alphaSessions[0]?.panels.right.collapsed).toBeFalse();
       expect(alphaSessions[0]?.tabs[0]?.id).toBe(`overview:${alphaProject.id}:db`);
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("accepts 2000 character session and tab titles", async () => {
+    const ran = await withTempDatabase(async () => {
+      const longTitle = "x".repeat(MAX_PROJECT_SESSION_TITLE_LENGTH);
+      const session = createProjectSession({ projectId: projectId, title: longTitle });
+      expect(session.title.length).toBe(MAX_PROJECT_SESSION_TITLE_LENGTH);
+
+      const tab = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: projectId,
+        panelId: "right",
+        kind: "card_stage",
+        title: longTitle,
+        config: { projectId: projectId, cardId: "card-long", titleSnapshot: longTitle },
+      });
+      expect(tab.title.length).toBe(MAX_PROJECT_SESSION_TITLE_LENGTH);
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("rejects session and tab titles above 2000 characters", async () => {
+    const ran = await withTempDatabase(async () => {
+      const tooLongTitle = "x".repeat(MAX_PROJECT_SESSION_TITLE_LENGTH + 1);
+      const sessionError = runValidation(() => {
+        createProjectSession({ projectId: projectId, title: tooLongTitle });
+      });
+      expect(sessionError?.includes(`"maximum":${MAX_PROJECT_SESSION_TITLE_LENGTH}`) ?? false).toBeTrue();
+
+      const session = createProjectSession({ projectId: projectId, title: "Valid session" });
+      const tabError = runValidation(() => {
+        createProjectSessionTab({
+          sessionId: session.id,
+          projectId: projectId,
+          panelId: "right",
+          kind: "card_stage",
+          title: tooLongTitle,
+          config: { projectId: projectId, cardId: "card-too-long", titleSnapshot: tooLongTitle },
+        });
+      });
+      expect(tabError?.includes(`"maximum":${MAX_PROJECT_SESSION_TITLE_LENGTH}`) ?? false).toBeTrue();
     });
 
     if (!ran) expect(true).toBeTrue();
