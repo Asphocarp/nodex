@@ -1,5 +1,6 @@
 import { defineConfig, globalIgnores } from "eslint/config";
 import betterTailwindcss from "eslint-plugin-better-tailwindcss";
+import queryPlugin from "@tanstack/eslint-plugin-query";
 import tseslint from "typescript-eslint";
 
 const isBetterTailwindEnabled = process.env.ESLINT_BETTER_TAILWIND === "1";
@@ -36,6 +37,9 @@ const betterTailwindRecommendedRules = Object.fromEntries(
 
 const eslintConfig = defineConfig([
   ...tseslint.configs.recommended,
+  ...(Array.isArray(queryPlugin.configs["flat/recommended"])
+    ? queryPlugin.configs["flat/recommended"]
+    : [queryPlugin.configs["flat/recommended"]]),
   ...(isBetterTailwindEnabled
     ? [
       {

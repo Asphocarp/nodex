@@ -13,8 +13,8 @@ import {
   BranchSelectorPopover,
   EnvironmentSelectorPopover,
   invoke,
-  subscribeGitBranchChanges,
 } from "./local-conversation-thread-composer-deps";
+import { useGitBranchState } from "@/lib/use-git-branch-state";
 import { NewChatProjectSelector } from "./new-chat-project-selector";
 import { NewChatStartInSelector } from "./new-chat-start-in-selector";
 
@@ -63,6 +63,9 @@ function ThreadComposerStatusStripContent({
     () => resolveBranchSelectorCwd(model.conversation?.cwd, model.projectWorkspacePath),
     [model.conversation?.cwd, model.projectWorkspacePath],
   );
+  const { data: branchStateData, refetch: refetchBranchState } = useGitBranchState(branchCwd, {
+    watch: true,
+  });
   const branchCwdRef = useRef<string | null>(branchCwd);
   const branchMutationRequestIdRef = useRef(0);
   branchCwdRef.current = branchCwd;
@@ -92,59 +95,32 @@ function ThreadComposerStatusStripContent({
       return;
     }
     try {
-      const result = await invoke("git:branch:state", requestedCwd);
+      const result = await refetchBranchState();
       if (branchCwdRef.current !== requestedCwd) return;
-      setBranchState(parseBranchSelectorState(result));
+      setBranchState(result.data ? parseBranchSelectorState(result.data) : EMPTY_BRANCH_SELECTOR_STATE);
     } catch {
       if (branchCwdRef.current !== requestedCwd) return;
       setBranchState(EMPTY_BRANCH_SELECTOR_STATE);
     }
-  }, []);
+  }, [refetchBranchState]);
 
   useEffect(() => {
-    let cancelled = false;
     branchMutationRequestIdRef.current += 1;
     setIsBranchBusy(false);
 
     if (!branchCwd) {
       setBranchState(EMPTY_BRANCH_SELECTOR_STATE);
-      return () => {
-        cancelled = true;
-      };
     }
-
-    void invoke("git:branch:state", branchCwd)
-      .then((result) => {
-        if (cancelled || branchCwdRef.current !== branchCwd) return;
-        setBranchState(parseBranchSelectorState(result));
-      })
-      .catch(() => {
-        if (cancelled || branchCwdRef.current !== branchCwd) return;
-        setBranchState(EMPTY_BRANCH_SELECTOR_STATE);
-      });
-
-    return () => {
-      cancelled = true;
-    };
   }, [branchCwd]);
 
   useEffect(() => {
-    if (!branchCwd) {
-      void invoke("git:branch:watch:stop").catch(() => { });
+    if (!branchCwd || !branchStateData) {
+      setBranchState(EMPTY_BRANCH_SELECTOR_STATE);
       return;
     }
 
-    void invoke("git:branch:watch:start", branchCwd).catch(() => { });
-    const unsubscribe = subscribeGitBranchChanges((event) => {
-      if (event.cwd !== branchCwdRef.current) return;
-      void handleRefreshBranchState();
-    });
-
-    return () => {
-      unsubscribe();
-      void invoke("git:branch:watch:stop").catch(() => { });
-    };
-  }, [branchCwd, handleRefreshBranchState]);
+    setBranchState(parseBranchSelectorState(branchStateData));
+  }, [branchCwd, branchStateData]);
 
   const handleCheckoutBranch = useCallback(async (branch: string) => {
     const requestedCwd = branchCwd;

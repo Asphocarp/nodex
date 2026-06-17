@@ -3,6 +3,7 @@ import { act, waitFor } from "@testing-library/react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
 import { installAsyncRequestAnimationFrame, installWindowApi } from "../../../test/browser-globals";
 import { render, settleAsyncRender, textContent } from "../../../test/dom";
+import { TestQueryProvider } from "../../../test/query";
 import type {
   CodexConnectionState,
   CodexHostMessage,
@@ -119,32 +120,34 @@ async function renderStage(summary: CodexThreadSummary) {
   __resetLocalConversationStoreForTests();
 
   render(
-    <TooltipProvider>
-      <LocalConversationProvider>
-        <ConnectedThreadStage
-          projectId="project_1"
-          projectWorkspacePath="/tmp/project"
-          isNewThreadTab={false}
-          newThreadTarget={null}
-          newThreadProjectSelector={null}
-          newThreadStartInSelector={null}
-          threadStartProgress={null}
-          activeThreadId={summary.threadId}
-          activeThreadSummary={summary}
-          availableModels={[]}
-          collaborationModes={[]}
-          selectedCollaborationMode="default"
-          selectedModel=""
-          selectedReasoningEffort="medium"
-          reasoningEffortOptions={[]}
-          permissionMode="auto"
-          isQueueingEnabled={false}
-          composerEnterBehavior="enter"
-          searchOpenTick={0}
-          actions={buildActions()}
-        />
-      </LocalConversationProvider>
-    </TooltipProvider>,
+    <TestQueryProvider>
+      <TooltipProvider>
+        <LocalConversationProvider>
+          <ConnectedThreadStage
+            projectId="project_1"
+            projectWorkspacePath="/tmp/project"
+            isNewThreadTab={false}
+            newThreadTarget={null}
+            newThreadProjectSelector={null}
+            newThreadStartInSelector={null}
+            threadStartProgress={null}
+            activeThreadId={summary.threadId}
+            activeThreadSummary={summary}
+            availableModels={[]}
+            collaborationModes={[]}
+            selectedCollaborationMode="default"
+            selectedModel=""
+            selectedReasoningEffort="medium"
+            reasoningEffortOptions={[]}
+            permissionMode="auto"
+            isQueueingEnabled={false}
+            composerEnterBehavior="enter"
+            searchOpenTick={0}
+            actions={buildActions()}
+          />
+        </LocalConversationProvider>
+      </TooltipProvider>
+    </TestQueryProvider>,
   );
   await settleAsyncRender();
 }
@@ -188,9 +191,10 @@ async function renderNewThreadHome() {
   });
 
   const view = render(
-    <TooltipProvider>
-      <LocalConversationProvider>
-        <ConnectedThreadStage
+    <TestQueryProvider>
+      <TooltipProvider>
+        <LocalConversationProvider>
+          <ConnectedThreadStage
           projectId="project_1"
           projectWorkspacePath="/tmp/nodex"
           isNewThreadTab
@@ -253,9 +257,10 @@ async function renderNewThreadHome() {
           composerEnterBehavior="enter"
           searchOpenTick={0}
           actions={buildActions()}
-        />
-      </LocalConversationProvider>
-    </TooltipProvider>,
+          />
+        </LocalConversationProvider>
+      </TooltipProvider>
+    </TestQueryProvider>,
   );
   await settleAsyncRender();
   await act(async () => {

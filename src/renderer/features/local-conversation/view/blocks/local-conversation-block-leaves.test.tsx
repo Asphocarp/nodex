@@ -2,8 +2,13 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
 import type { CodexConversationItem } from "../../../../lib/types";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../components/ui/tooltip";
-import { installElementScrollHeight, installMeasuredResizeObserver } from "../../../../test/browser-globals";
+import {
+  installElementScrollHeight,
+  installMeasuredResizeObserver,
+  installWindowApi,
+} from "../../../../test/browser-globals";
 import { render, settleAsyncRender, textContent } from "../../../../test/dom";
+import { TestQueryProvider } from "../../../../test/query";
 import {
   ThreadContextCompactionBlock,
   ThreadCollapsedToolActivityBlock,
@@ -418,6 +423,14 @@ describe("ThreadExplorationGroupBlock", () => {
 
 describe("ThreadPendingMcpToolCallsBlock", () => {
   test("expands with the Codex pending MCP body marker", async () => {
+    installWindowApi({
+      invoke: async (channel: string) => {
+        if (channel === "codex:mcp-server-statuses:list") return [];
+        return null;
+      },
+      on: () => () => {},
+    });
+
     const entry: ThreadTranscriptBlockModel & { type: "mcpToolCall" } = {
       id: "mcp-1",
       turnId: "turn-1",
@@ -449,23 +462,25 @@ describe("ThreadPendingMcpToolCallsBlock", () => {
     };
 
     const { getAllByRole, getByTestId } = render(
-      <TooltipProvider>
-        <ThreadPendingMcpToolCallsBlock
-          block={{
-            id: "pending-mcp",
-            turnId: "turn-1",
-            createdAt: 1,
-            updatedAt: 1,
-            searchableText: "Using the browser",
-            type: "pendingMcpToolCalls",
-            entries: [entry],
-            summary: "Using the browser",
-            status: "inProgress",
-          }}
-          isLatestTurn
-          isStreamingTurn
-        />
-      </TooltipProvider>,
+      <TestQueryProvider>
+        <TooltipProvider>
+          <ThreadPendingMcpToolCallsBlock
+            block={{
+              id: "pending-mcp",
+              turnId: "turn-1",
+              createdAt: 1,
+              updatedAt: 1,
+              searchableText: "Using the browser",
+              type: "pendingMcpToolCalls",
+              entries: [entry],
+              summary: "Using the browser",
+              status: "inProgress",
+            }}
+            isLatestTurn
+            isStreamingTurn
+          />
+        </TooltipProvider>
+      </TestQueryProvider>,
     );
 
     const button = getAllByRole("button", { name: "Using the browser" })[0];

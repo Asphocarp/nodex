@@ -1,18 +1,12 @@
-import {
-  useCallback,
-  useEffect,
-  useSyncExternalStore,
-} from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback } from "react";
 import { invoke } from "./api";
+import { queryKeys } from "./query-keys";
+import { threadNotificationSettingsQueryOptions } from "./query-options";
 import type {
   ThreadNotificationSettings,
   UpdateThreadNotificationSettingsInput,
 } from "./types";
-
-interface ThreadNotificationSettingsSnapshot {
-  settings: ThreadNotificationSettings;
-  isLoading: boolean;
-}
 
 const DEFAULT_SETTINGS: ThreadNotificationSettings = {
   turnMode: "unfocused",
@@ -20,100 +14,51 @@ const DEFAULT_SETTINGS: ThreadNotificationSettings = {
   questionsEnabled: true,
 };
 
-const DEFAULT_SNAPSHOT: ThreadNotificationSettingsSnapshot = {
-  settings: DEFAULT_SETTINGS,
-  isLoading: true,
-};
-
-const listeners = new Set<() => void>();
-let snapshotCache = DEFAULT_SNAPSHOT;
-let loadPromise: Promise<void> | null = null;
-
-function emitChange(): void {
-  for (const listener of listeners) {
-    listener();
-  }
-}
-
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
-function getSnapshot(): ThreadNotificationSettingsSnapshot {
-  return snapshotCache;
-}
-
-async function loadSettings(): Promise<void> {
-  const result = await invoke("settings:thread-notifications:get");
-  const nextSettings = isThreadNotificationSettings(result)
-    ? result
-    : DEFAULT_SETTINGS;
-  snapshotCache = {
-    settings: nextSettings,
-    isLoading: false,
-  };
-  emitChange();
-}
-
-function ensureLoaded(): void {
-  if (!snapshotCache.isLoading || loadPromise) {
-    return;
-  }
-
-  loadPromise = loadSettings()
-    .catch(() => {
-      snapshotCache = {
-        settings: DEFAULT_SETTINGS,
-        isLoading: false,
-      };
-      emitChange();
-    })
-    .finally(() => {
-      loadPromise = null;
-    });
-}
-
 export function useThreadNotificationSettings(): {
   settings: ThreadNotificationSettings;
   isLoading: boolean;
   updateSettings: (input: UpdateThreadNotificationSettingsInput) => Promise<ThreadNotificationSettings>;
   reloadSettings: () => Promise<void>;
 } {
-  const snapshot = useSyncExternalStore(subscribe, getSnapshot, () => DEFAULT_SNAPSHOT);
-
-  useEffect(() => {
-    ensureLoaded();
-  }, []);
+  const queryClient = useQueryClient();
+  const { data: settings, isPending } = useQuery({
+    ...threadNotificationSettingsQueryOptions(),
+    select: normalizeThreadNotificationSettings,
+  });
 
   const reloadSettings = useCallback(async () => {
-    snapshotCache = {
-      settings: snapshotCache.settings,
-      isLoading: true,
-    };
-    emitChange();
-    await loadSettings();
-  }, []);
+    await queryClient.invalidateQueries({
+      queryKey: queryKeys.settings.threadNotifications(),
+      exact: true,
+    });
+  }, [queryClient]);
+
+  const { mutateAsync: updateSettingsRequest } = useMutation({
+    mutationFn: (input: UpdateThreadNotificationSettingsInput) =>
+      invoke("settings:thread-notifications:update", input) as Promise<ThreadNotificationSettings>,
+    onSuccess: (result) => {
+      queryClient.setQueryData(
+        queryKeys.settings.threadNotifications(),
+        normalizeThreadNotificationSettings(result),
+      );
+    },
+  });
 
   const updateSettings = useCallback(async (input: UpdateThreadNotificationSettingsInput) => {
-    const result = await invoke("settings:thread-notifications:update", input);
-    const nextSettings = result as ThreadNotificationSettings;
-    snapshotCache = {
-      settings: nextSettings,
-      isLoading: false,
-    };
-    emitChange();
-    return nextSettings;
-  }, []);
+    const result = await updateSettingsRequest(input);
+    return normalizeThreadNotificationSettings(result);
+  }, [updateSettingsRequest]);
 
   return {
-    settings: snapshot.settings,
-    isLoading: snapshot.isLoading,
+    settings: settings ?? DEFAULT_SETTINGS,
+    isLoading: isPending,
     updateSettings,
     reloadSettings,
   };
+}
+
+function normalizeThreadNotificationSettings(value: unknown): ThreadNotificationSettings {
+  return isThreadNotificationSettings(value) ? value : DEFAULT_SETTINGS;
 }
 
 function isThreadNotificationSettings(value: unknown): value is ThreadNotificationSettings {
@@ -133,7 +78,4 @@ function isThreadNotificationSettings(value: unknown): value is ThreadNotificati
 }
 
 export function __resetThreadNotificationSettingsForTests(): void {
-  snapshotCache = DEFAULT_SNAPSHOT;
-  loadPromise = null;
-  listeners.clear();
 }

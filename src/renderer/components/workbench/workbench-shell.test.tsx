@@ -18,6 +18,7 @@ import {
   type SupportedDbView,
 } from "@/lib/db-view-prefs";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
+import { TestQueryProvider } from "../../test/query";
 import { useThreadHeaderPortalTarget } from "@/lib/thread-header-portal";
 import type {
   WorkbenchNavigationCommandRequest,
@@ -197,9 +198,15 @@ mock.module("@/lib/api", () => ({
     invokeCalls.push([channel, ...args]);
     return mockInvokeImpl?.(channel, ...args) ?? null;
   },
+  subscribeBoardChanges: () => () => undefined,
   subscribeGitBranchChanges: () => () => undefined,
+  subscribeProjectChanges: () => () => undefined,
   subscribeProjectSessionChanges: () => () => undefined,
+  subscribeCodexHostMessages: () => () => undefined,
+  subscribeDesktopNotificationActions: () => () => undefined,
   subscribeAppUpdateStatus: () => () => undefined,
+  getWindowFocusState: async () => true,
+  subscribeWindowFocusChanges: () => () => undefined,
 }));
 
 mock.module("./main-view-host", () => ({
@@ -1047,7 +1054,9 @@ function renderWorkbench({
   }
 
   const result = render(
-    <WorkbenchShellTestHarness />,
+    <TestQueryProvider>
+      <WorkbenchShellTestHarness />
+    </TestQueryProvider>,
   );
   return {
     ...result,

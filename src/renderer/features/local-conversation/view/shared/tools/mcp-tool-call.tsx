@@ -12,11 +12,10 @@ import type {
   CodexMcpToolCallContentBlock,
   CodexMcpToolCallView,
   CodexTranscriptEntry,
-  ProtocolMcpResourceReadResponse,
   ProtocolMcpServerStatus,
 } from "../../../../../lib/types";
 import type { ThreadMcpAppSidePanelInput, ThreadStageActions } from "../../../thread-stage-types";
-import { invoke } from "../../../../../lib/api";
+import { useMcpResource, useMcpServerStatuses } from "../../../../../lib/use-mcp-queries";
 import { cn } from "../../../../../lib/utils";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
 import { useMeasuredElementHeight } from "../use-measured-element-height";
@@ -37,6 +36,7 @@ import {
 } from "./mcp-tool-call-resource-utils";
 
 const electronToolIconSizeClassName = `electron:[&>svg]:${"icon-sm"}`;
+const EMPTY_MCP_SERVER_STATUSES: readonly ProtocolMcpServerStatus[] = [];
 
 interface McpToolCallProps {
   item: CodexTranscriptEntry;
@@ -509,15 +509,32 @@ export function McpToolCall({
   const payload = item.mcpToolCall ?? null;
   const [isExpanded, setIsExpanded] = useState(false);
   const [isRawDialogOpen, setIsRawDialogOpen] = useControllableBoolean(rawDialogOpen, onRawDialogOpenChange);
-  const [serverStatuses, setServerStatuses] = useState<ProtocolMcpServerStatus[]>([]);
-  const [resourceResponse, setResourceResponse] = useState<ProtocolMcpResourceReadResponse | null>(null);
-  const [resourceError, setResourceError] = useState<string | null>(null);
   const { elementHeightPx, elementRef } = useMeasuredElementHeight();
+  const { data: statusData } = useMcpServerStatuses(item.threadId, {
+    enabled: Boolean(payload),
+  });
+  const serverStatuses = Array.isArray(statusData) ? statusData : EMPTY_MCP_SERVER_STATUSES;
 
   const resourceUri = useMemo(
     () => payload ? resolveMcpAppResourceUri({ payload, serverStatuses }) : null,
     [payload, serverStatuses],
   );
+  const resourceParams = useMemo(() => (
+    payload && resourceUri
+      ? {
+        threadId: item.threadId,
+        server: payload.invocation.server,
+        uri: resourceUri,
+      }
+      : null
+  ), [item.threadId, payload, resourceUri]);
+  const {
+    data: resourceResponse = null,
+    error: resourceQueryError,
+  } = useMcpResource(resourceParams);
+  const resourceError = resourceQueryError
+    ? resourceQueryError instanceof Error ? resourceQueryError.message : String(resourceQueryError)
+    : null;
   const renderableResource = useMemo(
     () => resourceUri ? resolveMcpRenderableResource(resourceUri, resourceResponse) : null,
     [resourceResponse, resourceUri],
@@ -533,47 +550,6 @@ export function McpToolCall({
       }, 2)
     : "";
   const summary = payload ? resolveMcpToolCallLabel(payload) : { leading: "", trailing: "" };
-
-  useEffect(() => {
-    if (!payload) return undefined;
-    let disposed = false;
-    void invoke("codex:mcp-server-statuses:list", item.threadId)
-      .then((result) => {
-        if (disposed) return;
-        setServerStatuses(Array.isArray(result) ? result as ProtocolMcpServerStatus[] : []);
-      })
-      .catch(() => {
-        if (!disposed) setServerStatuses([]);
-      });
-    return () => {
-      disposed = true;
-    };
-  }, [item.threadId, payload]);
-
-  useEffect(() => {
-    setResourceResponse(null);
-    setResourceError(null);
-    if (!payload || !resourceUri) return undefined;
-
-    let disposed = false;
-    void invoke("codex:mcp-resource:read", {
-      threadId: item.threadId,
-      server: payload.invocation.server,
-      uri: resourceUri,
-    })
-      .then((result) => {
-        if (disposed) return;
-        setResourceResponse(result as ProtocolMcpResourceReadResponse);
-      })
-      .catch((error) => {
-        if (disposed) return;
-        setResourceError(error instanceof Error ? error.message : String(error));
-      });
-
-    return () => {
-      disposed = true;
-    };
-  }, [item.threadId, payload, resourceUri]);
 
   if (!payload) return null;
 

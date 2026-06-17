@@ -1,31 +1,16 @@
-import {
-  useCallback,
-  useEffect,
-  useSyncExternalStore,
-} from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback } from "react";
 import { invoke } from "./api";
+import { queryKeys } from "./query-keys";
+import { windowRestoreSettingsQueryOptions } from "./query-options";
 import type {
   UpdateWindowRestoreSettingsInput,
   WindowRestoreSettings,
 } from "./types";
 
-interface WindowRestoreSettingsSnapshot {
-  settings: WindowRestoreSettings;
-  isLoading: boolean;
-}
-
 const DEFAULT_SETTINGS: WindowRestoreSettings = {
   policy: "all",
 };
-
-const DEFAULT_SNAPSHOT: WindowRestoreSettingsSnapshot = {
-  settings: DEFAULT_SETTINGS,
-  isLoading: true,
-};
-
-const listeners = new Set<() => void>();
-let snapshotCache = DEFAULT_SNAPSHOT;
-let loadPromise: Promise<void> | null = null;
 
 function normalizeWindowRestoreSettings(value: unknown): WindowRestoreSettings {
   if (typeof value !== "object" || value === null) return DEFAULT_SETTINGS;
@@ -36,78 +21,48 @@ function normalizeWindowRestoreSettings(value: unknown): WindowRestoreSettings {
   return DEFAULT_SETTINGS;
 }
 
-function emitChange(): void {
-  for (const listener of listeners) {
-    listener();
-  }
-}
-
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
-function getSnapshot(): WindowRestoreSettingsSnapshot {
-  return snapshotCache;
-}
-
-async function loadSettings(): Promise<void> {
-  const result = await invoke("settings:window-restore:get");
-  snapshotCache = {
-    settings: normalizeWindowRestoreSettings(result),
-    isLoading: false,
-  };
-  emitChange();
-}
-
-function ensureLoaded(): void {
-  if (!snapshotCache.isLoading || loadPromise) return;
-  loadPromise = loadSettings()
-    .catch(() => {
-      snapshotCache = {
-        settings: DEFAULT_SETTINGS,
-        isLoading: false,
-      };
-      emitChange();
-    })
-    .finally(() => {
-      loadPromise = null;
-    });
-}
-
 export function useWindowRestoreSettings(): {
   settings: WindowRestoreSettings;
   isLoading: boolean;
   updateSettings: (input: UpdateWindowRestoreSettingsInput) => Promise<WindowRestoreSettings>;
+  reloadSettings: () => Promise<void>;
 } {
-  const snapshot = useSyncExternalStore(subscribe, getSnapshot, () => DEFAULT_SNAPSHOT);
+  const queryClient = useQueryClient();
+  const { data: settings, isPending } = useQuery({
+    ...windowRestoreSettingsQueryOptions(),
+    select: normalizeWindowRestoreSettings,
+  });
 
-  useEffect(() => {
-    ensureLoaded();
-  }, []);
+  const { mutateAsync: updateSettingsRequest } = useMutation({
+    mutationFn: (input: UpdateWindowRestoreSettingsInput) =>
+      invoke("settings:window-restore:update", input) as Promise<WindowRestoreSettings>,
+    onSuccess: (result) => {
+      queryClient.setQueryData(
+        queryKeys.settings.windowRestore(),
+        normalizeWindowRestoreSettings(result),
+      );
+    },
+  });
+
+  const reloadSettings = useCallback(async () => {
+    await queryClient.invalidateQueries({
+      queryKey: queryKeys.settings.windowRestore(),
+      exact: true,
+    });
+  }, [queryClient]);
 
   const updateSettings = useCallback(async (input: UpdateWindowRestoreSettingsInput) => {
-    const result = await invoke("settings:window-restore:update", input);
-    const nextSettings = normalizeWindowRestoreSettings(result);
-    snapshotCache = {
-      settings: nextSettings,
-      isLoading: false,
-    };
-    emitChange();
-    return nextSettings;
-  }, []);
+    const result = await updateSettingsRequest(input);
+    return normalizeWindowRestoreSettings(result);
+  }, [updateSettingsRequest]);
 
   return {
-    settings: snapshot.settings,
-    isLoading: snapshot.isLoading,
+    settings: settings ?? DEFAULT_SETTINGS,
+    isLoading: isPending,
     updateSettings,
+    reloadSettings,
   };
 }
 
 export function __resetWindowRestoreSettingsForTests(): void {
-  snapshotCache = DEFAULT_SNAPSHOT;
-  loadPromise = null;
-  listeners.clear();
 }

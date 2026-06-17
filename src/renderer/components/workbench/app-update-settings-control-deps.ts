@@ -1,1 +1,1 @@
-export { invoke, subscribeAppUpdateStatus } from "../../lib/api";
+export { invoke, subscribeAppUpdateStatus } from "@/lib/api";

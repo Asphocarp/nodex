@@ -21,6 +21,7 @@ import {
   CODEX_SUMMARY_PANEL_TRANSITION,
   CODEX_SUMMARY_PANEL_WIDTH,
 } from "../../../../lib/codex-panel-motion";
+import { useGitBranchState } from "../../../../lib/use-git-branch-state";
 import { cn } from "../../../../lib/utils";
 import type {
   CodexBackgroundTerminalRow,
@@ -219,6 +220,9 @@ function useSummaryPanelBranchState({
   const [busy, setBusy] = useState(false);
   const branchCwdRef = useRef<string | null>(cwd);
   const mutationRequestIdRef = useRef(0);
+  const { data: branchStateData, refetch: refetchBranchState } = useGitBranchState(cwd, {
+    enabled,
+  });
   branchCwdRef.current = cwd;
 
   const refreshBranchState = useCallback(async () => {
@@ -233,14 +237,14 @@ function useSummaryPanelBranchState({
     }
 
     try {
-      const result = await invoke("git:branch:state", requestedCwd);
+      const result = await refetchBranchState();
       if (branchCwdRef.current !== requestedCwd) return;
-      setBranchState(parseBranchSelectorState(result));
+      setBranchState(result.data ? parseBranchSelectorState(result.data) : EMPTY_BRANCH_SELECTOR_STATE);
     } catch {
       if (branchCwdRef.current !== requestedCwd) return;
       setBranchState(EMPTY_BRANCH_SELECTOR_STATE);
     }
-  }, [enabled]);
+  }, [enabled, refetchBranchState]);
 
   useEffect(() => {
     if (!enabled || !cwd) {
@@ -248,8 +252,13 @@ function useSummaryPanelBranchState({
       return;
     }
 
-    void refreshBranchState();
-  }, [cwd, enabled, refreshBranchState]);
+    if (!branchStateData) {
+      setBranchState(EMPTY_BRANCH_SELECTOR_STATE);
+      return;
+    }
+
+    setBranchState(parseBranchSelectorState(branchStateData));
+  }, [branchStateData, cwd, enabled]);
 
   const checkoutBranch = useCallback(async (branch: string) => {
     const requestedCwd = cwd;

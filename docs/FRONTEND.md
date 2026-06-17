@@ -33,6 +33,12 @@
 
 ## State and Data Access
 - API boundary: always go through `src/renderer/lib/api.ts`.
+- Low-frequency server state uses TanStack Query under `NodexQueryProvider`. Add keys in `src/renderer/lib/query-keys.ts` and query option helpers in `src/renderer/lib/query-options.ts`; feature hooks should compose those helpers instead of inventing component-local ad hoc query keys.
+- Query client defaults are part of the renderer contract: `staleTime: 30_000`, `gcTime: 5 * 60_000`, query `retry: 1`, no focus/reconnect refetch, and mutation `retry: false`. Query Devtools are development-only and must stay hidden in Storybook.
+- Query functions and mutation functions must still call the `lib/api.ts` transport facade. Do not call Electron bridges, browser fetch routes, or main-process channels directly from query code.
+- Mutations should update the narrow cache when the server returns the complete next value, otherwise invalidate the exact affected key. Examples: project reorder writes `projects.list`; project create/update/delete invalidates `projects.list`; history undo/redo updates `history.recent(projectId, sessionId)` and invalidates the affected board; local-environment saves update the snapshot and invalidate that project's config list.
+- Do not put a whole query or mutation result object in React dependency arrays. Destructure stable fields/functions such as `data`, `error`, `isPending`, `mutateAsync`, or `refetch`, and depend on those values.
+- Keep Query out of high-frequency or optimistic ownership domains: `kanban-store`, local-conversation streaming manager state, terminal lifecycle, browser/webview manager state, drafts/forms, and localStorage-only preferences.
 - Board state: `useKanban` uses a shared `kanban-store` optimistic journal (`baseBoard + pending/local overlays`) with LWW conflict superseding, rollback-on-failure, and store-derived cross-view sync.
 - Card updates use typed mutation control flow: `updated | conflict | not_found | error` instead of treating stale-write conflicts as generic exceptions.
 - On `conflict`, keep optimistic journal semantics: supersede conflicting overlays, refresh base board, and let surface-specific UX decide recovery (`Card Stage` inline banner with `Reload Latest` / `Overwrite Mine`).

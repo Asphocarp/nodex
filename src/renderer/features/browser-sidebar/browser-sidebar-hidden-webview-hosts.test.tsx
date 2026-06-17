@@ -11,6 +11,15 @@ mock.module("@/lib/api", () => ({
     invokeCalls.push([channel, ...args]);
     return { ok: true };
   },
+  subscribeBoardChanges: () => () => undefined,
+  subscribeProjectSessionChanges: () => () => undefined,
+  subscribeProjectChanges: () => () => undefined,
+  subscribeCodexHostMessages: () => () => undefined,
+  subscribeDesktopNotificationActions: () => () => undefined,
+  subscribeGitBranchChanges: () => () => undefined,
+  subscribeAppUpdateStatus: () => () => undefined,
+  getWindowFocusState: async () => true,
+  subscribeWindowFocusChanges: () => () => undefined,
 }));
 
 beforeEach(async () => {

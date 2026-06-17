@@ -1,1 +1,1 @@
-export { invoke } from "../../lib/api";
+export { invoke } from "@/lib/api";

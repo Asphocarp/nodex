@@ -6,6 +6,7 @@ import {
 } from "@/components/ui/toast";
 import { installAsyncRequestAnimationFrame } from "@/test/browser-globals";
 import { render, settleAsyncRender } from "@/test/dom";
+import { TestQueryProvider } from "@/test/query";
 import { useHistory } from "./use-history";
 
 mock.module("./use-history-deps", () => ({
@@ -60,9 +61,11 @@ describe("useHistory", () => {
 
   test("emits a global history toast after a successful undo", async () => {
     const view = render(
-      <NodexToastProvider>
-        <HistoryHarness />
-      </NodexToastProvider>,
+      <TestQueryProvider>
+        <NodexToastProvider>
+          <HistoryHarness />
+        </NodexToastProvider>
+      </TestQueryProvider>,
     );
 
     await settleAsyncRender();

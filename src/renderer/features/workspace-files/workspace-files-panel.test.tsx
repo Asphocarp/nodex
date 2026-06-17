@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
 import { render, settleAsyncRender } from "../../test/dom";
+import { TestQueryProvider } from "../../test/query";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import type { Project, ProjectSession, WorkspaceFileDirectoryEntry } from "@/lib/types";
 import { makeProjectSessionPanelLayout } from "../../../shared/project-session-panel-layout";
@@ -73,6 +74,15 @@ mock.module("@/lib/api", () => ({
     if (channel === "open-file") return true;
     throw new Error(`Unexpected channel: ${channel}`);
   },
+  subscribeBoardChanges: () => () => undefined,
+  subscribeProjectSessionChanges: () => () => undefined,
+  subscribeProjectChanges: () => () => undefined,
+  subscribeCodexHostMessages: () => () => undefined,
+  subscribeDesktopNotificationActions: () => () => undefined,
+  subscribeGitBranchChanges: () => () => undefined,
+  subscribeAppUpdateStatus: () => () => undefined,
+  getWindowFocusState: async () => true,
+  subscribeWindowFocusChanges: () => () => undefined,
 }));
 
 beforeAll(async () => {
@@ -141,16 +151,18 @@ describe("WorkspaceFilesPanel", () => {
 
 function renderPanel(selectedPath?: string) {
   return render(
-    <NodexTooltipProvider>
-      <WorkspaceFilesPanel
-        tab={makeFilesTab(selectedPath)}
-        activeSession={activeSession}
-        project={project}
-        onOpenFileTab={async (input) => {
-          openFileTabCalls.push(input);
-        }}
-      />
-    </NodexTooltipProvider>,
+    <TestQueryProvider>
+      <NodexTooltipProvider>
+        <WorkspaceFilesPanel
+          tab={makeFilesTab(selectedPath)}
+          activeSession={activeSession}
+          project={project}
+          onOpenFileTab={async (input) => {
+            openFileTabCalls.push(input);
+          }}
+        />
+      </NodexTooltipProvider>
+    </TestQueryProvider>,
   );
 }
 

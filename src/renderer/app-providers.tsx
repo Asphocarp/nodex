@@ -11,6 +11,7 @@ import { SpellcheckProvider } from "./lib/use-spellcheck";
 import { ThreadSectionSendSettingsProvider } from "./lib/use-thread-section-send-settings";
 import { CodexServiceTierSettingsProvider } from "./lib/use-codex-service-tier-settings";
 import { CodexThreadSettingsProvider } from "./lib/use-codex-thread-settings";
+import { NodexQueryProvider } from "./lib/query-client";
 import { ThemeProvider } from "./lib/use-theme";
 import "./globals.css";
 
@@ -52,32 +53,34 @@ export function initializeRendererDocument(options?: RendererDocumentOptions): v
 
 export function AppProviders({ children }: AppProvidersProps) {
   return (
-    <ThemeProvider>
-      <SansFontSizeProvider>
-        <CodeFontSizeProvider>
-          <FileLinkOpenerProvider>
-            <NfmAutolinkSettingsProvider>
-              <PasteResourceSettingsProvider>
-                <SpellcheckProvider>
-                  <CodexServiceTierSettingsProvider>
-                    <CodexThreadSettingsProvider>
-                      <ThreadSectionSendSettingsProvider>
-                        <CardStageCollapsedPropertiesProvider>
-                          <CardPropertyPositionProvider>
-                            <NodexTooltipProvider>
-                              {children}
-                            </NodexTooltipProvider>
-                          </CardPropertyPositionProvider>
-                        </CardStageCollapsedPropertiesProvider>
-                      </ThreadSectionSendSettingsProvider>
-                    </CodexThreadSettingsProvider>
-                  </CodexServiceTierSettingsProvider>
-                </SpellcheckProvider>
-              </PasteResourceSettingsProvider>
-            </NfmAutolinkSettingsProvider>
-          </FileLinkOpenerProvider>
-        </CodeFontSizeProvider>
-      </SansFontSizeProvider>
-    </ThemeProvider>
+    <NodexQueryProvider>
+      <ThemeProvider>
+        <SansFontSizeProvider>
+          <CodeFontSizeProvider>
+            <FileLinkOpenerProvider>
+              <NfmAutolinkSettingsProvider>
+                <PasteResourceSettingsProvider>
+                  <SpellcheckProvider>
+                    <CodexServiceTierSettingsProvider>
+                      <CodexThreadSettingsProvider>
+                        <ThreadSectionSendSettingsProvider>
+                          <CardStageCollapsedPropertiesProvider>
+                            <CardPropertyPositionProvider>
+                              <NodexTooltipProvider>
+                                {children}
+                              </NodexTooltipProvider>
+                            </CardPropertyPositionProvider>
+                          </CardStageCollapsedPropertiesProvider>
+                        </ThreadSectionSendSettingsProvider>
+                      </CodexThreadSettingsProvider>
+                    </CodexServiceTierSettingsProvider>
+                  </SpellcheckProvider>
+                </PasteResourceSettingsProvider>
+              </NfmAutolinkSettingsProvider>
+            </FileLinkOpenerProvider>
+          </CodeFontSizeProvider>
+        </SansFontSizeProvider>
+      </ThemeProvider>
+    </NodexQueryProvider>
   );
 }

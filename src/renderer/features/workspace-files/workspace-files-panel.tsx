@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { ExternalLink, FileText, FolderOpen, RefreshCw } from "lucide-react";
 import { MarkdownRenderer } from "@/features/local-conversation/view/shared/markdown/markdown-renderer";
@@ -10,11 +11,16 @@ import {
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
 import { invoke } from "@/lib/api";
+import {
+  workspaceDirectoryQueryOptions,
+  workspaceFileBinaryQueryOptions,
+  workspaceFileMetadataQueryOptions,
+  workspaceFileTextQueryOptions,
+} from "@/lib/query-options";
 import type {
   Project,
   ProjectSession,
   WorkspaceFileDirectoryEntry,
-  WorkspaceFileMetadata,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
@@ -254,6 +260,7 @@ export function WorkspaceFilesPanel({
   const workspaceRoot = resolveWorkspaceRoot(tab, project);
   const hostId = tab.config.hostId ?? "local";
   const selectedPath = tab.config.path ?? null;
+  const queryClient = useQueryClient();
   const [entriesByPath, setEntriesByPath] = useState<EntriesByPath>({});
   const [loadStateByPath, setLoadStateByPath] = useState<LoadStateByPath>({});
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set(workspaceRoot ? [workspaceRoot] : []));
@@ -269,13 +276,13 @@ export function WorkspaceFilesPanel({
     if (!workspaceRoot) return;
     setLoadStateByPath((current) => ({ ...current, [path]: "loading" }));
     try {
-      const result = await invoke("workspace-directory-entries", {
+      const result = await queryClient.fetchQuery(workspaceDirectoryQueryOptions({
         hostId,
         workspaceRoot,
         path,
         includeHidden: true,
         includeGenerated: false,
-      });
+      }));
       startTransition(() => {
         setEntriesByPath((current) => ({ ...current, [path]: result.entries }));
         setLoadStateByPath((current) => ({ ...current, [path]: "loaded" }));
@@ -284,7 +291,7 @@ export function WorkspaceFilesPanel({
       setLoadStateByPath((current) => ({ ...current, [path]: "error" }));
       toast.danger(error instanceof Error ? error.message : "Unable to load files");
     }
-  }, [hostId, workspaceRoot]);
+  }, [hostId, queryClient, workspaceRoot]);
 
   useEffect(() => {
     if (!workspaceRoot) return;
@@ -307,7 +314,11 @@ export function WorkspaceFilesPanel({
 
     const loadPreview = async () => {
       try {
-        const metadata = await invoke("read-file-metadata", { hostId, workspaceRoot, path: selectedPath }) as WorkspaceFileMetadata;
+        const metadata = await queryClient.fetchQuery(workspaceFileMetadataQueryOptions({
+          hostId,
+          workspaceRoot,
+          path: selectedPath,
+        }));
         if (!metadata.isFile) {
           if (!cancelled) {
             setPreviewState({
@@ -324,7 +335,11 @@ export function WorkspaceFilesPanel({
 
         const kind = resolveWorkspaceFilePreviewKind(selectedPath, metadata.mimeType);
         if (kind === "image" || kind === "pdf") {
-          const binary = await invoke("read-file-binary", { hostId, workspaceRoot, path: selectedPath });
+          const binary = await queryClient.fetchQuery(workspaceFileBinaryQueryOptions({
+            hostId,
+            workspaceRoot,
+            path: selectedPath,
+          }));
           const dataUrl = buildDataUrl(binary.dataBase64, binary.mimeType);
           if (!cancelled) {
             setPreviewState({
@@ -353,12 +368,12 @@ export function WorkspaceFilesPanel({
           return;
         }
 
-        const text = await invoke("read-file", {
+        const text = await queryClient.fetchQuery(workspaceFileTextQueryOptions({
           hostId,
           workspaceRoot,
           path: selectedPath,
           maxBytes: MAX_TEXT_PREVIEW_BYTES,
-        });
+        }));
         if (!cancelled) {
           setPreviewState({
             status: "loaded",
@@ -386,7 +401,7 @@ export function WorkspaceFilesPanel({
     return () => {
       cancelled = true;
     };
-  }, [hostId, selectedPath, workspaceRoot]);
+  }, [hostId, queryClient, selectedPath, workspaceRoot]);
 
   const rows = useMemo(() => buildVisibleTreeRows({
     rootPath: workspaceRoot,

@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
-import { invoke } from "@/lib/api";
+import { useQueries, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { subscribeBoardChanges } from "@/lib/api";
+import { boardByProjectQueryOptions } from "@/lib/query-options";
+import { queryKeys } from "@/lib/query-keys";
 import type { Board } from "@/lib/types";
 import { useProjects } from "@/lib/use-projects";
 
@@ -7,34 +10,46 @@ import { useProjects } from "@/lib/use-projects";
  * Fetches boards for every project. Used by card pickers and @ mention menus.
  */
 export function useAllBoards() {
-  const { projects } = useProjects();
-  const [boards, setBoards] = useState<Map<string, Board>>(new Map());
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const { projects, loading: projectsLoading } = useProjects();
+  const projectIdsKey = projects.map((project) => project.id).join("\n");
 
-  const fetchAll = useCallback(async () => {
-    const results = new Map<string, Board>();
-    await Promise.all(
-      projects.map(async (project) => {
-        try {
-          const board = (await invoke("board:get", project.id)) as Board;
-          results.set(project.id, board);
-        } catch {
-          // skip failed projects
-        }
-      }),
-    );
-    setBoards(results);
-    setLoading(false);
-  }, [projects]);
+  const boardsQuery = useQueries({
+    queries: projects.map((project) => boardByProjectQueryOptions(project.id)),
+    combine: (results) => {
+      const boards = new Map<string, Board>();
+      results.forEach((result, index) => {
+        const project = projects[index];
+        if (!project || !result.data) return;
+        boards.set(project.id, result.data);
+      });
+
+      return {
+        boards,
+        loading: projectsLoading || results.some((result) => result.isPending),
+      };
+    },
+  });
 
   useEffect(() => {
-    if (projects.length > 0) {
-      void fetchAll();
-    } else {
-      setBoards(new Map());
-      setLoading(false);
-    }
-  }, [projects, fetchAll]);
+    if (!projectIdsKey) return;
 
-  return { boards, loading };
+    const projectIds = projectIdsKey.split("\n");
+    const unsubscribes = projectIds.map((projectId) =>
+      subscribeBoardChanges(projectId, () => {
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.boards.byProject(projectId),
+          exact: true,
+        });
+      }),
+    );
+
+    return () => {
+      for (const unsubscribe of unsubscribes) {
+        unsubscribe();
+      }
+    };
+  }, [projectIdsKey, queryClient]);
+
+  return boardsQuery;
 }

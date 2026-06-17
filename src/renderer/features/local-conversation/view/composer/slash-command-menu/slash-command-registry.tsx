@@ -26,8 +26,8 @@ import {
   formatCodexReasoningEffortLabel,
 } from "@/lib/codex-thread-settings";
 import { toast } from "@/components/ui/toast";
+import { useMcpServerStatuses } from "@/lib/use-mcp-queries";
 import type { CodexReasoningEffort } from "@/lib/types";
-import { invoke } from "../local-conversation-thread-composer-deps";
 import type { ThreadFooterModel, ThreadStageActions } from "../../../thread-stage-types";
 import type {
   ComposerSlashCommand,
@@ -562,25 +562,13 @@ function MemoryCommandContent({
 }
 
 function McpCommandContent({ threadId }: ComposerSlashCommandContentProps & { threadId: string | null | undefined }) {
-  const [statuses, setStatuses] = useState<McpServerStatus[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { data: statuses, error, isPending } = useMcpServerStatuses(threadId ?? null);
+  const errorMessage = error
+    ? error instanceof Error ? error.message : "Could not load MCP status"
+    : null;
 
-  useEffect(() => {
-    let cancelled = false;
-    void invoke("codex:mcp-server-statuses:list", threadId ?? null)
-      .then((result) => {
-        if (!cancelled) setStatuses(result as McpServerStatus[]);
-      })
-      .catch((nextError) => {
-        if (!cancelled) setError(nextError instanceof Error ? nextError.message : "Could not load MCP status");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [threadId]);
-
-  if (error) return <CommandMessage>{error}</CommandMessage>;
-  if (!statuses) return <CommandMessage>Loading MCP servers</CommandMessage>;
+  if (errorMessage) return <CommandMessage>{errorMessage}</CommandMessage>;
+  if (isPending || !statuses) return <CommandMessage>Loading MCP servers</CommandMessage>;
   if (statuses.length === 0) return <CommandMessage>No MCP servers</CommandMessage>;
 
   return (

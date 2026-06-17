@@ -1,9 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { fireEvent } from "@testing-library/react";
+import type { ReactElement } from "react";
 import type { CodexMcpToolCallView, CodexTranscriptEntry } from "../../../../../lib/types";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../../components/ui/tooltip";
 import { render, settleAsyncRender, textContent } from "../../../../../test/dom";
+import { TestQueryProvider } from "../../../../../test/query";
 import { buildMcpAppSidePanelInput, McpToolCall } from "./mcp-tool-call";
+
+function renderMcp(ui: ReactElement) {
+  return render(<TestQueryProvider>{ui}</TestQueryProvider>);
+}
 
 function buildMcpView(overrides?: Partial<CodexMcpToolCallView>): CodexMcpToolCallView {
   return {
@@ -71,7 +77,7 @@ function buildMcpEntry(overrides?: Partial<CodexTranscriptEntry>): CodexTranscri
 
 describe("McpToolCall", () => {
   test("renders the Codex-style collapsed summary text", async () => {
-    const { getByRole } = render(
+    const { getByRole } = renderMcp(
       <TooltipProvider>
         <McpToolCall
           item={buildMcpEntry({
@@ -110,7 +116,7 @@ describe("McpToolCall", () => {
   });
 
   test("renders a source icon in the summary row", async () => {
-    const { container } = render(
+    const { container } = renderMcp(
       <TooltipProvider>
         <McpToolCall item={buildMcpEntry()} />
       </TooltipProvider>,
@@ -121,7 +127,7 @@ describe("McpToolCall", () => {
   });
 
   test("keeps in-progress MCP rows collapsed and non-expandable", async () => {
-    const { getByRole } = render(
+    const { getByRole } = renderMcp(
       <TooltipProvider>
         <McpToolCall
           item={buildMcpEntry({
@@ -145,7 +151,7 @@ describe("McpToolCall", () => {
   });
 
   test("renders plaintext content and opens the raw output dialog", async () => {
-    const { container, getByRole, getByText } = render(
+    const { container, getByRole, getByText } = renderMcp(
       <TooltipProvider>
         <McpToolCall item={buildMcpEntry()} />
       </TooltipProvider>,
@@ -165,7 +171,7 @@ describe("McpToolCall", () => {
   });
 
   test("shows no-content copy before structuredContent for structured-only successes", async () => {
-    const { container, getByRole } = render(
+    const { container, getByRole } = renderMcp(
       <TooltipProvider>
         <McpToolCall
           item={buildMcpEntry({
@@ -205,7 +211,7 @@ describe("McpToolCall", () => {
   });
 
   test("renders protocol errors without the no-content fallback", async () => {
-    const { container, getByRole } = render(
+    const { container, getByRole } = renderMcp(
       <TooltipProvider>
         <McpToolCall
           item={buildMcpEntry({
@@ -234,7 +240,7 @@ describe("McpToolCall", () => {
   });
 
   test("renders unknown blocks as JSON fallback instead of dropping them", async () => {
-    const { container, getByRole } = render(
+    const { container, getByRole } = renderMcp(
       <TooltipProvider>
         <McpToolCall
           item={buildMcpEntry({
@@ -275,7 +281,7 @@ describe("McpToolCall", () => {
   });
 
   test("renders resource-link content blocks", async () => {
-    const { container, getByRole } = render(
+    const { container, getByRole } = renderMcp(
       <TooltipProvider>
         <McpToolCall
           item={buildMcpEntry({

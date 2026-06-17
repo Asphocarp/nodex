@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { fireEvent, waitFor } from "@testing-library/react";
+import type { ReactElement } from "react";
 import type {
   CodexConversationTurn,
   GitReviewSnapshot,
   GitReviewSource,
 } from "../../../../lib/types";
 import { render, settleAsyncRender, textContent } from "../../../../test/dom";
+import { TestQueryProvider } from "../../../../test/query";
 
 let invokeCalls: unknown[][] = [];
 let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
@@ -15,7 +17,20 @@ mock.module("../../../../lib/api", () => ({
     invokeCalls.push([channel, ...args]);
     return mockInvokeImpl?.(channel, ...args) ?? null;
   },
+  subscribeBoardChanges: () => () => undefined,
+  subscribeProjectSessionChanges: () => () => undefined,
+  subscribeProjectChanges: () => () => undefined,
+  subscribeCodexHostMessages: () => () => undefined,
+  subscribeDesktopNotificationActions: () => () => undefined,
+  subscribeGitBranchChanges: () => () => undefined,
+  subscribeAppUpdateStatus: () => () => undefined,
+  getWindowFocusState: async () => true,
+  subscribeWindowFocusChanges: () => () => undefined,
 }));
+
+function renderSummary(ui: ReactElement) {
+  return render(<TestQueryProvider>{ui}</TestQueryProvider>);
+}
 
 function makeSnapshot(source: GitReviewSource, additions: number, deletions: number): GitReviewSnapshot {
   return {
@@ -48,7 +63,7 @@ describe("ThreadFloatingSummaryPanel", () => {
   test("renders the pinned summary without authenticated quota content", async () => {
     const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
 
-    const view = render(
+    const view = renderSummary(
       <ThreadFloatingSummaryPanel
         mounted
         open
@@ -76,7 +91,7 @@ describe("ThreadFloatingSummaryPanel", () => {
   test("keeps the hidden Codex shell without running panel side effects", async () => {
     const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
 
-    const view = render(
+    const view = renderSummary(
       <ThreadFloatingSummaryPanel
         mounted
         open={false}
@@ -105,7 +120,7 @@ describe("ThreadFloatingSummaryPanel", () => {
   test("uses the Codex instant invisible branch while overlay popover is open", async () => {
     const { ThreadFloatingSummaryPanel } = await import("./thread-floating-summary-panel");
 
-    const view = render(
+    const view = renderSummary(
       <ThreadFloatingSummaryPanel
         hideImmediately
         mounted
@@ -128,7 +143,7 @@ describe("ThreadFloatingSummaryPanel", () => {
 
   test("renders the right-panel summary as a dismissible popover", async () => {
     const { ThreadSummaryPanelPopover } = await import("./thread-floating-summary-panel");
-    const view = render(
+    const view = renderSummary(
       <ThreadSummaryPanelPopover
         activeThreadId="thread-1"
         cwd={null}
@@ -181,7 +196,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       return makeSnapshot(source, 5, 6);
     };
 
-    const view = render(
+    const view = renderSummary(
       <ThreadFloatingSummaryPanel
         mounted
         open
@@ -248,7 +263,7 @@ describe("ThreadFloatingSummaryPanel", () => {
       },
     ] as unknown as CodexConversationTurn[];
 
-    const view = render(
+    const view = renderSummary(
       <ThreadFloatingSummaryPanel
         mounted
         open
