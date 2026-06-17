@@ -55,7 +55,7 @@
     "dev": "bun run stage:codex-runtime:mac && bun run sync:icons && electron-vite dev",
     "dev:remote-debug": "bun run stage:codex-runtime:mac && bun run sync:icons && electron-vite dev --remoteDebuggingPort 9333",
     "build": "bun run sync:icons && electron-vite build",
-    "release:local": "bun run build && bun run stage:codex-runtime:mac && electron .",
+    "build:run": "bun run build && bun run stage:codex-runtime:mac && electron .",
     "package": "bun run package:mac",
     "package:mac": "bun run build && bun run stage:codex-runtime:mac && electron-builder --mac --publish never",
     "package:mac:arm64": "bun run build && bun run stage:codex-runtime:mac:arm64 && electron-builder --mac dmg zip --arm64 --publish never",
