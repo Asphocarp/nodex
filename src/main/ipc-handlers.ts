@@ -10,11 +10,13 @@ import * as ptyManager from "./pty-manager";
 import {
   getAppUpdateSettings,
   getBackupSettings,
+  getDiagnosticsSettings,
   getHistorySettings,
   getThreadNotificationSettings,
   getWindowRestoreSettings,
   updateAppUpdateSettings,
   updateBackupSettings,
+  updateDiagnosticsSettings,
   updateHistorySettings,
   updateThreadNotificationSettings,
   updateWindowRestoreSettings,
@@ -32,6 +34,7 @@ import {
   writeWorkspaceFile,
 } from "./workspace-files-service";
 import { dbNotifier } from "./kanban/db-notifier";
+import { captureMainException } from "./observability/sentry-main";
 import type { WorkbenchLayoutSnapshot } from "../shared/workbench-layout";
 import type { IpcApi } from "../shared/ipc-api";
 import type {
@@ -81,7 +84,24 @@ function registerHandle<Channel extends keyof IpcApi>(
 ): void {
   // Make registration idempotent so hot-reloads cannot leave partial channel maps.
   ipcMain.removeHandler(channel);
-  ipcMain.handle(channel, listener);
+  ipcMain.handle(channel, async (event, ...args) => {
+    try {
+      return await listener(event, ...(args as IpcApi[Channel]["args"]));
+    } catch (error) {
+      captureMainException(error, {
+        tags: {
+          channel,
+          mechanism: "ipc",
+        },
+        extra: {
+          channel,
+          senderWebContentsId: event.sender.id,
+          argCount: args.length,
+        },
+      });
+      throw error;
+    }
+  });
 }
 
 function buildNativeContextMenuTemplate(
@@ -576,6 +596,12 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   registerHandle("settings:history:update", (_, input) =>
     updateHistorySettings(input)
+  );
+
+  registerHandle("settings:diagnostics:get", () => getDiagnosticsSettings());
+
+  registerHandle("settings:diagnostics:update", (_, input) =>
+    updateDiagnosticsSettings(input)
   );
 
   registerHandle("settings:thread-notifications:get", () => getThreadNotificationSettings());

@@ -62,6 +62,11 @@ import {
 import { BROWSER_SIDEBAR_PARTITION } from "../shared/browser-sidebar";
 import type { BootstrapRuntimeEvent } from "./bootstrap-events";
 import { collectSecondInstancesForStartupReplay } from "./main-runtime-startup-events";
+import {
+  captureMainException,
+  captureMainMessage,
+  shutdownMainSentry,
+} from "./observability/sentry-main";
 // macOS uses the packaged bundle icon from the app resources.
 // We only keep a PNG around for development Dock icon parity and non-macOS window icons.
 const appIconPath = app.isPackaged
@@ -646,6 +651,22 @@ function createWindow(
     flushPendingSessionDeepLink();
     maybeStartAutomaticAppUpdateChecks();
   });
+  window.webContents.on("render-process-gone", (_event, details) => {
+    logger.error("Renderer process gone", {
+      webContentsId,
+      reason: details.reason,
+      exitCode: details.exitCode,
+    });
+    captureMainMessage("Renderer process gone", {
+      tags: {
+        reason: details.reason,
+      },
+      extra: {
+        webContentsId,
+        exitCode: details.exitCode,
+      },
+    });
+  });
   window.on("closed", () => {
     windowSessionState?.clearWindow(webContentsId);
     pendingCloseResolvers.delete(webContentsId);
@@ -823,6 +844,7 @@ function shutdownMainRuntime(): void {
   logger.info("Nodex before-quit");
   ptyManager.killAll();
   void codexService.shutdown();
+  void shutdownMainSentry();
   void shutdownBackendLogger();
 }
 
@@ -849,10 +871,16 @@ function registerRuntimeLifecycleHandlers(): void {
 
   process.on("uncaughtException", (error) => {
     logger.error("Uncaught exception in main process", { error });
+    captureMainException(error, {
+      tags: { phase: "runtime", kind: "uncaughtException" },
+    });
   });
 
   process.on("unhandledRejection", (reason) => {
     logger.error("Unhandled promise rejection in main process", { reason });
+    captureMainException(reason, {
+      tags: { phase: "runtime", kind: "unhandledRejection" },
+    });
   });
 }
 

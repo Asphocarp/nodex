@@ -3,7 +3,7 @@ import { fireEvent } from "@testing-library/react";
 import { AppProviders } from "@/app-providers";
 import { makeDefaultSidebarTopLevelSectionsPrefs } from "@/lib/sidebar-section-prefs";
 import { render, settleAsyncRender } from "@/test/dom";
-import type { BackupRecord } from "@/lib/types";
+import type { BackupRecord, DiagnosticsSettings, UpdateDiagnosticsSettingsInput } from "@/lib/types";
 import { buildSettingsPath } from "./workbench-settings-routes";
 
 const PROJECTS = [
@@ -29,12 +29,30 @@ mock.module("./workbench-settings-overlay-deps", () => ({
   },
 }));
 
-async function renderOverlay() {
+function buildDiagnosticsSettings(overrides: Partial<DiagnosticsSettings> = {}): DiagnosticsSettings {
+  return {
+    enabled: false,
+    dsn: "",
+    environment: "production",
+    release: null,
+    tracesSampleRate: 0,
+    envOverrides: {
+      enabled: false,
+      dsn: false,
+      environment: false,
+      release: false,
+      tracesSampleRate: false,
+    },
+    ...overrides,
+  };
+}
+
+async function renderOverlay(path = buildSettingsPath("backups")) {
   const { SettingsRouteShell } = await import("./workbench-settings-overlay");
   return render(
     <AppProviders>
       <SettingsRouteShell
-        path={buildSettingsPath("backups")}
+        path={path}
         onPathChange={() => {}}
         onBackToApp={() => {}}
         onRequestProjectPickerOpen={() => {}}
@@ -61,6 +79,142 @@ async function renderOverlay() {
 }
 
 describe("SettingsRouteShell backups", () => {
+  test("loads and saves the opt-in diagnostics toggle", async () => {
+    let diagnosticsSettings = buildDiagnosticsSettings();
+    const diagnosticsUpdates: UpdateDiagnosticsSettingsInput[] = [];
+
+    mockInvokeImpl = async (channel: string, ...args: unknown[]) => {
+      switch (channel) {
+        case "settings:thread-notifications:get":
+          return {
+            turnMode: "unfocused",
+            permissionsEnabled: true,
+            questionsEnabled: true,
+          };
+        case "settings:app-updates:get":
+          return { automaticChecksEnabled: true };
+        case "settings:window-restore:get":
+          return { policy: "all" };
+        case "settings:diagnostics:get":
+          return diagnosticsSettings;
+        case "settings:diagnostics:update": {
+          const input = args[0] as UpdateDiagnosticsSettingsInput;
+          diagnosticsUpdates.push(input);
+          diagnosticsSettings = {
+            ...diagnosticsSettings,
+            enabled: input.enabled,
+            dsn: input.dsn,
+            environment: input.environment,
+            release: input.release,
+            tracesSampleRate: input.tracesSampleRate,
+          };
+          return diagnosticsSettings;
+        }
+        case "app:update:status":
+          return {
+            status: "idle",
+            supported: true,
+            currentVersion: "0.1.0",
+            availableVersion: null,
+            releaseName: null,
+            releaseDate: null,
+            releaseNotes: null,
+            progressPercent: null,
+            transferredBytes: null,
+            totalBytes: null,
+            checkedAt: null,
+            message: null,
+          };
+        case "worktrees:managed:list":
+          return [];
+        default:
+          return null;
+      }
+    };
+
+    const view = await renderOverlay(buildSettingsPath("general-settings"));
+    await settleAsyncRender();
+
+    view.getByText("Crash reports are off.");
+    const toggle = view.getByText("Share crash reports").parentElement?.querySelector("[role='switch']");
+    expect(toggle).not.toBeNull();
+    expect(toggle?.getAttribute("aria-checked")).toBe("false");
+
+    fireEvent.click(toggle as Element);
+    await settleAsyncRender();
+
+    expect(diagnosticsUpdates.length).toBe(1);
+    expect(diagnosticsUpdates[0]?.enabled).toBeTrue();
+    expect(toggle?.getAttribute("aria-checked")).toBe("true");
+    view.getByText("Crash reports are enabled after restart.");
+  });
+
+  test("shows disabled diagnostics control when env overrides the toggle", async () => {
+    const diagnosticsSettings = buildDiagnosticsSettings({
+      enabled: true,
+      envOverrides: {
+        enabled: true,
+        dsn: false,
+        environment: false,
+        release: false,
+        tracesSampleRate: false,
+      },
+    });
+    const diagnosticsUpdates: UpdateDiagnosticsSettingsInput[] = [];
+
+    mockInvokeImpl = async (channel: string, ...args: unknown[]) => {
+      switch (channel) {
+        case "settings:thread-notifications:get":
+          return {
+            turnMode: "unfocused",
+            permissionsEnabled: true,
+            questionsEnabled: true,
+          };
+        case "settings:app-updates:get":
+          return { automaticChecksEnabled: true };
+        case "settings:window-restore:get":
+          return { policy: "all" };
+        case "settings:diagnostics:get":
+          return diagnosticsSettings;
+        case "settings:diagnostics:update":
+          diagnosticsUpdates.push(args[0] as UpdateDiagnosticsSettingsInput);
+          return diagnosticsSettings;
+        case "app:update:status":
+          return {
+            status: "idle",
+            supported: true,
+            currentVersion: "0.1.0",
+            availableVersion: null,
+            releaseName: null,
+            releaseDate: null,
+            releaseNotes: null,
+            progressPercent: null,
+            transferredBytes: null,
+            totalBytes: null,
+            checkedAt: null,
+            message: null,
+          };
+        case "worktrees:managed:list":
+          return [];
+        default:
+          return null;
+      }
+    };
+
+    const view = await renderOverlay(buildSettingsPath("general-settings"));
+    await settleAsyncRender();
+
+    view.getByText("Managed by NODEX_SENTRY_ENABLED. Environment overrides are active.");
+    const toggle = view.getByText("Share crash reports").parentElement?.querySelector("[role='switch']");
+    expect(toggle).not.toBeNull();
+    expect((toggle as HTMLButtonElement | null)?.disabled ?? false).toBeTrue();
+
+    fireEvent.click(toggle as Element);
+    await settleAsyncRender();
+
+    expect(diagnosticsUpdates.length).toBe(0);
+  });
+
   test("treats a malformed backup list response as empty state", async () => {
     mockInvokeImpl = async (channel: string) => {
       switch (channel) {

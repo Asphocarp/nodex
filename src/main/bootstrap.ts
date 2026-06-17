@@ -3,6 +3,12 @@ import { configureInstanceScopePaths } from "./instance-scope";
 import { resolveBootstrapKanbanDir } from "./bootstrap-config";
 import { BootstrapRuntimeEventQueue } from "./bootstrap-events";
 import { writeBootstrapLog } from "./bootstrap-log";
+import { getDiagnosticsSettings } from "./kanban/config";
+import {
+  captureMainException,
+  initializeMainSentry,
+} from "./observability/sentry-main";
+import { electronMainSentryAdapter } from "./observability/sentry-electron-main-adapter";
 import {
   runMacApplicationsInstallerGate,
   type MacApplicationsInstallerEnvironment,
@@ -35,6 +41,27 @@ function logBootstrap(
     fileEnabled: parseBooleanEnv(process.env.NODEX_LOG_FILE, defaultSinkEnabled),
   });
 }
+
+function initializeBootstrapDiagnostics(): Promise<boolean> {
+  try {
+    return initializeMainSentry({
+      appVersion: app.getVersion(),
+      arch: process.arch,
+      isPackaged: app.isPackaged,
+      platform: process.platform,
+      settings: getDiagnosticsSettings(),
+      adapter: electronMainSentryAdapter,
+    }).catch((error: unknown) => {
+      logBootstrap("warn", "Sentry diagnostics failed to initialize", { error });
+      return false;
+    });
+  } catch (error) {
+    logBootstrap("warn", "Sentry diagnostics failed to initialize", { error });
+    return Promise.resolve(false);
+  }
+}
+
+const mainSentryInitialization = initializeBootstrapDiagnostics();
 
 function formatStartupError(error: unknown): string {
   if (error instanceof Error) {
@@ -103,6 +130,9 @@ function createMacApplicationsInstallerEnvironment(): MacApplicationsInstallerEn
 
 async function handleStartupFailure(error: unknown): Promise<void> {
   logBootstrap("error", "Nodex failed to start", { error });
+  captureMainException(error, {
+    tags: { phase: "startup" },
+  });
 
   for (const window of BrowserWindow.getAllWindows()) {
     if (window.isDestroyed()) continue;
@@ -123,6 +153,8 @@ async function handleStartupFailure(error: unknown): Promise<void> {
 }
 
 async function startRuntime(): Promise<void> {
+  await mainSentryInitialization;
+
   const installerResult = await runMacApplicationsInstallerGate(
     createMacApplicationsInstallerEnvironment(),
   );
@@ -160,10 +192,16 @@ if (!hasSingleInstanceLock) {
 
   process.on("uncaughtException", (error) => {
     logBootstrap("error", "Uncaught exception before runtime startup", { error });
+    captureMainException(error, {
+      tags: { phase: "bootstrap", kind: "uncaughtException" },
+    });
   });
 
   process.on("unhandledRejection", (reason) => {
     logBootstrap("error", "Unhandled rejection before runtime startup", { reason });
+    captureMainException(reason, {
+      tags: { phase: "bootstrap", kind: "unhandledRejection" },
+    });
   });
 
   app.whenReady()

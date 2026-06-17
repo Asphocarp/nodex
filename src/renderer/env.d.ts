@@ -16,6 +16,17 @@ import type {
 declare module "*.css";
 
 declare global {
+  interface ImportMetaEnv {
+    readonly MODE: string;
+    readonly DEV: boolean;
+    readonly PROD: boolean;
+    readonly SSR: boolean;
+  }
+
+  interface ImportMeta {
+    readonly env: ImportMetaEnv;
+  }
+
   interface Window {
     api?: {
       invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;

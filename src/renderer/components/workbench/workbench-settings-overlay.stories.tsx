@@ -3,6 +3,7 @@ import { useState } from "react";
 import { CODEX_DEFAULT_SERVICE_TIER_STORAGE_KEY } from "@/lib/codex-service-tier-settings";
 import type {
   BackupRecord,
+  DiagnosticsSettings,
   Project,
   UpdateWorktreeEnvironmentConfigInput,
   WorktreeEnvironmentSettingsSnapshot,
@@ -114,6 +115,21 @@ function ensureStorybookElectronBridge({
 }) {
   if (typeof window === "undefined") return;
 
+  let diagnosticsSettings: DiagnosticsSettings = {
+    enabled: false,
+    dsn: "",
+    environment: "production",
+    release: null,
+    tracesSampleRate: 0,
+    envOverrides: {
+      enabled: false,
+      dsn: false,
+      environment: false,
+      release: false,
+      tracesSampleRate: false,
+    },
+  };
+
   window.api = {
     invoke: async (channel: string, ...args: unknown[]) => {
       switch (channel) {
@@ -174,6 +190,28 @@ function ensureStorybookElectronBridge({
             retentionCount: 1000,
             envOverrides: { retentionCount: false },
           };
+        case "settings:diagnostics:get":
+          return diagnosticsSettings;
+        case "settings:diagnostics:update": {
+          const input = args[0] as {
+            enabled?: unknown;
+            dsn?: unknown;
+            environment?: unknown;
+            release?: unknown;
+            tracesSampleRate?: unknown;
+          };
+          diagnosticsSettings = {
+            ...diagnosticsSettings,
+            enabled: typeof input.enabled === "boolean" ? input.enabled : diagnosticsSettings.enabled,
+            dsn: typeof input.dsn === "string" ? input.dsn : diagnosticsSettings.dsn,
+            environment: typeof input.environment === "string" ? input.environment : diagnosticsSettings.environment,
+            release: typeof input.release === "string" ? input.release : null,
+            tracesSampleRate: typeof input.tracesSampleRate === "number"
+              ? input.tracesSampleRate
+              : diagnosticsSettings.tracesSampleRate,
+          };
+          return diagnosticsSettings;
+        }
         case "worktrees:environments:config:read": {
           const projectId = typeof args[0] === "string" ? args[0] : PROJECTS[0].id;
           const configPath = typeof args[1] === "string" ? args[1] : null;

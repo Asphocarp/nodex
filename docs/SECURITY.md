@@ -15,11 +15,12 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
 - Stable asset URI scheme avoids embedding brittle absolute local URLs.
 - Codex approvals are explicit protocol responses (`accept`/`decline`/etc) and are gated by the per-project Threads permission mode.
 - Codex user-input requests are never auto-answered and require explicit renderer interaction.
+- Optional Sentry diagnostics are disabled by default, use `sendDefaultPii: false`, and scrub local paths, auth/cookie/token fields, prompt text, card descriptions, transcript content, SQL/query strings, and raw request bodies before upload. Session Replay, screenshots, and broad remote log shipping are not enabled in v1.
 
 ## Current Gaps
 - No built-in authentication on the local HTTP API.
 - No role-based access control model (single-user/local trust assumption).
-- Security logging/auditing is still local-only and not audit-grade, but backend logs now redact common secret-bearing fields (for example authorization headers, tokens, API keys, passwords, cookies, and session values) before writing JSON-line log records.
+- Security logging/auditing is still local-first and not audit-grade. Backend logs redact common secret-bearing fields (for example authorization headers, tokens, API keys, passwords, cookies, and session values) before writing JSON-line log records; optional Sentry crash diagnostics are for failure triage, not an audit trail.
 - `full-access` mode is convenience-first and auto-accepts any approval requests that still surface.
 - Workspace-write sandbox roots are derived from user-configured project sources. Additional allow-listing beyond those local source roots remains future hardening work.
 

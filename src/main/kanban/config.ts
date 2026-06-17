@@ -5,11 +5,13 @@ import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import type {
   AppUpdateSettings,
   BackupSettings,
+  DiagnosticsSettings,
   HistorySettings,
   ThreadNotificationSettings,
   ThreadNotificationTurnMode,
   UpdateAppUpdateSettingsInput,
   UpdateBackupSettingsInput,
+  UpdateDiagnosticsSettingsInput,
   UpdateHistorySettingsInput,
   UpdateThreadNotificationSettingsInput,
   UpdateWindowRestoreSettingsInput,
@@ -31,6 +33,11 @@ interface ServerTomlConfig {
   history_retention?: number;
   app_updates_auto_check_enabled?: boolean;
   window_restore_policy?: WindowRestorePolicy;
+  diagnostics_enabled?: boolean;
+  diagnostics_dsn?: string;
+  diagnostics_environment?: string;
+  diagnostics_release?: string;
+  diagnostics_traces_sample_rate?: number;
 }
 
 interface RootTomlConfig extends Record<string, unknown> {
@@ -45,6 +52,10 @@ const THREAD_NOTIFICATIONS_PERMISSIONS_ENABLED_DEFAULT = true;
 const THREAD_NOTIFICATIONS_QUESTIONS_ENABLED_DEFAULT = true;
 const APP_UPDATES_AUTO_CHECK_DEFAULT = true;
 const WINDOW_RESTORE_POLICY_DEFAULT: WindowRestorePolicy = "all";
+export const DEFAULT_SENTRY_DSN =
+  "https://ecf630563128267bf9798a10b45a089a@o4511580306014208.ingest.us.sentry.io/4511580310011904";
+const DIAGNOSTICS_ENVIRONMENT_DEFAULT = "production";
+const DIAGNOSTICS_TRACES_SAMPLE_RATE_DEFAULT = 0;
 
 function readServerSection(configPath: string): ServerTomlConfig | null {
   try {
@@ -182,6 +193,32 @@ function parseIntegerEnv(
   return Math.max(minimum, parsed);
 }
 
+function parseNumberEnv(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return parsed;
+}
+
+function normalizeSampleRate(value: number, fieldName: string): number {
+  if (!Number.isFinite(value)) {
+    throw new Error(`${fieldName} must be a number`);
+  }
+  if (value < 0 || value > 1) {
+    throw new Error(`${fieldName} must be between 0 and 1`);
+  }
+  return value;
+}
+
+function normalizeOptionalStringInput(value: string | null, fieldName: string): string | null {
+  if (value === null) return null;
+  if (typeof value !== "string") {
+    throw new Error(`${fieldName} must be a string`);
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function normalizeIntegerInput(value: number, minimum: number, fieldName: string): number {
   if (!Number.isFinite(value)) {
     throw new Error(`${fieldName} must be a number`);
@@ -250,6 +287,30 @@ function windowRestoreSettingsFromConfig(config: ServerTomlConfig): WindowRestor
       || config.window_restore_policy === "none"
         ? config.window_restore_policy
         : WINDOW_RESTORE_POLICY_DEFAULT,
+  };
+}
+
+function diagnosticsSettingsFromConfig(config: ServerTomlConfig): Omit<DiagnosticsSettings, "envOverrides"> {
+  const enabled = config.diagnostics_enabled === true;
+  const configuredDsn = typeof config.diagnostics_dsn === "string"
+    ? config.diagnostics_dsn.trim()
+    : "";
+  const environment = typeof config.diagnostics_environment === "string" && config.diagnostics_environment.trim()
+    ? config.diagnostics_environment.trim()
+    : DIAGNOSTICS_ENVIRONMENT_DEFAULT;
+  const release = typeof config.diagnostics_release === "string" && config.diagnostics_release.trim()
+    ? config.diagnostics_release.trim()
+    : null;
+  const tracesSampleRate = typeof config.diagnostics_traces_sample_rate === "number"
+    ? Math.min(1, Math.max(0, config.diagnostics_traces_sample_rate))
+    : DIAGNOSTICS_TRACES_SAMPLE_RATE_DEFAULT;
+
+  return {
+    enabled,
+    dsn: configuredDsn || (enabled ? DEFAULT_SENTRY_DSN : ""),
+    environment,
+    release,
+    tracesSampleRate,
   };
 }
 
@@ -346,6 +407,95 @@ export function updateHistorySettings(input: UpdateHistorySettingsInput): Histor
   serverToml = loadServerTomlConfig();
 
   return getHistorySettings();
+}
+
+export function getDiagnosticsSettings(): DiagnosticsSettings {
+  const fromToml = diagnosticsSettingsFromConfig(userServerToml);
+  const envOverrides = {
+    enabled: process.env.NODEX_SENTRY_ENABLED !== undefined,
+    dsn: process.env.SENTRY_DSN !== undefined,
+    environment: process.env.SENTRY_ENVIRONMENT !== undefined,
+    release: process.env.SENTRY_RELEASE !== undefined,
+    tracesSampleRate: process.env.NODEX_SENTRY_TRACES_SAMPLE_RATE !== undefined,
+  };
+
+  const enabled = envOverrides.enabled
+    ? parseBooleanEnv(process.env.NODEX_SENTRY_ENABLED, fromToml.enabled)
+    : fromToml.enabled;
+  const dsnFromEnv = process.env.SENTRY_DSN?.trim() ?? "";
+  const dsn = envOverrides.dsn
+    ? dsnFromEnv
+    : fromToml.dsn || (enabled ? DEFAULT_SENTRY_DSN : "");
+  const environmentFromEnv = process.env.SENTRY_ENVIRONMENT?.trim() ?? "";
+  const environment = envOverrides.environment && environmentFromEnv
+    ? environmentFromEnv
+    : fromToml.environment;
+  const releaseFromEnv = process.env.SENTRY_RELEASE?.trim() ?? "";
+  const release = envOverrides.release
+    ? (releaseFromEnv || null)
+    : fromToml.release;
+  const tracesSampleRate = envOverrides.tracesSampleRate
+    ? Math.min(1, Math.max(0, parseNumberEnv(
+        process.env.NODEX_SENTRY_TRACES_SAMPLE_RATE,
+        fromToml.tracesSampleRate,
+      )))
+    : fromToml.tracesSampleRate;
+
+  return {
+    enabled,
+    dsn,
+    environment,
+    release,
+    tracesSampleRate,
+    envOverrides,
+  };
+}
+
+export function updateDiagnosticsSettings(
+  input: UpdateDiagnosticsSettingsInput,
+): DiagnosticsSettings {
+  if (typeof input.enabled !== "boolean") {
+    throw new Error("enabled must be a boolean");
+  }
+  const nextSettings = {
+    enabled: input.enabled,
+    dsn: normalizeOptionalStringInput(input.dsn, "dsn"),
+    environment:
+      normalizeOptionalStringInput(input.environment, "environment")
+      ?? DIAGNOSTICS_ENVIRONMENT_DEFAULT,
+    release: normalizeOptionalStringInput(input.release, "release"),
+    tracesSampleRate: normalizeSampleRate(input.tracesSampleRate, "tracesSampleRate"),
+  };
+
+  const userConfigPath = getUserConfigPath();
+  const nextToml = readTomlConfig(userConfigPath);
+  const nextServer: ServerTomlConfig = {
+    ...(nextToml.server ?? {}),
+    diagnostics_enabled: nextSettings.enabled,
+    diagnostics_environment: nextSettings.environment,
+    diagnostics_traces_sample_rate: nextSettings.tracesSampleRate,
+  };
+  if (nextSettings.dsn) {
+    nextServer.diagnostics_dsn = nextSettings.dsn;
+  } else {
+    delete nextServer.diagnostics_dsn;
+  }
+  if (nextSettings.release) {
+    nextServer.diagnostics_release = nextSettings.release;
+  } else {
+    delete nextServer.diagnostics_release;
+  }
+
+  nextToml.server = nextServer;
+
+  const configDirectory = path.dirname(userConfigPath);
+  mkdirSync(configDirectory, { recursive: true });
+  writeFileSync(userConfigPath, stringifyToml(nextToml as Record<string, unknown>), "utf8");
+
+  userServerToml = loadUserServerTomlConfig();
+  serverToml = loadServerTomlConfig();
+
+  return getDiagnosticsSettings();
 }
 
 export function getThreadNotificationSettings(): ThreadNotificationSettings {

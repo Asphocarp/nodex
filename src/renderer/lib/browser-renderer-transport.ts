@@ -751,6 +751,45 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       });
       return res.json();
     }
+    case "settings:diagnostics:get": {
+      return {
+        enabled: false,
+        dsn: "",
+        environment: "browser",
+        release: null,
+        tracesSampleRate: 0,
+        envOverrides: {
+          enabled: false,
+          dsn: false,
+          environment: false,
+          release: false,
+          tracesSampleRate: false,
+        },
+      };
+    }
+    case "settings:diagnostics:update": {
+      const [input] = args as [{
+        enabled?: boolean;
+        dsn?: string;
+        environment?: string;
+        release?: string | null;
+        tracesSampleRate?: number;
+      }];
+      return {
+        enabled: input.enabled === true,
+        dsn: input.dsn ?? "",
+        environment: input.environment ?? "browser",
+        release: input.release ?? null,
+        tracesSampleRate: input.tracesSampleRate ?? 0,
+        envOverrides: {
+          enabled: false,
+          dsn: false,
+          environment: false,
+          release: false,
+          tracesSampleRate: false,
+        },
+      };
+    }
     case "settings:thread-notifications:get": {
       const res = await fetch(toApiUrl("/api/settings/thread-notifications"));
       return res.json();

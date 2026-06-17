@@ -205,6 +205,7 @@ Responsibilities:
 4. Materialize `APPLE_API_KEY_B64` into `${RUNNER_TEMP}/AuthKey_<id>.p8`.
 5. Export `APPLE_API_KEY=<temp-path>` into the job environment.
 6. Run `bun run package:mac:arm64` with a larger CI-only `NODE_OPTIONS=--max-old-space-size=6144` heap limit to avoid the default Node old-space cap during renderer bundling.
+   - When `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and `SENTRY_PROJECT` are configured, this build emits hidden source maps, uploads them to Sentry under `nodex@<version>`, and deletes the generated `.map` files before packaging artifacts are uploaded.
 7. Package on a macOS 26 runner so `electron-builder` can compile the checked-in `resources/icon.icon` asset with `actool >= 26`.
 8. Assert these files exist:
    - `dist/Nodex-<version>-arm64.dmg`
@@ -230,6 +231,9 @@ Secrets consumed:
 - `APPLE_API_KEY_ID`
 - `APPLE_API_ISSUER`
 - `APPLE_API_KEY_B64`
+- `SENTRY_AUTH_TOKEN` (optional, enables source-map upload)
+- `SENTRY_ORG` (optional, enables source-map upload)
+- `SENTRY_PROJECT` (optional, enables source-map upload)
 
 #### `build-macos-x64`
 

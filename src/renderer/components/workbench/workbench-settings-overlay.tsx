@@ -71,10 +71,12 @@ import { useCodexServiceTierSettings } from "../../lib/use-codex-service-tier-se
 import { useCodexThreadSettings } from "../../lib/use-codex-thread-settings";
 import { useThreadNotificationSettings } from "../../lib/use-thread-notification-settings";
 import { useWindowRestoreSettings } from "../../lib/use-window-restore-settings";
+import { isDiagnosticsSettings } from "../../../shared/diagnostics/diagnostics-settings";
 import { formatCodexThreadDetailLevelLabel } from "../../lib/codex-thread-settings";
 import type {
   BackupRecord,
   BackupSettings,
+  DiagnosticsSettings,
   HistorySettings,
   ManagedWorktreeRecord,
   Project,
@@ -123,6 +125,21 @@ const BACKUP_TRIGGER_LABELS: Record<BackupRecord["trigger"], string> = {
   manual: "Manual",
   auto: "Auto",
   "pre-restore": "Safety",
+};
+
+const DEFAULT_DIAGNOSTICS_SETTINGS: DiagnosticsSettings = {
+  enabled: false,
+  dsn: "",
+  environment: "production",
+  release: null,
+  tracesSampleRate: 0,
+  envOverrides: {
+    enabled: false,
+    dsn: false,
+    environment: false,
+    release: false,
+    tracesSampleRate: false,
+  },
 };
 
 interface SegmentedOption<T extends string> {
@@ -445,6 +462,100 @@ function WindowRestoreSettingControl() {
         { value: "none", label: "None" },
       ]}
     />
+  );
+}
+
+function hasDiagnosticsEnvOverride(settings: DiagnosticsSettings): boolean {
+  return settings.envOverrides.enabled
+    || settings.envOverrides.dsn
+    || settings.envOverrides.environment
+    || settings.envOverrides.release
+    || settings.envOverrides.tracesSampleRate;
+}
+
+function DiagnosticsSettingControl({ open }: { open: boolean }) {
+  const [settings, setSettings] = useState<DiagnosticsSettings>(DEFAULT_DIAGNOSTICS_SETTINGS);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await invoke("settings:diagnostics:get");
+      if (!isDiagnosticsSettings(result)) {
+        throw new Error("Could not load diagnostics settings.");
+      }
+      setSettings(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load diagnostics settings.");
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    void load();
+  }, [load, open]);
+
+  const handleEnabledChange = useCallback(async (enabled: boolean) => {
+    const previous = settings;
+    const nextSettings = { ...settings, enabled };
+    setSettings(nextSettings);
+    setBusy(true);
+    setError(null);
+
+    try {
+      const result = await invoke("settings:diagnostics:update", {
+        enabled,
+        dsn: settings.dsn,
+        environment: settings.environment,
+        release: settings.release,
+        tracesSampleRate: settings.tracesSampleRate,
+      });
+      if (!isDiagnosticsSettings(result)) {
+        throw new Error("Could not save diagnostics settings.");
+      }
+      setSettings(result);
+    } catch (err) {
+      setSettings(previous);
+      setError(err instanceof Error ? err.message : "Could not save diagnostics settings.");
+    } finally {
+      setBusy(false);
+    }
+  }, [settings]);
+
+  const hasEnvOverride = hasDiagnosticsEnvOverride(settings);
+  const summary = settings.envOverrides.enabled
+    ? "Managed by NODEX_SENTRY_ENABLED."
+    : settings.enabled
+      ? "Crash reports are enabled after restart."
+      : "Crash reports are off.";
+
+  return (
+    <div className="flex max-w-80 flex-col items-end gap-1 text-right">
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-(--foreground-secondary)">
+          Share crash reports
+        </span>
+        <TogglePill
+          value={settings.enabled}
+          disabled={busy || settings.envOverrides.enabled}
+          onChange={(enabled) => {
+            void handleEnabledChange(enabled);
+          }}
+        />
+      </div>
+      <div className="max-w-72 text-xs text-(--foreground-secondary)">
+        {hasEnvOverride ? `${summary} Environment overrides are active.` : summary}
+      </div>
+      {error ? (
+        <span className="max-w-72 text-xs text-(--red-text)">
+          {error}
+        </span>
+      ) : null}
+    </div>
   );
 }
 
@@ -1676,6 +1787,12 @@ function GeneralSettingsPage({
           description="Packaged macOS builds can check, download, and install stable updates in the background."
         >
           <AppUpdateSettingsControl open={open} />
+        </SettingRow>
+        <SettingRow
+          label="Diagnostics"
+          description="Optionally send crash diagnostics to Sentry. Prompts, transcripts, card text, and local payloads are scrubbed before upload."
+        >
+          <DiagnosticsSettingControl open={open} />
         </SettingRow>
         <SettingRow
           label="Sidebar sections"

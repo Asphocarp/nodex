@@ -38,6 +38,7 @@
 - Codex path: `codex-service` emits normalized `codex:event` IPC updates; renderer reduces events into thread/turn/item state.
 - Codex client startup is handshake-gated (`initialize` + `initialized`) and reconnects with backoff on unexpected child exit.
 - Backend observability includes structured JSON-line logs under `${KANBAN_DIR}/logs` for unpackaged/dev runs, covering HTTP requests, app lifecycle, PTY, backup/reminder jobs, and Codex client/service flows (thread start, turn start, approvals, user-input, reconnects, worktree setup). Packaged builds leave backend file and console logging off by default unless explicitly enabled through `NODEX_LOG_FILE` or `NODEX_LOG_CONSOLE`.
+- Remote crash diagnostics are optional and separate from local logs. Sentry initializes only when diagnostics are enabled through Settings, `[server].diagnostics_enabled`, or `NODEX_SENTRY_ENABLED`; warn/error backend log entries may become scrubbed breadcrumbs, but Nodex does not ship raw JSONL logs to Sentry in v1.
 - Detailed logging behavior, configuration, and extension guidelines live in `docs/product-specs/backend-logging-spec.md`.
 
 ## Failure Modes and Handling
@@ -67,6 +68,7 @@
 ## Operational Checks
 - Before release: run `bun run typecheck`, `bun run lint`, `bun test`.
 - Before release packaging on macOS: run `bun run codex:schemas:verify` so checked-in app-server schemas still match the pinned Codex version.
+- Release macOS packaging uploads hidden source maps to Sentry only when `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and `SENTRY_PROJECT` are present; `.map` files remain excluded from packaged artifacts.
 - Before enabling CI signing secrets: do one local notarization dry run and verify `codesign --verify --deep --strict`, `spctl --assess --type open`, and `xcrun stapler validate` against the generated macOS artifacts.
 - During macOS packaging validation, inspect `Contents/Resources/bin/codex` with `codesign -dvvv` and verify it still reports `TeamIdentifier=2DC432GLL2`.
 - Release CI publishes only after both `arm64` and `x64` notarized artifacts pass verification, and it synthesizes one canonical `latest-mac.yml` plus referenced blockmaps from the two per-arch updater outputs before the GitHub Release is published; tap sync runs after GitHub Release publication and should be retried independently if the external tap push fails.

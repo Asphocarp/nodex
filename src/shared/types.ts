@@ -730,6 +730,14 @@ export interface HistorySettingsEnvOverrides {
   retentionCount: boolean;
 }
 
+export interface DiagnosticsSettingsEnvOverrides {
+  enabled: boolean;
+  dsn: boolean;
+  environment: boolean;
+  release: boolean;
+  tracesSampleRate: boolean;
+}
+
 export interface ManagedWorktreeRecord {
   threadId: string;
   projectId: string;
@@ -830,6 +838,23 @@ export interface HistorySettings {
 
 export interface UpdateHistorySettingsInput {
   retentionCount: number;
+}
+
+export interface DiagnosticsSettings {
+  enabled: boolean;
+  dsn: string;
+  environment: string;
+  release: string | null;
+  tracesSampleRate: number;
+  envOverrides: DiagnosticsSettingsEnvOverrides;
+}
+
+export interface UpdateDiagnosticsSettingsInput {
+  enabled: boolean;
+  dsn: string;
+  environment: string;
+  release: string | null;
+  tracesSampleRate: number;
 }
 
 export type ThreadNotificationTurnMode = "off" | "unfocused" | "always";

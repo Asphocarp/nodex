@@ -1,6 +1,7 @@
 import type {
   BackupRecord,
   BackupSettings,
+  DiagnosticsSettings,
   HistorySettings,
   AppUpdateSettings,
   AppUpdateStatus,
@@ -105,6 +106,7 @@ import type {
   RestoreBackupResult,
   ThreadNotificationSettings,
   DesktopNotificationPayload,
+  UpdateDiagnosticsSettingsInput,
   UpdateBackupSettingsInput,
   UpdateAppUpdateSettingsInput,
   UpdateHistorySettingsInput,
@@ -507,6 +509,11 @@ export interface IpcApi {
   "settings:backup:update": { args: [input: UpdateBackupSettingsInput]; result: BackupSettings };
   "settings:history:get": { args: []; result: HistorySettings };
   "settings:history:update": { args: [input: UpdateHistorySettingsInput]; result: HistorySettings };
+  "settings:diagnostics:get": { args: []; result: DiagnosticsSettings };
+  "settings:diagnostics:update": {
+    args: [input: UpdateDiagnosticsSettingsInput];
+    result: DiagnosticsSettings;
+  };
   "settings:thread-notifications:get": { args: []; result: ThreadNotificationSettings };
   "settings:thread-notifications:update": {
     args: [input: UpdateThreadNotificationSettingsInput];

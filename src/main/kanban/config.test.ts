@@ -10,6 +10,11 @@ const ORIGINAL_BACKUP_ENV = {
   intervalHours: process.env.KANBAN_BACKUP_INTERVAL_HOURS,
   retention: process.env.KANBAN_BACKUP_RETENTION,
   historyRetention: process.env.KANBAN_HISTORY_RETENTION,
+  sentryEnabled: process.env.NODEX_SENTRY_ENABLED,
+  sentryDsn: process.env.SENTRY_DSN,
+  sentryEnvironment: process.env.SENTRY_ENVIRONMENT,
+  sentryRelease: process.env.SENTRY_RELEASE,
+  sentryTracesSampleRate: process.env.NODEX_SENTRY_TRACES_SAMPLE_RATE,
 };
 
 async function importConfigModule() {
@@ -22,6 +27,11 @@ function clearBackupEnv(): void {
   delete process.env.KANBAN_BACKUP_INTERVAL_HOURS;
   delete process.env.KANBAN_BACKUP_RETENTION;
   delete process.env.KANBAN_HISTORY_RETENTION;
+  delete process.env.NODEX_SENTRY_ENABLED;
+  delete process.env.SENTRY_DSN;
+  delete process.env.SENTRY_ENVIRONMENT;
+  delete process.env.SENTRY_RELEASE;
+  delete process.env.NODEX_SENTRY_TRACES_SAMPLE_RATE;
 }
 
 function restoreProcessState(): void {
@@ -52,6 +62,31 @@ function restoreProcessState(): void {
     delete process.env.KANBAN_HISTORY_RETENTION;
   } else {
     process.env.KANBAN_HISTORY_RETENTION = ORIGINAL_BACKUP_ENV.historyRetention;
+  }
+  if (ORIGINAL_BACKUP_ENV.sentryEnabled === undefined) {
+    delete process.env.NODEX_SENTRY_ENABLED;
+  } else {
+    process.env.NODEX_SENTRY_ENABLED = ORIGINAL_BACKUP_ENV.sentryEnabled;
+  }
+  if (ORIGINAL_BACKUP_ENV.sentryDsn === undefined) {
+    delete process.env.SENTRY_DSN;
+  } else {
+    process.env.SENTRY_DSN = ORIGINAL_BACKUP_ENV.sentryDsn;
+  }
+  if (ORIGINAL_BACKUP_ENV.sentryEnvironment === undefined) {
+    delete process.env.SENTRY_ENVIRONMENT;
+  } else {
+    process.env.SENTRY_ENVIRONMENT = ORIGINAL_BACKUP_ENV.sentryEnvironment;
+  }
+  if (ORIGINAL_BACKUP_ENV.sentryRelease === undefined) {
+    delete process.env.SENTRY_RELEASE;
+  } else {
+    process.env.SENTRY_RELEASE = ORIGINAL_BACKUP_ENV.sentryRelease;
+  }
+  if (ORIGINAL_BACKUP_ENV.sentryTracesSampleRate === undefined) {
+    delete process.env.NODEX_SENTRY_TRACES_SAMPLE_RATE;
+  } else {
+    process.env.NODEX_SENTRY_TRACES_SAMPLE_RATE = ORIGINAL_BACKUP_ENV.sentryTracesSampleRate;
   }
 }
 
@@ -278,6 +313,90 @@ describe("window restore settings config", () => {
         threw = true;
       }
       expect(threw).toBeTrue();
+    });
+  });
+});
+
+describe("diagnostics settings config", () => {
+  test("defaults to disabled diagnostics without using the bundled Sentry DSN", async () => {
+    await withTempConfigFixture(async () => {
+      const config = await importConfigModule();
+      const settings = config.getDiagnosticsSettings();
+
+      expect(settings.enabled).toBeFalse();
+      expect(settings.dsn).toBe("");
+      expect(settings.environment).toBe("production");
+      expect(settings.release).toBe(null);
+      expect(settings.tracesSampleRate).toBe(0);
+      expect(settings.envOverrides.enabled).toBeFalse();
+      expect(settings.envOverrides.dsn).toBeFalse();
+      expect(settings.envOverrides.environment).toBeFalse();
+      expect(settings.envOverrides.release).toBeFalse();
+      expect(settings.envOverrides.tracesSampleRate).toBeFalse();
+    });
+  });
+
+  test("persists diagnostics settings and uses the bundled Sentry DSN when enabled", async () => {
+    await withTempConfigFixture(async ({ tempHome }) => {
+      const config = await importConfigModule();
+      const updated = config.updateDiagnosticsSettings({
+        enabled: true,
+        dsn: "",
+        environment: "staging",
+        release: "nodex@test",
+        tracesSampleRate: 0.2,
+      });
+
+      expect(updated.enabled).toBeTrue();
+      expect(updated.dsn).toBe(config.DEFAULT_SENTRY_DSN);
+      expect(updated.environment).toBe("staging");
+      expect(updated.release).toBe("nodex@test");
+      expect(updated.tracesSampleRate).toBe(0.2);
+
+      const configPath = path.join(tempHome, ".nodex", "config.toml");
+      const written = fs.readFileSync(configPath, "utf8");
+      expect(written.includes("diagnostics_enabled = true")).toBeTrue();
+      expect(written.includes('diagnostics_environment = "staging"')).toBeTrue();
+      expect(written.includes('diagnostics_release = "nodex@test"')).toBeTrue();
+      expect(written.includes("diagnostics_traces_sample_rate = 0.2")).toBeTrue();
+    });
+  });
+
+  test("reports diagnostics env overrides while still persisting user values", async () => {
+    await withTempConfigFixture(async ({ tempHome }) => {
+      process.env.NODEX_SENTRY_ENABLED = "true";
+      process.env.SENTRY_DSN = "https://env.example/1";
+      process.env.SENTRY_ENVIRONMENT = "qa";
+      process.env.SENTRY_RELEASE = "nodex@env";
+      process.env.NODEX_SENTRY_TRACES_SAMPLE_RATE = "0.7";
+
+      const config = await importConfigModule();
+      const updated = config.updateDiagnosticsSettings({
+        enabled: false,
+        dsn: "https://config.example/1",
+        environment: "staging",
+        release: "nodex@config",
+        tracesSampleRate: 0.2,
+      });
+
+      expect(updated.enabled).toBeTrue();
+      expect(updated.dsn).toBe("https://env.example/1");
+      expect(updated.environment).toBe("qa");
+      expect(updated.release).toBe("nodex@env");
+      expect(updated.tracesSampleRate).toBe(0.7);
+      expect(updated.envOverrides.enabled).toBeTrue();
+      expect(updated.envOverrides.dsn).toBeTrue();
+      expect(updated.envOverrides.environment).toBeTrue();
+      expect(updated.envOverrides.release).toBeTrue();
+      expect(updated.envOverrides.tracesSampleRate).toBeTrue();
+
+      const configPath = path.join(tempHome, ".nodex", "config.toml");
+      const written = fs.readFileSync(configPath, "utf8");
+      expect(written.includes("diagnostics_enabled = false")).toBeTrue();
+      expect(written.includes('diagnostics_dsn = "https://config.example/1"')).toBeTrue();
+      expect(written.includes('diagnostics_environment = "staging"')).toBeTrue();
+      expect(written.includes('diagnostics_release = "nodex@config"')).toBeTrue();
+      expect(written.includes("diagnostics_traces_sample_rate = 0.2")).toBeTrue();
     });
   });
 });
