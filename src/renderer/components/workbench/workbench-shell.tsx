@@ -46,6 +46,7 @@ import {
   getWorkspaceFileName,
   type WorkspaceFilesTab,
 } from "@/features/workspace-files";
+import { CommandPalette } from "./workbench-shell-deps";
 import { SettingsRouteShell } from "./workbench-settings-overlay";
 import { buildSettingsPath } from "./workbench-settings-routes";
 import { LeftSidebarFooter } from "./left-sidebar-footer";
@@ -190,7 +191,7 @@ import {
   type DbViewPrefs,
   type SupportedDbView,
 } from "@/lib/db-view-prefs";
-import type { SpaceRef, WorkbenchView } from "@/lib/use-workbench-state";
+import type { RecentCardSession, SpaceRef, StageId, WorkbenchView } from "@/lib/use-workbench-state";
 import type { CardStageSessionSnapshot } from "@/components/kanban/card-stage/types";
 import { buildSessionDeepLink } from "@/lib/card-deeplink";
 import { writeTextToClipboard } from "@/lib/clipboard";
@@ -325,7 +326,7 @@ const DB_VIEW_TABS: Array<{ id: ProjectSessionDbView; label: string; icon: Compo
   { id: "calendar", label: "Calendar", icon: CalendarDays },
 ];
 
-type PanelActionShortcut = "mod+p" | "mod+t" | "ctrl+shift+g" | "ctrl+backquote" | "alt+mod+s";
+type PanelActionShortcut = "mod+shift+e" | "mod+t" | "ctrl+shift+g" | "ctrl+backquote" | "alt+mod+s";
 
 interface PanelNewTabAction {
   kind: PanelNewTabActionKind;
@@ -385,7 +386,7 @@ const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
     targetPanelIds: ["right", "bottom"],
     label: "Files",
     description: "Browse project files",
-    shortcut: "mod+p",
+    shortcut: "mod+shift+e",
     Icon: CodexSidePanelFilesIcon,
   },
   {
@@ -588,9 +589,9 @@ interface WorkbenchShellProps {
   setSidebarSectionShowAll?: unknown;
   isSidebarSectionShowAll?: unknown;
   threadsProjectId?: unknown;
-  recentCardSessions?: unknown;
+  recentCardSessions?: RecentCardSession[];
   activeRecentSessionId?: unknown;
-  focusedStage?: unknown;
+  focusedStage?: StageId;
   stageNavDirection?: unknown;
   cardsTabs?: unknown;
   activeCardsTabId?: unknown;
@@ -612,20 +613,20 @@ interface WorkbenchShellProps {
   projectPickerOpenTick?: number;
   taskSearchOpenTick?: unknown;
   diffSearchOpenTick?: unknown;
-  commandPaletteOpenTick?: unknown;
-  commandPaletteInitialQuery?: unknown;
+  commandPaletteOpenTick?: number;
+  commandPaletteInitialQuery?: string;
   settingsToggleTick?: unknown;
   sidebarToggleRequestTick?: number;
   sidebarToggleRequestSource?: WorkbenchSidebarToggleCommandSource;
   navigationCommandRequest?: WorkbenchNavigationCommandRequest | null;
   onNavigationStateChange?: (state: WorkbenchNavigationCommandState) => void;
-  navigateToStage?: unknown;
-  navigateToDbView?: unknown;
+  navigateToStage?: (projectId: string, stageId: StageId) => void;
+  navigateToDbView?: (projectId: string, view: WorkbenchView) => void;
   navigateToRecentSession?: unknown;
   navigateToCardsTab?: unknown;
   navigateToThreadTab?: unknown;
   navigateToFilesTab?: unknown;
-  onRequestNewWindow?: unknown;
+  onRequestNewWindow?: () => void;
 }
 
 interface OpenCardTabOptions {
@@ -806,7 +807,7 @@ function resolveSessionTerminalCwd(
 
 function resolvePanelShortcutLabel(shortcut: PanelActionShortcut | undefined, isMac: boolean): string | null {
   if (!shortcut) return null;
-  if (shortcut === "mod+p") return isMac ? "⌘P" : "Ctrl+P";
+  if (shortcut === "mod+shift+e") return isMac ? "⇧⌘E" : "Ctrl+Shift+E";
   if (shortcut === "mod+t") return isMac ? "⌘T" : "Ctrl+T";
   if (shortcut === "ctrl+shift+g") return "⌃⇧G";
   if (shortcut === "alt+mod+s") return isMac ? "⌥⌘S" : "Alt+Ctrl+S";
@@ -820,7 +821,7 @@ function matchesPanelShortcut(
 ): boolean {
   const key = event.key.toLowerCase();
   const modifier = isMac ? event.metaKey : event.ctrlKey;
-  if (shortcut === "mod+p") return modifier && !event.altKey && !event.shiftKey && key === "p";
+  if (shortcut === "mod+shift+e") return modifier && !event.altKey && event.shiftKey && key === "e";
   if (shortcut === "mod+t") return modifier && !event.altKey && !event.shiftKey && key === "t";
   if (shortcut === "ctrl+shift+g") {
     return event.ctrlKey && !event.metaKey && !event.altKey && event.shiftKey && key === "g";
@@ -1087,6 +1088,8 @@ export function WorkbenchShell({
   searchByProject,
   dbViewPrefsByProject,
   spaces = [],
+  recentCardSessions = [],
+  focusedStage = "db",
   sidebar,
   cardStageCloseRef,
   cardStagePersistRef,
@@ -1109,6 +1112,8 @@ export function WorkbenchShell({
   onRequestProjectPickerOpen,
   projectPickerOpenTick = 0,
   threadSearchOpenTick,
+  commandPaletteOpenTick = 0,
+  commandPaletteInitialQuery = "",
   setSidebarCollapsed,
   setSidebarWidth,
   setSidebarTopLevelSectionVisible,
@@ -1117,6 +1122,9 @@ export function WorkbenchShell({
   sidebarToggleRequestSource = "keyboard_shortcut",
   navigationCommandRequest = null,
   onNavigationStateChange,
+  onRequestNewWindow,
+  navigateToStage,
+  navigateToDbView,
 }: WorkbenchShellProps) {
   const fallbackProjectId = projects[0]?.id ?? "default";
   const [activeProjectId, setActiveProjectId] = useState(dbProjectId || fallbackProjectId);
@@ -1156,6 +1164,7 @@ export function WorkbenchShell({
   const [threadSummaryPanelPopoverOpen, setThreadSummaryPanelPopoverOpen] = useState(false);
   const [localSidebarCollapsed, setLocalSidebarCollapsed] = useState(false);
   const [localSidebarWidth, setLocalSidebarWidth] = useState(CODEX_SIDEBAR_WIDTH_DEFAULT_PX);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [floatingSidebarVisible, setFloatingSidebarVisible] = useState(false);
   const [sidebarHoverSuppressed, setSidebarHoverSuppressed] = useState(false);
   const [sidebarTriggerHovered, setSidebarTriggerHovered] = useState(false);
@@ -1186,6 +1195,7 @@ export function WorkbenchShell({
   });
   const lastHandledSidebarToggleRequestTickRef = useRef(sidebarToggleRequestTick);
   const lastHandledNavigationCommandTickRef = useRef(navigationCommandRequest?.tick ?? 0);
+  const lastHandledCommandPaletteOpenTickRef = useRef(commandPaletteOpenTick);
   const currentShellNavigationSnapshotRef = useRef<WorkbenchShellNavigationSnapshot | null>(null);
   const applyingShellNavigationRef = useRef(false);
   const shellAtMediumWidthRef = useRef(false);
@@ -1406,6 +1416,15 @@ export function WorkbenchShell({
   useEffect(() => {
     currentShellNavigationSnapshotRef.current = currentShellNavigationSnapshot;
   }, [currentShellNavigationSnapshot]);
+
+  useEffect(() => {
+    if (commandPaletteOpenTick <= 0 || commandPaletteOpenTick === lastHandledCommandPaletteOpenTickRef.current) {
+      return;
+    }
+
+    lastHandledCommandPaletteOpenTickRef.current = commandPaletteOpenTick;
+    setCommandPaletteOpen(true);
+  }, [commandPaletteOpenTick]);
 
   useEffect(() => {
     writeWorkbenchShellNavigationHistoryState(shellNavigationHistory);
@@ -4315,11 +4334,53 @@ export function WorkbenchShell({
       </NodexDialogContent>
     </NodexDialog>
   );
+  const commandPaletteProjectId = activeProject?.id ?? activeProjectId;
+  const commandPalette = (
+    <CommandPalette
+      open={commandPaletteOpen}
+      openTriggerTick={commandPaletteOpenTick}
+      initialQuery={commandPaletteInitialQuery}
+      projects={projects}
+      activeProjectId={commandPaletteProjectId}
+      activeView={activeView}
+      focusedStage={focusedStage}
+      recentCardSessions={recentCardSessions}
+      onOpenChange={setCommandPaletteOpen}
+      onOpenCard={(projectId, cardId, titleSnapshot) => {
+        void openCardTab(projectId, cardId, titleSnapshot);
+      }}
+      onFocusStage={(stageId) => {
+        navigateToStage?.(commandPaletteProjectId, stageId);
+      }}
+      onSetView={(view) => {
+        navigateToDbView?.(commandPaletteProjectId, view);
+      }}
+      onOpenProjectPicker={onRequestProjectPickerOpen}
+      onOpenTaskSearch={openSidebarTaskSearch}
+      onToggleTerminal={() => {
+        void focusOrCreateSessionTerminalTab();
+      }}
+      onToggleSidebar={() => {
+        toggleSidebarCollapsed();
+      }}
+      onOpenSettings={openSettings}
+      canGoBack={shellCanNavigateBack}
+      canGoForward={shellCanNavigateForward}
+      onGoBack={() => {
+        void executeShellNavigation("back");
+      }}
+      onGoForward={() => {
+        void executeShellNavigation("forward");
+      }}
+      onRequestNewWindow={onRequestNewWindow}
+    />
+  );
 
   return (
     <HeaderActionProvider actions={settingsPath ? null : headerActions}>
       <NodexTooltipProvider>
         {renameSessionDialog}
+        {commandPalette}
         <ThreadHeaderPortalProvider target={threadHeaderPortalElement}>
           <motion.div
             ref={workbenchRootRef}

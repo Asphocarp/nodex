@@ -1310,12 +1310,6 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
   }, [clearInlineSlashTrigger, closeSlashMenu, slashTrigger]);
 
   const handleKeyDown = useCallback((event: ComposerPromptEditorKeyboardEvent): boolean => {
-    if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "p") {
-      event.preventDefault();
-      setSlashDialogOpen(true);
-      return true;
-    }
-
     if (slashMenuOpen) {
       if (event.key === "Escape") {
         event.preventDefault();

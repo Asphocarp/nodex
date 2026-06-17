@@ -72,6 +72,11 @@ export function handleWorkbenchShortcut(
     return true;
   }
 
+  if (modifier && !e.altKey && e.shiftKey && (e.key === "P" || e.key === "p")) {
+    actions.onRequestCommandPalette?.(">");
+    return true;
+  }
+
   if (modifier && !e.altKey && !e.shiftKey && (e.key === "k" || e.key === "K" || e.key === "p" || e.key === "P")) {
     actions.onRequestCommandPalette?.();
     return true;
@@ -127,12 +132,6 @@ export function handleWorkbenchShortcut(
     if (targetIsEditable && !targetIsEditorSurface) return false;
     const index = Number.parseInt(e.key, 10) - 1;
     actions.switchToStageIndex(actions.dbProjectId, index);
-    return true;
-  }
-
-  if (!e.altKey && (e.key === "P" || e.key === "p") && e.shiftKey && actions.onRequestCommandPalette) {
-    if (targetIsEditable && !targetIsEditorSurface) return false;
-    actions.onRequestCommandPalette?.(">");
     return true;
   }
 
@@ -196,10 +195,10 @@ export function useWorkbenchShortcuts(actions: WorkbenchShortcutActions): void {
       e.preventDefault();
     };
 
-    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("keydown", onKeyDown, true);
     document.addEventListener("mouseup", onMouseUp);
     return () => {
-      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("keydown", onKeyDown, true);
       document.removeEventListener("mouseup", onMouseUp);
     };
   }, [actions]);

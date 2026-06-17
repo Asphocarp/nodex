@@ -456,6 +456,17 @@ mock.module("@/lib/use-kanban", () => ({
   }),
 }));
 
+mock.module("./workbench-shell-deps", () => ({
+  CommandPalette: (props: { open: boolean; initialQuery?: string }) => {
+    if (!props.open) return null;
+    return createElement("input", {
+      "aria-label": "Command palette search",
+      readOnly: true,
+      value: props.initialQuery ?? "",
+    });
+  },
+}));
+
 let WorkbenchShell: (typeof import("./workbench-shell"))["WorkbenchShell"];
 let resolveCardStageSessionTabOrder: (typeof import("./workbench-shell"))["resolveCardStageSessionTabOrder"];
 
@@ -993,17 +1004,28 @@ function renderWorkbench({
     direction: WorkbenchNavigationDirection,
     source?: WorkbenchNavigationCommandSource,
   ) => void = () => undefined;
+  let openCommandPalette: (initialQuery?: string) => void = () => undefined;
 
   function WorkbenchShellTestHarness() {
     const [dbProjectId, setDbProjectId] = useState(projects[0]?.id ?? "alpha");
     const [sidebarState, setSidebarState] = useState(sidebar ?? { collapsed: false, width: 300 });
     const [currentNavigationCommandRequest, setCurrentNavigationCommandRequest] =
       useState<WorkbenchNavigationCommandRequest | null>(navigationCommandRequest);
+    const [commandPaletteRequest, setCommandPaletteRequest] = useState({
+      tick: 0,
+      initialQuery: "",
+    });
     requestWorkbenchNavigation = (direction, source = direction === "back" ? "sidebar_back" : "sidebar_forward") => {
       setCurrentNavigationCommandRequest((current) => ({
         tick: (current?.tick ?? 0) + 1,
         direction,
         source,
+      }));
+    };
+    openCommandPalette = (initialQuery = "") => {
+      setCommandPaletteRequest((current) => ({
+        tick: current.tick + 1,
+        initialQuery,
       }));
     };
     return (
@@ -1038,6 +1060,8 @@ function renderWorkbench({
         onSetPinnedProjectOrder={async () => projects}
         onRequestProjectPickerOpen={() => undefined}
         threadSearchOpenTick={0}
+        commandPaletteOpenTick={commandPaletteRequest.tick}
+        commandPaletteInitialQuery={commandPaletteRequest.initialQuery}
         setSidebarCollapsed={(collapsed) => {
           setSidebarState((current) => ({ ...current, collapsed }));
         }}
@@ -1062,6 +1086,9 @@ function renderWorkbench({
     ...result,
     setDbProjectCalls,
     navigationStateChanges,
+    openCommandPalette: (initialQuery?: string) => {
+      openCommandPalette(initialQuery);
+    },
     requestWorkbenchNavigation: (
       direction: WorkbenchNavigationDirection,
       source?: WorkbenchNavigationCommandSource,
@@ -3292,7 +3319,7 @@ describe("workbench session shell", () => {
     expect(textContent(actionGrid).includes("⌃⇧G")).toBeTrue();
     expect(textContent(actionGrid).includes("⌃`")).toBeTrue();
     expect(textContent(actionGrid).includes("Ctrl+T")).toBeTrue();
-    expect(textContent(actionGrid).includes("Ctrl+P")).toBeTrue();
+    expect(textContent(actionGrid).includes("Ctrl+Shift+E")).toBeTrue();
     expect(textContent(actionGrid).includes("Alt+Ctrl+S")).toBeTrue();
   });
 
@@ -3532,6 +3559,71 @@ describe("workbench session shell", () => {
       && JSON.stringify(call[1]).includes('"kind":"review"')
     )).toBeTrue();
     expect(screen.container.querySelector("[data-review-diff-panel]") !== null).toBeTrue();
+  });
+
+  test("command palette open tick renders the command palette with the initial query", async () => {
+    const project = makeProject("palette-command", "Palette Command");
+    const screen = renderWorkbench({
+      projects: [project],
+      sessionsByProject: {
+        [project.id]: [
+          makeAttachedSession({
+            id: "overview:palette-command",
+            projectId: project.id,
+          }),
+        ],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      screen.openCommandPalette(">");
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const input = screen.getByLabelText("Command palette search") as HTMLInputElement;
+    expect(input.value).toBe(">");
+  });
+
+  test("Files shortcut uses Ctrl+Shift+E and leaves Ctrl+P for the command palette", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeAttachedSession()] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    invokeCalls = [];
+    await act(async () => {
+      fireEvent.keyDown(document, { key: "p", ctrlKey: true });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.queryByRole("tab", { name: "Files" })).toBe(null);
+    expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
+
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    await act(async () => {
+      fireEvent.keyDown(input, { key: "E", ctrlKey: true, shiftKey: true });
+      await Promise.resolve();
+    });
+    input.remove();
+    await settleAsyncRender();
+
+    expect(screen.queryByRole("tab", { name: "Files" })).toBe(null);
+
+    await act(async () => {
+      fireEvent.keyDown(document, { key: "E", ctrlKey: true, shiftKey: true });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.getByRole("tab", { name: "Files" }) !== null).toBeTrue();
+    expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null).toBeTrue();
+    expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
   });
 
   test("right-panel shortcuts create tabs and ignore editable targets", async () => {

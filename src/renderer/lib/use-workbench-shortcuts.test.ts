@@ -1,8 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import { act, fireEvent } from "@testing-library/react";
+import { createElement } from "react";
+import { render } from "../test/dom";
 import {
   handleWorkbenchMouseNavigationShortcut,
   handleWorkbenchShortcut,
   resolveWorkbenchMouseNavigationShortcut,
+  useWorkbenchShortcuts,
   type WorkbenchShortcutActions,
 } from "./use-workbench-shortcuts";
 
@@ -44,6 +48,11 @@ function makeActions(overrides: Partial<WorkbenchShortcutActions> = {}): Workben
     onRequestSettingsToggle: () => {},
     ...overrides,
   };
+}
+
+function ShortcutHarness({ actions }: { actions: WorkbenchShortcutActions }) {
+  useWorkbenchShortcuts(actions);
+  return createElement("div");
 }
 
 describe("handleWorkbenchShortcut", () => {
@@ -246,6 +255,34 @@ describe("handleWorkbenchShortcut", () => {
 
     expect(handled).toBeTrue();
     expect(called).toBeTrue();
+  });
+
+  test("Cmd+P opens the command palette inside editable targets", () => {
+    let calls = 0;
+    const actions = makeActions({
+      onRequestCommandPalette: () => {
+        calls += 1;
+      },
+    });
+
+    for (const target of [makeInputTarget(), makeComposerTarget(), makeNfmEditorTarget()]) {
+      const handled = handleWorkbenchShortcut(
+        {
+          key: "p",
+          ctrlKey: false,
+          metaKey: true,
+          shiftKey: false,
+          altKey: false,
+          target,
+        },
+        actions,
+        true,
+      );
+
+      expect(handled).toBeTrue();
+    }
+
+    expect(calls).toBe(3);
   });
 
   test("Cmd+B toggles the sidebar from non-editable shell focus", () => {
@@ -686,6 +723,37 @@ describe("handleWorkbenchShortcut", () => {
     expect(query).toBe(">");
   });
 
+  test("Cmd+Shift+P opens command search inside plain inputs and composer targets", () => {
+    let calls = 0;
+    let lastQuery: string | undefined;
+    const actions = makeActions({
+      onRequestCommandPalette: (initialQuery) => {
+        calls += 1;
+        lastQuery = initialQuery;
+      },
+    });
+
+    for (const target of [makeInputTarget(), makeComposerTarget()]) {
+      const handled = handleWorkbenchShortcut(
+        {
+          key: "p",
+          ctrlKey: false,
+          metaKey: true,
+          shiftKey: true,
+          altKey: false,
+          target,
+        },
+        actions,
+        true,
+      );
+
+      expect(handled).toBeTrue();
+      expect(lastQuery).toBe(">");
+    }
+
+    expect(calls).toBe(2);
+  });
+
   test("Cmd+F remains unhandled inside NFM editor target", () => {
     let called = false;
     const target = makeNfmEditorTarget();
@@ -839,5 +907,34 @@ describe("handleWorkbenchMouseNavigationShortcut", () => {
     );
 
     expect(handled).toBeFalse();
+  });
+});
+
+describe("useWorkbenchShortcuts", () => {
+  test("handles the command palette shortcut before a focused target stops propagation", () => {
+    let called = false;
+    let targetSawDefaultPrevented = false;
+    const actions = makeActions({
+      onRequestCommandPalette: () => {
+        called = true;
+      },
+    });
+    const view = render(createElement(ShortcutHarness, { actions }));
+    const input = document.createElement("input");
+    input.addEventListener("keydown", (event) => {
+      targetSawDefaultPrevented = event.defaultPrevented;
+      event.stopPropagation();
+    });
+    document.body.appendChild(input);
+    const isMac = navigator.platform.toUpperCase().includes("MAC");
+
+    act(() => {
+      fireEvent.keyDown(input, { key: "p", ctrlKey: !isMac, metaKey: isMac });
+    });
+
+    input.remove();
+    view.unmount();
+    expect(called).toBeTrue();
+    expect(targetSawDefaultPrevented).toBeTrue();
   });
 });

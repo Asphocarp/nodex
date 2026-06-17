@@ -15,7 +15,7 @@ All keyboard shortcuts in Nodex. Platform modifier: **⌘ (Cmd)** on Mac, **Ctrl
 | `⌘/Ctrl+Alt+1`–`9` | Jump to project by index | First 9 projects in shell/sidebar order (disabled while focus is in NFM editor because `⌘/Ctrl+Alt+1`–`4` are editor heading shortcuts) |
 | `⌘/Ctrl+Shift+P` | Search commands | Opens the global palette with `>` already seeded, so it starts in command mode; works from editable surfaces too |
 | `⌘/Ctrl+K` | Open command palette | Global launcher for cards; type `>` to switch into command search; works from editable surfaces too |
-| `⌘/Ctrl+P` | Open Files side-panel tab | In project-session context, opens/focuses the Files placeholder tab. `⌘/Ctrl+K` remains the global card launcher. |
+| `⌘/Ctrl+P` | Open command palette | VS Code-style quick-open alias for the global launcher; works from editable surfaces too |
 | `⌘/Ctrl+[` | Back | Restores the previous shell-owned project/session/panel context; works from editable surfaces too |
 | `⌘/Ctrl+]` | Forward | Restores the next shell-owned project/session/panel context; works from editable surfaces too |
 | `MouseBack` | Back | Desktop mouse back button; routes to the same app-window workbench history command |
@@ -28,7 +28,7 @@ All keyboard shortcuts in Nodex. Platform modifier: **⌘ (Cmd)** on Mac, **Ctrl
 
 | Shortcut | Action | Notes |
 |----------|--------|-------|
-| `⌘/Ctrl+P` | Files | Opens a mock Files tab |
+| `⌘/Ctrl+Shift+E` | Files | Opens a Files preview in the side panel; interacting with it pins a durable Files tab |
 | `⌘/Ctrl+T` | Browser | Opens a Browser preview in the side panel; interacting with it pins a durable Browser tab |
 | `Ctrl+Shift+G` | Review | Opens or focuses the singleton Review tab |
 | `Ctrl+\`` | Terminal | Focuses an existing session terminal tab, or creates one in the bottom panel |
