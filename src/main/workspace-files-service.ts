@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, type Stats } from "node:fs";
 import { mkdir, open, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, resolve, sep } from "node:path";
 import type {
@@ -98,7 +98,7 @@ function resolveRequestPath(input: WorkspaceFileRequest): { hostId: "local"; pat
   return { hostId, path };
 }
 
-function inferKind(stats: Awaited<ReturnType<typeof stat>>): WorkspaceFileEntryKind {
+function inferKind(stats: Stats): WorkspaceFileEntryKind {
   if (stats.isDirectory()) return "directory";
   if (stats.isFile()) return "file";
   if (stats.isSymbolicLink()) return "symlink";

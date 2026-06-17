@@ -13,6 +13,8 @@ import type {
   NativeContextMenuOptions,
 } from "../shared/native-context-menu";
 
+declare module "*.css";
+
 declare global {
   interface Window {
     api?: {
