@@ -30,7 +30,7 @@ export function CardStage(props: CardStageProps) {
         }}
         onToggleContentWidth={controller.handleToggleContentWidth}
         onToggleShowRawContent={controller.handleToggleShowRawContent}
-        onOpenHistoryPanel={controller.onOpenHistoryPanel}
+        onToggleHistoryPanel={controller.onToggleHistoryPanel}
       />
 
       {controller.updateConflict ? (

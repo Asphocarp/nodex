@@ -272,6 +272,13 @@ export interface HistoryPanelEntry {
   snapshot: HistoryPanelSnapshot | null;
 }
 
+export interface HistoryCardVersionPreview {
+  historyId: number;
+  projectId: string;
+  cardId: string;
+  card: Card;
+}
+
 export interface UndoRedoState {
   canUndo: boolean;
   canRedo: boolean;
@@ -482,6 +489,10 @@ export interface IpcApi {
   "history:card": {
     args: [projectId: string, cardId: string];
     result: { entries: HistoryPanelEntry[] };
+  };
+  "history:card-version-preview": {
+    args: [projectId: string, cardId: string, historyId: number];
+    result: { preview: HistoryCardVersionPreview | null; error?: string };
   };
   "history:undo": {
     args: [projectId: string, sessionId?: string];

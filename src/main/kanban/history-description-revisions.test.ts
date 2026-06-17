@@ -3,21 +3,29 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { Card } from "../../shared/types";
 import {
   closeDatabase,
   createCard,
   createProject,
+  deleteCard,
   getBoard,
   getCardHistory,
   getCardHistoryPanelEntries,
+  getCardHistoryVersionPreview,
   getRecentHistory,
   initializeDatabase,
+  moveCard,
   redoLatest,
   restoreToEntry,
   undoLatest,
   updateCard,
 } from "./db-service";
 import { getDatabasePath } from "./config";
+import {
+  reconstructCardStateFromEntries,
+  type HistoryReconstructionEntry,
+} from "./history-service";
 
 function isUnsupportedSqliteError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
@@ -57,6 +65,81 @@ async function findCardDescription(projectId: string, cardId: string): Promise<s
 }
 
 describe("history description revisions", () => {
+  test("replays selected history entries as post-change versions", () => {
+    const createdAt = new Date("2026-01-01T00:00:00Z");
+    const cardSnapshot: Card = {
+      id: "card-1",
+      status: "draft",
+      archived: false,
+      title: "Initial title",
+      description: "Initial description",
+      tags: ["alpha"],
+      agentBlocked: false,
+      created: createdAt,
+      order: 0,
+    };
+    const entries: HistoryReconstructionEntry[] = [
+      {
+        id: 1,
+        operation: "create",
+        columnId: "draft",
+        archived: false,
+        newValues: null,
+        toStatus: null,
+        toArchived: null,
+        cardSnapshot,
+      },
+      {
+        id: 2,
+        operation: "update",
+        columnId: "draft",
+        archived: false,
+        newValues: {
+          title: "Updated title",
+          description: "Updated description",
+          tags: ["beta"],
+        },
+        toStatus: null,
+        toArchived: null,
+        cardSnapshot: null,
+      },
+      {
+        id: 3,
+        operation: "move",
+        columnId: "draft",
+        archived: false,
+        newValues: null,
+        toStatus: "in_progress",
+        toArchived: false,
+        cardSnapshot: null,
+      },
+      {
+        id: 4,
+        operation: "delete",
+        columnId: "in_progress",
+        archived: false,
+        newValues: null,
+        toStatus: null,
+        toArchived: null,
+        cardSnapshot: null,
+      },
+    ];
+
+    const updatePreview = reconstructCardStateFromEntries(entries, 2);
+    expect(updatePreview?.state.title).toBe("Updated title");
+    expect(updatePreview?.state.description).toBe("Updated description");
+    expect(updatePreview?.state.title === "Initial title").toBeFalse();
+    expect(updatePreview?.columnId).toBe("draft");
+
+    const movePreview = reconstructCardStateFromEntries(entries, 3);
+    expect(movePreview?.state.title).toBe("Updated title");
+    expect(movePreview?.columnId).toBe("in_progress");
+
+    const deletePreview = reconstructCardStateFromEntries(entries, 4);
+    expect(deletePreview?.state.title).toBe("Updated title");
+    expect(deletePreview?.columnId).toBe("in_progress");
+  });
+
   test("hydrates descriptions back into history while keeping raw payloads compact", async () => {
     const ran = await withTempDatabase(async () => {
       const projectId = createProject({ name: "History descriptions" }).id;
@@ -199,6 +282,98 @@ describe("history description revisions", () => {
       `).get(created.id) as { description_revision_id: number | null } | undefined;
       expect(cardRow?.description_revision_id).not.toBeNull();
       database.close();
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("reconstructs full card previews for selected history versions", async () => {
+    const ran = await withTempDatabase(async () => {
+      const projectId = createProject({ name: "History previews" }).id;
+
+      const created = await createCard(projectId, "draft", {
+        title: "Initial title",
+        description: "Initial description",
+        tags: ["alpha"],
+      });
+      const updated = await updateCard(projectId, "draft", created.id, {
+        title: "Updated title",
+        description: "Updated description",
+        tags: ["beta"],
+      });
+      expect(updated.status).toBe("updated");
+      const moved = await moveCard({
+        projectId,
+        fromStatus: "draft",
+        cardId: created.id,
+        toStatus: "in_progress",
+        newOrder: 0,
+      });
+      expect(moved).toBe("moved");
+      const deleted = await deleteCard(projectId, "in_progress", created.id);
+      expect(deleted).toBeTrue();
+
+      const history = getRecentHistory(projectId, 10, 0);
+      const createEntry = history.find((entry) => entry.operation === "create");
+      const updateEntry = history.find((entry) => entry.operation === "update");
+      const moveEntry = history.find((entry) => entry.operation === "move");
+      const deleteEntry = history.find((entry) => entry.operation === "delete");
+      expect(createEntry?.id !== undefined).toBeTrue();
+      expect(updateEntry?.id !== undefined).toBeTrue();
+      expect(moveEntry?.id !== undefined).toBeTrue();
+      expect(deleteEntry?.id !== undefined).toBeTrue();
+
+      const createPreview = getCardHistoryVersionPreview(projectId, created.id, createEntry?.id ?? -1);
+      expect(createPreview.preview?.card.title).toBe("Initial title");
+      expect(createPreview.preview?.card.description).toBe("Initial description");
+      expect(createPreview.preview?.card.status).toBe("draft");
+      expect(createPreview.preview?.card.tags.join(",")).toBe("alpha");
+
+      const updatePreview = getCardHistoryVersionPreview(projectId, created.id, updateEntry?.id ?? -1);
+      expect(updatePreview.preview?.card.title).toBe("Updated title");
+      expect(updatePreview.preview?.card.description).toBe("Updated description");
+      expect(updatePreview.preview?.card.status).toBe("draft");
+      expect(updatePreview.preview?.card.tags.join(",")).toBe("beta");
+      expect(updatePreview.preview?.card.title === "Initial title").toBeFalse();
+      expect(updatePreview.preview?.card.description === "Initial description").toBeFalse();
+
+      const movePreview = getCardHistoryVersionPreview(projectId, created.id, moveEntry?.id ?? -1);
+      expect(movePreview.preview?.card.status).toBe("in_progress");
+      expect(movePreview.preview?.card.title).toBe("Updated title");
+
+      const deletePreview = getCardHistoryVersionPreview(projectId, created.id, deleteEntry?.id ?? -1);
+      expect(deletePreview.preview?.card.title).toBe("Updated title");
+      expect(deletePreview.preview?.card.description).toBe("Updated description");
+      expect(deletePreview.preview?.card.status).toBe("in_progress");
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("returns a null preview when creation history is unavailable", async () => {
+    const ran = await withTempDatabase(async () => {
+      const projectId = createProject({ name: "History preview pruning" }).id;
+      const created = await createCard(projectId, "draft", {
+        title: "Preview card",
+        description: "Preview description",
+      });
+      const updated = await updateCard(projectId, "draft", created.id, {
+        title: "Preview card updated",
+      });
+      expect(updated.status).toBe("updated");
+
+      const history = getRecentHistory(projectId, 10, 0);
+      const updateEntry = history.find((entry) => entry.operation === "update");
+      expect(updateEntry?.id !== undefined).toBeTrue();
+
+      const database = new Database(getDatabasePath());
+      database.prepare("DELETE FROM history WHERE project_id = ? AND card_id = ? AND operation = 'create'")
+        .run(projectId, created.id);
+      database.close();
+
+      const preview = getCardHistoryVersionPreview(projectId, created.id, updateEntry?.id ?? -1);
+      expect(preview.preview).toBe(null);
+      expect(Boolean(preview.error)).toBeTrue();
     });
 
     if (!ran) expect(true).toBeTrue();

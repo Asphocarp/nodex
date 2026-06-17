@@ -1470,6 +1470,17 @@ app.get("/api/projects/:projectId/history/card", (c) => {
   return c.json({ entries });
 });
 
+app.get("/api/projects/:projectId/history/card-version-preview", (c) => {
+  const projectId = c.req.param("projectId");
+  const cardId = c.req.query("cardId");
+  const historyIdRaw = c.req.query("historyId");
+  const historyId = Number.parseInt(historyIdRaw ?? "", 10);
+  if (!cardId || !Number.isInteger(historyId)) {
+    return c.json({ error: "Missing cardId or invalid historyId" }, 400);
+  }
+  return c.json(dbService.getCardHistoryVersionPreview(projectId, cardId, historyId));
+});
+
 // === Revert/Restore routes ===
 
 app.post("/api/projects/:projectId/history/revert", async (c) => {

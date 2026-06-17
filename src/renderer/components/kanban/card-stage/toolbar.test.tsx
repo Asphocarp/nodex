@@ -38,7 +38,7 @@ describe("card stage toolbar", () => {
             }}
             onToggleContentWidth={() => undefined}
             onToggleShowRawContent={() => undefined}
-            onOpenHistoryPanel={() => {
+            onToggleHistoryPanel={() => {
               historyCalls += 1;
             }}
           />

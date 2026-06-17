@@ -229,9 +229,11 @@ mock.module("./workbench-card-stage", () => ({
         {
           type: "button",
           "aria-label": "History",
+          "aria-pressed": Boolean(props.historyPanelActive),
           onClick: () => {
             const current = (globalThis as { __mockCardStageHistoryClicks?: number }).__mockCardStageHistoryClicks ?? 0;
             (globalThis as { __mockCardStageHistoryClicks?: number }).__mockCardStageHistoryClicks = current + 1;
+            (props.onToggleHistoryPanel as (() => void) | undefined)?.();
           },
         },
         "History",
@@ -251,6 +253,40 @@ mock.module("./workbench-card-stage", () => ({
           },
         },
         "Delete",
+      ),
+    );
+  },
+}));
+
+mock.module("./workbench-history-panel", () => ({
+  HistoryPanel: (props: Record<string, unknown>) => {
+    (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> }).__lastHistoryPanelProps = props;
+    if (!props.open) return null;
+    return createElement(
+      "div",
+      {
+        "data-testid": "card-history-panel",
+        "data-project-id": String(props.projectId),
+        "data-card-id": String(props.cardId),
+      },
+      "History panel",
+      createElement(
+        "button",
+        {
+          type: "button",
+          "aria-label": "Close history panel",
+          onClick: () => (props.onClose as (() => void) | undefined)?.(),
+        },
+        "Close",
+      ),
+      createElement(
+        "button",
+        {
+          type: "button",
+          "aria-label": "Mutate card from history",
+          onClick: () => (props.onCardMutated as (() => void) | undefined)?.(),
+        },
+        "Mutate",
       ),
     );
   },
@@ -939,6 +975,27 @@ function renderWorkbench({
       sessionState = replaceSession(sessionState, updatedSession);
       return updatedTabs.find((tab) => tab.id === tabId) ?? null;
     }
+    if (channel === "project-session-tabs:delete") {
+      const rawInput = args[0] as string | { tabId?: string };
+      const tabId = typeof rawInput === "string" ? rawInput : rawInput.tabId ?? "";
+      const session = Object.values(sessionState)
+        .flat()
+        .find((item) => item.tabs.some((tab) => tab.id === tabId));
+      if (!session) return null;
+
+      const updatedTabs = session.tabs.filter((tab) => tab.id !== tabId);
+      const rightIds = updatedTabs.filter((tab) => tab.panelId === "right").map((tab) => tab.id);
+      const bottomIds = updatedTabs.filter((tab) => tab.panelId === "bottom").map((tab) => tab.id);
+      sessionState = replaceSession(sessionState, {
+        ...session,
+        tabs: updatedTabs,
+        panels: {
+          right: { ...session.panels.right, layout: makePanelLayout(rightIds, rightIds[0] ?? null) },
+          bottom: { ...session.panels.bottom, layout: makePanelLayout(bottomIds, bottomIds[0] ?? null) },
+        },
+      });
+      return true;
+    }
     if (channel === "project-session-tabs:reorder") {
       const input = (args[0] ?? {}) as { sessionId: string; panelId: ProjectSessionTab["panelId"]; orderedTabIds: string[] };
       const session = Object.values(sessionState).flat().find((item) => item.id === input.sessionId);
@@ -1120,6 +1177,7 @@ beforeEach(() => {
   delete (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
   delete (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
   delete (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> }).__lastTerminalPanelProps;
+  delete (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> }).__lastHistoryPanelProps;
   delete (globalThis as { __mockCardStageHistoryClicks?: number }).__mockCardStageHistoryClicks;
   delete (globalThis as { __mockCardStageDeleteClicks?: number }).__mockCardStageDeleteClicks;
 });
@@ -2811,6 +2869,98 @@ describe("workbench session shell", () => {
 
     expect((globalThis as { __mockCardStageHistoryClicks?: number }).__mockCardStageHistoryClicks).toBe(1);
     expect((globalThis as { __mockCardStageDeleteClicks?: number }).__mockCardStageDeleteClicks).toBe(1);
+  });
+
+  test("toggles the active card-stage history overlay from the toolbar", async () => {
+    const session = makeAttachedSession({
+      id: "session:alpha:history-toggle",
+      tabs: [
+        {
+          id: "card-stage-tab",
+          kind: "card_stage",
+          title: "Card One",
+          config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
+        },
+      ],
+      panels: makePanels({
+        rightTabIds: ["card-stage-tab"],
+        rightActiveTabId: "card-stage-tab",
+      }),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(screen.queryByTestId("card-history-panel")).toBe(null);
+    let cardStageProps = (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps;
+    expect(cardStageProps?.historyPanelActive).toBe(false);
+
+    await pointerActivate(screen.getByRole("button", { name: "History" }));
+    await settleAsyncRender();
+
+    const openedPanel = screen.getByTestId("card-history-panel");
+    expect(openedPanel.getAttribute("data-project-id")).toBe("alpha");
+    expect(openedPanel.getAttribute("data-card-id")).toBe("card-1");
+    cardStageProps = (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps;
+    expect(cardStageProps?.historyPanelActive).toBe(true);
+    const historyPanelProps = (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> }).__lastHistoryPanelProps;
+    expect(typeof historyPanelProps?.onCardMutated).toBe("function");
+
+    await pointerActivate(screen.getByRole("button", { name: "History" }));
+    await settleAsyncRender();
+
+    expect(screen.queryByTestId("card-history-panel")).toBe(null);
+    cardStageProps = (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps;
+    expect(cardStageProps?.historyPanelActive).toBe(false);
+
+    await pointerActivate(screen.getByRole("button", { name: "History" }));
+    await settleAsyncRender();
+    await pointerActivate(screen.getByRole("button", { name: "Close history panel" }));
+    await settleAsyncRender();
+
+    expect(screen.queryByTestId("card-history-panel")).toBe(null);
+    cardStageProps = (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps;
+    expect(cardStageProps?.historyPanelActive).toBe(false);
+  });
+
+  test("closes the card-stage history modal when the owning tab closes", async () => {
+    const session = makeAttachedSession({
+      id: "session:alpha:history-close-owner",
+      isOverview: false,
+      tabs: [
+        {
+          id: "card-stage-tab",
+          kind: "card_stage",
+          title: "Card One",
+          config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
+        },
+      ],
+      panels: makePanels({
+        rightTabIds: ["card-stage-tab"],
+        rightActiveTabId: "card-stage-tab",
+      }),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await pointerActivate(screen.getByRole("button", { name: "History" }));
+    await settleAsyncRender();
+    expect(screen.queryByTestId("card-history-panel") !== null).toBeTrue();
+
+    await pointerActivate(screen.getByRole("button", { name: "Close Card One tab" }));
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(screen.queryByTestId("card-history-panel")).toBe(null);
+    const historyPanelProps = (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> }).__lastHistoryPanelProps;
+    expect(historyPanelProps?.open).toBe(false);
   });
 
   test("regular width and terminal right-panel tabs do not enable the root composer overlay", async () => {

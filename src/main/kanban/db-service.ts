@@ -2612,6 +2612,7 @@ export {
   executeRedo,
   getCardHistory,
   getCardHistoryPanelEntries,
+  getCardHistoryVersionPreview,
   getRecentHistory,
   getUndoRedoState,
   canUndo,

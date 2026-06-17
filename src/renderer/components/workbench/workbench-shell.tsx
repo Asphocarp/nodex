@@ -37,6 +37,7 @@ import {
 import { DbViewToolbar } from "./db-view-toolbar";
 import { MainViewHost } from "./main-view-host";
 import { CardStage } from "./workbench-card-stage";
+import { HistoryPanel } from "./workbench-history-panel";
 import { TerminalPanel } from "./workbench-terminal-panel";
 import { BrowserSidebarHiddenWebviewHosts } from "@/features/browser-sidebar/browser-sidebar-hidden-webview-hosts";
 import { BrowserSidebarPanel } from "@/features/browser-sidebar/browser-sidebar-panel";
@@ -376,6 +377,14 @@ interface McpAppPanelTab {
 }
 
 type ProjectSessionRenderableTab = DurableProjectSessionRenderableTab | SideChatPanelTab | McpAppPanelTab;
+
+interface CardStageHistoryModalContext {
+  sessionId: string;
+  tabId: string;
+  projectId: string;
+  cardId: string;
+  cardTitle?: string;
+}
 
 type ProjectSessionTabDraft = Pick<ProjectSessionTabCreateInput, "kind" | "title" | "config">;
 
@@ -1236,6 +1245,7 @@ export function WorkbenchShell({
     projectId: activeProject?.id ?? activeProjectId,
     sessionId: activeSession ? `${activeSession.id}:right-panel-actions` : "right-panel-actions",
   });
+  const [cardStageHistoryModal, setCardStageHistoryModal] = useState<CardStageHistoryModalContext | null>(null);
   const rightPanel = activeSession?.panels.right ?? null;
   const bottomPanel = activeSession?.panels.bottom ?? null;
   const rightPanelTabs = activeSession?.tabs.filter((tab) => tab.panelId === "right") ?? [];
@@ -1310,6 +1320,42 @@ export function WorkbenchShell({
     : true;
   const sidePanelOpen = activeSession ? !rightPanelCollapsed : false;
   const bottomPanelOpen = activeSession ? !bottomPanelCollapsed : false;
+  useEffect(() => {
+    setCardStageHistoryModal((current) => {
+      if (!current) return current;
+      if (!activeSession || activeSession.id !== current.sessionId) return null;
+
+      const ownerTab = activeSession.tabs.find((tab) => tab.id === current.tabId);
+      const cardRef = readCardStagePanelTabCardRef(ownerTab);
+      if (!cardRef) return null;
+      if (cardRef.projectId !== current.projectId || cardRef.cardId !== current.cardId) return null;
+
+      return current;
+    });
+  }, [activeSession]);
+  const closeCardStageHistoryModal = useCallback(() => {
+    setCardStageHistoryModal(null);
+  }, []);
+  const toggleCardStageHistoryModal = useCallback((context: CardStageHistoryModalContext) => {
+    setCardStageHistoryModal((current) => {
+      if (
+        current
+        && current.sessionId === context.sessionId
+        && current.tabId === context.tabId
+        && current.projectId === context.projectId
+        && current.cardId === context.cardId
+      ) {
+        return null;
+      }
+      return context;
+    });
+  }, []);
+  const cardStageHistoryModalProject = useMemo(
+    () => cardStageHistoryModal
+      ? projects.find((project) => project.id === cardStageHistoryModal.projectId) ?? null
+      : null,
+    [cardStageHistoryModal, projects],
+  );
   const rightPanelFullWidth = Boolean(
     activeSession && sidePanelOpen && (rightPanel?.size.fullWidth ?? activeSession.isOverview),
   );
@@ -3537,6 +3583,8 @@ export function WorkbenchShell({
             onOpenFileTab={openWorkspaceFileTab}
             onRefreshSessions={refreshProjectSessions}
             onCloseTab={closeTab}
+            cardStageHistoryModal={cardStageHistoryModal}
+            onToggleCardStageHistoryModal={toggleCardStageHistoryModal}
             selectedTurnDiffReviewTarget={selectedTurnDiffReviewTarget}
           />
         );
@@ -3601,6 +3649,7 @@ export function WorkbenchShell({
     activeSession,
     activeView,
     cardStageCloseRef,
+    cardStageHistoryModal,
     cardStagePersistRef,
     cardStageSessionSnapshotRef,
     closeTab,
@@ -3629,6 +3678,7 @@ export function WorkbenchShell({
     sideChatActiveTabByPanel,
     sideChatTabsBySession,
     selectedTurnDiffReviewTarget,
+    toggleCardStageHistoryModal,
     previewTabsByPanel,
   ]);
 
@@ -4829,6 +4879,17 @@ export function WorkbenchShell({
               </div>
             )}
           </main>
+          <HistoryPanel
+            projectId={cardStageHistoryModal?.projectId ?? activeProjectId}
+            cardId={cardStageHistoryModal?.cardId ?? null}
+            cardTitle={cardStageHistoryModal?.cardTitle}
+            projectWorkspacePath={projectWorkspaceRootOrNull(cardStageHistoryModalProject)}
+            open={cardStageHistoryModal !== null}
+            onClose={closeCardStageHistoryModal}
+            onCardMutated={() => {
+              void activeProjectKanban.refresh();
+            }}
+          />
             </>
           )}
         </div>
@@ -5949,6 +6010,8 @@ function ProjectSessionTabPanel({
   onOpenFileTab,
   onRefreshSessions,
   onCloseTab,
+  cardStageHistoryModal,
+  onToggleCardStageHistoryModal,
   selectedTurnDiffReviewTarget,
 }: {
   tab: ProjectSessionTab & { preview?: true };
@@ -5985,6 +6048,8 @@ function ProjectSessionTabPanel({
   onOpenFileTab: (input: { path: string; title: string; panelId: PanelId }) => Promise<void>;
   onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
   onCloseTab: (tabId: string) => Promise<void>;
+  cardStageHistoryModal: CardStageHistoryModalContext | null;
+  onToggleCardStageHistoryModal: (context: CardStageHistoryModalContext) => void;
   selectedTurnDiffReviewTarget: CodexTurnDiffReviewTarget | null;
 }) {
   if (tab.kind === "db_view" && "view" in tab.config) {
@@ -6021,6 +6086,7 @@ function ProjectSessionTabPanel({
         closeRef={cardStageCloseRef}
         persistRef={cardStagePersistRef}
         sessionSnapshotRef={cardStageSessionSnapshotRef}
+        sessionId={activeSession.id}
         onLeaveCard={onLeaveCardStageCard}
         onClose={() => void onCloseTab(tab.id)}
         onOpenTerminal={async () => {
@@ -6038,6 +6104,14 @@ function ProjectSessionTabPanel({
           await invoke("project-session-panels:update", activeSession.id, "bottom", { collapsed: false });
           await onRefreshSessions(activeSession.projectId);
         }}
+        historyPanelActive={Boolean(
+          cardStageHistoryModal
+          && cardStageHistoryModal.sessionId === activeSession.id
+          && cardStageHistoryModal.tabId === cardTab.id
+          && cardStageHistoryModal.projectId === cardTab.config.projectId
+          && cardStageHistoryModal.cardId === cardTab.config.cardId,
+        )}
+        onToggleHistoryPanel={onToggleCardStageHistoryModal}
       />
     );
   }
@@ -6319,18 +6393,24 @@ function CardStageSessionTab({
   closeRef,
   persistRef,
   sessionSnapshotRef,
+  sessionId,
   onLeaveCard,
   onClose,
   onOpenTerminal,
+  historyPanelActive,
+  onToggleHistoryPanel,
 }: {
   tab: ProjectSessionTab & { config: { projectId: string; cardId: string; titleSnapshot?: string } };
   project: Project | null;
   closeRef: React.RefObject<(() => Promise<void>) | null>;
   persistRef?: React.MutableRefObject<(() => Promise<void>) | null>;
   sessionSnapshotRef?: React.MutableRefObject<CardStageSessionSnapshot | null>;
+  sessionId: string;
   onLeaveCard: (snapshot: CardStageSessionSnapshot) => void;
   onClose: () => void;
   onOpenTerminal: (card: Card) => Promise<void>;
+  historyPanelActive: boolean;
+  onToggleHistoryPanel: (context: CardStageHistoryModalContext) => void;
 }) {
   const kanban = useKanban({ projectId: tab.config.projectId, sessionId: tab.id });
   const refreshBoard = kanban.refresh;
@@ -6362,42 +6442,52 @@ function CardStageSessionTab({
   const columnName = KANBAN_STATUS_LABELS[columnId] ?? columnId;
 
   return (
-    <CardStage
-      card={card}
-      columnId={columnId}
-      columnName={columnName}
-      projectId={tab.config.projectId}
-      projectWorkspacePath={projectWorkspaceRootOrNull(project)}
-      availableTags={availableTags}
-      closeRef={closeRef as React.MutableRefObject<(() => Promise<void>) | null>}
-      persistRef={persistRef}
-      sessionSnapshotRef={sessionSnapshotRef}
-      onClose={onClose}
-      onLeaveCard={onLeaveCard}
-      onPatch={(nextColumnId: string, cardId: string, updates: Partial<CardInput>) => {
-        kanban.patchCard(nextColumnId, cardId, updates);
-      }}
-      onUpdate={async (nextColumnId: string, cardId: string, updates: Partial<CardInput>): Promise<CardUpdateMutationResult> => (
-        await kanban.updateCard(nextColumnId, cardId, updates)
-      )}
-      onDelete={async (nextColumnId: string, cardId: string) => {
-        const deleted = await kanban.deleteCard(nextColumnId, cardId);
-        if (deleted) onClose();
-      }}
-      onMove={async (fromStatus, cardId, toStatus) => {
-        await kanban.moveCard({ fromStatus, cardId, toStatus });
-      }}
-      onCompleteOccurrence={async (cardId, occurrenceStart) => {
-        await kanban.completeOccurrence({ cardId, occurrenceStart, source: "card-stage" });
-      }}
-      onSkipOccurrence={async (cardId, occurrenceStart) => {
-        await kanban.skipOccurrence({ cardId, occurrenceStart, source: "card-stage" });
-      }}
-      onOpenTerminalPanel={() => {
-        if (!card) return;
-        void onOpenTerminal(card);
-      }}
-      linkedCodexThreads={[]}
-    />
+    <>
+      <CardStage
+        card={card}
+        columnId={columnId}
+        columnName={columnName}
+        projectId={tab.config.projectId}
+        projectWorkspacePath={projectWorkspaceRootOrNull(project)}
+        availableTags={availableTags}
+        closeRef={closeRef as React.MutableRefObject<(() => Promise<void>) | null>}
+        persistRef={persistRef}
+        sessionSnapshotRef={sessionSnapshotRef}
+        onClose={onClose}
+        onLeaveCard={onLeaveCard}
+        onPatch={(nextColumnId: string, cardId: string, updates: Partial<CardInput>) => {
+          kanban.patchCard(nextColumnId, cardId, updates);
+        }}
+        onUpdate={async (nextColumnId: string, cardId: string, updates: Partial<CardInput>): Promise<CardUpdateMutationResult> => (
+          await kanban.updateCard(nextColumnId, cardId, updates)
+        )}
+        onDelete={async (nextColumnId: string, cardId: string) => {
+          const deleted = await kanban.deleteCard(nextColumnId, cardId);
+          if (deleted) onClose();
+        }}
+        onMove={async (fromStatus, cardId, toStatus) => {
+          await kanban.moveCard({ fromStatus, cardId, toStatus });
+        }}
+        onCompleteOccurrence={async (cardId, occurrenceStart) => {
+          await kanban.completeOccurrence({ cardId, occurrenceStart, source: "card-stage" });
+        }}
+        onSkipOccurrence={async (cardId, occurrenceStart) => {
+          await kanban.skipOccurrence({ cardId, occurrenceStart, source: "card-stage" });
+        }}
+        onOpenTerminalPanel={() => {
+          if (!card) return;
+          void onOpenTerminal(card);
+        }}
+        onToggleHistoryPanel={() => onToggleHistoryPanel({
+          sessionId,
+          tabId: tab.id,
+          projectId: tab.config.projectId,
+          cardId: tab.config.cardId,
+          cardTitle: card?.title ?? tab.config.titleSnapshot,
+        })}
+        historyPanelActive={historyPanelActive}
+        linkedCodexThreads={[]}
+      />
+    </>
   );
 }

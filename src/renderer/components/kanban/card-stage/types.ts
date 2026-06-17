@@ -56,7 +56,7 @@ export interface CardStageProps {
   onSkipOccurrence?: (cardId: string, occurrenceStart: Date) => Promise<void>;
   onColumnIdChange?: (columnId: string) => void;
   onOpenTerminalPanel?: () => void;
-  onOpenHistoryPanel?: () => void;
+  onToggleHistoryPanel?: () => void;
   linkedCodexThreads?: CardStageLinkedThread[];
   onOpenCodexThread?: (threadId: string) => Promise<void>;
   onOpenNewCodexThread?: () => void;

@@ -10,7 +10,7 @@ interface CardStageToolbarProps {
   onDelete: () => void;
   onToggleContentWidth: () => void;
   onToggleShowRawContent: () => void;
-  onOpenHistoryPanel?: () => void;
+  onToggleHistoryPanel?: () => void;
 }
 
 const cardStageToolbarButtonChrome =
@@ -28,7 +28,7 @@ export function CardStageToolbar({
   onDelete,
   onToggleContentWidth,
   onToggleShowRawContent,
-  onOpenHistoryPanel,
+  onToggleHistoryPanel,
 }: CardStageToolbarProps) {
   return (
     <div className="flex h-11 items-center justify-between px-3">
@@ -130,7 +130,7 @@ export function CardStageToolbar({
         <NodexTooltip tooltipContent="History" side="bottom" delayDuration={0}>
           <button
             type="button"
-            onClick={onOpenHistoryPanel}
+            onClick={onToggleHistoryPanel}
             aria-pressed={historyPanelActive}
             aria-label="History"
             className={cn(

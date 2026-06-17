@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import type { Card } from "../../shared/types";
 import type {
+  HistoryCardVersionPreview,
   HistoryEntry as PublicHistoryEntry,
   HistoryPanelDescriptionDelta,
   HistoryPanelEntry as PublicHistoryPanelEntry,
@@ -15,23 +16,26 @@ import * as descriptionRevisionService from "./description-revision-service";
 
 export type HistoryOperation = "create" | "update" | "delete" | "move";
 
-interface HistoryEntry {
+export interface HistoryReconstructionEntry {
   id: number;
-  projectId: string;
   operation: HistoryOperation;
-  cardId: string;
   columnId: Card["status"];
   archived: boolean;
+  newValues: Record<string, unknown> | null;
+  toStatus: Card["status"] | null;
+  toArchived: boolean | null;
+  cardSnapshot: Card | null;
+}
+
+interface HistoryEntry extends HistoryReconstructionEntry {
+  projectId: string;
+  cardId: string;
   timestamp: string;
   previousValues: Record<string, unknown> | null;
-  newValues: Record<string, unknown> | null;
   fromStatus: Card["status"] | null;
-  toStatus: Card["status"] | null;
   fromArchived: boolean | null;
-  toArchived: boolean | null;
   fromOrder: number | null;
   toOrder: number | null;
-  cardSnapshot: Card | null;
   sessionId: string | null;
   groupId: string | null;
   isUndone: boolean;
@@ -1341,9 +1345,57 @@ function redoMove(database: Database.Database, entry: HistoryEntry): void {
 
 // === State Reconstruction ===
 
-interface ReconstructedState {
+export interface ReconstructedState {
   state: Record<string, unknown>;
-  columnId: string;
+  columnId: Card["status"];
+  archived: boolean;
+}
+
+export function reconstructCardStateFromEntries(
+  entries: readonly HistoryReconstructionEntry[],
+  targetEntryId: number,
+): ReconstructedState | null {
+  const createEntry = entries.find((entry) => entry.operation === "create");
+  if (!createEntry?.cardSnapshot) return null;
+
+  const snapshot = createEntry.cardSnapshot as unknown as Record<string, unknown>;
+  const state: Record<string, unknown> = { ...snapshot };
+  let columnId = createEntry.columnId;
+  let archived = createEntry.archived;
+
+  if (createEntry.id === targetEntryId) {
+    return { state, columnId, archived };
+  }
+
+  for (const entry of entries) {
+    if (entry.id === createEntry.id) continue;
+
+    // Delete entries are valid preview/restore targets, but the card no
+    // longer exists after them. Show the state immediately before deletion.
+    if (entry.operation === "delete") {
+      if (entry.id === targetEntryId) {
+        return { state, columnId, archived };
+      }
+      continue;
+    }
+
+    if (entry.operation === "update" && entry.newValues) {
+      for (const [key, value] of Object.entries(entry.newValues)) {
+        state[key] = value;
+      }
+    }
+
+    if (entry.operation === "move" && entry.toStatus) {
+      columnId = entry.toStatus;
+      if (entry.toArchived !== null) archived = entry.toArchived;
+    }
+
+    if (entry.id === targetEntryId) {
+      return { state, columnId, archived };
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -1365,48 +1417,75 @@ export function reconstructCardStateAtEntry(
     .all(projectId, cardId) as DbHistoryRow[];
 
   const entries = rows.map((row) => rowToHistoryEntry(database, row));
+  return reconstructCardStateFromEntries(entries, targetEntryId);
+}
 
-  // Find creation entry for the initial snapshot
-  const createEntry = entries.find((e) => e.operation === "create");
-  if (!createEntry?.cardSnapshot) return null;
-
-  const snapshot = createEntry.cardSnapshot as unknown as Record<string, unknown>;
-  const state: Record<string, unknown> = { ...snapshot };
-  let columnId = createEntry.columnId;
-
-  // If the target is the create entry itself, return initial state
-  if (createEntry.id === targetEntryId) {
-    return { state, columnId };
+export function getCardHistoryVersionPreview(
+  projectId: string,
+  cardId: string,
+  historyId: number,
+): { preview: HistoryCardVersionPreview | null; error?: string } {
+  const entry = getHistoryEntry(historyId);
+  if (!entry) return { preview: null, error: "History entry not found" };
+  if (entry.projectId !== projectId || entry.cardId !== cardId) {
+    return { preview: null, error: "History entry does not belong to this card" };
   }
 
-  // Walk forward applying deltas
-  for (const entry of entries) {
-    if (entry.id === createEntry.id) continue; // skip creation, already applied
-
-    // Delete entries don't change card fields, but they are valid targets
-    // (representing "card state just before deletion")
-    if (entry.id === targetEntryId) {
-      return { state, columnId };
-    }
-    if (entry.operation === "delete") continue;
-
-    if (entry.operation === "update" && entry.newValues) {
-      for (const [key, value] of Object.entries(entry.newValues)) {
-        state[key] = value;
-      }
-    }
-
-    if (entry.operation === "move" && entry.toStatus) {
-      columnId = entry.toStatus;
-    }
-
-    if (entry.id === targetEntryId) {
-      return { state, columnId };
-    }
+  const reconstructed = reconstructCardStateAtEntry(projectId, cardId, historyId);
+  if (!reconstructed) {
+    return { preview: null, error: "Cannot reconstruct state — creation history may have been pruned" };
   }
 
-  // Target entry not found in the card's history
-  return null;
+  return {
+    preview: {
+      historyId,
+      projectId,
+      cardId,
+      card: reconstructedStateToCard(cardId, reconstructed, entry),
+    },
+  };
+}
+
+function reconstructedStateToCard(
+  cardId: string,
+  reconstructed: ReconstructedState,
+  targetEntry: HistoryEntry,
+): Card {
+  const { state, columnId, archived } = reconstructed;
+  return {
+    id: typeof state.id === "string" ? state.id : cardId,
+    status: columnId as Card["status"],
+    archived,
+    title: typeof state.title === "string" && state.title.trim() ? state.title : "Untitled card",
+    description: typeof state.description === "string" ? state.description : "",
+    priority: state.priority ? state.priority as Card["priority"] : undefined,
+    estimate: state.estimate ? state.estimate as Card["estimate"] : undefined,
+    tags: Array.isArray(state.tags) ? state.tags.filter((tag): tag is string => typeof tag === "string") : [],
+    dueDate: parseHistoryDate(state.dueDate),
+    scheduledStart: parseHistoryDate(state.scheduledStart),
+    scheduledEnd: parseHistoryDate(state.scheduledEnd),
+    isAllDay: Boolean(state.isAllDay),
+    recurrence: typeof state.recurrence === "object" && state.recurrence !== null
+      ? state.recurrence as Card["recurrence"]
+      : undefined,
+    reminders: Array.isArray(state.reminders) ? state.reminders as Card["reminders"] : [],
+    scheduleTimezone: typeof state.scheduleTimezone === "string" ? state.scheduleTimezone : undefined,
+    assignee: typeof state.assignee === "string" ? state.assignee : undefined,
+    agentBlocked: Boolean(state.agentBlocked),
+    agentStatus: typeof state.agentStatus === "string" ? state.agentStatus : undefined,
+    runInTarget: isCardRunInTarget(state.runInTarget) ? state.runInTarget : "localProject",
+    runInLocalPath: typeof state.runInLocalPath === "string" ? state.runInLocalPath : undefined,
+    runInBaseBranch: typeof state.runInBaseBranch === "string" ? state.runInBaseBranch : undefined,
+    runInWorktreePath: typeof state.runInWorktreePath === "string" ? state.runInWorktreePath : undefined,
+    runInEnvironmentPath: typeof state.runInEnvironmentPath === "string" ? state.runInEnvironmentPath : undefined,
+    revision: typeof state.revision === "number" ? state.revision : 1,
+    created: parseHistoryDate(state.created) ?? new Date(targetEntry.timestamp),
+    order: typeof state.order === "number" ? state.order : targetEntry.toOrder ?? targetEntry.fromOrder ?? 0,
+  };
+}
+
+function isCardRunInTarget(value: unknown): value is Card["runInTarget"] {
+  return value === "localProject" || value === "newWorktree" || value === "cloud";
 }
 
 // === Revert & Restore ===

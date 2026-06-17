@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { ChevronLeft, ChevronRight, FileText, XIcon } from "lucide-react";
 import {
   NODEX_DIFF_HOST_CLASS,
   getNodexDiffHostStyle,
@@ -6,17 +7,25 @@ import {
 } from "../../lib/diff-presentation";
 import { cn } from "@/lib/utils";
 import type {
+  HistoryCardVersionPreview,
   HistoryPanelDescriptionDelta,
   HistoryPanelDescriptionDeltaBlock,
   HistoryPanelDescriptionSnapshot,
   HistoryPanelDescriptionSnapshotBlock,
   HistoryPanelEntry,
 } from "../../../shared/ipc-api";
+import type { Card } from "../../../shared/types";
+import { ReadonlyNfmBlockNotePreview } from "./editor/readonly-nfm-blocknote-preview";
+import { NodexButton } from "@/components/ui/button";
+import {
+  NodexDialog,
+  NodexDialogContent,
+  NodexDialogTitle,
+} from "@/components/ui/dialog";
 import {
   invoke,
   KANBAN_STATUS_LABELS,
   MultiFileDiff,
-  TAB_BAR_HEIGHT,
   useTheme,
 } from "./history-panel-deps";
 
@@ -50,47 +59,32 @@ const FIELD_LABELS: Record<string, string> = {
   order: "Order",
 };
 
-// Resize constants
-const PANEL_MIN_WIDTH = 640;
-const PANEL_MAX_WIDTH = 1400;
-const PANEL_DEFAULT_WIDTH = 960;
-const PANEL_STORAGE_KEY = "history-panel-width";
-
-function readStoredWidth(): number {
-  try {
-    const raw = localStorage.getItem(PANEL_STORAGE_KEY);
-    if (!raw) return PANEL_DEFAULT_WIDTH;
-    const n = parseInt(raw, 10);
-    if (Number.isNaN(n)) return PANEL_DEFAULT_WIDTH;
-    return Math.min(PANEL_MAX_WIDTH, Math.max(PANEL_MIN_WIDTH, n));
-  } catch {
-    return PANEL_DEFAULT_WIDTH;
-  }
-}
-
 interface HistoryPanelProps {
   projectId: string;
   cardId: string | null;
+  cardTitle?: string;
+  projectWorkspacePath?: string | null;
   open: boolean;
   onClose: () => void;
   onCardMutated?: () => void;
-  mode?: "overlay" | "embedded";
-  className?: string;
 }
 
 export function HistoryPanel({
   projectId,
   cardId,
+  cardTitle,
+  projectWorkspacePath,
   open,
   onClose,
   onCardMutated,
-  mode = "overlay",
-  className,
 }: HistoryPanelProps) {
   const [entries, setEntries] = useState<HistoryPanelEntry[]>([]);
   const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null);
   const [operationFilter, setOperationFilter] = useState<HistoryOperationFilter>("all");
   const [loading, setLoading] = useState(false);
+  const [previewCache, setPreviewCache] = useState<Record<number, HistoryCardVersionPreview>>({});
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   // Action state
   const [actionInFlight, setActionInFlight] = useState<"revert" | "restore" | null>(null);
@@ -99,11 +93,6 @@ export function HistoryPanel({
     entryId: number;
   } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-
-  // Resize state
-  const [panelWidth, setPanelWidth] = useState(readStoredWidth);
-  const panelRef = useRef<HTMLDivElement>(null);
-  const isResizingRef = useRef(false);
 
   const fetchHistory = useCallback(async (targetCardId: string) => {
     setLoading(true);
@@ -122,6 +111,7 @@ export function HistoryPanel({
         }
         return nextEntries[0].id;
       });
+      setPreviewCache({});
     } catch (err) {
       console.error("Failed to fetch history:", err);
       setEntries([]);
@@ -142,6 +132,8 @@ export function HistoryPanel({
     setOperationFilter("all");
     setConfirmingAction(null);
     setActionError(null);
+    setPreviewCache({});
+    setPreviewError(null);
   }, [open]);
 
   // Clear confirmation when selected entry changes
@@ -172,6 +164,7 @@ export function HistoryPanel({
   );
 
   const selectedEntry = selectedIndex >= 0 ? filteredEntries[selectedIndex] : null;
+  const selectedPreview = selectedEntry ? previewCache[selectedEntry.id] ?? null : null;
 
   const navigateSelectedEntry = useCallback((direction: -1 | 1) => {
     if (filteredEntries.length === 0) return;
@@ -189,7 +182,7 @@ export function HistoryPanel({
     setSelectedEntryId(filteredEntries[nextIndex].id);
   }, [filteredEntries, selectedEntryId]);
 
-  const handleListKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+  const handleListKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.key === "ArrowDown") {
       event.preventDefault();
       navigateSelectedEntry(1);
@@ -200,6 +193,48 @@ export function HistoryPanel({
       navigateSelectedEntry(-1);
     }
   }, [navigateSelectedEntry]);
+
+  useEffect(() => {
+    if (!open || !cardId || !selectedEntry) {
+      setPreviewLoading(false);
+      return;
+    }
+    if (previewCache[selectedEntry.id]) {
+      setPreviewLoading(false);
+      setPreviewError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setPreviewLoading(true);
+    setPreviewError(null);
+    void (async () => {
+      try {
+        const data = await invoke(
+          "history:card-version-preview",
+          projectId,
+          cardId,
+          selectedEntry.id,
+        ) as { preview: HistoryCardVersionPreview | null; error?: string };
+        if (cancelled) return;
+        if (!data.preview) {
+          setPreviewError(data.error ?? "Version preview is unavailable.");
+          return;
+        }
+        setPreviewCache((current) => ({ ...current, [selectedEntry.id]: data.preview as HistoryCardVersionPreview }));
+      } catch (err) {
+        if (!cancelled) {
+          setPreviewError(err instanceof Error ? err.message : "Version preview is unavailable.");
+        }
+      } finally {
+        if (!cancelled) setPreviewLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cardId, open, previewCache, projectId, selectedEntry]);
 
   // Action handlers
   const handleRevert = useCallback(async (entryId: number, operation: string) => {
@@ -219,6 +254,7 @@ export function HistoryPanel({
         return;
       }
       if (cardId) await fetchHistory(cardId);
+      setPreviewCache({});
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Revert failed");
     } finally {
@@ -239,6 +275,7 @@ export function HistoryPanel({
       setConfirmingAction(null);
       onCardMutated?.();
       await fetchHistory(cardId);
+      setPreviewCache({});
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Restore failed");
     } finally {
@@ -246,214 +283,259 @@ export function HistoryPanel({
     }
   }, [projectId, cardId, fetchHistory, onCardMutated]);
 
-  // Resize handler
-  const handleResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    isResizingRef.current = true;
-    const startX = e.clientX;
-    const startWidth = panelWidth;
-
-    document.body.style.userSelect = "none";
-    document.body.style.cursor = "col-resize";
-
-    const panel = panelRef.current;
-    if (panel) panel.style.transition = "none";
-
-    const onMouseMove = (ev: MouseEvent) => {
-      const newWidth = Math.min(
-        PANEL_MAX_WIDTH,
-        Math.max(PANEL_MIN_WIDTH, startWidth + (startX - ev.clientX))
-      );
-      if (panel) panel.style.width = `${newWidth}px`;
-    };
-
-    const onMouseUp = (ev: MouseEvent) => {
-      document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseup", onMouseUp);
-      document.body.style.userSelect = "";
-      document.body.style.cursor = "";
-      isResizingRef.current = false;
-
-      if (panel) panel.style.transition = "";
-
-      const finalWidth = Math.min(
-        PANEL_MAX_WIDTH,
-        Math.max(PANEL_MIN_WIDTH, startWidth + (startX - ev.clientX))
-      );
-      setPanelWidth(finalWidth);
-      try { localStorage.setItem(PANEL_STORAGE_KEY, String(finalWidth)); } catch { /* ignore */ }
-    };
-
-    document.addEventListener("mousemove", onMouseMove);
-    document.addEventListener("mouseup", onMouseUp);
-  }, [panelWidth]);
+  const canRestoreSelected = Boolean(selectedEntry && !selectedEntry.isUndone && selectedEntry.undoOf === null);
+  const restoringSelected = confirmingAction?.type === "restore" && confirmingAction.entryId === selectedEntry?.id;
 
   if (!open) {
     return null;
   }
 
-  const panel = (
-    <div
-      ref={panelRef}
-      className={cn(
-        "relative h-full",
-        "bg-(--background)",
-        "border-l border-[0.5px] border-(--border)",
-        "shadow-lg",
-        "flex flex-col",
-        mode === "overlay" && "animate-in duration-200 slide-in-from-right",
-        className,
-      )}
-      style={{ width: panelWidth }}
-    >
-      {/* Resize handle */}
-      <div
-        onMouseDown={handleResizeStart}
+  return (
+    <NodexDialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>
+      <NodexDialogContent
+        aria-describedby={undefined}
+        showCloseButton={false}
+        overlayClassName="bg-black/55"
+        style={{
+          width: "min(94vw, 1600px)",
+          maxWidth: "calc(100vw - 1.5rem)",
+          height: "min(92vh, calc(100vh - 1.5rem))",
+        }}
         className={cn(
-          "absolute top-0 left-0 z-10 h-full w-1 cursor-col-resize",
-          "transition-colors duration-150 hover:bg-(--accent-blue)",
-          "active:bg-(--accent-blue)"
+          "max-w-none gap-0 overflow-hidden rounded-xl p-0 sm:max-w-none",
+          "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_18rem] xl:grid-cols-[minmax(0,1fr)_20rem]",
         )}
-      />
-
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-[0.5px] border-(--border) px-4 py-2.5">
-        <div className="flex items-center gap-2 min-w-0">
-          <h3 className="text-sm font-medium text-(--foreground)">
-            History
-          </h3>
-          <span className="text-xs text-(--foreground-tertiary)">
-            {filteredEntries.length}/{entries.length}
-          </span>
-        </div>
-        <button
-          onClick={onClose}
-          className={cn(
-            "flex h-7 w-7 items-center justify-center",
-            "text-(--foreground-tertiary)",
-            "hover:bg-[color-mix(in_srgb,var(--foreground)_5%,transparent)] hover:text-(--foreground-secondary)",
-            "rounded-md"
-          )}
-          aria-label="Close history panel"
-        >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-          >
-            <path d="M4 4l8 8m0-8l-8 8" strokeLinecap="round" />
-          </svg>
-        </button>
-      </div>
-
-      {/* Content */}
-      <div className="min-h-0 flex-1">
-        {loading ? (
-          <div className="py-8 text-center text-sm text-(--foreground-tertiary)">
-            Loading history...
-          </div>
-        ) : entries.length === 0 ? (
-          <div className="py-8 text-center text-sm text-(--foreground-tertiary)">
-            No history for this card
-          </div>
-        ) : (
-          <div className="flex h-full min-h-0 flex-row">
-            <aside
-              className={cn(
-                "min-h-0 w-72 border-r border-[0.5px] border-(--border)",
-                "flex flex-col"
-              )}
-            >
-              <div className="px-2 pt-2 pb-1">
-                <div className="flex flex-wrap gap-1">
-                  {OPERATION_FILTERS.map((filter) => (
-                    <button
-                      key={filter.value}
-                      onClick={() => setOperationFilter(filter.value)}
-                      className={cn(
-                        "rounded-md px-2 py-0.5 text-xs",
-                        operationFilter === filter.value
-                          ? "bg-[color-mix(in_srgb,var(--accent-blue)_16%,transparent)] text-(--accent-blue)"
-                          : "text-(--foreground-tertiary) hover:text-(--foreground-secondary)"
-                      )}
-                    >
-                      {filter.label}
-                    </button>
-                  ))}
-                </div>
+      >
+        <NodexDialogTitle className="sr-only">Version history</NodexDialogTitle>
+        <section className="flex min-h-0 min-w-0 flex-col bg-token-main-surface-primary">
+          <header className="flex h-12 shrink-0 items-center gap-2 border-b border-[0.5px] border-token-border px-3">
+            <FileText className="icon-2xs shrink-0 text-token-description-foreground" />
+            <div className="min-w-0 flex-1 truncate text-sm font-medium text-token-text-secondary">
+              {selectedPreview?.card.title ?? cardTitle ?? "Untitled card"}
+            </div>
+            {selectedEntry ? (
+              <div className="hidden shrink-0 text-xs text-token-description-foreground sm:block">
+                {formatAbsoluteTimestamp(selectedEntry.timestamp)}
               </div>
+            ) : null}
+          </header>
 
-              <div
-                className="flex-1 overflow-y-auto px-1.5 py-1"
-                onKeyDown={handleListKeyDown}
-              >
-                {filteredEntries.length === 0 ? (
-                  <div className="px-1 py-3 text-xs text-(--foreground-tertiary)">
-                    No entries for this filter.
-                  </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8 max-md:px-4 max-md:py-5">
+            {loading ? (
+              <div className="py-10 text-center text-sm text-token-description-foreground">
+                Loading history...
+              </div>
+            ) : entries.length === 0 ? (
+              <div className="py-10 text-center text-sm text-token-description-foreground">
+                No history for this card
+              </div>
+            ) : (
+              <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+                <HistoryVersionPreview
+                  preview={selectedPreview}
+                  loading={previewLoading}
+                  error={previewError}
+                  fallbackTitle={cardTitle}
+                  projectWorkspacePath={projectWorkspacePath}
+                />
+
+                {selectedEntry ? (
+                  <HistoryEntryDetails
+                    entry={selectedEntry}
+                    selectedIndex={selectedIndex}
+                    totalCount={filteredEntries.length}
+                    onNavigate={navigateSelectedEntry}
+                    onRevert={handleRevert}
+                    onRestore={handleRestore}
+                    actionInFlight={actionInFlight}
+                    confirmingAction={confirmingAction}
+                    onRequestConfirm={setConfirmingAction}
+                    onCancelConfirm={() => { setConfirmingAction(null); setActionError(null); }}
+                    actionError={actionError}
+                    showRestoreAction={false}
+                  />
                 ) : (
-                  filteredEntries.map((entry) => (
-                    <HistoryEntryListItem
-                      key={entry.id}
-                      entry={entry}
-                      selected={entry.id === selectedEntry?.id}
-                      onSelect={() => setSelectedEntryId(entry.id)}
-                    />
-                  ))
+                  <div className="py-8 text-center text-sm text-token-description-foreground">
+                    Select an entry to view details.
+                  </div>
                 )}
               </div>
-            </aside>
-
-            <section className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-              {selectedEntry ? (
-                <HistoryEntryDetails
-                  entry={selectedEntry}
-                  selectedIndex={selectedIndex}
-                  totalCount={filteredEntries.length}
-                  onNavigate={navigateSelectedEntry}
-                  onRevert={handleRevert}
-                  onRestore={handleRestore}
-                  actionInFlight={actionInFlight}
-                  confirmingAction={confirmingAction}
-                  onRequestConfirm={setConfirmingAction}
-                  onCancelConfirm={() => { setConfirmingAction(null); setActionError(null); }}
-                  actionError={actionError}
-                />
-              ) : (
-                <div className="py-8 text-center text-sm text-(--foreground-tertiary)">
-                  Select an entry to view details.
-                </div>
-              )}
-            </section>
+            )}
           </div>
-        )}
-      </div>
-    </div>
-  );
+        </section>
 
-  if (mode === "embedded") {
-    return panel;
+        <aside className="flex min-h-0 flex-col border-l border-[0.5px] border-token-border bg-token-bg-fog/70 max-md:border-l-0 max-md:border-t">
+          <header className="flex shrink-0 items-start gap-2 px-3 py-3">
+            <div className="min-w-0 flex-1">
+              <h3 className="truncate text-lg font-semibold leading-6 text-token-text-primary">
+                Version history
+              </h3>
+              <div className="mt-0.5 text-xs text-token-description-foreground">
+                {filteredEntries.length}/{entries.length}
+              </div>
+            </div>
+            <NodexButton
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              className="rounded-full text-token-description-foreground hover:bg-token-foreground/5 hover:text-token-text-primary"
+              aria-label="Close history panel"
+              onClick={onClose}
+            >
+              <XIcon className="icon-2xs" />
+            </NodexButton>
+          </header>
+
+          <div className="shrink-0 px-2 pb-2">
+            <div className="flex flex-wrap gap-1">
+              {OPERATION_FILTERS.map((filter) => (
+                <button
+                  key={filter.value}
+                  type="button"
+                  onClick={() => setOperationFilter(filter.value)}
+                  aria-pressed={operationFilter === filter.value}
+                  className={cn(
+                    "rounded-md px-2 py-0.5 text-xs",
+                    operationFilter === filter.value
+                      ? "bg-token-foreground/10 text-token-text-primary"
+                      : "text-token-description-foreground hover:bg-token-foreground/5 hover:text-token-text-secondary",
+                  )}
+                >
+                  {filter.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div
+            className="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
+            onKeyDown={handleListKeyDown}
+          >
+            {filteredEntries.length === 0 ? (
+              <div className="px-2 py-3 text-xs text-token-description-foreground">
+                No entries for this filter.
+              </div>
+            ) : (
+              filteredEntries.map((entry) => (
+                <HistoryEntryListItem
+                  key={entry.id}
+                  entry={entry}
+                  selected={entry.id === selectedEntry?.id}
+                  onSelect={() => setSelectedEntryId(entry.id)}
+                />
+              ))
+            )}
+          </div>
+
+          <footer className="shrink-0 border-t border-[0.5px] border-token-border px-3 py-3">
+            {restoringSelected && actionError ? (
+              <p className="mb-2 text-xs text-(--priority-critical-text)">{actionError}</p>
+            ) : null}
+            {restoringSelected ? (
+              <div className="mb-2 text-xs text-token-text-secondary">
+                Restore card to {selectedEntry ? formatAbsoluteTimestamp(selectedEntry.timestamp) : "this version"}?
+              </div>
+            ) : null}
+            <div className="flex items-center justify-end gap-2">
+              {restoringSelected ? (
+                <NodexButton
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={actionInFlight !== null}
+                  onClick={() => { setConfirmingAction(null); setActionError(null); }}
+                >
+                  Cancel
+                </NodexButton>
+              ) : null}
+              <NodexButton
+                type="button"
+                size="sm"
+                disabled={!canRestoreSelected || actionInFlight !== null}
+                onClick={() => {
+                  if (!selectedEntry) return;
+                  if (!restoringSelected) {
+                    setConfirmingAction({ type: "restore", entryId: selectedEntry.id });
+                    setActionError(null);
+                    return;
+                  }
+                  void handleRestore(selectedEntry.id);
+                }}
+              >
+                {actionInFlight === "restore" ? "Restoring..." : restoringSelected ? "Confirm restore" : "Restore"}
+              </NodexButton>
+            </div>
+          </footer>
+        </aside>
+      </NodexDialogContent>
+    </NodexDialog>
+  );
+}
+
+function HistoryVersionPreview({
+  preview,
+  loading,
+  error,
+  fallbackTitle,
+  projectWorkspacePath,
+}: {
+  preview: HistoryCardVersionPreview | null;
+  loading: boolean;
+  error: string | null;
+  fallbackTitle?: string;
+  projectWorkspacePath?: string | null;
+}) {
+  if (loading && !preview) {
+    return (
+      <div className="rounded-lg bg-token-foreground/5 px-3 py-8 text-center text-sm text-token-description-foreground">
+        Loading version preview...
+      </div>
+    );
   }
 
+  if (error && !preview) {
+    return (
+      <div className="rounded-lg bg-token-foreground/5 px-3 py-8 text-center text-sm text-(--priority-critical-text)">
+        {error}
+      </div>
+    );
+  }
+
+  const card = preview?.card ?? null;
+  const properties = card ? collectCardPreviewProperties(card) : [];
+
   return (
-    <div
-      className={cn(
-        "fixed inset-0 z-50",
-        "flex items-center justify-end",
-        "bg-black/40"
-      )}
-      style={{ top: TAB_BAR_HEIGHT }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) {
-          onClose();
-        }
-      }}
-    >
-      {panel}
-    </div>
+    <article className="min-w-0">
+      <h2 className="wrap-break-word text-xl/snug-plus font-bold tracking-normal text-token-text-primary">
+        {card?.title ?? fallbackTitle ?? "Untitled card"}
+      </h2>
+
+      {card ? (
+        <div className="mt-5 grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[8rem_minmax(0,1fr)]">
+          {properties.map((property) => (
+            <div key={property.label} className="contents">
+              <div className="truncate text-token-description-foreground">{property.label}</div>
+              <div className="min-w-0 wrap-break-word text-token-text-secondary">{property.value}</div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="mt-8 min-h-32">
+        {preview && card?.description?.trim() ? (
+          <ReadonlyNfmBlockNotePreview
+            content={card.description}
+            projectId={preview.projectId}
+            cardId={preview.cardId}
+            historyId={preview.historyId}
+            projectWorkspacePath={projectWorkspacePath}
+            className="text-token-text-primary"
+          />
+        ) : (
+          <div className="text-sm text-token-description-foreground">No description</div>
+        )}
+      </div>
+    </article>
   );
 }
 
@@ -474,35 +556,35 @@ function HistoryEntryListItem({
       className={cn(
         "w-full rounded-md px-2.5 py-2 text-left",
         selected
-          ? "bg-[color-mix(in_srgb,var(--accent-blue)_10%,transparent)]"
-          : "hover:bg-[color-mix(in_srgb,var(--foreground)_5%,transparent)]",
+          ? "bg-token-foreground/10"
+          : "hover:bg-token-foreground/5",
         entry.isUndone && "opacity-50"
       )}
       aria-current={selected ? "true" : undefined}
     >
-      <div className="flex items-center gap-2">
-        <span className="shrink-0 text-(--foreground-tertiary)">
-          {getOperationIcon(entry.operation)}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span className="text-sm text-(--foreground)">
-              {getOperationLabel(entry.operation)}
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="min-w-0 truncate text-sm font-medium text-token-text-primary">
+            {formatVersionListTimestamp(entry.timestamp)}
+          </span>
+          {entry.isUndone ? (
+            <span className="shrink-0 text-[10px] uppercase tracking-normal text-token-description-foreground">
+              undone
             </span>
-            {entry.isUndone && (
-              <span className="text-[10px] uppercase tracking-wide text-(--foreground-tertiary)">
-                undone
-              </span>
-            )}
-            <span className="ml-auto shrink-0 text-xs text-(--foreground-tertiary)">
-              {formatRelativeTimestamp(entry.timestamp)}
-            </span>
-          </div>
-          {summary && (
-            <div className="mt-0.5 truncate text-xs text-(--foreground-tertiary)">
+          ) : null}
+        </div>
+        <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
+          <span className="shrink-0 text-token-description-foreground">
+            {getOperationIcon(entry.operation)}
+          </span>
+          <span className="shrink-0 text-xs text-token-description-foreground">
+            {getOperationLabel(entry.operation)}
+          </span>
+          {summary ? (
+            <span className="min-w-0 truncate text-xs text-token-description-foreground">
               {summary}
-            </div>
-          )}
+            </span>
+          ) : null}
         </div>
       </div>
     </button>
@@ -521,6 +603,7 @@ export function HistoryEntryDetails({
   onRequestConfirm,
   onCancelConfirm,
   actionError,
+  showRestoreAction = true,
 }: {
   entry: HistoryPanelEntry;
   selectedIndex: number;
@@ -533,11 +616,13 @@ export function HistoryEntryDetails({
   onRequestConfirm: (action: { type: "revert" | "restore"; entryId: number }) => void;
   onCancelConfirm: () => void;
   actionError: string | null;
+  showRestoreAction?: boolean;
 }) {
   const canGoPrev = selectedIndex > 0;
   const canGoNext = selectedIndex < totalCount - 1;
   const isActionable = !entry.isUndone && entry.undoOf === null;
   const isConfirmingThis = confirmingAction?.entryId === entry.id;
+  const showActionArea = isActionable && (showRestoreAction || confirmingAction?.type !== "restore");
 
   return (
     <div className="space-y-3">
@@ -574,9 +659,7 @@ export function HistoryEntryDetails({
             )}
             aria-label="Previous history entry"
           >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M9 11L5 7l4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <ChevronLeft className="icon-2xs" />
           </button>
           <button
             type="button"
@@ -590,15 +673,13 @@ export function HistoryEntryDetails({
             )}
             aria-label="Next history entry"
           >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M5 11l4-4-4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <ChevronRight className="icon-2xs" />
           </button>
         </div>
       </div>
 
       {/* Actions */}
-      {isActionable && (
+      {showActionArea && (
         <div>
           {isConfirmingThis ? (
             <div className="space-y-2">
@@ -654,17 +735,19 @@ export function HistoryEntryDetails({
               >
                 {getRevertLabel(entry.operation)}
               </button>
-              <button
-                type="button"
-                onClick={() => onRequestConfirm({ type: "restore", entryId: entry.id })}
-                className={cn(
-                  "rounded-md px-2.5 py-1 text-xs font-medium",
-                  "bg-[color-mix(in_srgb,var(--foreground)_5%,transparent)]",
-                  "text-(--foreground-secondary) hover:bg-[color-mix(in_srgb,var(--foreground)_10%,transparent)]"
-                )}
-              >
-                Restore to this point
-              </button>
+              {showRestoreAction ? (
+                <button
+                  type="button"
+                  onClick={() => onRequestConfirm({ type: "restore", entryId: entry.id })}
+                  className={cn(
+                    "rounded-md px-2.5 py-1 text-xs font-medium",
+                    "bg-[color-mix(in_srgb,var(--foreground)_5%,transparent)]",
+                    "text-(--foreground-secondary) hover:bg-[color-mix(in_srgb,var(--foreground)_10%,transparent)]"
+                  )}
+                >
+                  Restore to this point
+                </button>
+              ) : null}
             </div>
           )}
         </div>
@@ -1213,6 +1296,46 @@ function getEntrySummary(entry: HistoryPanelEntry): string | null {
   return entry.summary;
 }
 
+function collectCardPreviewProperties(card: Card): Array<{ label: string; value: string }> {
+  const properties: Array<{ label: string; value: string }> = [
+    { label: "Status", value: getColumnLabel(card.status) },
+  ];
+
+  if (card.archived) properties.push({ label: "Archive", value: "Archived" });
+  if (card.priority) properties.push({ label: "Priority", value: formatFieldValue(card.priority) });
+  if (card.estimate) properties.push({ label: "Estimate", value: formatFieldValue(card.estimate) });
+  if (card.assignee) properties.push({ label: "Assignee", value: card.assignee });
+  if (card.agentStatus) properties.push({ label: "Agent status", value: card.agentStatus });
+  if (card.tags.length > 0) properties.push({ label: "Tags", value: card.tags.join(", ") });
+  if (card.dueDate) properties.push({ label: "Due", value: formatCardDate(card.dueDate) });
+  if (card.scheduledStart) {
+    const schedule = card.scheduledEnd
+      ? `${formatCardDate(card.scheduledStart)} - ${formatCardDate(card.scheduledEnd)}`
+      : formatCardDate(card.scheduledStart);
+    properties.push({ label: "Schedule", value: schedule });
+  }
+  if (card.runInTarget && card.runInTarget !== "localProject") {
+    properties.push({ label: "Run in", value: formatFieldValue(card.runInTarget) });
+  }
+
+  return properties;
+}
+
+function formatFieldValue(value: string): string {
+  return value.replace(/[-_]/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2");
+}
+
+function formatCardDate(value: Date | string): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function formatFieldLabel(field: string): string {
   if (FIELD_LABELS[field]) return FIELD_LABELS[field];
   return field.replace(/([A-Z])/g, " $1").replace(/^./, (char) => char.toUpperCase());
@@ -1227,26 +1350,10 @@ function getColumnLabel(columnId: string | null): string {
   return COLUMN_LABELS[columnId] ?? columnId;
 }
 
-function formatRelativeTimestamp(ts: string): string {
+function formatVersionListTimestamp(ts: string): string {
   const date = new Date(ts);
   if (Number.isNaN(date.getTime())) return ts;
-
-  const now = new Date();
-  const diff = now.getTime() - date.getTime();
-
-  if (diff < 60_000) return "Just now";
-
-  if (diff < 3_600_000) {
-    const mins = Math.floor(diff / 60_000);
-    return `${mins} min${mins > 1 ? "s" : ""} ago`;
-  }
-
-  if (diff < 86_400_000) {
-    const hours = Math.floor(diff / 3_600_000);
-    return `${hours} hour${hours > 1 ? "s" : ""} ago`;
-  }
-
-  return date.toLocaleDateString(undefined, {
+  return date.toLocaleString(undefined, {
     month: "short",
     day: "numeric",
     hour: "numeric",

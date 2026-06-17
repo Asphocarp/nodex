@@ -1,7 +1,9 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
+import { fireEvent, waitFor } from "@testing-library/react";
 import { createElement } from "react";
-import type { HistoryPanelEntry } from "../../../shared/ipc-api";
-import { render, textContent } from "../../test/dom";
+import type { HistoryCardVersionPreview, HistoryPanelEntry } from "../../../shared/ipc-api";
+import type { Card } from "../../../shared/types";
+import { render, settleAsyncRender, textContent } from "../../test/dom";
 import * as HistoryPanelDeps from "./history-panel-deps";
 
 mock.module("./history-panel-deps", () => ({
@@ -18,7 +20,12 @@ mock.module("./history-panel-deps", () => ({
     draft: "Draft",
     in_progress: "In progress",
   },
-  invoke: async () => ({ entries: [] }),
+  invoke: async (...args: unknown[]) => {
+    const handler = (globalThis as {
+      __historyPanelInvoke?: (...invokeArgs: unknown[]) => Promise<unknown> | unknown;
+    }).__historyPanelInvoke;
+    return handler ? await handler(...args) : { entries: [] };
+  },
   subscribeGitBranchChanges: () => () => undefined,
   useTheme: () => ({ resolved: "light" as const }),
   FileDiff: ({ className }: { className?: string }) => createElement("div", { className, "data-file-diff": "true" }),
@@ -33,6 +40,10 @@ mock.module("./history-panel-deps", () => ({
   }) => createElement("div", { className, "data-diff": "true" }, `${oldFile.contents} => ${newFile.contents}`),
   PatchDiff: ({ className }: { className?: string }) => createElement("div", { className, "data-patch-diff": "true" }),
 }));
+
+afterEach(() => {
+  delete (globalThis as { __historyPanelInvoke?: unknown }).__historyPanelInvoke;
+});
 
 describe("history panel", () => {
   test("renders block-level description deltas in the details view", async () => {
@@ -128,4 +139,155 @@ describe("history panel", () => {
     expect(textContent(container).includes("Alpha paragraph => Beta paragraph")).toBeTrue();
     expect(container.innerHTML.includes("nodex-inline-diff")).toBeTrue();
   });
+
+  test("renders the version-history modal with a reconstructed preview and actions", async () => {
+    const { HistoryPanel } = await import("./history-panel");
+    const entries = [makeHistoryPanelEntry(2, "update"), makeHistoryPanelEntry(1, "create")];
+    const preview = makeHistoryPreview(2, {
+      title: "Snapshot title",
+      description: "Snapshot body",
+      tags: ["ui", "history"],
+    });
+    let restoredHistoryId: number | null = null;
+    let revertedHistoryId: number | null = null;
+
+    (globalThis as { __historyPanelInvoke?: (...invokeArgs: unknown[]) => Promise<unknown> | unknown }).__historyPanelInvoke = (
+      channel,
+      _projectId,
+      _cardIdOrHistoryId,
+      maybeHistoryId,
+    ) => {
+      if (channel === "history:card") return { entries };
+      if (channel === "history:card-version-preview") return { preview };
+      if (channel === "history:restore") {
+        restoredHistoryId = Number(maybeHistoryId);
+        return { success: true };
+      }
+      if (channel === "history:revert") {
+        revertedHistoryId = Number(_cardIdOrHistoryId);
+        return { success: true };
+      }
+      return {};
+    };
+
+    const { getByRole } = render(
+      <HistoryPanel
+        projectId="alpha"
+        cardId="card-1"
+        cardTitle="Current title"
+        projectWorkspacePath="/workspace/alpha"
+        open
+        onClose={() => undefined}
+      />,
+    );
+    await settleAsyncRender();
+    await waitFor(() => {
+      if (!textContent(document.body).includes("Snapshot title")) {
+        throw new Error("Preview not loaded");
+      }
+    });
+
+    expect(document.body.querySelector('[role="dialog"]') !== null).toBeTrue();
+    expect(textContent(document.body).includes("Version history")).toBeTrue();
+    expect(textContent(document.body).includes("Snapshot body")).toBeTrue();
+    expect(textContent(document.body).includes("ui, history")).toBeTrue();
+    const previewNode = document.body.querySelector('[data-testid="readonly-nfm-blocknote-preview"]');
+    expect(previewNode).not.toBeNull();
+    if (!(previewNode instanceof HTMLElement)) return;
+    expect(previewNode.dataset.projectId).toBe("alpha");
+    expect(previewNode.dataset.cardId).toBe("card-1");
+    expect(previewNode.dataset.historyId).toBe("2");
+    expect(previewNode.dataset.projectWorkspacePath).toBe("/workspace/alpha");
+
+    fireEvent.click(getByRole("button", { name: "Restore" }));
+    expect(textContent(document.body).includes("Confirm restore")).toBeTrue();
+    fireEvent.click(getByRole("button", { name: "Confirm restore" }));
+    await settleAsyncRender();
+    expect(restoredHistoryId).toBe(2);
+
+    fireEvent.click(getByRole("button", { name: "Revert update" }));
+    fireEvent.click(getByRole("button", { name: "Confirm" }));
+    await settleAsyncRender();
+    expect(revertedHistoryId).toBe(2);
+  });
+
+  test("shows preview load errors inside the modal", async () => {
+    const { HistoryPanel } = await import("./history-panel");
+    const entries = [makeHistoryPanelEntry(3, "update")];
+    (globalThis as { __historyPanelInvoke?: (...invokeArgs: unknown[]) => Promise<unknown> | unknown }).__historyPanelInvoke = (
+      channel,
+    ) => {
+      if (channel === "history:card") return { entries };
+      if (channel === "history:card-version-preview") {
+        return { preview: null, error: "Cannot reconstruct state" };
+      }
+      return {};
+    };
+
+    render(
+      <HistoryPanel
+        projectId="alpha"
+        cardId="card-1"
+        open
+        onClose={() => undefined}
+      />,
+    );
+    await settleAsyncRender();
+    await waitFor(() => {
+      if (!textContent(document.body).includes("Cannot reconstruct state")) {
+        throw new Error("Preview error not rendered");
+      }
+    });
+
+    expect(textContent(document.body).includes("Cannot reconstruct state")).toBeTrue();
+  });
 });
+
+function makeHistoryPanelEntry(
+  id: number,
+  operation: HistoryPanelEntry["operation"],
+): HistoryPanelEntry {
+  return {
+    id,
+    projectId: "alpha",
+    operation,
+    cardId: "card-1",
+    status: "draft",
+    archived: false,
+    timestamp: `2026-06-18T0${id}:00:00.000Z`,
+    sessionId: null,
+    groupId: null,
+    isUndone: false,
+    undoOf: null,
+    summary: operation === "update" ? "Updated title" : "Created card",
+    fieldChanges: operation === "update"
+      ? [{ field: "title", before: "Old", after: "New" }]
+      : [],
+    move: null,
+    descriptionChange: null,
+    snapshot: null,
+  };
+}
+
+function makeHistoryPreview(
+  historyId: number,
+  cardOverrides: Partial<Card>,
+): HistoryCardVersionPreview {
+  return {
+    historyId,
+    projectId: "alpha",
+    cardId: "card-1",
+    card: {
+      id: "card-1",
+      status: "draft",
+      archived: false,
+      title: "Snapshot title",
+      description: "Snapshot body",
+      tags: [],
+      agentBlocked: false,
+      created: new Date("2026-06-18T00:00:00.000Z"),
+      order: 0,
+      ...cardOverrides,
+    },
+  };
+}

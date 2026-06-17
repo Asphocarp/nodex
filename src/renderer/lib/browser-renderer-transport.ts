@@ -623,6 +623,12 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       const res = await fetch(toApiUrl(`/api/projects/${projectId}/history/card?cardId=${cardId}`));
       return res.json();
     }
+    case "history:card-version-preview": {
+      const [projectId, cardId, historyId] = args as [string, string, number];
+      const params = new URLSearchParams({ cardId, historyId: String(historyId) });
+      const res = await fetch(toApiUrl(`/api/projects/${projectId}/history/card-version-preview?${params.toString()}`));
+      return res.json();
+    }
     case "history:undo": {
       const [projectId, sessionId] = args as [string, string?];
       const res = await fetch(toApiUrl(`/api/projects/${projectId}/undo`), {

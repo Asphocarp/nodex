@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { FileText, XIcon } from "lucide-react";
 import { CardStage } from "./card-stage-dev-story-deps";
+import { ReadonlyNfmBlockNotePreview } from "../editor/readonly-nfm-blocknote-preview";
 import { useCardStageCollapsedProperties } from "../../../lib/use-card-stage-collapsed-properties";
 import type { CardInput } from "../../../lib/types";
 import {
@@ -63,12 +65,27 @@ export function CardStageDevStoryPage({
     () => buildCardStageStoryThreads({ threadDensity, previewMode }, extraThreadCount),
     [extraThreadCount, previewMode, threadDensity],
   );
+  const historySnapshotDescription = useMemo(
+    () => [
+      card.description,
+      "## Snapshot preview",
+      "This read-only preview uses the same BlockNote rendering path as Card Stage.",
+      "- Stable text, lists, and links render normally",
+      "- Live card/thread embeds stay inert inside history",
+      'Before <attachment kind="file" mode="link" source="/tmp/history-notes.md" name="history-notes.md" /> after',
+      'Use <agent-config mode="plan" model="gpt-5.5" reasoning="high" /> for this prompt',
+      '<card-ref project="default" card="card-stage-preview" />',
+      '<thread-section label="Follow-up investigation" thread="thr_preview" />',
+      '<toggle-list-inline-view project="default" />',
+    ].join("\n\n"),
+    [card.description],
+  );
 
   const handleOpenNewThread = useCallback(() => {
     setExtraThreadCount((current) => current + 1);
   }, []);
 
-  const handleOpenHistoryPanel = useCallback(() => {
+  const handleToggleHistoryPanel = useCallback(() => {
     setHistoryPanelActive((current) => !current);
   }, []);
 
@@ -131,7 +148,7 @@ export function CardStageDevStoryPage({
               onDelete={async () => {
               }}
               onMove={handleMove}
-              onOpenHistoryPanel={handleOpenHistoryPanel}
+              onToggleHistoryPanel={handleToggleHistoryPanel}
               linkedCodexThreads={linkedThreads}
               onOpenCodexThread={enableOpenThread ? async () => {
               } : undefined}
@@ -145,6 +162,113 @@ export function CardStageDevStoryPage({
           )}
         </section>
       </div>
+
+      {historyPanelActive ? (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/55 px-4 py-4"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setHistoryPanelActive(false);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label="Version history"
+            className="grid h-[min(92vh,calc(100vh-1.5rem))] w-[min(94vw,1600px)] max-w-[calc(100vw-1.5rem)] grid-cols-[minmax(0,1fr)_20rem] overflow-hidden rounded-xl bg-token-dropdown-background/95 text-token-foreground shadow-xl-spread ring-[0.5px] ring-token-border backdrop-blur-xl max-md:grid-cols-1"
+          >
+            <div className="flex min-h-0 min-w-0 flex-col bg-token-main-surface-primary">
+              <header className="flex h-12 shrink-0 items-center gap-2 border-b border-[0.5px] border-token-border px-3">
+                <FileText className="icon-2xs shrink-0 text-token-description-foreground" />
+                <div className="min-w-0 flex-1 truncate text-sm font-medium text-token-text-secondary">
+                  {card.title}
+                </div>
+                <div className="hidden shrink-0 text-xs text-token-description-foreground sm:block">
+                  Today at 10:42
+                </div>
+              </header>
+              <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8">
+                <div className="mx-auto max-w-3xl">
+                  <h2 className="wrap-break-word text-xl/snug-plus font-bold tracking-normal text-token-text-primary">
+                    {card.title}
+                  </h2>
+                  <div className="mt-5 grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[8rem_minmax(0,1fr)]">
+                    <div className="contents">
+                      <div className="truncate text-token-description-foreground">Status</div>
+                      <div className="text-token-text-secondary">In progress</div>
+                    </div>
+                    <div className="contents">
+                      <div className="truncate text-token-description-foreground">Tags</div>
+                      <div className="text-token-text-secondary">ui, threads, card-stage</div>
+                    </div>
+                    <div className="contents">
+                      <div className="truncate text-token-description-foreground">Priority</div>
+                      <div className="text-token-text-secondary">p2 medium</div>
+                    </div>
+                  </div>
+                  <ReadonlyNfmBlockNotePreview
+                    content={historySnapshotDescription}
+                    projectId={CARD_STAGE_STORY_PROJECT_ID}
+                    cardId={card.id}
+                    historyId="storybook-active"
+                    projectWorkspacePath={CARD_STAGE_STORY_WORKSPACE_PATH}
+                    className="mt-8 text-token-text-primary"
+                  />
+                  <div className="mt-8 rounded-lg bg-token-foreground/5 px-3 py-2 text-xs text-token-description-foreground">
+                    Revert controls and field-level diffs remain available below the selected snapshot in production.
+                  </div>
+                </div>
+              </div>
+            </div>
+            <aside className="flex min-h-0 flex-col border-l border-[0.5px] border-token-border bg-token-bg-fog/70 max-md:border-l-0 max-md:border-t">
+              <header className="flex shrink-0 items-start gap-2 px-3 py-3">
+                <div className="min-w-0 flex-1">
+                  <h3 className="truncate text-lg font-semibold leading-6 text-token-text-primary">
+                    Version history
+                  </h3>
+                  <div className="mt-0.5 text-xs text-token-description-foreground">3/3</div>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Close history panel"
+                  onClick={() => setHistoryPanelActive(false)}
+                  className="inline-flex size-6 items-center justify-center rounded-full text-token-description-foreground hover:bg-token-foreground/5 hover:text-token-text-primary"
+                >
+                  <XIcon className="icon-2xs" />
+                </button>
+              </header>
+              <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+                {["Jun 18, 10:42 AM", "Jun 18, 9:16 AM", "Jun 17, 4:08 PM"].map((label, index) => (
+                  <button
+                    key={label}
+                    type="button"
+                    className={[
+                      "w-full rounded-md px-2.5 py-2 text-left",
+                      index === 0
+                        ? "bg-token-foreground/10"
+                        : "hover:bg-token-foreground/5",
+                    ].join(" ")}
+                  >
+                    <div className="truncate text-sm font-medium text-token-text-primary">{label}</div>
+                    <div className="mt-0.5 truncate text-xs text-token-description-foreground">
+                      {index === 0 ? "Updated title and tags" : index === 1 ? "Moved to In progress" : "Created card"}
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <footer className="shrink-0 border-t border-[0.5px] border-token-border px-3 py-3">
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    className="inline-flex h-8 items-center justify-center rounded-lg bg-token-foreground px-3 text-sm text-token-background hover:bg-token-foreground/90"
+                  >
+                    Restore
+                  </button>
+                </div>
+              </footer>
+            </aside>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }

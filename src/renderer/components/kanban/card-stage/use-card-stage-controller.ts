@@ -101,7 +101,7 @@ interface UseCardStageControllerResult {
     columnId: string;
     latestCard: Card;
   } | null;
-  onOpenHistoryPanel?: () => void;
+  onToggleHistoryPanel?: () => void;
   onOpenNewCodexThread?: () => void;
   onOpenCodexThread?: (threadId: string) => Promise<void>;
   setPropertiesExpanded: React.Dispatch<React.SetStateAction<boolean>>;
@@ -230,7 +230,7 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
     onCompleteOccurrence,
     onSkipOccurrence,
     onColumnIdChange,
-    onOpenHistoryPanel,
+    onToggleHistoryPanel,
     linkedCodexThreads = [],
     onOpenCodexThread,
     onOpenNewCodexThread,
@@ -1272,7 +1272,7 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
     updateConflict: updateConflict
       ? { columnId: updateConflict.columnId, latestCard: updateConflict.latestCard }
       : null,
-    onOpenHistoryPanel,
+    onToggleHistoryPanel,
     onOpenNewCodexThread,
     onOpenCodexThread,
     setPropertiesExpanded,

@@ -321,8 +321,8 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Drag-handle block menu includes a `Send blocks` submenu with `Append to card...` and `Turn into cards...`; both remove the selected source blocks (move semantics), and persist grouped history updates for affected card descriptions/creates
 - Drag handles, formatting toolbar, block selection
 - Delete card action
-- View history button opens a card-specific overlay timeline for the currently open Card Stage card
-- History panel supports operation filters, keyboard/list navigation, and entry-level detailed views (update before/after field diffs, move from/to columns, create/delete snapshots)
+- View history button opens an app-shell version-history modal for the currently open Card Stage card
+- History modal supports operation filters, keyboard/list navigation, a full reconstructed snapshot preview for the selected version rendered through a read-only BlockNote/NFM surface, and entry-level detailed views (update before/after field diffs, move from/to columns, create/delete snapshots)
 
 #### 8. Edit History & Undo/Redo
 - Full edit history tracked in SQLite `history` table
@@ -334,13 +334,14 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Card descriptions are stored outside `history` in a revision chain keyed by `cards.description_revision_id`; history rows only store description revision pointers
 - Description revisions use top-level NFM block hashing plus ordered splice deltas, with periodic snapshot revisions to cap reconstruction work
 - Current builds do not support opening older pre-revision SQLite schemas in-app; recreate the local database if you need a fresh store on a newer build
-- History panel is card-scoped (opened as an overlay from Card Stage) and shows a per-card edit timeline with timestamps, plus selectable detail panes for field diffs and snapshots
-- The card history overlay reads a panel-specific display model from `history:card` instead of reusing the old generic `HistoryEntry` payload
+- History modal is card-scoped (opened from Card Stage) and renders above the whole app shell with a per-card edit timeline, timestamps, a selected-version snapshot preview, and selectable detail panes for field diffs and snapshots
+- The card history modal reads its timeline from `history:card` and lazily loads selected full-card snapshots from `history:card-version-preview`; update/move entries preview the card state immediately after the selected history entry, while delete entries preview the final state immediately before deletion
+- Selected snapshot descriptions render with BlockNote in read-only mode to match the Card Stage NFM editor; live embeds such as card refs, thread sections, and inline toggle-list views appear as inert placeholders so historical previews do not fetch current board/thread state
 - Description changes in the history panel render as top-level NFM block operations (`added`, `removed`, `replaced`) with per-block previews and optional raw block source, not hydrated whole-document before/after blobs
 - Each description-delta entry also includes a default-collapsed full diff viewer so users can inspect the entire description state when the block summary is not enough
 - Create/delete entries show description snapshots as ordered top-level block cards with previews and expandable block source
 - History retention is configurable from Settings -> Backups; the value is per-project row count, and `0` disables pruning
-- History panel is resizable (640–1400px, default 960px) with width persisted in localStorage
+- History modal uses a fixed responsive two-pane layout instead of a persisted resizable side panel
 - Detailed storage and migration rules for revision-based description history: [Description History Revisions](./description-history-revisions.md)
 - **Revert single change**: Undo a specific history entry (update, move, create, or delete) — creates a new forward history entry so the revert is itself visible and reversible
 - **Restore to point**: Time-travel a card to any historical state by reconstructing from creation snapshot + forward deltas; applies field updates and column moves as needed
@@ -702,6 +703,7 @@ nodex/
 | GET | `/api/projects/[projectId]/events` | SSE stream for real-time updates |
 | GET | `/api/projects/[projectId]/history` | List recent history (query: `?limit=N&offset=N&sessionId=Z`) |
 | GET | `/api/projects/[projectId]/history/card` | Card-specific history (query: `?cardId=X`) |
+| GET | `/api/projects/[projectId]/history/card-version-preview` | Reconstructed card snapshot for a history entry (query: `?cardId=X&historyId=N`) |
 | POST | `/api/projects/[projectId]/history/revert` | Revert a single history entry (body: `{historyId, sessionId?}`) |
 | POST | `/api/projects/[projectId]/history/restore` | Restore card to historical state (body: `{cardId, historyId, sessionId?}`) |
 | POST | `/api/projects/[projectId]/undo` | Undo last operation |
@@ -1364,5 +1366,5 @@ nodex query "SELECT * FROM cards WHERE title LIKE ?" "%bug%"
 | **Main Process** | Electron process hosting SQLite, IPC handlers, and Hono HTTP server |
 | **Preload** | Electron script that bridges main ↔ renderer via contextBridge |
 | **Session ID** | UUID identifying a browser tab's undo/redo stack |
-| **History Panel** | Slide-out panel showing a card's edit timeline |
+| **History Panel** | App-shell modal showing a card's edit timeline and reconstructed version snapshots |
 | **Delta** | Partial record of changed fields (vs full snapshot) |

@@ -538,6 +538,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     return { entries };
   });
 
+  registerHandle("history:card-version-preview", (_, projectId: string, cardId: string, historyId: number) =>
+    dbService.getCardHistoryVersionPreview(projectId, cardId, historyId)
+  );
+
   registerHandle("history:undo", (_, projectId: string, sessionId?: string) =>
     dbService.undoLatest(projectId, sessionId)
   );
