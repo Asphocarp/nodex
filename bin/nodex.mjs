@@ -1931,7 +1931,7 @@ async function cmdServe(args) {
   } else {
     // Production: run the built Electron app
     const electronPath = resolve(packageRoot, "node_modules/.bin/electron");
-    child = spawn(electronPath, [resolve(packageRoot, "out/main/index.js")], {
+    child = spawn(electronPath, [resolve(packageRoot, "out/main/bootstrap.js")], {
       cwd: packageRoot,
       env,
       stdio: "inherit",

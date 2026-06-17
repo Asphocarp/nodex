@@ -187,8 +187,9 @@ This is intentional. Logs are for diagnosis, not full-fidelity archival.
 
 ### App Lifecycle
 
-[src/main/index.ts](src/main/index.ts) logs:
+[src/main/bootstrap.ts](../../src/main/bootstrap.ts) and [src/main/main-runtime.ts](../../src/main/main-runtime.ts) log:
 
+- bootstrap startup/import failures
 - main-process startup
 - fatal startup failure
 - `before-quit`

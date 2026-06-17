@@ -31,7 +31,7 @@
     "tmp": "0.2.7",
     "yaml": "2.9.0"
   },
-  "main": "out/main/index.js",
+  "main": "out/main/bootstrap.js",
   "bin": {
     "nodex": "./bin/nodex.mjs"
   },

@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added a packaged macOS startup prompt that offers to move Nodex into Applications before launching from another location.
 - Added source-backed local projects with ordered source folders, UUID-only project identity, and server-side project creation.
 - Added a sidebar add-project menu with `Start from scratch` and `Use an existing folder` flows.
 - Added draggable project folders in the Workbench sidebar, including pinned project groups, a Pinned section, and drag-to-pin behavior.

@@ -39,7 +39,6 @@ import {
 } from "./kanban/config";
 import { codexService } from "./codex/codex-service";
 import { DesktopNotificationManager } from "./desktop-notification-manager";
-import { configureInstanceScopePaths } from "./instance-scope";
 import { parseCardDeepLink, parseSessionDeepLink } from "../shared/card-deeplink";
 import {
   isWindowSessionBoundsVisible,
@@ -61,6 +60,8 @@ import {
   type WorkbenchNavigationHostChannel,
 } from "../shared/window-navigation";
 import { BROWSER_SIDEBAR_PARTITION } from "../shared/browser-sidebar";
+import type { BootstrapRuntimeEvent } from "./bootstrap-events";
+import { collectSecondInstancesForStartupReplay } from "./main-runtime-startup-events";
 // macOS uses the packaged bundle icon from the app resources.
 // We only keep a PNG around for development Dock icon parity and non-macOS window icons.
 const appIconPath = app.isPackaged
@@ -780,156 +781,187 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
   maybeStartAutomaticAppUpdateChecks();
 }
 
-configureInstanceScopePaths(app, getKanbanDir());
+export interface MainRuntimeStartupContext {
+  initialArgv: string[];
+  startupEvents?: BootstrapRuntimeEvent[];
+}
 
-const hasSingleInstanceLock = app.requestSingleInstanceLock();
+export interface MainRuntimeController {
+  handleOpenUrl(url: string): boolean;
+  handleSecondInstance(argv: string[]): boolean;
+  shutdown(): void;
+}
 
-if (!hasSingleInstanceLock) {
-  app.quit();
-} else {
-  app.on("second-instance", (_event, argv) => {
-    const handledDeepLink = Boolean(extractDeepLinkFromArgv(argv));
-    if (handledDeepLink) {
-      return;
-    }
-    if (openNewWindow()) return;
-    focusLastWindow();
+let runtimeLifecycleHandlersRegistered = false;
+let runtimeShutdownStarted = false;
+
+function handleSecondInstanceArgv(argv: string[]): boolean {
+  const handledDeepLink = Boolean(extractDeepLinkFromArgv(argv));
+  if (handledDeepLink) {
+    return true;
+  }
+
+  if (openNewWindow()) return true;
+  focusLastWindow();
+  return false;
+}
+
+function collectStartupDeepLinks(context: MainRuntimeStartupContext): string[][] {
+  return collectSecondInstancesForStartupReplay(context, {
+    consumeArgvDeepLink: (argv) => Boolean(extractDeepLinkFromArgv(argv)),
+    consumeOpenUrlDeepLink: (url) => {
+      handleIncomingDeepLink(url);
+    },
   });
 }
 
-app.on("open-url", (event, url) => {
-  event.preventDefault();
-  void handleIncomingDeepLink(url);
-});
-
-if (hasSingleInstanceLock) {
-  extractDeepLinkFromArgv(process.argv);
-  app.whenReady()
-    .then(async () => {
-      logger.info("Nodex main process starting", {
-        packaged: app.isPackaged,
-        platform: process.platform,
-        pid: process.pid,
-        kanbanDir: getKanbanDir(),
-      });
-      registerDeepLinkProtocol();
-      // Packaged macOS builds use the bundle icon; dev still needs an explicit Dock icon override.
-      if (process.platform === "darwin" && !app.isPackaged && !appDockIcon.isEmpty()) {
-        app.dock?.setIcon(appDockIcon);
-      }
-      windowSessionState = new WindowSessionState(app.getPath("userData"));
-      appUpdateService = new AppUpdateService({
-        currentVersion: app.getVersion(),
-        isPackaged: app.isPackaged,
-        logger,
-        platform: process.platform,
-      });
-      appUpdateService.onStatusChange((status) => {
-        broadcastAppUpdateStatus(status);
-      });
-      appUpdateService.initialize();
-
-      const serverPort = getPort();
-      const serverUrl = `http://127.0.0.1:${serverPort}`;
-      serverUrlForWindows = serverUrl;
-      configureMacWindowMenus();
-      registerInitializationIpcHandlers();
-      registerIpcHandlers({
-        desktopNotificationManager,
-        onCreateWindow: (seed) => {
-          openNewWindow(seed);
-        },
-        onBootstrapWindowSession: (webContentsId) => {
-          if (!windowSessionState) {
-            throw new Error("Window session state is unavailable");
-          }
-          const session = windowSessionState.bootstrap(webContentsId);
-          const window = openWindows.get(webContentsId);
-          if (window) {
-            syncMacWindowTitle(window);
-          }
-          return { session };
-        },
-        onSaveWindowSessionLayout: (webContentsId, layout) => {
-          if (!windowSessionState) {
-            throw new Error("Window session state is unavailable");
-          }
-          const window = openWindows.get(webContentsId);
-          const session = windowSessionState.saveLayout(
-            webContentsId,
-            layout,
-            window && !window.isDestroyed() ? captureWindowSessionBounds(window) : undefined,
-          );
-          if (window) {
-            syncMacWindowTitle(window);
-          }
-          return { session };
-        },
-        onUpdateWindowSessionBounds: (webContentsId, bounds) => {
-          windowSessionState?.updateBounds(webContentsId, bounds);
-        },
-        onGetAppUpdateStatus: () =>
-          appUpdateService?.getStatus() ?? resolveUnsupportedAppUpdateStatus(),
-        onCheckForAppUpdate: async () =>
-          await (appUpdateService?.checkForUpdates("manual")
-            ?? Promise.resolve(resolveUnsupportedAppUpdateStatus())),
-        onInstallAppUpdate: () => appUpdateService?.installUpdateAndRestart() ?? false,
-        onAppUpdateSettingsChanged: () => {
-          maybeStartAutomaticAppUpdateChecks();
-        },
-      });
-
-      ipcMain.removeHandler("app:flush-before-close:done");
-      ipcMain.handle("app:flush-before-close:done", (_, webContentsId: number) => {
-        const resolve = pendingCloseResolvers.get(webContentsId);
-        if (!resolve) return;
-        resolve();
-      });
-      ipcMain.removeAllListeners("electron-request-microphone-permission");
-      ipcMain.on("electron-request-microphone-permission", () => {
-        void requestHostMicrophonePermission();
-      });
-
-      appInitializationPromise = initializeDesktopApp(serverPort);
-      const restorePolicy = getWindowRestoreSettings().policy;
-      const startupSessions = windowSessionState.selectStartupSessions(restorePolicy);
-      for (const session of startupSessions) {
-        createWindow(serverUrl, { session });
-      }
-      await appInitializationPromise;
-    })
-    .catch((error: unknown) => {
-      logger.error("Nodex failed to start", { error });
-      app.quit();
-    });
-}
-
-app.on("before-quit", () => {
+function shutdownMainRuntime(): void {
+  if (runtimeShutdownStarted) return;
+  runtimeShutdownStarted = true;
   appQuitRequested = true;
   retainRestorableWindowSessions();
   logger.info("Nodex before-quit");
   ptyManager.killAll();
   void codexService.shutdown();
   void shutdownBackendLogger();
-});
+}
 
-app.on("window-all-closed", () => {
-  logger.info("All windows closed");
-  stopAutoBackupScheduler();
-  if (stopReminderScheduler) {
-    stopReminderScheduler();
-    stopReminderScheduler = null;
+function registerRuntimeLifecycleHandlers(): void {
+  if (runtimeLifecycleHandlersRegistered) return;
+  runtimeLifecycleHandlersRegistered = true;
+
+  app.on("before-quit", () => {
+    shutdownMainRuntime();
+  });
+
+  app.on("window-all-closed", () => {
+    logger.info("All windows closed");
+    stopAutoBackupScheduler();
+    if (stopReminderScheduler) {
+      stopReminderScheduler();
+      stopReminderScheduler = null;
+    }
+
+    if (process.platform !== "darwin") {
+      app.quit();
+    }
+  });
+
+  process.on("uncaughtException", (error) => {
+    logger.error("Uncaught exception in main process", { error });
+  });
+
+  process.on("unhandledRejection", (reason) => {
+    logger.error("Unhandled promise rejection in main process", { reason });
+  });
+}
+
+export async function runMainAppStartup(
+  context: MainRuntimeStartupContext,
+): Promise<MainRuntimeController> {
+  registerRuntimeLifecycleHandlers();
+  const startupSecondInstancesWithoutDeepLinks = collectStartupDeepLinks(context);
+
+  logger.info("Nodex main process starting", {
+    packaged: app.isPackaged,
+    platform: process.platform,
+    pid: process.pid,
+    kanbanDir: getKanbanDir(),
+  });
+  registerDeepLinkProtocol();
+  // Packaged macOS builds use the bundle icon; dev still needs an explicit Dock icon override.
+  if (process.platform === "darwin" && !app.isPackaged && !appDockIcon.isEmpty()) {
+    app.dock?.setIcon(appDockIcon);
+  }
+  windowSessionState = new WindowSessionState(app.getPath("userData"));
+  appUpdateService = new AppUpdateService({
+    currentVersion: app.getVersion(),
+    isPackaged: app.isPackaged,
+    logger,
+    platform: process.platform,
+  });
+  appUpdateService.onStatusChange((status) => {
+    broadcastAppUpdateStatus(status);
+  });
+  appUpdateService.initialize();
+
+  const serverPort = getPort();
+  const serverUrl = `http://127.0.0.1:${serverPort}`;
+  serverUrlForWindows = serverUrl;
+  configureMacWindowMenus();
+  registerInitializationIpcHandlers();
+  registerIpcHandlers({
+    desktopNotificationManager,
+    onCreateWindow: (seed) => {
+      openNewWindow(seed);
+    },
+    onBootstrapWindowSession: (webContentsId) => {
+      if (!windowSessionState) {
+        throw new Error("Window session state is unavailable");
+      }
+      const session = windowSessionState.bootstrap(webContentsId);
+      const window = openWindows.get(webContentsId);
+      if (window) {
+        syncMacWindowTitle(window);
+      }
+      return { session };
+    },
+    onSaveWindowSessionLayout: (webContentsId, layout) => {
+      if (!windowSessionState) {
+        throw new Error("Window session state is unavailable");
+      }
+      const window = openWindows.get(webContentsId);
+      const session = windowSessionState.saveLayout(
+        webContentsId,
+        layout,
+        window && !window.isDestroyed() ? captureWindowSessionBounds(window) : undefined,
+      );
+      if (window) {
+        syncMacWindowTitle(window);
+      }
+      return { session };
+    },
+    onUpdateWindowSessionBounds: (webContentsId, bounds) => {
+      windowSessionState?.updateBounds(webContentsId, bounds);
+    },
+    onGetAppUpdateStatus: () =>
+      appUpdateService?.getStatus() ?? resolveUnsupportedAppUpdateStatus(),
+    onCheckForAppUpdate: async () =>
+      await (appUpdateService?.checkForUpdates("manual")
+        ?? Promise.resolve(resolveUnsupportedAppUpdateStatus())),
+    onInstallAppUpdate: () => appUpdateService?.installUpdateAndRestart() ?? false,
+    onAppUpdateSettingsChanged: () => {
+      maybeStartAutomaticAppUpdateChecks();
+    },
+  });
+
+  ipcMain.removeHandler("app:flush-before-close:done");
+  ipcMain.handle("app:flush-before-close:done", (_, webContentsId: number) => {
+    const resolve = pendingCloseResolvers.get(webContentsId);
+    if (!resolve) return;
+    resolve();
+  });
+  ipcMain.removeAllListeners("electron-request-microphone-permission");
+  ipcMain.on("electron-request-microphone-permission", () => {
+    void requestHostMicrophonePermission();
+  });
+
+  appInitializationPromise = initializeDesktopApp(serverPort);
+  const restorePolicy = getWindowRestoreSettings().policy;
+  const startupSessions = windowSessionState.selectStartupSessions(restorePolicy);
+  for (const session of startupSessions) {
+    createWindow(serverUrl, { session });
   }
 
-  if (process.platform !== "darwin") {
-    app.quit();
+  for (const argv of startupSecondInstancesWithoutDeepLinks) {
+    handleSecondInstanceArgv(argv);
   }
-});
 
-process.on("uncaughtException", (error) => {
-  logger.error("Uncaught exception in main process", { error });
-});
+  await appInitializationPromise;
 
-process.on("unhandledRejection", (reason) => {
-  logger.error("Unhandled promise rejection in main process", { reason });
-});
+  return {
+    handleOpenUrl: handleIncomingDeepLink,
+    handleSecondInstance: handleSecondInstanceArgv,
+    shutdown: shutdownMainRuntime,
+  };
+}

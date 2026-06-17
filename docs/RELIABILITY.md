@@ -26,8 +26,9 @@
 
 ## Sync and Event Delivery
 - Electron path: DB change notifier -> main-process fanout to all open windows -> IPC event -> hook refresh.
-- Electron startup path: renderer blocks behind a preload-driven bootstrap screen until main-process initialization resolves; the migration-progress IPC path remains available for future supported SQLite migrations so users are not left on a blank window.
-- Electron single-instance lock scope is profile-aware: main process sets `userData`/`sessionData` under resolved `KANBAN_DIR` before calling `requestSingleInstanceLock`, so independently configured installs can run concurrently.
+- Electron startup path: the main process starts through a small bootstrap entry that resolves the profile dir, scopes Electron storage, queues early deep links/second-instance events, and then dynamically loads the application runtime. Renderer windows still block behind the preload-driven initialization screen until runtime initialization resolves.
+- Electron single-instance lock scope is profile-aware: bootstrap sets `userData`/`sessionData` under resolved `KANBAN_DIR` before calling `requestSingleInstanceLock`, so independently configured installs can run concurrently.
+- Packaged macOS startup first checks whether the app is running from `/Applications`; if not, users can move it there through Electron's native `moveToApplicationsFolder`, continue from the current location, or quit.
 - Browser path: DB change notifier -> SSE stream -> hook refresh.
 - Renderer applies short mutation cooldown to reduce stale refresh races.
 - Renderer IPC board-change subscriptions filter by `projectId` to avoid unrelated refresh churn across windows/projects.
@@ -44,6 +45,7 @@
 - Invalid inputs fail at validation boundary with actionable errors.
 - Not-found resources return `404` from API routes.
 - Current builds expect the latest SQLite schema; explicit older schema versions fail fast during startup with an unsupported-version error instead of attempting in-app migrations.
+- Runtime import/startup failures are handled in bootstrap by destroying any windows, writing a bootstrap log entry under `${KANBAN_DIR}/logs`, showing a native `Nodex failed to start` dialog, and quitting.
 - Stale card writes with `expectedRevision` return typed conflict payloads (`status: "conflict"`; HTTP `409`) and do not apply partial updates.
 - Backup restore failures surface explicit error responses.
 - Reminder delivery is at-least-once at scheduler level, then effectively exactly-once per `(project_id, card_id, occurrence_start, offset)` via receipt uniqueness.

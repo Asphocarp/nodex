@@ -63,6 +63,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Windows opened while another window is already open start from the requesting window's current layout and then diverge as independent window sessions
 - Back/forward navigation history is window-session-local and is restored only from that window's session storage; it is not part of the cold-launch resume snapshot saved when all windows close
 - Desktop single-instance behavior is scoped per resolved server profile (`KANBAN_DIR`/`config.toml` dir). Different profile dirs can run at the same time (for example packaged release + dev build), while each profile still enforces one process with many windows.
+- Packaged macOS launches from outside `/Applications` show a native prompt to move Nodex into Applications, continue from the current location, or quit before the app runtime starts.
 - Project-local session pins, archived state, unread state, durable tab state, right/bottom panel collapse/size/split layout, active leaf, active tab, and derived flat tab ordering are shared project data in SQLite. Renderer state owns ephemeral panel previews, active project, active session, transient focus history, and temporary side-chat tabs. Overview sessions stay first, are non-pinnable and non-archivable, and are excluded from the session row context menu.
 - Codex thread metadata lives in `codex_threads`, where `project_id` and `card_id` are nullable. Optional card ownership lives in `codex_thread_card_links`; optional session ownership lives in `project_session_threads`.
 - Sidebar rows use compact project folder and session row chrome, including top actions for New chat, Search, Plugins, and Automations. Sessions are nested under project folders; pinned sessions sort above unpinned sessions within their project, unread sessions show a left dot, read non-Overview sessions expose a Codex-style trailing `Pin chat` / `Unpin chat` button whose pinned state uses the filled pin glyph, and non-Overview session rows open an Electron-native context menu from right-click or the hover overflow button without selecting the session.
@@ -524,7 +525,8 @@ nodex/
 │   │   ├── assets.ts           # Shared asset URI helpers (nodex://assets/...)
 │   │   └── card-limits.ts      # Shared card payload/field size limits
 │   ├── main/                   # Electron main process
-│   │   ├── index.ts            # App entry: BrowserWindow, IPC registration, HTTP server
+│   │   ├── bootstrap.ts        # Early Electron lifecycle, profile lock, dynamic runtime import
+│   │   ├── main-runtime.ts     # BrowserWindow, IPC registration, HTTP server
 │   │   ├── ipc-handlers.ts     # ipcMain.handle() registrations
 │   │   ├── http-server.ts      # Hono HTTP server (configured port) for CLI + browser
 │   │   └── kanban/
@@ -614,7 +616,8 @@ nodex/
 │           ├── use-keyboard-shortcuts.ts # Undo/redo shortcut handler
 │           └── use-workbench-shortcuts.ts # Workbench navigation shortcut handler
 ├── out/                        # Build output (electron-vite build)
-│   ├── main/index.js
+│   ├── main/bootstrap.js
+│   ├── main/main-runtime-*.js
 │   ├── preload/index.js
 │   └── renderer/
 ├── dist/                       # Packaging output (electron-builder)
@@ -1089,7 +1092,7 @@ bun run dev              # electron-vite dev (renderer on :51284, HTTP API on :5
 ### Production
 ```bash
 bun run build            # electron-vite build → out/
-bun run start            # electron out/main/index.js
+electron .               # runs package main: out/main/bootstrap.js
 ```
 
 ### Packaging & Release

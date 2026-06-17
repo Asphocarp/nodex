@@ -9,7 +9,11 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: {
-          index: resolve(__dirname, "src/main/index.ts"),
+          bootstrap: resolve(__dirname, "src/main/bootstrap.ts"),
+        },
+        output: {
+          entryFileNames: "[name].js",
+          chunkFileNames: "[name]-[hash].js",
         },
       },
     },

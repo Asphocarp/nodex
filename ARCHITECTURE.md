@@ -17,7 +17,8 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `nfm/*`: shared Notion-flavored Markdown parser/serializer core used by both main-process storage logic and renderer editor adapters.
 
 ### Main Process and Data Layer (`src/main`)
-- `index.ts`: application bootstrap (startup-init gating, DB init with migration progress fanout, HTTP server start, multi-window registry, profile-scoped single-instance lock, notifier fanout).
+- `bootstrap.ts`: early Electron lifecycle entrypoint. It resolves the server profile dir, scopes `userData`/`sessionData`, owns the profile-scoped single-instance lock and deep-link queue, runs the packaged macOS Applications prompt, and dynamically imports the application runtime.
+- `main-runtime.ts`: application runtime startup (startup-init gating, DB init with migration progress fanout, HTTP server start, multi-window registry, app-update service, notifier fanout, and shutdown handlers).
 - `instance-scope.ts`: resolves/apply Electron `userData` + `sessionData` paths under the resolved server dir so each configured profile owns its own process lock scope.
 - `http-server.ts`: Hono routes for projects, project sessions/tabs/thread links, cards, history, backups, and assets.
 - `ipc-handlers.ts`: mirrors core operations through IPC, including project session mutations, side-chat start/discard requests, native context menu selection, asset-path resolution, and clipboard paste inspection for desktop-only file/folder paste flows.
