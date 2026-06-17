@@ -57,6 +57,7 @@ interface CardProps {
   dragDisabled?: boolean;
   dropDisabled?: boolean;
   isFocused?: boolean;
+  isActiveInPanel?: boolean;
   isSelected?: boolean;
   onClick: (event: React.MouseEvent<HTMLDivElement>) => void;
   buildDragData?: (card: CardType, columnId: string) => KanbanCardDragData;
@@ -395,6 +396,7 @@ interface CardSurfaceProps extends React.HTMLAttributes<HTMLDivElement> {
   fixedHeight?: number;
   isDragging?: boolean;
   isFocused?: boolean;
+  isActiveInPanel?: boolean;
   isSelected?: boolean;
   position: CardPropertyPosition;
   activeProperty: CardEditableProperty | null;
@@ -417,6 +419,7 @@ const CardSurface = forwardRef<HTMLDivElement, CardSurfaceProps>(function CardSu
   fixedHeight,
   isDragging = false,
   isFocused,
+  isActiveInPanel = false,
   isSelected = false,
   position,
   activeProperty,
@@ -432,9 +435,11 @@ const CardSurface = forwardRef<HTMLDivElement, CardSurfaceProps>(function CardSu
     ? "0 0 0 1.5px var(--destructive)"
     : isSelected
       ? "0 0 0 1.5px color-mix(in srgb, var(--accent-blue) 72%, transparent)"
-      : isFocused
-        ? "0 0 0 1.5px color-mix(in srgb, var(--accent-blue) 50%, transparent)"
-        : null;
+      : isActiveInPanel
+        ? "0 0 0 1.5px color-mix(in srgb, var(--accent-blue) 58%, transparent)"
+        : isFocused
+          ? "0 0 0 1.5px color-mix(in srgb, var(--accent-blue) 50%, transparent)"
+          : null;
 
   const baseShadow = isDragging
     ? isDark
@@ -458,6 +463,7 @@ const CardSurface = forwardRef<HTMLDivElement, CardSurfaceProps>(function CardSu
       ref={ref}
       style={mergedStyle}
       {...domProps}
+      data-kanban-card-panel-active={isActiveInPanel ? "true" : undefined}
       className={cn(
         "min-h-10 overflow-hidden rounded-lg bg-(--card) select-none",
         dragDisabled ? "cursor-pointer" : "cursor-grab active:cursor-grabbing",
@@ -521,6 +527,7 @@ export function Card({
   dragDisabled = false,
   dropDisabled = false,
   isFocused,
+  isActiveInPanel,
   isSelected = false,
   onClick,
   buildDragData,
@@ -675,6 +682,7 @@ export function Card({
       showStaticDragGhost={showStaticDragGhost}
       isDragging={isDragging}
       isFocused={isFocused}
+      isActiveInPanel={isActiveInPanel}
       isSelected={isSelected}
       position={position}
       activeProperty={activeChipEdit?.property ?? null}

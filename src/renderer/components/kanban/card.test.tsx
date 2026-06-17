@@ -79,6 +79,31 @@ describe("kanban card", () => {
     expect(card.container.querySelector(".select-none")).not.toBeNull();
   });
 
+  test("renders an active-panel ring when the card is open in a visible selected panel tab", async () => {
+    mockCardPropertyPosition = "inline";
+    const card = await renderCard({
+      card: {
+        id: "card-1",
+        status: "in_progress",
+        archived: false,
+        title: "Task",
+        description: "Body",
+        priority: "p2-medium",
+        tags: [],
+        agentBlocked: false,
+        created: new Date("2026-03-01T00:00:00.000Z"),
+        order: 0,
+      },
+      columnId: "in_progress",
+      isActiveInPanel: true,
+      onClick: () => undefined,
+    });
+
+    const surface = card.container.querySelector<HTMLElement>('[data-kanban-card-panel-active="true"]');
+    expect(surface).not.toBeNull();
+    expect(surface?.getAttribute("style")?.includes("var(--accent-blue) 58%") ?? false).toBeTrue();
+  });
+
   test("renders property chips as buttons when inline editing is enabled", async () => {
     mockCardPropertyPosition = "inline";
     const card = await renderCard({

@@ -57,6 +57,7 @@ interface ColumnProps {
   isDropTargetActive?: boolean;
   dropBlockedMessage?: string;
   focusedCardId?: string;
+  activePanelCardStageCardIds?: ReadonlySet<string>;
   selectedCardIds?: ReadonlySet<string>;
   contextMenuProjects?: CardContextMenuProjectSummary[];
 }
@@ -90,6 +91,7 @@ export const Column = memo(function Column({
   isDropTargetActive = false,
   dropBlockedMessage,
   focusedCardId,
+  activePanelCardStageCardIds,
   selectedCardIds = new Set<string>(),
   contextMenuProjects = [],
 }: ColumnProps) {
@@ -334,6 +336,7 @@ export const Column = memo(function Column({
                       dragDisabled={dragDisabled}
                       dropDisabled={cardDropDisabled}
                       isFocused={card.id === focusedCardId}
+                      isActiveInPanel={activePanelCardStageCardIds?.has(card.id) ?? false}
                       isSelected={selectedCardIds.has(card.id)}
                       onClick={(event) => onEditCard(column.id, card, event)}
                       onUpdateProperty={onUpdateCardProperty}

@@ -105,6 +105,7 @@ interface KanbanBoardProps {
     titleSnapshot?: string,
   ) => void;
   cardStageCardId: string | undefined;
+  activePanelCardStageCardIds?: ReadonlySet<string>;
   cardStageCloseRef?: React.MutableRefObject<(() => Promise<void>) | null>;
 }
 
@@ -115,6 +116,7 @@ export function KanbanBoard({
   dbViewPrefs,
   openCardStage,
   cardStageCardId,
+  activePanelCardStageCardIds,
   cardStageCloseRef,
 }: KanbanBoardProps) {
   // History hooks
@@ -993,6 +995,7 @@ export function KanbanBoard({
                   : undefined
               }
               focusedCardId={cardStageCardId}
+              activePanelCardStageCardIds={activePanelCardStageCardIds}
               selectedCardIds={selectedCardIds}
               contextMenuProjects={contextMenuProjects}
             />

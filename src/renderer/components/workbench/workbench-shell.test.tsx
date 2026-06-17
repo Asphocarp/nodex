@@ -3754,6 +3754,112 @@ describe("workbench session shell", () => {
     );
   });
 
+  test("marks cards active in the DB view when selected card-stage tabs are visible", async () => {
+    const rightLayout = splitProjectSessionPanelLeaf(
+      makePanelLayout(["db-tab", "card-tab"], "db-tab"),
+      {
+        leafId: "main",
+        side: "right",
+        tabId: "card-tab",
+        newLeafId: "leaf:card",
+        newBranchId: "branch:root",
+      },
+    );
+    const panels = makePanels({
+      rightTabIds: ["db-tab", "card-tab"],
+      rightActiveTabId: "db-tab",
+      rightFullWidth: false,
+    });
+
+    renderWorkbench({
+      sessionsByProject: {
+        alpha: [
+          makeSession({
+            panels: {
+              ...panels,
+              right: {
+                ...panels.right,
+                layout: rightLayout,
+              },
+            },
+            tabs: [
+              {
+                id: "db-tab",
+                sessionId: "overview:alpha",
+                projectId: "alpha",
+                kind: "db_view",
+                title: "DB View",
+                panelId: "right",
+                config: { projectId: "alpha", view: "kanban" },
+              },
+              {
+                id: "card-tab",
+                sessionId: "overview:alpha",
+                projectId: "alpha",
+                kind: "card_stage",
+                title: "Card One",
+                panelId: "right",
+                config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
+              },
+            ],
+          }),
+        ],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
+    const activeCardIds = props?.activePanelCardStageCardIds as ReadonlySet<string> | undefined;
+    expect(activeCardIds?.has("card-1") ?? false).toBeTrue();
+  });
+
+  test("does not mark cards active from selected card-stage tabs in collapsed panels", async () => {
+    const panels = makePanels({
+      rightTabIds: ["db-tab"],
+      rightActiveTabId: "db-tab",
+      bottomTabIds: ["card-tab"],
+      bottomActiveTabId: "card-tab",
+      bottomCollapsed: true,
+    });
+
+    renderWorkbench({
+      sessionsByProject: {
+        alpha: [
+          makeSession({
+            panels,
+            tabs: [
+              {
+                id: "db-tab",
+                sessionId: "overview:alpha",
+                projectId: "alpha",
+                kind: "db_view",
+                title: "DB View",
+                panelId: "right",
+                config: { projectId: "alpha", view: "kanban" },
+              },
+              {
+                id: "card-tab",
+                sessionId: "overview:alpha",
+                projectId: "alpha",
+                kind: "card_stage",
+                title: "Card One",
+                panelId: "bottom",
+                config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
+              },
+            ],
+          }),
+        ],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
+    const activeCardIds = props?.activePanelCardStageCardIds as ReadonlySet<string> | undefined;
+    expect(activeCardIds?.has("card-1") ?? false).toBeFalse();
+  });
+
   test("focusing an existing card tab from the DB tab preserves full-width right panel mode", async () => {
     const screen = renderWorkbench({
       sessionsByProject: {

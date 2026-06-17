@@ -16,6 +16,7 @@ interface MainViewHostProps {
   dbViewPrefs: DbViewPrefs | null;
   onUpdateDbViewPrefs: ((update: (prev: DbViewPrefs) => DbViewPrefs) => void) | null;
   cardStageCardId?: string;
+  activePanelCardStageCardIds?: ReadonlySet<string>;
   cardStageCloseRef: React.RefObject<(() => Promise<void>) | null>;
   pendingReminderOpen?: {
     projectId: string;
@@ -46,6 +47,7 @@ export function MainViewHost({
   dbViewPrefs,
   onUpdateDbViewPrefs,
   cardStageCardId,
+  activePanelCardStageCardIds,
   cardStageCloseRef,
   pendingReminderOpen,
   calendarState,
@@ -64,6 +66,7 @@ export function MainViewHost({
         dbViewPrefs={dbViewPrefs}
         openCardStage={openCardStage}
         cardStageCardId={cardStageCardId}
+        activePanelCardStageCardIds={activePanelCardStageCardIds}
         cardStageCloseRef={cardStageCloseRef}
       />
     );

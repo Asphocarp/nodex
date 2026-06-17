@@ -1038,6 +1038,19 @@ function resolveCardTabTargetLeafId(session: ProjectSession, sourceTabId: string
   return findNearestProjectSessionPanelLeafToRight(session.panels.right.layout, sourceLeafId) ?? undefined;
 }
 
+function readCardStagePanelTabCardRef(tab: ProjectSessionTab | null | undefined): {
+  projectId: string;
+  cardId: string;
+} | null {
+  if (!tab || tab.kind !== "card_stage") return null;
+  if (!("projectId" in tab.config) || !("cardId" in tab.config)) return null;
+
+  return {
+    projectId: tab.config.projectId,
+    cardId: tab.config.cardId,
+  };
+}
+
 function buildShellNavigationSnapshot(input: {
   activeProjectId: string;
   activeSession: ProjectSession | null;
@@ -3336,6 +3349,79 @@ export function WorkbenchShell({
     window.addEventListener("mouseup", onMouseUp);
   }, [activeSession, bottomPanelHeight, sessionContentHeight, setActivePanelCollapsed, updateActivePanel]);
 
+  const activePanelCardStageCardIdsByProject = useMemo<ReadonlyMap<string, ReadonlySet<string>>>(() => {
+    const byProject = new Map<string, Set<string>>();
+    if (!activeSession) return byProject;
+
+    const durableById = new Map(activeSession.tabs.map((tab) => [tab.id, tab]));
+    const collectPanelVisibleCardStageCards = (panelId: PanelId, panelOpen: boolean) => {
+      if (!panelOpen) return;
+
+      const panel = activeSession.panels[panelId];
+      const panelActiveLeafId = resolveSessionPanelActiveLeafId(activeSession, panelId);
+      const leaves = listProjectSessionPanelLeaves(panel.layout);
+      const visibleLeaves = panel.layout.maximizedLeafId
+        ? leaves.filter((leaf) => leaf.id === panel.layout.maximizedLeafId)
+        : leaves;
+
+      for (const leaf of visibleLeaves) {
+        const previewTab = previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId, leaf.id)]
+          ?? (leaf.id === panelActiveLeafId ? previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId)] : null)
+          ?? null;
+        if (previewTab) continue;
+
+        const durableTabs = leaf.tabIds.flatMap((tabId) => {
+          const tab = durableById.get(tabId);
+          return tab && tab.panelId === panelId ? [tab] : [];
+        });
+        const sideChatTabs = (sideChatTabsBySession[activeSession.id] ?? []).filter((tab) =>
+          tab.panelId === panelId && (tab.leafId ?? panelActiveLeafId) === leaf.id
+        );
+        const mcpAppTabs = (mcpAppTabsBySession[activeSession.id] ?? []).filter((tab) =>
+          tab.panelId === panelId && (tab.leafId ?? panelActiveLeafId) === leaf.id
+        );
+        const renderableTabs: ProjectSessionRenderableTab[] = [
+          ...durableTabs,
+          ...sideChatTabs,
+          ...mcpAppTabs,
+        ];
+        const sideChatActiveTabId = sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, panelId, leaf.id)]
+          ?? (leaf.id === panelActiveLeafId ? sideChatActiveTabByPanel[makeSideChatPanelKey(activeSession.id, panelId)] : null)
+          ?? null;
+        const mcpAppActiveTabId = mcpAppActiveTabByPanel[makeMcpAppPanelKey(activeSession.id, panelId, leaf.id)]
+          ?? (leaf.id === panelActiveLeafId ? mcpAppActiveTabByPanel[makeMcpAppPanelKey(activeSession.id, panelId)] : null)
+          ?? null;
+        const activeTabId = (mcpAppActiveTabId && renderableTabs.some((tab) => tab.id === mcpAppActiveTabId)
+          ? mcpAppActiveTabId
+          : null)
+          ?? (sideChatActiveTabId && renderableTabs.some((tab) => tab.id === sideChatActiveTabId)
+            ? sideChatActiveTabId
+            : leaf.activeTabId)
+          ?? renderableTabs[0]?.id
+          ?? null;
+        const cardRef = readCardStagePanelTabCardRef(activeTabId ? durableById.get(activeTabId) : null);
+        if (!cardRef) continue;
+
+        const cardIds = byProject.get(cardRef.projectId) ?? new Set<string>();
+        cardIds.add(cardRef.cardId);
+        byProject.set(cardRef.projectId, cardIds);
+      }
+    };
+
+    collectPanelVisibleCardStageCards("right", sidePanelOpen);
+    collectPanelVisibleCardStageCards("bottom", bottomPanelOpen);
+    return byProject;
+  }, [
+    activeSession,
+    bottomPanelOpen,
+    mcpAppActiveTabByPanel,
+    mcpAppTabsBySession,
+    previewTabsByPanel,
+    sideChatActiveTabByPanel,
+    sideChatTabsBySession,
+    sidePanelOpen,
+  ]);
+
   const panelGroupTabs = useMemo<Record<PanelId, {
     itemsByLeafId: Record<string, AppShellTabItem[]>;
     activeTabIdsByLeafId: Record<string, string | null>;
@@ -3418,6 +3504,7 @@ export function WorkbenchShell({
             activeDbViewPrefs={activeDbViewPrefs}
             searchByProject={searchByProject}
             dbViewPrefsByProject={dbViewPrefsByProject}
+            activePanelCardStageCardIdsByProject={activePanelCardStageCardIdsByProject}
             cardStageCloseRef={cardStageCloseRef}
             cardStagePersistRef={cardStagePersistRef}
             cardStageSessionSnapshotRef={cardStageSessionSnapshotRef}
@@ -3490,6 +3577,7 @@ export function WorkbenchShell({
     };
   }, [
     activeDbViewPrefs,
+    activePanelCardStageCardIdsByProject,
     activeSearchQuery,
     activeSession,
     activeView,
@@ -5786,6 +5874,7 @@ function ProjectSessionTabPanel({
   activeDbViewPrefs,
   searchByProject,
   dbViewPrefsByProject,
+  activePanelCardStageCardIdsByProject,
   cardStageCloseRef,
   cardStagePersistRef,
   cardStageSessionSnapshotRef,
@@ -5809,6 +5898,7 @@ function ProjectSessionTabPanel({
   activeDbViewPrefs: DbViewPrefs | null;
   searchByProject: Record<string, string>;
   dbViewPrefsByProject: Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>;
+  activePanelCardStageCardIdsByProject: ReadonlyMap<string, ReadonlySet<string>>;
   cardStageCloseRef: React.RefObject<(() => Promise<void>) | null>;
   cardStagePersistRef?: React.MutableRefObject<(() => Promise<void>) | null>;
   cardStageSessionSnapshotRef?: React.MutableRefObject<CardStageSessionSnapshot | null>;
@@ -5846,6 +5936,7 @@ function ProjectSessionTabPanel({
         activeDbViewPrefs={activeDbViewPrefs}
         searchByProject={searchByProject}
         dbViewPrefsByProject={dbViewPrefsByProject}
+        activePanelCardStageCardIdsByProject={activePanelCardStageCardIdsByProject}
         cardStageCloseRef={cardStageCloseRef}
         pendingReminderOpen={pendingReminderOpen}
         taskSearchOpenTick={taskSearchOpenTick}
@@ -5951,6 +6042,7 @@ function DbViewSessionTab({
   activeDbViewPrefs,
   searchByProject,
   dbViewPrefsByProject,
+  activePanelCardStageCardIdsByProject,
   cardStageCloseRef,
   pendingReminderOpen,
   taskSearchOpenTick,
@@ -5967,6 +6059,7 @@ function DbViewSessionTab({
   activeDbViewPrefs: DbViewPrefs | null;
   searchByProject: Record<string, string>;
   dbViewPrefsByProject: Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>;
+  activePanelCardStageCardIdsByProject: ReadonlyMap<string, ReadonlySet<string>>;
   cardStageCloseRef: React.RefObject<(() => Promise<void>) | null>;
   pendingReminderOpen?: {
     projectId: string;
@@ -6008,6 +6101,7 @@ function DbViewSessionTab({
   const taskSearchInputRef = useRef<HTMLInputElement | null>(null);
   const lastHandledTaskSearchOpenTickRef = useRef(taskSearchOpenTick);
   const searchQuery = searchByProject[config.projectId] ?? (config.projectId === tab.projectId ? activeSearchQuery : "");
+  const activePanelCardStageCardIds = activePanelCardStageCardIdsByProject.get(config.projectId);
   const availableTags = useMemo(() => {
     if (!activeProjectBoard) return [];
     return Array.from(
@@ -6141,6 +6235,7 @@ function DbViewSessionTab({
           searchQuery={searchQuery}
           dbViewPrefs={dbViewPrefs}
           onUpdateDbViewPrefs={updateDbViewPrefs}
+          activePanelCardStageCardIds={activePanelCardStageCardIds}
           cardStageCloseRef={cardStageCloseRef}
           pendingReminderOpen={pendingReminderOpen}
           calendarState={calendarState}
