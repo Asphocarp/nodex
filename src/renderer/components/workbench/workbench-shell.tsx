@@ -1085,7 +1085,6 @@ export function WorkbenchShell({
   const [threadSummaryPanelPopoverOpen, setThreadSummaryPanelPopoverOpen] = useState(false);
   const [localSidebarCollapsed, setLocalSidebarCollapsed] = useState(false);
   const [localSidebarWidth, setLocalSidebarWidth] = useState(CODEX_SIDEBAR_WIDTH_DEFAULT_PX);
-  const [sidebarPointer, setSidebarPointer] = useState<CodexSidebarPointerSnapshot>(CODEX_SIDEBAR_POINTER_DEFAULT);
   const [floatingSidebarVisible, setFloatingSidebarVisible] = useState(false);
   const [sidebarHoverSuppressed, setSidebarHoverSuppressed] = useState(false);
   const [sidebarTriggerHovered, setSidebarTriggerHovered] = useState(false);
@@ -1100,6 +1099,19 @@ export function WorkbenchShell({
   const sessionContentRef = useRef<HTMLDivElement | null>(null);
   const pinningPreviewTabIdsRef = useRef<Set<string>>(new Set());
   const sidebarPointerRef = useRef<CodexSidebarPointerSnapshot>(CODEX_SIDEBAR_POINTER_DEFAULT);
+  // Non-pointer inputs for sidebar auto-reveal, mirrored into a ref so the
+  // high-frequency `pointermove` handler can recompute visibility WITHOUT
+  // storing the pointer in React state. Keeping the pointer out of state is
+  // what prevents a full workbench re-render on every mouse move (which would
+  // cascade into the editor and remount the BlockNote drag handle mid-gesture).
+  const sidebarVisibilityInputsRef = useRef({
+    sidebarWidth: CODEX_SIDEBAR_WIDTH_DEFAULT_PX,
+    sidebarCollapsed: false,
+    sidebarAnimating: false,
+    appShellFocusAreaActive: false,
+    sidebarHoverSuppressed: false,
+    sidebarTriggerHovered: false,
+  });
   const lastHandledSidebarToggleRequestTickRef = useRef(sidebarToggleRequestTick);
   const lastHandledNavigationCommandTickRef = useRef(navigationCommandRequest?.tick ?? 0);
   const currentShellNavigationSnapshotRef = useRef<WorkbenchShellNavigationSnapshot | null>(null);
@@ -3626,6 +3638,37 @@ export function WorkbenchShell({
     return Number.isFinite(value) && value > 0 ? value : 1;
   }, []);
 
+  // Single source of truth for sidebar auto-reveal visibility. Reads the latest
+  // pointer X (passed in) plus non-pointer inputs from a ref, so it can be
+  // invoked from both the pointermove handler and the input-change effect below.
+  // `setFloatingSidebarVisible`/`setSidebarHoverSuppressed` no-op when their
+  // value is unchanged, so calling this on every pointer move does not re-render
+  // unless the reveal state actually flips.
+  const recomputeFloatingSidebarVisibility = useCallback((pointerX: number | null) => {
+    const inputs = sidebarVisibilityInputsRef.current;
+    if (inputs.sidebarHoverSuppressed) {
+      if (!shouldClearCodexSidebarHoverSuppression({
+        pointerX,
+        triggerHovered: inputs.sidebarTriggerHovered,
+      })) {
+        setFloatingSidebarVisible(false);
+        return;
+      }
+      setSidebarHoverSuppressed(false);
+      return;
+    }
+
+    setFloatingSidebarVisible((current) => deriveCodexSidebarFloatingVisibility({
+      pointerX,
+      leftPanelWidthPx: inputs.sidebarWidth,
+      sidebarOpen: !inputs.sidebarCollapsed,
+      sidebarAnimating: inputs.sidebarAnimating,
+      hoverSuppressed: false,
+      focusOverride: inputs.appShellFocusAreaActive,
+      currentlyVisible: current,
+    }));
+  }, []);
+
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
       const nextPointer = normalizeCodexSidebarPointer(
@@ -3638,14 +3681,14 @@ export function WorkbenchShell({
         getWindowZoom(),
       );
       sidebarPointerRef.current = nextPointer;
-      setSidebarPointer(nextPointer);
+      recomputeFloatingSidebarVisibility(nextPointer.x);
     };
 
     window.addEventListener("pointermove", handlePointerMove);
     return () => {
       window.removeEventListener("pointermove", handlePointerMove);
     };
-  }, [getWindowZoom]);
+  }, [getWindowZoom, recomputeFloatingSidebarVisibility]);
 
   useEffect(() => {
     const updateFocusAreaActive = () => {
@@ -3666,33 +3709,24 @@ export function WorkbenchShell({
   }, []);
 
   useEffect(() => {
-    if (sidebarHoverSuppressed) {
-      if (!shouldClearCodexSidebarHoverSuppression({
-        pointerX: sidebarPointer.x,
-        triggerHovered: sidebarTriggerHovered,
-      })) {
-        setFloatingSidebarVisible(false);
-        return;
-      }
-      setSidebarHoverSuppressed(false);
-      return;
-    }
-
-    setFloatingSidebarVisible((current) => deriveCodexSidebarFloatingVisibility({
-      pointerX: sidebarPointer.x,
-      leftPanelWidthPx: sidebarWidth,
-      sidebarOpen: !sidebarCollapsed,
+    // Keep the ref the pointermove handler reads in sync, then recompute once
+    // for this input change (pointer comes from the ref — auto-reveal still
+    // reacts when width/collapse/focus change without the mouse moving).
+    sidebarVisibilityInputsRef.current = {
+      sidebarWidth,
+      sidebarCollapsed,
       sidebarAnimating,
-      hoverSuppressed: false,
-      focusOverride: appShellFocusAreaActive,
-      currentlyVisible: current,
-    }));
+      appShellFocusAreaActive,
+      sidebarHoverSuppressed,
+      sidebarTriggerHovered,
+    };
+    recomputeFloatingSidebarVisibility(sidebarPointerRef.current.x);
   }, [
     appShellFocusAreaActive,
+    recomputeFloatingSidebarVisibility,
     sidebarAnimating,
     sidebarCollapsed,
     sidebarHoverSuppressed,
-    sidebarPointer.x,
     sidebarTriggerHovered,
     sidebarWidth,
   ]);

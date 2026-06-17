@@ -62,7 +62,7 @@ import {
   mapDraggedBlocksToCardInputs,
   resolveTopLevelDraggedBlocks,
 } from "./block-drop-card-mapper";
-import { NfmDragHandleMenu, type SendBlocksMode } from "./nfm-drag-handle-menu";
+import { NfmDragHandleMenu, type NfmDragHandleMenuComponentProps, type SendBlocksMode } from "./nfm-drag-handle-menu";
 import { NfmSideMenu } from "./nfm-side-menu";
 import { resolveSendBlockSelection } from "./send-block-selection";
 import { PasteResourceDialog } from "./paste-resource-dialog";
@@ -2242,20 +2242,41 @@ export function NfmEditor({
     };
   }, [handleInlineEmbedDrop, sourceCardContext]);
 
-  const customSideMenu = useCallback(
-    () => (
-      <NfmSideMenu
-        dragHandleMenu={({ releaseSideMenuFreeze }) => (
-          <NfmDragHandleMenu
-            canSendBlocks={sourceCardContext !== undefined}
-            onSendBlocks={openSendBlocksDialog}
-            onConvertDividerToThreadSection={handleConvertDividerToThreadSection}
-            releaseSideMenuFreeze={releaseSideMenuFreeze}
-          />
-        )}
+  // The side-menu component identity must stay stable across NfmEditor renders.
+  // BlockNote renders the side menu as `<Component/>` where Component is this
+  // value; if its identity changes, React remounts the whole side-menu (and its
+  // native drag-handle) subtree. Because the editor can re-render at a high
+  // frequency, an unstable side-menu identity remounts the grip mid-gesture and
+  // aborts native block drag-and-drop. Route volatile values through a ref so
+  // the callback identity below never changes.
+  const sideMenuHandlersRef = useRef({
+    canSendBlocks: sourceCardContext !== undefined,
+    onSendBlocks: openSendBlocksDialog,
+    onConvertDividerToThreadSection: handleConvertDividerToThreadSection,
+  });
+  sideMenuHandlersRef.current = {
+    canSendBlocks: sourceCardContext !== undefined,
+    onSendBlocks: openSendBlocksDialog,
+    onConvertDividerToThreadSection: handleConvertDividerToThreadSection,
+  };
+
+  const renderDragHandleMenu = useCallback(
+    ({ releaseSideMenuFreeze }: NfmDragHandleMenuComponentProps) => (
+      <NfmDragHandleMenu
+        canSendBlocks={sideMenuHandlersRef.current.canSendBlocks}
+        onSendBlocks={(mode, fallbackBlockId) =>
+          sideMenuHandlersRef.current.onSendBlocks(mode, fallbackBlockId)}
+        onConvertDividerToThreadSection={(blockId) =>
+          sideMenuHandlersRef.current.onConvertDividerToThreadSection(blockId)}
+        releaseSideMenuFreeze={releaseSideMenuFreeze}
       />
     ),
-    [handleConvertDividerToThreadSection, openSendBlocksDialog, sourceCardContext],
+    [],
+  );
+
+  const customSideMenu = useCallback(
+    () => <NfmSideMenu dragHandleMenu={renderDragHandleMenu} />,
+    [renderDragHandleMenu],
   );
 
   const activeMatchLabel =
