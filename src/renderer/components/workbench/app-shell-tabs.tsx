@@ -91,6 +91,7 @@ interface AppShellTabsProps {
   afterListSticky?: ReactNode;
   afterList?: ReactNode;
   bodyOverlay?: ReactNode;
+  tabScrollEndPaddingPx?: number;
   headerEndInsetPx?: number;
   headerHeight?: "pane" | "toolbar";
   className?: string;
@@ -135,6 +136,7 @@ export function AppShellTabs({
   afterListSticky,
   afterList,
   bodyOverlay,
+  tabScrollEndPaddingPx = 0,
   headerEndInsetPx = 0,
   headerHeight = "pane",
   className,
@@ -248,16 +250,16 @@ export function AppShellTabs({
     >
       <div
         className={cn(
-          "draggable flex min-w-0 shrink-0 items-center bg-token-main-surface-primary px-2",
+          "isolate flex min-w-0 shrink-0 select-none items-center bg-token-main-surface-primary px-2 [contain:layout_paint]",
           headerHeight === "toolbar" ? "h-toolbar" : "h-toolbar-pane",
         )}
       >
-        {beforeList ? <div className="no-drag flex h-full shrink-0 items-center">{beforeList}</div> : null}
+        {beforeList ? <div role="presentation" className="no-drag my-auto flex shrink-0 items-center">{beforeList}</div> : null}
         <div
           ref={tabRowRef}
           data-panel-tab-row={panelTabDnd ? `${panelTabDnd.panelId}:${panelTabDnd.leafId}` : undefined}
-          className="hide-scrollbar relative flex h-full min-w-0 flex-1 scroll-px-1 items-center overflow-x-auto overflow-y-hidden"
-          style={{ scrollPaddingInlineEnd: headerEndInsetPx }}
+          className="hide-scrollbar relative isolate flex h-full min-w-0 flex-1 scroll-px-1 items-center overflow-x-auto overflow-y-hidden [contain:layout_paint]"
+          style={{ scrollPaddingInlineEnd: tabScrollEndPaddingPx }}
         >
           <div
             aria-hidden="true"
@@ -266,7 +268,7 @@ export function AppShellTabs({
           <span aria-hidden="true" />
           {tabList}
           {afterTabsInline ? (
-            <div className="relative z-0 flex h-full shrink-0 items-center ps-1">{afterTabsInline}</div>
+            <div className="no-drag sticky right-0 z-10 flex h-full shrink-0 items-center bg-token-main-surface-primary">{afterTabsInline}</div>
           ) : null}
           {tabRowPreview ? (
             <div
@@ -280,13 +282,14 @@ export function AppShellTabs({
           <div
             aria-hidden="true"
             className="sticky end-0 z-10 h-full w-0 opacity-0 transition-opacity duration-100 after:absolute after:end-0 after:inset-y-0 after:w-10 after:bg-linear-to-r after:from-transparent after:to-token-main-surface-primary after:content-[''] after:pointer-events-none"
+            style={{ right: tabScrollEndPaddingPx }}
           />
         </div>
         {afterListSticky ? (
-          <div className="no-drag ml-1 flex shrink-0 items-center gap-1.5">{afterListSticky}</div>
+          <div role="presentation" className="no-drag my-auto flex shrink-0 items-center">{afterListSticky}</div>
         ) : null}
         {afterList ? (
-          <div className="no-drag ml-1 flex shrink-0 items-center gap-1.5">{afterList}</div>
+          <div role="presentation" className="no-drag my-auto flex shrink-0 items-center">{afterList}</div>
         ) : null}
         {headerEndInsetPx > 0 ? (
           <div
@@ -511,7 +514,7 @@ function AppShellTab({
     >
       <div
         data-tab-id={dataTabId}
-        className="group/tab relative flex h-7 max-w-39 shrink-0 items-center overflow-hidden rounded-lg bg-token-main-surface-primary px-2 py-1"
+        className="group/tab relative flex h-7 max-w-39 shrink-0 items-center overflow-hidden rounded-md bg-token-main-surface-primary px-2 py-1"
         role="button"
         tabIndex={tab.disabled ? -1 : 0}
         aria-disabled={tab.disabled ? "true" : "false"}
@@ -527,7 +530,7 @@ function AppShellTab({
       >
         <div
           className={cn(
-            "pointer-events-none absolute inset-0 z-0 rounded-lg group-hover/tab:bg-[var(--app-shell-tab-background)]",
+            "pointer-events-none absolute inset-0 z-0 rounded-md group-hover/tab:bg-[var(--app-shell-tab-background)]",
             (isActive || isDragging) && "bg-[var(--app-shell-tab-background)]",
           )}
         />
@@ -539,7 +542,7 @@ function AppShellTab({
           aria-controls={isActive ? panelId : undefined}
           disabled={tab.disabled}
           className={cn(
-            "no-drag relative z-10 flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-sm",
+            "no-drag relative z-10 flex min-w-0 flex-1 items-center gap-2 text-sm",
             isActive ? "text-token-text-primary" : "text-token-text-secondary",
           )}
           onMouseDown={(event) => {
@@ -554,28 +557,9 @@ function AppShellTab({
           }}
         >
           {Icon ? (
-            <span aria-hidden="true" className="icon-xs flex shrink-0 items-center justify-center">
+            <span aria-hidden="true" className="icon-xs relative flex shrink-0 items-center justify-center overflow-visible">
               <Icon className="icon-xs shrink-0" />
             </span>
-          ) : null}
-          {onClose ? (
-            <div
-              data-app-shell-tab-no-drag="true"
-              role="button"
-              aria-label={`Close ${tab.titleLabel ?? tab.title} tab`}
-              className="no-drag absolute start-0 inset-y-0 z-30 hidden shrink-0 cursor-interaction items-center bg-(--app-shell-tab-background) text-token-text-tertiary hover:text-token-text-primary group-hover/tab:flex after:absolute after:-inset-1 after:content-['']"
-              onMouseDown={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-              }}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                closeCurrentTab();
-              }}
-            >
-              <CodexTabCloseIcon className="icon-xs" />
-            </div>
           ) : null}
           {tab.tooltip ? (
             <NodexTooltip
@@ -589,12 +573,31 @@ function AppShellTab({
             </NodexTooltip>
           ) : title}
         </button>
+        {onClose ? (
+          <button
+            type="button"
+            data-app-shell-tab-no-drag="true"
+            aria-label={`Close ${tab.titleLabel ?? tab.title} tab`}
+            className="no-drag invisible absolute inset-y-0 end-2 z-30 flex cursor-interaction items-center text-token-text-tertiary group-focus-within/tab:visible group-hover/tab:visible hover:text-token-text-primary after:absolute after:-inset-1 after:content-[''] before:pointer-events-none before:absolute before:inset-y-0 before:end-0 before:w-10 before:bg-linear-to-r before:from-transparent before:to-40% before:content-[''] before:to-token-main-surface-primary group-hover/tab:before:to-[var(--app-shell-tab-background)]"
+            onMouseDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              closeCurrentTab();
+            }}
+          >
+            <CodexTabCloseIcon className="icon-xs relative" />
+          </button>
+        ) : null}
         {titleOverflows ? (
           <div
             aria-hidden="true"
             data-app-shell-tab-title-fade={tab.id}
             className={cn(
-              "pointer-events-none absolute inset-y-0 end-0 z-20 w-8 bg-linear-to-r from-transparent to-60%",
+              "pointer-events-none absolute inset-y-0 end-0 z-20 w-4 bg-linear-to-r from-transparent to-60%",
               isActive
                 ? "to-[var(--app-shell-tab-background)]"
                 : "to-token-main-surface-primary group-hover/tab:to-[var(--app-shell-tab-background)]",

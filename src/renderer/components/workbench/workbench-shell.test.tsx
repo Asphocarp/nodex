@@ -49,6 +49,7 @@ const CODEX_BOTTOM_PANEL_HIDDEN_ICON_PREFIX = "M13.334 12.2529";
 const CODEX_EXPAND_PANEL_ICON_PREFIX = "M16.0299 3.0293";
 const CODEX_RESTORE_PANEL_ICON_PREFIX = "M4.33496 11";
 const CODEX_NEW_CHAT_ICON_PREFIX = "M2.6687 11.333";
+const CODEX_TITLEBAR_NEW_CHAT_ICON_PREFIX = "M6.33325 1.88379";
 const CODEX_TOP_NEW_CHAT_CLASS = "focus-visible:outline-token-border relative h-token-nav-row px-row-x py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-lg text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background group";
 const CODEX_PROJECT_NEW_CHAT_CLASS = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-muted-foreground enabled:hover:bg-transparent data-[state=open]:bg-transparent hover:text-token-foreground border-transparent electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5 h-6 w-6 rounded-md !p-1";
 const CODEX_COLLAPSED_CHROME_BUTTON_CLASS = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg h-token-button-composer px-2 py-0 text-base leading-[18px] aspect-square justify-center !px-0 text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent";
@@ -2477,6 +2478,58 @@ describe("workbench session shell", () => {
     expect(restoreButton.getAttribute("aria-pressed")).toBe("true");
   });
 
+  test("collapsed sidebar full-width right panel reserves the left titlebar width before tabs", async () => {
+    const originalPlatform = navigator.platform;
+    Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
+    try {
+      const screen = renderWorkbench({ sidebar: { collapsed: true, width: 300 } });
+      await settleAsyncRender();
+      await settleAsyncRender();
+
+      const leftSlot = getHeaderShellSlot(screen, "left");
+      const rightSlot = getHeaderShellSlot(screen, "right");
+      const rightPanel = screen.getByTestId("session-right-panel");
+      const tabHeader = rightPanel.querySelector('[role="tablist"]')?.parentElement?.parentElement;
+      if (!tabHeader) throw new Error("Expected right-panel tab header");
+      const leadingSpacer = tabHeader.firstElementChild?.firstElementChild;
+      const tabRow = tabHeader.children.item(1);
+      const trailingSpacer = screen.container.querySelector('[data-testid="right-panel-tab-bar-header-spacer"]');
+      const restoreButton = screen.getByRole("button", { name: "Restore panel width" });
+
+      expect(leftSlot.getAttribute("style")?.includes("width: 0px")).toBeTrue();
+      expect(leftSlot.getAttribute("style")?.includes("min-width: 208px")).toBeTrue();
+      expect(leftSlot.className.includes("no-drag")).toBeTrue();
+      expect(tabHeader.className.includes("draggable")).toBeFalse();
+      expect(within(leftSlot).getByRole("button", { name: "New chat" }) !== null).toBeTrue();
+      expect(rightSlot.getAttribute("style")?.includes("width: 0px")).toBeTrue();
+      expect(rightSlot.getAttribute("style")?.includes("min-width: 70px")).toBeTrue();
+      expect(rightSlot.className.includes("no-drag")).toBeTrue();
+      expect(leadingSpacer?.getAttribute("style")?.includes("width: 208px")).toBeTrue();
+      expect(leadingSpacer?.className.includes("pointer-events-none")).toBeTrue();
+      expect(leadingSpacer?.className.includes("no-drag")).toBeTrue();
+      expect(tabRow?.querySelector('[role="tablist"]') !== null).toBeTrue();
+      expect(tabHeader.contains(restoreButton)).toBeTrue();
+      expect(trailingSpacer?.getAttribute("style")?.includes("width: calc(70px)")).toBeTrue();
+      expect(trailingSpacer?.className.includes("no-drag")).toBeTrue();
+      expect(screen.container.querySelector('[data-testid="right-panel-global-header-actions"]') === null).toBeTrue();
+
+      await moveSidebarPointer(900);
+      expect(screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]')).toBe(null);
+
+      await act(async () => {
+        restoreButton.focus();
+        fireEvent.click(restoreButton);
+        await Promise.resolve();
+      });
+      await settleAsyncRender();
+
+      expect(screen.getByRole("button", { name: "Expand panel" }).getAttribute("aria-pressed")).toBe("false");
+      expect(screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]')).toBe(null);
+    } finally {
+      Object.defineProperty(navigator, "platform", { configurable: true, value: originalPlatform });
+    }
+  });
+
   test("full-width eligible attached right-panel tabs pass the composer overlay host to the root thread", async () => {
     const attachedSession = makeAttachedSession();
     const screen = renderWorkbench({
@@ -2668,7 +2721,7 @@ describe("workbench session shell", () => {
     expect(props?.rightPanelComposerOverlayEnabled).toBe(false);
   });
 
-  test("open non-overview right panel keeps side toggle global and expands from the panel-global header", async () => {
+  test("open non-overview right panel keeps side toggle global and expands from the tab header", async () => {
     const screen = renderWorkbench({
       sessionsByProject: {
         alpha: [
@@ -2688,13 +2741,11 @@ describe("workbench session shell", () => {
     const rightPanel = screen.container.querySelector('[data-testid="session-right-panel"]');
     const headerCenterSurface = screen.getByTestId("app-shell-header-context-menu-surface");
     const tabHeader = rightPanel?.querySelector('[role="tablist"]')?.parentElement?.parentElement;
-    const rightPanelGlobalHeader = screen.getByTestId("right-panel-global-header-actions");
     const headerShellSlot = getHeaderShellSlot(screen, "right");
     if (!tabHeader) throw new Error("Expected right-panel tab header");
 
     const sidePanelToggle = screen.getByRole("button", { name: "Toggle side panel" });
     const expandButton = screen.getByRole("button", { name: "Expand panel" });
-    const rightPanelGlobalHeaderRail = rightPanelGlobalHeader.firstElementChild;
     const rightPanelHeaderSpacer = screen.container.querySelector('[data-testid="right-panel-tab-bar-header-spacer"]');
     const expandIconPath = expandButton.querySelector("path")?.getAttribute("d") ?? "";
     const visibleGlobalHeaderButtons = Array.from(headerShellSlot?.querySelectorAll("button") ?? []);
@@ -2706,25 +2757,29 @@ describe("workbench session shell", () => {
     expect(headerCenterSurface.getAttribute("aria-hidden")).toBe(null);
     expect(headerCenterSurface.className.includes("invisible")).toBeFalse();
     expect(headerShellSlot?.className.includes("pe-2")).toBeTrue();
+    expect(headerShellSlot?.className.includes("ml-auto")).toBeFalse();
+    expect(headerShellSlot?.className.includes("no-drag")).toBeTrue();
     expect(headerShellSlot?.getAttribute("style")?.includes("width: 372px")).toBeTrue();
     expect(headerShellSlot?.getAttribute("style")?.includes("min-width: 70px")).toBeTrue();
     expect(sidePanelToggle.getAttribute("aria-pressed")).toBe("true");
     expect(sidePanelToggle.className.includes("bg-token-foreground/5")).toBeTrue();
     expect(globalHeader?.contains(expandButton)).toBeFalse();
-    expect(tabHeader.contains(expandButton)).toBeFalse();
-    expect(tabHeader.className.includes("draggable")).toBeTrue();
-    expect(rightPanelGlobalHeader.contains(expandButton)).toBeTrue();
-    expect(rightPanelGlobalHeader.className.includes("pointer-events-none")).toBeTrue();
-    expect(rightPanelGlobalHeaderRail?.className.includes("pointer-events-none")).toBeTrue();
+    expect(tabHeader.contains(expandButton)).toBeTrue();
+    expect(tabHeader.className.includes("draggable")).toBeFalse();
     expect(expandButton.parentElement?.className.includes("pointer-events-auto")).toBeTrue();
+    expect(expandButton.querySelector("svg")?.getAttribute("class")?.includes("icon-xs")).toBeTrue();
     expect(rightPanelHeaderSpacer?.className.includes("pointer-events-none")).toBeTrue();
+    expect(rightPanelHeaderSpacer?.className.includes("no-drag")).toBeTrue();
     expect(rightPanelHeaderSpacer?.parentElement?.className.includes("pointer-events-auto")).toBeFalse();
+    expect(rightPanelHeaderSpacer?.parentElement?.className.includes("no-drag")).toBeTrue();
+    expect(rightPanelHeaderSpacer?.parentElement?.getAttribute("role")).toBe("presentation");
     expect(expandButton.className.includes("no-drag")).toBeTrue();
     expect(expandButton.className.includes("rounded-lg")).toBeTrue();
     expect(expandButton.className.includes("h-token-button-composer")).toBeTrue();
     expect(expandButton.className.includes("text-token-text-tertiary")).toBeTrue();
     expect(expandIconPath.startsWith(CODEX_EXPAND_PANEL_ICON_PREFIX)).toBeTrue();
-    expect(rightPanelHeaderSpacer?.getAttribute("style")?.includes("width: 62px")).toBeTrue();
+    expect(rightPanelHeaderSpacer?.getAttribute("style")?.includes("width: calc(70px)")).toBeTrue();
+    expect(screen.container.querySelector('[data-testid="right-panel-global-header-actions"]') === null).toBeTrue();
 
     await act(async () => {
       fireEvent.click(expandButton);
@@ -2748,10 +2803,10 @@ describe("workbench session shell", () => {
     expect(fullWidthTabHeader?.firstElementChild?.querySelector('[role="tablist"]') !== null).toBeTrue();
     const restoreButton = screen.getByRole("button", { name: "Restore panel width" });
     expect(globalHeader?.contains(restoreButton)).toBeFalse();
-    expect(tabHeader.contains(restoreButton)).toBeFalse();
-    expect(screen.getByTestId("right-panel-global-header-actions").contains(restoreButton)).toBeTrue();
+    expect(fullWidthTabHeader?.contains(restoreButton)).toBeTrue();
     expect(restoreButton.getAttribute("aria-pressed")).toBe("true");
     expect(restoreButton.className.includes("bg-token-foreground/5")).toBeTrue();
+    expect(restoreButton.querySelector("svg")?.getAttribute("class")?.includes("icon-xs")).toBeTrue();
     expect(restoreButton.querySelector("path")?.getAttribute("d")?.startsWith(CODEX_RESTORE_PANEL_ICON_PREFIX)).toBeTrue();
   });
 
@@ -3983,8 +4038,8 @@ describe("workbench session shell", () => {
       expect(globalHeader.contains(collapseButton)).toBeTrue();
       expect(visibleLeftLabels).toBe("Show sidebar,Back,Forward,New chat");
       expect(leftSlot.className.includes("ps-[max(var(--spacing-token-safe-header-left),0.5rem)]")).toBeTrue();
-      expect(leftSlot.getAttribute("style")?.includes("width: 216px")).toBeTrue();
-      expect(leftSlot.getAttribute("style")?.includes("min-width: 216px")).toBeTrue();
+      expect(leftSlot.getAttribute("style")?.includes("width: 0px")).toBeTrue();
+      expect(leftSlot.getAttribute("style")?.includes("min-width: 208px")).toBeTrue();
       expect(collapseButton.parentElement?.className.includes("fixed")).toBeFalse();
       expect(collapseButton.getAttribute("title")).toBe("Toggle sidebar");
       expect(collapseButton.className).toBe(CODEX_COLLAPSED_CHROME_BUTTON_CLASS);
@@ -4012,7 +4067,7 @@ describe("workbench session shell", () => {
       expect(forwardButton.className.includes("enabled:hover:bg-transparent")).toBeFalse();
       expect(compactNewChatButton.className.includes("enabled:hover:bg-transparent")).toBeFalse();
       expect(compactNewChatButton.querySelector("svg")?.getAttribute("class")?.includes("icon-sm")).toBeTrue();
-      expect(compactNewChatButton.querySelector("path")?.getAttribute("d")?.startsWith(CODEX_NEW_CHAT_ICON_PREFIX)).toBeTrue();
+      expect(compactNewChatButton.querySelector("path")?.getAttribute("d")?.startsWith(CODEX_TITLEBAR_NEW_CHAT_ICON_PREFIX)).toBeTrue();
       expect(collapseButton.className.includes("no-drag")).toBeTrue();
 
       await moveSidebarPointer(12);
@@ -4021,6 +4076,7 @@ describe("workbench session shell", () => {
       const floatingAside = screen.container.querySelector('[data-testid="app-shell-floating-left-panel"]') as HTMLElement | null;
       const floatingHeader = floatingAside?.querySelector(".app-header-tint") as HTMLElement | null;
       expect(floatingShell !== null).toBeTrue();
+      expect(floatingShell?.getAttribute("data-sidebar-floating-focus-area")).toBe("true");
       expect(floatingShell?.className).toBe(CODEX_SIDEBAR_FLOATING_OUTER_CLASS);
       expect(floatingShell?.getAttribute("style")?.includes("width: 300px")).toBeTrue();
       expect(floatingAside !== null).toBeTrue();
@@ -4030,6 +4086,23 @@ describe("workbench session shell", () => {
       expect(floatingAside?.className.includes("bg-token-main-surface-primary")).toBeTrue();
       expect(floatingAside?.className.includes("shadow-[1px_0_0_0_var(--color-token-border-default)")).toBeTrue();
 
+      const floatingFocusButton = Array.from(floatingShell?.querySelectorAll("button") ?? [])
+        .find((button) => !button.disabled) as HTMLButtonElement | undefined;
+      if (!floatingFocusButton) throw new Error("Expected a focusable floating sidebar button");
+      await act(async () => {
+        floatingFocusButton.focus();
+        await Promise.resolve();
+      });
+      await settleAsyncRender();
+
+      await moveSidebarPointer(301);
+      expect(screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]') !== null).toBeTrue();
+
+      await act(async () => {
+        floatingFocusButton.blur();
+        await Promise.resolve();
+      });
+      await settleAsyncRender();
       await moveSidebarPointer(301);
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 600));

@@ -267,7 +267,7 @@ import {
   type WorkbenchShellNavigationSnapshot,
 } from "@/lib/workbench-shell-navigation-history";
 
-const MAC_TRAFFIC_LIGHT_SAFE_HEADER_LEFT_PX = 90;
+const MAC_TRAFFIC_LIGHT_SAFE_HEADER_LEFT_PX = 82;
 const NON_MAC_SAFE_HEADER_LEFT_PX = 12;
 const RIGHT_PANEL_DEFAULT_WIDTH = 600;
 const RIGHT_PANEL_MIN_WIDTH = 320;
@@ -1078,7 +1078,7 @@ export function WorkbenchShell({
   const [headerLeftWidth, setHeaderLeftWidth] = useState(0);
   const [, setHeaderLeftRailWidth] = useState(0);
   const [headerRightWidth, setHeaderRightWidth] = useState(RIGHT_PANEL_HEADER_FALLBACK_SPACER_WIDTH_PX);
-  const [headerRightRailWidth, setHeaderRightRailWidth] = useState(RIGHT_PANEL_HEADER_FALLBACK_RAIL_WIDTH_PX);
+  const [, setHeaderRightRailWidth] = useState(RIGHT_PANEL_HEADER_FALLBACK_RAIL_WIDTH_PX);
   const [threadHeaderPortalElement, setThreadHeaderPortalElement] = useState<HTMLDivElement | null>(null);
   const [rightPanelComposerOverlayTarget, setRightPanelComposerOverlayTarget] = useState<HTMLElement | null>(null);
   const [threadSummaryPanelPinnedOpen, setThreadSummaryPanelPinnedOpen] = useState(readThreadSummaryPanelPinnedOpen);
@@ -1090,7 +1090,7 @@ export function WorkbenchShell({
   const [sidebarTriggerHovered, setSidebarTriggerHovered] = useState(false);
   const [sidebarClickInFlight, setSidebarClickInFlight] = useState(false);
   const [sidebarAnimateLayout, setSidebarAnimateLayout] = useState(true);
-  const [appShellFocusAreaActive, setAppShellFocusAreaActive] = useState(false);
+  const [floatingSidebarFocusActive, setFloatingSidebarFocusActive] = useState(false);
   const [sidebarTaskSearchOpenTick, setSidebarTaskSearchOpenTick] = useState(0);
   const [projectsSectionCollapsed, setProjectsSectionCollapsed] = useState(false);
   const [sidebarDragWidth, setSidebarDragWidth] = useState<number | null>(null);
@@ -1108,7 +1108,7 @@ export function WorkbenchShell({
     sidebarWidth: CODEX_SIDEBAR_WIDTH_DEFAULT_PX,
     sidebarCollapsed: false,
     sidebarAnimating: false,
-    appShellFocusAreaActive: false,
+    floatingSidebarFocusActive: false,
     sidebarHoverSuppressed: false,
     sidebarTriggerHovered: false,
   });
@@ -1380,7 +1380,11 @@ export function WorkbenchShell({
     ? Math.max(headerLeftWidth, collapsedHeaderLeftFallbackWidth)
     : Math.max(headerLeftWidth, safeHeaderLeftWidth + 24);
   const realSidebarMounted = realSidebarMotion.mounted;
-  const headerLeftShellSlotWidth = realSidebarMounted ? realSidebarMotion.animatedSize : effectiveHeaderLeftWidth;
+  const headerLeftShellSlotWidth = sidebarCollapsed && rightPanelFullWidth
+    ? 0
+    : realSidebarMounted
+      ? realSidebarMotion.animatedSize
+      : effectiveHeaderLeftWidth;
   const headerLeftShellSlotMinWidth = realSidebarMounted
     ? sidebarCollapsed
       ? effectiveHeaderLeftWidth
@@ -3594,7 +3598,7 @@ export function WorkbenchShell({
           rightPanelFullWidth: false,
         });
       }
-      setAppShellFocusAreaActive(false);
+      setFloatingSidebarFocusActive(false);
       const overrideKey = makePanelPreviewKey(activeSession.id, "right");
       setPanelCollapsedOverrides((current) => ({ ...current, [overrideKey]: true }));
       void updateActivePanel("right", {
@@ -3664,7 +3668,7 @@ export function WorkbenchShell({
       sidebarOpen: !inputs.sidebarCollapsed,
       sidebarAnimating: inputs.sidebarAnimating,
       hoverSuppressed: false,
-      focusOverride: inputs.appShellFocusAreaActive,
+      focusOverride: inputs.floatingSidebarFocusActive,
       currentlyVisible: current,
     }));
   }, []);
@@ -3691,20 +3695,20 @@ export function WorkbenchShell({
   }, [getWindowZoom, recomputeFloatingSidebarVisibility]);
 
   useEffect(() => {
-    const updateFocusAreaActive = () => {
+    const updateFloatingSidebarFocusActive = () => {
       const activeElement = document.activeElement;
-      setAppShellFocusAreaActive(
+      setFloatingSidebarFocusActive(
         activeElement instanceof HTMLElement
-          && Boolean(activeElement.closest("[data-app-shell-focus-area]")),
+          && Boolean(activeElement.closest('[data-sidebar-floating-focus-area="true"]')),
       );
     };
 
-    document.addEventListener("focusin", updateFocusAreaActive);
-    document.addEventListener("focusout", updateFocusAreaActive);
-    updateFocusAreaActive();
+    document.addEventListener("focusin", updateFloatingSidebarFocusActive);
+    document.addEventListener("focusout", updateFloatingSidebarFocusActive);
+    updateFloatingSidebarFocusActive();
     return () => {
-      document.removeEventListener("focusin", updateFocusAreaActive);
-      document.removeEventListener("focusout", updateFocusAreaActive);
+      document.removeEventListener("focusin", updateFloatingSidebarFocusActive);
+      document.removeEventListener("focusout", updateFloatingSidebarFocusActive);
     };
   }, []);
 
@@ -3716,13 +3720,13 @@ export function WorkbenchShell({
       sidebarWidth,
       sidebarCollapsed,
       sidebarAnimating,
-      appShellFocusAreaActive,
+      floatingSidebarFocusActive,
       sidebarHoverSuppressed,
       sidebarTriggerHovered,
     };
     recomputeFloatingSidebarVisibility(sidebarPointerRef.current.x);
   }, [
-    appShellFocusAreaActive,
+    floatingSidebarFocusActive,
     recomputeFloatingSidebarVisibility,
     sidebarAnimating,
     sidebarCollapsed,
@@ -4014,25 +4018,28 @@ export function WorkbenchShell({
     );
   };
 
-  const rightPanelGlobalHeaderInsetWidth = activeSession ? headerRightRailWidth + 40 : 0;
+  const rightPanelHeaderStartInsetWidth = activeSession && rightPanelFullWidth && sidebarCollapsed
+    ? effectiveHeaderLeftWidth
+    : 0;
+  const panelTabScrollEndPaddingPx = activeSession ? 28 : 0;
   const bottomPanelGlobalHeaderInsetWidth = activeSession ? 40 : 0;
 
-  const rightPanelGlobalHeaderControls = activeSession ? (
+  const rightPanelHeaderAfterList = activeSession ? (
     <>
-      <div className="pointer-events-auto flex h-full shrink-0 items-center">
+      <div className="no-drag pointer-events-auto flex h-full shrink-0 items-center">
         <ToolbarIconButton
           label={rightPanelFullWidth ? "Restore panel width" : "Expand panel"}
           pressed={rightPanelFullWidth}
           onClick={toggleActiveRightPanelFullWidth}
         >
-          {rightPanelFullWidth ? <CodexRestorePanelIcon className="icon-sm" /> : <CodexExpandPanelIcon className="icon-sm" />}
+          {rightPanelFullWidth ? <CodexRestorePanelIcon className="icon-xs" /> : <CodexExpandPanelIcon className="icon-xs" />}
         </ToolbarIconButton>
       </div>
       <div
         aria-hidden="true"
         data-testid="right-panel-tab-bar-header-spacer"
-        className="pointer-events-none flex h-full shrink-0 items-center"
-        style={{ width: headerRightRailWidth }}
+        className="no-drag pointer-events-none h-full shrink-0"
+        style={{ width: `calc(${headerRightWidth}px)` }}
       />
     </>
   ) : null;
@@ -4288,6 +4295,7 @@ export function WorkbenchShell({
             {showFloatingSidebar ? (
               <motion.div
                 key="codex-floating-left-panel"
+                data-sidebar-floating-focus-area="true"
                 data-testid="floating-project-session-sidebar-shell"
                 className={floatingSidebarOuterClassName}
                 style={{ width: sidebarWidth }}
@@ -4455,7 +4463,9 @@ export function WorkbenchShell({
                             tabItemsByLeafId={panelGroupTabs.right.itemsByLeafId}
                             activeTabIdsByLeafId={panelGroupTabs.right.activeTabIdsByLeafId}
                             renderAfterTabs={(leafId) => renderPanelNewTabButton("right", leafId)}
-                            headerEndInsetPx={rightPanelGlobalHeaderInsetWidth}
+                            renderAfterList={() => rightPanelHeaderAfterList}
+                            headerStartInsetPx={rightPanelHeaderStartInsetWidth}
+                            tabScrollEndPaddingPx={panelTabScrollEndPaddingPx}
                             renderEmptyLeaf={(leafId) => (
                               <EmptyRightPane
                                 actions={availableRightPanelActions}
@@ -4494,16 +4504,6 @@ export function WorkbenchShell({
                             onActivateGroup={(leafId, tabId) => void activatePanelGroup("right", leafId, tabId)}
                             onResizeGroup={(branchId, ratio) => void resizePanelGroup("right", branchId, ratio)}
                           />
-                          {rightPanelGlobalHeaderControls ? (
-                            <div
-                              data-testid="right-panel-global-header-actions"
-                              className="pointer-events-none absolute top-0 right-0 z-30 flex h-toolbar items-center justify-end pr-2"
-                            >
-                              <div className="pointer-events-none flex h-full items-center gap-1">
-                                {rightPanelGlobalHeaderControls}
-                              </div>
-                            </div>
-                          ) : null}
                         </div>
                       </div>
                     </motion.aside>
@@ -4546,6 +4546,7 @@ export function WorkbenchShell({
                           tabItemsByLeafId={panelGroupTabs.bottom.itemsByLeafId}
                           activeTabIdsByLeafId={panelGroupTabs.bottom.activeTabIdsByLeafId}
                           renderAfterTabs={(leafId) => renderPanelNewTabButton("bottom", leafId)}
+                          tabScrollEndPaddingPx={panelTabScrollEndPaddingPx}
                           headerEndInsetPx={bottomPanelGlobalHeaderInsetWidth}
                           renderEmptyLeaf={(leafId) => (
                             <EmptyRightPane

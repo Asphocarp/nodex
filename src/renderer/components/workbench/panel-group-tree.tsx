@@ -15,6 +15,7 @@ import {
 } from "./app-shell-tabs";
 import {
   findProjectSessionPanelLeaf,
+  getProjectSessionPanelTopLeftLeafId,
   getProjectSessionPanelTopRightLeafId,
 } from "../../../shared/project-session-panel-layout";
 import type {
@@ -50,6 +51,9 @@ interface PanelGroupTreeProps {
   activeTabIdsByLeafId: Record<string, string | null>;
   renderEmptyLeaf: (leafId: string) => ReactNode;
   renderAfterTabs?: (leafId: string) => ReactNode;
+  renderAfterList?: (leafId: string) => ReactNode;
+  headerStartInsetPx?: number;
+  tabScrollEndPaddingPx?: number;
   headerEndInsetPx?: number;
   onSelectTab: (leafId: string, tabId: string) => void;
   onCloseTab: (leafId: string, tabId: string) => void;
@@ -75,6 +79,9 @@ export function PanelGroupTree({
   activeTabIdsByLeafId,
   renderEmptyLeaf,
   renderAfterTabs,
+  renderAfterList,
+  headerStartInsetPx,
+  tabScrollEndPaddingPx,
   headerEndInsetPx,
   onSelectTab,
   onCloseTab,
@@ -140,9 +147,13 @@ export function PanelGroupTree({
   const maximizedLeaf = maximizedLeafId ? findProjectSessionPanelLeaf(layout, maximizedLeafId) : null;
   const activeLeafId = layout.activeLeafId;
   const rootNode = maximizedLeaf ?? layout.root;
+  const headerStartInsetLeafId = headerStartInsetPx && headerStartInsetPx > 0
+    ? getProjectSessionPanelTopLeftLeafId(rootNode)
+    : null;
   const headerEndInsetLeafId = headerEndInsetPx && headerEndInsetPx > 0
     ? getProjectSessionPanelTopRightLeafId(rootNode)
     : null;
+  const afterListLeafId = renderAfterList ? getProjectSessionPanelTopRightLeafId(rootNode) : null;
   return (
     <div
       data-panel-group-tree={panelId}
@@ -159,8 +170,13 @@ export function PanelGroupTree({
         activeTabIdsByLeafId={activeTabIdsByLeafId}
         renderEmptyLeaf={renderEmptyLeaf}
         renderAfterTabs={renderAfterTabs}
+        renderAfterList={renderAfterList}
+        headerStartInsetPx={headerStartInsetPx}
+        headerStartInsetLeafId={headerStartInsetLeafId}
+        tabScrollEndPaddingPx={tabScrollEndPaddingPx}
         headerEndInsetPx={headerEndInsetPx}
         headerEndInsetLeafId={headerEndInsetLeafId}
+        afterListLeafId={afterListLeafId}
         onSelectTab={onSelectTab}
         onCloseTab={onCloseTab}
         onPinTab={onPinTab}
@@ -290,8 +306,13 @@ function PanelGroupNode(props: {
   activeTabIdsByLeafId: Record<string, string | null>;
   renderEmptyLeaf: (leafId: string) => ReactNode;
   renderAfterTabs?: (leafId: string) => ReactNode;
+  renderAfterList?: (leafId: string) => ReactNode;
+  headerStartInsetPx?: number;
+  headerStartInsetLeafId: string | null;
+  tabScrollEndPaddingPx?: number;
   headerEndInsetPx?: number;
   headerEndInsetLeafId: string | null;
+  afterListLeafId: string | null;
   onSelectTab: (leafId: string, tabId: string) => void;
   onCloseTab: (leafId: string, tabId: string) => void;
   onPinTab?: (leafId: string, tabId: string) => void;
@@ -365,8 +386,13 @@ function PanelGroupLeaf({
   activeTabIdsByLeafId,
   renderEmptyLeaf,
   renderAfterTabs,
+  renderAfterList,
+  headerStartInsetPx,
+  headerStartInsetLeafId,
+  tabScrollEndPaddingPx,
   headerEndInsetPx,
   headerEndInsetLeafId,
+  afterListLeafId,
   onSelectTab,
   onCloseTab,
   onPinTab,
@@ -378,6 +404,8 @@ function PanelGroupLeaf({
   const activeTabId = activeTabIdsByLeafId[leaf.id] ?? tabs[0]?.id ?? null;
   const isActive = leaf.id === activeLeafId;
   const afterTabs = renderAfterTabs?.(leaf.id) ?? null;
+  const afterList = leaf.id === afterListLeafId ? renderAfterList?.(leaf.id) ?? null : null;
+  const leafHeaderStartInsetPx = leaf.id === headerStartInsetLeafId ? headerStartInsetPx : 0;
   const leafHeaderEndInsetPx = leaf.id === headerEndInsetLeafId ? headerEndInsetPx : 0;
   const splittableTabCount = tabs.filter((tab) => tab.splittable === true).length;
   const activateLeaf = () => {
@@ -414,10 +442,19 @@ function PanelGroupLeaf({
             activeDragId,
             previewIntent,
           }}
+          beforeList={leafHeaderStartInsetPx && leafHeaderStartInsetPx > 0 ? (
+            <div
+              aria-hidden="true"
+              className="no-drag pointer-events-none h-full shrink-0"
+              style={{ width: leafHeaderStartInsetPx }}
+            />
+          ) : null}
           afterTabsInline={afterTabs}
+          afterList={afterList}
           bodyOverlay={(
             <PanelGroupBodyDropOverlay leafId={leaf.id} previewIntent={previewIntent} />
           )}
+          tabScrollEndPaddingPx={tabScrollEndPaddingPx}
           headerEndInsetPx={leafHeaderEndInsetPx}
           headerHeight="toolbar"
         />
@@ -429,7 +466,16 @@ function PanelGroupLeaf({
             leafId={leaf.id}
             activeDragId={activeDragId}
             previewIntent={previewIntent}
+            beforeList={leafHeaderStartInsetPx && leafHeaderStartInsetPx > 0 ? (
+              <div
+                aria-hidden="true"
+                className="no-drag pointer-events-none h-full shrink-0"
+                style={{ width: leafHeaderStartInsetPx }}
+              />
+            ) : null}
             afterTabs={afterTabs}
+            afterList={afterList}
+            tabScrollEndPaddingPx={tabScrollEndPaddingPx}
           >
             <div className="min-w-0 flex-1" />
             {leafHeaderEndInsetPx && leafHeaderEndInsetPx > 0 ? (
@@ -536,7 +582,10 @@ function PanelGroupEmptyHeader({
   leafId,
   activeDragId,
   previewIntent,
+  beforeList,
   afterTabs,
+  afterList,
+  tabScrollEndPaddingPx,
   children,
 }: {
   sessionId: string;
@@ -544,7 +593,10 @@ function PanelGroupEmptyHeader({
   leafId: string;
   activeDragId: string | null;
   previewIntent: PanelTabDropIntent | null;
+  beforeList?: ReactNode;
   afterTabs: ReactNode;
+  afterList?: ReactNode;
+  tabScrollEndPaddingPx?: number;
   children: ReactNode;
 }) {
   const rowRef = useRef<HTMLDivElement | null>(null);
@@ -568,13 +620,15 @@ function PanelGroupEmptyHeader({
   }, [leafId, panelId, sessionId]);
 
   return (
-    <div className="draggable flex h-toolbar min-w-0 shrink-0 items-center bg-token-main-surface-primary px-2">
+    <div className="isolate flex h-toolbar min-w-0 shrink-0 select-none items-center bg-token-main-surface-primary px-2 [contain:layout_paint]">
+      {beforeList ? <div role="presentation" className="no-drag my-auto flex shrink-0 items-center">{beforeList}</div> : null}
       <div
         ref={rowRef}
         data-panel-tab-row={`${panelId}:${leafId}`}
-        className="relative flex h-full min-w-0 flex-1 items-center"
+        className="relative isolate flex h-full min-w-0 flex-1 items-center [contain:layout_paint]"
+        style={{ scrollPaddingInlineEnd: tabScrollEndPaddingPx }}
       >
-        {afterTabs ? <div className="no-drag flex h-full shrink-0 items-center">{afterTabs}</div> : null}
+        {afterTabs ? <div className="no-drag sticky right-0 z-10 flex h-full shrink-0 items-center bg-token-main-surface-primary">{afterTabs}</div> : null}
         {tabRowPreview && activeDragId ? (
           <div
             aria-hidden="true"
@@ -584,6 +638,7 @@ function PanelGroupEmptyHeader({
           />
         ) : null}
       </div>
+      {afterList ? <div role="presentation" className="no-drag my-auto flex shrink-0 items-center">{afterList}</div> : null}
       {children}
     </div>
   );

@@ -56,6 +56,7 @@ function renderAppShellTabs(props: {
   afterListSticky?: ReactNode;
   afterList?: ReactNode;
   bodyOverlay?: ReactNode;
+  tabScrollEndPaddingPx?: number;
   headerEndInsetPx?: number;
 }) {
   return render(
@@ -73,6 +74,7 @@ function renderAppShellTabs(props: {
         afterListSticky={props.afterListSticky}
         afterList={props.afterList}
         bodyOverlay={props.bodyOverlay}
+        tabScrollEndPaddingPx={props.tabScrollEndPaddingPx}
         headerEndInsetPx={props.headerEndInsetPx}
       />
     </NodexTooltipProvider>,
@@ -117,7 +119,7 @@ describe("AppShellTabs", () => {
 
     expect(tabpanel.contains(view.getByTestId("body-overlay"))).toBeTrue();
     expect(header?.contains(view.getByTestId("body-overlay"))).toBeFalse();
-    expect(header?.className.includes("draggable")).toBeTrue();
+    expect(header?.className.includes("draggable")).toBeFalse();
     expect(headerInsetSpacer?.className.includes("no-drag")).toBeTrue();
     expect(headerInsetSpacer?.getAttribute("style")?.includes("width: 48px")).toBeTrue();
   });
@@ -128,19 +130,30 @@ describe("AppShellTabs", () => {
       afterTabsInline: <span data-testid="after-tabs-inline">Inline</span>,
       afterListSticky: <span data-testid="after-list-sticky">Sticky</span>,
       afterList: <span data-testid="after-list">After</span>,
+      tabScrollEndPaddingPx: 28,
     });
     const header = view.getByRole("tablist").parentElement?.parentElement;
     if (!header) throw new Error("Expected tab header");
+    const tabRow = view.getByRole("tablist").parentElement;
+    if (!(tabRow instanceof HTMLElement)) throw new Error("Expected tab row");
 
     const text = textContent(header);
+    expect(header.className.includes("draggable")).toBeFalse();
     expect(text.indexOf("Before") < text.indexOf("One")).toBeTrue();
     expect(text.indexOf("Inline") > text.indexOf("History")).toBeTrue();
     expect(text.indexOf("Inline") < text.indexOf("Sticky")).toBeTrue();
     expect(text.indexOf("Sticky") > text.indexOf("History")).toBeTrue();
     expect(text.indexOf("Sticky") < text.indexOf("After")).toBeTrue();
-    expect(view.getByTestId("after-tabs-inline").parentElement?.className.includes("ps-1")).toBeTrue();
-    expect(view.getByTestId("after-list-sticky").parentElement?.className.includes("gap-1.5")).toBeTrue();
-    expect(view.getByTestId("after-list").parentElement?.className.includes("gap-1.5")).toBeTrue();
+    expect(tabRow.style.scrollPaddingInlineEnd).toBe("28px");
+    expect(view.getByTestId("before-list").parentElement?.getAttribute("role")).toBe("presentation");
+    expect(view.getByTestId("before-list").parentElement?.className.includes("no-drag")).toBeTrue();
+    expect(view.getByTestId("after-tabs-inline").parentElement?.className.includes("sticky")).toBeTrue();
+    expect(view.getByTestId("after-tabs-inline").parentElement?.className.includes("no-drag")).toBeTrue();
+    expect(view.getByTestId("after-tabs-inline").parentElement?.className.includes("right-0")).toBeTrue();
+    expect(view.getByTestId("after-list-sticky").parentElement?.getAttribute("role")).toBe("presentation");
+    expect(view.getByTestId("after-list-sticky").parentElement?.className.includes("no-drag")).toBeTrue();
+    expect(view.getByTestId("after-list").parentElement?.getAttribute("role")).toBe("presentation");
+    expect(view.getByTestId("after-list").parentElement?.className.includes("no-drag")).toBeTrue();
   });
 
   test("does not render the title fade when the tab title fits", () => {
@@ -181,8 +194,11 @@ describe("AppShellTabs", () => {
 
     const closeButton = view.getByLabelText("Close Two tab");
     const closeIcon = closeButton.querySelector("svg");
-    expect(closeButton.className.includes("hidden")).toBeTrue();
-    expect(closeButton.className.includes("group-hover/tab:flex")).toBeTrue();
+    expect(closeButton.tagName).toBe("BUTTON");
+    expect(closeButton.className.includes("invisible")).toBeTrue();
+    expect(closeButton.className.includes("end-2")).toBeTrue();
+    expect(closeButton.className.includes("group-hover/tab:visible")).toBeTrue();
+    expect(closeButton.className.includes("before:bg-linear-to-r")).toBeTrue();
     expect(closeIcon?.getAttribute("viewBox")).toBe("0 0 21 21");
     expect(closeIcon?.querySelector("path")?.getAttribute("d")?.startsWith("M10.7997 2.48486")).toBeTrue();
 

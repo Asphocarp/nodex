@@ -1,5 +1,5 @@
 import type { KeyboardEvent, MouseEvent, PointerEvent, ReactNode } from "react";
-import { CodexNewChatIcon } from "@/components/shared/icons";
+import { CodexNewChatIcon, CodexTitlebarNewChatIcon } from "@/components/shared/icons";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
@@ -115,7 +115,7 @@ export function SidebarCompactNewChatButton({
         disabled={disabled}
         onClick={onClick}
       >
-        <CodexNewChatIcon className="icon-sm" />
+        <CodexTitlebarNewChatIcon className="icon-sm" />
       </button>
     </NodexTooltip>
   );

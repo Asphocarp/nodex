@@ -103,6 +103,11 @@ export function getProjectSessionPanelTopRightLeafId(node: ProjectSessionPanelNo
   return getProjectSessionPanelTopRightLeafId(node.direction === "horizontal" ? node.second : node.first);
 }
 
+export function getProjectSessionPanelTopLeftLeafId(node: ProjectSessionPanelNode): string {
+  if (node.type === "leaf") return node.id;
+  return getProjectSessionPanelTopLeftLeafId(node.first);
+}
+
 interface PanelLeafRect {
   id: string;
   left: number;

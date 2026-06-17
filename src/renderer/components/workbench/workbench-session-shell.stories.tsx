@@ -527,6 +527,7 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
 
   useEffect(() => {
     if (args.sidebar !== "collapsed" || args.sidebarReveal === "idle") return undefined;
+    let focusTimeout: number | null = null;
     const timeout = window.setTimeout(() => {
       if (args.sidebarReveal === "edge") {
         window.dispatchEvent(new MouseEvent("pointermove", {
@@ -536,13 +537,26 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
         return;
       }
 
-      const focusTarget = document.querySelector<HTMLElement>("[data-app-shell-focus-area] button");
-      focusTarget?.focus();
+      window.dispatchEvent(new MouseEvent("pointermove", {
+        clientX: 12,
+        clientY: 120,
+      }));
+      focusTimeout = window.setTimeout(() => {
+        const focusTarget = document.querySelector<HTMLElement>(
+          '[data-sidebar-floating-focus-area="true"] button',
+        );
+        focusTarget?.focus();
+        window.dispatchEvent(new MouseEvent("pointermove", {
+          clientX: args.sidebarWidth + 24,
+          clientY: 120,
+        }));
+      }, 0);
     }, 0);
     return () => {
       window.clearTimeout(timeout);
+      if (focusTimeout !== null) window.clearTimeout(focusTimeout);
     };
-  }, [args.sidebar, args.sidebarReveal, sessionsByProject]);
+  }, [args.sidebar, args.sidebarReveal, args.sidebarWidth, sessionsByProject]);
 
   return (
     <div className="h-screen">
@@ -1113,7 +1127,7 @@ export const FloatingSidebarFocusOverride: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Collapsed sidebar with focus inside a Workbench focus area, keeping the floating panel visible through the Codex focus override.",
+        story: "Collapsed sidebar with focus inside the already revealed floating sidebar, keeping the floating panel visible after the pointer leaves.",
       },
     },
   },
@@ -1163,6 +1177,22 @@ export const FullWidthRightPanel: Story = {
     docs: {
       description: {
         story: "Expanded right panel with tabs aligned to the panel edge, restore in the panel tab header, and the main thread viewport collapsed to zero width under the same fixed toolbar.",
+      },
+    },
+  },
+};
+
+export const CollapsedSidebarFullWidthRightPanel: Story = {
+  args: {
+    sidebar: "collapsed",
+    sidebarReveal: "idle",
+    rightPanel: "full",
+    activeTab: "browser",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Collapsed sidebar with a full-width right panel: the left titlebar rail reserves its measured width before the right-panel tabs so toolbar controls and tabs never overlap.",
       },
     },
   },

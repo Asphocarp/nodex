@@ -121,7 +121,9 @@ describe("workbench header actions", () => {
     }
 
     expect(slot.className.includes("pe-2")).toBeTrue();
-    expect(slot.className.includes("ml-auto")).toBeTrue();
+    expect(slot.className.includes("ml-auto")).toBeFalse();
+    expect(slot.className.includes("no-drag")).toBeTrue();
+    expect(slot.className.includes("pointer-events-none")).toBeTrue();
     expect(slot.getAttribute("style")?.includes("width: 144px")).toBeTrue();
     expect(slot.getAttribute("style")?.includes("min-width: 70px")).toBeTrue();
     expect(rail.className.includes("gap-1.5")).toBeTrue();

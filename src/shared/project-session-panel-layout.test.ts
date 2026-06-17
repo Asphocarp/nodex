@@ -4,6 +4,7 @@ import {
   flattenProjectSessionPanelTabIds,
   findNearestProjectSessionPanelLeafToRight,
   getProjectSessionPanelActiveLeaf,
+  getProjectSessionPanelTopLeftLeafId,
   getProjectSessionPanelTopRightLeafId,
   listProjectSessionPanelLeaves,
   makeProjectSessionPanelLayout,
@@ -104,6 +105,9 @@ describe("project session panel layout", () => {
     expect(getProjectSessionPanelTopRightLeafId(single.root)).toBe("main");
     expect(getProjectSessionPanelTopRightLeafId(horizontal.root)).toBe("leaf:right");
     expect(getProjectSessionPanelTopRightLeafId(vertical.root)).toBe("main");
+    expect(getProjectSessionPanelTopLeftLeafId(single.root)).toBe("main");
+    expect(getProjectSessionPanelTopLeftLeafId(horizontal.root)).toBe("main");
+    expect(getProjectSessionPanelTopLeftLeafId(vertical.root)).toBe("main");
   });
 
   test("resolves the top-right leaf through nested split trees", () => {
@@ -148,6 +152,8 @@ describe("project session panel layout", () => {
 
     expect(getProjectSessionPanelTopRightLeafId(rightSplit.root)).toBe("leaf:right");
     expect(getProjectSessionPanelTopRightLeafId(topSplit.root)).toBe("leaf:top-right");
+    expect(getProjectSessionPanelTopLeftLeafId(rightSplit.root)).toBe("main");
+    expect(getProjectSessionPanelTopLeftLeafId(topSplit.root)).toBe("main");
   });
 
   test("resolves the nearest leaf to the right for a direct horizontal split", () => {

@@ -215,8 +215,7 @@ export function HeaderShellSlot({
         data-test-id="header-shell-slot"
         data-workbench-header-shell-slot={side}
         className={cn(
-          "pointer-events-none relative h-full shrink-0 [container-type:inline-size]",
-          side === "right" && "ml-auto",
+          "no-drag pointer-events-none relative h-full shrink-0 [container-type:inline-size]",
           paddingClassName,
         )}
         style={{ width: slotWidth, minWidth }}
