@@ -477,7 +477,6 @@ function PanelGroupLeaf({
             afterList={afterList}
             tabScrollEndPaddingPx={tabScrollEndPaddingPx}
           >
-            <div className="min-w-0 flex-1" />
             {leafHeaderEndInsetPx && leafHeaderEndInsetPx > 0 ? (
               <div
                 aria-hidden="true"
