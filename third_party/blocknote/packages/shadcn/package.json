@@ -1,0 +1,87 @@
+{
+  "name": "@blocknote/shadcn",
+  "homepage": "https://github.com/TypeCellOS/BlockNote",
+  "private": true,
+  "sideEffects": [
+    "*.css"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TypeCellOS/BlockNote.git",
+    "directory": "packages/shadcn"
+  },
+  "license": "MPL-2.0",
+  "version": "0.51.4",
+  "files": [
+    "dist",
+    "types",
+    "src"
+  ],
+  "keywords": [
+    "react",
+    "javascript",
+    "editor",
+    "typescript",
+    "prosemirror",
+    "wysiwyg",
+    "rich-text-editor",
+    "notion",
+    "yjs",
+    "block-based",
+    "tiptap"
+  ],
+  "description": "A \"Notion-style\" block-based extensible text editor built on top of Prosemirror and Tiptap.",
+  "type": "module",
+  "source": "./src/index.tsx",
+  "types": "./src/index.tsx",
+  "main": "./src/index.tsx",
+  "module": "./src/index.tsx",
+  "exports": {
+    ".": {
+      "types": "./src/index.tsx",
+      "import": "./src/index.tsx",
+      "default": "./src/index.tsx"
+    },
+    "./style.css": {
+      "import": "./src/style.css",
+      "default": "./src/style.css",
+      "style": "./src/style.css"
+    }
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "lint": "eslint src --max-warnings 0",
+    "clean": "rimraf dist && rimraf types"
+  },
+  "dependencies": {
+    "@blocknote/core": "workspace:*",
+    "@blocknote/react": "workspace:*",
+    "@radix-ui/react-avatar": "^1.1.10",
+    "@radix-ui/react-dropdown-menu": "^2.1.16",
+    "@radix-ui/react-label": "^2.1.7",
+    "@radix-ui/react-popover": "^1.1.15",
+    "@radix-ui/react-select": "^2.2.6",
+    "@radix-ui/react-slot": "^1.2.3",
+    "@radix-ui/react-tabs": "^1.1.13",
+    "@radix-ui/react-toggle": "^1.1.10",
+    "@radix-ui/react-tooltip": "^1.2.8",
+    "autoprefixer": "^10.4.21",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.525.0",
+    "react-hook-form": "^7.65.0",
+    "tailwind-merge": "^2.6.0"
+  },
+  "peerDependencies": {
+    "react": "^18.0 || ^19.0 || >= 19.0.0-rc",
+    "react-dom": "^18.0 || ^19.0 || >= 19.0.0-rc",
+    "tailwindcss": "^4.1.12"
+  },
+  "eslintConfig": {
+    "extends": [
+      "../../.eslintrc.json"
+    ]
+  }
+}

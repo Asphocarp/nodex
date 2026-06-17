@@ -1,0 +1,68 @@
+{
+  "name": "@blocknote/code-block",
+  "homepage": "https://github.com/TypeCellOS/BlockNote",
+  "private": true,
+  "sideEffects": false,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TypeCellOS/BlockNote.git",
+    "directory": "packages/code-block"
+  },
+  "license": "MPL-2.0",
+  "version": "0.51.4",
+  "files": [
+    "dist",
+    "types",
+    "src"
+  ],
+  "keywords": [
+    "react",
+    "javascript",
+    "editor",
+    "typescript",
+    "prosemirror",
+    "wysiwyg",
+    "rich-text-editor",
+    "notion",
+    "yjs",
+    "block-based",
+    "tiptap"
+  ],
+  "description": "A \"Notion-style\" block-based extensible text editor built on top of Prosemirror and Tiptap.",
+  "type": "module",
+  "source": "./src/index.ts",
+  "types": "./src/index.ts",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "lint": "eslint src --max-warnings 0",
+    "test": "vitest --run",
+    "test-watch": "vitest watch"
+  },
+  "dependencies": {
+    "@blocknote/core": "workspace:*",
+    "@shikijs/core": "^4",
+    "@shikijs/engine-javascript": "^4",
+    "@shikijs/langs-precompiled": "^4",
+    "@shikijs/themes": "^4",
+    "@shikijs/types": "^4"
+  },
+  "peerDependencies": {
+    "@blocknote/core": "0.51.4"
+  },
+  "eslintConfig": {
+    "extends": [
+      "../../.eslintrc.json"
+    ]
+  },
+  "gitHead": "37614ab348dcc7faa830a9a88437b37197a2162d"
+}

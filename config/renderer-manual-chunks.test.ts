@@ -21,6 +21,11 @@ describe("resolveRendererManualChunk", () => {
         "/Users/asc/repo/nodex/node_modules/@blocknote/core/dist/index.js",
       ),
     ).toBe("vendor-blocknote");
+    expect(
+      resolveRendererManualChunk(
+        "/Users/asc/repo/nodex/third_party/blocknote/packages/core/src/index.ts",
+      ),
+    ).toBe("vendor-blocknote");
   });
 
   test("groups canvas dependencies together", () => {

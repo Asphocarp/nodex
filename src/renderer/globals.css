@@ -15,7 +15,7 @@
 @source "../../node_modules/@streamdown/mermaid/dist/*.js";
 @source "../../node_modules/@streamdown/math/dist/*.js";
 @source "../../node_modules/@streamdown/cjk/dist/*.js";
-@source "../../node_modules/@blocknote/shadcn";
+@source "../../third_party/blocknote/packages/shadcn/src";
 
 /* fix button pointer */
 @layer base {

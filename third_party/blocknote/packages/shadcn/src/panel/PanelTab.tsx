@@ -1,0 +1,26 @@
+import { assertEmpty } from "@blocknote/core";
+import { ComponentProps } from "@blocknote/react";
+import { forwardRef } from "react";
+
+import { cn } from "../lib/utils.js";
+
+export const PanelTab = forwardRef<
+  HTMLDivElement,
+  ComponentProps["FilePanel"]["TabPanel"]
+>((props, ref) => {
+  const { className, children, ...rest } = props;
+
+  assertEmpty(rest);
+
+  return (
+    <div
+      className={cn(
+        className,
+        "flex flex-col items-start justify-center gap-2",
+      )}
+      ref={ref}
+    >
+      {children}
+    </div>
+  );
+});

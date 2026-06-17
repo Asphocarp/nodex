@@ -1,0 +1,293 @@
+import { Fragment, Schema, Slice } from "@tiptap/pm/model";
+import { EditorView } from "@tiptap/pm/view";
+
+import { getBlockInfoFromSelection } from "../api/getBlockInfoFromPos.js";
+import { findParentNodeClosestToPos } from "@tiptap/core";
+
+/**
+ * Checks if the current selection is inside a table cell.
+ * Returns the depth of the tableCell/tableHeader node if found, -1 otherwise.
+ */
+function isInTableCell(view: EditorView): boolean {
+  return (
+    findParentNodeClosestToPos(view.state.selection.$from, (n) => {
+      return n.type.name === "tableCell" || n.type.name === "tableHeader";
+    }) !== undefined
+  );
+}
+
+/**
+ * Converts block content to inline content with hard breaks.
+ * This is used when pasting into table cells which can only contain inline content.
+ */
+function convertBlocksToInlineContent(
+  fragment: Fragment,
+  schema: Schema,
+): Fragment {
+  const hardBreak = schema.nodes.hardBreak;
+  let result = Fragment.empty;
+
+  fragment.forEach((node) => {
+    if (node.isTextblock && node.childCount > 0) {
+      // Extract inline content from paragraphs, headings, etc.
+      result = result.append(node.content);
+      result = result.addToEnd(hardBreak.create());
+    } else if (node.isText) {
+      result = result.addToEnd(node);
+    } else if (node.isBlock && node.childCount > 0) {
+      // Recurse into block containers, blockGroups, etc.
+      result = result.append(
+        convertBlocksToInlineContent(node.content, schema),
+      );
+      result = result.addToEnd(hardBreak.create());
+    }
+  });
+
+  // Remove trailing hard break
+  if (result.lastChild?.type === hardBreak) {
+    result = result.cut(0, result.size - 1);
+  }
+
+  return result;
+}
+
+// helper function to remove a child from a fragment
+function removeChild(node: Fragment, n: number) {
+  const children: any[] = [];
+  node.forEach((child, _, i) => {
+    if (i !== n) {
+      children.push(child);
+    }
+  });
+  return Fragment.from(children);
+}
+
+/**
+ * Wrap adjacent tableRow items in a table.
+ *
+ * This makes sure the content that we paste is always a table (and not a tableRow)
+ * A table works better for the remaing paste handling logic, as it's actually a blockContent node
+ */
+export function wrapTableRows(f: Fragment, schema: Schema) {
+  const newItems: any[] = [];
+  for (let i = 0; i < f.childCount; i++) {
+    if (f.child(i).type.name === "tableRow") {
+      if (
+        newItems.length > 0 &&
+        newItems[newItems.length - 1].type.name === "table"
+      ) {
+        // append to existing table
+        const prevTable = newItems[newItems.length - 1];
+        const newTable = prevTable.copy(prevTable.content.addToEnd(f.child(i)));
+        newItems[newItems.length - 1] = newTable;
+      } else {
+        // create new table to wrap tableRow with
+        const newTable = schema.nodes.table.createChecked(
+          undefined,
+          f.child(i),
+        );
+        newItems.push(newTable);
+      }
+    } else {
+      newItems.push(f.child(i));
+    }
+  }
+  f = Fragment.from(newItems);
+  return f;
+}
+
+/**
+ * fix for https://github.com/ProseMirror/prosemirror/issues/1430#issuecomment-1822570821
+ *
+ * This fix wraps pasted ProseMirror nodes in their own `blockContainer` nodes
+ * in most cases. This is to ensure that ProseMirror inserts them as separate
+ * blocks, which it sometimes doesn't do because it doesn't have enough context
+ * about the hierarchy of the pasted nodes. The issue can be seen when pasting
+ * e.g. an image or two consecutive paragraphs, where PM tries to nest the
+ * pasted block(s) when it shouldn't.
+ *
+ * However, the fix is not applied in a few cases. See `shouldApplyFix` for
+ * which cases are excluded.
+ */
+export function transformPasted(slice: Slice, view: EditorView) {
+  let f = Fragment.from(slice.content);
+  f = wrapTableRows(f, view.state.schema);
+
+  const retyped = retypeLeadingParagraphForEmptyTarget(f, view, slice);
+  if (retyped) {
+    return retyped;
+  }
+
+  if (isInTableCell(view)) {
+    let hasTableContent = false;
+    f.descendants((node) => {
+      if (node.type.isInGroup("tableContent")) {
+        hasTableContent = true;
+      }
+    });
+    if (
+      !hasTableContent &&
+      // is the content valid for a table paragraph?
+      !view.state.schema.nodes.tableParagraph.validContent(f)
+    ) {
+      // if not, convert the content to inline content
+      return new Slice(
+        convertBlocksToInlineContent(f, view.state.schema),
+        0,
+        0,
+      );
+    }
+  }
+
+  if (!shouldApplyFix(f, view)) {
+    // Don't apply the fix.
+    return new Slice(f, slice.openStart, slice.openEnd);
+  }
+
+  for (let i = 0; i < f.childCount; i++) {
+    if (f.child(i).type.spec.group === "blockContent") {
+      const content = [f.child(i)];
+
+      // when there is a blockGroup with lists, it should be nested in the new blockcontainer
+      // (if we remove this if-block, the nesting bug will be fixed, but lists won't be nested correctly)
+      if (
+        i + 1 < f.childCount &&
+        f.child(i + 1).type.name === "blockGroup" // TODO
+      ) {
+        const nestedChild = f
+          .child(i + 1)
+          .child(0)
+          .child(0);
+
+        if (
+          nestedChild.type.name === "bulletListItem" ||
+          nestedChild.type.name === "numberedListItem" ||
+          nestedChild.type.name === "checkListItem"
+        ) {
+          content.push(f.child(i + 1));
+          f = removeChild(f, i + 1);
+        }
+      }
+      const container = view.state.schema.nodes.blockContainer.createChecked(
+        undefined,
+        content,
+      );
+      f = f.replaceChild(i, container);
+    }
+  }
+  return new Slice(f, slice.openStart, slice.openEnd);
+}
+
+/**
+ * Pasting plain text into an empty inline-content block (e.g. an empty
+ * bullet list item) would normally replace that block with a paragraph:
+ * BlockNote's serializer always wraps content in
+ * `blockGroup > blockContainer > <block>`, producing a closed slice that
+ * ProseMirror inserts as a new block rather than splicing inline.
+ *
+ * To preserve the empty block's type, retype the leading paragraph in the
+ * slice to match the target block. Subsequent blocks in the slice are left
+ * alone and end up as siblings.
+ *
+ * Scoped to: empty, non-paragraph, inline-content target + paragraph leading
+ * the slice. A non-empty target already gives ProseMirror a valid inline
+ * insertion point so it splices correctly on its own; non-paragraph leading
+ * blocks (heading, list item, …) carry semantic meaning the user picked, so
+ * we keep the existing replace behavior.
+ */
+function retypeLeadingParagraphForEmptyTarget(
+  fragment: Fragment,
+  view: EditorView,
+  slice: Slice,
+): Slice | null {
+  if (isInTableCell(view)) {
+    return null;
+  }
+
+  // `transformPasted` is also called for drop events, where the slice will be
+  // inserted at the drop position rather than the current selection. In that
+  // case the selection-derived target is wrong, so bail out and let the
+  // default behavior handle drops.
+  if (view.dragging) {
+    return null;
+  }
+
+  const blockInfo = getBlockInfoFromSelection(view.state);
+  const target = blockInfo.isBlockContainer
+    ? blockInfo.blockContent.node
+    : null;
+  if (
+    !target ||
+    target.type.name === "paragraph" ||
+    target.type.spec.content !== "inline*" ||
+    target.childCount > 0
+  ) {
+    return null;
+  }
+
+  const blockGroup = fragment.firstChild;
+  const blockContainer = blockGroup?.firstChild;
+  const leading = blockContainer?.firstChild;
+  if (
+    blockGroup?.type.name !== "blockGroup" ||
+    blockContainer?.type.name !== "blockContainer" ||
+    leading?.type.name !== "paragraph"
+  ) {
+    return null;
+  }
+
+  const retyped = target.type.create(target.attrs, leading.content);
+  const newBlockContainer = blockContainer.copy(
+    blockContainer.content.replaceChild(0, retyped),
+  );
+  const newBlockGroup = blockGroup.copy(
+    blockGroup.content.replaceChild(0, newBlockContainer),
+  );
+  return new Slice(
+    fragment.replaceChild(0, newBlockGroup),
+    slice.openStart,
+    slice.openEnd,
+  );
+}
+
+/**
+ * Used in `transformPasted` to check if the fix there should be applied, i.e.
+ * if the pasted fragment should be wrapped in a `blockContainer` node. This
+ * will explicitly tell ProseMirror to treat it as a separate block.
+ */
+function shouldApplyFix(fragment: Fragment, view: EditorView) {
+  const nodeHasSingleChild = fragment.childCount === 1;
+  const nodeHasInlineContent =
+    fragment.firstChild?.type.spec.content === "inline*";
+  const nodeHasTableContent =
+    fragment.firstChild?.type.spec.content === "tableRow+";
+
+  if (nodeHasSingleChild) {
+    if (nodeHasInlineContent) {
+      // Case when we paste a single node with inline content, e.g. a paragraph
+      // or heading. We want to insert the content in-line for better UX instead
+      // of a separate block, so we return false.
+      return false;
+    }
+
+    if (nodeHasTableContent) {
+      // Not ideal that we check selection here, as `transformPasted` is called
+      // for both paste and drop events. Drop events can potentially cause
+      // issues as they don't always happen at the current selection.
+      const blockInfo = getBlockInfoFromSelection(view.state);
+      if (blockInfo.isBlockContainer) {
+        const selectedBlockHasTableContent =
+          blockInfo.blockContent.node.type.spec.content === "tableRow+";
+
+        // Case for when we paste a single node with table content, i.e. a
+        // table. Normally, we return true as we want to ensure the table is
+        // inserted as a separate block. However, if the selection is in an
+        // existing table, we return false, as we want the content of the pasted
+        // table to be added to the existing one for better UX.
+        return !selectedBlockHasTableContent;
+      }
+    }
+  }
+
+  return true;
+}

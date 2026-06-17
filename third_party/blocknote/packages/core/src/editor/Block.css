@@ -1,0 +1,741 @@
+/*
+BASIC STYLES
+*/
+
+.bn-block-outer {
+  line-height: 1.5;
+  transition: margin 0.2s;
+}
+
+/*Ensures blocks & block content spans editor width*/
+.bn-block {
+  display: flex;
+  flex-direction: column;
+}
+
+.bn-block-content {
+  padding: 3px 0;
+  display: flex;
+  transition: font-size 0.2s;
+  width: 100%;
+}
+
+.bn-block-content.ProseMirror-selectednode > *,
+/* Case for node view renderers */
+.ProseMirror-selectednode > .bn-block-content > * {
+  border-radius: 4px;
+  outline: 4px solid rgb(100, 160, 255);
+}
+
+.bn-block-content::before {
+  content: "";
+  margin-right: 0;
+  transition: all 0.2s;
+  /* Workaround for selection issue on Chrome, see #1588 and also here:
+  https://discuss.prosemirror.net/t/mouse-down-selection-behaviour-different-on-chrome/8426
+  The :before element causes the selection to be set in the wrong place vs 
+  other browsers. Setting no height fixes this, while list item indicators are 
+  still displayed fine as overflow is not hidden. */
+  height: 0;
+  overflow: visible;
+}
+
+.bn-inline-content {
+  /* Ensure pre-wrap even when a parent node view wrapper (e.g. tiptap's
+     NodeViewWrapper) resets white-space to "normal". Without this, browsers
+     normalize trailing spaces to NBSP on input, which causes ProseMirror to
+     compute a replacement instead of a pure insertion and breaks the
+     suggestion-menu trigger detection (issue #2531). */
+  white-space: pre-wrap;
+}
+
+.bn-trailing-block {
+  cursor: text;
+  height: 30px;
+}
+
+/*
+NESTED BLOCKS
+*/
+
+.bn-block-group .bn-block-group {
+  margin-left: 24px;
+}
+
+.bn-block-group .bn-block-group > .bn-block-outer {
+  position: relative;
+}
+
+.bn-block-group
+  .bn-block-group
+  > .bn-block-outer:not([data-prev-depth-changed])::before {
+  content: " ";
+  display: inline;
+  position: absolute;
+  left: -20px;
+  height: 100%;
+  transition: all 0.2s 0.1s;
+}
+
+.bn-block-group
+  .bn-block-group
+  > .bn-block-outer[data-prev-depth-change="-2"]::before {
+  height: 0;
+}
+
+.bn-inline-content code {
+  font-family: monospace;
+}
+
+/* NESTED BLOCK ANIMATIONS (change in indent) */
+
+[data-prev-depth-change="1"] {
+  --x: 1;
+}
+[data-prev-depth-change="2"] {
+  --x: 2;
+}
+[data-prev-depth-change="3"] {
+  --x: 3;
+}
+[data-prev-depth-change="4"] {
+  --x: 4;
+}
+[data-prev-depth-change="5"] {
+  --x: 5;
+}
+
+[data-prev-depth-change="-1"] {
+  --x: -1;
+}
+[data-prev-depth-change="-2"] {
+  --x: -2;
+}
+[data-prev-depth-change="-3"] {
+  --x: -3;
+}
+[data-prev-depth-change="-4"] {
+  --x: -4;
+}
+[data-prev-depth-change="-5"] {
+  --x: -5;
+}
+
+.bn-block-outer[data-prev-depth-change] {
+  margin-left: calc(10px * var(--x));
+}
+
+.bn-block-outer[data-prev-depth-change]
+  .bn-block-outer[data-prev-depth-change] {
+  margin-left: 0;
+}
+
+/* HEADINGS*/
+[data-content-type="heading"] {
+  padding-top: 18px;
+  --level: 3em;
+}
+[data-content-type="heading"][data-level="2"] {
+  --level: 2em;
+}
+[data-content-type="heading"][data-level="3"] {
+  --level: 1.3em;
+}
+[data-content-type="heading"][data-level="4"] {
+  --level: 1em;
+}
+[data-content-type="heading"][data-level="5"] {
+  --level: 0.9em;
+}
+[data-content-type="heading"][data-level="6"] {
+  --level: 0.8em;
+}
+
+[data-prev-level="1"] {
+  --prev-level: 3em;
+}
+[data-prev-level="2"] {
+  --prev-level: 2em;
+}
+[data-prev-level="3"] {
+  --prev-level: 1.3em;
+}
+[data-prev-level="4"] {
+  --prev-level: 1em;
+}
+[data-prev-level="5"] {
+  --prev-level: 0.9em;
+}
+[data-prev-level="6"] {
+  --prev-level: 0.8em;
+}
+
+.bn-block-outer[data-prev-type="heading"] > .bn-block > .bn-block-content {
+  font-size: var(--prev-level);
+  font-weight: bold;
+}
+
+.bn-block-outer:not([data-prev-type])
+  > .bn-block
+  > .bn-block-content[data-content-type="heading"],
+.bn-block-outer:not([data-prev-type])
+  > .bn-block
+  > div[data-type="modification"]
+  > div[data-type="modification"]
+  > .bn-block-content[data-content-type="heading"] {
+  font-size: var(--level);
+  font-weight: bold;
+}
+
+/* QUOTES */
+[data-content-type="quote"] blockquote {
+  border-left: 2px solid rgb(125, 121, 122);
+  color: rgb(125, 121, 122);
+  margin: 0;
+  padding-left: 1em;
+}
+
+/* DIVIDERS */
+[data-content-type="divider"] hr {
+  border: none;
+  border-top: 1px solid rgb(125, 121, 122);
+  margin: 0.5em 0;
+  flex: 1;
+}
+
+/* LISTS */
+
+.bn-block-content::before {
+  margin-right: 0;
+  content: "";
+}
+
+/* Ordered */
+.bn-block-content[data-content-type="numberedListItem"]::before {
+  display: flex;
+  justify-content: center;
+  min-width: 24px;
+  padding-right: 4px;
+}
+
+[data-content-type="numberedListItem"] {
+  --index: attr(data-index);
+}
+
+[data-prev-type="numberedListItem"] {
+  --prev-index: attr(data-prev-index);
+}
+
+.bn-block-outer[data-prev-type="numberedListItem"]:not([data-prev-index="none"])
+  > .bn-block
+  > .bn-block-content::before {
+  content: var(--prev-index) ".";
+}
+
+.bn-block-outer:not([data-prev-type])
+  > .bn-block
+  > .bn-block-content[data-content-type="numberedListItem"]::before,
+.bn-block-outer:not([data-prev-type])
+  > .bn-block
+  > div[data-type="modification"]
+  > .bn-block-content[data-content-type="numberedListItem"]::before {
+  content: var(--index) ".";
+}
+
+/* Unordered */
+.bn-block-content[data-content-type="bulletListItem"]::before {
+  display: flex;
+  justify-content: center;
+  min-width: 24px;
+  padding-right: 4px;
+}
+
+/* Checked */
+.bn-block-content[data-content-type="checkListItem"] > div:has(> input) {
+  height: 24px;
+}
+
+.bn-block-content[data-content-type="checkListItem"] > div > input {
+  cursor: pointer;
+  height: 24px;
+  margin-left: 4px;
+  margin-right: 8px;
+  margin-block: 0;
+  width: 12px;
+}
+
+.bn-block-content[data-content-type="checkListItem"][data-checked="true"]
+  .bn-inline-content {
+  text-decoration: line-through;
+}
+
+.bn-block-content[data-text-alignment="center"] {
+  justify-content: center;
+}
+
+.bn-block-content[data-text-alignment="right"] {
+  justify-content: flex-end;
+}
+
+/* Toggle */
+.bn-block:has(
+    > .bn-block-content > div > .bn-toggle-wrapper[data-show-children="false"]
+  )
+  > .bn-block-group,
+.bn-block:has(
+    > .react-renderer
+      > .bn-block-content
+      > div
+      > .bn-toggle-wrapper[data-show-children="false"]
+  )
+  > .bn-block-group {
+  display: none;
+}
+
+.bn-toggle-wrapper {
+  display: flex;
+  align-items: center;
+}
+
+.bn-toggle-button {
+  color: var(--bn-colors-editor-text);
+  padding: 3px;
+}
+
+.bn-toggle-button > svg {
+  width: 18px;
+  height: 18px;
+}
+
+.bn-toggle-wrapper[data-show-children="true"] .bn-toggle-button {
+  transform: rotate(90deg);
+}
+
+.bn-toggle-add-block-button {
+  font-size: 16px;
+  color: var(--bn-colors-side-menu);
+  font-weight: normal;
+  margin-left: 22px;
+  padding-inline: 2px;
+  width: fit-content;
+}
+
+.bn-toggle-button,
+.bn-toggle-add-block-button {
+  background: none;
+  border: none;
+  border-radius: var(--bn-border-radius-small);
+  cursor: pointer;
+  display: flex;
+  user-select: none;
+}
+
+.bn-toggle-button:hover,
+.bn-toggle-add-block-button:hover {
+  background-color: var(--bn-colors-hovered-background);
+}
+
+/* No list nesting */
+.bn-block-outer[data-prev-type="bulletListItem"]
+  > .bn-block
+  > .bn-block-content::before {
+  content: "•";
+}
+
+.bn-block-outer:not([data-prev-type])
+  > .bn-block
+  > .bn-block-content[data-content-type="bulletListItem"]::before,
+.bn-block-outer:not([data-prev-type])
+  > .bn-block
+  > div[data-type="modification"]
+  > .bn-block-content[data-content-type="bulletListItem"]::before {
+  content: "•";
+}
+
+/* 1 level of list nesting */
+[data-content-type="bulletListItem"]
+  ~ .bn-block-group
+  > .bn-block-outer[data-prev-type="bulletListItem"]
+  > .bn-block
+  > .bn-block-content::before {
+  content: "◦";
+}
+
+[data-content-type="bulletListItem"]
+  ~ .bn-block-group
+  > .bn-block-outer:not([data-prev-type])
+  > .bn-block
+  > .bn-block-content[data-content-type="bulletListItem"]::before,
+[data-content-type="bulletListItem"]
+  ~ .bn-block-group
+  > .bn-block-outer:not([data-prev-type])
+  > .bn-block
+  > div[data-type="modification"]
+  > .bn-block-content[data-content-type="bulletListItem"]::before {
+  content: "◦";
+}
+
+/* 2 levels of list nesting */
+[data-content-type="bulletListItem"]
+  ~ .bn-block-group
+  [data-content-type="bulletListItem"]
+  ~ .bn-block-group
+  > .bn-block-outer[data-prev-type="bulletListItem"]
+  > .bn-block
+  > .bn-block-content::before {
+  content: "▪\FE0E";
+}
+
+[data-content-type="bulletListItem"]
+  ~ .bn-block-group
+  [data-content-type="bulletListItem"]
+  ~ .bn-block-group
+  > .bn-block-outer:not([data-prev-type])
+  > .bn-block
+  > .bn-block-content[data-content-type="bulletListItem"]::before,
+[data-content-type="bulletListItem"]
+  ~ .bn-block-group
+  [data-content-type="bulletListItem"]
+  ~ .bn-block-group
+  > .bn-block-outer:not([data-prev-type])
+  > .bn-block
+  > div[data-type="modification"]
+  > .bn-block-content[data-content-type="bulletListItem"]::before {
+  content: "▪\FE0E";
+}
+
+/* CODE BLOCKS */
+.bn-block-content[data-content-type="codeBlock"] {
+  position: relative;
+
+  background-color: rgb(22 22 22);
+  color: white;
+  border-radius: 8px;
+}
+.bn-block-content[data-content-type="codeBlock"] > pre {
+  white-space: pre;
+  overflow-x: auto;
+  margin: 0;
+  width: 100%;
+  tab-size: 2;
+
+  padding: 24px;
+}
+.bn-block-content[data-content-type="codeBlock"] > div {
+  outline: none !important;
+}
+.bn-block-content[data-content-type="codeBlock"] > div > select {
+  outline: none !important;
+  appearance: none;
+  user-select: none;
+  border: none;
+  cursor: pointer;
+  background-color: transparent;
+
+  position: absolute;
+  top: 8px;
+  left: 18px;
+
+  font-size: 0.8em;
+  color: white;
+
+  opacity: 0;
+  transition: opacity 0.3s;
+  transition-delay: 1s;
+}
+.bn-block-content[data-content-type="codeBlock"] > div > select > option {
+  color: black;
+}
+.bn-block-content[data-content-type="codeBlock"]:hover > div > select,
+.bn-block-content[data-content-type="codeBlock"] > div > select:focus {
+  opacity: 0.5;
+  transition-delay: 0.1s;
+}
+
+/* PAGE BREAK */
+.bn-block-content[data-content-type="pageBreak"] > div {
+  width: 100%;
+  height: 0;
+  border-top: dotted rgb(125, 121, 122) 2px;
+  margin-block: 11px;
+}
+
+@media print {
+  .bn-block-content[data-content-type="pageBreak"] > div {
+    page-break-after: always;
+  }
+}
+
+/* FILES */
+
+/* Element that wraps content for all file blocks */
+[data-file-block] .bn-file-block-content-wrapper {
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  /* Reset default <figure> browser margins (the wrapper becomes a <figure>
+     when the block has a caption). */
+  margin: 0;
+  user-select: none;
+}
+
+/* Add block button & default element (name with icon) */
+[data-file-block] .bn-file-block-content-wrapper:has(.bn-add-file-button),
+[data-file-block] .bn-file-block-content-wrapper:has(.bn-file-name-with-icon) {
+  width: 100%;
+}
+
+[data-file-block] .bn-add-file-button {
+  align-items: center;
+  background-color: rgb(242, 241, 238);
+  border-radius: 4px;
+  color: rgb(125, 121, 122);
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+}
+
+[data-file-block] .bn-add-file-button:where(.dark, .dark *) {
+  background-color: rgb(70, 70, 70);
+  color: rgb(190, 190, 190);
+}
+
+.bn-editor[contenteditable="true"] [data-file-block] .bn-add-file-button:hover,
+[data-file-block] .bn-file-name-with-icon:hover,
+.ProseMirror-selectednode .bn-file-name-with-icon {
+  background-color: rgb(225, 225, 225);
+}
+
+.bn-editor[contenteditable="true"]
+  [data-file-block]
+  .bn-add-file-button:hover:where(.dark, .dark *),
+[data-file-block] .bn-file-name-with-icon:hover:where(.dark, .dark *),
+.ProseMirror-selectednode .bn-file-name-with-icon:where(.dark, .dark *) {
+  background-color: rgb(90, 90, 90);
+}
+
+[data-file-block] .bn-add-file-button-icon,
+[data-file-block] .bn-file-icon {
+  width: 24px;
+  height: 24px;
+}
+
+[data-file-block] .bn-add-file-button-text {
+  font-size: 0.9rem;
+}
+
+[data-file-block] .bn-file-name-with-icon {
+  border-radius: 4px;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+}
+
+/* File captions */
+[data-file-block] .bn-file-caption {
+  font-size: 0.8em;
+  padding-block: 4px;
+  word-break: break-word;
+}
+
+[data-file-block] .bn-file-caption:empty {
+  padding-block: 0;
+}
+
+/* Resize handles */
+[data-file-block] .bn-resize-handle {
+  position: absolute;
+  width: 8px;
+  height: 30px;
+  background-color: black;
+  border: 1px solid white;
+  border-radius: 4px;
+  cursor: ew-resize;
+}
+
+/* Visual media file blocks, e.g. images & videos */
+[data-file-block] .bn-visual-media-wrapper {
+  display: flex;
+  align-items: center;
+  position: relative;
+  max-width: 100%;
+}
+
+[data-file-block] .bn-visual-media {
+  border-radius: 4px;
+  width: 100%;
+}
+
+/* Block-specific styles */
+[data-content-type="audio"] > .bn-file-block-content-wrapper,
+.bn-audio {
+  width: 100%;
+}
+
+/* PLACEHOLDERS*/
+.bn-block-content:has(.ProseMirror-trailingBreak:only-child):after {
+  font-style: italic;
+  /* Removes text cursor offset. */
+  margin-inline: -2px;
+  pointer-events: none;
+  max-width: 100%;
+}
+
+/* TEXT COLORS */
+[data-style-type="textColor"][data-value="gray"],
+[data-text-color="gray"],
+.bn-block:has(> .bn-block-content[data-text-color="gray"]) {
+  color: #9b9a97;
+}
+
+[data-style-type="textColor"][data-value="brown"],
+[data-text-color="brown"],
+.bn-block:has(> .bn-block-content[data-text-color="brown"]) {
+  color: #64473a;
+}
+
+[data-style-type="textColor"][data-value="red"],
+[data-text-color="red"],
+.bn-block:has(> .bn-block-content[data-text-color="red"]) {
+  color: #e03e3e;
+}
+
+[data-style-type="textColor"][data-value="orange"],
+[data-text-color="orange"],
+.bn-block:has(> .bn-block-content[data-text-color="orange"]) {
+  color: #d9730d;
+}
+
+[data-style-type="textColor"][data-value="yellow"],
+[data-text-color="yellow"],
+.bn-block:has(> .bn-block-content[data-text-color="yellow"]) {
+  color: #dfab01;
+}
+
+[data-style-type="textColor"][data-value="green"],
+[data-text-color="green"],
+.bn-block:has(> .bn-block-content[data-text-color="green"]) {
+  color: #4d6461;
+}
+
+[data-style-type="textColor"][data-value="blue"],
+[data-text-color="blue"],
+.bn-block:has(> .bn-block-content[data-text-color="blue"]) {
+  color: #0b6e99;
+}
+
+[data-style-type="textColor"][data-value="purple"],
+[data-text-color="purple"],
+.bn-block:has(> .bn-block-content[data-text-color="purple"]) {
+  color: #6940a5;
+}
+
+[data-style-type="textColor"][data-value="pink"],
+[data-text-color="pink"],
+.bn-block:has(> .bn-block-content[data-text-color="pink"]) {
+  color: #ad1a72;
+}
+
+/* BACKGROUND COLORS */
+[data-style-type="backgroundColor"][data-value="gray"],
+[data-background-color="gray"],
+.bn-block:has(> .bn-block-content[data-background-color="gray"]) {
+  background-color: #ebeced;
+}
+
+[data-style-type="backgroundColor"][data-value="brown"],
+[data-background-color="brown"],
+.bn-block:has(> .bn-block-content[data-background-color="brown"]) {
+  background-color: #e9e5e3;
+}
+
+[data-style-type="backgroundColor"][data-value="red"],
+[data-background-color="red"],
+.bn-block:has(> .bn-block-content[data-background-color="red"]) {
+  background-color: #fbe4e4;
+}
+
+[data-style-type="backgroundColor"][data-value="orange"],
+[data-background-color="orange"],
+.bn-block:has(> .bn-block-content[data-background-color="orange"]) {
+  background-color: #f6e9d9;
+}
+
+[data-style-type="backgroundColor"][data-value="yellow"],
+[data-background-color="yellow"],
+.bn-block:has(> .bn-block-content[data-background-color="yellow"]) {
+  background-color: #fbf3db;
+}
+
+[data-style-type="backgroundColor"][data-value="green"],
+[data-background-color="green"],
+.bn-block:has(> .bn-block-content[data-background-color="green"]) {
+  background-color: #ddedea;
+}
+
+[data-style-type="backgroundColor"][data-value="blue"],
+[data-background-color="blue"],
+.bn-block:has(> .bn-block-content[data-background-color="blue"]) {
+  background-color: #ddebf1;
+}
+
+[data-style-type="backgroundColor"][data-value="purple"],
+[data-background-color="purple"],
+.bn-block:has(> .bn-block-content[data-background-color="purple"]) {
+  background-color: #eae4f2;
+}
+
+[data-style-type="backgroundColor"][data-value="pink"],
+[data-background-color="pink"],
+.bn-block:has(> .bn-block-content[data-background-color="pink"]) {
+  background-color: #f4dfeb;
+}
+
+/* TEXT ALIGNMENT */
+[data-text-alignment="left"] {
+  justify-content: flex-start !important;
+  text-align: left !important;
+}
+
+[data-text-alignment="center"] {
+  justify-content: center !important;
+  text-align: center !important;
+}
+
+[data-text-alignment="right"] {
+  justify-content: flex-end !important;
+  text-align: right !important;
+}
+
+[data-text-alignment="justify"] {
+  justify-content: flex-start !important;
+  text-align: justify !important;
+}
+
+.bn-block-column-list {
+  display: flex;
+  flex-direction: row;
+}
+
+.bn-block-column {
+  flex: 1;
+  padding: 12px 20px;
+  /* scroll if we overflow, for example when tables or images are in the column */
+  overflow-x: auto;
+}
+
+.bn-block-column:first-child {
+  padding-left: 0;
+}
+
+.bn-block-column:last-child {
+  padding-right: 0;
+}
+
+.bn-thread-mark:not([data-orphan="true"]) {
+  background: rgba(255, 200, 0, 0.15);
+}
+
+.bn-thread-mark .bn-thread-mark-selected {
+  background: rgba(255, 200, 0, 0.25);
+}

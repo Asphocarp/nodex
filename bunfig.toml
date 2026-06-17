@@ -1,2 +1,3 @@
 [test]
 preload = ["./src/renderer/test/setup.ts"]
+pathIgnorePatterns = ["third_party/**"]

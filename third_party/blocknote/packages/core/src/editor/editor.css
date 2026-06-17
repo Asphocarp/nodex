@@ -1,0 +1,197 @@
+@import url("prosemirror-tables/style/tables.css");
+
+.bn-editor {
+  outline: none;
+  padding-inline: 54px;
+  font-synthesis: style weight;
+
+  /* Define a set of colors to be used throughout the app for consistency
+  see https://atlassian.design/foundations/color for more info */
+  --N800: #172b4d; /* Dark neutral used for tooltips and text on light background */
+  --N40: #dfe1e6; /* Light neutral used for subtle borders and text on dark background */
+}
+
+.bn-comment-editor {
+  width: 100%;
+  padding: 0;
+}
+
+.bn-comment-editor .bn-editor {
+  padding: 0;
+}
+
+/* reset styles, they will be set on blockContent */
+.bn-default-styles p,
+.bn-default-styles h1,
+.bn-default-styles h2,
+.bn-default-styles h3,
+.bn-default-styles h4,
+.bn-default-styles h5,
+.bn-default-styles h6,
+.bn-default-styles li {
+  margin: 0;
+  padding: 0;
+  font-size: inherit;
+  /* min width to make sure cursor is always visible */
+  min-width: 2px !important;
+}
+
+.bn-default-styles {
+  font-size: 16px;
+  font-weight: normal;
+  font-family:
+    "Inter",
+    "SF Pro Display",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Open Sans",
+    "Segoe UI",
+    "Roboto",
+    "Oxygen",
+    "Ubuntu",
+    "Cantarell",
+    "Fira Sans",
+    "Droid Sans",
+    "Helvetica Neue",
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.bn-table-drop-cursor {
+  position: absolute;
+  z-index: 20;
+  background-color: #adf;
+  pointer-events: none;
+}
+
+.bn-drag-preview {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 10px;
+  /* Sort of a hack but seems like the most reliable solution. */
+  /* Drag preview element needs to be within bounds of the document area or it
+   won't work in some cases. */
+  /* Negative z-index covers most cases, but the element can still be visible
+   if UI elements are translucent. */
+  /* Setting opacity has no effect on the drag preview but does affect the
+   element. Unless it's set to 0, in which case the drag preview also becomes
+   hidden. So setting it to an extremely low value instead makes the element
+   functionally invisible while not affecting the drag preview itself. */
+  opacity: 0.001;
+  /* The element is kept in the DOM after setDragImage captures its snapshot,
+   so it can overlap the editor and block drops in that area. Disabling
+   pointer-events lets drag/drop events pass through to the editor while
+   leaving the captured preview unaffected. */
+  pointer-events: none;
+}
+
+.bn-editor .bn-collaboration-cursor__base {
+  position: relative;
+}
+
+.bn-editor .bn-collaboration-cursor__base .bn-collaboration-cursor__caret {
+  position: absolute;
+  width: 2px;
+  top: 1px;
+  bottom: -2px;
+  left: -1px;
+}
+
+.bn-editor .bn-collaboration-cursor__base .bn-collaboration-cursor__label {
+  pointer-events: none;
+  border-radius: 0 1.5px 1.5px 0;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 600;
+  line-height: normal;
+  left: 0;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  user-select: none;
+
+  color: transparent;
+  max-height: 5px;
+  max-width: 4px;
+  padding: 0;
+  top: -1px;
+  transition: all 0.2s;
+}
+
+.bn-editor
+  .bn-collaboration-cursor__base[data-active]
+  .bn-collaboration-cursor__label {
+  color: #0d0d0d;
+  max-height: 1.1rem;
+  max-width: 20rem;
+  padding: 0.1rem 0.3rem;
+  top: -17px;
+  left: 0;
+  border-radius: 3px 3px 3px 0;
+
+  transition: all 0.2s;
+}
+
+.bn-editor [data-content-type="table"] .tableWrapper {
+  /* Size of + buttons to add rows/columns. */
+  --bn-table-widget-size: 22px;
+  /* Size of table handles, divided by 2 since half the element is in the cell. */
+  --bn-table-handle-size: calc(18px / 2);
+  overflow-y: hidden;
+  padding: var(--bn-table-handle-size) var(--bn-table-widget-size)
+    var(--bn-table-widget-size) var(--bn-table-handle-size);
+  position: relative;
+  width: 100%;
+}
+
+/* table related: */
+.bn-editor [data-content-type="table"] table {
+  width: auto !important;
+  word-break: break-word;
+}
+.bn-editor [data-content-type="table"] th,
+.bn-editor [data-content-type="table"] td {
+  border: 1px solid #ddd;
+  padding: 5px 10px;
+}
+
+.bn-editor [data-content-type="table"] th {
+  font-weight: bold;
+  text-align: left;
+}
+
+.bn-editor [data-content-type="table"] th > p,
+.bn-editor [data-content-type="table"] td > p {
+  min-height: 1.5rem;
+}
+
+/* tiptap uses colwidth instead of data-colwidth, se we need to adjust this style from prosemirror-tables */
+.ProseMirror td,
+.ProseMirror th {
+  min-width: auto !important;
+}
+.ProseMirror td:not([colwidth]):not(.column-resize-dragging),
+.ProseMirror th:not([colwidth]):not(.column-resize-dragging) {
+  /* if there's no explicit width set and the column is not being resized, set a default width */
+  min-width: var(--default-cell-min-width) !important;
+}
+
+.prosemirror-dropcursor-block {
+  transition-property: top, bottom;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 0.15s;
+}
+
+.prosemirror-dropcursor-vertical {
+  transition-property: left, right;
+}
+
+/*
+For the ShowSelectionPlugin
+*/
+[data-show-selection] {
+  background-color: highlight;
+  padding: 2px 0;
+}

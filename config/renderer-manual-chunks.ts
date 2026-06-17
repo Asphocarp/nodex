@@ -9,6 +9,7 @@ const rendererChunkRules = [
   {
     chunkName: "vendor-blocknote",
     packageFragments: [
+      "/third_party/blocknote/packages/",
       "/node_modules/@blocknote/",
       "/node_modules/@tiptap/",
       "/node_modules/prosemirror-",
@@ -35,10 +36,6 @@ const rendererChunkRules = [
 
 export function resolveRendererManualChunk(id: string): string | undefined {
   const normalizedId = id.replaceAll("\\", "/");
-
-  if (!normalizedId.includes("/node_modules/")) {
-    return undefined;
-  }
 
   for (const rule of rendererChunkRules) {
     if (rule.packageFragments.some((fragment) => normalizedId.includes(fragment))) {
