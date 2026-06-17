@@ -43,6 +43,14 @@ function applyHostMessage(message: CodexHostMessage): void {
     return;
   }
 
+  if (message.type === "threadDeleted") {
+    dispatchCodexAppServerMessage("thread-deleted", {
+      hostId: message.hostId,
+      threadId: message.threadId,
+    });
+    return;
+  }
+
   dispatchCodexAppServerMessage("error", {
     hostId: message.hostId,
     message: message.message,

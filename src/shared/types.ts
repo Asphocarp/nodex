@@ -1919,6 +1919,7 @@ export type CodexEvent =
   | { type: "account"; account: CodexAccountSnapshot }
   | { type: "rateLimits"; rateLimits: CodexRateLimitsSnapshot | null }
   | { type: "threadSummary"; thread: CodexThreadSummary }
+  | { type: "threadDeleted"; threadId: string }
   | { type: "threadArchivedState"; threadId: string; archived: boolean }
   | {
       type: "threadStatus";
@@ -2008,5 +2009,10 @@ export type CodexHostMessage =
       hostId: string;
       conversationId: string;
       title: string;
+    }
+  | {
+      type: "threadDeleted";
+      hostId: string;
+      threadId: string;
     }
   | { type: "error"; hostId: string; message: string; detail?: string };

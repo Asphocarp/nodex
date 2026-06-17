@@ -533,6 +533,49 @@ describe("local-conversation-store", () => {
     expect(String(invokeCalls.filter((call) => call === "codex:threads:list").length)).toBe("1");
   });
 
+  test("drops cached conversation state when the host reports a deleted thread", async () => {
+    invokeCalls = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      manager.hydrateThreadSummaries("project-1", [buildThreadSummary("thread-1", "project-1")]);
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          conversationState: buildConversation("thread-1", "project-1"),
+        },
+        sourceClientId: null,
+      });
+
+      expect(manager.readThreadSummary("thread-1")?.threadId).toBe("thread-1");
+      expect(manager.readConversation("thread-1")?.threadId).toBe("thread-1");
+
+      dispatchCodexAppServerMessage("thread-deleted", {
+        hostId: "default",
+        threadId: "thread-1",
+      });
+
+      expect(manager.readThreadSummary("thread-1")).toBe(null);
+      expect(manager.readConversation("thread-1")).toBe(null);
+      expect(JSON.stringify(manager.readProjectThreadSummaries("project-1"))).toBe(JSON.stringify([]));
+    } finally {
+      manager.destroy();
+    }
+  });
+
   test("emits notification events only for live updates and suppresses interrupted turns", async () => {
     invokeCalls = [];
     hostMessageListener = null;

@@ -1826,6 +1826,15 @@ export class CodexService extends EventEmitter {
       return;
     }
 
+    if (event.type === "threadDeleted") {
+      this.emitHostMessage({
+        type: "threadDeleted",
+        hostId: DEFAULT_CODEX_HOST_ID,
+        threadId: event.threadId,
+      });
+      return;
+    }
+
     if (event.type === "threadStartProgress") {
       this.emitHostMessage({
         type: "sharedObjectUpdated",
@@ -2098,6 +2107,14 @@ export class CodexService extends EventEmitter {
       pending.reject(new Error("MCP elicitation cleared after thread history changed"));
       this.pendingMcpElicitations.delete(requestId);
     }
+  }
+
+  private forgetThreadLocalState(threadId: string): void {
+    this.clearThreadPendingRequestsForRemovedTurns(threadId, new Set());
+    this.conversationRecords.delete(threadId);
+    this.lastBroadcastConversationById.delete(threadId);
+    this.conversationVersionById.delete(threadId);
+    this.queuedFollowUpDispatchInFlight.delete(threadId);
   }
 
   private listQueuedFollowUps(threadId: string): CodexQueuedFollowUp[] {
@@ -6246,11 +6263,7 @@ export class CodexService extends EventEmitter {
       });
     }
 
-    this.clearThreadPendingRequestsForRemovedTurns(normalizedThreadId, new Set());
-    this.conversationRecords.delete(normalizedThreadId);
-    this.lastBroadcastConversationById.delete(normalizedThreadId);
-    this.conversationVersionById.delete(normalizedThreadId);
-    this.queuedFollowUpDispatchInFlight.delete(normalizedThreadId);
+    this.forgetThreadLocalState(normalizedThreadId);
     return true;
   }
 
@@ -8036,6 +8049,21 @@ export class CodexService extends EventEmitter {
       }
       this.syncBroadcastConversationSummary(payload.threadId, { syncCapabilityFlags: true });
       this.emitEvent({ type: "threadArchivedState", threadId: payload.threadId, archived });
+      return;
+    }
+
+    if (method === "thread/deleted") {
+      const payload =
+        typeof params === "object" && params !== null
+          ? params as Record<string, unknown>
+          : null;
+      if (!payload || typeof payload.threadId !== "string") return;
+      this.logger.info("Received Codex thread deleted notification", {
+        threadId: payload.threadId,
+      });
+      unlinkCodexThread(payload.threadId);
+      this.forgetThreadLocalState(payload.threadId);
+      this.emitEvent({ type: "threadDeleted", threadId: payload.threadId });
       return;
     }
 

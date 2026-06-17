@@ -1069,6 +1069,52 @@ describe("codex-service session-backed transcript recovery", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("removes local thread state when app-server reports a deleted thread", async () => {
+    const ran = await withTempDatabase(async () => {
+      const card = await createCard(defaultProjectId, "in_progress", { title: "Deleted conversation" });
+      upsertCodexCardThreadLink({
+        projectId: defaultProjectId,
+        cardId: card.id,
+        threadId: "thr_deleted_remote",
+        threadName: "Deleted remote",
+        archived: false,
+      });
+
+      const service = createService();
+      const events: CodexEvent[] = [];
+      const hostMessages: CodexHostMessage[] = [];
+      (service as unknown as {
+        on: (eventName: "event", listener: (event: CodexEvent) => void) => void;
+      }).on("event", (event) => {
+        events.push(event);
+      });
+      service.on("hostMessage", (message) => {
+        hostMessages.push(message);
+      });
+      const serviceInternals = service as unknown as {
+        handleNotification: (method: string, params: unknown) => Promise<void>;
+      };
+
+      try {
+        await serviceInternals.handleNotification("thread/deleted", {
+          threadId: "thr_deleted_remote",
+        });
+
+        expect(getCodexCardThreadLink("thr_deleted_remote")).toBe(null);
+        expect(events.some((event) =>
+          event.type === "threadDeleted" && event.threadId === "thr_deleted_remote"
+        )).toBeTrue();
+        expect(hostMessages.some((message) =>
+          message.type === "threadDeleted" && message.threadId === "thr_deleted_remote"
+        )).toBeTrue();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("resume materializes completed reopened threads from the thread/resume payload", async () => {
     const ran = await withTempDatabase(async () => {
       withTempCodexHome((codexHome) => {

@@ -85,4 +85,25 @@ describe("local conversation host bridge", () => {
     unsubscribe();
     __resetLocalConversationHostBridgeForTests();
   });
+
+  test("dispatches deleted threads onto the app-server message bus", async () => {
+    const received: string[] = [];
+    const unsubscribe = subscribeCodexAppServerMessage("thread-deleted", (event) => {
+      received.push(event.threadId);
+    });
+
+    const { startLocalConversationHostBridge, __resetLocalConversationHostBridgeForTests } = await loadHostBridgeModule();
+    const stop = startLocalConversationHostBridge();
+    hostMessageListener?.({
+      type: "threadDeleted",
+      hostId: "default",
+      threadId: "thread-1",
+    });
+
+    expect(JSON.stringify(received)).toBe(JSON.stringify(["thread-1"]));
+
+    stop();
+    unsubscribe();
+    __resetLocalConversationHostBridgeForTests();
+  });
 });

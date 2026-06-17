@@ -68,6 +68,7 @@ import {
   type CodexClientStatusChangedEvent,
   type CodexErrorEvent,
   type CodexSharedObjectUpdatedEvent,
+  type CodexThreadDeletedEvent,
   type CodexThreadTitleUpdatedEvent,
   type CodexThreadStreamStateChangedEvent,
   __resetCodexAppServerMessageBusForTests,
@@ -651,6 +652,9 @@ export class CodexAppServerManager {
       subscribeCodexAppServerMessage("thread-title-updated", (event) => {
         this.handleThreadTitleUpdated(event);
       }),
+      subscribeCodexAppServerMessage("thread-deleted", (event) => {
+        this.handleThreadDeleted(event);
+      }),
       subscribeCodexAppServerMessage("error", (event) => {
         this.handleHostError(event);
       }),
@@ -977,14 +981,7 @@ export class CodexAppServerManager {
   async discardSideChat(threadId: string): Promise<boolean> {
     const result = (await invoke("codex:thread:side-chat:discard", threadId)) as boolean;
     if (result) {
-      this.conversationsById.delete(threadId);
-      this.threadSummariesById.delete(threadId);
-      this.primaryConversationRequestByThread.delete(threadId);
-      this.conversationVersionById.delete(threadId);
-      this.composerIntentsByThread.delete(threadId);
-      this.streamingConversationIds.delete(threadId);
-      this.notifyConversationCallbacks(threadId);
-      this.notifyAnyConversationCallbacks({ forceMeta: true });
+      this.removeThreadLocalState(threadId);
     }
     return result;
   }
@@ -1462,6 +1459,14 @@ export class CodexAppServerManager {
     this.applyThreadTitleUpdate(event.conversationId, event.title);
   }
 
+  private handleThreadDeleted(event: CodexThreadDeletedEvent): void {
+    if (event.hostId !== this.hostId) {
+      return;
+    }
+
+    this.removeThreadLocalState(event.threadId);
+  }
+
   private handleHostError(event: CodexErrorEvent): void {
     if (event.hostId !== this.hostId) {
       return;
@@ -1676,6 +1681,51 @@ export class CodexAppServerManager {
 
     this.threadSummariesByProject.set(nextThread.projectId, nextThreads);
     this.notifyProjectThreadSummaries(nextThread.projectId);
+    this.notifyAnyConversationCallbacks({ forceMeta: true });
+  }
+
+  private removeThreadLocalState(threadId: string): void {
+    const normalizedThreadId = threadId.trim();
+    if (!normalizedThreadId) {
+      return;
+    }
+
+    const changedProjectIds = new Set<string>();
+    const existingSummary = this.threadSummariesById.get(normalizedThreadId);
+    if (existingSummary?.projectId) {
+      changedProjectIds.add(existingSummary.projectId);
+    }
+
+    this.threadSummariesById.delete(normalizedThreadId);
+    this.conversationsById.delete(normalizedThreadId);
+    this.primaryConversationRequestByThread.delete(normalizedThreadId);
+    this.conversationVersionById.delete(normalizedThreadId);
+    this.composerIntentsByThread.delete(normalizedThreadId);
+    this.streamingConversationIds.delete(normalizedThreadId);
+    this.streamRoles.delete(normalizedThreadId);
+    this.interruptedTurnIdsByThread.delete(normalizedThreadId);
+    this.resyncInFlight.delete(normalizedThreadId);
+
+    for (const [projectId, threads] of this.threadSummariesByProject.entries()) {
+      const nextThreads = threads.filter((thread) => thread.threadId !== normalizedThreadId);
+      if (nextThreads.length === threads.length) {
+        continue;
+      }
+
+      changedProjectIds.add(projectId);
+      this.threadSummariesByProject.set(projectId, nextThreads);
+    }
+
+    for (let index = this.recentConversationIds.length - 1; index >= 0; index -= 1) {
+      if (this.recentConversationIds[index] === normalizedThreadId) {
+        this.recentConversationIds.splice(index, 1);
+      }
+    }
+
+    this.notifyConversationCallbacks(normalizedThreadId);
+    for (const projectId of changedProjectIds) {
+      this.notifyProjectThreadSummaries(projectId);
+    }
     this.notifyAnyConversationCallbacks({ forceMeta: true });
   }
 

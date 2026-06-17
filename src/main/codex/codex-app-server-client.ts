@@ -201,7 +201,16 @@ function summarizeRpcParams(method: string, params: unknown): Record<string, unk
     };
   }
 
-  if (method === "thread/read" || method === "thread/resume" || method === "thread/archive" || method === "thread/unarchive") {
+  if (
+    method === "thread/read"
+    || method === "thread/resume"
+    || method === "thread/archive"
+    || method === "thread/unarchive"
+    || method === "thread/delete"
+    || method === "thread/backgroundTerminals/list"
+    || method === "thread/backgroundTerminals/terminate"
+    || method === "thread/backgroundTerminals/clean"
+  ) {
     return {
       threadId: typeof candidate.threadId === "string" ? candidate.threadId : null,
       includeTurns: typeof candidate.includeTurns === "boolean" ? candidate.includeTurns : undefined,
