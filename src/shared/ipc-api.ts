@@ -74,6 +74,9 @@ import type {
   MoveCardsInput,
   Project,
   ProjectCreateInput,
+  ProjectOrderInput,
+  ProjectPinnedInput,
+  ProjectPinnedOrderInput,
   ProjectUpdateInput,
   ProjectSession,
   ProjectSessionCreateInput,
@@ -323,6 +326,11 @@ export interface ProjectSessionsChangeEvent {
   sessionId?: string;
 }
 
+export interface ProjectsChangeEvent {
+  projectId?: string;
+  changeType: "create" | "update" | "delete" | "reorder" | "pin";
+}
+
 export interface GitBranchState {
   currentBranch: string | null;
   defaultBranch: string | null;
@@ -341,6 +349,15 @@ export interface IpcApi {
   "projects:update": {
     args: [projectId: string, updates: ProjectUpdateInput];
     result: Project | null;
+  };
+  "projects:reorder": { args: [input: ProjectOrderInput]; result: Project[] };
+  "projects:set-pinned": {
+    args: [projectId: string, input: ProjectPinnedInput];
+    result: Project | null;
+  };
+  "projects:set-pinned-order": {
+    args: [input: ProjectPinnedOrderInput];
+    result: Project[];
   };
   "projects:pick-source-root": { args: []; result: string | null };
   "projects:delete": { args: [projectId: string]; result: boolean };
@@ -838,6 +855,7 @@ export interface IpcApi {
 
 export interface IpcEvents {
   "board-changed": BoardChangeEvent;
+  "projects-changed": ProjectsChangeEvent;
   "project-sessions-changed": ProjectSessionsChangeEvent;
   "reminder:open": { projectId: string; cardId: string; occurrenceStart: string };
   "pty:data": { sessionId: string; data: string };

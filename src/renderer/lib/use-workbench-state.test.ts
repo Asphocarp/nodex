@@ -48,6 +48,8 @@ function makeProject(id: string, name: string) {
     description: "",
     sources: [],
     primaryWorkspaceRoot: null,
+    pinned: false,
+    pinnedOrder: null,
     created,
     updated: created,
   };

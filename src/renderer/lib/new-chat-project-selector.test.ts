@@ -20,6 +20,8 @@ function makeProject(input: {
     icon: "",
     sources: primaryWorkspaceRoot ? [{ root: primaryWorkspaceRoot, order: 0 }] : [],
     primaryWorkspaceRoot,
+    pinned: false,
+    pinnedOrder: null,
     created: new Date("2026-06-07T00:00:00.000Z"),
     updated: new Date("2026-06-07T00:00:00.000Z"),
   };

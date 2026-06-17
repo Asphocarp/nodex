@@ -7,6 +7,7 @@ import { render, textContent } from "../../test/dom";
 let SidebarProjectsSection: typeof import("./left-sidebar-projects-section")["SidebarProjectsSection"];
 let CodexProjectRow: typeof import("./codex-sidebar")["CodexProjectRow"];
 let CodexProjectSessionList: typeof import("./codex-sidebar")["CodexProjectSessionList"];
+let getCodexSidebarSortableStyle: typeof import("./codex-sidebar")["getCodexSidebarSortableStyle"];
 let invokeCalls: unknown[][] = [];
 let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
 
@@ -25,6 +26,8 @@ const PROJECTS: Project[] = [
     icon: "A",
     sources: [],
     primaryWorkspaceRoot: null,
+    pinned: false,
+    pinnedOrder: null,
     created: new Date("2026-03-15T00:00:00.000Z"),
     updated: new Date("2026-03-15T00:00:00.000Z"),
   },
@@ -35,6 +38,8 @@ const PROJECTS: Project[] = [
     icon: "B",
     sources: [{ root: "/repo/beta", order: 0 }],
     primaryWorkspaceRoot: "/repo/beta",
+    pinned: false,
+    pinnedOrder: null,
     created: new Date("2026-03-15T00:00:00.000Z"),
     updated: new Date("2026-03-15T00:00:00.000Z"),
   },
@@ -48,6 +53,7 @@ beforeAll(async () => {
   SidebarProjectsSection = sectionModule.SidebarProjectsSection;
   CodexProjectRow = sidebarModule.CodexProjectRow;
   CodexProjectSessionList = sidebarModule.CodexProjectSessionList;
+  getCodexSidebarSortableStyle = sidebarModule.getCodexSidebarSortableStyle;
 });
 
 beforeEach(() => {
@@ -253,6 +259,7 @@ describe("SidebarProjectsSection", () => {
     const expandedLabel = expandedRow?.querySelector("[data-app-action-sidebar-project-label-text]");
     const expandedChevron = expandedRow?.querySelector("[data-app-action-sidebar-project-toggle-chevron]");
     const expandedChevronIcon = expandedChevron?.querySelector("svg");
+    const expandedChevronButtonClassName = expandedChevron?.getAttribute("class") ?? "";
     const expandedChevronClassName = expandedChevronIcon?.getAttribute("class") ?? "";
 
     if (!expandedLabel || !expandedChevron) {
@@ -260,9 +267,9 @@ describe("SidebarProjectsSection", () => {
     }
 
     expect(Boolean(expandedLabel.compareDocumentPosition(expandedChevron) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
-    expect(expandedChevronClassName.includes("opacity-0")).toBeTrue();
-    expect(expandedChevronClassName.includes("group-hover/folder-row:opacity-100")).toBeTrue();
-    expect(expandedChevronClassName.includes("group-focus-visible/folder-row:opacity-100")).toBeTrue();
+    expect(expandedChevronButtonClassName.includes("opacity-0")).toBeTrue();
+    expect(expandedChevronButtonClassName.includes("group-hover/folder-row:opacity-100")).toBeTrue();
+    expect(expandedChevronButtonClassName.includes("focus-visible:opacity-100")).toBeTrue();
     expect(expandedChevronClassName.includes("-rotate-90")).toBeFalse();
 
     rerender(
@@ -301,5 +308,16 @@ describe("SidebarProjectsSection", () => {
     expect((staticDisclosure as HTMLElement).className.includes("mt-0.5")).toBeTrue();
     expect(container.querySelector("[data-app-action-sidebar-project-list-motion]")).toBe(null);
     expect(getByText("Alpha session").textContent).toBe("Alpha session");
+  });
+
+  test("project sortable style translates without scaling to target slot size", () => {
+    const style = getCodexSidebarSortableStyle(
+      { x: 12, y: 34, scaleX: 3, scaleY: 0.25 },
+      "transform 200ms ease",
+    );
+
+    expect(style.transform).toBe("translate3d(12px, 34px, 0)");
+    expect(String(style.transform).includes("scale")).toBeFalse();
+    expect(style.transition).toBe("transform 200ms ease");
   });
 });

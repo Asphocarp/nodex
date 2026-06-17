@@ -1,7 +1,7 @@
 import { EventEmitter } from "events";
 
 export type ChangeType = "create" | "update" | "delete" | "move" | "undo" | "redo" | "revert" | "restore";
-export type ProjectChangeType = "create" | "update" | "delete" | "reorder";
+export type ProjectChangeType = "create" | "update" | "delete" | "reorder" | "pin";
 export type ProjectSessionChangeType =
   | "create"
   | "update"

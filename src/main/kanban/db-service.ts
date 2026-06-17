@@ -22,6 +22,9 @@ import {
   type MoveCardsInput,
   type Project,
   type ProjectCreateInput,
+  type ProjectOrderInput,
+  type ProjectPinnedInput,
+  type ProjectPinnedOrderInput,
   type ProjectUpdateInput,
   type RecurrenceConfig,
   type ReminderConfig,
@@ -37,6 +40,9 @@ import {
   deleteProject as deleteProjectRecord,
   getProject as getProjectRecord,
   listProjects as listProjectRecords,
+  reorderProjects as reorderProjectRecords,
+  setPinnedProjectOrder as setPinnedProjectOrderRecords,
+  setProjectPinned as setProjectPinnedRecord,
   updateProject as updateProjectRecord,
   requireProjectId,
   resolveProjectId,
@@ -444,6 +450,18 @@ export function deleteProject(projectId: string): boolean {
 
 export function updateProject(projectId: string, updates: ProjectUpdateInput): Project | null {
   return updateProjectRecord(projectId, updates);
+}
+
+export function reorderProjects(input: ProjectOrderInput): Project[] {
+  return reorderProjectRecords(input);
+}
+
+export function setProjectPinned(projectId: string, input: ProjectPinnedInput): Project | null {
+  return setProjectPinnedRecord(projectId, input);
+}
+
+export function setPinnedProjectOrder(input: ProjectPinnedOrderInput): Project[] {
+  return setPinnedProjectOrderRecords(input);
 }
 
 // === Card CRUD ===

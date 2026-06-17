@@ -4,9 +4,17 @@ import type Database from "better-sqlite3";
 import {
   type Project,
   type ProjectCreateInput,
+  type ProjectOrderInput,
+  type ProjectPinnedInput,
+  type ProjectPinnedOrderInput,
   type ProjectSource,
   type ProjectUpdateInput,
 } from "../../shared/types";
+import {
+  ProjectOrderInputSchema,
+  ProjectPinnedInputSchema,
+  ProjectPinnedOrderInputSchema,
+} from "../../shared/schemas/projects";
 import {
   normalizeProjectIcon,
   normalizeProjectIconUpdate,
@@ -19,6 +27,7 @@ interface DbProjectRow {
   name: string;
   description: string;
   icon: string;
+  pinned_order: number | null;
   created: string;
   updated: string;
 }
@@ -93,9 +102,52 @@ function rowToProject(database: Database.Database, row: DbProjectRow): Project {
     icon: normalizeProjectIcon(row.icon),
     sources,
     primaryWorkspaceRoot: sources[0]?.root ?? null,
+    pinned: row.pinned_order !== null,
+    pinnedOrder: row.pinned_order,
     created: new Date(row.created),
     updated: new Date(row.updated),
   };
+}
+
+function readProjectRow(database: Database.Database, projectId: string): DbProjectRow | undefined {
+  return database.prepare(`
+    SELECT p.*, ppo."order" AS pinned_order
+    FROM projects p
+    LEFT JOIN pinned_project_order ppo ON ppo.project_id = p.id
+    WHERE p.id = ?
+  `).get(projectId) as DbProjectRow | undefined;
+}
+
+function sameProjectIdSet(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false;
+  const leftSet = new Set(left);
+  if (leftSet.size !== left.length) return false;
+  const rightSet = new Set(right);
+  if (rightSet.size !== right.length) return false;
+  for (const id of leftSet) {
+    if (!rightSet.has(id)) return false;
+  }
+  return true;
+}
+
+function orderedProjectIds(database: Database.Database): string[] {
+  const rows = database.prepare(`
+    SELECT p.id
+    FROM projects p
+    LEFT JOIN project_order po ON po.project_id = p.id
+    ORDER BY COALESCE(po."order", 999999), p.created ASC
+  `).all() as Array<{ id: string }>;
+  return rows.map((row) => row.id);
+}
+
+function orderedPinnedProjectIds(database: Database.Database): string[] {
+  const rows = database.prepare(`
+    SELECT p.id
+    FROM pinned_project_order ppo
+    INNER JOIN projects p ON p.id = ppo.project_id
+    ORDER BY ppo."order" ASC, p.created ASC
+  `).all() as Array<{ id: string }>;
+  return rows.map((row) => row.id);
 }
 
 function insertProjectSources(
@@ -144,9 +196,10 @@ export function requireProjectId(projectId: string): string {
 export function listProjects(): Project[] {
   const database = getDb();
   const rows = database.prepare(`
-    SELECT p.*
+    SELECT p.*, ppo."order" AS pinned_order
     FROM projects p
     LEFT JOIN project_order po ON po.project_id = p.id
+    LEFT JOIN pinned_project_order ppo ON ppo.project_id = p.id
     ORDER BY COALESCE(po."order", 999999), p.created ASC
   `).all() as DbProjectRow[];
   return rows.map((row) => rowToProject(database, row));
@@ -157,9 +210,7 @@ export function getProject(projectId: string): Project | null {
   if (!canonicalProjectId) return null;
 
   const database = getDb();
-  const row = database
-    .prepare("SELECT * FROM projects WHERE id = ?")
-    .get(canonicalProjectId) as DbProjectRow | undefined;
+  const row = readProjectRow(database, canonicalProjectId);
   return row ? rowToProject(database, row) : null;
 }
 
@@ -226,6 +277,79 @@ export function updateProject(projectId: string, updates: ProjectUpdateInput): P
 
   dbNotifier.notifyProjectsChanged("update", canonicalProjectId);
   return getProject(canonicalProjectId);
+}
+
+export function reorderProjects(input: ProjectOrderInput): Project[] {
+  const parsed = ProjectOrderInputSchema.parse(input);
+  const database = getDb();
+  const currentIds = orderedProjectIds(database);
+  if (!sameProjectIdSet(currentIds, parsed.orderedProjectIds)) {
+    throw new Error("Project reorder input must contain the same project ids as the current sidebar order");
+  }
+
+  const now = new Date().toISOString();
+  const updateOrder = database.prepare(`
+    INSERT INTO project_order (project_id, "order", updated)
+    VALUES (?, ?, ?)
+    ON CONFLICT(project_id) DO UPDATE SET
+      "order" = excluded."order",
+      updated = excluded.updated
+  `);
+  database.transaction(() => {
+    parsed.orderedProjectIds.forEach((projectId, index) => updateOrder.run(projectId, index, now));
+  })();
+
+  dbNotifier.notifyProjectsChanged("reorder");
+  return listProjects();
+}
+
+export function setProjectPinned(projectId: string, input: ProjectPinnedInput): Project | null {
+  const parsed = ProjectPinnedInputSchema.parse(input);
+  const canonicalProjectId = resolveProjectId(projectId);
+  if (!canonicalProjectId) return null;
+
+  const database = getDb();
+  const now = new Date().toISOString();
+  if (parsed.pinned) {
+    const maxPinnedOrder = database.prepare(`
+      SELECT MAX("order") AS maxPinnedOrder
+      FROM pinned_project_order
+    `).get() as { maxPinnedOrder: number | null } | undefined;
+    const nextPinnedOrder = (maxPinnedOrder?.maxPinnedOrder ?? -1) + 1;
+
+    database.prepare(`
+      INSERT INTO pinned_project_order (project_id, "order", updated)
+      VALUES (?, ?, ?)
+      ON CONFLICT(project_id) DO NOTHING
+    `).run(canonicalProjectId, nextPinnedOrder, now);
+  } else {
+    database.prepare("DELETE FROM pinned_project_order WHERE project_id = ?").run(canonicalProjectId);
+  }
+
+  dbNotifier.notifyProjectsChanged("pin", canonicalProjectId);
+  return getProject(canonicalProjectId);
+}
+
+export function setPinnedProjectOrder(input: ProjectPinnedOrderInput): Project[] {
+  const parsed = ProjectPinnedOrderInputSchema.parse(input);
+  const database = getDb();
+  const currentPinnedIds = orderedPinnedProjectIds(database);
+  if (!sameProjectIdSet(currentPinnedIds, parsed.orderedProjectIds)) {
+    throw new Error("Pinned project reorder input must contain the same pinned project ids as the current sidebar order");
+  }
+
+  const now = new Date().toISOString();
+  const updateOrder = database.prepare(`
+    UPDATE pinned_project_order
+    SET "order" = ?, updated = ?
+    WHERE project_id = ?
+  `);
+  database.transaction(() => {
+    parsed.orderedProjectIds.forEach((projectId, index) => updateOrder.run(index, now, projectId));
+  })();
+
+  dbNotifier.notifyProjectsChanged("pin");
+  return listProjects();
 }
 
 export function deleteProject(projectId: string): boolean {

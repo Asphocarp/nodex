@@ -35,6 +35,9 @@ import type { CardStageSessionSnapshot } from "@/components/kanban/card-stage/ty
 import type {
   Project,
   ProjectCreateInput,
+  ProjectOrderInput,
+  ProjectPinnedInput,
+  ProjectPinnedOrderInput,
   ProjectUpdateInput,
   WorkbenchLayoutSnapshot,
   WindowSessionBootstrap,
@@ -88,7 +91,17 @@ function replaceProjectQueryParam(projectId: string): void {
 
 function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionBootstrap: WindowSessionBootstrap }) {
   const workbenchV2Enabled = readWorkbenchV2Flag();
-  const { projects, loading, createProject, deleteProject, updateProject, refresh } = useProjects();
+  const {
+    projects,
+    loading,
+    createProject,
+    deleteProject,
+    updateProject,
+    reorderProjects,
+    setProjectPinned,
+    setPinnedProjectOrder,
+    refresh,
+  } = useProjects();
   const {
     dbProjectId,
     threadsProjectId,
@@ -399,6 +412,33 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       return result;
     },
     [refresh, updateProject],
+  );
+
+  const handleReorderProjects = useCallback(
+    async (input: ProjectOrderInput) => {
+      const result = await reorderProjects(input);
+      await refresh();
+      return result;
+    },
+    [refresh, reorderProjects],
+  );
+
+  const handleSetProjectPinned = useCallback(
+    async (projectId: string, input: ProjectPinnedInput) => {
+      const result = await setProjectPinned(projectId, input);
+      await refresh();
+      return result;
+    },
+    [refresh, setProjectPinned],
+  );
+
+  const handleSetPinnedProjectOrder = useCallback(
+    async (input: ProjectPinnedOrderInput) => {
+      const result = await setPinnedProjectOrder(input);
+      await refresh();
+      return result;
+    },
+    [refresh, setPinnedProjectOrder],
   );
 
   const recordCardLeave = useCallback((snapshot: CardStageSessionSnapshot) => {
@@ -1072,6 +1112,9 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       onCreateProject={handleCreateProject}
       onDeleteProject={handleDeleteProject}
       onUpdateProject={handleUpdateProject}
+      onReorderProjects={handleReorderProjects}
+      onSetProjectPinned={handleSetProjectPinned}
+      onSetPinnedProjectOrder={handleSetPinnedProjectOrder}
       navigateToStage={navigateToStage}
       navigateToDbView={navigateToDbView}
       navigateToRecentSession={navigateToRecentSession}

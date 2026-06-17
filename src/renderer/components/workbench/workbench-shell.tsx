@@ -165,6 +165,9 @@ import type {
   PanelId,
   Project,
   ProjectCreateInput,
+  ProjectOrderInput,
+  ProjectPinnedInput,
+  ProjectPinnedOrderInput,
   ProjectUpdateInput,
   ProjectSession,
   ProjectSessionDbView,
@@ -251,6 +254,15 @@ import {
   CodexThreadRow,
   resolveCodexNewChatShortcutLabel,
 } from "./codex-sidebar";
+import {
+  replaceVisibleOrder,
+  SidebarDropIndicator,
+  SidebarProjectDndProvider,
+  SidebarProjectSortableContext,
+  usePinnedProjectDroppable,
+  useSidebarGroupReorderController,
+  type SidebarGroupDndController,
+} from "./sidebar-project-group-dnd";
 import {
   resolveWorkbenchNavigationShortcutLabel,
   WORKBENCH_NAVIGATION_COMMANDS,
@@ -472,6 +484,46 @@ function sortProjectSessionsForSidebar(sessions: ProjectSession[]): ProjectSessi
   });
 }
 
+function sortPinnedProjectsForSidebar(projects: Project[]): Project[] {
+  return [...projects].sort((a, b) => {
+    const orderDelta = (a.pinnedOrder ?? Number.MAX_SAFE_INTEGER) - (b.pinnedOrder ?? Number.MAX_SAFE_INTEGER);
+    if (orderDelta !== 0) return orderDelta;
+    return a.created.getTime() - b.created.getTime();
+  });
+}
+
+function orderProjectsByIds(projects: readonly Project[], projectIds: readonly string[]): Project[] {
+  const byId = new Map(projects.map((project) => [project.id, project]));
+  const ordered = projectIds
+    .map((projectId) => byId.get(projectId))
+    .filter((project): project is Project => Boolean(project));
+  const orderedIds = new Set(ordered.map((project) => project.id));
+  const missing = projects.filter((project) => !orderedIds.has(project.id));
+  return [...ordered, ...missing];
+}
+
+function renderProjectRowsWithDropIndicator({
+  projects,
+  dropIndicatorIndex,
+  renderProject,
+}: {
+  projects: Project[];
+  dropIndicatorIndex: number | null;
+  renderProject: (project: Project) => ReactNode;
+}): ReactNode[] {
+  const rows: ReactNode[] = [];
+  projects.forEach((project, index) => {
+    if (dropIndicatorIndex === index) {
+      rows.push(<SidebarDropIndicator key={`drop-indicator-${project.id}`} />);
+    }
+    rows.push(renderProject(project));
+  });
+  if (dropIndicatorIndex === projects.length) {
+    rows.push(<SidebarDropIndicator key="drop-indicator-end" />);
+  }
+  return rows;
+}
+
 interface WorkbenchShellProps {
   projects: Project[];
   dbProjectId: string;
@@ -519,6 +571,9 @@ interface WorkbenchShellProps {
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
   onDeleteProject: (projectId: string) => Promise<boolean>;
+  onReorderProjects: (input: ProjectOrderInput) => Promise<Project[]>;
+  onSetProjectPinned: (projectId: string, input: ProjectPinnedInput) => Promise<Project | null>;
+  onSetPinnedProjectOrder: (input: ProjectPinnedOrderInput) => Promise<Project[]>;
   onRequestProjectPickerOpen: () => void;
   threadSearchOpenTick: number;
   setSidebarCollapsed?: (collapsed: boolean) => void;
@@ -1035,6 +1090,9 @@ export function WorkbenchShell({
   onCreateProject,
   onUpdateProject,
   onDeleteProject,
+  onReorderProjects,
+  onSetProjectPinned,
+  onSetPinnedProjectOrder,
   onRequestProjectPickerOpen,
   projectPickerOpenTick = 0,
   threadSearchOpenTick,
@@ -1092,6 +1150,7 @@ export function WorkbenchShell({
   const [sidebarAnimateLayout, setSidebarAnimateLayout] = useState(true);
   const [floatingSidebarFocusActive, setFloatingSidebarFocusActive] = useState(false);
   const [sidebarTaskSearchOpenTick, setSidebarTaskSearchOpenTick] = useState(0);
+  const [pinnedProjectsSectionCollapsed, setPinnedProjectsSectionCollapsed] = useState(false);
   const [projectsSectionCollapsed, setProjectsSectionCollapsed] = useState(false);
   const [sidebarDragWidth, setSidebarDragWidth] = useState<number | null>(null);
   const [shellNavigationHistory, setShellNavigationHistory] = useState(readWorkbenchShellNavigationHistoryState);
@@ -2823,6 +2882,10 @@ export function WorkbenchShell({
     setProjectsSectionCollapsed((current) => !current);
   }, []);
 
+  const togglePinnedProjectsSectionCollapsed = useCallback(() => {
+    setPinnedProjectsSectionCollapsed((current) => !current);
+  }, []);
+
   const toggleProjectExpanded = useCallback((projectId: string) => {
     setExpandedProjectIds((current) => {
       const next = new Set(current);
@@ -4257,6 +4320,7 @@ export function WorkbenchShell({
               contextMenuSessionId={contextMenuSessionId}
               sessionsByProject={sessionsByProject}
               expandedProjectIds={expandedProjectIds}
+              pinnedProjectsSectionCollapsed={pinnedProjectsSectionCollapsed}
               projectsSectionCollapsed={projectsSectionCollapsed}
               loadingSessions={loadingSessions}
               width={sidebarWidth}
@@ -4265,6 +4329,7 @@ export function WorkbenchShell({
               resizeDisabled={sidebarAnimating}
               getWindowZoom={getWindowZoom}
               onResizeWidth={applySidebarWidth}
+              onTogglePinnedProjectsSectionCollapsed={togglePinnedProjectsSectionCollapsed}
               onToggleProjectsSectionCollapsed={toggleProjectsSectionCollapsed}
               onToggleProjectExpanded={toggleProjectExpanded}
               onSelectProject={selectProject}
@@ -4282,6 +4347,9 @@ export function WorkbenchShell({
               }}
               onUpdateProject={onUpdateProject ?? (async () => null)}
               onDeleteProject={onDeleteProject ?? (async () => false)}
+              onReorderProjects={onReorderProjects}
+              onSetProjectPinned={onSetProjectPinned}
+              onSetPinnedProjectOrder={onSetPinnedProjectOrder}
               onOpenSettings={openSettings}
               account={codexAccount}
               connection={codexConnection}
@@ -4314,11 +4382,13 @@ export function WorkbenchShell({
                   contextMenuSessionId={contextMenuSessionId}
                   sessionsByProject={sessionsByProject}
                   expandedProjectIds={expandedProjectIds}
+                  pinnedProjectsSectionCollapsed={pinnedProjectsSectionCollapsed}
                   projectsSectionCollapsed={projectsSectionCollapsed}
                   loadingSessions={loadingSessions}
                   width={sidebarWidth}
                   getWindowZoom={getWindowZoom}
                   onResizeWidth={applySidebarWidth}
+                  onTogglePinnedProjectsSectionCollapsed={togglePinnedProjectsSectionCollapsed}
                   onToggleProjectsSectionCollapsed={toggleProjectsSectionCollapsed}
                   onToggleProjectExpanded={toggleProjectExpanded}
                   onSelectProject={selectProject}
@@ -4336,6 +4406,9 @@ export function WorkbenchShell({
                   }}
                   onUpdateProject={onUpdateProject ?? (async () => null)}
                   onDeleteProject={onDeleteProject ?? (async () => false)}
+                  onReorderProjects={onReorderProjects}
+                  onSetProjectPinned={onSetProjectPinned}
+                  onSetPinnedProjectOrder={onSetPinnedProjectOrder}
                   onOpenSettings={openSettings}
                   account={codexAccount}
                   connection={codexConnection}
@@ -4617,6 +4690,221 @@ export function WorkbenchShell({
   );
 }
 
+function SidebarProjectGroupSections({
+  projects,
+  activeProjectId,
+  activeSessionId,
+  contextMenuSessionId,
+  sessionsByProject,
+  expandedProjectIds,
+  pinnedProjectsSectionCollapsed,
+  projectsSectionCollapsed,
+  loadingSessions,
+  onTogglePinnedProjectsSectionCollapsed,
+  onToggleProjectsSectionCollapsed,
+  onToggleProjectExpanded,
+  onSelectProject,
+  onSelectSession,
+  onOpenSessionContextMenu,
+  onToggleSessionPinned,
+  onStartNewChatInProject,
+  projectPickerOpenTick,
+  onCreateProject,
+  onUpdateProject,
+  onDeleteProject,
+  onReorderProjects,
+  onSetProjectPinned,
+  onSetPinnedProjectOrder,
+}: {
+  projects: Project[];
+  activeProjectId: string;
+  activeSessionId: string | null;
+  contextMenuSessionId?: string | null;
+  sessionsByProject: Record<string, ProjectSession[]>;
+  expandedProjectIds: Set<string>;
+  pinnedProjectsSectionCollapsed: boolean;
+  projectsSectionCollapsed: boolean;
+  loadingSessions: boolean;
+  onTogglePinnedProjectsSectionCollapsed: () => void;
+  onToggleProjectsSectionCollapsed: () => void;
+  onToggleProjectExpanded: (projectId: string) => void;
+  onSelectProject: (projectId: string) => void;
+  onSelectSession: (session: ProjectSession) => void;
+  onOpenSessionContextMenu?: (session: ProjectSession, event: ReactMouseEvent<HTMLElement>) => void;
+  onToggleSessionPinned?: (session: ProjectSession) => void | Promise<void>;
+  onStartNewChatInProject: (projectId: string) => void | Promise<void>;
+  projectPickerOpenTick: number;
+  onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
+  onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
+  onDeleteProject: (projectId: string) => Promise<boolean>;
+  onReorderProjects: (input: ProjectOrderInput) => Promise<Project[]>;
+  onSetProjectPinned: (projectId: string, input: ProjectPinnedInput) => Promise<Project | null>;
+  onSetPinnedProjectOrder: (input: ProjectPinnedOrderInput) => Promise<Project[]>;
+}) {
+  const projectOrderIds = useMemo(() => projects.map((project) => project.id), [projects]);
+  const pinnedProjects = useMemo(
+    () => sortPinnedProjectsForSidebar(projects.filter((project) => project.pinned)),
+    [projects],
+  );
+  const unpinnedProjects = useMemo(
+    () => projects.filter((project) => !project.pinned),
+    [projects],
+  );
+  const pinnedProjectIds = useMemo(() => pinnedProjects.map((project) => project.id), [pinnedProjects]);
+  const unpinnedProjectIds = useMemo(() => unpinnedProjects.map((project) => project.id), [unpinnedProjects]);
+  const pinnedDroppable = usePinnedProjectDroppable();
+
+  const handleUnpinnedProjectOrderChange = useCallback(async (nextProjectIds: string[]) => {
+    const orderedProjectIds = replaceVisibleOrder(projectOrderIds, unpinnedProjectIds, nextProjectIds);
+    try {
+      await onReorderProjects({ orderedProjectIds });
+    } catch {
+      toast.danger("Failed to reorder projects");
+    }
+  }, [onReorderProjects, projectOrderIds, unpinnedProjectIds]);
+
+  const handlePinnedProjectOrderChange = useCallback(async (orderedProjectIds: string[]) => {
+    try {
+      await onSetPinnedProjectOrder({ orderedProjectIds });
+    } catch {
+      toast.danger("Failed to reorder pinned projects");
+    }
+  }, [onSetPinnedProjectOrder]);
+
+  const pinnedReorder = useSidebarGroupReorderController({
+    groupIds: pinnedProjectIds,
+    reorderGroups: handlePinnedProjectOrderChange,
+  });
+  const unpinnedReorder = useSidebarGroupReorderController({
+    groupIds: unpinnedProjectIds,
+    reorderGroups: handleUnpinnedProjectOrderChange,
+  });
+  const displayedPinnedProjects = useMemo(
+    () => orderProjectsByIds(pinnedProjects, pinnedReorder.groupIds),
+    [pinnedProjects, pinnedReorder.groupIds],
+  );
+  const displayedUnpinnedProjects = useMemo(
+    () => orderProjectsByIds(unpinnedProjects, unpinnedReorder.groupIds),
+    [unpinnedProjects, unpinnedReorder.groupIds],
+  );
+
+  const renderProjectRow = useCallback((project: Project, controller: SidebarGroupDndController) => {
+    const sessions = sessionsByProject[project.id] ?? [];
+    const expanded = expandedProjectIds.has(project.id);
+    const isActiveProject = project.id === activeProjectId;
+
+    return (
+      <CodexProjectRow
+        key={project.id}
+        project={project}
+        active={isActiveProject}
+        expanded={expanded}
+        groupDndController={controller}
+        allowProjectReorder
+        onActivate={() => onToggleProjectExpanded(project.id)}
+        onSelectProject={() => onSelectProject(project.id)}
+        onStartNewChat={() => void onStartNewChatInProject(project.id)}
+        onUpdateProject={onUpdateProject}
+        onDeleteProject={onDeleteProject}
+        onSetProjectPinned={onSetProjectPinned}
+      >
+        <CodexProjectSessionList project={project}>
+          {sessions.map((session) => (
+            <CodexThreadRow
+              key={session.id}
+              session={session}
+              active={activeSessionId === session.id}
+              contextMenuOpen={contextMenuSessionId === session.id}
+              onSelect={() => onSelectSession(session)}
+              onOpenContextMenu={onOpenSessionContextMenu}
+              onTogglePinned={onToggleSessionPinned}
+            />
+          ))}
+          {sessions.length === 0 && loadingSessions ? (
+            <div className="px-row-x py-row-y text-sm text-token-description-foreground">
+              Loading sessions...
+            </div>
+          ) : null}
+        </CodexProjectSessionList>
+      </CodexProjectRow>
+    );
+  }, [
+    activeProjectId,
+    activeSessionId,
+    contextMenuSessionId,
+    expandedProjectIds,
+    loadingSessions,
+    onDeleteProject,
+    onOpenSessionContextMenu,
+    onSelectProject,
+    onSelectSession,
+    onSetProjectPinned,
+    onStartNewChatInProject,
+    onToggleProjectExpanded,
+    onToggleSessionPinned,
+    onUpdateProject,
+    sessionsByProject,
+  ]);
+
+  return (
+    <>
+      {displayedPinnedProjects.length > 0 ? (
+        <div ref={pinnedDroppable.setNodeRef} className="relative">
+          <CodexSidebarSection
+            heading="Pinned"
+            collapsed={pinnedProjectsSectionCollapsed}
+            onToggle={onTogglePinnedProjectsSectionCollapsed}
+          >
+            <div className="isolate flex flex-col [contain:layout]">
+              <SidebarProjectSortableContext groupIds={pinnedReorder.groupIds}>
+                <div className="flex flex-col" role="list" aria-label="Pinned">
+                  {renderProjectRowsWithDropIndicator({
+                    projects: displayedPinnedProjects,
+                    dropIndicatorIndex: pinnedReorder.dropIndicatorIndex,
+                    renderProject: (project) => renderProjectRow(project, pinnedReorder.controller),
+                  })}
+                </div>
+              </SidebarProjectSortableContext>
+            </div>
+          </CodexSidebarSection>
+        </div>
+      ) : pinnedDroppable.projectDragActive ? (
+        <div
+          ref={pinnedDroppable.setNodeRef}
+          className="absolute inset-x-0 top-0 px-row-x"
+        >
+          <SidebarDropIndicator />
+          <div className="h-4" />
+        </div>
+      ) : null}
+
+      <CodexSidebarSection
+        heading="Projects"
+        collapsed={projectsSectionCollapsed}
+        onToggle={onToggleProjectsSectionCollapsed}
+        actions={(
+          <SidebarProjectAddMenu
+            onCreateProject={onCreateProject}
+            openSetupTick={projectPickerOpenTick}
+          />
+        )}
+      >
+        <div className="isolate flex flex-col [contain:layout]">
+          <SidebarProjectSortableContext groupIds={unpinnedReorder.groupIds}>
+            <div className="flex flex-col" role="list" aria-label="Projects">
+              {renderProjectRowsWithDropIndicator({
+                projects: displayedUnpinnedProjects,
+                dropIndicatorIndex: unpinnedReorder.dropIndicatorIndex,
+                renderProject: (project) => renderProjectRow(project, unpinnedReorder.controller),
+              })}
+            </div>
+          </SidebarProjectSortableContext>
+        </div>
+      </CodexSidebarSection>
+    </>
+  );
+}
+
 function ProjectSessionSidebar({
   floating = false,
   header,
@@ -4626,6 +4914,7 @@ function ProjectSessionSidebar({
   contextMenuSessionId,
   sessionsByProject,
   expandedProjectIds,
+  pinnedProjectsSectionCollapsed,
   projectsSectionCollapsed,
   loadingSessions,
   width,
@@ -4634,8 +4923,10 @@ function ProjectSessionSidebar({
   resizeDisabled = false,
   getWindowZoom,
   onResizeWidth,
+  onTogglePinnedProjectsSectionCollapsed,
   onToggleProjectsSectionCollapsed,
   onToggleProjectExpanded,
+  onSelectProject,
   onSelectSession,
   onOpenSessionContextMenu,
   onToggleSessionPinned,
@@ -4646,6 +4937,9 @@ function ProjectSessionSidebar({
   onCreateProject,
   onUpdateProject,
   onDeleteProject,
+  onReorderProjects,
+  onSetProjectPinned,
+  onSetPinnedProjectOrder,
   onOpenSettings,
   account,
   connection,
@@ -4662,6 +4956,7 @@ function ProjectSessionSidebar({
   contextMenuSessionId?: string | null;
   sessionsByProject: Record<string, ProjectSession[]>;
   expandedProjectIds: Set<string>;
+  pinnedProjectsSectionCollapsed: boolean;
   projectsSectionCollapsed: boolean;
   loadingSessions: boolean;
   width: number;
@@ -4670,6 +4965,7 @@ function ProjectSessionSidebar({
   resizeDisabled?: boolean;
   getWindowZoom?: () => number;
   onResizeWidth: (width: number, phase?: SidebarResizePhase) => void;
+  onTogglePinnedProjectsSectionCollapsed: () => void;
   onToggleProjectsSectionCollapsed: () => void;
   onToggleProjectExpanded: (projectId: string) => void;
   onSelectProject: (projectId: string) => void;
@@ -4683,6 +4979,9 @@ function ProjectSessionSidebar({
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
   onDeleteProject: (projectId: string) => Promise<boolean>;
+  onReorderProjects: (input: ProjectOrderInput) => Promise<Project[]>;
+  onSetProjectPinned: (projectId: string, input: ProjectPinnedInput) => Promise<Project | null>;
+  onSetPinnedProjectOrder: (input: ProjectPinnedOrderInput) => Promise<Project[]>;
   onOpenSettings: () => void;
   account: CodexAccountSnapshot | null;
   connection: CodexConnectionState;
@@ -4692,6 +4991,12 @@ function ProjectSessionSidebar({
 }) {
   const [sidebarResizing, setSidebarResizing] = useState(false);
   const sidebarResizeDisabled = resizeDisabled || floating;
+  const handleProjectDrop = useCallback((drop: { projectId: string; targetContainerId: string }) => {
+    if (drop.targetContainerId !== "pinned") return;
+    void onSetProjectPinned(drop.projectId, { pinned: true }).catch(() => {
+      toast.danger("Failed to pin project");
+    });
+  }, [onSetProjectPinned]);
 
   const handleResizePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (sidebarResizeDisabled) return;
@@ -4791,59 +5096,34 @@ function ProjectSessionSidebar({
             data-app-action-sidebar-scroll=""
             className="vertical-scroll-fade-mask scrollbar-token relative isolate flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto pt-4 [contain:layout_paint]"
           >
-            <CodexSidebarSection
-              heading="Projects"
-              collapsed={projectsSectionCollapsed}
-              onToggle={onToggleProjectsSectionCollapsed}
-              actions={(
-                <SidebarProjectAddMenu
-                  onCreateProject={onCreateProject}
-                  openSetupTick={projectPickerOpenTick}
-                />
-              )}
-            >
-              <div className="isolate flex flex-col [contain:layout]">
-                <div className="flex flex-col" role="list" aria-label="Projects">
-                  {projects.map((project) => {
-                    const sessions = sessionsByProject[project.id] ?? [];
-                    const expanded = expandedProjectIds.has(project.id);
-                    const isActiveProject = project.id === activeProjectId;
-
-                    return (
-                      <CodexProjectRow
-                        key={project.id}
-                        project={project}
-                        active={isActiveProject}
-                        expanded={expanded}
-                        onActivate={() => onToggleProjectExpanded(project.id)}
-                        onStartNewChat={() => void onStartNewChatInProject(project.id)}
-                        onUpdateProject={onUpdateProject}
-                        onDeleteProject={onDeleteProject}
-                      >
-                        <CodexProjectSessionList project={project}>
-                          {sessions.map((session) => (
-                            <CodexThreadRow
-                              key={session.id}
-                              session={session}
-                              active={activeSessionId === session.id}
-                              contextMenuOpen={contextMenuSessionId === session.id}
-                              onSelect={() => onSelectSession(session)}
-                              onOpenContextMenu={onOpenSessionContextMenu}
-                              onTogglePinned={onToggleSessionPinned}
-                            />
-                          ))}
-                          {sessions.length === 0 && loadingSessions ? (
-                            <div className="px-row-x py-row-y text-sm text-token-description-foreground">
-                              Loading sessions...
-                            </div>
-                          ) : null}
-                        </CodexProjectSessionList>
-                      </CodexProjectRow>
-                    );
-                  })}
-                </div>
-              </div>
-            </CodexSidebarSection>
+            <SidebarProjectDndProvider onProjectDrop={handleProjectDrop}>
+              <SidebarProjectGroupSections
+                projects={projects}
+                activeProjectId={activeProjectId}
+                activeSessionId={activeSessionId}
+                contextMenuSessionId={contextMenuSessionId}
+                sessionsByProject={sessionsByProject}
+                expandedProjectIds={expandedProjectIds}
+                pinnedProjectsSectionCollapsed={pinnedProjectsSectionCollapsed}
+                projectsSectionCollapsed={projectsSectionCollapsed}
+                loadingSessions={loadingSessions}
+                onTogglePinnedProjectsSectionCollapsed={onTogglePinnedProjectsSectionCollapsed}
+                onToggleProjectsSectionCollapsed={onToggleProjectsSectionCollapsed}
+                onToggleProjectExpanded={onToggleProjectExpanded}
+                onSelectProject={onSelectProject}
+                onSelectSession={onSelectSession}
+                onOpenSessionContextMenu={onOpenSessionContextMenu}
+                onToggleSessionPinned={onToggleSessionPinned}
+                onStartNewChatInProject={onStartNewChatInProject}
+                projectPickerOpenTick={projectPickerOpenTick}
+                onCreateProject={onCreateProject}
+                onUpdateProject={onUpdateProject}
+                onDeleteProject={onDeleteProject}
+                onReorderProjects={onReorderProjects}
+                onSetProjectPinned={onSetProjectPinned}
+                onSetPinnedProjectOrder={onSetPinnedProjectOrder}
+              />
+            </SidebarProjectDndProvider>
           </div>
 
           <LeftSidebarFooter

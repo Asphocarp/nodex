@@ -1,13 +1,16 @@
 import type {
   ComponentPropsWithoutRef,
+  CSSProperties,
   KeyboardEvent,
   MouseEvent,
   PointerEvent,
   ReactNode,
 } from "react";
-import { forwardRef, useEffect, useState } from "react";
+import { forwardRef, useEffect, useMemo, useState } from "react";
 import { FolderOpen, FolderPlus, Pencil, Smile, Trash2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS, type Transform } from "@dnd-kit/utilities";
 import {
   CodexFolderIcon,
   CodexProjectActionsIcon,
@@ -32,25 +35,44 @@ import {
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { invoke } from "@/lib/api";
 import { CODEX_SIDEBAR_PROJECT_FOLDER_TRANSITION } from "@/lib/codex-panel-motion";
-import type { Project, ProjectSession, ProjectUpdateInput } from "@/lib/types";
+import type { Project, ProjectPinnedInput, ProjectSession, ProjectUpdateInput } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
   SIDEBAR_NEW_CHAT_ROW_CLASS,
   SIDEBAR_PROJECT_NEW_CHAT_BUTTON_CLASS,
   SidebarProjectNewChatButton,
 } from "./sidebar-new-chat-controls";
+import {
+  getSidebarGroupDndId,
+  type SidebarGroupDndController,
+  type SidebarGroupDndPayload,
+} from "./sidebar-project-group-dnd";
 
 type SidebarRowActionEvent =
   | MouseEvent<HTMLElement>
   | PointerEvent<HTMLElement>
   | KeyboardEvent<HTMLElement>;
 
-export const CODEX_SIDEBAR_PROJECT_ROW_CLASS = "text-token-foreground group/folder-row flex h-token-nav-row items-center justify-between overflow-x-hidden rounded-lg text-sm hover:bg-token-list-hover-background focus-visible:outline focus-visible:outline-offset-2 electron:opacity-75";
+export const CODEX_SIDEBAR_PROJECT_ROW_CLASS = "group/folder-row group relative flex h-token-nav-row cursor-interaction items-center justify-between overflow-x-hidden rounded-lg text-sm text-token-foreground hover:bg-token-list-hover-background focus-visible:outline focus-visible:outline-offset-2";
 export const CODEX_SIDEBAR_DISCLOSURE_CHEVRON_CLASS = "icon-2xs shrink-0 opacity-0 transition-transform";
 export const CODEX_SIDEBAR_SECTION_ACTIONS_CLASS = "flex items-center gap-1 pointer-events-none opacity-0 group-focus-within/projects-section-header:pointer-events-auto group-focus-within/projects-section-header:opacity-100 group-hover/projects-section-header:pointer-events-auto group-hover/projects-section-header:opacity-100 has-[[data-state=open]]:pointer-events-auto has-[[data-state=open]]:opacity-100";
 export const CODEX_SIDEBAR_SECTION_ACTION_BUTTON_CLASS = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-foreground enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5 h-6 w-6 rounded-md !p-1 text-token-foreground opacity-75 hover:opacity-100";
 export const CODEX_SIDEBAR_PROJECT_ACTIONS_BUTTON_CLASS = SIDEBAR_PROJECT_NEW_CHAT_BUTTON_CLASS;
 export const CODEX_SIDEBAR_THREAD_ROW_CLASS = "group relative h-token-nav-row cursor-interaction rounded-lg px-row-x py-row-y text-sm hover:bg-token-list-hover-background focus-visible:outline-offset-[-2px]";
+
+const NOOP_SIDEBAR_GROUP_DND_CONTROLLER: SidebarGroupDndController = {
+  handleDragEnd: () => undefined,
+};
+
+export function getCodexSidebarSortableStyle(
+  transform: Transform | null,
+  transition: string | undefined,
+): CSSProperties {
+  return {
+    transform: CSS.Translate.toString(transform),
+    transition,
+  };
+}
 
 export function stopCodexSidebarRowActionPropagation(event: SidebarRowActionEvent) {
   event.stopPropagation();
@@ -199,10 +221,12 @@ export function CodexProjectActionsMenu({
   project,
   onUpdateProject,
   onDeleteProject,
+  onSetProjectPinned,
 }: {
   project: Project;
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
   onDeleteProject: (projectId: string) => Promise<boolean>;
+  onSetProjectPinned?: (projectId: string, input: ProjectPinnedInput) => Promise<Project | null>;
 }) {
   const [open, setOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -308,6 +332,16 @@ export function CodexProjectActionsMenu({
           >
             Choose icon
           </NodexDropdownItem>
+          {onSetProjectPinned ? (
+            <NodexDropdownItem
+              leftSlot={project.pinned ? <CodexSessionPinFilledIcon className="icon-sm" /> : <CodexSessionPinIcon className="icon-sm" />}
+              onSelect={() => {
+                void onSetProjectPinned(project.id, { pinned: !project.pinned });
+              }}
+            >
+              {project.pinned ? "Unpin project" : "Pin project"}
+            </NodexDropdownItem>
+          ) : null}
           <NodexDropdownSeparator />
           {primaryWorkspaceRoot ? (
             <NodexDropdownItem
@@ -445,22 +479,53 @@ export function CodexProjectRow({
   active,
   expanded,
   animateChildren = true,
+  groupDndController,
+  allowProjectReorder = false,
   onActivate,
+  onSelectProject,
   onStartNewChat,
   onUpdateProject,
   onDeleteProject,
+  onSetProjectPinned,
   children,
 }: {
   project: Project;
   active: boolean;
   expanded: boolean;
   animateChildren?: boolean;
+  groupDndController?: SidebarGroupDndController;
+  allowProjectReorder?: boolean;
   onActivate: () => void;
+  onSelectProject?: () => void;
   onStartNewChat?: () => void;
   onUpdateProject: (projectId: string, updates: ProjectUpdateInput) => Promise<Project | null>;
   onDeleteProject: (projectId: string) => Promise<boolean>;
+  onSetProjectPinned?: (projectId: string, input: ProjectPinnedInput) => Promise<Project | null>;
   children?: ReactNode;
 }) {
+  const sortableEnabled = allowProjectReorder && Boolean(groupDndController);
+  const sortableId = getSidebarGroupDndId(project.id);
+  const sortableData = useMemo<SidebarGroupDndPayload>(() => ({
+    kind: "sidebar-group",
+    controller: groupDndController ?? NOOP_SIDEBAR_GROUP_DND_CONTROLLER,
+    projectId: project.id,
+  }), [groupDndController, project.id]);
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: sortableId,
+    disabled: !sortableEnabled,
+    data: sortableData,
+  });
+  const sortableStyle = sortableEnabled
+    ? getCodexSidebarSortableStyle(transform, transition)
+    : undefined;
   const projectChildren = children ? (
     <CodexProjectChildrenDisclosure
       animate={animateChildren}
@@ -472,14 +537,24 @@ export function CodexProjectRow({
   ) : null;
 
   return (
-    <div className="group/cwd flex flex-col" role="listitem" aria-label={project.name}>
+    <div
+      ref={setNodeRef}
+      className={cn("group/cwd flex flex-col", isDragging && "opacity-50")}
+      style={sortableStyle}
+      role="listitem"
+      aria-label={project.name}
+    >
       <div
+        {...(sortableEnabled ? attributes : {})}
         data-app-action-sidebar-project-collapsed={String(!expanded)}
         data-app-action-sidebar-project-id={project.id}
         data-app-action-sidebar-project-label={project.name}
         data-app-action-sidebar-project-row=""
         data-active={active ? "true" : undefined}
-        className={CODEX_SIDEBAR_PROJECT_ROW_CLASS}
+        className={cn(
+          CODEX_SIDEBAR_PROJECT_ROW_CLASS,
+          active && "bg-token-list-hover-background",
+        )}
         role="button"
         tabIndex={0}
         aria-label={project.name}
@@ -492,24 +567,41 @@ export function CodexProjectRow({
       >
         <div className="flex min-w-0 flex-1 items-center gap-1 pl-1">
           <span className="relative flex h-6 w-6 items-center justify-center">
-            <CodexProjectHoverIcon className="absolute opacity-0 group-hover/folder-row:opacity-100" />
-            <CodexFolderIcon className="group-hover/folder-row:opacity-0" />
+            <CodexProjectHoverIcon className="absolute icon-xs shrink-0 opacity-0 group-hover/folder-row:opacity-100" />
+            <CodexFolderIcon className="icon-xs shrink-0 group-hover/folder-row:opacity-0" />
           </span>
-          <div className="flex min-w-0 flex-1 items-center gap-2 whitespace-nowrap rounded-md py-1 pr-0 text-left text-base text-token-foreground">
+          <div
+            ref={setActivatorNodeRef}
+            className="flex min-w-0 flex-1 cursor-interaction items-center gap-2 whitespace-nowrap rounded-md py-1 pr-0 text-left text-base text-token-foreground"
+            {...(sortableEnabled ? listeners : {})}
+          >
             <span className="flex min-w-0 flex-1 items-center gap-2 whitespace-nowrap">
-              <span className="flex min-w-0 flex-1 items-center gap-1.5 whitespace-nowrap">
-                <span className="min-w-0 truncate" data-app-action-sidebar-project-label-text="">
+              <span className="flex min-w-0 flex-1 items-center gap-0.5">
+                <span className="min-w-0 truncate pr-1" data-app-action-sidebar-project-label-text="">
                   {project.name}
                 </span>
-                <span aria-hidden="true" data-app-action-sidebar-project-toggle-chevron="">
+                <button
+                  type="button"
+                  aria-expanded={expanded}
+                  aria-label={expanded ? "Collapse project" : "Expand project"}
+                  className="-ml-1 flex h-5 w-5 shrink-0 cursor-interaction items-center justify-center rounded-sm text-token-foreground opacity-0 group-hover/folder-row:opacity-100 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                  data-app-action-sidebar-project-toggle-chevron=""
+                  onPointerDown={stopCodexSidebarRowActionPropagation}
+                  onMouseDown={stopCodexSidebarRowActionPropagation}
+                  onKeyDown={stopCodexSidebarRowActionPropagation}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onActivate();
+                  }}
+                >
                   <ChevronDownIcon
                     className={cn(
-                      CODEX_SIDEBAR_DISCLOSURE_CHEVRON_CLASS,
-                      "group-hover/folder-row:opacity-100 group-focus-visible/folder-row:opacity-100",
+                      "icon-2xs shrink-0 transition-transform",
                       !expanded && "-rotate-90",
                     )}
                   />
-                </span>
+                </button>
               </span>
             </span>
           </div>
@@ -519,6 +611,7 @@ export function CodexProjectRow({
             project={project}
             onUpdateProject={onUpdateProject}
             onDeleteProject={onDeleteProject}
+            onSetProjectPinned={onSetProjectPinned}
           />
           {onStartNewChat ? (
             <SidebarProjectNewChatButton
@@ -527,6 +620,18 @@ export function CodexProjectRow({
             />
           ) : null}
         </div>
+        <button
+          type="button"
+          aria-hidden="true"
+          tabIndex={-1}
+          className="sr-only"
+          data-app-action-sidebar-select-project=""
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onSelectProject?.();
+          }}
+        />
       </div>
       {projectChildren}
     </div>
@@ -593,7 +698,7 @@ export function CodexProjectSessionList({
       data-app-action-sidebar-project-list-id={project.id}
       data-app-action-sidebar-project-show-all="false"
     >
-      <div className="isolate flex flex-col [contain:layout] pb-2">
+      <div className="isolate flex flex-col [contain:layout]">
         <div className="flex flex-col" role="list" aria-label={`Automations in ${project.name}`}>
           {children}
         </div>

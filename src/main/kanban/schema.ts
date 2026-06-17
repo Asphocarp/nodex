@@ -14,7 +14,7 @@ import type { PanelId, ProjectSessionPanelLayout } from "../../shared/types";
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 37;
+export const CURRENT_SCHEMA_VERSION = 38;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V34 =
@@ -39,6 +39,7 @@ const RESETTABLE_TABLES = [
   "description_revisions",
   "description_blocks",
   "cards",
+  "pinned_project_order",
   "project_order",
   "project_sources",
   "projects",
@@ -52,14 +53,15 @@ export interface EnsureDatabaseOptions {
 
 export function getSchemaMigrationTargets(currentVersion: number): number[] | null {
   if (currentVersion === CURRENT_SCHEMA_VERSION) return [];
-  if (currentVersion === 26) return [31, 32, 33, 34, 35, 37];
-  if (currentVersion === 30) return [31, 32, 33, 34, 35, 37];
-  if (currentVersion === 31) return [32, 33, 34, 35, 37];
-  if (currentVersion === 32) return [33, 34, 35, 37];
-  if (currentVersion === 33) return [34, 35, 37];
-  if (currentVersion === 34) return [35, 37];
-  if (currentVersion === 35) return [37];
-  if (currentVersion === 36) return [37];
+  if (currentVersion === 26) return [31, 32, 33, 34, 35, 37, 38];
+  if (currentVersion === 30) return [31, 32, 33, 34, 35, 37, 38];
+  if (currentVersion === 31) return [32, 33, 34, 35, 37, 38];
+  if (currentVersion === 32) return [33, 34, 35, 37, 38];
+  if (currentVersion === 33) return [34, 35, 37, 38];
+  if (currentVersion === 34) return [35, 37, 38];
+  if (currentVersion === 35) return [37, 38];
+  if (currentVersion === 36) return [37, 38];
+  if (currentVersion === 37) return [38];
   return null;
 }
 
@@ -99,6 +101,12 @@ function createLatestSchema(db: Database.Database): void {
       ON project_sources(project_id, "order", created);
 
     CREATE TABLE IF NOT EXISTS project_order (
+      project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+      "order" INTEGER NOT NULL,
+      updated TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS pinned_project_order (
       project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
       "order" INTEGER NOT NULL,
       updated TEXT NOT NULL
@@ -1137,6 +1145,18 @@ function migrateSchema36To37(db: Database.Database): void {
   setUserVersion(db, 37);
 }
 
+function migrateSchema37To38(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pinned_project_order (
+      project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+      "order" INTEGER NOT NULL,
+      updated TEXT NOT NULL
+    );
+  `);
+
+  setUserVersion(db, 38);
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -1197,6 +1217,14 @@ function runMigrations(
       }
       migrateSchema35To37(db);
       fromVersion = 37;
+      continue;
+    }
+    if (target === 38) {
+      if (fromVersion !== 37) {
+        throw new Error(`Unsupported Nodex database migration target 38 from ${fromVersion}`);
+      }
+      migrateSchema37To38(db);
+      fromVersion = 38;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);

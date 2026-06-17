@@ -264,6 +264,8 @@ export interface Project {
   icon?: string;
   sources: ProjectSource[];
   primaryWorkspaceRoot: string | null;
+  pinned: boolean;
+  pinnedOrder: number | null;
   created: Date;
   updated: Date;
 }
@@ -280,6 +282,18 @@ export interface ProjectUpdateInput {
   description?: string;
   icon?: string;
   sources?: string[];
+}
+
+export interface ProjectOrderInput {
+  orderedProjectIds: string[];
+}
+
+export interface ProjectPinnedInput {
+  pinned: boolean;
+}
+
+export interface ProjectPinnedOrderInput {
+  orderedProjectIds: string[];
 }
 
 export type ProjectSessionDbView = "kanban" | "list" | "toggle-list" | "canvas" | "calendar";

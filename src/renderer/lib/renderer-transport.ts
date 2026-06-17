@@ -6,6 +6,7 @@ export interface RendererTransport {
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
   subscribeBoardChanges: (projectId: string, callback: () => void) => () => void;
   subscribeProjectSessionChanges: (projectId: string, callback: () => void) => () => void;
+  subscribeProjectChanges: (callback: (event: import("../../shared/ipc-api").ProjectsChangeEvent) => void) => () => void;
   subscribeCodexHostMessages: (callback: (message: import("./types").CodexHostMessage) => void) => () => void;
   subscribeDesktopNotificationActions: (
     callback: (payload: import("./types").DesktopNotificationActionPayload & {

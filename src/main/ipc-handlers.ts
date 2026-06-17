@@ -250,6 +250,18 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     dbService.updateProject(projectId, updates)
   );
 
+  registerHandle("projects:reorder", (_, input) =>
+    dbService.reorderProjects(input)
+  );
+
+  registerHandle("projects:set-pinned", (_, projectId: string, input) =>
+    dbService.setProjectPinned(projectId, input)
+  );
+
+  registerHandle("projects:set-pinned-order", (_, input) =>
+    dbService.setPinnedProjectOrder(input)
+  );
+
   registerHandle("projects:pick-source-root", async (event) => {
     const window = BrowserWindow.fromWebContents(event.sender);
     const dialogOptions: OpenDialogOptions = {

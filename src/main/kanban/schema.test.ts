@@ -31,14 +31,15 @@ function expectUuidProjectNamed(db: Database.Database, name: string): string {
 describe("schema initialization", () => {
   test("exposes only the supported in-app migration target", () => {
     expect(JSON.stringify(getSchemaMigrationTargets(CURRENT_SCHEMA_VERSION))).toBe("[]");
-    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[31,32,33,34,35,37]");
-    expect(JSON.stringify(getSchemaMigrationTargets(30))).toBe("[31,32,33,34,35,37]");
-    expect(JSON.stringify(getSchemaMigrationTargets(31))).toBe("[32,33,34,35,37]");
-    expect(JSON.stringify(getSchemaMigrationTargets(32))).toBe("[33,34,35,37]");
-    expect(JSON.stringify(getSchemaMigrationTargets(33))).toBe("[34,35,37]");
-    expect(JSON.stringify(getSchemaMigrationTargets(34))).toBe("[35,37]");
-    expect(JSON.stringify(getSchemaMigrationTargets(35))).toBe("[37]");
-    expect(JSON.stringify(getSchemaMigrationTargets(36))).toBe("[37]");
+    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[31,32,33,34,35,37,38]");
+    expect(JSON.stringify(getSchemaMigrationTargets(30))).toBe("[31,32,33,34,35,37,38]");
+    expect(JSON.stringify(getSchemaMigrationTargets(31))).toBe("[32,33,34,35,37,38]");
+    expect(JSON.stringify(getSchemaMigrationTargets(32))).toBe("[33,34,35,37,38]");
+    expect(JSON.stringify(getSchemaMigrationTargets(33))).toBe("[34,35,37,38]");
+    expect(JSON.stringify(getSchemaMigrationTargets(34))).toBe("[35,37,38]");
+    expect(JSON.stringify(getSchemaMigrationTargets(35))).toBe("[37,38]");
+    expect(JSON.stringify(getSchemaMigrationTargets(36))).toBe("[37,38]");
+    expect(JSON.stringify(getSchemaMigrationTargets(37))).toBe("[38]");
     expect(getSchemaMigrationTargets(29) === null).toBeTrue();
     expect(getSchemaMigrationTargets(20) === null).toBeTrue();
   });
@@ -116,6 +117,7 @@ describe("schema initialization", () => {
       expect(tableNames.includes("project_id_aliases")).toBeFalse();
       expect(tableNames.includes("project_sources")).toBeTrue();
       expect(tableNames.includes("project_order")).toBeTrue();
+      expect(tableNames.includes("pinned_project_order")).toBeTrue();
       expect(tableNames.includes("project_sessions")).toBeTrue();
       expect(tableNames.includes("project_session_tabs")).toBeTrue();
       expect(tableNames.includes("project_session_threads")).toBeTrue();

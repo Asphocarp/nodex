@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Project, ProjectCreateInput, ProjectUpdateInput } from "./types";
-import { invoke } from "./api";
+import type {
+  Project,
+  ProjectCreateInput,
+  ProjectOrderInput,
+  ProjectPinnedInput,
+  ProjectPinnedOrderInput,
+  ProjectUpdateInput,
+} from "./types";
+import { invoke, subscribeProjectChanges } from "./api";
 
 export function useProjects() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -22,6 +29,10 @@ export function useProjects() {
   useEffect(() => {
     fetchProjects();
   }, [fetchProjects]);
+
+  useEffect(() => subscribeProjectChanges(() => {
+    void fetchProjects();
+  }), [fetchProjects]);
 
   const createProject = useCallback(
     async (input: ProjectCreateInput): Promise<Project | null> => {
@@ -65,6 +76,51 @@ export function useProjects() {
     [fetchProjects]
   );
 
+  const reorderProjects = useCallback(
+    async (input: ProjectOrderInput): Promise<Project[]> => {
+      try {
+        const nextProjects = (await invoke("projects:reorder", input)) as Project[];
+        setProjects(nextProjects);
+        return nextProjects;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unknown error");
+        await fetchProjects();
+        return [];
+      }
+    },
+    [fetchProjects],
+  );
+
+  const setProjectPinned = useCallback(
+    async (projectId: string, input: ProjectPinnedInput): Promise<Project | null> => {
+      try {
+        const project = (await invoke("projects:set-pinned", projectId, input)) as Project | null;
+        await fetchProjects();
+        return project;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unknown error");
+        await fetchProjects();
+        return null;
+      }
+    },
+    [fetchProjects],
+  );
+
+  const setPinnedProjectOrder = useCallback(
+    async (input: ProjectPinnedOrderInput): Promise<Project[]> => {
+      try {
+        const nextProjects = (await invoke("projects:set-pinned-order", input)) as Project[];
+        setProjects(nextProjects);
+        return nextProjects;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unknown error");
+        await fetchProjects();
+        return [];
+      }
+    },
+    [fetchProjects],
+  );
+
   return {
     projects,
     loading,
@@ -73,5 +129,8 @@ export function useProjects() {
     createProject,
     deleteProject,
     updateProject,
+    reorderProjects,
+    setProjectPinned,
+    setPinnedProjectOrder,
   };
 }

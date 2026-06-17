@@ -16,6 +16,8 @@ const PROJECTS = [
     description: "",
     sources: [{ root: "/Users/asc/repo/nodex", order: 0 }],
     primaryWorkspaceRoot: "/Users/asc/repo/nodex",
+    pinned: false,
+    pinnedOrder: null,
     created: new Date("2026-03-01T00:00:00.000Z"),
     updated: new Date("2026-03-01T00:00:00.000Z"),
   },

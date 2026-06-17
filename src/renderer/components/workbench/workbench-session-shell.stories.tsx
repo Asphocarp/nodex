@@ -110,6 +110,8 @@ const PROJECTS: Project[] = [
     icon: "",
     sources: [{ root: "/Users/asc/repo/nodex", order: 0 }],
     primaryWorkspaceRoot: "/Users/asc/repo/nodex",
+    pinned: false,
+    pinnedOrder: null,
     created: new Date(CREATED_AT),
     updated: new Date(CREATED_AT),
   },
@@ -120,6 +122,8 @@ const PROJECTS: Project[] = [
     icon: "",
     sources: [{ root: "/Users/asc/repo/devtools-codex", order: 0 }],
     primaryWorkspaceRoot: "/Users/asc/repo/devtools-codex",
+    pinned: false,
+    pinnedOrder: null,
     created: new Date(CREATED_AT),
     updated: new Date(CREATED_AT),
   },
@@ -582,6 +586,9 @@ function ProjectSessionShellStory(args: ShellStoryArgs) {
         onCreateProject={async () => null}
         onUpdateProject={async () => null}
         onDeleteProject={async () => false}
+        onReorderProjects={async () => PROJECTS}
+        onSetProjectPinned={async () => null}
+        onSetPinnedProjectOrder={async () => PROJECTS}
         onRequestProjectPickerOpen={() => undefined}
         threadSearchOpenTick={0}
       />

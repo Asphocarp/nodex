@@ -133,7 +133,9 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Project icon: optional per-project emoji persisted in SQLite; when empty, UI shows a project-colored dot
 - Project sources: ordered source folders persisted separately from the project row. The first source is the primary workspace root for Git, Files, Review, local thread cwd, and managed worktree base repository; all configured sources are writable workspace roots for sandboxing.
 - Empty-source projects are valid Nodex data containers. Work-local thread starts allocate a generated per-thread workspace; managed worktree and local-environment flows require a primary source and surface a clear error when missing.
-- Sidebar project rows do not show the source path inline. Each project row actions menu exposes rename, choose icon, edit sources, add source folder, `Open in Finder` for the primary source, and delete.
+- Sidebar project rows do not show the source path inline. Each project row actions menu exposes rename, choose icon, edit sources, add source folder, project pin/unpin, `Open in Finder` for the primary source, and delete.
+- Sidebar project headers can be reordered by dragging the header row. Normal project groups persist their order in `project_order`; pinned project groups render in a `Pinned` section above Projects and persist their order in `pinned_project_order`.
+- Dragging a normal project header onto the pinned section pins that project and leaves normal project order unchanged. The Projects section excludes pinned projects while preserving their normal order for later unpinning.
 - The Projects header add button opens a submenu with `Start from scratch` and `Use an existing folder`. `Start from scratch` opens the local project setup dialog with optional name/source collection. `Use an existing folder` opens the native folder picker, names the project from the folder basename, and stores that folder as the first source.
 - CASCADE delete removes all cards and history for a project
 - Codex thread links are one-owner: one card can own many threads, each thread belongs to one card
@@ -639,8 +641,12 @@ nodex/
 |--------|----------|-------------|
 | GET | `/api/projects` | List all projects |
 | POST | `/api/projects` | Create project (body: `{name?, description?, icon?, sources?}` where `icon` is an optional emoji and the canonical ID is generated server-side) |
+| PUT | `/api/projects/order` | Reorder normal project groups (body: `{orderedProjectIds}`) |
+| PUT | `/api/projects/pinned-order` | Reorder pinned project groups (body: `{orderedProjectIds}`) |
+| GET | `/api/projects/events` | SSE stream for project list, project order, and project pin changes |
 | GET | `/api/projects/[projectId]` | Get project details; `[projectId]` may be a UUID or retained legacy alias |
 | PUT | `/api/projects/[projectId]` | Update project display fields and sources (body: `{name?, description?, icon?, sources?}`); ID changes are rejected |
+| PUT | `/api/projects/[projectId]/pinned` | Pin or unpin a project group (body: `{pinned}`) |
 | DELETE | `/api/projects/[projectId]` | Delete project (cascades cards + history) |
 
 #### Project Session Routes
@@ -733,6 +739,12 @@ CREATE TABLE project_sources (
 );
 
 CREATE TABLE project_order (
+  project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  "order" INTEGER NOT NULL,
+  updated TEXT NOT NULL
+);
+
+CREATE TABLE pinned_project_order (
   project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
   "order" INTEGER NOT NULL,
   updated TEXT NOT NULL
@@ -903,7 +915,7 @@ Database Write → EventEmitter (notifier) → SSE push (Hono /events endpoint)
     → EventSource listener → useKanban hook → UI re-renders
 ```
 
-The transport layer (`src/renderer/lib/api.ts`) auto-detects the runtime and uses the appropriate path. In Electron, renderer HTTP routes resolve from a preload-injected server URL; in browser mode they resolve from same-origin (with localhost Vite dev fallback to default API port `51283`). SSE events are scoped per project.
+The transport layer (`src/renderer/lib/api.ts`) auto-detects the runtime and uses the appropriate path. In Electron, renderer HTTP routes resolve from a preload-injected server URL; in browser mode they resolve from same-origin (with localhost Vite dev fallback to default API port `51283`). Board and session SSE events are scoped per project; project-list/order/pin changes use the global `/api/projects/events` stream.
 
 Codex Threads emit a separate Electron IPC stream (`codex:event`) from the main-process Codex domain service; browser mode intentionally does not support this transport in this phase.
 

@@ -467,6 +467,8 @@ function makeProject(id = "alpha", name = "Alpha", primarySourceRoot?: string): 
     icon: "",
     sources: normalizedPrimarySourceRoot ? [{ root: normalizedPrimarySourceRoot, order: 0 }] : [],
     primaryWorkspaceRoot: normalizedPrimarySourceRoot,
+    pinned: false,
+    pinnedOrder: null,
     created: new Date("2026-06-07T00:00:00.000Z"),
     updated: new Date("2026-06-07T00:00:00.000Z"),
   };
@@ -1024,6 +1026,9 @@ function renderWorkbench({
         onCreateProject={async () => null}
         onUpdateProject={async () => null}
         onDeleteProject={async () => false}
+        onReorderProjects={async () => projects}
+        onSetProjectPinned={async () => null}
+        onSetPinnedProjectOrder={async () => projects}
         onRequestProjectPickerOpen={() => undefined}
         threadSearchOpenTick={0}
         setSidebarCollapsed={(collapsed) => {
@@ -1624,6 +1629,67 @@ describe("workbench session shell", () => {
     expect(screen.setDbProjectCalls.includes("beta")).toBeFalse();
     expect(textContent(document.body).includes("Add source folder")).toBeTrue();
     expect(textContent(document.body).includes("Edit sources")).toBeTrue();
+  });
+
+  test("project rows expose the Codex sortable header DOM contract", async () => {
+    const screen = renderWorkbench({
+      projects: [makeProject(), makeProject("beta", "Beta")],
+      sessionsByProject: {
+        alpha: [makeSession()],
+        beta: [makeSession({
+          id: "overview:beta",
+          projectId: "beta",
+          title: "Beta Overview",
+          isOverview: true,
+        })],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const betaRow = screen.container.querySelector('[data-app-action-sidebar-project-id="beta"]');
+    expect(betaRow?.getAttribute("role")).toBe("button");
+    expect(betaRow?.getAttribute("tabindex")).toBe("0");
+    expect(betaRow?.getAttribute("aria-roledescription")).toBe("sortable");
+    expect(betaRow?.getAttribute("aria-describedby")?.startsWith("DndDescribedBy-")).toBeTrue();
+    expect(Boolean(betaRow?.querySelector('[data-app-action-sidebar-select-project]'))).toBeTrue();
+    expect(Boolean(document.getElementById(betaRow?.getAttribute("aria-describedby") ?? ""))).toBeTrue();
+  });
+
+  test("pinned project groups render above normal projects and are excluded from Projects", async () => {
+    const beta = {
+      ...makeProject("beta", "Beta"),
+      pinned: true,
+      pinnedOrder: 0,
+    };
+    const screen = renderWorkbench({
+      projects: [makeProject(), beta, makeProject("gamma", "Gamma")],
+      sessionsByProject: {
+        alpha: [makeSession()],
+        beta: [makeSession({
+          id: "overview:beta",
+          projectId: "beta",
+          title: "Beta Overview",
+          isOverview: true,
+        })],
+        gamma: [makeSession({
+          id: "overview:gamma",
+          projectId: "gamma",
+          title: "Gamma Overview",
+          isOverview: true,
+        })],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const pinnedSection = screen.container.querySelector('[data-app-action-sidebar-section-heading="Pinned"]');
+    const projectsSection = screen.container.querySelector('[data-app-action-sidebar-section-heading="Projects"]');
+    expect(Boolean(pinnedSection)).toBeTrue();
+    expect(pinnedSection?.querySelector('[data-app-action-sidebar-project-id="beta"]') !== null).toBeTrue();
+    expect(projectsSection?.querySelector('[data-app-action-sidebar-project-id="beta"]') === null).toBeTrue();
+    expect(projectsSection?.querySelector('[data-app-action-sidebar-project-id="alpha"]') !== null).toBeTrue();
+    expect(projectsSection?.querySelector('[data-app-action-sidebar-project-id="gamma"]') !== null).toBeTrue();
   });
 
   test("project row new-chat button reuses an existing blank session", async () => {

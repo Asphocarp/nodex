@@ -14,6 +14,8 @@ const project: Project = {
   icon: "",
   sources: [{ root: WORKSPACE_ROOT, order: 0 }],
   primaryWorkspaceRoot: WORKSPACE_ROOT,
+  pinned: false,
+  pinnedOrder: null,
   created: new Date(CREATED_AT),
   updated: new Date(CREATED_AT),
 };

@@ -761,6 +761,9 @@ async function initializeDesktopApp(serverPort: number): Promise<void> {
   dbNotifier.on("project-sessions-changed", (event) => {
     broadcastToWindows("project-sessions-changed", event);
   });
+  dbNotifier.on("projects-changed", (event) => {
+    broadcastToWindows("projects-changed", event);
+  });
 
   app.on("activate", () => {
     const currentServerUrl = serverUrlForWindows;

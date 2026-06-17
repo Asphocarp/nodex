@@ -36,6 +36,12 @@ export function subscribeProjectSessionChanges(
   return resolveRendererTransport().subscribeProjectSessionChanges(projectId, callback);
 }
 
+export function subscribeProjectChanges(
+  callback: (event: import("../../shared/ipc-api").ProjectsChangeEvent) => void,
+): () => void {
+  return resolveRendererTransport().subscribeProjectChanges(callback);
+}
+
 export function subscribeCodexHostMessages(
   callback: (message: import("./types").CodexHostMessage) => void,
 ): () => void {

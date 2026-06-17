@@ -6,7 +6,7 @@ import type {
   WindowSessionBootstrap,
   WorkbenchLayoutSnapshot,
 } from "./types";
-import type { BoardChangeEvent } from "../../shared/ipc-api";
+import type { BoardChangeEvent, ProjectsChangeEvent } from "../../shared/ipc-api";
 
 function isStorybookRuntime(): boolean {
   return typeof window !== "undefined" && window.__NODEX_STORYBOOK__ === true;
@@ -156,6 +156,35 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         body: JSON.stringify(updates),
       });
       return res.json();
+    }
+    case "projects:reorder": {
+      const [input] = args as [{ orderedProjectIds: string[] }];
+      const res = await fetch(toApiUrl("/api/projects/order"), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      const data = await res.json();
+      return data.projects ?? [];
+    }
+    case "projects:set-pinned": {
+      const [projectId, input] = args as [string, { pinned: boolean }];
+      const res = await fetch(toApiUrl(`/api/projects/${projectId}/pinned`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      return res.ok ? res.json() : null;
+    }
+    case "projects:set-pinned-order": {
+      const [input] = args as [{ orderedProjectIds: string[] }];
+      const res = await fetch(toApiUrl("/api/projects/pinned-order"), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      const data = await res.json();
+      return data.projects ?? [];
     }
     case "project-sessions:list": {
       const [projectId, options] = args as [string, { includeArchived?: boolean }?];
@@ -1309,6 +1338,30 @@ function subscribeProjectSessionChanges(projectId: string, callback: () => void)
   return () => es.close();
 }
 
+function subscribeProjectChanges(callback: (event: ProjectsChangeEvent) => void): () => void {
+  if (typeof EventSource === "undefined") {
+    return () => {};
+  }
+
+  const es = new EventSource(toApiUrl("/api/projects/events"));
+
+  es.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data) as ProjectsChangeEvent & { event?: string };
+      if (data.event === "projects-changed") {
+        callback({
+          projectId: typeof data.projectId === "string" ? data.projectId : undefined,
+          changeType: data.changeType,
+        });
+      }
+    } catch {
+      // ignore parse errors
+    }
+  };
+
+  return () => es.close();
+}
+
 function subscribeCodexHostMessages(
   callback: (message: import("./types").CodexHostMessage) => void,
 ): () => void {
@@ -1365,6 +1418,7 @@ export const browserRendererTransport = {
   invoke,
   subscribeBoardChanges,
   subscribeProjectSessionChanges,
+  subscribeProjectChanges,
   subscribeCodexHostMessages,
   subscribeDesktopNotificationActions,
   subscribeGitBranchChanges,

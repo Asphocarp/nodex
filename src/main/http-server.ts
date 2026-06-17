@@ -49,6 +49,11 @@ import {
   HttpCardMoveDropBodySchema,
   parseOptionalCardStatus,
 } from "../shared/schemas/http";
+import {
+  ProjectOrderInputSchema,
+  ProjectPinnedInputSchema,
+  ProjectPinnedOrderInputSchema,
+} from "../shared/schemas/projects";
 import { codexService } from "./codex/codex-service";
 
 /** SSE keep-alive ping interval (ms) */
@@ -449,6 +454,26 @@ app.post("/api/projects", async (c) => {
   }
 });
 
+app.put("/api/projects/order", async (c) => {
+  const body = await c.req.json();
+  try {
+    const projects = dbService.reorderProjects(ProjectOrderInputSchema.parse(body));
+    return c.json({ projects });
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
+app.put("/api/projects/pinned-order", async (c) => {
+  const body = await c.req.json();
+  try {
+    const projects = dbService.setPinnedProjectOrder(ProjectPinnedOrderInputSchema.parse(body));
+    return c.json({ projects });
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
 app.get("/api/projects/:projectId", (c) => {
   const project = dbService.getProject(c.req.param("projectId"));
   if (!project) return c.json({ error: "Not found" }, 404);
@@ -469,6 +494,20 @@ app.put("/api/projects/:projectId", async (c) => {
       icon: typeof body.icon === "string" ? body.icon : undefined,
       sources: Array.isArray(body.sources) ? body.sources : undefined,
     });
+    if (!result) return c.json({ error: "Not found" }, 404);
+    return c.json(result);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
+app.put("/api/projects/:projectId/pinned", async (c) => {
+  const body = await c.req.json();
+  try {
+    const result = dbService.setProjectPinned(
+      c.req.param("projectId"),
+      ProjectPinnedInputSchema.parse(body),
+    );
     if (!result) return c.json({ error: "Not found" }, 404);
     return c.json(result);
   } catch (err) {
@@ -1303,6 +1342,51 @@ app.put(
 );
 
 // === SSE events ===
+
+app.get("/api/projects/events", (c) => {
+  const stream = new ReadableStream({
+    start(controller) {
+      const encoder = new TextEncoder();
+
+      const send = (data: string) => {
+        controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+      };
+
+      send(JSON.stringify({ event: "connected" }));
+
+      const handler = (event: { projectId?: string; changeType: string }) => {
+        send(JSON.stringify({
+          event: "projects-changed",
+          projectId: event.projectId,
+          changeType: event.changeType,
+        }));
+      };
+
+      dbNotifier.on("projects-changed", handler);
+
+      const pingInterval = setInterval(() => {
+        try {
+          send(JSON.stringify({ event: "ping" }));
+        } catch {
+          clearInterval(pingInterval);
+        }
+      }, SSE_PING_INTERVAL_MS);
+
+      c.req.raw.signal.addEventListener("abort", () => {
+        dbNotifier.removeListener("projects-changed", handler);
+        clearInterval(pingInterval);
+      });
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
+});
 
 app.get("/api/projects/:projectId/events", (c) => {
   const projectId = dbService.getProject(c.req.param("projectId"))?.id ?? c.req.param("projectId");

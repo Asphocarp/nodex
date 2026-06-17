@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import type { CodexAccountSnapshot, Project, ProjectSession } from "@/lib/types";
 import type { SpaceRef } from "@/lib/use-workbench-state";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
@@ -17,6 +17,15 @@ import {
   CodexSidebarSection,
   CodexThreadRow,
 } from "./codex-sidebar";
+import {
+  replaceVisibleOrder,
+  SidebarDropIndicator,
+  SidebarProjectDndProvider,
+  SidebarProjectSortableContext,
+  usePinnedProjectDroppable,
+  useSidebarGroupReorderController,
+  type SidebarGroupDndController,
+} from "./sidebar-project-group-dnd";
 
 const PROJECTS: Project[] = [
   {
@@ -25,6 +34,8 @@ const PROJECTS: Project[] = [
     description: "",
     sources: [{ root: "/Users/asc/repo/nodex", order: 0 }],
     primaryWorkspaceRoot: "/Users/asc/repo/nodex",
+    pinned: false,
+    pinnedOrder: null,
     created: new Date("2026-03-01T00:00:00.000Z"),
     updated: new Date("2026-03-01T00:00:00.000Z"),
   },
@@ -34,6 +45,8 @@ const PROJECTS: Project[] = [
     description: "",
     sources: [{ root: "/Users/asc/repo/devtools-codex", order: 0 }],
     primaryWorkspaceRoot: "/Users/asc/repo/devtools-codex",
+    pinned: false,
+    pinnedOrder: null,
     created: new Date("2026-03-02T00:00:00.000Z"),
     updated: new Date("2026-03-02T00:00:00.000Z"),
   },
@@ -51,6 +64,8 @@ const SIDEBAR_PARITY_PROJECTS: Project[] = [
     description: "",
     sources: [{ root: "/Users/asc/repo/nodex", order: 0 }],
     primaryWorkspaceRoot: "/Users/asc/repo/nodex",
+    pinned: false,
+    pinnedOrder: null,
     created: new Date("2026-06-01T00:00:00.000Z"),
     updated: new Date("2026-06-01T00:00:00.000Z"),
   },
@@ -60,6 +75,8 @@ const SIDEBAR_PARITY_PROJECTS: Project[] = [
     description: "",
     sources: [{ root: "/Users/asc/repo/devtools-codex/codex_electron_26.519.81530_to_be_readable", order: 0 }],
     primaryWorkspaceRoot: "/Users/asc/repo/devtools-codex/codex_electron_26.519.81530_to_be_readable",
+    pinned: false,
+    pinnedOrder: null,
     created: new Date("2026-06-02T00:00:00.000Z"),
     updated: new Date("2026-06-02T00:00:00.000Z"),
   },
@@ -69,6 +86,8 @@ const SIDEBAR_PARITY_PROJECTS: Project[] = [
     description: "",
     sources: [],
     primaryWorkspaceRoot: null,
+    pinned: false,
+    pinnedOrder: null,
     created: new Date("2026-06-03T00:00:00.000Z"),
     updated: new Date("2026-06-03T00:00:00.000Z"),
   },
@@ -367,6 +386,163 @@ function CodexProjectsHarness({
   );
 }
 
+function sortPinnedStoryProjects(projects: Project[]) {
+  return [...projects].filter((project) => project.pinned).sort((a, b) =>
+    (a.pinnedOrder ?? Number.MAX_SAFE_INTEGER) - (b.pinnedOrder ?? Number.MAX_SAFE_INTEGER)
+  );
+}
+
+function CodexSortableProjectSections({
+  projects,
+  onProjectsChange,
+  forceDropIndicator = false,
+  forceEmptyPinnedDropTarget = false,
+}: {
+  projects: Project[];
+  onProjectsChange: (projects: Project[]) => void;
+  forceDropIndicator?: boolean;
+  forceEmptyPinnedDropTarget?: boolean;
+}) {
+  const projectOrderIds = useMemo(() => projects.map((project) => project.id), [projects]);
+  const pinnedProjects = useMemo(() => sortPinnedStoryProjects(projects), [projects]);
+  const unpinnedProjects = useMemo(() => projects.filter((project) => !project.pinned), [projects]);
+  const pinnedProjectIds = useMemo(() => pinnedProjects.map((project) => project.id), [pinnedProjects]);
+  const unpinnedProjectIds = useMemo(() => unpinnedProjects.map((project) => project.id), [unpinnedProjects]);
+  const pinnedDroppable = usePinnedProjectDroppable();
+
+  const reorderUnpinned = useCallback((nextIds: string[]) => {
+    const nextOrderIds = replaceVisibleOrder(projectOrderIds, unpinnedProjectIds, nextIds);
+    const byId = new Map(projects.map((project) => [project.id, project]));
+    onProjectsChange(nextOrderIds.map((id) => byId.get(id)).filter((project): project is Project => Boolean(project)));
+  }, [onProjectsChange, projectOrderIds, projects, unpinnedProjectIds]);
+
+  const reorderPinned = useCallback((nextIds: string[]) => {
+    const pinnedOrderById = new Map(nextIds.map((id, index) => [id, index]));
+    onProjectsChange(projects.map((project) => ({
+      ...project,
+      pinnedOrder: pinnedOrderById.get(project.id) ?? project.pinnedOrder,
+    })));
+  }, [onProjectsChange, projects]);
+
+  const pinnedReorder = useSidebarGroupReorderController({
+    groupIds: pinnedProjectIds,
+    reorderGroups: reorderPinned,
+  });
+  const unpinnedReorder = useSidebarGroupReorderController({
+    groupIds: unpinnedProjectIds,
+    reorderGroups: reorderUnpinned,
+  });
+
+  const renderProjectRow = (project: Project, controller: SidebarGroupDndController) => (
+    <CodexProjectRow
+      key={project.id}
+      project={project}
+      active={project.id === "nodex"}
+      expanded={project.id === "nodex"}
+      groupDndController={controller}
+      allowProjectReorder
+      onActivate={() => {}}
+      onSelectProject={() => {}}
+      onUpdateProject={async () => project}
+      onDeleteProject={async () => false}
+      onSetProjectPinned={async (_projectId, input) => {
+        onProjectsChange(projects.map((candidate) => candidate.id === project.id
+          ? {
+              ...candidate,
+              pinned: input.pinned,
+              pinnedOrder: input.pinned ? pinnedProjects.length : null,
+            }
+          : candidate));
+        return project;
+      }}
+    />
+  );
+
+  return (
+    <>
+      {pinnedProjects.length > 0 ? (
+        <div ref={pinnedDroppable.setNodeRef} className="relative">
+          <CodexSidebarSection heading="Pinned" collapsed={false} onToggle={() => {}}>
+            <div className="isolate flex flex-col [contain:layout]">
+              <SidebarProjectSortableContext groupIds={pinnedReorder.groupIds}>
+                <div className="flex flex-col" role="list" aria-label="Pinned">
+                  {pinnedProjects.map((project, index) => (
+                    <Fragment key={project.id}>
+                      {forceDropIndicator && index === 1 ? <SidebarDropIndicator /> : null}
+                      {renderProjectRow(project, pinnedReorder.controller)}
+                    </Fragment>
+                  ))}
+                </div>
+              </SidebarProjectSortableContext>
+            </div>
+          </CodexSidebarSection>
+        </div>
+      ) : forceEmptyPinnedDropTarget ? (
+        <div className="absolute inset-x-0 top-0 px-row-x">
+          <SidebarDropIndicator />
+          <div className="h-4" />
+        </div>
+      ) : null}
+
+      <CodexSidebarSection heading="Projects" collapsed={false} onToggle={() => {}}>
+        <div className="isolate flex flex-col [contain:layout]">
+          <SidebarProjectSortableContext groupIds={unpinnedReorder.groupIds}>
+            <div className="flex flex-col" role="list" aria-label="Projects">
+              {unpinnedProjects.map((project, index) => (
+                <Fragment key={project.id}>
+                  {forceDropIndicator && pinnedProjects.length === 0 && index === 1 ? <SidebarDropIndicator /> : null}
+                  {renderProjectRow(project, unpinnedReorder.controller)}
+                </Fragment>
+              ))}
+            </div>
+          </SidebarProjectSortableContext>
+        </div>
+      </CodexSidebarSection>
+    </>
+  );
+}
+
+function CodexSortableProjectsHarness({
+  pinned = false,
+  emptyPinnedDropTarget = false,
+  dropIndicator = false,
+}: {
+  pinned?: boolean;
+  emptyPinnedDropTarget?: boolean;
+  dropIndicator?: boolean;
+}) {
+  const [projects, setProjects] = useState(() =>
+    SIDEBAR_PARITY_PROJECTS.map((project, index) => ({
+      ...project,
+      pinned: pinned && index < 1,
+      pinnedOrder: pinned && index < 1 ? index : null,
+    }))
+  );
+
+  return (
+    <NodexTooltipProvider>
+      <div data-codex-window-type="electron" className="min-h-screen bg-token-bg-primary p-8">
+        <div className="app-shell-left-panel relative w-[300px] overflow-visible py-4">
+          <SidebarProjectDndProvider
+            onProjectDrop={(drop) => {
+              setProjects((current) => current.map((project) => project.id === drop.projectId
+                ? { ...project, pinned: true, pinnedOrder: sortPinnedStoryProjects(current).length }
+                : project));
+            }}
+          >
+            <CodexSortableProjectSections
+              projects={emptyPinnedDropTarget ? projects.map((project) => ({ ...project, pinned: false, pinnedOrder: null })) : projects}
+              onProjectsChange={setProjects}
+              forceDropIndicator={dropIndicator}
+              forceEmptyPinnedDropTarget={emptyPinnedDropTarget}
+            />
+          </SidebarProjectDndProvider>
+        </div>
+      </div>
+    </NodexTooltipProvider>
+  );
+}
+
 function makeStorySession(input: {
   id: string;
   title: string;
@@ -560,6 +736,22 @@ export const CodexProjectsLongLabels: Story = {
       activeProjectId="codex-electron-readable-bundle-with-a-very-long-name"
     />
   ),
+};
+
+export const CodexProjectsSortable: Story = {
+  render: () => <CodexSortableProjectsHarness />,
+};
+
+export const CodexProjectsDraggingOverProject: Story = {
+  render: () => <CodexSortableProjectsHarness dropIndicator />,
+};
+
+export const CodexPinnedProjects: Story = {
+  render: () => <CodexSortableProjectsHarness pinned />,
+};
+
+export const CodexPinnedProjectsEmptyDropTarget: Story = {
+  render: () => <CodexSortableProjectsHarness emptyPinnedDropTarget />,
 };
 
 export const CodexProjectSessionRows: Story = {
