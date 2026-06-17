@@ -270,6 +270,8 @@ export interface HistoryPanelEntry {
   move: HistoryPanelMove | null;
   descriptionChange: HistoryPanelDescriptionDelta | null;
   snapshot: HistoryPanelSnapshot | null;
+  reconstructable: boolean;
+  reconstructionUnavailableReason: string | null;
 }
 
 export interface HistoryCardVersionPreview {

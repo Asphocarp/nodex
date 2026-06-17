@@ -14,7 +14,7 @@ import type { PanelId, ProjectSessionPanelLayout } from "../../shared/types";
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 38;
+export const CURRENT_SCHEMA_VERSION = 39;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V34 =
@@ -32,6 +32,7 @@ const RESETTABLE_TABLES = [
   "reminder_snoozes",
   "reminder_receipts",
   "recurrence_exceptions",
+  "card_history_snapshots",
   "history",
   "codex_thread_card_links",
   "codex_threads",
@@ -53,15 +54,16 @@ export interface EnsureDatabaseOptions {
 
 export function getSchemaMigrationTargets(currentVersion: number): number[] | null {
   if (currentVersion === CURRENT_SCHEMA_VERSION) return [];
-  if (currentVersion === 26) return [31, 32, 33, 34, 35, 37, 38];
-  if (currentVersion === 30) return [31, 32, 33, 34, 35, 37, 38];
-  if (currentVersion === 31) return [32, 33, 34, 35, 37, 38];
-  if (currentVersion === 32) return [33, 34, 35, 37, 38];
-  if (currentVersion === 33) return [34, 35, 37, 38];
-  if (currentVersion === 34) return [35, 37, 38];
-  if (currentVersion === 35) return [37, 38];
-  if (currentVersion === 36) return [37, 38];
-  if (currentVersion === 37) return [38];
+  if (currentVersion === 26) return [31, 32, 33, 34, 35, 37, 38, 39];
+  if (currentVersion === 30) return [31, 32, 33, 34, 35, 37, 38, 39];
+  if (currentVersion === 31) return [32, 33, 34, 35, 37, 38, 39];
+  if (currentVersion === 32) return [33, 34, 35, 37, 38, 39];
+  if (currentVersion === 33) return [34, 35, 37, 38, 39];
+  if (currentVersion === 34) return [35, 37, 38, 39];
+  if (currentVersion === 35) return [37, 38, 39];
+  if (currentVersion === 36) return [37, 38, 39];
+  if (currentVersion === 37) return [38, 39];
+  if (currentVersion === 38) return [39];
   return null;
 }
 
@@ -300,6 +302,21 @@ function createLatestSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_history_timestamp ON history(timestamp DESC);
     CREATE INDEX IF NOT EXISTS idx_history_session ON history(session_id);
     CREATE INDEX IF NOT EXISTS idx_history_group ON history(project_id, group_id);
+
+    CREATE TABLE IF NOT EXISTS card_history_snapshots (
+      history_id INTEGER PRIMARY KEY REFERENCES history(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      card_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      archived INTEGER NOT NULL DEFAULT 0,
+      card_snapshot TEXT NOT NULL,
+      description_revision_id INTEGER,
+      created_at TEXT NOT NULL,
+      CHECK (status IN ('draft', 'backlog', 'in_progress', 'in_review', 'done'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_card_history_snapshots_project_card_history
+      ON card_history_snapshots(project_id, card_id, history_id);
 
     CREATE TABLE IF NOT EXISTS recurrence_exceptions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1157,6 +1174,27 @@ function migrateSchema37To38(db: Database.Database): void {
   setUserVersion(db, 38);
 }
 
+function migrateSchema38To39(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS card_history_snapshots (
+      history_id INTEGER PRIMARY KEY REFERENCES history(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      card_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      archived INTEGER NOT NULL DEFAULT 0,
+      card_snapshot TEXT NOT NULL,
+      description_revision_id INTEGER,
+      created_at TEXT NOT NULL,
+      CHECK (status IN ('draft', 'backlog', 'in_progress', 'in_review', 'done'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_card_history_snapshots_project_card_history
+      ON card_history_snapshots(project_id, card_id, history_id);
+  `);
+
+  setUserVersion(db, 39);
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -1225,6 +1263,14 @@ function runMigrations(
       }
       migrateSchema37To38(db);
       fromVersion = 38;
+      continue;
+    }
+    if (target === 39) {
+      if (fromVersion !== 38) {
+        throw new Error(`Unsupported Nodex database migration target 39 from ${fromVersion}`);
+      }
+      migrateSchema38To39(db);
+      fromVersion = 39;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);

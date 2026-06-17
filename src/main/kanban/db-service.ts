@@ -2520,6 +2520,7 @@ export async function updateCardOccurrence(
 
 export async function initializeDatabase(options?: EnsureDatabaseOptions): Promise<void> {
   ensureDatabase(options);
+  historyService.backfillCardHistorySnapshots();
 }
 
 // Schema introspection for agents

@@ -15,6 +15,9 @@ import { getHistoryRetention } from "./config";
 import * as descriptionRevisionService from "./description-revision-service";
 
 export type HistoryOperation = "create" | "update" | "delete" | "move";
+const CARD_HISTORY_SNAPSHOT_INTERVAL = 50;
+const RECONSTRUCTION_UNAVAILABLE_REASON =
+  "This version is unavailable because older card history was pruned before checkpoints were created.";
 
 export interface HistoryReconstructionEntry {
   id: number;
@@ -25,6 +28,9 @@ export interface HistoryReconstructionEntry {
   toStatus: Card["status"] | null;
   toArchived: boolean | null;
   cardSnapshot: Card | null;
+  previousDescriptionRevisionId?: number | null;
+  newDescriptionRevisionId?: number | null;
+  snapshotDescriptionRevisionId?: number | null;
 }
 
 interface HistoryEntry extends HistoryReconstructionEntry {
@@ -90,6 +96,17 @@ interface DbHistoryRow {
   group_id: string | null;
   is_undone: number;
   undo_of: number | null;
+}
+
+interface DbCardHistorySnapshotRow {
+  history_id: number;
+  project_id: string;
+  card_id: string;
+  status: Card["status"];
+  archived: number;
+  card_snapshot: string;
+  description_revision_id: number | null;
+  created_at: string;
 }
 
 interface DbCard {
@@ -307,6 +324,7 @@ function toHistoryPanelEntry(
     row.previous_description_revision_id,
     row.new_description_revision_id,
   );
+  const availability = getHistoryRowReconstructionAvailability(database, row);
 
   return {
     id: row.id,
@@ -341,6 +359,8 @@ function toHistoryPanelEntry(
       : null,
     descriptionChange,
     snapshot,
+    reconstructable: availability.reconstructable,
+    reconstructionUnavailableReason: availability.reason,
   };
 }
 
@@ -388,6 +408,27 @@ function buildSnapshot(
       database,
       snapshotDescriptionRevisionId,
     ),
+  };
+}
+
+function getHistoryRowReconstructionAvailability(
+  database: Database.Database,
+  row: DbHistoryRow,
+): { reconstructable: boolean; reason: string | null } {
+  if (row.is_undone === 1 || row.undo_of !== null) {
+    return {
+      reconstructable: false,
+      reason: "This entry has already been undone and is not a restore target.",
+    };
+  }
+
+  const reconstructed = reconstructCardStateAtEntryFromDatabase(database, row.project_id, row.card_id, row.id);
+  if (reconstructed) {
+    return { reconstructable: true, reason: null };
+  }
+  return {
+    reconstructable: false,
+    reason: RECONSTRUCTION_UNAVAILABLE_REASON,
   };
 }
 
@@ -505,7 +546,7 @@ export function recordCreate(
     groupId || null,
   );
 
-  afterRecord(projectId);
+  afterRecord(projectId, card.id, result.lastInsertRowid as number);
   return result.lastInsertRowid as number;
 }
 
@@ -545,7 +586,7 @@ export function recordUpdate(
     groupId || null,
   );
 
-  afterRecord(projectId);
+  afterRecord(projectId, cardId, result.lastInsertRowid as number);
   return result.lastInsertRowid as number;
 }
 
@@ -581,7 +622,7 @@ export function recordDelete(
     groupId || null,
   );
 
-  afterRecord(projectId);
+  afterRecord(projectId, card.id, result.lastInsertRowid as number);
   return result.lastInsertRowid as number;
 }
 
@@ -620,7 +661,7 @@ export function recordMove(
     groupId || null,
   );
 
-  afterRecord(projectId);
+  afterRecord(projectId, cardId, result.lastInsertRowid as number);
   return result.lastInsertRowid as number;
 }
 
@@ -663,11 +704,14 @@ export function getCardHistoryPanelEntries(
   return rows.map((row) => toHistoryPanelEntry(database, row));
 }
 
-function getHistoryEntry(historyId: number): HistoryEntry | null {
-  const database = getDb();
+function getHistoryEntryFromDatabase(database: Database.Database, historyId: number): HistoryEntry | null {
   const stmt = database.prepare("SELECT * FROM history WHERE id = ?");
   const row = stmt.get(historyId) as DbHistoryRow | undefined;
   return row ? rowToHistoryEntry(database, row) : null;
+}
+
+function getHistoryEntry(historyId: number): HistoryEntry | null {
+  return getHistoryEntryFromDatabase(getDb(), historyId);
 }
 
 // === Undo/Redo Target Selection ===
@@ -1349,6 +1393,11 @@ export interface ReconstructedState {
   state: Record<string, unknown>;
   columnId: Card["status"];
   archived: boolean;
+  descriptionRevisionId: number | null;
+}
+
+interface HistoryStateAnchor extends ReconstructedState {
+  historyId: number;
 }
 
 export function reconstructCardStateFromEntries(
@@ -1358,30 +1407,93 @@ export function reconstructCardStateFromEntries(
   const createEntry = entries.find((entry) => entry.operation === "create");
   if (!createEntry?.cardSnapshot) return null;
 
-  const snapshot = createEntry.cardSnapshot as unknown as Record<string, unknown>;
-  const state: Record<string, unknown> = { ...snapshot };
-  let columnId = createEntry.columnId;
-  let archived = createEntry.archived;
+  const anchor = historyEntryToStateAnchor(createEntry);
+  if (!anchor) return null;
+  return replayEntriesFromAnchor(anchor, entries, targetEntryId);
+}
 
-  if (createEntry.id === targetEntryId) {
-    return { state, columnId, archived };
+function historyEntryToStateAnchor(entry: HistoryReconstructionEntry): HistoryStateAnchor | null {
+  if (!entry.cardSnapshot) return null;
+  return {
+    historyId: entry.id,
+    state: { ...(entry.cardSnapshot as unknown as Record<string, unknown>) },
+    columnId: entry.columnId,
+    archived: entry.archived,
+    descriptionRevisionId: entry.snapshotDescriptionRevisionId ?? null,
+  };
+}
+
+function snapshotRowToStateAnchor(
+  database: Database.Database,
+  row: DbCardHistorySnapshotRow,
+): HistoryStateAnchor | null {
+  const snapshotValues = parseHistoryValues(row.card_snapshot);
+  if (!snapshotValues) return null;
+  return {
+    historyId: row.history_id,
+    state: {
+      ...snapshotValues,
+      description: row.description_revision_id !== null
+        ? descriptionRevisionService.reconstructDescription(database, row.description_revision_id)
+        : "",
+    },
+    columnId: row.status,
+    archived: row.archived === 1,
+    descriptionRevisionId: row.description_revision_id,
+  };
+}
+
+function replayEntriesFromAnchor(
+  anchor: HistoryStateAnchor,
+  entries: readonly HistoryReconstructionEntry[],
+  targetEntryId: number,
+): ReconstructedState | null {
+  let state: Record<string, unknown> | null = { ...anchor.state };
+  let columnId = anchor.columnId;
+  let archived = anchor.archived;
+  let descriptionRevisionId = anchor.descriptionRevisionId;
+
+  if (anchor.historyId === targetEntryId) {
+    return { state, columnId, archived, descriptionRevisionId };
   }
 
   for (const entry of entries) {
-    if (entry.id === createEntry.id) continue;
+    if (entry.id <= anchor.historyId) continue;
 
     // Delete entries are valid preview/restore targets, but the card no
     // longer exists after them. Show the state immediately before deletion.
     if (entry.operation === "delete") {
       if (entry.id === targetEntryId) {
-        return { state, columnId, archived };
+        return state ? { state, columnId, archived, descriptionRevisionId } : null;
+      }
+      state = null;
+      descriptionRevisionId = null;
+      columnId = entry.columnId;
+      archived = true;
+      continue;
+    }
+
+    if (entry.operation === "create") {
+      const createAnchor = historyEntryToStateAnchor(entry);
+      if (!createAnchor) return null;
+      state = { ...createAnchor.state };
+      columnId = createAnchor.columnId;
+      archived = createAnchor.archived;
+      descriptionRevisionId = createAnchor.descriptionRevisionId;
+      if (entry.id === targetEntryId) {
+        return { state, columnId, archived, descriptionRevisionId };
       }
       continue;
     }
 
+    if (!state) return null;
+
     if (entry.operation === "update" && entry.newValues) {
       for (const [key, value] of Object.entries(entry.newValues)) {
         state[key] = value;
+      }
+      if (typeof entry.newDescriptionRevisionId === "number") {
+        descriptionRevisionId = entry.newDescriptionRevisionId;
       }
     }
 
@@ -1391,33 +1503,112 @@ export function reconstructCardStateFromEntries(
     }
 
     if (entry.id === targetEntryId) {
-      return { state, columnId, archived };
+      return { state, columnId, archived, descriptionRevisionId };
     }
   }
 
   return null;
 }
 
+function findBestStateAnchor(
+  database: Database.Database,
+  targetEntry: HistoryEntry,
+): HistoryStateAnchor | null {
+  if (targetEntry.isUndone || targetEntry.undoOf !== null) return null;
+
+  if (
+    (targetEntry.operation === "create" || targetEntry.operation === "delete")
+    && targetEntry.cardSnapshot
+  ) {
+    return historyEntryToStateAnchor(targetEntry);
+  }
+
+  const snapshotRow = database
+    .prepare(
+      `
+        SELECT *
+        FROM card_history_snapshots
+        WHERE project_id = ? AND card_id = ? AND history_id <= ?
+        ORDER BY history_id DESC
+        LIMIT 1
+      `,
+    )
+    .get(targetEntry.projectId, targetEntry.cardId, targetEntry.id) as DbCardHistorySnapshotRow | undefined;
+  const snapshotAnchor = snapshotRow ? snapshotRowToStateAnchor(database, snapshotRow) : null;
+
+  const createRow = database
+    .prepare(
+      `
+        SELECT *
+        FROM history
+        WHERE project_id = ? AND card_id = ? AND id <= ?
+          AND operation = 'create'
+          AND is_undone = 0
+          AND undo_of IS NULL
+          AND card_snapshot IS NOT NULL
+        ORDER BY id DESC
+        LIMIT 1
+      `,
+    )
+    .get(targetEntry.projectId, targetEntry.cardId, targetEntry.id) as DbHistoryRow | undefined;
+  const createAnchor = createRow
+    ? historyEntryToStateAnchor(rowToHistoryEntry(database, createRow))
+    : null;
+
+  if (!snapshotAnchor) return createAnchor;
+  if (!createAnchor) return snapshotAnchor;
+  return snapshotAnchor.historyId > createAnchor.historyId ? snapshotAnchor : createAnchor;
+}
+
 /**
  * Reconstructs the full card state at a given history entry by replaying
  * from the creation snapshot through all non-undone deltas up to the target.
  */
+function reconstructCardStateAtEntryFromDatabase(
+  database: Database.Database,
+  projectId: string,
+  cardId: string,
+  targetEntryId: number
+): ReconstructedState | null {
+  const targetRow = database
+    .prepare(
+      `
+        SELECT *
+        FROM history
+        WHERE project_id = ? AND card_id = ? AND id = ?
+      `,
+    )
+    .get(projectId, cardId, targetEntryId) as DbHistoryRow | undefined;
+  if (!targetRow) return null;
+
+  const targetEntry = rowToHistoryEntry(database, targetRow);
+  const anchor = findBestStateAnchor(database, targetEntry);
+  if (!anchor) return null;
+
+  const rows = database
+    .prepare(
+      `
+        SELECT *
+        FROM history
+        WHERE project_id = ? AND card_id = ?
+          AND id > ? AND id <= ?
+          AND is_undone = 0
+          AND undo_of IS NULL
+        ORDER BY timestamp ASC, id ASC
+      `
+    )
+    .all(projectId, cardId, anchor.historyId, targetEntryId) as DbHistoryRow[];
+
+  const entries = rows.map((row) => rowToHistoryEntry(database, row));
+  return replayEntriesFromAnchor(anchor, entries, targetEntryId);
+}
+
 export function reconstructCardStateAtEntry(
   projectId: string,
   cardId: string,
   targetEntryId: number
 ): ReconstructedState | null {
-  const database = getDb();
-  const rows = database
-    .prepare(
-      `SELECT * FROM history
-       WHERE project_id = ? AND card_id = ? AND is_undone = 0 AND undo_of IS NULL
-       ORDER BY timestamp ASC, id ASC`
-    )
-    .all(projectId, cardId) as DbHistoryRow[];
-
-  const entries = rows.map((row) => rowToHistoryEntry(database, row));
-  return reconstructCardStateFromEntries(entries, targetEntryId);
+  return reconstructCardStateAtEntryFromDatabase(getDb(), projectId, cardId, targetEntryId);
 }
 
 export function getCardHistoryVersionPreview(
@@ -1433,7 +1624,7 @@ export function getCardHistoryVersionPreview(
 
   const reconstructed = reconstructCardStateAtEntry(projectId, cardId, historyId);
   if (!reconstructed) {
-    return { preview: null, error: "Cannot reconstruct state — creation history may have been pruned" };
+    return { preview: null, error: RECONSTRUCTION_UNAVAILABLE_REASON };
   }
 
   return {
@@ -1486,6 +1677,227 @@ function reconstructedStateToCard(
 
 function isCardRunInTarget(value: unknown): value is Card["runInTarget"] {
   return value === "localProject" || value === "newWorktree" || value === "cloud";
+}
+
+function hasCardHistorySnapshot(database: Database.Database, historyId: number): boolean {
+  const row = database
+    .prepare("SELECT 1 FROM card_history_snapshots WHERE history_id = ?")
+    .get(historyId);
+  return row !== undefined;
+}
+
+function createCardHistorySnapshotForEntry(
+  database: Database.Database,
+  projectId: string,
+  cardId: string,
+  historyId: number,
+): boolean {
+  if (hasCardHistorySnapshot(database, historyId)) return true;
+
+  const entry = getHistoryEntryFromDatabase(database, historyId);
+  if (!entry || entry.projectId !== projectId || entry.cardId !== cardId) return false;
+  if (entry.isUndone || entry.undoOf !== null) return false;
+
+  // Create/delete rows already carry their own full card snapshots.
+  if (entry.operation === "create" || entry.operation === "delete") return true;
+
+  const reconstructed = reconstructCardStateAtEntryFromDatabase(database, projectId, cardId, historyId);
+  if (!reconstructed) return false;
+
+  const card = reconstructedStateToCard(cardId, reconstructed, entry);
+  database.prepare(
+    `
+      INSERT OR IGNORE INTO card_history_snapshots (
+        history_id, project_id, card_id, status, archived,
+        card_snapshot, description_revision_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+  ).run(
+    historyId,
+    projectId,
+    cardId,
+    reconstructed.columnId,
+    reconstructed.archived ? 1 : 0,
+    cardToSnapshot(card),
+    reconstructed.descriptionRevisionId,
+    entry.timestamp,
+  );
+
+  return true;
+}
+
+function newestCheckpointOrCreateIdBefore(
+  database: Database.Database,
+  projectId: string,
+  cardId: string,
+  historyId: number,
+): number | null {
+  const snapshotRow = database
+    .prepare(
+      `
+        SELECT history_id
+        FROM card_history_snapshots
+        WHERE project_id = ? AND card_id = ? AND history_id < ?
+        ORDER BY history_id DESC
+        LIMIT 1
+      `,
+    )
+    .get(projectId, cardId, historyId) as { history_id: number } | undefined;
+
+  const createRow = database
+    .prepare(
+      `
+        SELECT id
+        FROM history
+        WHERE project_id = ? AND card_id = ? AND id < ?
+          AND operation = 'create'
+          AND is_undone = 0
+          AND undo_of IS NULL
+          AND card_snapshot IS NOT NULL
+        ORDER BY id DESC
+        LIMIT 1
+      `,
+    )
+    .get(projectId, cardId, historyId) as { id: number } | undefined;
+
+  const snapshotId = snapshotRow?.history_id ?? null;
+  const createId = createRow?.id ?? null;
+  if (snapshotId === null) return createId;
+  if (createId === null) return snapshotId;
+  return Math.max(snapshotId, createId);
+}
+
+function maybeCreatePeriodicCardHistorySnapshot(
+  database: Database.Database,
+  projectId: string,
+  cardId: string,
+  historyId: number,
+): void {
+  const entry = getHistoryEntryFromDatabase(database, historyId);
+  if (!entry || entry.operation === "create" || entry.operation === "delete") return;
+  if (entry.isUndone || entry.undoOf !== null) return;
+  if (hasCardHistorySnapshot(database, historyId)) return;
+
+  const anchorId = newestCheckpointOrCreateIdBefore(database, projectId, cardId, historyId);
+  if (anchorId === null) return;
+
+  const countRow = database
+    .prepare(
+      `
+        SELECT COUNT(*) AS count
+        FROM history
+        WHERE project_id = ? AND card_id = ?
+          AND id > ? AND id <= ?
+          AND is_undone = 0
+          AND undo_of IS NULL
+      `,
+    )
+    .get(projectId, cardId, anchorId, historyId) as { count: number } | undefined;
+
+  if ((countRow?.count ?? 0) < CARD_HISTORY_SNAPSHOT_INTERVAL) return;
+  createCardHistorySnapshotForEntry(database, projectId, cardId, historyId);
+}
+
+function ensureBoundarySnapshotsBeforePrune(
+  database: Database.Database,
+  projectId: string,
+  firstRetainedHistoryId: number,
+): void {
+  const rows = database
+    .prepare(
+      `
+        SELECT card_id, MIN(id) AS history_id
+        FROM history
+        WHERE project_id = ? AND id >= ?
+          AND is_undone = 0
+          AND undo_of IS NULL
+        GROUP BY card_id
+      `,
+    )
+    .all(projectId, firstRetainedHistoryId) as Array<{ card_id: string; history_id: number }>;
+
+  for (const row of rows) {
+    createCardHistorySnapshotForEntry(database, projectId, row.card_id, row.history_id);
+  }
+}
+
+function getRetainedBoundaryRowsForBackfill(
+  database: Database.Database,
+): Array<{ project_id: string; card_id: string; history_id: number }> {
+  const retention = getHistoryRetention();
+  if (retention <= 0) return [];
+
+  const projects = database
+    .prepare("SELECT DISTINCT project_id FROM history")
+    .all() as Array<{ project_id: string }>;
+  const rows: Array<{ project_id: string; card_id: string; history_id: number }> = [];
+
+  for (const project of projects) {
+    const cutoffRow = database
+      .prepare("SELECT id FROM history WHERE project_id = ? ORDER BY id DESC LIMIT 1 OFFSET ?")
+      .get(project.project_id, retention - 1) as { id: number } | undefined;
+    if (!cutoffRow) continue;
+
+    const boundaryRows = database
+      .prepare(
+        `
+          SELECT project_id, card_id, MIN(id) AS history_id
+          FROM history
+          WHERE project_id = ? AND id >= ?
+            AND is_undone = 0
+            AND undo_of IS NULL
+          GROUP BY project_id, card_id
+        `,
+      )
+      .all(project.project_id, cutoffRow.id) as Array<{
+        project_id: string;
+        card_id: string;
+        history_id: number;
+      }>;
+    rows.push(...boundaryRows);
+  }
+
+  return rows;
+}
+
+export function backfillCardHistorySnapshots(): void {
+  const database = getDb();
+  const rows = database
+    .prepare(
+      `
+        SELECT project_id, card_id, MIN(id) AS history_id
+        FROM history
+        WHERE is_undone = 0 AND undo_of IS NULL
+        GROUP BY project_id, card_id
+      `,
+    )
+    .all() as Array<{ project_id: string; card_id: string; history_id: number }>;
+
+  const insertPeriodicRows = database
+    .prepare(
+      `
+        SELECT id, project_id, card_id
+        FROM history
+        WHERE is_undone = 0
+          AND undo_of IS NULL
+          AND operation IN ('update', 'move')
+        ORDER BY project_id, card_id, id ASC
+      `,
+    )
+    .all() as Array<{ id: number; project_id: string; card_id: string }>;
+  const boundaryRows = getRetainedBoundaryRowsForBackfill(database);
+
+  database.transaction(() => {
+    for (const row of rows) {
+      createCardHistorySnapshotForEntry(database, row.project_id, row.card_id, row.history_id);
+    }
+    for (const row of boundaryRows) {
+      createCardHistorySnapshotForEntry(database, row.project_id, row.card_id, row.history_id);
+    }
+    for (const row of insertPeriodicRows) {
+      maybeCreatePeriodicCardHistorySnapshot(database, row.project_id, row.card_id, row.id);
+    }
+  })();
 }
 
 // === Revert & Restore ===
@@ -1759,7 +2171,7 @@ export function restoreToEntry(
 ): { success: boolean; error?: string } {
   const reconstructed = reconstructCardStateAtEntry(projectId, cardId, targetEntryId);
   if (!reconstructed) {
-    return { success: false, error: "Cannot reconstruct state — creation history may have been pruned" };
+    return { success: false, error: RECONSTRUCTION_UNAVAILABLE_REASON };
   }
 
   const database = getDb();
@@ -2146,8 +2558,9 @@ export function pruneHistory(projectId: string, retentionCount: number): number 
   const database = getDb();
   const cutoffRow = database
     .prepare(`SELECT id FROM history WHERE project_id = ? ORDER BY id DESC LIMIT 1 OFFSET ?`)
-    .get(projectId, retentionCount) as { id: number } | undefined;
+    .get(projectId, retentionCount - 1) as { id: number } | undefined;
   if (!cutoffRow) return 0;
+  ensureBoundarySnapshotsBeforePrune(database, projectId, cutoffRow.id);
   const changes = database
     .prepare(`DELETE FROM history WHERE project_id = ? AND id < ?`)
     .run(projectId, cutoffRow.id).changes;
@@ -2158,7 +2571,10 @@ export function pruneHistory(projectId: string, retentionCount: number): number 
   return changes;
 }
 
-function afterRecord(projectId: string): void {
+function afterRecord(projectId: string, cardId?: string, historyId?: number): void {
+  if (cardId && historyId !== undefined) {
+    maybeCreatePeriodicCardHistorySnapshot(getDb(), projectId, cardId, historyId);
+  }
   const retention = getHistoryRetention();
   if (retention > 0) pruneHistory(projectId, retention);
 }

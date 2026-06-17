@@ -203,6 +203,24 @@ export function collectReachableRevisionIds(database: Database.Database): Set<nu
     }
   }
 
+  const snapshotTable = database.prepare(`
+    SELECT 1
+    FROM sqlite_master
+    WHERE type = 'table' AND name = 'card_history_snapshots'
+  `).get();
+  if (snapshotTable) {
+    const snapshotRows = database.prepare(`
+      SELECT description_revision_id
+      FROM card_history_snapshots
+      WHERE description_revision_id IS NOT NULL
+    `).all() as Array<{ description_revision_id: number | null }>;
+    for (const row of snapshotRows) {
+      if (typeof row.description_revision_id === "number") {
+        roots.add(row.description_revision_id);
+      }
+    }
+  }
+
   const reachable = new Set<number>();
   const queue = [...roots];
   while (queue.length > 0) {

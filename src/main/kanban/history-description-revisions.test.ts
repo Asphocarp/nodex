@@ -24,8 +24,10 @@ import {
 import { getDatabasePath } from "./config";
 import {
   reconstructCardStateFromEntries,
+  pruneHistory,
   type HistoryReconstructionEntry,
 } from "./history-service";
+import * as descriptionRevisionService from "./description-revision-service";
 
 function isUnsupportedSqliteError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
@@ -62,6 +64,11 @@ async function findCardDescription(projectId: string, cardId: string): Promise<s
   const board = await getBoard(projectId);
   const card = board.columns.flatMap((column) => column.cards).find((entry) => entry.id === cardId);
   return card?.description ?? null;
+}
+
+async function findCardOnBoard(projectId: string, cardId: string): Promise<Card | null> {
+  const board = await getBoard(projectId);
+  return board.columns.flatMap((column) => column.cards).find((entry) => entry.id === cardId) ?? null;
 }
 
 describe("history description revisions", () => {
@@ -350,6 +357,185 @@ describe("history description revisions", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("previews and restores retained updates from a checkpoint after create history is pruned", async () => {
+    const ran = await withTempDatabase(async () => {
+      const projectId = createProject({ name: "History checkpoint pruning" }).id;
+      const created = await createCard(projectId, "draft", {
+        title: "Checkpoint card",
+        description: "Initial checkpoint description",
+        tags: ["alpha"],
+      });
+      const updated = await updateCard(projectId, "draft", created.id, {
+        title: "Checkpoint title",
+        description: "Checkpoint description",
+        tags: ["beta"],
+      });
+      expect(updated.status).toBe("updated");
+
+      const beforePrune = getRecentHistory(projectId, 10, 0);
+      const createEntry = beforePrune.find((entry) => entry.operation === "create");
+      const updateEntry = beforePrune.find((entry) => entry.operation === "update");
+      expect(createEntry?.id !== undefined).toBeTrue();
+      expect(updateEntry?.id !== undefined).toBeTrue();
+
+      const pruned = pruneHistory(projectId, 1);
+      expect(pruned).toBe(1);
+
+      const database = new Database(getDatabasePath(), { readonly: true });
+      try {
+        const createRow = database.prepare("SELECT 1 FROM history WHERE id = ?")
+          .get(createEntry?.id ?? -1);
+        expect(createRow === undefined).toBeTrue();
+
+        const snapshotRow = database.prepare(`
+          SELECT card_snapshot, description_revision_id
+          FROM card_history_snapshots
+          WHERE history_id = ?
+        `).get(updateEntry?.id ?? -1) as
+          | { card_snapshot: string; description_revision_id: number | null }
+          | undefined;
+        expect(snapshotRow !== undefined).toBeTrue();
+        expect(snapshotRow?.description_revision_id).not.toBeNull();
+        const snapshot = JSON.parse(snapshotRow?.card_snapshot ?? "{}") as Record<string, unknown>;
+        expect(snapshot.title).toBe("Checkpoint title");
+        expect(Object.prototype.hasOwnProperty.call(snapshot, "description")).toBeFalse();
+      } finally {
+        database.close();
+      }
+
+      const preview = getCardHistoryVersionPreview(projectId, created.id, updateEntry?.id ?? -1);
+      expect(preview.preview?.card.title).toBe("Checkpoint title");
+      expect(preview.preview?.card.description).toBe("Checkpoint description");
+      expect(preview.preview?.card.tags.join(",")).toBe("beta");
+
+      const later = await updateCard(projectId, "draft", created.id, {
+        title: "Later title",
+        description: "Later description",
+      });
+      expect(later.status).toBe("updated");
+
+      const restored = restoreToEntry(projectId, created.id, updateEntry?.id ?? -1);
+      expect(restored.success).toBeTrue();
+      const restoredCard = await findCardOnBoard(projectId, created.id);
+      expect(restoredCard?.title).toBe("Checkpoint title");
+      expect(restoredCard?.description).toBe("Checkpoint description");
+      expect(restoredCard?.tags.join(",")).toBe("beta");
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("pruning creates a boundary checkpoint before deleting older visible history", async () => {
+    const ran = await withTempDatabase(async () => {
+      const projectId = createProject({ name: "Boundary checkpoint" }).id;
+      const created = await createCard(projectId, "draft", {
+        title: "Boundary card",
+        description: "Boundary original",
+      });
+      const firstUpdate = await updateCard(projectId, "draft", created.id, {
+        title: "Boundary first update",
+        description: "Boundary first description",
+      });
+      expect(firstUpdate.status).toBe("updated");
+      const secondUpdate = await updateCard(projectId, "draft", created.id, {
+        title: "Boundary second update",
+      });
+      expect(secondUpdate.status).toBe("updated");
+
+      const history = getRecentHistory(projectId, 10, 0);
+      const firstUpdateEntry = history
+        .filter((entry) => entry.operation === "update")
+        .find((entry) => entry.newValues?.title === "Boundary first update");
+      const secondUpdateEntry = history
+        .filter((entry) => entry.operation === "update")
+        .find((entry) => entry.newValues?.title === "Boundary second update");
+      expect(firstUpdateEntry?.id !== undefined).toBeTrue();
+      expect(secondUpdateEntry?.id !== undefined).toBeTrue();
+
+      const pruned = pruneHistory(projectId, 2);
+      expect(pruned).toBe(1);
+
+      const database = new Database(getDatabasePath(), { readonly: true });
+      try {
+        const snapshotRow = database.prepare(`
+          SELECT 1
+          FROM card_history_snapshots
+          WHERE history_id = ?
+        `).get(firstUpdateEntry?.id ?? -1);
+        expect(snapshotRow !== undefined).toBeTrue();
+      } finally {
+        database.close();
+      }
+
+      const firstPreview = getCardHistoryVersionPreview(projectId, created.id, firstUpdateEntry?.id ?? -1);
+      expect(firstPreview.preview?.card.title).toBe("Boundary first update");
+      expect(firstPreview.preview?.card.description).toBe("Boundary first description");
+      const secondPreview = getCardHistoryVersionPreview(projectId, created.id, secondUpdateEntry?.id ?? -1);
+      expect(secondPreview.preview?.card.title).toBe("Boundary second update");
+      expect(secondPreview.preview?.card.description).toBe("Boundary first description");
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("description revision GC preserves revisions referenced only by card history checkpoints", async () => {
+    const ran = await withTempDatabase(async () => {
+      const projectId = createProject({ name: "Checkpoint revision roots" }).id;
+      const created = await createCard(projectId, "draft", {
+        title: "Revision root card",
+        description: "Revision root original",
+      });
+      const updated = await updateCard(projectId, "draft", created.id, {
+        description: "Revision root checkpoint",
+      });
+      expect(updated.status).toBe("updated");
+
+      const history = getRecentHistory(projectId, 10, 0);
+      const updateEntry = history.find((entry) => entry.operation === "update");
+      expect(updateEntry?.id !== undefined).toBeTrue();
+      pruneHistory(projectId, 1);
+
+      const database = new Database(getDatabasePath());
+      try {
+        const snapshotRow = database.prepare(`
+          SELECT description_revision_id
+          FROM card_history_snapshots
+          WHERE history_id = ?
+        `).get(updateEntry?.id ?? -1) as
+          | { description_revision_id: number | null }
+          | undefined;
+        const snapshotRevisionId = snapshotRow?.description_revision_id ?? null;
+        expect(snapshotRevisionId).not.toBeNull();
+
+        database.prepare(`
+          UPDATE cards
+          SET description_revision_id = NULL
+          WHERE id = ?
+        `).run(created.id);
+        database.prepare(`
+          UPDATE history
+          SET previous_description_revision_id = NULL,
+              new_description_revision_id = NULL,
+              snapshot_description_revision_id = NULL
+          WHERE project_id = ? AND card_id = ?
+        `).run(projectId, created.id);
+
+        descriptionRevisionService.garbageCollectDescriptionRevisions(database);
+
+        const retainedRevision = database.prepare(`
+          SELECT 1
+          FROM description_revisions
+          WHERE id = ?
+        `).get(snapshotRevisionId ?? -1);
+        expect(retainedRevision !== undefined).toBeTrue();
+      } finally {
+        database.close();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("returns a null preview when creation history is unavailable", async () => {
     const ran = await withTempDatabase(async () => {
       const projectId = createProject({ name: "History preview pruning" }).id;
@@ -371,9 +557,15 @@ describe("history description revisions", () => {
         .run(projectId, created.id);
       database.close();
 
+      const panelEntries = getCardHistoryPanelEntries(projectId, created.id);
+      const updatePanelEntry = panelEntries.find((entry) => entry.id === updateEntry?.id);
+      expect(updatePanelEntry?.reconstructable).toBeFalse();
+      expect(Boolean(updatePanelEntry?.reconstructionUnavailableReason)).toBeTrue();
+
       const preview = getCardHistoryVersionPreview(projectId, created.id, updateEntry?.id ?? -1);
       expect(preview.preview).toBe(null);
       expect(Boolean(preview.error)).toBeTrue();
+      expect((preview.error ?? "").includes("Cannot reconstruct state")).toBeFalse();
     });
 
     if (!ran) expect(true).toBeTrue();

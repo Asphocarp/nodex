@@ -60,6 +60,8 @@ describe("history panel", () => {
       groupId: null,
       isUndone: false,
       undoOf: null,
+      reconstructable: true,
+      reconstructionUnavailableReason: null,
       summary: "Description + 1 field",
       fieldChanges: [
         {
@@ -211,20 +213,29 @@ describe("history panel", () => {
     expect(revertedHistoryId).toBe(2);
   });
 
-  test("shows preview load errors inside the modal", async () => {
+  test("lists unavailable entries without requesting a preview or allowing restore", async () => {
     const { HistoryPanel } = await import("./history-panel");
-    const entries = [makeHistoryPanelEntry(3, "update")];
+    const unavailableReason = "This version is unavailable because older card history was pruned before checkpoints were created.";
+    const entries = [
+      {
+        ...makeHistoryPanelEntry(3, "update"),
+        reconstructable: false,
+        reconstructionUnavailableReason: unavailableReason,
+      },
+    ];
+    let previewRequested = false;
     (globalThis as { __historyPanelInvoke?: (...invokeArgs: unknown[]) => Promise<unknown> | unknown }).__historyPanelInvoke = (
       channel,
     ) => {
       if (channel === "history:card") return { entries };
       if (channel === "history:card-version-preview") {
-        return { preview: null, error: "Cannot reconstruct state" };
+        previewRequested = true;
+        return { preview: null, error: "should not be called" };
       }
       return {};
     };
 
-    render(
+    const { getByRole } = render(
       <HistoryPanel
         projectId="alpha"
         cardId="card-1"
@@ -234,12 +245,15 @@ describe("history panel", () => {
     );
     await settleAsyncRender();
     await waitFor(() => {
-      if (!textContent(document.body).includes("Cannot reconstruct state")) {
-        throw new Error("Preview error not rendered");
+      if (!textContent(document.body).includes(unavailableReason)) {
+        throw new Error("Unavailable state not rendered");
       }
     });
 
-    expect(textContent(document.body).includes("Cannot reconstruct state")).toBeTrue();
+    expect(previewRequested).toBeFalse();
+    expect(textContent(document.body).includes("unavailable")).toBeTrue();
+    expect((getByRole("button", { name: "Restore" }) as HTMLButtonElement).disabled).toBeTrue();
+    expect(textContent(document.body).includes("Revert update")).toBeFalse();
   });
 });
 
@@ -259,6 +273,8 @@ function makeHistoryPanelEntry(
     groupId: null,
     isUndone: false,
     undoOf: null,
+    reconstructable: true,
+    reconstructionUnavailableReason: null,
     summary: operation === "update" ? "Updated title" : "Created card",
     fieldChanges: operation === "update"
       ? [{ field: "title", before: "Old", after: "New" }]

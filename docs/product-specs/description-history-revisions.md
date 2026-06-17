@@ -19,6 +19,7 @@ The current schema replaces that model with:
 - `description_revisions` as the revision log
 - `description_blocks` as deduplicated top-level NFM block blobs
 - `history` rows that store description revision ids instead of raw description text
+- `card_history_snapshots` as internal full-card checkpoints that point at description revisions instead of duplicating description strings
 
 ## Scope
 
@@ -108,6 +109,32 @@ The JSON payload columns remain, but `description` must be omitted from:
 - `previous_values`
 - `new_values`
 - `card_snapshot`
+
+### Full-Card History Checkpoints
+
+Description revision snapshots are only the description layer. They do not by themselves preserve the rest of a card's historical state after old `history` rows are pruned.
+
+Nodex also stores internal full-card checkpoints in `card_history_snapshots`:
+
+```sql
+CREATE TABLE card_history_snapshots (
+  history_id INTEGER PRIMARY KEY REFERENCES history(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  card_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  archived INTEGER NOT NULL DEFAULT 0,
+  card_snapshot TEXT NOT NULL,
+  description_revision_id INTEGER,
+  created_at TEXT NOT NULL
+);
+```
+
+Rules:
+- checkpoint JSON uses the same `card_snapshot` convention as `history`: full card metadata, no raw `description`
+- `description_revision_id` points at the description state for the checkpointed card version
+- create and delete history rows are natural anchors because they already carry full card snapshots
+- update/move checkpoints are internal reconstruction anchors and are not shown as user-visible history entries
+- checkpoint rows do not count toward the user-configured `History retention` visible-row limit
 
 ## Revision Encoding
 
@@ -263,19 +290,23 @@ Older local databases fail fast as unsupported instead of being rewritten in-app
 
 ### History Retention
 
-The existing count-based history retention policy remains the only retention knob.
+The existing count-based history retention policy remains the only user-facing retention knob.
 
 Users can configure it in Settings -> Backups as `History retention`.
 
+The value counts visible per-project rows in `history`. Internal `card_history_snapshots` rows do not count against it.
+
 When history pruning removes old rows:
-- old history rows are deleted first
+- Nodex first attempts to checkpoint the earliest retained visible history row for each affected card
+- old visible history rows are then deleted
 - reachable description revisions are recomputed from:
   - all current `cards.description_revision_id` values
   - all retained history revision-pointer columns
+  - all `card_history_snapshots.description_revision_id` values
 - unreachable `description_revisions` rows are deleted
 - orphaned `description_blocks` rows are deleted afterward
 
-There is no attempt to preserve revisions that are only reachable from already-pruned history.
+Rows that were already made unreconstructable by an older build cannot be recovered. They remain visible as audit rows, but restore-oriented actions are unavailable.
 
 ### Redo-Stack Clearing
 
@@ -332,6 +363,7 @@ These invariants should always hold:
 - `cards.description` must reconstruct exactly from `cards.description_revision_id`
 - `history` JSON payloads must not inline `description`
 - any history row that semantically references description state must use one of the description revision id columns
+- `card_history_snapshots.card_snapshot` must not inline `description`; it must reference the historical description through `description_revision_id`
 - deleting history rows may make revisions unreachable; pruning code must run revision/blob GC
 - identical top-level serialized blocks must hash identically across main and renderer
 

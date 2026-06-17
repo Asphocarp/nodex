@@ -59,6 +59,7 @@ All notable changes to this project will be documented in this file.
 - Removed the old workspace terminal drawer state and right-pane mirror columns; Terminal tabs and panel state now live only in project sessions.
 
 ### Fixed
+- Fixed card history retention so retained card versions stay previewable/restorable after pruning by preserving internal reconstruction checkpoints.
 - Fixed packaged production builds so backend logs are not written by default; diagnostics remain opt-in through `NODEX_LOG_FILE` or `NODEX_LOG_CONSOLE`.
 - Fixed Browser tabs so Electron page navigation is owned by the main-process webview lifecycle instead of competing renderer and main navigations, while the address bar, page actions, local-server cards, loaded page stage, and app tab strip now use the shipped compact panel contract, including a clickable no-drag address bar inside the draggable toolbar.
 - Fixed full-width right-panel mode so the panel header hides the thread header while keeping the persistent top-right panel toggles visible.

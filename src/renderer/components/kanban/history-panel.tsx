@@ -199,6 +199,11 @@ export function HistoryPanel({
       setPreviewLoading(false);
       return;
     }
+    if (!selectedEntry.reconstructable) {
+      setPreviewLoading(false);
+      setPreviewError(selectedEntry.reconstructionUnavailableReason ?? "This version is unavailable.");
+      return;
+    }
     if (previewCache[selectedEntry.id]) {
       setPreviewLoading(false);
       setPreviewError(null);
@@ -283,7 +288,12 @@ export function HistoryPanel({
     }
   }, [projectId, cardId, fetchHistory, onCardMutated]);
 
-  const canRestoreSelected = Boolean(selectedEntry && !selectedEntry.isUndone && selectedEntry.undoOf === null);
+  const canRestoreSelected = Boolean(
+    selectedEntry
+      && selectedEntry.reconstructable
+      && !selectedEntry.isUndone
+      && selectedEntry.undoOf === null,
+  );
   const restoringSelected = confirmingAction?.type === "restore" && confirmingAction.entryId === selectedEntry?.id;
 
   if (!open) {
@@ -436,6 +446,11 @@ export function HistoryPanel({
                 Restore card to {selectedEntry ? formatAbsoluteTimestamp(selectedEntry.timestamp) : "this version"}?
               </div>
             ) : null}
+            {selectedEntry && !selectedEntry.reconstructable ? (
+              <p className="mb-2 text-xs text-token-description-foreground">
+                {selectedEntry.reconstructionUnavailableReason ?? "This version is unavailable."}
+              </p>
+            ) : null}
             <div className="flex items-center justify-end gap-2">
               {restoringSelected ? (
                 <NodexButton
@@ -495,7 +510,7 @@ function HistoryVersionPreview({
 
   if (error && !preview) {
     return (
-      <div className="rounded-lg bg-token-foreground/5 px-3 py-8 text-center text-sm text-(--priority-critical-text)">
+      <div className="rounded-lg bg-token-foreground/5 px-3 py-8 text-center text-sm text-token-description-foreground">
         {error}
       </div>
     );
@@ -558,7 +573,7 @@ function HistoryEntryListItem({
         selected
           ? "bg-token-foreground/10"
           : "hover:bg-token-foreground/5",
-        entry.isUndone && "opacity-50"
+        (entry.isUndone || !entry.reconstructable) && "opacity-55"
       )}
       aria-current={selected ? "true" : undefined}
     >
@@ -570,6 +585,11 @@ function HistoryEntryListItem({
           {entry.isUndone ? (
             <span className="shrink-0 text-[10px] uppercase tracking-normal text-token-description-foreground">
               undone
+            </span>
+          ) : null}
+          {!entry.reconstructable ? (
+            <span className="shrink-0 text-[10px] uppercase tracking-normal text-token-description-foreground">
+              unavailable
             </span>
           ) : null}
         </div>
@@ -620,7 +640,7 @@ export function HistoryEntryDetails({
 }) {
   const canGoPrev = selectedIndex > 0;
   const canGoNext = selectedIndex < totalCount - 1;
-  const isActionable = !entry.isUndone && entry.undoOf === null;
+  const isActionable = entry.reconstructable && !entry.isUndone && entry.undoOf === null;
   const isConfirmingThis = confirmingAction?.entryId === entry.id;
   const showActionArea = isActionable && (showRestoreAction || confirmingAction?.type !== "restore");
 
@@ -640,6 +660,11 @@ export function HistoryEntryDetails({
                 undone
               </span>
             )}
+            {!entry.reconstructable ? (
+              <span className="text-[10px] uppercase tracking-wide text-(--foreground-tertiary)">
+                unavailable
+              </span>
+            ) : null}
           </div>
           <div className="mt-1 text-xs text-(--foreground-tertiary)">
             {formatAbsoluteTimestamp(entry.timestamp)}
@@ -752,6 +777,12 @@ export function HistoryEntryDetails({
           )}
         </div>
       )}
+
+      {!entry.reconstructable ? (
+        <div className="rounded-md bg-token-foreground/5 px-3 py-2 text-xs text-token-description-foreground">
+          {entry.reconstructionUnavailableReason ?? "This version is unavailable."}
+        </div>
+      ) : null}
 
       {entry.operation === "update" && <UpdateDetails entry={entry} />}
       {entry.operation === "move" && <MoveDetails entry={entry} />}
@@ -1178,6 +1209,8 @@ function normalizeHistoryPanelEntry(entry: HistoryPanelEntry): HistoryPanelEntry
     move: entry.move ?? null,
     descriptionChange,
     snapshot,
+    reconstructable: entry.reconstructable ?? true,
+    reconstructionUnavailableReason: entry.reconstructionUnavailableReason ?? null,
   };
 }
 

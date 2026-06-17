@@ -31,15 +31,16 @@ function expectUuidProjectNamed(db: Database.Database, name: string): string {
 describe("schema initialization", () => {
   test("exposes only the supported in-app migration target", () => {
     expect(JSON.stringify(getSchemaMigrationTargets(CURRENT_SCHEMA_VERSION))).toBe("[]");
-    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[31,32,33,34,35,37,38]");
-    expect(JSON.stringify(getSchemaMigrationTargets(30))).toBe("[31,32,33,34,35,37,38]");
-    expect(JSON.stringify(getSchemaMigrationTargets(31))).toBe("[32,33,34,35,37,38]");
-    expect(JSON.stringify(getSchemaMigrationTargets(32))).toBe("[33,34,35,37,38]");
-    expect(JSON.stringify(getSchemaMigrationTargets(33))).toBe("[34,35,37,38]");
-    expect(JSON.stringify(getSchemaMigrationTargets(34))).toBe("[35,37,38]");
-    expect(JSON.stringify(getSchemaMigrationTargets(35))).toBe("[37,38]");
-    expect(JSON.stringify(getSchemaMigrationTargets(36))).toBe("[37,38]");
-    expect(JSON.stringify(getSchemaMigrationTargets(37))).toBe("[38]");
+    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[31,32,33,34,35,37,38,39]");
+    expect(JSON.stringify(getSchemaMigrationTargets(30))).toBe("[31,32,33,34,35,37,38,39]");
+    expect(JSON.stringify(getSchemaMigrationTargets(31))).toBe("[32,33,34,35,37,38,39]");
+    expect(JSON.stringify(getSchemaMigrationTargets(32))).toBe("[33,34,35,37,38,39]");
+    expect(JSON.stringify(getSchemaMigrationTargets(33))).toBe("[34,35,37,38,39]");
+    expect(JSON.stringify(getSchemaMigrationTargets(34))).toBe("[35,37,38,39]");
+    expect(JSON.stringify(getSchemaMigrationTargets(35))).toBe("[37,38,39]");
+    expect(JSON.stringify(getSchemaMigrationTargets(36))).toBe("[37,38,39]");
+    expect(JSON.stringify(getSchemaMigrationTargets(37))).toBe("[38,39]");
+    expect(JSON.stringify(getSchemaMigrationTargets(38))).toBe("[39]");
     expect(getSchemaMigrationTargets(29) === null).toBeTrue();
     expect(getSchemaMigrationTargets(20) === null).toBeTrue();
   });
@@ -76,6 +77,18 @@ describe("schema initialization", () => {
       const historyColumnNames = tableColumnNames(db, "history");
       expect(historyColumnNames.includes("previous_description_revision_id")).toBeTrue();
       expect(historyColumnNames.includes("snapshot_description_revision_id")).toBeTrue();
+
+      const cardHistorySnapshotColumnNames = tableColumnNames(db, "card_history_snapshots");
+      expect(cardHistorySnapshotColumnNames.includes("history_id")).toBeTrue();
+      expect(cardHistorySnapshotColumnNames.includes("card_snapshot")).toBeTrue();
+      expect(cardHistorySnapshotColumnNames.includes("description_revision_id")).toBeTrue();
+      const cardHistorySnapshotIndex = db.prepare(`
+        SELECT 1
+        FROM sqlite_master
+        WHERE type = 'index'
+          AND name = 'idx_card_history_snapshots_project_card_history'
+      `).get();
+      expect(cardHistorySnapshotIndex !== undefined).toBeTrue();
 
       const codexThreadColumns = db.prepare("PRAGMA table_info(codex_threads)").all() as Array<{
         name: string;
@@ -122,6 +135,7 @@ describe("schema initialization", () => {
       expect(tableNames.includes("project_session_tabs")).toBeTrue();
       expect(tableNames.includes("project_session_threads")).toBeTrue();
       expect(tableNames.includes("codex_thread_card_links")).toBeTrue();
+      expect(tableNames.includes("card_history_snapshots")).toBeTrue();
 
       const sessionColumnNames = tableColumnNames(db, "project_sessions");
       expect(sessionColumnNames.includes("panel_state_json")).toBeTrue();
@@ -252,6 +266,70 @@ describe("schema initialization", () => {
       expect(parsedPanelState.bottom?.layout?.version).toBe(2);
 
       db.close();
+    } catch (error) {
+      if (isUnsupportedSqliteError(error)) {
+        initializationRan = false;
+      } else {
+        throw error;
+      }
+    } finally {
+      closeDatabase();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      delete process.env.KANBAN_DIR;
+    }
+
+    if (!initializationRan) {
+      expect(true).toBeTrue();
+    }
+  });
+
+  test("migrates v38 by creating card history snapshot storage", async () => {
+    closeDatabase();
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-schema-history-snapshots-"));
+    process.env.KANBAN_DIR = tempDir;
+
+    let initializationRan = true;
+    try {
+      await initializeDatabase();
+      closeDatabase();
+
+      const db = new Database(getDatabasePath());
+      try {
+        db.exec(`
+          DROP TABLE IF EXISTS card_history_snapshots;
+          PRAGMA user_version = 38;
+        `);
+      } finally {
+        db.close();
+      }
+
+      await initializeDatabase();
+      const migrated = new Database(getDatabasePath());
+      try {
+        const version = migrated.prepare("PRAGMA user_version").get() as
+          | { user_version: number }
+          | undefined;
+        expect(version?.user_version).toBe(CURRENT_SCHEMA_VERSION);
+
+        const snapshotColumnNames = tableColumnNames(migrated, "card_history_snapshots");
+        expect(snapshotColumnNames.includes("history_id")).toBeTrue();
+        expect(snapshotColumnNames.includes("card_snapshot")).toBeTrue();
+        expect(snapshotColumnNames.includes("description_revision_id")).toBeTrue();
+
+        const snapshotIndex = migrated.prepare(`
+          SELECT 1
+          FROM sqlite_master
+          WHERE type = 'index'
+            AND name = 'idx_card_history_snapshots_project_card_history'
+        `).get();
+        expect(snapshotIndex !== undefined).toBeTrue();
+
+        const foreignKeyProblems = migrated.prepare("PRAGMA foreign_key_check").all();
+        expect(foreignKeyProblems.length).toBe(0);
+      } finally {
+        migrated.close();
+      }
     } catch (error) {
       if (isUnsupportedSqliteError(error)) {
         initializationRan = false;

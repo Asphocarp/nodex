@@ -333,6 +333,7 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Non-description fields use delta storage (only changed fields stored, not full snapshots)
 - Card descriptions are stored outside `history` in a revision chain keyed by `cards.description_revision_id`; history rows only store description revision pointers
 - Description revisions use top-level NFM block hashing plus ordered splice deltas, with periodic snapshot revisions to cap reconstruction work
+- Full-card history checkpoints are stored internally in `card_history_snapshots` so retained visible history rows remain previewable and restorable after older rows are pruned
 - Current builds do not support opening older pre-revision SQLite schemas in-app; recreate the local database if you need a fresh store on a newer build
 - History modal is card-scoped (opened from Card Stage) and renders above the whole app shell with a per-card edit timeline, timestamps, a selected-version snapshot preview, and selectable detail panes for field diffs and snapshots
 - The card history modal reads its timeline from `history:card` and lazily loads selected full-card snapshots from `history:card-version-preview`; update/move entries preview the card state immediately after the selected history entry, while delete entries preview the final state immediately before deletion
@@ -340,11 +341,12 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 - Description changes in the history panel render as top-level NFM block operations (`added`, `removed`, `replaced`) with per-block previews and optional raw block source, not hydrated whole-document before/after blobs
 - Each description-delta entry also includes a default-collapsed full diff viewer so users can inspect the entire description state when the block summary is not enough
 - Create/delete entries show description snapshots as ordered top-level block cards with previews and expandable block source
-- History retention is configurable from Settings -> Backups; the value is per-project row count, and `0` disables pruning
+- History retention is configurable from Settings -> Backups; the value is a per-project count of visible `history` rows, `0` disables pruning, and internal checkpoint rows do not count against this limit
+- If a retained legacy row predates checkpoint backfill and can no longer be reconstructed, the history modal keeps the row visible but marks restore/revert-to-snapshot actions unavailable
 - History modal uses a fixed responsive two-pane layout instead of a persisted resizable side panel
 - Detailed storage and migration rules for revision-based description history: [Description History Revisions](./description-history-revisions.md)
 - **Revert single change**: Undo a specific history entry (update, move, create, or delete) — creates a new forward history entry so the revert is itself visible and reversible
-- **Restore to point**: Time-travel a card to any historical state by reconstructing from creation snapshot + forward deltas; applies field updates and column moves as needed
+- **Restore to point**: Time-travel a card to any retained reconstructable historical state by replaying from the nearest create/delete/checkpoint anchor plus forward deltas; applies field updates and column moves as needed
 - Action buttons shown in entry detail view with inline confirmation flow; disabled for undo meta-entries
 - Card stage auto-refreshes card state after history mutations via `onCardMutated` callback
 - Global in-app toast notifications after undo/redo actions and other transient editor/review feedback
@@ -872,6 +874,21 @@ CREATE INDEX idx_history_card ON history(card_id);
 CREATE INDEX idx_history_timestamp ON history(timestamp DESC);
 CREATE INDEX idx_history_session ON history(session_id);
 CREATE INDEX idx_history_group ON history(project_id, group_id);
+
+-- Internal full-card checkpoints for retained card history reconstruction
+CREATE TABLE card_history_snapshots (
+  history_id INTEGER PRIMARY KEY REFERENCES history(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  card_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  archived INTEGER NOT NULL DEFAULT 0,
+  card_snapshot TEXT NOT NULL,      -- JSON: full card except raw description
+  description_revision_id INTEGER,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX idx_card_history_snapshots_project_card_history
+  ON card_history_snapshots(project_id, card_id, history_id);
 
 -- Codex thread metadata and optional card ownership
 CREATE TABLE codex_threads (
