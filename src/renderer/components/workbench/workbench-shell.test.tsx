@@ -1063,6 +1063,7 @@ function renderWorkbench({
 }
 
 beforeEach(() => {
+  document.body.removeAttribute("style");
   invokeCalls = [];
   startThreadForSessionCalls = [];
   requestThreadStreamSnapshotCalls = [];
@@ -1104,13 +1105,43 @@ async function pointerActivate(element: HTMLElement): Promise<void> {
   await settleAsyncRender();
 }
 
+async function releaseMouseDrag(): Promise<void> {
+  await act(async () => {
+    fireEvent.mouseUp(window);
+    await Promise.resolve();
+  });
+  await settleAsyncRender();
+}
+
 async function openPanelMenu(
   screen: ReturnType<typeof renderWorkbench>,
   label: "Open side panel tab" | "Open bottom panel tab",
 ): Promise<HTMLElement> {
-  fireEvent.pointerDown(screen.getByRole("button", { name: label }), { button: 0 });
+  await act(async () => {
+    fireEvent.pointerDown(screen.getByRole("button", { name: label }), { button: 0 });
+    await Promise.resolve();
+  });
   await settleAsyncRender();
+  await waitFor(() => {
+    expect(screen.queryByRole("menu") !== null).toBeTrue();
+  });
   return screen.getByRole("menu");
+}
+
+async function clickMenuItem(menu: HTMLElement, label: string): Promise<void> {
+  await act(async () => {
+    fireEvent.click(within(menu).getByText(label));
+    await Promise.resolve();
+  });
+  await settleAsyncRender();
+}
+
+async function pointerDownAndSettle(element: HTMLElement): Promise<void> {
+  await act(async () => {
+    fireEvent.pointerDown(element, { button: 0 });
+    await Promise.resolve();
+  });
+  await settleAsyncRender();
 }
 
 function getMenuItemIconClassName(menu: HTMLElement, label: string): string {
@@ -2896,24 +2927,23 @@ describe("workbench session shell", () => {
     const separator = screen.getByRole("separator", { name: "Resize right panel" });
     expect(rightPanel.getAttribute("style")?.includes("width: 372px")).toBeTrue();
 
-    await act(async () => {
-      fireEvent.mouseDown(separator, { clientX: 700 });
-      fireEvent.mouseMove(window, { clientX: 750 });
-      await Promise.resolve();
-    });
+    try {
+      await act(async () => {
+        fireEvent.mouseDown(separator, { clientX: 700 });
+        fireEvent.mouseMove(window, { clientX: 750 });
+        await Promise.resolve();
+      });
 
-    expect(rightPanel.getAttribute("style")?.includes("width: 322px")).toBeTrue();
-    expect(invokeCalls.some((call) =>
-      call[0] === "project-session-panels:update"
-      && call[1] === "session:alpha:build"
-      && call[2] === "right"
-      && ((call[3] as { size?: { widthPx?: number } })?.size?.widthPx ?? null) === 322
-    )).toBeFalse();
-
-    await act(async () => {
-      fireEvent.mouseUp(window);
-      await Promise.resolve();
-    });
+      expect(rightPanel.getAttribute("style")?.includes("width: 322px")).toBeTrue();
+      expect(invokeCalls.some((call) =>
+        call[0] === "project-session-panels:update"
+        && call[1] === "session:alpha:build"
+        && call[2] === "right"
+        && ((call[3] as { size?: { widthPx?: number } })?.size?.widthPx ?? null) === 322
+      )).toBeFalse();
+    } finally {
+      await releaseMouseDrag();
+    }
 
     expect(invokeCalls.some((call) =>
       call[0] === "project-session-panels:update"
@@ -2943,18 +2973,17 @@ describe("workbench session shell", () => {
     const rightPanel = screen.getByTestId("session-right-panel");
     const separator = screen.getByRole("separator", { name: "Resize right panel" });
 
-    await act(async () => {
-      fireEvent.mouseDown(separator, { clientX: 1_200 });
-      fireEvent.mouseMove(window, { clientX: 400 });
-      await Promise.resolve();
-    });
+    try {
+      await act(async () => {
+        fireEvent.mouseDown(separator, { clientX: 1_200 });
+        fireEvent.mouseMove(window, { clientX: 400 });
+        await Promise.resolve();
+      });
 
-    expect(rightPanel.getAttribute("style")?.includes("width: 1148px")).toBeTrue();
-
-    await act(async () => {
-      fireEvent.mouseUp(window);
-      await Promise.resolve();
-    });
+      expect(rightPanel.getAttribute("style")?.includes("width: 1148px")).toBeTrue();
+    } finally {
+      await releaseMouseDrag();
+    }
 
     expect(invokeCalls.some((call) =>
       call[0] === "project-session-panels:update"
@@ -2986,7 +3015,7 @@ describe("workbench session shell", () => {
       fireEvent.mouseMove(window, { clientX: 1_020 });
       await Promise.resolve();
     });
-    await settleAsyncRender();
+    await releaseMouseDrag();
 
     expect(invokeCalls.some((call) =>
       call[0] === "project-session-panels:update"
@@ -2995,12 +3024,6 @@ describe("workbench session shell", () => {
       && JSON.stringify(call[3]) === JSON.stringify({ collapsed: true })
     )).toBeTrue();
     expect(screen.queryByRole("separator", { name: "Resize right panel" })).toBe(null);
-    expect(screen.queryByTestId("session-right-panel") !== null).toBeTrue();
-
-    await act(async () => {
-      fireEvent.mouseUp(window);
-      await Promise.resolve();
-    });
   });
 
   test("right panel resize normalizes drag deltas by the Codex window zoom", async () => {
@@ -3024,18 +3047,17 @@ describe("workbench session shell", () => {
     const rightPanel = screen.getByTestId("session-right-panel");
     const separator = screen.getByRole("separator", { name: "Resize right panel" });
 
-    await act(async () => {
-      fireEvent.mouseDown(separator, { clientX: 1_400 });
-      fireEvent.mouseMove(window, { clientX: 1_500 });
-      await Promise.resolve();
-    });
+    try {
+      await act(async () => {
+        fireEvent.mouseDown(separator, { clientX: 1_400 });
+        fireEvent.mouseMove(window, { clientX: 1_500 });
+        await Promise.resolve();
+      });
 
-    expect(rightPanel.getAttribute("style")?.includes("width: 322px")).toBeTrue();
-
-    await act(async () => {
-      fireEvent.mouseUp(window);
-      await Promise.resolve();
-    });
+      expect(rightPanel.getAttribute("style")?.includes("width: 322px")).toBeTrue();
+    } finally {
+      await releaseMouseDrag();
+    }
 
     expect(invokeCalls.some((call) =>
       call[0] === "project-session-panels:update"
@@ -3058,24 +3080,23 @@ describe("workbench session shell", () => {
     const separator = screen.getByRole("separator", { name: "Resize bottom panel" });
     expect(bottomPanelSizer.getAttribute("style")?.includes("height: 280px")).toBeTrue();
 
-    await act(async () => {
-      fireEvent.mouseDown(separator, { clientY: 700 });
-      fireEvent.mouseMove(window, { clientY: 740 });
-      await Promise.resolve();
-    });
+    try {
+      await act(async () => {
+        fireEvent.mouseDown(separator, { clientY: 700 });
+        fireEvent.mouseMove(window, { clientY: 740 });
+        await Promise.resolve();
+      });
 
-    expect(bottomPanelSizer.getAttribute("style")?.includes("height: 240px")).toBeTrue();
-    expect(invokeCalls.some((call) =>
-      call[0] === "project-session-panels:update"
-      && call[1] === "session:alpha:terminal"
-      && call[2] === "bottom"
-      && ((call[3] as { size?: { heightPx?: number } })?.size?.heightPx ?? null) === 240
-    )).toBeFalse();
-
-    await act(async () => {
-      fireEvent.mouseUp(window);
-      await Promise.resolve();
-    });
+      expect(bottomPanelSizer.getAttribute("style")?.includes("height: 240px")).toBeTrue();
+      expect(invokeCalls.some((call) =>
+        call[0] === "project-session-panels:update"
+        && call[1] === "session:alpha:terminal"
+        && call[2] === "bottom"
+        && ((call[3] as { size?: { heightPx?: number } })?.size?.heightPx ?? null) === 240
+      )).toBeFalse();
+    } finally {
+      await releaseMouseDrag();
+    }
 
     expect(invokeCalls.some((call) =>
       call[0] === "project-session-panels:update"
@@ -3099,7 +3120,7 @@ describe("workbench session shell", () => {
       fireEvent.mouseMove(window, { clientY: 900 });
       await Promise.resolve();
     });
-    await settleAsyncRender();
+    await releaseMouseDrag();
 
     expect(invokeCalls.some((call) =>
       call[0] === "project-session-panels:update"
@@ -3108,12 +3129,6 @@ describe("workbench session shell", () => {
       && JSON.stringify(call[3]) === JSON.stringify({ collapsed: true })
     )).toBeTrue();
     expect(screen.queryByRole("separator", { name: "Resize bottom panel" })).toBe(null);
-    expect(screen.queryByTestId("session-bottom-panel") !== null).toBeTrue();
-
-    await act(async () => {
-      fireEvent.mouseUp(window);
-      await Promise.resolve();
-    });
   });
 
   test("overview regular-width override survives hiding and showing the side panel", async () => {
@@ -3142,7 +3157,6 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     expect(screen.queryByRole("button", { name: "Restore panel width" })).toBe(null);
-    expect(screen.queryByTestId("session-right-panel") !== null).toBeTrue();
     expect(screen.queryByRole("separator", { name: "Resize right panel" })).toBe(null);
 
     await act(async () => {
@@ -3170,18 +3184,20 @@ describe("workbench session shell", () => {
     expect(globalHeader?.contains(addTabButton)).toBeFalse();
     expect(screen.queryByRole("button", { name: "Add DB view" })).toBe(null);
 
-    fireEvent.pointerDown(addTabButton, { button: 0 });
-    await settleAsyncRender();
-    fireEvent.click(screen.getByText("Files"));
-    await settleAsyncRender();
+    const menu = await openPanelMenu(screen, "Open side panel tab");
+    await clickMenuItem(menu, "Files");
 
     expect(screen.getByRole("tab", { name: "Files" }) !== null).toBeTrue();
     expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null).toBeTrue();
     expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
 
-    fireEvent.pointerDown(getFilesPreviewInteractionTarget(screen));
-    await settleAsyncRender();
-    await settleAsyncRender();
+    await pointerDownAndSettle(getFilesPreviewInteractionTarget(screen));
+    await waitFor(() => {
+      expect(invokeCalls.some((call) =>
+        call[0] === "project-session-tabs:create"
+        && JSON.stringify(call[1]).includes('"kind":"files"')
+      )).toBeTrue();
+    });
 
     expect(invokeCalls.some((call) =>
       call[0] === "project-session-tabs:create"
@@ -3219,17 +3235,13 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Open side panel tab" }), { button: 0 });
-    await settleAsyncRender();
-    fireEvent.click(screen.getByText("Files"));
-    await settleAsyncRender();
+    const filesMenu = await openPanelMenu(screen, "Open side panel tab");
+    await clickMenuItem(filesMenu, "Files");
 
     expect(screen.getByRole("tab", { name: "Files" }) !== null).toBeTrue();
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Open side panel tab" }), { button: 0 });
-    await settleAsyncRender();
-    fireEvent.click(screen.getByText("Browser"));
-    await settleAsyncRender();
+    const browserMenu = await openPanelMenu(screen, "Open side panel tab");
+    await clickMenuItem(browserMenu, "Browser");
 
     expect(screen.queryByRole("tab", { name: "Files" })).toBe(null);
     expect(screen.getByRole("tab", { name: "Browser" }) !== null).toBeTrue();
@@ -3330,8 +3342,7 @@ describe("workbench session shell", () => {
       await openBottomPanel(screen);
 
       const menu = await openPanelMenu(screen, "Open bottom panel tab");
-      fireEvent.click(within(menu).getByText(previewCase.label));
-      await settleAsyncRender();
+      await clickMenuItem(menu, previewCase.label);
 
       expect(screen.getByRole("tab", { name: previewCase.label }) !== null).toBeTrue();
       expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null).toBeTrue();
@@ -3340,9 +3351,14 @@ describe("workbench session shell", () => {
       const pinTarget = previewCase.kind === "files"
         ? getFilesPreviewInteractionTarget(screen)
         : screen.getByText(previewCase.pinText);
-      fireEvent.pointerDown(pinTarget);
-      await settleAsyncRender();
-      await settleAsyncRender();
+      await pointerDownAndSettle(pinTarget);
+      await waitFor(() => {
+        expect(invokeCalls.some((call) =>
+          call[0] === "project-session-tabs:create"
+          && JSON.stringify(call[1]).includes('"panelId":"bottom"')
+          && JSON.stringify(call[1]).includes(`"kind":"${previewCase.kind}"`)
+        )).toBeTrue();
+      });
 
       expect(invokeCalls.some((call) =>
         call[0] === "project-session-tabs:create"

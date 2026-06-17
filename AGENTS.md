@@ -91,6 +91,9 @@ Treat `CHANGELOG.md` as a required deliverable for **relatively large** user-vis
 
 ## Testing Expectations
 - Prefer targeted tests while iterating: `bun test <path-to-test>`
+- Renderer React tests must be act-clean. Treat any `act(...)` warning as a failing test: fix the test before handoff instead of ignoring console output.
+- For renderer interactions that can schedule React updates, prefer Testing Library async patterns (`findBy*`, `waitFor`, awaited helpers) and make assertions only after the UI has settled.
+- When a renderer test uses low-level `fireEvent`, window/document events, timers, resize/drag gestures, or imperative callbacks instead of a higher-level awaited helper, wrap the interaction in `await act(async () => { ...; await Promise.resolve(); })`, then wait for the observable DOM/API outcome. Use `try/finally` to release drag/resize gestures so failed assertions do not leak body styles or global listeners into later tests.
 - For any new or changed user-visible UI, update or add Storybook coverage in the same change.
 - Run full checks before handoff:
   - `bun run typecheck`
