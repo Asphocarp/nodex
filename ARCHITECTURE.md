@@ -32,7 +32,7 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `kanban/backup-service.ts`: whole-store backup/restore and scheduler.
 - `kanban/schema.ts`: latest-schema bootstrap and the future-ready schema version/migration framework, including project session tables and Overview-session seed migration.
 - `kanban/card-input-validation.ts`: shared write validation used by all mutation paths.
-- `logging/logger.ts`: structured backend logger with child scopes, sensitive-field redaction, bounded payload serialization, and profile-scoped JSONL file persistence under `${KANBAN_DIR}/logs`.
+- `logging/logger.ts`: structured backend logger with child scopes, sensitive-field redaction, bounded payload serialization, and profile-scoped JSONL file persistence under `${KANBAN_DIR}/logs` for dev/unpackaged runs or explicitly enabled packaged diagnostics.
 - `window-session-state.ts`: profile-scoped persisted Electron window-session catalog with per-window layout snapshots, restore-policy selection support, focus recency, and saved window bounds.
 - `pty-manager.ts`: PTY process lifecycle management for session terminal ids (spawn, write, resize, kill).
 - `codex/codex-app-server-client.ts`: global JSON-RPC client for `codex app-server` stdio lifecycle, handshake, request correlation, reconnect/backoff, and wire-level typing against the committed `@nodex/codex-app-server-protocol` workspace package.
@@ -175,7 +175,7 @@ Workbench reopen flow:
 
 ### Observability and Debugging
 - History records capture create/update/move/delete deltas.
-- Backend services emit structured logs (JSON lines) with child-scoped context for HTTP, PTY, backup/reminder, and Codex runtime flows.
-- Backend logs persist under `${KANBAN_DIR}/logs` with bounded serialization and sensitive-field redaction for debugging without dumping raw secrets.
+- Backend services can emit structured logs (JSON lines) with child-scoped context for HTTP, PTY, backup/reminder, and Codex runtime flows.
+- Backend logs persist under `${KANBAN_DIR}/logs` for dev/unpackaged runs or explicitly enabled packaged diagnostics, with bounded serialization and sensitive-field redaction for debugging without dumping raw secrets.
 - Detailed logging reference: `docs/product-specs/backend-logging-spec.md`.
 - Editor subsystems include focused tests for parser, keyboard behavior, and sync edge cases.

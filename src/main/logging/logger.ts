@@ -51,6 +51,7 @@ const IS_TEST_RUNTIME =
   process.env.NODE_ENV === "test"
   || process.env.BUN_ENV === "test"
   || process.argv.some((value) => value.toLowerCase().includes("test"));
+const IS_PACKAGED_RUNTIME = parseBooleanEnv(process.env.NODEX_INTERNAL_APP_PACKAGED, false);
 const DEFAULT_LEVEL = "info";
 
 function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean {
@@ -86,11 +87,12 @@ function parseLevel(value: string | undefined): BackendLogLevelName {
 function createLoggerConfig(): LoggerConfig {
   const defaultLogDir = path.join(getKanbanDir(), "logs");
   const configuredLogDir = process.env.NODEX_LOG_DIR?.trim();
+  const defaultSinkEnabled = !IS_TEST_RUNTIME && !IS_PACKAGED_RUNTIME;
 
   return {
     level: parseLevel(process.env.NODEX_LOG_LEVEL),
-    consoleEnabled: parseBooleanEnv(process.env.NODEX_LOG_CONSOLE, !IS_TEST_RUNTIME),
-    fileEnabled: parseBooleanEnv(process.env.NODEX_LOG_FILE, !IS_TEST_RUNTIME),
+    consoleEnabled: parseBooleanEnv(process.env.NODEX_LOG_CONSOLE, defaultSinkEnabled),
+    fileEnabled: parseBooleanEnv(process.env.NODEX_LOG_FILE, defaultSinkEnabled),
     maxStringLength: parseIntegerEnv(process.env.NODEX_LOG_MAX_STRING_LENGTH, 1_200, 80),
     maxArrayLength: parseIntegerEnv(process.env.NODEX_LOG_MAX_ARRAY_LENGTH, 20, 1),
     maxObjectEntries: parseIntegerEnv(process.env.NODEX_LOG_MAX_OBJECT_ENTRIES, 40, 1),

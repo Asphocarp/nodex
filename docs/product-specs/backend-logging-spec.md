@@ -28,7 +28,7 @@ The logger is implemented in [src/main/logging/logger.ts](src/main/logging/logge
 
 ## Storage Model
 
-By default, backend logs are written under:
+When file logging is enabled, backend logs are written under:
 
 `$KANBAN_DIR/logs`
 
@@ -45,11 +45,21 @@ Important properties:
 
 ## Default Runtime Behavior
 
-Non-test runtime defaults:
+Unpackaged non-test runtime defaults:
 
 - level: `info`
 - console logging: enabled
 - file logging: enabled
+
+Packaged runtime defaults:
+
+- level: `info`
+- console logging: disabled
+- file logging: disabled
+
+Packaged builds therefore do not create backend log files by default. Logging can still be
+enabled for diagnostics by explicitly setting `NODEX_LOG_CONSOLE=true` or
+`NODEX_LOG_FILE=true`.
 
 Test runtime defaults:
 

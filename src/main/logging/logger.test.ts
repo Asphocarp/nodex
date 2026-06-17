@@ -9,6 +9,7 @@ const ORIGINAL_ENV = {
   NODEX_LOG_FILE: process.env.NODEX_LOG_FILE,
   NODEX_LOG_CONSOLE: process.env.NODEX_LOG_CONSOLE,
   NODEX_LOG_DIR: process.env.NODEX_LOG_DIR,
+  NODEX_INTERNAL_APP_PACKAGED: process.env.NODEX_INTERNAL_APP_PACKAGED,
 };
 
 async function importLoggerModule() {
@@ -31,6 +32,9 @@ function restoreEnv(): void {
 
   if (ORIGINAL_ENV.NODEX_LOG_DIR === undefined) delete process.env.NODEX_LOG_DIR;
   else process.env.NODEX_LOG_DIR = ORIGINAL_ENV.NODEX_LOG_DIR;
+
+  if (ORIGINAL_ENV.NODEX_INTERNAL_APP_PACKAGED === undefined) delete process.env.NODEX_INTERNAL_APP_PACKAGED;
+  else process.env.NODEX_INTERNAL_APP_PACKAGED = ORIGINAL_ENV.NODEX_INTERNAL_APP_PACKAGED;
 }
 
 async function withTempLoggerEnv(run: (root: string) => Promise<void>): Promise<void> {
@@ -115,5 +119,54 @@ describe("backend logger", () => {
         await loggerModule.resetBackendLoggerForTests();
       }
     });
+  });
+
+  test("does not write production packaged logs unless a sink is explicitly enabled", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-logger-test-"));
+    const logDir = path.join(root, "logs");
+    process.env.KANBAN_DIR = root;
+    process.env.NODEX_INTERNAL_APP_PACKAGED = "true";
+    process.env.NODEX_LOG_LEVEL = "info";
+    process.env.NODEX_LOG_DIR = logDir;
+    delete process.env.NODEX_LOG_FILE;
+    delete process.env.NODEX_LOG_CONSOLE;
+
+    try {
+      const loggerModule = await importLoggerModule();
+      const logger = loggerModule.getLogger({ component: "logger-test" });
+      logger.info("Testing packaged default logging");
+      await loggerModule.shutdownBackendLogger();
+
+      expect(fs.existsSync(logDir)).toBeFalse();
+      await loggerModule.resetBackendLoggerForTests();
+    } finally {
+      restoreEnv();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("allows packaged file logging when explicitly enabled", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-logger-test-"));
+    const logDir = path.join(root, "logs");
+    process.env.KANBAN_DIR = root;
+    process.env.NODEX_INTERNAL_APP_PACKAGED = "true";
+    process.env.NODEX_LOG_LEVEL = "info";
+    process.env.NODEX_LOG_FILE = "true";
+    process.env.NODEX_LOG_CONSOLE = "false";
+    process.env.NODEX_LOG_DIR = logDir;
+
+    try {
+      const loggerModule = await importLoggerModule();
+      const logger = loggerModule.getLogger({ component: "logger-test" });
+      logger.info("Testing packaged opt-in logging");
+      await loggerModule.shutdownBackendLogger();
+
+      const entries = fs.readdirSync(logDir);
+      expect(entries.length).toBe(1);
+      await loggerModule.resetBackendLoggerForTests();
+    } finally {
+      restoreEnv();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

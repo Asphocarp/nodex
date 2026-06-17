@@ -37,7 +37,7 @@
 - Packaged macOS builds expose an `electron-updater`-backed app-update channel: the main process publishes updater status changes over IPC, auto-checks only start after initialization completes and at least one window exists, downloads run in the background when enabled, and installation stays explicit via `Restart to Update`.
 - Codex path: `codex-service` emits normalized `codex:event` IPC updates; renderer reduces events into thread/turn/item state.
 - Codex client startup is handshake-gated (`initialize` + `initialized`) and reconnects with backoff on unexpected child exit.
-- Backend observability now includes structured JSON-line logs under `${KANBAN_DIR}/logs`, covering HTTP requests, app lifecycle, PTY, backup/reminder jobs, and Codex client/service flows (thread start, turn start, approvals, user-input, reconnects, worktree setup).
+- Backend observability includes structured JSON-line logs under `${KANBAN_DIR}/logs` for unpackaged/dev runs, covering HTTP requests, app lifecycle, PTY, backup/reminder jobs, and Codex client/service flows (thread start, turn start, approvals, user-input, reconnects, worktree setup). Packaged builds leave backend file and console logging off by default unless explicitly enabled through `NODEX_LOG_FILE` or `NODEX_LOG_CONSOLE`.
 - Detailed logging behavior, configuration, and extension guidelines live in `docs/product-specs/backend-logging-spec.md`.
 
 ## Failure Modes and Handling

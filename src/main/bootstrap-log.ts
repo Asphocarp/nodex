@@ -3,6 +3,11 @@ import path from "node:path";
 
 type BootstrapLogLevel = "info" | "warn" | "error";
 
+interface BootstrapLogOptions {
+  consoleEnabled?: boolean;
+  fileEnabled?: boolean;
+}
+
 function serializeError(value: unknown): unknown {
   if (!(value instanceof Error)) return value;
   return {
@@ -17,7 +22,10 @@ export function writeBootstrapLog(
   level: BootstrapLogLevel,
   message: string,
   fields: Record<string, unknown> = {},
+  options: BootstrapLogOptions = {},
 ): void {
+  const fileEnabled = options.fileEnabled ?? true;
+  const consoleEnabled = options.consoleEnabled ?? true;
   const entry = {
     ts: new Date().toISOString(),
     level,
@@ -28,17 +36,21 @@ export function writeBootstrapLog(
     ),
   };
 
-  try {
-    const logDir = path.join(kanbanDir, "logs");
-    mkdirSync(logDir, { recursive: true });
-    appendFileSync(
-      path.join(logDir, `bootstrap-${entry.ts.slice(0, 10)}.log`),
-      `${JSON.stringify(entry)}\n`,
-      "utf8",
-    );
-  } catch {
-    // Bootstrap logging must never block startup or shutdown.
+  if (fileEnabled) {
+    try {
+      const logDir = path.join(kanbanDir, "logs");
+      mkdirSync(logDir, { recursive: true });
+      appendFileSync(
+        path.join(logDir, `bootstrap-${entry.ts.slice(0, 10)}.log`),
+        `${JSON.stringify(entry)}\n`,
+        "utf8",
+      );
+    } catch {
+      // Bootstrap logging must never block startup or shutdown.
+    }
   }
+
+  if (!consoleEnabled) return;
 
   const line = `[bootstrap] ${message}`;
   if (level === "error") {

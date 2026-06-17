@@ -9,17 +9,31 @@ import {
 } from "./macos-applications-installer";
 import type { MainRuntimeController } from "./main-runtime";
 
+process.env.NODEX_INTERNAL_APP_PACKAGED = app.isPackaged ? "true" : "false";
+
 const kanbanDir = resolveBootstrapKanbanDir();
 configureInstanceScopePaths(app, kanbanDir);
 
 const runtimeQueue = new BootstrapRuntimeEventQueue();
+
+function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "0" || normalized === "false" || normalized === "no" || normalized === "off") return false;
+  if (normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on") return true;
+  return fallback;
+}
 
 function logBootstrap(
   level: "info" | "warn" | "error",
   message: string,
   fields: Record<string, unknown> = {},
 ): void {
-  writeBootstrapLog(kanbanDir, level, message, fields);
+  const defaultSinkEnabled = !app.isPackaged;
+  writeBootstrapLog(kanbanDir, level, message, fields, {
+    consoleEnabled: parseBooleanEnv(process.env.NODEX_LOG_CONSOLE, defaultSinkEnabled),
+    fileEnabled: parseBooleanEnv(process.env.NODEX_LOG_FILE, defaultSinkEnabled),
+  });
 }
 
 function formatStartupError(error: unknown): string {
