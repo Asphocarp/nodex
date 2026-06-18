@@ -244,19 +244,19 @@
   --muted-foreground: #7d7a75;
   --accent: #f0efed;
   --accent-foreground: #2c2c2b;
-  --accent-blue: #2383e2;
-  --accent-blue-hover: #0077d4;
-  --accent-blue-pressed: #006bc7;
+  --accent-blue: var(--blue-300);
+  --accent-blue-hover: color-mix(in srgb, var(--accent-blue) 88%, var(--black));
+  --accent-blue-pressed: color-mix(in srgb, var(--accent-blue) 78%, var(--black));
   --color-text-foreground: var(--gray-1000);
   --color-text-foreground-secondary: #0d0d0db3;
   --color-text-foreground-tertiary: #0d0d0d80;
-  --color-text-accent: var(--blue-400);
+  --color-text-accent: var(--accent-blue);
   --color-icon-primary: var(--gray-1000);
   --color-icon-secondary: #0d0d0db3;
   --color-icon-tertiary: #0d0d0d80;
   --destructive: #e56458;
   --input: #e6e5e3;
-  --ring: #2383e2;
+  --ring: var(--accent-blue);
   --sidebar-header-padding-x: 0.5rem;
   --sidebar-row-padding-x: 0.5rem;
   --sidebar-row-padding-y: 0.3125rem;
@@ -272,7 +272,7 @@
   --sidebar-accent: rgba(13, 13, 13, 0.06);
   --sidebar-accent-foreground: #0d0d0d;
   --sidebar-border: rgba(230, 229, 227, 0.6);
-  --sidebar-ring: #2383e2;
+  --sidebar-ring: var(--accent-blue);
   --priority-critical-bg: rgba(206, 24, 0, 0.17);
   --priority-critical-text: #6d3531;
   --priority-high-bg: rgba(196, 88, 0, 0.2);
@@ -352,7 +352,7 @@
   --status-done-text: #1a7f37;
   --chart-1: #e56458;
   --chart-2: #46a171;
-  --chart-3: #2783de;
+  --chart-3: var(--accent-blue);
   --chart-4: #d8a32f;
   --chart-5: #b577d6;
   --inline-code-bg: rgba(135, 131, 120, 0.15);
@@ -400,23 +400,23 @@
   --color-text-foreground: var(--gray-0);
   --color-text-foreground-secondary: #ffffffb3;
   --color-text-foreground-tertiary: #ffffff80;
-  --color-text-accent: var(--blue-100);
+  --color-text-accent: var(--accent-blue);
   --color-icon-primary: #ffffffe6;
   --color-icon-secondary: #ffffffb3;
   --color-icon-tertiary: #ffffff80;
   --destructive: #e97366;
   --input: #383836;
-  --ring: #2383e2;
+  --ring: var(--accent-blue);
   --sidebar: rgba(25, 25, 25, 0.65);
   --sidebar-foreground: #ffffff;
   --sidebar-foreground-secondary: rgba(255, 255, 255, 0.75);
   --sidebar-foreground-tertiary: rgba(255, 255, 255, 0.5);
-  --sidebar-primary: #2383e2;
+  --sidebar-primary: var(--accent-blue);
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: rgba(255, 255, 255, 0.1);
   --sidebar-accent-foreground: #ffffff;
   --sidebar-border: rgba(56, 56, 54, 0.5);
-  --sidebar-ring: #2383e2;
+  --sidebar-ring: var(--accent-blue);
   --priority-critical-bg: rgba(255, 94, 87, 0.526);
   --priority-critical-text: #e97366;
   --priority-high-bg: rgba(255, 143, 71, 0.482);
@@ -583,7 +583,7 @@
   --color-text-button-primary: var(--gray-0);
   --color-text-button-secondary: var(--gray-1000);
   --color-text-button-tertiary: var(--gray-500);
-  --color-text-accent: var(--blue-400);
+  --color-text-accent: var(--accent-blue);
   --color-text-success: var(--green-500);
   --color-text-warning: var(--orange-500);
   --color-text-error: var(--red-500);
@@ -591,12 +591,12 @@
   --color-icon-secondary: #0d0d0db3;
   --color-icon-tertiary: #0d0d0d80;
   --color-icon-inverted: var(--gray-0);
-  --color-icon-accent: var(--blue-400);
+  --color-icon-accent: var(--accent-blue);
   --color-icon-success: var(--green-500);
   --color-icon-warning: var(--orange-500);
   --color-icon-error: var(--red-500);
   --color-accent-red: var(--red-500);
-  --color-accent-blue: var(--blue-400);
+  --color-accent-blue: var(--accent-blue);
   --color-accent-yellow: var(--yellow-400);
   --color-accent-orange: var(--orange-500);
   --color-accent-green: var(--green-500);
@@ -606,7 +606,7 @@
   --color-border-light: #0d0d0d0d;
   --color-border-warning: #e2550726;
   --color-border-error: #e02e2a26;
-  --color-border-focus: var(--blue-400);
+  --color-border-focus: var(--accent-blue);
   --color-decoration-added: var(--green-500);
   --color-decoration-modified: var(--orange-700);
   --color-decoration-deleted: var(--red-600);
@@ -817,7 +817,7 @@
   --color-text-button-primary: var(--gray-1000);
   --color-text-button-secondary: var(--gray-300);
   --color-text-button-tertiary: var(--gray-500);
-  --color-text-accent: var(--blue-100);
+  --color-text-accent: var(--accent-blue);
   --color-text-success: var(--green-300);
   --color-text-warning: var(--orange-300);
   --color-text-error: var(--red-300);
@@ -825,12 +825,12 @@
   --color-icon-secondary: #ffffffb3;
   --color-icon-tertiary: #ffffff80;
   --color-icon-inverted: var(--black);
-  --color-icon-accent: var(--blue-300);
+  --color-icon-accent: var(--accent-blue);
   --color-icon-success: var(--green-300);
   --color-icon-warning: var(--orange-300);
   --color-icon-error: var(--red-300);
   --color-accent-red: var(--red-300);
-  --color-accent-blue: var(--blue-300);
+  --color-accent-blue: var(--accent-blue);
   --color-accent-yellow: var(--yellow-300);
   --color-accent-orange: var(--orange-400);
   --color-accent-green: var(--green-300);
@@ -977,7 +977,7 @@
       transparent
     );
     --color-border-error: color-mix(in oklab, var(--red-400) 40%, transparent);
-    --color-border-focus: color-mix(in oklab, var(--blue-300) 70%, transparent);
+    --color-border-focus: color-mix(in oklab, var(--accent-blue) 70%, transparent);
     --color-editor-added: color-mix(
       in oklab,
       var(--green-300) 23%,

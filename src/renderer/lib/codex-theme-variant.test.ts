@@ -7,6 +7,7 @@ describe("getCodexThemeVariantStyle", () => {
 
     expect(styles["--color-background-control"]).toBe("rgba(255, 255, 255, 0.96)");
     expect(styles["--color-background-control-opaque"]).toBe("rgb(255, 255, 255)");
+    expect(styles["--color-accent-blue"]).toBe("#339cff");
     expect(styles["--color-text-foreground"]).toBe("#0d0d0d");
     expect(styles["--color-border"]).toBe("rgba(13, 13, 13, 0.078)");
   });
@@ -16,6 +17,7 @@ describe("getCodexThemeVariantStyle", () => {
 
     expect(styles["--color-background-control"]).toBe("rgba(45, 45, 45, 0.96)");
     expect(styles["--color-background-control-opaque"]).toBe("rgb(45, 45, 45)");
+    expect(styles["--color-accent-blue"]).toBe("#339cff");
     expect(styles["--color-text-foreground"]).toBe("#ffffff");
     expect(styles["--color-border"]).toBe("rgba(255, 255, 255, 0.084)");
   });

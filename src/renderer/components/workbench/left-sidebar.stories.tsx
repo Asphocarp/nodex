@@ -631,6 +631,7 @@ function CodexProjectSessionRowsHarness() {
     makeStorySession({ id: "overview:nodex", title: "Overview", isOverview: true }),
     makeStorySession({ id: "thread:nodex:pinned", title: "Pinned architecture notes", pinned: true, pinnedOrder: 0, threadId: "local:pinned" }),
     makeStorySession({ id: "thread:nodex:parity", title: "Mirror Codex Electron layout", unread: true, threadId: "local:sidebar-parity" }),
+    makeStorySession({ id: "thread:nodex:unread-idle", title: "Unread accent idle", unread: true, threadId: "local:unread-idle" }),
     makeStorySession({ id: "thread:nodex:long", title: "Very long session title that should truncate before colliding with row actions", threadId: "local:long-title" }),
   ];
 

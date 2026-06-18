@@ -769,7 +769,7 @@ export function CodexThreadRow({
               <div className="relative flex items-center justify-center">
                 {session.unread ? (
                   <span
-                    className="size-1.5 rounded-full bg-token-foreground"
+                    className="size-1.5 rounded-full bg-token-charts-blue"
                     aria-label="Unread"
                   />
                 ) : null}
