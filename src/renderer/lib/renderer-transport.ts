@@ -1,5 +1,6 @@
 import { browserRendererTransport } from "./browser-renderer-transport";
 import { createElectronRendererTransport, type ElectronRendererBridge } from "./electron-renderer-transport";
+import type { CommandKeymapState } from "../../shared/command-keybindings";
 
 export interface RendererTransport {
   kind: "browser" | "electron";
@@ -16,6 +17,7 @@ export interface RendererTransport {
   ) => () => void;
   subscribeGitBranchChanges: (callback: (event: { cwd: string }) => void) => () => void;
   subscribeAppUpdateStatus: (callback: (status: import("./types").AppUpdateStatus) => void) => () => void;
+  subscribeCommandKeymapChanges: (callback: (state: CommandKeymapState) => void) => () => void;
   getWindowFocusState: () => Promise<boolean>;
   subscribeWindowFocusChanges: (callback: (isFocused: boolean) => void) => () => void;
 }

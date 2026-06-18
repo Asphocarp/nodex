@@ -5,6 +5,15 @@ import type {
   WorkbenchSidebarToggleCommandSource,
   WorkbenchThreadRenameCommandSource,
 } from "../../shared/window-navigation";
+import {
+  createCommandKeymapState,
+  keyboardEventToAccelerator,
+  matchesKeyboardEventToCommand,
+  matchesMouseEventToCommand,
+  normalizeAccelerator,
+  type CommandKeymapState,
+  type KeyboardShortcutEventLike,
+} from "../../shared/command-keybindings";
 
 export interface WorkbenchShortcutActions {
   spaces: { projectId: string }[];
@@ -25,6 +34,7 @@ export interface WorkbenchShortcutActions {
   navigateForward?: (source: WorkbenchNavigationCommandSource) => void;
   onToggleSidebar?: (source: WorkbenchSidebarToggleCommandSource) => void;
   onRequestRenameThread?: (source: WorkbenchThreadRenameCommandSource) => void;
+  commandKeymapState?: CommandKeymapState | null;
 }
 
 const EDITOR_SURFACE_SELECTOR = ".nfm-editor, .bn-editor, .bn-container";
@@ -35,6 +45,10 @@ interface ShortcutTargetLike {
   isContentEditable?: boolean;
   closest?: (selector: string) => Element | null;
 }
+
+type WorkbenchKeyboardEventLike = KeyboardShortcutEventLike & {
+  target: EventTarget | null;
+};
 
 function isTextInputTarget(target: EventTarget | null): boolean {
   const element = target as ShortcutTargetLike | null;
@@ -60,8 +74,21 @@ function isEditableTarget(target: EventTarget | null): boolean {
   return Boolean(element.isContentEditable) || isTextInputTarget(target) || isEditorSurfaceTarget(target);
 }
 
+function fallbackCommandKeymapState(isMac: boolean): CommandKeymapState {
+  return createCommandKeymapState({}, isMac ? "macOS" : "windows");
+}
+
+function matchesCommandShortcut(
+  e: KeyboardShortcutEventLike,
+  actions: WorkbenchShortcutActions,
+  commandId: string,
+  isMac: boolean,
+): boolean {
+  return matchesKeyboardEventToCommand(e, actions.commandKeymapState ?? fallbackCommandKeymapState(isMac), commandId);
+}
+
 export function handleWorkbenchShortcut(
-  e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "shiftKey" | "altKey" | "target"> & { code?: string },
+  e: WorkbenchKeyboardEventLike,
   actions: WorkbenchShortcutActions,
   isMac: boolean,
 ): boolean {
@@ -69,48 +96,53 @@ export function handleWorkbenchShortcut(
   const targetIsEditable = isEditableTarget(e.target);
   const targetIsEditorSurface = isEditorSurfaceTarget(e.target);
   const targetIsComposerSurface = isComposerSurfaceTarget(e.target);
-  if (modifier && !e.altKey && e.shiftKey && (e.key === "n" || e.key === "N")) {
+  const commandState = actions.commandKeymapState ?? fallbackCommandKeymapState(isMac);
+
+  if (matchesCommandShortcut(e, actions, "newWindow", isMac)) {
     actions.onRequestNewWindow?.();
     return true;
   }
 
-  if (modifier && !e.altKey && e.shiftKey && (e.key === "P" || e.key === "p")) {
-    actions.onRequestCommandPalette?.(">");
+  if (matchesCommandShortcut(e, actions, "openCommandMenu", isMac)) {
+    const accelerator = keyboardEventToAccelerator(e, commandState.platform);
+    actions.onRequestCommandPalette?.(normalizeAccelerator(accelerator) === "CmdOrCtrl+Shift+P" ? ">" : undefined);
     return true;
   }
 
-  if (modifier && !e.altKey && !e.shiftKey && (e.key === "k" || e.key === "K" || e.key === "p" || e.key === "P")) {
+  if (matchesCommandShortcut(e, actions, "searchFiles", isMac)) {
     actions.onRequestCommandPalette?.();
     return true;
   }
 
-  const isBackShortcut = e.code === "BracketLeft" || e.key === "[";
-  const isForwardShortcut = e.code === "BracketRight" || e.key === "]";
-  if (modifier && !e.altKey && !e.shiftKey && isBackShortcut) {
+  if (matchesCommandShortcut(e, actions, "navigateBack", isMac)) {
     actions.navigateBack?.("keyboard_shortcut");
     return true;
   }
 
-  if (modifier && !e.altKey && !e.shiftKey && isForwardShortcut) {
+  if (matchesCommandShortcut(e, actions, "navigateForward", isMac)) {
     actions.navigateForward?.("keyboard_shortcut");
     return true;
   }
 
-  if (modifier && !e.altKey && !e.shiftKey && (e.key === "b" || e.key === "B")) {
+  if (matchesCommandShortcut(e, actions, "toggleSidebar", isMac)) {
     if (targetIsEditable && !targetIsComposerSurface) return false;
     actions.onToggleSidebar?.(targetIsComposerSurface ? "composer_sidebar_shortcut" : "keyboard_shortcut");
     return true;
   }
 
-  if (modifier && e.altKey && !e.shiftKey && (e.key === "r" || e.key === "R")) {
+  if (matchesCommandShortcut(e, actions, "renameThread", isMac)) {
     if (!actions.onRequestRenameThread) return false;
     actions.onRequestRenameThread("keyboard_shortcut");
     return true;
   }
 
-  if (modifier && !e.altKey && !e.shiftKey && e.key === "," && actions.onRequestSettingsToggle) {
+  if (matchesCommandShortcut(e, actions, "settings", isMac) && actions.onRequestSettingsToggle) {
     actions.onRequestSettingsToggle();
     return true;
+  }
+
+  if (matchesCommandShortcut(e, actions, "focusBrowserAddressBar", isMac)) {
+    return false;
   }
 
   if (modifier && !e.altKey && !e.shiftKey && (e.key === "h" || e.key === "H" || e.key === "l" || e.key === "L")) {
@@ -143,7 +175,7 @@ export function handleWorkbenchShortcut(
     return true;
   }
 
-  if (!e.altKey && !e.shiftKey && (e.key === "F" || e.key === "f")) {
+  if (matchesCommandShortcut(e, actions, "findInThread", isMac)) {
     if (actions.focusedStage === "threads" && actions.onRequestThreadSearch) {
       actions.onRequestThreadSearch(actions.dbProjectId);
       return true;
@@ -164,17 +196,19 @@ export function handleWorkbenchShortcut(
 
 export function resolveWorkbenchMouseNavigationShortcut(
   e: Pick<MouseEvent, "button">,
+  commandKeymapState?: CommandKeymapState | null,
 ): "back" | "forward" | null {
-  if (e.button === 3) return "back";
-  if (e.button === 4) return "forward";
+  const state = commandKeymapState ?? createCommandKeymapState();
+  if (matchesMouseEventToCommand(e, state, "navigateBack")) return "back";
+  if (matchesMouseEventToCommand(e, state, "navigateForward")) return "forward";
   return null;
 }
 
 export function handleWorkbenchMouseNavigationShortcut(
   e: Pick<MouseEvent, "button">,
-  actions: Pick<WorkbenchShortcutActions, "navigateBack" | "navigateForward">,
+  actions: Pick<WorkbenchShortcutActions, "navigateBack" | "navigateForward" | "commandKeymapState">,
 ): boolean {
-  const direction = resolveWorkbenchMouseNavigationShortcut(e);
+  const direction = resolveWorkbenchMouseNavigationShortcut(e, actions.commandKeymapState);
   if (direction === "back") {
     if (!actions.navigateBack) return false;
     actions.navigateBack("mouse_back");

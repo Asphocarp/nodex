@@ -9,6 +9,7 @@ import {
   useWorkbenchShortcuts,
   type WorkbenchShortcutActions,
 } from "./use-workbench-shortcuts";
+import { createCommandKeymapState } from "../../shared/command-keybindings";
 
 function makeInputTarget(): EventTarget {
   return { tagName: "INPUT", isContentEditable: false, closest: () => null } as unknown as EventTarget;
@@ -546,6 +547,32 @@ describe("handleWorkbenchShortcut", () => {
     expect(called).toBeTrue();
   });
 
+  test("custom command keymap shortcut drives settings toggle", () => {
+    let opened = false;
+    const actions = makeActions({
+      onRequestSettingsToggle: () => {
+        opened = true;
+      },
+      commandKeymapState: createCommandKeymapState({ settings: ["CmdOrCtrl+Alt+,"] }, "macOS"),
+    });
+
+    const handled = handleWorkbenchShortcut(
+      {
+        key: ",",
+        ctrlKey: false,
+        metaKey: true,
+        shiftKey: false,
+        altKey: true,
+        target: null,
+      },
+      actions,
+      true,
+    );
+
+    expect(handled).toBeTrue();
+    expect(opened).toBeTrue();
+  });
+
   test("Cmd+H shifts the sliding window left", () => {
     let direction: -1 | 1 | null = null;
     const actions = makeActions({ shiftSlidingWindow: (_, next) => (direction = next) });
@@ -567,7 +594,7 @@ describe("handleWorkbenchShortcut", () => {
     expect(direction).toBe(-1);
   });
 
-  test("Cmd+L shifts the sliding window right", () => {
+  test("Cmd+L is reserved for browser address focus", () => {
     let direction: -1 | 1 | null = null;
     const actions = makeActions({ shiftSlidingWindow: (_, next) => (direction = next) });
 
@@ -584,8 +611,8 @@ describe("handleWorkbenchShortcut", () => {
       true,
     );
 
-    expect(handled).toBeTrue();
-    expect(direction).toBe(1);
+    expect(handled).toBeFalse();
+    expect(direction).toBe(null);
   });
 
   test("Cmd+Alt+number switches to project index", () => {

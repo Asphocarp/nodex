@@ -23,6 +23,7 @@ import type {
   HistoryEntry,
   UndoRedoState,
 } from "../../shared/ipc-api";
+import type { CommandKeymapState } from "../../shared/command-keybindings";
 import type { ProtocolMcpResourceReadParams } from "../../shared/types";
 
 export type HistoryRecentResult = UndoRedoState & { entries: HistoryEntry[] };
@@ -59,6 +60,14 @@ export function threadNotificationSettingsQueryOptions() {
   return queryOptions({
     queryKey: queryKeys.settings.threadNotifications(),
     queryFn: () => invoke("settings:thread-notifications:get") as Promise<ThreadNotificationSettings>,
+  });
+}
+
+export function commandKeymapStateQueryOptions() {
+  return queryOptions({
+    queryKey: queryKeys.settings.commandKeymap(),
+    queryFn: () => invoke("codex-command-keymap-state") as Promise<CommandKeymapState>,
+    staleTime: 60_000,
   });
 }
 

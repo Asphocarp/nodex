@@ -2,6 +2,14 @@ import * as path from "path";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
+import {
+  applyCommandKeybindingUpdate,
+  createCommandKeymapState,
+  normalizeCommandKeybindingOverrides,
+  type CommandKeybindingOverrides,
+  type CommandKeybindingUpdate,
+  type CommandKeymapState,
+} from "../../shared/command-keybindings";
 import type {
   AppUpdateSettings,
   BackupSettings,
@@ -47,6 +55,7 @@ interface ServerTomlConfig {
   telemetry_client_key?: string;
   telemetry_environment?: string;
   telemetry_auto_capture_enabled?: boolean;
+  command_keybindings?: Record<string, unknown>;
 }
 
 interface RootTomlConfig extends Record<string, unknown> {
@@ -142,6 +151,19 @@ function readTomlConfig(configPath: string): RootTomlConfig {
   } catch (error) {
     throw new Error(`Could not read config file at ${configPath}: ${(error as Error).message}`);
   }
+}
+
+function writeUserServerTomlConfig(nextServer: ServerTomlConfig): void {
+  const userConfigPath = getUserConfigPath();
+  const nextToml = readTomlConfig(userConfigPath);
+  nextToml.server = nextServer;
+
+  const configDirectory = path.dirname(userConfigPath);
+  mkdirSync(configDirectory, { recursive: true });
+  writeFileSync(userConfigPath, stringifyToml(nextToml as Record<string, unknown>), "utf8");
+
+  userServerToml = loadUserServerTomlConfig();
+  serverToml = loadServerTomlConfig();
 }
 
 function expandTilde(p: string): string {
@@ -672,6 +694,39 @@ export function updateTelemetrySettings(
 
 export function getThreadNotificationSettings(): ThreadNotificationSettings {
   return threadNotificationSettingsFromConfig(userServerToml);
+}
+
+export function getCommandKeybindingOverrides(): CommandKeybindingOverrides {
+  return normalizeCommandKeybindingOverrides(userServerToml.command_keybindings);
+}
+
+export function getCommandKeymapState(): CommandKeymapState {
+  return createCommandKeymapState(getCommandKeybindingOverrides());
+}
+
+export function updateCommandKeybinding(
+  commandId: string,
+  update: CommandKeybindingUpdate,
+): CommandKeymapState {
+  const currentOverrides = getCommandKeybindingOverrides();
+  const nextOverrides = applyCommandKeybindingUpdate(currentOverrides, commandId, update);
+  writeCommandKeybindingOverrides(nextOverrides);
+  return getCommandKeymapState();
+}
+
+export function resetCommandKeybindings(): CommandKeymapState {
+  writeCommandKeybindingOverrides({});
+  return getCommandKeymapState();
+}
+
+function writeCommandKeybindingOverrides(overrides: CommandKeybindingOverrides): void {
+  const nextServer: ServerTomlConfig = { ...(loadUserServerTomlConfig() ?? {}) };
+  if (Object.keys(overrides).length === 0) {
+    delete nextServer.command_keybindings;
+  } else {
+    nextServer.command_keybindings = overrides;
+  }
+  writeUserServerTomlConfig(nextServer);
 }
 
 export function updateThreadNotificationSettings(

@@ -668,3 +668,78 @@ describe("history settings config", () => {
     });
   });
 });
+
+describe("command keybinding config", () => {
+  test("persists custom arrays empty unassigned reset-one and reset-all", async () => {
+    await withTempConfigFixture(async ({ tempHome }) => {
+      type TestCommandKeymapEntry = {
+        id: string;
+        isCustom: boolean;
+        keybindings: Array<{ key: string | null }>;
+      };
+      const config = await importConfigModule();
+
+      const customState = config.updateCommandKeybinding("openThreadInNewWindow", {
+        type: "set",
+        keybinding: { key: "CmdOrCtrl+Alt+W" },
+      });
+      const customEntry = (customState.entries as TestCommandKeymapEntry[]).find((entry) => entry.id === "openThreadInNewWindow");
+      expect(customEntry?.keybindings[0]?.key).toBe("CmdOrCtrl+Alt+W");
+      expect(customEntry?.isCustom).toBeTrue();
+
+      const unassignedState = config.updateCommandKeybinding("openThreadInNewWindow", {
+        type: "remove",
+        keybinding: { key: "CmdOrCtrl+Alt+W" },
+      });
+      const unassignedEntry = (unassignedState.entries as TestCommandKeymapEntry[]).find((entry) => entry.id === "openThreadInNewWindow");
+      expect(unassignedEntry?.keybindings.length).toBe(0);
+      expect(unassignedEntry?.isCustom).toBeTrue();
+
+      const configPath = path.join(tempHome, ".nodex", "config.toml");
+      const written = fs.readFileSync(configPath, "utf8");
+      expect(written.includes("[server.command_keybindings]")).toBeTrue();
+      expect(written.includes("openThreadInNewWindow = []")).toBeTrue();
+
+      const resetEntryState = config.updateCommandKeybinding("openThreadInNewWindow", { type: "reset" });
+      const resetEntry = (resetEntryState.entries as TestCommandKeymapEntry[]).find((entry) => entry.id === "openThreadInNewWindow");
+      expect(resetEntry?.isCustom).toBeFalse();
+
+      config.updateCommandKeybinding("renameThread", {
+        type: "set",
+        keybinding: { key: "CmdOrCtrl+Alt+Shift+R" },
+      });
+      const resetAllState = config.resetCommandKeybindings();
+      expect(resetAllState.hasCustomBindings).toBeFalse();
+      const resetAllWritten = fs.readFileSync(configPath, "utf8");
+      expect(resetAllWritten.includes("[server.command_keybindings]")).toBeFalse();
+    });
+  });
+
+  test("rejects invalid and conflicting accelerators", async () => {
+    await withTempConfigFixture(async () => {
+      const config = await importConfigModule();
+
+      let invalidThrew = false;
+      try {
+        config.updateCommandKeybinding("renameThread", {
+          type: "set",
+          keybinding: { key: "Command" },
+        });
+      } catch {
+        invalidThrew = true;
+      }
+      expect(invalidThrew).toBeTrue();
+
+      let conflictThrew = false;
+      try {
+        config.updateCommandKeybinding("renameThread", {
+          type: "set",
+          keybinding: { key: "CmdOrCtrl+B" },
+        });
+      } catch {
+        conflictThrew = true;
+      }
+      expect(conflictThrew).toBeTrue();
+    });
+  });
+});

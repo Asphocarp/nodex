@@ -71,6 +71,12 @@ export function subscribeAppUpdateStatus(
   return resolveRendererTransport().subscribeAppUpdateStatus(callback);
 }
 
+export function subscribeCommandKeymapChanges(
+  callback: (state: import("../../shared/command-keybindings").CommandKeymapState) => void,
+): () => void {
+  return resolveRendererTransport().subscribeCommandKeymapChanges(callback);
+}
+
 export function getWindowFocusState(): Promise<boolean> {
   return resolveRendererTransport().getWindowFocusState();
 }

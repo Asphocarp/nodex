@@ -8,11 +8,13 @@ import {
 describe("workbench settings routes", () => {
   test("builds canonical settings paths", () => {
     expect(buildSettingsPath("general-settings")).toBe("/settings/general-settings");
+    expect(buildSettingsPath("keyboard-shortcuts")).toBe("/settings/keyboard-shortcuts");
     expect(buildSettingsPath("local-environments")).toBe("/settings/local-environments");
   });
 
   test("parses canonical settings paths", () => {
     expect(parseSettingsPath("/settings/general-settings")).toBe("general-settings");
+    expect(parseSettingsPath("/settings/keyboard-shortcuts")).toBe("keyboard-shortcuts");
     expect(parseSettingsPath("/settings/local-environments")).toBe("local-environments");
     expect(parseSettingsPath("/settings")).toBe(null);
     expect(parseSettingsPath("/not-settings")).toBe(null);

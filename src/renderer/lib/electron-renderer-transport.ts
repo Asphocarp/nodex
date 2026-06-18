@@ -3,6 +3,10 @@ import type {
   CodexHostMessage,
   DesktopNotificationActionPayload,
 } from "./types";
+import {
+  COMMAND_KEYBINDINGS_CHANGED_CHANNEL,
+  type CommandKeymapState,
+} from "../../shared/command-keybindings";
 import type { BoardChangeEvent, ProjectSessionsChangeEvent, ProjectsChangeEvent } from "../../shared/ipc-api";
 
 export type ElectronRendererBridge = NonNullable<Window["api"]>;
@@ -73,6 +77,13 @@ export function createElectronRendererTransport(bridge: ElectronRendererBridge) 
       return bridge.on("app:update-status", (...args: unknown[]) => {
         const payload = args[0] as AppUpdateStatus | undefined;
         if (!payload || typeof payload.status !== "string") return;
+        callback(payload);
+      });
+    },
+    subscribeCommandKeymapChanges(callback: (state: CommandKeymapState) => void) {
+      return bridge.on(COMMAND_KEYBINDINGS_CHANGED_CHANNEL, (...args: unknown[]) => {
+        const payload = args[0] as CommandKeymapState | undefined;
+        if (!payload || payload.version !== 1 || !Array.isArray(payload.entries)) return;
         callback(payload);
       });
     },

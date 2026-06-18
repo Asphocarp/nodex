@@ -52,6 +52,7 @@ import {
 import { useCodeFontSize } from "../../lib/use-code-font-size";
 import { useNfmAutolinkSettings } from "../../lib/use-nfm-autolink-settings";
 import { AppUpdateSettingsControl } from "./app-update-settings-control";
+import { KeyboardShortcutsSettingsPage } from "./keyboard-shortcuts-settings-page";
 import { LocalEnvironmentsSettingsPage } from "./local-environments-settings-page";
 import {
   DEFAULT_DESCRIPTION_SOFT_LIMIT,
@@ -2514,6 +2515,7 @@ function SettingsPlaceholderPage({
 const SETTINGS_SECTION_COMPONENTS: Record<SettingsSectionId, ComponentType<SettingsSectionPageProps>> = {
   "general-settings": GeneralSettingsPage,
   appearance: AppearanceSettingsPage,
+  "keyboard-shortcuts": KeyboardShortcutsSettingsPage,
   agent: AgentSettingsPage,
   editor: EditorSettingsPage,
   card: CardSettingsPage,

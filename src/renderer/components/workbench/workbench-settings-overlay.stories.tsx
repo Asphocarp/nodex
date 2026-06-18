@@ -11,6 +11,12 @@ import type {
 } from "@/lib/types";
 import { SettingsRouteShell } from "./workbench-settings-overlay";
 import { buildSettingsPath } from "./workbench-settings-routes";
+import {
+  applyCommandKeybindingUpdate,
+  createCommandKeymapState,
+  type CommandKeybindingOverrides,
+  type CommandKeybindingUpdate,
+} from "../../../shared/command-keybindings";
 
 const PROJECTS: Project[] = [
   {
@@ -107,12 +113,14 @@ function ensureStorybookElectronBridge({
   backups,
   onDeleteBackup,
   onCreateBackup,
+  initialCommandKeybindingOverrides = {},
 }: {
   snapshots: Record<string, WorktreeEnvironmentSettingsSnapshot>;
   onSaveSnapshot: (input: UpdateWorktreeEnvironmentConfigInput) => WorktreeEnvironmentSettingsSnapshot;
   backups: BackupRecord[];
   onDeleteBackup: (backupId: string) => void;
   onCreateBackup: (label: string | null) => BackupRecord;
+  initialCommandKeybindingOverrides?: CommandKeybindingOverrides;
 }) {
   if (typeof window === "undefined") return;
 
@@ -148,6 +156,7 @@ function ensureStorybookElectronBridge({
       autoCaptureEnabled: false,
     },
   };
+  let commandKeybindingOverrides: CommandKeybindingOverrides = { ...initialCommandKeybindingOverrides };
 
   window.api = {
     invoke: async (channel: string, ...args: unknown[]) => {
@@ -158,6 +167,22 @@ function ensureStorybookElectronBridge({
             permissionsEnabled: true,
             questionsEnabled: true,
           };
+        case "codex-command-keymap-state":
+          return createCommandKeymapState(commandKeybindingOverrides);
+        case "set-codex-command-keybinding": {
+          const [commandId, update] = args as [string, CommandKeybindingUpdate];
+          commandKeybindingOverrides = applyCommandKeybindingUpdate(
+            commandKeybindingOverrides,
+            commandId,
+            update,
+          );
+          return createCommandKeymapState(commandKeybindingOverrides);
+        }
+        case "reset-codex-command-keybindings":
+          commandKeybindingOverrides = {};
+          return createCommandKeymapState(commandKeybindingOverrides);
+        case "global-dictation-capture-fn-hotkey":
+          return null;
         case "settings:app-updates:get":
           return { automaticChecksEnabled: true };
         case "app:update:status":
@@ -294,9 +319,11 @@ function ensureStorybookElectronBridge({
 function SettingsRouteShellStory({
   initialPath,
   initialServiceTier = "standard",
+  initialCommandKeybindingOverrides,
 }: {
   initialPath: string;
   initialServiceTier?: "standard" | "fast";
+  initialCommandKeybindingOverrides?: CommandKeybindingOverrides;
 }) {
   const [path, setPath] = useState(initialPath);
   const [environmentSnapshots, setEnvironmentSnapshots] = useState<Record<string, WorktreeEnvironmentSettingsSnapshot>>({
@@ -374,6 +401,7 @@ function SettingsRouteShellStory({
       setBackups((current) => [backup, ...current]);
       return backup;
     },
+    initialCommandKeybindingOverrides,
   });
 
   if (typeof localStorage !== "undefined") {
@@ -458,6 +486,22 @@ export const LocalEnvironments: Story = {
   render: () => <SettingsRouteShellStory initialPath={buildSettingsPath("local-environments")} />,
 };
 
+export const KeyboardShortcuts: Story = {
+  render: () => <SettingsRouteShellStory initialPath={buildSettingsPath("keyboard-shortcuts")} />,
+};
+
+export const KeyboardShortcutsCustomState: Story = {
+  render: () => (
+    <SettingsRouteShellStory
+      initialPath={buildSettingsPath("keyboard-shortcuts")}
+      initialCommandKeybindingOverrides={{
+        openThreadInNewWindow: ["CmdOrCtrl+Alt+W"],
+        toggleThreadPin: [],
+      }}
+    />
+  ),
+};
+
 export const Backups: Story = {
   render: () => <SettingsRouteShellStory initialPath={buildSettingsPath("backups")} />,
 };
@@ -469,7 +513,7 @@ export const InvalidSectionRedirect: Story = {
 export const NarrowViewport: Story = {
   render: () => (
     <div className="h-screen w-[390px] overflow-hidden border-r border-token-border">
-      <SettingsRouteShellStory initialPath={buildSettingsPath("appearance")} />
+      <SettingsRouteShellStory initialPath={buildSettingsPath("keyboard-shortcuts")} />
     </div>
   ),
 };

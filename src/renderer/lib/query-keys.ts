@@ -31,6 +31,7 @@ export const queryKeys = {
     all: () => ["settings"] as const,
     windowRestore: () => ["settings", "windowRestore"] as const,
     threadNotifications: () => ["settings", "threadNotifications"] as const,
+    commandKeymap: () => ["codex-command-keymap-state"] as const,
   },
   git: {
     all: () => ["git"] as const,

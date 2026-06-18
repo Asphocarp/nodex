@@ -1,4 +1,11 @@
 import { toApiUrl } from "./http-base";
+import {
+  applyCommandKeybindingUpdate,
+  createCommandKeymapState,
+  type CommandKeybindingOverrides,
+  type CommandKeybindingUpdate,
+  type CommandKeymapState,
+} from "../../shared/command-keybindings";
 import { createDefaultWorkbenchLayoutSnapshot } from "../../shared/workbench-layout";
 import type {
   AppUpdateStatus,
@@ -30,6 +37,7 @@ function resolveUnsupportedAppUpdateStatus(): AppUpdateStatus {
 }
 
 let browserWindowSessionLayout = createDefaultWorkbenchLayoutSnapshot();
+let browserCommandKeybindingOverrides: CommandKeybindingOverrides = {};
 
 function createBrowserWindowSessionBootstrap(layout: WorkbenchLayoutSnapshot): WindowSessionBootstrap {
   const timestamp = new Date().toISOString();
@@ -907,6 +915,25 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         policy: input.policy === "last-window" || input.policy === "none" ? input.policy : "all",
       };
     }
+    case "codex-command-keymap-state": {
+      return createCommandKeymapState(browserCommandKeybindingOverrides);
+    }
+    case "set-codex-command-keybinding": {
+      const [commandId, update] = args as [string, CommandKeybindingUpdate];
+      browserCommandKeybindingOverrides = applyCommandKeybindingUpdate(
+        browserCommandKeybindingOverrides,
+        commandId,
+        update,
+      );
+      return createCommandKeymapState(browserCommandKeybindingOverrides);
+    }
+    case "reset-codex-command-keybindings": {
+      browserCommandKeybindingOverrides = {};
+      return createCommandKeymapState(browserCommandKeybindingOverrides);
+    }
+    case "global-dictation-capture-fn-hotkey": {
+      return null;
+    }
     case "app:update:status":
     case "app:update:check": {
       return resolveUnsupportedAppUpdateStatus();
@@ -1512,6 +1539,11 @@ function subscribeAppUpdateStatus(callback: (status: AppUpdateStatus) => void): 
   return () => { };
 }
 
+function subscribeCommandKeymapChanges(callback: (state: CommandKeymapState) => void): () => void {
+  void callback;
+  return () => {};
+}
+
 async function getWindowFocusState(): Promise<boolean> {
   return typeof document !== "undefined" ? document.visibilityState !== "hidden" : true;
 }
@@ -1546,6 +1578,7 @@ export const browserRendererTransport = {
   subscribeDesktopNotificationActions,
   subscribeGitBranchChanges,
   subscribeAppUpdateStatus,
+  subscribeCommandKeymapChanges,
   getWindowFocusState,
   subscribeWindowFocusChanges,
 };

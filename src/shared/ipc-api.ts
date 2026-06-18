@@ -147,6 +147,10 @@ import type {
   FileLinkTarget,
 } from "./file-link-openers";
 import type {
+  CommandKeybindingUpdate,
+  CommandKeymapState,
+} from "./command-keybindings";
+import type {
   BrowserBrowsingDataClearResult,
   BrowserBrowsingDataKind,
   BrowserSidebarBrowserUseCaptureSurfaceEvent,
@@ -572,6 +576,13 @@ export interface IpcApi {
     args: [input: UpdateWindowRestoreSettingsInput];
     result: WindowRestoreSettings;
   };
+  "codex-command-keymap-state": { args: []; result: CommandKeymapState };
+  "set-codex-command-keybinding": {
+    args: [commandId: string, update: CommandKeybindingUpdate];
+    result: CommandKeymapState;
+  };
+  "reset-codex-command-keybindings": { args: []; result: CommandKeymapState };
+  "global-dictation-capture-fn-hotkey": { args: []; result: string | null };
   "app:update:status": { args: []; result: AppUpdateStatus };
   "app:update:check": { args: []; result: AppUpdateStatus };
   "app:update:install": { args: []; result: boolean };

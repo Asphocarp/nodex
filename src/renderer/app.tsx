@@ -16,6 +16,7 @@ import {
 } from "@/lib/use-workbench-state";
 import { useCardStageState } from "@/lib/use-card-stage";
 import { useWorkbenchShortcuts } from "@/lib/use-workbench-shortcuts";
+import { useCommandKeymapState } from "@/lib/use-command-keymap-state";
 import { invoke } from "@/lib/api";
 import { registerAppCloseFlushHandler } from "@/lib/app-close-flush";
 import {
@@ -1041,6 +1042,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     setCommandPaletteInitialQuery(initialQuery);
     setCommandPaletteOpenTick((tick) => tick + 1);
   }, []);
+  const commandKeymapQuery = useCommandKeymapState();
 
   useWorkbenchShortcuts({
     spaces,
@@ -1067,6 +1069,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     },
     onToggleSidebar: requestSidebarToggle,
     onRequestRenameThread: requestThreadRename,
+    commandKeymapState: commandKeymapQuery.data,
   });
 
   if (loading) {
@@ -1189,6 +1192,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       onRequestNewWindow={() => {
         void handleRequestNewWindow();
       }}
+      commandKeymapState={commandKeymapQuery.data}
       />
     </LocalConversationProvider>
   );

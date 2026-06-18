@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
 - Added app-window Back/Forward titlebar controls with matching keyboard, mouse, command-palette, and macOS menu entry points.
 - Added the global bottom-panel toggle beside the side-panel toggle, with active/ghost toolbar states.
 - Added a Notion-style floating text action menu for NFM rich-text selections, with tokenized parity chrome, supported text/link/block actions, inert reference-only AI/comment/equation controls, and Nodex send-block actions where Card Stage callbacks are available.
+- Added Settings -> Keyboard shortcuts with searchable editable command shortcuts, capture, conflict checks, per-command reset, reset-all, shared runtime/menu labels, and user-level config persistence.
 - Added right and bottom session panels with shared tab chrome, panel-scoped ordering, cross-panel tab moves, a bottom-panel Terminal default, and eligible bottom actions for Files, Side chat, Browser, Review, and Terminal.
 - Added splitable tab groups for right and bottom session panels, including nested horizontal/vertical groups, sash resizing, tab split actions, leaf-scoped previews and side chats, live tab-row insertion previews, and body-edge drag splitting within a panel.
 - Added temporary Side chat conversations in right or bottom panels, including empty-panel, header-menu, `/side`, and transcript `Ask in side chat` entry points, loading/expired states, background discard on close, and migration cleanup for older saved durable launcher rows.

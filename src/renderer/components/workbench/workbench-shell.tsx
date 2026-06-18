@@ -274,6 +274,13 @@ import {
   type WorkbenchThreadRenameCommandRequest,
 } from "../../../shared/window-navigation";
 import {
+  createCommandKeymapState,
+  formatCommandShortcutLabel,
+  getCommandEntry,
+  matchesKeyboardEventToCommand,
+  type CommandKeymapState,
+} from "../../../shared/command-keybindings";
+import {
   navigateBackInWorkbenchShellHistory,
   navigateForwardInWorkbenchShellHistory,
   readWorkbenchShellNavigationHistoryState,
@@ -338,6 +345,7 @@ interface PanelNewTabAction {
   label: string;
   description: string;
   shortcut?: PanelActionShortcut;
+  commandId?: string;
   Icon: ComponentType<{ className?: string }>;
 }
 
@@ -398,6 +406,7 @@ const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
     label: "Files",
     description: "Browse project files",
     shortcut: "mod+shift+e",
+    commandId: "toggleFileTreePanel",
     Icon: CodexSidePanelFilesIcon,
   },
   {
@@ -407,6 +416,7 @@ const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
     label: "Side chat",
     description: "Start a side conversation",
     shortcut: "alt+mod+s",
+    commandId: "openSideChat",
     Icon: CodexSidePanelSideChatIcon,
   },
   {
@@ -416,6 +426,7 @@ const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
     label: "Browser",
     description: "Open a website",
     shortcut: "mod+t",
+    commandId: "openBrowserTab",
     Icon: CodexSidePanelBrowserIcon,
   },
   {
@@ -425,6 +436,7 @@ const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
     label: "Review",
     description: "View code changes",
     shortcut: "ctrl+shift+g",
+    commandId: "openReviewTab",
     Icon: CodexSidePanelReviewIcon,
   },
   {
@@ -434,6 +446,7 @@ const PANEL_NEW_TAB_ACTIONS: PanelNewTabAction[] = [
     label: "Terminal",
     description: "Start an interactive shell",
     shortcut: "ctrl+backquote",
+    commandId: "toggleTerminal",
     Icon: CodexSidePanelTerminalIcon,
   },
   {
@@ -641,6 +654,7 @@ interface WorkbenchShellProps {
   navigateToThreadTab?: unknown;
   navigateToFilesTab?: unknown;
   onRequestNewWindow?: () => void;
+  commandKeymapState?: CommandKeymapState | null;
 }
 
 interface OpenCardTabOptions {
@@ -878,6 +892,23 @@ function resolvePanelShortcutLabel(shortcut: PanelActionShortcut | undefined, is
   return "⌃`";
 }
 
+function resolvePanelActionShortcutLabel(
+  action: PanelNewTabAction,
+  isMac: boolean,
+  commandKeymapState?: CommandKeymapState | null,
+): string | null {
+  if (action.commandId) {
+    const state = commandKeymapState ?? createCommandKeymapState({}, isMac ? "macOS" : "windows");
+    const label = formatCommandShortcutLabel(state, action.commandId);
+    const entry = getCommandEntry(state, action.commandId);
+    if (label && entry?.isCustom !== true && action.shortcut) {
+      return resolvePanelShortcutLabel(action.shortcut, isMac);
+    }
+    if (label) return label;
+  }
+  return resolvePanelShortcutLabel(action.shortcut, isMac);
+}
+
 function matchesPanelShortcut(
   event: Pick<KeyboardEvent, "altKey" | "code" | "ctrlKey" | "key" | "metaKey" | "shiftKey">,
   shortcut: PanelActionShortcut,
@@ -894,6 +925,19 @@ function matchesPanelShortcut(
     return modifier && event.altKey && !event.shiftKey && key === "s";
   }
   return event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && (event.key === "`" || event.code === "Backquote");
+}
+
+function matchesPanelActionShortcut(
+  event: Pick<KeyboardEvent, "altKey" | "code" | "ctrlKey" | "key" | "metaKey" | "shiftKey">,
+  action: PanelNewTabAction,
+  isMac: boolean,
+  commandKeymapState?: CommandKeymapState | null,
+): boolean {
+  if (action.commandId) {
+    const state = commandKeymapState ?? createCommandKeymapState({}, isMac ? "macOS" : "windows");
+    if (matchesKeyboardEventToCommand(event, state, action.commandId)) return true;
+  }
+  return action.shortcut ? matchesPanelShortcut(event, action.shortcut, isMac) : false;
 }
 
 function resolvePanelTabCycleDirection(
@@ -1314,6 +1358,7 @@ export function WorkbenchShell({
   threadRenameRequest = null,
   onNavigationStateChange,
   onRequestNewWindow,
+  commandKeymapState,
   navigateToStage,
   navigateToDbView,
 }: WorkbenchShellProps) {
@@ -3240,18 +3285,71 @@ export function WorkbenchShell({
 
   useEffect(() => {
     const isMacPlatformForShortcut = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
+    const shortcutState = commandKeymapState ?? createCommandKeymapState({}, isMacPlatformForShortcut ? "macOS" : "windows");
 
     const onKeyDown = (event: KeyboardEvent) => {
-      const modifier = isMacPlatformForShortcut ? event.metaKey : event.ctrlKey;
-      if (!modifier || event.altKey || event.shiftKey || event.key.toLowerCase() !== "n") return;
       if (isWorkbenchNewChatShortcutTargetEditable(event.target)) return;
-      event.preventDefault();
-      void startNewChatInProject(activeProjectId);
+
+      if (matchesKeyboardEventToCommand(event, shortcutState, "archiveThread")) {
+        if (!activeSession || activeSession.isOverview) return;
+        event.preventDefault();
+        void archiveSession(activeSession);
+        return;
+      }
+
+      if (matchesKeyboardEventToCommand(event, shortcutState, "newThread")) {
+        event.preventDefault();
+        void startNewChatInProject(activeProjectId);
+        return;
+      }
+
+      if (matchesKeyboardEventToCommand(event, shortcutState, "openSideChat")) {
+        event.preventDefault();
+        void openSideChat({ targetPanelId: "right" });
+        return;
+      }
+
+      if (matchesKeyboardEventToCommand(event, shortcutState, "openThreadInNewWindow")) {
+        if (!activeSession || activeSession.isOverview) return;
+        event.preventDefault();
+        void onOpenProjectSessionInNewWindow?.(activeSession);
+        return;
+      }
+
+      if (matchesKeyboardEventToCommand(event, shortcutState, "quickChat")) {
+        event.preventDefault();
+        void startNewChatInProject(activeProjectId);
+        return;
+      }
+
+      if (matchesKeyboardEventToCommand(event, shortcutState, "toggleThreadPin")) {
+        if (!activeSession || activeSession.isOverview) return;
+        event.preventDefault();
+        void toggleSessionPin(activeSession);
+        return;
+      }
+
+      if (matchesKeyboardEventToCommand(event, shortcutState, "focusBrowserAddressBar")) {
+        const input = document.querySelector<HTMLInputElement>("[data-browser-sidebar-address-input='true']");
+        if (!input) return;
+        event.preventDefault();
+        input.focus();
+        input.select();
+      }
     };
 
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [activeProjectId, startNewChatInProject]);
+  }, [
+    activeProjectId,
+    activeSession,
+    archiveSession,
+    commandKeymapState,
+    onOpenProjectSessionInNewWindow,
+    openSideChat,
+    startNewChatInProject,
+    toggleSessionPin,
+  ]);
 
   const createManualTab = useCallback(async (kind: ProjectSessionTab["kind"], targetPanelId?: PanelId) => {
     if (!activeSession) return;
@@ -3468,7 +3566,7 @@ export function WorkbenchShell({
     if (isWorkbenchNewChatShortcutTargetEditable(event.target)) return false;
 
     const action = PANEL_NEW_TAB_ACTIONS.find((candidate) =>
-      candidate.shortcut ? matchesPanelShortcut(event, candidate.shortcut, isMacPlatform) : false,
+      matchesPanelActionShortcut(event, candidate, isMacPlatform, commandKeymapState),
     );
     if (!action) return false;
 
@@ -4634,7 +4732,7 @@ export function WorkbenchShell({
             return (
               <NodexDropdownItem
                 leftSlot={<Icon className="icon-sm" />}
-                keyboardShortcut={resolvePanelShortcutLabel(action.shortcut, isMacPlatform)}
+                keyboardShortcut={resolvePanelActionShortcutLabel(action, isMacPlatform, commandKeymapState)}
                 onSelect={() => {
                   if (action.kind === "side_chat") {
                     void openSideChat({ targetPanelId: panelId, targetLeafId: leafId });
@@ -4824,6 +4922,7 @@ export function WorkbenchShell({
         void executeShellNavigation("forward");
       }}
       onRequestNewWindow={onRequestNewWindow}
+      commandKeymapState={commandKeymapState}
     />
   );
 
@@ -5153,6 +5252,7 @@ export function WorkbenchShell({
                                 actions={availableRightPanelActions}
                                 cards={activeProjectCardOptions}
                                 isMac={isMacPlatform}
+                                commandKeymapState={commandKeymapState}
                                 onAction={(kind) => {
                                   if (kind === "side_chat") {
                                     void openSideChat({ targetPanelId: "right", targetLeafId: leafId });
@@ -5236,6 +5336,7 @@ export function WorkbenchShell({
                               actions={availableBottomPanelActions}
                               cards={[]}
                               isMac={isMacPlatform}
+                              commandKeymapState={commandKeymapState}
                               onAction={(kind) => {
                                 if (kind === "side_chat") {
                                   void openSideChat({ targetPanelId: "bottom", targetLeafId: leafId });
@@ -5816,16 +5917,18 @@ function ProjectSessionSidebar({
 type PanelActionCardProps = ComponentPropsWithoutRef<"button"> & {
   action: PanelNewTabAction;
   isMac: boolean;
+  commandKeymapState?: CommandKeymapState | null;
 };
 
 const PanelActionCard = forwardRef<HTMLButtonElement, PanelActionCardProps>(
   function PanelActionCard({
     action,
     isMac,
+    commandKeymapState,
     className,
     ...buttonProps
   }, ref) {
-    const shortcut = resolvePanelShortcutLabel(action.shortcut, isMac);
+    const shortcut = resolvePanelActionShortcutLabel(action, isMac, commandKeymapState);
     const Icon = action.Icon;
     return (
       <button
@@ -5888,12 +5991,14 @@ function EmptyRightPane({
   actions,
   cards,
   isMac,
+  commandKeymapState,
   onAction,
   onOpenCard,
 }: {
   actions: PanelNewTabAction[];
   cards: Array<{ card: CardSummary; columnName: string }>;
   isMac: boolean;
+  commandKeymapState?: CommandKeymapState | null;
   onAction: (kind: PanelNewTabActionKind) => void;
   onOpenCard: (card: CardSummary) => void;
 }) {
@@ -5907,7 +6012,7 @@ function EmptyRightPane({
           align="center"
           sideOffset={8}
           contentWidth="panelWide"
-          triggerButton={<PanelActionCard action={action} isMac={isMac} />}
+          triggerButton={<PanelActionCard action={action} isMac={isMac} commandKeymapState={commandKeymapState} />}
         >
           <RightPanelCardStagePicker cards={cards} onOpenCard={onOpenCard} />
         </NodexDropdownMenu>
@@ -5919,6 +6024,7 @@ function EmptyRightPane({
         key={action.kind}
         action={action}
         isMac={isMac}
+        commandKeymapState={commandKeymapState}
         onClick={() => onAction(action.kind)}
       />
     );

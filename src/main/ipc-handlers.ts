@@ -11,11 +11,14 @@ import * as ptyManager from "./pty-manager";
 import {
   getAppUpdateSettings,
   getBackupSettings,
+  getCommandKeymapState,
   getDiagnosticsSettings,
   getHistorySettings,
   getTelemetrySettings,
   getThreadNotificationSettings,
   getWindowRestoreSettings,
+  resetCommandKeybindings,
+  updateCommandKeybinding,
   updateAppUpdateSettings,
   updateBackupSettings,
   updateDiagnosticsSettings,
@@ -77,6 +80,10 @@ import type {
   BrowserSidebarWebviewDestroyed,
   BrowserSidebarWebviewHostCreated,
 } from "../shared/browser-sidebar";
+import {
+  COMMAND_KEYBINDINGS_CHANGED_CHANNEL,
+  type CommandKeymapState,
+} from "../shared/command-keybindings";
 
 type TypedIpcHandler<Channel extends keyof IpcApi> = (
   event: IpcMainInvokeEvent,
@@ -222,6 +229,17 @@ function ensureBrowserSidebarEventBridge(): void {
   browserSidebarService.on("destroyWebview", (event) => broadcastBrowserSidebarEvent("destroyWebview", event));
 }
 
+function broadcastCommandKeymapState(state: CommandKeymapState): void {
+  BrowserWindow.getAllWindows().forEach((window) => {
+    if (window.isDestroyed() || window.webContents.isDestroyed()) return;
+    window.webContents.send(COMMAND_KEYBINDINGS_CHANGED_CHANNEL, state);
+  });
+}
+
+function refreshBrowserSidebarCommandAccelerators(): void {
+  // Browser sidebar shortcut registration is renderer-owned in Nodex today.
+}
+
 interface RegisterIpcHandlersOptions {
   onCreateWindow?: (seed?: WindowSessionSeed) => void;
   onBootstrapWindowSession?: (webContentsId: number) => WindowSessionBootstrap;
@@ -235,6 +253,7 @@ interface RegisterIpcHandlersOptions {
   onCheckForAppUpdate?: () => Promise<AppUpdateStatus>;
   onInstallAppUpdate?: () => boolean;
   onAppUpdateSettingsChanged?: (settings: AppUpdateSettings) => void;
+  onCommandKeybindingsChanged?: (state: CommandKeymapState) => void;
 }
 
 export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): void {
@@ -733,6 +752,26 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerHandle("settings:window-restore:update", (_, input) =>
     updateWindowRestoreSettings(input)
   );
+
+  registerHandle("codex-command-keymap-state", () => getCommandKeymapState());
+
+  registerHandle("set-codex-command-keybinding", (_, commandId, update) => {
+    const state = updateCommandKeybinding(commandId, update);
+    refreshBrowserSidebarCommandAccelerators();
+    options.onCommandKeybindingsChanged?.(state);
+    broadcastCommandKeymapState(state);
+    return state;
+  });
+
+  registerHandle("reset-codex-command-keybindings", () => {
+    const state = resetCommandKeybindings();
+    refreshBrowserSidebarCommandAccelerators();
+    options.onCommandKeybindingsChanged?.(state);
+    broadcastCommandKeymapState(state);
+    return state;
+  });
+
+  registerHandle("global-dictation-capture-fn-hotkey", () => null);
 
   registerHandle("app:update:status", () =>
     options.onGetAppUpdateStatus?.() ?? {

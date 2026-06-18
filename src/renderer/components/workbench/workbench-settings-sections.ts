@@ -8,10 +8,12 @@ import {
   Shield,
   Type,
 } from "lucide-react";
+import { CodexKeyboardShortcutsIcon } from "../shared/icons";
 
 export type SettingsSectionId =
   | "general-settings"
   | "appearance"
+  | "keyboard-shortcuts"
   | "agent"
   | "editor"
   | "card"
@@ -32,6 +34,7 @@ export interface SettingsSectionDefinition {
 export const SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
   { id: "general-settings", label: "General", icon: Settings2 },
   { id: "appearance", label: "Appearance", icon: Palette },
+  { id: "keyboard-shortcuts", label: "Keyboard shortcuts", icon: CodexKeyboardShortcutsIcon },
   { id: "agent", label: "Agent", icon: Shield },
   { id: "editor", label: "Editor", icon: Type },
   { id: "card", label: "Card", icon: LayoutTemplate },

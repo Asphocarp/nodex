@@ -33,6 +33,7 @@ import * as ptyManager from "./pty-manager";
 import {
   getAppUpdateSettings,
   getBackupSettings,
+  getCommandKeymapState,
   getKanbanDir,
   getWindowRestoreSettings,
   getPort,
@@ -74,6 +75,10 @@ import {
   captureMainMessage,
   shutdownMainSentry,
 } from "./observability/sentry-main";
+import {
+  getPrimaryCommandAccelerator,
+  toElectronAccelerator,
+} from "../shared/command-keybindings";
 // macOS uses the packaged bundle icon from the app resources.
 // We only keep a PNG around for development Dock icon parity and non-macOS window icons.
 const appIconPath = app.isPackaged
@@ -206,10 +211,15 @@ async function requestHostMicrophonePermission(): Promise<void> {
 function configureMacWindowMenus(): void {
   if (process.platform !== "darwin") return;
 
+  const commandKeymapState = getCommandKeymapState();
+  const menuAccelerator = (commandId: string, fallback: string): string => {
+    return toElectronAccelerator(getPrimaryCommandAccelerator(commandKeymapState, commandId)) ?? fallback;
+  };
+
   const dockMenuTemplate: MenuItemConstructorOptions[] = [
     {
       label: "New Window",
-      accelerator: "Command+N",
+      accelerator: menuAccelerator("newWindow", "CommandOrControl+Shift+N"),
       click: () => {
         openNewWindow();
       },
@@ -253,7 +263,7 @@ function configureMacWindowMenus(): void {
       submenu: [
         {
           label: "New Window",
-          accelerator: "Command+N",
+          accelerator: menuAccelerator("newWindow", "CommandOrControl+Shift+N"),
           click: () => {
             openNewWindow();
           },
@@ -261,7 +271,7 @@ function configureMacWindowMenus(): void {
         { type: "separator" },
         {
           label: "Close Window",
-          accelerator: "CommandOrControl+Shift+W",
+          accelerator: menuAccelerator("closeWindow", "CommandOrControl+W"),
           click: closeFocusedWindow,
         },
       ],
@@ -272,14 +282,14 @@ function configureMacWindowMenus(): void {
       submenu: [
         {
           label: "Back",
-          accelerator: "CommandOrControl+[",
+          accelerator: menuAccelerator("navigateBack", "CommandOrControl+["),
           click: () => {
             sendNavigationMessage(NAVIGATE_BACK_HOST_CHANNEL);
           },
         },
         {
           label: "Forward",
-          accelerator: "CommandOrControl+]",
+          accelerator: menuAccelerator("navigateForward", "CommandOrControl+]"),
           click: () => {
             sendNavigationMessage(NAVIGATE_FORWARD_HOST_CHANNEL);
           },
@@ -301,7 +311,7 @@ function configureMacWindowMenus(): void {
         },
         {
           label: "Close Panel Tab",
-          accelerator: "CommandOrControl+W",
+          accelerator: menuAccelerator("closeTab", "CommandOrControl+W"),
           click: () => {
             sendNavigationMessage(CLOSE_PANEL_TAB_HOST_CHANNEL);
           },
@@ -309,14 +319,14 @@ function configureMacWindowMenus(): void {
         { type: "separator" },
         {
           label: WORKBENCH_SIDEBAR_TOGGLE_COMMAND.label,
-          accelerator: "CommandOrControl+B",
+          accelerator: menuAccelerator("toggleSidebar", "CommandOrControl+B"),
           click: () => {
             sendNavigationMessage(WORKBENCH_SIDEBAR_TOGGLE_COMMAND.hostChannel);
           },
         },
         {
           label: WORKBENCH_THREAD_RENAME_COMMAND.label,
-          accelerator: "CommandOrControl+Alt+R",
+          accelerator: menuAccelerator("renameThread", "CommandOrControl+Alt+R"),
           click: () => {
             sendNavigationMessage(WORKBENCH_THREAD_RENAME_COMMAND.hostChannel);
           },
@@ -1011,6 +1021,9 @@ export async function runMainAppStartup(
     onInstallAppUpdate: () => appUpdateService?.installUpdateAndRestart() ?? false,
     onAppUpdateSettingsChanged: () => {
       maybeStartAutomaticAppUpdateChecks();
+    },
+    onCommandKeybindingsChanged: () => {
+      configureMacWindowMenus();
     },
   });
 

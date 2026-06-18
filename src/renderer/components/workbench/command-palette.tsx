@@ -15,14 +15,16 @@ import {
   NAVIGATE_FORWARD_COMMAND_ID,
   RENAME_THREAD_COMMAND_ID,
   TOGGLE_SIDEBAR_COMMAND_ID,
-  resolveWorkbenchNavigationShortcutLabel,
-  resolveWorkbenchSidebarToggleShortcutLabel,
-  resolveWorkbenchThreadRenameShortcutLabel,
   type WorkbenchNavigationCommandSource,
   type WorkbenchSidebarToggleCommandSource,
   type WorkbenchThreadRenameCommandSource,
 } from "../../../shared/window-navigation";
 import { CommandPaletteSurface } from "./command-palette-surface";
+import {
+  createCommandKeymapState,
+  formatCommandShortcutLabel,
+  type CommandKeymapState,
+} from "../../../shared/command-keybindings";
 
 interface CommandPaletteProps {
   open: boolean;
@@ -49,6 +51,7 @@ interface CommandPaletteProps {
   onGoBack: (source: WorkbenchNavigationCommandSource) => void;
   onGoForward: (source: WorkbenchNavigationCommandSource) => void;
   onRequestNewWindow?: () => void;
+  commandKeymapState?: CommandKeymapState | null;
 }
 
 type PaletteItem = CommandPaletteCommand | CommandPaletteCard;
@@ -141,6 +144,7 @@ export function buildCommands(input: {
   canRenameThread: boolean;
   canOpenNewWindow: boolean;
   isMac: boolean;
+  commandKeymapState?: CommandKeymapState | null;
 }): CommandPaletteCommand[] {
   const {
     activeProjectName,
@@ -151,7 +155,11 @@ export function buildCommands(input: {
     canRenameThread,
     canOpenNewWindow,
     isMac,
+    commandKeymapState,
   } = input;
+  const shortcutState = commandKeymapState ?? createCommandKeymapState({}, isMac ? "macOS" : "windows");
+  const shortcutLabel = (commandId: string, fallback: string): string =>
+    formatCommandShortcutLabel(shortcutState, commandId, fallback) ?? createShortcutLabel(fallback, isMac);
   const commands: CommandPaletteCommand[] = [
     {
       kind: "command",
@@ -159,7 +167,7 @@ export function buildCommands(input: {
       title: "Back",
       subtitle: "Return to the previous workbench context",
       keywords: ["back", "previous", "history", "navigation"],
-      shortcut: resolveWorkbenchNavigationShortcutLabel("back", isMac),
+      shortcut: shortcutLabel("navigateBack", "Cmd+["),
       disabled: !canGoBack,
       priority: 500,
     },
@@ -169,7 +177,7 @@ export function buildCommands(input: {
       title: "Forward",
       subtitle: "Move to the next workbench context",
       keywords: ["forward", "next", "history", "navigation"],
-      shortcut: resolveWorkbenchNavigationShortcutLabel("forward", isMac),
+      shortcut: shortcutLabel("navigateForward", "Cmd+]"),
       disabled: !canGoForward,
       priority: 490,
     },
@@ -187,7 +195,7 @@ export function buildCommands(input: {
       title: "Search current project",
       subtitle: `Open task search for ${activeProjectName}`,
       keywords: ["search", "find", "tasks"],
-      shortcut: createShortcutLabel("Cmd+F", isMac),
+      shortcut: shortcutLabel("findInThread", "Cmd+F"),
       priority: 470,
     },
     {
@@ -196,7 +204,7 @@ export function buildCommands(input: {
       title: "Toggle terminal",
       subtitle: "Open or close the bottom terminal panel",
       keywords: ["terminal", "panel", "shell"],
-      shortcut: createShortcutLabel("Cmd+J", isMac),
+      shortcut: shortcutLabel("toggleBottomPanel", "Cmd+J"),
       priority: 460,
     },
     {
@@ -205,7 +213,7 @@ export function buildCommands(input: {
       title: "Toggle sidebar",
       subtitle: "Show or hide the project sidebar",
       keywords: ["sidebar", "panel", "shell"],
-      shortcut: resolveWorkbenchSidebarToggleShortcutLabel(isMac),
+      shortcut: shortcutLabel("toggleSidebar", "Cmd+B"),
       priority: 455,
     },
     {
@@ -214,7 +222,7 @@ export function buildCommands(input: {
       title: "Rename chat",
       subtitle: "Rename the active chat",
       keywords: ["rename", "chat", "thread", "title"],
-      shortcut: resolveWorkbenchThreadRenameShortcutLabel(isMac),
+      shortcut: shortcutLabel("renameThread", "Cmd+Alt+R"),
       disabled: !canRenameThread,
       priority: 452,
     },
@@ -224,7 +232,7 @@ export function buildCommands(input: {
       title: "Open settings",
       subtitle: "Adjust app, editor, and worktree preferences",
       keywords: ["settings", "preferences", "config"],
-      shortcut: createShortcutLabel("Cmd+,", isMac),
+      shortcut: shortcutLabel("settings", "Cmd+,"),
       priority: 450,
     },
     {
@@ -325,7 +333,7 @@ export function buildCommands(input: {
       title: "Open new window",
       subtitle: "Create another Nodex window",
       keywords: ["window", "new"],
-      shortcut: createShortcutLabel("Cmd+Shift+N", isMac),
+      shortcut: shortcutLabel("newWindow", "Cmd+Shift+N"),
       priority: 440,
     },
     ...commands,
@@ -357,6 +365,7 @@ export function CommandPalette({
   onGoBack,
   onGoForward,
   onRequestNewWindow,
+  commandKeymapState,
 }: CommandPaletteProps) {
   const isMac = isMacPlatform();
   const { cards, loading } = useCommandPaletteCards(open, projects, activeProjectId, recentCardSessions);
@@ -375,8 +384,9 @@ export function CommandPalette({
       canRenameThread,
       canOpenNewWindow: Boolean(onRequestNewWindow),
       isMac,
+      commandKeymapState,
     }),
-    [activeProjectName, activeView, canGoBack, canGoForward, canRenameThread, focusedStage, isMac, onRequestNewWindow],
+    [activeProjectName, activeView, canGoBack, canGoForward, canRenameThread, commandKeymapState, focusedStage, isMac, onRequestNewWindow],
   );
 
   const handleExecute = (item: PaletteItem) => {
