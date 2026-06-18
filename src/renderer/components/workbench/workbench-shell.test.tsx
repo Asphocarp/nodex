@@ -486,13 +486,21 @@ mock.module("@/lib/use-kanban", () => ({
 }));
 
 mock.module("./workbench-shell-deps", () => ({
-  CommandPalette: (props: { open: boolean; initialQuery?: string }) => {
+  CommandPalette: (props: { open: boolean; initialQuery?: string; onOpenChange: (open: boolean) => void }) => {
     if (!props.open) return null;
-    return createElement("input", {
-      "aria-label": "Command palette search",
-      readOnly: true,
-      value: props.initialQuery ?? "",
-    });
+    return createElement(
+      "div",
+      null,
+      createElement("input", {
+        "aria-label": "Command palette search",
+        readOnly: true,
+        value: props.initialQuery ?? "",
+      }),
+      createElement("button", {
+        type: "button",
+        onClick: () => props.onOpenChange(false),
+      }, "Close palette"),
+    );
   },
 }));
 
@@ -1385,6 +1393,44 @@ describe("workbench session shell", () => {
     expect(sidebarText.indexOf("New chat") < sidebarText.indexOf("Search")).toBeTrue();
     expect(sidebarText.indexOf("Search") < sidebarText.indexOf("Plugins")).toBeTrue();
     expect(sidebarText.indexOf("Plugins") < sidebarText.indexOf("Automations")).toBeTrue();
+  });
+
+  test("sidebar Search opens the command palette in default search mode", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      screen.openCommandPalette(">");
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const commandModeInput = screen.getByLabelText("Command palette search") as HTMLInputElement;
+    expect(commandModeInput.value).toBe(">");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Close palette" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const sidebar = screen.container.querySelector('[data-testid="project-session-sidebar"]');
+    if (!(sidebar instanceof HTMLElement)) {
+      throw new Error("Expected project session sidebar");
+    }
+
+    const searchButton = within(sidebar).getByRole("button", { name: "Search" });
+    expect(textContent(searchButton).includes("⌘K") || textContent(searchButton).includes("Ctrl+K")).toBeTrue();
+
+    await act(async () => {
+      fireEvent.click(searchButton);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const defaultSearchInput = screen.getByLabelText("Command palette search") as HTMLInputElement;
+    expect(defaultSearchInput.value).toBe("");
   });
 
   test("sidebar pin button toggles a session without selecting it", async () => {

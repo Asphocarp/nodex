@@ -15,6 +15,7 @@ The palette is a transient overlay and does not become part of durable navigatio
 - `Cmd/Ctrl+K` opens the command palette from anywhere in the app, including editable surfaces.
 - `Cmd/Ctrl+P` is an alias for the same palette.
 - `Cmd/Ctrl+Shift+P` opens the same palette with `>` prefilled so it starts in command mode, matching the VS Code mental model.
+- The sidebar `Search` row opens the same command palette in default card-search mode and shows the `Cmd/Ctrl+K` shortcut.
 - The palette reads cards from every loaded project store, not just the active project.
 - The palette closes after executing a result.
 - Closing the palette clears the query and resets the selection index.

@@ -903,3 +903,7 @@ function CodexSidebarActionButton({
 export function resolveCodexNewChatShortcutLabel() {
   return isMacPlatform() ? "⌘N" : "Ctrl+N";
 }
+
+export function resolveCodexCommandPaletteShortcutLabel() {
+  return isMacPlatform() ? "⌘K" : "Ctrl+K";
+}

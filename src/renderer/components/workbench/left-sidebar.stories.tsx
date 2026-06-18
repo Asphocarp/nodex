@@ -3,6 +3,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import type { CodexAccountSnapshot, Project, ProjectSession } from "@/lib/types";
 import type { SpaceRef } from "@/lib/use-workbench-state";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
+import { SearchIcon } from "@/components/shared/icons";
 import { makeProjectSessionPanelLayout } from "../../../shared/project-session-panel-layout";
 import { LeftSidebar, type StageSidebarGroup } from "./left-sidebar";
 import { LeftSidebarFooter } from "./left-sidebar-footer";
@@ -15,7 +16,9 @@ import {
   CodexProjectRow,
   CodexProjectSessionList,
   CodexSidebarSection,
+  CodexSidebarTopAction,
   CodexThreadRow,
+  resolveCodexCommandPaletteShortcutLabel,
 } from "./codex-sidebar";
 import {
   replaceVisibleOrder,
@@ -313,6 +316,12 @@ function SidebarNewChatControlsHarness() {
       <div className="min-h-screen bg-(--background) p-8">
         <div className="w-[280px] bg-(--background-secondary) py-1">
           <SidebarNewChatButton shortcutLabel="⌘N" onClick={() => {}} />
+          <CodexSidebarTopAction
+            label="Search"
+            icon={<SearchIcon className="icon-xs" />}
+            shortcutLabel={resolveCodexCommandPaletteShortcutLabel()}
+            onClick={() => {}}
+          />
           <div className="mt-3 px-(--sidebar-shell-padding-x)">
             <div className="group/folder-row flex min-h-7.5 items-center gap-1.5 rounded-xl pl-(--sidebar-row-padding-x) pr-(--sidebar-header-padding-x) py-1 text-(--sidebar-foreground) hover:bg-(--sidebar-accent)">
               <span className="min-w-0 flex-1 truncate text-sm">Codex bundle</span>

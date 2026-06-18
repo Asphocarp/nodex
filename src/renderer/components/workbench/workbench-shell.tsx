@@ -254,6 +254,7 @@ import {
   CodexSidebarSection,
   CodexSidebarTopAction,
   CodexThreadRow,
+  resolveCodexCommandPaletteShortcutLabel,
   resolveCodexNewChatShortcutLabel,
 } from "./codex-sidebar";
 import {
@@ -1175,6 +1176,10 @@ export function WorkbenchShell({
   const [localSidebarCollapsed, setLocalSidebarCollapsed] = useState(false);
   const [localSidebarWidth, setLocalSidebarWidth] = useState(CODEX_SIDEBAR_WIDTH_DEFAULT_PX);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [commandPaletteOpenRequest, setCommandPaletteOpenRequest] = useState({
+    tick: 0,
+    initialQuery: "",
+  });
   const [floatingSidebarVisible, setFloatingSidebarVisible] = useState(false);
   const [floatingSidebarResizing, setFloatingSidebarResizing] = useState(false);
   const [sidebarHoverSuppressed, setSidebarHoverSuppressed] = useState(false);
@@ -1471,8 +1476,12 @@ export function WorkbenchShell({
     }
 
     lastHandledCommandPaletteOpenTickRef.current = commandPaletteOpenTick;
+    setCommandPaletteOpenRequest((current) => ({
+      tick: current.tick + 1,
+      initialQuery: commandPaletteInitialQuery,
+    }));
     setCommandPaletteOpen(true);
-  }, [commandPaletteOpenTick]);
+  }, [commandPaletteInitialQuery, commandPaletteOpenTick]);
 
   useEffect(() => {
     writeWorkbenchShellNavigationHistoryState(shellNavigationHistory);
@@ -2951,6 +2960,14 @@ export function WorkbenchShell({
     if (!activeSession?.panels.right.collapsed) return;
     void updateActivePanel("right", { collapsed: false });
   }, [activeSession?.panels.right.collapsed, updateActivePanel]);
+
+  const openSidebarCommandPalette = useCallback(() => {
+    setCommandPaletteOpenRequest((current) => ({
+      tick: current.tick + 1,
+      initialQuery: "",
+    }));
+    setCommandPaletteOpen(true);
+  }, []);
 
   const showSidebarUnavailableProduct = useCallback((label: string) => {
     toast.info(`${label} is not available in Nodex yet.`, {
@@ -4442,8 +4459,8 @@ export function WorkbenchShell({
   const commandPalette = (
     <CommandPalette
       open={commandPaletteOpen}
-      openTriggerTick={commandPaletteOpenTick}
-      initialQuery={commandPaletteInitialQuery}
+      openTriggerTick={commandPaletteOpenRequest.tick}
+      initialQuery={commandPaletteOpenRequest.initialQuery}
       projects={projects}
       activeProjectId={commandPaletteProjectId}
       activeView={activeView}
@@ -4590,7 +4607,7 @@ export function WorkbenchShell({
               onOpenSessionContextMenu={openSessionContextMenu}
               onToggleSessionPinned={toggleSessionPin}
               onStartNewChatInProject={(projectId) => void startNewChatInProject(projectId)}
-              onOpenTaskSearch={openSidebarTaskSearch}
+              onOpenCommandPalette={openSidebarCommandPalette}
               onShowUnavailableProduct={showSidebarUnavailableProduct}
               projectPickerOpenTick={projectPickerOpenTick}
               onCreateProject={async (input) => {
@@ -4653,7 +4670,7 @@ export function WorkbenchShell({
                   onOpenSessionContextMenu={openSessionContextMenu}
                   onToggleSessionPinned={toggleSessionPin}
                   onStartNewChatInProject={(projectId) => void startNewChatInProject(projectId)}
-                  onOpenTaskSearch={openSidebarTaskSearch}
+                  onOpenCommandPalette={openSidebarCommandPalette}
                   onShowUnavailableProduct={showSidebarUnavailableProduct}
                   projectPickerOpenTick={projectPickerOpenTick}
                   onCreateProject={async (input) => {
@@ -5200,7 +5217,7 @@ function ProjectSessionSidebar({
   onOpenSessionContextMenu,
   onToggleSessionPinned,
   onStartNewChatInProject,
-  onOpenTaskSearch,
+  onOpenCommandPalette,
   onShowUnavailableProduct,
   projectPickerOpenTick = 0,
   onCreateProject,
@@ -5243,7 +5260,7 @@ function ProjectSessionSidebar({
   onOpenSessionContextMenu?: (session: ProjectSession, event: ReactMouseEvent<HTMLElement>) => void;
   onToggleSessionPinned?: (session: ProjectSession) => void | Promise<void>;
   onStartNewChatInProject: (projectId: string) => void | Promise<void>;
-  onOpenTaskSearch: () => void;
+  onOpenCommandPalette: () => void;
   onShowUnavailableProduct: (label: string) => void;
   projectPickerOpenTick?: number;
   onCreateProject: (input: ProjectCreateInput) => Promise<Project | null>;
@@ -5376,8 +5393,8 @@ function ProjectSessionSidebar({
             <CodexSidebarTopAction
               label="Search"
               icon={<SearchIcon className="icon-xs" />}
-              shortcutLabel={resolveCodexNewChatShortcutLabel() === "⌘N" ? "⌘F" : "Ctrl+F"}
-              onClick={onOpenTaskSearch}
+              shortcutLabel={resolveCodexCommandPaletteShortcutLabel()}
+              onClick={onOpenCommandPalette}
             />
             <CodexSidebarTopAction
               label="Plugins"
