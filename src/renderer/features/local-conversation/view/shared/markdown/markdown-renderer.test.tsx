@@ -1,7 +1,23 @@
 import { describe, expect, test } from "bun:test";
+import { act, waitFor } from "@testing-library/react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { render, settleAsyncRender, waitForStreamdownCodeHighlight } from "../../../../../test/dom";
 import { MarkdownRenderer } from "./markdown-renderer";
+
+const FENCED_TYPESCRIPT_CODE = [
+  "function add(a: number, b: number): number {",
+  "  return a + b;",
+  "}",
+  "",
+  "const result = add(1, 1);",
+  "console.log(result);",
+].join("\n");
+
+const FENCED_TYPESCRIPT_MARKDOWN = [
+  "```ts",
+  FENCED_TYPESCRIPT_CODE,
+  "```",
+].join("\n");
 
 describe("MarkdownRenderer", () => {
   test("renders inline code with the shared inline-markdown span contract", async () => {
@@ -108,16 +124,84 @@ describe("MarkdownRenderer", () => {
     expect(link?.textContent).toBe("/tmp/example.ts#L12");
   });
 
-  test("keeps fenced code blocks on the code-block renderer path", async () => {
+  test("keeps fenced code blocks on the highlighted code-block renderer path", async () => {
     const { container } = render(
-      <MarkdownRenderer content={"```ts\nconst answer = 42\n```"} />,
+      <MarkdownRenderer
+        content={FENCED_TYPESCRIPT_MARKDOWN}
+      />,
     );
 
     await waitForStreamdownCodeHighlight(container);
 
     expect(container.querySelector('[data-streamdown="code-block"]') !== null).toBeTrue();
-    expect(container.querySelector('[data-streamdown="code-block"] code') !== null).toBeTrue();
+    const code = container.querySelector('[data-streamdown="code-block"] code');
+    expect(code !== null).toBeTrue();
+    expect(code?.querySelectorAll(":scope > span").length).toBe(6);
+    expect(
+      code?.querySelector(':scope > span > span[style*="--sdm-c"]') !== null,
+    ).toBeTrue();
     expect(container.querySelector('[data-streamdown="code-block"] .inline-markdown') === null).toBeTrue();
+    expect(container.querySelector('[data-streamdown="code-block-copy-button"]') !== null).toBeTrue();
+    expect(container.querySelector('[data-streamdown="code-block-download-button"]') === null).toBeTrue();
+  });
+
+  test("copies fenced code through the Nodex clipboard fallback with line breaks intact", async () => {
+    let copiedText = "";
+    const originalClipboard = navigator.clipboard;
+    const originalExecCommand = document.execCommand;
+
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async () => {
+          throw new Error("Clipboard permission denied");
+        },
+      } as unknown as Clipboard,
+    });
+
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: (command: string) => {
+        if (command !== "copy") return false;
+        copiedText = document.querySelector("textarea")?.value ?? "";
+        return true;
+      },
+    });
+
+    try {
+      const { container } = render(
+        <MarkdownRenderer content={FENCED_TYPESCRIPT_MARKDOWN} />,
+      );
+
+      await waitForStreamdownCodeHighlight(container);
+
+      const copyButton = container.querySelector<HTMLButtonElement>(
+        '[data-streamdown="code-block-copy-button"]',
+      );
+      expect(copyButton !== null).toBeTrue();
+
+      await act(async () => {
+        copyButton?.click();
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        if (copiedText !== FENCED_TYPESCRIPT_CODE) {
+          throw new Error("Expected code block copy fallback to preserve source lines.");
+        }
+      });
+
+      expect(copiedText).toBe(FENCED_TYPESCRIPT_CODE);
+    } finally {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: originalClipboard,
+      });
+      Object.defineProperty(document, "execCommand", {
+        configurable: true,
+        value: originalExecCommand,
+      });
+    }
   });
 
   test("adds Streamdown word-fade markers for streaming assistant prose", async () => {

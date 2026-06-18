@@ -364,7 +364,11 @@ function HighlightedCodeBlock({
 
   return (
     <div className={cn("nfm-code-block my-2 text-sm", className)}>
-      <Streamdown plugins={{ code: streamdownCodePlugin }} controls={false}>
+      <Streamdown
+        plugins={{ code: streamdownCodePlugin }}
+        controls={false}
+        lineNumbers={false}
+      >
         {fencedCode}
       </Streamdown>
     </div>

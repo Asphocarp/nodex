@@ -116,6 +116,9 @@
 - Keep assistant markdown block styling renderer-owned:
   - Streamdown element renderers (`p`, `h1`-`h3`, `ul`, `ol`, `li`, `a`, `blockquote`, `hr`, `table`, `details`, `summary`) should carry the shared markdown class contract directly
   - do not use `.codex-markdown` / `.codex-markdown-plan` global prose CSS as the primary owner for markdown font size, line height, heading scale, or list spacing
+  - Streamdown code blocks and BlockNote NFM editor code blocks share one visual surface contract: single `--code-block-bg` surface, 10px radius, 24px inner code padding, 85% code font scale, no visible nested header/body card, and no line-number gutter
+  - when Streamdown line numbers are disabled, keep its direct `code > span` line nodes block-level and consume its Shiki token CSS variables (`--sdm-c`, `--shiki-dark`, `--sdm-tbg`) in scoped CSS; do not rely on Tailwind generating Streamdown's runtime arbitrary classes from `node_modules`
+  - Thread Streamdown code blocks may expose only the hover/focus copy action; route that action through Nodex's clipboard fallback while preserving line breaks, and do not reintroduce the download action or persistent Streamdown header chrome for ordinary transcript code blocks
 - Treat utilities as part of the design contract:
   - if a class belongs to the generated utility contract, keep it in the generated utility layer
   - if a class is renderer-local, keep it in `theme-utilities.css`

@@ -1,5 +1,53 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { ReadonlyNfmBlockNotePreview } from "@/components/kanban/editor/readonly-nfm-blocknote-preview";
 import { MarkdownRenderer } from "./markdown-renderer";
+
+const TYPESCRIPT_CODE_BLOCK = [
+  "```ts",
+  "type CodeBlockState = { language: string; copied: boolean };",
+  "",
+  "export function describeState(state: CodeBlockState) {",
+  "  return `${state.language}:${state.copied ? \"copied\" : \"idle\"}`;",
+  "}",
+  "```",
+].join("\n");
+
+const LONG_LINE_CODE_BLOCK = [
+  "```ts",
+  "const command = \"bun run typecheck && bun run lint && bun test src/renderer/features/local-conversation/view/shared/markdown/markdown-renderer.test.tsx src/renderer/components/kanban/nfm-renderer.test.tsx\";",
+  "console.log(command);",
+  "```",
+].join("\n");
+
+const UNKNOWN_LANGUAGE_CODE_BLOCK = [
+  "```madeuplang",
+  "pipeline -> parse -> render -> copy",
+  "```",
+].join("\n");
+
+function CodeBlockParityFrame(args: { content: string }) {
+  return (
+    <div className="grid max-w-5xl gap-6 bg-token-main-surface-primary px-5 py-4 text-token-foreground md:grid-cols-2">
+      <section className="min-w-0">
+        <h3 className="mb-3 text-xs font-medium tracking-normal text-token-description-foreground">
+          Thread Streamdown
+        </h3>
+        <MarkdownRenderer {...args} />
+      </section>
+      <section className="min-w-0">
+        <h3 className="mb-3 text-xs font-medium tracking-normal text-token-description-foreground">
+          NFM BlockNote
+        </h3>
+        <ReadonlyNfmBlockNotePreview
+          content={args.content}
+          projectId="storybook-code-block-project"
+          cardId="storybook-code-block-card"
+          historyId="code-block-parity"
+        />
+      </section>
+    </div>
+  );
+}
 
 const meta = {
   title: "Workbench/Threads/Markdown Parity",
@@ -53,4 +101,25 @@ export const BlockquoteTableAndDetails: Story = {
       "<details><summary>More</summary>Body</details>",
     ].join("\n"),
   },
+};
+
+export const CodeBlockParity: Story = {
+  args: {
+    content: TYPESCRIPT_CODE_BLOCK,
+  },
+  render: CodeBlockParityFrame,
+};
+
+export const LongLineCodeBlockParity: Story = {
+  args: {
+    content: LONG_LINE_CODE_BLOCK,
+  },
+  render: CodeBlockParityFrame,
+};
+
+export const UnknownLanguageCodeBlockParity: Story = {
+  args: {
+    content: UNKNOWN_LANGUAGE_CODE_BLOCK,
+  },
+  render: CodeBlockParityFrame,
 };

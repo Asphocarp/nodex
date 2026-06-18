@@ -52,12 +52,20 @@ export function MarkdownCore({
           : undefined
       }
       isAnimating={shouldAnimateStreamingText}
+      lineNumbers={false}
       className={`
         [&>*:first-child]:mt-0
         [&>*:last-child]:mb-0
         ${MARKDOWN_CONTENT_CLASS_NAME}
       `}
-      controls={{ table: false, code: true, mermaid: true }}
+      controls={{
+        table: false,
+        code: {
+          copy: true,
+          download: false,
+        },
+        mermaid: true,
+      }}
     >
       {normalizedContent}
     </Streamdown>

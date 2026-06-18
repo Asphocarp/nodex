@@ -44,6 +44,7 @@ describe("NfmRenderer", () => {
     expect(container.querySelector('[data-streamdown="code-block"]')).not.toBeNull();
     expect(container.querySelector('[data-language="ts"]')).not.toBeNull();
     expect(container.querySelector('pre[style*="--shiki-dark-bg"]')).not.toBeNull();
+    expect(container.querySelector('[data-streamdown="code-block-actions"]') === null).toBeTrue();
     expect(textContent(container).includes("const")).toBeTrue();
   });
 

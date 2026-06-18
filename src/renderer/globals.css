@@ -423,24 +423,40 @@
 }
 
 /* ===== Code Block Theme Overrides ===== */
-/* BlockNote core hardcodes dark bg (#161616) on code blocks. Override it with our own theme variable. */
-.bn-root .bn-block-content[data-content-type="codeBlock"] {
+/* BlockNote core hardcodes dark bg (#161616) on code blocks. Override it with our shared code-block surface. */
+:is(
+  .bn-root .bn-block-content[data-content-type="codeBlock"],
+  .codex-markdown [data-streamdown="code-block"],
+  .codex-markdown-plan [data-streamdown="code-block"],
+  .nfm-code-block [data-streamdown="code-block"]
+) {
+  --nfm-code-block-padding: 24px;
+  --nfm-code-block-radius: 10px;
   background: var(--code-block-bg);
   color: var(--foreground);
-  border-radius: 10px;
+  border: 0;
+  border-radius: var(--nfm-code-block-radius);
+  overflow: hidden;
+}
+
+.bn-root .bn-block-content[data-content-type="codeBlock"] {
+  position: relative;
 }
 
 /* Ensure Shiki pre elements inside code blocks inherit our background */
 .bn-block-content[data-content-type="codeBlock"] pre {
   background-color: transparent !important;
   font-size: 85%;
+  padding: var(--nfm-code-block-padding);
 }
 
 /* Code block language selector: adapt text color per theme */
-.bn-root[data-color-scheme="light"]
-  .bn-block-content[data-content-type="codeBlock"]
-  > div
-  > select {
+.bn-root .bn-block-content[data-content-type="codeBlock"] > div > select {
+  transition: none;
+  transition-delay: 0s;
+}
+
+.bn-root[data-color-scheme="light"] .bn-block-content[data-content-type="codeBlock"] > div > select {
   color: var(--foreground);
 }
 
@@ -970,22 +986,45 @@
 .codex-markdown [data-streamdown="code-block"],
 .codex-markdown-plan [data-streamdown="code-block"],
 .nfm-code-block [data-streamdown="code-block"] {
-  border: 1px solid var(--border);
-  background: var(--code-block-bg);
-  border-radius: 10px;
+  position: relative;
+  gap: 0;
+  padding: 0;
 }
 
 .codex-markdown [data-streamdown="code-block-header"],
 .codex-markdown-plan [data-streamdown="code-block-header"],
 .nfm-code-block [data-streamdown="code-block-header"] {
+  position: absolute;
+  top: 8px;
+  left: 18px;
+  z-index: 2;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  font-size: 0.8em;
+  line-height: 1.2;
   color: var(--foreground-tertiary);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.codex-markdown [data-streamdown="code-block"]:hover [data-streamdown="code-block-header"],
+.codex-markdown [data-streamdown="code-block"]:focus-within [data-streamdown="code-block-header"],
+.codex-markdown-plan [data-streamdown="code-block"]:hover [data-streamdown="code-block-header"],
+.codex-markdown-plan [data-streamdown="code-block"]:focus-within [data-streamdown="code-block-header"],
+.nfm-code-block [data-streamdown="code-block"]:hover [data-streamdown="code-block-header"],
+.nfm-code-block [data-streamdown="code-block"]:focus-within [data-streamdown="code-block-header"] {
+  opacity: 0.5;
 }
 
 .codex-markdown [data-streamdown="code-block-body"],
 .codex-markdown-plan [data-streamdown="code-block-body"],
 .nfm-code-block [data-streamdown="code-block-body"] {
-  border-color: var(--border);
+  padding: var(--nfm-code-block-padding);
+  border: 0;
+  border-radius: 0;
   background: transparent;
+  font-size: 85%;
 }
 
 .codex-markdown [data-streamdown="code-block"] pre,
@@ -996,6 +1035,91 @@
   max-width: none;
   padding: 0;
   margin: 0;
+  font-size: inherit;
+}
+
+.codex-markdown [data-streamdown="code-block"] code,
+.codex-markdown-plan [data-streamdown="code-block"] code,
+.nfm-code-block [data-streamdown="code-block"] code {
+  font-size: inherit;
+}
+
+.codex-markdown [data-streamdown="code-block"] code > span,
+.codex-markdown-plan [data-streamdown="code-block"] code > span,
+.nfm-code-block [data-streamdown="code-block"] code > span {
+  display: block;
+  min-height: 1lh;
+}
+
+.codex-markdown [data-streamdown="code-block"] code > span > span,
+.codex-markdown-plan [data-streamdown="code-block"] code > span > span,
+.nfm-code-block [data-streamdown="code-block"] code > span > span {
+  color: var(--sdm-c, inherit);
+  background: var(--sdm-tbg, transparent);
+}
+
+.dark .codex-markdown [data-streamdown="code-block"] code > span > span,
+.dark .codex-markdown-plan [data-streamdown="code-block"] code > span > span,
+.dark .nfm-code-block [data-streamdown="code-block"] code > span > span {
+  color: var(--shiki-dark, var(--sdm-c, inherit));
+  background: var(--shiki-dark-bg, var(--sdm-tbg, transparent));
+}
+
+.codex-markdown [data-streamdown="code-block"] > div:has(> [data-streamdown="code-block-actions"]),
+.codex-markdown-plan [data-streamdown="code-block"] > div:has(> [data-streamdown="code-block-actions"]),
+.nfm-code-block [data-streamdown="code-block"] > div:has(> [data-streamdown="code-block-actions"]) {
+  display: contents;
+}
+
+.codex-markdown [data-streamdown="code-block-actions"],
+.codex-markdown-plan [data-streamdown="code-block-actions"],
+.nfm-code-block [data-streamdown="code-block-actions"] {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  z-index: 3;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+  opacity: 0;
+  backdrop-filter: blur(8px);
+  transition: none;
+}
+
+.codex-markdown [data-streamdown="code-block"]:hover [data-streamdown="code-block-actions"],
+.codex-markdown [data-streamdown="code-block"]:focus-within [data-streamdown="code-block-actions"],
+.codex-markdown-plan [data-streamdown="code-block"]:hover [data-streamdown="code-block-actions"],
+.codex-markdown-plan [data-streamdown="code-block"]:focus-within [data-streamdown="code-block-actions"],
+.nfm-code-block [data-streamdown="code-block"]:hover [data-streamdown="code-block-actions"],
+.nfm-code-block [data-streamdown="code-block"]:focus-within [data-streamdown="code-block-actions"] {
+  opacity: 1;
+}
+
+.codex-markdown [data-streamdown="code-block-copy-button"],
+.codex-markdown-plan [data-streamdown="code-block-copy-button"],
+.nfm-code-block [data-streamdown="code-block-copy-button"] {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  color: var(--foreground-tertiary);
+  transition: none;
+}
+
+.codex-markdown [data-streamdown="code-block-copy-button"]:hover,
+.codex-markdown [data-streamdown="code-block-copy-button"]:focus-visible,
+.codex-markdown-plan [data-streamdown="code-block-copy-button"]:hover,
+.codex-markdown-plan [data-streamdown="code-block-copy-button"]:focus-visible,
+.nfm-code-block [data-streamdown="code-block-copy-button"]:hover,
+.nfm-code-block [data-streamdown="code-block-copy-button"]:focus-visible {
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+  color: var(--foreground);
 }
 
 .codex-markdown .katex-display {
