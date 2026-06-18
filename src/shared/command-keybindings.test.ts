@@ -4,10 +4,12 @@ import {
   createCommandKeymapState,
   findCommandKeybindingConflict,
   formatAcceleratorLabel,
+  getPrimaryCommandAccelerator,
   keyboardEventToAccelerator,
   matchesKeyboardEventToCommand,
   matchesMouseEventToCommand,
   normalizeAccelerator,
+  toElectronAccelerator,
   type KeyboardShortcutEventLike,
 } from "./command-keybindings";
 
@@ -36,6 +38,17 @@ describe("command keybindings", () => {
     expect(matchesKeyboardEventToCommand(keyboardEvent("b", { metaKey: true }), macState, "toggleSidebar")).toBeTrue();
     expect(matchesKeyboardEventToCommand(keyboardEvent("b", { ctrlKey: true }), windowsState, "toggleSidebar")).toBeTrue();
     expect(matchesKeyboardEventToCommand(keyboardEvent("b", { ctrlKey: true }), macState, "toggleSidebar")).toBeFalse();
+  });
+
+  test("keeps close-tab and close-window defaults distinct", () => {
+    const macState = createCommandKeymapState({}, "macOS");
+
+    expect(getPrimaryCommandAccelerator(macState, "closeTab")).toBe("CmdOrCtrl+W");
+    expect(getPrimaryCommandAccelerator(macState, "closeWindow")).toBe("CmdOrCtrl+Shift+W");
+    expect(toElectronAccelerator(getPrimaryCommandAccelerator(macState, "closeWindow"))).toBe("CommandOrControl+Shift+W");
+    expect(formatAcceleratorLabel("CmdOrCtrl+Shift+W", "macOS")).toBe("⌘⇧W");
+    expect(matchesKeyboardEventToCommand(keyboardEvent("w", { metaKey: true }), macState, "closeWindow")).toBeFalse();
+    expect(matchesKeyboardEventToCommand(keyboardEvent("w", { metaKey: true, shiftKey: true }), macState, "closeWindow")).toBeTrue();
   });
 
   test("captures keyboard events and mouse navigation bindings", () => {

@@ -271,7 +271,7 @@ function configureMacWindowMenus(): void {
         { type: "separator" },
         {
           label: "Close Window",
-          accelerator: menuAccelerator("closeWindow", "CommandOrControl+W"),
+          accelerator: menuAccelerator("closeWindow", "CommandOrControl+Shift+W"),
           click: closeFocusedWindow,
         },
       ],

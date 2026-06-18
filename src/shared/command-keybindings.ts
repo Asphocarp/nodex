@@ -163,7 +163,7 @@ export const CODEX_COMMAND_REGISTRY: CommandRegistryEntry[] = [
   command("showKeyboardShortcuts", "Keyboard shortcuts", "Open the keyboard shortcuts settings", 240, "app", ["CmdOrCtrl+Shift+/"]),
   command("renameThread", "Rename chat", "Rename the active chat", 250, "app", ["CmdOrCtrl+Alt+R"]),
   command("closeTab", "Close tab", "Close the focused panel tab", 260, "app", ["CmdOrCtrl+W"]),
-  command("closeWindow", "Close window", "Close the active app window", 270, "electron", ["CmdOrCtrl+W"]),
+  command("closeWindow", "Close window", "Close the active app window", 270, "electron", ["CmdOrCtrl+Shift+W"]),
   command("newWindow", "New window", "Open a new app window", 280, "electron", ["CmdOrCtrl+Shift+N"]),
   command("openFolder", "Open folder", "Open a local folder", 290, "electron", ["CmdOrCtrl+O"], { available: false }),
   command("openProcessManager", "Open process manager", "Open the process manager", 300, "electron", ["Ctrl+Alt+M"], {
