@@ -11,33 +11,39 @@ import {
   createOptimisticCard,
 } from "./kanban-optimistic-ops";
 import type {
-  Board,
+  BoardSummary,
   CardCreateInput,
+  CardSummary,
 } from "./types";
 import { createKanbanStoreRegistry } from "./kanban-store";
+import { toCardSummary } from "../../shared/card-summary";
 
-function createBoard(title = "Initial title"): Board {
+function createCardSummary(title = "Initial title"): CardSummary {
+  return {
+    id: "card-1",
+    status: "draft",
+    archived: false,
+    title,
+    descriptionPreview: "Initial description",
+    descriptionLength: "Initial description".length,
+    hasDescription: true,
+    priority: "p2-medium",
+    estimate: "m",
+    tags: [],
+    agentBlocked: false,
+    revision: 1,
+    created: new Date("2026-02-16T00:00:00.000Z"),
+    order: 0,
+  };
+}
+
+function createBoard(title = "Initial title"): BoardSummary {
   return {
     columns: [
       {
         id: "draft",
         name: "Ideas",
-        cards: [
-          {
-            id: "card-1",
-            status: "draft",
-            archived: false,
-            title,
-            description: "Initial description",
-            priority: "p2-medium",
-            estimate: "m",
-            tags: [],
-            agentBlocked: false,
-            revision: 1,
-            created: new Date("2026-02-16T00:00:00.000Z"),
-            order: 0,
-          },
-        ],
+        cards: [createCardSummary(title)],
       },
       {
         id: "done",
@@ -48,7 +54,7 @@ function createBoard(title = "Initial title"): Board {
   };
 }
 
-function cloneBoard(board: Board): Board {
+function cloneBoard(board: BoardSummary): BoardSummary {
   return {
     ...board,
     columns: board.columns.map((column) => ({
@@ -166,6 +172,27 @@ describe("kanban store", () => {
     expect(store.getSnapshot().cardIndex.get("card-1")?.title).toBe("Refreshed");
   });
 
+  test("fetchBoard uses the summary channel and keeps full descriptions out of snapshots", async () => {
+    const board = createBoard();
+    let channelName = "";
+
+    const registry = createKanbanStoreRegistry({
+      invoke: async (channel) => {
+        channelName = channel;
+        return board;
+      },
+      subscribeBoardChanges: () => () => {},
+    });
+
+    const store = registry.getStore("default");
+    await store.fetchBoard();
+
+    const indexedCard = store.getSnapshot().cardIndex.get("card-1");
+    expect(channelName).toBe("board:summary:get");
+    expect(Object.hasOwn(indexedCard ?? {}, "description")).toBeFalse();
+    expect(indexedCard?.descriptionPreview).toBe("Initial description");
+  });
+
   test("applies local optimistic overlays to board and card index", async () => {
     const board = createBoard();
     const registry = createKanbanStoreRegistry({
@@ -193,6 +220,48 @@ describe("kanban store", () => {
     expect(notifications).toBe(1);
 
     unsubscribe();
+  });
+
+  test("merges full remote card updates as summaries without storing the body", async () => {
+    const registry = createKanbanStoreRegistry({
+      invoke: async () => createBoard(),
+      subscribeBoardChanges: () => () => {},
+    });
+
+    const store = registry.getStore("default");
+    await store.fetchBoard();
+
+    store.applyRemoteCard({
+      id: "card-1",
+      status: "draft",
+      archived: false,
+      title: "Remote title",
+      description: "Remote full body that should only become preview metadata",
+      tags: [],
+      agentBlocked: false,
+      revision: 2,
+      created: new Date("2026-02-16T00:00:00.000Z"),
+      order: 0,
+    });
+
+    const indexedCard = store.getSnapshot().cardIndex.get("card-1");
+    const summary = toCardSummary({
+      id: "card-1",
+      status: "draft",
+      archived: false,
+      title: "Remote title",
+      description: "Remote full body that should only become preview metadata",
+      tags: [],
+      agentBlocked: false,
+      revision: 2,
+      created: new Date("2026-02-16T00:00:00.000Z"),
+      order: 0,
+    });
+
+    expect(indexedCard?.title).toBe("Remote title");
+    expect(indexedCard?.descriptionPreview).toBe(summary.descriptionPreview);
+    expect(indexedCard?.descriptionLength).toBe(summary.descriptionLength);
+    expect(Object.hasOwn(indexedCard ?? {}, "description")).toBeFalse();
   });
 
   test("local draft overlays do not bump card revision", async () => {
@@ -478,7 +547,7 @@ describe("kanban store", () => {
   });
 
   test("queues local overlay before first fetch and applies after board load", async () => {
-    const deferredBoard = createDeferred<Board>();
+    const deferredBoard = createDeferred<BoardSummary>();
     const registry = createKanbanStoreRegistry({
       invoke: async () => deferredBoard.promise,
       subscribeBoardChanges: () => () => {},

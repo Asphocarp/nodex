@@ -23,6 +23,7 @@ import type {
 import type { MetaChipPropertyType } from "@/lib/toggle-list/meta-chips";
 import { useSpellcheck } from "@/lib/use-spellcheck";
 import { useTheme } from "@/lib/use-theme";
+import { fetchCardDetails } from "@/lib/card-detail-store";
 import { cn } from "@/lib/utils";
 import { EDITOR_SYNC_DEBOUNCE_MS } from "@/lib/timing";
 import { useProjects } from "@/lib/use-projects";
@@ -368,20 +369,30 @@ export function ToggleListCardEditor({
   );
 
   const applyCardImportDrop = useCallback(
-    (payload: ExternalCardDragPayload, pointer: { x: number; y: number }) => {
+    async (payload: ExternalCardDragPayload, pointer: { x: number; y: number }) => {
       const container = containerRef.current;
       if (!container) return null;
 
+      const detailCards = await fetchCardDetails(
+        payload.projectId,
+        payload.cards.map((entry) => entry.card.id),
+      );
+      const detailById = new Map(detailCards.map((card) => [card.id, card]));
+      if (detailById.size !== payload.cards.length) return null;
+
       const baselinePatches = collectCardDescriptionPatches(editor.document, container);
       const snapshot = snapshotEditorDocument(editor);
-      const droppedBlocks = payload.cards.map((entry) =>
-        mapCardToDroppedCardToggleBlock(
-          entry.card,
+      const droppedBlocks = payload.cards.flatMap((entry) => {
+        const card = detailById.get(entry.card.id);
+        if (!card) return [];
+        return [mapCardToDroppedCardToggleBlock(
+          card,
           payload.projectId,
           entry.columnId,
           entry.columnName,
-        )
-      );
+        )];
+      });
+      if (droppedBlocks.length !== payload.cards.length) return null;
 
       suppressExternalDropSyncDepthRef.current += 1;
       try {

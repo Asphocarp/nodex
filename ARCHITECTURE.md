@@ -6,7 +6,7 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 ## Codemap
 
 ### Shared Contracts (`src/shared`)
-- `types.ts`: canonical domain model (`Card`, `Board`, `Project`, project session/tab/thread-link payloads, block-drop import payloads).
+- `types.ts`: canonical domain model (`Card`/`Board` full payloads, `CardSummary`/`BoardSummary` lightweight board read models, `Project`, project session/tab/thread-link payloads, block-drop import payloads).
 - `project-session-panel-layout.ts`: pure recursive split-tree helpers for v2 right/bottom project-session panel layouts, including normalization, leaf/tab movement, split/merge, active/MRU leaf tracking, and ratio clamping.
 - `workbench-layout.ts`: canonical serializable workbench layout snapshot types.
 - `ipc-api.ts`: typed IPC channel surface between preload/renderer/main.
@@ -20,10 +20,10 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `bootstrap.ts`: early Electron lifecycle entrypoint. It resolves the server profile dir, scopes `userData`/`sessionData`, owns the profile-scoped single-instance lock and deep-link queue, runs the packaged macOS Applications prompt, and dynamically imports the application runtime.
 - `main-runtime.ts`: application runtime startup (startup-init gating, DB init with migration progress fanout, HTTP server start, multi-window registry, app-update service, notifier fanout, and shutdown handlers).
 - `instance-scope.ts`: resolves/apply Electron `userData` + `sessionData` paths under the resolved server dir so each configured profile owns its own process lock scope.
-- `http-server.ts`: Hono routes for projects, project sessions/tabs/thread links, cards, history, backups, and assets.
-- `ipc-handlers.ts`: mirrors core operations through IPC, including project session mutations, side-chat start/discard requests, native context menu selection, asset-path resolution, and clipboard paste inspection for desktop-only file/folder paste flows.
+- `http-server.ts`: Hono routes for projects, project sessions/tabs/thread links, cards, board summaries/card details/search, history, backups, and assets.
+- `ipc-handlers.ts`: mirrors core operations through IPC, including lightweight board-summary fetches, on-demand card detail/search channels, project session mutations, side-chat start/discard requests, native context menu selection, asset-path resolution, and clipboard paste inspection for desktop-only file/folder paste flows.
 - `clipboard-paste-inspector.ts`: best-effort Electron clipboard inspection for pasted absolute file/folder paths across supported native formats.
-- `kanban/db-service.ts`: SQLite CRUD, move logic, project lifecycle, atomic block-drop import (`sourceUpdates + card creates`), and atomic card-to-editor move drop (`target updates + source delete`) grouped in one transaction.
+- `kanban/db-service.ts`: SQLite CRUD, lightweight board-summary/detail/search read models, move logic, project lifecycle, atomic block-drop import (`sourceUpdates + card creates`), and atomic card-to-editor move drop (`target updates + source delete`) grouped in one transaction.
 - `kanban/project-session-service.ts`: SQLite CRUD for project-owned sessions, project-local pin/archive/unread state, right/bottom session panels, session-attached tabs, optional session-thread links, Overview seeding, ordering, v2 recursive panel layout JSON, and derived flat tab-order compatibility.
 - `kanban/history-service.ts`: undo/redo and change history records, including grouped undo/redo via `history.group_id` and description hydration from revision ids.
 - `kanban/description-revision-service.ts`: top-level NFM block hashing, revision delta/snapshot storage, description reconstruction, and revision/blob garbage collection.
@@ -68,7 +68,8 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `lib/api.ts`: transport facade over explicit Electron and browser transport adapters (IPC in Electron, HTTP+SSE in browser).
 - `lib/codex-theme-variant.ts`: runtime theme bridge that derives semantic color variables from the active light/dark theme variant and injects them onto `document.documentElement` before renderer surfaces read the token bridge.
 - `lib/query-client.tsx`, `lib/query-keys.ts`, `lib/query-options.ts`: low-frequency renderer server-state substrate built on TanStack Query. Query functions still go through `lib/api.ts`; keys are centralized for projects, boards-by-project, history, settings, Git branch state, local environments, MCP status/resources, and workspace file reads.
-- `lib/kanban-store.ts`: shared per-project board store with one realtime subscription, deduped fetches, optimistic journal rebase (`baseBoard + pending/local ops`), LWW conflict superseding, typed conflict resolution (`updated|conflict|not_found`), and O(1) `cardIndex` lookup map.
+- `lib/kanban-store.ts`: shared per-project board-summary store with one realtime subscription, deduped summary fetches, optimistic journal rebase (`baseBoard + pending/local ops`), LWW conflict superseding, typed conflict resolution (`updated|conflict|not_found`), and O(1) `cardIndex` lookup map that intentionally excludes full `description`.
+- `lib/card-detail-store.ts`: renderer owner for full `Card` bodies keyed by project/card. Card Stage, toggle-list children, and projected card embeds hydrate details through `card:get` or `cards:details:get` only for selected/visible cards.
 - `lib/use-kanban.ts`, `lib/use-history.ts`, `lib/use-projects.ts`: stateful hooks over API channels. `use-kanban` remains store-backed via `useSyncExternalStore`; `use-history` and `use-projects` use TanStack Query for server-state cache, invalidation, and cross-consumer request dedupe.
 - `lib/use-workbench-state.ts`: window-local workbench shell state with explicit project-context slices. Session panels and durable terminal tabs are not owned here; project-session SQLite state is the primary model.
 - `lib/workbench-persisted-schemas.ts`: renderer-side persisted-state schema/parsing layer for workbench/session history maps, tabs, panel widths, and restart-friendly shell snapshots.
@@ -90,6 +91,12 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 5. Electron main broadcasts change events to all open windows. Board and session renderer subscriptions filter by `projectId`; project-list subscriptions are global.
 6. Renderer shared project stores (`kanban-store`) receive IPC/SSE board-change signals and dedupe refresh work per project. Workbench session lists receive IPC/SSE session-change signals and reload the affected project sessions. Low-frequency server state managed by TanStack Query invalidates its centralized keys from subscriptions such as `projects-changed`, board changes, and Git branch changes.
 7. Reminder scheduler polls occurrences, dedupes delivery via receipts, and emits `reminder:open` to renderer on notification click.
+
+Board read flow:
+1. High-frequency board consumers use `board:summary:get` / `/api/projects/:projectId/board-summary`, which returns `BoardSummary` and must not include `Card.description`.
+2. Consumers that need bodies request them by id with `card:get` or `cards:details:get`. Batch hydration should be limited to visible/selected cards.
+3. Description search runs in the main process through `cards:search`, returning project/card ids, status, score, and a bounded excerpt without returning full descriptions.
+4. `board:get` remains a legacy full-payload compatibility channel only. New renderer paths should not call it.
 
 Project sessions flow:
 1. The renderer shell loads `project-sessions:list` for each visible project and renders projects as expandable folders with ordered sessions beneath them.
@@ -132,6 +139,7 @@ Workbench reopen flow:
 - Main-process local-thread streaming uses a materialized broadcast-conversation cache plus Immer-compatible `threadStreamStateChanged` patches for hot and patch-capable updates; keep assistant/plan/reasoning, request ingress, queue/steer rows, and turn/item patch paths on direct cache mutation, and reserve `emitThreadStreamStateChange()` for cold/fallback snapshot reconciliation only. Command output is the exception: main broadcasts raw `mcpNotification` deltas for live rendering, keeps a silent canonical output cache for snapshots/recovery, and flushes pending output before snapshots and item/turn completion. The renderer local-conversation manager owns the visible 50 ms command-output queue and appends into `commandExecution.aggregatedOutput`.
 - Runtime validation belongs at boundaries. Persisted storage, selected HTTP bodies, and raw JSON payload families should parse through `src/shared/schemas/*` or feature-local schema adapters; normalized in-memory reducers/view-models remain plain TypeScript once the boundary parse succeeds.
 - All card writes must pass `card-input-validation` constraints.
+- High-frequency renderer board state must use `BoardSummary`. Full card bodies belong to explicit detail/search flows, not `kanban-store`, board/list/calendar views, or command-palette indexing.
 - Recurrence exceptions and reminder receipts are project-scoped and persisted in SQLite.
 - Completing an occurrence creates a `done` card with `archived = true`; archived cards stay out of board/sidebar/toggle-list flows but still surface in calendar occurrence queries.
 - `move` operations are claim-safe: optional `fromStatus` enables optimistic concurrency checks.

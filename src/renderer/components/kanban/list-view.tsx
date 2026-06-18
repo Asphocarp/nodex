@@ -9,7 +9,7 @@ import {
 } from "../../lib/db-view-prefs";
 import { resolveKanbanPriorityOption } from "../../lib/kanban-options";
 import { estimateStyles } from "@/lib/types";
-import type { Card } from "@/lib/types";
+import type { CardSummary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { buildCardSearchText, matchesSearchTokens, tokenizeSearchQuery } from "@/lib/card-search";
 import { buildSortKeyWithEmptyPlacement } from "@/lib/sort-empty-placement";
@@ -26,7 +26,7 @@ import type { ReactNode } from "react";
 import { StatusChip } from "@/lib/status-chip";
 
 // Card with column info attached
-interface CardWithColumn extends Card {
+interface CardWithColumn extends CardSummary {
   columnId: string;
   columnName: string;
   boardIndex: number;

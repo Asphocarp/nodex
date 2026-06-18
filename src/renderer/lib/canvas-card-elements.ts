@@ -1,4 +1,4 @@
-import type { Card, Board } from "./types";
+import type { BoardSummary, CardSummary } from "./types";
 import { buildCardDeepLink } from "./card-deeplink";
 
 /** Marker stored in Excalidraw element customData to identify Nodex cards. */
@@ -28,7 +28,7 @@ const DEFAULT_CARD_COLOR = "#f8f9fa";
 
 /** Build an ExcalidrawElementSkeleton representing a card on the canvas. */
 export function createCardElement(
-  card: Card,
+  card: CardSummary,
   columnId: string,
   position: { x: number; y: number },
 ) {
@@ -73,8 +73,8 @@ export function getCardIdFromElement(element: ExcalidrawElementLike): string | n
 }
 
 /** Build a card lookup map from a Board: cardId → { card, columnId } */
-function buildCardMap(board: Board): Map<string, { card: Card; columnId: string }> {
-  const map = new Map<string, { card: Card; columnId: string }>();
+function buildCardMap(board: BoardSummary): Map<string, { card: CardSummary; columnId: string }> {
+  const map = new Map<string, { card: CardSummary; columnId: string }>();
   for (const col of board.columns) {
     for (const card of col.cards) {
       map.set(card.id, { card, columnId: col.id });
@@ -90,7 +90,7 @@ function buildCardMap(board: Board): Map<string, { card: Card; columnId: string 
  */
 export function updateCardElements(
   elements: readonly ExcalidrawElementLike[],
-  board: Board,
+  board: BoardSummary,
 ): ExcalidrawElementLike[] | null {
   const cardMap = buildCardMap(board);
   let changed = false;

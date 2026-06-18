@@ -157,6 +157,18 @@ interface CardStageUpdateConflictState {
   attemptedUpdates: Partial<CardInput>;
 }
 
+interface CardStageFormState {
+  title: string;
+  description: string;
+  priority: Priority | undefined;
+  estimate: string;
+  dueDate: string;
+  tags: string[];
+  assignee: string;
+  agentStatus: string;
+  agentBlocked: boolean;
+}
+
 function toPriorityUpdate(
   nextPriority: Priority | undefined,
   currentPriority: Priority | undefined,
@@ -193,6 +205,20 @@ function areStringArraysEqual(left: string[], right: string[]): boolean {
     if (left[index] !== right[index]) return false;
   }
   return true;
+}
+
+function readCardDraftField(card: Card, field: DraftFieldKey): string {
+  if (field === "title") return card.title;
+  if (field === "description") return card.description ?? "";
+  if (field === "assignee") return card.assignee ?? "";
+  return card.agentStatus ?? "";
+}
+
+function readFormDraftField(state: CardStageFormState, field: DraftFieldKey): string {
+  if (field === "title") return state.title;
+  if (field === "description") return state.description;
+  if (field === "assignee") return state.assignee;
+  return state.agentStatus;
 }
 
 function buildCardStageSessionSnapshot(
@@ -293,7 +319,7 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
     agentStatus: false,
   });
 
-  const formStateRef = useRef({
+  const formStateRef = useRef<CardStageFormState>({
     title: "",
     description: "",
     priority: undefined as Priority | undefined,
@@ -380,6 +406,39 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
       return result;
     },
     [onUpdate],
+  );
+
+  const clearDraftDirtyFromAck = useCallback(
+    (
+      result: CardUpdateMutationResult,
+      expectedValues: Partial<Record<DraftFieldKey, string>>,
+    ) => {
+      if (result.status !== "updated") return;
+
+      for (const field of Object.keys(expectedValues) as DraftFieldKey[]) {
+        const expectedValue = expectedValues[field];
+        if (expectedValue === undefined) continue;
+        if (readCardDraftField(result.card, field) !== expectedValue) continue;
+        if (readFormDraftField(formStateRef.current, field) !== expectedValue) continue;
+        draftDirtyRef.current[field] = false;
+      }
+    },
+    [],
+  );
+
+  const runDraftFieldUpdate = useCallback(
+    async (
+      nextColumnId: string,
+      nextCardId: string,
+      field: DraftFieldKey,
+      updates: Partial<CardInput>,
+      expectedValue: string,
+    ): Promise<CardUpdateMutationResult> => {
+      const result = await runUpdate(nextColumnId, nextCardId, updates);
+      clearDraftDirtyFromAck(result, { [field]: expectedValue });
+      return result;
+    },
+    [clearDraftDirtyFromAck, runUpdate],
   );
 
   const saveProperty = useCallback(
@@ -656,6 +715,7 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
   const handleTitleChange = useCallback(
     (value: string) => {
       markDraftDirty("title");
+      formStateRef.current.title = value;
       setTitle(value);
 
       if (card && shouldPublishCardStagePatch({ title: value })) {
@@ -669,14 +729,13 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
       titleSaveTimerRef.current = setTimeout(() => {
         titleSaveTimerRef.current = null;
         if (!card || value === card.title || !value.trim()) return;
-        clearDraftDirty("title");
         setSaving(true);
-        runUpdate(columnId, card.id, { title: value }).finally(() => {
+        runDraftFieldUpdate(columnId, card.id, "title", { title: value }, value).finally(() => {
           setSaving(false);
         });
       }, FIELD_SAVE_DEBOUNCE_MS);
     },
-    [card, clearDraftDirty, columnId, markDraftDirty, onPatch, runUpdate],
+    [card, columnId, markDraftDirty, onPatch, runDraftFieldUpdate],
   );
 
   const handleTitleBlur = useCallback(() => {
@@ -685,17 +744,21 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
       titleSaveTimerRef.current = null;
     }
 
-    clearDraftDirty("title");
-    if (!card || title === card.title || !title.trim()) return;
+    if (!card || !title.trim()) return;
+    if (title === card.title) {
+      clearDraftDirty("title");
+      return;
+    }
     setSaving(true);
-    runUpdate(columnId, card.id, { title }).finally(() => {
+    runDraftFieldUpdate(columnId, card.id, "title", { title }, title).finally(() => {
       setSaving(false);
     });
-  }, [card, clearDraftDirty, columnId, runUpdate, title]);
+  }, [card, clearDraftDirty, columnId, runDraftFieldUpdate, title]);
 
   const handleAssigneeChange = useCallback(
     (value: string) => {
       markDraftDirty("assignee");
+      formStateRef.current.assignee = value;
       setAssignee(value);
 
       if (card && shouldPublishCardStagePatch({ assignee: value })) {
@@ -709,14 +772,13 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
       assigneeSaveTimerRef.current = setTimeout(() => {
         assigneeSaveTimerRef.current = null;
         if (!card || value === (card.assignee || "")) return;
-        clearDraftDirty("assignee");
         setSaving(true);
-        runUpdate(columnId, card.id, { assignee: value }).finally(() => {
+        runDraftFieldUpdate(columnId, card.id, "assignee", { assignee: value }, value).finally(() => {
           setSaving(false);
         });
       }, FIELD_SAVE_DEBOUNCE_MS);
     },
-    [card, clearDraftDirty, columnId, markDraftDirty, onPatch, runUpdate],
+    [card, columnId, markDraftDirty, onPatch, runDraftFieldUpdate],
   );
 
   const handleAssigneeBlur = useCallback(() => {
@@ -725,17 +787,21 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
       assigneeSaveTimerRef.current = null;
     }
 
-    clearDraftDirty("assignee");
-    if (!card || assignee === (card.assignee || "")) return;
+    if (!card) return;
+    if (assignee === (card.assignee || "")) {
+      clearDraftDirty("assignee");
+      return;
+    }
     setSaving(true);
-    runUpdate(columnId, card.id, { assignee }).finally(() => {
+    runDraftFieldUpdate(columnId, card.id, "assignee", { assignee }, assignee).finally(() => {
       setSaving(false);
     });
-  }, [assignee, card, clearDraftDirty, columnId, runUpdate]);
+  }, [assignee, card, clearDraftDirty, columnId, runDraftFieldUpdate]);
 
   const handleAgentStatusChange = useCallback(
     (value: string) => {
       markDraftDirty("agentStatus");
+      formStateRef.current.agentStatus = value;
       setAgentStatus(value);
 
       if (card && shouldPublishCardStagePatch({ agentStatus: value })) {
@@ -749,14 +815,13 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
       agentStatusSaveTimerRef.current = setTimeout(() => {
         agentStatusSaveTimerRef.current = null;
         if (!card || value === (card.agentStatus || "")) return;
-        clearDraftDirty("agentStatus");
         setSaving(true);
-        runUpdate(columnId, card.id, { agentStatus: value }).finally(() => {
+        runDraftFieldUpdate(columnId, card.id, "agentStatus", { agentStatus: value }, value).finally(() => {
           setSaving(false);
         });
       }, FIELD_SAVE_DEBOUNCE_MS);
     },
-    [card, clearDraftDirty, columnId, markDraftDirty, onPatch, runUpdate],
+    [card, columnId, markDraftDirty, onPatch, runDraftFieldUpdate],
   );
 
   const handleAgentStatusBlur = useCallback(() => {
@@ -765,13 +830,16 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
       agentStatusSaveTimerRef.current = null;
     }
 
-    clearDraftDirty("agentStatus");
-    if (!card || agentStatus === (card.agentStatus || "")) return;
+    if (!card) return;
+    if (agentStatus === (card.agentStatus || "")) {
+      clearDraftDirty("agentStatus");
+      return;
+    }
     setSaving(true);
-    runUpdate(columnId, card.id, { agentStatus }).finally(() => {
+    runDraftFieldUpdate(columnId, card.id, "agentStatus", { agentStatus }, agentStatus).finally(() => {
       setSaving(false);
     });
-  }, [agentStatus, card, clearDraftDirty, columnId, runUpdate]);
+  }, [agentStatus, card, clearDraftDirty, columnId, runDraftFieldUpdate]);
 
   const handleDescriptionChange = useCallback(
     (value: string) => {
@@ -792,15 +860,18 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
 
       descriptionSaveTimerRef.current = setTimeout(() => {
         descriptionSaveTimerRef.current = null;
-        clearDraftDirty("description");
-        if (!card || value === card.description) return;
+        if (!card) return;
+        if (value === (card.description ?? "")) {
+          clearDraftDirty("description");
+          return;
+        }
         setSaving(true);
-        runUpdate(columnId, card.id, { description: value }).finally(() => {
+        runDraftFieldUpdate(columnId, card.id, "description", { description: value }, value).finally(() => {
           setSaving(false);
         });
       }, DESCRIPTION_SAVE_DEBOUNCE_MS);
     },
-    [card, clearDraftDirty, columnId, markDraftDirty, onPatch, runUpdate],
+    [card, clearDraftDirty, columnId, markDraftDirty, onPatch, runDraftFieldUpdate],
   );
 
   const flushDescriptionSave = useCallback((value: string) => {
@@ -809,13 +880,16 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
       descriptionSaveTimerRef.current = null;
     }
 
-    clearDraftDirty("description");
-    if (!card || value === card.description) return;
+    if (!card) return;
+    if (value === (card.description ?? "")) {
+      clearDraftDirty("description");
+      return;
+    }
     setSaving(true);
-    runUpdate(columnId, card.id, { description: value }).finally(() => {
+    runDraftFieldUpdate(columnId, card.id, "description", { description: value }, value).finally(() => {
       setSaving(false);
     });
-  }, [card, clearDraftDirty, columnId, runUpdate]);
+  }, [card, clearDraftDirty, columnId, runDraftFieldUpdate]);
 
   const handleDescriptionBlur = useCallback(() => {
     flushDescriptionSave(flushDescriptionEditorChange());
@@ -826,7 +900,7 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
     if (!card || !title.trim() || !hasChanges()) return;
     setSaving(true);
     try {
-      await runUpdate(columnId, card.id, {
+      const result = await runUpdate(columnId, card.id, {
         title,
         description: latestDescription,
         ...toPriorityUpdate(priority, card.priority),
@@ -837,6 +911,12 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
         agentStatus,
         agentBlocked,
       });
+      clearDraftDirtyFromAck(result, {
+        title,
+        description: latestDescription,
+        assignee,
+        agentStatus,
+      });
     } finally {
       setSaving(false);
     }
@@ -846,6 +926,7 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
     hasChanges,
     flushDescriptionEditorChange,
     runUpdate,
+    clearDraftDirtyFromAck,
     columnId,
     priority,
     estimate,

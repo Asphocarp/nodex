@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { subscribeBoardChanges } from "@/lib/api";
 import { boardByProjectQueryOptions } from "@/lib/query-options";
 import { queryKeys } from "@/lib/query-keys";
-import type { Board } from "@/lib/types";
+import type { BoardSummary } from "@/lib/types";
 import { useProjects } from "@/lib/use-projects";
 
 /**
@@ -17,7 +17,7 @@ export function useAllBoards() {
   const boardsQuery = useQueries({
     queries: projects.map((project) => boardByProjectQueryOptions(project.id)),
     combine: (results) => {
-      const boards = new Map<string, Board>();
+      const boards = new Map<string, BoardSummary>();
       results.forEach((result, index) => {
         const project = projects[index];
         if (!project || !result.data) return;

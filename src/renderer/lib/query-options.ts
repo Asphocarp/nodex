@@ -2,7 +2,7 @@ import { queryOptions } from "@tanstack/react-query";
 import { invoke } from "./api";
 import { queryKeys } from "./query-keys";
 import type {
-  Board,
+  BoardSummary,
   ProtocolMcpResourceReadResponse,
   ProtocolMcpServerStatus,
   Project,
@@ -37,7 +37,7 @@ export function projectsListQueryOptions() {
 export function boardByProjectQueryOptions(projectId: string) {
   return queryOptions({
     queryKey: queryKeys.boards.byProject(projectId),
-    queryFn: () => invoke("board:get", projectId) as Promise<Board>,
+    queryFn: () => invoke("board:summary:get", projectId) as Promise<BoardSummary>,
   });
 }
 

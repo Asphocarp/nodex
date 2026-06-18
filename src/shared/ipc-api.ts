@@ -6,6 +6,7 @@ import type {
   AppUpdateSettings,
   AppUpdateStatus,
   Board,
+  BoardSummary,
   CodexAccountSnapshot,
   CodexApprovalDecision,
   CodexThreadActionResult,
@@ -68,6 +69,9 @@ import type {
   Card,
   CardInput,
   CardCreatePlacement,
+  CardsDetailsInput,
+  CardSearchInput,
+  CardSearchResult,
   CreateBackupInput,
   MoveCardInput,
   MoveCardToProjectInput,
@@ -425,6 +429,9 @@ export interface IpcApi {
   };
   "project-session-threads:detach": { args: [sessionId: string]; result: boolean };
   "board:get": { args: [projectId: string]; result: Board };
+  "board:summary:get": { args: [projectId: string]; result: BoardSummary };
+  "cards:details:get": { args: [projectId: string, input: CardsDetailsInput]; result: Card[] };
+  "cards:search": { args: [input: CardSearchInput]; result: CardSearchResult[] };
   "card:create": {
     args: [projectId: string, status: Card["status"], input: CardCreateInput, sessionId?: string, placement?: CardCreatePlacement];
     result: Card;

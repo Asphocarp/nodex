@@ -20,6 +20,7 @@ function buildCardsKey(cards: CommandPaletteCard[]): string {
       item.projectName,
       item.columnName,
       item.card.title,
+      "descriptionPreview" in item.card ? item.card.descriptionPreview : item.card.description,
       item.card.assignee ?? "",
       item.card.agentStatus ?? "",
       item.card.tags.join(","),

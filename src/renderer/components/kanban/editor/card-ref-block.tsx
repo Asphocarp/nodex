@@ -16,11 +16,13 @@ import {
   NodexDropdownChoiceMenu,
 } from "@/components/ui/dropdown";
 import type {
+  ToggleListCard,
   ToggleListPropertyKey,
   ToggleListStatusId,
 } from "@/lib/toggle-list/types";
 import { TOGGLE_LIST_PROPERTY_KEYS } from "@/lib/toggle-list/types";
-import type { Card } from "@/lib/types";
+import type { CardSummary } from "@/lib/types";
+import { useCardDetail } from "@/lib/card-detail-store";
 import { useKanban } from "@/lib/use-kanban";
 import { useAllBoards } from "@/lib/use-all-boards";
 import { useProjects } from "@/lib/use-projects";
@@ -37,7 +39,7 @@ function CardPicker({ onSelect }: { onSelect: (projectId: string, cardId: string
   }, []);
 
   const filtered = useMemo(() => {
-    const all: Array<{ projectId: string; columnName: string; card: Card }> = [];
+    const all: Array<{ projectId: string; columnName: string; card: CardSummary }> = [];
     for (const [projectId, board] of boards) {
       for (const column of board.columns) {
         for (const card of column.cards) {
@@ -164,6 +166,13 @@ export const createCardRefBlockSpec = createReactBlockSpec(
       const { cardIndex, loading, error, updateCard, patchCard, moveCard } = useKanban({
         projectId: sourceProjectId,
       });
+      const summaryCard = cardIndex.get(cardId) ?? null;
+      const detail = useCardDetail(
+        sourceProjectId,
+        cardId,
+        summaryCard?.status,
+        summaryCard?.revision,
+      );
 
       useEffect(() => {
         const syncSelection = () => {
@@ -174,18 +183,21 @@ export const createCardRefBlockSpec = createReactBlockSpec(
         return unsubscribe;
       }, [block.id, editor]);
 
-      const card = useMemo(
+      const card = useMemo<ToggleListCard | null>(
         () => {
-          const indexedCard = cardIndex.get(cardId);
-          if (!indexedCard) return null;
+          if (!summaryCard || !detail.card) return null;
 
           return {
-            ...indexedCard,
-            columnId: indexedCard.columnId as ToggleListStatusId,
+            ...detail.card,
+            columnId: summaryCard.columnId as ToggleListStatusId,
+            columnName: summaryCard.columnName,
+            boardIndex: summaryCard.boardIndex,
           };
         },
-        [cardId, cardIndex],
+        [detail.card, summaryCard],
       );
+      const cardLoading = loading || detail.loading;
+      const cardError = error || detail.error;
 
       const handlePickerSelect = useCallback(
         (pickedProjectId: string, pickedCardId: string) => {
@@ -210,13 +222,13 @@ export const createCardRefBlockSpec = createReactBlockSpec(
         ownerBlockId: block.id,
         projectionKind: "cardRef",
         sourceProjectId,
-        cards: !loading && !error && card && !isRecursive ? [card] : [],
+        cards: !cardLoading && !cardError && card && !isRecursive ? [card] : [],
         propertyOrder: ALL_PROPERTIES,
         hiddenProperties: NO_HIDDEN,
         showEmptyEstimate: false,
         showEmptyPriority: false,
         editor,
-        enabled: Boolean(cardId) && !isRecursive,
+        enabled: Boolean(cardId) && !isRecursive && !cardLoading && !cardError && Boolean(card),
         updateCard,
         patchCard,
         moveCard,
@@ -242,7 +254,7 @@ export const createCardRefBlockSpec = createReactBlockSpec(
         );
       }
 
-      if (loading) {
+      if (cardLoading) {
         return (
           <div className="py-2 text-center text-base text-muted-foreground" contentEditable={false}>
             Loading card...
@@ -250,7 +262,7 @@ export const createCardRefBlockSpec = createReactBlockSpec(
         );
       }
 
-      if (error) {
+      if (cardError) {
         return (
           <div className="py-2 text-center text-base text-muted-foreground" contentEditable={false}>
             Failed to load card.

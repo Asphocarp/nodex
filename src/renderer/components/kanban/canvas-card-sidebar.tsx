@@ -3,7 +3,7 @@ import { Sidebar } from "@excalidraw/excalidraw";
 import { Search, Plus, Check } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import type { Board, Card } from "@/lib/types";
+import type { BoardSummary, CardSummary } from "@/lib/types";
 
 const PRIORITY_LABELS: Record<string, string> = {
   "p0-critical": "P0",
@@ -22,9 +22,9 @@ const PRIORITY_CLASSES: Record<string, string> = {
 };
 
 interface CanvasCardSidebarProps {
-  board: Board | null;
+  board: BoardSummary | null;
   placedCardIds: Set<string>;
-  onPlaceCard: (card: Card, columnId: string) => void;
+  onPlaceCard: (card: CardSummary, columnId: string) => void;
   onCreateAndPlace: () => void;
 }
 
@@ -38,7 +38,7 @@ export function CanvasCardSidebar({
 
   const allCards = useMemo(() => {
     if (!board) return [];
-    const cards: { card: Card; columnId: string; columnName: string }[] = [];
+    const cards: { card: CardSummary; columnId: string; columnName: string }[] = [];
     for (const col of board.columns) {
       for (const card of col.cards) {
         cards.push({ card, columnId: col.id, columnName: col.name });
@@ -54,7 +54,7 @@ export function CanvasCardSidebar({
   }, [allCards, search]);
 
   const handlePlace = useCallback(
-    (card: Card, columnId: string) => {
+    (card: CardSummary, columnId: string) => {
       onPlaceCard(card, columnId);
     },
     [onPlaceCard],

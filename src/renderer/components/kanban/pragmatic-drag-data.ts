@@ -1,6 +1,6 @@
-import type { Card as CardType, CardStatus, Board } from "@/lib/types";
+import type { Board, BoardSummary, Card as FullCard, CardSummary, CardStatus } from "@/lib/types";
 import { resolveDragGroup, type CardSelectionState } from "./card-selection";
-import type { ExternalCardDragItem } from "./editor/external-card-drag-session";
+import type { ExternalCardDragCard, ExternalCardDragItem } from "./editor/external-card-drag-session";
 
 export interface KanbanCardDragData extends Record<string | symbol, unknown> {
   type: "kanban-card";
@@ -8,7 +8,7 @@ export interface KanbanCardDragData extends Record<string | symbol, unknown> {
   projectId: string;
   sourceCardId: string;
   sourceColumnId: CardStatus;
-  sourceCard: CardType;
+  sourceCard: ExternalCardDragCard;
   dragItems: ExternalCardDragItem[];
 }
 
@@ -26,11 +26,11 @@ export interface KanbanColumnDropTargetData extends Record<string | symbol, unkn
 }
 
 export function buildKanbanCardDragData(args: {
-  board: Board | null;
+  board: BoardSummary | Board | null;
   selection: CardSelectionState;
   instanceId: symbol;
   projectId: string;
-  activeCard: CardType;
+  activeCard: CardSummary | FullCard;
   columnId: CardStatus;
 }): KanbanCardDragData {
   const dragItems = resolveDragGroup(args.board, args.selection, {

@@ -11,7 +11,7 @@ import {
   TOGGLE_LIST_PRIORITY_ORDER,
   type ToggleListTagFilterMode,
 } from "./toggle-list/types";
-import type { Card, Priority } from "./types";
+import type { Card, CardSummary, Priority } from "./types";
 
 export interface CommandPaletteCommand {
   kind: "command";
@@ -32,7 +32,7 @@ export interface CommandPaletteCard {
   projectName: string;
   projectIcon: string;
   columnName: string;
-  card: Card;
+  card: CardSummary | Card;
   inActiveProject: boolean;
   recentIndex: number | null;
   boardIndex: number;
@@ -82,7 +82,7 @@ interface ScoredCard {
 }
 
 export interface CommandPaletteCardFilters {
-  statuses: Card["status"][];
+  statuses: CardSummary["status"][];
   priorities: Priority[];
   includeEmptyPriority: boolean;
   tags: string[];
@@ -197,7 +197,7 @@ export function normalizeCommandPaletteCardFilters(
 
   return {
     statuses: normalizeSelectableStrings(candidate.statuses, fallback.statuses)
-      .filter((status): status is Card["status"] => CARD_STATUS_ORDER.includes(status as Card["status"])),
+      .filter((status): status is CardSummary["status"] => CARD_STATUS_ORDER.includes(status as CardSummary["status"])),
     priorities: normalizeSelectableStrings(candidate.priorities, fallback.priorities)
       .filter((priority): priority is Priority => TOGGLE_LIST_PRIORITY_ORDER.includes(priority as Priority)),
     includeEmptyPriority:
@@ -327,7 +327,7 @@ function matchesTagFilters(cardTags: string[], filters: CommandPaletteCardFilter
   return !cardTags.some((tag) => filters.tags.includes(tag));
 }
 
-function matchesCardFilters(
+export function matchesCommandPaletteCardFilters(
   item: CommandPaletteCard,
   filters: CommandPaletteCardFilters,
 ): boolean {
@@ -481,13 +481,13 @@ export function filterCommandPaletteItems(input: {
           ? createCommandPaletteCardSearchIndex(input.cards).search(query)
           : input.cardSearchIndex?.search(query) ?? []
       )
-        .filter(({ item }) => matchesCardFilters(item, cardFilters))
+        .filter(({ item }) => matchesCommandPaletteCardFilters(item, cardFilters))
         .sort(compareScoredCards)
         .slice(0, input.cardLimit ?? DEFAULT_CARD_LIMIT)
         .map(({ item }) => item)
     : input.cards
         .slice()
-        .filter((item) => matchesCardFilters(item, cardFilters))
+        .filter((item) => matchesCommandPaletteCardFilters(item, cardFilters))
         .sort(compareDefaultCards)
         .slice(0, input.cardLimit ?? DEFAULT_CARD_LIMIT);
 

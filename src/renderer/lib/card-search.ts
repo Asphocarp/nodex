@@ -1,4 +1,4 @@
-import type { Card } from "./types";
+import type { CardSummary } from "./types";
 import { extractPlainText } from "./nfm/extract-text";
 
 function normalize(value: string): string {
@@ -11,11 +11,17 @@ export function tokenizeSearchQuery(query: string): string[] {
   return normalized.split(/\s+/).filter(Boolean);
 }
 
-export function buildCardSearchText(card: Card): string {
+export function buildCardSearchText(card: Pick<
+  CardSummary,
+  "id" | "title" | "tags" | "assignee" | "agentStatus"
+> & { descriptionPreview?: string; description?: string }): string {
+  const descriptionText = typeof card.descriptionPreview === "string"
+    ? card.descriptionPreview
+    : extractPlainText(card.description ?? "");
   return normalize([
     card.id,
     card.title,
-    extractPlainText(card.description),
+    descriptionText,
     card.tags.join(" "),
     card.assignee ?? "",
     card.agentStatus ?? "",

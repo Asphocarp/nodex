@@ -1,4 +1,4 @@
-import type { Board, CardStatus } from "@/lib/types";
+import type { Board, BoardSummary, CardStatus } from "@/lib/types";
 
 export interface KanbanDropIndicatorState {
   columnId: CardStatus;
@@ -12,7 +12,7 @@ export interface ResolvedKanbanDropFeedback {
 }
 
 interface ResolveKanbanDropFeedbackInput {
-  visibleBoard: Board | null;
+  visibleBoard: BoardSummary | Board | null;
   columnId: CardStatus;
   visibleIndex: number;
   showSlotIndicator: boolean;
@@ -20,7 +20,7 @@ interface ResolveKanbanDropFeedbackInput {
 }
 
 function isEmptyVisibleColumn(
-  visibleBoard: Board | null,
+  visibleBoard: BoardSummary | Board | null,
   columnId: CardStatus,
 ): boolean {
   const targetColumn = visibleBoard?.columns.find((column) => column.id === columnId);

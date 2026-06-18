@@ -1,4 +1,5 @@
 import { app, BrowserWindow, Menu, dialog, ipcMain, nativeImage, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type OpenDialogOptions } from "electron";
+import { performance } from "node:perf_hooks";
 import { writeImageToClipboard } from "./clipboard-image-writer";
 import { inspectClipboardPasteItems } from "./clipboard-paste-inspector";
 import { prepareComposerPickedFiles } from "./composer-picked-files";
@@ -35,6 +36,7 @@ import {
 } from "./workspace-files-service";
 import { dbNotifier } from "./kanban/db-notifier";
 import { captureMainException } from "./observability/sentry-main";
+import { getLogger } from "./logging/logger";
 import type { WorkbenchLayoutSnapshot } from "../shared/workbench-layout";
 import type { IpcApi } from "../shared/ipc-api";
 import type {
@@ -77,6 +79,20 @@ type TypedIpcHandler<Channel extends keyof IpcApi> = (
   event: IpcMainInvokeEvent,
   ...args: IpcApi[Channel]["args"]
 ) => IpcApi[Channel]["result"] | Promise<IpcApi[Channel]["result"]>;
+
+const ipcPayloadLogger = getLogger({ subsystem: "ipc", component: "kanban-read-model" });
+
+function approximatePayloadBytes(value: unknown): number | null {
+  try {
+    return Buffer.byteLength(JSON.stringify(value), "utf8");
+  } catch {
+    return null;
+  }
+}
+
+function boardCardCount(board: { columns: Array<{ cards: unknown[] }> }): number {
+  return board.columns.reduce((sum, column) => sum + column.cards.length, 0);
+}
 
 function registerHandle<Channel extends keyof IpcApi>(
   channel: Channel,
@@ -456,11 +472,59 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   });
 
   // Board
-  registerHandle("board:get", (_, projectId: string) =>
-    dbService.getBoard(projectId)
-  );
+  registerHandle("board:get", async (_, projectId: string) => {
+    const startedAt = performance.now();
+    const board = await dbService.getBoard(projectId);
+    ipcPayloadLogger.warn("legacy full board payload requested", {
+      channel: "board:get",
+      projectId,
+      cardCount: boardCardCount(board),
+      durationMs: Math.round(performance.now() - startedAt),
+    });
+    return board;
+  });
+
+  registerHandle("board:summary:get", async (_, projectId: string) => {
+    const startedAt = performance.now();
+    const board = await dbService.getBoardSummary(projectId);
+    ipcPayloadLogger.info("board summary payload served", {
+      channel: "board:summary:get",
+      projectId,
+      cardCount: boardCardCount(board),
+      approxPayloadBytes: approximatePayloadBytes(board),
+      durationMs: Math.round(performance.now() - startedAt),
+    });
+    return board;
+  });
 
   // Cards
+  registerHandle("cards:details:get", async (_, projectId, input) => {
+    const startedAt = performance.now();
+    const cards = await dbService.getCardsDetails(projectId, input);
+    ipcPayloadLogger.info("card details payload served", {
+      channel: "cards:details:get",
+      projectId,
+      requestedCardCount: input.cardIds.length,
+      cardCount: cards.length,
+      approxPayloadBytes: approximatePayloadBytes(cards),
+      durationMs: Math.round(performance.now() - startedAt),
+    });
+    return cards;
+  });
+
+  registerHandle("cards:search", async (_, input) => {
+    const startedAt = performance.now();
+    const results = await dbService.searchCards(input);
+    ipcPayloadLogger.info("card search payload served", {
+      channel: "cards:search",
+      projectCount: input.projectIds.length,
+      resultCount: results.length,
+      approxPayloadBytes: approximatePayloadBytes(results),
+      durationMs: Math.round(performance.now() - startedAt),
+    });
+    return results;
+  });
+
   registerHandle("card:create", (_, projectId, columnId, input, sessionId?, placement?) =>
     dbService.createCard(projectId, columnId, input, sessionId, placement)
   );

@@ -1,11 +1,11 @@
-import type { Board, Card, CardStatus, MoveCardInput } from "@/lib/types";
+import type { Board, BoardSummary, Card, CardSummary, CardStatus, MoveCardInput } from "@/lib/types";
 import type { DbViewRules, DbViewSortField } from "../../lib/db-view-prefs";
 import { DB_VIEW_SORT_FIELD_LABELS } from "../../lib/db-view-prefs";
 import { resolveFilteredDropOrder } from "./filtered-drag-order";
 
 interface DragItemLike {
   columnId: string;
-  card: Pick<Card, "id" | "priority" | "estimate">;
+  card: Pick<CardSummary | Card, "id" | "priority" | "estimate">;
 }
 
 type MoveFieldPatch = NonNullable<MoveCardInput["fieldPatch"]>;
@@ -49,14 +49,14 @@ function getPrimarySortField(rules: DbViewRules): DbViewSortField {
   return rules.sort[0]?.field ?? "board-order";
 }
 
-function resolveSortBucketValue(card: Pick<Card, "priority" | "estimate"> | undefined, field: MoveFieldPatchField) {
+function resolveSortBucketValue(card: Pick<CardSummary | Card, "priority" | "estimate"> | undefined, field: MoveFieldPatchField) {
   if (!card) return null;
   return field === "priority"
     ? (card.priority ?? null)
     : (card.estimate ?? null);
 }
 
-function buildPreviewLabel(field: MoveFieldPatchField, value: Card["priority"] | Card["estimate"] | null): string {
+function buildPreviewLabel(field: MoveFieldPatchField, value: CardSummary["priority"] | CardSummary["estimate"] | null): string {
   if (field === "priority") {
     const label = value === null
       ? "Empty"
@@ -98,8 +98,8 @@ export function resolveKanbanCardDragMode(args: {
 }
 
 export function resolveKanbanCardDropIntent(args: {
-  board: Board | null;
-  visibleBoard: Board | null;
+  board: BoardSummary | Board | null;
+  visibleBoard: BoardSummary | Board | null;
   rules: DbViewRules;
   destinationColumnId: CardStatus;
   destinationIndex: number;

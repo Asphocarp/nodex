@@ -1,17 +1,18 @@
 import type {
   BlockDropImportInput,
-  Card,
+  BoardSummary,
+  CardSummary,
   CardCreateInput,
   CardCreatePlacement,
   CardDropMoveToEditorInput,
   CardInput,
   MoveCardInput,
   MoveCardsInput,
-  Board,
 } from "./types";
 import { DEFAULT_CARD_STATUS } from "../../shared/card-status";
+import { cardInputToSummaryPatch, summarizeCardDescription } from "../../shared/card-summary";
 
-export type BoardTransform = (board: Board) => Board;
+export type BoardTransform = (board: BoardSummary) => BoardSummary;
 
 interface PatchTransformOptions {
   bumpRevision?: boolean;
@@ -23,35 +24,12 @@ function clamp(value: number, min: number, max: number): number {
   return value;
 }
 
-function normalizePatch(updates: Partial<CardInput>): Partial<Card> {
-  const normalized: Partial<Card> = {};
-
-  if ("title" in updates) normalized.title = updates.title ?? "";
-  if ("description" in updates) normalized.description = updates.description ?? "";
-  if ("priority" in updates) normalized.priority = updates.priority ?? undefined;
-  if ("estimate" in updates) normalized.estimate = updates.estimate ?? undefined;
-  if ("tags" in updates && Array.isArray(updates.tags)) normalized.tags = updates.tags;
-  if ("dueDate" in updates) normalized.dueDate = updates.dueDate ?? undefined;
-  if ("scheduledStart" in updates) normalized.scheduledStart = updates.scheduledStart ?? undefined;
-  if ("scheduledEnd" in updates) normalized.scheduledEnd = updates.scheduledEnd ?? undefined;
-  if ("isAllDay" in updates) normalized.isAllDay = updates.isAllDay ?? undefined;
-  if ("recurrence" in updates) normalized.recurrence = updates.recurrence ?? undefined;
-  if ("reminders" in updates && Array.isArray(updates.reminders)) normalized.reminders = updates.reminders;
-  if ("scheduleTimezone" in updates) normalized.scheduleTimezone = updates.scheduleTimezone ?? undefined;
-  if ("assignee" in updates) normalized.assignee = updates.assignee ?? undefined;
-  if ("agentBlocked" in updates && updates.agentBlocked !== undefined) normalized.agentBlocked = updates.agentBlocked;
-  if ("agentStatus" in updates) normalized.agentStatus = updates.agentStatus ?? undefined;
-  if ("runInTarget" in updates) normalized.runInTarget = updates.runInTarget ?? undefined;
-  if ("runInLocalPath" in updates) normalized.runInLocalPath = updates.runInLocalPath ?? undefined;
-  if ("runInBaseBranch" in updates) normalized.runInBaseBranch = updates.runInBaseBranch ?? undefined;
-  if ("runInWorktreePath" in updates) normalized.runInWorktreePath = updates.runInWorktreePath ?? undefined;
-  if ("runInEnvironmentPath" in updates) normalized.runInEnvironmentPath = updates.runInEnvironmentPath ?? undefined;
-
-  return normalized;
+function normalizePatch(updates: Partial<CardInput>): Partial<CardSummary> {
+  return cardInputToSummaryPatch(updates);
 }
 
 function findCardLocation(
-  board: Board,
+  board: BoardSummary,
   cardId: string,
   preferredColumnId?: string,
 ): { columnIndex: number; cardIndex: number } | null {
@@ -73,7 +51,7 @@ function findCardLocation(
   return null;
 }
 
-function reindexCards(cards: Card[]): Card[] {
+function reindexCards(cards: CardSummary[]): CardSummary[] {
   let changed = false;
   const next = cards.map((card, index) => {
     if (card.order === index) return card;
@@ -87,10 +65,10 @@ function reindexCards(cards: Card[]): Card[] {
 }
 
 function replaceColumnCards(
-  board: Board,
+  board: BoardSummary,
   columnIndex: number,
-  nextCards: Card[],
-): Board {
+  nextCards: CardSummary[],
+): BoardSummary {
   const column = board.columns[columnIndex];
   if (!column) return board;
 
@@ -110,12 +88,12 @@ function replaceColumnCards(
 }
 
 function insertCardIntoColumn(
-  board: Board,
+  board: BoardSummary,
   columnId: string,
-  card: Card,
+  card: CardSummary,
   placement: CardCreatePlacement,
   insertIndex?: number,
-): Board {
+): BoardSummary {
   const columnIndex = board.columns.findIndex((column) => column.id === columnId);
   if (columnIndex < 0) return board;
 
@@ -130,7 +108,7 @@ function insertCardIntoColumn(
   return replaceColumnCards(board, columnIndex, nextCards);
 }
 
-function applyCardPatch(card: Card, updates: Partial<CardInput>): Card {
+function applyCardPatch(card: CardSummary, updates: Partial<CardInput>): CardSummary {
   const patch = normalizePatch(updates);
   if (Object.keys(patch).length === 0) {
     return card;
@@ -164,7 +142,7 @@ export function buildPatchCardTransform(
     const target = column?.cards[location.cardIndex];
     if (!column || !target) return board;
 
-    const changed = patchEntries.some(([key, value]) => target[key as keyof Card] !== value);
+    const changed = patchEntries.some(([key, value]) => target[key as keyof CardSummary] !== value);
     if (!changed) return board;
 
     const nextCards = [...column.cards];
@@ -181,13 +159,13 @@ export function buildPatchCardTransform(
   };
 }
 
-export function createOptimisticCard(input: CardCreateInput): Card {
+export function createOptimisticCard(input: CardCreateInput): CardSummary {
   return {
     id: input.id ?? `optimistic:${crypto.randomUUID()}`,
     status: input.status ?? DEFAULT_CARD_STATUS,
     archived: false,
     title: input.title,
-    description: input.description ?? "",
+    ...summarizeCardDescription(input.description ?? ""),
     priority: input.priority ?? undefined,
     estimate: input.estimate ?? undefined,
     tags: input.tags ?? [],
@@ -213,7 +191,7 @@ export function createOptimisticCard(input: CardCreateInput): Card {
 
 export function buildCreateCardTransform(
   columnId: string,
-  card: Card,
+  card: CardSummary,
   placement: CardCreatePlacement,
 ): BoardTransform {
   return (board) => insertCardIntoColumn(board, columnId, card, placement);
@@ -271,14 +249,14 @@ export function buildMoveCardsTransform(input: MoveCardsInput): BoardTransform {
   return (board) => {
     if (targetCardIds.size === 0) return board;
 
-    const movingCards: Card[] = [];
+    const movingCards: CardSummary[] = [];
     let nextBoard = board;
 
     for (let columnIndex = 0; columnIndex < nextBoard.columns.length; columnIndex += 1) {
       const column = nextBoard.columns[columnIndex];
       if (!column) continue;
 
-      const retainedCards: Card[] = [];
+      const retainedCards: CardSummary[] = [];
       let changed = false;
       for (const card of column.cards) {
         if (!targetCardIds.has(card.id)) {
@@ -309,15 +287,15 @@ export function buildMoveCardsTransform(input: MoveCardsInput): BoardTransform {
 }
 
 function applySourceUpdateTransform(
-  board: Board,
+  board: BoardSummary,
   update: BlockDropImportInput["sourceUpdates"][number],
-): Board {
+): BoardSummary {
   return buildPatchCardTransform(update.status, update.cardId, update.updates)(board);
 }
 
 export function buildImportBlockDropTransform(
   input: BlockDropImportInput,
-  optimisticCards: Card[],
+  optimisticCards: CardSummary[],
 ): BoardTransform {
   return (board) => {
     let nextBoard = board;

@@ -38,6 +38,7 @@ import type {
 } from "./types";
 import { invoke } from "./api";
 import { getKanbanProjectStore } from "./kanban-store";
+import { setCardDetail } from "./card-detail-store";
 
 interface UseKanbanOptions {
   projectId: string;
@@ -115,6 +116,10 @@ export function useKanban(options: UseKanbanOptions) {
       });
 
       if (!outcome.ok) return null;
+      if (outcome.result) {
+        setCardDetail(projectId, outcome.result);
+        store.applyRemoteCard(outcome.result);
+      }
       onMutation?.();
       return outcome.result ?? null;
     },
@@ -144,6 +149,7 @@ export function useKanban(options: UseKanbanOptions) {
             expectedRevision,
           )) as CardUpdateResult
         ),
+        refreshOnSuccess: false,
       });
 
       if (!outcome.ok) {
@@ -162,11 +168,15 @@ export function useKanban(options: UseKanbanOptions) {
       }
 
       if (result.status === "updated") {
+        setCardDetail(projectId, result.card);
+        store.applyRemoteCard(result.card);
         onMutation?.();
         return result;
       }
 
       if (result.status === "conflict") {
+        setCardDetail(projectId, result.card);
+        store.applyRemoteCard(result.card);
         store.resolveConflict(conflictKeys);
         await store.refreshBoard();
         if (typeof window !== "undefined") {
@@ -180,6 +190,7 @@ export function useKanban(options: UseKanbanOptions) {
         return result;
       }
 
+      await store.refreshBoard();
       return result;
     },
     [onMutation, projectId, sessionId, store],
@@ -188,7 +199,9 @@ export function useKanban(options: UseKanbanOptions) {
   const getCard = useCallback(
     async (cardId: string, columnId?: string): Promise<Card | null> => {
       try {
-        return (await invoke("card:get", projectId, cardId, columnId)) as Card | null;
+        const card = (await invoke("card:get", projectId, cardId, columnId)) as Card | null;
+        if (card) setCardDetail(projectId, card);
+        return card;
       } catch (err) {
         store.setError(toErrorMessage(err));
         return null;

@@ -19,7 +19,7 @@ export interface CardDropTargetRegistration {
   applyDrop: (
     payload: ExternalCardDragPayload,
     pointer: CardDragPointer,
-  ) => CardDropApplyResult | null;
+  ) => CardDropApplyResult | null | Promise<CardDropApplyResult | null>;
 }
 
 const registry = new Map<string, CardDropTargetRegistration>();

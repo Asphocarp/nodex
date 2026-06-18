@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { render } from "@/test/dom";
 import { installWindowApi } from "@/test/browser-globals";
 import { TestQueryProvider } from "@/test/query";
-import type { Board, Project } from "./types";
+import type { BoardSummary, Project } from "./types";
 import { useAllBoards } from "./use-all-boards";
 
 function makeProject(id: string): Project {
@@ -27,11 +27,11 @@ function BoardsHarness() {
 
 describe("useAllBoards", () => {
   beforeEach(() => {
-    const board: Board = { columns: [] };
+    const board: BoardSummary = { columns: [] };
     installWindowApi({
       invoke: async (channel: string, ...args: unknown[]) => {
         if (channel === "projects:list") return [makeProject("alpha"), makeProject("beta")];
-        if (channel === "board:get") {
+        if (channel === "board:summary:get") {
           if (args[0] === "beta") throw new Error("board unavailable");
           return board;
         }

@@ -2,24 +2,25 @@ import {
   invoke,
   subscribeBoardChanges,
 } from "./api";
-import type { Board, Card, CardInput } from "./types";
+import type { BoardSummary, Card, CardInput, CardSummary } from "./types";
 import {
   buildPatchCardTransform,
   conflictKeysForPatch,
   overlap,
   type BoardTransform,
 } from "./kanban-optimistic-ops";
+import { toCardSummary } from "../../shared/card-summary";
 
 const MUTATION_COOLDOWN_MS = 500;
 
-export interface IndexedCard extends Card {
+export interface IndexedCard extends CardSummary {
   columnId: string;
   columnName: string;
   boardIndex: number;
 }
 
 export interface KanbanStoreSnapshot {
-  board: Board | null;
+  board: BoardSummary | null;
   cardIndex: ReadonlyMap<string, IndexedCard>;
   loading: boolean;
   error: string | null;
@@ -86,7 +87,7 @@ const defaultDependencies: KanbanStoreDependencies = {
   now: () => Date.now(),
 };
 
-function buildCardIndex(board: Board | null): ReadonlyMap<string, IndexedCard> {
+function buildCardIndex(board: BoardSummary | null): ReadonlyMap<string, IndexedCard> {
   if (!board) return new Map();
 
   const index = new Map<string, IndexedCard>();
@@ -128,7 +129,7 @@ class KanbanProjectStore {
     lastMutationError: null,
   };
 
-  private baseBoard: Board | null = null;
+  private baseBoard: BoardSummary | null = null;
 
   private optimisticEntries: OptimisticEntry[] = [];
 
@@ -175,7 +176,7 @@ class KanbanProjectStore {
 
     this.inFlightFetch = (async () => {
       try {
-        const board = (await this.dependencies.invoke("board:get", this.projectId)) as Board;
+        const board = (await this.dependencies.invoke("board:summary:get", this.projectId)) as BoardSummary;
         this.baseBoard = board;
         this.recomputeSnapshot({
           loading: false,
@@ -222,6 +223,16 @@ class KanbanProjectStore {
 
   markMutation = (): void => {
     this.lastMutationAt = this.dependencies.now();
+  };
+
+  applyRemoteCard = (card: Card): void => {
+    if (!this.baseBoard) return;
+
+    const nextBoard = this.upsertCardSummary(this.baseBoard, toCardSummary(card));
+    if (nextBoard === this.baseBoard) return;
+
+    this.baseBoard = nextBoard;
+    this.recomputeSnapshot();
   };
 
   enqueueLocalOverlay = (options: LocalOverlayOptions): boolean => {
@@ -325,7 +336,7 @@ class KanbanProjectStore {
     }
   };
 
-  private composeBoard(baseBoard: Board): Board {
+  private composeBoard(baseBoard: BoardSummary): BoardSummary {
     let next = baseBoard;
     for (const entry of this.optimisticEntries) {
       if (entry.superseded) continue;
@@ -406,6 +417,61 @@ class KanbanProjectStore {
 
     if (!changed) return;
     this.optimisticEntries = nextEntries;
+  }
+
+  private upsertCardSummary(board: BoardSummary, card: CardSummary): BoardSummary {
+    let existingColumnIndex = -1;
+    let existingCardIndex = -1;
+
+    for (let columnIndex = 0; columnIndex < board.columns.length; columnIndex += 1) {
+      const cardIndex = board.columns[columnIndex]?.cards.findIndex((candidate) => candidate.id === card.id) ?? -1;
+      if (cardIndex < 0) continue;
+      existingColumnIndex = columnIndex;
+      existingCardIndex = cardIndex;
+      break;
+    }
+
+    const targetColumnIndex = board.columns.findIndex((column) => column.id === card.status);
+    if (targetColumnIndex < 0) return board;
+
+    const nextColumns = board.columns.map((column, columnIndex) => {
+      if (columnIndex !== existingColumnIndex && columnIndex !== targetColumnIndex) return column;
+
+      if (existingColumnIndex === targetColumnIndex && columnIndex === targetColumnIndex) {
+        const existingCard = column.cards[existingCardIndex];
+        if (!existingCard) return column;
+        const nextCards = [...column.cards];
+        nextCards[existingCardIndex] = card;
+        return {
+          ...column,
+          cards: nextCards,
+        };
+      }
+
+      const withoutCard = columnIndex === existingColumnIndex
+        ? column.cards.filter((candidate) => candidate.id !== card.id)
+        : column.cards;
+
+      if (columnIndex !== targetColumnIndex) {
+        return withoutCard === column.cards
+          ? column
+          : {
+              ...column,
+              cards: withoutCard,
+            };
+      }
+
+      const nextCards = [...withoutCard, card].sort((left, right) => left.order - right.order);
+      return {
+        ...column,
+        cards: nextCards,
+      };
+    });
+
+    return {
+      ...board,
+      columns: nextColumns,
+    };
   }
 
   private createEntry({

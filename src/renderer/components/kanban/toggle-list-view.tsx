@@ -8,8 +8,9 @@ import {
   type DbViewCardRecord,
 } from "../../lib/db-view-prefs";
 import { buildCardSearchText, matchesSearchTokens, tokenizeSearchQuery } from "@/lib/card-search";
+import { useCardDetails } from "@/lib/card-detail-store";
 import { useKanban } from "@/lib/use-kanban";
-import { TOGGLE_LIST_PROPERTY_KEYS, type ToggleListPropertyKey, type ToggleListStatusId } from "@/lib/toggle-list/types";
+import { TOGGLE_LIST_PROPERTY_KEYS, type ToggleListCard, type ToggleListPropertyKey, type ToggleListStatusId } from "@/lib/toggle-list/types";
 import { ToggleListCardEditor } from "./editor/toggle-list-card-editor";
 import { toggleListSchema } from "./editor/toggle-list-schema";
 import { ToggleListScrollContainer } from "./view-scroll-containers";
@@ -77,6 +78,20 @@ export function ToggleListView({ projectId, searchQuery, dbViewPrefs }: ToggleLi
     () => sortDbViewCards(filteredCards, viewPrefs.rules),
     [filteredCards, viewPrefs.rules],
   );
+  const detailState = useCardDetails(projectId, visibleCards);
+  const hydratedVisibleCards = useMemo<ToggleListCard[]>(
+    () => visibleCards.flatMap((summary) => {
+      const card = detailState.cards.get(summary.id);
+      if (!card) return [];
+      return [{
+        ...card,
+        columnId: summary.columnId,
+        columnName: summary.columnName,
+        boardIndex: summary.boardIndex,
+      }];
+    }),
+    [detailState.cards, visibleCards],
+  );
 
   if (loading) {
     return (
@@ -100,6 +115,16 @@ export function ToggleListView({ projectId, searchQuery, dbViewPrefs }: ToggleLi
 
   if (!board) return null;
 
+  if (visibleCards.length > 0 && hydratedVisibleCards.length < visibleCards.length) {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center">
+        <div className="text-sm text-(--foreground-secondary)">
+          Loading card details...
+        </div>
+      </div>
+    );
+  }
+
   return (
     <ToggleListScrollContainer>
       <div className="px-4">
@@ -107,7 +132,7 @@ export function ToggleListView({ projectId, searchQuery, dbViewPrefs }: ToggleLi
           <ToggleListCardEditor
             schema={toggleListSchema}
             projectId={projectId}
-            cards={visibleCards}
+            cards={hydratedVisibleCards}
             propertyOrder={propertyOrder}
             hiddenProperties={hiddenProperties}
             showEmptyEstimate={viewPrefs.display.showEmptyEstimate}

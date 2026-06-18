@@ -5,7 +5,7 @@ import type { CommandPaletteCard, CommandPaletteCommand } from "@/lib/command-pa
 import { getDefaultCommandPaletteCardFilters } from "@/lib/command-palette";
 import type { Card } from "@/lib/types";
 import { createCommandPaletteCardSearchIndex } from "../../lib/command-palette-card-search";
-import { render, textContent } from "../../test/dom";
+import { render, settleAsyncRender, textContent } from "../../test/dom";
 import { TOGGLE_SIDEBAR_COMMAND_ID } from "../../../shared/window-navigation";
 
 mock.module("./card-icon", () => ({
@@ -121,7 +121,7 @@ describe("CommandPaletteSurface", () => {
       />,
     );
 
-    await Promise.resolve();
+    await settleAsyncRender();
     const topResult = container.querySelector('button[cmdk-item][data-selected="true"]');
 
     expect(textContent(container).includes("fuzzy search indxer")).toBeTrue();
@@ -166,7 +166,7 @@ describe("CommandPaletteSurface", () => {
       />,
     );
 
-    await Promise.resolve();
+    await settleAsyncRender();
 
     const input = getByLabelText("Command palette search") as HTMLInputElement;
     const resultButtons = Array.from(container.querySelectorAll('button[cmdk-item]'));
@@ -215,7 +215,7 @@ describe("CommandPaletteSurface", () => {
       />,
     );
 
-    await Promise.resolve();
+    await settleAsyncRender();
 
     const filterButton = getByLabelText("Filter cards");
     expect(filterButton.getAttribute("aria-label")).toBe("Filter cards");

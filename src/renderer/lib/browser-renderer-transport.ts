@@ -428,6 +428,31 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       const res = await fetch(toApiUrl(`/api/projects/${projectId}/board`));
       return res.json();
     }
+    case "board:summary:get": {
+      const [projectId] = args as [string];
+      const res = await fetch(toApiUrl(`/api/projects/${projectId}/board-summary`));
+      return res.json();
+    }
+    case "cards:details:get": {
+      const [projectId, input] = args as [string, { cardIds: string[] }];
+      const res = await fetch(toApiUrl(`/api/projects/${projectId}/cards/details`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      if (!res.ok) return [];
+      return res.json();
+    }
+    case "cards:search": {
+      const [input] = args as [{ projectIds: string[]; query: string; limit?: number }];
+      const res = await fetch(toApiUrl("/api/cards/search"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      if (!res.ok) return [];
+      return res.json();
+    }
     case "card:create": {
       const [projectId, status, input, sessionId, placement] = args as [
         string,

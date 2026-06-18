@@ -1,7 +1,7 @@
 import { useForm, useStore } from "@tanstack/react-form";
 import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
-import type { Board, Project } from "@/lib/types";
+import type { BoardSummary, Project } from "@/lib/types";
 import { invoke } from "@/lib/api";
 import { handleFormSubmit, resolveFormErrorMessage } from "@/lib/forms";
 import { normalizeProjectIcon } from "@/lib/project-icon";
@@ -83,7 +83,7 @@ export function SendBlocksDialog({
   onSendToProject,
 }: SendBlocksDialogProps) {
   const { projects, loading: projectsLoading } = useProjects();
-  const [boardMap, setBoardMap] = useState<Map<string, Board>>(new Map());
+  const [boardMap, setBoardMap] = useState<Map<string, BoardSummary>>(new Map());
   const [boardsLoading, setBoardsLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -135,7 +135,7 @@ export function SendBlocksDialog({
       try {
         const results = await Promise.all(
           projects.map(async (project) => {
-            const board = (await invoke("board:get", project.id)) as Board;
+            const board = (await invoke("board:summary:get", project.id)) as BoardSummary;
             return [project.id, board] as const;
           }),
         );

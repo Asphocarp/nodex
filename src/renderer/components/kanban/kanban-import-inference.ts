@@ -1,4 +1,4 @@
-import type { Card, CardInput, CardStatus, Estimate, Priority } from "@/lib/types";
+import type { Board, BoardSummary, CardInput, CardStatus, Estimate, Priority } from "@/lib/types";
 import type {
   DbViewCardRecord,
   DbViewFilterClause,
@@ -7,8 +7,8 @@ import type {
   DbViewSortField,
 } from "../../lib/db-view-prefs";
 import { filterDbViewCards } from "../../lib/db-view-prefs";
-import type { Board } from "../../lib/types";
 import { resolveFilteredDropOrder } from "./filtered-drag-order";
+import { summarizeCardDescription } from "../../../shared/card-summary";
 
 type CardInputWithDefaults = CardInput & {
   tags: string[];
@@ -29,8 +29,8 @@ export type KanbanImportInferenceResult =
     };
 
 interface ResolveKanbanImportInferenceInput {
-  board: Board | null;
-  visibleBoard: Board | null;
+  board: BoardSummary | Board | null;
+  visibleBoard: BoardSummary | Board | null;
   rules: DbViewRules;
   targetColumnId: CardStatus;
   targetVisibleIndex: number;
@@ -76,7 +76,7 @@ function buildVisibleCardRecord(card: CardInputWithDefaults, targetColumnId: Car
     columnName: CARD_STATUS_NAMES[targetColumnId],
     archived: false,
     title: card.title,
-    description: card.description ?? "",
+    ...summarizeCardDescription(card.description ?? ""),
     priority: hasOwn(card, "priority") ? card.priority ?? undefined : undefined,
     estimate: hasOwn(card, "estimate") ? card.estimate ?? undefined : undefined,
     tags: card.tags,
@@ -226,7 +226,10 @@ function pickSafestFilterPatch(
   return patchedCards;
 }
 
-function resolveSortValue(card: Card | CardInput | undefined, field: "priority" | "estimate"): Priority | Estimate | null | undefined {
+function resolveSortValue(
+  card: Pick<CardInput, "priority" | "estimate"> | undefined,
+  field: "priority" | "estimate",
+): Priority | Estimate | null | undefined {
   if (!card) return undefined;
   if (field === "priority") {
     return hasOwn(card, "priority") ? card.priority ?? null : undefined;
@@ -265,14 +268,14 @@ function applySortFieldPatch(
   return patchedCards;
 }
 
-function findCardOrderIndex(board: Board, targetColumnId: CardStatus, cardId: string): number | null {
+function findCardOrderIndex(board: BoardSummary | Board, targetColumnId: CardStatus, cardId: string): number | null {
   const targetColumn = board.columns.find((column) => column.id === targetColumnId);
   if (!targetColumn) return null;
   const index = targetColumn.cards.findIndex((card) => card.id === cardId);
   return index >= 0 ? index : null;
 }
 
-function resolveAnchorInsertIndex(board: Board, targetColumnId: CardStatus, anchor: SortAnchor): number {
+function resolveAnchorInsertIndex(board: BoardSummary | Board, targetColumnId: CardStatus, anchor: SortAnchor): number {
   if (anchor.afterCardId) {
     const index = findCardOrderIndex(board, targetColumnId, anchor.afterCardId);
     if (index !== null) return index;
@@ -288,8 +291,8 @@ function resolveAnchorInsertIndex(board: Board, targetColumnId: CardStatus, anch
 }
 
 function resolveSortedSlot(args: {
-  board: Board;
-  visibleBoard: Board;
+  board: BoardSummary | Board;
+  visibleBoard: BoardSummary | Board;
   targetColumnId: CardStatus;
   targetVisibleIndex: number;
   rules: DbViewRules;

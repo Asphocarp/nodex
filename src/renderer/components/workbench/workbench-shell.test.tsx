@@ -3,6 +3,7 @@ import { Fragment, createElement, createRef, useEffect, useState, type Component
 import { createPortal } from "react-dom";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import type { Project, ProjectSession, ProjectSessionPanelNode, ProjectSessionTab } from "@/lib/types";
+import { resetCardDetailStoreForTests } from "@/lib/card-detail-store";
 import {
   APP_SHELL_FLOATING_LEFT_PANEL_LAYER_CLASS,
   APP_SHELL_GLOBAL_HEADER_LAYER_CLASS,
@@ -930,6 +931,72 @@ function renderWorkbench({
       const projectId = String(args[0]);
       return sessionState[projectId] ?? [];
     }
+    if (channel === "card:get") {
+      const cardId = String(args[1] ?? "");
+      if (cardId === "card-beta") {
+        return {
+          id: "card-beta",
+          projectId: "beta",
+          status: "in_progress",
+          title: "Beta Card",
+          description: "",
+          tags: [],
+          archived: false,
+          agentBlocked: false,
+          created: new Date("2026-06-07T00:00:00.000Z"),
+          order: 0,
+          revision: 1,
+        };
+      }
+      if (cardId !== "card-1") return null;
+      return {
+        id: "card-1",
+        projectId: "alpha",
+        status: "in_progress",
+        title: "Card One",
+        description: "",
+        tags: [],
+        archived: false,
+        agentBlocked: false,
+        created: new Date("2026-06-07T00:00:00.000Z"),
+        order: 0,
+        revision: 1,
+      };
+    }
+    if (channel === "cards:details:get") {
+      const input = (args[1] ?? {}) as { cardIds?: string[] };
+      return (input.cardIds ?? []).flatMap((cardId) => (
+        cardId === "card-beta"
+          ? [{
+              id: "card-beta",
+              projectId: "beta",
+              status: "in_progress",
+              title: "Beta Card",
+              description: "",
+              tags: [],
+              archived: false,
+              agentBlocked: false,
+              created: new Date("2026-06-07T00:00:00.000Z"),
+              order: 0,
+              revision: 1,
+            }]
+          : cardId === "card-1"
+            ? [{
+                id: "card-1",
+                projectId: "alpha",
+                status: "in_progress",
+                title: "Card One",
+              description: "",
+              tags: [],
+              archived: false,
+              agentBlocked: false,
+              created: new Date("2026-06-07T00:00:00.000Z"),
+              order: 0,
+              revision: 1,
+            }]
+          : []
+      ));
+    }
     if (channel === "project-sessions:update") {
       const sessionId = String(args[0]);
       const input = (args[1] ?? {}) as Partial<ProjectSession>;
@@ -1321,6 +1388,7 @@ function renderWorkbench({
 }
 
 beforeEach(() => {
+  resetCardDetailStoreForTests();
   document.body.removeAttribute("style");
   invokeCalls = [];
   startThreadForSessionCalls = [];

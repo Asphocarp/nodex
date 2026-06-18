@@ -98,6 +98,7 @@ import { resolveCalendarVisibleDayCount } from "@/lib/calendar-range";
 import { KANBAN_STATUS_LABELS } from "@/lib/kanban-options";
 import { invoke, subscribeProjectSessionChanges } from "@/lib/api";
 import { useKanban } from "@/lib/use-kanban";
+import { useCardDetail } from "@/lib/card-detail-store";
 import { cn } from "@/lib/utils";
 import {
   makeDefaultSidebarTopLevelSectionsPrefs,
@@ -154,6 +155,7 @@ import {
 import { PROJECT_SESSION_SINGLETON_TAB_KINDS } from "@/lib/types";
 import type {
   Card,
+  CardSummary,
   CardRunInTarget,
   CardInput,
   CardUpdateMutationResult,
@@ -1682,7 +1684,7 @@ export function WorkbenchShell({
     toast.danger(message);
   }, []);
   const activeProjectCardOptions = useMemo(() => {
-    const cards: Array<{ card: Card; columnName: string }> = [];
+    const cards: Array<{ card: CardSummary; columnName: string }> = [];
     for (const column of activeProjectKanban.board?.columns ?? []) {
       const columnName = KANBAN_STATUS_LABELS[column.id] ?? column.name;
       for (const card of column.cards) {
@@ -3347,7 +3349,7 @@ export function WorkbenchShell({
     await createManualTab("terminal", "bottom");
   }, [activeSession, createManualTab, setActivePanelTab]);
 
-  const openCardStageFromPicker = useCallback(async (card: Card) => {
+  const openCardStageFromPicker = useCallback(async (card: CardSummary) => {
     if (!activeSession) return;
     await openCardTab(activeSession.projectId, card.id, card.title || card.id);
   }, [activeSession, openCardTab]);
@@ -5853,8 +5855,8 @@ function RightPanelCardStagePicker({
   cards,
   onOpenCard,
 }: {
-  cards: Array<{ card: Card; columnName: string }>;
-  onOpenCard: (card: Card) => void;
+  cards: Array<{ card: CardSummary; columnName: string }>;
+  onOpenCard: (card: CardSummary) => void;
 }) {
   if (cards.length === 0) {
     return (
@@ -5888,10 +5890,10 @@ function EmptyRightPane({
   onOpenCard,
 }: {
   actions: PanelNewTabAction[];
-  cards: Array<{ card: Card; columnName: string }>;
+  cards: Array<{ card: CardSummary; columnName: string }>;
   isMac: boolean;
   onAction: (kind: PanelNewTabActionKind) => void;
-  onOpenCard: (card: Card) => void;
+  onOpenCard: (card: CardSummary) => void;
 }) {
   const codexActions = actions.filter((action) => !isNodexPanelOptionAction(action));
   const nodexActions = actions.filter(isNodexPanelOptionAction);
@@ -6862,7 +6864,13 @@ function CardStageSessionTab({
     void refreshBoard();
   }, [refreshBoard]);
 
-  const card = kanban.cardIndex.get(tab.config.cardId) ?? null;
+  const cardSummary = kanban.cardIndex.get(tab.config.cardId) ?? null;
+  const detail = useCardDetail(
+    tab.config.projectId,
+    tab.config.cardId,
+    cardSummary?.status,
+  );
+  const card = detail.card;
   const availableTags = useMemo(() => {
     const tags = new Set<string>();
     for (const column of kanban.board?.columns ?? []) {
@@ -6906,8 +6914,16 @@ function CardStageSessionTab({
     );
   }
 
-  const columnId = card?.status ?? "draft";
+  const columnId = cardSummary?.status ?? card?.status ?? "draft";
   const columnName = KANBAN_STATUS_LABELS[columnId] ?? columnId;
+
+  if (!card && (detail.loading || cardSummary)) {
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-token-text-secondary">
+        Loading card...
+      </div>
+    );
+  }
 
   return (
     <>

@@ -71,18 +71,21 @@ function buildProps(overrides: Partial<CardStageProps> = {}): CardStageProps {
 function renderController(props: CardStageProps) {
   let controller: CardStageController | null = null;
 
-  function Harness({ children }: { children?: ReactNode }) {
-    controller = useCardStageController(props);
+  function Harness({ nextProps, children }: { nextProps: CardStageProps; children?: ReactNode }) {
+    controller = useCardStageController(nextProps);
     return <>{children}</>;
   }
 
-  const view = render(<Harness />);
+  const view = render(<Harness nextProps={props} />);
   if (!controller) {
     throw new Error("Expected Card Stage controller to render.");
   }
 
   return {
     view,
+    rerender(nextProps: CardStageProps) {
+      view.rerender(<Harness nextProps={nextProps} />);
+    },
     get controller() {
       if (!controller) {
         throw new Error("Expected Card Stage controller to stay mounted.");
@@ -216,6 +219,114 @@ describe("useCardStageController", () => {
 
     expect(updatesSeen.length).toBe(1);
     expect(updatesSeen[0]?.description).toBe("Debounced body");
+    result.view.unmount();
+  });
+
+  test("description save in flight keeps stale card props from replacing the local draft", async () => {
+    resetCardDraftStoreForTest();
+    type TimeoutCallback = Parameters<typeof globalThis.setTimeout>[0];
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    const scheduled: Array<{ callback: TimeoutCallback; delay: number | undefined }> = [];
+    let resolveUpdate: ((result: CardUpdateMutationResult) => void) | null = null;
+    const baseCard = buildCard({ revision: 1 });
+    const props = buildProps({
+      card: baseCard,
+      onUpdate: async () => new Promise<CardUpdateMutationResult>((resolve) => {
+        resolveUpdate = resolve;
+      }),
+    });
+    const result = renderController(props);
+    await settleAsyncRender();
+
+    globalThis.setTimeout = ((callback: TimeoutCallback, delay?: number) => {
+      scheduled.push({ callback, delay });
+      return scheduled.length as unknown as ReturnType<typeof globalThis.setTimeout>;
+    }) as typeof globalThis.setTimeout;
+    globalThis.clearTimeout = (() => undefined) as typeof globalThis.clearTimeout;
+
+    try {
+      act(() => {
+        result.controller.handleDescriptionChange("Draft body");
+      });
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
+    }
+
+    await act(async () => {
+      const callback = scheduled[0]?.callback;
+      if (typeof callback === "function") {
+        callback();
+      }
+      await Promise.resolve();
+    });
+
+    result.rerender(buildProps({
+      ...props,
+      card: buildCard({
+        description: "Persisted body",
+        revision: 1,
+      }),
+    }));
+    await settleAsyncRender();
+
+    expect(result.controller.description).toBe("Draft body");
+
+    await act(async () => {
+      resolveUpdate?.({
+        status: "updated",
+        card: buildCard({
+          description: "Draft body",
+          revision: 2,
+        }),
+      });
+      await Promise.resolve();
+    });
+    result.view.unmount();
+  });
+
+  test("conflict overwrite sends the current flushed description draft", async () => {
+    resetCardDraftStoreForTest();
+    const updatesSeen: Partial<CardInput>[] = [];
+    const result = renderController(buildProps({
+      onUpdate: async (_columnId, _cardId, updates) => {
+        updatesSeen.push(updates);
+        if (updatesSeen.length === 1) {
+          return {
+            status: "conflict",
+            card: buildCard({
+              description: "Remote body",
+              revision: 2,
+            }),
+          };
+        }
+        return {
+          status: "updated",
+          card: buildUpdatedCard(updates),
+        };
+      },
+    }));
+    await settleAsyncRender();
+
+    await act(async () => {
+      result.controller.handleDescriptionChange("First local body");
+      result.controller.handleDescriptionBlur();
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    result.controller.descriptionFlushHandleRef.current = {
+      flushPendingChange: () => "Current editor body",
+      hasPendingChange: () => true,
+    };
+
+    await act(async () => {
+      await result.controller.handleOverwriteMine();
+    });
+
+    expect(updatesSeen.length).toBe(2);
+    expect(updatesSeen[1]?.description).toBe("Current editor body");
     result.view.unmount();
   });
 

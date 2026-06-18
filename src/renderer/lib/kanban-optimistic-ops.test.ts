@@ -4,9 +4,25 @@ import {
   buildMoveCardsTransform,
   createOptimisticCard,
 } from "./kanban-optimistic-ops";
-import type { Board } from "./types";
+import type { BoardSummary, CardSummary } from "./types";
 
-function createBoard(): Board {
+function createCardSummary(id: string, order: number): CardSummary {
+  return {
+    id,
+    status: "in_progress",
+    archived: false,
+    title: id,
+    descriptionPreview: "",
+    descriptionLength: 0,
+    hasDescription: false,
+    tags: [],
+    agentBlocked: false,
+    created: new Date("2026-03-17T00:00:00.000Z"),
+    order,
+  };
+}
+
+function createBoard(): BoardSummary {
   return {
     columns: [
       {
@@ -22,17 +38,7 @@ function createBoard(): Board {
       {
         id: "in_progress",
         name: "In Progress",
-        cards: ["a", "b", "c", "d"].map((id, order) => ({
-          id,
-          status: "in_progress",
-          archived: false,
-          title: id,
-          description: "",
-          tags: [],
-          agentBlocked: false,
-          created: new Date("2026-03-17T00:00:00.000Z"),
-          order,
-        })),
+        cards: ["a", "b", "c", "d"].map((id, order) => createCardSummary(id, order)),
       },
       {
         id: "in_review",

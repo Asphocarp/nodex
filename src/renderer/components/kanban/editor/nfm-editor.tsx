@@ -28,6 +28,7 @@ import { ChipPropertyEditor } from "./chip-property-editor";
 import { toast } from "@/components/ui/toast";
 import { useEditorDragBehaviors } from "./use-editor-drag-behaviors";
 import { createNfmSerializedChangeEmitter } from "./nfm-serialized-change-emitter";
+import { shouldReplaceNfmExternalContent } from "./nfm-external-content-sync";
 import type { Card, CodexPromptInput } from "@/lib/types";
 import { useCardImportDropTarget } from "./use-card-import-drop-target";
 import { NfmSlashMenu } from "./nfm-slash-menu";
@@ -149,10 +150,11 @@ import {
 } from "@/lib/toggle-list/inline-view-props";
 import { TOGGLE_LIST_STATUS_ORDER, type ToggleListStatusId } from "@/lib/toggle-list/types";
 import { useKanban } from "@/lib/use-kanban";
+import { fetchCardDetails, setCardDetail } from "@/lib/card-detail-store";
 import type { MetaChipPropertyType } from "@/lib/toggle-list/meta-chips";
 import type {
   BlockDropImportSourceUpdate,
-  Board,
+  BoardSummary,
   CodexThreadSummary,
 } from "@/lib/types";
 import {
@@ -441,7 +443,7 @@ function blockHasProjectedAncestor(
   return false;
 }
 
-function isBoard(value: unknown): value is Board {
+function isBoardSummary(value: unknown): value is BoardSummary {
   if (!isRecord(value)) return false;
   return Array.isArray(value.columns);
 }
@@ -1331,12 +1333,22 @@ export function NfmEditor({
   const prevContentRef = useRef(content);
   useEffect(() => {
     if (!editor) return;
-    if (content === prevContentRef.current) return;
+    const previousContent = prevContentRef.current;
+    if (content === previousContent) return;
     prevContentRef.current = content;
     cancelScheduledSerializedEmit();
 
-    // Skip if this is a value we just emitted (avoids fighting with our own onChange)
-    if (content === lastEmittedRef.current) return;
+    const shouldReplace = shouldReplaceNfmExternalContent({
+      incomingContent: content,
+      previousContent,
+      lastEmittedContent: lastEmittedRef.current,
+      currentSerializedContent: serializeCurrentEditorContentRef.current(),
+    });
+
+    if (!shouldReplace) {
+      lastEmittedRef.current = content;
+      return;
+    }
 
     // Clean up previous toggle localStorage entries
     for (const id of toggleBlockIdsRef.current) {
@@ -1784,18 +1796,23 @@ export function NfmEditor({
         throw new Error("Choose a different destination card.");
       }
 
-      const boardResult = await invoke("board:get", targetProjectId);
-      if (!isBoard(boardResult)) {
+      const boardResult = await invoke("board:summary:get", targetProjectId);
+      if (!isBoardSummary(boardResult)) {
         throw new Error("Unable to load destination card.");
       }
       const targetColumn = boardResult.columns.find((column) => column.id === targetStatus);
       if (!targetColumn) {
         throw new Error("Destination column not found.");
       }
-      const targetCard = targetColumn.cards.find((card) => card.id === targetCardId);
+      const targetCardSummary = targetColumn.cards.find((card) => card.id === targetCardId);
+      if (!targetCardSummary) {
+        throw new Error("Destination card not found.");
+      }
+      const targetCard = (await invoke("card:get", targetProjectId, targetCardId, targetStatus)) as Card | null;
       if (!targetCard) {
         throw new Error("Destination card not found.");
       }
+      setCardDetail(targetProjectId, targetCard);
 
       const dropEditor = editor as unknown as EditorForExternalBlockDrop;
       cancelScheduledSerializedEmit();
@@ -1946,23 +1963,33 @@ export function NfmEditor({
   );
 
   const applyCardImportDrop = useCallback(
-    (payload: ExternalCardDragPayload, pointer: { x: number; y: number }) => {
+    async (payload: ExternalCardDragPayload, pointer: { x: number; y: number }) => {
       if (!sourceCardContext) return null;
       const container = containerRef.current;
       if (!container) return null;
+
+      const detailCards = await fetchCardDetails(
+        payload.projectId,
+        payload.cards.map((entry) => entry.card.id),
+      );
+      const detailById = new Map(detailCards.map((card) => [card.id, card]));
+      if (detailById.size !== payload.cards.length) return null;
 
       const dropEditor = editor as unknown as EditorForExternalBlockDrop;
       cancelScheduledSerializedEmit();
       const baselineDescription = serializeEditorToNfm();
       const snapshot = snapshotEditorDocument(dropEditor);
-      const droppedBlocks = payload.cards.map((entry) =>
-        mapCardToDroppedCardToggleBlock(
-          entry.card,
+      const droppedBlocks = payload.cards.flatMap((entry) => {
+        const card = detailById.get(entry.card.id);
+        if (!card) return [];
+        return [mapCardToDroppedCardToggleBlock(
+          card,
           payload.projectId,
           entry.columnId,
           entry.columnName,
-        )
-      );
+        )];
+      });
+      if (droppedBlocks.length !== payload.cards.length) return null;
 
       suppressExternalDropRef.current = true;
       try {
@@ -2162,8 +2189,8 @@ export function NfmEditor({
       event.preventDefault();
       event.stopPropagation();
 
-      const boardResult = await invoke("board:get", dropContext.sourceProjectId);
-      if (!isBoard(boardResult)) return;
+      const boardResult = await invoke("board:summary:get", dropContext.sourceProjectId);
+      if (!isBoardSummary(boardResult)) return;
 
       const inferredDrop = inferInlineViewDropImport({
         settings: dropContext.settings,

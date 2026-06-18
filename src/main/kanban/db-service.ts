@@ -5,6 +5,8 @@ import {
   type BlockDropImportInput,
   type BlockDropImportResult,
   type Board,
+  type BoardSummary,
+  type BoardSummaryColumn,
   type CalendarOccurrence,
   type CardDropMoveToEditorInput,
   type CardDropMoveToEditorResult,
@@ -12,6 +14,10 @@ import {
   type CardCreatePlacement,
   type CardCreateInput,
   type CardInput,
+  type CardSearchInput,
+  type CardSearchResult,
+  type CardsDetailsInput,
+  type CardSummary,
   type CardUpdateResult,
   type CardOccurrenceActionInput,
   type CardOccurrenceUpdateInput,
@@ -29,6 +35,8 @@ import {
   type RecurrenceConfig,
   type ReminderConfig,
 } from "../../shared/types";
+import { toCardSummary } from "../../shared/card-summary";
+import { extractPlainText } from "../../shared/nfm";
 import {
   DEFAULT_CARD_STATUS,
   type CardStatus,
@@ -160,6 +168,49 @@ function rowToCard(row: DbCard): Card {
     created: new Date(row.created),
     order: row.order,
   };
+}
+
+function rowToCardSummary(row: DbCard): CardSummary {
+  return toCardSummary(rowToCard(row));
+}
+
+function normalizeSearchText(value: string | undefined): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function buildSearchExcerpt(text: string, query: string, maxLength = 240): string {
+  const normalizedText = text.toLowerCase();
+  const normalizedQuery = query.toLowerCase();
+  const matchIndex = normalizedQuery.length > 0 ? normalizedText.indexOf(normalizedQuery) : -1;
+  if (text.length <= maxLength) return text;
+
+  const midpoint = matchIndex >= 0 ? matchIndex : 0;
+  const start = Math.max(0, midpoint - Math.floor(maxLength / 3));
+  const end = Math.min(text.length, start + maxLength);
+  const prefix = start > 0 ? "..." : "";
+  const suffix = end < text.length ? "..." : "";
+  return `${prefix}${text.slice(start, end).trim()}${suffix}`;
+}
+
+function scoreCardSearchMatch(row: DbCard, descriptionText: string, tokens: string[]): number {
+  const fields = [
+    { text: row.title, weight: 10 },
+    { text: row.tags, weight: 6 },
+    { text: row.assignee ?? "", weight: 4 },
+    { text: row.agent_status ?? "", weight: 3 },
+    { text: row.status, weight: 2 },
+    { text: descriptionText, weight: 1 },
+  ];
+
+  let score = 0;
+  for (const token of tokens) {
+    const tokenScore = fields.reduce((sum, field) => (
+      normalizeSearchText(field.text).includes(token) ? sum + field.weight : sum
+    ), 0);
+    if (tokenScore === 0) return 0;
+    score += tokenScore;
+  }
+  return score;
 }
 
 function parseRunInTarget(value: string | null | undefined): Card["runInTarget"] {
@@ -483,10 +534,89 @@ export async function readColumn(projectId: string, columnId: CardStatus): Promi
   };
 }
 
+export async function readSummaryColumn(projectId: string, columnId: CardStatus): Promise<BoardSummaryColumn> {
+  const canonicalProjectId = requireProjectId(projectId);
+  const columnMeta = COLUMNS.find((c) => c.id === columnId);
+  if (!columnMeta) throw new Error(`Unknown column: ${columnId}`);
+
+  const stmt = getDb().prepare(
+    'SELECT * FROM cards WHERE project_id = ? AND archived = 0 AND status = ? ORDER BY "order" ASC',
+  );
+  const rows = stmt.all(canonicalProjectId, columnId) as DbCard[];
+
+  return {
+    id: columnId,
+    name: columnMeta.name,
+    cards: rows.map(rowToCardSummary),
+  };
+}
+
 export async function getBoard(projectId: string): Promise<Board> {
   const canonicalProjectId = requireProjectId(projectId);
   const columns = await Promise.all(COLUMNS.map((c) => readColumn(canonicalProjectId, c.id)));
   return { columns };
+}
+
+export async function getBoardSummary(projectId: string): Promise<BoardSummary> {
+  const canonicalProjectId = requireProjectId(projectId);
+  const columns = await Promise.all(COLUMNS.map((c) => readSummaryColumn(canonicalProjectId, c.id)));
+  return { columns };
+}
+
+export async function getCardsDetails(projectId: string, input: CardsDetailsInput): Promise<Card[]> {
+  const canonicalProjectId = requireProjectId(projectId);
+  const uniqueCardIds = Array.from(new Set(input.cardIds.map((cardId) => cardId.trim()).filter(Boolean)));
+  if (uniqueCardIds.length === 0) return [];
+
+  const placeholders = uniqueCardIds.map(() => "?").join(", ");
+  const rows = getDb().prepare(
+    `SELECT * FROM cards
+     WHERE project_id = ? AND archived = 0 AND id IN (${placeholders})`,
+  ).all(canonicalProjectId, ...uniqueCardIds) as DbCard[];
+
+  const byId = new Map(rows.map((row) => [row.id, rowToCard(row)]));
+  return uniqueCardIds.flatMap((cardId) => {
+    const card = byId.get(cardId);
+    return card ? [card] : [];
+  });
+}
+
+export async function searchCards(input: CardSearchInput): Promise<CardSearchResult[]> {
+  const query = input.query.trim();
+  if (!query) return [];
+
+  const canonicalProjectIds = Array.from(new Set(input.projectIds.map(requireProjectId)));
+  if (canonicalProjectIds.length === 0) return [];
+
+  const limit = Math.max(1, Math.min(input.limit ?? 50, 100));
+  const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return [];
+
+  const placeholders = canonicalProjectIds.map(() => "?").join(", ");
+  const rows = getDb().prepare(
+    `SELECT * FROM cards
+     WHERE archived = 0 AND project_id IN (${placeholders})`,
+  ).all(...canonicalProjectIds) as DbCard[];
+
+  return rows
+    .flatMap((row): CardSearchResult[] => {
+      const descriptionText = extractPlainText(row.description);
+      const score = scoreCardSearchMatch(row, descriptionText, tokens);
+      if (score <= 0) return [];
+
+      return [{
+        projectId: row.project_id,
+        cardId: row.id,
+        status: row.status,
+        score,
+        excerpt: buildSearchExcerpt(descriptionText, query),
+      }];
+    })
+    .sort((left, right) => {
+      if (right.score !== left.score) return right.score - left.score;
+      return left.cardId.localeCompare(right.cardId);
+    })
+    .slice(0, limit);
 }
 
 export async function createCard(

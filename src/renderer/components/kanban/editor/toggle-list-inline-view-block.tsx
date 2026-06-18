@@ -38,10 +38,12 @@ import {
 } from "@/lib/toggle-list/settings";
 import { filterCards, rankCards } from "@/lib/toggle-list/rules";
 import type {
+  ToggleListCard,
   ToggleListSettings,
   ToggleListStatusId,
 } from "@/lib/toggle-list/types";
 import { useKanban } from "@/lib/use-kanban";
+import { useCardDetails } from "@/lib/card-detail-store";
 import { normalizeProjectIcon } from "@/lib/project-icon";
 import { useProjects } from "@/lib/use-projects";
 import { cn } from "@/lib/utils";
@@ -251,6 +253,20 @@ export const createToggleListInlineViewBlockSpec = createReactBlockSpec(
         () => rankCards(filterCards(cards, settings, "", { excludedCardIds }), settings),
         [cards, excludedCardIds, settings],
       );
+      const detailState = useCardDetails(sourceProjectId, visibleCards);
+      const hydratedVisibleCards = useMemo<ToggleListCard[]>(
+        () => visibleCards.flatMap((summary) => {
+          const card = detailState.cards.get(summary.id);
+          if (!card) return [];
+          return [{
+            ...card,
+            columnId: summary.columnId,
+            columnName: summary.columnName,
+            boardIndex: summary.boardIndex,
+          }];
+        }),
+        [detailState.cards, visibleCards],
+      );
 
       const updateBlockProps = useCallback(
         (
@@ -292,13 +308,25 @@ export const createToggleListInlineViewBlockSpec = createReactBlockSpec(
         ownerBlockId: block.id,
         projectionKind: "toggleListInlineView",
         sourceProjectId,
-        cards: !loading && !error && !isRecursive ? visibleCards : [],
+        cards: !loading
+          && !error
+          && !detailState.loading
+          && !detailState.error
+          && !isRecursive
+          && hydratedVisibleCards.length === visibleCards.length
+          ? hydratedVisibleCards
+          : [],
         propertyOrder: settings.propertyOrder,
         hiddenProperties: settings.hiddenProperties,
         showEmptyEstimate: settings.showEmptyEstimate,
         showEmptyPriority: settings.showEmptyPriority,
         editor,
-        enabled: !isRecursive,
+        enabled: !isRecursive
+          && !loading
+          && !error
+          && !detailState.loading
+          && !detailState.error
+          && hydratedVisibleCards.length === visibleCards.length,
         updateCard,
         patchCard,
         moveCard,

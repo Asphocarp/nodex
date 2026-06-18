@@ -56,7 +56,8 @@ import {
   type DbViewPrefs,
 } from "../../lib/db-view-prefs";
 import type {
-  Card as CardType,
+  Card as FullCard,
+  CardSummary,
   CardStatus,
   CardCreatePlacement,
   CardDropMoveToEditorResult,
@@ -360,7 +361,7 @@ export function KanbanBoard({
     if (cardDragSession) {
       const target = resolveExternalCardDropTarget(cardDragSession);
       if (target && cardDragSession.pointer) {
-        const optimisticResult = target.applyDrop(
+        const optimisticResult = await target.applyDrop(
           cardDragSession.payload,
           cardDragSession.pointer,
         );

@@ -14,6 +14,7 @@ import {
 } from "./types";
 import { priorityClauseIncludesEmpty } from "./priority-clause";
 import { compareNullableRanks } from "../sort-empty-placement";
+import type { CardSummary } from "../types";
 
 const priorityRank = new Map(TOGGLE_LIST_PRIORITY_ORDER.map((priority, index) => [priority, index]));
 const statusRank = new Map(TOGGLE_LIST_STATUS_ORDER.map((status, index) => [status, index]));
@@ -21,14 +22,29 @@ const estimateRank = new Map(
   ["xs", "s", "m", "l", "xl"].map((estimate, index) => [estimate, index]),
 );
 
-export function filterCards(
-  cards: ToggleListCard[],
+type ToggleListFilterableCard = Pick<
+  CardSummary,
+  "id" | "title" | "priority" | "estimate" | "tags" | "created" | "assignee" | "agentStatus"
+> & {
+  descriptionPreview?: string;
+  description?: string;
+  status?: CardSummary["status"];
+  archived?: boolean;
+  agentBlocked?: boolean;
+  order?: number;
+  columnId: ToggleListCard["columnId"];
+  columnName: string;
+  boardIndex: number;
+};
+
+export function filterCards<T extends ToggleListFilterableCard>(
+  cards: T[],
   settings: ToggleListSettings,
   searchQuery: string,
   options?: {
     excludedCardIds?: ReadonlySet<string>;
   },
-): ToggleListCard[] {
+): T[] {
   const searchTokens = tokenizeSearchQuery(searchQuery);
   const rulesV2 = settings.rulesV2;
   const excludedCardIds = options?.excludedCardIds;
@@ -44,7 +60,7 @@ export function filterCards(
 }
 
 function matchesFilterSpec(
-  card: ToggleListCard,
+  card: ToggleListFilterableCard,
   filter: ToggleListFilterSpec,
 ): boolean {
   if (filter.any.length === 0) return true;
@@ -52,7 +68,7 @@ function matchesFilterSpec(
 }
 
 function matchesFilterGroup(
-  card: ToggleListCard,
+  card: ToggleListFilterableCard,
   group: ToggleListFilterGroup,
 ): boolean {
   for (const clause of group.all) {
@@ -62,7 +78,7 @@ function matchesFilterGroup(
 }
 
 function matchesClause(
-  card: ToggleListCard,
+  card: ToggleListFilterableCard,
   clause: ToggleListClause,
 ): boolean {
   if (clause.field === "status") {
@@ -95,10 +111,10 @@ function matchesTagFilter(
   return !cardTags.some((tag) => selectedTags.has(tag));
 }
 
-export function rankCards(
-  cards: ToggleListCard[],
+export function rankCards<T extends ToggleListFilterableCard>(
+  cards: T[],
   settings: ToggleListSettings,
-): ToggleListCard[] {
+): T[] {
   const rulesV2 = settings.rulesV2;
   const fallbackSort: ToggleListSortKey[] = [
     { field: "board-order", direction: "asc" },
@@ -120,8 +136,8 @@ export function rankCards(
 }
 
 function compareBySortKey(
-  left: ToggleListCard,
-  right: ToggleListCard,
+  left: ToggleListFilterableCard,
+  right: ToggleListFilterableCard,
   sortKey: ToggleListSortKey,
 ): number {
   const sign = sortKey.direction === "asc" ? 1 : -1;

@@ -16,7 +16,7 @@ interface UseCardImportDropTargetOptions {
   applyDrop: (
     payload: ExternalCardDragPayload,
     pointer: CardDragPointer,
-  ) => CardDropApplyResult | null;
+  ) => CardDropApplyResult | null | Promise<CardDropApplyResult | null>;
   setHover?: (
     hover: boolean,
     pointer: CardDragPointer | null,

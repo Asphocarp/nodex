@@ -124,6 +124,12 @@ export interface Card {
   order: number;
 }
 
+export interface CardSummary extends Omit<Card, "description"> {
+  descriptionPreview: string;
+  descriptionLength: number;
+  hasDescription: boolean;
+}
+
 export interface Column {
   id: CardStatus;
   name: string;
@@ -132,6 +138,16 @@ export interface Column {
 
 export interface Board {
   columns: Column[];
+}
+
+export interface BoardSummaryColumn {
+  id: CardStatus;
+  name: string;
+  cards: CardSummary[];
+}
+
+export interface BoardSummary {
+  columns: BoardSummaryColumn[];
 }
 
 export interface CardInput {
@@ -174,6 +190,24 @@ export type CardUpdateResult =
   | {
       status: "not_found";
     };
+
+export interface CardsDetailsInput {
+  cardIds: string[];
+}
+
+export interface CardSearchInput {
+  projectIds: string[];
+  query: string;
+  limit?: number;
+}
+
+export interface CardSearchResult {
+  projectId: string;
+  cardId: string;
+  status: CardStatus;
+  score: number;
+  excerpt: string;
+}
 
 export type CardCreatePlacement = "top" | "bottom";
 

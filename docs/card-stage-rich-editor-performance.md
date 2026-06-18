@@ -26,6 +26,18 @@ The debounce is controlled by `EDITOR_DRAFT_SERIALIZE_DEBOUNCE_MS` in `src/rende
 
 This means the editor can accept rapid typing with minimal Nodex-owned synchronous work. Card Stage and Kanban previews still catch up shortly after typing pauses, and important lifecycle paths flush immediately before reading or saving description data.
 
+## Board Read Model
+
+Card Stage typing must also avoid broad renderer data refreshes after persistence. The high-frequency board store now fetches `BoardSummary`, where each card carries only `descriptionPreview`, `descriptionLength`, and `hasDescription`. Full `description` bodies are not part of the shared board snapshot.
+
+Full card bodies are loaded through explicit detail paths:
+
+- Card Stage hydrates the active card with `card:get`/`card-detail-store`.
+- Toggle-list, inline toggle-list, and `cardRef` projections compute visible card ids from summary state, then hydrate those ids through `cards:details:get`.
+- Command palette description matches come from `cards:search`, which returns ids and bounded excerpts instead of full descriptions.
+
+This keeps save acknowledgements and board-change refreshes from sending every card body through Electron IPC structured clone. `board:get` remains only as a legacy full-payload compatibility path and should not be used by normal renderer flows.
+
 ## Editor-Side Features
 
 ### Dirty-First Change Handling
@@ -60,6 +72,8 @@ The emitter compares serialized output against the last emitted value. Equal out
 External content changes, card imports, projected-card drops, and other programmatic editor updates use suppression refs so they do not look like user typing. Suppressed paths cancel pending user-style serialized emission before applying their own operation.
 
 This avoids stale pending work being emitted after the editor has been replaced or structurally changed by a non-typing operation.
+
+Before an external content sync calls `replaceBlocks`, it must compare the incoming persisted NFM against the editor's current serialized NFM. If they are equal, the editor should only advance its emitted-content bookkeeping and skip the replacement. This keeps save acknowledgements, same-revision hydrations, and equivalent cache replies from replacing the ProseMirror document and disturbing selection or focus.
 
 ### Discrete Immediate Operations
 
@@ -124,6 +138,8 @@ Important paths:
 - `closeRef`
 
 `handlePersist` first flushes pending editor content, then cancels pending field-save timers, then saves if there are changes. `handleSave` also flushes defensively before creating the update payload.
+
+Freeform dirty flags (`title`, `description`, `assignee`, `agentStatus`) must not be cleared when a save request is merely sent. They clear only when a successful acknowledgement returns a value that still matches the current local draft. If the user continues typing while a save is in flight, older acknowledgements and stale card-detail hydrations must leave the local draft intact.
 
 ### Raw NFM View
 
@@ -192,11 +208,15 @@ The first layer keeps typing responsive. The second layer limits backend/storage
 - Ordinary typing schedules serialized emission instead of doing it synchronously.
 - Explicit lifecycle reads must call `flushPendingChange()` before reading `description`.
 - Equal serialized output must not re-emit.
+- Equal incoming external content must not call `replaceBlocks`.
 - Suppressed external sync/drop paths must not emit user changes.
 - Card Stage save/has-changes logic must read the latest description ref, not stale React state.
+- Save requests must not clear freeform dirty flags until the returned card matches the current draft.
+- Active Card Stage editors must not use board-summary revision changes to automatically rehydrate and replace the full description.
 - Freeform text edits must not call `onPatch`.
 - Kanban preview overlays must remain scoped by project/card.
 - Card Stage must not consume its own merged draft overlay through props.
+- Shared board snapshots must stay `BoardSummary`-only; description saves should merge returned full cards into summary metadata and the card-detail cache without triggering a legacy full-board refresh.
 
 ## Testing Expectations
 
@@ -213,6 +233,9 @@ Card Stage behavior is covered by `use-card-stage-controller.test.tsx` and compo
 - close/persist flushes pending editor content before saving
 - raw-mode toggle flushes pending content first
 - description drafts stay local and do not call `onPatch`
+- description save-in-flight keeps stale card props from replacing the local draft
+- conflict overwrite flushes and sends the current editor description
+- equal external content does not trigger an editor document replacement
 - scoped draft overlays still update matching Kanban previews
 - `CardStage` passes the flush handle into `NfmEditor`
 
@@ -223,6 +246,7 @@ Regression checks for related behavior should include:
 - BlockNote adapter tests
 - card draft store tests
 - Kanban store tests
+- board summary/detail/search tests
 - Card Stage render/controller tests
 
 ## When Adding New Editor Features

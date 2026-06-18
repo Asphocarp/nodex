@@ -9,7 +9,8 @@ import {
 import { CalendarGrid } from "./calendar/calendar-grid";
 import {
   type CalendarOccurrence,
-  type Card as CardType,
+  type CardSummary,
+  type CardStatus,
 } from "@/lib/types";
 import { resolveOccurrenceMutationStatus } from "@/lib/calendar-occurrence-status";
 import {
@@ -204,7 +205,7 @@ export function CalendarView({
   }, []);
 
   const masterCardsById = useMemo(() => {
-    const cards = new Map<string, { card: CardType; columnId: string }>();
+    const cards = new Map<string, { card: CardSummary; columnId: string }>();
     if (!board) return cards;
     for (const column of board.columns) {
       for (const card of column.cards) {
@@ -215,7 +216,7 @@ export function CalendarView({
   }, [board]);
 
   const handleClickCard = useCallback(
-    async (card: CardType & { columnId: string; cardId?: string }) => {
+    async (card: { id: string; cardId?: string; status: CardStatus; title: string; columnId: string }) => {
       const masterCardId = card.cardId ?? card.id;
       const cached = masterCardsById.get(masterCardId);
 

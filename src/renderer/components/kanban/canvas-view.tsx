@@ -9,7 +9,8 @@ import {
   getCardIdFromElement,
   updateCardElements,
 } from "@/lib/canvas-card-elements";
-import type { Card } from "@/lib/types";
+import type { CardSummary } from "@/lib/types";
+import { toCardSummary } from "../../../shared/card-summary";
 import { LayoutGrid } from "lucide-react";
 
 const ExcalidrawLazy = lazy(async () => {
@@ -113,7 +114,7 @@ export function CanvasView({ projectId, openCardStage, cardStageCardId, cardStag
 
   // Place an existing card on the canvas
   const handlePlaceCard = useCallback(
-    async (card: Card, columnId: string) => {
+    async (card: CardSummary, columnId: string) => {
       if (!excalidrawAPI) return;
       const convert = await convertPromise;
 
@@ -138,7 +139,7 @@ export function CanvasView({ projectId, openCardStage, cardStageCardId, cardStag
     if (!excalidrawAPI) return;
     const card = await createCard("draft", { title: "New Card" });
     if (!card) return;
-    await handlePlaceCard(card, "draft");
+    await handlePlaceCard(toCardSummary(card), "draft");
   }, [excalidrawAPI, createCard, handlePlaceCard]);
 
   // onChange handler: debounced save

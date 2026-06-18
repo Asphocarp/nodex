@@ -107,10 +107,13 @@ function escapeRegExp(value: string): string {
 }
 
 function buildSearchDocument(item: CommandPaletteCard): CommandPaletteCardSearchDocument {
+  const description = "descriptionPreview" in item.card
+    ? item.card.descriptionPreview
+    : extractPlainText(item.card.description);
   return {
     id: item.id,
     title: normalizeCommandPaletteSearchText(item.card.title),
-    description: normalizeCommandPaletteSearchText(extractPlainText(item.card.description)),
+    description: normalizeCommandPaletteSearchText(description),
     tags: normalizeCommandPaletteSearchText(item.card.tags.join(" ")),
     assignee: normalizeCommandPaletteSearchText(item.card.assignee ?? ""),
     agentStatus: normalizeCommandPaletteSearchText(item.card.agentStatus ?? ""),
@@ -353,7 +356,11 @@ function buildDescriptionPreview(
   item: CommandPaletteCard,
   result: SearchResult,
 ): CommandPaletteCardSearchPreview | null {
-  const description = normalizePreviewText(extractPlainText(item.card.description));
+  const description = normalizePreviewText(
+    "descriptionPreview" in item.card
+      ? item.card.descriptionPreview
+      : extractPlainText(item.card.description),
+  );
   if (!description) {
     return null;
   }

@@ -1,4 +1,4 @@
-import type { Card, Estimate, Priority } from "@/lib/types";
+import type { CardSummary, Estimate, Priority } from "@/lib/types";
 import { CARD_STATUS_LABELS, CARD_STATUS_ORDER, compareCardStatuses, type CardStatus } from "../../shared/card-status";
 import {
   TOGGLE_LIST_EMPTY_PRIORITY_LABEL,
@@ -105,7 +105,7 @@ export interface DbViewPrefs {
   display: DbViewDisplayPrefs;
 }
 
-export interface DbViewCardRecord extends Card {
+export interface DbViewCardRecord extends CardSummary {
   columnId: CardStatus;
   columnName: string;
   boardIndex: number;

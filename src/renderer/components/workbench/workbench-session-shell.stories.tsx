@@ -656,7 +656,7 @@ function installStoryApi(
         if (channel === "project-sessions:list") {
           return sessionsByProject[String(args[0])] ?? [];
         }
-        if (channel === "board:get") {
+        if (channel === "board:summary:get") {
           return STORY_BOARD;
         }
         if (channel === "project-session-panels:update") {

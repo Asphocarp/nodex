@@ -1,4 +1,4 @@
-import type { Board, CardStatus } from "@/lib/types";
+import type { Board, BoardSummary, CardStatus } from "@/lib/types";
 import { computeNativeDropIndexFromSurface } from "./native-drop-index";
 import {
   canDropOnKanbanCard,
@@ -17,7 +17,7 @@ export interface ResolvedKanbanDropLocation {
 }
 
 export function resolveKanbanDropLocation(args: {
-  visibleBoard: Board | null;
+  visibleBoard: BoardSummary | Board | null;
   dropTargets: readonly DropTargetRecordLike[];
   sourceData?: unknown;
   draggedCardIds: readonly string[];

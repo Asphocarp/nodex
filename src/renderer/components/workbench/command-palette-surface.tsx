@@ -19,6 +19,7 @@ import {
   cloneCommandPaletteCardFilters,
   filterCommandPaletteItems,
   hasActiveCommandPaletteCardFilters,
+  matchesCommandPaletteCardFilters,
   normalizeCommandPaletteCardFilters,
   readCommandPaletteCardFilters,
   type CommandPaletteCard,
@@ -27,6 +28,8 @@ import {
   writeCommandPaletteCardFilters,
 } from "../../lib/command-palette";
 import type { CommandPaletteCardSearchIndex } from "../../lib/command-palette-card-search";
+import { invoke } from "../../lib/api";
+import type { CardSearchResult } from "../../lib/types";
 import { cn } from "../../lib/utils";
 import { CardIcon } from "./card-icon";
 import {
@@ -73,6 +76,56 @@ function getCommandGlyph(id: string) {
   if (id === "focus-cards-stage") return CardIcon;
   if (id === "focus-threads-stage") return ThreadsIcon;
   return FileText;
+}
+
+function escapePreviewRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildServerDescriptionSearchPreview(
+  excerpt: string,
+  query: string,
+): CommandPaletteCard["searchPreview"] {
+  const normalizedExcerpt = excerpt.replace(/\s+/g, " ").trim();
+  if (!normalizedExcerpt) {
+    return null;
+  }
+
+  const terms = Array.from(new Set(
+    query
+      .trim()
+      .split(/\s+/)
+      .filter((term) => term.length > 0)
+      .sort((left, right) => right.length - left.length),
+  ));
+  if (terms.length === 0) {
+    return {
+      excerpt: normalizedExcerpt,
+      segments: [{ text: normalizedExcerpt, highlight: false }],
+    };
+  }
+
+  const regex = new RegExp(`(${terms.map(escapePreviewRegExp).join("|")})`, "gi");
+  const segments: NonNullable<CommandPaletteCard["searchPreview"]>["segments"] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null = null;
+
+  while ((match = regex.exec(normalizedExcerpt)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ text: normalizedExcerpt.slice(lastIndex, match.index), highlight: false });
+    }
+    segments.push({ text: match[0], highlight: true });
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < normalizedExcerpt.length) {
+    segments.push({ text: normalizedExcerpt.slice(lastIndex), highlight: false });
+  }
+
+  return {
+    excerpt: normalizedExcerpt,
+    segments: segments.length > 0 ? segments : [{ text: normalizedExcerpt, highlight: false }],
+  };
 }
 
 function CommandRow({
@@ -255,6 +308,7 @@ export function CommandPaletteSurface({
   const [query, setQuery] = useState("");
   const [cardFilters, setCardFilters] = useState<CommandPaletteCardFilters>(() => readCommandPaletteCardFilters());
   const [filterOpen, setFilterOpen] = useState(false);
+  const [descriptionSearchResults, setDescriptionSearchResults] = useState<CardSearchResult[]>([]);
   const deferredQuery = useDeferredValue(query);
   const availableTags = useMemo(
     () => Array.from(new Set(cards.flatMap((item) => item.card.tags))).sort((left, right) => left.localeCompare(right)),
@@ -278,23 +332,6 @@ export function CommandPaletteSurface({
     () => new Map(availableProjects.map((project) => [project.id, project.label] as const)),
     [availableProjects],
   );
-  const results = useMemo(
-    () => filterCommandPaletteItems({
-      query: deferredQuery,
-      commands,
-      cards,
-      cardFilters,
-      cardSearchIndex,
-    }),
-    [cardFilters, cardSearchIndex, cards, commands, deferredQuery],
-  );
-  const flatItems = useMemo(
-    () => [...results.commands, ...results.cards],
-    [results.cards, results.commands],
-  );
-  const filterActive = hasActiveCommandPaletteCardFilters(cardFilters);
-  const showSubtitle = results.query.length > 0;
-  const [selectedIndex, setSelectedIndex] = useState(0);
   const normalizedCardFilters = useMemo(
     () => normalizeCommandPaletteCardFilters(cardFilters, {
       allowedTags: availableTags,
@@ -303,6 +340,79 @@ export function CommandPaletteSurface({
     }),
     [availableAssignees, availableProjects, availableTags, cardFilters],
   );
+  const projectIdsForSearch = useMemo(() => {
+    const allProjectIds = availableProjects.map((project) => project.id);
+    if (normalizedCardFilters.projectIds.length === 0) {
+      return allProjectIds;
+    }
+
+    const selectedProjectIds = new Set(normalizedCardFilters.projectIds);
+    return allProjectIds.filter((projectId) => selectedProjectIds.has(projectId));
+  }, [availableProjects, normalizedCardFilters.projectIds]);
+  const cardByProjectAndId = useMemo(
+    () => new Map(cards.map((item) => [`${item.projectId}:${item.card.id}`, item] as const)),
+    [cards],
+  );
+  const results = useMemo(
+    () => filterCommandPaletteItems({
+      query: deferredQuery,
+      commands,
+      cards,
+      cardFilters: normalizedCardFilters,
+      cardSearchIndex,
+    }),
+    [cardSearchIndex, cards, commands, deferredQuery, normalizedCardFilters],
+  );
+  const descriptionSearchCards = useMemo(() => {
+    if (results.commandMode || results.query.length === 0) {
+      return [];
+    }
+
+    return descriptionSearchResults.flatMap((result) => {
+      const item = cardByProjectAndId.get(`${result.projectId}:${result.cardId}`);
+      if (!item || !matchesCommandPaletteCardFilters(item, normalizedCardFilters)) {
+        return [];
+      }
+
+      return [{
+        ...item,
+        searchPreview: buildServerDescriptionSearchPreview(result.excerpt, results.query) ?? item.searchPreview,
+      }];
+    });
+  }, [cardByProjectAndId, descriptionSearchResults, normalizedCardFilters, results.commandMode, results.query]);
+  const visibleCards = useMemo(() => {
+    if (results.commandMode || results.query.length === 0 || descriptionSearchCards.length === 0) {
+      return results.cards;
+    }
+
+    const serverMatchesById = new Map(descriptionSearchCards.map((item) => [item.id, item] as const));
+    const merged = results.cards.map((item) => {
+      const serverMatch = serverMatchesById.get(item.id);
+      if (!serverMatch?.searchPreview || item.searchPreview) {
+        return item;
+      }
+
+      return {
+        ...item,
+        searchPreview: serverMatch.searchPreview,
+      };
+    });
+    const seenIds = new Set(merged.map((item) => item.id));
+    descriptionSearchCards.forEach((item) => {
+      if (seenIds.has(item.id)) return;
+      seenIds.add(item.id);
+      merged.push(item);
+    });
+
+    return merged.slice(0, 24);
+  }, [descriptionSearchCards, results.cards, results.commandMode, results.query]);
+  const flatItems = useMemo(
+    () => [...results.commands, ...visibleCards],
+    [results.commands, visibleCards],
+  );
+  const filterActive = hasActiveCommandPaletteCardFilters(normalizedCardFilters);
+  const showSubtitle = results.query.length > 0;
+  const [selectedIndex, setSelectedIndex] = useState(0);
 
   useEffect(() => {
     if (!open) return;
@@ -335,7 +445,39 @@ export function CommandPaletteSurface({
     if (open) return;
     setQuery("");
     setSelectedIndex(0);
+    setDescriptionSearchResults((current) => current.length === 0 ? current : []);
   }, [open]);
+
+  useEffect(() => {
+    const rawQuery = deferredQuery.trimStart();
+    const queryText = rawQuery.trim();
+    if (!open || rawQuery.startsWith(">") || queryText.length === 0 || projectIdsForSearch.length === 0) {
+      setDescriptionSearchResults((current) => current.length === 0 ? current : []);
+      return;
+    }
+
+    let cancelled = false;
+    void invoke("cards:search", {
+      projectIds: projectIdsForSearch,
+      query: queryText,
+      limit: 60,
+    })
+      .then((nextResults) => {
+        if (cancelled) return;
+        const safeResults = Array.isArray(nextResults) ? nextResults : [];
+        setDescriptionSearchResults((current) => (
+          current.length === 0 && safeResults.length === 0 ? current : safeResults
+        ));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setDescriptionSearchResults((current) => current.length === 0 ? current : []);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [deferredQuery, open, projectIdsForSearch]);
 
   useEffect(() => {
     if (!open) return;
@@ -532,7 +674,7 @@ export function CommandPaletteSurface({
         />
         <PaletteSection
           title="Cards"
-          items={results.cards}
+          items={visibleCards}
           selectedIndex={selectedIndex}
           startIndex={results.commands.length}
           onSelectIndex={setSelectedIndex}

@@ -39,9 +39,12 @@
 - Mutations should update the narrow cache when the server returns the complete next value, otherwise invalidate the exact affected key. Examples: project reorder writes `projects.list`; project create/update/delete invalidates `projects.list`; history undo/redo updates `history.recent(projectId, sessionId)` and invalidates the affected board; local-environment saves update the snapshot and invalidate that project's config list.
 - Do not put a whole query or mutation result object in React dependency arrays. Destructure stable fields/functions such as `data`, `error`, `isPending`, `mutateAsync`, or `refetch`, and depend on those values.
 - Keep Query out of high-frequency or optimistic ownership domains: `kanban-store`, local-conversation streaming manager state, terminal lifecycle, browser/webview manager state, drafts/forms, and localStorage-only preferences.
-- Board state: `useKanban` uses a shared `kanban-store` optimistic journal (`baseBoard + pending/local overlays`) with LWW conflict superseding, rollback-on-failure, and store-derived cross-view sync.
+- Board state: `useKanban` uses a shared `kanban-store` optimistic journal (`baseBoard + pending/local overlays`) with LWW conflict superseding, rollback-on-failure, and store-derived cross-view sync. The store owns `BoardSummary`, not full `Board`; `cardIndex` entries must not contain full `description`.
+- Card bodies: load full `Card.description` only through `card-detail-store`, `card:get`, or `cards:details:get` for selected/visible cards. Card Stage hydrates the active card detail before editing; toggle-list, inline toggle-list, and `cardRef` projections first compute visible ids from summary state, then batch-hydrate those cards. Board/list/calendar/card picker/command-palette default paths should stay summary-only.
+- Card search: local summary fields can be searched immediately. Description search must go through `cards:search`, which returns ids and bounded excerpts; do not load every project's full board to build a renderer description index.
 - Card updates use typed mutation control flow: `updated | conflict | not_found | error` instead of treating stale-write conflicts as generic exceptions.
 - On `conflict`, keep optimistic journal semantics: supersede conflicting overlays, refresh base board, and let surface-specific UX decide recovery (`Card Stage` inline banner with `Reload Latest` / `Overwrite Mine`).
+- Legacy full board fetches: `board:get` is a compatibility/full-payload channel. New renderer code should use `board:summary:get` plus explicit card detail hydration.
 - History/undo: `use-history.ts`.
 - Project lifecycle: `use-projects.ts`.
 - SSE/IPC updates are centralized in API subscription helpers.

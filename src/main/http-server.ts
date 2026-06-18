@@ -28,6 +28,8 @@ import type {
   CardOccurrenceUpdateInput,
   CardDropMoveToEditorInput,
   CardInput,
+  CardSearchInput,
+  CardsDetailsInput,
   MoveCardToProjectInput,
 } from "../shared/types";
 import { MAX_CARD_WRITE_BODY_BYTES } from "../shared/card-limits";
@@ -78,6 +80,18 @@ const cardWriteBodyLimit = bodyLimit({
     ),
 });
 const logger = getLogger({ subsystem: "http" });
+
+function approximatePayloadBytes(value: unknown): number | null {
+  try {
+    return Buffer.byteLength(JSON.stringify(value), "utf8");
+  } catch {
+    return null;
+  }
+}
+
+function boardCardCount(board: { columns: Array<{ cards: unknown[] }> }): number {
+  return board.columns.reduce((sum, column) => sum + column.cards.length, 0);
+}
 
 interface HttpServerDependencies {
   transcribeDictation: (input: { contentType: string; base64Payload: string }) => Promise<string>;
@@ -896,7 +910,27 @@ app.delete("/api/project-sessions/:sessionId/thread", (c) => {
 // === Board routes ===
 
 app.get("/api/projects/:projectId/board", async (c) => {
+  const startedAt = Date.now();
   const board = await dbService.getBoard(c.req.param("projectId"));
+  logger.warn("legacy full board payload requested", {
+    channel: "GET /api/projects/:projectId/board",
+    projectId: c.req.param("projectId"),
+    cardCount: boardCardCount(board),
+    durationMs: Date.now() - startedAt,
+  });
+  return c.json(board);
+});
+
+app.get("/api/projects/:projectId/board-summary", async (c) => {
+  const startedAt = Date.now();
+  const board = await dbService.getBoardSummary(c.req.param("projectId"));
+  logger.info("board summary payload served", {
+    channel: "GET /api/projects/:projectId/board-summary",
+    projectId: c.req.param("projectId"),
+    cardCount: boardCardCount(board),
+    approxPayloadBytes: approximatePayloadBytes(board),
+    durationMs: Date.now() - startedAt,
+  });
   return c.json(board);
 });
 
@@ -1043,6 +1077,48 @@ app.get("/api/projects/:projectId/card", async (c) => {
   const result = await dbService.getCard(projectId, cardId, status);
   if (!result) return c.json({ error: "Not found" }, 404);
   return c.json(result);
+});
+
+app.post("/api/projects/:projectId/cards/details", async (c) => {
+  const projectId = c.req.param("projectId");
+  const startedAt = Date.now();
+  const body = await c.req.json().catch(() => ({}));
+  if (!isRecord(body) || !Array.isArray(body.cardIds)) {
+    return c.json({ error: "Missing cardIds" }, 400);
+  }
+  const cardIds = body.cardIds.filter((cardId): cardId is string => typeof cardId === "string");
+  const cards = await dbService.getCardsDetails(projectId, { cardIds } satisfies CardsDetailsInput);
+  logger.info("card details payload served", {
+    channel: "POST /api/projects/:projectId/cards/details",
+    projectId,
+    requestedCardCount: cardIds.length,
+    cardCount: cards.length,
+    approxPayloadBytes: approximatePayloadBytes(cards),
+    durationMs: Date.now() - startedAt,
+  });
+  return c.json(cards);
+});
+
+app.post("/api/cards/search", async (c) => {
+  const startedAt = Date.now();
+  const body = await c.req.json().catch(() => ({}));
+  if (!isRecord(body) || !Array.isArray(body.projectIds) || typeof body.query !== "string") {
+    return c.json({ error: "Missing projectIds or query" }, 400);
+  }
+  const input: CardSearchInput = {
+    projectIds: body.projectIds.filter((projectId): projectId is string => typeof projectId === "string"),
+    query: body.query,
+    limit: typeof body.limit === "number" ? body.limit : undefined,
+  };
+  const results = await dbService.searchCards(input);
+  logger.info("card search payload served", {
+    channel: "POST /api/cards/search",
+    projectCount: input.projectIds.length,
+    resultCount: results.length,
+    approxPayloadBytes: approximatePayloadBytes(results),
+    durationMs: Date.now() - startedAt,
+  });
+  return c.json(results);
 });
 
 app.put("/api/projects/:projectId/card", cardWriteBodyLimit, async (c) => {
