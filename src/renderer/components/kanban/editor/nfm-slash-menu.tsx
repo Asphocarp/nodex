@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from "@blocknote/core/extensions";
 import {
   SuggestionMenuController,
@@ -19,6 +19,11 @@ import { NodexTooltip } from "@/components/ui/tooltip";
 import { getDefaultToggleListInlineViewProps } from "@/lib/toggle-list/inline-view-props";
 import { useAllBoards } from "@/lib/use-all-boards";
 import { cn } from "@/lib/utils";
+import {
+  NFM_SUGGESTION_MENU_FLOATING_OPTIONS,
+  NFM_SUGGESTION_MENU_PORTAL_ELEMENT,
+  NFM_SUGGESTION_MENU_TOOLTIP_Z_INDEX,
+} from "./nfm-blocknote-floating-ui";
 import { createEmptyThreadSectionBlock } from "./thread-section";
 
 interface NfmSlashMenuProps {
@@ -60,6 +65,11 @@ const SUGGESTION_SYNTAX_HINT_BY_KEY: Record<string, string> = {
   emoji: ":",
 };
 
+export const NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS = {
+  portalElement: NFM_SUGGESTION_MENU_PORTAL_ELEMENT,
+  floatingUIOptions: NFM_SUGGESTION_MENU_FLOATING_OPTIONS,
+} as const;
+
 function insertBlock(editor: unknown, block: Record<string, unknown>) {
   insertOrUpdateBlockForSlashMenu(editor as UnsafeEditor, block as UnsafeBlock);
 }
@@ -74,6 +84,36 @@ function normalizeSuggestionAliasHint(value: string) {
   if (trimmed.startsWith("/") || trimmed.startsWith("@") || trimmed.startsWith(":")) return trimmed;
   if (trimmed.includes(" ")) return null;
   return `/${trimmed}`;
+}
+
+export function scrollElementIntoContainerView(container: HTMLElement, element: HTMLElement) {
+  const containerHeight = container.clientHeight;
+  if (containerHeight <= 0) return;
+
+  const containerRect = container.getBoundingClientRect();
+  const elementRect = element.getBoundingClientRect();
+  const elementTop = elementRect.top - containerRect.top + container.scrollTop;
+  const rectHeight = elementRect.height || elementRect.bottom - elementRect.top;
+  const elementHeight = Math.max(rectHeight || element.offsetHeight, 0);
+  const elementBottom = elementTop + elementHeight;
+  const visibleTop = container.scrollTop;
+  const visibleBottom = visibleTop + containerHeight;
+
+  if (elementHeight >= containerHeight) {
+    if (elementTop < visibleTop || elementTop > visibleBottom) {
+      container.scrollTop = elementTop;
+    }
+    return;
+  }
+
+  if (elementTop < visibleTop) {
+    container.scrollTop = elementTop;
+    return;
+  }
+
+  if (elementBottom > visibleBottom) {
+    container.scrollTop = elementBottom - containerHeight;
+  }
 }
 
 export function resolveNfmSuggestionHint(item: DefaultReactSuggestionItem) {
@@ -108,12 +148,18 @@ export function NfmSuggestionMenuSurface({
   onItemClick,
 }: SuggestionMenuProps<DefaultReactSuggestionItem>) {
   const loading = loadingState === "loading-initial" || loadingState === "loading";
+  const listRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (selectedIndex === undefined) return;
 
-    const item = document.getElementById(`bn-suggestion-menu-item-${selectedIndex}`);
-    item?.scrollIntoView({ block: "nearest" });
+    const list = listRef.current;
+    if (!list) return;
+
+    const item = list.querySelector<HTMLElement>(`#bn-suggestion-menu-item-${selectedIndex}`);
+    if (!item) return;
+
+    scrollElementIntoContainerView(list, item);
   }, [selectedIndex]);
 
   const renderedItems = useMemo(() => {
@@ -180,6 +226,7 @@ export function NfmSuggestionMenuSurface({
           align="start"
           sideOffset={6}
           tooltipBodyClassName="min-w-0"
+          style={{ zIndex: NFM_SUGGESTION_MENU_TOOLTIP_Z_INDEX }}
         >
           {row}
         </NodexTooltip>,
@@ -195,7 +242,11 @@ export function NfmSuggestionMenuSurface({
       role="listbox"
       className="w-[min(17.5rem,calc(100vw-16px))] overflow-hidden"
     >
-      <NodexDropdownScrollList className="scrollbar-token max-h-[min(18rem,calc(100vh-24px))] gap-0.5">
+      <NodexDropdownScrollList
+        ref={listRef}
+        data-nfm-suggestion-menu-scroll-list="true"
+        className="scrollbar-token max-h-[min(18rem,calc(100vh-24px))] gap-0.5"
+      >
         {renderedItems}
         {items.length === 0 ? (
           <NodexDropdownMessage compact centered>
@@ -300,6 +351,7 @@ export function NfmSlashMenu({ projectId }: NfmSlashMenuProps) {
       <SuggestionMenuController
         triggerCharacter="/"
         getItems={getItems}
+        {...NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS}
         suggestionMenuComponent={NfmSuggestionMenuSurface}
       />
       <CardMentionMenu projectId={projectId} />
@@ -356,6 +408,7 @@ function CardMentionMenu({ projectId }: { projectId: string }) {
     <SuggestionMenuController
       triggerCharacter="@"
       getItems={getItems}
+      {...NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS}
       suggestionMenuComponent={NfmSuggestionMenuSurface}
     />
   );

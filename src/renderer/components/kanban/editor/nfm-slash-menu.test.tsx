@@ -3,7 +3,17 @@ import { fireEvent } from "@testing-library/react";
 import { act } from "react";
 import { render, settleAsyncRender } from "@/test/dom";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
-import { getNfmSlashMenuCustomItems, NfmSuggestionMenuSurface, resolveNfmSuggestionHint } from "./nfm-slash-menu";
+import {
+  getNfmSlashMenuCustomItems,
+  NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS,
+  NfmSuggestionMenuSurface,
+  resolveNfmSuggestionHint,
+  scrollElementIntoContainerView,
+} from "./nfm-slash-menu";
+import {
+  NFM_SUGGESTION_MENU_TOOLTIP_Z_INDEX,
+  NFM_SUGGESTION_MENU_Z_INDEX,
+} from "./nfm-blocknote-floating-ui";
 import type { DefaultReactSuggestionItem } from "@blocknote/react";
 
 function makeItems(): DefaultReactSuggestionItem[] {
@@ -37,6 +47,33 @@ function renderSuggestionMenu(
       <NfmSuggestionMenuSurface {...props} />
     </NodexTooltipProvider>,
   );
+}
+
+function defineElementRect(
+  element: HTMLElement,
+  rect: { top: number; bottom: number; height: number },
+) {
+  Object.defineProperty(element, "getBoundingClientRect", {
+    configurable: true,
+    value: () => ({
+      top: rect.top,
+      bottom: rect.bottom,
+      height: rect.height,
+      left: 0,
+      right: 0,
+      width: 0,
+      x: 0,
+      y: rect.top,
+      toJSON: () => ({}),
+    }),
+  });
+}
+
+function defineClientHeight(element: HTMLElement, value: number) {
+  Object.defineProperty(element, "clientHeight", {
+    configurable: true,
+    value,
+  });
 }
 
 describe("NfmSlashMenu", () => {
@@ -88,6 +125,93 @@ describe("NfmSlashMenu", () => {
     expect(selected?.getAttribute("aria-selected")).toBe("true");
     expect(selected?.textContent?.includes("Agent Config")).toBeTrue();
     expect(selected?.textContent?.includes("/agent-config")).toBeTrue();
+  });
+
+  test("pins suggestion menu controllers to the body-level portal target", () => {
+    expect(NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS.portalElement).toBe(null);
+    expect(NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS.floatingUIOptions.useFloatingOptions?.strategy).toBe("fixed");
+    expect(NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS.floatingUIOptions.elementProps?.style?.zIndex).toBe(NFM_SUGGESTION_MENU_Z_INDEX);
+  });
+
+  test("scrolls selected suggestion rows within the menu list only", () => {
+    const container = document.createElement("div");
+    const item = document.createElement("button");
+    container.appendChild(item);
+    defineClientHeight(container, 100);
+    defineElementRect(container, { top: 0, bottom: 100, height: 100 });
+
+    container.scrollTop = 0;
+    defineElementRect(item, { top: 20, bottom: 50, height: 30 });
+    scrollElementIntoContainerView(container, item);
+    expect(container.scrollTop).toBe(0);
+
+    container.scrollTop = 80;
+    defineElementRect(item, { top: -40, bottom: -10, height: 30 });
+    scrollElementIntoContainerView(container, item);
+    expect(container.scrollTop).toBe(40);
+
+    container.scrollTop = 0;
+    defineElementRect(item, { top: 120, bottom: 150, height: 30 });
+    scrollElementIntoContainerView(container, item);
+    expect(container.scrollTop).toBe(50);
+
+    container.scrollTop = 0;
+    defineElementRect(item, { top: 20, bottom: 180, height: 160 });
+    scrollElementIntoContainerView(container, item);
+    expect(container.scrollTop).toBe(0);
+  });
+
+  test("selected suggestion rows do not call native scrollIntoView", () => {
+    const elementPrototype = HTMLElement.prototype as unknown as {
+      scrollIntoView?: (options?: unknown) => void;
+    };
+    const originalScrollIntoView = elementPrototype.scrollIntoView;
+    let scrollIntoViewCalls = 0;
+
+    elementPrototype.scrollIntoView = function scrollIntoViewMock() {
+      scrollIntoViewCalls += 1;
+    };
+
+    try {
+      const view = renderSuggestionMenu(
+        {
+          items: makeItems(),
+          loadingState: "loaded",
+          selectedIndex: undefined,
+          onItemClick: () => undefined,
+        },
+      );
+
+      const list = view.container.querySelector('[data-nfm-suggestion-menu-scroll-list="true"]') as HTMLElement | null;
+      const row = view.container.querySelector("#bn-suggestion-menu-item-1") as HTMLElement | null;
+      expect(list).not.toBeNull();
+      expect(row).not.toBeNull();
+      if (!list || !row) return;
+
+      defineClientHeight(list, 40);
+      defineElementRect(list, { top: 0, bottom: 40, height: 40 });
+      defineElementRect(row, { top: 60, bottom: 88, height: 28 });
+
+      view.rerender(
+        <NodexTooltipProvider>
+          <NfmSuggestionMenuSurface
+            items={makeItems()}
+            loadingState="loaded"
+            selectedIndex={1}
+            onItemClick={() => undefined}
+          />
+        </NodexTooltipProvider>,
+      );
+
+      expect(scrollIntoViewCalls).toBe(0);
+      expect(list.scrollTop).toBe(48);
+    } finally {
+      if (originalScrollIntoView) {
+        elementPrototype.scrollIntoView = originalScrollIntoView;
+      } else {
+        delete elementPrototype.scrollIntoView;
+      }
+    }
   });
 
   test("resolves syntax hints from known keys, badges, and slash aliases", () => {
@@ -192,5 +316,7 @@ describe("NfmSlashMenu", () => {
     expect(tooltip).not.toBeNull();
     expect(tooltip?.textContent).toBe("Plain text block");
     expect(tooltip?.textContent?.includes("Paragraph")).toBeFalse();
+    const tooltipLayer = tooltip?.closest('[data-radix-popper-content-wrapper]') as HTMLElement | null;
+    expect(tooltipLayer?.style.zIndex).toBe(String(NFM_SUGGESTION_MENU_TOOLTIP_Z_INDEX));
   });
 });

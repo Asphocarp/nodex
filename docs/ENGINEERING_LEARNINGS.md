@@ -438,6 +438,13 @@ For React custom blocks like `cardRef` and `toggleListInlineView`, BlockNote ren
 ### Custom slash-menu extensions need a single shared `SuggestionMenuController`
 To add custom slash items while keeping BlockNote defaults, disable `BlockNoteView` built-in `slashMenu` and mount one shared `SuggestionMenuController` that merges `getDefaultReactSlashMenuItems(...)` with app-specific items. If default slash remains enabled, menus can conflict/duplicate and custom items won’t stay consistent across editors.
 
+### NFM suggestion menus need per-controller portals, not editor-wide portal defaults
+Do not set `portalElements.default = null` on editable NFM `BlockNoteView`s. That moves `editor.portalElement` to `document.body`, which also moves SideMenu, drag handles, link toolbar, and other BlockNote floating UI out of the `.nfm-editor` styling and scroll boundary. Instead, keep the editor portal at BlockNote's default `.bn-container` and pass an explicit body portal only to the NFM slash/mention `SuggestionMenuController`s.
+
+Keep selected-row scrolling local to the menu list. Do not call native `scrollIntoView()` from NFM suggestion rows: it can walk ancestor scrollers and combine with browser scroll anchoring. If a menu item needs to be revealed, adjust the dropdown list's own `scrollTop`, use fixed positioning for body-level suggestion menus, and keep the owning editor/card-stage scroll container opted out of scroll anchoring.
+
+Keep NFM suggestion-menu item tooltips one local layer above the suggestion-menu popover. Both the BlockNote `SuggestionMenuController` popover and Radix tooltip content are portaled to `document.body`, so the generic app tooltip layer (`z-50`) can sit below BlockNote's suggestion popover layer (`z-index: 80`). Use the shared NFM floating constants instead of raising the global tooltip layer or changing editor-wide portal defaults.
+
 ### Reuse toggle keyboard handlers across custom toggle-like block types
 When adding custom toggle row blocks (like `cardToggle`), shared Enter/Backspace handlers should treat them as toggle parents too; otherwise key behaviors diverge between editors. Keep toggle-type checks centralized (`toggleListItem`, toggleable `heading`, `cardToggle`) so child-creation and empty-child deletion behavior stays consistent.
 

@@ -561,19 +561,20 @@ export const NodexDropdownSurface = forwardRef<
   );
 });
 
-export function NodexDropdownScrollList({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
+export const NodexDropdownScrollList = forwardRef<
+  HTMLDivElement,
+  ComponentPropsWithoutRef<"div">
+>(function NodexDropdownScrollList({ children, className, ...props }, ref) {
   return (
-    <div className={cn("flex max-h-[250px] flex-col overflow-y-auto", className)}>
+    <div
+      ref={ref}
+      className={cn("flex max-h-[250px] flex-col overflow-y-auto", className)}
+      {...props}
+    >
       {children}
     </div>
   );
-}
+});
 
 export const NodexDropdownActionRow = forwardRef<
   HTMLButtonElement,

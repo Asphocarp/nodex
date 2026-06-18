@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { NfmEditor } from "./editor/nfm-editor";
 import { cn } from "@/lib/utils";
 import { CardStageInlinePropertyStrip } from "./card-stage/inline-property-strip";
@@ -9,6 +10,13 @@ import type { CardStageProps } from "./card-stage/types";
 import { RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE } from "@/lib/right-panel-composer-overlay-reserve";
 
 export type { CardStageProps } from "./card-stage/types";
+
+export const CARD_STAGE_SCROLL_CONTAINER_TEST_ID = "card-stage-scroll-container";
+
+const CARD_STAGE_SCROLL_CONTAINER_STYLE = {
+  ...RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE,
+  overflowAnchor: "none",
+} satisfies CSSProperties;
 
 export function CardStage(props: CardStageProps) {
   const controller = useCardStageController(props);
@@ -65,7 +73,8 @@ export function CardStage(props: CardStageProps) {
         ref={controller.scrollContainerRef}
         onScroll={controller.handleScroll}
         className="scrollbar-token min-h-0 flex-1 overflow-y-auto"
-        style={RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE}
+        data-testid={CARD_STAGE_SCROLL_CONTAINER_TEST_ID}
+        style={CARD_STAGE_SCROLL_CONTAINER_STYLE}
       >
         <div className={controller.contentGutterClassName}>
           <div className={controller.contentShellClassName}>

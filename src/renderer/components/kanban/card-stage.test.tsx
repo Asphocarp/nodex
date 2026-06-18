@@ -44,8 +44,8 @@ describe("card stage", () => {
 
   test("renders the rich editor when raw mode is disabled", async () => {
     writeCardStageShowRawContentPreference(false);
-    const { CardStage } = await import("./card-stage");
-    const { getByText, queryByText } = render(
+    const { CardStage, CARD_STAGE_SCROLL_CONTAINER_TEST_ID } = await import("./card-stage");
+    const { container, getByText, queryByText } = render(
       <NodexTooltipProvider>
         <CardStage
           onClose={() => undefined}
@@ -64,6 +64,9 @@ describe("card stage", () => {
 
     expect(getByText("Mock editor").textContent).toBe("Mock editor");
     expect(queryByText("Raw format")).toBe(null);
+    const scrollContainer = container.querySelector(`[data-testid="${CARD_STAGE_SCROLL_CONTAINER_TEST_ID}"]`) as HTMLElement | null;
+    expect(scrollContainer).not.toBeNull();
+    expect(scrollContainer?.style.getPropertyValue("overflow-anchor")).toBe("none");
     const editorProps = lastNfmEditorProps as { flushHandleRef?: unknown } | null;
     expect(typeof editorProps?.flushHandleRef).toBe("object");
   });
