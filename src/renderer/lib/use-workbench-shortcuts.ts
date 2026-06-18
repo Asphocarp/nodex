@@ -3,6 +3,7 @@ import type { StageId } from "./use-workbench-state";
 import type {
   WorkbenchNavigationCommandSource,
   WorkbenchSidebarToggleCommandSource,
+  WorkbenchThreadRenameCommandSource,
 } from "../../shared/window-navigation";
 
 export interface WorkbenchShortcutActions {
@@ -23,6 +24,7 @@ export interface WorkbenchShortcutActions {
   navigateBack?: (source: WorkbenchNavigationCommandSource) => void;
   navigateForward?: (source: WorkbenchNavigationCommandSource) => void;
   onToggleSidebar?: (source: WorkbenchSidebarToggleCommandSource) => void;
+  onRequestRenameThread?: (source: WorkbenchThreadRenameCommandSource) => void;
 }
 
 const EDITOR_SURFACE_SELECTOR = ".nfm-editor, .bn-editor, .bn-container";
@@ -97,6 +99,12 @@ export function handleWorkbenchShortcut(
   if (modifier && !e.altKey && !e.shiftKey && (e.key === "b" || e.key === "B")) {
     if (targetIsEditable && !targetIsComposerSurface) return false;
     actions.onToggleSidebar?.(targetIsComposerSurface ? "composer_sidebar_shortcut" : "keyboard_shortcut");
+    return true;
+  }
+
+  if (modifier && e.altKey && !e.shiftKey && (e.key === "r" || e.key === "R")) {
+    if (!actions.onRequestRenameThread) return false;
+    actions.onRequestRenameThread("keyboard_shortcut");
     return true;
   }
 

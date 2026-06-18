@@ -200,6 +200,7 @@ import {
 } from "../../shared/codex-conversation-patches";
 import { resolveCodexRuntime, type ResolvedCodexRuntime } from "./codex-runtime";
 import { CodexThreadTitleStateStore } from "./thread-title-state";
+import { normalizeCodexManualThreadTitle } from "../../shared/codex-thread-title";
 import {
   buildThreadTitleGenerationPrompt,
   parseGeneratedThreadTitleResponse,
@@ -6313,9 +6314,9 @@ export class CodexService extends EventEmitter {
 
   async setThreadName(threadId: string, name: string): Promise<boolean> {
     await this.ensureClientReady();
-    const normalizedName = name.trim();
+    const normalizedName = normalizeCodexManualThreadTitle(name);
     if (!normalizedName) {
-      throw new Error("Thread name requires a non-empty value");
+      return false;
     }
 
     await this.client.request("thread/name/set", {

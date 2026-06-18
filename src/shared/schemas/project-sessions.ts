@@ -23,6 +23,7 @@ import type {
   ProjectSessionTerminalTabConfig,
   ProjectSessionThreadLinkInput,
   ProjectSessionUpdateInput,
+  ProjectSessionRenameInput,
   ProjectSessionPinnedInput,
   ProjectSessionPinnedOrderInput,
   ProjectSessionUnreadInput,
@@ -161,6 +162,10 @@ export const ProjectSessionUpdateInputSchema = z.object({
     bottom: ProjectSessionPanelStateUpdateSchema.optional(),
   }).optional(),
 }) satisfies z.ZodType<ProjectSessionUpdateInput>;
+
+export const ProjectSessionRenameInputSchema = z.object({
+  title: z.string(),
+}) satisfies z.ZodType<ProjectSessionRenameInput>;
 
 export const ProjectSessionPinnedInputSchema = z.object({
   pinned: z.boolean(),

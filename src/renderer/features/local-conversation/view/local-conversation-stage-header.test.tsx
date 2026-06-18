@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import { fireEvent } from "@testing-library/react";
 import { Fragment, createElement, type ReactNode } from "react";
 import { render, settleAsyncRender, textContent } from "../../../test/dom";
 import type { ThreadStageActions, ThreadStageHeaderModel } from "../thread-stage-types";
@@ -124,6 +125,38 @@ describe("ThreadStageHeader auth chrome", () => {
     expect(Boolean(title)).toBeTrue();
     expect(Boolean(actionGroup)).toBeTrue();
     expect(actionGroup?.previousElementSibling === title).toBeTrue();
+  });
+
+  test("renders Rename chat before Open side chat in thread actions", async () => {
+    const { ThreadStageHeader } = await import("./local-conversation-stage-header");
+    let renameCalls = 0;
+    const actions = {
+      ...buildActions(),
+      onRequestRenameThread: () => {
+        renameCalls += 1;
+      },
+      onOpenSideChat: async () => {},
+    };
+    const screen = render(
+      <ThreadStageHeader
+        model={buildModel({ showSideChatAction: true })}
+        actions={actions}
+        onErrorMessage={() => {}}
+      />,
+    );
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Thread actions" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    await settleAsyncRender();
+
+    const bodyText = textContent(document.body);
+    expect(bodyText.indexOf("Rename chat") >= 0).toBeTrue();
+    expect(bodyText.indexOf("Rename chat") < bodyText.indexOf("Open side chat")).toBeTrue();
+
+    fireEvent.click(screen.getByText("Rename chat"));
+    expect(renameCalls).toBe(1);
   });
 
   test("does not render in-flow titlebar hitboxes", async () => {

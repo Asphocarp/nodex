@@ -57,6 +57,7 @@ import {
   ProjectPinnedOrderInputSchema,
 } from "../shared/schemas/projects";
 import { codexService } from "./codex/codex-service";
+import { renameProjectSessionChat } from "./project-session-rename-service";
 
 /** SSE keep-alive ping interval (ms) */
 const SSE_PING_INTERVAL_MS = 30_000;
@@ -573,6 +574,24 @@ app.put("/api/project-sessions/:sessionId", async (c) => {
     const session = projectSessionService.updateProjectSession(sessionId, body);
     if (!session) return c.json({ error: "Not found" }, 404);
     dbNotifier.notifyProjectSessionsChanged(session.projectId, "update", session.id);
+    return c.json(session);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
+});
+
+app.put("/api/project-sessions/:sessionId/rename", async (c) => {
+  const body = await c.req.json();
+  try {
+    const session = await renameProjectSessionChat(c.req.param("sessionId"), body, {
+      getProjectSession: projectSessionService.getProjectSession,
+      updateProjectSession: projectSessionService.updateProjectSession,
+      setThreadName: (threadId, rawTitle) => codexService.setThreadName(threadId, rawTitle),
+      notifyProjectSessionsChanged: (projectId, changeType, sessionId) => {
+        dbNotifier.notifyProjectSessionsChanged(projectId, changeType, sessionId);
+      },
+    });
+    if (!session) return c.json({ error: "Not found" }, 404);
     return c.json(session);
   } catch (err) {
     return c.json({ error: (err as Error).message }, 400);

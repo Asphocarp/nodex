@@ -58,9 +58,11 @@ import {
   CYCLE_PANEL_TAB_PREVIOUS_HOST_CHANNEL,
   NAVIGATE_BACK_HOST_CHANNEL,
   NAVIGATE_FORWARD_HOST_CHANNEL,
+  WORKBENCH_THREAD_RENAME_COMMAND,
   WORKBENCH_SIDEBAR_TOGGLE_COMMAND,
   type WorkbenchPanelTabCloseHostChannel,
   type WorkbenchPanelTabCycleHostChannel,
+  type WorkbenchThreadRenameHostChannel,
   type WorkbenchSidebarToggleHostChannel,
   type WorkbenchNavigationHostChannel,
 } from "../shared/window-navigation";
@@ -219,6 +221,7 @@ function configureMacWindowMenus(): void {
     channel:
       | WorkbenchNavigationHostChannel
       | WorkbenchSidebarToggleHostChannel
+      | WorkbenchThreadRenameHostChannel
       | WorkbenchPanelTabCycleHostChannel
       | WorkbenchPanelTabCloseHostChannel,
   ) => {
@@ -309,6 +312,13 @@ function configureMacWindowMenus(): void {
           accelerator: "CommandOrControl+B",
           click: () => {
             sendNavigationMessage(WORKBENCH_SIDEBAR_TOGGLE_COMMAND.hostChannel);
+          },
+        },
+        {
+          label: WORKBENCH_THREAD_RENAME_COMMAND.label,
+          accelerator: "CommandOrControl+Alt+R",
+          click: () => {
+            sendNavigationMessage(WORKBENCH_THREAD_RENAME_COMMAND.hostChannel);
           },
         },
       ],

@@ -713,6 +713,7 @@ export function CodexThreadRow({
   contextMenuOpen = false,
   onSelect,
   onOpenContextMenu,
+  onRenameFromTitleDoubleClick,
   onTogglePinned,
 }: {
   session: ProjectSession;
@@ -720,6 +721,7 @@ export function CodexThreadRow({
   contextMenuOpen?: boolean;
   onSelect: () => void;
   onOpenContextMenu?: (session: ProjectSession, event: MouseEvent<HTMLElement>) => void;
+  onRenameFromTitleDoubleClick?: (session: ProjectSession, event: MouseEvent<HTMLElement>) => void;
   onTogglePinned?: (session: ProjectSession) => void | Promise<void>;
 }) {
   const showSessionActions = !session.isOverview && Boolean(onOpenContextMenu);
@@ -751,6 +753,9 @@ export function CodexThreadRow({
           if (!showSessionActions) return;
           event.preventDefault();
           onOpenContextMenu?.(session, event);
+        }}
+        onDoubleClick={(event) => {
+          onRenameFromTitleDoubleClick?.(session, event);
         }}
         onKeyDown={(event) => {
           if (event.key !== "Enter" && event.key !== " ") return;

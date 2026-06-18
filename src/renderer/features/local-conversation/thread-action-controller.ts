@@ -37,6 +37,7 @@ export interface ThreadActionControllerInput {
   onOpenNewThreadLocalEnvironmentsSettings: NonNullable<ThreadStageActions["onOpenNewThreadLocalEnvironmentsSettings"]>;
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
+  onRequestRenameThread?: ThreadStageActions["onRequestRenameThread"];
 }
 
 function requireActiveThreadId(activeThreadId: string | null, action: string): string {
@@ -106,6 +107,7 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
     onOpenNewThreadLocalEnvironmentsSettings: input.onOpenNewThreadLocalEnvironmentsSettings,
     ...(input.onOpenSideChat ? { onOpenSideChat: input.onOpenSideChat } : {}),
     ...(input.onOpenMcpAppSidePanel ? { onOpenMcpAppSidePanel: input.onOpenMcpAppSidePanel } : {}),
+    ...(input.onRequestRenameThread ? { onRequestRenameThread: input.onRequestRenameThread } : {}),
     onSendPrompt: async (prompt, opts) => {
       const threadId = requireActiveThreadId(input.activeThreadId, "Sending a prompt");
       await input.codexControl.startTurn(threadId, prompt, {

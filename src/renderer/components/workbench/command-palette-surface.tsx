@@ -8,6 +8,7 @@ import {
   LayoutGrid,
   ListFilter,
   PanelBottom,
+  PenLine,
   Search,
   Settings2,
   SquareKanban,
@@ -40,6 +41,7 @@ import { NodexIconButton } from "@/components/ui/button";
 import {
   NAVIGATE_BACK_COMMAND_ID,
   NAVIGATE_FORWARD_COMMAND_ID,
+  RENAME_THREAD_COMMAND_ID,
   TOGGLE_SIDEBAR_COMMAND_ID,
 } from "../../../shared/window-navigation";
 import { ThreadsIcon } from "./threads-icon";
@@ -64,6 +66,7 @@ function getCommandGlyph(id: string) {
   if (id === NAVIGATE_BACK_COMMAND_ID) return ArrowLeft;
   if (id === NAVIGATE_FORWARD_COMMAND_ID) return ArrowRight;
   if (id === TOGGLE_SIDEBAR_COMMAND_ID) return CodexSidebarVisibleIcon;
+  if (id === RENAME_THREAD_COMMAND_ID) return PenLine;
   if (id === "search-current-project") return Search;
   if (id === "toggle-terminal") return PanelBottom;
   if (id === "open-settings") return Settings2;

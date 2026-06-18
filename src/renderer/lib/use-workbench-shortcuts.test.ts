@@ -119,6 +119,31 @@ describe("handleWorkbenchShortcut", () => {
     expect(selectedIndex).toBe(2);
   });
 
+  test("Cmd+Alt+R requests chat rename", () => {
+    let source = "";
+    const actions = makeActions({
+      onRequestRenameThread: (nextSource) => {
+        source = nextSource;
+      },
+    });
+
+    const handled = handleWorkbenchShortcut(
+      {
+        key: "R",
+        ctrlKey: false,
+        metaKey: true,
+        shiftKey: false,
+        altKey: true,
+        target: makeInputTarget(),
+      },
+      actions,
+      true,
+    );
+
+    expect(handled).toBeTrue();
+    expect(source).toBe("keyboard_shortcut");
+  });
+
   test("Cmd+5 does not map to a stage index", () => {
     let selectedIndex = -1;
     const actions = makeActions({ switchToStageIndex: (_, index) => (selectedIndex = index) });

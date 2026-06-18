@@ -35,6 +35,7 @@ import {
   writeWorkspaceFile,
 } from "./workspace-files-service";
 import { dbNotifier } from "./kanban/db-notifier";
+import { renameProjectSessionChat } from "./project-session-rename-service";
 import { captureMainException } from "./observability/sentry-main";
 import { getLogger } from "./logging/logger";
 import type { WorkbenchLayoutSnapshot } from "../shared/workbench-layout";
@@ -338,6 +339,17 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     }
     return session;
   });
+
+  registerHandle("project-sessions:rename", (_, sessionId: string, input) =>
+    renameProjectSessionChat(sessionId, input, {
+      getProjectSession: projectSessionService.getProjectSession,
+      updateProjectSession: projectSessionService.updateProjectSession,
+      setThreadName: (threadId, rawTitle) => codexService.setThreadName(threadId, rawTitle),
+      notifyProjectSessionsChanged: (projectId, changeType, sessionId) => {
+        dbNotifier.notifyProjectSessionsChanged(projectId, changeType, sessionId);
+      },
+    })
+  );
 
   registerHandle("project-sessions:delete", (_, sessionId: string) => {
     const existing = projectSessionService.getProjectSession(sessionId);

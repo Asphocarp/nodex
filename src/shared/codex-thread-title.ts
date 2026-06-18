@@ -5,6 +5,7 @@ export interface CodexThreadTitleCacheState {
 
 export const CODEX_THREAD_TITLE_CACHE_LIMIT = 200;
 export const CODEX_THREAD_TITLE_PROMPT_MAX_CHARS = 2_000;
+export const CODEX_MANUAL_THREAD_TITLE_MAX_CHARS = 60;
 
 export function emptyCodexThreadTitleCacheState(): CodexThreadTitleCacheState {
   return {
@@ -125,4 +126,20 @@ export function sanitizeCodexThreadTitlePrompt(
   }
 
   return normalizedPrompt.slice(0, maxChars).trimEnd();
+}
+
+export function normalizeCodexManualThreadTitle(
+  rawTitle: string,
+  maxChars = CODEX_MANUAL_THREAD_TITLE_MAX_CHARS,
+): string | null {
+  const normalizedTitle = rawTitle.trim().replace(/\s+/g, " ");
+  if (normalizedTitle.length === 0) {
+    return null;
+  }
+
+  if (normalizedTitle.length <= maxChars) {
+    return normalizedTitle;
+  }
+
+  return `${normalizedTitle.slice(0, maxChars - 1).trimEnd()}…`;
 }

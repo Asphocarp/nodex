@@ -18,6 +18,7 @@ All keyboard shortcuts in Nodex. Platform modifier: **⌘ (Cmd)** on Mac, **Ctrl
 | `⌘/Ctrl+P` | Open command palette | VS Code-style quick-open alias for the global launcher; works from editable surfaces too |
 | `⌘/Ctrl+[` | Back | Restores the previous shell-owned project/session/panel context; works from editable surfaces too |
 | `⌘/Ctrl+]` | Forward | Restores the next shell-owned project/session/panel context; works from editable surfaces too |
+| `⌘/Ctrl+Alt+R` | Rename chat | Opens `Rename chat` for the active non-Overview project session |
 | `MouseBack` | Back | Desktop mouse back button; routes to the same app-window workbench history command |
 | `MouseForward` | Forward | Desktop mouse forward button; routes to the same app-window workbench history command |
 | `⌘/Ctrl+,` | Toggle settings route | Opens/closes the full-window settings route shell |

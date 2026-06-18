@@ -59,13 +59,6 @@ import {
   NodexDropdownSeparator,
 } from "@/components/ui/dropdown";
 import { NodexButton } from "@/components/ui/button";
-import {
-  NodexDialog,
-  NodexDialogContent,
-  NodexDialogFooter,
-  NodexDialogHeader,
-  NodexDialogTitle,
-} from "@/components/ui/dialog";
 import { ShortcutKeycaps } from "@/components/ui/shortcut-keycaps";
 import { NodexTooltip, NodexTooltipProvider } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
@@ -259,6 +252,7 @@ import {
   resolveCodexCommandPaletteShortcutLabel,
   resolveCodexNewChatShortcutLabel,
 } from "./codex-sidebar";
+import { RenameChatDialog } from "./rename-chat-dialog";
 import {
   replaceVisibleOrder,
   SidebarDropIndicator,
@@ -277,6 +271,7 @@ import {
   type WorkbenchPanelTabCycleCommandRequest,
   type WorkbenchPanelTabCycleDirection,
   type WorkbenchSidebarToggleCommandSource,
+  type WorkbenchThreadRenameCommandRequest,
 } from "../../../shared/window-navigation";
 import {
   navigateBackInWorkbenchShellHistory,
@@ -637,6 +632,7 @@ interface WorkbenchShellProps {
   navigationCommandRequest?: WorkbenchNavigationCommandRequest | null;
   panelTabCycleRequest?: WorkbenchPanelTabCycleCommandRequest | null;
   panelTabCloseRequest?: WorkbenchPanelTabCloseCommandRequest | null;
+  threadRenameRequest?: WorkbenchThreadRenameCommandRequest | null;
   onNavigationStateChange?: (state: WorkbenchNavigationCommandState) => void;
   navigateToStage?: (projectId: string, stageId: StageId) => void;
   navigateToDbView?: (projectId: string, view: WorkbenchView) => void;
@@ -1315,6 +1311,7 @@ export function WorkbenchShell({
   navigationCommandRequest = null,
   panelTabCycleRequest = null,
   panelTabCloseRequest = null,
+  threadRenameRequest = null,
   onNavigationStateChange,
   onRequestNewWindow,
   navigateToStage,
@@ -1331,7 +1328,6 @@ export function WorkbenchShell({
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [contextMenuSessionId, setContextMenuSessionId] = useState<string | null>(null);
   const [renameSession, setRenameSession] = useState<ProjectSession | null>(null);
-  const [renameSessionTitle, setRenameSessionTitle] = useState("");
   const [renamingSession, setRenamingSession] = useState(false);
   const [previewTabsByPanel, setPreviewTabsByPanel] = useState<Record<string, ProjectSessionPreviewTab>>({});
   const [sideChatTabsBySession, setSideChatTabsBySession] = useState<Record<string, SideChatPanelTab[]>>({});
@@ -1396,6 +1392,7 @@ export function WorkbenchShell({
   const lastHandledNavigationCommandTickRef = useRef(navigationCommandRequest?.tick ?? 0);
   const lastHandledPanelTabCycleRequestTickRef = useRef(panelTabCycleRequest?.tick ?? 0);
   const lastHandledPanelTabCloseRequestTickRef = useRef(panelTabCloseRequest?.tick ?? 0);
+  const lastHandledThreadRenameRequestTickRef = useRef(threadRenameRequest?.tick ?? 0);
   const lastHandledCommandPaletteOpenTickRef = useRef(commandPaletteOpenTick);
   const currentShellNavigationSnapshotRef = useRef<WorkbenchShellNavigationSnapshot | null>(null);
   const focusedPanelGroupRef = useRef<PanelTabCycleScope | null>(null);
@@ -2021,9 +2018,26 @@ export function WorkbenchShell({
   }, [mergeSessionInState, refreshProjectSessions, sessionsByProject]);
 
   const openRenameSessionDialog = useCallback((session: ProjectSession) => {
+    if (session.isOverview) return;
     setRenameSession(session);
-    setRenameSessionTitle(session.title);
   }, []);
+
+  const handleSessionTitleDoubleClick = useCallback((
+    session: ProjectSession,
+    event: ReactMouseEvent<HTMLElement>,
+  ) => {
+    if (event.defaultPrevented) return;
+    if (session.isOverview) return;
+    if (activeSessionId !== session.id) return;
+    if (!(event.target instanceof Element)) return;
+    if (!event.target.closest("[data-thread-title]")) return;
+
+    const pointerCancelEvent = typeof PointerEvent === "function"
+      ? new PointerEvent("pointercancel", { bubbles: true, cancelable: true })
+      : new Event("pointercancel", { bubbles: true, cancelable: true });
+    event.currentTarget.dispatchEvent(pointerCancelEvent);
+    openRenameSessionDialog(session);
+  }, [activeSessionId, openRenameSessionDialog]);
 
   const archiveSession = useCallback(async (session: ProjectSession) => {
     try {
@@ -2194,25 +2208,31 @@ export function WorkbenchShell({
     }
   }, [handleSessionContextMenuAction, projects, resolveSessionHasGitRepository]);
 
-  const submitRenameSession = useCallback(async () => {
+  const submitRenameSession = useCallback(async (title: string) => {
     if (!renameSession) return;
-    const title = renameSessionTitle.trim();
-    if (!title) return;
 
     setRenamingSession(true);
     try {
-      const updated = await invoke("project-sessions:update", renameSession.id, { title }) as ProjectSession | null;
+      const updated = await invoke("project-sessions:rename", renameSession.id, { title }) as ProjectSession | null;
       if (!updated) throw new Error("Session was not found");
       mergeSessionInState(updated);
       await refreshProjectSessions(updated.projectId);
       setRenameSession(null);
-      setRenameSessionTitle("");
     } catch {
       toast.danger("Failed to rename chat");
     } finally {
       setRenamingSession(false);
     }
-  }, [mergeSessionInState, refreshProjectSessions, renameSession, renameSessionTitle]);
+  }, [mergeSessionInState, refreshProjectSessions, renameSession]);
+
+  useEffect(() => {
+    if (!threadRenameRequest) return;
+    if (threadRenameRequest.tick <= 0) return;
+    if (lastHandledThreadRenameRequestTickRef.current === threadRenameRequest.tick) return;
+    lastHandledThreadRenameRequestTickRef.current = threadRenameRequest.tick;
+    if (!activeSession || activeSession.isOverview) return;
+    openRenameSessionDialog(activeSession);
+  }, [activeSession, openRenameSessionDialog, threadRenameRequest]);
 
   const updateSessionPanel = useCallback(async (
     sessionId: string,
@@ -4746,56 +4766,21 @@ export function WorkbenchShell({
   const appShellHeaderCenterVisible = activeSession != null && settingsRouteShell == null;
 
   const renameSessionDialog = (
-    <NodexDialog
+    <RenameChatDialog
       open={Boolean(renameSession)}
+      initialValue={renameSession?.title ?? ""}
+      busy={renamingSession}
       onOpenChange={(open) => {
         if (open) return;
         setRenameSession(null);
-        setRenameSessionTitle("");
       }}
-    >
-      <NodexDialogContent className="max-w-sm gap-5 rounded-2xl p-5">
-        <form
-          className="flex flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void submitRenameSession();
-          }}
-        >
-          <NodexDialogHeader className="gap-1">
-            <NodexDialogTitle className="text-base">Rename chat</NodexDialogTitle>
-          </NodexDialogHeader>
-          <input
-            autoFocus
-            className="h-9 rounded-lg border border-token-border bg-token-main-surface-primary px-3 text-sm text-token-foreground outline-none focus-visible:ring-2 focus-visible:ring-token-focus"
-            value={renameSessionTitle}
-            onChange={(event) => setRenameSessionTitle(event.target.value)}
-          />
-          <NodexDialogFooter>
-            <NodexButton
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setRenameSession(null);
-                setRenameSessionTitle("");
-              }}
-            >
-              Cancel
-            </NodexButton>
-            <NodexButton
-              type="submit"
-              size="sm"
-              disabled={renamingSession || renameSessionTitle.trim().length === 0}
-            >
-              Rename
-            </NodexButton>
-          </NodexDialogFooter>
-        </form>
-      </NodexDialogContent>
-    </NodexDialog>
+      onSave={(title) => {
+        void submitRenameSession(title);
+      }}
+    />
   );
   const commandPaletteProjectId = activeProject?.id ?? activeProjectId;
+  const canRenameActiveSession = Boolean(activeSession && !activeSession.isOverview);
   const commandPalette = (
     <CommandPalette
       open={commandPaletteOpen}
@@ -4824,9 +4809,14 @@ export function WorkbenchShell({
       onToggleSidebar={() => {
         toggleSidebarCollapsed();
       }}
+      onRenameThread={() => {
+        if (!activeSession || activeSession.isOverview) return;
+        openRenameSessionDialog(activeSession);
+      }}
       onOpenSettings={openSettings}
       canGoBack={shellCanNavigateBack}
       canGoForward={shellCanNavigateForward}
+      canRenameThread={canRenameActiveSession}
       onGoBack={() => {
         void executeShellNavigation("back");
       }}
@@ -4945,6 +4935,7 @@ export function WorkbenchShell({
               onSelectProject={selectProject}
               onSelectSession={selectSession}
               onOpenSessionContextMenu={openSessionContextMenu}
+              onSessionTitleDoubleClick={handleSessionTitleDoubleClick}
               onToggleSessionPinned={toggleSessionPin}
               onStartNewChatInProject={(projectId) => void startNewChatInProject(projectId)}
               onOpenCommandPalette={openSidebarCommandPalette}
@@ -5008,6 +4999,7 @@ export function WorkbenchShell({
                   onSelectProject={selectProject}
                   onSelectSession={selectSession}
                   onOpenSessionContextMenu={openSessionContextMenu}
+                  onSessionTitleDoubleClick={handleSessionTitleDoubleClick}
                   onToggleSessionPinned={toggleSessionPin}
                   onStartNewChatInProject={(projectId) => void startNewChatInProject(projectId)}
                   onOpenCommandPalette={openSidebarCommandPalette}
@@ -5099,6 +5091,9 @@ export function WorkbenchShell({
                         }}
                         onOpenSideChat={(input) => openSideChat({ ...input, targetPanelId: "right" })}
                         onOpenMcpAppSidePanel={openMcpAppSidePanel}
+                        onRequestRenameThread={() => {
+                          openRenameSessionDialog(activeSession);
+                        }}
                       />
                     </div>
                   </section>
@@ -5333,6 +5328,7 @@ function SidebarProjectGroupSections({
   onSelectProject,
   onSelectSession,
   onOpenSessionContextMenu,
+  onSessionTitleDoubleClick,
   onToggleSessionPinned,
   onStartNewChatInProject,
   projectPickerOpenTick,
@@ -5358,6 +5354,7 @@ function SidebarProjectGroupSections({
   onSelectProject: (projectId: string) => void;
   onSelectSession: (session: ProjectSession) => void;
   onOpenSessionContextMenu?: (session: ProjectSession, event: ReactMouseEvent<HTMLElement>) => void;
+  onSessionTitleDoubleClick?: (session: ProjectSession, event: ReactMouseEvent<HTMLElement>) => void;
   onToggleSessionPinned?: (session: ProjectSession) => void | Promise<void>;
   onStartNewChatInProject: (projectId: string) => void | Promise<void>;
   projectPickerOpenTick: number;
@@ -5444,6 +5441,7 @@ function SidebarProjectGroupSections({
               contextMenuOpen={contextMenuSessionId === session.id}
               onSelect={() => onSelectSession(session)}
               onOpenContextMenu={onOpenSessionContextMenu}
+              onRenameFromTitleDoubleClick={onSessionTitleDoubleClick}
               onTogglePinned={onToggleSessionPinned}
             />
           ))}
@@ -5463,6 +5461,7 @@ function SidebarProjectGroupSections({
     loadingSessions,
     onDeleteProject,
     onOpenSessionContextMenu,
+    onSessionTitleDoubleClick,
     onSelectProject,
     onSelectSession,
     onSetProjectPinned,
@@ -5557,6 +5556,7 @@ function ProjectSessionSidebar({
   onSelectProject,
   onSelectSession,
   onOpenSessionContextMenu,
+  onSessionTitleDoubleClick,
   onToggleSessionPinned,
   onStartNewChatInProject,
   onOpenCommandPalette,
@@ -5600,6 +5600,7 @@ function ProjectSessionSidebar({
   onSelectProject: (projectId: string) => void;
   onSelectSession: (session: ProjectSession) => void;
   onOpenSessionContextMenu?: (session: ProjectSession, event: ReactMouseEvent<HTMLElement>) => void;
+  onSessionTitleDoubleClick?: (session: ProjectSession, event: ReactMouseEvent<HTMLElement>) => void;
   onToggleSessionPinned?: (session: ProjectSession) => void | Promise<void>;
   onStartNewChatInProject: (projectId: string) => void | Promise<void>;
   onOpenCommandPalette: () => void;
@@ -5771,6 +5772,7 @@ function ProjectSessionSidebar({
                 onSelectProject={onSelectProject}
                 onSelectSession={onSelectSession}
                 onOpenSessionContextMenu={onOpenSessionContextMenu}
+                onSessionTitleDoubleClick={onSessionTitleDoubleClick}
                 onToggleSessionPinned={onToggleSessionPinned}
                 onStartNewChatInProject={onStartNewChatInProject}
                 projectPickerOpenTick={projectPickerOpenTick}
@@ -6038,6 +6040,7 @@ function SessionThreadPage({
   rightPanelComposerOverlayTarget,
   onOpenSideChat,
   onOpenMcpAppSidePanel,
+  onRequestRenameThread,
 }: {
   session: ProjectSession;
   project: Project | null;
@@ -6069,6 +6072,7 @@ function SessionThreadPage({
     collaborationMode?: CodexCollaborationModeKind;
   }) => Promise<void>;
   onOpenMcpAppSidePanel: ThreadStageActions["onOpenMcpAppSidePanel"];
+  onRequestRenameThread: ThreadStageActions["onRequestRenameThread"];
 }) {
   const projectId = project?.id ?? session.projectId;
   const summary = session.thread ? makeThreadSummary(session.thread) : null;
@@ -6150,6 +6154,7 @@ function SessionThreadPage({
       });
     },
     onOpenMcpAppSidePanel,
+    onRequestRenameThread,
     selectedCollaborationMode,
     setSelectedCollaborationMode,
   }), [
@@ -6166,6 +6171,7 @@ function SessionThreadPage({
     onOpenLocalEnvironmentsSettings,
     onOpenSideChat,
     onOpenMcpAppSidePanel,
+    onRequestRenameThread,
     refreshNewThreadEnvironments,
     effectiveProjectId,
     session.projectId,

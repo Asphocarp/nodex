@@ -13,11 +13,14 @@ import type { RecentCardSession, StageId, WorkbenchView } from "@/lib/use-workbe
 import {
   NAVIGATE_BACK_COMMAND_ID,
   NAVIGATE_FORWARD_COMMAND_ID,
+  RENAME_THREAD_COMMAND_ID,
   TOGGLE_SIDEBAR_COMMAND_ID,
   resolveWorkbenchNavigationShortcutLabel,
   resolveWorkbenchSidebarToggleShortcutLabel,
+  resolveWorkbenchThreadRenameShortcutLabel,
   type WorkbenchNavigationCommandSource,
   type WorkbenchSidebarToggleCommandSource,
+  type WorkbenchThreadRenameCommandSource,
 } from "../../../shared/window-navigation";
 import { CommandPaletteSurface } from "./command-palette-surface";
 
@@ -38,9 +41,11 @@ interface CommandPaletteProps {
   onOpenTaskSearch: () => void;
   onToggleTerminal: () => void;
   onToggleSidebar?: (source: WorkbenchSidebarToggleCommandSource) => void;
+  onRenameThread?: (source: WorkbenchThreadRenameCommandSource) => void;
   onOpenSettings: () => void;
   canGoBack: boolean;
   canGoForward: boolean;
+  canRenameThread: boolean;
   onGoBack: (source: WorkbenchNavigationCommandSource) => void;
   onGoForward: (source: WorkbenchNavigationCommandSource) => void;
   onRequestNewWindow?: () => void;
@@ -133,10 +138,20 @@ export function buildCommands(input: {
   focusedStage: StageId;
   canGoBack: boolean;
   canGoForward: boolean;
+  canRenameThread: boolean;
   canOpenNewWindow: boolean;
   isMac: boolean;
 }): CommandPaletteCommand[] {
-  const { activeProjectName, activeView, focusedStage, canGoBack, canGoForward, canOpenNewWindow, isMac } = input;
+  const {
+    activeProjectName,
+    activeView,
+    focusedStage,
+    canGoBack,
+    canGoForward,
+    canRenameThread,
+    canOpenNewWindow,
+    isMac,
+  } = input;
   const commands: CommandPaletteCommand[] = [
     {
       kind: "command",
@@ -192,6 +207,16 @@ export function buildCommands(input: {
       keywords: ["sidebar", "panel", "shell"],
       shortcut: resolveWorkbenchSidebarToggleShortcutLabel(isMac),
       priority: 455,
+    },
+    {
+      kind: "command",
+      id: RENAME_THREAD_COMMAND_ID,
+      title: "Rename chat",
+      subtitle: "Rename the active chat",
+      keywords: ["rename", "chat", "thread", "title"],
+      shortcut: resolveWorkbenchThreadRenameShortcutLabel(isMac),
+      disabled: !canRenameThread,
+      priority: 452,
     },
     {
       kind: "command",
@@ -324,9 +349,11 @@ export function CommandPalette({
   onOpenTaskSearch,
   onToggleTerminal,
   onToggleSidebar,
+  onRenameThread,
   onOpenSettings,
   canGoBack,
   canGoForward,
+  canRenameThread,
   onGoBack,
   onGoForward,
   onRequestNewWindow,
@@ -345,10 +372,11 @@ export function CommandPalette({
       focusedStage,
       canGoBack,
       canGoForward,
+      canRenameThread,
       canOpenNewWindow: Boolean(onRequestNewWindow),
       isMac,
     }),
-    [activeProjectName, activeView, canGoBack, canGoForward, focusedStage, isMac, onRequestNewWindow],
+    [activeProjectName, activeView, canGoBack, canGoForward, canRenameThread, focusedStage, isMac, onRequestNewWindow],
   );
 
   const handleExecute = (item: PaletteItem) => {
@@ -383,6 +411,10 @@ export function CommandPalette({
     }
     if (item.id === TOGGLE_SIDEBAR_COMMAND_ID) {
       onToggleSidebar?.("command_palette");
+      return;
+    }
+    if (item.id === RENAME_THREAD_COMMAND_ID) {
+      onRenameThread?.("command_palette");
       return;
     }
     if (item.id === "open-settings") {

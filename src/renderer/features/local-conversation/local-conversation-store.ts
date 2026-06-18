@@ -52,7 +52,10 @@ import type {
 } from "../../lib/types";
 import { applyCodexConversationStateUpdates } from "../../../shared/codex-conversation-patches";
 import { DEFAULT_CODEX_HOST_ID } from "../../../shared/codex-host";
-import { sanitizeCodexThreadTitlePrompt } from "../../../shared/codex-thread-title";
+import {
+  normalizeCodexManualThreadTitle,
+  sanitizeCodexThreadTitlePrompt,
+} from "../../../shared/codex-thread-title";
 import {
   resolveCodexReasoningEffortOptions,
   resolveCodexThreadSettings,
@@ -1133,7 +1136,7 @@ export class CodexAppServerManager {
   }
 
   async setThreadName(threadId: string, name: string, projectId: string | null): Promise<boolean> {
-    const normalizedName = name.trim();
+    const normalizedName = normalizeCodexManualThreadTitle(name);
     if (!normalizedName) {
       return false;
     }

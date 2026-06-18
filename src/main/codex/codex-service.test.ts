@@ -140,6 +140,7 @@ interface TestableCodexService {
     worktreeStartMode?: "autoBranch" | "detachedHead";
     worktreeBranchPrefix?: string;
   }) => Promise<CodexThreadDetail>;
+  setThreadName: (threadId: string, name: string) => Promise<boolean>;
   listCollaborationModes: () => Promise<CodexCollaborationModePreset[]>;
   interruptTurn: (threadId: string, turnId?: string) => Promise<boolean>;
   cleanBackgroundTerminals: (threadId: string) => Promise<boolean>;
@@ -3936,6 +3937,71 @@ describe("codex-service collaboration modes", () => {
 
         expect(detail?.latestCollaborationMode?.mode).toBe("plan");
         expect(snapshot?.latestCollaborationMode?.mode).toBe("plan");
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+});
+
+describe("codex-service setThreadName", () => {
+  test("treats whitespace-only names as a no-op", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requestMethods: string[] = [];
+
+      client.start = async () => undefined;
+      client.request = async (method: string) => {
+        requestMethods.push(method);
+        return {};
+      };
+
+      try {
+        const renamed = await service.setThreadName("thread-1", " \n\t ");
+        expect(renamed).toBeFalse();
+        expect(requestMethods.length).toBe(0);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("sends the sanitized name and emits a title update", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const events: CodexHostMessage[] = [];
+      let requestedName = "";
+
+      service.on("hostMessage", (message) => {
+        events.push(message);
+      });
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        if (method === "thread/name/set") {
+          requestedName = (params as { name?: string }).name ?? "";
+        }
+        return {};
+      };
+
+      try {
+        const renamed = await service.setThreadName("thread-1", "  hello   world  ");
+        const titleEvent = events.find((event) => event.type === "threadTitleUpdated");
+
+        expect(renamed).toBeTrue();
+        expect(requestedName).toBe("hello world");
+        expect(titleEvent?.type).toBe("threadTitleUpdated");
       } finally {
         await service.shutdown();
       }

@@ -1,10 +1,12 @@
 export const NAVIGATE_BACK_COMMAND_ID = "navigateBack";
 export const NAVIGATE_FORWARD_COMMAND_ID = "navigateForward";
 export const TOGGLE_SIDEBAR_COMMAND_ID = "toggleSidebar";
+export const RENAME_THREAD_COMMAND_ID = "renameThread";
 
 export const NAVIGATE_BACK_HOST_CHANNEL = "navigate-back";
 export const NAVIGATE_FORWARD_HOST_CHANNEL = "navigate-forward";
 export const TOGGLE_SIDEBAR_HOST_CHANNEL = "toggle-sidebar";
+export const RENAME_THREAD_HOST_CHANNEL = "rename-thread";
 export const CYCLE_PANEL_TAB_PREVIOUS_HOST_CHANNEL = "cycle-panel-tab-previous";
 export const CYCLE_PANEL_TAB_NEXT_HOST_CHANNEL = "cycle-panel-tab-next";
 export const CLOSE_PANEL_TAB_HOST_CHANNEL = "close-panel-tab";
@@ -19,6 +21,8 @@ export type WorkbenchNavigationHostChannel =
 
 export type WorkbenchSidebarToggleCommandId = typeof TOGGLE_SIDEBAR_COMMAND_ID;
 export type WorkbenchSidebarToggleHostChannel = typeof TOGGLE_SIDEBAR_HOST_CHANNEL;
+export type WorkbenchThreadRenameCommandId = typeof RENAME_THREAD_COMMAND_ID;
+export type WorkbenchThreadRenameHostChannel = typeof RENAME_THREAD_HOST_CHANNEL;
 export type WorkbenchPanelTabCycleHostChannel =
   | typeof CYCLE_PANEL_TAB_PREVIOUS_HOST_CHANNEL
   | typeof CYCLE_PANEL_TAB_NEXT_HOST_CHANNEL;
@@ -62,6 +66,13 @@ export interface WorkbenchPanelTabCloseCommandRequest {
   source: WorkbenchPanelTabCloseCommandSource;
 }
 
+export type WorkbenchThreadRenameCommandSource = "keyboard_shortcut" | "menu" | "command_palette";
+
+export interface WorkbenchThreadRenameCommandRequest {
+  tick: number;
+  source: WorkbenchThreadRenameCommandSource;
+}
+
 export type WorkbenchSidebarToggleCommandSource =
   | "sidebar_trigger"
   | "composer_sidebar_shortcut"
@@ -82,6 +93,13 @@ export interface WorkbenchSidebarToggleCommandDefinition {
   label: "Toggle sidebar";
   hostChannel: WorkbenchSidebarToggleHostChannel;
   accelerator: "CmdOrCtrl+B";
+}
+
+export interface WorkbenchThreadRenameCommandDefinition {
+  id: WorkbenchThreadRenameCommandId;
+  label: "Rename chat";
+  hostChannel: WorkbenchThreadRenameHostChannel;
+  accelerator: "CmdOrCtrl+Alt+R";
 }
 
 export const WORKBENCH_NAVIGATION_COMMANDS: {
@@ -111,6 +129,13 @@ export const WORKBENCH_SIDEBAR_TOGGLE_COMMAND: WorkbenchSidebarToggleCommandDefi
   accelerator: "CmdOrCtrl+B",
 };
 
+export const WORKBENCH_THREAD_RENAME_COMMAND: WorkbenchThreadRenameCommandDefinition = {
+  id: RENAME_THREAD_COMMAND_ID,
+  label: "Rename chat",
+  hostChannel: RENAME_THREAD_HOST_CHANNEL,
+  accelerator: "CmdOrCtrl+Alt+R",
+};
+
 export function resolveWorkbenchNavigationShortcutLabel(
   direction: "back" | "forward",
   isMac: boolean,
@@ -121,4 +146,8 @@ export function resolveWorkbenchNavigationShortcutLabel(
 
 export function resolveWorkbenchSidebarToggleShortcutLabel(isMac: boolean): string {
   return isMac ? "⌘B" : "Ctrl+B";
+}
+
+export function resolveWorkbenchThreadRenameShortcutLabel(isMac: boolean): string {
+  return isMac ? "⌘⌥R" : "Ctrl+Alt+R";
 }

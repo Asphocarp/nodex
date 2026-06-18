@@ -54,6 +54,8 @@ import type {
   WorkbenchPanelTabCycleDirection,
   WorkbenchPanelTabCloseCommandRequest,
   WorkbenchSidebarToggleCommandSource,
+  WorkbenchThreadRenameCommandRequest,
+  WorkbenchThreadRenameCommandSource,
 } from "../shared/window-navigation";
 
 const WORKBENCH_V2_FLAG_KEY = "workbenchV2";
@@ -176,6 +178,8 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     useState<WorkbenchPanelTabCycleCommandRequest | null>(null);
   const [workbenchPanelTabCloseRequest, setWorkbenchPanelTabCloseRequest] =
     useState<WorkbenchPanelTabCloseCommandRequest | null>(null);
+  const [threadRenameRequest, setThreadRenameRequest] =
+    useState<WorkbenchThreadRenameCommandRequest | null>(null);
   const [settingsToggleTick, setSettingsToggleTick] = useState(0);
   const [activeProjectSessionId, setActiveProjectSessionId] = useState<string | null>(
     initialWindowSessionBootstrap.session.layout.activeProjectSessionId ?? null,
@@ -789,6 +793,13 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     }));
   }, []);
 
+  const requestThreadRename = useCallback((source: WorkbenchThreadRenameCommandSource) => {
+    setThreadRenameRequest((current) => ({
+      tick: (current?.tick ?? 0) + 1,
+      source,
+    }));
+  }, []);
+
   useEffect(() => {
     if (!window.api?.onNavigateBack) return undefined;
     return window.api.onNavigateBack(() => {
@@ -809,6 +820,13 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       requestSidebarToggle("menu");
     });
   }, [requestSidebarToggle]);
+
+  useEffect(() => {
+    if (!window.api?.onRenameThread) return undefined;
+    return window.api.onRenameThread(() => {
+      requestThreadRename("menu");
+    });
+  }, [requestThreadRename]);
 
   useEffect(() => {
     if (!window.api?.onCyclePanelTabPrevious) return undefined;
@@ -1048,6 +1066,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       requestWorkbenchNavigation("forward", source);
     },
     onToggleSidebar: requestSidebarToggle,
+    onRequestRenameThread: requestThreadRename,
   });
 
   if (loading) {
@@ -1144,6 +1163,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       navigationCommandRequest={workbenchNavigationCommandRequest}
       panelTabCycleRequest={workbenchPanelTabCycleRequest}
       panelTabCloseRequest={workbenchPanelTabCloseRequest}
+      threadRenameRequest={threadRenameRequest}
       onRequestProjectPickerOpen={handleOpenProjectPicker}
       projectPickerOpenTick={projectPickerOpenTick}
       taskSearchOpenTick={taskSearchOpenTick}

@@ -80,6 +80,8 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
 
   const openCardTarget = model.openCardTarget;
   const openCardTone = openCardTarget?.columnId ? columnStyles[openCardTarget.columnId] : null;
+  const canRenameThread = Boolean(model.threadId && actions.onRequestRenameThread);
+  const showThreadActions = canRenameThread || model.showSideChatAction;
   const handleOpenSideChat = useCallback(async () => {
     if (!actions.onOpenSideChat) return;
     onErrorMessage(null);
@@ -130,7 +132,7 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
             onApiKeyLogin={(key) => void handleApiKeyLogin(key)}
             onCancelLogin={(loginId) => void actions.onCancelLogin(loginId)}
           />
-          {model.showSideChatAction ? (
+          {showThreadActions ? (
             <NodexDropdownMenu
               align="end"
               sideOffset={6}
@@ -146,13 +148,24 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
                 </button>
               )}
             >
-              <NodexDropdownItem
-                onSelect={() => {
-                  void handleOpenSideChat();
-                }}
-              >
-                Open side chat
-              </NodexDropdownItem>
+              {canRenameThread ? (
+                <NodexDropdownItem
+                  onSelect={() => {
+                    actions.onRequestRenameThread?.();
+                  }}
+                >
+                  Rename chat
+                </NodexDropdownItem>
+              ) : null}
+              {model.showSideChatAction ? (
+                <NodexDropdownItem
+                  onSelect={() => {
+                    void handleOpenSideChat();
+                  }}
+                >
+                  Open side chat
+                </NodexDropdownItem>
+              ) : null}
             </NodexDropdownMenu>
           ) : null}
         </div>

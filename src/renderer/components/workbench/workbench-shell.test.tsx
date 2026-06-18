@@ -17,6 +17,7 @@ import {
 import { render, settleAsyncRender, textContent } from "../../test/dom";
 import { TestQueryProvider } from "../../test/query";
 import { useThreadHeaderPortalTarget } from "@/lib/thread-header-portal";
+import { normalizeCodexManualThreadTitle } from "../../../shared/codex-thread-title";
 import type {
   WorkbenchNavigationCommandRequest,
   WorkbenchNavigationCommandState,
@@ -1006,6 +1007,17 @@ function renderWorkbench({
       sessionState = replaceSession(sessionState, updated);
       return updated;
     }
+    if (channel === "project-sessions:rename") {
+      const sessionId = String(args[0]);
+      const input = (args[1] ?? {}) as { title?: string };
+      const session = Object.values(sessionState).flat().find((item) => item.id === sessionId);
+      if (!session) return null;
+      const nextTitle = normalizeCodexManualThreadTitle(input.title ?? "");
+      if (!nextTitle) return session;
+      const updated = { ...session, title: nextTitle };
+      sessionState = replaceSession(sessionState, updated);
+      return updated;
+    }
     if (channel === "project-sessions:set-pinned") {
       const sessionId = String(args[0]);
       const input = (args[1] ?? {}) as { pinned?: boolean };
@@ -1808,6 +1820,104 @@ describe("workbench session shell", () => {
     expect(longRow.querySelector("[data-app-action-sidebar-thread-pin-slot]") !== null).toBeTrue();
     expect(longRow.querySelector("[data-app-action-sidebar-thread-actions-menu]") !== null).toBeTrue();
     expect(longRow.querySelector("[data-thread-title]")?.textContent).toBe("Very long session title that should truncate before colliding with row actions");
+  });
+
+  test("sidebar title double-click ignores inactive rows and non-title targets", async () => {
+    const target = makeAttachedSession({
+      id: "session:alpha:rename-target",
+      title: "Rename target",
+      isOverview: false,
+      order: 1,
+      rightCollapsed: true,
+      tabs: [],
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeSession(), target] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const inactiveRow = getThreadRow(screen.container, "Rename target");
+    const inactiveTitle = inactiveRow.querySelector("[data-thread-title]");
+    if (!(inactiveTitle instanceof HTMLElement)) {
+      throw new Error("Expected Rename target title");
+    }
+
+    await act(async () => {
+      fireEvent.doubleClick(inactiveTitle);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    expect(screen.queryByLabelText("Chat title") === null).toBeTrue();
+
+    await act(async () => {
+      fireEvent.click(inactiveRow);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const activeRow = getThreadRow(screen.container, "Rename target");
+    await act(async () => {
+      fireEvent.doubleClick(activeRow);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.queryByLabelText("Chat title") === null).toBeTrue();
+  });
+
+  test("active sidebar title double-click opens Rename chat and saves raw title", async () => {
+    const target = makeAttachedSession({
+      id: "session:alpha:rename-target",
+      title: "Rename target",
+      isOverview: false,
+      order: 1,
+      rightCollapsed: true,
+      tabs: [],
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [makeSession(), target] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const row = getThreadRow(screen.container, "Rename target");
+    await act(async () => {
+      fireEvent.click(row);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const title = getThreadRow(screen.container, "Rename target").querySelector("[data-thread-title]");
+    if (!(title instanceof HTMLElement)) {
+      throw new Error("Expected Rename target title");
+    }
+    await act(async () => {
+      fireEvent.doubleClick(title);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const input = screen.getByLabelText("Chat title") as HTMLInputElement;
+    expect(screen.getByText("Rename chat").textContent).toBe("Rename chat");
+    expect(textContent(document.body).includes("Keep it short and recognizable")).toBeTrue();
+    expect(input.value).toBe("Rename target");
+
+    await act(async () => {
+      fireEvent.input(input, { target: { value: "  hello   world  " } });
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const renameCall = invokeCalls.find((call) => call[0] === "project-sessions:rename");
+    expect(renameCall?.[1]).toBe("session:alpha:rename-target");
+    expect((renameCall?.[2] as { title?: string } | undefined)?.title).toBe("  hello   world  ");
+    expect(getThreadRow(screen.container, "hello world").getAttribute("data-app-action-sidebar-thread-title")).toBe("hello world");
   });
 
   test("expanded sidebar keeps the sidebar toggle in the left header rail without compact new-chat", async () => {

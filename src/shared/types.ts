@@ -589,6 +589,10 @@ export interface ProjectSessionUpdateInput {
   panels?: Partial<Record<PanelId, Partial<ProjectSessionPanelState>>>;
 }
 
+export interface ProjectSessionRenameInput {
+  title: string;
+}
+
 export interface ProjectSessionPinnedInput {
   pinned: boolean;
 }

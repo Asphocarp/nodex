@@ -6,7 +6,10 @@ import { getDefaultCommandPaletteCardFilters } from "@/lib/command-palette";
 import type { CardSummary } from "@/lib/types";
 import { createCommandPaletteCardSearchIndex } from "../../lib/command-palette-card-search";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
-import { TOGGLE_SIDEBAR_COMMAND_ID } from "../../../shared/window-navigation";
+import {
+  RENAME_THREAD_COMMAND_ID,
+  TOGGLE_SIDEBAR_COMMAND_ID,
+} from "../../../shared/window-navigation";
 
 mock.module("./card-icon", () => ({
   CardIcon: ({ className }: { className?: string }) => createElement("span", { className }, "C"),
@@ -29,6 +32,7 @@ describe("buildCommands", () => {
       focusedStage: "db",
       canGoBack: false,
       canGoForward: false,
+      canRenameThread: true,
       canOpenNewWindow: false,
       isMac: true,
     });
@@ -257,6 +261,7 @@ describe("buildCommands", () => {
       focusedStage: "db",
       canGoBack: false,
       canGoForward: true,
+      canRenameThread: true,
       canOpenNewWindow: false,
       isMac: true,
     });
@@ -282,11 +287,44 @@ describe("buildCommands", () => {
       focusedStage: "db",
       canGoBack: true,
       canGoForward: true,
+      canRenameThread: true,
       canOpenNewWindow: false,
       isMac: false,
     });
 
     expect(commands[0]?.shortcut).toBe("Ctrl+[");
     expect(commands[1]?.shortcut).toBe("Ctrl+]");
+  });
+
+  test("builds the Codex renameThread command with shortcut and disabled state", async () => {
+    const { buildCommands } = await import("./command-palette");
+    const enabledCommands = buildCommands({
+      activeProjectName: "Alpha",
+      activeView: "kanban",
+      focusedStage: "threads",
+      canGoBack: true,
+      canGoForward: true,
+      canRenameThread: true,
+      canOpenNewWindow: false,
+      isMac: true,
+    });
+    const disabledCommands = buildCommands({
+      activeProjectName: "Alpha",
+      activeView: "kanban",
+      focusedStage: "threads",
+      canGoBack: true,
+      canGoForward: true,
+      canRenameThread: false,
+      canOpenNewWindow: false,
+      isMac: false,
+    });
+    const enabled = enabledCommands.find((command) => command.id === RENAME_THREAD_COMMAND_ID);
+    const disabled = disabledCommands.find((command) => command.id === RENAME_THREAD_COMMAND_ID);
+
+    expect(enabled?.title).toBe("Rename chat");
+    expect(enabled?.shortcut).toBe("⌘⌥R");
+    expect(enabled?.disabled).toBeFalse();
+    expect(disabled?.shortcut).toBe("Ctrl+Alt+R");
+    expect(disabled?.disabled).toBeTrue();
   });
 });

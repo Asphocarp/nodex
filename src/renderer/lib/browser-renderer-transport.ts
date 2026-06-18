@@ -215,6 +215,15 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       });
       return res.ok ? res.json() : null;
     }
+    case "project-sessions:rename": {
+      const [sessionId, input] = args as [string, object];
+      const res = await fetch(toApiUrl(`/api/project-sessions/${sessionId}/rename`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      return res.ok ? res.json() : null;
+    }
     case "project-sessions:delete": {
       const [sessionId] = args as [string];
       const res = await fetch(toApiUrl(`/api/project-sessions/${sessionId}`), { method: "DELETE" });

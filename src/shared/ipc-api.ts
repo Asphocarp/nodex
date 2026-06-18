@@ -95,6 +95,7 @@ import type {
   ProjectSessionPanelSplitInput,
   ProjectSessionPinnedInput,
   ProjectSessionPinnedOrderInput,
+  ProjectSessionRenameInput,
   ProjectSessionTab,
   ProjectSessionTabCreateInput,
   ProjectSessionTabDeleteInput,
@@ -379,6 +380,10 @@ export interface IpcApi {
   "project-sessions:create": { args: [input: ProjectSessionCreateInput]; result: ProjectSession };
   "project-sessions:update": {
     args: [sessionId: string, input: ProjectSessionUpdateInput];
+    result: ProjectSession | null;
+  };
+  "project-sessions:rename": {
+    args: [sessionId: string, input: ProjectSessionRenameInput];
     result: ProjectSession | null;
   };
   "project-sessions:delete": { args: [sessionId: string]; result: boolean };

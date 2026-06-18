@@ -42,6 +42,7 @@ declare global {
       onNavigateBack?: (callback: () => void) => () => void;
       onNavigateForward?: (callback: () => void) => () => void;
       onToggleSidebar?: (callback: () => void) => () => void;
+      onRenameThread?: (callback: () => void) => () => void;
       onCyclePanelTabPrevious?: (callback: () => void) => () => void;
       onCyclePanelTabNext?: (callback: () => void) => () => void;
       onClosePanelTab?: (callback: () => void) => () => void;
