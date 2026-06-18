@@ -10,7 +10,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { NodexTooltip } from "@/components/ui/tooltip";
+import { NodexTooltip, NodexTooltipProvider } from "@/components/ui/tooltip";
 import { APP_SHELL_FLOATING_UI_LAYER_CLASS } from "@/lib/app-shell-layers";
 import type { PanelId } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -38,6 +38,7 @@ export interface AppShellTabItem {
   id: string;
   domTabId?: string;
   title: string;
+  contextLabel?: string;
   icon?: ComponentType<{ className?: string }>;
   closable?: boolean;
   keepMounted?: boolean;
@@ -50,6 +51,17 @@ export interface AppShellTabItem {
   tooltip?: ReactNode;
   contextMenuItems?: AppShellTabContextMenuItem[];
   renderPanel: (closeTab: () => void) => ReactNode;
+}
+
+function makeAppShellTabAccessibleLabel(tab: AppShellTabItem): string {
+  if (tab.titleLabel) return tab.titleLabel;
+  if (tab.contextLabel) return `${tab.contextLabel} · ${tab.title}`;
+  return tab.title;
+}
+
+function makeAppShellTabDefaultTooltip(tab: AppShellTabItem): string {
+  if (tab.contextLabel) return `${tab.contextLabel} · ${tab.title}`;
+  return tab.title;
 }
 
 export type AppShellTabContextMenuItem =
@@ -244,97 +256,99 @@ export function AppShellTabs({
   );
 
   return (
-    <div
-      data-app-shell-panel-id={panelId}
-      className={cn("flex h-full min-h-0 flex-col bg-token-main-surface-primary", className)}
-    >
+    <NodexTooltipProvider>
       <div
-        className={cn(
-          "isolate flex min-w-0 shrink-0 select-none items-center bg-token-main-surface-primary px-2 [contain:layout_paint]",
-          headerHeight === "toolbar" ? "h-toolbar" : "h-toolbar-pane",
-        )}
+        data-app-shell-panel-id={panelId}
+        className={cn("flex h-full min-h-0 flex-col bg-token-main-surface-primary", className)}
       >
-        {beforeList ? <div role="presentation" className="no-drag my-auto flex shrink-0 items-center">{beforeList}</div> : null}
         <div
-          ref={tabRowRef}
-          data-panel-tab-row={panelTabDnd ? `${panelTabDnd.panelId}:${panelTabDnd.leafId}` : undefined}
-          className="hide-scrollbar relative isolate flex h-full min-w-0 flex-1 scroll-px-1 items-center overflow-x-auto overflow-y-hidden [contain:layout_paint]"
-          style={{ scrollPaddingInlineEnd: tabScrollEndPaddingPx }}
+          className={cn(
+            "isolate flex min-w-0 shrink-0 select-none items-center bg-token-main-surface-primary px-2 [contain:layout_paint]",
+            headerHeight === "toolbar" ? "h-toolbar" : "h-toolbar-pane",
+          )}
         >
+          {beforeList ? <div role="presentation" className="no-drag my-auto flex shrink-0 items-center">{beforeList}</div> : null}
           <div
-            aria-hidden="true"
-            className="sticky start-0 z-10 h-full w-0 opacity-0 transition-opacity duration-100 after:absolute after:start-0 after:top-0 after:bottom-0 after:w-10 after:bg-linear-to-l after:from-transparent after:to-token-main-surface-primary after:content-[''] after:pointer-events-none"
-          />
-          <span aria-hidden="true" />
-          {tabList}
-          {afterTabsInline ? (
-            <div className="no-drag sticky right-0 z-10 flex h-full shrink-0 items-center bg-token-main-surface-primary">{afterTabsInline}</div>
-          ) : null}
-          {tabRowPreview ? (
+            ref={tabRowRef}
+            data-panel-tab-row={panelTabDnd ? `${panelTabDnd.panelId}:${panelTabDnd.leafId}` : undefined}
+            className="hide-scrollbar relative isolate flex h-full min-w-0 flex-1 scroll-px-1 items-center overflow-x-auto overflow-y-hidden [contain:layout_paint]"
+            style={{ scrollPaddingInlineEnd: tabScrollEndPaddingPx }}
+          >
             <div
               aria-hidden="true"
-              data-panel-tab-insertion-marker={`${tabRowPreview.panelId}:${tabRowPreview.leafId}:${tabRowPreview.targetIndex}`}
-              className="pointer-events-none absolute top-1/2 z-30 h-4 w-0 -translate-y-1/2 border-l-2 border-token-foreground/80"
-              style={{ left: tabRowPreview.markerLeft }}
+              className="sticky start-0 z-10 h-full w-0 opacity-0 transition-opacity duration-100 after:absolute after:start-0 after:top-0 after:bottom-0 after:w-10 after:bg-linear-to-l after:from-transparent after:to-token-main-surface-primary after:content-[''] after:pointer-events-none"
+            />
+            <span aria-hidden="true" />
+            {tabList}
+            {afterTabsInline ? (
+              <div className="no-drag sticky right-0 z-10 flex h-full shrink-0 items-center bg-token-main-surface-primary">{afterTabsInline}</div>
+            ) : null}
+            {tabRowPreview ? (
+              <div
+                aria-hidden="true"
+                data-panel-tab-insertion-marker={`${tabRowPreview.panelId}:${tabRowPreview.leafId}:${tabRowPreview.targetIndex}`}
+                className="pointer-events-none absolute top-1/2 z-30 h-4 w-0 -translate-y-1/2 border-l-2 border-token-foreground/80"
+                style={{ left: tabRowPreview.markerLeft }}
+              />
+            ) : null}
+            <span aria-hidden="true" />
+            <div
+              aria-hidden="true"
+              className="sticky end-0 z-10 h-full w-0 opacity-0 transition-opacity duration-100 after:absolute after:end-0 after:inset-y-0 after:w-10 after:bg-linear-to-r after:from-transparent after:to-token-main-surface-primary after:content-[''] after:pointer-events-none"
+              style={{ right: tabScrollEndPaddingPx }}
+            />
+          </div>
+          {afterListSticky ? (
+            <div role="presentation" className="no-drag my-auto flex shrink-0 items-center">{afterListSticky}</div>
+          ) : null}
+          {afterList ? (
+            <div role="presentation" className="no-drag my-auto flex shrink-0 items-center">{afterList}</div>
+          ) : null}
+          {headerEndInsetPx > 0 ? (
+            <div
+              aria-hidden="true"
+              className="no-drag pointer-events-none h-full shrink-0"
+              style={{ width: headerEndInsetPx }}
             />
           ) : null}
-          <span aria-hidden="true" />
-          <div
-            aria-hidden="true"
-            className="sticky end-0 z-10 h-full w-0 opacity-0 transition-opacity duration-100 after:absolute after:end-0 after:inset-y-0 after:w-10 after:bg-linear-to-r after:from-transparent after:to-token-main-surface-primary after:content-[''] after:pointer-events-none"
-            style={{ right: tabScrollEndPaddingPx }}
-          />
         </div>
-        {afterListSticky ? (
-          <div role="presentation" className="no-drag my-auto flex shrink-0 items-center">{afterListSticky}</div>
-        ) : null}
-        {afterList ? (
-          <div role="presentation" className="no-drag my-auto flex shrink-0 items-center">{afterList}</div>
-        ) : null}
-        {headerEndInsetPx > 0 ? (
-          <div
-            aria-hidden="true"
-            className="no-drag pointer-events-none h-full shrink-0"
-            style={{ width: headerEndInsetPx }}
-          />
-        ) : null}
-      </div>
 
-      {activeTab ? (
-        <div
-          ref={bodyRef}
-          role="tabpanel"
-          id={activePanelId}
-          aria-label={activeTab.titleLabel ?? activeTab.title}
-          data-app-shell-tabpanel-preview={activeTab.preview ? "true" : undefined}
-          className="relative min-h-0 flex-1"
-          onPointerDownCapture={() => {
-            if (!activeTab.preview) return;
-            pinTab(activeTab.id);
-          }}
-          onKeyDownCapture={() => {
-            if (!activeTab.preview) return;
-            pinTab(activeTab.id);
-          }}
-        >
-          {bodyOverlay}
-          {activeTab.renderPanel(() => closeTab(activeTab.id))}
-        </div>
-      ) : null}
-      {tabs
-        .filter((tab) => tab.keepMounted === true && tab.id !== activeTab?.id)
-        .map((tab) => (
+        {activeTab ? (
           <div
-            key={`hidden:${tab.id}`}
-            aria-hidden="true"
-            hidden
-            data-app-shell-tabpanel-retained={tab.id}
-            className="hidden"
+            ref={bodyRef}
+            role="tabpanel"
+            id={activePanelId}
+            aria-label={makeAppShellTabAccessibleLabel(activeTab)}
+            data-app-shell-tabpanel-preview={activeTab.preview ? "true" : undefined}
+            className="relative min-h-0 flex-1"
+            onPointerDownCapture={() => {
+              if (!activeTab.preview) return;
+              pinTab(activeTab.id);
+            }}
+            onKeyDownCapture={() => {
+              if (!activeTab.preview) return;
+              pinTab(activeTab.id);
+            }}
           >
-            {tab.renderPanel(() => closeTab(tab.id))}
+            {bodyOverlay}
+            {activeTab.renderPanel(() => closeTab(activeTab.id))}
           </div>
-        ))}
-    </div>
+        ) : null}
+        {tabs
+          .filter((tab) => tab.keepMounted === true && tab.id !== activeTab?.id)
+          .map((tab) => (
+            <div
+              key={`hidden:${tab.id}`}
+              aria-hidden="true"
+              hidden
+              data-app-shell-tabpanel-retained={tab.id}
+              className="hidden"
+            >
+              {tab.renderPanel(() => closeTab(tab.id))}
+            </div>
+          ))}
+      </div>
+    </NodexTooltipProvider>
   );
 }
 
@@ -421,6 +435,8 @@ function AppShellTab({
   const Icon = tab.icon;
   const dataTabId = tab.domTabId ?? tab.id;
   const tabId = makeTabId(controllerId, tab.id);
+  const accessibleLabel = makeAppShellTabAccessibleLabel(tab);
+  const tooltipContent = tab.tooltip ?? makeAppShellTabDefaultTooltip(tab);
   const titleRef = useRef<HTMLSpanElement | null>(null);
   const titleOverflows = useAppShellTabTitleOverflow(titleRef, tab.title);
   const title = (
@@ -430,6 +446,24 @@ function AppShellTab({
       className={cn("inline-block min-w-0 whitespace-nowrap", tab.preview && "italic")}
     >
       {tab.title}
+    </span>
+  );
+  const label = (
+    <span className="flex min-w-0 items-center gap-1">
+      {tab.contextLabel ? (
+        <>
+          <span
+            data-app-shell-tab-context-label={tab.id}
+            className="max-w-20 shrink truncate text-xs text-token-description-foreground"
+          >
+            {tab.contextLabel}
+          </span>
+          <span aria-hidden="true" className="shrink-0 text-token-description-foreground">
+            ·
+          </span>
+        </>
+      ) : null}
+      {title}
     </span>
   );
 
@@ -540,6 +574,7 @@ function AppShellTab({
           role="tab"
           aria-selected={isActive}
           aria-controls={isActive ? panelId : undefined}
+          aria-label={accessibleLabel}
           disabled={tab.disabled}
           className={cn(
             "no-drag relative z-10 flex min-w-0 flex-1 items-center gap-2 text-sm",
@@ -561,23 +596,21 @@ function AppShellTab({
               <Icon className="icon-xs shrink-0" />
             </span>
           ) : null}
-          {tab.tooltip ? (
-            <NodexTooltip
-              tooltipContent={tab.tooltip}
-              disabled={isDragging}
-              delayOpen
-              side="bottom"
-              align="start"
-            >
-              {title}
-            </NodexTooltip>
-          ) : title}
+          <NodexTooltip
+            tooltipContent={tooltipContent}
+            disabled={isDragging}
+            delayOpen
+            side="bottom"
+            align="start"
+          >
+            {label}
+          </NodexTooltip>
         </button>
         {onClose ? (
           <button
             type="button"
             data-app-shell-tab-no-drag="true"
-            aria-label={`Close ${tab.titleLabel ?? tab.title} tab`}
+            aria-label={`Close ${accessibleLabel} tab`}
             className="no-drag invisible absolute inset-y-0 end-2 z-30 flex cursor-interaction items-center text-token-text-tertiary group-focus-within/tab:visible group-hover/tab:visible hover:text-token-text-primary after:absolute after:-inset-1 after:content-[''] before:pointer-events-none before:absolute before:inset-y-0 before:end-0 before:w-10 before:bg-linear-to-r before:from-transparent before:to-40% before:content-[''] before:to-token-main-surface-primary group-hover/tab:before:to-[var(--app-shell-tab-background)]"
             onMouseDown={(event) => {
               event.preventDefault();

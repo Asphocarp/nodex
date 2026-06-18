@@ -751,6 +751,35 @@ function getBrowserTabIcon(tab: ProjectSessionTab): ComponentType<{ className?: 
   return getTabIcon(tab.kind);
 }
 
+function resolveCardStageTabChromeContext(
+  tab: ProjectSessionRenderableTab,
+  activeSession: ProjectSession,
+  projects: readonly Project[],
+): Pick<AppShellTabItem, "contextLabel" | "titleLabel" | "tooltip"> {
+  if (isSideChatPanelTab(tab) || isMcpAppPanelTab(tab)) return {};
+  if (tab.kind !== "card_stage") return {};
+  if (!("projectId" in tab.config)) return {};
+
+  const targetProjectId = tab.config.projectId;
+  if (targetProjectId === activeSession.projectId) return {};
+
+  const targetProject = projects.find((project) => project.id === targetProjectId);
+  const projectLabel = targetProject?.name.trim() || targetProjectId;
+
+  return {
+    contextLabel: projectLabel,
+    titleLabel: `${projectLabel} project, ${tab.title}`,
+    tooltip: (
+      <div className="flex max-w-80 flex-col gap-0.5">
+        <div className="truncate font-medium">{tab.title}</div>
+        <div className="truncate text-xs text-token-description-foreground">
+          Project: {projectLabel}
+        </div>
+      </div>
+    ),
+  };
+}
+
 function isPanelActionTargetAllowed(action: PanelNewTabAction, panelId: PanelId): boolean {
   return action.targetPanelIds?.includes(panelId) ?? action.defaultPanelId === panelId;
 }
@@ -3556,100 +3585,105 @@ export function WorkbenchShell({
       activeTabIdsByLeafId: Record<string, string | null>;
     }>;
     if (!activeSession) return empty;
-    const makeItem = (tab: ProjectSessionRenderableTab): AppShellTabItem => ({
-      id: tab.id,
-      domTabId: !isSideChatPanelTab(tab) && !isMcpAppPanelTab(tab) && tab.kind === "files" && "path" in tab.config
-        ? getWorkspaceFileDomTabId("hostId" in tab.config ? tab.config.hostId : "local", tab.config.path)
-        : undefined,
-      title: tab.title,
-      icon: isSideChatPanelTab(tab)
-        ? CodexSidePanelSideChatIcon
-        : isMcpAppPanelTab(tab)
-          ? ComposerPluginsIcon
-          : getBrowserTabIcon(tab),
-      closable: isSideChatPanelTab(tab)
-        ? tab.status !== "loading"
-        : isMcpAppPanelTab(tab)
-          ? true
-        : tab.preview === true || !activeSession.isOverview || activeSession.tabs.length > 1,
-      preview: isSideChatPanelTab(tab) || isMcpAppPanelTab(tab) ? undefined : tab.preview,
-      reorderable: isSideChatPanelTab(tab) || isMcpAppPanelTab(tab) ? false : tab.preview === true ? false : true,
-      splittable: !isSideChatPanelTab(tab) && !isMcpAppPanelTab(tab) && tab.preview !== true,
-      contextMenuItems: !isSideChatPanelTab(tab) && !isMcpAppPanelTab(tab) && tab.kind === "browser"
-        ? [
-            {
-              id: "browser-new-tab-right",
-              label: "New tab to the right",
-              onSelect: () => void createBrowserTabToRight(tab, false),
-            },
-            {
-              id: "browser-reload",
-              label: "Reload",
-              onSelect: () => reloadBrowserTab(tab.id),
-            },
-            {
-              id: "browser-duplicate",
-              label: "Duplicate",
-              onSelect: () => void createBrowserTabToRight(tab, true),
-            },
-          ]
-        : undefined,
-      renderPanel: () => {
-        if (isSideChatPanelTab(tab)) {
+    const makeItem = (tab: ProjectSessionRenderableTab): AppShellTabItem => {
+      const chromeContext = resolveCardStageTabChromeContext(tab, activeSession, projects);
+
+      return {
+        id: tab.id,
+        domTabId: !isSideChatPanelTab(tab) && !isMcpAppPanelTab(tab) && tab.kind === "files" && "path" in tab.config
+          ? getWorkspaceFileDomTabId("hostId" in tab.config ? tab.config.hostId : "local", tab.config.path)
+          : undefined,
+        title: tab.title,
+        ...chromeContext,
+        icon: isSideChatPanelTab(tab)
+          ? CodexSidePanelSideChatIcon
+          : isMcpAppPanelTab(tab)
+            ? ComposerPluginsIcon
+            : getBrowserTabIcon(tab),
+        closable: isSideChatPanelTab(tab)
+          ? tab.status !== "loading"
+          : isMcpAppPanelTab(tab)
+            ? true
+            : tab.preview === true || !activeSession.isOverview || activeSession.tabs.length > 1,
+        preview: isSideChatPanelTab(tab) || isMcpAppPanelTab(tab) ? undefined : tab.preview,
+        reorderable: isSideChatPanelTab(tab) || isMcpAppPanelTab(tab) ? false : tab.preview === true ? false : true,
+        splittable: !isSideChatPanelTab(tab) && !isMcpAppPanelTab(tab) && tab.preview !== true,
+        contextMenuItems: !isSideChatPanelTab(tab) && !isMcpAppPanelTab(tab) && tab.kind === "browser"
+          ? [
+              {
+                id: "browser-new-tab-right",
+                label: "New tab to the right",
+                onSelect: () => void createBrowserTabToRight(tab, false),
+              },
+              {
+                id: "browser-reload",
+                label: "Reload",
+                onSelect: () => reloadBrowserTab(tab.id),
+              },
+              {
+                id: "browser-duplicate",
+                label: "Duplicate",
+                onSelect: () => void createBrowserTabToRight(tab, true),
+              },
+            ]
+          : undefined,
+        renderPanel: () => {
+          if (isSideChatPanelTab(tab)) {
+            return (
+              <SideChatSessionTab
+                key={`${activeSession.id}:${tab.id}:${tab.stateKey}`}
+                tab={tab}
+                activeSession={activeSession}
+                projects={projects}
+                onOpenCardTab={openCardTab}
+                onRefreshSessions={refreshProjectSessions}
+                onRecreateSideChat={() => void recreateSideChatPanelTab(tab.id)}
+                onOpenMcpAppSidePanel={openMcpAppSidePanel}
+                onQueueingEnabledChange={handleThreadQueueFollowUpsEnabledChange}
+                onOpenThread={openAttachedThreadSession}
+                onOpenTurnDiffReview={openTurnDiffReview}
+              />
+            );
+          }
+          if (isMcpAppPanelTab(tab)) {
+            return <McpAppSessionTab key={`${activeSession.id}:${tab.id}:${tab.stateKey}`} tab={tab} />;
+          }
           return (
-            <SideChatSessionTab
+            <ProjectSessionTabPanel
               key={`${activeSession.id}:${tab.id}:${tab.stateKey}`}
               tab={tab}
               activeSession={activeSession}
               projects={projects}
+              activeView={activeView}
+              activeSearchQuery={activeSearchQuery}
+              activeDbViewPrefs={activeDbViewPrefs}
+              searchByProject={searchByProject}
+              dbViewPrefsByProject={dbViewPrefsByProject}
+              activePanelCardStageCardIdsByProject={activePanelCardStageCardIdsByProject}
+              cardStageCloseRef={cardStageCloseRef}
+              cardStagePersistRef={cardStagePersistRef}
+              cardStageSessionSnapshotRef={cardStageSessionSnapshotRef}
+              pendingReminderOpen={pendingReminderOpen}
+              taskSearchOpenTick={sidebarTaskSearchOpenTick}
+              setSearchQuery={setSearchQuery}
+              setDbViewPrefs={setDbViewPrefs}
+              onReminderHandled={onReminderHandled}
+              onLeaveCardStageCard={onLeaveCardStageCard}
               onOpenCardTab={openCardTab}
+              onOpenFileTab={openWorkspaceFileTab}
               onRefreshSessions={refreshProjectSessions}
-              onRecreateSideChat={() => void recreateSideChatPanelTab(tab.id)}
-              onOpenMcpAppSidePanel={openMcpAppSidePanel}
-              onQueueingEnabledChange={handleThreadQueueFollowUpsEnabledChange}
-              onOpenThread={openAttachedThreadSession}
-              onOpenTurnDiffReview={openTurnDiffReview}
+              onCloseTab={closeTab}
+              cardStageHistoryModal={cardStageHistoryModal}
+              onToggleCardStageHistoryModal={toggleCardStageHistoryModal}
+              selectedTurnDiffReviewTarget={selectedTurnDiffReviewTarget}
+              browserBoundsSyncTrigger={tab.panelId === "bottom"
+                ? bottomPanelMotion.animatedSize
+                : rightPanelMotion.animatedSize}
             />
           );
-        }
-        if (isMcpAppPanelTab(tab)) {
-          return <McpAppSessionTab key={`${activeSession.id}:${tab.id}:${tab.stateKey}`} tab={tab} />;
-        }
-        return (
-          <ProjectSessionTabPanel
-            key={`${activeSession.id}:${tab.id}:${tab.stateKey}`}
-            tab={tab}
-            activeSession={activeSession}
-            projects={projects}
-            activeView={activeView}
-            activeSearchQuery={activeSearchQuery}
-            activeDbViewPrefs={activeDbViewPrefs}
-            searchByProject={searchByProject}
-            dbViewPrefsByProject={dbViewPrefsByProject}
-            activePanelCardStageCardIdsByProject={activePanelCardStageCardIdsByProject}
-            cardStageCloseRef={cardStageCloseRef}
-            cardStagePersistRef={cardStagePersistRef}
-            cardStageSessionSnapshotRef={cardStageSessionSnapshotRef}
-            pendingReminderOpen={pendingReminderOpen}
-            taskSearchOpenTick={sidebarTaskSearchOpenTick}
-            setSearchQuery={setSearchQuery}
-            setDbViewPrefs={setDbViewPrefs}
-            onReminderHandled={onReminderHandled}
-            onLeaveCardStageCard={onLeaveCardStageCard}
-            onOpenCardTab={openCardTab}
-            onOpenFileTab={openWorkspaceFileTab}
-            onRefreshSessions={refreshProjectSessions}
-            onCloseTab={closeTab}
-            cardStageHistoryModal={cardStageHistoryModal}
-            onToggleCardStageHistoryModal={toggleCardStageHistoryModal}
-            selectedTurnDiffReviewTarget={selectedTurnDiffReviewTarget}
-            browserBoundsSyncTrigger={tab.panelId === "bottom"
-              ? bottomPanelMotion.animatedSize
-              : rightPanelMotion.animatedSize}
-          />
-        );
-      },
-    });
+        },
+      };
+    };
     const durableById = new Map(activeSession.tabs.map((tab) => [tab.id, tab]));
     const buildPanelTabs = (panelId: PanelId) => {
       const panel = activeSession.panels[panelId];

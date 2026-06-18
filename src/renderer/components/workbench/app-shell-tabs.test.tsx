@@ -82,6 +82,21 @@ function renderAppShellTabs(props: {
 }
 
 describe("AppShellTabs", () => {
+  test("reveals default title tooltips on hover", async () => {
+    const view = renderAppShellTabs({});
+
+    expect(view.container.ownerDocument.body.querySelector('[role="tooltip"]') === null).toBeTrue();
+
+    fireEvent.pointerMove(view.getByText("One"));
+    fireEvent.mouseEnter(view.getByText("One"));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
+
+    const tooltip = view.container.ownerDocument.body.querySelector('[role="tooltip"]');
+    expect(tooltip?.textContent).toBe("One");
+  });
+
   test("reveals tab title tooltips on hover", async () => {
     const view = renderAppShellTabs({});
 
@@ -96,6 +111,55 @@ describe("AppShellTabs", () => {
     const tooltip = view.container.ownerDocument.body.querySelector('[role="tooltip"]');
     expect(tooltip?.textContent?.includes("Project Alpha")).toBeTrue();
     expect(tooltip?.textContent?.includes("card-two")).toBeTrue();
+  });
+
+  test("renders context labels in tab chrome, accessible names, and default tooltip", async () => {
+    const tabs = makeTabs();
+    tabs[1] = {
+      ...tabs[1],
+      contextLabel: "Beta",
+      titleLabel: "Beta project, Two",
+      tooltip: undefined,
+    };
+    const view = renderAppShellTabs({
+      tabs,
+      activeTabId: "two",
+      onCloseTab: () => undefined,
+    });
+
+    expect(view.getByRole("tab", { name: "Beta project, Two" }) !== null).toBeTrue();
+    expect(view.container.querySelector('[data-app-shell-tab-context-label="two"]')?.textContent).toBe("Beta");
+    expect(view.getByRole("tabpanel").getAttribute("aria-label")).toBe("Beta project, Two");
+    expect(view.getByLabelText("Close Beta project, Two tab") !== null).toBeTrue();
+
+    fireEvent.pointerMove(view.getByText("Two"));
+    fireEvent.mouseEnter(view.getByText("Two"));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
+
+    const tooltip = view.container.ownerDocument.body.querySelector('[role="tooltip"]');
+    expect(tooltip?.textContent).toBe("Beta · Two");
+  });
+
+  test("suppresses tab tooltips while dragging", async () => {
+    const view = renderAppShellTabs({
+      panelTabDnd: {
+        sessionId: "session-1",
+        panelId: "right",
+        leafId: "leaf-a",
+        activeDragId: "one",
+        previewIntent: null,
+      },
+    });
+
+    fireEvent.pointerMove(view.getByText("One"));
+    fireEvent.mouseEnter(view.getByText("One"));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
+
+    expect(view.container.ownerDocument.body.querySelector('[role="tooltip"]') === null).toBeTrue();
   });
 
   test("renders one tablist, one selected tab, and one tabpanel", () => {

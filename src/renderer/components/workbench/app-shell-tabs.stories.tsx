@@ -16,14 +16,25 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
+interface StorySessionTab {
+  id: string;
+  title: string;
+  contextLabel?: string;
+  customTooltip?: boolean;
+}
+
 function AppShellTabsStory({ showInsertionPreview = false }: { showInsertionPreview?: boolean }) {
   const [activeTabId, setActiveTabId] = useState("session:2");
   const [historyOpen, setHistoryOpen] = useState(true);
-  const [sessionTabs, setSessionTabs] = useState([
+  const [sessionTabs, setSessionTabs] = useState<StorySessionTab[]>([
     { id: "session:1", title: "Inbox triage and project notes" },
-    { id: "session:2", title: "Codex-parity card stage tab bar" },
-    { id: "session:3", title: "Release checklist" },
-    { id: "session:4", title: "Long title that fades at the trailing edge" },
+    { id: "session:2", title: "Codex-parity card stage tab bar", customTooltip: true },
+    { id: "session:3", title: "Release checklist", contextLabel: "Codex readable" },
+    {
+      id: "session:4",
+      title: "Long title that fades at the trailing edge",
+      contextLabel: "Very long project label",
+    },
     { id: "session:5", title: "Follow-up prompts" },
     { id: "session:6", title: "Calendar polish" },
   ]);
@@ -32,18 +43,20 @@ function AppShellTabsStory({ showInsertionPreview = false }: { showInsertionPrev
     ...sessionTabs.map((tab) => ({
       ...tab,
       title: historyOpen && tab.id === activeTabId ? "History" : tab.title,
+      contextLabel: tab.contextLabel,
+      titleLabel: tab.contextLabel ? `${tab.contextLabel} project, ${tab.title}` : undefined,
       icon: historyOpen && tab.id === activeTabId ? History : SquareKanban,
       closable: true,
       reorderable: true,
       splittable: true,
-      tooltip: (
+      tooltip: tab.customTooltip ? (
         <div className="flex max-w-80 flex-col gap-1">
           <div className="truncate font-medium">
             {historyOpen && tab.id === activeTabId ? `History | ${tab.title}` : tab.title}
           </div>
           <div className="text-xs text-token-description-foreground">Design System / {tab.id}</div>
         </div>
-      ),
+      ) : undefined,
       renderPanel: () => (
         historyOpen && tab.id === activeTabId ? (
           <div className="grid h-full grid-cols-[18rem_1fr] text-sm text-token-foreground">

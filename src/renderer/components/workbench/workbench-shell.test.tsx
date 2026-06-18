@@ -4098,6 +4098,7 @@ describe("workbench session shell", () => {
 
   test("renders cross-project card-stage tabs from their target project", async () => {
     const session = makeSession({
+      isOverview: false,
       tabs: [
         {
           id: "card-tab",
@@ -4126,6 +4127,74 @@ describe("workbench session shell", () => {
     expect(cardStageProps?.projectId).toBe("beta");
     expect(card?.id).toBe("card-beta");
     expect(card?.projectId).toBe("beta");
+  });
+
+  test("labels cross-project card-stage tabs with their target project", async () => {
+    const session = makeSession({
+      isOverview: false,
+      tabs: [
+        {
+          id: "card-tab",
+          sessionId: "overview:alpha",
+          projectId: "alpha",
+          kind: "card_stage",
+          title: "Beta Card",
+          panelId: "right",
+          config: { projectId: "beta", cardId: "card-beta", titleSnapshot: "Beta Card" },
+        },
+      ],
+    });
+
+    const screen = renderWorkbench({
+      projects: [
+        makeProject("alpha", "Alpha", "/Users/asc/repo/alpha"),
+        makeProject("beta", "Beta", "/Users/asc/repo/beta"),
+      ],
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(screen.getByRole("tab", { name: "Beta project, Beta Card" }) !== null).toBeTrue();
+    expect(screen.container.querySelector('[data-app-shell-tab-context-label="card-tab"]')?.textContent).toBe("Beta");
+    expect(screen.getByLabelText("Close Beta project, Beta Card tab") !== null).toBeTrue();
+  });
+
+  test("keeps same-project card-stage tabs unprefixed while preserving default title tooltips", async () => {
+    const session = makeSession({
+      tabs: [
+        {
+          id: "card-tab",
+          sessionId: "overview:alpha",
+          projectId: "alpha",
+          kind: "card_stage",
+          title: "Card One",
+          panelId: "right",
+          config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
+        },
+      ],
+    });
+
+    const screen = renderWorkbench({
+      projects: [makeProject("alpha", "Alpha", "/Users/asc/repo/alpha")],
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(screen.getByRole("tab", { name: "Card One" }) !== null).toBeTrue();
+    expect(screen.container.querySelector('[data-app-shell-tab-context-label="card-tab"]') === null).toBeTrue();
+
+    const tabTitle = screen.container.querySelector('[data-app-shell-tab-title="card-tab"]');
+    if (!(tabTitle instanceof HTMLElement)) throw new Error("Expected card tab title");
+    fireEvent.pointerMove(tabTitle);
+    fireEvent.mouseEnter(tabTitle);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
+
+    const tooltip = screen.container.ownerDocument.body.querySelector('[role="tooltip"]');
+    expect(tooltip?.textContent).toBe("Card One");
   });
 
   test("opens terminals from cross-project card tabs in the card target project", async () => {
@@ -4201,6 +4270,32 @@ describe("workbench session shell", () => {
     expect(screen.getByText("Card not found") !== null).toBeTrue();
     expect(screen.getByRole("button", { name: "Close tab" }) !== null).toBeTrue();
     expect(screen.queryByText("Card:missing") === null).toBeTrue();
+  });
+
+  test("falls back to the content project id when a cross-project card tab project is missing", async () => {
+    const session = makeSession({
+      tabs: [
+        {
+          id: "card-tab",
+          sessionId: "overview:alpha",
+          projectId: "alpha",
+          kind: "card_stage",
+          title: "Beta Card",
+          panelId: "right",
+          config: { projectId: "beta", cardId: "card-beta", titleSnapshot: "Beta Card" },
+        },
+      ],
+    });
+
+    const screen = renderWorkbench({
+      projects: [makeProject("alpha", "Alpha")],
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(screen.getByRole("tab", { name: "beta project, Beta Card" }) !== null).toBeTrue();
+    expect(screen.container.querySelector('[data-app-shell-tab-context-label="card-tab"]')?.textContent).toBe("beta");
   });
 
   test("marks cards active in the DB view when selected card-stage tabs are visible", async () => {

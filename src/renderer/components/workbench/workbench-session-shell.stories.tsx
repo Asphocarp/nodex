@@ -18,7 +18,7 @@ import {
 import { WorkbenchShell } from "./workbench-shell";
 
 type ShellStoryArgs = {
-  activeTab: "browser" | "terminal" | "db" | "card" | "missing-card" | "review" | "empty";
+  activeTab: "browser" | "terminal" | "db" | "card" | "cross-project-card" | "missing-card" | "review" | "empty";
   thread: "empty" | "attached";
   rightPanel: "regular" | "collapsed" | "full";
   rightPanelGroups: "single" | "split";
@@ -55,7 +55,7 @@ const meta = {
   argTypes: {
     activeTab: {
       control: "inline-radio",
-      options: ["browser", "terminal", "db", "card", "missing-card", "review", "empty"],
+      options: ["browser", "terminal", "db", "card", "cross-project-card", "missing-card", "review", "empty"],
     },
     thread: {
       control: "inline-radio",
@@ -286,6 +286,14 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
     };
   }
 
+  const cardProjectId = args.activeTab === "cross-project-card" ? "codex-readable" : "nodex";
+  const cardTitle = args.activeTab === "cross-project-card"
+    ? "Readable pack review"
+    : args.activeTab === "missing-card"
+      ? "Missing project card"
+      : args.longNames
+        ? "Rewrite the project-session workbench shell while preserving card thread links"
+        : "Workbench redesign";
   const baseTabs = [
     makeTab({
       id: "tab:db",
@@ -297,16 +305,12 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
     makeTab({
       id: "tab:card",
       kind: "card_stage",
-      title: args.activeTab === "missing-card"
-        ? "Missing project card"
-        : args.longNames
-          ? "Rewrite the project-session workbench shell while preserving card thread links"
-          : "Workbench redesign",
+      title: cardTitle,
       order: 1,
       config: {
-        projectId: "nodex",
+        projectId: cardProjectId,
         cardId: args.activeTab === "missing-card" ? "missing-card" : "card-1",
-        titleSnapshot: args.activeTab === "missing-card" ? "Missing project card" : "Workbench redesign",
+        titleSnapshot: cardTitle,
       },
     }),
     makeTab({
@@ -338,7 +342,9 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
     : baseTabs;
   const activeTabId = (() => {
     if (args.activeTab === "db") return "tab:db";
-    if (args.activeTab === "card" || args.activeTab === "missing-card") return "tab:card";
+    if (args.activeTab === "card" || args.activeTab === "cross-project-card" || args.activeTab === "missing-card") {
+      return "tab:card";
+    }
     if (args.activeTab === "terminal") return "tab:terminal";
     if (args.activeTab === "review") return "tab:review";
     return "tab:browser";
@@ -964,6 +970,19 @@ export const MissingCardStageTab: Story = {
     docs: {
       description: {
         story: "Card Stage tab whose saved card id no longer exists; it should render a clear missing state instead of a blank panel.",
+      },
+    },
+  },
+};
+
+export const CrossProjectCardStageTab: Story = {
+  args: {
+    activeTab: "cross-project-card",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Nodex session hosting a Card Stage tab whose content project is Codex readable pack; the tab row should expose the content project before the card title.",
       },
     },
   },
