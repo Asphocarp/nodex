@@ -4,6 +4,9 @@ Status: Verified
 
 This file captures high-signal implementation discoveries that have caused regressions or costly debugging in the past.
 
+### Renderer test browser APIs should preserve async lifetimes
+Shared browser API doubles must model enough of the real browser lifecycle to avoid cross-test noise. In particular, ResizeObserver test doubles should track observed elements, deliver entries asynchronously on a frame, honor `unobserve` / `disconnect`, and skip disconnected targets. A synchronous `observe()` callback can fire before third-party measurement code has completed its own bookkeeping, which produces warnings even when the product code is correct.
+
 ### Browser webviews need one navigation owner
 Electron `<webview>` elements navigate when `src` changes, and their imperative methods route asynchronously through the main process. Do not drive the same guest page from both React and main-process `webContents`. In Nodex, Browser tab UI dispatches browser-sidebar commands only; the renderer webview manager owns host creation, listener cleanup, and mount generations, while `BrowserSidebarService` owns page navigation, reload, stop, zoom, capture, and failure snapshots. This avoids duplicate `loadURL` races, `ERR_ABORTED` handler spam, and repeated `destroyed` listeners on the same guest contents.
 

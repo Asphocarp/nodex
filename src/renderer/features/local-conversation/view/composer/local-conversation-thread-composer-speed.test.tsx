@@ -260,6 +260,11 @@ function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActio
   };
 }
 
+async function settleComposerFrame(): Promise<void> {
+  await settleAsyncRender();
+  await settleAsyncRender();
+}
+
 async function renderComposer(
   overrides?: Partial<ThreadFooterModel>,
   actionOverrides?: Partial<ThreadStageActions>,
@@ -282,7 +287,7 @@ async function renderComposer(
       </AppProviders>,
     );
   });
-  await settleAsyncRender();
+  await settleComposerFrame();
 
   return view;
 }
@@ -647,6 +652,7 @@ describe("ThreadComposer speed menu", () => {
         );
         await Promise.resolve();
       });
+      await settleComposerFrame();
 
       const nextModelRow = view.container.querySelector('[data-slash-command-row="model"]');
       const nextCompactRow = view.container.querySelector('[data-slash-command-row="compact"]');
