@@ -11,7 +11,7 @@ import {
   TOGGLE_LIST_PRIORITY_ORDER,
   type ToggleListTagFilterMode,
 } from "./toggle-list/types";
-import type { Card, CardSummary, Priority } from "./types";
+import type { CardSummary, Priority } from "./types";
 
 export interface CommandPaletteCommand {
   kind: "command";
@@ -32,7 +32,7 @@ export interface CommandPaletteCard {
   projectName: string;
   projectIcon: string;
   columnName: string;
-  card: CardSummary | Card;
+  card: CardSummary;
   inActiveProject: boolean;
   recentIndex: number | null;
   boardIndex: number;

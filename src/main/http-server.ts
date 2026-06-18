@@ -909,18 +909,6 @@ app.delete("/api/project-sessions/:sessionId/thread", (c) => {
 
 // === Board routes ===
 
-app.get("/api/projects/:projectId/board", async (c) => {
-  const startedAt = Date.now();
-  const board = await dbService.getBoard(c.req.param("projectId"));
-  logger.warn("legacy full board payload requested", {
-    channel: "GET /api/projects/:projectId/board",
-    projectId: c.req.param("projectId"),
-    cardCount: boardCardCount(board),
-    durationMs: Date.now() - startedAt,
-  });
-  return c.json(board);
-});
-
 app.get("/api/projects/:projectId/board-summary", async (c) => {
   const startedAt = Date.now();
   const board = await dbService.getBoardSummary(c.req.param("projectId"));

@@ -6,7 +6,7 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 ## Codemap
 
 ### Shared Contracts (`src/shared`)
-- `types.ts`: canonical domain model (`Card`/`Board` full payloads, `CardSummary`/`BoardSummary` lightweight board read models, `Project`, project session/tab/thread-link payloads, block-drop import payloads).
+- `types.ts`: canonical domain model (`Card` full detail payloads, internal full-board shapes, `CardSummary`/`BoardSummary` lightweight board read models, `Project`, project session/tab/thread-link payloads, block-drop import payloads).
 - `project-session-panel-layout.ts`: pure recursive split-tree helpers for v2 right/bottom project-session panel layouts, including normalization, leaf/tab movement, split/merge, active/MRU leaf tracking, and ratio clamping.
 - `workbench-layout.ts`: canonical serializable workbench layout snapshot types.
 - `ipc-api.ts`: typed IPC channel surface between preload/renderer/main.
@@ -96,7 +96,7 @@ Board read flow:
 1. High-frequency board consumers use `board:summary:get` / `/api/projects/:projectId/board-summary`, which returns `BoardSummary` and must not include `Card.description`.
 2. Consumers that need bodies request them by id with `card:get` or `cards:details:get`. Batch hydration should be limited to visible/selected cards.
 3. Description search runs in the main process through `cards:search`, returning project/card ids, status, score, and a bounded excerpt without returning full descriptions.
-4. `board:get` remains a legacy full-payload compatibility channel only. New renderer paths should not call it.
+4. Full-board reads are not exposed through IPC or HTTP. New board consumers must compose `BoardSummary` with explicit detail/search requests instead of adding a broad board payload.
 
 Project sessions flow:
 1. The renderer shell loads `project-sessions:list` for each visible project and renders projects as expandable folders with ordered sessions beneath them.

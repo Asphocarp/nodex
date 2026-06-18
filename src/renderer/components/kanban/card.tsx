@@ -12,13 +12,12 @@ import type { DbViewDisplayPrefs, DbViewDisplayPropertyKey } from "../../lib/db-
 import { resolveKanbanPriorityOption } from "../../lib/kanban-options";
 import { EMPTY_DISPLAY_VALUE_TOKEN, getMetaChipClassName } from "../../lib/toggle-list/meta-chips";
 import { estimateStyles } from "@/lib/types";
-import type { Card as FullCard, CardSummary, Priority } from "@/lib/types";
+import type { CardSummary, Priority } from "@/lib/types";
 import { useCardPropertyPosition } from "./card-deps";
 import { useTheme } from "@/lib/use-theme";
 import { cn } from "@/lib/utils";
 import { mergeCardDraftOverlay, useCardDraftOverlay } from "../../lib/card-draft-store";
 import { summarizeCardDescription } from "../../../shared/card-summary";
-import { extractPlainText } from "@/lib/nfm/extract-text";
 import { ChipPropertyEditor } from "./editor/chip-property-editor";
 import { CardContextMenu } from "./card-context-menu";
 import type { CardContextMenuProjectSummary } from "./card-context-menu-model";
@@ -31,7 +30,7 @@ import {
 type CardEditableProperty = "priority" | "estimate";
 type CardPropertyBadgeLayout = "stacked" | "inline";
 type KanbanCardDisplayProperty = Extract<DbViewDisplayPropertyKey, "priority" | "estimate" | "tags" | "assignee">;
-type CardType = CardSummary | FullCard;
+type CardType = CardSummary;
 
 const DEFAULT_KANBAN_CARD_DISPLAY_ORDER: KanbanCardDisplayProperty[] = [
   "priority",
@@ -285,9 +284,7 @@ const CardBody = memo(function CardBody({
 }: CardBodyProps) {
   const propertiesAtTop = position === "top";
   const propertiesInline = position === "inline";
-  const plainDescription = "descriptionPreview" in card
-    ? (card.descriptionPreview || null)
-    : (card.description ? extractPlainText(card.description, 120) : null);
+  const plainDescription = card.descriptionPreview || null;
 
   return (
     <>

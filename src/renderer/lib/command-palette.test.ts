@@ -10,13 +10,16 @@ import {
   writeCommandPaletteCardFilters,
 } from "./command-palette";
 import { createCommandPaletteCardSearchIndex } from "./command-palette-card-search";
-import type { Card } from "./types";
+import type { CardSummary } from "./types";
 
-function makeCard(overrides: Partial<Card> = {}): Card {
+function makeCard(overrides: Partial<CardSummary> = {}): CardSummary {
+  const descriptionPreview = overrides.descriptionPreview ?? "Add quick card switching and commands.";
   return {
     id: overrides.id ?? "card-1",
     title: overrides.title ?? "Polish command palette",
-    description: overrides.description ?? "Add quick card switching and commands.",
+    descriptionPreview,
+    descriptionLength: overrides.descriptionLength ?? descriptionPreview.length,
+    hasDescription: overrides.hasDescription ?? descriptionPreview.length > 0,
     status: overrides.status ?? "in_progress",
     archived: overrides.archived ?? false,
     priority: overrides.priority,
@@ -170,7 +173,7 @@ describe("filterCommandPaletteItems", () => {
       card: makeCard({
         id: "description-hit",
         title: "Misc task",
-        description: "Rebuild the search indxer for the command palette.",
+        descriptionPreview: "Rebuild the search indxer for the command palette.",
       }),
     });
 
@@ -259,7 +262,7 @@ describe("filterCommandPaletteItems", () => {
         id: "ops-card",
         title: "Executor queue",
         assignee: "Alex",
-        description: "Refresh palette results after queue updates.",
+        descriptionPreview: "Refresh palette results after queue updates.",
       }),
     });
     const wrongProjectCard = makePaletteCard({
@@ -269,7 +272,7 @@ describe("filterCommandPaletteItems", () => {
         id: "design-card",
         title: "Executor queue",
         assignee: "Alex",
-        description: "Refresh palette results after queue updates.",
+        descriptionPreview: "Refresh palette results after queue updates.",
       }),
     });
     const wrongAssigneeCard = makePaletteCard({
@@ -279,7 +282,7 @@ describe("filterCommandPaletteItems", () => {
         id: "other-assignee",
         title: "Executor queue",
         assignee: "Sam",
-        description: "Refresh palette results after queue updates.",
+        descriptionPreview: "Refresh palette results after queue updates.",
       }),
     });
 

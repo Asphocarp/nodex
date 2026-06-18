@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Board } from "@/lib/types";
+import type { BoardSummary } from "@/lib/types";
 import {
   emptyCardSelection,
   normalizeCardSelection,
@@ -8,7 +8,7 @@ import {
   toggleCardSelection,
 } from "./card-selection";
 
-const board: Board = {
+const board: BoardSummary = {
   columns: [
     {
       id: "in_progress",
@@ -19,7 +19,9 @@ const board: Board = {
           status: "in_progress",
           archived: false,
           title: "A",
-          description: "",
+          descriptionPreview: "",
+          descriptionLength: 0,
+          hasDescription: false,
           priority: "p2-medium",
           tags: [],
           agentBlocked: false,
@@ -31,7 +33,9 @@ const board: Board = {
           status: "in_progress",
           archived: false,
           title: "B",
-          description: "",
+          descriptionPreview: "",
+          descriptionLength: 0,
+          hasDescription: false,
           priority: "p2-medium",
           tags: [],
           agentBlocked: false,
@@ -49,7 +53,9 @@ const board: Board = {
           status: "in_review",
           archived: false,
           title: "C",
-          description: "",
+          descriptionPreview: "",
+          descriptionLength: 0,
+          hasDescription: false,
           priority: "p2-medium",
           tags: [],
           agentBlocked: false,
@@ -61,7 +67,9 @@ const board: Board = {
           status: "in_review",
           archived: false,
           title: "D",
-          description: "",
+          descriptionPreview: "",
+          descriptionLength: 0,
+          hasDescription: false,
           priority: "p2-medium",
           tags: [],
           agentBlocked: false,

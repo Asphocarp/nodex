@@ -1,14 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import type { Board, Card, CardStatus } from "@/lib/types";
+import type { BoardSummary, CardStatus, CardSummary } from "@/lib/types";
 import { resolveFilteredDropOrder } from "./filtered-drag-order";
 
-function createCard(id: string, status: CardStatus, order: number): Card {
+function createCard(id: string, status: CardStatus, order: number): CardSummary {
   return {
     id,
     status,
     archived: false,
     title: id,
-    description: "",
+    descriptionPreview: "",
+    descriptionLength: 0,
+    hasDescription: false,
     tags: [],
     agentBlocked: false,
     created: new Date("2026-03-14T00:00:00.000Z"),
@@ -16,7 +18,7 @@ function createCard(id: string, status: CardStatus, order: number): Card {
   };
 }
 
-function createBoard(columns: Record<CardStatus, string[]>): Board {
+function createBoard(columns: Record<CardStatus, string[]>): BoardSummary {
   const orderedStatuses: CardStatus[] = ["draft", "backlog", "in_progress", "in_review", "done"];
   return {
     columns: orderedStatuses.map((status) => ({

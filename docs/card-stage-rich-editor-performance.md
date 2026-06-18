@@ -36,7 +36,7 @@ Full card bodies are loaded through explicit detail paths:
 - Toggle-list, inline toggle-list, and `cardRef` projections compute visible card ids from summary state, then hydrate those ids through `cards:details:get`.
 - Command palette description matches come from `cards:search`, which returns ids and bounded excerpts instead of full descriptions.
 
-This keeps save acknowledgements and board-change refreshes from sending every card body through Electron IPC structured clone. `board:get` remains only as a legacy full-payload compatibility path and should not be used by normal renderer flows.
+This keeps save acknowledgements and board-change refreshes from sending every card body through Electron IPC structured clone. Full-board reads are intentionally not exposed through IPC or HTTP; renderer flows must compose summaries with explicit detail hydration.
 
 ## Editor-Side Features
 
@@ -216,7 +216,7 @@ The first layer keeps typing responsive. The second layer limits backend/storage
 - Freeform text edits must not call `onPatch`.
 - Kanban preview overlays must remain scoped by project/card.
 - Card Stage must not consume its own merged draft overlay through props.
-- Shared board snapshots must stay `BoardSummary`-only; description saves should merge returned full cards into summary metadata and the card-detail cache without triggering a legacy full-board refresh.
+- Shared board snapshots must stay `BoardSummary`-only; description saves should merge returned full cards into summary metadata and the card-detail cache without triggering a broad board refresh.
 
 ## Testing Expectations
 

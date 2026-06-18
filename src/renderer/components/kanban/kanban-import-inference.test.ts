@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Board, Card, CardInput, CardStatus } from "@/lib/types";
+import type { BoardSummary, CardInput, CardStatus, CardSummary } from "@/lib/types";
 import type { DbViewRules } from "../../lib/db-view-prefs";
 import { resolveKanbanImportInference } from "./kanban-import-inference";
 
@@ -7,14 +7,16 @@ function makeCard(
   id: string,
   status: CardStatus,
   order: number,
-  overrides: Partial<Card> = {},
-): Card {
+  overrides: Partial<CardSummary> = {},
+): CardSummary {
   return {
     id,
     status,
     archived: false,
     title: id,
-    description: "",
+    descriptionPreview: "",
+    descriptionLength: 0,
+    hasDescription: false,
     tags: [],
     agentBlocked: false,
     created: new Date("2026-03-17T00:00:00.000Z"),
@@ -23,7 +25,7 @@ function makeCard(
   };
 }
 
-function makeBoard(columns: Partial<Record<CardStatus, Card[]>>): Board {
+function makeBoard(columns: Partial<Record<CardStatus, CardSummary[]>>): BoardSummary {
   const orderedStatuses: CardStatus[] = ["draft", "backlog", "in_progress", "in_review", "done"];
   return {
     columns: orderedStatuses.map((status) => ({

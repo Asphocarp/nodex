@@ -1,8 +1,8 @@
-import type { Board, BoardSummary, CardStatus } from "@/lib/types";
+import type { BoardSummary, CardStatus } from "@/lib/types";
 
 interface ResolveFilteredDropOrderInput {
-  board: BoardSummary | Board | null;
-  visibleBoard: BoardSummary | Board | null;
+  board: BoardSummary | null;
+  visibleBoard: BoardSummary | null;
   draggedCardIds: readonly string[];
   targetColumnId: CardStatus;
   targetVisibleIndex: number;

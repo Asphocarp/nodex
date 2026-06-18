@@ -5,8 +5,6 @@ export type {
   Card,
   CardSummary,
   CardRunInTarget,
-  Column,
-  Board,
   BoardSummary,
   BoardSummaryColumn,
   CanvasData,

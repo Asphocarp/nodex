@@ -472,18 +472,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   });
 
   // Board
-  registerHandle("board:get", async (_, projectId: string) => {
-    const startedAt = performance.now();
-    const board = await dbService.getBoard(projectId);
-    ipcPayloadLogger.warn("legacy full board payload requested", {
-      channel: "board:get",
-      projectId,
-      cardCount: boardCardCount(board),
-      durationMs: Math.round(performance.now() - startedAt),
-    });
-    return board;
-  });
-
   registerHandle("board:summary:get", async (_, projectId: string) => {
     const startedAt = performance.now();
     const board = await dbService.getBoardSummary(projectId);

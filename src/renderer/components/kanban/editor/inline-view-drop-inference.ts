@@ -1,4 +1,4 @@
-import type { Board, Card, CardInput, BoardSummary, CardSummary, Estimate, Priority } from "../../../lib/types";
+import type { CardInput, BoardSummary, CardSummary, Estimate, Priority } from "../../../lib/types";
 import type { ToggleListSettings, ToggleListStatusId } from "../../../lib/toggle-list/types";
 import {
   deriveToggleListFilterRule,
@@ -16,7 +16,7 @@ export interface InferInlineViewDropImportInput {
   settings: ToggleListSettings;
   projectedRows: InlineViewProjectedRow[];
   insertRowIndex: number;
-  board: BoardSummary | Board;
+  board: BoardSummary;
   cards: CardInput[];
 }
 
@@ -26,7 +26,7 @@ export interface InferInlineViewDropImportResult {
   cards: CardInput[];
 }
 
-type CardWithColumn = (CardSummary | Card) & {
+type CardWithColumn = CardSummary & {
   columnId: ToggleListStatusId;
 };
 
@@ -40,7 +40,7 @@ function clampInsertRowIndex(
   return Math.trunc(index);
 }
 
-function buildCardById(board: BoardSummary | Board): Map<string, CardWithColumn> {
+function buildCardById(board: BoardSummary): Map<string, CardWithColumn> {
   const byId = new Map<string, CardWithColumn>();
 
   for (const column of board.columns) {
@@ -67,7 +67,7 @@ function resolveFallbackStatus(settings: ToggleListSettings): ToggleListStatusId
 }
 
 function resolveInsertIndexForColumn(
-  board: BoardSummary | Board,
+  board: BoardSummary,
   targetStatus: ToggleListStatusId,
   afterCardId?: string,
   beforeCardId?: string,

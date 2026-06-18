@@ -1,5 +1,4 @@
 import MiniSearch, { type AsPlainObject, type Options, type SearchResult } from "minisearch";
-import { extractPlainText } from "./nfm/extract-text";
 import type {
   CommandPaletteCard,
   CommandPaletteCardSearchBadge,
@@ -107,13 +106,10 @@ function escapeRegExp(value: string): string {
 }
 
 function buildSearchDocument(item: CommandPaletteCard): CommandPaletteCardSearchDocument {
-  const description = "descriptionPreview" in item.card
-    ? item.card.descriptionPreview
-    : extractPlainText(item.card.description);
   return {
     id: item.id,
     title: normalizeCommandPaletteSearchText(item.card.title),
-    description: normalizeCommandPaletteSearchText(description),
+    description: normalizeCommandPaletteSearchText(item.card.descriptionPreview),
     tags: normalizeCommandPaletteSearchText(item.card.tags.join(" ")),
     assignee: normalizeCommandPaletteSearchText(item.card.assignee ?? ""),
     agentStatus: normalizeCommandPaletteSearchText(item.card.agentStatus ?? ""),
@@ -356,11 +352,7 @@ function buildDescriptionPreview(
   item: CommandPaletteCard,
   result: SearchResult,
 ): CommandPaletteCardSearchPreview | null {
-  const description = normalizePreviewText(
-    "descriptionPreview" in item.card
-      ? item.card.descriptionPreview
-      : extractPlainText(item.card.description),
-  );
+  const description = normalizePreviewText(item.card.descriptionPreview);
   if (!description) {
     return null;
   }

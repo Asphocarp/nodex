@@ -72,7 +72,7 @@ export function getCardIdFromElement(element: ExcalidrawElementLike): string | n
   return (element.customData as unknown as CardCustomData).cardId;
 }
 
-/** Build a card lookup map from a Board: cardId → { card, columnId } */
+/** Build a card lookup map from a board summary: cardId → { card, columnId } */
 function buildCardMap(board: BoardSummary): Map<string, { card: CardSummary; columnId: string }> {
   const map = new Map<string, { card: CardSummary; columnId: string }>();
   for (const col of board.columns) {

@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { Board } from "@/lib/types";
+import type { BoardSummary } from "@/lib/types";
 import { resolveKanbanDropFeedback } from "./drop-feedback";
 
-const EMPTY_BOARD: Board = {
+const EMPTY_BOARD: BoardSummary = {
   columns: [
     {
       id: "backlog",
@@ -12,7 +12,7 @@ const EMPTY_BOARD: Board = {
   ],
 };
 
-const FILLED_BOARD: Board = {
+const FILLED_BOARD: BoardSummary = {
   columns: [
     {
       id: "backlog",
@@ -23,7 +23,9 @@ const FILLED_BOARD: Board = {
           status: "backlog",
           archived: false,
           title: "Task",
-          description: "",
+          descriptionPreview: "",
+          descriptionLength: 0,
+          hasDescription: false,
           tags: [],
           agentBlocked: false,
           created: new Date("2026-03-19T00:00:00.000Z"),

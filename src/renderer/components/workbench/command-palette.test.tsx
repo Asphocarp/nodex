@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { fireEvent } from "@testing-library/react";
 import type { CommandPaletteCard, CommandPaletteCommand } from "@/lib/command-palette";
 import { getDefaultCommandPaletteCardFilters } from "@/lib/command-palette";
-import type { Card } from "@/lib/types";
+import type { CardSummary } from "@/lib/types";
 import { createCommandPaletteCardSearchIndex } from "../../lib/command-palette-card-search";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
 import { TOGGLE_SIDEBAR_COMMAND_ID } from "../../../shared/window-navigation";
@@ -39,11 +39,14 @@ describe("buildCommands", () => {
   });
 });
 
-function makeCard(overrides: Partial<Card> = {}): Card {
+function makeCard(overrides: Partial<CardSummary> = {}): CardSummary {
+  const descriptionPreview = overrides.descriptionPreview ?? "Rebuild the fuzzy search indxer for the palette.";
   return {
     id: overrides.id ?? "card-1",
     title: overrides.title ?? "Misc task",
-    description: overrides.description ?? "Rebuild the fuzzy search indxer for the palette.",
+    descriptionPreview,
+    descriptionLength: overrides.descriptionLength ?? descriptionPreview.length,
+    hasDescription: overrides.hasDescription ?? descriptionPreview.length > 0,
     status: overrides.status ?? "in_progress",
     archived: overrides.archived ?? false,
     priority: overrides.priority,
@@ -96,7 +99,7 @@ describe("CommandPaletteSurface", () => {
         card: makeCard({
           id: "card-1",
           title: "Misc task",
-          description: "Rebuild the fuzzy search indxer for the palette.",
+          descriptionPreview: "Rebuild the fuzzy search indxer for the palette.",
         }),
       }),
     ];
@@ -155,7 +158,7 @@ describe("CommandPaletteSurface", () => {
             card: makeCard({
               id: "card-2",
               title: "Misc task",
-              description: "Should not appear while command mode is active.",
+              descriptionPreview: "Should not appear while command mode is active.",
             }),
           }),
         ]}
@@ -185,7 +188,7 @@ describe("CommandPaletteSurface", () => {
         card: makeCard({
           id: "ops-card",
           title: "Queue cleanup",
-          description: "Executor queue polish.",
+          descriptionPreview: "Executor queue polish.",
           assignee: "Alex",
         }),
       }),
@@ -195,7 +198,7 @@ describe("CommandPaletteSurface", () => {
         card: makeCard({
           id: "design-card",
           title: "Queue cleanup",
-          description: "Executor queue polish.",
+          descriptionPreview: "Executor queue polish.",
           assignee: "Alex",
         }),
       }),

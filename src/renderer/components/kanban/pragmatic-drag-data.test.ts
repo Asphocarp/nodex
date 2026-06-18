@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import type { Board } from "@/lib/types";
+import type { BoardSummary } from "@/lib/types";
 import { emptyCardSelection, toggleCardSelection } from "./card-selection";
 import {
   buildKanbanCardDragData,
   canDropOnKanbanCard,
 } from "./pragmatic-drag-data";
 
-const board: Board = {
+const board: BoardSummary = {
   columns: [
     {
       id: "in_progress",
@@ -17,7 +17,9 @@ const board: Board = {
           status: "in_progress",
           archived: false,
           title: "Task",
-          description: "Persisted body",
+          descriptionPreview: "Persisted body",
+          descriptionLength: "Persisted body".length,
+          hasDescription: true,
           priority: "p2-medium",
           tags: [],
           agentBlocked: false,
@@ -29,7 +31,9 @@ const board: Board = {
           status: "in_progress",
           archived: false,
           title: "Peer",
-          description: "Peer body",
+          descriptionPreview: "Peer body",
+          descriptionLength: "Peer body".length,
+          hasDescription: true,
           priority: "p2-medium",
           tags: [],
           agentBlocked: false,
@@ -42,7 +46,7 @@ const board: Board = {
 };
 
 describe("pragmatic drag data", () => {
-  test("uses the persisted card snapshot for drag payload construction", () => {
+  test("uses the summary card snapshot for drag payload construction", () => {
     const result = buildKanbanCardDragData({
       board,
       selection: emptyCardSelection(),
@@ -52,8 +56,8 @@ describe("pragmatic drag data", () => {
       columnId: "in_progress",
     });
 
-    expect(result.sourceCard.description).toBe("Persisted body");
-    expect(result.dragItems[0]?.card.description).toBe("Persisted body");
+    expect(result.sourceCard.descriptionPreview).toBe("Persisted body");
+    expect(result.dragItems[0]?.card.descriptionPreview).toBe("Persisted body");
   });
 
   test("card drop targets reject cards that are already in the dragged group", () => {

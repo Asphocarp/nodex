@@ -1,14 +1,11 @@
-import type { Board, BoardSummary, Card, CardSummary } from "@/lib/types";
-
-type SelectionBoard = BoardSummary | Board;
-type SelectionCard = CardSummary | Card;
+import type { BoardSummary, CardSummary } from "@/lib/types";
 
 export interface CardSelectionState {
   cardIds: ReadonlySet<string>;
 }
 
 export interface SelectedCardEntry {
-  card: SelectionCard;
+  card: CardSummary;
   columnId: string;
   columnName: string;
 }
@@ -42,7 +39,7 @@ export function toggleCardSelection(
 
 export function normalizeCardSelection(
   selection: CardSelectionState,
-  board: SelectionBoard | null,
+  board: BoardSummary | null,
 ): CardSelectionState {
   if (!board || selection.cardIds.size === 0) return selection;
 
@@ -62,7 +59,7 @@ export function normalizeCardSelection(
 }
 
 export function resolveSelectedCardEntries(
-  board: SelectionBoard | null,
+  board: BoardSummary | null,
   selection: CardSelectionState,
 ): SelectedCardEntry[] {
   if (!board || selection.cardIds.size === 0) return [];
@@ -79,10 +76,10 @@ export function resolveSelectedCardEntries(
 }
 
 export function resolveDragGroup(
-  board: SelectionBoard | null,
+  board: BoardSummary | null,
   selection: CardSelectionState,
   activeCard: {
-    card: SelectionCard;
+    card: CardSummary;
     columnId: string;
   },
 ): SelectedCardEntry[] {

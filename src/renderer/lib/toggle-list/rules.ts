@@ -27,7 +27,6 @@ type ToggleListFilterableCard = Pick<
   "id" | "title" | "priority" | "estimate" | "tags" | "created" | "assignee" | "agentStatus"
 > & {
   descriptionPreview?: string;
-  description?: string;
   status?: CardSummary["status"];
   archived?: boolean;
   agentBlocked?: boolean;
@@ -54,7 +53,14 @@ export function filterCards<T extends ToggleListFilterableCard>(
     if (!matchesFilterSpec(card, rulesV2.filter)) return false;
     if (searchTokens.length === 0) return true;
 
-    const searchable = `${buildCardSearchText(card)} ${card.columnName.toLowerCase()}`;
+    const searchable = `${buildCardSearchText({
+      id: card.id,
+      title: card.title,
+      descriptionPreview: card.descriptionPreview ?? "",
+      tags: card.tags,
+      assignee: card.assignee,
+      agentStatus: card.agentStatus,
+    })} ${card.columnName.toLowerCase()}`;
     return matchesSearchTokens(searchable, searchTokens);
   });
 }

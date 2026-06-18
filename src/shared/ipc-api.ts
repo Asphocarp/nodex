@@ -5,7 +5,6 @@ import type {
   HistorySettings,
   AppUpdateSettings,
   AppUpdateStatus,
-  Board,
   BoardSummary,
   CodexAccountSnapshot,
   CodexApprovalDecision,
@@ -428,7 +427,6 @@ export interface IpcApi {
     result: ProjectSessionThreadLink;
   };
   "project-session-threads:detach": { args: [sessionId: string]; result: boolean };
-  "board:get": { args: [projectId: string]; result: Board };
   "board:summary:get": { args: [projectId: string]; result: BoardSummary };
   "cards:details:get": { args: [projectId: string, input: CardsDetailsInput]; result: Card[] };
   "cards:search": { args: [input: CardSearchInput]; result: CardSearchResult[] };

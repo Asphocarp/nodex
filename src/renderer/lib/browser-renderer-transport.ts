@@ -423,11 +423,6 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
       const data = await res.json();
       return data.success ?? false;
     }
-    case "board:get": {
-      const [projectId] = args as [string];
-      const res = await fetch(toApiUrl(`/api/projects/${projectId}/board`));
-      return res.json();
-    }
     case "board:summary:get": {
       const [projectId] = args as [string];
       const res = await fetch(toApiUrl(`/api/projects/${projectId}/board-summary`));

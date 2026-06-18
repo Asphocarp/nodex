@@ -59,6 +59,7 @@ All notable changes to this project will be documented in this file.
 - Removed the legacy Full rail stage layout mode, its General settings controls, and the adjacent-panel peek setting.
 - Removed profile-local named workspaces, the workspace switcher/footer dots, and workspace create/rename/delete controls.
 - Removed the old workspace terminal drawer state and right-pane mirror columns; Terminal tabs and panel state now live only in project sessions.
+- Removed the legacy full-board read API so renderer board views now use lightweight summaries plus on-demand card detail hydration.
 
 ### Fixed
 - Fixed card history retention so retained card versions stay previewable/restorable after pruning by preserving internal reconstruction checkpoints.

@@ -1,4 +1,4 @@
-import type { Board, BoardSummary, CardInput, CardStatus, Estimate, Priority } from "@/lib/types";
+import type { BoardSummary, CardInput, CardStatus, Estimate, Priority } from "@/lib/types";
 import type {
   DbViewCardRecord,
   DbViewFilterClause,
@@ -29,8 +29,8 @@ export type KanbanImportInferenceResult =
     };
 
 interface ResolveKanbanImportInferenceInput {
-  board: BoardSummary | Board | null;
-  visibleBoard: BoardSummary | Board | null;
+  board: BoardSummary | null;
+  visibleBoard: BoardSummary | null;
   rules: DbViewRules;
   targetColumnId: CardStatus;
   targetVisibleIndex: number;
@@ -268,14 +268,14 @@ function applySortFieldPatch(
   return patchedCards;
 }
 
-function findCardOrderIndex(board: BoardSummary | Board, targetColumnId: CardStatus, cardId: string): number | null {
+function findCardOrderIndex(board: BoardSummary, targetColumnId: CardStatus, cardId: string): number | null {
   const targetColumn = board.columns.find((column) => column.id === targetColumnId);
   if (!targetColumn) return null;
   const index = targetColumn.cards.findIndex((card) => card.id === cardId);
   return index >= 0 ? index : null;
 }
 
-function resolveAnchorInsertIndex(board: BoardSummary | Board, targetColumnId: CardStatus, anchor: SortAnchor): number {
+function resolveAnchorInsertIndex(board: BoardSummary, targetColumnId: CardStatus, anchor: SortAnchor): number {
   if (anchor.afterCardId) {
     const index = findCardOrderIndex(board, targetColumnId, anchor.afterCardId);
     if (index !== null) return index;
@@ -291,8 +291,8 @@ function resolveAnchorInsertIndex(board: BoardSummary | Board, targetColumnId: C
 }
 
 function resolveSortedSlot(args: {
-  board: BoardSummary | Board;
-  visibleBoard: BoardSummary | Board;
+  board: BoardSummary;
+  visibleBoard: BoardSummary;
   targetColumnId: CardStatus;
   targetVisibleIndex: number;
   rules: DbViewRules;

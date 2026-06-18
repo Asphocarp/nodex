@@ -11,7 +11,7 @@ import {
   type KanbanColumnLayout,
 } from "../../lib/kanban-column-layout";
 import { StatusChip, StatusIcon, columnStyles as sharedColumnStyles } from "../../lib/status-chip";
-import type { Card as FullCard, CardSummary, CardCreatePlacement, BoardSummaryColumn, Column as FullColumn, CardInput } from "../../lib/types";
+import type { CardSummary, CardCreatePlacement, BoardSummaryColumn, CardInput } from "../../lib/types";
 import { cn } from "../../lib/utils";
 import type { CardContextMenuProjectSummary } from "./card-context-menu-model";
 import type { KanbanCardDragData } from "./pragmatic-drag-data";
@@ -19,8 +19,8 @@ import { bindKanbanColumnDropSurface } from "./column-drop-surface";
 
 export { columnStyles } from "../../lib/status-chip";
 
-type CardType = CardSummary | FullCard;
-type ColumnType = BoardSummaryColumn | FullColumn;
+type CardType = CardSummary;
+type ColumnType = BoardSummaryColumn;
 
 interface ColumnProps {
   projectId: string;

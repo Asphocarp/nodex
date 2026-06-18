@@ -1,6 +1,6 @@
-import type { Card, CardSummary } from "../../../lib/types";
+import type { CardSummary } from "../../../lib/types";
 
-export type ExternalCardDragCard = (CardSummary | Card) & { description?: string };
+export type ExternalCardDragCard = CardSummary;
 
 export interface CardDragPointer {
   x: number;

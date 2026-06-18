@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Board } from "@/lib/types";
+import type { BoardSummary } from "@/lib/types";
 import {
   buildKanbanCardDragData,
   buildKanbanCardDropTargetData,
@@ -10,7 +10,7 @@ import { resolveKanbanDropLocation } from "./pragmatic-drop-location";
 
 const instanceId = Symbol("test-dnd");
 
-const board: Board = {
+const board: BoardSummary = {
   columns: [
     {
       id: "in_progress",
@@ -21,7 +21,9 @@ const board: Board = {
           status: "in_progress",
           archived: false,
           title: "A",
-          description: "",
+          descriptionPreview: "",
+          descriptionLength: 0,
+          hasDescription: false,
           priority: "p2-medium",
           tags: [],
           agentBlocked: false,
@@ -33,7 +35,9 @@ const board: Board = {
           status: "in_progress",
           archived: false,
           title: "B",
-          description: "",
+          descriptionPreview: "",
+          descriptionLength: 0,
+          hasDescription: false,
           priority: "p2-medium",
           tags: [],
           agentBlocked: false,

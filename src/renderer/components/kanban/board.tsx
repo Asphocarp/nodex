@@ -56,7 +56,6 @@ import {
   type DbViewPrefs,
 } from "../../lib/db-view-prefs";
 import type {
-  Card as FullCard,
   CardSummary,
   CardStatus,
   CardCreatePlacement,
@@ -85,6 +84,7 @@ import { resolveKanbanDropFeedback } from "./drop-feedback";
 
 const KANBAN_CARD_PREVIEW_OPEN_DELAY_MS = 180;
 type KanbanCardOpenMode = NonNullable<OpenCardStageOptions["openMode"]>;
+type CardType = CardSummary;
 
 function hasSameCardSelection(
   left: CardSelectionState,

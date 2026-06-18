@@ -4,15 +4,17 @@ import {
   matchesSearchTokens,
   tokenizeSearchQuery,
 } from "./card-search";
-import type { Card } from "./types";
+import type { CardSummary } from "./types";
 
-function makeCard(overrides: Partial<Card> = {}): Card {
+function makeCard(overrides: Partial<CardSummary> = {}): CardSummary {
   return {
     id: "abc1234",
     status: "draft",
     archived: false,
     title: "Improve NFM search",
-    description: "Use token based matching for board search.",
+    descriptionPreview: "Use token based matching for board search.",
+    descriptionLength: "Use token based matching for board search.".length,
+    hasDescription: true,
     priority: "p2-medium",
     tags: ["editor", "search"],
     assignee: "alice",

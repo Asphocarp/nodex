@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { Dispatch, SetStateAction } from "react";
 import { useEffect, useMemo, useState } from "react";
-import type { Board, Project, ProjectSession, ProjectSessionTab } from "@/lib/types";
+import type { BoardSummary, Project, ProjectSession, ProjectSessionTab } from "@/lib/types";
 import type { WorkbenchView } from "@/lib/use-workbench-state";
 import {
   writeWorkbenchShellNavigationHistoryState,
@@ -135,7 +135,7 @@ const SPACES = PROJECTS.map((project) => ({
   initial: project.name.slice(0, 1).toUpperCase(),
 }));
 
-const STORY_BOARD: Board = {
+const STORY_BOARD: BoardSummary = {
   columns: [
     {
       id: "in_progress",
@@ -146,7 +146,9 @@ const STORY_BOARD: Board = {
           status: "in_progress",
           archived: false,
           title: "Workbench redesign",
-          description: "",
+          descriptionPreview: "",
+          descriptionLength: 0,
+          hasDescription: false,
           tags: ["shell"],
           agentBlocked: false,
           created: new Date(CREATED_AT),

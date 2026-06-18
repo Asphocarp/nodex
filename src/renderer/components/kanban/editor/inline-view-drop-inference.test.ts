@@ -1,18 +1,20 @@
 import { describe, expect, test } from "bun:test";
 import { getDefaultToggleListSettings } from "../../../lib/toggle-list/settings";
-import type { Board, Card } from "../../../lib/types";
+import type { BoardSummary, CardSummary } from "../../../lib/types";
 import {
   inferInlineViewDropImport,
   type InlineViewProjectedRow,
 } from "./inline-view-drop-inference";
 
-function makeCard(id: string, overrides: Partial<Card> = {}): Card {
+function makeCard(id: string, overrides: Partial<CardSummary> = {}): CardSummary {
   return {
     id,
     status: "draft",
     archived: false,
     title: `Card ${id}`,
-    description: "",
+    descriptionPreview: "",
+    descriptionLength: 0,
+    hasDescription: false,
     priority: "p2-medium",
     tags: [],
     agentBlocked: false,
@@ -22,7 +24,7 @@ function makeCard(id: string, overrides: Partial<Card> = {}): Card {
   };
 }
 
-function makeBoard(): Board {
+function makeBoard(): BoardSummary {
   return {
     columns: [
       {

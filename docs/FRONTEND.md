@@ -44,7 +44,7 @@
 - Card search: local summary fields can be searched immediately. Description search must go through `cards:search`, which returns ids and bounded excerpts; do not load every project's full board to build a renderer description index.
 - Card updates use typed mutation control flow: `updated | conflict | not_found | error` instead of treating stale-write conflicts as generic exceptions.
 - On `conflict`, keep optimistic journal semantics: supersede conflicting overlays, refresh base board, and let surface-specific UX decide recovery (`Card Stage` inline banner with `Reload Latest` / `Overwrite Mine`).
-- Legacy full board fetches: `board:get` is a compatibility/full-payload channel. New renderer code should use `board:summary:get` plus explicit card detail hydration.
+- Full board fetches are not a renderer API. New renderer code should use `board:summary:get` plus explicit card detail hydration; adding a broad full-board read path is a regression.
 - History/undo: `use-history.ts`.
 - Project lifecycle: `use-projects.ts`.
 - SSE/IPC updates are centralized in API subscription helpers.

@@ -7,13 +7,16 @@ import {
   type CommandPaletteCardSearchCacheStore,
 } from "./command-palette-card-search";
 import type { CommandPaletteCard } from "./command-palette";
-import type { Card } from "./types";
+import type { CardSummary } from "./types";
 
-function makeCard(overrides: Partial<Card> = {}): Card {
+function makeCard(overrides: Partial<CardSummary> = {}): CardSummary {
+  const descriptionPreview = overrides.descriptionPreview ?? "Add quick card switching and commands.";
   return {
     id: overrides.id ?? "card-1",
     title: overrides.title ?? "Polish command palette",
-    description: overrides.description ?? "Add quick card switching and commands.",
+    descriptionPreview,
+    descriptionLength: overrides.descriptionLength ?? descriptionPreview.length,
+    hasDescription: overrides.hasDescription ?? descriptionPreview.length > 0,
     status: overrides.status ?? "in_progress",
     archived: overrides.archived ?? false,
     priority: overrides.priority,
@@ -114,7 +117,7 @@ describe("command palette card search index", () => {
         card: makeCard({
           id: "description-hit",
           title: "Misc task",
-          description: "Document the OCR pipeline and index refresh behavior.",
+          descriptionPreview: "Document the OCR pipeline and index refresh behavior.",
         }),
       }),
     ]);
@@ -134,7 +137,7 @@ describe("command palette card search index", () => {
         card: makeCard({
           id: "prefix-hit",
           title: "Terminal panel polish",
-          description: "Tighten terminal status affordances.",
+          descriptionPreview: "Tighten terminal status affordances.",
         }),
       }),
     ]);
@@ -152,14 +155,14 @@ describe("command palette card search index", () => {
         card: makeCard({
           id: "alpha-beta",
           title: "Alpha",
-          description: "Contains both alpha and beta terms.",
+          descriptionPreview: "Contains both alpha and beta terms.",
         }),
       }),
       makePaletteCard({
         card: makeCard({
           id: "alpha-only",
           title: "Alpha only",
-          description: "Contains alpha but not the other term.",
+          descriptionPreview: "Contains alpha but not the other term.",
         }),
       }),
     ]);
@@ -177,7 +180,7 @@ describe("command palette card search index", () => {
         card: makeCard({
           id: "title-hit",
           title: "Telemetry dashboard",
-          description: "A general notes card without the searched word.",
+          descriptionPreview: "A general notes card without the searched word.",
         }),
       }),
     ]);
@@ -197,7 +200,7 @@ describe("command palette card search index", () => {
         card: makeCard({
           id: "tag-hit",
           title: "General task",
-          description: "No search terms in the body.",
+          descriptionPreview: "No search terms in the body.",
           tags: ["telemetry", "search"],
           assignee: "alex",
           agentStatus: "Waiting for telemetry snapshot",
@@ -220,14 +223,14 @@ describe("command palette card search index", () => {
         card: makeCard({
           id: "alpha",
           title: "Telemetry dashboard",
-          description: "Track search latency over time.",
+          descriptionPreview: "Track search latency over time.",
         }),
       }),
       makePaletteCard({
         card: makeCard({
           id: "beta",
           title: "Old panel",
-          description: "This card will be removed.",
+          descriptionPreview: "This card will be removed.",
         }),
       }),
     ];
@@ -243,7 +246,7 @@ describe("command palette card search index", () => {
         card: makeCard({
           id: "alpha",
           title: "Telemetry board",
-          description: "Track search latency over time.",
+          descriptionPreview: "Track search latency over time.",
           revision: 2,
         }),
       }),
@@ -251,7 +254,7 @@ describe("command palette card search index", () => {
         card: makeCard({
           id: "gamma",
           title: "Executor queue",
-          description: "Document the cached palette hydrator.",
+          descriptionPreview: "Document the cached palette hydrator.",
         }),
       }),
     ];

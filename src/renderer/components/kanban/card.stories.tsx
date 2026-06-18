@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { CSSProperties } from "react";
-import type { Card as CardType } from "@/lib/types";
+import type { CardSummary as CardType } from "@/lib/types";
 import { Card } from "./card";
 
 const SAMPLE_CARD: CardType = {
@@ -8,7 +8,9 @@ const SAMPLE_CARD: CardType = {
   status: "in_progress",
   archived: false,
   title: "Refine panel-aware card focus",
-  description: "Selected card-stage tabs should make their matching board cards easy to spot.",
+  descriptionPreview: "Selected card-stage tabs should make their matching board cards easy to spot.",
+  descriptionLength: "Selected card-stage tabs should make their matching board cards easy to spot.".length,
+  hasDescription: true,
   priority: "p1-high",
   estimate: "m",
   tags: ["UI", "Panels"],
