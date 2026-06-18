@@ -217,21 +217,49 @@ mock.module("./main-view-host", () => ({
 mock.module("./workbench-card-stage", () => ({
   CardStage: (props: Record<string, unknown>) => {
     (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps = props;
+    const card = props.card as { id?: string } | null | undefined;
+    const cardId = card?.id ?? "missing";
+    const propsByCardId = ((globalThis as {
+      __mockCardStagePropsByCardId?: Record<string, Record<string, unknown>>;
+    }).__mockCardStagePropsByCardId ??= {});
+    propsByCardId[cardId] = props;
     useEffect(() => {
       const state = globalThis as {
         __mockCardStageMounts?: number;
         __mockCardStageUnmounts?: number;
+        __mockCardStageMountsByCardId?: Record<string, number>;
+        __mockCardStageUnmountsByCardId?: Record<string, number>;
       };
       state.__mockCardStageMounts = (state.__mockCardStageMounts ?? 0) + 1;
+      state.__mockCardStageMountsByCardId = {
+        ...(state.__mockCardStageMountsByCardId ?? {}),
+        [cardId]: (state.__mockCardStageMountsByCardId?.[cardId] ?? 0) + 1,
+      };
       return () => {
         state.__mockCardStageUnmounts = (state.__mockCardStageUnmounts ?? 0) + 1;
+        state.__mockCardStageUnmountsByCardId = {
+          ...(state.__mockCardStageUnmountsByCardId ?? {}),
+          [cardId]: (state.__mockCardStageUnmountsByCardId?.[cardId] ?? 0) + 1,
+        };
       };
-    }, []);
-    const card = props.card as { id?: string } | null | undefined;
+    }, [cardId]);
     return createElement(
       "div",
       { "data-card-stage": "true" },
-      `Card:${String(card?.id ?? "missing")}`,
+      `Card:${String(cardId)}`,
+      createElement(
+        "div",
+        { className: "nfm-editor" },
+        createElement(
+          "div",
+          {
+            "aria-label": `Mock editor ${String(cardId)}`,
+            className: "ProseMirror",
+            contentEditable: true,
+            tabIndex: 0,
+          },
+        ),
+      ),
       createElement(
         "button",
         {
@@ -480,7 +508,7 @@ mock.module("@/lib/calendar-view-state", () => ({
 mock.module("@/lib/use-kanban", () => ({
   useKanban: (options?: { projectId?: string }) => {
     const projectId = options?.projectId ?? "alpha";
-    const card = projectId === "beta"
+    const cards = projectId === "beta"
       ? {
           id: "card-beta",
           projectId: "beta",
@@ -490,26 +518,38 @@ mock.module("@/lib/use-kanban", () => ({
           tags: [],
           archived: false,
         }
-      : {
-          id: "card-1",
-          projectId: "alpha",
-          status: "in_progress",
-          title: "Card One",
-          description: "",
-          tags: [],
-          archived: false,
-        };
+      : [
+          {
+            id: "card-1",
+            projectId: "alpha",
+            status: "in_progress",
+            title: "Card One",
+            description: "",
+            tags: [],
+            archived: false,
+          },
+          {
+            id: "card-2",
+            projectId: "alpha",
+            status: "in_progress",
+            title: "Card Two",
+            description: "",
+            tags: [],
+            archived: false,
+          },
+        ];
+    const visibleCards = Array.isArray(cards) ? cards : [cards];
     return {
       board: {
         columns: [
           {
             id: "in_progress",
             name: "In Progress",
-            cards: [card],
+            cards: visibleCards,
           },
         ],
       },
-      cardIndex: new Map([[card.id, card]]),
+      cardIndex: new Map(visibleCards.map((card) => [card.id, card])),
       loading: false,
       refresh: async () => undefined,
       patchCard: () => undefined,
@@ -881,6 +921,17 @@ function getBottomPanelContentSizer(container: HTMLElement): HTMLElement {
   return sizer;
 }
 
+function appendMockNfmEditor(container: HTMLElement): { root: HTMLElement; content: HTMLElement } {
+  const root = document.createElement("div");
+  root.className = "nfm-editor";
+  const content = document.createElement("div");
+  content.contentEditable = "true";
+  content.className = "ProseMirror";
+  root.appendChild(content);
+  container.appendChild(root);
+  return { root, content };
+}
+
 function installReducedMotionMatchMediaForTest() {
   const originalMatchMedia = window.matchMedia;
   Object.defineProperty(window, "matchMedia", {
@@ -949,6 +1000,21 @@ function renderWorkbench({
           revision: 1,
         };
       }
+      if (cardId === "card-2") {
+        return {
+          id: "card-2",
+          projectId: "alpha",
+          status: "in_progress",
+          title: "Card Two",
+          description: "",
+          tags: [],
+          archived: false,
+          agentBlocked: false,
+          created: new Date("2026-06-07T00:00:00.000Z"),
+          order: 1,
+          revision: 1,
+        };
+      }
       if (cardId !== "card-1") return null;
       return {
         id: "card-1",
@@ -981,6 +1047,20 @@ function renderWorkbench({
               order: 0,
               revision: 1,
             }]
+          : cardId === "card-2"
+            ? [{
+                id: "card-2",
+                projectId: "alpha",
+                status: "in_progress",
+                title: "Card Two",
+                description: "",
+                tags: [],
+                archived: false,
+                agentBlocked: false,
+                created: new Date("2026-06-07T00:00:00.000Z"),
+                order: 1,
+                revision: 1,
+              }]
           : cardId === "card-1"
             ? [{
                 id: "card-1",
@@ -1424,10 +1504,13 @@ beforeEach(() => {
   delete (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> }).__lastTerminalPanelProps;
   delete (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> }).__lastHistoryPanelProps;
   delete (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps;
+  delete (globalThis as { __mockCardStagePropsByCardId?: Record<string, Record<string, unknown>> }).__mockCardStagePropsByCardId;
   delete (globalThis as { __mockCardStageHistoryClicks?: number }).__mockCardStageHistoryClicks;
   delete (globalThis as { __mockCardStageDeleteClicks?: number }).__mockCardStageDeleteClicks;
   delete (globalThis as { __mockCardStageMounts?: number }).__mockCardStageMounts;
   delete (globalThis as { __mockCardStageUnmounts?: number }).__mockCardStageUnmounts;
+  delete (globalThis as { __mockCardStageMountsByCardId?: Record<string, number> }).__mockCardStageMountsByCardId;
+  delete (globalThis as { __mockCardStageUnmountsByCardId?: Record<string, number> }).__mockCardStageUnmountsByCardId;
 });
 
 async function openBottomPanel(screen: ReturnType<typeof renderWorkbench>): Promise<void> {
@@ -4556,13 +4639,7 @@ describe("workbench session shell", () => {
     if (!(leaf instanceof HTMLElement)) {
       throw new Error("Expected main panel leaf");
     }
-    const editor = document.createElement("div");
-    editor.className = "nfm-editor";
-    const editorContent = document.createElement("div");
-    editorContent.contentEditable = "true";
-    editorContent.className = "ProseMirror";
-    editor.appendChild(editorContent);
-    leaf.appendChild(editor);
+    const { root: editor, content: editorContent } = appendMockNfmEditor(leaf);
 
     invokeCalls = [];
     await act(async () => {
@@ -4583,6 +4660,109 @@ describe("workbench session shell", () => {
       && input.leafId === "main"
       && input.tabId === browserTab.id
     )).toBeTrue();
+  });
+
+  test("panel tab cycling between durable card stages keeps editors mounted and active-scoped", async () => {
+    const firstCardTab = makeSessionTab({
+      id: "overview:alpha:card-1",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "card_stage",
+      title: "Card One",
+      order: 0,
+      config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
+    });
+    const secondCardTab = makeSessionTab({
+      id: "overview:alpha:card-2",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "card_stage",
+      title: "Card Two",
+      order: 1,
+      config: { projectId: "alpha", cardId: "card-2", titleSnapshot: "Card Two" },
+    });
+    const session = makeSession({
+      tabs: [firstCardTab, secondCardTab],
+      rightLayout: makePanelLayout([firstCardTab.id, secondCardTab.id], firstCardTab.id),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const state = globalThis as {
+      __mockCardStageMountsByCardId?: Record<string, number>;
+      __mockCardStageUnmountsByCardId?: Record<string, number>;
+      __mockCardStagePropsByCardId?: Record<string, Record<string, unknown>>;
+    };
+    expect(state.__mockCardStageMountsByCardId?.["card-1"]).toBe(1);
+    expect(state.__mockCardStageMountsByCardId?.["card-2"]).toBe(1);
+    expect(state.__mockCardStageUnmountsByCardId?.["card-1"] ?? 0).toBe(0);
+    expect(state.__mockCardStagePropsByCardId?.["card-1"]?.isActivePanelTab).toBe(true);
+    expect(state.__mockCardStagePropsByCardId?.["card-2"]?.isActivePanelTab).toBe(false);
+
+    const firstEditor = screen.container.querySelector('[aria-label="Mock editor card-1"]');
+    if (!(firstEditor instanceof HTMLElement)) {
+      throw new Error("Expected first card stage editor");
+    }
+
+    invokeCalls = [];
+    await act(async () => {
+      firstEditor.focus();
+      fireEvent.keyDown(firstEditor, {
+        key: "]",
+        code: "BracketRight",
+        ctrlKey: true,
+        shiftKey: true,
+      });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(getProjectSessionPanelActivateCalls().some((input) =>
+      input.sessionId === "overview:alpha"
+      && input.panelId === "right"
+      && input.leafId === "main"
+      && input.tabId === secondCardTab.id
+    )).toBeTrue();
+    expect(state.__mockCardStageMountsByCardId?.["card-1"]).toBe(1);
+    expect(state.__mockCardStageMountsByCardId?.["card-2"]).toBe(1);
+    expect(state.__mockCardStageUnmountsByCardId?.["card-1"] ?? 0).toBe(0);
+    expect(state.__mockCardStageUnmountsByCardId?.["card-2"] ?? 0).toBe(0);
+    expect(state.__mockCardStagePropsByCardId?.["card-1"]?.isActivePanelTab).toBe(false);
+    expect(state.__mockCardStagePropsByCardId?.["card-2"]?.isActivePanelTab).toBe(true);
+
+    const secondEditor = screen.container.querySelector('[aria-label="Mock editor card-2"]');
+    if (!(secondEditor instanceof HTMLElement)) {
+      throw new Error("Expected second card stage editor");
+    }
+
+    invokeCalls = [];
+    await act(async () => {
+      secondEditor.focus();
+      fireEvent.keyDown(secondEditor, {
+        key: "[",
+        code: "BracketLeft",
+        ctrlKey: true,
+        shiftKey: true,
+      });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(getProjectSessionPanelActivateCalls().some((input) =>
+      input.sessionId === "overview:alpha"
+      && input.panelId === "right"
+      && input.leafId === "main"
+      && input.tabId === firstCardTab.id
+    )).toBeTrue();
+    expect(state.__mockCardStageMountsByCardId?.["card-1"]).toBe(1);
+    expect(state.__mockCardStageMountsByCardId?.["card-2"]).toBe(1);
+    expect(state.__mockCardStageUnmountsByCardId?.["card-1"] ?? 0).toBe(0);
+    expect(state.__mockCardStageUnmountsByCardId?.["card-2"] ?? 0).toBe(0);
+    expect(state.__mockCardStagePropsByCardId?.["card-1"]?.isActivePanelTab).toBe(true);
+    expect(state.__mockCardStagePropsByCardId?.["card-2"]?.isActivePanelTab).toBe(false);
   });
 
   test("native panel tab cycle requests work while NFM editor content is focused", async () => {
@@ -4609,13 +4789,7 @@ describe("workbench session shell", () => {
     if (!(leaf instanceof HTMLElement)) {
       throw new Error("Expected main panel leaf");
     }
-    const editor = document.createElement("div");
-    editor.className = "nfm-editor";
-    const editorContent = document.createElement("div");
-    editorContent.contentEditable = "true";
-    editorContent.className = "ProseMirror";
-    editor.appendChild(editorContent);
-    leaf.appendChild(editor);
+    const { root: editor, content: editorContent } = appendMockNfmEditor(leaf);
 
     await act(async () => {
       editorContent.focus();
@@ -4951,13 +5125,7 @@ describe("workbench session shell", () => {
     if (!(leaf instanceof HTMLElement)) {
       throw new Error("Expected main panel leaf");
     }
-    const editor = document.createElement("div");
-    editor.className = "nfm-editor";
-    const editorContent = document.createElement("div");
-    editorContent.contentEditable = "true";
-    editorContent.className = "ProseMirror";
-    editor.appendChild(editorContent);
-    leaf.appendChild(editor);
+    const { root: editor, content: editorContent } = appendMockNfmEditor(leaf);
 
     invokeCalls = [];
     await act(async () => {
@@ -5200,9 +5368,13 @@ describe("workbench session shell", () => {
     expect(typeof previewTabId).toBe("string");
 
     invokeCalls = [];
-    const cardStage = screen.container.querySelector('[data-card-stage="true"]');
-    if (!(cardStage instanceof HTMLElement)) throw new Error("Expected card stage preview");
-    await pointerDownAndSettle(cardStage);
+    const editor = screen.container.querySelector(".nfm-editor .ProseMirror");
+    if (!(editor instanceof HTMLElement)) throw new Error("Expected card stage editor preview");
+    editor.focus();
+    expect(document.activeElement).toBe(editor);
+    expect((globalThis as { __mockCardStageMounts?: number }).__mockCardStageMounts).toBe(1);
+    expect((globalThis as { __mockCardStageUnmounts?: number }).__mockCardStageUnmounts ?? 0).toBe(0);
+    await pointerDownAndSettle(editor);
 
     await waitFor(() => {
       const createCall = invokeCalls.find((call) => call[0] === "project-session-tabs:create");
@@ -5221,6 +5393,10 @@ describe("workbench session shell", () => {
         titleSnapshot: "Card One",
       }));
     });
+    expect(screen.container.querySelector(".nfm-editor .ProseMirror")).toBe(editor);
+    expect(document.activeElement).toBe(editor);
+    expect((globalThis as { __mockCardStageMounts?: number }).__mockCardStageMounts).toBe(1);
+    expect((globalThis as { __mockCardStageUnmounts?: number }).__mockCardStageUnmounts ?? 0).toBe(0);
   });
 
   test("double-clicking a card-stage preview tab label pins it without remounting", async () => {

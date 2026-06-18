@@ -4013,6 +4013,9 @@ export function WorkbenchShell({
     if (!activeSession) return empty;
     const makeItem = (tab: ProjectSessionRenderableTab): AppShellTabItem => {
       const chromeContext = resolveCardStageTabChromeContext(tab, activeSession, projects);
+      const keepMounted = !isSideChatPanelTab(tab)
+        && !isMcpAppPanelTab(tab)
+        && tab.kind === "card_stage";
 
       return {
         id: tab.id,
@@ -4032,6 +4035,7 @@ export function WorkbenchShell({
             ? true
             : tab.preview === true || !activeSession.isOverview || activeSession.tabs.length > 1,
         preview: isSideChatPanelTab(tab) || isMcpAppPanelTab(tab) ? undefined : tab.preview,
+        keepMounted,
         reorderable: isSideChatPanelTab(tab) || isMcpAppPanelTab(tab) ? false : tab.preview === true ? false : true,
         splittable: !isSideChatPanelTab(tab) && !isMcpAppPanelTab(tab) && tab.preview !== true,
         contextMenuItems: !isSideChatPanelTab(tab) && !isMcpAppPanelTab(tab) && tab.kind === "browser"
@@ -4053,7 +4057,7 @@ export function WorkbenchShell({
               },
             ]
           : undefined,
-        renderPanel: () => {
+        renderPanel: (_closeTab, panelContext) => {
           if (isSideChatPanelTab(tab)) {
             return (
               <SideChatSessionTab
@@ -4105,6 +4109,7 @@ export function WorkbenchShell({
               browserBoundsSyncTrigger={tab.panelId === "bottom"
                 ? bottomPanelMotion.animatedSize
                 : rightPanelMotion.animatedSize}
+              isActivePanelTab={panelContext.active}
             />
           );
         },
@@ -6565,6 +6570,7 @@ function ProjectSessionTabPanel({
   onToggleCardStageHistoryModal,
   selectedTurnDiffReviewTarget,
   browserBoundsSyncTrigger,
+  isActivePanelTab,
 }: {
   tab: ProjectSessionTab & { preview?: true };
   activeSession: ProjectSession;
@@ -6604,6 +6610,7 @@ function ProjectSessionTabPanel({
   onToggleCardStageHistoryModal: (context: CardStageHistoryModalContext) => void;
   selectedTurnDiffReviewTarget: CodexTurnDiffReviewTarget | null;
   browserBoundsSyncTrigger?: MotionValue<number>;
+  isActivePanelTab: boolean;
 }) {
   if (tab.kind === "db_view" && "view" in tab.config) {
     return (
@@ -6665,6 +6672,7 @@ function ProjectSessionTabPanel({
           && cardStageHistoryModal.cardId === cardTab.config.cardId,
         )}
         onToggleHistoryPanel={onToggleCardStageHistoryModal}
+        isActivePanelTab={isActivePanelTab}
       />
     );
   }
@@ -6956,6 +6964,7 @@ function CardStageSessionTab({
   onOpenTerminal,
   historyPanelActive,
   onToggleHistoryPanel,
+  isActivePanelTab,
 }: {
   tab: ProjectSessionTab & { config: { projectId: string; cardId: string; titleSnapshot?: string } };
   project: Project | null;
@@ -6968,6 +6977,7 @@ function CardStageSessionTab({
   onOpenTerminal: (card: Card) => Promise<void>;
   historyPanelActive: boolean;
   onToggleHistoryPanel: (context: CardStageHistoryModalContext) => void;
+  isActivePanelTab: boolean;
 }) {
   const kanban = useKanban({ projectId: tab.config.projectId, sessionId: tab.id });
   const refreshBoard = kanban.refresh;
@@ -7082,6 +7092,7 @@ function CardStageSessionTab({
           cardTitle: card?.title ?? tab.config.titleSnapshot,
         })}
         historyPanelActive={historyPanelActive}
+        isActivePanelTab={isActivePanelTab}
         linkedCodexThreads={[]}
       />
     </>

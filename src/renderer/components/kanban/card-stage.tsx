@@ -138,6 +138,7 @@ export function CardStage(props: CardStageProps) {
                   onOpenCodexThread={props.onOpenCodexThread}
                   onStartThreadSection={props.onStartThreadSection}
                   onSendThreadSectionPrompt={props.onSendThreadSectionPrompt}
+                  isActivePanelTab={props.isActivePanelTab ?? true}
                   placeholder="Add a description..."
                 />
               )}

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { fireEvent, within } from "@testing-library/react";
 import { act } from "react";
-import type { ComponentProps, ReactNode } from "react";
+import { useEffect, type ComponentProps, type ReactNode } from "react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import {
   AppShellTabs,
@@ -169,6 +169,141 @@ describe("AppShellTabs", () => {
     expect(view.container.querySelectorAll('[role="tab"][aria-selected="true"]').length).toBe(1);
     expect(view.container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Two");
     expect(textContent(view.getByRole("tabpanel"))).toBe("Panel two");
+  });
+
+  test("keeps retained tab panels mounted under stable wrappers", () => {
+    const mounts: string[] = [];
+    const unmounts: string[] = [];
+    function RetainedPanel({ id }: { id: string }) {
+      useEffect(() => {
+        mounts.push(id);
+        return () => {
+          unmounts.push(id);
+        };
+      }, [id]);
+      return <div data-testid={`retained-panel-${id}`}>Retained {id}</div>;
+    }
+    const tabs: AppShellTabItem[] = [
+      {
+        id: "one",
+        title: "One",
+        keepMounted: true,
+        renderPanel: () => <RetainedPanel id="one" />,
+      },
+      {
+        id: "two",
+        title: "Two",
+        keepMounted: true,
+        renderPanel: () => <RetainedPanel id="two" />,
+      },
+    ];
+    const renderTabs = (activeTabId: string) => (
+      <NodexTooltipProvider>
+        <AppShellTabs
+          tabs={tabs}
+          activeTabId={activeTabId}
+          onSelect={() => undefined}
+        />
+      </NodexTooltipProvider>
+    );
+    const view = render(renderTabs("one"));
+
+    expect(mounts.join(",")).toBe("one,two");
+    expect(unmounts.length).toBe(0);
+    expect(view.container.querySelectorAll('[role="tabpanel"]').length).toBe(1);
+    expect(textContent(view.getByRole("tabpanel"))).toBe("Retained one");
+    expect(view.container.querySelector('[data-app-shell-tabpanel-retained="two"]')?.hasAttribute("hidden")).toBeTrue();
+
+    view.rerender(renderTabs("two"));
+
+    expect(mounts.join(",")).toBe("one,two");
+    expect(unmounts.length).toBe(0);
+    expect(view.container.querySelectorAll('[role="tabpanel"]').length).toBe(1);
+    expect(textContent(view.getByRole("tabpanel"))).toBe("Retained two");
+    expect(view.container.querySelector('[data-app-shell-tabpanel-retained="one"]')?.hasAttribute("hidden")).toBeTrue();
+  });
+
+  test("keeps a retained preview mounted when promoted with the same id", () => {
+    const mounts: string[] = [];
+    const unmounts: string[] = [];
+    function FocusablePanel({ id }: { id: string }) {
+      useEffect(() => {
+        mounts.push(id);
+        return () => {
+          unmounts.push(id);
+        };
+      }, [id]);
+      return <input aria-label={`Editor ${id}`} />;
+    }
+    const makePromotionTabs = (preview: boolean): AppShellTabItem[] => [
+      {
+        id: "preview-card",
+        title: "Card",
+        keepMounted: true,
+        preview,
+        renderPanel: () => <FocusablePanel id="preview-card" />,
+      },
+    ];
+    const renderTabs = (tabs: AppShellTabItem[]) => (
+      <NodexTooltipProvider>
+        <AppShellTabs
+          tabs={tabs}
+          activeTabId="preview-card"
+          onSelect={() => undefined}
+        />
+      </NodexTooltipProvider>
+    );
+    const view = render(renderTabs(makePromotionTabs(true)));
+    const editor = view.getByLabelText("Editor preview-card") as HTMLInputElement;
+
+    editor.focus();
+    expect(document.activeElement).toBe(editor);
+    expect(mounts.join(",")).toBe("preview-card");
+    expect(unmounts.length).toBe(0);
+
+    view.rerender(renderTabs(makePromotionTabs(false)));
+
+    expect(document.activeElement).toBe(editor);
+    expect(mounts.join(",")).toBe("preview-card");
+    expect(unmounts.length).toBe(0);
+    expect(view.container.querySelectorAll('[role="tabpanel"]').length).toBe(1);
+    expect(view.container.querySelector('[data-app-shell-tabpanel-retained="preview-card"]')).toBe(null);
+  });
+
+  test("blurs focus left inside a hidden retained panel after active tab changes", () => {
+    const tabs: AppShellTabItem[] = [
+      {
+        id: "one",
+        title: "One",
+        keepMounted: true,
+        renderPanel: () => <input aria-label="Editor one" />,
+      },
+      {
+        id: "two",
+        title: "Two",
+        keepMounted: true,
+        renderPanel: () => <input aria-label="Editor two" />,
+      },
+    ];
+    const renderTabs = (activeTabId: string) => (
+      <NodexTooltipProvider>
+        <AppShellTabs
+          tabs={tabs}
+          activeTabId={activeTabId}
+          onSelect={() => undefined}
+        />
+      </NodexTooltipProvider>
+    );
+    const view = render(renderTabs("one"));
+    const firstEditor = view.getByLabelText("Editor one") as HTMLInputElement;
+
+    firstEditor.focus();
+    expect(document.activeElement).toBe(firstEditor);
+
+    view.rerender(renderTabs("two"));
+
+    expect(document.activeElement === firstEditor).toBeFalse();
+    expect(view.container.querySelector('[data-app-shell-tabpanel-retained="one"]')?.hasAttribute("hidden")).toBeTrue();
   });
 
   test("renders body overlays inside the tabpanel instead of the tab header", () => {

@@ -34,6 +34,7 @@ export interface CardStageProps {
   closeRef?: MutableRefObject<(() => Promise<void>) | null>;
   persistRef?: MutableRefObject<(() => Promise<void>) | null>;
   sessionSnapshotRef?: MutableRefObject<CardStageSessionSnapshot | null>;
+  isActivePanelTab?: boolean;
   card: Card | null;
   columnId: string;
   columnName: string;

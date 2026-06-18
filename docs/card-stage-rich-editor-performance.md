@@ -192,6 +192,10 @@ Opening another card while a Card Stage is already active must close or persist 
 
 This prevents a pending editor change from being dropped when the active card changes and the editor receives new external content.
 
+Durable Card Stage panel tabs stay mounted while their panel leaf stays mounted, so switching between card tabs with focused panel-tab shortcuts preserves the BlockNote/ProseMirror editor instance, cursor, undo stack, and plugin state. Deactivating a Card Stage must call the same persist path used by close flows, but it must not call `onLeaveCard` or close the tab. Only the active Card Stage may publish shared `closeRef`, `persistRef`, and session-snapshot refs; inactive retained stages must stay hidden and ref-passive.
+
+Preview-to-durable Card Stage promotion reuses the preview tab id. Treat that as the same editor identity: the promotion must not blur the NFM editor, remount the panel body, or clear ProseMirror selection. Active Card Stage previews should use the same retained panel wrapper as durable Card Stage tabs while they remain the renderer-local preview; switching away still clears the preview instead of keeping preview bodies around. Focus cleanup belongs at the tab-shell boundary and should only blur focus stranded inside hidden retained panels after the active tab id actually changes.
+
 ## Persistence Timing
 
 There are two separate timing layers:
@@ -213,6 +217,8 @@ The first layer keeps typing responsive. The second layer limits backend/storage
 - Card Stage save/has-changes logic must read the latest description ref, not stale React state.
 - Save requests must not clear freeform dirty flags until the returned card matches the current draft.
 - Active Card Stage editors must not use board-summary revision changes to automatically rehydrate and replace the full description.
+- Durable Card Stage tab switches must not remount the retained editor body while the tab remains open in the mounted panel leaf.
+- Preview-to-durable Card Stage promotion must preserve focus and selection because it keeps the same client tab id and retained wrapper identity.
 - Freeform text edits must not call `onPatch`.
 - Kanban preview overlays must remain scoped by project/card.
 - Card Stage must not consume its own merged draft overlay through props.
@@ -235,6 +241,8 @@ Card Stage behavior is covered by `use-card-stage-controller.test.tsx` and compo
 - description drafts stay local and do not call `onPatch`
 - description save-in-flight keeps stale card props from replacing the local draft
 - conflict overwrite flushes and sends the current editor description
+- panel-tab deactivation flushes and persists pending description content
+- inactive retained Card Stages do not own shared close/persist/session refs
 - equal external content does not trigger an editor document replacement
 - scoped draft overlays still update matching Kanban previews
 - `CardStage` passes the flush handle into `NfmEditor`

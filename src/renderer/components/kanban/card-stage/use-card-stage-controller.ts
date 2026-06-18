@@ -262,6 +262,7 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
     onOpenNewCodexThread,
     onOpenLocalEnvironmentSettings,
     historyPanelActive = false,
+    isActivePanelTab = true,
   } = props;
 
   const [title, setTitle] = useState("");
@@ -312,6 +313,7 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
   const descriptionFlushHandleRef = useRef<CardStageDescriptionFlushHandle | null>(null);
   const prevRestoreCardRef = useRef<string | null>(null);
   const scrollSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const previousActivePanelTabRef = useRef(isActivePanelTab);
   const draftDirtyRef = useRef<DraftDirtyState>({
     title: false,
     description: false,
@@ -967,28 +969,42 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
   }, [card, handlePersist, onClose, onLeaveCard, projectId, title]);
 
   useEffect(() => {
-    if (!closeRef) return;
+    if (!closeRef || !isActivePanelTab) return;
     closeRef.current = handleClose;
     return () => {
-      closeRef.current = null;
+      if (closeRef.current === handleClose) {
+        closeRef.current = null;
+      }
     };
-  }, [closeRef, handleClose]);
+  }, [closeRef, handleClose, isActivePanelTab]);
 
   useEffect(() => {
-    if (!persistRef) return;
+    if (!persistRef || !isActivePanelTab) return;
     persistRef.current = handlePersist;
     return () => {
-      persistRef.current = null;
+      if (persistRef.current === handlePersist) {
+        persistRef.current = null;
+      }
     };
-  }, [persistRef, handlePersist]);
+  }, [persistRef, handlePersist, isActivePanelTab]);
 
   useEffect(() => {
-    if (!sessionSnapshotRef) return;
-    sessionSnapshotRef.current = buildCardStageSessionSnapshot(projectId, card, title);
+    if (!sessionSnapshotRef || !isActivePanelTab) return;
+    const snapshot = buildCardStageSessionSnapshot(projectId, card, title);
+    sessionSnapshotRef.current = snapshot;
     return () => {
-      sessionSnapshotRef.current = null;
+      if (sessionSnapshotRef.current === snapshot) {
+        sessionSnapshotRef.current = null;
+      }
     };
-  }, [card, projectId, sessionSnapshotRef, title]);
+  }, [card, isActivePanelTab, projectId, sessionSnapshotRef, title]);
+
+  useEffect(() => {
+    const wasActive = previousActivePanelTabRef.current;
+    previousActivePanelTabRef.current = isActivePanelTab;
+    if (!wasActive || isActivePanelTab) return;
+    void handlePersist();
+  }, [handlePersist, isActivePanelTab]);
 
   const handleDelete = useCallback(async () => {
     if (!card) return;

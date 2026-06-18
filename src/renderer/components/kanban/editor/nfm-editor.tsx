@@ -205,6 +205,7 @@ interface NfmEditorProps {
     prompt: string;
     promptInput?: CodexPromptInput;
   }) => Promise<void>;
+  isActivePanelTab?: boolean;
   placeholder?: string;
   className?: string;
 }
@@ -462,6 +463,7 @@ export function NfmEditor({
   onOpenCodexThread,
   onStartThreadSection,
   onSendThreadSectionPrompt,
+  isActivePanelTab = true,
   placeholder = "Add a description...",
   className,
 }: NfmEditorProps) {
@@ -840,6 +842,17 @@ export function NfmEditor({
       editor?.focus();
     });
   }, [editor]);
+  const previousActivePanelTabRef = useRef(isActivePanelTab);
+
+  useEffect(() => {
+    const wasActive = previousActivePanelTabRef.current;
+    previousActivePanelTabRef.current = isActivePanelTab;
+
+    if (!isActivePanelTab) return;
+    if (wasActive) return;
+
+    restoreEditorFocus();
+  }, [editor, isActivePanelTab, restoreEditorFocus]);
 
   const prepareThreadSectionSend = useCallback(async (blockId: string) => {
     if (!editor) return null;

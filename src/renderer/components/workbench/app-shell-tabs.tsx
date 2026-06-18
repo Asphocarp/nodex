@@ -52,7 +52,11 @@ export interface AppShellTabItem {
   titleLabel?: string;
   tooltip?: ReactNode;
   contextMenuItems?: AppShellTabContextMenuItem[];
-  renderPanel: (closeTab: () => void) => ReactNode;
+  renderPanel: (closeTab: () => void, context: AppShellTabPanelRenderContext) => ReactNode;
+}
+
+export interface AppShellTabPanelRenderContext {
+  active: boolean;
 }
 
 function makeAppShellTabAccessibleLabel(tab: AppShellTabItem): string {
@@ -173,6 +177,15 @@ export function AppShellTabs({
   const dndSessionId = panelTabDnd?.sessionId;
   const dndPanelId = panelTabDnd?.panelId;
   const dndLeafId = panelTabDnd?.leafId;
+  const retainedTabs = tabs.filter((tab) => tab.keepMounted === true);
+  const activeTabIsRetained = activeTab?.keepMounted === true;
+  const activeTabDomId = activeTab?.id ?? null;
+  const previousActiveTabIdRef = useRef(activeTabDomId);
+  const panelTabs = activeTab
+    ? activeTabIsRetained
+      ? retainedTabs
+      : [activeTab, ...retainedTabs]
+    : [];
 
   useEffect(() => {
     if (!dndSessionId || !dndPanelId || !dndLeafId) return undefined;
@@ -206,6 +219,19 @@ export function AppShellTabs({
     };
   }, []);
 
+  useLayoutEffect(() => {
+    const previousActiveTabId = previousActiveTabIdRef.current;
+    previousActiveTabIdRef.current = activeTabDomId;
+    if (!previousActiveTabId || previousActiveTabId === activeTabDomId) return;
+
+    const activeElement = document.activeElement;
+    if (!(activeElement instanceof HTMLElement)) return;
+    if (!bodyRef.current?.contains(activeElement)) return;
+    if (!activeElement.closest("[hidden], [aria-hidden='true']")) return;
+
+    activeElement.blur();
+  }, [activeTabDomId]);
+
   useEffect(() => {
     if (!dndSessionId || !dndPanelId || !dndLeafId) return undefined;
     const element = bodyRef.current;
@@ -236,6 +262,29 @@ export function AppShellTabs({
     if (!activeTab?.preview) return;
     if (isPreviewPinSuppressedTarget(event.target)) return;
     pinTab(activeTab.id);
+  };
+
+  const renderPanel = (tab: AppShellTabItem, isActive: boolean, retained: boolean) => {
+    const panelId = makeTabPanelId(controllerId, tab.id);
+
+    return (
+      <div
+        key={`panel:${tab.id}`}
+        role={isActive ? "tabpanel" : undefined}
+        id={isActive ? panelId : undefined}
+        aria-label={isActive ? makeAppShellTabAccessibleLabel(tab) : undefined}
+        aria-hidden={isActive ? undefined : "true"}
+        hidden={isActive ? undefined : true}
+        data-app-shell-tabpanel-preview={isActive && tab.preview ? "true" : undefined}
+        data-app-shell-tabpanel-retained={!isActive && retained ? tab.id : undefined}
+        className={cn("relative h-full min-h-0", !isActive && "hidden")}
+        onPointerDownCapture={isActive ? pinPreviewTabFromPanelEvent : undefined}
+        onKeyDownCapture={isActive ? pinPreviewTabFromPanelEvent : undefined}
+      >
+        {isActive ? bodyOverlay : null}
+        {tab.renderPanel(() => closeTab(tab.id), { active: isActive })}
+      </div>
+    );
   };
 
   const tabList = (
@@ -326,33 +375,10 @@ export function AppShellTabs({
         </div>
 
         {activeTab ? (
-          <div
-            ref={bodyRef}
-            role="tabpanel"
-            id={activePanelId}
-            aria-label={makeAppShellTabAccessibleLabel(activeTab)}
-            data-app-shell-tabpanel-preview={activeTab.preview ? "true" : undefined}
-            className="relative min-h-0 flex-1"
-            onPointerDownCapture={pinPreviewTabFromPanelEvent}
-            onKeyDownCapture={pinPreviewTabFromPanelEvent}
-          >
-            {bodyOverlay}
-            {activeTab.renderPanel(() => closeTab(activeTab.id))}
+          <div ref={bodyRef} className="relative min-h-0 flex-1">
+            {panelTabs.map((tab) => renderPanel(tab, tab.id === activeTab.id, tab.keepMounted === true))}
           </div>
         ) : null}
-        {tabs
-          .filter((tab) => tab.keepMounted === true && tab.id !== activeTab?.id)
-          .map((tab) => (
-            <div
-              key={`hidden:${tab.id}`}
-              aria-hidden="true"
-              hidden
-              data-app-shell-tabpanel-retained={tab.id}
-              className="hidden"
-            >
-              {tab.renderPanel(() => closeTab(tab.id))}
-            </div>
-          ))}
       </div>
     </NodexTooltipProvider>
   );
