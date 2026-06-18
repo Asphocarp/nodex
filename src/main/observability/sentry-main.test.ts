@@ -13,12 +13,18 @@ function buildSettings(overrides: Partial<DiagnosticsSettings> = {}): Diagnostic
     environment: "test",
     release: "nodex@test",
     tracesSampleRate: 0,
+    replayEnabled: false,
+    replaysSessionSampleRate: 0.1,
+    replaysOnErrorSampleRate: 1,
     envOverrides: {
       enabled: false,
       dsn: false,
       environment: false,
       release: false,
       tracesSampleRate: false,
+      replayEnabled: false,
+      replaysSessionSampleRate: false,
+      replaysOnErrorSampleRate: false,
     },
     ...overrides,
   };

@@ -36,12 +36,18 @@ function buildDiagnosticsSettings(overrides: Partial<DiagnosticsSettings> = {}):
     environment: "production",
     release: null,
     tracesSampleRate: 0,
+    replayEnabled: false,
+    replaysSessionSampleRate: 0.1,
+    replaysOnErrorSampleRate: 1,
     envOverrides: {
       enabled: false,
       dsn: false,
       environment: false,
       release: false,
       tracesSampleRate: false,
+      replayEnabled: false,
+      replaysSessionSampleRate: false,
+      replaysOnErrorSampleRate: false,
     },
     ...overrides,
   };
@@ -107,6 +113,9 @@ describe("SettingsRouteShell backups", () => {
             environment: input.environment,
             release: input.release,
             tracesSampleRate: input.tracesSampleRate,
+            replayEnabled: input.replayEnabled,
+            replaysSessionSampleRate: input.replaysSessionSampleRate,
+            replaysOnErrorSampleRate: input.replaysOnErrorSampleRate,
           };
           return diagnosticsSettings;
         }
@@ -137,16 +146,34 @@ describe("SettingsRouteShell backups", () => {
 
     view.getByText("Crash reports are off.");
     const toggle = view.getByText("Share crash reports").parentElement?.querySelector("[role='switch']");
+    const replayToggle = view.getByText("Share session replays").parentElement?.querySelector("[role='switch']");
     expect(toggle).not.toBeNull();
+    expect(replayToggle).not.toBeNull();
     expect(toggle?.getAttribute("aria-checked")).toBe("false");
+    expect((replayToggle as HTMLButtonElement | null)?.disabled ?? false).toBeTrue();
+    view.getByText("Session replays require crash reports.");
 
     fireEvent.click(toggle as Element);
     await settleAsyncRender();
 
     expect(diagnosticsUpdates.length).toBe(1);
     expect(diagnosticsUpdates[0]?.enabled).toBeTrue();
+    expect(diagnosticsUpdates[0]?.replayEnabled).toBeFalse();
     expect(toggle?.getAttribute("aria-checked")).toBe("true");
     view.getByText("Crash reports are enabled after restart.");
+    view.getByText("Session replays are off.");
+
+    const enabledReplayToggle = view.getByText("Share session replays").parentElement?.querySelector("[role='switch']");
+    expect(enabledReplayToggle).not.toBeNull();
+    expect((enabledReplayToggle as HTMLButtonElement | null)?.disabled ?? false).toBeFalse();
+
+    fireEvent.click(enabledReplayToggle as Element);
+    await settleAsyncRender();
+
+    expect(diagnosticsUpdates.length).toBe(2);
+    expect(diagnosticsUpdates[1]?.enabled).toBeTrue();
+    expect(diagnosticsUpdates[1]?.replayEnabled).toBeTrue();
+    view.getByText("Session replays are enabled after restart.");
   });
 
   test("shows disabled diagnostics control when env overrides the toggle", async () => {
@@ -158,6 +185,9 @@ describe("SettingsRouteShell backups", () => {
         environment: false,
         release: false,
         tracesSampleRate: false,
+        replayEnabled: false,
+        replaysSessionSampleRate: false,
+        replaysOnErrorSampleRate: false,
       },
     });
     const diagnosticsUpdates: UpdateDiagnosticsSettingsInput[] = [];

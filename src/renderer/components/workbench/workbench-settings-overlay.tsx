@@ -80,6 +80,7 @@ import type {
   HistorySettings,
   ManagedWorktreeRecord,
   Project,
+  UpdateDiagnosticsSettingsInput,
   WorktreeStartMode,
   CodexPermissionState,
   CodexThreadDetailLevel,
@@ -133,12 +134,18 @@ const DEFAULT_DIAGNOSTICS_SETTINGS: DiagnosticsSettings = {
   environment: "production",
   release: null,
   tracesSampleRate: 0,
+  replayEnabled: false,
+  replaysSessionSampleRate: 0.1,
+  replaysOnErrorSampleRate: 1,
   envOverrides: {
     enabled: false,
     dsn: false,
     environment: false,
     release: false,
     tracesSampleRate: false,
+    replayEnabled: false,
+    replaysSessionSampleRate: false,
+    replaysOnErrorSampleRate: false,
   },
 };
 
@@ -470,7 +477,27 @@ function hasDiagnosticsEnvOverride(settings: DiagnosticsSettings): boolean {
     || settings.envOverrides.dsn
     || settings.envOverrides.environment
     || settings.envOverrides.release
-    || settings.envOverrides.tracesSampleRate;
+    || settings.envOverrides.tracesSampleRate
+    || settings.envOverrides.replayEnabled
+    || settings.envOverrides.replaysSessionSampleRate
+    || settings.envOverrides.replaysOnErrorSampleRate;
+}
+
+function toDiagnosticsUpdateInput(
+  settings: DiagnosticsSettings,
+  overrides: Partial<UpdateDiagnosticsSettingsInput>,
+): UpdateDiagnosticsSettingsInput {
+  return {
+    enabled: settings.enabled,
+    dsn: settings.dsn,
+    environment: settings.environment,
+    release: settings.release,
+    tracesSampleRate: settings.tracesSampleRate,
+    replayEnabled: settings.replayEnabled,
+    replaysSessionSampleRate: settings.replaysSessionSampleRate,
+    replaysOnErrorSampleRate: settings.replaysOnErrorSampleRate,
+    ...overrides,
+  };
 }
 
 function DiagnosticsSettingControl({ open }: { open: boolean }) {
@@ -507,13 +534,34 @@ function DiagnosticsSettingControl({ open }: { open: boolean }) {
     setError(null);
 
     try {
-      const result = await invoke("settings:diagnostics:update", {
-        enabled,
-        dsn: settings.dsn,
-        environment: settings.environment,
-        release: settings.release,
-        tracesSampleRate: settings.tracesSampleRate,
-      });
+      const result = await invoke(
+        "settings:diagnostics:update",
+        toDiagnosticsUpdateInput(settings, { enabled }),
+      );
+      if (!isDiagnosticsSettings(result)) {
+        throw new Error("Could not save diagnostics settings.");
+      }
+      setSettings(result);
+    } catch (err) {
+      setSettings(previous);
+      setError(err instanceof Error ? err.message : "Could not save diagnostics settings.");
+    } finally {
+      setBusy(false);
+    }
+  }, [settings]);
+
+  const handleReplayEnabledChange = useCallback(async (replayEnabled: boolean) => {
+    const previous = settings;
+    const nextSettings = { ...settings, replayEnabled };
+    setSettings(nextSettings);
+    setBusy(true);
+    setError(null);
+
+    try {
+      const result = await invoke(
+        "settings:diagnostics:update",
+        toDiagnosticsUpdateInput(settings, { replayEnabled }),
+      );
       if (!isDiagnosticsSettings(result)) {
         throw new Error("Could not save diagnostics settings.");
       }
@@ -532,23 +580,53 @@ function DiagnosticsSettingControl({ open }: { open: boolean }) {
     : settings.enabled
       ? "Crash reports are enabled after restart."
       : "Crash reports are off.";
+  const replaySummary = settings.envOverrides.replayEnabled
+    ? "Session Replay is managed by NODEX_SENTRY_REPLAY_ENABLED."
+    : !settings.enabled
+      ? "Session replays require crash reports."
+      : settings.replayEnabled
+        ? "Session replays are enabled after restart."
+        : "Session replays are off.";
+  const replayDisabled =
+    busy
+    || !settings.enabled
+    || settings.envOverrides.replayEnabled;
 
   return (
-    <div className="flex max-w-80 flex-col items-end gap-1 text-right">
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-(--foreground-secondary)">
-          Share crash reports
-        </span>
-        <TogglePill
-          value={settings.enabled}
-          disabled={busy || settings.envOverrides.enabled}
-          onChange={(enabled) => {
-            void handleEnabledChange(enabled);
-          }}
-        />
+    <div className="flex max-w-80 flex-col items-end gap-2 text-right">
+      <div className="flex flex-col items-end gap-1">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-(--foreground-secondary)">
+            Share crash reports
+          </span>
+          <TogglePill
+            value={settings.enabled}
+            disabled={busy || settings.envOverrides.enabled}
+            onChange={(enabled) => {
+              void handleEnabledChange(enabled);
+            }}
+          />
+        </div>
+        <div className="max-w-72 text-xs text-(--foreground-secondary)">
+          {hasEnvOverride ? `${summary} Environment overrides are active.` : summary}
+        </div>
       </div>
-      <div className="max-w-72 text-xs text-(--foreground-secondary)">
-        {hasEnvOverride ? `${summary} Environment overrides are active.` : summary}
+      <div className="flex flex-col items-end gap-1">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-(--foreground-secondary)">
+            Share session replays
+          </span>
+          <TogglePill
+            value={settings.replayEnabled && settings.enabled}
+            disabled={replayDisabled}
+            onChange={(replayEnabled) => {
+              void handleReplayEnabledChange(replayEnabled);
+            }}
+          />
+        </div>
+        <div className="max-w-72 text-xs text-(--foreground-secondary)">
+          {replaySummary}
+        </div>
       </div>
       {error ? (
         <span className="max-w-72 text-xs text-(--red-text)">
@@ -1790,7 +1868,7 @@ function GeneralSettingsPage({
         </SettingRow>
         <SettingRow
           label="Diagnostics"
-          description="Optionally send crash diagnostics to Sentry. Prompts, transcripts, card text, and local payloads are scrubbed before upload."
+          description="Optionally send crash diagnostics and masked session replays to Sentry. Prompts, transcripts, card text, and local payloads are scrubbed before upload."
         >
           <DiagnosticsSettingControl open={open} />
         </SettingRow>

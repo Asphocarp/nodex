@@ -5,20 +5,30 @@ import {
   resetRendererSentryForTests,
 } from "./sentry-renderer";
 
-function buildSettings(enabled: boolean): DiagnosticsSettings {
+function buildSettings(
+  enabled: boolean,
+  overrides: Partial<DiagnosticsSettings> = {},
+): DiagnosticsSettings {
   return {
     enabled,
     dsn: enabled ? "https://example.com/1" : "",
     environment: "test",
     release: null,
     tracesSampleRate: 0,
+    replayEnabled: false,
+    replaysSessionSampleRate: 0.1,
+    replaysOnErrorSampleRate: 1,
     envOverrides: {
       enabled: false,
       dsn: false,
       environment: false,
       release: false,
       tracesSampleRate: false,
+      replayEnabled: false,
+      replaysSessionSampleRate: false,
+      replaysOnErrorSampleRate: false,
     },
+    ...overrides,
   };
 }
 
@@ -37,6 +47,7 @@ describe("renderer Sentry diagnostics", () => {
         init: () => {
           initCount += 1;
         },
+        replayIntegration: () => ({}),
         setTag: () => {},
       },
     });
@@ -58,6 +69,7 @@ describe("renderer Sentry diagnostics", () => {
         getSettings: async () => buildSettings(false),
         adapter: {
           init: () => {},
+          replayIntegration: () => ({}),
           setTag: () => {},
         },
       });
@@ -87,6 +99,7 @@ describe("renderer Sentry diagnostics", () => {
           init: () => {
             initCount += 1;
           },
+          replayIntegration: () => ({}),
           setTag: () => {},
         },
       });
@@ -108,6 +121,7 @@ describe("renderer Sentry diagnostics", () => {
         init: (options) => {
           initOptions.push(options);
         },
+        replayIntegration: () => ({}),
         setTag: (key, value) => {
           if (key === "process") processTag = value;
         },
@@ -117,6 +131,42 @@ describe("renderer Sentry diagnostics", () => {
     expect(initialized).toBeTrue();
     expect(initOptions[0]?.sendDefaultPii).toBeFalse();
     expect(initOptions[0]?.attachScreenshot).toBeFalse();
+    expect(initOptions[0]?.integrations).toBe(undefined);
     expect(processTag).toBe("renderer");
+  });
+
+  test("adds strict Session Replay integration when replay is enabled", async () => {
+    process.env.NODEX_SENTRY_FORCE_TEST = "1";
+    const replayToken = { name: "Replay" };
+    const initOptions: Record<string, unknown>[] = [];
+    const replayOptions: Record<string, unknown>[] = [];
+    const initialized = await initializeRendererSentry({
+      getSettings: async () =>
+        buildSettings(true, {
+          replayEnabled: true,
+          replaysSessionSampleRate: 0.1,
+          replaysOnErrorSampleRate: 1,
+        }),
+      adapter: {
+        init: (options) => {
+          initOptions.push(options);
+        },
+        replayIntegration: (options) => {
+          replayOptions.push(options);
+          return replayToken;
+        },
+        setTag: () => {},
+      },
+    });
+
+    const integrations = initOptions[0]?.integrations as unknown[] | undefined;
+    expect(initialized).toBeTrue();
+    expect(replayOptions[0]?.maskAllText).toBeTrue();
+    expect(replayOptions[0]?.maskAllInputs).toBeTrue();
+    expect(replayOptions[0]?.blockAllMedia).toBeTrue();
+    expect(integrations?.length).toBe(1);
+    expect(integrations?.[0]).toBe(replayToken);
+    expect(initOptions[0]?.replaysSessionSampleRate).toBe(0.1);
+    expect(initOptions[0]?.replaysOnErrorSampleRate).toBe(1);
   });
 });

@@ -7,12 +7,18 @@ const VALID_SETTINGS = {
   environment: "test",
   release: null,
   tracesSampleRate: 0,
+  replayEnabled: true,
+  replaysSessionSampleRate: 0.1,
+  replaysOnErrorSampleRate: 1,
   envOverrides: {
     enabled: false,
     dsn: false,
     environment: false,
     release: false,
     tracesSampleRate: false,
+    replayEnabled: false,
+    replaysSessionSampleRate: false,
+    replaysOnErrorSampleRate: false,
   },
 };
 
@@ -39,6 +45,18 @@ describe("diagnostics settings guard", () => {
     expect(isDiagnosticsSettings({
       ...VALID_SETTINGS,
       tracesSampleRate: 1.1,
+    })).toBeFalse();
+  });
+
+  test("rejects invalid replay sample rates", () => {
+    expect(isDiagnosticsSettings({
+      ...VALID_SETTINGS,
+      replaysSessionSampleRate: Number.POSITIVE_INFINITY,
+    })).toBeFalse();
+
+    expect(isDiagnosticsSettings({
+      ...VALID_SETTINGS,
+      replaysOnErrorSampleRate: -0.1,
     })).toBeFalse();
   });
 });

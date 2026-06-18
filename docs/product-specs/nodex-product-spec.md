@@ -1091,6 +1091,9 @@ SENTRY_DSN=...                   # Override the Sentry DSN
 SENTRY_ENVIRONMENT=production    # Override diagnostics environment
 SENTRY_RELEASE=nodex@0.1.10      # Override diagnostics release
 NODEX_SENTRY_TRACES_SAMPLE_RATE=0 # Performance trace sample rate, 0..1
+NODEX_SENTRY_REPLAY_ENABLED=false # Enable opt-in renderer Session Replay (default: false)
+NODEX_SENTRY_REPLAYS_SESSION_SAMPLE_RATE=0.1 # Full-session replay sample rate, 0..1
+NODEX_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE=1 # Error-session replay sample rate, 0..1
 ```
 
 These can also be set via the `[server]` section in config.toml. Env vars override TOML values.
@@ -1099,7 +1102,7 @@ In the desktop app, Settings -> Backups updates `~/.nodex/config.toml` `[server]
 
 In the desktop app, Settings -> General -> `App updates` updates the user-level `~/.nodex/config.toml` `[server].app_updates_auto_check_enabled` flag. Browser mode and unpackaged/non-macOS runtimes report updater support as unavailable and do not perform background checks.
 
-In the desktop app, Settings -> General -> `Diagnostics` updates user-level `[server]` fields for `diagnostics_enabled`, `diagnostics_dsn`, `diagnostics_environment`, and `diagnostics_traces_sample_rate`. Diagnostics are disabled by default; when enabled without an explicit DSN, Nodex uses its bundled Sentry project DSN. Env overrides win and the UI disables overridden controls.
+In the desktop app, Settings -> General -> `Diagnostics` updates user-level `[server]` fields for `diagnostics_enabled`, `diagnostics_dsn`, `diagnostics_environment`, `diagnostics_traces_sample_rate`, `diagnostics_replay_enabled`, `diagnostics_replays_session_sample_rate`, and `diagnostics_replays_on_error_sample_rate`. Diagnostics and Session Replay are disabled by default; Replay is a separate renderer-only opt-in that only runs when crash diagnostics are also enabled. When diagnostics are enabled without an explicit DSN, Nodex uses its bundled Sentry project DSN. Env overrides win and the UI disables overridden controls.
 
 ### Agent Environment Variables
 ```bash

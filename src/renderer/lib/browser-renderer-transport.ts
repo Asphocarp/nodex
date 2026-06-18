@@ -764,12 +764,18 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         environment: "browser",
         release: null,
         tracesSampleRate: 0,
+        replayEnabled: false,
+        replaysSessionSampleRate: 0.1,
+        replaysOnErrorSampleRate: 1,
         envOverrides: {
           enabled: false,
           dsn: false,
           environment: false,
           release: false,
           tracesSampleRate: false,
+          replayEnabled: false,
+          replaysSessionSampleRate: false,
+          replaysOnErrorSampleRate: false,
         },
       };
     }
@@ -780,6 +786,9 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         environment?: string;
         release?: string | null;
         tracesSampleRate?: number;
+        replayEnabled?: boolean;
+        replaysSessionSampleRate?: number;
+        replaysOnErrorSampleRate?: number;
       }];
       return {
         enabled: input.enabled === true,
@@ -787,12 +796,18 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         environment: input.environment ?? "browser",
         release: input.release ?? null,
         tracesSampleRate: input.tracesSampleRate ?? 0,
+        replayEnabled: input.replayEnabled === true,
+        replaysSessionSampleRate: input.replaysSessionSampleRate ?? 0.1,
+        replaysOnErrorSampleRate: input.replaysOnErrorSampleRate ?? 1,
         envOverrides: {
           enabled: false,
           dsn: false,
           environment: false,
           release: false,
           tracesSampleRate: false,
+          replayEnabled: false,
+          replaysSessionSampleRate: false,
+          replaysOnErrorSampleRate: false,
         },
       };
     }

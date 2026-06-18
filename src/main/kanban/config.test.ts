@@ -15,6 +15,11 @@ const ORIGINAL_BACKUP_ENV = {
   sentryEnvironment: process.env.SENTRY_ENVIRONMENT,
   sentryRelease: process.env.SENTRY_RELEASE,
   sentryTracesSampleRate: process.env.NODEX_SENTRY_TRACES_SAMPLE_RATE,
+  sentryReplayEnabled: process.env.NODEX_SENTRY_REPLAY_ENABLED,
+  sentryReplaysSessionSampleRate:
+    process.env.NODEX_SENTRY_REPLAYS_SESSION_SAMPLE_RATE,
+  sentryReplaysOnErrorSampleRate:
+    process.env.NODEX_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE,
 };
 
 async function importConfigModule() {
@@ -32,6 +37,9 @@ function clearBackupEnv(): void {
   delete process.env.SENTRY_ENVIRONMENT;
   delete process.env.SENTRY_RELEASE;
   delete process.env.NODEX_SENTRY_TRACES_SAMPLE_RATE;
+  delete process.env.NODEX_SENTRY_REPLAY_ENABLED;
+  delete process.env.NODEX_SENTRY_REPLAYS_SESSION_SAMPLE_RATE;
+  delete process.env.NODEX_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE;
 }
 
 function restoreProcessState(): void {
@@ -87,6 +95,23 @@ function restoreProcessState(): void {
     delete process.env.NODEX_SENTRY_TRACES_SAMPLE_RATE;
   } else {
     process.env.NODEX_SENTRY_TRACES_SAMPLE_RATE = ORIGINAL_BACKUP_ENV.sentryTracesSampleRate;
+  }
+  if (ORIGINAL_BACKUP_ENV.sentryReplayEnabled === undefined) {
+    delete process.env.NODEX_SENTRY_REPLAY_ENABLED;
+  } else {
+    process.env.NODEX_SENTRY_REPLAY_ENABLED = ORIGINAL_BACKUP_ENV.sentryReplayEnabled;
+  }
+  if (ORIGINAL_BACKUP_ENV.sentryReplaysSessionSampleRate === undefined) {
+    delete process.env.NODEX_SENTRY_REPLAYS_SESSION_SAMPLE_RATE;
+  } else {
+    process.env.NODEX_SENTRY_REPLAYS_SESSION_SAMPLE_RATE =
+      ORIGINAL_BACKUP_ENV.sentryReplaysSessionSampleRate;
+  }
+  if (ORIGINAL_BACKUP_ENV.sentryReplaysOnErrorSampleRate === undefined) {
+    delete process.env.NODEX_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE;
+  } else {
+    process.env.NODEX_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE =
+      ORIGINAL_BACKUP_ENV.sentryReplaysOnErrorSampleRate;
   }
 }
 
@@ -328,11 +353,17 @@ describe("diagnostics settings config", () => {
       expect(settings.environment).toBe("production");
       expect(settings.release).toBe(null);
       expect(settings.tracesSampleRate).toBe(0);
+      expect(settings.replayEnabled).toBeFalse();
+      expect(settings.replaysSessionSampleRate).toBe(0.1);
+      expect(settings.replaysOnErrorSampleRate).toBe(1);
       expect(settings.envOverrides.enabled).toBeFalse();
       expect(settings.envOverrides.dsn).toBeFalse();
       expect(settings.envOverrides.environment).toBeFalse();
       expect(settings.envOverrides.release).toBeFalse();
       expect(settings.envOverrides.tracesSampleRate).toBeFalse();
+      expect(settings.envOverrides.replayEnabled).toBeFalse();
+      expect(settings.envOverrides.replaysSessionSampleRate).toBeFalse();
+      expect(settings.envOverrides.replaysOnErrorSampleRate).toBeFalse();
     });
   });
 
@@ -345,6 +376,9 @@ describe("diagnostics settings config", () => {
         environment: "staging",
         release: "nodex@test",
         tracesSampleRate: 0.2,
+        replayEnabled: true,
+        replaysSessionSampleRate: 0.4,
+        replaysOnErrorSampleRate: 1,
       });
 
       expect(updated.enabled).toBeTrue();
@@ -352,6 +386,9 @@ describe("diagnostics settings config", () => {
       expect(updated.environment).toBe("staging");
       expect(updated.release).toBe("nodex@test");
       expect(updated.tracesSampleRate).toBe(0.2);
+      expect(updated.replayEnabled).toBeTrue();
+      expect(updated.replaysSessionSampleRate).toBe(0.4);
+      expect(updated.replaysOnErrorSampleRate).toBe(1);
 
       const configPath = path.join(tempHome, ".nodex", "config.toml");
       const written = fs.readFileSync(configPath, "utf8");
@@ -359,6 +396,9 @@ describe("diagnostics settings config", () => {
       expect(written.includes('diagnostics_environment = "staging"')).toBeTrue();
       expect(written.includes('diagnostics_release = "nodex@test"')).toBeTrue();
       expect(written.includes("diagnostics_traces_sample_rate = 0.2")).toBeTrue();
+      expect(written.includes("diagnostics_replay_enabled = true")).toBeTrue();
+      expect(written.includes("diagnostics_replays_session_sample_rate = 0.4")).toBeTrue();
+      expect(written.includes("diagnostics_replays_on_error_sample_rate = 1")).toBeTrue();
     });
   });
 
@@ -369,6 +409,9 @@ describe("diagnostics settings config", () => {
       process.env.SENTRY_ENVIRONMENT = "qa";
       process.env.SENTRY_RELEASE = "nodex@env";
       process.env.NODEX_SENTRY_TRACES_SAMPLE_RATE = "0.7";
+      process.env.NODEX_SENTRY_REPLAY_ENABLED = "true";
+      process.env.NODEX_SENTRY_REPLAYS_SESSION_SAMPLE_RATE = "0.8";
+      process.env.NODEX_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE = "0.9";
 
       const config = await importConfigModule();
       const updated = config.updateDiagnosticsSettings({
@@ -377,6 +420,9 @@ describe("diagnostics settings config", () => {
         environment: "staging",
         release: "nodex@config",
         tracesSampleRate: 0.2,
+        replayEnabled: false,
+        replaysSessionSampleRate: 0.3,
+        replaysOnErrorSampleRate: 0.4,
       });
 
       expect(updated.enabled).toBeTrue();
@@ -384,11 +430,17 @@ describe("diagnostics settings config", () => {
       expect(updated.environment).toBe("qa");
       expect(updated.release).toBe("nodex@env");
       expect(updated.tracesSampleRate).toBe(0.7);
+      expect(updated.replayEnabled).toBeTrue();
+      expect(updated.replaysSessionSampleRate).toBe(0.8);
+      expect(updated.replaysOnErrorSampleRate).toBe(0.9);
       expect(updated.envOverrides.enabled).toBeTrue();
       expect(updated.envOverrides.dsn).toBeTrue();
       expect(updated.envOverrides.environment).toBeTrue();
       expect(updated.envOverrides.release).toBeTrue();
       expect(updated.envOverrides.tracesSampleRate).toBeTrue();
+      expect(updated.envOverrides.replayEnabled).toBeTrue();
+      expect(updated.envOverrides.replaysSessionSampleRate).toBeTrue();
+      expect(updated.envOverrides.replaysOnErrorSampleRate).toBeTrue();
 
       const configPath = path.join(tempHome, ".nodex", "config.toml");
       const written = fs.readFileSync(configPath, "utf8");
@@ -397,6 +449,48 @@ describe("diagnostics settings config", () => {
       expect(written.includes('diagnostics_environment = "staging"')).toBeTrue();
       expect(written.includes('diagnostics_release = "nodex@config"')).toBeTrue();
       expect(written.includes("diagnostics_traces_sample_rate = 0.2")).toBeTrue();
+      expect(written.includes("diagnostics_replay_enabled = false")).toBeTrue();
+      expect(written.includes("diagnostics_replays_session_sample_rate = 0.3")).toBeTrue();
+      expect(written.includes("diagnostics_replays_on_error_sample_rate = 0.4")).toBeTrue();
+    });
+  });
+
+  test("rejects invalid diagnostics replay sample rates", async () => {
+    await withTempConfigFixture(async () => {
+      const config = await importConfigModule();
+      let sessionRateThrew = false;
+      try {
+        config.updateDiagnosticsSettings({
+          enabled: true,
+          dsn: "",
+          environment: "production",
+          release: null,
+          tracesSampleRate: 0,
+          replayEnabled: true,
+          replaysSessionSampleRate: 1.1,
+          replaysOnErrorSampleRate: 1,
+        });
+      } catch {
+        sessionRateThrew = true;
+      }
+      expect(sessionRateThrew).toBeTrue();
+
+      let errorRateThrew = false;
+      try {
+        config.updateDiagnosticsSettings({
+          enabled: true,
+          dsn: "",
+          environment: "production",
+          release: null,
+          tracesSampleRate: 0,
+          replayEnabled: true,
+          replaysSessionSampleRate: 0.1,
+          replaysOnErrorSampleRate: -0.1,
+        });
+      } catch {
+        errorRateThrew = true;
+      }
+      expect(errorRateThrew).toBeTrue();
     });
   });
 });

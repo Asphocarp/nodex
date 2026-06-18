@@ -38,6 +38,9 @@ interface ServerTomlConfig {
   diagnostics_environment?: string;
   diagnostics_release?: string;
   diagnostics_traces_sample_rate?: number;
+  diagnostics_replay_enabled?: boolean;
+  diagnostics_replays_session_sample_rate?: number;
+  diagnostics_replays_on_error_sample_rate?: number;
 }
 
 interface RootTomlConfig extends Record<string, unknown> {
@@ -56,6 +59,9 @@ export const DEFAULT_SENTRY_DSN =
   "https://ecf630563128267bf9798a10b45a089a@o4511580306014208.ingest.us.sentry.io/4511580310011904";
 const DIAGNOSTICS_ENVIRONMENT_DEFAULT = "production";
 const DIAGNOSTICS_TRACES_SAMPLE_RATE_DEFAULT = 0;
+const DIAGNOSTICS_REPLAY_ENABLED_DEFAULT = false;
+const DIAGNOSTICS_REPLAYS_SESSION_SAMPLE_RATE_DEFAULT = 0.1;
+const DIAGNOSTICS_REPLAYS_ON_ERROR_SAMPLE_RATE_DEFAULT = 1;
 
 function readServerSection(configPath: string): ServerTomlConfig | null {
   try {
@@ -304,6 +310,18 @@ function diagnosticsSettingsFromConfig(config: ServerTomlConfig): Omit<Diagnosti
   const tracesSampleRate = typeof config.diagnostics_traces_sample_rate === "number"
     ? Math.min(1, Math.max(0, config.diagnostics_traces_sample_rate))
     : DIAGNOSTICS_TRACES_SAMPLE_RATE_DEFAULT;
+  const replayEnabled =
+    typeof config.diagnostics_replay_enabled === "boolean"
+      ? config.diagnostics_replay_enabled
+      : DIAGNOSTICS_REPLAY_ENABLED_DEFAULT;
+  const replaysSessionSampleRate =
+    typeof config.diagnostics_replays_session_sample_rate === "number"
+      ? Math.min(1, Math.max(0, config.diagnostics_replays_session_sample_rate))
+      : DIAGNOSTICS_REPLAYS_SESSION_SAMPLE_RATE_DEFAULT;
+  const replaysOnErrorSampleRate =
+    typeof config.diagnostics_replays_on_error_sample_rate === "number"
+      ? Math.min(1, Math.max(0, config.diagnostics_replays_on_error_sample_rate))
+      : DIAGNOSTICS_REPLAYS_ON_ERROR_SAMPLE_RATE_DEFAULT;
 
   return {
     enabled,
@@ -311,6 +329,9 @@ function diagnosticsSettingsFromConfig(config: ServerTomlConfig): Omit<Diagnosti
     environment,
     release,
     tracesSampleRate,
+    replayEnabled,
+    replaysSessionSampleRate,
+    replaysOnErrorSampleRate,
   };
 }
 
@@ -417,6 +438,11 @@ export function getDiagnosticsSettings(): DiagnosticsSettings {
     environment: process.env.SENTRY_ENVIRONMENT !== undefined,
     release: process.env.SENTRY_RELEASE !== undefined,
     tracesSampleRate: process.env.NODEX_SENTRY_TRACES_SAMPLE_RATE !== undefined,
+    replayEnabled: process.env.NODEX_SENTRY_REPLAY_ENABLED !== undefined,
+    replaysSessionSampleRate:
+      process.env.NODEX_SENTRY_REPLAYS_SESSION_SAMPLE_RATE !== undefined,
+    replaysOnErrorSampleRate:
+      process.env.NODEX_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE !== undefined,
   };
 
   const enabled = envOverrides.enabled
@@ -440,6 +466,21 @@ export function getDiagnosticsSettings(): DiagnosticsSettings {
         fromToml.tracesSampleRate,
       )))
     : fromToml.tracesSampleRate;
+  const replayEnabled = envOverrides.replayEnabled
+    ? parseBooleanEnv(process.env.NODEX_SENTRY_REPLAY_ENABLED, fromToml.replayEnabled)
+    : fromToml.replayEnabled;
+  const replaysSessionSampleRate = envOverrides.replaysSessionSampleRate
+    ? Math.min(1, Math.max(0, parseNumberEnv(
+        process.env.NODEX_SENTRY_REPLAYS_SESSION_SAMPLE_RATE,
+        fromToml.replaysSessionSampleRate,
+      )))
+    : fromToml.replaysSessionSampleRate;
+  const replaysOnErrorSampleRate = envOverrides.replaysOnErrorSampleRate
+    ? Math.min(1, Math.max(0, parseNumberEnv(
+        process.env.NODEX_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE,
+        fromToml.replaysOnErrorSampleRate,
+      )))
+    : fromToml.replaysOnErrorSampleRate;
 
   return {
     enabled,
@@ -447,6 +488,9 @@ export function getDiagnosticsSettings(): DiagnosticsSettings {
     environment,
     release,
     tracesSampleRate,
+    replayEnabled,
+    replaysSessionSampleRate,
+    replaysOnErrorSampleRate,
     envOverrides,
   };
 }
@@ -465,7 +509,19 @@ export function updateDiagnosticsSettings(
       ?? DIAGNOSTICS_ENVIRONMENT_DEFAULT,
     release: normalizeOptionalStringInput(input.release, "release"),
     tracesSampleRate: normalizeSampleRate(input.tracesSampleRate, "tracesSampleRate"),
+    replayEnabled: input.replayEnabled,
+    replaysSessionSampleRate: normalizeSampleRate(
+      input.replaysSessionSampleRate,
+      "replaysSessionSampleRate",
+    ),
+    replaysOnErrorSampleRate: normalizeSampleRate(
+      input.replaysOnErrorSampleRate,
+      "replaysOnErrorSampleRate",
+    ),
   };
+  if (typeof nextSettings.replayEnabled !== "boolean") {
+    throw new Error("replayEnabled must be a boolean");
+  }
 
   const userConfigPath = getUserConfigPath();
   const nextToml = readTomlConfig(userConfigPath);
@@ -474,6 +530,9 @@ export function updateDiagnosticsSettings(
     diagnostics_enabled: nextSettings.enabled,
     diagnostics_environment: nextSettings.environment,
     diagnostics_traces_sample_rate: nextSettings.tracesSampleRate,
+    diagnostics_replay_enabled: nextSettings.replayEnabled,
+    diagnostics_replays_session_sample_rate: nextSettings.replaysSessionSampleRate,
+    diagnostics_replays_on_error_sample_rate: nextSettings.replaysOnErrorSampleRate,
   };
   if (nextSettings.dsn) {
     nextServer.diagnostics_dsn = nextSettings.dsn;

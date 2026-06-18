@@ -8,6 +8,7 @@ import { isDiagnosticsSettings } from "../../shared/diagnostics/diagnostics-sett
 
 interface RendererSentryAdapter {
   init: (options: Record<string, unknown>) => void;
+  replayIntegration: (options: Record<string, unknown>) => unknown;
   setTag: (key: string, value: string) => void;
 }
 
@@ -77,6 +78,7 @@ async function loadDefaultAdapter(): Promise<RendererSentryAdapter> {
     init: (options) => {
       sentry.init(options, react.init);
     },
+    replayIntegration: (options) => sentry.replayIntegration(options),
     setTag: (key, value) => sentry.setTag(key, value),
   };
 }
@@ -92,7 +94,7 @@ export async function initializeRendererSentry(
   if (!settings?.enabled) return false;
 
   const adapter = input.adapter ?? await loadDefaultAdapter();
-  adapter.init({
+  const initOptions: Record<string, unknown> = {
     sendDefaultPii: false,
     tracesSampleRate: settings.tracesSampleRate,
     attachScreenshot: false,
@@ -102,7 +104,19 @@ export async function initializeRendererSentry(
       if (breadcrumb.category === "console") return null;
       return scrubSentryBreadcrumb(breadcrumb);
     },
-  });
+  };
+  if (settings.replayEnabled) {
+    initOptions.integrations = [
+      adapter.replayIntegration({
+        maskAllText: true,
+        maskAllInputs: true,
+        blockAllMedia: true,
+      }),
+    ];
+    initOptions.replaysSessionSampleRate = settings.replaysSessionSampleRate;
+    initOptions.replaysOnErrorSampleRate = settings.replaysOnErrorSampleRate;
+  }
+  adapter.init(initOptions);
   adapter.setTag("process", "renderer");
   initialized = true;
   return true;

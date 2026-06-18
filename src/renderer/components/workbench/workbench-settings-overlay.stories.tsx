@@ -121,12 +121,18 @@ function ensureStorybookElectronBridge({
     environment: "production",
     release: null,
     tracesSampleRate: 0,
+    replayEnabled: false,
+    replaysSessionSampleRate: 0.1,
+    replaysOnErrorSampleRate: 1,
     envOverrides: {
       enabled: false,
       dsn: false,
       environment: false,
       release: false,
       tracesSampleRate: false,
+      replayEnabled: false,
+      replaysSessionSampleRate: false,
+      replaysOnErrorSampleRate: false,
     },
   };
 
@@ -199,6 +205,9 @@ function ensureStorybookElectronBridge({
             environment?: unknown;
             release?: unknown;
             tracesSampleRate?: unknown;
+            replayEnabled?: unknown;
+            replaysSessionSampleRate?: unknown;
+            replaysOnErrorSampleRate?: unknown;
           };
           diagnosticsSettings = {
             ...diagnosticsSettings,
@@ -209,6 +218,15 @@ function ensureStorybookElectronBridge({
             tracesSampleRate: typeof input.tracesSampleRate === "number"
               ? input.tracesSampleRate
               : diagnosticsSettings.tracesSampleRate,
+            replayEnabled: typeof input.replayEnabled === "boolean"
+              ? input.replayEnabled
+              : diagnosticsSettings.replayEnabled,
+            replaysSessionSampleRate: typeof input.replaysSessionSampleRate === "number"
+              ? input.replaysSessionSampleRate
+              : diagnosticsSettings.replaysSessionSampleRate,
+            replaysOnErrorSampleRate: typeof input.replaysOnErrorSampleRate === "number"
+              ? input.replaysOnErrorSampleRate
+              : diagnosticsSettings.replaysOnErrorSampleRate,
           };
           return diagnosticsSettings;
         }

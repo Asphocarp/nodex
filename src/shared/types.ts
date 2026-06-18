@@ -737,6 +737,9 @@ export interface DiagnosticsSettingsEnvOverrides {
   environment: boolean;
   release: boolean;
   tracesSampleRate: boolean;
+  replayEnabled: boolean;
+  replaysSessionSampleRate: boolean;
+  replaysOnErrorSampleRate: boolean;
 }
 
 export interface ManagedWorktreeRecord {
@@ -847,6 +850,9 @@ export interface DiagnosticsSettings {
   environment: string;
   release: string | null;
   tracesSampleRate: number;
+  replayEnabled: boolean;
+  replaysSessionSampleRate: number;
+  replaysOnErrorSampleRate: number;
   envOverrides: DiagnosticsSettingsEnvOverrides;
 }
 
@@ -856,6 +862,9 @@ export interface UpdateDiagnosticsSettingsInput {
   environment: string;
   release: string | null;
   tracesSampleRate: number;
+  replayEnabled: boolean;
+  replaysSessionSampleRate: number;
+  replaysOnErrorSampleRate: number;
 }
 
 export type ThreadNotificationTurnMode = "off" | "unfocused" | "always";

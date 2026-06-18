@@ -16,7 +16,10 @@ export function isDiagnosticsSettingsEnvOverrides(
     && typeof value.dsn === "boolean"
     && typeof value.environment === "boolean"
     && typeof value.release === "boolean"
-    && typeof value.tracesSampleRate === "boolean";
+    && typeof value.tracesSampleRate === "boolean"
+    && typeof value.replayEnabled === "boolean"
+    && typeof value.replaysSessionSampleRate === "boolean"
+    && typeof value.replaysOnErrorSampleRate === "boolean";
 }
 
 export function isDiagnosticsSettings(value: unknown): value is DiagnosticsSettings {
@@ -30,5 +33,14 @@ export function isDiagnosticsSettings(value: unknown): value is DiagnosticsSetti
     && Number.isFinite(value.tracesSampleRate)
     && value.tracesSampleRate >= 0
     && value.tracesSampleRate <= 1
+    && typeof value.replayEnabled === "boolean"
+    && typeof value.replaysSessionSampleRate === "number"
+    && Number.isFinite(value.replaysSessionSampleRate)
+    && value.replaysSessionSampleRate >= 0
+    && value.replaysSessionSampleRate <= 1
+    && typeof value.replaysOnErrorSampleRate === "number"
+    && Number.isFinite(value.replaysOnErrorSampleRate)
+    && value.replaysOnErrorSampleRate >= 0
+    && value.replaysOnErrorSampleRate <= 1
     && isDiagnosticsSettingsEnvOverrides(value.envOverrides);
 }
