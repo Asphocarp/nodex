@@ -8,6 +8,7 @@ import {
   ShowSelectionExtension,
 } from "@blocknote/core/extensions";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { FormattingToolbarLinkIcon } from "@/components/shared/icons";
 import {
   NodexPopover,
@@ -55,18 +56,32 @@ interface NfmCreateLinkSelectionState {
   };
 }
 
+export interface NfmCreateLinkTriggerProps {
+  ariaLabel: string;
+  title: string;
+  open: boolean;
+  onMouseDown: (event: ReactMouseEvent<HTMLElement>) => void;
+  onClick: () => void;
+}
+
+export interface NfmCreateLinkButtonProps {
+  renderTrigger?: (props: NfmCreateLinkTriggerProps) => ReactNode;
+}
+
 function NfmCreateLinkPopover({
   dict,
   formattingToolbar,
   showPopover,
   setShowPopover,
   state,
+  renderTrigger,
 }: {
   dict: ReturnType<typeof useDictionary>;
   formattingToolbar: ReturnType<typeof useExtension<typeof FormattingToolbarExtension>>;
   showPopover: boolean;
   setShowPopover: (open: boolean | ((current: boolean) => boolean)) => void;
   state: NfmCreateLinkSelectionState;
+  renderTrigger?: (props: NfmCreateLinkTriggerProps) => ReactNode;
 }) {
   const {
     currentUrl,
@@ -100,6 +115,17 @@ function NfmCreateLinkPopover({
     handleSubmit();
   };
 
+  const triggerProps: NfmCreateLinkTriggerProps = {
+    ariaLabel: dict.formatting_toolbar.link.tooltip,
+    title: dict.formatting_toolbar.link.tooltip,
+    open: showPopover,
+    onMouseDown: (event) => {
+      if ("button" in event && event.button !== 0) return;
+      event.preventDefault();
+    },
+    onClick: () => setShowPopover((open) => !open),
+  };
+
   return (
     <NodexPopover
       open={showPopover}
@@ -121,25 +147,26 @@ function NfmCreateLinkPopover({
         delayDuration={0}
       >
         <NodexPopoverTrigger asChild>
-          <button
-            type="button"
-            data-test="createLink"
-            aria-label={dict.formatting_toolbar.link.tooltip}
-            title={dict.formatting_toolbar.link.tooltip}
-            className={cn(
-              "inline-flex h-7 min-w-7 shrink-0 items-center justify-center gap-1 rounded-[9px] px-2 text-[12px] leading-4 text-token-text-secondary outline-hidden transition-colors",
-              "hover:bg-token-foreground/6 hover:text-token-foreground focus-visible:ring-1 focus-visible:ring-token-focus-border",
-            )}
-            onMouseDown={(event) => {
-              if (event.button !== 0) return;
-              event.preventDefault();
-            }}
-            onClick={() => setShowPopover((open) => !open)}
-          >
-            <span className="shrink-0 [&_svg]:size-4">
-              <FormattingToolbarLinkIcon />
-            </span>
-          </button>
+          {renderTrigger ? (
+            renderTrigger(triggerProps)
+          ) : (
+            <button
+              type="button"
+              data-test="createLink"
+              aria-label={triggerProps.ariaLabel}
+              title={triggerProps.title}
+              className={cn(
+                "inline-flex h-7 min-w-7 shrink-0 items-center justify-center gap-1 rounded-[9px] px-2 text-[12px] leading-4 text-token-text-secondary outline-hidden transition-colors",
+                "hover:bg-token-foreground/6 hover:text-token-foreground focus-visible:ring-1 focus-visible:ring-token-focus-border",
+              )}
+              onMouseDown={triggerProps.onMouseDown}
+              onClick={triggerProps.onClick}
+            >
+              <span className="shrink-0 [&_svg]:size-4">
+                <FormattingToolbarLinkIcon />
+              </span>
+            </button>
+          )}
         </NodexPopoverTrigger>
       </NodexTooltip>
       <NodexPopoverContent
@@ -161,7 +188,7 @@ function NfmCreateLinkPopover({
   );
 }
 
-function NfmCreateLinkButton() {
+function NfmCreateLinkButton({ renderTrigger }: NfmCreateLinkButtonProps) {
   const editor = useBlockNoteEditor();
   const dict = useDictionary();
   const formattingToolbar = useExtension(FormattingToolbarExtension);
@@ -230,6 +257,7 @@ function NfmCreateLinkButton() {
       showPopover={showPopover}
       setShowPopover={setShowPopover}
       state={state}
+      renderTrigger={renderTrigger}
     />
   );
 }

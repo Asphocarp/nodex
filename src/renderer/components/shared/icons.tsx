@@ -930,6 +930,215 @@ export function FormattingToolbarLinkIcon({ className }: IconProps) {
   );
 }
 
+export function TextActionNormalTextIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M4.875 4.825c0-.345.28-.625.625-.625h9c.345 0 .625.28.625.625v1.8a.625.625 0 1 1-1.25 0V5.45h-3.25v9.1h.725a.625.625 0 1 1 0 1.25h-2.7a.625.625 0 1 1 0-1.25h.725v-9.1h-3.25v1.175a.625.625 0 1 1-1.25 0z" />
+    </svg>
+  );
+}
+
+export function TextActionHeadingBlockIcon({
+  level,
+  className,
+}: IconProps & { level: 1 | 2 | 3 }) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <text
+        x="2"
+        y="14"
+        fontFamily="ui-sans-serif, system-ui, sans-serif"
+        fontSize="11"
+        fontWeight="600"
+        letterSpacing="0"
+      >
+        H{level}
+      </text>
+    </svg>
+  );
+}
+
+export function TextActionQuoteBlockIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+      <path d="M5 5.25v9.5" />
+      <path d="M8.25 6.5h7" />
+      <path d="M8.25 10h7" />
+      <path d="M8.25 13.5h5" />
+    </svg>
+  );
+}
+
+export function TextActionBulletedListBlockIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <circle cx="4.5" cy="5.5" r="1" />
+      <circle cx="4.5" cy="10" r="1" />
+      <circle cx="4.5" cy="14.5" r="1" />
+      <path d="M8 4.75h8.25a.75.75 0 0 1 0 1.5H8a.75.75 0 0 1 0-1.5M8 9.25h8.25a.75.75 0 0 1 0 1.5H8a.75.75 0 0 1 0-1.5M8 13.75h8.25a.75.75 0 0 1 0 1.5H8a.75.75 0 0 1 0-1.5" />
+    </svg>
+  );
+}
+
+export function TextActionNumberedListBlockIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M4.15 4.15h1.2v4.2h-1.2V5.3l-.85.28-.3-.95zM3.15 10.05c.23-.75.84-1.2 1.73-1.2.96 0 1.62.52 1.62 1.31 0 .5-.24.89-.84 1.32l-.88.62h1.83v.95H3.11v-.77l1.8-1.31c.32-.23.43-.4.43-.65 0-.29-.2-.48-.52-.48-.35 0-.56.2-.67.6zM3.24 14.1c.2-.65.75-1.02 1.55-1.02.9 0 1.51.44 1.51 1.1 0 .39-.2.7-.57.87.48.16.74.51.74.96 0 .74-.66 1.24-1.67 1.24-.9 0-1.52-.42-1.72-1.15l1.02-.24c.09.31.33.49.7.49.36 0 .58-.18.58-.45 0-.31-.26-.47-.75-.47h-.45v-.82h.42c.43 0 .66-.15.66-.42 0-.24-.19-.39-.5-.39-.32 0-.53.17-.61.47z" />
+      <path d="M8 5.05h8.25a.75.75 0 0 1 0 1.5H8a.75.75 0 0 1 0-1.5M8 9.75h8.25a.75.75 0 0 1 0 1.5H8a.75.75 0 0 1 0-1.5M8 14.45h8.25a.75.75 0 0 1 0 1.5H8a.75.75 0 0 1 0-1.5" />
+    </svg>
+  );
+}
+
+export function TextActionCheckListBlockIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="none" stroke="currentColor" strokeWidth="1.45" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m3.35 5.4 1.05 1.05 1.9-2.05" />
+      <path d="m3.35 10 1.05 1.05L6.3 9" />
+      <path d="m3.35 14.6 1.05 1.05 1.9-2.05" />
+      <path d="M8.25 5.55h7.75" />
+      <path d="M8.25 10.15h7.75" />
+      <path d="M8.25 14.75h7.75" />
+    </svg>
+  );
+}
+
+export function TextActionToggleListBlockIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M3.6 4.15a.45.45 0 0 1 .67-.39l3 1.85a.45.45 0 0 1 0 .78l-3 1.85a.45.45 0 0 1-.67-.39z" />
+      <path d="M9.25 5.25h6.95a.75.75 0 0 1 0 1.5H9.25a.75.75 0 0 1 0-1.5M4.35 10.05h11.85a.75.75 0 0 1 0 1.5H4.35a.75.75 0 0 1 0-1.5M4.35 14.55h9.85a.75.75 0 0 1 0 1.5H4.35a.75.75 0 0 1 0-1.5" />
+    </svg>
+  );
+}
+
+export function TextActionBoldIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M6.428 3.95a.875.875 0 0 0-.875.875v10.35c0 .483.392.875.875.875h3.81c1.377 0 2.461-.298 3.203-.963.763-.682 1.006-1.607 1.006-2.5 0-1.199-.582-2.18-1.483-2.788.704-.64 1.007-1.494 1.007-2.386 0-2.145-2.08-3.463-4.086-3.463zm.875 6.925h3.359c1.303 0 2.035.805 2.035 1.713 0 .586-.153.954-.423 1.196-.29.26-.873.516-2.036.516H7.303zm2.165-1.75H7.303V5.7h2.582c1.452 0 2.336.9 2.336 1.713 0 .515-.172.89-.516 1.16-.373.294-1.057.55-2.237.552" />
+    </svg>
+  );
+}
+
+export function TextActionItalicIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="m10.541 5.45-2.374 9.1H6.4a.625.625 0 1 0 0 1.25h4.5a.625.625 0 1 0 0-1.25H9.46l2.374-9.1H13.6a.625.625 0 1 0 0-1.25H9.1a.625.625 0 1 0 0 1.25z" />
+    </svg>
+  );
+}
+
+export function TextActionUnderlineIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M15.4 5.45a.625.625 0 1 0 0-1.25h-2.7a.625.625 0 1 0 0 1.25h.725v5.54c0 1.743-1.434 3.335-3.425 3.335-1.235 0-2.07-.414-2.602-.996-.541-.594-.823-1.423-.823-2.339V5.45H7.3a.625.625 0 0 0 0-1.25H4.6a.625.625 0 1 0 0 1.25h.725v5.54c0 1.163.358 2.314 1.15 3.181.8.877 1.99 1.404 3.525 1.404 2.699 0 4.675-2.17 4.675-4.585V5.45zm1.525 12.2c0 .345-.28.625-.625.625H3.7a.625.625 0 1 1 0-1.25h12.6c.345 0 .625.28.625.625" />
+    </svg>
+  );
+}
+
+export function TextActionClearFormatIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M12.75 4.2c.345 0 .625.28.625.625v1.8a.625.625 0 0 1-1.25 0V5.45h-3.25v9.1h.726a.626.626 0 0 1 0 1.25H6.9a.625.625 0 1 1 0-1.25h.724v-9.1h-3.25v1.175a.625.625 0 0 1-1.25 0v-1.8c0-.345.28-.625.625-.625z" />
+      <path d="M16.176 9.558a.626.626 0 0 1 .884.884l-1.68 1.68 1.68 1.679a.625.625 0 0 1-.884.884l-1.68-1.68-1.679 1.68a.626.626 0 0 1-.884-.884l1.678-1.68-1.678-1.679a.626.626 0 0 1 .884-.884l1.68 1.678z" />
+    </svg>
+  );
+}
+
+export function TextActionLinkIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="2.5 0 14.92 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M10.61 3.61a3.776 3.776 0 0 1 5.34 0l.367.368a3.776 3.776 0 0 1 0 5.34l-1.852 1.853a.625.625 0 1 1-.884-.884l1.853-1.853a2.526 2.526 0 0 0 0-3.572l-.368-.367a2.526 2.526 0 0 0-3.572 0L9.641 6.347a.625.625 0 1 1-.883-.883z" />
+      <path d="M12.98 6.949a.625.625 0 0 1 0 .884L7.53 13.28a.625.625 0 0 1-.884-.884l5.448-5.448a.625.625 0 0 1 .884 0" />
+      <path d="M6.348 8.757a.625.625 0 0 1 0 .884l-1.853 1.853a2.526 2.526 0 0 0 0 3.572l.367.367a2.525 2.525 0 0 0 3.572 0l1.853-1.852a.625.625 0 1 1 .884.883l-1.853 1.853a3.776 3.776 0 0 1-5.34 0l-.367-.367a3.776 3.776 0 0 1 0-5.34l1.853-1.853a.625.625 0 0 1 .884 0" />
+    </svg>
+  );
+}
+
+export function TextActionStrikeIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M10.065 9.373H16.3a.627.627 0 1 1 0 1.255h-3.233q.063.052.122.107c.723.665 1.038 1.505 1.038 2.456 0 1.024-.503 1.868-1.288 2.436-.772.56-1.81.85-2.939.85s-2.167-.29-2.94-.85c-.784-.568-1.288-1.412-1.288-2.436a.628.628 0 0 1 1.255 0c0 .571.268 1.057.77 1.42.513.37 1.276.611 2.203.611.928 0 1.69-.24 2.204-.611.5-.363.768-.849.768-1.42 0-.645-.199-1.134-.632-1.532-.452-.416-1.207-.777-2.405-1.032H3.7a.627.627 0 1 1 0-1.254h3.233l-.122-.108C6.088 8.6 5.773 7.76 5.773 6.81c0-1.024.503-1.868 1.288-2.436.772-.56 1.81-.85 2.94-.85s2.166.29 2.938.85c.785.568 1.289 1.412 1.289 2.436a.628.628 0 0 1-1.255 0c0-.571-.268-1.057-.77-1.42-.513-.37-1.275-.611-2.203-.611s-1.69.24-2.203.612c-.502.362-.77.848-.77 1.42 0 .644.2 1.133.633 1.531.452.416 1.207.777 2.405 1.032" />
+    </svg>
+  );
+}
+
+export function TextActionCodeIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M11.971 3.1c.332.094.525.44.43.772l-3.6 12.6a.625.625 0 0 1-1.202-.343l3.6-12.6a.625.625 0 0 1 .772-.43M5.417 5.598a.626.626 0 0 1 .885.884L2.784 10l3.518 3.519a.625.625 0 0 1-.885.883l-3.96-3.96a.626.626 0 0 1 0-.884zm8.281 0a.626.626 0 0 1 .884 0l3.96 3.96a.626.626 0 0 1 0 .884l-3.96 3.96a.626.626 0 0 1-.884-.883L17.215 10l-3.517-3.518a.626.626 0 0 1 0-.884" />
+    </svg>
+  );
+}
+
+export function TextActionEquationIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M19.125 4.25c0 .345-.28.625-.625.625H9.07l-4.745 11.12a.626.626 0 0 1-1.07.137l-.049-.073-2.25-3.97-.05-.115a.625.625 0 0 1 1.065-.604l.073.103 1.626 2.869L8.081 4.005l.043-.083a.63.63 0 0 1 .532-.297H18.5c.345 0 .625.28.625.625" />
+      <path d="M17.405 15.476a.625.625 0 0 1-.968.748l-.087-.092-2.694-3.487-2.693 3.487-.087.092a.624.624 0 0 1-.969-.748l.068-.108 2.892-3.743-2.892-3.743-.068-.108a.625.625 0 0 1 .97-.748l.086.092 2.693 3.486 2.694-3.486.087-.092a.624.624 0 0 1 .968.748l-.067.108-2.892 3.743 2.892 3.743z" />
+    </svg>
+  );
+}
+
+export function TextActionEllipsisIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" className={cn("size-4 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M3.2 6.725a1.275 1.275 0 1 0 0 2.55 1.275 1.275 0 0 0 0-2.55m4.8 0a1.275 1.275 0 1 0 0 2.55 1.275 1.275 0 0 0 0-2.55m4.8 0a1.275 1.275 0 1 0 0 2.55 1.275 1.275 0 0 0 0-2.55" />
+    </svg>
+  );
+}
+
+export function TextActionCommentIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M5.875 7.505c0-.345.28-.625.625-.625h7a.625.625 0 1 1 0 1.25h-7a.625.625 0 0 1-.625-.625m0 3c0-.345.28-.625.625-.625h5a.625.625 0 1 1 0 1.25h-5a.625.625 0 0 1-.625-.625" />
+      <path d="M17.625 5.255A2.125 2.125 0 0 0 15.5 3.13h-11a2.125 2.125 0 0 0-2.125 2.125v7.5c0 1.173.951 2.125 2.125 2.125h1.188v2.482a.625.625 0 0 0 1.006.496l3.87-2.978H15.5a2.125 2.125 0 0 0 2.125-2.125zM15.5 4.38c.483 0 .875.392.875.875v7.5a.875.875 0 0 1-.875.875h-5.148a.63.63 0 0 0-.38.13l-3.034 2.333v-1.838a.625.625 0 0 0-.625-.625H4.5a.875.875 0 0 1-.875-.875v-7.5c0-.483.392-.875.875-.875z" />
+    </svg>
+  );
+}
+
+export function TextActionReactionIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M10 2.375a7.625 7.625 0 1 0 1.633 15.075 4.6 4.6 0 0 1-.228-1.23 6.375 6.375 0 1 1 4.815-4.814q.643.032 1.23.227A7.625 7.625 0 0 0 10 2.375" />
+      <path d="M7.365 9.665c.49 0 .88-.46.88-1.02s-.39-1.02-.88-1.02-.88.46-.88 1.02.39 1.02.88 1.02m-.187 1.872a.625.625 0 0 1 .867.169 2.36 2.36 0 0 0 1.96 1.044c.812 0 1.536-.416 1.96-1.044a.625.625 0 0 1 1.036.698A3.62 3.62 0 0 1 10.005 14a3.6 3.6 0 0 1-2.996-1.596.625.625 0 0 1 .169-.867m5.457-1.872c.49 0 .88-.46.88-1.02s-.39-1.02-.88-1.02-.88.46-.88 1.02.39 1.02.88 1.02M16 19.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7m1.969-4.094h-1.375v-1.375a.625.625 0 0 0-1.25 0v1.375h-1.375a.625.625 0 0 0 0 1.25h1.375v1.375a.625.625 0 1 0 1.25 0v-1.375h1.375a.625.625 0 0 0 0-1.25" />
+    </svg>
+  );
+}
+
+export function TextActionCommentPencilIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M12.728 4.015H4.5a.875.875 0 0 0-.875.875v7.5l.005.09a.875.875 0 0 0 .87.784h1.813a.625.625 0 0 1 .625.626v1.838l3.034-2.334a.63.63 0 0 1 .38-.13H15.5l.09-.004a.875.875 0 0 0 .78-.78l.005-.09V6.089l1.247-1.248.003.049v7.5l-.01.216a2.126 2.126 0 0 1-2.115 1.909h-4.935l-3.872 2.977a.625.625 0 0 1-1.005-.495v-2.482H4.5l-.217-.011a2.126 2.126 0 0 1-1.908-2.114v-7.5c0-1.174.951-2.125 2.125-2.125h9.48z" />
+      <path d="M17.294 1.223a.77.77 0 0 1 1.084 0 .77.77 0 0 1 0 1.083v.012l-7.986 7.987a.87.87 0 0 1-.387.232l-.916.283c-.18.065-.361-.116-.31-.31l.284-.915a1.1 1.1 0 0 1 .232-.387z" />
+    </svg>
+  );
+}
+
+export function TextActionSlidersIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-4 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M3 7.375h6.829a2.501 2.501 0 0 0 4.842 0H17a.625.625 0 1 0 0-1.25h-2.329a2.501 2.501 0 0 0-4.842 0H3a.625.625 0 1 0 0 1.25M12.25 5.5a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5" />
+      <path fillRule="evenodd" clipRule="evenodd" d="M7.75 15.75a2.5 2.5 0 0 0 2.421-1.875H17a.625.625 0 1 0 0-1.25h-6.829a2.5 2.5 0 0 0-4.842 0H3a.625.625 0 1 0 0 1.25h2.329A2.5 2.5 0 0 0 7.75 15.75m0-1.25a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5" />
+    </svg>
+  );
+}
+
+export function TextActionPencilSmallIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" className={cn("size-4 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M11.243 3.457a.803.803 0 0 0-1.13 0l-.554.552a.075.075 0 0 0 0 .106l1.03 1.03a.075.075 0 0 0 .107 0l.547-.546a.1.1 0 0 0 .019-.032.804.804 0 0 0-.02-1.11m-2.246 1.22a.075.075 0 0 0-.106 0l-6.336 6.326a1.1 1.1 0 0 0-.237.393l-.27.87v.002c-.062.232.153.466.389.383l.863-.267q.221-.061.397-.239l6.332-6.331a.075.075 0 0 0 0-.106zm-3.355 6.898a.08.08 0 0 0-.053.022l-1.1 1.1a.075.075 0 0 0 .053.128h9.06a.625.625 0 1 0 0-1.25z" />
+    </svg>
+  );
+}
+
+export function TextActionBlockColorIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 30 30" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M25 5c0-2.2-1.8-4-4-4H6C3.8 1 2 2.8 2 5H1v2h1c0 2.2 1.8 4 4 4h15c2.2 0 4-1.8 4-4h2v6H14v4h-2v9c0 1.657 1.344 3 3 3s3-1.343 3-3v-9h-2v-2h13V5zM23 7c0 1.103-.896 2-2 2H6C4.896 9 4 8.103 4 7V5c0-1.103.896-2 2-2h15c1.104 0 2 .897 2 2zM16 26c0 .552-.449 1-1 1s-1-.448-1-1v-7h2z" />
+    </svg>
+  );
+}
+
 export function PriorityIcon({ className }: IconProps) {
   return (
     <svg width="17" height="17" viewBox="0 0 17 17" fill="none" className={cn("shrink-0", className)} aria-hidden="true">

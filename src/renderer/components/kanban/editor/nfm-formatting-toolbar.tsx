@@ -24,6 +24,7 @@ import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { CopyImageButton } from "./copy-image-button";
 import { NfmCreateLinkButton } from "./nfm-link-toolbar";
+import { NfmTextActionMenu } from "./nfm-text-action-menu";
 
 function keepEditorSelection(event: MouseEvent | React.MouseEvent) {
   if ("button" in event && event.button !== 0) return;
@@ -47,6 +48,7 @@ function ToolbarRoot({
       contentEditable={false}
       className={cn(
         "inline-flex items-center gap-0.5 rounded-[12px] bg-token-dropdown-background/95 p-0.5 text-token-foreground shadow-lg ring-[0.5px] ring-token-border backdrop-blur-sm",
+        "pointer-events-auto",
         className,
       )}
       onMouseEnter={onMouseEnter}
@@ -534,7 +536,7 @@ function FilePanelFileInput({
   );
 }
 
-export function NfmFormattingToolbar() {
+export function NfmLegacyFormattingToolbar() {
   const baseComponents = useComponentsContext()!;
 
   const toolbarItems = useMemo(() => {
@@ -601,4 +603,8 @@ export function NfmFormattingToolbar() {
       <FormattingToolbar>{toolbarItems}</FormattingToolbar>
     </ComponentsContext.Provider>
   );
+}
+
+export function NfmFormattingToolbar() {
+  return <NfmTextActionMenu fallback={<NfmLegacyFormattingToolbar />} />;
 }

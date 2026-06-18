@@ -118,6 +118,39 @@ describe("NfmLinkToolbar", () => {
     expect(view.queryByRole("button", { name: "Add link" }) === null).toBeTrue();
   });
 
+  test("opens the create-link dialog from a custom render trigger", async () => {
+    createLinkButtonState = {
+      text: "Example",
+      range: { from: 1, to: 8 },
+    };
+
+    const { NfmCreateLinkButton } = await import("./nfm-link-toolbar");
+
+    const view = render(
+      <NodexTooltipProvider>
+        <NfmCreateLinkButton
+          renderTrigger={(props) => (
+            <button
+              type="button"
+              aria-label={props.ariaLabel}
+              onMouseDown={props.onMouseDown}
+              onClick={props.onClick}
+            >
+              Custom link
+            </button>
+          )}
+        />
+      </NodexTooltipProvider>,
+    );
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Add link" }));
+      await settleAsyncRender();
+    });
+
+    expect(Boolean(view.getByTestId("nfm-create-link-dialog"))).toBeTrue();
+  });
+
   test("keeps the edit dialog open for the current link after clicking edit", async () => {
     createLinkButtonState = undefined;
     const { NfmLinkToolbar } = await import("./nfm-link-toolbar");

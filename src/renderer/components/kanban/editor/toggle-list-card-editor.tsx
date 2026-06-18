@@ -51,6 +51,7 @@ import {
   renderCardDropIndicator,
 } from "./card-drop-indicator";
 import { NfmFormattingToolbar } from "./nfm-formatting-toolbar";
+import { NFM_TEXT_ACTION_MENU_FLOATING_OPTIONS } from "./nfm-text-action-menu-floating";
 import { NfmLinkToolbar } from "./nfm-link-toolbar";
 import { NfmLinkToolbarController } from "./nfm-link-toolbar-controller";
 import { ImagePreviewDialog } from "./image-preview-dialog";
@@ -1030,7 +1031,10 @@ export function ToggleListCardEditor({
             sideMenu={NfmSideMenu}
             floatingUIOptions={sideMenuFloatingOptions}
           />
-          <FormattingToolbarController formattingToolbar={NfmFormattingToolbar} />
+          <FormattingToolbarController
+            formattingToolbar={NfmFormattingToolbar}
+            floatingUIOptions={NFM_TEXT_ACTION_MENU_FLOATING_OPTIONS}
+          />
           <NfmLinkToolbarController
             linkToolbar={renderLinkToolbar}
             floatingUIOptions={{

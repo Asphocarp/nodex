@@ -22,6 +22,8 @@ import {
   NOTION_MULTI_TEXT_MIME,
 } from "./notion-paste";
 import { NfmFormattingToolbar } from "./nfm-formatting-toolbar";
+import { NFM_TEXT_ACTION_MENU_FLOATING_OPTIONS } from "./nfm-text-action-menu-floating";
+import { NfmTextActionMenuRuntimeProvider } from "./nfm-text-action-menu-runtime";
 import { NfmLinkToolbar } from "./nfm-link-toolbar";
 import { NfmLinkToolbarController } from "./nfm-link-toolbar-controller";
 import { ChipPropertyEditor } from "./chip-property-editor";
@@ -2306,6 +2308,21 @@ export function NfmEditor({
     [renderDragHandleMenu],
   );
 
+  const textActionMenuRuntimeValue = useMemo(
+    () => ({
+      canSendBlocks: sourceCardContext !== undefined,
+      onSendBlocks: openSendBlocksDialog,
+      onSendThreadSection: handleSendThreadSectionByBlockId,
+      onConvertDividerToThreadSection: handleConvertDividerToThreadSection,
+    }),
+    [
+      handleConvertDividerToThreadSection,
+      handleSendThreadSectionByBlockId,
+      openSendBlocksDialog,
+      sourceCardContext,
+    ],
+  );
+
   const activeMatchLabel =
     searchMatchCount === 0
       ? "0 of 0"
@@ -2426,34 +2443,39 @@ export function NfmEditor({
       )}
       <ThreadSectionRuntimeProvider value={threadSectionRuntimeValue}>
         <NfmEditorContextMenu editor={editor}>
-          <BlockNoteView
-            editor={editor}
-            onChange={handleChange}
-            theme={themeMode}
-            formattingToolbar={false}
-            linkToolbar={false}
-            slashMenu={false}
-            sideMenu={false}
-            data-theming-css-variables-demo
-          >
-            <SideMenuController
-              sideMenu={customSideMenu}
-              floatingUIOptions={sideMenuFloatingOptions}
-            />
-            <FormattingToolbarController formattingToolbar={NfmFormattingToolbar} />
-            <NfmLinkToolbarController
-              linkToolbar={renderLinkToolbar}
-              floatingUIOptions={{
-                useTransitionStylesProps: {
-                  duration: 0,
-                },
-                useTransitionStatusProps: {
-                  duration: 0,
-                },
-              }}
-            />
-            <NfmSlashMenu projectId={projectId} />
-          </BlockNoteView>
+          <NfmTextActionMenuRuntimeProvider value={textActionMenuRuntimeValue}>
+            <BlockNoteView
+              editor={editor}
+              onChange={handleChange}
+              theme={themeMode}
+              formattingToolbar={false}
+              linkToolbar={false}
+              slashMenu={false}
+              sideMenu={false}
+              data-theming-css-variables-demo
+            >
+              <SideMenuController
+                sideMenu={customSideMenu}
+                floatingUIOptions={sideMenuFloatingOptions}
+              />
+              <FormattingToolbarController
+                formattingToolbar={NfmFormattingToolbar}
+                floatingUIOptions={NFM_TEXT_ACTION_MENU_FLOATING_OPTIONS}
+              />
+              <NfmLinkToolbarController
+                linkToolbar={renderLinkToolbar}
+                floatingUIOptions={{
+                  useTransitionStylesProps: {
+                    duration: 0,
+                  },
+                  useTransitionStatusProps: {
+                    duration: 0,
+                  },
+                }}
+              />
+              <NfmSlashMenu projectId={projectId} />
+            </BlockNoteView>
+          </NfmTextActionMenuRuntimeProvider>
         </NfmEditorContextMenu>
       </ThreadSectionRuntimeProvider>
       {activeChipEdit && (
