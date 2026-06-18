@@ -51,6 +51,15 @@ function applyHostMessage(message: CodexHostMessage): void {
     return;
   }
 
+  if (message.type === "mcpNotification") {
+    dispatchCodexAppServerMessage("mcp-notification", {
+      hostId: message.hostId,
+      method: message.method,
+      params: message.params,
+    });
+    return;
+  }
+
   dispatchCodexAppServerMessage("error", {
     hostId: message.hostId,
     message: message.message,

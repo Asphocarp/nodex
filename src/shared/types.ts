@@ -3,6 +3,7 @@ import type {
   AppInfo as CodexAppServerAppInfo,
   AskForApproval as CodexAppServerAskForApproval,
   CommandAction as CodexAppServerCommandAction,
+  CommandExecutionOutputDeltaNotification as CodexAppServerCommandExecutionOutputDeltaNotification,
   CommandExecutionRequestApprovalParams as CodexAppServerCommandExecutionRequestApprovalParams,
   DynamicToolCallOutputContentItem as CodexAppServerDynamicToolCallOutputContentItem,
   ExecPolicyAmendment as CodexAppServerExecPolicyAmendment,
@@ -1345,6 +1346,7 @@ export type ProtocolMcpServerStatus = CodexAppServerMcpServerStatus;
 export type ProtocolListMcpServerStatusResponse = CodexAppServerListMcpServerStatusResponse;
 export type ProtocolAppInfo = CodexAppServerAppInfo;
 export type ProtocolCommandExecutionApprovalParams = CodexAppServerCommandExecutionRequestApprovalParams;
+export type ProtocolCommandExecutionOutputDeltaNotification = CodexAppServerCommandExecutionOutputDeltaNotification;
 export type ProtocolExecPolicyAmendment = CodexAppServerExecPolicyAmendment;
 export type ProtocolNetworkApprovalContext = CodexAppServerNetworkApprovalContext;
 
@@ -2015,6 +2017,14 @@ export type CodexThreadStreamStateChange =
   | { type: "snapshot"; conversationState: CodexConversationSnapshot }
   | { type: "patches"; patches: CodexConversationStateUpdate[] };
 
+export type CodexMcpNotificationMessage =
+  {
+    type: "mcpNotification";
+    hostId: string;
+    method: "item/commandExecution/outputDelta";
+    params: ProtocolCommandExecutionOutputDeltaNotification;
+  };
+
 export type CodexHostMessage =
   | {
       type: "sharedObjectUpdated";
@@ -2040,4 +2050,5 @@ export type CodexHostMessage =
       hostId: string;
       threadId: string;
     }
+  | CodexMcpNotificationMessage
   | { type: "error"; hostId: string; message: string; detail?: string };

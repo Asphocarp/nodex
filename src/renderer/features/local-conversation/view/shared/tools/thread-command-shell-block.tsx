@@ -60,9 +60,11 @@ function useScrollFadeState(
     const update = () => {
       const { scrollTop, scrollHeight, clientHeight } = element;
       const scrollable = scrollHeight - clientHeight > 1;
+      const reverseScrollTop = Math.max(-scrollTop, 0);
+      const maxReverseScrollTop = Math.max(scrollHeight - clientHeight, 0);
       const nextState = {
-        top: scrollable && scrollTop > 1,
-        bottom: scrollable && scrollTop + clientHeight < scrollHeight - 1,
+        top: scrollable && reverseScrollTop < maxReverseScrollTop - 1,
+        bottom: scrollable && reverseScrollTop > 1,
       };
       setState((current) => (
         current.top === nextState.top && current.bottom === nextState.bottom
@@ -73,7 +75,7 @@ function useScrollFadeState(
 
     const frameId = window.requestAnimationFrame(() => {
       if (autoScrollToBottom) {
-        element.scrollTop = element.scrollHeight;
+        element.scrollTop = 0;
       }
       update();
     });
@@ -236,7 +238,7 @@ export function ThreadCommandShellBlock({
         <div className="px-2 pt-2">
           <div className="group/command relative pr-6">
             <div
-              className="cursor-pointer"
+              className="cursor-interaction"
               role="button"
               tabIndex={0}
               aria-expanded={isCommandExpanded}
@@ -260,7 +262,7 @@ export function ThreadCommandShellBlock({
               copiedLabel="Copied"
               tooltipLabel="Copy command"
               copiedTooltipLabel="Copied"
-              className="absolute top-0 right-0 opacity-0 transition-opacity duration-200 group-hover/command:opacity-100"
+              className="absolute top-0 right-0 opacity-0 transition-opacity duration-200 group-hover/command:opacity-100 [&>svg]:icon-2xs"
             />
           </div>
         </div>
@@ -269,10 +271,10 @@ export function ThreadCommandShellBlock({
         <div
           ref={scrollRef}
           className={cn(
-            "vertical-scroll-fade-mask [--edge-fade-distance:2rem] box-border flex flex-col gap-1.5 overflow-x-auto overflow-y-auto whitespace-pre p-2 font-vscode-editor font-medium",
+            "vertical-scroll-fade-mask text-token-description-foreground max-h-[140px] [--edge-fade-distance:2rem] box-border flex flex-col-reverse overflow-x-auto overflow-y-auto whitespace-pre p-2 font-vscode-editor font-medium [animation-direction:reverse]",
             variant === "embedded"
-              ? "text-size-chat-sm text-token-description-foreground max-h-[140px]"
-              : "text-size-code-sm text-token-description-foreground max-h-[140px]",
+              ? "text-size-chat-sm"
+              : "text-size-code-sm",
           )}
         >
           <code
@@ -291,7 +293,7 @@ export function ThreadCommandShellBlock({
           copiedLabel="Copied"
           tooltipLabel="Copy output"
           copiedTooltipLabel="Copied"
-          className="absolute top-0 right-2.5 opacity-0 transition-opacity duration-200 group-hover/output:opacity-100"
+          className="absolute top-0 right-2.5 opacity-0 transition-opacity duration-200 group-hover/output:opacity-100 [&>svg]:icon-2xs"
         />
         {variant === "default" && scrollFadeState.top ? (
           <div
@@ -340,7 +342,7 @@ export function ThreadCommandShellBlock({
             {copiedShellContents ? (
               <CheckmarkIcon className="icon-xxs" />
             ) : (
-              <span className="inline-flex [&>svg]:icon-xxs">
+              <span className="inline-flex [&>svg]:icon-2xs">
                 <CopyMessageIcon />
               </span>
             )}

@@ -682,6 +682,66 @@ export const CommandExecutionFailedExitCode: Story = {
   ),
 };
 
+export const CommandExecutionStopped: Story = {
+  render: () => (
+    <ToolCallStory
+      item={{
+        ...buildCommandItem(),
+        itemId: "tool-call-stopped",
+        entryId: "tool-call-stopped",
+        status: "interrupted",
+        command: "bun test",
+        aggregatedOutput: "stopped by user\n",
+        exitCode: null,
+      }}
+      title="Command Execution Stopped"
+      description="Interrupted commands render the stopped footer state."
+      autoOpen
+    />
+  ),
+};
+
+export const CommandExecutionUnknownExitCode: Story = {
+  render: () => (
+    <ToolCallStory
+      item={{
+        ...buildCommandItem(),
+        itemId: "tool-call-unknown-exit-code",
+        entryId: "tool-call-unknown-exit-code",
+        status: "failed",
+        command: "bun test",
+        aggregatedOutput: "process ended before an exit code was reported\n",
+        exitCode: null,
+      }}
+      title="Command Execution Unknown Exit Code"
+      description="Commands without a canonical exit code render the unknown-exit footer."
+      autoOpen
+    />
+  ),
+};
+
+export const CommandExecutionTruncatedOutput: Story = {
+  render: () => (
+    <ToolCallStory
+      item={{
+        ...buildCommandItem(),
+        itemId: "tool-call-truncated-output",
+        entryId: "tool-call-truncated-output",
+        status: "completed",
+        command: "bun test",
+        aggregatedOutput: [
+          "[output truncated]",
+          ...Array.from({ length: 32 }, (_, index) => `line ${String(index + 1).padStart(2, "0")}  pass`),
+        ].join("\n"),
+        exitCode: 0,
+      }}
+      title="Command Execution Truncated Output"
+      description="Long shell output keeps the truncation prefix and uses the reversed scroll container."
+      autoOpen
+    />
+  ),
+};
+
 export const CommandExecutionScrollAnchorPartiallyVisible: Story = {
   render: () => {
     const item = {

@@ -8205,7 +8205,7 @@ describe("codex-service terminal turn reconciliation", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
-  test("streams command output deltas through thread stream patch updates", async () => {
+  test("streams command output deltas as raw mcp notifications while keeping snapshots canonical", async () => {
     const ran = await withTempDatabase(async () => {
       const card = await createCard(defaultProjectId, "in_progress", { title: "Streaming command output" });
       upsertCodexCardThreadLink({
@@ -8220,11 +8220,15 @@ describe("codex-service terminal turn reconciliation", () => {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
         handleNotification: (method: string, params: unknown) => Promise<void>;
       };
-      const hostMessages: CodexHostMessage[] = [];
+      const threadMessages: CodexHostMessage[] = [];
+      const mcpMessages: CodexHostMessage[] = [];
 
       service.on("hostMessage", (message) => {
         if (message.type === "threadStreamStateChanged") {
-          hostMessages.push(message);
+          threadMessages.push(message);
+        }
+        if (message.type === "mcpNotification") {
+          mcpMessages.push(message);
         }
       });
 
@@ -8259,16 +8263,33 @@ describe("codex-service terminal turn reconciliation", () => {
           itemId: "exec_streaming_output",
           delta: "1340 pass\n",
         });
-        await new Promise((resolve) => setTimeout(resolve, 70));
 
-        const latest = projectConversationFromHostMessages(hostMessages);
-        expect(latest).not.toBeNull();
-        expect(latest?.turns.length).toBe(1);
-        expect(latest?.turns[0]?.items.length).toBe(1);
-        expect(typeof latest?.turns[0]?.firstTurnWorkItemStartedAtMs).toBe("number");
-        expect(latest?.turns[0]?.items[0]?.aggregatedOutput).toBe("1340 pass\n");
-        expect(typeof latest?.turns[0]?.items[0]?.toolCall?.result).toBe("string");
-        expect(latest?.turns[0]?.items[0]?.toolCall?.result).toBe("1340 pass\n");
+        expect(String(mcpMessages.length)).toBe("1");
+        const mcpMessage = mcpMessages[0];
+        expect(mcpMessage?.type).toBe("mcpNotification");
+        expect(
+          mcpMessage?.type === "mcpNotification"
+            ? mcpMessage.method
+            : "",
+        ).toBe("item/commandExecution/outputDelta");
+        expect(
+          mcpMessage?.type === "mcpNotification"
+            ? mcpMessage.params.delta
+            : "",
+        ).toBe("1340 pass\n");
+
+        const threadMessageCountAfterStarted = threadMessages.length;
+        await new Promise((resolve) => setTimeout(resolve, 70));
+        expect(String(threadMessages.length)).toBe(String(threadMessageCountAfterStarted));
+
+        const snapshot = await service.requestConversationSnapshot("thr_streaming_output");
+        expect(snapshot).not.toBeNull();
+        expect(snapshot?.turns.length).toBe(1);
+        expect(snapshot?.turns[0]?.items.length).toBe(1);
+        expect(typeof snapshot?.turns[0]?.firstTurnWorkItemStartedAtMs).toBe("number");
+        expect(snapshot?.turns[0]?.items[0]?.aggregatedOutput).toBe("1340 pass\n");
+        expect(typeof snapshot?.turns[0]?.items[0]?.toolCall?.result).toBe("string");
+        expect(snapshot?.turns[0]?.items[0]?.toolCall?.result).toBe("1340 pass\n");
       } finally {
         await service.shutdown();
       }
@@ -8340,7 +8361,62 @@ describe("codex-service terminal turn reconciliation", () => {
     }
   });
 
-  test("avoids full conversation serialization during command-output delta flushes once the broadcast cache is primed", async () => {
+  test("item/completed flushes pending command output into the canonical snapshot", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      handleNotification: (method: string, params: unknown) => Promise<void>;
+    };
+
+    try {
+      serviceInternals.setConversationRecordDetail({
+        ...makeThreadDetail("thr_completed_output_flush"),
+        turns: [{
+          threadId: "thr_completed_output_flush",
+          turnId: "turn_completed_output_flush",
+          status: "inProgress",
+          itemIds: ["exec_completed_output_flush"],
+        }],
+        transcript: [],
+      });
+
+      await serviceInternals.handleNotification("item/started", {
+        threadId: "thr_completed_output_flush",
+        turnId: "turn_completed_output_flush",
+        item: {
+          id: "exec_completed_output_flush",
+          type: "commandExecution",
+          command: "bun test",
+          status: "in_progress",
+        },
+      });
+      await serviceInternals.handleNotification("item/commandExecution/outputDelta", {
+        threadId: "thr_completed_output_flush",
+        turnId: "turn_completed_output_flush",
+        itemId: "exec_completed_output_flush",
+        delta: "1340 pass\n",
+      });
+      await serviceInternals.handleNotification("item/completed", {
+        threadId: "thr_completed_output_flush",
+        turnId: "turn_completed_output_flush",
+        item: {
+          id: "exec_completed_output_flush",
+          type: "commandExecution",
+          command: "bun test",
+          status: "completed",
+        },
+      });
+
+      const snapshot = service.serializeConversationSnapshot("thr_completed_output_flush");
+      const item = snapshot?.turns[0]?.items[0];
+      expect(item?.status).toBe("completed");
+      expect(item?.aggregatedOutput).toBe("1340 pass\n");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("keeps command-output delta flushes silent once the broadcast cache is primed", async () => {
     const ran = await withTempDatabase(async () => {
       const card = await createCard(defaultProjectId, "in_progress", { title: "Streaming command output hot path" });
       upsertCodexCardThreadLink({
@@ -8356,11 +8432,15 @@ describe("codex-service terminal turn reconciliation", () => {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
         handleNotification: (method: string, params: unknown) => Promise<void>;
       };
-      const hostMessages: CodexHostMessage[] = [];
+      const threadMessages: CodexHostMessage[] = [];
+      const mcpMessages: CodexHostMessage[] = [];
 
       service.on("hostMessage", (message) => {
         if (message.type === "threadStreamStateChanged") {
-          hostMessages.push(message);
+          threadMessages.push(message);
+        }
+        if (message.type === "mcpNotification") {
+          mcpMessages.push(message);
         }
       });
 
@@ -8390,7 +8470,8 @@ describe("codex-service terminal turn reconciliation", () => {
           },
         });
         await service.requestConversationSnapshot("thr_streaming_output_hot_path");
-        hostMessages.length = 0;
+        threadMessages.length = 0;
+        mcpMessages.length = 0;
 
         const originalSerializeConversationSnapshot = serviceInternals.serializeConversationSnapshot.bind(serviceInternals);
         let serializeConversationSnapshotCallCount = 0;
@@ -8408,14 +8489,8 @@ describe("codex-service terminal turn reconciliation", () => {
         await new Promise((resolve) => setTimeout(resolve, 70));
 
         expect(String(serializeConversationSnapshotCallCount)).toBe("0");
-        expect(hostMessages.length > 0).toBeTrue();
-        const firstHostMessage = hostMessages[0];
-        expect(firstHostMessage?.type).toBe("threadStreamStateChanged");
-        expect(
-          firstHostMessage?.type === "threadStreamStateChanged"
-            ? firstHostMessage.change.type
-            : "snapshot",
-        ).toBe("patches");
+        expect(String(threadMessages.length)).toBe("0");
+        expect(String(mcpMessages.length)).toBe("1");
       } finally {
         await service.shutdown();
       }
@@ -8439,11 +8514,15 @@ describe("codex-service terminal turn reconciliation", () => {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
         handleNotification: (method: string, params: unknown) => Promise<void>;
       };
-      const hostMessages: CodexHostMessage[] = [];
+      const threadMessages: CodexHostMessage[] = [];
+      const mcpMessages: CodexHostMessage[] = [];
 
       service.on("hostMessage", (message) => {
         if (message.type === "threadStreamStateChanged") {
-          hostMessages.push(message);
+          threadMessages.push(message);
+        }
+        if (message.type === "mcpNotification") {
+          mcpMessages.push(message);
         }
       });
 
@@ -8469,7 +8548,7 @@ describe("codex-service terminal turn reconciliation", () => {
         });
         await new Promise((resolve) => setTimeout(resolve, 30));
 
-        expect(hostMessages.length).toBe(0);
+        expect(threadMessages.length).toBe(0);
       } finally {
         await service.shutdown();
       }
@@ -8493,11 +8572,15 @@ describe("codex-service terminal turn reconciliation", () => {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
         handleNotification: (method: string, params: unknown) => Promise<void>;
       };
-      const hostMessages: CodexHostMessage[] = [];
+      const threadMessages: CodexHostMessage[] = [];
+      const mcpMessages: CodexHostMessage[] = [];
 
       service.on("hostMessage", (message) => {
         if (message.type === "threadStreamStateChanged") {
-          hostMessages.push(message);
+          threadMessages.push(message);
+        }
+        if (message.type === "mcpNotification") {
+          mcpMessages.push(message);
         }
       });
 
@@ -8523,7 +8606,8 @@ describe("codex-service terminal turn reconciliation", () => {
         });
         await new Promise((resolve) => setTimeout(resolve, 70));
 
-        expect(hostMessages.length).toBe(0);
+        expect(String(threadMessages.length)).toBe("0");
+        expect(String(mcpMessages.length)).toBe("1");
       } finally {
         await service.shutdown();
       }
@@ -8547,13 +8631,6 @@ describe("codex-service terminal turn reconciliation", () => {
         setConversationRecordDetail: (detail: CodexThreadDetail) => void;
         handleNotification: (method: string, params: unknown) => Promise<void>;
       };
-      const hostMessages: CodexHostMessage[] = [];
-
-      service.on("hostMessage", (message) => {
-        if (message.type === "threadStreamStateChanged") {
-          hostMessages.push(message);
-        }
-      });
 
       serviceInternals.setConversationRecordDetail({
         ...makeThreadDetail("thr_streaming_output_truncated"),
@@ -8588,8 +8665,8 @@ describe("codex-service terminal turn reconciliation", () => {
         });
         await new Promise((resolve) => setTimeout(resolve, 70));
 
-        const latest = projectConversationFromHostMessages(hostMessages);
-        const output = latest?.turns[0]?.items[0]?.aggregatedOutput ?? "";
+        const snapshot = await service.requestConversationSnapshot("thr_streaming_output_truncated");
+        const output = snapshot?.turns[0]?.items[0]?.aggregatedOutput ?? "";
         expect(output.startsWith("[output truncated]\n")).toBeTrue();
         expect(output.length <= 20_020).toBeTrue();
       } finally {

@@ -80,6 +80,7 @@ describe("CommandToolCall render state", () => {
     const collapsedBody = container.querySelector('[data-thread-find-skip="true"]');
     expect(Boolean(collapsedBody)).toBeTrue();
     expect((collapsedBody as HTMLElement | null)?.style.height === "0px").toBeTrue();
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeFalse();
   });
 
   test("keeps settled commands collapsed on first mount in steps-with-commands mode", () => {
@@ -107,6 +108,7 @@ describe("CommandToolCall render state", () => {
     );
 
     expect(Boolean(container.querySelector('[data-thread-find-skip="true"]'))).toBeFalse();
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeTrue();
     expect(Boolean(textContent(container).includes("Shell"))).toBeTrue();
   });
 
@@ -208,6 +210,7 @@ describe("CommandToolCall render state", () => {
 
     const collapsedBody = container.querySelector('[data-thread-find-skip="true"]');
     expect(Boolean(collapsedBody)).toBeTrue();
+    expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBeFalse();
   });
 
   test("expands a long command line when clicked", async () => {
@@ -284,6 +287,33 @@ describe("CommandToolCall render state", () => {
     expect(Boolean(textContent(container).includes("No output"))).toBeFalse();
   });
 
+  test("shows a no-output placeholder once a blank command output has settled", () => {
+    localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_EXECUTION" }));
+
+    const { container } = render(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall
+            item={buildCommandEntry({
+              status: "completed",
+              markdownText: "Ran bun test",
+              command: "bun test",
+              aggregatedOutput: "",
+              exitCode: 0,
+              toolCall: {
+                subtype: "command",
+                toolName: "bash",
+                result: "",
+              },
+            })}
+          />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+
+    expect(Boolean(textContent(container).includes("No output"))).toBeTrue();
+  });
+
   test("renders explicit canonical exit codes without parsing output text", async () => {
     localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_EXECUTION" }));
 
@@ -303,6 +333,56 @@ describe("CommandToolCall render state", () => {
     );
 
     await settleAsyncRender();
-    expect(Boolean(textContent(container).includes("Exit 7"))).toBeTrue();
+    expect(Boolean(textContent(container).includes("Exit code 7"))).toBeTrue();
+  });
+
+  test("renders stopped, success, and unknown command footer labels", async () => {
+    localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_EXECUTION" }));
+
+    const { container, rerender } = render(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall
+            item={buildCommandEntry({
+              status: "interrupted",
+              exitCode: null,
+            })}
+          />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+
+    await settleAsyncRender();
+    expect(Boolean(textContent(container).includes("Stopped"))).toBeTrue();
+
+    rerender(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall
+            item={buildCommandEntry({
+              status: "completed",
+              exitCode: 0,
+            })}
+          />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+    await settleAsyncRender();
+    expect(Boolean(textContent(container).includes("Success"))).toBeTrue();
+
+    rerender(
+      <TooltipProvider>
+        <CodexThreadSettingsProvider>
+          <CommandToolCall
+            item={buildCommandEntry({
+              status: "failed",
+              exitCode: null,
+            })}
+          />
+        </CodexThreadSettingsProvider>
+      </TooltipProvider>,
+    );
+    await settleAsyncRender();
+    expect(Boolean(textContent(container).includes("Exit code unknown"))).toBeTrue();
   });
 });

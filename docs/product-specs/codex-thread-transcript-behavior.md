@@ -121,7 +121,7 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
 - Assistant, plan, and reasoning content render through Streamdown with official code, Mermaid, math, and CJK plugins.
 - Transcript markdown rendering remains streaming-safe for in-progress turns.
 - `imageView` transcript items render as assistant markdown content; review-mode markers (`enteredReviewMode`, `exitedReviewMode`) are ignored and do not render transcript rows.
-- Active-thread streaming updates are manager-driven: assistant text, plan text, reasoning text, and command output flush into the canonical conversation incrementally during the turn instead of waiting for turn completion to reveal large chunks.
+- Active-thread streaming updates are manager-driven: assistant text, plan text, and reasoning text arrive through thread stream patches, while command output arrives as raw host `mcpNotification` deltas. The local-conversation manager coalesces command output for 50 ms, appends it to the matching `commandExecution.aggregatedOutput`, preserves only the latest 20,000 characters with `[output truncated]\n`, and drops deltas whose conversation, turn, or item is not present.
 - Absolute local file links in transcript markdown open in the configured desktop app, and hovering those links shows the full resolved local path plus line/column when present.
 - Reasoning rows follow summary-first projection: only the reasoning `summary` is rendered into the transcript item, empty summaries produce no reasoning row, and raw `content` remains non-transcript state.
 - Consecutive replay reasoning records in the same turn are coalesced into one visible reasoning row instead of materializing one `Thought` block per raw reasoning event line.
@@ -197,6 +197,7 @@ MCP and dynamic app-server tool calls are specialized `toolCall` rows with canon
   - `STEPS_COMMANDS` shows command cards but keeps settled rows collapsed by default
   - `STEPS_EXECUTION` shows command cards and lets settled rows start expanded by default
 - Running command rows start collapsed, auto-expand after a short delay, and when they settle from an expanded state they briefly enter `preview` before collapsing again.
+- Expanded command shell rows render a `Shell` chrome with the command line, copy-command/output controls, and a reversed scroll output area capped at 140px. Blank running output stays empty; blank settled output reads `No output`. The footer is blank while running, then reads `Stopped`, `Success`, `Exit code {code}`, or `Exit code unknown` from canonical command status and exit-code fields.
 - While the current turn is still active, the trailing coalesced exploration section remains visually `in progress` (`Exploring` shimmer) until a non-exploration item appears in that same turn or the turn stops.
 - Exploration groups keep one measured body and switch between `preview`, `expanded`, and `collapsed`; the preview state reveals the same measured content under a shorter height cap instead of mounting a separate preview tree.
 - Proposed-plan cards animate the body height directly between the collapsed cap and the full markdown body, while the collapsed gradient/`Expand plan` overlay remains part of the same animated card.

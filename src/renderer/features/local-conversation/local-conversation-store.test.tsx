@@ -162,6 +162,41 @@ function buildAssistantMessage(
   };
 }
 
+function buildCommandExecutionItem(
+  threadId: string,
+  turnId: string,
+  itemId: string,
+  aggregatedOutput = "",
+): CodexConversationItem {
+  return {
+    threadId,
+    turnId,
+    itemId,
+    entryId: itemId,
+    type: "command_execution",
+    kind: "commandExecution",
+    semanticKind: "exec",
+    status: "inProgress",
+    command: "bun test",
+    cwd: null,
+    processId: null,
+    commandActions: [],
+    aggregatedOutput,
+    exitCode: null,
+    durationMs: null,
+    toolCall: {
+      subtype: "command",
+      toolName: "bash",
+      args: {
+        command: "bun test",
+      },
+      result: aggregatedOutput,
+    },
+    createdAt: 1,
+    updatedAt: 1,
+  };
+}
+
 function dispatchThreadSnapshot(message: CodexHostMessage): void {
   hostMessageListener?.(message);
 }
@@ -315,6 +350,252 @@ describe("local-conversation-store", () => {
 
     expect(readLocalConversation("thread-1")?.turns.length ?? 0).toBe(1);
     expect(String(summaryRenderCount)).toBe("0");
+  });
+
+  test("coalesces command output mcp notifications into renderer conversation state", async () => {
+    invokeCalls = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          conversationState: {
+            ...buildConversation("thread-1", "project-1"),
+            turns: [{
+              threadId: "thread-1",
+              turnId: "turn-1",
+              status: "inProgress",
+              itemIds: ["cmd-1"],
+              items: [buildCommandExecutionItem("thread-1", "turn-1", "cmd-1")],
+            }],
+          },
+        },
+        sourceClientId: null,
+      });
+
+      dispatchCodexAppServerMessage("mcp-notification", {
+        hostId: "default",
+        method: "item/commandExecution/outputDelta",
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "cmd-1",
+          delta: "1340 ",
+        },
+      });
+      dispatchCodexAppServerMessage("mcp-notification", {
+        hostId: "default",
+        method: "item/commandExecution/outputDelta",
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "cmd-1",
+          delta: "pass\n",
+        },
+      });
+
+      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.aggregatedOutput ?? "missing").toBe("");
+      await new Promise((resolve) => setTimeout(resolve, 70));
+
+      const item = manager.readConversation("thread-1")?.turns[0]?.items[0];
+      expect(item?.aggregatedOutput).toBe("1340 pass\n");
+      expect(item?.toolCall?.result).toBe("1340 pass\n");
+    } finally {
+      manager.destroy();
+    }
+  });
+
+  test("applies command output deltas only to the addressed conversation turn item", async () => {
+    invokeCalls = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      for (const threadId of ["thread-1", "thread-2"]) {
+        dispatchCodexAppServerMessage("thread-stream-state-changed", {
+          hostId: "default",
+          conversationId: threadId,
+          version: 1,
+          change: {
+            type: "snapshot",
+            conversationState: {
+              ...buildConversation(threadId, "project-1"),
+              turns: [{
+                threadId,
+                turnId: "turn-1",
+                status: "inProgress",
+                itemIds: ["cmd-1"],
+                items: [buildCommandExecutionItem(threadId, "turn-1", "cmd-1")],
+              }],
+            },
+          },
+          sourceClientId: null,
+        });
+      }
+
+      dispatchCodexAppServerMessage("mcp-notification", {
+        hostId: "default",
+        method: "item/commandExecution/outputDelta",
+        params: {
+          threadId: "thread-2",
+          turnId: "turn-1",
+          itemId: "cmd-1",
+          delta: "target output\n",
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 70));
+
+      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.aggregatedOutput ?? "missing").toBe("");
+      expect(manager.readConversation("thread-2")?.turns[0]?.items[0]?.aggregatedOutput).toBe("target output\n");
+    } finally {
+      manager.destroy();
+    }
+  });
+
+  test("drops command output deltas for missing items", async () => {
+    invokeCalls = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          conversationState: {
+            ...buildConversation("thread-1", "project-1"),
+            turns: [{
+              threadId: "thread-1",
+              turnId: "turn-1",
+              status: "inProgress",
+              itemIds: [],
+              items: [],
+            }],
+          },
+        },
+        sourceClientId: null,
+      });
+
+      dispatchCodexAppServerMessage("mcp-notification", {
+        hostId: "default",
+        method: "item/commandExecution/outputDelta",
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "cmd-missing",
+          delta: "dropped\n",
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 70));
+
+      expect(String(manager.readConversation("thread-1")?.turns[0]?.items.length ?? -1)).toBe("0");
+    } finally {
+      manager.destroy();
+    }
+  });
+
+  test("flushes queued output before applying snapshots so output is not duplicated", async () => {
+    invokeCalls = [];
+    hostMessageListener = null;
+    threadListByProject = {};
+    const {
+      CodexAppServerManager,
+      __resetLocalConversationStoreForTests,
+    } = await import("./local-conversation-store");
+    const {
+      dispatchCodexAppServerMessage,
+    } = await import("./app-server-message-bus");
+    __resetLocalConversationStoreForTests();
+
+    const manager = new CodexAppServerManager("default");
+    try {
+      const baseConversation: CodexConversationSnapshot = {
+        ...buildConversation("thread-1", "project-1"),
+        turns: [{
+          threadId: "thread-1",
+          turnId: "turn-1",
+          status: "inProgress",
+          itemIds: ["cmd-1"],
+          items: [buildCommandExecutionItem("thread-1", "turn-1", "cmd-1")],
+        }],
+      };
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 1,
+        change: {
+          type: "snapshot",
+          conversationState: baseConversation,
+        },
+        sourceClientId: null,
+      });
+
+      dispatchCodexAppServerMessage("mcp-notification", {
+        hostId: "default",
+        method: "item/commandExecution/outputDelta",
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "cmd-1",
+          delta: "single append\n",
+        },
+      });
+      dispatchCodexAppServerMessage("thread-stream-state-changed", {
+        hostId: "default",
+        conversationId: "thread-1",
+        version: 2,
+        change: {
+          type: "snapshot",
+          conversationState: {
+            ...baseConversation,
+            turns: [{
+              ...baseConversation.turns[0]!,
+              items: [buildCommandExecutionItem("thread-1", "turn-1", "cmd-1", "single append\n")],
+            }],
+          },
+        },
+        sourceClientId: null,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 70));
+
+      expect(manager.readConversation("thread-1")?.turns[0]?.items[0]?.aggregatedOutput).toBe("single append\n");
+    } finally {
+      manager.destroy();
+    }
   });
 
   test("control-plane selectors update without a separate reducer store", async () => {

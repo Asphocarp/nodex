@@ -1624,8 +1624,29 @@ export class CodexService extends EventEmitter {
     }
   }
 
+  private mutateBroadcastConversationCacheSilently(
+    threadId: string,
+    recipe: (draft: CodexConversationSnapshot) => void | CodexConversationSnapshot,
+  ): void {
+    const currentConversation = this.lastBroadcastConversationById.get(threadId);
+    if (!currentConversation) {
+      return;
+    }
+
+    try {
+      const [nextConversation] = produceWithPatches(currentConversation, recipe);
+      this.lastBroadcastConversationById.set(threadId, nextConversation);
+    } catch (error) {
+      this.logger.warn("Could not update broadcast conversation cache silently", {
+        threadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private emitThreadStreamSnapshotFromRecord(threadId: string): void {
     try {
+      this.outputDeltaQueue.flushNow();
       const conversation = this.serializeConversationSnapshot(threadId);
       if (!conversation) return;
       this.emitThreadStreamSnapshot(threadId, conversation);
@@ -4644,12 +4665,34 @@ export class CodexService extends EventEmitter {
       existingKey = primaryKey;
     }
 
-    const mergedItem = existing
+    const mergeCandidate = existing
+      && item.normalizedKind === "commandExecution"
+      && item.aggregatedOutput == null
+      && existing.aggregatedOutput != null
       ? {
-          ...mergeCodexItemView(existing, item),
-          updatedAt: Date.now(),
+          ...item,
+          aggregatedOutput: existing.aggregatedOutput,
+          toolCall: item.toolCall
+            ? {
+                ...item.toolCall,
+                result: item.toolCall.result ?? existing.aggregatedOutput,
+              }
+            : item.toolCall,
+          rawItem: item.rawItem && typeof item.rawItem === "object"
+            ? {
+                ...(item.rawItem as Record<string, unknown>),
+                aggregatedOutput: existing.aggregatedOutput,
+              }
+            : item.rawItem,
         }
       : item;
+
+    const mergedItem = existing
+      ? {
+          ...mergeCodexItemView(existing, mergeCandidate),
+          updatedAt: Date.now(),
+        }
+      : mergeCandidate;
 
     if (existingKey && existingKey !== primaryKey) {
       byItem.delete(existingKey);
@@ -5831,6 +5874,7 @@ export class CodexService extends EventEmitter {
   }
 
   async requestConversationSnapshot(threadId: string): Promise<CodexConversationSnapshot | null> {
+    this.outputDeltaQueue.flushNow();
     const existingConversation = this.serializeConversationSnapshot(threadId);
     if (existingConversation) {
       this.emitThreadStreamSnapshotFromRecord(threadId);
@@ -7737,7 +7781,7 @@ export class CodexService extends EventEmitter {
 
     if (updatesByThreadId.size === 0) return;
     for (const [threadId, threadUpdates] of updatesByThreadId.entries()) {
-      this.mutateBroadcastConversationState(threadId, (draft) => {
+      this.mutateBroadcastConversationCacheSilently(threadId, (draft) => {
         for (const update of threadUpdates) {
           const turn = draft.turns.find((candidate) => candidate.turnId === update.turnId);
           if (!turn) {
@@ -8405,6 +8449,17 @@ export class CodexService extends EventEmitter {
       ) {
         return;
       }
+      this.emitHostMessage({
+        type: "mcpNotification",
+        hostId: DEFAULT_CODEX_HOST_ID,
+        method: "item/commandExecution/outputDelta",
+        params: {
+          threadId: payload.threadId,
+          turnId: payload.turnId,
+          itemId: payload.itemId,
+          delta: payload.delta,
+        },
+      });
       this.outputDeltaQueue.enqueue({
         threadId: payload.threadId,
         turnId: payload.turnId,

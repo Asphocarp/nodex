@@ -50,6 +50,7 @@ All notable changes to this project will be documented in this file.
 - Project session thread pages without an attached thread now show the session new-chat composer and start a session-owned Codex thread from the first prompt instead of showing an attach-thread empty state.
 - Codex thread metadata now supports card-owned, session-owned, project-only, and projectless threads without fake card ids.
 - Thread collapsed tool activity groups now has synthesized summaries and flat expanded row hierarchy instead of showing generic completed-action labels or nested exploration subgroups.
+- Command execution output now streams through the active thread renderer with smoother batched updates, canonical 20k truncation, reversed output scrolling, and explicit `Stopped` / `Success` / `Exit code` footer states.
 
 ### Removed
 - Removed the floating Manage Projects popover entry points.

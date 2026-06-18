@@ -1,5 +1,6 @@
 import type {
   CodexConnectionState,
+  CodexMcpNotificationMessage,
   CodexSharedObject,
   CodexThreadStreamStateChange,
 } from "../../lib/types";
@@ -41,12 +42,15 @@ export interface CodexErrorEvent {
   detail?: string;
 }
 
+export type CodexMcpNotificationEvent = Omit<CodexMcpNotificationMessage, "type">;
+
 interface CodexAppServerMessageMap {
   "shared-object-updated": CodexSharedObjectUpdatedEvent;
   "thread-stream-state-changed": CodexThreadStreamStateChangedEvent;
   "client-status-changed": CodexClientStatusChangedEvent;
   "thread-title-updated": CodexThreadTitleUpdatedEvent;
   "thread-deleted": CodexThreadDeletedEvent;
+  "mcp-notification": CodexMcpNotificationEvent;
   error: CodexErrorEvent;
 }
 
@@ -58,6 +62,7 @@ const listenersByType: {
   "client-status-changed": new Set(),
   "thread-title-updated": new Set(),
   "thread-deleted": new Set(),
+  "mcp-notification": new Set(),
   error: new Set(),
 };
 

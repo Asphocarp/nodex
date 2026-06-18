@@ -24,6 +24,7 @@ import type {
   CodexCollaborationModePreset,
   CodexComposerIntent,
   CodexConnectionState,
+  CodexConversationItem,
   CodexConversationServerRequest,
   CodexConversationSnapshot,
   CodexConversationTurn,
@@ -67,6 +68,7 @@ import {
   subscribeCodexAppServerMessage,
   type CodexClientStatusChangedEvent,
   type CodexErrorEvent,
+  type CodexMcpNotificationEvent,
   type CodexSharedObjectUpdatedEvent,
   type CodexThreadDeletedEvent,
   type CodexThreadTitleUpdatedEvent,
@@ -146,6 +148,9 @@ const DEFAULT_CODEX_DICTATION_STATE: CodexDictationStateSnapshot = {
   isRealtimeVoiceActive: false,
   shortcutLabel: "Ctrl+M",
 };
+const OUTPUT_DELTA_FLUSH_MS = 50;
+const MAX_COMMAND_OUTPUT_CHARS = 20_000;
+const TRUNCATED_OUTPUT_PREFIX = "[output truncated]\n";
 
 type StoreListener = () => void;
 type ConversationListener = (conversation: CodexConversationSnapshot) => void;
@@ -184,6 +189,140 @@ interface CodexHostErrorState {
   message: string;
   detail?: string;
   updatedAt: number;
+}
+
+interface OutputDeltaUpdate {
+  hostId: string;
+  conversationId: string;
+  turnId: string;
+  itemId: string;
+  delta: string;
+  truncated?: boolean;
+}
+
+function truncateBufferedOutput(input: {
+  existingText: string;
+  nextDelta: string;
+  maxChars?: number;
+}): { text: string; truncated: boolean } {
+  const maxChars = input.maxChars ?? MAX_COMMAND_OUTPUT_CHARS;
+  if (maxChars <= 0) {
+    return { text: "", truncated: true };
+  }
+
+  if (input.nextDelta.length >= maxChars) {
+    return {
+      text: input.nextDelta.slice(-maxChars),
+      truncated: true,
+    };
+  }
+
+  const combined = `${input.existingText}${input.nextDelta}`;
+  if (combined.length <= maxChars) {
+    return {
+      text: combined,
+      truncated: false,
+    };
+  }
+
+  return {
+    text: combined.slice(-maxChars),
+    truncated: true,
+  };
+}
+
+function parseStoredAggregatedOutput(value: string | null | undefined): { text: string; truncated: boolean } {
+  if (!value) {
+    return { text: "", truncated: false };
+  }
+
+  if (!value.startsWith(TRUNCATED_OUTPUT_PREFIX)) {
+    return { text: value, truncated: false };
+  }
+
+  return {
+    text: value.slice(TRUNCATED_OUTPUT_PREFIX.length),
+    truncated: true,
+  };
+}
+
+function formatStoredAggregatedOutput(value: { text: string; truncated: boolean }): string {
+  return value.truncated ? `${TRUNCATED_OUTPUT_PREFIX}${value.text}` : value.text;
+}
+
+function shouldWarnForMissingOutputDeltaTarget(): boolean {
+  const meta = import.meta as ImportMeta & {
+    env?: {
+      MODE?: string;
+      DEV?: boolean;
+    };
+  };
+  return meta.env?.DEV === true || meta.env?.MODE === "development";
+}
+
+function warnMissingOutputDeltaTarget(message: string, update: OutputDeltaUpdate): void {
+  if (!shouldWarnForMissingOutputDeltaTarget()) {
+    return;
+  }
+
+  console.warn("[local-conversation-output-delta]", message, {
+    conversationId: update.conversationId,
+    turnId: update.turnId,
+    itemId: update.itemId,
+    deltaPreview: update.delta.slice(0, 80),
+  });
+}
+
+class OutputDeltaQueue {
+  private readonly buffers = new Map<string, OutputDeltaUpdate>();
+  private flushHandle: ReturnType<typeof setTimeout> | null = null;
+
+  constructor(
+    private readonly onFlush: (updates: OutputDeltaUpdate[]) => void,
+    private readonly flushIntervalMs = OUTPUT_DELTA_FLUSH_MS,
+  ) {}
+
+  enqueue(update: OutputDeltaUpdate): void {
+    const key = `${update.hostId}:${update.conversationId}:${update.turnId}:${update.itemId}`;
+    const existing = this.buffers.get(key);
+    const merged = truncateBufferedOutput({
+      existingText: existing?.delta ?? "",
+      nextDelta: update.delta,
+    });
+    this.buffers.set(key, {
+      ...update,
+      delta: merged.text,
+      truncated: Boolean(existing?.truncated) || merged.truncated,
+    });
+    this.scheduleFlush();
+  }
+
+  flushNow(): void {
+    this.cancelScheduledFlush();
+    if (this.buffers.size === 0) return;
+    const updates = Array.from(this.buffers.values());
+    this.buffers.clear();
+    this.onFlush(updates);
+  }
+
+  cancel(): void {
+    this.cancelScheduledFlush();
+    this.buffers.clear();
+  }
+
+  private scheduleFlush(): void {
+    if (this.flushHandle !== null) return;
+    this.flushHandle = setTimeout(() => {
+      this.flushHandle = null;
+      this.flushNow();
+    }, this.flushIntervalMs);
+  }
+
+  private cancelScheduledFlush(): void {
+    if (this.flushHandle === null) return;
+    clearTimeout(this.flushHandle);
+    this.flushHandle = null;
+  }
 }
 
 function sortThreadSummaries(threads: CodexThreadSummary[]): CodexThreadSummary[] {
@@ -617,6 +756,9 @@ export class CodexAppServerManager {
   private readonly recentConversationIds: string[] = [];
   private readonly streamingConversationIds = new Set<string>();
   private readonly streamRoles = new Map<string, "owner" | "follower">();
+  private readonly outputDeltaQueue = new OutputDeltaQueue((updates) => {
+    this.applyOutputDeltas(updates);
+  });
 
   private readonly connectionCallbacks = new Set<StoreListener>();
   private readonly accountCallbacks = new Set<StoreListener>();
@@ -655,6 +797,9 @@ export class CodexAppServerManager {
       subscribeCodexAppServerMessage("thread-deleted", (event) => {
         this.handleThreadDeleted(event);
       }),
+      subscribeCodexAppServerMessage("mcp-notification", (event) => {
+        this.handleMcpNotification(event);
+      }),
       subscribeCodexAppServerMessage("error", (event) => {
         this.handleHostError(event);
       }),
@@ -683,6 +828,7 @@ export class CodexAppServerManager {
   }
 
   destroy(): void {
+    this.outputDeltaQueue.cancel();
     while (this.busUnsubscribers.length > 0) {
       this.busUnsubscribers.pop()?.();
     }
@@ -1284,6 +1430,7 @@ export class CodexAppServerManager {
     this.lastMetaSnapshotById.clear();
     this.lastAnyOrderKey = null;
     this.lastMetaOrderKey = null;
+    this.outputDeltaQueue.cancel();
     this.bootstrapStarted = false;
     this.resyncInFlight.clear();
     this.stop();
@@ -1481,6 +1628,109 @@ export class CodexAppServerManager {
     this.notifyControlCallbacks();
   }
 
+  private handleMcpNotification(event: CodexMcpNotificationEvent): void {
+    if (event.hostId !== this.hostId) {
+      return;
+    }
+
+    if (event.method !== "item/commandExecution/outputDelta") {
+      return;
+    }
+
+    this.outputDeltaQueue.enqueue({
+      hostId: event.hostId,
+      conversationId: event.params.threadId,
+      turnId: event.params.turnId,
+      itemId: event.params.itemId,
+      delta: event.params.delta,
+    });
+  }
+
+  private applyOutputDeltas(updates: OutputDeltaUpdate[]): void {
+    if (updates.length === 0) {
+      return;
+    }
+
+    const now = Date.now();
+    const touchedConversationIds = new Set<string>();
+    for (const update of updates) {
+      const currentConversation = this.conversationsById.get(update.conversationId);
+      if (!currentConversation) {
+        warnMissingOutputDeltaTarget("Skipping command output delta for unknown conversation", update);
+        continue;
+      }
+
+      const turnIndex = currentConversation.turns.findIndex((turn) => turn.turnId === update.turnId);
+      if (turnIndex < 0) {
+        warnMissingOutputDeltaTarget("Skipping command output delta for unknown turn", update);
+        continue;
+      }
+
+      const turn = currentConversation.turns[turnIndex];
+      if (!turn) {
+        warnMissingOutputDeltaTarget("Skipping command output delta for unknown turn", update);
+        continue;
+      }
+
+      const itemIndex = turn.items.findIndex((item) => item.itemId === update.itemId);
+      if (itemIndex < 0) {
+        warnMissingOutputDeltaTarget("Skipping command output delta for unknown item", update);
+        continue;
+      }
+
+      const item = turn.items[itemIndex];
+      if (!item) {
+        warnMissingOutputDeltaTarget("Skipping command output delta for unknown item", update);
+        continue;
+      }
+
+      const currentOutput = parseStoredAggregatedOutput(item.aggregatedOutput);
+      const mergedOutput = truncateBufferedOutput({
+        existingText: currentOutput.text,
+        nextDelta: update.delta,
+      });
+      const nextOutput = formatStoredAggregatedOutput({
+        text: mergedOutput.text,
+        truncated: currentOutput.truncated || Boolean(update.truncated) || mergedOutput.truncated,
+      });
+      const rawItem = item.rawItem && typeof item.rawItem === "object"
+        ? {
+            ...(item.rawItem as Record<string, unknown>),
+            aggregatedOutput: nextOutput,
+          }
+        : item.rawItem;
+      const nextItem: CodexConversationItem = {
+        ...item,
+        aggregatedOutput: nextOutput,
+        updatedAt: now,
+        toolCall: item.toolCall
+          ? {
+              ...item.toolCall,
+              result: nextOutput,
+            }
+          : item.toolCall,
+        rawItem,
+      };
+      const nextItems = [...turn.items];
+      nextItems[itemIndex] = nextItem;
+      const nextTurns = [...currentConversation.turns];
+      nextTurns[turnIndex] = {
+        ...turn,
+        items: nextItems,
+      };
+
+      this.conversationsById.set(update.conversationId, {
+        ...currentConversation,
+        turns: nextTurns,
+      });
+      touchedConversationIds.add(update.conversationId);
+    }
+
+    for (const conversationId of touchedConversationIds) {
+      this.notifyConversationCallbacks(conversationId);
+    }
+  }
+
   private handleThreadStreamStateChanged(event: CodexThreadStreamStateChangedEvent): void {
     if (event.hostId !== this.hostId) {
       return;
@@ -1490,6 +1740,8 @@ export class CodexAppServerManager {
     if (event.version <= currentVersion) {
       return;
     }
+
+    this.outputDeltaQueue.flushNow();
 
     if (event.change.type === "snapshot") {
       this.applyConversationSnapshot(event.conversationId, event.change.conversationState, event.version);
