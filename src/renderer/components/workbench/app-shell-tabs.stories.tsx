@@ -119,6 +119,76 @@ export const InsertionPreview: Story = {
   render: () => <AppShellTabsStory showInsertionPreview />,
 };
 
+export const RapidCloseMixedWidths: Story = {
+  render: () => <RapidCloseMixedWidthsStory />,
+};
+
+function RapidCloseMixedWidthsStory() {
+  const [activeTabId, setActiveTabId] = useState("rapid:planning");
+  const [sessionTabs, setSessionTabs] = useState<StorySessionTab[]>([
+    { id: "rapid:planning", title: "Weekly planning and project inbox" },
+    { id: "rapid:review", title: "Review" },
+    { id: "rapid:browser", title: "Browser research with a much longer page title" },
+    { id: "rapid:files", title: "Files" },
+    { id: "rapid:terminal", title: "Terminal" },
+    { id: "rapid:notes", title: "Implementation notes and follow-up prompts" },
+  ]);
+  const tabs: AppShellTabItem[] = [
+    ...sessionTabs.slice(0, 3).map((tab) => makeRapidCloseStoryTab(tab)),
+    {
+      id: "rapid:history",
+      title: "History",
+      icon: History,
+      closable: false,
+      isLabel: true,
+      reorderable: false,
+      renderPanel: () => (
+        <div className="flex h-full items-center justify-center text-sm text-token-description-foreground">
+          History
+        </div>
+      ),
+    },
+    ...sessionTabs.slice(3).map((tab) => makeRapidCloseStoryTab(tab)),
+  ];
+
+  return (
+    <NodexTooltipProvider>
+      <div className="h-screen bg-token-main-surface-primary text-token-foreground">
+        <div className="h-full w-[30rem] border-r border-token-border">
+          <AppShellTabs
+            tabs={tabs}
+            activeTabId={activeTabId}
+            onSelect={setActiveTabId}
+            onCloseTab={(tabId) => {
+              setSessionTabs((current) => current.filter((tab) => tab.id !== tabId));
+              setActiveTabId((current) => {
+                if (current !== tabId) return current;
+                const nextTabs = sessionTabs.filter((tab) => tab.id !== tabId);
+                return nextTabs[0]?.id ?? "rapid:history";
+              });
+            }}
+          />
+        </div>
+      </div>
+    </NodexTooltipProvider>
+  );
+}
+
+function makeRapidCloseStoryTab(tab: StorySessionTab): AppShellTabItem {
+  return {
+    ...tab,
+    icon: SquareKanban,
+    closable: true,
+    reorderable: true,
+    splittable: true,
+    renderPanel: () => (
+      <div className="flex h-full items-center justify-center text-sm text-token-description-foreground">
+        {tab.title}
+      </div>
+    ),
+  };
+}
+
 export const CardStagePreviewTab: Story = {
   render: () => {
     const tabs: AppShellTabItem[] = [

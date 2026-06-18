@@ -418,6 +418,201 @@ describe("AppShellTabs", () => {
     expect(closed.join(",")).toBe("two");
   });
 
+  test("direct close locks following tab widths for rapid close mode", async () => {
+    const closed: string[] = [];
+    const tabs: AppShellTabItem[] = [
+      { id: "one", title: "Long active tab title", closable: true, renderPanel: () => <div>Panel one</div> },
+      { id: "two", title: "Two", closable: true, renderPanel: () => <div>Panel two</div> },
+      { id: "three", title: "Three", closable: true, renderPanel: () => <div>Panel three</div> },
+    ];
+    const view = renderAppShellTabs({
+      tabs,
+      activeTabId: "one",
+      onCloseTab: (tabId) => closed.push(tabId),
+    });
+    prepareCloseModeMeasurements(view, [
+      ["one", 148],
+      ["two", 72],
+      ["three", 84],
+    ]);
+
+    const closeButton = view.getByLabelText("Close Long active tab title tab");
+    await act(async () => {
+      fireEvent.mouseDown(closeButton, { button: 0 });
+      fireEvent.click(closeButton);
+      await Promise.resolve();
+    });
+
+    const tabRow = getTabRowElement(view.getByRole("tablist"));
+    expect(closed.join(",")).toBe("one");
+    expect(tabRow.getAttribute("data-app-shell-tab-close-mode")).toBe("true");
+    expect(tabRow.style.overflowAnchor).toBe("none");
+    expect(getTabController(view, "one").style.width).toBe("148px");
+    expect(getTabController(view, "two").style.width).toBe("148px");
+    expect(getTabController(view, "two").getAttribute("data-app-shell-tab-close-mode-run")).toBe("true");
+    expect(getTabController(view, "three").style.width).toBe("148px");
+  });
+
+  test("middle-click also enters rapid close mode", async () => {
+    const closed: string[] = [];
+    const tabs: AppShellTabItem[] = [
+      { id: "one", title: "One", closable: true, renderPanel: () => <div>Panel one</div> },
+      { id: "two", title: "Two with a long title", closable: true, renderPanel: () => <div>Panel two</div> },
+    ];
+    const view = renderAppShellTabs({
+      tabs,
+      activeTabId: "one",
+      onCloseTab: (tabId) => closed.push(tabId),
+    });
+    prepareCloseModeMeasurements(view, [
+      ["one", 64],
+      ["two", 156],
+    ]);
+
+    const tabChrome = view.container.querySelector('[data-app-shell-tab-controller][data-panel-tab-id="one"] [data-tab-id="one"]');
+    if (!tabChrome) throw new Error("Expected tab chrome");
+    await act(async () => {
+      fireEvent.mouseDown(tabChrome, { button: 1 });
+      await Promise.resolve();
+    });
+
+    expect(closed.join(",")).toBe("one");
+    expect(getTabController(view, "two").style.width).toBe("64px");
+    expect(getTabController(view, "two").getAttribute("data-app-shell-tab-close-mode-run")).toBe("true");
+  });
+
+  test("wheel and Escape exit rapid close mode", async () => {
+    const view = renderAppShellTabs({
+      tabs: [
+        { id: "one", title: "One", closable: true, renderPanel: () => <div>Panel one</div> },
+        { id: "two", title: "Two", closable: true, renderPanel: () => <div>Panel two</div> },
+      ],
+      activeTabId: "one",
+      onCloseTab: () => undefined,
+    });
+    prepareCloseModeMeasurements(view, [
+      ["one", 96],
+      ["two", 72],
+    ]);
+
+    await clickCloseButton(view, "Close One tab");
+    const tabRow = getTabRowElement(view.getByRole("tablist"));
+    expect(tabRow.getAttribute("data-app-shell-tab-close-mode")).toBe("true");
+
+    makeScrollable(tabRow, { clientWidth: 100, scrollWidth: 300 });
+    await act(async () => {
+      dispatchWheel(tabRow, { deltaY: 40 });
+      await Promise.resolve();
+    });
+    expect(tabRow.getAttribute("data-app-shell-tab-close-mode")).toBe(null);
+
+    await clickCloseButton(view, "Close One tab");
+    expect(tabRow.getAttribute("data-app-shell-tab-close-mode")).toBe("true");
+    await act(async () => {
+      view.container.ownerDocument.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(tabRow.getAttribute("data-app-shell-tab-close-mode")).toBe(null);
+  });
+
+  test("opening a context menu exits rapid close mode", async () => {
+    const view = renderAppShellTabs({
+      tabs: [
+        { id: "one", title: "One", closable: true, renderPanel: () => <div>Panel one</div> },
+        { id: "two", title: "Two", closable: true, renderPanel: () => <div>Panel two</div> },
+      ],
+      activeTabId: "one",
+      onCloseTab: () => undefined,
+    });
+    prepareCloseModeMeasurements(view, [
+      ["one", 96],
+      ["two", 72],
+    ]);
+
+    await clickCloseButton(view, "Close One tab");
+    const tabRow = getTabRowElement(view.getByRole("tablist"));
+    expect(tabRow.getAttribute("data-app-shell-tab-close-mode")).toBe("true");
+
+    fireEvent.contextMenu(getTabController(view, "one"));
+    await settleAsyncRender();
+    expect(tabRow.getAttribute("data-app-shell-tab-close-mode")).toBe(null);
+  });
+
+  test("rerendering with the source tab still present exits rapid close mode", async () => {
+    const firstTabs: AppShellTabItem[] = [
+      { id: "one", title: "One", closable: true, renderPanel: () => <div>Panel one</div> },
+      { id: "two", title: "Two", closable: true, renderPanel: () => <div>Panel two</div> },
+    ];
+    const secondTabs: AppShellTabItem[] = [
+      { ...firstTabs[0], title: "One renamed" },
+      firstTabs[1],
+    ];
+    const renderWithTabs = (tabs: AppShellTabItem[]) => (
+      <NodexTooltipProvider>
+        <AppShellTabs
+          tabs={tabs}
+          activeTabId="one"
+          onSelect={() => undefined}
+          onCloseTab={() => undefined}
+        />
+      </NodexTooltipProvider>
+    );
+    const view = render(renderWithTabs(firstTabs));
+    prepareCloseModeMeasurements(view, [
+      ["one", 96],
+      ["two", 72],
+    ]);
+
+    await clickCloseButton(view, "Close One tab");
+    const tabRow = getTabRowElement(view.getByRole("tablist"));
+    expect(tabRow.getAttribute("data-app-shell-tab-close-mode")).toBe("true");
+
+    await act(async () => {
+      view.rerender(renderWithTabs(secondTabs));
+      await Promise.resolve();
+    });
+    expect(tabRow.getAttribute("data-app-shell-tab-close-mode")).toBe(null);
+  });
+
+  test("active panel tab drag exits rapid close mode", async () => {
+    const tabs: AppShellTabItem[] = [
+      { id: "one", title: "One", closable: true, reorderable: true, renderPanel: () => <div>Panel one</div> },
+      { id: "two", title: "Two", closable: true, reorderable: true, renderPanel: () => <div>Panel two</div> },
+    ];
+    const renderWithActiveDragId = (activeDragId: string | null) => (
+      <NodexTooltipProvider>
+        <AppShellTabs
+          tabs={tabs}
+          activeTabId="one"
+          onSelect={() => undefined}
+          onCloseTab={() => undefined}
+          panelTabDnd={{
+            sessionId: "session-1",
+            panelId: "right",
+            leafId: "leaf-a",
+            activeDragId,
+            previewIntent: null,
+          }}
+        />
+      </NodexTooltipProvider>
+    );
+    const view = render(renderWithActiveDragId(null));
+    prepareCloseModeMeasurements(view, [
+      ["one", 96],
+      ["two", 72],
+    ]);
+
+    await clickCloseButton(view, "Close One tab");
+    const tabRow = getTabRowElement(view.getByRole("tablist"));
+    expect(tabRow.getAttribute("data-app-shell-tab-close-mode")).toBe("true");
+
+    await act(async () => {
+      view.rerender(renderWithActiveDragId("one"));
+      await Promise.resolve();
+    });
+    expect(tabRow.getAttribute("data-app-shell-tab-close-mode")).toBe(null);
+  });
+
   test("selects tabs on primary mouse down", () => {
     const selected: string[] = [];
     const view = renderAppShellTabs({
@@ -597,6 +792,41 @@ describe("AppShellTabs", () => {
     expect((marker as HTMLElement).style.left).toBe("48px");
   });
 
+  test("keeps the panel tab insertion marker while rapid close mode is active", async () => {
+    const view = renderAppShellTabs({
+      tabs: [
+        { id: "one", title: "One", closable: true, renderPanel: () => <div>Panel one</div> },
+        { id: "two", title: "Two", closable: true, renderPanel: () => <div>Panel two</div> },
+      ],
+      activeTabId: "one",
+      onCloseTab: () => undefined,
+      panelTabDnd: {
+        sessionId: "session-1",
+        panelId: "right",
+        leafId: "leaf-a",
+        activeDragId: null,
+        previewIntent: {
+          kind: "tab-row",
+          panelId: "right",
+          leafId: "leaf-a",
+          targetIndex: 1,
+          markerLeft: 48,
+        },
+      },
+    });
+    prepareCloseModeMeasurements(view, [
+      ["one", 96],
+      ["two", 72],
+    ]);
+
+    await clickCloseButton(view, "Close One tab");
+
+    const marker = view.container.querySelector('[data-panel-tab-insertion-marker="right:leaf-a:1"]');
+    expect(marker instanceof HTMLElement).toBeTrue();
+    expect((marker as HTMLElement).style.left).toBe("48px");
+    expect(getTabController(view, "two").style.width).toBe("96px");
+  });
+
   test("does not render a panel tab insertion marker for another leaf", () => {
     const view = renderAppShellTabs({
       panelTabDnd: {
@@ -690,4 +920,71 @@ function dispatchWheel(
   });
   target.dispatchEvent(event);
   return event;
+}
+
+async function clickCloseButton(view: ReturnType<typeof render>, label: string) {
+  const closeButton = view.getByLabelText(label);
+  await act(async () => {
+    fireEvent.mouseDown(closeButton, { button: 0 });
+    fireEvent.click(closeButton);
+    await Promise.resolve();
+  });
+}
+
+function prepareCloseModeMeasurements(
+  view: ReturnType<typeof render>,
+  tabWidths: [string, number][],
+) {
+  setElementRect(getTabRowElement(view.getByRole("tablist")), {
+    left: 100,
+    top: 10,
+    width: 480,
+    height: 28,
+  });
+  let left = 100;
+  for (const [tabId, width] of tabWidths) {
+    setElementRect(getTabController(view, tabId), {
+      left,
+      top: 10,
+      width,
+      height: 28,
+    });
+    left += width + 3;
+  }
+}
+
+function getTabController(view: ReturnType<typeof render>, tabId: string): HTMLElement {
+  const element = view.container.querySelector(`[data-app-shell-tab-controller][data-panel-tab-id="${tabId}"]`);
+  if (!(element instanceof HTMLElement)) throw new Error(`Expected tab controller for ${tabId}`);
+  return element;
+}
+
+function setElementRect(
+  element: HTMLElement,
+  {
+    left,
+    top,
+    width,
+    height,
+  }: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  },
+) {
+  Object.defineProperty(element, "getBoundingClientRect", {
+    configurable: true,
+    value: () => ({
+      x: left,
+      y: top,
+      left,
+      top,
+      width,
+      height,
+      right: left + width,
+      bottom: top + height,
+      toJSON: () => ({}),
+    }),
+  });
 }
