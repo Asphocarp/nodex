@@ -235,6 +235,17 @@ mock.module("./workbench-card-stage", () => ({
         "button",
         {
           type: "button",
+          "aria-label": "Terminal",
+          onClick: () => {
+            (props.onOpenTerminalPanel as (() => void) | undefined)?.();
+          },
+        },
+        "Terminal",
+      ),
+      createElement(
+        "button",
+        {
+          type: "button",
           "aria-label": "Delete",
           onClick: () => {
             const current = (globalThis as { __mockCardStageDeleteClicks?: number }).__mockCardStageDeleteClicks ?? 0;
@@ -441,30 +452,19 @@ mock.module("@/lib/calendar-view-state", () => ({
 }));
 
 mock.module("@/lib/use-kanban", () => ({
-  useKanban: () => ({
-    board: {
-      columns: [
-        {
-          id: "in_progress",
-          name: "In Progress",
-          cards: [
-            {
-              id: "card-1",
-              projectId: "alpha",
-              status: "in_progress",
-              title: "Card One",
-              description: "",
-              tags: [],
-              archived: false,
-            },
-          ],
-        },
-      ],
-    },
-    cardIndex: new Map([
-      [
-        "card-1",
-        {
+  useKanban: (options?: { projectId?: string }) => {
+    const projectId = options?.projectId ?? "alpha";
+    const card = projectId === "beta"
+      ? {
+          id: "card-beta",
+          projectId: "beta",
+          status: "in_progress",
+          title: "Beta Card",
+          description: "",
+          tags: [],
+          archived: false,
+        }
+      : {
           id: "card-1",
           projectId: "alpha",
           status: "in_progress",
@@ -472,17 +472,28 @@ mock.module("@/lib/use-kanban", () => ({
           description: "",
           tags: [],
           archived: false,
-        },
-      ],
-    ]),
-    refresh: async () => undefined,
-    patchCard: () => undefined,
-    updateCard: async () => ({ didMutate: true }),
-    deleteCard: async () => true,
-    moveCard: async () => undefined,
-    completeOccurrence: async () => undefined,
-    skipOccurrence: async () => undefined,
-  }),
+        };
+    return {
+      board: {
+        columns: [
+          {
+            id: "in_progress",
+            name: "In Progress",
+            cards: [card],
+          },
+        ],
+      },
+      cardIndex: new Map([[card.id, card]]),
+      loading: false,
+      refresh: async () => undefined,
+      patchCard: () => undefined,
+      updateCard: async () => ({ didMutate: true }),
+      deleteCard: async () => true,
+      moveCard: async () => undefined,
+      completeOccurrence: async () => undefined,
+      skipOccurrence: async () => undefined,
+    };
+  },
 }));
 
 mock.module("./workbench-shell-deps", () => ({
@@ -1203,6 +1214,7 @@ beforeEach(() => {
   delete (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
   delete (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> }).__lastTerminalPanelProps;
   delete (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> }).__lastHistoryPanelProps;
+  delete (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps;
   delete (globalThis as { __mockCardStageHistoryClicks?: number }).__mockCardStageHistoryClicks;
   delete (globalThis as { __mockCardStageDeleteClicks?: number }).__mockCardStageDeleteClicks;
 });
@@ -4051,6 +4063,144 @@ describe("workbench session shell", () => {
         config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
       }),
     );
+  });
+
+  test("opens cross-project cards as tabs owned by the active session project", async () => {
+    renderWorkbench({
+      projects: [makeProject(), makeProject("beta", "Beta")],
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
+    expect(typeof props?.openCardStage).toBe("function");
+    await act(async () => {
+      await (props?.openCardStage as (projectId: string, cardId: string, title?: string) => Promise<void> | void)(
+        "beta",
+        "card-beta",
+        "Beta Card",
+      );
+    });
+
+    const createCall = invokeCalls.find((call) => call[0] === "project-session-tabs:create");
+    expect(createCall !== undefined).toBeTrue();
+    expect(JSON.stringify(createCall?.[1])).toBe(
+      JSON.stringify({
+        sessionId: "overview:alpha",
+        projectId: "alpha",
+        panelId: "right",
+        kind: "card_stage",
+        title: "Beta Card",
+        config: { projectId: "beta", cardId: "card-beta", titleSnapshot: "Beta Card" },
+      }),
+    );
+  });
+
+  test("renders cross-project card-stage tabs from their target project", async () => {
+    const session = makeSession({
+      tabs: [
+        {
+          id: "card-tab",
+          sessionId: "overview:alpha",
+          projectId: "alpha",
+          kind: "card_stage",
+          title: "Beta Card",
+          panelId: "right",
+          config: { projectId: "beta", cardId: "card-beta", titleSnapshot: "Beta Card" },
+        },
+      ],
+    });
+
+    renderWorkbench({
+      projects: [
+        makeProject("alpha", "Alpha", "/Users/asc/repo/alpha"),
+        makeProject("beta", "Beta", "/Users/asc/repo/beta"),
+      ],
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const cardStageProps = (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps;
+    const card = cardStageProps?.card as { id?: string; projectId?: string } | undefined;
+    expect(cardStageProps?.projectId).toBe("beta");
+    expect(card?.id).toBe("card-beta");
+    expect(card?.projectId).toBe("beta");
+  });
+
+  test("opens terminals from cross-project card tabs in the card target project", async () => {
+    const session = makeSession({
+      tabs: [
+        {
+          id: "card-tab",
+          sessionId: "overview:alpha",
+          projectId: "alpha",
+          kind: "card_stage",
+          title: "Beta Card",
+          panelId: "right",
+          config: { projectId: "beta", cardId: "card-beta", titleSnapshot: "Beta Card" },
+        },
+      ],
+    });
+    const screen = renderWorkbench({
+      projects: [
+        makeProject("alpha", "Alpha", "/Users/asc/repo/alpha"),
+        makeProject("beta", "Beta", "/Users/asc/repo/beta"),
+      ],
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) => {
+      const input = call[1] as {
+        sessionId?: string;
+        projectId?: string;
+        panelId?: string;
+        kind?: string;
+        config?: { projectId?: string; terminalSessionId?: string };
+      } | undefined;
+      return call[0] === "project-session-tabs:create"
+        && input?.sessionId === "overview:alpha"
+        && input.projectId === "alpha"
+        && input.panelId === "bottom"
+        && input.kind === "terminal"
+        && input.config?.projectId === "beta"
+        && typeof input.config.terminalSessionId === "string"
+        && input.config.terminalSessionId.startsWith("session:overview:alpha:terminal:");
+    })).toBeTrue();
+  });
+
+  test("renders a missing card-stage state instead of a blank tab", async () => {
+    const session = makeSession({
+      tabs: [
+        {
+          id: "card-tab",
+          sessionId: "overview:alpha",
+          projectId: "alpha",
+          kind: "card_stage",
+          title: "Missing Beta Card",
+          panelId: "right",
+          config: { projectId: "beta", cardId: "missing-card", titleSnapshot: "Missing Beta Card" },
+        },
+      ],
+    });
+    const screen = renderWorkbench({
+      projects: [makeProject("alpha", "Alpha"), makeProject("beta", "Beta")],
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(screen.getByText("Card not found") !== null).toBeTrue();
+    expect(screen.getByRole("button", { name: "Close tab" }) !== null).toBeTrue();
+    expect(screen.queryByText("Card:missing") === null).toBeTrue();
   });
 
   test("marks cards active in the DB view when selected card-stage tabs are visible", async () => {

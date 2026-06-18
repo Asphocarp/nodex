@@ -601,3 +601,6 @@ Also restore browser constructors like `Node`, `Element`, `HTMLElement`, `HTMLDi
 
 ### Live elapsed counters should not key timers by payload object identity
 Streaming thread surfaces can rerender more often than their elapsed-label tick cadence. For live labels such as `Working for 1m 5s`, keep interval effects keyed by stable activation state or delay, and use `useEffectEvent` for the tick callback so new-but-equal timing objects do not repeatedly clear and restart the timer.
+
+### Project session tab owner project is not always the content project
+For `project_session_tabs`, the row `project_id` attaches the tab to an owning project session. Kind-specific `config.projectId` tells the tab body which project-owned content to load. Cross-project Card Stage tabs depend on those values being different: an A-project session can host a B-project card. Do not normalize tab config by blindly overwriting `config.projectId` with the row project id; use the project-session-service config serializer so create and update preserve the content target.

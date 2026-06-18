@@ -31,16 +31,17 @@ function expectUuidProjectNamed(db: Database.Database, name: string): string {
 describe("schema initialization", () => {
   test("exposes only the supported in-app migration target", () => {
     expect(JSON.stringify(getSchemaMigrationTargets(CURRENT_SCHEMA_VERSION))).toBe("[]");
-    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[31,32,33,34,35,37,38,39]");
-    expect(JSON.stringify(getSchemaMigrationTargets(30))).toBe("[31,32,33,34,35,37,38,39]");
-    expect(JSON.stringify(getSchemaMigrationTargets(31))).toBe("[32,33,34,35,37,38,39]");
-    expect(JSON.stringify(getSchemaMigrationTargets(32))).toBe("[33,34,35,37,38,39]");
-    expect(JSON.stringify(getSchemaMigrationTargets(33))).toBe("[34,35,37,38,39]");
-    expect(JSON.stringify(getSchemaMigrationTargets(34))).toBe("[35,37,38,39]");
-    expect(JSON.stringify(getSchemaMigrationTargets(35))).toBe("[37,38,39]");
-    expect(JSON.stringify(getSchemaMigrationTargets(36))).toBe("[37,38,39]");
-    expect(JSON.stringify(getSchemaMigrationTargets(37))).toBe("[38,39]");
-    expect(JSON.stringify(getSchemaMigrationTargets(38))).toBe("[39]");
+    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[31,32,33,34,35,37,38,39,40]");
+    expect(JSON.stringify(getSchemaMigrationTargets(30))).toBe("[31,32,33,34,35,37,38,39,40]");
+    expect(JSON.stringify(getSchemaMigrationTargets(31))).toBe("[32,33,34,35,37,38,39,40]");
+    expect(JSON.stringify(getSchemaMigrationTargets(32))).toBe("[33,34,35,37,38,39,40]");
+    expect(JSON.stringify(getSchemaMigrationTargets(33))).toBe("[34,35,37,38,39,40]");
+    expect(JSON.stringify(getSchemaMigrationTargets(34))).toBe("[35,37,38,39,40]");
+    expect(JSON.stringify(getSchemaMigrationTargets(35))).toBe("[37,38,39,40]");
+    expect(JSON.stringify(getSchemaMigrationTargets(36))).toBe("[37,38,39,40]");
+    expect(JSON.stringify(getSchemaMigrationTargets(37))).toBe("[38,39,40]");
+    expect(JSON.stringify(getSchemaMigrationTargets(38))).toBe("[39,40]");
+    expect(JSON.stringify(getSchemaMigrationTargets(39))).toBe("[40]");
     expect(getSchemaMigrationTargets(29) === null).toBeTrue();
     expect(getSchemaMigrationTargets(20) === null).toBeTrue();
   });
@@ -324,6 +325,99 @@ describe("schema initialization", () => {
             AND name = 'idx_card_history_snapshots_project_card_history'
         `).get();
         expect(snapshotIndex !== undefined).toBeTrue();
+
+        const foreignKeyProblems = migrated.prepare("PRAGMA foreign_key_check").all();
+        expect(foreignKeyProblems.length).toBe(0);
+      } finally {
+        migrated.close();
+      }
+    } catch (error) {
+      if (isUnsupportedSqliteError(error)) {
+        initializationRan = false;
+      } else {
+        throw error;
+      }
+    } finally {
+      closeDatabase();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      delete process.env.KANBAN_DIR;
+    }
+
+    if (!initializationRan) {
+      expect(true).toBeTrue();
+    }
+  });
+
+  test("migrates v39 by repairing card-stage target project configs", async () => {
+    closeDatabase();
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-schema-card-stage-target-"));
+    process.env.KANBAN_DIR = tempDir;
+
+    let initializationRan = true;
+    try {
+      await initializeDatabase();
+      closeDatabase();
+
+      const db = new Database(getDatabasePath());
+      try {
+        const now = "2026-01-01T00:00:00.000Z";
+        db.prepare(`
+          INSERT OR REPLACE INTO projects (id, name, description, icon, created, updated)
+          VALUES (?, ?, '', '', ?, ?)
+        `).run("alpha", "Alpha", now, now);
+        db.prepare(`
+          INSERT OR REPLACE INTO projects (id, name, description, icon, created, updated)
+          VALUES (?, ?, '', '', ?, ?)
+        `).run("beta", "Beta", now, now);
+        db.prepare(`
+          INSERT OR REPLACE INTO cards (id, project_id, status, title, created, "order")
+          VALUES (?, ?, 'in_progress', ?, ?, 0)
+        `).run("card-beta", "beta", "Beta card", now);
+        db.prepare(`
+          INSERT OR REPLACE INTO project_sessions (
+            id, project_id, title, is_overview, "order", left_pane_collapsed,
+            panel_state_json, created_at, updated_at
+          ) VALUES (?, ?, ?, 0, 0, 0, '{}', ?, ?)
+        `).run("session-alpha", "alpha", "Alpha work", now, now);
+        db.prepare(`
+          INSERT OR REPLACE INTO project_session_tabs (
+            id, session_id, project_id, panel_id, kind, title, config_json,
+            state_key, state_json, "order", created_at, updated_at
+          ) VALUES (?, ?, ?, 'right', 'card_stage', ?, ?, 0, '{}', 0, ?, ?)
+        `).run(
+          "tab-cross-project-card",
+          "session-alpha",
+          "alpha",
+          "Beta card",
+          JSON.stringify({ projectId: "alpha", cardId: "card-beta", titleSnapshot: "Beta card" }),
+          now,
+          now,
+        );
+        db.exec("PRAGMA user_version = 39");
+      } finally {
+        db.close();
+      }
+
+      await initializeDatabase();
+      const migrated = new Database(getDatabasePath());
+      try {
+        const version = migrated.prepare("PRAGMA user_version").get() as
+          | { user_version: number }
+          | undefined;
+        expect(version?.user_version).toBe(CURRENT_SCHEMA_VERSION);
+
+        const row = migrated.prepare(`
+          SELECT project_id, config_json
+          FROM project_session_tabs
+          WHERE id = 'tab-cross-project-card'
+        `).get() as { project_id: string; config_json: string } | undefined;
+        expect(row?.project_id).toBe("alpha");
+        expect(row?.config_json).toBe(JSON.stringify({
+          projectId: "beta",
+          cardId: "card-beta",
+          titleSnapshot: "Beta card",
+        }));
 
         const foreignKeyProblems = migrated.prepare("PRAGMA foreign_key_check").all();
         expect(foreignKeyProblems.length).toBe(0);

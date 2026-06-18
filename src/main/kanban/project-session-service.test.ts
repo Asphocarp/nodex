@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   closeDatabase,
+  createCard,
   createProject,
   getDb,
   initializeDatabase,
@@ -310,6 +311,45 @@ describe("project session service", () => {
         validationMessage = (error as Error).message;
       }
       expect(validationMessage.length > 0).toBeTrue();
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("preserves cross-project card-stage tab content project", async () => {
+    const ran = await withTempDatabase(async () => {
+      const alphaSession = createProjectSession({ projectId: projectId, title: "Alpha work" });
+      const betaProject = createProject({ name: "Beta", sources: ["/tmp/beta"] });
+      const betaCard = await createCard(betaProject.id, "in_progress", {
+        title: "Beta card",
+      });
+
+      const tab = createProjectSessionTab({
+        sessionId: alphaSession.id,
+        projectId: projectId,
+        panelId: "right",
+        kind: "card_stage",
+        title: "Beta card",
+        config: { projectId: betaProject.id, cardId: betaCard.id, titleSnapshot: "Beta card" },
+      });
+      expect(tab.projectId).toBe(projectId);
+      expect(JSON.stringify(tab.config)).toBe(
+        JSON.stringify({ projectId: betaProject.id, cardId: betaCard.id, titleSnapshot: "Beta card" }),
+      );
+
+      const updated = updateProjectSessionTab(tab.id, {
+        config: { projectId: betaProject.id, cardId: betaCard.id, titleSnapshot: "Beta card updated" },
+      });
+      expect(updated?.projectId).toBe(projectId);
+      expect(JSON.stringify(updated?.config)).toBe(
+        JSON.stringify({ projectId: betaProject.id, cardId: betaCard.id, titleSnapshot: "Beta card updated" }),
+      );
+
+      const reloaded = getProjectSession(alphaSession.id)?.tabs.find((item) => item.id === tab.id);
+      expect(reloaded?.projectId).toBe(projectId);
+      expect(JSON.stringify(reloaded?.config)).toBe(
+        JSON.stringify({ projectId: betaProject.id, cardId: betaCard.id, titleSnapshot: "Beta card updated" }),
+      );
     });
 
     if (!ran) expect(true).toBeTrue();

@@ -14,7 +14,7 @@ import type { PanelId, ProjectSessionPanelLayout } from "../../shared/types";
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 39;
+export const CURRENT_SCHEMA_VERSION = 40;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V34 =
@@ -54,16 +54,17 @@ export interface EnsureDatabaseOptions {
 
 export function getSchemaMigrationTargets(currentVersion: number): number[] | null {
   if (currentVersion === CURRENT_SCHEMA_VERSION) return [];
-  if (currentVersion === 26) return [31, 32, 33, 34, 35, 37, 38, 39];
-  if (currentVersion === 30) return [31, 32, 33, 34, 35, 37, 38, 39];
-  if (currentVersion === 31) return [32, 33, 34, 35, 37, 38, 39];
-  if (currentVersion === 32) return [33, 34, 35, 37, 38, 39];
-  if (currentVersion === 33) return [34, 35, 37, 38, 39];
-  if (currentVersion === 34) return [35, 37, 38, 39];
-  if (currentVersion === 35) return [37, 38, 39];
-  if (currentVersion === 36) return [37, 38, 39];
-  if (currentVersion === 37) return [38, 39];
-  if (currentVersion === 38) return [39];
+  if (currentVersion === 26) return [31, 32, 33, 34, 35, 37, 38, 39, 40];
+  if (currentVersion === 30) return [31, 32, 33, 34, 35, 37, 38, 39, 40];
+  if (currentVersion === 31) return [32, 33, 34, 35, 37, 38, 39, 40];
+  if (currentVersion === 32) return [33, 34, 35, 37, 38, 39, 40];
+  if (currentVersion === 33) return [34, 35, 37, 38, 39, 40];
+  if (currentVersion === 34) return [35, 37, 38, 39, 40];
+  if (currentVersion === 35) return [37, 38, 39, 40];
+  if (currentVersion === 36) return [37, 38, 39, 40];
+  if (currentVersion === 37) return [38, 39, 40];
+  if (currentVersion === 38) return [39, 40];
+  if (currentVersion === 39) return [40];
   return null;
 }
 
@@ -1195,6 +1196,35 @@ function migrateSchema38To39(db: Database.Database): void {
   setUserVersion(db, 39);
 }
 
+function migrateSchema39To40(db: Database.Database): void {
+  const rows = db.prepare(`
+    SELECT id, config_json
+    FROM project_session_tabs
+    WHERE kind = 'card_stage'
+  `).all() as Array<{ id: string; config_json: string }>;
+
+  const findCardProject = db.prepare("SELECT project_id FROM cards WHERE id = ?");
+  const updateTabConfig = db.prepare("UPDATE project_session_tabs SET config_json = ?, updated_at = ? WHERE id = ?");
+  const now = new Date().toISOString();
+
+  const repair = db.transaction(() => {
+    for (const row of rows) {
+      const config = parseJsonRecord(row.config_json);
+      const cardId = typeof config.cardId === "string" ? config.cardId.trim() : "";
+      if (!cardId) continue;
+
+      const card = findCardProject.get(cardId) as { project_id: string } | undefined;
+      if (!card) continue;
+      if (config.projectId === card.project_id) continue;
+
+      updateTabConfig.run(JSON.stringify({ ...config, projectId: card.project_id }), now, row.id);
+    }
+  });
+  repair();
+
+  setUserVersion(db, 40);
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -1271,6 +1301,14 @@ function runMigrations(
       }
       migrateSchema38To39(db);
       fromVersion = 39;
+      continue;
+    }
+    if (target === 40) {
+      if (fromVersion !== 39) {
+        throw new Error(`Unsupported Nodex database migration target 40 from ${fromVersion}`);
+      }
+      migrateSchema39To40(db);
+      fromVersion = 40;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);

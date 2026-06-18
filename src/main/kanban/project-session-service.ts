@@ -57,6 +57,7 @@ import type {
   ProjectSessionPinnedInput,
   ProjectSessionPinnedOrderInput,
   ProjectSessionTab,
+  ProjectSessionTabConfig,
   ProjectSessionTabCreateInput,
   ProjectSessionTabDeleteInput,
   ProjectSessionTabMoveInput,
@@ -244,6 +245,17 @@ function rowToTab(row: DbProjectSessionTab): ProjectSessionTab {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function stringifyProjectSessionTabConfig(
+  ownerProjectId: string,
+  config: ProjectSessionTabConfig,
+): string {
+  const targetProjectId = "projectId" in config && typeof config.projectId === "string"
+    ? requireProjectId(config.projectId)
+    : ownerProjectId;
+
+  return JSON.stringify({ ...config, projectId: targetProjectId });
 }
 
 function parseStatusActiveFlags(value: string): string[] {
@@ -853,7 +865,7 @@ export function createProjectSessionTab(input: ProjectSessionTabCreateInput): Pr
       parsed.panelId,
       parsed.kind,
       parsed.title,
-      JSON.stringify({ ...parsed.config, projectId }),
+      stringifyProjectSessionTabConfig(projectId, parsed.config),
       (maxOrder?.maxOrder ?? -1) + 1,
       now,
       now,
@@ -886,11 +898,8 @@ export function updateProjectSessionTab(tabId: string, input: ProjectSessionTabU
     values.push(parsed.title);
   }
   if (parsed.config !== undefined) {
-    const configProjectId = "projectId" in parsed.config && typeof parsed.config.projectId === "string"
-      ? requireProjectId(parsed.config.projectId)
-      : row.project_id;
     fields.push("config_json = ?");
-    values.push(JSON.stringify({ ...parsed.config, projectId: configProjectId }));
+    values.push(stringifyProjectSessionTabConfig(row.project_id, parsed.config));
   }
   if (parsed.stateKey !== undefined) {
     fields.push("state_key = ?");

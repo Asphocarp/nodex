@@ -18,7 +18,7 @@ import {
 import { WorkbenchShell } from "./workbench-shell";
 
 type ShellStoryArgs = {
-  activeTab: "browser" | "terminal" | "db" | "review" | "empty";
+  activeTab: "browser" | "terminal" | "db" | "card" | "missing-card" | "review" | "empty";
   thread: "empty" | "attached";
   rightPanel: "regular" | "collapsed" | "full";
   rightPanelGroups: "single" | "split";
@@ -55,7 +55,7 @@ const meta = {
   argTypes: {
     activeTab: {
       control: "inline-radio",
-      options: ["browser", "terminal", "db", "review", "empty"],
+      options: ["browser", "terminal", "db", "card", "missing-card", "review", "empty"],
     },
     thread: {
       control: "inline-radio",
@@ -297,11 +297,17 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
     makeTab({
       id: "tab:card",
       kind: "card_stage",
-      title: args.longNames
-        ? "Rewrite the project-session workbench shell while preserving card thread links"
-        : "Workbench redesign",
+      title: args.activeTab === "missing-card"
+        ? "Missing project card"
+        : args.longNames
+          ? "Rewrite the project-session workbench shell while preserving card thread links"
+          : "Workbench redesign",
       order: 1,
-      config: { projectId: "nodex", cardId: "card-1", titleSnapshot: "Workbench redesign" },
+      config: {
+        projectId: "nodex",
+        cardId: args.activeTab === "missing-card" ? "missing-card" : "card-1",
+        titleSnapshot: args.activeTab === "missing-card" ? "Missing project card" : "Workbench redesign",
+      },
     }),
     makeTab({
       id: "tab:terminal",
@@ -330,13 +336,13 @@ function makeSession(args: ShellStoryArgs): ProjectSession {
         }),
       ]
     : baseTabs;
-  const activeTabId = args.activeTab === "db"
-    ? "tab:db"
-    : args.activeTab === "terminal"
-      ? "tab:terminal"
-      : args.activeTab === "review"
-        ? "tab:review"
-        : "tab:browser";
+  const activeTabId = (() => {
+    if (args.activeTab === "db") return "tab:db";
+    if (args.activeTab === "card" || args.activeTab === "missing-card") return "tab:card";
+    if (args.activeTab === "terminal") return "tab:terminal";
+    if (args.activeTab === "review") return "tab:review";
+    return "tab:browser";
+  })();
   const rightTabIds = tabs.filter((tab) => tab.panelId === "right").map((tab) => tab.id);
   const bottomTabIds = tabs.filter((tab) => tab.panelId === "bottom").map((tab) => tab.id);
   const panels = makePanels({
@@ -945,6 +951,19 @@ export const EmptyBottomPanelActions: Story = {
     docs: {
       description: {
         story: "Open empty bottom panel showing the Codex-eligible Files, Side chat, Browser, Review, and Terminal action grid.",
+      },
+    },
+  },
+};
+
+export const MissingCardStageTab: Story = {
+  args: {
+    activeTab: "missing-card",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Card Stage tab whose saved card id no longer exists; it should render a clear missing state instead of a blank panel.",
       },
     },
   },

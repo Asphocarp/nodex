@@ -78,6 +78,7 @@ All notable changes to this project will be documented in this file.
 - Fixed full-width right-panel tabs so they start at the panel edge instead of leaving an empty leading gap.
 - Fixed newly created non-Overview project sessions so they start with the right panel collapsed, while Overview sessions still open their DB tab full-width by default.
 - Fixed project-session DB tabs so the restored View toolbar includes the original view selector, search, filter, sort, display, and calendar controls.
+- Fixed cross-project Card Stage tabs so they keep loading the target card's project when hosted inside another project session, including recovery for previously saved blank tabs.
 - Fixed archived session threads so opening them shows a restore state instead of attempting to resume and surfacing an app-server archive error.
 - Fixed Codex runtime compatibility after the pinned `@openai/codex` bump by updating app-server handshake and thread request payloads to the new protocol shape.
 - Fixed stopped Thread turn ordering so a final collapsed tool/activity group renders above the assistant action toolbar.

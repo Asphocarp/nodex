@@ -6196,7 +6196,7 @@ function ProjectSessionTabPanel({
             kind: "terminal",
             title: "Terminal",
             config: {
-              projectId: activeSession.projectId,
+              projectId: cardTab.config.projectId,
               terminalSessionId: `session:${activeSession.id}:terminal:${Date.now()}`,
             },
           });
@@ -6532,9 +6532,34 @@ function CardStageSessionTab({
 
   if (!project) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-token-text-secondary">
-        Project not found.
-      </div>
+      <CardStageSessionNotice
+        title="Project not found"
+        description="This card tab points to a project that is no longer available."
+        actionLabel="Close tab"
+        onAction={onClose}
+      />
+    );
+  }
+
+  if (kanban.loading && !card) {
+    return (
+      <CardStageSessionNotice
+        title="Loading card"
+        description={tab.config.titleSnapshot ? `Opening ${tab.config.titleSnapshot}.` : "Opening the selected card."}
+      />
+    );
+  }
+
+  if (!card) {
+    return (
+      <CardStageSessionNotice
+        title="Card not found"
+        description={tab.config.titleSnapshot
+          ? `${tab.config.titleSnapshot} is no longer available in ${project.name}.`
+          : `This card is no longer available in ${project.name}.`}
+        actionLabel="Close tab"
+        onAction={onClose}
+      />
     );
   }
 
@@ -6589,5 +6614,36 @@ function CardStageSessionTab({
         linkedCodexThreads={[]}
       />
     </>
+  );
+}
+
+function CardStageSessionNotice({
+  title,
+  description,
+  actionLabel,
+  onAction,
+}: {
+  title: string;
+  description: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary p-3 select-none">
+      <div className="mx-auto flex h-full w-full max-w-md flex-col items-center justify-center text-center">
+        <div className="text-base font-medium text-token-text-primary">{title}</div>
+        <div className="mt-1 text-sm text-token-text-secondary">{description}</div>
+        {actionLabel && onAction ? (
+          <NodexButton
+            type="button"
+            size="sm"
+            className="mt-3"
+            onClick={onAction}
+          >
+            {actionLabel}
+          </NodexButton>
+        ) : null}
+      </div>
+    </div>
   );
 }
