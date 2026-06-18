@@ -42,6 +42,8 @@ declare global {
       onNavigateBack?: (callback: () => void) => () => void;
       onNavigateForward?: (callback: () => void) => () => void;
       onToggleSidebar?: (callback: () => void) => () => void;
+      onCyclePanelTabPrevious?: (callback: () => void) => () => void;
+      onCyclePanelTabNext?: (callback: () => void) => () => void;
       requestMicrophonePermission?: () => void;
       serverUrl?: string;
       assetPathPrefix?: string;

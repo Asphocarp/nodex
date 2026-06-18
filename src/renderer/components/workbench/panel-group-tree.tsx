@@ -67,6 +67,7 @@ interface PanelGroupTreeProps {
     splitTarget?: { leafId: string; side: ProjectSessionPanelSplitSide },
   ) => void;
   onSplitGroup: (leafId: string, side: ProjectSessionPanelSplitSide, tabId?: string) => void;
+  onFocusGroup?: (leafId: string) => void;
   onActivateGroup: (leafId: string, tabId?: string | null) => void;
   onResizeGroup: (branchId: string, ratio: number) => void;
 }
@@ -89,6 +90,7 @@ export function PanelGroupTree({
   onReorderTab,
   onMoveTab,
   onSplitGroup,
+  onFocusGroup,
   onActivateGroup,
   onResizeGroup,
 }: PanelGroupTreeProps) {
@@ -183,6 +185,7 @@ export function PanelGroupTree({
         onReorderTab={onReorderTab}
         onMoveTab={onMoveTab}
         onSplitGroup={onSplitGroup}
+        onFocusGroup={onFocusGroup}
         onActivateGroup={onActivateGroup}
         onResizeGroup={onResizeGroup}
       />
@@ -325,6 +328,7 @@ function PanelGroupNode(props: {
     splitTarget?: { leafId: string; side: ProjectSessionPanelSplitSide },
   ) => void;
   onSplitGroup: (leafId: string, side: ProjectSessionPanelSplitSide, tabId?: string) => void;
+  onFocusGroup?: (leafId: string) => void;
   onActivateGroup: (leafId: string, tabId?: string | null) => void;
   onResizeGroup: (branchId: string, ratio: number) => void;
 }) {
@@ -398,6 +402,7 @@ function PanelGroupLeaf({
   onPinTab,
   onMoveTab,
   onSplitGroup,
+  onFocusGroup,
   onActivateGroup,
 }: Omit<Parameters<typeof PanelGroupNode>[0], "node"> & { leaf: ProjectSessionSplitLeaf }) {
   const tabs = tabItemsByLeafId[leaf.id] ?? [];
@@ -412,6 +417,13 @@ function PanelGroupLeaf({
     if (isActive) return;
     onActivateGroup(leaf.id, activeTabId);
   };
+  const focusLeaf = () => {
+    onFocusGroup?.(leaf.id);
+  };
+  const focusAndActivateLeaf = () => {
+    focusLeaf();
+    activateLeaf();
+  };
 
   return (
     <div
@@ -421,7 +433,8 @@ function PanelGroupLeaf({
         "relative h-full min-h-0 min-w-0 overflow-hidden bg-token-main-surface-primary",
         isActive && "ring-1 ring-inset ring-token-foreground/10",
       )}
-      onPointerDownCapture={activateLeaf}
+      onFocusCapture={focusLeaf}
+      onPointerDownCapture={focusAndActivateLeaf}
     >
       {tabs.length > 0 && activeTabId ? (
         <AppShellTabs

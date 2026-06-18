@@ -271,6 +271,8 @@ import {
   WORKBENCH_NAVIGATION_COMMANDS,
   type WorkbenchNavigationCommandRequest,
   type WorkbenchNavigationCommandState,
+  type WorkbenchPanelTabCycleCommandRequest,
+  type WorkbenchPanelTabCycleDirection,
   type WorkbenchSidebarToggleCommandSource,
 } from "../../../shared/window-navigation";
 import {
@@ -630,6 +632,7 @@ interface WorkbenchShellProps {
   sidebarToggleRequestTick?: number;
   sidebarToggleRequestSource?: WorkbenchSidebarToggleCommandSource;
   navigationCommandRequest?: WorkbenchNavigationCommandRequest | null;
+  panelTabCycleRequest?: WorkbenchPanelTabCycleCommandRequest | null;
   onNavigationStateChange?: (state: WorkbenchNavigationCommandState) => void;
   navigateToStage?: (projectId: string, stageId: StageId) => void;
   navigateToDbView?: (projectId: string, view: WorkbenchView) => void;
@@ -708,6 +711,16 @@ interface ShortcutTargetLike {
   closest?: (selector: string) => Element | null;
 }
 
+type PanelTabCycleDirection = -1 | 1;
+
+interface PanelTabCycleScope {
+  panelId: PanelId;
+  leafId: string;
+}
+
+const PANEL_FOCUS_AREA_SELECTOR = "[data-app-shell-focus-area=\"right-panel\"], [data-app-shell-focus-area=\"bottom-panel\"]";
+const PANEL_GROUP_LEAF_SELECTOR = "[data-panel-group-leaf-id]";
+
 function isWorkbenchNewChatShortcutTargetEditable(target: EventTarget | null): boolean {
   const element = target as ShortcutTargetLike | null;
   if (!element) return false;
@@ -715,6 +728,16 @@ function isWorkbenchNewChatShortcutTargetEditable(target: EventTarget | null): b
   if (element.tagName === "INPUT" || element.tagName === "TEXTAREA") return true;
   if (!element.closest) return false;
   return Boolean(element.closest(".nfm-editor, .bn-editor, .bn-container, [role='dialog']"));
+}
+
+function isPanelTabCycleShortcutTargetBlocked(target: EventTarget | null): boolean {
+  const element = target as ShortcutTargetLike | null;
+  if (!element) return false;
+  if (element.tagName === "INPUT" || element.tagName === "TEXTAREA") return true;
+  if (!element.closest) return Boolean(element.isContentEditable);
+  if (element.closest("[role='dialog']")) return true;
+  if (element.closest(".nfm-editor")) return false;
+  return Boolean(element.isContentEditable) || Boolean(element.closest(".bn-editor, .bn-container"));
 }
 
 function getTabIcon(kind: ProjectSessionTab["kind"]): ComponentType<{ className?: string }> {
@@ -870,6 +893,61 @@ function matchesPanelShortcut(
     return modifier && event.altKey && !event.shiftKey && key === "s";
   }
   return event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && (event.key === "`" || event.code === "Backquote");
+}
+
+function resolvePanelTabCycleDirection(
+  event: Pick<KeyboardEvent, "altKey" | "code" | "ctrlKey" | "key" | "metaKey" | "shiftKey">,
+  isMac: boolean,
+): PanelTabCycleDirection | null {
+  const modifier = isMac ? event.metaKey : event.ctrlKey;
+  if (!modifier || event.altKey || !event.shiftKey) return null;
+  if (event.code === "BracketLeft" || event.key === "[" || event.key === "{") return -1;
+  if (event.code === "BracketRight" || event.key === "]" || event.key === "}") return 1;
+  return null;
+}
+
+function resolveFocusedPanelTabCycleScope(target: EventTarget | null): PanelTabCycleScope | null {
+  const element = target as ShortcutTargetLike | null;
+  if (!element?.closest) return null;
+
+  const focusArea = element.closest(PANEL_FOCUS_AREA_SELECTOR);
+  const focusAreaId = focusArea?.getAttribute("data-app-shell-focus-area");
+  const panelId = focusAreaId === "right-panel"
+    ? "right"
+    : focusAreaId === "bottom-panel"
+      ? "bottom"
+      : null;
+  if (!panelId) return null;
+
+  const leafId = element.closest(PANEL_GROUP_LEAF_SELECTOR)?.getAttribute("data-panel-group-leaf-id") ?? null;
+  if (!leafId) return null;
+  return { panelId, leafId };
+}
+
+function isDocumentLevelShortcutTarget(target: EventTarget | null): boolean {
+  if (typeof document === "undefined") return false;
+  return target === document || target === document.body || target === document.documentElement;
+}
+
+function resolveNextPanelTabId(
+  tabs: readonly AppShellTabItem[],
+  activeTabId: string | null,
+  direction: PanelTabCycleDirection,
+): string | null {
+  if (tabs.length <= 1) return null;
+  if (!activeTabId) return null;
+
+  const currentIndex = tabs.findIndex((tab) => tab.id === activeTabId);
+  if (currentIndex < 0) return null;
+
+  const nextIndex = (currentIndex + direction + tabs.length) % tabs.length;
+  return tabs[nextIndex]?.id ?? null;
+}
+
+function panelTabCycleRequestDirectionToOffset(
+  direction: WorkbenchPanelTabCycleDirection,
+): PanelTabCycleDirection {
+  return direction === "previous" ? -1 : 1;
 }
 
 function clampRegularRightPanelWidth(width: number, sessionWidth: number): number {
@@ -1161,6 +1239,7 @@ export function WorkbenchShell({
   sidebarToggleRequestTick = 0,
   sidebarToggleRequestSource = "keyboard_shortcut",
   navigationCommandRequest = null,
+  panelTabCycleRequest = null,
   onNavigationStateChange,
   onRequestNewWindow,
   navigateToStage,
@@ -1240,8 +1319,10 @@ export function WorkbenchShell({
   });
   const lastHandledSidebarToggleRequestTickRef = useRef(sidebarToggleRequestTick);
   const lastHandledNavigationCommandTickRef = useRef(navigationCommandRequest?.tick ?? 0);
+  const lastHandledPanelTabCycleRequestTickRef = useRef(panelTabCycleRequest?.tick ?? 0);
   const lastHandledCommandPaletteOpenTickRef = useRef(commandPaletteOpenTick);
   const currentShellNavigationSnapshotRef = useRef<WorkbenchShellNavigationSnapshot | null>(null);
+  const focusedPanelGroupRef = useRef<PanelTabCycleScope | null>(null);
   const applyingShellNavigationRef = useRef(false);
   const shellAtMediumWidthRef = useRef(false);
   const shellAtNarrowWidthRef = useRef(false);
@@ -3157,8 +3238,58 @@ export function WorkbenchShell({
     await openCardTab(activeSession.projectId, card.id, card.title || card.id);
   }, [activeSession, openCardTab]);
 
+  const rememberFocusedPanelGroup = useCallback((panelId: PanelId, leafId: string) => {
+    focusedPanelGroupRef.current = { panelId, leafId };
+  }, []);
+
+  useEffect(() => {
+    focusedPanelGroupRef.current = null;
+  }, [activeSession?.id]);
+
+  const cycleFocusedPanelTab = useEffectEvent((
+    direction: PanelTabCycleDirection,
+    scope: PanelTabCycleScope | null,
+    options: { respectActiveElementGuard?: boolean } = {},
+  ): boolean => {
+    if (!activeSession) return false;
+    if (
+      options.respectActiveElementGuard
+      && typeof document !== "undefined"
+      && isPanelTabCycleShortcutTargetBlocked(document.activeElement)
+    ) {
+      return false;
+    }
+
+    const targetScope = scope ?? focusedPanelGroupRef.current;
+    if (!targetScope) return false;
+
+    const panelTabs = panelGroupTabs[targetScope.panelId];
+    if (!(targetScope.leafId in panelTabs.itemsByLeafId)) return false;
+
+    const tabs = panelTabs.itemsByLeafId[targetScope.leafId] ?? [];
+    const activeTabId = panelTabs.activeTabIdsByLeafId[targetScope.leafId] ?? null;
+    const nextTabId = resolveNextPanelTabId(tabs, activeTabId, direction);
+    if (nextTabId) {
+      void selectPanelTab(targetScope.panelId, nextTabId, targetScope.leafId);
+    }
+    return true;
+  });
+
   const handleRightPanelShortcut = useEffectEvent((event: KeyboardEvent): boolean => {
     if (!activeSession) return false;
+
+    const cycleDirection = resolvePanelTabCycleDirection(event, isMacPlatform);
+    if (cycleDirection) {
+      if (isPanelTabCycleShortcutTargetBlocked(event.target)) return false;
+      const scope = resolveFocusedPanelTabCycleScope(event.target);
+      if (scope) {
+        rememberFocusedPanelGroup(scope.panelId, scope.leafId);
+        return cycleFocusedPanelTab(cycleDirection, scope);
+      }
+      if (!isDocumentLevelShortcutTarget(event.target)) return false;
+      return cycleFocusedPanelTab(cycleDirection, null);
+    }
+
     if (isWorkbenchNewChatShortcutTargetEditable(event.target)) return false;
 
     const action = PANEL_NEW_TAB_ACTIONS.find((candidate) =>
@@ -3353,6 +3484,18 @@ export function WorkbenchShell({
     lastHandledNavigationCommandTickRef.current = navigationCommandRequest.tick;
     void executeShellNavigation(navigationCommandRequest.direction);
   }, [executeShellNavigation, navigationCommandRequest]);
+
+  useEffect(() => {
+    if (!panelTabCycleRequest) return;
+    if (panelTabCycleRequest.tick <= 0) return;
+    if (lastHandledPanelTabCycleRequestTickRef.current === panelTabCycleRequest.tick) return;
+    lastHandledPanelTabCycleRequestTickRef.current = panelTabCycleRequest.tick;
+    cycleFocusedPanelTab(
+      panelTabCycleRequestDirectionToOffset(panelTabCycleRequest.direction),
+      null,
+      { respectActiveElementGuard: true },
+    );
+  }, [cycleFocusedPanelTab, panelTabCycleRequest]);
 
   const resizeRightPanel = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
@@ -4882,6 +5025,7 @@ export function WorkbenchShell({
                             onMoveTab={(tabId, targetPanelId, targetLeafId, targetIndex, splitTarget) =>
                               void moveTabToPanel(tabId, targetPanelId, targetLeafId, targetIndex, splitTarget)}
                             onSplitGroup={(leafId, side, tabId) => void splitPanelGroup("right", leafId, side, tabId)}
+                            onFocusGroup={(leafId) => rememberFocusedPanelGroup("right", leafId)}
                             onActivateGroup={(leafId, tabId) => void activatePanelGroup("right", leafId, tabId)}
                             onResizeGroup={(branchId, ratio) => void resizePanelGroup("right", branchId, ratio)}
                           />
@@ -4964,6 +5108,7 @@ export function WorkbenchShell({
                           onMoveTab={(tabId, targetPanelId, targetLeafId, targetIndex, splitTarget) =>
                             void moveTabToPanel(tabId, targetPanelId, targetLeafId, targetIndex, splitTarget)}
                           onSplitGroup={(leafId, side, tabId) => void splitPanelGroup("bottom", leafId, side, tabId)}
+                          onFocusGroup={(leafId) => rememberFocusedPanelGroup("bottom", leafId)}
                           onActivateGroup={(leafId, tabId) => void activatePanelGroup("bottom", leafId, tabId)}
                           onResizeGroup={(branchId, ratio) => void resizePanelGroup("bottom", branchId, ratio)}
                         />

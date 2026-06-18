@@ -50,6 +50,8 @@ import type {
   WorkbenchNavigationCommandRequest,
   WorkbenchNavigationDirection,
   WorkbenchNavigationCommandSource,
+  WorkbenchPanelTabCycleCommandRequest,
+  WorkbenchPanelTabCycleDirection,
   WorkbenchSidebarToggleCommandSource,
 } from "../shared/window-navigation";
 
@@ -169,6 +171,8 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
   }>({ tick: 0, source: "keyboard_shortcut" });
   const [workbenchNavigationCommandRequest, setWorkbenchNavigationCommandRequest] =
     useState<WorkbenchNavigationCommandRequest | null>(null);
+  const [workbenchPanelTabCycleRequest, setWorkbenchPanelTabCycleRequest] =
+    useState<WorkbenchPanelTabCycleCommandRequest | null>(null);
   const [settingsToggleTick, setSettingsToggleTick] = useState(0);
   const [activeProjectSessionId, setActiveProjectSessionId] = useState<string | null>(
     initialWindowSessionBootstrap.session.layout.activeProjectSessionId ?? null,
@@ -767,6 +771,14 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     }));
   }, []);
 
+  const requestPanelTabCycle = useCallback((direction: WorkbenchPanelTabCycleDirection) => {
+    setWorkbenchPanelTabCycleRequest((current) => ({
+      tick: (current?.tick ?? 0) + 1,
+      direction,
+      source: "menu",
+    }));
+  }, []);
+
   useEffect(() => {
     if (!window.api?.onNavigateBack) return undefined;
     return window.api.onNavigateBack(() => {
@@ -787,6 +799,20 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       requestSidebarToggle("menu");
     });
   }, [requestSidebarToggle]);
+
+  useEffect(() => {
+    if (!window.api?.onCyclePanelTabPrevious) return undefined;
+    return window.api.onCyclePanelTabPrevious(() => {
+      requestPanelTabCycle("previous");
+    });
+  }, [requestPanelTabCycle]);
+
+  useEffect(() => {
+    if (!window.api?.onCyclePanelTabNext) return undefined;
+    return window.api.onCyclePanelTabNext(() => {
+      requestPanelTabCycle("next");
+    });
+  }, [requestPanelTabCycle]);
 
   useEffect(() => {
     if (!window.api) return;
@@ -1099,6 +1125,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       onLeaveCardStageCard={recordCardLeave}
       cardStageSessionSnapshotRef={cardStageSessionSnapshotRef}
       navigationCommandRequest={workbenchNavigationCommandRequest}
+      panelTabCycleRequest={workbenchPanelTabCycleRequest}
       onRequestProjectPickerOpen={handleOpenProjectPicker}
       projectPickerOpenTick={projectPickerOpenTick}
       taskSearchOpenTick={taskSearchOpenTick}

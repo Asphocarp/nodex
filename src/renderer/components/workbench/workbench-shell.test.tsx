@@ -21,6 +21,8 @@ import type {
   WorkbenchNavigationCommandState,
   WorkbenchNavigationCommandSource,
   WorkbenchNavigationDirection,
+  WorkbenchPanelTabCycleCommandRequest,
+  WorkbenchPanelTabCycleDirection,
 } from "../../../shared/window-navigation";
 import {
   makeProjectSessionPanelLayout,
@@ -583,6 +585,31 @@ function activateTestPanelLayout(
   };
 }
 
+function getPanelTabById(container: HTMLElement, tabId: string): HTMLElement {
+  const tabShell = Array.from(container.querySelectorAll<HTMLElement>("[data-panel-tab-id]"))
+    .find((element) => element.dataset.panelTabId === tabId);
+  const tab = tabShell?.querySelector<HTMLElement>('[role="tab"]') ?? null;
+  if (!tab) throw new Error(`Expected panel tab ${tabId}`);
+  return tab;
+}
+
+function getProjectSessionPanelActivateCalls(): {
+  sessionId?: string;
+  panelId?: ProjectSessionTab["panelId"];
+  leafId?: string;
+  tabId?: string | null;
+}[] {
+  return invokeCalls.flatMap((call) => {
+    if (call[0] !== "project-session-panels:activate") return [];
+    return [call[1] as {
+      sessionId?: string;
+      panelId?: ProjectSessionTab["panelId"];
+      leafId?: string;
+      tabId?: string | null;
+    }];
+  });
+}
+
 function makePanels(options: {
   rightTabIds?: string[];
   rightActiveTabId?: string | null;
@@ -819,6 +846,7 @@ function renderWorkbench({
   dbViewPrefsByProject = {},
   sidebar,
   navigationCommandRequest = null,
+  panelTabCycleRequest = null,
   onNavigationStateChange,
 }: {
   projects?: Project[];
@@ -827,6 +855,7 @@ function renderWorkbench({
   dbViewPrefsByProject?: Record<string, Partial<Record<SupportedDbView, DbViewPrefs>>>;
   sidebar?: { collapsed: boolean; width: number };
   navigationCommandRequest?: WorkbenchNavigationCommandRequest | null;
+  panelTabCycleRequest?: WorkbenchPanelTabCycleCommandRequest | null;
   onNavigationStateChange?: ComponentProps<typeof WorkbenchShell>["onNavigationStateChange"];
 } = {}) {
   let sessionState = sessionsByProject;
@@ -1097,6 +1126,9 @@ function renderWorkbench({
     direction: WorkbenchNavigationDirection,
     source?: WorkbenchNavigationCommandSource,
   ) => void = () => undefined;
+  let requestPanelTabCycle: (
+    direction: WorkbenchPanelTabCycleDirection,
+  ) => void = () => undefined;
   let openCommandPalette: (initialQuery?: string) => void = () => undefined;
 
   function WorkbenchShellTestHarness() {
@@ -1104,6 +1136,8 @@ function renderWorkbench({
     const [sidebarState, setSidebarState] = useState(sidebar ?? { collapsed: false, width: 300 });
     const [currentNavigationCommandRequest, setCurrentNavigationCommandRequest] =
       useState<WorkbenchNavigationCommandRequest | null>(navigationCommandRequest);
+    const [currentPanelTabCycleRequest, setCurrentPanelTabCycleRequest] =
+      useState<WorkbenchPanelTabCycleCommandRequest | null>(panelTabCycleRequest);
     const [commandPaletteRequest, setCommandPaletteRequest] = useState({
       tick: 0,
       initialQuery: "",
@@ -1113,6 +1147,13 @@ function renderWorkbench({
         tick: (current?.tick ?? 0) + 1,
         direction,
         source,
+      }));
+    };
+    requestPanelTabCycle = (direction) => {
+      setCurrentPanelTabCycleRequest((current) => ({
+        tick: (current?.tick ?? 0) + 1,
+        direction,
+        source: "menu",
       }));
     };
     openCommandPalette = (initialQuery = "") => {
@@ -1162,6 +1203,7 @@ function renderWorkbench({
           setSidebarState((current) => ({ ...current, width }));
         }}
         navigationCommandRequest={currentNavigationCommandRequest}
+        panelTabCycleRequest={currentPanelTabCycleRequest}
         onNavigationStateChange={(state) => {
           navigationStateChanges.push(state);
           onNavigationStateChange?.(state);
@@ -1187,6 +1229,9 @@ function renderWorkbench({
       source?: WorkbenchNavigationCommandSource,
     ) => {
       requestWorkbenchNavigation(direction, source);
+    },
+    requestPanelTabCycle: (direction: WorkbenchPanelTabCycleDirection) => {
+      requestPanelTabCycle(direction);
     },
   };
 }
@@ -3898,6 +3943,586 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
+  });
+
+  test("Ctrl+Shift+] selects the next right-panel tab in the focused tab group", async () => {
+    const browserTab = makeSessionTab({
+      id: "overview:alpha:browser",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "browser",
+      title: "Browser",
+      order: 1,
+      config: { projectId: "alpha" },
+    });
+    const reviewTab = makeSessionTab({
+      id: "overview:alpha:review",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "review",
+      title: "Review",
+      order: 2,
+      config: { projectId: "alpha" },
+    });
+    const session = makeSession({
+      tabs: [...makeSession().tabs, browserTab, reviewTab],
+      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id, reviewTab.id], "overview:alpha:db"),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    invokeCalls = [];
+    await act(async () => {
+      fireEvent.keyDown(getPanelTabById(screen.container, "overview:alpha:db"), {
+        key: "]",
+        code: "BracketRight",
+        ctrlKey: true,
+        shiftKey: true,
+      });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(getProjectSessionPanelActivateCalls().some((input) =>
+      input.sessionId === "overview:alpha"
+      && input.panelId === "right"
+      && input.leafId === "main"
+      && input.tabId === browserTab.id
+    )).toBeTrue();
+  });
+
+  test("Ctrl+Shift+[ wraps from the first right-panel tab to the last tab in the focused tab group", async () => {
+    const browserTab = makeSessionTab({
+      id: "overview:alpha:browser",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "browser",
+      title: "Browser",
+      order: 1,
+      config: { projectId: "alpha" },
+    });
+    const reviewTab = makeSessionTab({
+      id: "overview:alpha:review",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "review",
+      title: "Review",
+      order: 2,
+      config: { projectId: "alpha" },
+    });
+    const session = makeSession({
+      tabs: [...makeSession().tabs, browserTab, reviewTab],
+      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id, reviewTab.id], "overview:alpha:db"),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    invokeCalls = [];
+    await act(async () => {
+      fireEvent.keyDown(getPanelTabById(screen.container, "overview:alpha:db"), {
+        key: "[",
+        code: "BracketLeft",
+        ctrlKey: true,
+        shiftKey: true,
+      });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(getProjectSessionPanelActivateCalls().some((input) =>
+      input.sessionId === "overview:alpha"
+      && input.panelId === "right"
+      && input.leafId === "main"
+      && input.tabId === reviewTab.id
+    )).toBeTrue();
+  });
+
+  test("panel tab cycling stays inside the focused split tab group", async () => {
+    const rightLayout = splitProjectSessionPanelLeaf(
+      makePanelLayout(["db-tab", "browser-tab", "review-tab"], "browser-tab"),
+      {
+        leafId: "main",
+        side: "right",
+        tabId: "review-tab",
+        newLeafId: "leaf:review",
+        newBranchId: "branch:root",
+      },
+    );
+    const panels = makePanels({
+      rightTabIds: ["db-tab", "browser-tab", "review-tab"],
+      rightActiveTabId: "browser-tab",
+      rightFullWidth: false,
+    });
+    const session = makeSession({
+      id: "session:alpha:split-cycle",
+      title: "Split cycle",
+      isOverview: false,
+      panels: {
+        ...panels,
+        right: {
+          ...panels.right,
+          layout: rightLayout,
+        },
+      },
+      tabs: [
+        {
+          id: "db-tab",
+          sessionId: "session:alpha:split-cycle",
+          projectId: "alpha",
+          kind: "db_view",
+          title: "DB View",
+          panelId: "right",
+          config: { projectId: "alpha", view: "kanban" },
+        },
+        {
+          id: "browser-tab",
+          sessionId: "session:alpha:split-cycle",
+          projectId: "alpha",
+          kind: "browser",
+          title: "Browser",
+          panelId: "right",
+          config: { projectId: "alpha" },
+        },
+        {
+          id: "review-tab",
+          sessionId: "session:alpha:split-cycle",
+          projectId: "alpha",
+          kind: "review",
+          title: "Review",
+          panelId: "right",
+          config: { projectId: "alpha" },
+        },
+      ],
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.mouseDown(getPanelTabById(screen.container, "browser-tab"), { button: 0 });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    invokeCalls = [];
+    await act(async () => {
+      fireEvent.keyDown(getPanelTabById(screen.container, "browser-tab"), {
+        key: "]",
+        code: "BracketRight",
+        ctrlKey: true,
+        shiftKey: true,
+      });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const activateCalls = getProjectSessionPanelActivateCalls();
+    expect(activateCalls.some((input) =>
+      input.sessionId === "session:alpha:split-cycle"
+      && input.panelId === "right"
+      && input.leafId === "main"
+      && input.tabId === "db-tab"
+    )).toBeTrue();
+    expect(activateCalls.some((input) => input.tabId === "review-tab")).toBeFalse();
+  });
+
+  test("panel tab cycling uses the last focused leaf when native routing has no leaf target", async () => {
+    const browserTab = makeSessionTab({
+      id: "overview:alpha:browser",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "browser",
+      title: "Browser",
+      order: 1,
+      config: { projectId: "alpha" },
+    });
+    const reviewTab = makeSessionTab({
+      id: "overview:alpha:review",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "review",
+      title: "Review",
+      order: 2,
+      config: { projectId: "alpha" },
+    });
+    const session = makeSession({
+      tabs: [...makeSession().tabs, browserTab, reviewTab],
+      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id, reviewTab.id], "overview:alpha:db"),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await pointerDownAndSettle(getPanelTabById(screen.container, "overview:alpha:db"));
+
+    invokeCalls = [];
+    await act(async () => {
+      fireEvent.keyDown(document.body, {
+        key: "]",
+        code: "BracketRight",
+        ctrlKey: true,
+        shiftKey: true,
+      });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(getProjectSessionPanelActivateCalls().some((input) =>
+      input.sessionId === "overview:alpha"
+      && input.panelId === "right"
+      && input.leafId === "main"
+      && input.tabId === browserTab.id
+    )).toBeTrue();
+  });
+
+  test("native panel tab cycle requests reuse the focused panel tab group", async () => {
+    const browserTab = makeSessionTab({
+      id: "overview:alpha:browser",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "browser",
+      title: "Browser",
+      order: 1,
+      config: { projectId: "alpha" },
+    });
+    const reviewTab = makeSessionTab({
+      id: "overview:alpha:review",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "review",
+      title: "Review",
+      order: 2,
+      config: { projectId: "alpha" },
+    });
+    const session = makeSession({
+      tabs: [...makeSession().tabs, browserTab, reviewTab],
+      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id, reviewTab.id], "overview:alpha:db"),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await pointerDownAndSettle(getPanelTabById(screen.container, "overview:alpha:db"));
+
+    invokeCalls = [];
+    await act(async () => {
+      screen.requestPanelTabCycle("next");
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(getProjectSessionPanelActivateCalls().some((input) =>
+      input.sessionId === "overview:alpha"
+      && input.panelId === "right"
+      && input.leafId === "main"
+      && input.tabId === browserTab.id
+    )).toBeTrue();
+  });
+
+  test("native panel tab cycle requests are ignored while an editable target is focused", async () => {
+    const browserTab = makeSessionTab({
+      id: "overview:alpha:browser",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "browser",
+      title: "Browser",
+      order: 1,
+      config: { projectId: "alpha" },
+    });
+    const session = makeSession({
+      tabs: [...makeSession().tabs, browserTab],
+      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id], "overview:alpha:db"),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await pointerDownAndSettle(getPanelTabById(screen.container, "overview:alpha:db"));
+
+    const input = document.createElement("input");
+    screen.getByTestId("session-right-panel").appendChild(input);
+    invokeCalls = [];
+    await act(async () => {
+      input.focus();
+      screen.requestPanelTabCycle("next");
+      await Promise.resolve();
+    });
+    input.remove();
+    await settleAsyncRender();
+
+    expect(getProjectSessionPanelActivateCalls().length).toBe(0);
+  });
+
+  test("panel tab cycling works from focused NFM editor content", async () => {
+    const browserTab = makeSessionTab({
+      id: "overview:alpha:browser",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "browser",
+      title: "Browser",
+      order: 1,
+      config: { projectId: "alpha" },
+    });
+    const session = makeSession({
+      tabs: [...makeSession().tabs, browserTab],
+      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id], "overview:alpha:db"),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const leaf = screen.container.querySelector('[data-panel-group-leaf-id="main"]');
+    if (!(leaf instanceof HTMLElement)) {
+      throw new Error("Expected main panel leaf");
+    }
+    const editor = document.createElement("div");
+    editor.className = "nfm-editor";
+    const editorContent = document.createElement("div");
+    editorContent.contentEditable = "true";
+    editorContent.className = "ProseMirror";
+    editor.appendChild(editorContent);
+    leaf.appendChild(editor);
+
+    invokeCalls = [];
+    await act(async () => {
+      editorContent.focus();
+      fireEvent.keyDown(editorContent, {
+        key: "{",
+        ctrlKey: true,
+        shiftKey: true,
+      });
+      await Promise.resolve();
+    });
+    editor.remove();
+    await settleAsyncRender();
+
+    expect(getProjectSessionPanelActivateCalls().some((input) =>
+      input.sessionId === "overview:alpha"
+      && input.panelId === "right"
+      && input.leafId === "main"
+      && input.tabId === browserTab.id
+    )).toBeTrue();
+  });
+
+  test("native panel tab cycle requests work while NFM editor content is focused", async () => {
+    const browserTab = makeSessionTab({
+      id: "overview:alpha:browser",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "browser",
+      title: "Browser",
+      order: 1,
+      config: { projectId: "alpha" },
+    });
+    const session = makeSession({
+      tabs: [...makeSession().tabs, browserTab],
+      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id], "overview:alpha:db"),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const leaf = screen.container.querySelector('[data-panel-group-leaf-id="main"]');
+    if (!(leaf instanceof HTMLElement)) {
+      throw new Error("Expected main panel leaf");
+    }
+    const editor = document.createElement("div");
+    editor.className = "nfm-editor";
+    const editorContent = document.createElement("div");
+    editorContent.contentEditable = "true";
+    editorContent.className = "ProseMirror";
+    editor.appendChild(editorContent);
+    leaf.appendChild(editor);
+
+    await act(async () => {
+      editorContent.focus();
+      fireEvent.focus(editorContent);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    invokeCalls = [];
+    await act(async () => {
+      screen.requestPanelTabCycle("next");
+      await Promise.resolve();
+    });
+    editor.remove();
+    await settleAsyncRender();
+
+    expect(getProjectSessionPanelActivateCalls().some((input) =>
+      input.sessionId === "overview:alpha"
+      && input.panelId === "right"
+      && input.leafId === "main"
+      && input.tabId === browserTab.id
+    )).toBeTrue();
+  });
+
+  test("panel tab cycling works in the focused bottom-panel tab group", async () => {
+    const panels = makePanels({
+      rightCollapsed: true,
+      bottomTabIds: ["terminal-tab", "bottom-browser-tab"],
+      bottomActiveTabId: "terminal-tab",
+      bottomCollapsed: false,
+    });
+    const session = makeSession({
+      id: "session:alpha:bottom-cycle",
+      title: "Bottom cycle",
+      isOverview: false,
+      panels,
+      tabs: [
+        {
+          id: "terminal-tab",
+          sessionId: "session:alpha:bottom-cycle",
+          projectId: "alpha",
+          kind: "terminal",
+          title: "Terminal",
+          panelId: "bottom",
+          config: { projectId: "alpha", terminalSessionId: "terminal-cycle" },
+        },
+        {
+          id: "bottom-browser-tab",
+          sessionId: "session:alpha:bottom-cycle",
+          projectId: "alpha",
+          kind: "browser",
+          title: "Browser",
+          panelId: "bottom",
+          config: { projectId: "alpha" },
+        },
+      ],
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    invokeCalls = [];
+    await act(async () => {
+      fireEvent.keyDown(getPanelTabById(screen.container, "terminal-tab"), {
+        key: "]",
+        code: "BracketRight",
+        ctrlKey: true,
+        shiftKey: true,
+      });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(getProjectSessionPanelActivateCalls().some((input) =>
+      input.sessionId === "session:alpha:bottom-cycle"
+      && input.panelId === "bottom"
+      && input.leafId === "main"
+      && input.tabId === "bottom-browser-tab"
+    )).toBeTrue();
+  });
+
+  test("panel tab cycling ignores input and dialog targets inside a focused panel", async () => {
+    const browserTab = makeSessionTab({
+      id: "overview:alpha:browser",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "browser",
+      title: "Browser",
+      order: 1,
+      config: { projectId: "alpha" },
+    });
+    const session = makeSession({
+      tabs: [...makeSession().tabs, browserTab],
+      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id], "overview:alpha:db"),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const rightPanel = screen.getByTestId("session-right-panel");
+    const input = document.createElement("input");
+    rightPanel.appendChild(input);
+    invokeCalls = [];
+    await act(async () => {
+      fireEvent.keyDown(input, {
+        key: "]",
+        code: "BracketRight",
+        ctrlKey: true,
+        shiftKey: true,
+      });
+      await Promise.resolve();
+    });
+    input.remove();
+    await settleAsyncRender();
+    expect(getProjectSessionPanelActivateCalls().length).toBe(0);
+
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    const dialogButton = document.createElement("button");
+    dialog.appendChild(dialogButton);
+    rightPanel.appendChild(dialog);
+    await act(async () => {
+      fireEvent.keyDown(dialogButton, {
+        key: "]",
+        code: "BracketRight",
+        ctrlKey: true,
+        shiftKey: true,
+      });
+      await Promise.resolve();
+    });
+    dialog.remove();
+    await settleAsyncRender();
+    expect(getProjectSessionPanelActivateCalls().length).toBe(0);
+  });
+
+  test("plain Ctrl+Bracket shortcuts bypass focused panel tab cycling", async () => {
+    const browserTab = makeSessionTab({
+      id: "overview:alpha:browser",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "browser",
+      title: "Browser",
+      order: 1,
+      config: { projectId: "alpha" },
+    });
+    const session = makeSession({
+      tabs: [...makeSession().tabs, browserTab],
+      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id], "overview:alpha:db"),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    invokeCalls = [];
+    await act(async () => {
+      fireEvent.keyDown(getPanelTabById(screen.container, "overview:alpha:db"), {
+        key: "[",
+        code: "BracketLeft",
+        ctrlKey: true,
+      });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(getProjectSessionPanelActivateCalls().length).toBe(0);
   });
 
   test("terminal tab default cwd prefers the attached thread cwd", async () => {

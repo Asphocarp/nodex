@@ -53,9 +53,12 @@ import { getLogger, shutdownBackendLogger } from "./logging/logger";
 import { AppUpdateService } from "./app-update-service";
 import { resolveCodexTitleBarOptions } from "./window-navigation-chrome";
 import {
+  CYCLE_PANEL_TAB_NEXT_HOST_CHANNEL,
+  CYCLE_PANEL_TAB_PREVIOUS_HOST_CHANNEL,
   NAVIGATE_BACK_HOST_CHANNEL,
   NAVIGATE_FORWARD_HOST_CHANNEL,
   WORKBENCH_SIDEBAR_TOGGLE_COMMAND,
+  type WorkbenchPanelTabCycleHostChannel,
   type WorkbenchSidebarToggleHostChannel,
   type WorkbenchNavigationHostChannel,
 } from "../shared/window-navigation";
@@ -211,7 +214,7 @@ function configureMacWindowMenus(): void {
   app.dock?.setMenu(Menu.buildFromTemplate(dockMenuTemplate));
 
   const sendNavigationMessage = (
-    channel: WorkbenchNavigationHostChannel | WorkbenchSidebarToggleHostChannel,
+    channel: WorkbenchNavigationHostChannel | WorkbenchSidebarToggleHostChannel | WorkbenchPanelTabCycleHostChannel,
   ) => {
     const targetWindow = BrowserWindow.getFocusedWindow() ?? getLastFocusedWindow();
     if (!targetWindow || targetWindow.isDestroyed()) return;
@@ -260,6 +263,21 @@ function configureMacWindowMenus(): void {
           accelerator: "CommandOrControl+]",
           click: () => {
             sendNavigationMessage(NAVIGATE_FORWARD_HOST_CHANNEL);
+          },
+        },
+        { type: "separator" },
+        {
+          label: "Previous Panel Tab",
+          accelerator: "CommandOrControl+Shift+[",
+          click: () => {
+            sendNavigationMessage(CYCLE_PANEL_TAB_PREVIOUS_HOST_CHANNEL);
+          },
+        },
+        {
+          label: "Next Panel Tab",
+          accelerator: "CommandOrControl+Shift+]",
+          click: () => {
+            sendNavigationMessage(CYCLE_PANEL_TAB_NEXT_HOST_CHANNEL);
           },
         },
         { type: "separator" },

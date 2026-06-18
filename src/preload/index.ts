@@ -6,6 +6,8 @@ import type {
   DatabaseMigrationProgress,
 } from "../shared/app-startup";
 import {
+  CYCLE_PANEL_TAB_NEXT_HOST_CHANNEL,
+  CYCLE_PANEL_TAB_PREVIOUS_HOST_CHANNEL,
   NAVIGATE_BACK_HOST_CHANNEL,
   NAVIGATE_FORWARD_HOST_CHANNEL,
   TOGGLE_SIDEBAR_HOST_CHANNEL,
@@ -98,6 +100,20 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.on(TOGGLE_SIDEBAR_HOST_CHANNEL, listener);
     return () => {
       ipcRenderer.removeListener(TOGGLE_SIDEBAR_HOST_CHANNEL, listener);
+    };
+  },
+  onCyclePanelTabPrevious: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on(CYCLE_PANEL_TAB_PREVIOUS_HOST_CHANNEL, listener);
+    return () => {
+      ipcRenderer.removeListener(CYCLE_PANEL_TAB_PREVIOUS_HOST_CHANNEL, listener);
+    };
+  },
+  onCyclePanelTabNext: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on(CYCLE_PANEL_TAB_NEXT_HOST_CHANNEL, listener);
+    return () => {
+      ipcRenderer.removeListener(CYCLE_PANEL_TAB_NEXT_HOST_CHANNEL, listener);
     };
   },
   requestMicrophonePermission: () => {

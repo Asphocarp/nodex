@@ -32,8 +32,10 @@ All keyboard shortcuts in Nodex. Platform modifier: **⌘ (Cmd)** on Mac, **Ctrl
 | `⌘/Ctrl+T` | Browser | Opens a Browser preview in the side panel; interacting with it pins a durable Browser tab |
 | `Ctrl+Shift+G` | Review | Opens or focuses the singleton Review tab |
 | `Ctrl+\`` | Terminal | Focuses an existing session terminal tab, or creates one in the bottom panel |
+| `⌘/Ctrl+Shift+[` | Previous panel tab | Uses the focused right or bottom panel tab group; wraps within the same split group |
+| `⌘/Ctrl+Shift+]` | Next panel tab | Uses the focused right or bottom panel tab group; wraps within the same split group |
 
-Panel shortcuts are ignored from editable targets and dialog surfaces.
+Panel action shortcuts are ignored from editable targets and dialog surfaces. Focused panel tab cycling also works from NFM editor content inside a panel tab group, consumes the shortcut as a no-op when that group has zero or one tab, still ignores input fields and dialogs, and leaves plain `⌘/Ctrl+[` / `⌘/Ctrl+]` as app-window Back/Forward.
 
 ### Workbench Panel Borders
 
@@ -105,7 +107,7 @@ Panel shortcuts are ignored from editable targets and dialog surfaces.
 
 ## Implementation
 
-Workbench navigation keyboard and mouse shortcuts are classified in `src/renderer/lib/use-workbench-shortcuts.ts`, then routed into the shell-owned Back/Forward executor in `src/renderer/components/workbench/workbench-shell.tsx`. Project-session panel shortcuts are owned by `WorkbenchShell` because they depend on the active session and tab registry. The remaining stage-focused shortcuts are legacy compatibility until the project/session/tab keyboard map replaces them.
+Workbench navigation keyboard and mouse shortcuts are classified in `src/renderer/lib/use-workbench-shortcuts.ts`, then routed into the shell-owned Back/Forward executor in `src/renderer/components/workbench/workbench-shell.tsx`. Project-session panel shortcuts, including focused right/bottom panel tab cycling, are owned by `WorkbenchShell` because they depend on the active session, focused panel leaf, and tab registry. Desktop menu accelerators for panel tab cycling enter that same shell-owned path through a command request, so the shortcut still works when Chromium does not deliver a useful panel-leaf key target. The remaining stage-focused shortcuts are legacy compatibility until the project/session/tab keyboard map replaces them.
 Undo/redo shortcuts are in `src/renderer/lib/use-keyboard-shortcuts.ts`.
 Editor shortcuts are in `src/renderer/components/kanban/editor/nfm-editor-extensions.ts` and `nfm-editor.tsx`.
 Terminal panel shortcut routing is in `src/renderer/lib/use-workbench-shortcuts.ts`.
