@@ -781,6 +781,13 @@ export interface DiagnosticsSettingsEnvOverrides {
   replaysOnErrorSampleRate: boolean;
 }
 
+export interface TelemetrySettingsEnvOverrides {
+  enabled: boolean;
+  clientKey: boolean;
+  environment: boolean;
+  autoCaptureEnabled: boolean;
+}
+
 export interface ManagedWorktreeRecord {
   threadId: string;
   projectId: string;
@@ -904,6 +911,21 @@ export interface UpdateDiagnosticsSettingsInput {
   replayEnabled: boolean;
   replaysSessionSampleRate: number;
   replaysOnErrorSampleRate: number;
+}
+
+export interface TelemetrySettings {
+  enabled: boolean;
+  clientKey: string;
+  environment: string;
+  autoCaptureEnabled: boolean;
+  envOverrides: TelemetrySettingsEnvOverrides;
+}
+
+export interface UpdateTelemetrySettingsInput {
+  enabled: boolean;
+  clientKey: string;
+  environment: string;
+  autoCaptureEnabled: boolean;
 }
 
 export type ThreadNotificationTurnMode = "off" | "unfocused" | "always";

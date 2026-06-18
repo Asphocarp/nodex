@@ -20,6 +20,10 @@ const ORIGINAL_BACKUP_ENV = {
     process.env.NODEX_SENTRY_REPLAYS_SESSION_SAMPLE_RATE,
   sentryReplaysOnErrorSampleRate:
     process.env.NODEX_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE,
+  telemetryEnabled: process.env.NODEX_TELEMETRY_ENABLED,
+  statsigClientKey: process.env.STATSIG_CLIENT_KEY,
+  statsigEnvironment: process.env.STATSIG_ENVIRONMENT,
+  telemetryAutoCaptureEnabled: process.env.NODEX_TELEMETRY_AUTOCAPTURE_ENABLED,
 };
 
 async function importConfigModule() {
@@ -40,6 +44,10 @@ function clearBackupEnv(): void {
   delete process.env.NODEX_SENTRY_REPLAY_ENABLED;
   delete process.env.NODEX_SENTRY_REPLAYS_SESSION_SAMPLE_RATE;
   delete process.env.NODEX_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE;
+  delete process.env.NODEX_TELEMETRY_ENABLED;
+  delete process.env.STATSIG_CLIENT_KEY;
+  delete process.env.STATSIG_ENVIRONMENT;
+  delete process.env.NODEX_TELEMETRY_AUTOCAPTURE_ENABLED;
 }
 
 function restoreProcessState(): void {
@@ -112,6 +120,27 @@ function restoreProcessState(): void {
   } else {
     process.env.NODEX_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE =
       ORIGINAL_BACKUP_ENV.sentryReplaysOnErrorSampleRate;
+  }
+  if (ORIGINAL_BACKUP_ENV.telemetryEnabled === undefined) {
+    delete process.env.NODEX_TELEMETRY_ENABLED;
+  } else {
+    process.env.NODEX_TELEMETRY_ENABLED = ORIGINAL_BACKUP_ENV.telemetryEnabled;
+  }
+  if (ORIGINAL_BACKUP_ENV.statsigClientKey === undefined) {
+    delete process.env.STATSIG_CLIENT_KEY;
+  } else {
+    process.env.STATSIG_CLIENT_KEY = ORIGINAL_BACKUP_ENV.statsigClientKey;
+  }
+  if (ORIGINAL_BACKUP_ENV.statsigEnvironment === undefined) {
+    delete process.env.STATSIG_ENVIRONMENT;
+  } else {
+    process.env.STATSIG_ENVIRONMENT = ORIGINAL_BACKUP_ENV.statsigEnvironment;
+  }
+  if (ORIGINAL_BACKUP_ENV.telemetryAutoCaptureEnabled === undefined) {
+    delete process.env.NODEX_TELEMETRY_AUTOCAPTURE_ENABLED;
+  } else {
+    process.env.NODEX_TELEMETRY_AUTOCAPTURE_ENABLED =
+      ORIGINAL_BACKUP_ENV.telemetryAutoCaptureEnabled;
   }
 }
 
@@ -491,6 +520,111 @@ describe("diagnostics settings config", () => {
         errorRateThrew = true;
       }
       expect(errorRateThrew).toBeTrue();
+    });
+  });
+});
+
+describe("telemetry settings config", () => {
+  test("defaults to disabled telemetry without using the bundled Statsig key", async () => {
+    await withTempConfigFixture(async () => {
+      const config = await importConfigModule();
+      const settings = config.getTelemetrySettings();
+
+      expect(settings.enabled).toBeFalse();
+      expect(settings.clientKey).toBe("");
+      expect(settings.environment).toBe("production");
+      expect(settings.autoCaptureEnabled).toBeFalse();
+      expect(settings.envOverrides.enabled).toBeFalse();
+      expect(settings.envOverrides.clientKey).toBeFalse();
+      expect(settings.envOverrides.environment).toBeFalse();
+      expect(settings.envOverrides.autoCaptureEnabled).toBeFalse();
+    });
+  });
+
+  test("persists telemetry settings and uses the bundled Statsig key when enabled", async () => {
+    await withTempConfigFixture(async ({ tempHome }) => {
+      const config = await importConfigModule();
+      const updated = config.updateTelemetrySettings({
+        enabled: true,
+        clientKey: "",
+        environment: "staging",
+        autoCaptureEnabled: true,
+      });
+
+      expect(updated.enabled).toBeTrue();
+      expect(updated.clientKey).toBe(config.DEFAULT_STATSIG_CLIENT_KEY);
+      expect(updated.environment).toBe("staging");
+      expect(updated.autoCaptureEnabled).toBeTrue();
+
+      const configPath = path.join(tempHome, ".nodex", "config.toml");
+      const written = fs.readFileSync(configPath, "utf8");
+      expect(written.includes("telemetry_enabled = true")).toBeTrue();
+      expect(written.includes('telemetry_environment = "staging"')).toBeTrue();
+      expect(written.includes("telemetry_auto_capture_enabled = true")).toBeTrue();
+    });
+  });
+
+  test("reports telemetry env overrides while still persisting user values", async () => {
+    await withTempConfigFixture(async ({ tempHome }) => {
+      process.env.NODEX_TELEMETRY_ENABLED = "true";
+      process.env.STATSIG_CLIENT_KEY = "client-env";
+      process.env.STATSIG_ENVIRONMENT = "qa";
+      process.env.NODEX_TELEMETRY_AUTOCAPTURE_ENABLED = "true";
+
+      const config = await importConfigModule();
+      const updated = config.updateTelemetrySettings({
+        enabled: false,
+        clientKey: "client-config",
+        environment: "staging",
+        autoCaptureEnabled: false,
+      });
+
+      expect(updated.enabled).toBeTrue();
+      expect(updated.clientKey).toBe("client-env");
+      expect(updated.environment).toBe("qa");
+      expect(updated.autoCaptureEnabled).toBeTrue();
+      expect(updated.envOverrides.enabled).toBeTrue();
+      expect(updated.envOverrides.clientKey).toBeTrue();
+      expect(updated.envOverrides.environment).toBeTrue();
+      expect(updated.envOverrides.autoCaptureEnabled).toBeTrue();
+
+      const configPath = path.join(tempHome, ".nodex", "config.toml");
+      const written = fs.readFileSync(configPath, "utf8");
+      expect(written.includes("telemetry_enabled = false")).toBeTrue();
+      expect(written.includes('telemetry_client_key = "client-config"')).toBeTrue();
+      expect(written.includes('telemetry_environment = "staging"')).toBeTrue();
+      expect(written.includes("telemetry_auto_capture_enabled = false")).toBeTrue();
+    });
+  });
+
+  test("rejects invalid telemetry settings", async () => {
+    await withTempConfigFixture(async () => {
+      const config = await importConfigModule();
+      let enabledThrew = false;
+      try {
+        config.updateTelemetrySettings({
+          enabled: "true",
+          clientKey: "",
+          environment: "production",
+          autoCaptureEnabled: false,
+        });
+      } catch {
+        enabledThrew = true;
+      }
+      expect(enabledThrew).toBeTrue();
+
+      let autoCaptureThrew = false;
+      try {
+        config.updateTelemetrySettings({
+          enabled: true,
+          clientKey: "",
+          environment: "production",
+          autoCaptureEnabled: "false",
+        });
+      } catch {
+        autoCaptureThrew = true;
+      }
+      expect(autoCaptureThrew).toBeTrue();
     });
   });
 });

@@ -108,9 +108,11 @@ import type {
   ProjectSessionUpdateInput,
   RestoreBackupInput,
   RestoreBackupResult,
+  TelemetrySettings,
   ThreadNotificationSettings,
   DesktopNotificationPayload,
   UpdateDiagnosticsSettingsInput,
+  UpdateTelemetrySettingsInput,
   UpdateBackupSettingsInput,
   UpdateAppUpdateSettingsInput,
   UpdateHistorySettingsInput,
@@ -536,6 +538,11 @@ export interface IpcApi {
   "settings:diagnostics:update": {
     args: [input: UpdateDiagnosticsSettingsInput];
     result: DiagnosticsSettings;
+  };
+  "settings:telemetry:get": { args: []; result: TelemetrySettings };
+  "settings:telemetry:update": {
+    args: [input: UpdateTelemetrySettingsInput];
+    result: TelemetrySettings;
   };
   "settings:thread-notifications:get": { args: []; result: ThreadNotificationSettings };
   "settings:thread-notifications:update": {

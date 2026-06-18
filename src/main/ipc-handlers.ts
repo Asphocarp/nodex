@@ -13,12 +13,14 @@ import {
   getBackupSettings,
   getDiagnosticsSettings,
   getHistorySettings,
+  getTelemetrySettings,
   getThreadNotificationSettings,
   getWindowRestoreSettings,
   updateAppUpdateSettings,
   updateBackupSettings,
   updateDiagnosticsSettings,
   updateHistorySettings,
+  updateTelemetrySettings,
   updateThreadNotificationSettings,
   updateWindowRestoreSettings,
 } from "./kanban/config";
@@ -670,6 +672,12 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   registerHandle("settings:diagnostics:update", (_, input) =>
     updateDiagnosticsSettings(input)
+  );
+
+  registerHandle("settings:telemetry:get", () => getTelemetrySettings());
+
+  registerHandle("settings:telemetry:update", (_, input) =>
+    updateTelemetrySettings(input)
   );
 
   registerHandle("settings:thread-notifications:get", () => getThreadNotificationSettings());

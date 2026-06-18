@@ -72,6 +72,7 @@ import { useCodexThreadSettings } from "../../lib/use-codex-thread-settings";
 import { useThreadNotificationSettings } from "../../lib/use-thread-notification-settings";
 import { useWindowRestoreSettings } from "../../lib/use-window-restore-settings";
 import { isDiagnosticsSettings } from "../../../shared/diagnostics/diagnostics-settings";
+import { isTelemetrySettings } from "../../../shared/diagnostics/telemetry-settings";
 import { formatCodexThreadDetailLevelLabel } from "../../lib/codex-thread-settings";
 import type {
   BackupRecord,
@@ -81,6 +82,8 @@ import type {
   ManagedWorktreeRecord,
   Project,
   UpdateDiagnosticsSettingsInput,
+  TelemetrySettings,
+  UpdateTelemetrySettingsInput,
   WorktreeStartMode,
   CodexPermissionState,
   CodexThreadDetailLevel,
@@ -146,6 +149,19 @@ const DEFAULT_DIAGNOSTICS_SETTINGS: DiagnosticsSettings = {
     replayEnabled: false,
     replaysSessionSampleRate: false,
     replaysOnErrorSampleRate: false,
+  },
+};
+
+const DEFAULT_TELEMETRY_SETTINGS: TelemetrySettings = {
+  enabled: false,
+  clientKey: "",
+  environment: "production",
+  autoCaptureEnabled: false,
+  envOverrides: {
+    enabled: false,
+    clientKey: false,
+    environment: false,
+    autoCaptureEnabled: false,
   },
 };
 
@@ -626,6 +642,163 @@ function DiagnosticsSettingControl({ open }: { open: boolean }) {
         </div>
         <div className="max-w-72 text-xs text-(--foreground-secondary)">
           {replaySummary}
+        </div>
+      </div>
+      {error ? (
+        <span className="max-w-72 text-xs text-(--red-text)">
+          {error}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function hasTelemetryEnvOverride(settings: TelemetrySettings): boolean {
+  return settings.envOverrides.enabled
+    || settings.envOverrides.clientKey
+    || settings.envOverrides.environment
+    || settings.envOverrides.autoCaptureEnabled;
+}
+
+function toTelemetryUpdateInput(
+  settings: TelemetrySettings,
+  overrides: Partial<UpdateTelemetrySettingsInput>,
+): UpdateTelemetrySettingsInput {
+  return {
+    enabled: settings.enabled,
+    clientKey: settings.clientKey,
+    environment: settings.environment,
+    autoCaptureEnabled: settings.autoCaptureEnabled,
+    ...overrides,
+  };
+}
+
+function TelemetrySettingControl({ open }: { open: boolean }) {
+  const [settings, setSettings] = useState<TelemetrySettings>(DEFAULT_TELEMETRY_SETTINGS);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await invoke("settings:telemetry:get");
+      if (!isTelemetrySettings(result)) {
+        throw new Error("Could not load telemetry settings.");
+      }
+      setSettings(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load telemetry settings.");
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    void load();
+  }, [load, open]);
+
+  const handleEnabledChange = useCallback(async (enabled: boolean) => {
+    const previous = settings;
+    const nextSettings = { ...settings, enabled };
+    setSettings(nextSettings);
+    setBusy(true);
+    setError(null);
+
+    try {
+      const result = await invoke(
+        "settings:telemetry:update",
+        toTelemetryUpdateInput(settings, { enabled }),
+      );
+      if (!isTelemetrySettings(result)) {
+        throw new Error("Could not save telemetry settings.");
+      }
+      setSettings(result);
+    } catch (err) {
+      setSettings(previous);
+      setError(err instanceof Error ? err.message : "Could not save telemetry settings.");
+    } finally {
+      setBusy(false);
+    }
+  }, [settings]);
+
+  const handleAutoCaptureEnabledChange = useCallback(async (autoCaptureEnabled: boolean) => {
+    const previous = settings;
+    const nextSettings = { ...settings, autoCaptureEnabled };
+    setSettings(nextSettings);
+    setBusy(true);
+    setError(null);
+
+    try {
+      const result = await invoke(
+        "settings:telemetry:update",
+        toTelemetryUpdateInput(settings, { autoCaptureEnabled }),
+      );
+      if (!isTelemetrySettings(result)) {
+        throw new Error("Could not save telemetry settings.");
+      }
+      setSettings(result);
+    } catch (err) {
+      setSettings(previous);
+      setError(err instanceof Error ? err.message : "Could not save telemetry settings.");
+    } finally {
+      setBusy(false);
+    }
+  }, [settings]);
+
+  const hasEnvOverride = hasTelemetryEnvOverride(settings);
+  const summary = settings.envOverrides.enabled
+    ? "Managed by NODEX_TELEMETRY_ENABLED."
+    : settings.enabled
+      ? "Product telemetry is enabled after restart."
+      : "Product telemetry is off.";
+  const autoCaptureSummary = settings.envOverrides.autoCaptureEnabled
+    ? "Web analytics are managed by NODEX_TELEMETRY_AUTOCAPTURE_ENABLED."
+    : !settings.enabled
+      ? "Web analytics require product telemetry."
+      : settings.autoCaptureEnabled
+        ? "Web analytics are enabled after restart."
+        : "Web analytics are off.";
+  const autoCaptureDisabled =
+    busy
+    || !settings.enabled
+    || settings.envOverrides.autoCaptureEnabled;
+
+  return (
+    <div className="flex max-w-80 flex-col items-end gap-2 text-right">
+      <div className="flex flex-col items-end gap-1">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-(--foreground-secondary)">
+            Share product telemetry
+          </span>
+          <TogglePill
+            value={settings.enabled}
+            disabled={busy || settings.envOverrides.enabled}
+            onChange={(enabled) => {
+              void handleEnabledChange(enabled);
+            }}
+          />
+        </div>
+        <div className="max-w-72 text-xs text-(--foreground-secondary)">
+          {hasEnvOverride ? `${summary} Environment overrides are active.` : summary}
+        </div>
+      </div>
+      <div className="flex flex-col items-end gap-1">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-(--foreground-secondary)">
+            Share web analytics
+          </span>
+          <TogglePill
+            value={settings.autoCaptureEnabled && settings.enabled}
+            disabled={autoCaptureDisabled}
+            onChange={(autoCaptureEnabled) => {
+              void handleAutoCaptureEnabledChange(autoCaptureEnabled);
+            }}
+          />
+        </div>
+        <div className="max-w-72 text-xs text-(--foreground-secondary)">
+          {autoCaptureSummary}
         </div>
       </div>
       {error ? (
@@ -1871,6 +2044,12 @@ function GeneralSettingsPage({
           description="Optionally send crash diagnostics and masked session replays to Sentry. Prompts, transcripts, card text, and local payloads are scrubbed before upload."
         >
           <DiagnosticsSettingControl open={open} />
+        </SettingRow>
+        <SettingRow
+          label="Telemetry"
+          description="Optionally send anonymous product events and filtered technical web analytics to Statsig. Prompts, transcripts, card text, and file paths are not sent."
+        >
+          <TelemetrySettingControl open={open} />
         </SettingRow>
         <SettingRow
           label="Sidebar sections"

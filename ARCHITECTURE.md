@@ -188,5 +188,6 @@ Workbench reopen flow:
 - History records capture create/update/move/delete deltas.
 - Backend services can emit structured logs (JSON lines) with child-scoped context for HTTP, PTY, backup/reminder, and Codex runtime flows.
 - Backend logs persist under `${KANBAN_DIR}/logs` for dev/unpackaged runs or explicitly enabled packaged diagnostics, with bounded serialization and sensitive-field redaction for debugging without dumping raw secrets.
+- Renderer telemetry can emit opt-in Statsig product events through a central helper. Statsig loads only when enabled, uses anonymous Stable ID identity, flushes on app close, and keeps web analytics behind a separate filtered AutoCapture opt-in.
 - Detailed logging reference: `docs/product-specs/backend-logging-spec.md`.
 - Editor subsystems include focused tests for parser, keyboard behavior, and sync edge cases.

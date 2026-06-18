@@ -4,9 +4,11 @@ import { Agentation } from "agentation";
 import App from "./app";
 import { AppProviders, initializeRendererDocument } from "./app-providers";
 import { initializeRendererSentry } from "./lib/sentry-renderer";
+import { initializeRendererTelemetry } from "./lib/statsig-telemetry";
 
 async function startRenderer(): Promise<void> {
   await initializeRendererSentry();
+  void initializeRendererTelemetry();
   initializeRendererDocument();
 
   createRoot(document.getElementById("root")!).render(

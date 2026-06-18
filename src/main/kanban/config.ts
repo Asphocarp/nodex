@@ -7,12 +7,14 @@ import type {
   BackupSettings,
   DiagnosticsSettings,
   HistorySettings,
+  TelemetrySettings,
   ThreadNotificationSettings,
   ThreadNotificationTurnMode,
   UpdateAppUpdateSettingsInput,
   UpdateBackupSettingsInput,
   UpdateDiagnosticsSettingsInput,
   UpdateHistorySettingsInput,
+  UpdateTelemetrySettingsInput,
   UpdateThreadNotificationSettingsInput,
   UpdateWindowRestoreSettingsInput,
   WindowRestorePolicy,
@@ -41,6 +43,10 @@ interface ServerTomlConfig {
   diagnostics_replay_enabled?: boolean;
   diagnostics_replays_session_sample_rate?: number;
   diagnostics_replays_on_error_sample_rate?: number;
+  telemetry_enabled?: boolean;
+  telemetry_client_key?: string;
+  telemetry_environment?: string;
+  telemetry_auto_capture_enabled?: boolean;
 }
 
 interface RootTomlConfig extends Record<string, unknown> {
@@ -57,11 +63,15 @@ const APP_UPDATES_AUTO_CHECK_DEFAULT = true;
 const WINDOW_RESTORE_POLICY_DEFAULT: WindowRestorePolicy = "all";
 export const DEFAULT_SENTRY_DSN =
   "https://ecf630563128267bf9798a10b45a089a@o4511580306014208.ingest.us.sentry.io/4511580310011904";
+export const DEFAULT_STATSIG_CLIENT_KEY =
+  "client-wpoc5Yx721NAMgJde6jcWUTiEP9kp2Ll9nr4EUxdmiP";
 const DIAGNOSTICS_ENVIRONMENT_DEFAULT = "production";
 const DIAGNOSTICS_TRACES_SAMPLE_RATE_DEFAULT = 0;
 const DIAGNOSTICS_REPLAY_ENABLED_DEFAULT = false;
 const DIAGNOSTICS_REPLAYS_SESSION_SAMPLE_RATE_DEFAULT = 0.1;
 const DIAGNOSTICS_REPLAYS_ON_ERROR_SAMPLE_RATE_DEFAULT = 1;
+const TELEMETRY_ENVIRONMENT_DEFAULT = "production";
+const TELEMETRY_AUTO_CAPTURE_ENABLED_DEFAULT = false;
 
 function readServerSection(configPath: string): ServerTomlConfig | null {
   try {
@@ -335,6 +345,28 @@ function diagnosticsSettingsFromConfig(config: ServerTomlConfig): Omit<Diagnosti
   };
 }
 
+function telemetrySettingsFromConfig(config: ServerTomlConfig): Omit<TelemetrySettings, "envOverrides"> {
+  const enabled = config.telemetry_enabled === true;
+  const configuredClientKey = typeof config.telemetry_client_key === "string"
+    ? config.telemetry_client_key.trim()
+    : "";
+  const environment =
+    typeof config.telemetry_environment === "string" && config.telemetry_environment.trim()
+      ? config.telemetry_environment.trim()
+      : TELEMETRY_ENVIRONMENT_DEFAULT;
+  const autoCaptureEnabled =
+    typeof config.telemetry_auto_capture_enabled === "boolean"
+      ? config.telemetry_auto_capture_enabled
+      : TELEMETRY_AUTO_CAPTURE_ENABLED_DEFAULT;
+
+  return {
+    enabled,
+    clientKey: configuredClientKey || (enabled ? DEFAULT_STATSIG_CLIENT_KEY : ""),
+    environment,
+    autoCaptureEnabled,
+  };
+}
+
 export function getBackupSettings(): BackupSettings {
   const fromToml = backupSettingsFromConfig(serverToml);
   const envOverrides = {
@@ -555,6 +587,87 @@ export function updateDiagnosticsSettings(
   serverToml = loadServerTomlConfig();
 
   return getDiagnosticsSettings();
+}
+
+export function getTelemetrySettings(): TelemetrySettings {
+  const fromToml = telemetrySettingsFromConfig(userServerToml);
+  const envOverrides = {
+    enabled: process.env.NODEX_TELEMETRY_ENABLED !== undefined,
+    clientKey: process.env.STATSIG_CLIENT_KEY !== undefined,
+    environment: process.env.STATSIG_ENVIRONMENT !== undefined,
+    autoCaptureEnabled: process.env.NODEX_TELEMETRY_AUTOCAPTURE_ENABLED !== undefined,
+  };
+
+  const enabled = envOverrides.enabled
+    ? parseBooleanEnv(process.env.NODEX_TELEMETRY_ENABLED, fromToml.enabled)
+    : fromToml.enabled;
+  const clientKeyFromEnv = process.env.STATSIG_CLIENT_KEY?.trim() ?? "";
+  const clientKey = envOverrides.clientKey
+    ? clientKeyFromEnv
+    : fromToml.clientKey || (enabled ? DEFAULT_STATSIG_CLIENT_KEY : "");
+  const environmentFromEnv = process.env.STATSIG_ENVIRONMENT?.trim() ?? "";
+  const environment = envOverrides.environment && environmentFromEnv
+    ? environmentFromEnv
+    : fromToml.environment;
+  const autoCaptureEnabled = envOverrides.autoCaptureEnabled
+    ? parseBooleanEnv(
+        process.env.NODEX_TELEMETRY_AUTOCAPTURE_ENABLED,
+        fromToml.autoCaptureEnabled,
+      )
+    : fromToml.autoCaptureEnabled;
+
+  return {
+    enabled,
+    clientKey,
+    environment,
+    autoCaptureEnabled,
+    envOverrides,
+  };
+}
+
+export function updateTelemetrySettings(
+  input: UpdateTelemetrySettingsInput,
+): TelemetrySettings {
+  if (typeof input.enabled !== "boolean") {
+    throw new Error("enabled must be a boolean");
+  }
+  if (typeof input.autoCaptureEnabled !== "boolean") {
+    throw new Error("autoCaptureEnabled must be a boolean");
+  }
+
+  const nextSettings = {
+    enabled: input.enabled,
+    clientKey: normalizeOptionalStringInput(input.clientKey, "clientKey"),
+    environment:
+      normalizeOptionalStringInput(input.environment, "environment")
+      ?? TELEMETRY_ENVIRONMENT_DEFAULT,
+    autoCaptureEnabled: input.autoCaptureEnabled,
+  };
+
+  const userConfigPath = getUserConfigPath();
+  const nextToml = readTomlConfig(userConfigPath);
+  const nextServer: ServerTomlConfig = {
+    ...(nextToml.server ?? {}),
+    telemetry_enabled: nextSettings.enabled,
+    telemetry_environment: nextSettings.environment,
+    telemetry_auto_capture_enabled: nextSettings.autoCaptureEnabled,
+  };
+  if (nextSettings.clientKey) {
+    nextServer.telemetry_client_key = nextSettings.clientKey;
+  } else {
+    delete nextServer.telemetry_client_key;
+  }
+
+  nextToml.server = nextServer;
+
+  const configDirectory = path.dirname(userConfigPath);
+  mkdirSync(configDirectory, { recursive: true });
+  writeFileSync(userConfigPath, stringifyToml(nextToml as Record<string, unknown>), "utf8");
+
+  userServerToml = loadUserServerTomlConfig();
+  serverToml = loadServerTomlConfig();
+
+  return getTelemetrySettings();
 }
 
 export function getThreadNotificationSettings(): ThreadNotificationSettings {

@@ -10,9 +10,11 @@ import * as canvasService from "./kanban/canvas-service";
 import {
   getBackupSettings,
   getHistorySettings,
+  getTelemetrySettings,
   getThreadNotificationSettings,
   updateBackupSettings,
   updateHistorySettings,
+  updateTelemetrySettings,
   updateThreadNotificationSettings,
 } from "./kanban/config";
 import { dbNotifier } from "./kanban/db-notifier";
@@ -326,6 +328,26 @@ app.put("/api/settings/history", async (c) => {
   try {
     const settings = updateHistorySettings({
       retentionCount: body.retentionCount,
+    });
+    return c.json(settings);
+  } catch (error) {
+    return c.json({ error: (error as Error).message }, 400);
+  }
+});
+
+app.get("/api/settings/telemetry", (c) => {
+  return c.json(getTelemetrySettings());
+});
+
+app.put("/api/settings/telemetry", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+
+  try {
+    const settings = updateTelemetrySettings({
+      enabled: body.enabled,
+      clientKey: body.clientKey,
+      environment: body.environment,
+      autoCaptureEnabled: body.autoCaptureEnabled,
     });
     return c.json(settings);
   } catch (error) {

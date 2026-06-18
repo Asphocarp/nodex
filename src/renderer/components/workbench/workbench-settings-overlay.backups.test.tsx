@@ -3,7 +3,13 @@ import { fireEvent } from "@testing-library/react";
 import { AppProviders } from "@/app-providers";
 import { makeDefaultSidebarTopLevelSectionsPrefs } from "@/lib/sidebar-section-prefs";
 import { render, settleAsyncRender } from "@/test/dom";
-import type { BackupRecord, DiagnosticsSettings, UpdateDiagnosticsSettingsInput } from "@/lib/types";
+import type {
+  BackupRecord,
+  DiagnosticsSettings,
+  TelemetrySettings,
+  UpdateDiagnosticsSettingsInput,
+  UpdateTelemetrySettingsInput,
+} from "@/lib/types";
 import { buildSettingsPath } from "./workbench-settings-routes";
 
 const PROJECTS = [
@@ -48,6 +54,22 @@ function buildDiagnosticsSettings(overrides: Partial<DiagnosticsSettings> = {}):
       replayEnabled: false,
       replaysSessionSampleRate: false,
       replaysOnErrorSampleRate: false,
+    },
+    ...overrides,
+  };
+}
+
+function buildTelemetrySettings(overrides: Partial<TelemetrySettings> = {}): TelemetrySettings {
+  return {
+    enabled: false,
+    clientKey: "",
+    environment: "production",
+    autoCaptureEnabled: false,
+    envOverrides: {
+      enabled: false,
+      clientKey: false,
+      environment: false,
+      autoCaptureEnabled: false,
     },
     ...overrides,
   };
@@ -119,6 +141,10 @@ describe("SettingsRouteShell backups", () => {
           };
           return diagnosticsSettings;
         }
+        case "settings:telemetry:get":
+          return buildTelemetrySettings();
+        case "settings:telemetry:update":
+          return args[0];
         case "app:update:status":
           return {
             status: "idle",
@@ -209,6 +235,10 @@ describe("SettingsRouteShell backups", () => {
         case "settings:diagnostics:update":
           diagnosticsUpdates.push(args[0] as UpdateDiagnosticsSettingsInput);
           return diagnosticsSettings;
+        case "settings:telemetry:get":
+          return buildTelemetrySettings();
+        case "settings:telemetry:update":
+          return args[0];
         case "app:update:status":
           return {
             status: "idle",
@@ -243,6 +273,166 @@ describe("SettingsRouteShell backups", () => {
     await settleAsyncRender();
 
     expect(diagnosticsUpdates.length).toBe(0);
+  });
+
+  test("loads and saves the opt-in telemetry toggles", async () => {
+    let telemetrySettings = buildTelemetrySettings();
+    const telemetryUpdates: UpdateTelemetrySettingsInput[] = [];
+
+    mockInvokeImpl = async (channel: string, ...args: unknown[]) => {
+      switch (channel) {
+        case "settings:thread-notifications:get":
+          return {
+            turnMode: "unfocused",
+            permissionsEnabled: true,
+            questionsEnabled: true,
+          };
+        case "settings:app-updates:get":
+          return { automaticChecksEnabled: true };
+        case "settings:window-restore:get":
+          return { policy: "all" };
+        case "settings:diagnostics:get":
+          return buildDiagnosticsSettings();
+        case "settings:diagnostics:update":
+          return args[0];
+        case "settings:telemetry:get":
+          return telemetrySettings;
+        case "settings:telemetry:update": {
+          const input = args[0] as UpdateTelemetrySettingsInput;
+          telemetryUpdates.push(input);
+          telemetrySettings = {
+            ...telemetrySettings,
+            enabled: input.enabled,
+            clientKey: input.clientKey,
+            environment: input.environment,
+            autoCaptureEnabled: input.autoCaptureEnabled,
+          };
+          return telemetrySettings;
+        }
+        case "app:update:status":
+          return {
+            status: "idle",
+            supported: true,
+            currentVersion: "0.1.0",
+            availableVersion: null,
+            releaseName: null,
+            releaseDate: null,
+            releaseNotes: null,
+            progressPercent: null,
+            transferredBytes: null,
+            totalBytes: null,
+            checkedAt: null,
+            message: null,
+          };
+        case "worktrees:managed:list":
+          return [];
+        default:
+          return null;
+      }
+    };
+
+    const view = await renderOverlay(buildSettingsPath("general-settings"));
+    await settleAsyncRender();
+
+    view.getByText("Product telemetry is off.");
+    const toggle = view.getByText("Share product telemetry").parentElement?.querySelector("[role='switch']");
+    const autoCaptureToggle = view.getByText("Share web analytics").parentElement?.querySelector("[role='switch']");
+    expect(toggle).not.toBeNull();
+    expect(autoCaptureToggle).not.toBeNull();
+    expect(toggle?.getAttribute("aria-checked")).toBe("false");
+    expect((autoCaptureToggle as HTMLButtonElement | null)?.disabled ?? false).toBeTrue();
+    view.getByText("Web analytics require product telemetry.");
+
+    fireEvent.click(toggle as Element);
+    await settleAsyncRender();
+
+    expect(telemetryUpdates.length).toBe(1);
+    expect(telemetryUpdates[0]?.enabled).toBeTrue();
+    expect(telemetryUpdates[0]?.autoCaptureEnabled).toBeFalse();
+    expect(toggle?.getAttribute("aria-checked")).toBe("true");
+    view.getByText("Product telemetry is enabled after restart.");
+    view.getByText("Web analytics are off.");
+
+    const enabledAutoCaptureToggle = view.getByText("Share web analytics").parentElement?.querySelector("[role='switch']");
+    expect(enabledAutoCaptureToggle).not.toBeNull();
+    expect((enabledAutoCaptureToggle as HTMLButtonElement | null)?.disabled ?? false).toBeFalse();
+
+    fireEvent.click(enabledAutoCaptureToggle as Element);
+    await settleAsyncRender();
+
+    expect(telemetryUpdates.length).toBe(2);
+    expect(telemetryUpdates[1]?.enabled).toBeTrue();
+    expect(telemetryUpdates[1]?.autoCaptureEnabled).toBeTrue();
+    view.getByText("Web analytics are enabled after restart.");
+  });
+
+  test("shows disabled telemetry control when env overrides the toggle", async () => {
+    const telemetrySettings = buildTelemetrySettings({
+      enabled: true,
+      envOverrides: {
+        enabled: true,
+        clientKey: false,
+        environment: false,
+        autoCaptureEnabled: false,
+      },
+    });
+    const telemetryUpdates: UpdateTelemetrySettingsInput[] = [];
+
+    mockInvokeImpl = async (channel: string, ...args: unknown[]) => {
+      switch (channel) {
+        case "settings:thread-notifications:get":
+          return {
+            turnMode: "unfocused",
+            permissionsEnabled: true,
+            questionsEnabled: true,
+          };
+        case "settings:app-updates:get":
+          return { automaticChecksEnabled: true };
+        case "settings:window-restore:get":
+          return { policy: "all" };
+        case "settings:diagnostics:get":
+          return buildDiagnosticsSettings();
+        case "settings:diagnostics:update":
+          return args[0];
+        case "settings:telemetry:get":
+          return telemetrySettings;
+        case "settings:telemetry:update":
+          telemetryUpdates.push(args[0] as UpdateTelemetrySettingsInput);
+          return telemetrySettings;
+        case "app:update:status":
+          return {
+            status: "idle",
+            supported: true,
+            currentVersion: "0.1.0",
+            availableVersion: null,
+            releaseName: null,
+            releaseDate: null,
+            releaseNotes: null,
+            progressPercent: null,
+            transferredBytes: null,
+            totalBytes: null,
+            checkedAt: null,
+            message: null,
+          };
+        case "worktrees:managed:list":
+          return [];
+        default:
+          return null;
+      }
+    };
+
+    const view = await renderOverlay(buildSettingsPath("general-settings"));
+    await settleAsyncRender();
+
+    view.getByText("Managed by NODEX_TELEMETRY_ENABLED. Environment overrides are active.");
+    const toggle = view.getByText("Share product telemetry").parentElement?.querySelector("[role='switch']");
+    expect(toggle).not.toBeNull();
+    expect((toggle as HTMLButtonElement | null)?.disabled ?? false).toBeTrue();
+
+    fireEvent.click(toggle as Element);
+    await settleAsyncRender();
+
+    expect(telemetryUpdates.length).toBe(0);
   });
 
   test("treats a malformed backup list response as empty state", async () => {

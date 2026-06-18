@@ -840,6 +840,40 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         },
       };
     }
+    case "settings:telemetry:get": {
+      return {
+        enabled: false,
+        clientKey: "",
+        environment: "browser",
+        autoCaptureEnabled: false,
+        envOverrides: {
+          enabled: false,
+          clientKey: false,
+          environment: false,
+          autoCaptureEnabled: false,
+        },
+      };
+    }
+    case "settings:telemetry:update": {
+      const [input] = args as [{
+        enabled?: boolean;
+        clientKey?: string;
+        environment?: string;
+        autoCaptureEnabled?: boolean;
+      }];
+      return {
+        enabled: input.enabled === true,
+        clientKey: input.clientKey ?? "",
+        environment: input.environment ?? "browser",
+        autoCaptureEnabled: input.autoCaptureEnabled === true,
+        envOverrides: {
+          enabled: false,
+          clientKey: false,
+          environment: false,
+          autoCaptureEnabled: false,
+        },
+      };
+    }
     case "settings:thread-notifications:get": {
       const res = await fetch(toApiUrl("/api/settings/thread-notifications"));
       return res.json();

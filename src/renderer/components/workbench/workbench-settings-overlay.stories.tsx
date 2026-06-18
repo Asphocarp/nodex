@@ -5,6 +5,7 @@ import type {
   BackupRecord,
   DiagnosticsSettings,
   Project,
+  TelemetrySettings,
   UpdateWorktreeEnvironmentConfigInput,
   WorktreeEnvironmentSettingsSnapshot,
 } from "@/lib/types";
@@ -135,6 +136,18 @@ function ensureStorybookElectronBridge({
       replaysOnErrorSampleRate: false,
     },
   };
+  let telemetrySettings: TelemetrySettings = {
+    enabled: false,
+    clientKey: "",
+    environment: "production",
+    autoCaptureEnabled: false,
+    envOverrides: {
+      enabled: false,
+      clientKey: false,
+      environment: false,
+      autoCaptureEnabled: false,
+    },
+  };
 
   window.api = {
     invoke: async (channel: string, ...args: unknown[]) => {
@@ -229,6 +242,26 @@ function ensureStorybookElectronBridge({
               : diagnosticsSettings.replaysOnErrorSampleRate,
           };
           return diagnosticsSettings;
+        }
+        case "settings:telemetry:get":
+          return telemetrySettings;
+        case "settings:telemetry:update": {
+          const input = args[0] as {
+            enabled?: unknown;
+            clientKey?: unknown;
+            environment?: unknown;
+            autoCaptureEnabled?: unknown;
+          };
+          telemetrySettings = {
+            ...telemetrySettings,
+            enabled: typeof input.enabled === "boolean" ? input.enabled : telemetrySettings.enabled,
+            clientKey: typeof input.clientKey === "string" ? input.clientKey : telemetrySettings.clientKey,
+            environment: typeof input.environment === "string" ? input.environment : telemetrySettings.environment,
+            autoCaptureEnabled: typeof input.autoCaptureEnabled === "boolean"
+              ? input.autoCaptureEnabled
+              : telemetrySettings.autoCaptureEnabled,
+          };
+          return telemetrySettings;
         }
         case "worktrees:environments:config:read": {
           const projectId = typeof args[0] === "string" ? args[0] : PROJECTS[0].id;
