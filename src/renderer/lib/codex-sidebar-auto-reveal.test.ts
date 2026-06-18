@@ -16,6 +16,7 @@ import {
   resolveCodexSidebarToggleTargetProgress,
   resolveCodexSidebarWidth,
   shouldAnimateCodexSidebarToggle,
+  shouldCollapseCodexSidebarResizeWidth,
   shouldClearCodexSidebarHoverSuppression,
   shouldSuppressCodexSidebarHoverOpen,
 } from "./codex-sidebar-auto-reveal";
@@ -24,8 +25,15 @@ describe("Codex sidebar auto-reveal contract", () => {
   test("clamps width to the Codex default/min/max contract", () => {
     expect(clampCodexSidebarWidth(Number.NaN)).toBe(300);
     expect(clampCodexSidebarWidth(120)).toBe(240);
+    expect(clampCodexSidebarWidth(239)).toBe(240);
     expect(clampCodexSidebarWidth(300)).toBe(300);
     expect(clampCodexSidebarWidth(900)).toBe(520);
+  });
+
+  test("collapses expanded sidebar only below Codex half-minimum threshold", () => {
+    expect(shouldCollapseCodexSidebarResizeWidth(119)).toBeTrue();
+    expect(shouldCollapseCodexSidebarResizeWidth(120)).toBeFalse();
+    expect(shouldCollapseCodexSidebarResizeWidth(239)).toBeFalse();
   });
 
   test("resolves width with layout, Codex storage, Nodex storage, then default precedence", () => {

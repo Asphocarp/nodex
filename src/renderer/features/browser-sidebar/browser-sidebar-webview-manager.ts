@@ -5,9 +5,12 @@ import {
   type BrowserSidebarWebviewHostCreated,
   type BrowserSidebarWebviewHostKind,
 } from "../../../shared/browser-sidebar";
+import { APP_SHELL_BROWSER_WEBVIEW_LAYER_INDEX } from "../../lib/app-shell-layers";
 import { isBlankBrowserUrl, normalizeBrowserNavigationUrl } from "../../../shared/browser-url";
 
 export const BROWSER_SIDEBAR_VISIBLE_WEBVIEW_Z_INDEX = 2147483647;
+export const BROWSER_SIDEBAR_WEBVIEW_LAYER_ROOT_Z_INDEX = APP_SHELL_BROWSER_WEBVIEW_LAYER_INDEX;
+const BROWSER_SIDEBAR_WEBVIEW_LAYER_ROOT_ATTRIBUTE = "data-browser-sidebar-webview-manager-layer-root";
 
 export type BrowserSidebarWebviewElement = HTMLElement & {
   getWebContentsId?: () => number;
@@ -96,7 +99,7 @@ class BrowserSidebarRendererWebviewHost implements ManagedBrowserWebviewHost {
     this.cursorOverlayHost.setAttribute("data-browser-sidebar-cursor-overlay-host", "");
     this.container.append(this.webview, this.cursorOverlayHost);
     this.syncContainerStyle();
-    document.body.append(this.container);
+    ensureBrowserSidebarWebviewHostParent(this.container, input.hostKind);
   }
 
   sync(input: SyncWebviewInput): void {
@@ -116,6 +119,7 @@ class BrowserSidebarRendererWebviewHost implements ManagedBrowserWebviewHost {
     this.webview.setAttribute("data-browser-sidebar-project-id", input.projectId);
     this.webview.setAttribute("data-browser-sidebar-webview-host-kind", input.hostKind);
 
+    ensureBrowserSidebarWebviewHostParent(this.container, input.hostKind);
     this.syncContainerStyle();
 
     this.ensureLifecycleListeners();
@@ -164,7 +168,7 @@ class BrowserSidebarRendererWebviewHost implements ManagedBrowserWebviewHost {
         opacity: "1",
         pointerEvents: "auto",
         overflow: "hidden",
-        zIndex: String(BROWSER_SIDEBAR_VISIBLE_WEBVIEW_Z_INDEX),
+        zIndex: resolveBrowserSidebarVisibleWebviewZIndex(this.hostKind),
         contain: "layout style paint",
         transform: this.scale === 1 ? "" : `scale(${this.scale})`,
         transformOrigin: "top left",
@@ -332,6 +336,39 @@ function normalizeInitialWebviewUrl(url: string): string {
 
 function makeHostKey(input: WebviewHostKey): string {
   return `${input.sessionId}\0${input.tabId}`;
+}
+
+function getBrowserSidebarWebviewLayerRoot(): HTMLDivElement {
+  const existing = document.body.querySelector<HTMLDivElement>(
+    `[${BROWSER_SIDEBAR_WEBVIEW_LAYER_ROOT_ATTRIBUTE}]`,
+  );
+  if (existing) return existing;
+
+  const root = document.createElement("div");
+  root.setAttribute(BROWSER_SIDEBAR_WEBVIEW_LAYER_ROOT_ATTRIBUTE, "");
+  Object.assign(root.style, {
+    position: "fixed",
+    inset: "0",
+    overflow: "visible",
+    pointerEvents: "none",
+    zIndex: String(BROWSER_SIDEBAR_WEBVIEW_LAYER_ROOT_Z_INDEX),
+  });
+  document.body.append(root);
+  return root;
+}
+
+function ensureBrowserSidebarWebviewHostParent(
+  container: HTMLDivElement,
+  hostKind: BrowserSidebarWebviewHostKind,
+): void {
+  const parent = hostKind === "retained" ? document.body : getBrowserSidebarWebviewLayerRoot();
+  if (container.parentElement === parent) return;
+  parent.append(container);
+}
+
+function resolveBrowserSidebarVisibleWebviewZIndex(hostKind: BrowserSidebarWebviewHostKind): string {
+  if (hostKind !== "retained") return "";
+  return String(BROWSER_SIDEBAR_VISIBLE_WEBVIEW_Z_INDEX);
 }
 
 export const browserSidebarRendererWebviewManager = new BrowserSidebarRendererWebviewManager();

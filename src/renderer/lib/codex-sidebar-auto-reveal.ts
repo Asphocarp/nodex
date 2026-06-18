@@ -1,7 +1,12 @@
+import { APP_SHELL_FLOATING_LEFT_PANEL_LAYER_CLASS } from "./app-shell-layers";
+
 export const CODEX_SIDEBAR_WIDTH_DEFAULT_PX = 300;
 export const CODEX_SIDEBAR_WIDTH_MIN_PX = 240;
 export const CODEX_SIDEBAR_WIDTH_MAX_PX = 520;
 export const CODEX_SIDEBAR_WIDTH_STORAGE_KEY = "sidebar-width";
+export const CODEX_SIDEBAR_COLLAPSE_THRESHOLD_RATIO = 0.5;
+export const CODEX_SIDEBAR_COLLAPSE_THRESHOLD_PX =
+  CODEX_SIDEBAR_WIDTH_MIN_PX * CODEX_SIDEBAR_COLLAPSE_THRESHOLD_RATIO;
 
 export const CODEX_SIDEBAR_EDGE_ENTER_MIN_X_PX = 0;
 export const CODEX_SIDEBAR_EDGE_ENTER_MAX_X_PX = 12;
@@ -17,7 +22,7 @@ export const CODEX_SIDEBAR_FLOATING_PANEL_REDUCED_MOTION_TRANSITION = {
 } as const;
 
 export const CODEX_SIDEBAR_FLOATING_OUTER_BASE_CLASS =
-  "pointer-events-auto fixed bottom-0 left-0 z-30 min-h-0";
+  `pointer-events-auto fixed bottom-0 left-0 ${APP_SHELL_FLOATING_LEFT_PANEL_LAYER_CLASS} min-h-0`;
 
 export const CODEX_SIDEBAR_FLOATING_OUTER_CLASS =
   `${CODEX_SIDEBAR_FLOATING_OUTER_BASE_CLASS} top-0`;
@@ -83,6 +88,10 @@ export function clampCodexSidebarWidth(width: number): number {
     Math.max(width, CODEX_SIDEBAR_WIDTH_MIN_PX),
     CODEX_SIDEBAR_WIDTH_MAX_PX,
   );
+}
+
+export function shouldCollapseCodexSidebarResizeWidth(width: number): boolean {
+  return width < CODEX_SIDEBAR_COLLAPSE_THRESHOLD_PX;
 }
 
 export function resolveCodexSidebarWidth(input: {

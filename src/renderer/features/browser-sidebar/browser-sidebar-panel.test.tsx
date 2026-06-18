@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { fireEvent } from "@testing-library/react";
+import { act, fireEvent } from "@testing-library/react";
+import type { MotionValue } from "motion/react";
 import type { ProjectSession, ProjectSessionTab } from "@/lib/types";
 import { render, settleAsyncRender } from "../../test/dom";
 import { browserSidebarRendererWebviewManager } from "./browser-sidebar-webview-manager";
@@ -121,6 +122,40 @@ describe("BrowserSidebarPanel chrome", () => {
     second.unmount();
   });
 
+  test("resyncs the body-attached webview bounds from panel motion ticks", async () => {
+    const boundsSyncTrigger = createBoundsSyncTrigger();
+    const view = render(
+      <BrowserSidebarPanel
+        tab={loadedBrowserTab}
+        activeSession={{ ...activeSession, tabs: [loadedBrowserTab] }}
+        onRefreshSessions={async () => [{ ...activeSession, tabs: [loadedBrowserTab] }]}
+        boundsSyncTrigger={boundsSyncTrigger}
+      />,
+    );
+    await settleAsyncRender();
+
+    const host = view.container.querySelector<HTMLElement>("[data-browser-sidebar-webview-host-root]");
+    expect(host === null).toBeFalse();
+    setElementRect(host as HTMLElement, { left: 24, top: 48, width: 320, height: 240 });
+    await emitBoundsSync(boundsSyncTrigger);
+
+    const managerRoot = document.body.querySelector<HTMLElement>("[data-browser-sidebar-webview-manager-root]");
+    expect(managerRoot === null).toBeFalse();
+    expect(managerRoot?.style.left).toBe("24px");
+    expect(managerRoot?.style.top).toBe("48px");
+    expect(managerRoot?.style.width).toBe("320px");
+    expect(managerRoot?.style.height).toBe("240px");
+
+    setElementRect(host as HTMLElement, { left: 96, top: 52, width: 512, height: 260 });
+    await emitBoundsSync(boundsSyncTrigger);
+
+    expect(managerRoot?.style.left).toBe("96px");
+    expect(managerRoot?.style.top).toBe("52px");
+    expect(managerRoot?.style.width).toBe("512px");
+    expect(managerRoot?.style.height).toBe("260px");
+    view.unmount();
+  });
+
   test("renders browser options above the body-attached webview layer", async () => {
     const view = render(
       <BrowserSidebarPanel
@@ -141,6 +176,51 @@ describe("BrowserSidebarPanel chrome", () => {
     expect(menu?.style.zIndex).toBe("2147483647");
   });
 });
+
+type TestBoundsSyncTrigger = MotionValue<number> & {
+  emit: () => void;
+};
+
+function createBoundsSyncTrigger(): TestBoundsSyncTrigger {
+  const listeners = new Set<(latest: number) => void>();
+  return {
+    on: (eventName: string, listener: (latest: number) => void) => {
+      if (eventName === "change") listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    emit: () => {
+      for (const listener of listeners) listener(Date.now());
+    },
+  } as unknown as TestBoundsSyncTrigger;
+}
+
+async function emitBoundsSync(boundsSyncTrigger: TestBoundsSyncTrigger) {
+  await act(async () => {
+    boundsSyncTrigger.emit();
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+function setElementRect(
+  element: HTMLElement,
+  rect: { left: number; top: number; width: number; height: number },
+) {
+  Object.defineProperty(element, "getBoundingClientRect", {
+    configurable: true,
+    value: () => ({
+      left: rect.left,
+      top: rect.top,
+      right: rect.left + rect.width,
+      bottom: rect.top + rect.height,
+      x: rect.left,
+      y: rect.top,
+      width: rect.width,
+      height: rect.height,
+      toJSON: () => rect,
+    }),
+  });
+}
 
 const browserTab: ProjectSessionTab & { preview: true } = {
   id: "tab-browser",

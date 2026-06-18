@@ -210,13 +210,13 @@ import {
   CODEX_SIDEBAR_FLOATING_HEADER_CLASS,
   CODEX_SIDEBAR_POINTER_DEFAULT,
   CODEX_SIDEBAR_WIDTH_DEFAULT_PX,
-  CODEX_SIDEBAR_WIDTH_MIN_PX,
   clampCodexSidebarWidth,
   deriveCodexSidebarFloatingVisibility,
   getCodexSidebarFloatingOuterClassName,
   getCodexSidebarFloatingTransition,
   normalizeCodexSidebarPointer,
   shouldAnimateCodexSidebarToggle,
+  shouldCollapseCodexSidebarResizeWidth,
   shouldClearCodexSidebarHoverSuppression,
   shouldSuppressCodexSidebarHoverOpen,
   type CodexSidebarPointerSnapshot,
@@ -297,6 +297,7 @@ const LEFT_HEADER_COLLAPSED_RAIL_FALLBACK_WIDTH_PX = 126;
 const THREAD_SUMMARY_PANEL_STORAGE_KEY = "nodex:thread-summary-panel:pinned-open";
 const PROJECT_SESSION_SINGLETON_TAB_KIND_SET = new Set<string>(PROJECT_SESSION_SINGLETON_TAB_KINDS);
 type SidebarResizePhase = "live" | "end" | "reset";
+type SidebarResizeSurface = "inline" | "floating";
 const PREVIEWABLE_PROJECT_SESSION_TAB_KIND_SET = new Set<ProjectSessionTab["kind"]>([
   "browser",
   "files",
@@ -1175,6 +1176,7 @@ export function WorkbenchShell({
   const [localSidebarWidth, setLocalSidebarWidth] = useState(CODEX_SIDEBAR_WIDTH_DEFAULT_PX);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [floatingSidebarVisible, setFloatingSidebarVisible] = useState(false);
+  const [floatingSidebarResizing, setFloatingSidebarResizing] = useState(false);
   const [sidebarHoverSuppressed, setSidebarHoverSuppressed] = useState(false);
   const [sidebarTriggerHovered, setSidebarTriggerHovered] = useState(false);
   const [sidebarClickInFlight, setSidebarClickInFlight] = useState(false);
@@ -3306,10 +3308,14 @@ export function WorkbenchShell({
     void executeShellNavigation(navigationCommandRequest.direction);
   }, [executeShellNavigation, navigationCommandRequest]);
 
-  const resizeRightPanel = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+  const resizeRightPanel = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
     event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
     const root = workbenchRootRef.current;
     const windowZoom = readCodexWindowZoom(root);
+    const resizeHandle = event.currentTarget;
+    const pointerId = event.pointerId;
     const sizingWidth = rightPanelSizingWidth;
     const startX = event.clientX / windowZoom;
     const startWidth = regularRightPanelWidth;
@@ -3317,7 +3323,8 @@ export function WorkbenchShell({
     let latestWidth = startWidth;
     let closedByResize = false;
     setRightPanelDragWidth(startWidth);
-    const onMouseMove = (moveEvent: MouseEvent) => {
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      moveEvent.preventDefault();
       if (closedByResize) return;
       const pointerX = moveEvent.clientX / windowZoom;
       const rawWidth = startWidth + startX - pointerX;
@@ -3335,11 +3342,20 @@ export function WorkbenchShell({
       setRightPanelWidth(nextWidth);
     };
 
-    const onMouseUp = () => {
+    const cleanupPointerResize = () => {
       document.body.style.userSelect = "";
       document.body.style.cursor = "";
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerCancel);
+      if (resizeHandle.hasPointerCapture?.(pointerId)) {
+        resizeHandle.releasePointerCapture(pointerId);
+      }
+    };
+
+    const onPointerUp = (upEvent: PointerEvent) => {
+      upEvent.preventDefault();
+      cleanupPointerResize();
       void (async () => {
         try {
           if (!activeSession || closedByResize) return;
@@ -3354,24 +3370,34 @@ export function WorkbenchShell({
         }
       })();
     };
+    const onPointerCancel = () => {
+      cleanupPointerResize();
+      setRightPanelDragWidth(null);
+    };
 
     document.body.style.userSelect = "none";
     document.body.style.cursor = "col-resize";
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerCancel);
   }, [activeSession, regularRightPanelWidth, rightPanelSizingWidth, setActivePanelCollapsed, updateActivePanel]);
 
-  const resizeBottomPanel = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+  const resizeBottomPanel = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
     event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
     const root = workbenchRootRef.current;
     const windowZoom = readCodexWindowZoom(root);
+    const resizeHandle = event.currentTarget;
+    const pointerId = event.pointerId;
     const startY = event.clientY / windowZoom;
     const startHeight = bottomPanelHeight;
     let latestHeight = startHeight;
     let closedByResize = false;
     setBottomPanelDragHeight(startHeight);
 
-    const onMouseMove = (moveEvent: MouseEvent) => {
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      moveEvent.preventDefault();
       if (closedByResize) return;
       const pointerY = moveEvent.clientY / windowZoom;
       const rawHeight = startHeight + startY - pointerY;
@@ -3388,11 +3414,20 @@ export function WorkbenchShell({
       setBottomPanelDragHeight(nextHeight);
     };
 
-    const onMouseUp = () => {
+    const cleanupPointerResize = () => {
       document.body.style.userSelect = "";
       document.body.style.cursor = "";
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerCancel);
+      if (resizeHandle.hasPointerCapture?.(pointerId)) {
+        resizeHandle.releasePointerCapture(pointerId);
+      }
+    };
+
+    const onPointerUp = (upEvent: PointerEvent) => {
+      upEvent.preventDefault();
+      cleanupPointerResize();
       void (async () => {
         try {
           if (!activeSession || closedByResize) return;
@@ -3407,11 +3442,16 @@ export function WorkbenchShell({
         }
       })();
     };
+    const onPointerCancel = () => {
+      cleanupPointerResize();
+      setBottomPanelDragHeight(null);
+    };
 
     document.body.style.userSelect = "none";
     document.body.style.cursor = "row-resize";
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerCancel);
   }, [activeSession, bottomPanelHeight, sessionContentHeight, setActivePanelCollapsed, updateActivePanel]);
 
   const activePanelCardStageCardIdsByProject = useMemo<ReadonlyMap<string, ReadonlySet<string>>>(() => {
@@ -3586,6 +3626,9 @@ export function WorkbenchShell({
             cardStageHistoryModal={cardStageHistoryModal}
             onToggleCardStageHistoryModal={toggleCardStageHistoryModal}
             selectedTurnDiffReviewTarget={selectedTurnDiffReviewTarget}
+            browserBoundsSyncTrigger={tab.panelId === "bottom"
+              ? bottomPanelMotion.animatedSize
+              : rightPanelMotion.animatedSize}
           />
         );
       },
@@ -3648,6 +3691,7 @@ export function WorkbenchShell({
     activeSearchQuery,
     activeSession,
     activeView,
+    bottomPanelMotion.animatedSize,
     cardStageCloseRef,
     cardStageHistoryModal,
     cardStagePersistRef,
@@ -3670,6 +3714,7 @@ export function WorkbenchShell({
     recreateSideChatPanelTab,
     refreshProjectSessions,
     reloadBrowserTab,
+    rightPanelMotion.animatedSize,
     sidebarTaskSearchOpenTick,
     dbViewPrefsByProject,
     searchByProject,
@@ -3740,8 +3785,12 @@ export function WorkbenchShell({
     applySidebarCollapsed(collapsed);
   }, [applySidebarCollapsed, reducedMotion]);
 
-  const applySidebarWidth = useCallback((width: number, phase: SidebarResizePhase = "end") => {
-    if (width < CODEX_SIDEBAR_WIDTH_MIN_PX) {
+  const applySidebarWidth = useCallback((
+    width: number,
+    phase: SidebarResizePhase = "end",
+    surface: SidebarResizeSurface = "inline",
+  ) => {
+    if (surface === "inline" && shouldCollapseCodexSidebarResizeWidth(width)) {
       setSidebarDragWidth(null);
       setSidebarCollapsedWithCodexState(true);
       return;
@@ -3749,6 +3798,9 @@ export function WorkbenchShell({
 
     const nextWidth = clampCodexSidebarWidth(width);
     realSidebarMotion.targetSize.set(nextWidth);
+    if (surface === "floating") {
+      setFloatingSidebarVisible(true);
+    }
     if (phase === "live") {
       setSidebarDragWidth(nextWidth);
       return;
@@ -4275,7 +4327,9 @@ export function WorkbenchShell({
     </div>
   ) : null;
 
-  const showFloatingSidebar = sidebarCollapsed && !realSidebarMounted && floatingSidebarVisible;
+  const showFloatingSidebar = sidebarCollapsed
+    && !realSidebarMounted
+    && (floatingSidebarVisible || floatingSidebarResizing);
   const showInlineSidebar = realSidebarMounted;
   const floatingSidebarTransition = getCodexSidebarFloatingTransition(Boolean(reducedMotion));
   const floatingSidebarExitX = reducedMotion ? 0 : -8;
@@ -4564,7 +4618,10 @@ export function WorkbenchShell({
                 key="codex-floating-left-panel"
                 data-sidebar-floating-focus-area="true"
                 data-testid="floating-project-session-sidebar-shell"
-                className={floatingSidebarOuterClassName}
+                className={cn(
+                  floatingSidebarOuterClassName,
+                  floatingSidebarResizing && "cursor-col-resize",
+                )}
                 style={{ width: sidebarWidth }}
                 initial={reducedMotion ? false : { opacity: 0, x: -8 }}
                 animate={{ opacity: 1, x: 0 }}
@@ -4587,6 +4644,7 @@ export function WorkbenchShell({
                   width={sidebarWidth}
                   getWindowZoom={getWindowZoom}
                   onResizeWidth={applySidebarWidth}
+                  onResizeActiveChange={setFloatingSidebarResizing}
                   onTogglePinnedProjectsSectionCollapsed={togglePinnedProjectsSectionCollapsed}
                   onToggleProjectsSectionCollapsed={toggleProjectsSectionCollapsed}
                   onToggleProjectExpanded={toggleProjectExpanded}
@@ -4708,7 +4766,7 @@ export function WorkbenchShell({
                           aria-orientation="vertical"
                           aria-label="Resize right panel"
                           className="group absolute top-0 bottom-0 left-0 z-40 flex w-4 -translate-x-2 cursor-col-resize touch-none select-none active:cursor-col-resize"
-                          onMouseDown={resizeRightPanel}
+                          onPointerDown={resizeRightPanel}
                         >
                           <div className="pointer-events-none m-auto h-full w-px bg-linear-to-b from-transparent via-token-foreground/25 to-transparent opacity-0 group-hover:opacity-100 group-active:opacity-100" />
                         </div>
@@ -4798,7 +4856,7 @@ export function WorkbenchShell({
                         aria-orientation="horizontal"
                         aria-label="Resize bottom panel"
                         className="group absolute top-0 left-0 right-0 z-40 flex h-4 -translate-y-2 cursor-row-resize touch-none select-none active:cursor-row-resize"
-                        onMouseDown={resizeBottomPanel}
+                        onPointerDown={resizeBottomPanel}
                       >
                         <div className="pointer-events-none mx-auto h-px w-full bg-linear-to-r from-transparent via-token-foreground/25 to-transparent opacity-0 group-hover:opacity-100 group-active:opacity-100" />
                       </div>
@@ -5133,6 +5191,7 @@ function ProjectSessionSidebar({
   resizeDisabled = false,
   getWindowZoom,
   onResizeWidth,
+  onResizeActiveChange,
   onTogglePinnedProjectsSectionCollapsed,
   onToggleProjectsSectionCollapsed,
   onToggleProjectExpanded,
@@ -5174,7 +5233,8 @@ function ProjectSessionSidebar({
   contentOpacity?: MotionValue<number>;
   resizeDisabled?: boolean;
   getWindowZoom?: () => number;
-  onResizeWidth: (width: number, phase?: SidebarResizePhase) => void;
+  onResizeWidth: (width: number, phase?: SidebarResizePhase, surface?: SidebarResizeSurface) => void;
+  onResizeActiveChange?: (active: boolean) => void;
   onTogglePinnedProjectsSectionCollapsed: () => void;
   onToggleProjectsSectionCollapsed: () => void;
   onToggleProjectExpanded: (projectId: string) => void;
@@ -5200,7 +5260,12 @@ function ProjectSessionSidebar({
   onAccountErrorMessage: (message: string | null) => void;
 }) {
   const [sidebarResizing, setSidebarResizing] = useState(false);
-  const sidebarResizeDisabled = resizeDisabled || floating;
+  const sidebarResizeDisabled = resizeDisabled;
+  const sidebarResizeSurface: SidebarResizeSurface = floating ? "floating" : "inline";
+  const setSidebarResizeActive = (active: boolean) => {
+    setSidebarResizing(active);
+    onResizeActiveChange?.(active);
+  };
   const handleProjectDrop = useCallback((drop: { projectId: string; targetContainerId: string }) => {
     if (drop.targetContainerId !== "pinned") return;
     void onSetProjectPinned(drop.projectId, { pinned: true }).catch(() => {
@@ -5219,13 +5284,13 @@ function ProjectSessionSidebar({
     const startWidth = width;
     let didMove = false;
 
-    setSidebarResizing(true);
+    setSidebarResizeActive(true);
 
     const resolveNextWidth = (nextEvent: PointerEvent) =>
       startWidth + ((nextEvent.clientX / resolveZoom()) - startX);
 
     function stopResize() {
-      setSidebarResizing(false);
+      setSidebarResizeActive(false);
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("pointercancel", onPointerUp);
@@ -5234,13 +5299,13 @@ function ProjectSessionSidebar({
     function onPointerMove(nextEvent: PointerEvent) {
       nextEvent.preventDefault();
       didMove = didMove || nextEvent.clientX / resolveZoom() !== startX;
-      onResizeWidth(resolveNextWidth(nextEvent), "live");
+      onResizeWidth(resolveNextWidth(nextEvent), "live", sidebarResizeSurface);
     }
 
     function onPointerUp(nextEvent: PointerEvent) {
       nextEvent.preventDefault();
       if (didMove) {
-        onResizeWidth(resolveNextWidth(nextEvent), "end");
+        onResizeWidth(resolveNextWidth(nextEvent), "end", sidebarResizeSurface);
       }
       stopResize();
     }
@@ -5254,17 +5319,41 @@ function ProjectSessionSidebar({
     if (sidebarResizeDisabled) return;
     if (event.detail !== 2) return;
     event.preventDefault();
-    setSidebarResizing(false);
-    onResizeWidth(CODEX_SIDEBAR_WIDTH_DEFAULT_PX, "reset");
+    setSidebarResizeActive(false);
+    onResizeWidth(CODEX_SIDEBAR_WIDTH_DEFAULT_PX, "reset", sidebarResizeSurface);
   };
 
-  return (
+  const resizeHandle = (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-disabled={sidebarResizeDisabled || undefined}
+      onClick={handleResizeClick}
+      onPointerDown={handleResizePointerDown}
+      data-testid="sidebar-resize-strip"
+      className={cn(
+        "group absolute flex touch-none select-none z-20 -top-toolbar right-0 bottom-0 w-4 translate-x-2",
+        sidebarResizeDisabled ? "pointer-events-none" : "cursor-col-resize active:cursor-col-resize",
+      )}
+    >
+      <div
+        aria-hidden
+        className={cn(
+          "sidebar-resize-handle-line pointer-events-none m-auto opacity-0",
+          "h-full w-px bg-gradient-to-b from-transparent via-token-foreground/25 to-transparent",
+          sidebarResizing ? "opacity-100" : "group-hover:opacity-100 group-active:opacity-100",
+        )}
+      />
+    </div>
+  );
+
+  const sidebarShell = (
     <motion.aside
       className={cn(
         floating
           ? CODEX_SIDEBAR_FLOATING_ASIDE_CLASS
           : "app-shell-left-panel pointer-events-auto relative flex h-full min-h-0 shrink-0 flex-col overflow-visible browser:bg-token-main-surface-primary",
-        sidebarResizing && !floating && "cursor-col-resize",
+        sidebarResizing && "cursor-col-resize",
         "font-sans text-sm",
       )}
       style={{
@@ -5347,29 +5436,20 @@ function ProjectSessionSidebar({
         </div>
       </motion.div>
 
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-disabled={sidebarResizeDisabled || undefined}
-        onClick={handleResizeClick}
-        onPointerDown={handleResizePointerDown}
-        data-testid="sidebar-resize-strip"
-        className={cn(
-          "group absolute flex touch-none select-none z-20 -top-toolbar right-0 bottom-0 w-4 translate-x-2",
-          sidebarResizeDisabled ? "pointer-events-none" : "cursor-col-resize active:cursor-col-resize",
-        )}
-      >
-        <div
-          aria-hidden
-          className={cn(
-            "sidebar-resize-handle-line pointer-events-none m-auto opacity-0",
-            "h-full w-px bg-gradient-to-b from-transparent via-token-foreground/25 to-transparent",
-            sidebarResizing ? "opacity-100" : "group-hover:opacity-100 group-active:opacity-100",
-          )}
-        />
-      </div>
+      {!floating ? resizeHandle : null}
     </motion.aside>
   );
+
+  if (floating) {
+    return (
+      <>
+        {sidebarShell}
+        {resizeHandle}
+      </>
+    );
+  }
+
+  return sidebarShell;
 }
 
 type PanelActionCardProps = ComponentPropsWithoutRef<"button"> & {
@@ -6013,6 +6093,7 @@ function ProjectSessionTabPanel({
   cardStageHistoryModal,
   onToggleCardStageHistoryModal,
   selectedTurnDiffReviewTarget,
+  browserBoundsSyncTrigger,
 }: {
   tab: ProjectSessionTab & { preview?: true };
   activeSession: ProjectSession;
@@ -6051,6 +6132,7 @@ function ProjectSessionTabPanel({
   cardStageHistoryModal: CardStageHistoryModalContext | null;
   onToggleCardStageHistoryModal: (context: CardStageHistoryModalContext) => void;
   selectedTurnDiffReviewTarget: CodexTurnDiffReviewTarget | null;
+  browserBoundsSyncTrigger?: MotionValue<number>;
 }) {
   if (tab.kind === "db_view" && "view" in tab.config) {
     return (
@@ -6147,6 +6229,7 @@ function ProjectSessionTabPanel({
         tab={tab}
         activeSession={activeSession}
         onRefreshSessions={onRefreshSessions}
+        boundsSyncTrigger={browserBoundsSyncTrigger}
       />
     );
   }

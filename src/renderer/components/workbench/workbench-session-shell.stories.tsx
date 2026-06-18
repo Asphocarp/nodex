@@ -1001,7 +1001,7 @@ export const ExpandedSidebarMinWidth: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Expanded real sidebar at Codex's 240px minimum width, with the titlebar left slot still driven by the sidebar geometry.",
+        story: "Expanded real sidebar at Codex's 240px minimum width, matching the clamp zone before the half-minimum collapse threshold.",
       },
     },
   },
@@ -1151,7 +1151,7 @@ export const FloatingSidebarResizedWidth: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Floating sidebar rendered at the Codex maximum clamped width of 520px.",
+        story: "Floating sidebar after its right-edge sash has resized to the Codex maximum clamped width of 520px.",
       },
     },
   },
@@ -1200,6 +1200,22 @@ export const CollapsedSidebarFullWidthRightPanel: Story = {
     docs: {
       description: {
         story: "Collapsed sidebar with a full-width right panel: the left titlebar rail reserves its measured width before the right-panel tabs so toolbar controls and tabs never overlap.",
+      },
+    },
+  },
+};
+
+export const CollapsedSidebarFullWidthRightPanelReveal: Story = {
+  args: {
+    sidebar: "collapsed",
+    sidebarReveal: "edge",
+    rightPanel: "full",
+    activeTab: "browser",
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Collapsed sidebar auto-reveal over a full-width right panel, matching Codex's pointer-led floating left panel behavior.",
       },
     },
   },

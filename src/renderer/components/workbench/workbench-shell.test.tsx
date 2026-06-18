@@ -9,6 +9,7 @@ import {
   CODEX_SIDEBAR_FLOATING_OUTER_CLASS,
 } from "@/lib/codex-sidebar-auto-reveal";
 import {
+  APP_SHELL_FLOATING_LEFT_PANEL_LAYER_CLASS,
   APP_SHELL_GLOBAL_HEADER_LAYER_CLASS,
   APP_SHELL_RIGHT_PANEL_LAYER_CLASS,
 } from "@/lib/app-shell-layers";
@@ -776,6 +777,30 @@ function getBottomPanelContentSizer(container: HTMLElement): HTMLElement {
   return sizer;
 }
 
+function installReducedMotionMatchMediaForTest() {
+  const originalMatchMedia = window.matchMedia;
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: (query: string) => ({
+      matches: query === "(prefers-reduced-motion: reduce)",
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  });
+
+  return () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: originalMatchMedia,
+    });
+  };
+}
+
 function renderWorkbench({
   projects = [makeProject()],
   sessionsByProject = { alpha: [makeSession()] },
@@ -1199,9 +1224,9 @@ async function pointerActivate(element: HTMLElement): Promise<void> {
   await settleAsyncRender();
 }
 
-async function releaseMouseDrag(): Promise<void> {
+async function releasePointerDrag(pointerId = 1): Promise<void> {
   await act(async () => {
-    fireEvent.mouseUp(window);
+    fireEvent.pointerUp(window, { pointerId });
     await Promise.resolve();
   });
   await settleAsyncRender();
@@ -2709,6 +2734,24 @@ describe("workbench session shell", () => {
 
       await act(async () => {
         restoreButton.focus();
+        await Promise.resolve();
+      });
+      await settleAsyncRender();
+      expect(screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]')).toBe(null);
+
+      await moveSidebarPointer(12);
+      const floatingShell = screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]') as HTMLElement | null;
+      expect(floatingShell !== null).toBeTrue();
+      expect(floatingShell?.className.includes(APP_SHELL_FLOATING_LEFT_PANEL_LAYER_CLASS)).toBeTrue();
+
+      await moveSidebarPointer(301);
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 600));
+      });
+      await settleAsyncRender();
+      expect(screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]')).toBe(null);
+
+      await act(async () => {
         fireEvent.click(restoreButton);
         await Promise.resolve();
       });
@@ -3111,15 +3154,20 @@ describe("workbench session shell", () => {
 
     const rightPanel = screen.getByTestId("session-right-panel");
     const separator = screen.getByRole("separator", { name: "Resize right panel" });
+    let capturedPointerId: number | null = null;
+    separator.setPointerCapture = (pointerId: number) => {
+      capturedPointerId = pointerId;
+    };
     expect(rightPanel.getAttribute("style")?.includes("width: 372px")).toBeTrue();
 
     try {
       await act(async () => {
-        fireEvent.mouseDown(separator, { clientX: 700 });
-        fireEvent.mouseMove(window, { clientX: 750 });
+        fireEvent.pointerDown(separator, { button: 0, pointerId: 7, clientX: 700 });
+        fireEvent.pointerMove(window, { pointerId: 7, clientX: 750 });
         await Promise.resolve();
       });
 
+      expect(capturedPointerId).toBe(7);
       expect(rightPanel.getAttribute("style")?.includes("width: 322px")).toBeTrue();
       expect(invokeCalls.some((call) =>
         call[0] === "project-session-panels:update"
@@ -3128,7 +3176,7 @@ describe("workbench session shell", () => {
         && ((call[3] as { size?: { widthPx?: number } })?.size?.widthPx ?? null) === 322
       )).toBeFalse();
     } finally {
-      await releaseMouseDrag();
+      await releasePointerDrag(7);
     }
 
     expect(invokeCalls.some((call) =>
@@ -3161,14 +3209,14 @@ describe("workbench session shell", () => {
 
     try {
       await act(async () => {
-        fireEvent.mouseDown(separator, { clientX: 1_200 });
-        fireEvent.mouseMove(window, { clientX: 400 });
+        fireEvent.pointerDown(separator, { button: 0, pointerId: 1, clientX: 1_200 });
+        fireEvent.pointerMove(window, { pointerId: 1, clientX: 400 });
         await Promise.resolve();
       });
 
       expect(rightPanel.getAttribute("style")?.includes("width: 1148px")).toBeTrue();
     } finally {
-      await releaseMouseDrag();
+      await releasePointerDrag();
     }
 
     expect(invokeCalls.some((call) =>
@@ -3197,11 +3245,11 @@ describe("workbench session shell", () => {
 
     const separator = screen.getByRole("separator", { name: "Resize right panel" });
     await act(async () => {
-      fireEvent.mouseDown(separator, { clientX: 700 });
-      fireEvent.mouseMove(window, { clientX: 1_020 });
+      fireEvent.pointerDown(separator, { button: 0, pointerId: 1, clientX: 700 });
+      fireEvent.pointerMove(window, { pointerId: 1, clientX: 1_020 });
       await Promise.resolve();
     });
-    await releaseMouseDrag();
+    await releasePointerDrag();
 
     expect(invokeCalls.some((call) =>
       call[0] === "project-session-panels:update"
@@ -3235,14 +3283,14 @@ describe("workbench session shell", () => {
 
     try {
       await act(async () => {
-        fireEvent.mouseDown(separator, { clientX: 1_400 });
-        fireEvent.mouseMove(window, { clientX: 1_500 });
+        fireEvent.pointerDown(separator, { button: 0, pointerId: 1, clientX: 1_400 });
+        fireEvent.pointerMove(window, { pointerId: 1, clientX: 1_500 });
         await Promise.resolve();
       });
 
       expect(rightPanel.getAttribute("style")?.includes("width: 322px")).toBeTrue();
     } finally {
-      await releaseMouseDrag();
+      await releasePointerDrag();
     }
 
     expect(invokeCalls.some((call) =>
@@ -3268,8 +3316,8 @@ describe("workbench session shell", () => {
 
     try {
       await act(async () => {
-        fireEvent.mouseDown(separator, { clientY: 700 });
-        fireEvent.mouseMove(window, { clientY: 740 });
+        fireEvent.pointerDown(separator, { button: 0, pointerId: 1, clientY: 700 });
+        fireEvent.pointerMove(window, { pointerId: 1, clientY: 740 });
         await Promise.resolve();
       });
 
@@ -3281,7 +3329,7 @@ describe("workbench session shell", () => {
         && ((call[3] as { size?: { heightPx?: number } })?.size?.heightPx ?? null) === 240
       )).toBeFalse();
     } finally {
-      await releaseMouseDrag();
+      await releasePointerDrag();
     }
 
     expect(invokeCalls.some((call) =>
@@ -3302,11 +3350,11 @@ describe("workbench session shell", () => {
 
     const separator = screen.getByRole("separator", { name: "Resize bottom panel" });
     await act(async () => {
-      fireEvent.mouseDown(separator, { clientY: 700 });
-      fireEvent.mouseMove(window, { clientY: 900 });
+      fireEvent.pointerDown(separator, { button: 0, pointerId: 1, clientY: 700 });
+      fireEvent.pointerMove(window, { pointerId: 1, clientY: 900 });
       await Promise.resolve();
     });
-    await releaseMouseDrag();
+    await releasePointerDrag();
 
     expect(invokeCalls.some((call) =>
       call[0] === "project-session-panels:update"
@@ -4388,11 +4436,12 @@ describe("workbench session shell", () => {
     expect(screen.container.querySelector('[data-testid="app-shell-floating-left-panel"]')).toBe(null);
   });
 
-  test("left sidebar resize closes through the Codex minimum-width threshold", async () => {
+  test("left sidebar resize clamps at Codex minimum before the collapse threshold", async () => {
     const screen = renderWorkbench({ sidebar: { collapsed: false, width: 300 } });
     await settleAsyncRender();
     await settleAsyncRender();
 
+    const sidebar = screen.getByTestId("project-session-sidebar");
     const resizeStrip = screen.getByTestId("sidebar-resize-strip");
     await act(async () => {
       fireEvent.pointerDown(resizeStrip, { button: 0, pointerId: 1, clientX: 300 });
@@ -4401,12 +4450,48 @@ describe("workbench session shell", () => {
     });
     await settleAsyncRender();
 
-    expect(screen.getByRole("button", { name: "Show sidebar" }) !== null).toBeTrue();
+    expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBeTrue();
+    expect(sidebar.getAttribute("style")?.includes("width: 240px")).toBeTrue();
+    expect(screen.queryAllByRole("button", { name: "Hide sidebar" }).length > 0).toBeTrue();
 
     await act(async () => {
       fireEvent.pointerUp(window, { pointerId: 1, clientX: 200 });
       await Promise.resolve();
     });
+    await settleAsyncRender();
+
+    expect(sidebar.getAttribute("style")?.includes("width: 240px")).toBeTrue();
+  });
+
+  test("left sidebar resize closes only past the Codex half-minimum threshold", async () => {
+    const restoreMatchMedia = installReducedMotionMatchMediaForTest();
+    try {
+      const screen = renderWorkbench({ sidebar: { collapsed: false, width: 300 } });
+      await settleAsyncRender();
+      await settleAsyncRender();
+
+      const resizeStrip = screen.getByTestId("sidebar-resize-strip");
+      await act(async () => {
+        fireEvent.pointerDown(resizeStrip, { button: 0, pointerId: 2, clientX: 300 });
+        fireEvent.pointerMove(window, { pointerId: 2, clientX: 100 });
+        await Promise.resolve();
+      });
+      await settleAsyncRender();
+
+      expect(screen.queryAllByRole("button", { name: "Show sidebar" }).length > 0).toBeTrue();
+
+      await act(async () => {
+        fireEvent.pointerUp(window, { pointerId: 2, clientX: 100 });
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        if (screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null) {
+          throw new Error("Expected project session sidebar to unmount after collapse");
+        }
+      });
+    } finally {
+      restoreMatchMedia();
+    }
   });
 
   test("left sidebar resize normalizes pointer drag deltas by the Codex window zoom", async () => {
@@ -4524,6 +4609,7 @@ describe("workbench session shell", () => {
       expect(floatingAside?.className.includes("rounded-lg")).toBeTrue();
       expect(floatingAside?.className.includes("bg-token-main-surface-primary")).toBeTrue();
       expect(floatingAside?.className.includes("shadow-[1px_0_0_0_var(--color-token-border-default)")).toBeTrue();
+      expect(screen.getByTestId("sidebar-resize-strip").parentElement).toBe(floatingShell);
 
       const floatingFocusButton = Array.from(floatingShell?.querySelectorAll("button") ?? [])
         .find((button) => !button.disabled) as HTMLButtonElement | undefined;
@@ -4564,6 +4650,62 @@ describe("workbench session shell", () => {
     } finally {
       Object.defineProperty(navigator, "platform", { configurable: true, value: originalPlatform });
     }
+  });
+
+  test("floating sidebar resize uses the Codex clamp-only sash behavior", async () => {
+    const screen = renderWorkbench({ sidebar: { collapsed: true, width: 300 } });
+    await settleAsyncRender();
+    await settleAsyncRender();
+    await moveSidebarPointer(12);
+
+    const expandStrip = screen.getByTestId("sidebar-resize-strip");
+
+    await act(async () => {
+      fireEvent.pointerDown(expandStrip, { button: 0, pointerId: 8, clientX: 300 });
+      fireEvent.pointerMove(window, { pointerId: 8, clientX: 360 });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const expandedFloatingShell = screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]') as HTMLElement | null;
+    expect(expandedFloatingShell !== null).toBeTrue();
+    expect(expandedFloatingShell?.getAttribute("style")?.includes("width: 360px")).toBeTrue();
+
+    await act(async () => {
+      fireEvent.pointerUp(window, { pointerId: 8, clientX: 360 });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const resizeStrip = screen.getByTestId("sidebar-resize-strip");
+    let capturedPointerId: number | null = null;
+    resizeStrip.setPointerCapture = (pointerId: number) => {
+      capturedPointerId = pointerId;
+    };
+
+    await act(async () => {
+      fireEvent.pointerDown(resizeStrip, { button: 0, pointerId: 9, clientX: 360 });
+      fireEvent.pointerMove(window, { pointerId: 9, clientX: 100 });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const floatingShell = screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]') as HTMLElement | null;
+    expect(capturedPointerId).toBe(9);
+    expect(floatingShell !== null).toBeTrue();
+    expect(floatingShell?.getAttribute("style")?.includes("width: 240px")).toBeTrue();
+    expect(screen.container.querySelector('[data-testid="project-session-sidebar"]')).toBe(null);
+    expect(screen.queryAllByRole("button", { name: "Show sidebar" }).length > 0).toBeTrue();
+
+    await act(async () => {
+      fireEvent.pointerUp(window, { pointerId: 9, clientX: 100 });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const persistedFloatingShell = screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]') as HTMLElement | null;
+    expect(persistedFloatingShell?.getAttribute("style")?.includes("width: 240px")).toBeTrue();
+    expect(screen.container.querySelector('[data-testid="project-session-sidebar"]')).toBe(null);
   });
 
   test("window navigation chrome restores prior and next active sessions", async () => {

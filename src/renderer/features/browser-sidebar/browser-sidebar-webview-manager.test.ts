@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  BROWSER_SIDEBAR_VISIBLE_WEBVIEW_Z_INDEX,
+  BROWSER_SIDEBAR_WEBVIEW_LAYER_ROOT_Z_INDEX,
   BrowserSidebarRendererWebviewManager,
   type BrowserSidebarWebviewElement,
 } from "./browser-sidebar-webview-manager";
@@ -36,6 +38,12 @@ function getManagerRoot(tabId = "tab-browser") {
   );
 }
 
+function getManagerLayerRoot() {
+  return document.body.querySelector<HTMLElement>(
+    "[data-browser-sidebar-webview-manager-layer-root]",
+  );
+}
+
 describe("BrowserSidebarRendererWebviewManager", () => {
   test("creates one managed webview host and reports a mount generation once", () => {
     const manager = createManager();
@@ -66,10 +74,35 @@ describe("BrowserSidebarRendererWebviewManager", () => {
     expect(root?.style.top).toBe("20px");
     expect(root?.style.width).toBe("320px");
     expect(root?.style.height).toBe("240px");
-    expect(root?.style.zIndex).toBe("2147483647");
+    expect(root?.style.zIndex).toBe("");
+    expect(root?.parentElement === getManagerLayerRoot()).toBeTrue();
+    expect(getManagerLayerRoot()?.style.pointerEvents).toBe("none");
+    expect(getManagerLayerRoot()?.style.zIndex).toBe(String(BROWSER_SIDEBAR_WEBVIEW_LAYER_ROOT_Z_INDEX));
     expect(created.length).toBe(1);
     expect(created[0]?.webContentsId).toBe(101);
     expect(created[0]?.mountGeneration).toBe(1);
+  });
+
+  test("keeps retained visible hosts on the retained webview layer", () => {
+    const manager = createManager();
+
+    const mountGeneration = manager.claimMountGeneration({ sessionId: "session-1", tabId: "tab-retained" });
+    manager.syncWebview({
+      sessionId: "session-1",
+      projectId: "alpha",
+      tabId: "tab-retained",
+      hostKind: "retained",
+      initialUrl: "https://example.com",
+      bounds: visibleBounds,
+      mountGeneration,
+      isVisible: true,
+      shouldPaint: true,
+      onHostCreated: () => undefined,
+    });
+
+    const root = getManagerRoot("tab-retained");
+    expect(root?.style.zIndex).toBe(String(BROWSER_SIDEBAR_VISIBLE_WEBVIEW_Z_INDEX));
+    expect(root?.parentElement === document.body).toBeTrue();
   });
 
   test("does not destroy the current visible host for a stale non-close generation request", () => {

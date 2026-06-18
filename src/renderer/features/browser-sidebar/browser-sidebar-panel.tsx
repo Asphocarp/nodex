@@ -10,6 +10,7 @@ import {
   type RefObject,
   type ReactNode,
 } from "react";
+import type { MotionValue } from "motion/react";
 import {
   Check,
   Maximize2,
@@ -130,10 +131,12 @@ export function BrowserSidebarPanel({
   tab,
   activeSession,
   onRefreshSessions,
+  boundsSyncTrigger,
 }: {
   tab: BrowserTab;
   activeSession: ProjectSession;
   onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
+  boundsSyncTrigger?: MotionValue<number>;
 }) {
   const browserRuntimeAvailable = typeof window !== "undefined" && Boolean(window.api);
   const webviewHostRef = useRef<HTMLDivElement | null>(null);
@@ -214,7 +217,7 @@ export function BrowserSidebarPanel({
       sessionId: activeSession.id,
       tabId: tab.id,
     });
-    browserSidebarRendererWebviewManager.syncWebview({
+    const syncCurrentBounds = () => browserSidebarRendererWebviewManager.syncWebview({
       sessionId: activeSession.id,
       projectId: tab.projectId,
       tabId: tab.id,
@@ -228,24 +231,12 @@ export function BrowserSidebarPanel({
         void invoke("browser-sidebar-webview-host-created", event);
       },
     });
+    syncCurrentBounds();
 
     let animationFrame: number | null = null;
     const syncBounds = () => {
       animationFrame = null;
-      browserSidebarRendererWebviewManager.syncWebview({
-        sessionId: activeSession.id,
-        projectId: tab.projectId,
-        tabId: tab.id,
-        hostKind: "panel",
-        initialUrl: initialWebviewUrlRef.current,
-        bounds: readWebviewHostBounds(container),
-        mountGeneration,
-        isVisible: true,
-        shouldPaint: true,
-        onHostCreated: (event: BrowserSidebarWebviewHostCreated) => {
-          void invoke("browser-sidebar-webview-host-created", event);
-        },
-      });
+      syncCurrentBounds();
     };
     const scheduleSyncBounds = () => {
       if (animationFrame !== null) return;
@@ -253,13 +244,16 @@ export function BrowserSidebarPanel({
     };
     const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleSyncBounds);
     resizeObserver?.observe(container);
+    const unsubscribeBoundsSyncTrigger = boundsSyncTrigger?.on("change", scheduleSyncBounds);
     window.addEventListener("resize", scheduleSyncBounds);
     window.addEventListener("scroll", scheduleSyncBounds, true);
+    scheduleSyncBounds();
 
     return () => {
       if (animationFrame !== null) {
         window.cancelAnimationFrame(animationFrame);
       }
+      unsubscribeBoundsSyncTrigger?.();
       resizeObserver?.disconnect();
       window.removeEventListener("resize", scheduleSyncBounds);
       window.removeEventListener("scroll", scheduleSyncBounds, true);
@@ -270,6 +264,7 @@ export function BrowserSidebarPanel({
     };
   }, [
     activeSession.id,
+    boundsSyncTrigger,
     browserRuntimeAvailable,
     isBlank,
     snapshot.deviceToolbarVisible,

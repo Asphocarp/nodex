@@ -518,6 +518,9 @@ function PanelGroupSash({
     event.stopPropagation();
     const parent = containerRef.current?.parentElement;
     if (!parent) return;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    const resizeHandle = event.currentTarget;
+    const pointerId = event.pointerId;
     const rect = parent.getBoundingClientRect();
 
     const readRatio = (clientX: number, clientY: number) => {
@@ -528,16 +531,32 @@ function PanelGroupSash({
     };
 
     const handleMove = (moveEvent: PointerEvent) => {
+      moveEvent.preventDefault();
       onDragRatio(readRatio(moveEvent.clientX, moveEvent.clientY));
     };
     const handleUp = (upEvent: PointerEvent) => {
+      upEvent.preventDefault();
       window.removeEventListener("pointermove", handleMove);
       window.removeEventListener("pointerup", handleUp);
+      window.removeEventListener("pointercancel", handleCancel);
+      if (resizeHandle.hasPointerCapture?.(pointerId)) {
+        resizeHandle.releasePointerCapture(pointerId);
+      }
       onCommitRatio(readRatio(upEvent.clientX, upEvent.clientY));
+    };
+    const handleCancel = () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+      window.removeEventListener("pointercancel", handleCancel);
+      if (resizeHandle.hasPointerCapture?.(pointerId)) {
+        resizeHandle.releasePointerCapture(pointerId);
+      }
+      onDragRatio(null);
     };
 
     window.addEventListener("pointermove", handleMove);
     window.addEventListener("pointerup", handleUp, { once: true });
+    window.addEventListener("pointercancel", handleCancel, { once: true });
   };
 
   return (
