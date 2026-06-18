@@ -3,6 +3,7 @@ import { autoScrollForElements } from "@atlaskit/pragmatic-drag-and-drop-auto-sc
 import { monitorForElements } from "@atlaskit/pragmatic-drag-and-drop/element/adapter";
 import { Column } from "./column";
 import { type CardPropertyUpdateInput } from "./card";
+import type { OpenCardStageOptions } from "./open-card-stage";
 import {
   emptyCardSelection,
   normalizeCardSelection,
@@ -81,6 +82,9 @@ import { resolveKanbanDropCapabilities } from "./kanban-drop-capabilities";
 import { resolveKanbanImportInference } from "./kanban-import-inference";
 import { resolveKanbanDropFeedback } from "./drop-feedback";
 
+const KANBAN_CARD_PREVIEW_OPEN_DELAY_MS = 180;
+type KanbanCardOpenMode = NonNullable<OpenCardStageOptions["openMode"]>;
+
 function hasSameCardSelection(
   left: CardSelectionState,
   right: CardSelectionState,
@@ -103,6 +107,7 @@ interface KanbanBoardProps {
     projectId: string,
     cardId: string,
     titleSnapshot?: string,
+    options?: OpenCardStageOptions,
   ) => void;
   cardStageCardId: string | undefined;
   activePanelCardStageCardIds?: ReadonlySet<string>;
@@ -126,6 +131,15 @@ export function KanbanBoard({
     redo,
     refreshState: refreshHistoryState,
   } = useHistory(projectId);
+  const pendingCardPreviewOpenRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearPendingCardPreviewOpen = useCallback(() => {
+    if (pendingCardPreviewOpenRef.current === null) return;
+    clearTimeout(pendingCardPreviewOpenRef.current);
+    pendingCardPreviewOpenRef.current = null;
+  }, []);
+
+  useEffect(() => clearPendingCardPreviewOpen, [clearPendingCardPreviewOpen]);
 
   // Pass sessionId to kanban hook so all mutations are tracked
   const {
@@ -782,31 +796,54 @@ export function KanbanBoard({
     [board, filteredBoard, hasSearchFilter, importBlockDrop, isKanbanCardDragActive, viewPrefs.rules],
   );
 
-  const handleEditCard = useCallback(async (
-    columnId: string,
+  const openCardStageFromCard = useCallback(async (
     card: CardType,
-    event: React.MouseEvent<HTMLDivElement>,
+    openMode: KanbanCardOpenMode,
   ) => {
-    if (event.shiftKey) {
-      event.preventDefault();
-      setCardSelection((current) => toggleCardSelection(current, card.id));
-      return;
-    }
-
-    if (selectedCardIds.size > 0) {
-      setCardSelection(emptyCardSelection());
-    }
-
-    if (cardStageCardId === card.id) {
+    if (openMode === "preview" && cardStageCardId === card.id) {
       await cardStageCloseRef?.current?.();
       return;
     }
-    openCardStage(projectId, card.id, card.title);
+    openCardStage(projectId, card.id, card.title, { openMode });
   }, [
     cardStageCardId,
     cardStageCloseRef,
     openCardStage,
     projectId,
+  ]);
+
+  const handleEditCard = useCallback((
+    columnId: string,
+    card: CardType,
+    event: React.MouseEvent<HTMLDivElement>,
+    openMode: KanbanCardOpenMode = "preview",
+  ) => {
+    if (event.shiftKey) {
+      event.preventDefault();
+      clearPendingCardPreviewOpen();
+      setCardSelection((current) => toggleCardSelection(current, card.id));
+      return;
+    }
+
+    if (openMode === "preview" && event.detail > 1) return;
+
+    if (selectedCardIds.size > 0) {
+      setCardSelection(emptyCardSelection());
+    }
+
+    clearPendingCardPreviewOpen();
+    if (openMode === "durable") {
+      void openCardStageFromCard(card, "durable");
+      return;
+    }
+
+    pendingCardPreviewOpenRef.current = setTimeout(() => {
+      pendingCardPreviewOpenRef.current = null;
+      void openCardStageFromCard(card, "preview");
+    }, KANBAN_CARD_PREVIEW_OPEN_DELAY_MS);
+  }, [
+    clearPendingCardPreviewOpen,
+    openCardStageFromCard,
     selectedCardIds.size,
   ]);
 

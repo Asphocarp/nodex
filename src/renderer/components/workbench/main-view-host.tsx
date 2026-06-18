@@ -3,6 +3,7 @@ import { KanbanBoard } from "@/components/kanban/board";
 import { ListView } from "@/components/kanban/list-view";
 import { ToggleListView } from "@/components/kanban/toggle-list-view";
 import { CanvasView } from "@/components/kanban/canvas-view";
+import type { OpenCardStageOptions } from "@/components/kanban/open-card-stage";
 import type { DbViewPrefs } from "../../lib/db-view-prefs";
 import type { CalendarViewState } from "@/lib/calendar-view-state";
 import type { Project } from "@/lib/types";
@@ -36,6 +37,7 @@ interface MainViewHostProps {
     projectId: string,
     cardId: string,
     titleSnapshot?: string,
+    options?: OpenCardStageOptions,
   ) => void;
 }
 

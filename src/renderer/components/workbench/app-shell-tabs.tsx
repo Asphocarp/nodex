@@ -9,6 +9,7 @@ import {
   type CSSProperties,
   type ReactNode,
   type RefObject,
+  type SyntheticEvent,
 } from "react";
 import { NodexTooltip, NodexTooltipProvider } from "@/components/ui/tooltip";
 import { APP_SHELL_FLOATING_UI_LAYER_CLASS } from "@/lib/app-shell-layers";
@@ -33,6 +34,7 @@ const APP_SHELL_SPLIT_ACTIONS: { side: AppShellTabSplitSide; label: string }[] =
 const APP_SHELL_TAB_ROW_WHEEL_LINE_HEIGHT_PX = 16;
 const APP_SHELL_TAB_ROW_WHEEL_DELTA_LINE = 1;
 const APP_SHELL_TAB_ROW_WHEEL_DELTA_PAGE = 2;
+const APP_SHELL_PREVIEW_PIN_SUPPRESSED_SELECTOR = "[data-app-shell-preview-pin-suppressed='true']";
 
 export interface AppShellTabItem {
   id: string;
@@ -62,6 +64,10 @@ function makeAppShellTabAccessibleLabel(tab: AppShellTabItem): string {
 function makeAppShellTabDefaultTooltip(tab: AppShellTabItem): string {
   if (tab.contextLabel) return `${tab.contextLabel} · ${tab.title}`;
   return tab.title;
+}
+
+function isPreviewPinSuppressedTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest(APP_SHELL_PREVIEW_PIN_SUPPRESSED_SELECTOR));
 }
 
 export type AppShellTabContextMenuItem =
@@ -226,6 +232,12 @@ export function AppShellTabs({
     onPinTab?.(tabId);
   };
 
+  const pinPreviewTabFromPanelEvent = (event: SyntheticEvent<HTMLElement>) => {
+    if (!activeTab?.preview) return;
+    if (isPreviewPinSuppressedTarget(event.target)) return;
+    pinTab(activeTab.id);
+  };
+
   const tabList = (
     <div role="tablist" className="relative z-0 flex" style={{ gap: 3 }}>
       {tabs.map((tab, index) => {
@@ -321,14 +333,8 @@ export function AppShellTabs({
             aria-label={makeAppShellTabAccessibleLabel(activeTab)}
             data-app-shell-tabpanel-preview={activeTab.preview ? "true" : undefined}
             className="relative min-h-0 flex-1"
-            onPointerDownCapture={() => {
-              if (!activeTab.preview) return;
-              pinTab(activeTab.id);
-            }}
-            onKeyDownCapture={() => {
-              if (!activeTab.preview) return;
-              pinTab(activeTab.id);
-            }}
+            onPointerDownCapture={pinPreviewTabFromPanelEvent}
+            onKeyDownCapture={pinPreviewTabFromPanelEvent}
           >
             {bodyOverlay}
             {activeTab.renderPanel(() => closeTab(activeTab.id))}
@@ -589,6 +595,14 @@ function AppShellTab({
             if (event.detail !== 0) return;
             if (tab.disabled) return;
             onSelect(tab.id);
+          }}
+          onDoubleClick={(event) => {
+            if (event.button !== 0) return;
+            if (tab.disabled) return;
+            if (tab.preview !== true || !onPin) return;
+            event.preventDefault();
+            event.stopPropagation();
+            pinCurrentTab();
           }}
         >
           {Icon ? (

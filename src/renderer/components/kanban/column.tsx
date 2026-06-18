@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { Card, type CardPropertyUpdateInput } from "./card";
+import type { OpenCardStageOptions } from "./open-card-stage";
 import { ColumnActionPopover } from "./column-action-popover";
 import type { DbViewDisplayPrefs } from "../../lib/db-view-prefs";
 import { DropIndicator } from "./drop-indicator";
@@ -27,7 +28,12 @@ interface ColumnProps {
   buildDragData?: (card: CardType, columnId: string) => KanbanCardDragData;
   layout: KanbanColumnLayout;
   onAddCard: (columnId: CardType["status"], input: CardInput, placement?: CardCreatePlacement) => Promise<void>;
-  onEditCard: (columnId: CardType["status"], card: CardType, event: React.MouseEvent<HTMLDivElement>) => void;
+  onEditCard: (
+    columnId: CardType["status"],
+    card: CardType,
+    event: React.MouseEvent<HTMLDivElement>,
+    openMode?: NonNullable<OpenCardStageOptions["openMode"]>,
+  ) => void;
   onUpdateCardProperty: (input: CardPropertyUpdateInput) => Promise<void>;
   onCollapsedChange: (columnId: CardType["status"], collapsed: boolean) => void;
   onWidthChange: (columnId: CardType["status"], width: number) => void;
@@ -339,6 +345,7 @@ export const Column = memo(function Column({
                       isActiveInPanel={activePanelCardStageCardIds?.has(card.id) ?? false}
                       isSelected={selectedCardIds.has(card.id)}
                       onClick={(event) => onEditCard(column.id, card, event)}
+                      onDoubleClick={(event) => onEditCard(column.id, card, event, "durable")}
                       onUpdateProperty={onUpdateCardProperty}
                       contextMenu={onMoveCardToProjectFromMenu ? {
                         currentColumnId: column.id,

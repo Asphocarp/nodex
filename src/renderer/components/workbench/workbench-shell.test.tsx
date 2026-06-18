@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { Fragment, createElement, createRef, useState, type ComponentProps } from "react";
+import { Fragment, createElement, createRef, useEffect, useState, type ComponentProps } from "react";
 import { createPortal } from "react-dom";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import type { Project, ProjectSession, ProjectSessionPanelNode, ProjectSessionTab } from "@/lib/types";
@@ -215,11 +215,31 @@ mock.module("./main-view-host", () => ({
 mock.module("./workbench-card-stage", () => ({
   CardStage: (props: Record<string, unknown>) => {
     (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps = props;
+    useEffect(() => {
+      const state = globalThis as {
+        __mockCardStageMounts?: number;
+        __mockCardStageUnmounts?: number;
+      };
+      state.__mockCardStageMounts = (state.__mockCardStageMounts ?? 0) + 1;
+      return () => {
+        state.__mockCardStageUnmounts = (state.__mockCardStageUnmounts ?? 0) + 1;
+      };
+    }, []);
     const card = props.card as { id?: string } | null | undefined;
     return createElement(
       "div",
       { "data-card-stage": "true" },
       `Card:${String(card?.id ?? "missing")}`,
+      createElement(
+        "button",
+        {
+          type: "button",
+          "aria-label": "Close",
+          "data-app-shell-preview-pin-suppressed": "true",
+          onClick: () => (props.onClose as (() => void) | undefined)?.(),
+        },
+        "Close",
+      ),
       createElement(
         "button",
         {
@@ -250,6 +270,7 @@ mock.module("./workbench-card-stage", () => ({
         {
           type: "button",
           "aria-label": "Delete",
+          "data-app-shell-preview-pin-suppressed": "true",
           onClick: () => {
             const current = (globalThis as { __mockCardStageDeleteClicks?: number }).__mockCardStageDeleteClicks ?? 0;
             (globalThis as { __mockCardStageDeleteClicks?: number }).__mockCardStageDeleteClicks = current + 1;
@@ -568,6 +589,39 @@ function updatePanelLeafActiveTab(
     ...node,
     first: updatePanelLeafActiveTab(node.first, leafId, tabId),
     second: updatePanelLeafActiveTab(node.second, leafId, tabId),
+  };
+}
+
+function appendTestPanelLeafTab(
+  node: ProjectSessionPanelNode,
+  leafId: string,
+  tabId: string,
+): ProjectSessionPanelNode {
+  if (node.type === "leaf") {
+    if (node.id !== leafId) return node;
+    return {
+      ...node,
+      tabIds: [...node.tabIds.filter((id) => id !== tabId), tabId],
+      activeTabId: tabId,
+    };
+  }
+  return {
+    ...node,
+    first: appendTestPanelLeafTab(node.first, leafId, tabId),
+    second: appendTestPanelLeafTab(node.second, leafId, tabId),
+  };
+}
+
+function appendTestPanelLayoutTab(
+  layout: ProjectSession["panels"]["right"]["layout"],
+  leafId: string,
+  tabId: string,
+): ProjectSession["panels"]["right"]["layout"] {
+  return {
+    ...layout,
+    root: appendTestPanelLeafTab(layout.root, leafId, tabId),
+    activeLeafId: leafId,
+    mruLeafIds: [leafId, ...layout.mruLeafIds.filter((id) => id !== leafId)],
   };
 }
 
@@ -977,6 +1031,8 @@ function renderWorkbench({
         sessionId: string;
         projectId: string;
         panelId?: ProjectSessionTab["panelId"];
+        targetLeafId?: string;
+        clientTabId?: string;
         kind: ProjectSession["tabs"][number]["kind"];
         title: string;
         config: ProjectSession["tabs"][number]["config"];
@@ -1005,8 +1061,11 @@ function renderWorkbench({
         }
       }
       const panelId = input.panelId ?? "right";
+      if (input.clientTabId && session.tabs.some((tab) => tab.id === input.clientTabId)) {
+        throw new Error(`Project session tab id already exists: ${input.clientTabId}`);
+      }
       const tab = {
-        id: `created-tab-${session.tabs.length + 1}`,
+        id: input.clientTabId ?? `created-tab-${session.tabs.length + 1}`,
         sessionId: input.sessionId,
         projectId: input.projectId,
         panelId,
@@ -1020,7 +1079,7 @@ function renderWorkbench({
         updatedAt: "2026-06-07T00:00:00.000Z",
       } as ProjectSession["tabs"][number];
       const tabs = [...session.tabs, tab];
-      const panelTabs = tabs.filter((item) => item.panelId === panelId);
+      const targetLeafId = input.targetLeafId ?? session.panels[panelId].layout.activeLeafId ?? firstPanelLeafId(session.panels[panelId].layout.root);
       sessionState = replaceSession(sessionState, {
         ...session,
         tabs,
@@ -1029,7 +1088,7 @@ function renderWorkbench({
           [panelId]: {
             ...session.panels[panelId],
             collapsed: false,
-            layout: makePanelLayout(panelTabs.map((item) => item.id), tab.id),
+            layout: appendTestPanelLayoutTab(session.panels[panelId].layout, targetLeafId, tab.id),
           },
         },
       });
@@ -1287,6 +1346,8 @@ beforeEach(() => {
   delete (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps;
   delete (globalThis as { __mockCardStageHistoryClicks?: number }).__mockCardStageHistoryClicks;
   delete (globalThis as { __mockCardStageDeleteClicks?: number }).__mockCardStageDeleteClicks;
+  delete (globalThis as { __mockCardStageMounts?: number }).__mockCardStageMounts;
+  delete (globalThis as { __mockCardStageUnmounts?: number }).__mockCardStageUnmounts;
 });
 
 async function openBottomPanel(screen: ReturnType<typeof renderWorkbench>): Promise<void> {
@@ -4872,8 +4933,8 @@ describe("workbench session shell", () => {
     )).toBeTrue();
   });
 
-  test("opens cards from the DB tab as session-attached card-stage tabs", async () => {
-    renderWorkbench();
+  test("opens cards from the DB tab as renderer-local card-stage previews", async () => {
+    const screen = renderWorkbench();
     await settleAsyncRender();
     await settleAsyncRender();
 
@@ -4886,23 +4947,232 @@ describe("workbench session shell", () => {
         "Card One",
       );
     });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const tab = screen.getByRole("tab", { name: "Card One" });
+    expect(tab.closest('[data-app-shell-tab-preview="true"]') !== null).toBeTrue();
+    expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null).toBeTrue();
+    expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
+  });
+
+  test("opens durable DB card-stage tabs when requested by the Kanban card action", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
+    expect(typeof props?.openCardStage).toBe("function");
+    await act(async () => {
+      await (props?.openCardStage as (
+        projectId: string,
+        cardId: string,
+        title?: string,
+        options?: { openMode?: "preview" | "durable" },
+      ) => Promise<void> | void)(
+        "alpha",
+        "card-1",
+        "Card One",
+        { openMode: "durable" },
+      );
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
 
     const createCall = invokeCalls.find((call) => call[0] === "project-session-tabs:create");
     expect(createCall !== undefined).toBeTrue();
-    expect(JSON.stringify(createCall?.[1])).toBe(
-      JSON.stringify({
-        sessionId: "overview:alpha",
-        projectId: "alpha",
-        panelId: "right",
-        kind: "card_stage",
-        title: "Card One",
-        config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
-      }),
-    );
+    const input = createCall?.[1] as Record<string, unknown> | undefined;
+    expect(input?.sessionId).toBe("overview:alpha");
+    expect(input?.projectId).toBe("alpha");
+    expect(input?.panelId).toBe("right");
+    expect("targetLeafId" in (input ?? {})).toBeFalse();
+    expect("clientTabId" in (input ?? {})).toBeFalse();
+    expect(input?.kind).toBe("card_stage");
+    expect(JSON.stringify(input?.config)).toBe(JSON.stringify({
+      projectId: "alpha",
+      cardId: "card-1",
+      titleSnapshot: "Card One",
+    }));
+
+    const tab = screen.getByRole("tab", { name: "Card One" });
+    expect(tab.closest('[data-app-shell-tab-preview="true"]')).toBe(null);
+    expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]')).toBe(null);
   });
 
-  test("opens cross-project cards as tabs owned by the active session project", async () => {
-    renderWorkbench({
+  test("pins card-stage previews after panel interaction", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
+    expect(typeof props?.openCardStage).toBe("function");
+    await act(async () => {
+      await (props?.openCardStage as (projectId: string, cardId: string, title?: string) => Promise<void> | void)(
+        "alpha",
+        "card-1",
+        "Card One",
+      );
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const previewTabId = screen.getByRole("tab", { name: "Card One" })
+      .closest("[data-panel-tab-id]")
+      ?.getAttribute("data-panel-tab-id");
+    expect(typeof previewTabId).toBe("string");
+
+    invokeCalls = [];
+    const cardStage = screen.container.querySelector('[data-card-stage="true"]');
+    if (!(cardStage instanceof HTMLElement)) throw new Error("Expected card stage preview");
+    await pointerDownAndSettle(cardStage);
+
+    await waitFor(() => {
+      const createCall = invokeCalls.find((call) => call[0] === "project-session-tabs:create");
+      expect(createCall !== undefined).toBeTrue();
+      const input = createCall?.[1] as Record<string, unknown> | undefined;
+      expect(input?.sessionId).toBe("overview:alpha");
+      expect(input?.projectId).toBe("alpha");
+      expect(input?.panelId).toBe("right");
+      expect(input?.targetLeafId).toBe("main");
+      expect(input?.clientTabId).toBe(previewTabId);
+      expect(input?.kind).toBe("card_stage");
+      expect(input?.title).toBe("Card One");
+      expect(JSON.stringify(input?.config)).toBe(JSON.stringify({
+        projectId: "alpha",
+        cardId: "card-1",
+        titleSnapshot: "Card One",
+      }));
+    });
+  });
+
+  test("double-clicking a card-stage preview tab label pins it without remounting", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
+    expect(typeof props?.openCardStage).toBe("function");
+    await act(async () => {
+      await (props?.openCardStage as (projectId: string, cardId: string, title?: string) => Promise<void> | void)(
+        "alpha",
+        "card-1",
+        "Card One",
+      );
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const previewTab = screen.getByRole("tab", { name: "Card One" });
+    const previewTabId = previewTab.closest("[data-panel-tab-id]")?.getAttribute("data-panel-tab-id");
+    expect(typeof previewTabId).toBe("string");
+    expect((globalThis as { __mockCardStageMounts?: number }).__mockCardStageMounts).toBe(1);
+    expect((globalThis as { __mockCardStageUnmounts?: number }).__mockCardStageUnmounts ?? 0).toBe(0);
+
+    invokeCalls = [];
+    await act(async () => {
+      fireEvent.doubleClick(previewTab);
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await waitFor(() => {
+      const createCall = invokeCalls.find((call) => call[0] === "project-session-tabs:create");
+      expect(createCall !== undefined).toBeTrue();
+      const input = createCall?.[1] as Record<string, unknown> | undefined;
+      expect(input?.clientTabId).toBe(previewTabId);
+      expect(input?.kind).toBe("card_stage");
+    });
+
+    const durableTab = screen.getByRole("tab", { name: "Card One" });
+    expect(durableTab.closest("[data-panel-tab-id]")?.getAttribute("data-panel-tab-id")).toBe(previewTabId);
+    expect(durableTab.closest('[data-app-shell-tab-preview="true"]')).toBe(null);
+    expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]')).toBe(null);
+    expect((globalThis as { __mockCardStageMounts?: number }).__mockCardStageMounts).toBe(1);
+    expect((globalThis as { __mockCardStageUnmounts?: number }).__mockCardStageUnmounts ?? 0).toBe(0);
+  });
+
+  test("card-stage preview close control does not pin before closing", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
+    expect(typeof props?.openCardStage).toBe("function");
+    await act(async () => {
+      await (props?.openCardStage as (projectId: string, cardId: string, title?: string) => Promise<void> | void)(
+        "alpha",
+        "card-1",
+        "Card One",
+      );
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+    expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null).toBeTrue();
+
+    invokeCalls = [];
+    await pointerActivate(screen.getByRole("button", { name: "Close" }));
+    expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
+  });
+
+  test("card-stage preview delete control does not pin before deleting", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
+    expect(typeof props?.openCardStage).toBe("function");
+    await act(async () => {
+      await (props?.openCardStage as (projectId: string, cardId: string, title?: string) => Promise<void> | void)(
+        "alpha",
+        "card-1",
+        "Card One",
+      );
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+    expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null).toBeTrue();
+
+    invokeCalls = [];
+    await pointerActivate(screen.getByRole("button", { name: "Delete" }));
+    expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
+    expect((globalThis as { __mockCardStageDeleteClicks?: number }).__mockCardStageDeleteClicks).toBe(1);
+  });
+
+  test("replaces the current card-stage preview when another DB card opens", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
+    expect(typeof props?.openCardStage).toBe("function");
+    await act(async () => {
+      await (props?.openCardStage as (projectId: string, cardId: string, title?: string) => Promise<void> | void)(
+        "alpha",
+        "card-1",
+        "Card One",
+      );
+    });
+    await settleAsyncRender();
+
+    await act(async () => {
+      await (props?.openCardStage as (projectId: string, cardId: string, title?: string) => Promise<void> | void)(
+        "alpha",
+        "card-2",
+        "Card Two",
+      );
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(screen.queryByRole("tab", { name: "Card One" })).toBe(null);
+    const tab = screen.getByRole("tab", { name: "Card Two" });
+    expect(tab.closest('[data-app-shell-tab-preview="true"]') !== null).toBeTrue();
+    expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
+  });
+
+  test("opens cross-project DB cards as previews owned by the active session project", async () => {
+    const screen = renderWorkbench({
       projects: [makeProject(), makeProject("beta", "Beta")],
     });
     await settleAsyncRender();
@@ -4917,19 +5187,12 @@ describe("workbench session shell", () => {
         "Beta Card",
       );
     });
+    await settleAsyncRender();
+    await settleAsyncRender();
 
-    const createCall = invokeCalls.find((call) => call[0] === "project-session-tabs:create");
-    expect(createCall !== undefined).toBeTrue();
-    expect(JSON.stringify(createCall?.[1])).toBe(
-      JSON.stringify({
-        sessionId: "overview:alpha",
-        projectId: "alpha",
-        panelId: "right",
-        kind: "card_stage",
-        title: "Beta Card",
-        config: { projectId: "beta", cardId: "card-beta", titleSnapshot: "Beta Card" },
-      }),
-    );
+    const tab = screen.getByRole("tab", { name: "Beta project, Beta Card" });
+    expect(tab.closest('[data-app-shell-tab-preview="true"]') !== null).toBeTrue();
+    expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
   });
 
   test("renders cross-project card-stage tabs from their target project", async () => {
@@ -5194,6 +5457,78 @@ describe("workbench session shell", () => {
     expect(activeCardIds?.has("card-1") ?? false).toBeTrue();
   });
 
+  test("marks cards active in the DB view when a card-stage preview is visible", async () => {
+    const rightLayout = splitProjectSessionPanelLeaf(
+      makePanelLayout(["db-tab", "browser-tab"], "db-tab"),
+      {
+        leafId: "main",
+        side: "right",
+        tabId: "browser-tab",
+        newLeafId: "leaf:browser",
+        newBranchId: "branch:root",
+      },
+    );
+    const panels = makePanels({
+      rightTabIds: ["db-tab", "browser-tab"],
+      rightActiveTabId: "db-tab",
+      rightFullWidth: false,
+    });
+
+    renderWorkbench({
+      sessionsByProject: {
+        alpha: [
+          makeSession({
+            panels: {
+              ...panels,
+              right: {
+                ...panels.right,
+                layout: rightLayout,
+              },
+            },
+            tabs: [
+              {
+                id: "db-tab",
+                sessionId: "overview:alpha",
+                projectId: "alpha",
+                kind: "db_view",
+                title: "DB View",
+                panelId: "right",
+                config: { projectId: "alpha", view: "kanban" },
+              },
+              {
+                id: "browser-tab",
+                sessionId: "overview:alpha",
+                projectId: "alpha",
+                kind: "browser",
+                title: "Browser",
+                panelId: "right",
+                config: { projectId: "alpha" },
+              },
+            ],
+          }),
+        ],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const props = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
+    expect(typeof props?.openCardStage).toBe("function");
+    await act(async () => {
+      await (props?.openCardStage as (projectId: string, cardId: string, title?: string) => Promise<void> | void)(
+        "alpha",
+        "card-1",
+        "Card One",
+      );
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const nextProps = (globalThis as { __lastMainViewHostProps?: Record<string, unknown> }).__lastMainViewHostProps;
+    const activeCardIds = nextProps?.activePanelCardStageCardIds as ReadonlySet<string> | undefined;
+    expect(activeCardIds?.has("card-1") ?? false).toBeTrue();
+  });
+
   test("does not mark cards active from selected card-stage tabs in collapsed panels", async () => {
     const panels = makePanels({
       rightTabIds: ["db-tab"],
@@ -5311,7 +5646,7 @@ describe("workbench session shell", () => {
       rightActiveTabId: "db-tab",
       rightFullWidth: false,
     });
-    renderWorkbench({
+    const screen = renderWorkbench({
       sessionsByProject: {
         alpha: [
           makeSession({
@@ -5358,20 +5693,13 @@ describe("workbench session shell", () => {
         "Card One",
       );
     });
+    await settleAsyncRender();
+    await settleAsyncRender();
 
-    const createCall = invokeCalls.find((call) => call[0] === "project-session-tabs:create");
-    expect(createCall !== undefined).toBeTrue();
-    expect(JSON.stringify(createCall?.[1])).toBe(
-      JSON.stringify({
-        sessionId: "overview:alpha",
-        projectId: "alpha",
-        panelId: "right",
-        targetLeafId: "leaf:browser",
-        kind: "card_stage",
-        title: "Card One",
-        config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
-      }),
-    );
+    const tab = screen.getByRole("tab", { name: "Card One" });
+    expect(tab.closest('[data-app-shell-tab-preview="true"]') !== null).toBeTrue();
+    expect(tab.closest("[data-panel-tab-row]")?.getAttribute("data-panel-tab-row")).toBe("right:leaf:browser");
+    expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeFalse();
   });
 
   test("persists active tab changes through the session API", async () => {

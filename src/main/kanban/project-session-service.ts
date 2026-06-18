@@ -851,7 +851,14 @@ export function createProjectSessionTab(input: ProjectSessionTabCreateInput): Pr
   const maxOrder = database
     .prepare('SELECT MAX("order") AS maxOrder FROM project_session_tabs WHERE session_id = ? AND panel_id = ?')
     .get(parsed.sessionId, parsed.panelId) as { maxOrder: number | null } | undefined;
-  const id = randomUUID();
+  const id = parsed.clientTabId ?? randomUUID();
+
+  const existingTabWithId = database
+    .prepare("SELECT id FROM project_session_tabs WHERE id = ?")
+    .get(id) as { id: string } | undefined;
+  if (existingTabWithId) {
+    throw new Error(`Project session tab id already exists: ${id}`);
+  }
 
   database.transaction(() => {
     database.prepare(`

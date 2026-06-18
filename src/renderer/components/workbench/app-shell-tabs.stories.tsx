@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
-import { History, SquareKanban } from "lucide-react";
+import { History, SquareKanban, X } from "lucide-react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { AppShellTabs, type AppShellTabItem } from "./app-shell-tabs";
 
@@ -117,6 +117,68 @@ export const CardStageTabs: Story = {};
 
 export const InsertionPreview: Story = {
   render: () => <AppShellTabsStory showInsertionPreview />,
+};
+
+export const CardStagePreviewTab: Story = {
+  render: () => {
+    const tabs: AppShellTabItem[] = [
+      {
+        id: "db-view",
+        title: "DB View",
+        icon: SquareKanban,
+        closable: true,
+        reorderable: true,
+        splittable: true,
+        renderPanel: () => (
+          <div className="flex h-full items-center justify-center text-sm text-token-description-foreground">
+            Kanban board
+          </div>
+        ),
+      },
+      {
+        id: "tab:card-stage-preview-story",
+        title: "Workbench tab preview polish",
+        icon: SquareKanban,
+        closable: true,
+        preview: true,
+        reorderable: false,
+        renderPanel: () => (
+          <div className="flex h-full min-h-0 flex-col bg-token-main-surface-primary text-token-foreground">
+            <div className="flex h-11 shrink-0 items-center justify-between border-b border-token-border px-3">
+              <span className="text-sm font-medium">Workbench tab preview polish</span>
+              <button
+                type="button"
+                data-app-shell-preview-pin-suppressed="true"
+                className="inline-flex size-7 items-center justify-center rounded-md text-token-description-foreground hover:bg-token-main-surface-tertiary hover:text-token-foreground"
+                aria-label="Close"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-token-description-foreground">
+              Card Stage preview
+            </div>
+          </div>
+        ),
+      },
+    ];
+
+    return (
+      <NodexTooltipProvider>
+        <div className="h-screen bg-token-main-surface-primary text-token-foreground">
+          <AppShellTabs
+            tabs={tabs}
+            activeTabId="tab:card-stage-preview-story"
+            onSelect={() => undefined}
+            onCloseTab={() => undefined}
+            onPinTab={() => undefined}
+            onMoveTab={() => undefined}
+            onSplitTab={() => undefined}
+          />
+        </div>
+      </NodexTooltipProvider>
+    );
+  },
 };
 
 export const ContextMenuTabStates: Story = {

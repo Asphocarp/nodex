@@ -60,6 +60,7 @@ interface CardProps {
   isActiveInPanel?: boolean;
   isSelected?: boolean;
   onClick: (event: React.MouseEvent<HTMLDivElement>) => void;
+  onDoubleClick?: (event: React.MouseEvent<HTMLDivElement>) => void;
   buildDragData?: (card: CardType, columnId: string) => KanbanCardDragData;
   onUpdateProperty?: (input: CardPropertyUpdateInput) => Promise<void> | void;
   contextMenu?: {
@@ -530,6 +531,7 @@ export function Card({
   isActiveInPanel,
   isSelected = false,
   onClick,
+  onDoubleClick,
   buildDragData,
   onUpdateProperty,
   contextMenu,
@@ -687,6 +689,7 @@ export function Card({
       position={position}
       activeProperty={activeChipEdit?.property ?? null}
       onClick={onClick}
+      onDoubleClick={onDoubleClick}
       onOpenPropertyEditor={onUpdateProperty ? handleOpenPropertyEditor : undefined}
       onChipPointerDown={onUpdateProperty ? handleChipPointerDown : undefined}
       ref={setCardSurfaceRef}

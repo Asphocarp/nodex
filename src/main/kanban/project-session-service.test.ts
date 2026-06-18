@@ -160,6 +160,71 @@ describe("project session service", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
+  test("creates tabs with a supplied client tab id", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({ projectId: projectId, title: "Client id session" });
+      const tab = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: projectId,
+        panelId: "right",
+        clientTabId: "tab:card-stage-preview",
+        kind: "card_stage",
+        title: "Card One",
+        config: { projectId: projectId, cardId: "card-1", titleSnapshot: "Card One" },
+      });
+      const updated = getProjectSession(session.id);
+
+      expect(tab.id).toBe("tab:card-stage-preview");
+      expect(updated?.tabs.some((item) => item.id === "tab:card-stage-preview") ?? false).toBeTrue();
+      expect(getProjectSessionPanelActiveLeaf(updated!.panels.right.layout).activeTabId).toBe("tab:card-stage-preview");
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("rejects invalid or duplicate client tab ids", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({ projectId: projectId, title: "Client id validation" });
+      createProjectSessionTab({
+        sessionId: session.id,
+        projectId: projectId,
+        panelId: "right",
+        clientTabId: "tab:card-stage-preview",
+        kind: "card_stage",
+        title: "Card One",
+        config: { projectId: projectId, cardId: "card-1", titleSnapshot: "Card One" },
+      });
+
+      const invalidError = runValidation(() => {
+        createProjectSessionTab({
+          sessionId: session.id,
+          projectId: projectId,
+          panelId: "right",
+          clientTabId: "tab/card-stage-preview",
+          kind: "card_stage",
+          title: "Card Two",
+          config: { projectId: projectId, cardId: "card-2", titleSnapshot: "Card Two" },
+        });
+      });
+      const duplicateError = runValidation(() => {
+        createProjectSessionTab({
+          sessionId: session.id,
+          projectId: projectId,
+          panelId: "right",
+          clientTabId: "tab:card-stage-preview",
+          kind: "card_stage",
+          title: "Card Three",
+          config: { projectId: projectId, cardId: "card-3", titleSnapshot: "Card Three" },
+        });
+      });
+
+      expect(invalidError !== null).toBeTrue();
+      expect(duplicateError?.includes("Project session tab id already exists") ?? false).toBeTrue();
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
   test("loads a stored v1 panel layout as a fresh v2 layout from tab rows", async () => {
     const ran = await withTempDatabase(async () => {
       const session = createProjectSession({ projectId: projectId, title: "Legacy layout" });

@@ -197,6 +197,7 @@ export const ProjectSessionTabCreateInputSchema = z.object({
   projectId: z.string().min(1),
   panelId: PanelIdSchema,
   targetLeafId: z.string().min(1).optional(),
+  clientTabId: z.string().regex(/^[A-Za-z0-9:_-]{1,160}$/).optional(),
   kind: ProjectSessionTabKindSchema,
   title: titleSchema,
   config: z.unknown(),

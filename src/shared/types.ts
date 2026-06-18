@@ -589,6 +589,7 @@ export interface ProjectSessionTabCreateInput {
   projectId: string;
   panelId: PanelId;
   targetLeafId?: string;
+  clientTabId?: string;
   kind: ProjectSessionTabKind;
   title: string;
   config: ProjectSessionTabConfig;

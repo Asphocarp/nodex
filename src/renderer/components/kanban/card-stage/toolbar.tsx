@@ -38,6 +38,7 @@ export function CardStageToolbar({
           <button
             type="button"
             aria-label="Close"
+            data-app-shell-preview-pin-suppressed="true"
             onClick={onClose}
             className={cn(
               cardStageToolbarButtonChrome,
@@ -159,6 +160,7 @@ export function CardStageToolbar({
             type="button"
             onClick={onDelete}
             aria-label="Delete"
+            data-app-shell-preview-pin-suppressed="true"
             className={cn(
               cardStageToolbarButtonChrome,
               "text-(--foreground-tertiary)",
