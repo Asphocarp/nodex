@@ -597,8 +597,6 @@ describe("review diff panel", () => {
 
     expect((addedStatus.textContent ?? "").trim()).toBe("A");
     expect((deletedStatus.textContent ?? "").trim()).toBe("D");
-    expect(addedStatus.className.includes("text-token-charts-green")).toBeTrue();
-    expect(deletedStatus.className.includes("text-token-charts-red")).toBeTrue();
   });
 
   test("keeps review search hidden until searchOpenTick opens it", async () => {

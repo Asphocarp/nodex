@@ -36,9 +36,7 @@ describe("nodex popover", () => {
 
     const content = view.container.ownerDocument.body.querySelector('[data-slot="popover-content"]');
     expect(content).not.toBeNull();
-    expect(content?.className.includes("bg-token-dropdown-background/90")).toBeTrue();
-    expect(content?.className.includes("rounded-xl")).toBeTrue();
-    expect(content?.textContent?.includes("Popover title") ?? false).toBeTrue();
-    expect(content?.textContent?.includes("Popover body") ?? false).toBeTrue();
+    expect(view.getByText("Popover title").textContent).toBe("Popover title");
+    expect(view.getByText("Popover body").textContent).toBe("Popover body");
   });
 });

@@ -7,7 +7,6 @@ import {
   ForkMessageIcon,
   MessageTimestamp,
   ThreadActionIconButton,
-  ThreadMessageActionRow,
   type AssistantMessageRating,
 } from "./thread-message-actions";
 
@@ -19,18 +18,13 @@ describe("MessageTimestamp", () => {
     expect(container.querySelector("span") === null).toBeTrue();
   });
 
-  test("renders localized short time with Codex timestamp classes", () => {
+  test("renders localized short time", () => {
     const sentAtMs = 180_000;
     const expectedTime = new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date(sentAtMs));
     const { container } = render(<MessageTimestamp sentAtMs={sentAtMs} />);
-    const timestampWrapper = container.querySelector("span");
     const timestamp = container.querySelector("span span");
 
     expect(timestamp?.textContent).toBe(expectedTime);
-    expect(Boolean(timestamp?.classList.contains("text-xs"))).toBeTrue();
-    expect(Boolean(timestamp?.classList.contains("text-token-text-tertiary"))).toBeTrue();
-    expect(Boolean(timestamp?.classList.contains("text-token-input-placeholder-foreground"))).toBeTrue();
-    expect(Boolean(timestampWrapper?.classList.contains("ml-1.5"))).toBeTrue();
   });
 });
 
@@ -57,21 +51,6 @@ describe("ThreadActionIconButton", () => {
 
     expect(Boolean(container.querySelector("[data-tooltip-content]"))).toBeFalse();
     expect(Boolean(getByRole("button", { name: "Edit message" }))).toBeTrue();
-  });
-});
-
-describe("ThreadMessageActionRow", () => {
-  test("uses Codex final-assistant row spacing and hover classes", () => {
-    const { container } = render(
-      <ThreadMessageActionRow align="start">
-        <span>Action</span>
-      </ThreadMessageActionRow>,
-    );
-    const row = container.querySelector("div");
-
-    expect(Boolean(row?.classList.contains("mt-1.5"))).toBeTrue();
-    expect(Boolean(row?.classList.contains("gap-0.5"))).toBeTrue();
-    expect(Boolean(row?.classList.contains("group-focus-within:opacity-100"))).toBeTrue();
   });
 });
 

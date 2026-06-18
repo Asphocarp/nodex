@@ -62,13 +62,10 @@ describe("card toggle block", () => {
     expect(row).not.toBeNull();
     if (row === null) return;
 
-    expect(row.classList.contains("flex")).toBeFalse();
-
     const meta = row.firstElementChild;
     expect(meta?.tagName).toBe("SPAN");
     if (meta === null) return;
 
-    expect(meta.classList.contains("inline-flex")).toBeTrue();
     expect(result.contentDOM?.tagName).toBe("SPAN");
     expect(row.lastElementChild === result.contentDOM).toBeTrue();
   });

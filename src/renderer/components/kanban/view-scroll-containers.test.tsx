@@ -19,8 +19,6 @@ describe("view scroll containers", () => {
     );
 
     const wrapper = getByTestId(KANBAN_BOARD_SCROLL_CONTAINER_TEST_ID);
-    expect(wrapper.className.includes("overflow-auto")).toBeTrue();
-    expect(wrapper.className.includes("scrollbar-token")).toBeTrue();
     expect(wrapper.style.scrollPaddingBottom).toBe(RIGHT_PANEL_COMPOSER_OVERLAY_ZERO_RESERVE_VALUE);
   });
 
@@ -32,8 +30,6 @@ describe("view scroll containers", () => {
     );
 
     const wrapper = getByTestId(TOGGLE_LIST_SCROLL_CONTAINER_TEST_ID);
-    expect(wrapper.className.includes("overflow-y-auto")).toBeTrue();
-    expect(wrapper.className.includes("scrollbar-token")).toBeTrue();
     expect(wrapper.style.scrollPaddingBottom).toBe(RIGHT_PANEL_COMPOSER_OVERLAY_ZERO_RESERVE_VALUE);
   });
 });

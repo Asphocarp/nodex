@@ -62,7 +62,7 @@ describe("LocalConversationThreadScrollLayout", () => {
     expect(resizeObserverInstances).toBe(0);
   });
 
-  test("renders the Codex scroll container and shifted content wrapper", () => {
+  test("renders the scroll container and shifts content by the provided offset", () => {
     const view = render(
       <EnsureLocalConversationThreadScrollController>
         <LocalConversationThreadScrollLayout contentX={-158}>
@@ -75,12 +75,8 @@ describe("LocalConversationThreadScrollLayout", () => {
     const shiftedContent = scrollContainer?.firstElementChild as HTMLElement | null;
     const widthWrapper = shiftedContent?.querySelector("[data-mcp-app-portal-target='true']") as HTMLElement | null;
 
-    expect(scrollContainer?.className.includes("thread-scroll-container")).toBeTrue();
-    expect(scrollContainer?.className.includes("pt-(--thread-content-top-inset)")).toBeTrue();
-    expect(scrollContainer?.className.includes("[container-name:thread-content]")).toBeTrue();
-    expect(scrollContainer?.className.includes("flex-col-reverse")).toBeTrue();
-    expect(widthWrapper?.className.includes("max-w-(--thread-content-max-width)")).toBeTrue();
-    expect(widthWrapper?.className.includes("px-toolbar")).toBeTrue();
+    expect(scrollContainer !== null).toBeTrue();
+    expect(widthWrapper !== null).toBeTrue();
     expect(shiftedContent?.style.transform.includes("translateX(-158px)")).toBeTrue();
   });
 

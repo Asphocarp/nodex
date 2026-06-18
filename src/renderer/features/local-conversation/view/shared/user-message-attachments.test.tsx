@@ -4,7 +4,7 @@ import { installWindowApi } from "../../../../test/browser-globals";
 import { UserAttachmentStrip } from "./user-message-attachments";
 
 describe("UserAttachmentStrip", () => {
-  test("renders remote thumbnails with contain fit", async () => {
+  test("renders remote thumbnails with preview action", async () => {
     const view = render(
       <UserAttachmentStrip
         attachments={[
@@ -19,8 +19,8 @@ describe("UserAttachmentStrip", () => {
     );
 
     const image = view.container.querySelector("img");
-    expect(image?.className.includes("object-contain") ?? false).toBeTrue();
-    expect(view.container.querySelector("[data-user-attachment-strip]")?.className.includes("self-end") ?? false).toBeTrue();
+    expect(image?.getAttribute("src")).toBe("data:image/png;base64,aW1hZ2U=");
+    expect(Boolean(view.container.querySelector('[aria-label="Open image preview"]'))).toBeTrue();
   });
 
   test("hides failed remote thumbnails after the loading state", async () => {

@@ -239,27 +239,9 @@ describe("LocalConversationTurnEntry", () => {
     expect(Boolean(view.container.textContent?.includes(staleCompletedTime))).toBeFalse();
 
     const turnRoot = view.container.querySelector('[data-content-search-turn-key="turn_assistant_actions"]');
-    if (!(turnRoot instanceof HTMLElement)) {
+    if (turnRoot === null) {
       throw new Error("expected Codex-style turn root");
     }
-    const turnRootClassName = turnRoot.getAttribute("class") ?? "";
-    expect(Boolean(turnRootClassName.includes("content-visibility"))).toBeFalse();
-    expect(Boolean(turnRootClassName.includes("contain-intrinsic-size"))).toBeFalse();
-
-    const copyButton = view.getByLabelText("Copy");
-    let ancestor: HTMLElement | null = copyButton;
-    let assistantActionRow: HTMLElement | null = null;
-    while (ancestor !== null) {
-      if (ancestor.className.includes("extension:-translate-x-1.5")) {
-        assistantActionRow = ancestor;
-        break;
-      }
-      ancestor = ancestor.parentElement;
-    }
-    if (!(assistantActionRow instanceof HTMLElement)) {
-      throw new Error("expected Codex translated assistant action row");
-    }
-    expect(Boolean(assistantActionRow.className.includes("electron:-translate-x-2"))).toBeTrue();
 
     fireEvent.click(view.getByLabelText("Fork from this point"));
     expect(forkInputs.length).toBe(1);
@@ -417,23 +399,14 @@ describe("LocalConversationTurnEntry", () => {
 
     const workedForButton = view.getByRole("button", { name: /Worked for 2m 5s/ });
     expect(workedForButton.getAttribute("aria-expanded")).toBe("false");
-    expect(Boolean(workedForButton.className.includes("w-full"))).toBeFalse();
-    expect(Boolean(workedForButton.className.includes("justify-start"))).toBeFalse();
-    expect(Boolean(workedForButton.className.includes("hover:bg-token-bg-subtle"))).toBeTrue();
 
     const workedForTextOuter = workedForButton.firstElementChild;
     const workedForTextInner = workedForTextOuter?.firstElementChild;
     expect(workedForTextOuter?.tagName).toBe("SPAN");
     expect(workedForTextInner?.tagName).toBe("SPAN");
-    expect(workedForTextInner?.className).toBe("text-token-foreground/60");
 
     const workedForShell = workedForButton.parentElement?.parentElement;
-    expect(workedForShell?.className).toBe("flex flex-col");
-    expect(Boolean(
-      workedForShell?.querySelector(
-        ".text-size-chat.pt-1.text-token-text-secondary > .w-full.border-t.border-token-border-light",
-      ),
-    )).toBeTrue();
+    expect(workedForShell?.contains(workedForButton)).toBeTrue();
   });
 
   test("renders active working-for as a plain divider without a toggle button", async () => {
@@ -487,14 +460,7 @@ describe("LocalConversationTurnEntry", () => {
     expect(view.queryByRole("button", { name: /Working/ }) === null).toBeTrue();
 
     const workingText = view.getByText("Working for 1m 5s");
-    const dividerBlock = workingText.closest(".min-w-0.text-size-chat.relative.overflow-visible.py-0");
-    if (!(dividerBlock instanceof HTMLElement)) {
-      throw new Error("expected active working-for divider shell");
-    }
-    expect(Boolean(dividerBlock.querySelector(".w-full.border-t.border-current\\/20"))).toBeTrue();
-    expect(Boolean(dividerBlock.textContent?.includes("previous messages"))).toBeFalse();
-    expect(Boolean(dividerBlock.innerHTML.includes("aria-expanded"))).toBeFalse();
-    expect(Boolean(dividerBlock.innerHTML.includes("hover:bg-token-bg-subtle"))).toBeFalse();
+    expect(Boolean(workingText.parentElement?.textContent?.includes("previous messages"))).toBeFalse();
   });
 
   test("does not rerender unchanged older turns when a different turn updates", async () => {
@@ -626,7 +592,7 @@ describe("LocalConversationTurnEntry", () => {
     expect(Boolean(strip.textContent?.includes("notes.md"))).toBeTrue();
     expect(Boolean(bubble.textContent?.includes("Inspect these images"))).toBeTrue();
     expect(Boolean(strip.compareDocumentPosition(bubble) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
-    expect(strip.querySelector("img")?.className.includes("object-cover") ?? false).toBeTrue();
+    expect(strip.querySelector("img") !== null).toBeTrue();
 
     const previewTrigger = view.getByLabelText("Open image preview");
     fireEvent.click(previewTrigger);

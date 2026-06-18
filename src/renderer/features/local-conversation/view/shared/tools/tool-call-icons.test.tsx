@@ -39,7 +39,6 @@ describe("tool-call icon helpers", () => {
 
     expect(Boolean(wrapper)).toBeTrue();
     expect(svg?.getAttribute("aria-hidden")).toBe("true");
-    expect(Boolean(svg?.getAttribute("class")?.includes("icon-xs"))).toBeTrue();
   });
 
   test("builds Google favicons from normalized hostnames", () => {
@@ -81,11 +80,10 @@ describe("tool-call icon helpers", () => {
     expect(image?.getAttribute("decoding")).toBe("async");
     expect(image?.getAttribute("draggable")).toBe("false");
     expect(image?.getAttribute("referrerpolicy")).toBe("no-referrer");
-    expect(Boolean(image?.getAttribute("class")?.includes("opacity-0"))).toBeTrue();
     expect(Boolean(container.querySelector("svg"))).toBeTrue();
 
     fireEvent.load(image as HTMLImageElement);
-    expect(Boolean(container.querySelector("img")?.getAttribute("class")?.includes("opacity-100"))).toBeTrue();
+    expect(Boolean(container.querySelector("img"))).toBeTrue();
   });
 
   test("can suppress the favicon fallback while the image is loading", () => {

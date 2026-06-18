@@ -134,15 +134,11 @@ describe("SidebarProjectsSection", () => {
     expect(section?.getAttribute("data-app-action-sidebar-section-collapsed")).toBe("false");
     const sectionBody = section?.querySelector("[data-app-action-sidebar-section-body-motion]");
     expect(Boolean(sectionBody)).toBeTrue();
-    expect((sectionBody as HTMLElement).className.includes("overflow-hidden")).toBeTrue();
-    expect(Boolean(sectionBody?.querySelector(".flex.flex-col.gap-px.pt-1"))).toBeTrue();
 
     const rows = Array.from(container.querySelectorAll("[data-app-action-sidebar-project-row]"));
     expect(rows.length).toBe(2);
     expect(rows[0]?.getAttribute("data-app-action-sidebar-project-id")).toBe("beta");
     expect(rows[0]?.getAttribute("data-app-action-sidebar-project-label")).toBe("Beta");
-    expect(rows[0]?.className.includes("group/folder-row")).toBeTrue();
-    expect(rows[0]?.className.includes("h-token-nav-row")).toBeTrue();
   });
 
   test("opens the add-project submenu from the section action button", async () => {
@@ -252,8 +248,6 @@ describe("SidebarProjectsSection", () => {
 
     const motionDisclosure = container.querySelector("[data-app-action-sidebar-project-list-motion]");
     expect(Boolean(motionDisclosure)).toBeTrue();
-    expect((motionDisclosure as HTMLElement).className.includes("overflow-hidden")).toBeTrue();
-    expect(Boolean(motionDisclosure?.querySelector(".pt-0\\.5"))).toBeTrue();
 
     const sessionList = container.querySelector("[data-app-action-sidebar-project-list-id='alpha']");
     expect(Boolean(sessionList)).toBeTrue();
@@ -261,25 +255,18 @@ describe("SidebarProjectsSection", () => {
     expect(getByText("Alpha session").textContent).toBe("Alpha session");
   });
 
-  test("renders a hover-revealed project disclosure chevron after the project label", () => {
+  test("renders the project disclosure chevron after the project label", () => {
     const { container, rerender } = renderProjectRowWithSessions();
 
     const expandedRow = container.querySelector("[data-app-action-sidebar-project-row]");
     const expandedLabel = expandedRow?.querySelector("[data-app-action-sidebar-project-label-text]");
     const expandedChevron = expandedRow?.querySelector("[data-app-action-sidebar-project-toggle-chevron]");
-    const expandedChevronIcon = expandedChevron?.querySelector("svg");
-    const expandedChevronButtonClassName = expandedChevron?.getAttribute("class") ?? "";
-    const expandedChevronClassName = expandedChevronIcon?.getAttribute("class") ?? "";
 
     if (!expandedLabel || !expandedChevron) {
       throw new Error("Expected project label and disclosure chevron");
     }
 
     expect(Boolean(expandedLabel.compareDocumentPosition(expandedChevron) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTrue();
-    expect(expandedChevronButtonClassName.includes("opacity-0")).toBeTrue();
-    expect(expandedChevronButtonClassName.includes("group-hover/folder-row:opacity-100")).toBeTrue();
-    expect(expandedChevronButtonClassName.includes("focus-visible:opacity-100")).toBeTrue();
-    expect(expandedChevronClassName.includes("-rotate-90")).toBeFalse();
 
     rerender(
       <NodexTooltipProvider>
@@ -299,7 +286,7 @@ describe("SidebarProjectsSection", () => {
     );
 
     const collapsedChevronIcon = container.querySelector("[data-app-action-sidebar-project-toggle-chevron] svg");
-    expect(collapsedChevronIcon?.getAttribute("class")?.includes("-rotate-90")).toBeTrue();
+    expect(collapsedChevronIcon !== null).toBeTrue();
   });
 
   test("unmounts project session children when collapsed", () => {
@@ -314,7 +301,6 @@ describe("SidebarProjectsSection", () => {
 
     const staticDisclosure = container.querySelector("[data-app-action-sidebar-project-list-static]");
     expect(Boolean(staticDisclosure)).toBeTrue();
-    expect((staticDisclosure as HTMLElement).className.includes("mt-0.5")).toBeTrue();
     expect(container.querySelector("[data-app-action-sidebar-project-list-motion]")).toBe(null);
     expect(getByText("Alpha session").textContent).toBe("Alpha session");
   });

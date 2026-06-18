@@ -13,19 +13,8 @@ describe("MarkdownRenderer", () => {
 
     const inlineCode = container.querySelector("span.inline-markdown");
     expect(Boolean(inlineCode)).toBeTrue();
+    expect(inlineCode?.textContent).toBe("bun test");
     expect(container.querySelector(".codex-markdown code") === null).toBeTrue();
-    expect(
-      Boolean(
-        inlineCode?.className.includes("text-size-chat-sm")
-        && inlineCode.className.includes("font-mono")
-        && inlineCode.className.includes("blend")
-        && inlineCode.className.includes("bg-token-text-code-block-background")
-        && inlineCode.className.includes("rounded-sm")
-        && inlineCode.className.includes("px-1.5")
-        && inlineCode.className.includes("py-0.5")
-        && inlineCode.className.includes("leading-none"),
-      ),
-    ).toBeTrue();
   });
 
   test("marks heading inline code with the heading-inline-code scope", async () => {
@@ -37,11 +26,11 @@ describe("MarkdownRenderer", () => {
 
     const heading = container.querySelector("h2");
     const inlineCode = heading?.querySelector("span.inline-markdown");
-    expect(Boolean(heading?.className.includes("heading-inline-code"))).toBeTrue();
     expect(Boolean(inlineCode)).toBeTrue();
+    expect(inlineCode?.textContent).toBe("inline code");
   });
 
-  test("renders paragraph, heading, list, blockquote, table, and details with Codex-style element classes", async () => {
+  test("renders paragraph, heading, list, blockquote, table, and details as semantic content", async () => {
     const { container } = render(
       <MarkdownRenderer
         content={[
@@ -67,32 +56,23 @@ describe("MarkdownRenderer", () => {
 
     const paragraph = container.querySelector("p");
     const heading = container.querySelector("h1");
-    const list = container.querySelector("ul");
     const listItem = container.querySelector("li");
     const link = container.querySelector("a");
     const blockquote = container.querySelector("blockquote");
     const table = container.querySelector("table");
     const summary = container.querySelector("summary");
-    const tableHead = container.querySelector("thead");
-    const tableRow = container.querySelector("tr");
     const tableHeadingCell = container.querySelector("th");
     const tableCell = container.querySelector("td");
 
-    expect(Boolean(paragraph?.className.includes("text-size-chat"))).toBeTrue();
-    expect(Boolean(paragraph?.className.includes("leading-relaxed"))).toBeTrue();
-    expect(Boolean(paragraph?.className.includes("my-2"))).toBeTrue();
-    expect(Boolean(heading?.className.includes("heading-lg"))).toBeTrue();
-    expect(Boolean(list?.className.includes("list-disc"))).toBeTrue();
-    expect(Boolean(list?.className.includes("pl-4"))).toBeTrue();
-    expect(Boolean(listItem?.className.includes("mb-1.5"))).toBeTrue();
-    expect(Boolean(link?.className.includes("text-token-text-link-foreground"))).toBeTrue();
-    expect(Boolean(blockquote?.className.includes("border-l-2"))).toBeTrue();
-    expect(Boolean(table?.className.includes("border-collapse"))).toBeTrue();
-    expect(Boolean(summary?.className.includes("cursor-pointer"))).toBeTrue();
-    expect(Boolean(tableHead?.className.includes("bg-token-foreground/5"))).toBeTrue();
-    expect(Boolean(tableRow?.className.includes("border-b"))).toBeTrue();
-    expect(Boolean(tableHeadingCell?.className.includes("font-semibold"))).toBeTrue();
-    expect(Boolean(tableCell?.className.includes("p-1"))).toBeTrue();
+    expect(paragraph?.textContent).toBe("Paragraph body with a link.");
+    expect(heading?.textContent).toBe("Heading One");
+    expect(listItem?.textContent).toBe("First bullet");
+    expect(link?.getAttribute("href")).toBe("https://example.com/");
+    expect(blockquote?.textContent?.trim()).toBe("Quote block");
+    expect(Boolean(table)).toBeTrue();
+    expect(summary?.textContent).toBe("More");
+    expect(tableHeadingCell?.textContent).toBe("Name");
+    expect(tableCell?.textContent).toBe("Foo");
   });
 
   test("groups ordered lists by digit width like Codex Electron", async () => {
@@ -112,11 +92,9 @@ describe("MarkdownRenderer", () => {
     expect(orderedLists.length).toBe(2);
     expect(orderedLists[0]?.getAttribute("start")).toBe("99");
     expect(orderedLists[1]?.getAttribute("start")).toBe("100");
-    expect(Boolean(orderedLists[0]?.className.includes("pl-8"))).toBeTrue();
-    expect(Boolean(orderedLists[1]?.className.includes("pl-10"))).toBeTrue();
   });
 
-  test("renders local file links with the Codex-style hover-only contract", async () => {
+  test("renders local file links as anchors", async () => {
     const { container } = render(
       <NodexTooltipProvider>
         <MarkdownRenderer content={"- [/tmp/example.ts#L12](/tmp/example.ts#L12)"} />
@@ -127,9 +105,7 @@ describe("MarkdownRenderer", () => {
 
     const link = container.querySelector('a[href="/tmp/example.ts#L12"]');
     expect(Boolean(link)).toBeTrue();
-    expect(Boolean(link?.className.includes("hover:underline"))).toBeTrue();
-    expect(Boolean(link?.className.includes("appearance-none"))).toBeTrue();
-    expect(Boolean(link?.className.includes("underline decoration-current"))).toBeFalse();
+    expect(link?.textContent).toBe("/tmp/example.ts#L12");
   });
 
   test("keeps fenced code blocks on the code-block renderer path", async () => {

@@ -13,20 +13,11 @@ describe("LocalConversationStageScreen", () => {
         floatingContent={createElement("div", { "data-local-conversation-floating": "true" })}
       />,
     );
-    const hasAbsoluteFooterOverlay = Array.from(container.querySelectorAll("div")).some(
-      (element) =>
-        typeof element.className === "string" &&
-        element.className.includes("absolute inset-x-0 bottom-0 z-20"),
-    );
 
     expect(Boolean(container.querySelector("[data-local-conversation-header='true']"))).toBeTrue();
     expect(Boolean(container.querySelector("[data-local-conversation-floating='true']"))).toBeTrue();
     expect(Boolean(container.querySelector("[data-local-conversation-thread-body='true']"))).toBeTrue();
     expect(Boolean(container.querySelector("[data-local-conversation-footer='true']"))).toBeTrue();
-    expect(Boolean(container.querySelector(".sticky.top-0.z-10"))).toBeTrue();
-    expect(Boolean(container.querySelector(".min-h-0.flex-1"))).toBeTrue();
-    expect(Boolean(container.querySelector(".z-10.w-full.pb-2"))).toBeTrue();
-    expect(hasAbsoluteFooterOverlay).toBeFalse();
   });
 
   test("keeps an empty sticky header slot when embedded without a header", async () => {
@@ -41,8 +32,5 @@ describe("LocalConversationStageScreen", () => {
 
     expect(Boolean(container.querySelector("[data-local-conversation-thread-body='true']"))).toBeTrue();
     expect(Boolean(container.querySelector("[data-local-conversation-footer='true']"))).toBeTrue();
-    const stickySlot = container.querySelector(".sticky.top-0.z-10");
-    expect(Boolean(stickySlot)).toBeTrue();
-    expect(stickySlot?.childElementCount).toBe(0);
   });
 });

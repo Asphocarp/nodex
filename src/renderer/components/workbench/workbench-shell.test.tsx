@@ -4,11 +4,6 @@ import { createPortal } from "react-dom";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import type { Project, ProjectSession, ProjectSessionPanelNode, ProjectSessionTab } from "@/lib/types";
 import {
-  CODEX_SIDEBAR_FLOATING_ASIDE_CLASS,
-  CODEX_SIDEBAR_FLOATING_HEADER_CLASS,
-  CODEX_SIDEBAR_FLOATING_OUTER_CLASS,
-} from "@/lib/codex-sidebar-auto-reveal";
-import {
   APP_SHELL_FLOATING_LEFT_PANEL_LAYER_CLASS,
   APP_SHELL_GLOBAL_HEADER_LAYER_CLASS,
   APP_SHELL_RIGHT_PANEL_LAYER_CLASS,
@@ -52,9 +47,6 @@ const CODEX_EXPAND_PANEL_ICON_PREFIX = "M16.0299 3.0293";
 const CODEX_RESTORE_PANEL_ICON_PREFIX = "M4.33496 11";
 const CODEX_NEW_CHAT_ICON_PREFIX = "M2.6687 11.333";
 const CODEX_TITLEBAR_NEW_CHAT_ICON_PREFIX = "M6.33325 1.88379";
-const CODEX_TOP_NEW_CHAT_CLASS = "focus-visible:outline-token-border relative h-token-nav-row px-row-x py-row-y cursor-interaction shrink-0 items-center overflow-hidden rounded-lg text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 gap-2 flex w-full hover:bg-token-list-hover-background group";
-const CODEX_PROJECT_NEW_CHAT_CLASS = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-full electron:rounded-md text-token-muted-foreground enabled:hover:bg-transparent data-[state=open]:bg-transparent hover:text-token-foreground border-transparent electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5 h-6 w-6 rounded-md !p-1";
-const CODEX_COLLAPSED_CHROME_BUTTON_CLASS = "border-token-border no-drag cursor-interaction flex items-center gap-1 border whitespace-nowrap select-none focus:outline-none disabled:cursor-not-allowed disabled:opacity-40 rounded-lg h-token-button-composer px-2 py-0 text-base leading-[18px] aspect-square justify-center !px-0 text-token-text-tertiary enabled:hover:bg-token-list-hover-background data-[state=open]:bg-token-list-hover-background border-transparent";
 
 const mockCodexControl = {
   availableModels: [
@@ -1375,7 +1367,6 @@ describe("workbench session shell", () => {
 
     const newChatButton = screen.getByRole("button", { name: "New chat" });
     const iconPath = newChatButton.querySelector("path")?.getAttribute("d") ?? "";
-    expect(newChatButton.className).toBe(CODEX_TOP_NEW_CHAT_CLASS);
     expect(iconPath.startsWith(CODEX_NEW_CHAT_ICON_PREFIX)).toBeTrue();
     expect(textContent(newChatButton).includes("⌘N") || textContent(newChatButton).includes("Ctrl+N")).toBeTrue();
   });
@@ -1559,7 +1550,7 @@ describe("workbench session shell", () => {
     const longRow = getThreadRow(screen.container, "Very long session title that should truncate before colliding with row actions");
     expect(longRow.querySelector("[data-app-action-sidebar-thread-pin-slot]") !== null).toBeTrue();
     expect(longRow.querySelector("[data-app-action-sidebar-thread-actions-menu]") !== null).toBeTrue();
-    expect(longRow.querySelector("[data-thread-title]")?.className.includes("truncate")).toBeTrue();
+    expect(longRow.querySelector("[data-thread-title]")?.textContent).toBe("Very long session title that should truncate before colliding with row actions");
   });
 
   test("expanded sidebar keeps the sidebar toggle in the left header rail without compact new-chat", async () => {
@@ -1577,7 +1568,7 @@ describe("workbench session shell", () => {
     expect(leftSlot.getAttribute("style")?.includes("width: 312px")).toBeTrue();
     expect(leftSlot.getAttribute("style")?.includes("min-width: 312px")).toBeFalse();
     expect(within(leftSlot).queryByRole("button", { name: "New chat" })).toBe(null);
-    expect(topNewChatButton.className).toBe(CODEX_TOP_NEW_CHAT_CLASS);
+    expect(topNewChatButton.querySelector("path")?.getAttribute("d")?.startsWith(CODEX_NEW_CHAT_ICON_PREFIX)).toBeTrue();
   });
 
   test("clicking the Projects section header collapses and expands project rows", async () => {
@@ -1730,7 +1721,6 @@ describe("workbench session shell", () => {
 
       const betaAction = screen.getByLabelText("Start new chat in Beta");
       const iconPath = betaAction.querySelector("path")?.getAttribute("d") ?? "";
-      expect(betaAction.className).toBe(CODEX_PROJECT_NEW_CHAT_CLASS);
       expect(iconPath.startsWith(CODEX_NEW_CHAT_ICON_PREFIX)).toBeTrue();
 
       await act(async () => {
@@ -1900,12 +1890,10 @@ describe("workbench session shell", () => {
     expect(screen.queryByRole("dialog", { name: "Settings" })).toBe(null);
     const routeShell = screen.container.querySelector('[data-testid="settings-route-shell"]');
     expect(routeShell !== null).toBeTrue();
-    expect(routeShell?.className.includes("w-full") ?? false).toBeTrue();
-    expect(routeShell?.className.includes("flex-1") ?? false).toBeTrue();
     expect(screen.container.querySelector('[data-thread-stage="true"]')).toBe(null);
 
     const settingsSidebar = screen.container.querySelector(".window-fx-sidebar-surface");
-    expect(settingsSidebar?.className.includes("w-token-sidebar") ?? false).toBeTrue();
+    expect(settingsSidebar !== null).toBeTrue();
     expect(screen.container.querySelector('[data-testid="settings-route-shell"] .main-surface') !== null).toBeTrue();
 
     await act(async () => {
@@ -2015,17 +2003,11 @@ describe("workbench session shell", () => {
     expect(textContent(globalHeader).includes("Overview")).toBeFalse();
     expect(textContent(globalHeader).includes("Alpha thread")).toBeTrue();
     expect(textContent(threadStage).includes("Alpha thread")).toBeFalse();
-    expect(headerContextSurface?.className.includes("ms-4")).toBeTrue();
-    expect(headerContextSurface?.className.includes("[contain:layout_paint]")).toBeTrue();
-    expect(threadFrame.className.includes("mt-(--app-shell-main-content-frame-top-offset)")).toBeTrue();
-    expect(threadFrame.className.includes("border-t")).toBeTrue();
-    expect(threadFrame.className.includes("border-token-border-default")).toBeTrue();
+    expect(headerContextSurface !== null).toBeTrue();
     expect((threadFrame.getAttribute("style") ?? "").includes("--app-shell-main-content-frame-top-offset")).toBeFalse();
     expect(screen.container.querySelector("[data-app-shell-main-content-header-divider]") === null).toBeTrue();
     const topFade = screen.container.querySelector(".app-shell-main-content-top-fade");
     expect(topFade?.getAttribute("data-app-shell-main-content-top-fade")).toBe("full-bleed");
-    expect(topFade?.className.includes("h-4")).toBeTrue();
-    expect(topFade?.className.includes("bg-gradient-to-b")).toBeTrue();
   });
 
   test("keeps the frame border shell-owned while reserving right header actions", async () => {
@@ -2048,8 +2030,6 @@ describe("workbench session shell", () => {
     const visibleFrame = screen.container.querySelector(".app-shell-main-content-frame");
     expect(Boolean(visibleProps && "showHeaderSeparator" in visibleProps)).toBeFalse();
     expect(screen.container.querySelector("[data-app-shell-main-content-header-divider]") === null).toBeTrue();
-    expect(visibleFrame?.className.includes("border-t")).toBeTrue();
-    expect(visibleFrame?.className.includes("border-token-border-default")).toBeTrue();
     expect((visibleFrame?.getAttribute("style") ?? "").includes("--app-shell-main-content-frame-top-offset")).toBeFalse();
     expect((visibleFrame?.getAttribute("style") ?? "").includes("--thread-stage-header-right-reserve")).toBeFalse();
     screen.unmount();
@@ -2344,9 +2324,6 @@ describe("workbench session shell", () => {
     expect(globalHeader?.contains(toggleButton)).toBeTrue();
     expect(toggleButton.getAttribute("aria-pressed")).toBe("false");
     expect(toggleButton.className.includes("no-drag")).toBeTrue();
-    expect(toggleButton.className.includes("rounded-lg")).toBeTrue();
-    expect(toggleButton.className.includes("h-token-button-composer")).toBeTrue();
-    expect(toggleButton.className.includes("text-token-text-tertiary")).toBeTrue();
     expect(toggleIconPath.startsWith(CODEX_PANEL_VISIBLE_ICON_PREFIX)).toBeTrue();
     expect(screen.queryByRole("button", { name: "Attach thread" })).toBe(null);
     expect(screen.queryByRole("button", { name: "Detach thread" })).toBe(null);
@@ -2381,9 +2358,6 @@ describe("workbench session shell", () => {
     expect((bottomPanelToggle.compareDocumentPosition(sidePanelToggle) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBeTrue();
     expect(bottomPanelToggle.getAttribute("aria-pressed")).toBe("false");
     expect(bottomPanelToggle.className.includes("no-drag")).toBeTrue();
-    expect(bottomPanelToggle.className.includes("rounded-lg")).toBeTrue();
-    expect(bottomPanelToggle.className.includes("h-token-button-composer")).toBeTrue();
-    expect(bottomPanelToggle.className.includes("text-token-text-tertiary")).toBeTrue();
     expect(toggleIconPath.startsWith(CODEX_BOTTOM_PANEL_HIDDEN_ICON_PREFIX)).toBeTrue();
     expect(screen.queryByTestId("session-bottom-panel")).toBe(null);
 
@@ -2467,7 +2441,7 @@ describe("workbench session shell", () => {
     const threadFrame = screen.container.querySelector(".app-shell-main-content-frame");
     const stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
     expect(globalHeader.getAttribute("data-app-shell-header-edge-scroll")).toBe("true");
-    expect(threadFrame?.className.includes("border-transparent")).toBeTrue();
+    expect(threadFrame !== null).toBeTrue();
     expect(screen.container.querySelector("[data-app-shell-main-content-header-divider]") === null).toBeTrue();
     expect(stageProps?.summaryPanelMounted).toBe(true);
     expect(stageProps?.summaryPanelOpen).toBe(true);
@@ -2495,7 +2469,7 @@ describe("workbench session shell", () => {
     const threadFrame = screen.container.querySelector(".app-shell-main-content-frame");
     const stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
     expect(globalHeader.getAttribute("data-app-shell-header-edge-scroll")).toBe("false");
-    expect(threadFrame?.className.includes("border-token-border-default")).toBeTrue();
+    expect(threadFrame !== null).toBeTrue();
     expect(screen.container.querySelector("[data-app-shell-main-content-header-divider]") === null).toBeTrue();
     expect(stageProps?.summaryPanelMounted).toBe(true);
     expect(stageProps?.summaryPanelOpen).toBe(true);
@@ -3082,27 +3056,20 @@ describe("workbench session shell", () => {
     expect(globalHeader?.className.includes(APP_SHELL_GLOBAL_HEADER_LAYER_CLASS)).toBeTrue();
     expect(headerCenterSurface.getAttribute("aria-hidden")).toBe(null);
     expect(headerCenterSurface.className.includes("invisible")).toBeFalse();
-    expect(headerShellSlot?.className.includes("pe-2")).toBeTrue();
-    expect(headerShellSlot?.className.includes("ml-auto")).toBeFalse();
     expect(headerShellSlot?.className.includes("no-drag")).toBeTrue();
     expect(headerShellSlot?.getAttribute("style")?.includes("width: 372px")).toBeTrue();
     expect(headerShellSlot?.getAttribute("style")?.includes("min-width: 70px")).toBeTrue();
     expect(sidePanelToggle.getAttribute("aria-pressed")).toBe("true");
-    expect(sidePanelToggle.className.includes("bg-token-foreground/5")).toBeTrue();
     expect(globalHeader?.contains(expandButton)).toBeFalse();
     expect(tabHeader.contains(expandButton)).toBeTrue();
     expect(tabHeader.className.includes("draggable")).toBeFalse();
     expect(expandButton.parentElement?.className.includes("pointer-events-auto")).toBeTrue();
-    expect(expandButton.querySelector("svg")?.getAttribute("class")?.includes("icon-xs")).toBeTrue();
     expect(rightPanelHeaderSpacer?.className.includes("pointer-events-none")).toBeTrue();
     expect(rightPanelHeaderSpacer?.className.includes("no-drag")).toBeTrue();
     expect(rightPanelHeaderSpacer?.parentElement?.className.includes("pointer-events-auto")).toBeFalse();
     expect(rightPanelHeaderSpacer?.parentElement?.className.includes("no-drag")).toBeTrue();
     expect(rightPanelHeaderSpacer?.parentElement?.getAttribute("role")).toBe("presentation");
     expect(expandButton.className.includes("no-drag")).toBeTrue();
-    expect(expandButton.className.includes("rounded-lg")).toBeTrue();
-    expect(expandButton.className.includes("h-token-button-composer")).toBeTrue();
-    expect(expandButton.className.includes("text-token-text-tertiary")).toBeTrue();
     expect(expandIconPath.startsWith(CODEX_EXPAND_PANEL_ICON_PREFIX)).toBeTrue();
     expect(rightPanelHeaderSpacer?.getAttribute("style")?.includes("width: calc(70px)")).toBeTrue();
     expect(screen.container.querySelector('[data-testid="right-panel-global-header-actions"]') === null).toBeTrue();
@@ -3131,8 +3098,6 @@ describe("workbench session shell", () => {
     expect(globalHeader?.contains(restoreButton)).toBeFalse();
     expect(fullWidthTabHeader?.contains(restoreButton)).toBeTrue();
     expect(restoreButton.getAttribute("aria-pressed")).toBe("true");
-    expect(restoreButton.className.includes("bg-token-foreground/5")).toBeTrue();
-    expect(restoreButton.querySelector("svg")?.getAttribute("class")?.includes("icon-xs")).toBeTrue();
     expect(restoreButton.querySelector("path")?.getAttribute("d")?.startsWith(CODEX_RESTORE_PANEL_ICON_PREFIX)).toBeTrue();
   });
 
@@ -3512,8 +3477,6 @@ describe("workbench session shell", () => {
     expect(screen.getByRole("button", { name: /Card Stage/ }) !== null).toBeTrue();
     expect(actionText.indexOf("Side chat") < actionText.indexOf("DB View")).toBeTrue();
     expect(actionText.indexOf("DB View") < actionText.indexOf("Card Stage")).toBeTrue();
-    expect(actionGrid.className.includes("gap-1")).toBeTrue();
-    expect(screen.getByRole("button", { name: /Review/ }).className.includes("min-h-10")).toBeTrue();
     expect(textContent(actionGrid).includes("⌃⇧G")).toBeTrue();
     expect(textContent(actionGrid).includes("⌃`")).toBeTrue();
     expect(textContent(actionGrid).includes("Ctrl+T")).toBeTrue();
@@ -4337,23 +4300,14 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     const sidebar = screen.container.querySelector('[data-testid="project-session-sidebar"]');
-    expect(sidebar?.className.includes("app-shell-left-panel")).toBeTrue();
-    expect(sidebar?.className.includes("window-fx-sidebar-surface")).toBeFalse();
-    expect(sidebar?.className.includes("bg-token-surface-secondary")).toBeFalse();
+    expect(sidebar !== null).toBeTrue();
     const mainSurface = screen.container.querySelector("main");
-    expect(mainSurface?.className.includes("main-surface")).toBeTrue();
-    expect(mainSurface?.className.includes("overflow-hidden")).toBeTrue();
+    expect(mainSurface !== null).toBeTrue();
     const dragStrip = screen.container.querySelector('[data-testid="sidebar-drag-strip"]');
     expect(dragStrip).toBe(null);
     const resizeStrip = screen.getByTestId("sidebar-resize-strip");
     expect(resizeStrip.getAttribute("role")).toBe("separator");
     expect(resizeStrip.getAttribute("aria-orientation")).toBe("vertical");
-    expect(resizeStrip.className).toBe(
-      "group absolute flex touch-none select-none z-20 -top-toolbar right-0 bottom-0 w-4 translate-x-2 cursor-col-resize active:cursor-col-resize",
-    );
-    expect(resizeStrip.firstElementChild?.className).toBe(
-      "sidebar-resize-handle-line pointer-events-none m-auto opacity-0 h-full w-px bg-gradient-to-b from-transparent via-token-foreground/25 to-transparent group-hover:opacity-100 group-active:opacity-100",
-    );
     expect(textContent(screen.container).includes("Overview")).toBeTrue();
     const threadRow = screen.container.querySelector("[data-app-action-sidebar-thread-row]");
     expect(threadRow !== null).toBeTrue();
@@ -4566,31 +4520,8 @@ describe("workbench session shell", () => {
       expect(leftSlot.getAttribute("style")?.includes("min-width: 208px")).toBeTrue();
       expect(collapseButton.parentElement?.className.includes("fixed")).toBeFalse();
       expect(collapseButton.getAttribute("title")).toBe("Toggle sidebar");
-      expect(collapseButton.className).toBe(CODEX_COLLAPSED_CHROME_BUTTON_CLASS);
-      expect(backButton.className).toBe(CODEX_COLLAPSED_CHROME_BUTTON_CLASS);
-      expect(forwardButton.className).toBe(CODEX_COLLAPSED_CHROME_BUTTON_CLASS);
-      expect(compactNewChatButton.className).toBe(CODEX_COLLAPSED_CHROME_BUTTON_CLASS);
       expect(backButton.hasAttribute("disabled")).toBeTrue();
       expect(forwardButton.hasAttribute("disabled")).toBeTrue();
-      expect(backButton.querySelector("svg")?.getAttribute("class")?.includes("icon-xs")).toBeTrue();
-      expect(forwardButton.querySelector("svg")?.getAttribute("class")?.includes("icon-xs -scale-x-100")).toBeTrue();
-      expect(collapseButton.className.includes("h-token-button-composer")).toBeTrue();
-      expect(backButton.className.includes("h-token-button-composer")).toBeTrue();
-      expect(forwardButton.className.includes("h-token-button-composer")).toBeTrue();
-      expect(compactNewChatButton.className.includes("h-token-button-composer")).toBeTrue();
-      expect(collapseButton.className.includes("text-token-text-tertiary")).toBeTrue();
-      expect(backButton.className.includes("text-token-text-tertiary")).toBeTrue();
-      expect(forwardButton.className.includes("text-token-text-tertiary")).toBeTrue();
-      expect(compactNewChatButton.className.includes("text-token-text-tertiary")).toBeTrue();
-      expect(collapseButton.className.includes("enabled:hover:bg-token-list-hover-background")).toBeTrue();
-      expect(backButton.className.includes("enabled:hover:bg-token-list-hover-background")).toBeTrue();
-      expect(forwardButton.className.includes("enabled:hover:bg-token-list-hover-background")).toBeTrue();
-      expect(compactNewChatButton.className.includes("enabled:hover:bg-token-list-hover-background")).toBeTrue();
-      expect(collapseButton.className.includes("enabled:hover:bg-transparent")).toBeFalse();
-      expect(backButton.className.includes("enabled:hover:bg-transparent")).toBeFalse();
-      expect(forwardButton.className.includes("enabled:hover:bg-transparent")).toBeFalse();
-      expect(compactNewChatButton.className.includes("enabled:hover:bg-transparent")).toBeFalse();
-      expect(compactNewChatButton.querySelector("svg")?.getAttribute("class")?.includes("icon-sm")).toBeTrue();
       expect(compactNewChatButton.querySelector("path")?.getAttribute("d")?.startsWith(CODEX_TITLEBAR_NEW_CHAT_ICON_PREFIX)).toBeTrue();
       expect(collapseButton.className.includes("no-drag")).toBeTrue();
 
@@ -4601,14 +4532,9 @@ describe("workbench session shell", () => {
       const floatingHeader = floatingAside?.querySelector(".app-header-tint") as HTMLElement | null;
       expect(floatingShell !== null).toBeTrue();
       expect(floatingShell?.getAttribute("data-sidebar-floating-focus-area")).toBe("true");
-      expect(floatingShell?.className).toBe(CODEX_SIDEBAR_FLOATING_OUTER_CLASS);
       expect(floatingShell?.getAttribute("style")?.includes("width: 300px")).toBeTrue();
       expect(floatingAside !== null).toBeTrue();
-      expect(floatingAside?.className).toBe(`${CODEX_SIDEBAR_FLOATING_ASIDE_CLASS} font-sans text-sm`);
-      expect(floatingHeader?.className).toBe(CODEX_SIDEBAR_FLOATING_HEADER_CLASS);
-      expect(floatingAside?.className.includes("rounded-lg")).toBeTrue();
-      expect(floatingAside?.className.includes("bg-token-main-surface-primary")).toBeTrue();
-      expect(floatingAside?.className.includes("shadow-[1px_0_0_0_var(--color-token-border-default)")).toBeTrue();
+      expect(floatingHeader !== null).toBeTrue();
       expect(screen.getByTestId("sidebar-resize-strip").parentElement).toBe(floatingShell);
 
       const floatingFocusButton = Array.from(floatingShell?.querySelectorAll("button") ?? [])

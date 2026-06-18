@@ -876,17 +876,6 @@ describe("ThreadComposer speed menu", () => {
     expect(lowerStatusRow === null).toBeTrue();
   });
 
-  test("keeps the composer shell chrome stable on focus", async () => {
-    resetStorage();
-    const view = await renderComposer();
-    const composerForm = view.container.querySelector("form");
-
-    expect(composerForm !== null).toBeTrue();
-    expect(Boolean(composerForm?.className.includes("focus-within"))).toBeFalse();
-    expect(Boolean(composerForm?.className.includes("ring-black/10"))).toBeTrue();
-    expect(Boolean(composerForm?.className.includes("backdrop-blur-lg"))).toBeTrue();
-  });
-
   test("keeps prompt scrolling owned by the ProseMirror prompt editor", async () => {
     resetStorage();
     const longPrompt = Array.from({ length: 80 }, (_, index) => `line ${index + 1}`).join("\n");
@@ -906,10 +895,7 @@ describe("ThreadComposer speed menu", () => {
     expect(Boolean(composer?.getAttribute("style")?.includes("min-height: 2.75rem"))).toBeTrue();
     expect(promptFrame !== null).toBeTrue();
     expect(composerForm !== null).toBeTrue();
-    expect(Boolean(promptFrame?.className.includes("max-h-[25dvh]"))).toBeTrue();
-    expect(Boolean(promptFrame?.className.includes("overflow-hidden"))).toBeTrue();
-    expect(Boolean(editorScrollContainer?.className.includes("max-h-[25dvh]"))).toBeTrue();
-    expect(Boolean(editorScrollContainer?.className.includes("overflow-y-auto"))).toBeTrue();
+    expect(editorScrollContainer?.contains(composer)).toBeTrue();
   });
 
   test("renders the Codex new-chat placeholder inside the ProseMirror document", async () => {

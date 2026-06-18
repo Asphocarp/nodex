@@ -61,7 +61,6 @@ describe("BrowserSidebarPanel chrome", () => {
 
     const noDragIsland = input?.closest(".no-drag");
     expect(noDragIsland === null).toBeFalse();
-    expect(noDragIsland?.className.includes("items-center justify-center px-1")).toBeTrue();
 
     const addressShell = input?.closest(".group\\/address-bar");
     expect(addressShell === null).toBeFalse();

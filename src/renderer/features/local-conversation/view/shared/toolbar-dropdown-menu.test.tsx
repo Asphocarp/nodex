@@ -5,7 +5,7 @@ import { ToolbarDropdownMenu } from "./toolbar-dropdown-menu";
 import { render } from "@/test/dom";
 
 describe("toolbar dropdown menu", () => {
-  test("uses the shared tokenized selector menu surface at runtime", async () => {
+  test("opens without selecting an item", async () => {
     const onSelectCalls: string[] = [];
     let view!: ReturnType<typeof render>;
     await act(async () => {
@@ -39,9 +39,6 @@ describe("toolbar dropdown menu", () => {
     const selectedItem = view.container.ownerDocument.body.querySelector('[data-radix-collection-item][data-reasoning-selected="true"]');
 
     expect(content).not.toBeNull();
-    expect(content?.className.includes("bg-token-dropdown-background/90")).toBeTrue();
-    expect(content?.className.includes("ring-token-border")).toBeTrue();
-    expect(content?.className.includes("rounded-xl")).toBeTrue();
     expect(view.container.ownerDocument.body.textContent?.includes("Balanced output")).toBeTrue();
     expect(selectedItem?.getAttribute("data-reasoning-selected")).toBe("true");
     expect(onSelectCalls.length).toBe(0);

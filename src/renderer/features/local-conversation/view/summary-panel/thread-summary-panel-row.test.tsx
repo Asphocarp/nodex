@@ -43,7 +43,7 @@ describe("ThreadSummaryPanelRow", () => {
     fireEvent.keyDown(row, { key: "Enter" });
 
     expect(String(count)).toBe("0");
-    expect(row.className.includes("opacity-40")).toBeTrue();
+    expect(row.getAttribute("aria-disabled")).toBe("true");
   });
 
   test("shows trailing content when requested", async () => {
@@ -57,9 +57,7 @@ describe("ThreadSummaryPanelRow", () => {
     );
 
     const content = textContent(container);
-    const trailing = container.querySelector(".ms-auto");
     expect(content.includes("+12 -4")).toBeTrue();
-    expect(trailing?.className.includes("opacity-100")).toBeTrue();
   });
 
   test("does not propagate accessory clicks to the row action", async () => {

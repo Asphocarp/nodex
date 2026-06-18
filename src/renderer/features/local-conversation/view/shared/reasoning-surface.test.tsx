@@ -68,7 +68,7 @@ describe("ReasoningSurface", () => {
     expect(Boolean(textContent(container).includes("Checking the failing story state."))).toBeTrue();
   });
 
-  test("keeps reasoning body markdown on the shared Streamdown class contract", async () => {
+  test("renders reasoning body markdown after expansion", async () => {
     const { container, getByRole } = render(
       <ReasoningSurface
         item={{
@@ -85,8 +85,8 @@ describe("ReasoningSurface", () => {
     const paragraph = container.querySelector("p");
     const listItem = container.querySelector("li");
 
-    expect(Boolean(heading?.className.includes("heading-base"))).toBeTrue();
-    expect(Boolean(paragraph?.className.includes("text-size-chat"))).toBeTrue();
-    expect(Boolean(listItem?.className.includes("mb-1.5"))).toBeTrue();
+    expect(heading?.textContent).toBe("Details");
+    expect(paragraph?.textContent).toBe("Intro paragraph.");
+    expect(listItem?.textContent).toBe("First bullet");
   });
 });

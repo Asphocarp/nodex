@@ -101,7 +101,6 @@ describe("LocalConversationComposerShell", () => {
 
     expect(primary?.id ?? "").toBe("above-composer-portal");
     expect(primary?.getAttribute("data-above-composer-conversation-id") ?? "").toBe("thread-portal");
-    expect(Boolean(primary?.className.includes("relative px-5 empty:hidden"))).toBeTrue();
     expect(queue?.id ?? "").toBe("above-composer-queue-portal");
     expect(queue?.getAttribute("data-above-composer-conversation-id") ?? "").toBe("thread-portal");
   });

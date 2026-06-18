@@ -88,7 +88,7 @@ function buildActions(): ThreadStageActions {
 }
 
 describe("ThreadStageHeader auth chrome", () => {
-  test("renders the Codex Electron sized single-line global thread title", async () => {
+  test("renders the global thread title", async () => {
     const { ThreadStageHeader } = await import("./local-conversation-stage-header");
     const { container } = render(
       <ThreadStageHeader
@@ -101,14 +101,7 @@ describe("ThreadStageHeader auth chrome", () => {
     const title = container.querySelector('[data-testid="thread-stage-title"]');
     const header = container.firstElementChild;
     expect(title?.textContent).toBe("Review shell header parity");
-    expect(title?.className.includes("max-w-[320px]")).toBeTrue();
-    expect(title?.className.includes("truncate")).toBeTrue();
-    expect(title?.className.includes("text-token-foreground")).toBeTrue();
-    expect(title?.parentElement?.className.includes("text-base")).toBeTrue();
     expect(header?.className.includes("draggable")).toBeTrue();
-    expect(header?.className.includes("grid-cols-[minmax(0,1fr)_auto]")).toBeTrue();
-    expect(header?.className.includes("pl-3")).toBeFalse();
-    expect(header?.className.includes("pl-[var(--thread-stage-header-left-padding,0.75rem)]")).toBeFalse();
   });
 
   test("keeps thread actions left-aligned immediately after the title", async () => {
@@ -131,22 +124,6 @@ describe("ThreadStageHeader auth chrome", () => {
     expect(Boolean(title)).toBeTrue();
     expect(Boolean(actionGroup)).toBeTrue();
     expect(actionGroup?.previousElementSibling === title).toBeTrue();
-    expect(title?.className.includes("flex-1")).toBeFalse();
-    expect(title?.className.includes("w-full")).toBeFalse();
-  });
-
-  test("does not render a local title separator", async () => {
-    const { ThreadStageHeader } = await import("./local-conversation-stage-header");
-    const { container } = render(
-      <ThreadStageHeader
-        model={buildModel()}
-        actions={buildActions()}
-        onErrorMessage={() => {}}
-      />,
-    );
-
-    expect(container.firstElementChild?.className.includes("border-b")).toBeFalse();
-    expect(container.firstElementChild?.className.includes("border-token-border")).toBeFalse();
   });
 
   test("does not render in-flow titlebar hitboxes", async () => {

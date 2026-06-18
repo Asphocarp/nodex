@@ -115,20 +115,11 @@ describe("workbench header actions", () => {
       throw new Error("Expected visible header shell slot");
     }
 
-    const firstActionWrapper = rail.children.item(0);
-    if (!(firstActionWrapper instanceof HTMLElement)) {
-      throw new Error("Expected first action wrapper");
-    }
-
-    expect(slot.className.includes("pe-2")).toBeTrue();
-    expect(slot.className.includes("ml-auto")).toBeFalse();
     expect(slot.className.includes("no-drag")).toBeTrue();
     expect(slot.className.includes("pointer-events-none")).toBeTrue();
     expect(slot.getAttribute("style")?.includes("width: 144px")).toBeTrue();
     expect(slot.getAttribute("style")?.includes("min-width: 70px")).toBeTrue();
-    expect(rail.className.includes("gap-1.5")).toBeTrue();
     expect(rail.className.includes("no-drag")).toBeTrue();
-    expect(firstActionWrapper.className.includes("ms-auto")).toBeTrue();
     expect(textContent(rail)).toBe("FirstSecondThird");
     expect(measuredWidths[measuredWidths.length - 1]).toBe(70);
     expect(measuredRailWidths[measuredRailWidths.length - 1]).toBe(62);

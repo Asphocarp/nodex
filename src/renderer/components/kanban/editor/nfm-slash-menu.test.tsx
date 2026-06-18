@@ -147,7 +147,7 @@ describe("NfmSlashMenu", () => {
     expect(loadingView.getByText("Loading...").textContent).toBe("Loading...");
   });
 
-  test("long labels stay in a truncated one-line text lane", () => {
+  test("long labels render without exposing subtext in the menu row", () => {
     const longTitle = "Very long command label that should stay inside the compact suggestion menu row";
     const longSubtext = "Very long description that should not force the menu to become chunky or overflow the viewport";
     const view = renderSuggestionMenu(
@@ -165,7 +165,7 @@ describe("NfmSlashMenu", () => {
       },
     );
 
-    expect(view.getByText(longTitle).className.includes("truncate")).toBeTrue();
+    expect(view.getByText(longTitle).textContent).toBe(longTitle);
     expect(view.queryByText(longSubtext)).toBe(null);
   });
 

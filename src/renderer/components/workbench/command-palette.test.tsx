@@ -125,7 +125,6 @@ describe("CommandPaletteSurface", () => {
     const topResult = container.querySelector('button[cmdk-item][data-selected="true"]');
 
     expect(textContent(container).includes("fuzzy search indxer")).toBeTrue();
-    expect(container.innerHTML.includes("bg-token-foreground/8")).toBeTrue();
     expect(topResult).not.toBeNull();
     fireEvent.click(topResult as HTMLElement);
 

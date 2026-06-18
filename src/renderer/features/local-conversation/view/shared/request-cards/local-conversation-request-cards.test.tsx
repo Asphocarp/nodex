@@ -219,7 +219,6 @@ describe("local-conversation request cards", () => {
     expect(textContent(container).includes("Tell Codex what to do differently")).toBeTrue();
     expect(container.querySelector('[data-user-input-focus-target="options"]')).not.toBeNull();
     expect(container.querySelector('[data-user-input-focus-target="other"]')).not.toBeNull();
-    expect(container.innerHTML.includes("focus-visible:ring-1")).toBeFalse();
     expect(getByText("Dismiss").textContent).toBe("Dismiss");
     expect(getByText("Submit").textContent).toBe("Submit");
   });

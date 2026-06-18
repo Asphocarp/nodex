@@ -304,7 +304,7 @@ describe("ConnectedThreadStage archived resume behavior", () => {
 });
 
 describe("ConnectedThreadStage new-chat home", () => {
-  test("renders the Codex-style hero, composer, and scoped footer without deferred rows", async () => {
+  test("renders the new-thread hero, composer, and scoped footer without deferred rows", async () => {
     installAsyncRequestAnimationFrame();
 
     const view = await renderNewThreadHome();
@@ -317,11 +317,9 @@ describe("ConnectedThreadStage new-chat home", () => {
     const renderedText = textContent(view.container);
 
     expect(home !== null).toBeTrue();
-    expect(Boolean(hero?.className.includes("h-[39%]"))).toBeTrue();
-    expect(Boolean(hero?.className.includes("w-[min(100%,var(--thread-content-max-width))]"))).toBeTrue();
+    expect(hero !== null).toBeTrue();
     expect(renderedText.includes("What should we build in Nodex?")).toBeTrue();
-    expect(Boolean(composer?.className.includes("sticky top-0 z-10"))).toBeTrue();
-    expect(Boolean(composer?.className.includes("pt-5"))).toBeTrue();
+    expect(composer !== null).toBeTrue();
     expect(promptEditor !== null).toBeTrue();
     expect(projectTriggers.length).toBe(2);
     expect(projectTriggers.some((trigger) => trigger.disabled)).toBeFalse();

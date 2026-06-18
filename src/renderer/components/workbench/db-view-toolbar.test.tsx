@@ -82,7 +82,7 @@ describe("DbViewToolbar", () => {
     expect(getByText("Calendar").textContent).toBe("Calendar");
     expect(container.querySelectorAll('[data-tab-label-visible="true"]').length).toBe(1);
     expect(getByLabelText("Search").getAttribute("aria-label")).toBe("Search");
-    expect(getByTestId(DB_VIEW_TOOLBAR_TEST_ID).innerHTML.includes('aria-hidden="true"')).toBeTrue();
+    expect(getByTestId(DB_VIEW_TOOLBAR_TEST_ID).querySelector('[aria-hidden="true"]') !== null).toBeTrue();
   });
 
   test("renders the inline search field when open or when a query is active", async () => {
@@ -95,7 +95,7 @@ describe("DbViewToolbar", () => {
       />,
     );
 
-    expect(openRender.container.innerHTML.includes('aria-hidden="false"')).toBeTrue();
+    expect(openRender.container.querySelector('[aria-hidden="false"]') !== null).toBeTrue();
     expect(openRender.getByPlaceholderText("Type to search...").getAttribute("placeholder")).toBe("Type to search...");
     expect(openRender.getByLabelText("Clear search").getAttribute("aria-label")).toBe("Clear search");
     expect(openRender.getByDisplayValue("bugfix").getAttribute("value")).toBe("bugfix");
@@ -110,7 +110,7 @@ describe("DbViewToolbar", () => {
       />,
     );
 
-    expect(filteredRender.container.innerHTML.includes('aria-hidden="false"')).toBeTrue();
+    expect(filteredRender.container.querySelector('[aria-hidden="false"]') !== null).toBeTrue();
     expect(filteredRender.getByPlaceholderText("Type to search...").getAttribute("placeholder")).toBe("Type to search...");
     expect(filteredRender.getByDisplayValue("bugfix").getAttribute("value")).toBe("bugfix");
   });

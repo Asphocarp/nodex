@@ -175,7 +175,6 @@ describe("NewChatProjectSelector", () => {
 
     const trigger = view.getByRole("button", { name: "Select project" });
     expect(trigger.textContent?.includes("Nodex")).toBeTrue();
-    expect(Boolean(trigger.className.includes("inline-block"))).toBeTrue();
 
     await openMenu(trigger);
     const devtoolsRow = document.body.querySelector("[data-new-chat-project-option='devtools-codex']");

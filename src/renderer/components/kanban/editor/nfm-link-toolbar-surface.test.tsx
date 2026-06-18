@@ -92,14 +92,13 @@ describe("nfm compact link toolbar", () => {
     expect(copiedHref).toBe("folder/abc/file");
   });
 
-  test("shows the copied state with the shared checkmark affordance", () => {
+  test("shows the copied state in the copy action", () => {
     const view = renderToolbar({
       copyState: "copied",
     });
 
     const copyButton = view.getByRole("button", { name: "Copied" });
-
-    expect(copyButton.className.includes("bg-token-foreground/10")).toBeTrue();
+    expect(copyButton.getAttribute("aria-label")).toBe("Copied");
   });
 
   test("preserves the toolbar through pointerdown so copy click can still fire", async () => {

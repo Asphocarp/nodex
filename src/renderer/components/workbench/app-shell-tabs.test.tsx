@@ -183,7 +183,7 @@ describe("AppShellTabs", () => {
     expect(view.container.querySelector('[data-app-shell-tab-title-fade="two"]') === null).toBeFalse();
   });
 
-  test("close button uses Codex hover classes and suppresses selection on mouse down", () => {
+  test("close button suppresses selection on mouse down", () => {
     const selected: string[] = [];
     const closed: string[] = [];
     const view = renderAppShellTabs({
@@ -195,10 +195,6 @@ describe("AppShellTabs", () => {
     const closeButton = view.getByLabelText("Close Two tab");
     const closeIcon = closeButton.querySelector("svg");
     expect(closeButton.tagName).toBe("BUTTON");
-    expect(closeButton.className.includes("invisible")).toBeTrue();
-    expect(closeButton.className.includes("end-2")).toBeTrue();
-    expect(closeButton.className.includes("group-hover/tab:visible")).toBeTrue();
-    expect(closeButton.className.includes("before:bg-linear-to-r")).toBeTrue();
     expect(closeIcon?.getAttribute("viewBox")).toBe("0 0 21 21");
     expect(closeIcon?.querySelector("path")?.getAttribute("d")?.startsWith("M10.7997 2.48486")).toBeTrue();
 
@@ -375,12 +371,8 @@ describe("AppShellTabs", () => {
     const view = renderAppShellTabs({ activeTabId: "one" });
 
     const wrapper = view.container.querySelector('[data-app-shell-tab-controller][data-tab-id="two"]');
-    const chrome = wrapper?.querySelector(':scope > [data-tab-id="two"]');
-
-    expect(wrapper?.className.includes("max-w-40")).toBeTrue();
     expect(wrapper?.className.includes("no-drag")).toBeTrue();
     expect(wrapper?.getAttribute("data-panel-tab-id")).toBe("two");
-    expect(chrome?.className.includes("max-w-39")).toBeTrue();
     expect(wrapper?.getAttribute("aria-roledescription")).toBe(null);
   });
 

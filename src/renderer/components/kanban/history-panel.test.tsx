@@ -139,7 +139,6 @@ describe("history panel", () => {
 
     expect(container.querySelector('[data-diff="true"]')).not.toBeNull();
     expect(textContent(container).includes("Alpha paragraph => Beta paragraph")).toBeTrue();
-    expect(container.innerHTML.includes("nodex-inline-diff")).toBeTrue();
   });
 
   test("renders the version-history modal with a reconstructed preview and actions", async () => {

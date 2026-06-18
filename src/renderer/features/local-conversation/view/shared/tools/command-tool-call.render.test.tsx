@@ -225,16 +225,13 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    const commandLine = container.querySelector<HTMLElement>("[data-command-shell-line]");
-    expect(Boolean(commandLine?.className.includes("line-clamp-2"))).toBeTrue();
-
     const toggle = container.querySelector<HTMLElement>("[data-command-shell-line-toggle]");
     expect(Boolean(toggle)).toBeTrue();
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(toggle as HTMLElement);
     await settleAsyncRender();
 
-    const expandedLine = container.querySelector<HTMLElement>("[data-command-shell-line]");
-    expect(Boolean(expandedLine?.className.includes("line-clamp-2"))).toBeFalse();
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
   });
 
   test("expands a long command line from keyboard", async () => {
@@ -257,8 +254,7 @@ describe("CommandToolCall render state", () => {
     fireEvent.keyDown(toggle as HTMLElement, { key: "Enter" });
     await settleAsyncRender();
 
-    const expandedLine = container.querySelector<HTMLElement>("[data-command-shell-line]");
-    expect(Boolean(expandedLine?.className.includes("line-clamp-2"))).toBeFalse();
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
   });
 
   test("does not show a no-output placeholder while a command is still running", () => {

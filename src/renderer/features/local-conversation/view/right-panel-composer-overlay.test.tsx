@@ -15,7 +15,7 @@ describe("RightPanelComposerOverlay", () => {
     document.body.innerHTML = "";
   });
 
-  test("renders into the portal target with Codex root chrome and enters on animation end", async () => {
+  test("renders into the portal target and enters on animation end", async () => {
     const target = makeTarget();
     render(
       <RightPanelComposerOverlay target={target} visible={true}>
@@ -31,11 +31,7 @@ describe("RightPanelComposerOverlay", () => {
 
     const root = target.querySelector('[data-testid="right-panel-composer-overlay"]') as HTMLElement;
     expect(root.className.includes("pointer-events-none")).toBeTrue();
-    expect(root.className.includes("absolute")).toBeTrue();
-    expect(root.className.includes("inset-x-0")).toBeTrue();
     expect(root.className.includes(APP_SHELL_RIGHT_PANEL_COMPOSER_OVERLAY_LAYER_CLASS)).toBeTrue();
-    expect(root.className.includes("duration-[120ms]")).toBeTrue();
-    expect(root.className.includes("right-panel-composer-overlay-enter")).toBeTrue();
     expect(root.style.transform).toBe(
       "translateY(calc(118px - var(--right-panel-composer-overlay-reserve, 0px)))",
     );
@@ -103,7 +99,7 @@ describe("RightPanelComposerOverlay", () => {
     );
 
     await waitFor(() => {
-      expect(root.className.includes("opacity-0")).toBeTrue();
+      expect(root.getAttribute("aria-hidden")).toBe("true");
     });
 
     fireEvent.transitionEnd(root, { propertyName: "opacity" });

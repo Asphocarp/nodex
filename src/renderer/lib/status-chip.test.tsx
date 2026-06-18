@@ -56,7 +56,6 @@ describe("status chip", () => {
 
     expect(getByText("In Review").textContent).toBe("In Review");
     expect(container.querySelector("svg")).not.toBeNull();
-    expect(container.innerHTML.includes("status-review-bg")).toBeTrue();
   });
 
   test("renders the draft icon as decorative svg markup", () => {

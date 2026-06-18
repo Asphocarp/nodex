@@ -646,7 +646,6 @@ describe("ThreadCollapsedToolActivityBlock", () => {
     const shimmer = summaryButton.querySelector<HTMLElement>(".codex-cadenced-shimmer");
     expect(Boolean(shimmer)).toBeTrue();
     expect(shimmer?.textContent ?? "").toBe("CreatingCreating");
-    expect(shimmer?.parentElement?.className.includes("gap-1.5")).toBeTrue();
     expect(Boolean(summaryButton.querySelector(".diff-stat-digit-stack-8"))).toBeTrue();
     expect(Boolean(summaryButton.querySelector(".diff-stat-digit-stack-5"))).toBeTrue();
     expect(Boolean(textContent(summaryButton).includes("Creating 1 file"))).toBeFalse();

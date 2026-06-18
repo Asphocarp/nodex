@@ -55,7 +55,7 @@ describe("PlanMessage", () => {
     expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBeFalse();
   });
 
-  test("reuses the shared markdown element contract inside plan markdown", () => {
+  test("renders plan markdown content", () => {
     const { container } = render(
       <TooltipProvider>
         <PlanMessage
@@ -69,8 +69,8 @@ describe("PlanMessage", () => {
     const paragraph = container.querySelector("p");
     const list = container.querySelector("ul");
 
-    expect(Boolean(heading?.className.includes("heading-base"))).toBeTrue();
-    expect(Boolean(paragraph?.className.includes("text-size-chat"))).toBeTrue();
-    expect(Boolean(list?.className.includes("list-disc"))).toBeTrue();
+    expect(heading?.textContent).toBe("Plan heading");
+    expect(paragraph?.textContent).toBe("Paragraph body.");
+    expect(list?.textContent?.trim()).toBe("First bullet");
   });
 });

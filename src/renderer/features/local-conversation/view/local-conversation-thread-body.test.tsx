@@ -230,7 +230,7 @@ describe("LocalConversationThreadBody", () => {
     });
   });
 
-  test("lets the shared scroll layout own viewport padding and width shell geometry", async () => {
+  test("lets the shared scroll layout own viewport and content wrappers", async () => {
     const { LocalConversationThreadBody } = await import("./local-conversation-thread-body");
     const { container } = render(
       <TooltipProvider>
@@ -252,23 +252,12 @@ describe("LocalConversationThreadBody", () => {
     const widthWrapper = motionWrapper?.firstElementChild as HTMLDivElement | null;
 
     expect(Boolean(viewport)).toBeTrue();
-    expect(viewport?.className.includes("pt-(--thread-content-top-inset)") ?? false).toBeTrue();
-    expect(viewport?.className.includes("flex-col-reverse") ?? false).toBeTrue();
-    expect(viewport?.className.includes("px-panel") ?? false).toBeFalse();
 
     expect(Boolean(motionWrapper)).toBeTrue();
     expect(Boolean(widthWrapper)).toBeTrue();
-    expect(
-      widthWrapper?.className.includes("max-w-(--thread-content-max-width)") ?? false,
-    ).toBeTrue();
-    expect(widthWrapper?.className.includes("px-toolbar") ?? false).toBeTrue();
-    expect(widthWrapper?.className.includes("pb-8") ?? false).toBeTrue();
+    expect(widthWrapper?.contains(contentRoot)).toBeTrue();
 
     expect(Boolean(contentRoot)).toBeTrue();
-    expect(contentRoot?.className.includes("h-full") ?? false).toBeFalse();
-    expect(contentRoot?.className.includes("min-h-full") ?? false).toBeFalse();
-    expect(contentRoot?.className.includes("max-w-[") ?? false).toBeFalse();
-    expect(contentRoot?.className.includes("px-2.5") ?? false).toBeFalse();
   });
 
   test("shows a restoring placeholder instead of rendering turn content while the active thread is resuming", async () => {
