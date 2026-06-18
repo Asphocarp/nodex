@@ -52,6 +52,7 @@ import type {
   WorkbenchNavigationCommandSource,
   WorkbenchPanelTabCycleCommandRequest,
   WorkbenchPanelTabCycleDirection,
+  WorkbenchPanelTabCloseCommandRequest,
   WorkbenchSidebarToggleCommandSource,
 } from "../shared/window-navigation";
 
@@ -173,6 +174,8 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     useState<WorkbenchNavigationCommandRequest | null>(null);
   const [workbenchPanelTabCycleRequest, setWorkbenchPanelTabCycleRequest] =
     useState<WorkbenchPanelTabCycleCommandRequest | null>(null);
+  const [workbenchPanelTabCloseRequest, setWorkbenchPanelTabCloseRequest] =
+    useState<WorkbenchPanelTabCloseCommandRequest | null>(null);
   const [settingsToggleTick, setSettingsToggleTick] = useState(0);
   const [activeProjectSessionId, setActiveProjectSessionId] = useState<string | null>(
     initialWindowSessionBootstrap.session.layout.activeProjectSessionId ?? null,
@@ -779,6 +782,13 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     }));
   }, []);
 
+  const requestPanelTabClose = useCallback(() => {
+    setWorkbenchPanelTabCloseRequest((current) => ({
+      tick: (current?.tick ?? 0) + 1,
+      source: "menu",
+    }));
+  }, []);
+
   useEffect(() => {
     if (!window.api?.onNavigateBack) return undefined;
     return window.api.onNavigateBack(() => {
@@ -813,6 +823,13 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       requestPanelTabCycle("next");
     });
   }, [requestPanelTabCycle]);
+
+  useEffect(() => {
+    if (!window.api?.onClosePanelTab) return undefined;
+    return window.api.onClosePanelTab(() => {
+      requestPanelTabClose();
+    });
+  }, [requestPanelTabClose]);
 
   useEffect(() => {
     if (!window.api) return;
@@ -1126,6 +1143,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       cardStageSessionSnapshotRef={cardStageSessionSnapshotRef}
       navigationCommandRequest={workbenchNavigationCommandRequest}
       panelTabCycleRequest={workbenchPanelTabCycleRequest}
+      panelTabCloseRequest={workbenchPanelTabCloseRequest}
       onRequestProjectPickerOpen={handleOpenProjectPicker}
       projectPickerOpenTick={projectPickerOpenTick}
       taskSearchOpenTick={taskSearchOpenTick}

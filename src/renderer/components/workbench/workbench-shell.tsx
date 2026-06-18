@@ -271,6 +271,7 @@ import {
   WORKBENCH_NAVIGATION_COMMANDS,
   type WorkbenchNavigationCommandRequest,
   type WorkbenchNavigationCommandState,
+  type WorkbenchPanelTabCloseCommandRequest,
   type WorkbenchPanelTabCycleCommandRequest,
   type WorkbenchPanelTabCycleDirection,
   type WorkbenchSidebarToggleCommandSource,
@@ -633,6 +634,7 @@ interface WorkbenchShellProps {
   sidebarToggleRequestSource?: WorkbenchSidebarToggleCommandSource;
   navigationCommandRequest?: WorkbenchNavigationCommandRequest | null;
   panelTabCycleRequest?: WorkbenchPanelTabCycleCommandRequest | null;
+  panelTabCloseRequest?: WorkbenchPanelTabCloseCommandRequest | null;
   onNavigationStateChange?: (state: WorkbenchNavigationCommandState) => void;
   navigateToStage?: (projectId: string, stageId: StageId) => void;
   navigateToDbView?: (projectId: string, view: WorkbenchView) => void;
@@ -730,7 +732,7 @@ function isWorkbenchNewChatShortcutTargetEditable(target: EventTarget | null): b
   return Boolean(element.closest(".nfm-editor, .bn-editor, .bn-container, [role='dialog']"));
 }
 
-function isPanelTabCycleShortcutTargetBlocked(target: EventTarget | null): boolean {
+function isFocusedPanelTabShortcutTargetBlocked(target: EventTarget | null): boolean {
   const element = target as ShortcutTargetLike | null;
   if (!element) return false;
   if (element.tagName === "INPUT" || element.tagName === "TEXTAREA") return true;
@@ -904,6 +906,14 @@ function resolvePanelTabCycleDirection(
   if (event.code === "BracketLeft" || event.key === "[" || event.key === "{") return -1;
   if (event.code === "BracketRight" || event.key === "]" || event.key === "}") return 1;
   return null;
+}
+
+function resolvePanelTabCloseShortcut(
+  event: Pick<KeyboardEvent, "altKey" | "ctrlKey" | "key" | "metaKey" | "shiftKey">,
+  isMac: boolean,
+): boolean {
+  const modifier = isMac ? event.metaKey : event.ctrlKey;
+  return modifier && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "w";
 }
 
 function resolveFocusedPanelTabCycleScope(target: EventTarget | null): PanelTabCycleScope | null {
@@ -1240,6 +1250,7 @@ export function WorkbenchShell({
   sidebarToggleRequestSource = "keyboard_shortcut",
   navigationCommandRequest = null,
   panelTabCycleRequest = null,
+  panelTabCloseRequest = null,
   onNavigationStateChange,
   onRequestNewWindow,
   navigateToStage,
@@ -1320,6 +1331,7 @@ export function WorkbenchShell({
   const lastHandledSidebarToggleRequestTickRef = useRef(sidebarToggleRequestTick);
   const lastHandledNavigationCommandTickRef = useRef(navigationCommandRequest?.tick ?? 0);
   const lastHandledPanelTabCycleRequestTickRef = useRef(panelTabCycleRequest?.tick ?? 0);
+  const lastHandledPanelTabCloseRequestTickRef = useRef(panelTabCloseRequest?.tick ?? 0);
   const lastHandledCommandPaletteOpenTickRef = useRef(commandPaletteOpenTick);
   const currentShellNavigationSnapshotRef = useRef<WorkbenchShellNavigationSnapshot | null>(null);
   const focusedPanelGroupRef = useRef<PanelTabCycleScope | null>(null);
@@ -3255,7 +3267,7 @@ export function WorkbenchShell({
     if (
       options.respectActiveElementGuard
       && typeof document !== "undefined"
-      && isPanelTabCycleShortcutTargetBlocked(document.activeElement)
+      && isFocusedPanelTabShortcutTargetBlocked(document.activeElement)
     ) {
       return false;
     }
@@ -3275,12 +3287,40 @@ export function WorkbenchShell({
     return true;
   });
 
+  const closeFocusedPanelTab = useEffectEvent((
+    scope: PanelTabCycleScope | null,
+    options: { respectActiveElementGuard?: boolean } = {},
+  ): boolean => {
+    if (!activeSession) return false;
+    if (
+      options.respectActiveElementGuard
+      && typeof document !== "undefined"
+      && isFocusedPanelTabShortcutTargetBlocked(document.activeElement)
+    ) {
+      return false;
+    }
+
+    const targetScope = scope ?? focusedPanelGroupRef.current;
+    if (!targetScope) return false;
+
+    const panelTabs = panelGroupTabs[targetScope.panelId];
+    if (!(targetScope.leafId in panelTabs.itemsByLeafId)) return false;
+
+    const tabs = panelTabs.itemsByLeafId[targetScope.leafId] ?? [];
+    const activeTabId = panelTabs.activeTabIdsByLeafId[targetScope.leafId] ?? null;
+    const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
+    if (activeTab?.closable === true) {
+      void closePanelTab(targetScope.panelId, activeTab.id, targetScope.leafId);
+    }
+    return true;
+  });
+
   const handleRightPanelShortcut = useEffectEvent((event: KeyboardEvent): boolean => {
     if (!activeSession) return false;
 
     const cycleDirection = resolvePanelTabCycleDirection(event, isMacPlatform);
     if (cycleDirection) {
-      if (isPanelTabCycleShortcutTargetBlocked(event.target)) return false;
+      if (isFocusedPanelTabShortcutTargetBlocked(event.target)) return false;
       const scope = resolveFocusedPanelTabCycleScope(event.target);
       if (scope) {
         rememberFocusedPanelGroup(scope.panelId, scope.leafId);
@@ -3288,6 +3328,17 @@ export function WorkbenchShell({
       }
       if (!isDocumentLevelShortcutTarget(event.target)) return false;
       return cycleFocusedPanelTab(cycleDirection, null);
+    }
+
+    if (resolvePanelTabCloseShortcut(event, isMacPlatform)) {
+      if (isFocusedPanelTabShortcutTargetBlocked(event.target)) return false;
+      const scope = resolveFocusedPanelTabCycleScope(event.target);
+      if (scope) {
+        rememberFocusedPanelGroup(scope.panelId, scope.leafId);
+        return closeFocusedPanelTab(scope);
+      }
+      if (!isDocumentLevelShortcutTarget(event.target)) return false;
+      return closeFocusedPanelTab(null);
     }
 
     if (isWorkbenchNewChatShortcutTargetEditable(event.target)) return false;
@@ -3496,6 +3547,14 @@ export function WorkbenchShell({
       { respectActiveElementGuard: true },
     );
   }, [cycleFocusedPanelTab, panelTabCycleRequest]);
+
+  useEffect(() => {
+    if (!panelTabCloseRequest) return;
+    if (panelTabCloseRequest.tick <= 0) return;
+    if (lastHandledPanelTabCloseRequestTickRef.current === panelTabCloseRequest.tick) return;
+    lastHandledPanelTabCloseRequestTickRef.current = panelTabCloseRequest.tick;
+    closeFocusedPanelTab(null, { respectActiveElementGuard: true });
+  }, [closeFocusedPanelTab, panelTabCloseRequest]);
 
   const resizeRightPanel = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;

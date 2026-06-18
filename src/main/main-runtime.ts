@@ -53,11 +53,13 @@ import { getLogger, shutdownBackendLogger } from "./logging/logger";
 import { AppUpdateService } from "./app-update-service";
 import { resolveCodexTitleBarOptions } from "./window-navigation-chrome";
 import {
+  CLOSE_PANEL_TAB_HOST_CHANNEL,
   CYCLE_PANEL_TAB_NEXT_HOST_CHANNEL,
   CYCLE_PANEL_TAB_PREVIOUS_HOST_CHANNEL,
   NAVIGATE_BACK_HOST_CHANNEL,
   NAVIGATE_FORWARD_HOST_CHANNEL,
   WORKBENCH_SIDEBAR_TOGGLE_COMMAND,
+  type WorkbenchPanelTabCloseHostChannel,
   type WorkbenchPanelTabCycleHostChannel,
   type WorkbenchSidebarToggleHostChannel,
   type WorkbenchNavigationHostChannel,
@@ -214,11 +216,21 @@ function configureMacWindowMenus(): void {
   app.dock?.setMenu(Menu.buildFromTemplate(dockMenuTemplate));
 
   const sendNavigationMessage = (
-    channel: WorkbenchNavigationHostChannel | WorkbenchSidebarToggleHostChannel | WorkbenchPanelTabCycleHostChannel,
+    channel:
+      | WorkbenchNavigationHostChannel
+      | WorkbenchSidebarToggleHostChannel
+      | WorkbenchPanelTabCycleHostChannel
+      | WorkbenchPanelTabCloseHostChannel,
   ) => {
     const targetWindow = BrowserWindow.getFocusedWindow() ?? getLastFocusedWindow();
     if (!targetWindow || targetWindow.isDestroyed()) return;
     targetWindow.webContents.send(channel);
+  };
+
+  const closeFocusedWindow = () => {
+    const targetWindow = BrowserWindow.getFocusedWindow() ?? getLastFocusedWindow();
+    if (!targetWindow || targetWindow.isDestroyed()) return;
+    targetWindow.close();
   };
 
   const appMenuTemplate: MenuItemConstructorOptions[] = [
@@ -244,7 +256,11 @@ function configureMacWindowMenus(): void {
           },
         },
         { type: "separator" },
-        { role: "close" },
+        {
+          label: "Close Window",
+          accelerator: "CommandOrControl+Shift+W",
+          click: closeFocusedWindow,
+        },
       ],
     },
     { role: "editMenu" },
@@ -278,6 +294,13 @@ function configureMacWindowMenus(): void {
           accelerator: "CommandOrControl+Shift+]",
           click: () => {
             sendNavigationMessage(CYCLE_PANEL_TAB_NEXT_HOST_CHANNEL);
+          },
+        },
+        {
+          label: "Close Panel Tab",
+          accelerator: "CommandOrControl+W",
+          click: () => {
+            sendNavigationMessage(CLOSE_PANEL_TAB_HOST_CHANNEL);
           },
         },
         { type: "separator" },

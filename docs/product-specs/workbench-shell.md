@@ -59,6 +59,7 @@ Detailed Auto-review preset, config, and approval-lifecycle rules are specified 
 - Project/session/tab keyboard shortcuts should be introduced against the new hierarchy: project folder, session row, thread page, and right/bottom panel tab groups.
 - `Ctrl+\`` focuses an existing session terminal tab or creates one in the bottom panel. `Alt+Cmd/Ctrl+S` starts Side chat in the right panel. The global terminal drawer is not part of the project-session shell model.
 - `Cmd/Ctrl+Shift+[` and `Cmd/Ctrl+Shift+]` cycle the previous/next tab for the focused right or bottom panel tab group. Cycling resolves the nearest split leaf or the last focused leaf from the native menu route, wraps within that leaf, works from NFM editor content in that leaf, no-ops for zero or one tab, and does not replace plain `Cmd/Ctrl+[` / `Cmd/Ctrl+]` app-window Back/Forward.
+- `Cmd/Ctrl+W` closes the active closable tab in the focused right or bottom panel tab group by using the same `closePanelTab` path as tab chrome. It works from NFM editor content in that leaf, ignores input fields and dialogs, no-ops for non-closable tabs, and must not close the app window. On macOS, Close Window uses `Cmd+Shift+W`.
 
 ## UI Contract
 - Surfaces should use the generated theme layers and token classes before adding local CSS.

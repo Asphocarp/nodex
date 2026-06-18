@@ -6,6 +6,7 @@ import type {
   DatabaseMigrationProgress,
 } from "../shared/app-startup";
 import {
+  CLOSE_PANEL_TAB_HOST_CHANNEL,
   CYCLE_PANEL_TAB_NEXT_HOST_CHANNEL,
   CYCLE_PANEL_TAB_PREVIOUS_HOST_CHANNEL,
   NAVIGATE_BACK_HOST_CHANNEL,
@@ -114,6 +115,13 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.on(CYCLE_PANEL_TAB_NEXT_HOST_CHANNEL, listener);
     return () => {
       ipcRenderer.removeListener(CYCLE_PANEL_TAB_NEXT_HOST_CHANNEL, listener);
+    };
+  },
+  onClosePanelTab: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on(CLOSE_PANEL_TAB_HOST_CHANNEL, listener);
+    return () => {
+      ipcRenderer.removeListener(CLOSE_PANEL_TAB_HOST_CHANNEL, listener);
     };
   },
   requestMicrophonePermission: () => {

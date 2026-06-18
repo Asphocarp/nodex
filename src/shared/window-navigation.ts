@@ -7,6 +7,7 @@ export const NAVIGATE_FORWARD_HOST_CHANNEL = "navigate-forward";
 export const TOGGLE_SIDEBAR_HOST_CHANNEL = "toggle-sidebar";
 export const CYCLE_PANEL_TAB_PREVIOUS_HOST_CHANNEL = "cycle-panel-tab-previous";
 export const CYCLE_PANEL_TAB_NEXT_HOST_CHANNEL = "cycle-panel-tab-next";
+export const CLOSE_PANEL_TAB_HOST_CHANNEL = "close-panel-tab";
 
 export type WorkbenchNavigationCommandId =
   | typeof NAVIGATE_BACK_COMMAND_ID
@@ -21,6 +22,7 @@ export type WorkbenchSidebarToggleHostChannel = typeof TOGGLE_SIDEBAR_HOST_CHANN
 export type WorkbenchPanelTabCycleHostChannel =
   | typeof CYCLE_PANEL_TAB_PREVIOUS_HOST_CHANNEL
   | typeof CYCLE_PANEL_TAB_NEXT_HOST_CHANNEL;
+export type WorkbenchPanelTabCloseHostChannel = typeof CLOSE_PANEL_TAB_HOST_CHANNEL;
 
 export type WorkbenchNavigationCommandSource =
   | "sidebar_back"
@@ -51,6 +53,13 @@ export interface WorkbenchPanelTabCycleCommandRequest {
   tick: number;
   direction: WorkbenchPanelTabCycleDirection;
   source: WorkbenchPanelTabCycleCommandSource;
+}
+
+export type WorkbenchPanelTabCloseCommandSource = "keyboard_shortcut" | "menu";
+
+export interface WorkbenchPanelTabCloseCommandRequest {
+  tick: number;
+  source: WorkbenchPanelTabCloseCommandSource;
 }
 
 export type WorkbenchSidebarToggleCommandSource =

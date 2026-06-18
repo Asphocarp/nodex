@@ -21,6 +21,7 @@ import type {
   WorkbenchNavigationCommandState,
   WorkbenchNavigationCommandSource,
   WorkbenchNavigationDirection,
+  WorkbenchPanelTabCloseCommandRequest,
   WorkbenchPanelTabCycleCommandRequest,
   WorkbenchPanelTabCycleDirection,
 } from "../../../shared/window-navigation";
@@ -610,6 +611,15 @@ function getProjectSessionPanelActivateCalls(): {
   });
 }
 
+function getProjectSessionTabDeleteTabIds(): string[] {
+  return invokeCalls.flatMap((call) => {
+    if (call[0] !== "project-session-tabs:delete") return [];
+    const input = call[1] as string | { tabId?: string };
+    if (typeof input === "string") return [input];
+    return input.tabId ? [input.tabId] : [];
+  });
+}
+
 function makePanels(options: {
   rightTabIds?: string[];
   rightActiveTabId?: string | null;
@@ -847,6 +857,7 @@ function renderWorkbench({
   sidebar,
   navigationCommandRequest = null,
   panelTabCycleRequest = null,
+  panelTabCloseRequest = null,
   onNavigationStateChange,
 }: {
   projects?: Project[];
@@ -856,6 +867,7 @@ function renderWorkbench({
   sidebar?: { collapsed: boolean; width: number };
   navigationCommandRequest?: WorkbenchNavigationCommandRequest | null;
   panelTabCycleRequest?: WorkbenchPanelTabCycleCommandRequest | null;
+  panelTabCloseRequest?: WorkbenchPanelTabCloseCommandRequest | null;
   onNavigationStateChange?: ComponentProps<typeof WorkbenchShell>["onNavigationStateChange"];
 } = {}) {
   let sessionState = sessionsByProject;
@@ -1129,6 +1141,7 @@ function renderWorkbench({
   let requestPanelTabCycle: (
     direction: WorkbenchPanelTabCycleDirection,
   ) => void = () => undefined;
+  let requestPanelTabClose: () => void = () => undefined;
   let openCommandPalette: (initialQuery?: string) => void = () => undefined;
 
   function WorkbenchShellTestHarness() {
@@ -1138,6 +1151,8 @@ function renderWorkbench({
       useState<WorkbenchNavigationCommandRequest | null>(navigationCommandRequest);
     const [currentPanelTabCycleRequest, setCurrentPanelTabCycleRequest] =
       useState<WorkbenchPanelTabCycleCommandRequest | null>(panelTabCycleRequest);
+    const [currentPanelTabCloseRequest, setCurrentPanelTabCloseRequest] =
+      useState<WorkbenchPanelTabCloseCommandRequest | null>(panelTabCloseRequest);
     const [commandPaletteRequest, setCommandPaletteRequest] = useState({
       tick: 0,
       initialQuery: "",
@@ -1153,6 +1168,12 @@ function renderWorkbench({
       setCurrentPanelTabCycleRequest((current) => ({
         tick: (current?.tick ?? 0) + 1,
         direction,
+        source: "menu",
+      }));
+    };
+    requestPanelTabClose = () => {
+      setCurrentPanelTabCloseRequest((current) => ({
+        tick: (current?.tick ?? 0) + 1,
         source: "menu",
       }));
     };
@@ -1204,6 +1225,7 @@ function renderWorkbench({
         }}
         navigationCommandRequest={currentNavigationCommandRequest}
         panelTabCycleRequest={currentPanelTabCycleRequest}
+        panelTabCloseRequest={currentPanelTabCloseRequest}
         onNavigationStateChange={(state) => {
           navigationStateChanges.push(state);
           onNavigationStateChange?.(state);
@@ -1232,6 +1254,9 @@ function renderWorkbench({
     },
     requestPanelTabCycle: (direction: WorkbenchPanelTabCycleDirection) => {
       requestPanelTabCycle(direction);
+    },
+    requestPanelTabClose: () => {
+      requestPanelTabClose();
     },
   };
 }
@@ -4523,6 +4548,192 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     expect(getProjectSessionPanelActivateCalls().length).toBe(0);
+  });
+
+  test("Ctrl+W closes the active right-panel tab in the focused tab group", async () => {
+    const browserTab = makeSessionTab({
+      id: "overview:alpha:browser",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "browser",
+      title: "Browser",
+      order: 1,
+      config: { projectId: "alpha" },
+    });
+    const session = makeSession({
+      tabs: [...makeSession().tabs, browserTab],
+      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id], browserTab.id),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    invokeCalls = [];
+    await act(async () => {
+      fireEvent.keyDown(getPanelTabById(screen.container, browserTab.id), {
+        key: "w",
+        code: "KeyW",
+        ctrlKey: true,
+      });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(JSON.stringify(getProjectSessionTabDeleteTabIds())).toBe(JSON.stringify([browserTab.id]));
+  });
+
+  test("Ctrl+W consumes but does not close a non-closable active panel tab", async () => {
+    const screen = renderWorkbench();
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    invokeCalls = [];
+    await act(async () => {
+      fireEvent.keyDown(getPanelTabById(screen.container, "overview:alpha:db"), {
+        key: "w",
+        code: "KeyW",
+        ctrlKey: true,
+      });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(getProjectSessionTabDeleteTabIds().length).toBe(0);
+  });
+
+  test("native close-panel-tab requests close the active focused panel tab", async () => {
+    const browserTab = makeSessionTab({
+      id: "overview:alpha:browser",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "browser",
+      title: "Browser",
+      order: 1,
+      config: { projectId: "alpha" },
+    });
+    const session = makeSession({
+      tabs: [...makeSession().tabs, browserTab],
+      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id], browserTab.id),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await pointerDownAndSettle(getPanelTabById(screen.container, browserTab.id));
+
+    invokeCalls = [];
+    await act(async () => {
+      screen.requestPanelTabClose();
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(JSON.stringify(getProjectSessionTabDeleteTabIds())).toBe(JSON.stringify([browserTab.id]));
+  });
+
+  test("Ctrl+W closes the active bottom-panel tab in the focused tab group", async () => {
+    const panels = makePanels({
+      rightCollapsed: true,
+      bottomTabIds: ["terminal-tab", "bottom-browser-tab"],
+      bottomActiveTabId: "bottom-browser-tab",
+      bottomCollapsed: false,
+    });
+    const session = makeSession({
+      id: "session:alpha:bottom-close",
+      title: "Bottom close",
+      isOverview: false,
+      panels,
+      tabs: [
+        {
+          id: "terminal-tab",
+          sessionId: "session:alpha:bottom-close",
+          projectId: "alpha",
+          kind: "terminal",
+          title: "Terminal",
+          panelId: "bottom",
+          config: { projectId: "alpha", terminalSessionId: "terminal-close" },
+        },
+        {
+          id: "bottom-browser-tab",
+          sessionId: "session:alpha:bottom-close",
+          projectId: "alpha",
+          kind: "browser",
+          title: "Browser",
+          panelId: "bottom",
+          config: { projectId: "alpha" },
+        },
+      ],
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    invokeCalls = [];
+    await act(async () => {
+      fireEvent.keyDown(getPanelTabById(screen.container, "bottom-browser-tab"), {
+        key: "w",
+        code: "KeyW",
+        ctrlKey: true,
+      });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(JSON.stringify(getProjectSessionTabDeleteTabIds())).toBe(JSON.stringify(["bottom-browser-tab"]));
+  });
+
+  test("Ctrl+W closes the active panel tab from focused NFM editor content", async () => {
+    const browserTab = makeSessionTab({
+      id: "overview:alpha:browser",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "browser",
+      title: "Browser",
+      order: 1,
+      config: { projectId: "alpha" },
+    });
+    const session = makeSession({
+      tabs: [...makeSession().tabs, browserTab],
+      rightLayout: makePanelLayout(["overview:alpha:db", browserTab.id], browserTab.id),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const leaf = screen.container.querySelector('[data-panel-group-leaf-id="main"]');
+    if (!(leaf instanceof HTMLElement)) {
+      throw new Error("Expected main panel leaf");
+    }
+    const editor = document.createElement("div");
+    editor.className = "nfm-editor";
+    const editorContent = document.createElement("div");
+    editorContent.contentEditable = "true";
+    editorContent.className = "ProseMirror";
+    editor.appendChild(editorContent);
+    leaf.appendChild(editor);
+
+    invokeCalls = [];
+    await act(async () => {
+      editorContent.focus();
+      fireEvent.keyDown(editorContent, {
+        key: "w",
+        code: "KeyW",
+        ctrlKey: true,
+      });
+      await Promise.resolve();
+    });
+    editor.remove();
+    await settleAsyncRender();
+
+    expect(JSON.stringify(getProjectSessionTabDeleteTabIds())).toBe(JSON.stringify([browserTab.id]));
   });
 
   test("terminal tab default cwd prefers the attached thread cwd", async () => {
