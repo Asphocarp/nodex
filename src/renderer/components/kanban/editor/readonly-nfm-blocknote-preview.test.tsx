@@ -64,11 +64,11 @@ describe("readonly NFM BlockNote preview", () => {
     expect(body.includes("Rules")).toBeFalse();
   });
 
-  test("renders attachment and agent config as inert chips", async () => {
+  test("renders attachment, agent config, and thread mention as inert inline content", async () => {
     const { ReadonlyNfmBlockNotePreview } = await import("./readonly-nfm-blocknote-preview");
     const view = render(
       <ReadonlyNfmBlockNotePreview
-        content={'Before <attachment kind="file" mode="link" source="/tmp/report.md" name="report.md" /> after\n\nUse <agent-config mode="plan" model="gpt-5.5" reasoning="high" />'}
+        content={'Before <attachment kind="file" mode="link" source="/tmp/report.md" name="report.md" /> after\n\nUse <agent-config mode="plan" model="gpt-5.5" reasoning="high" />\n\nSee <mention-thread uuid="019-thread" />'}
         projectId="alpha"
         cardId="card-1"
         historyId={3}
@@ -91,6 +91,7 @@ describe("readonly NFM BlockNote preview", () => {
     await settleAsyncRender();
 
     expect(textContent(view.container).includes("Plan mode")).toBeTrue();
+    expect(textContent(view.container).includes("019-thread")).toBeTrue();
     expect(document.body.querySelector('[role="dialog"]') === null).toBeTrue();
     expect(document.body.querySelector('[data-radix-popper-content-wrapper]') === null).toBeTrue();
   });

@@ -1137,6 +1137,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     codexService.listProjectThreads(projectId, opts)
   );
 
+  registerHandle("codex:thread:summary:get", (_, threadId: string) =>
+    codexService.resolveThreadSummary(threadId)
+  );
+
   registerHandle("codex:model:list", () =>
     codexService.listModels()
   );

@@ -36,7 +36,9 @@ import {
 } from "../kanban/project-session-service";
 import { CodexRpcError } from "./codex-app-server-client";
 import {
+  getCodexThread,
   getCodexCardThreadLink,
+  upsertCodexThread,
   upsertCodexCardThreadLink,
 } from "./codex-link-repository";
 import { resetCodexSessionStoreCaches } from "./codex-session-store";
@@ -48,6 +50,7 @@ interface TestableCodexService {
   readAccountSnapshot: () => Promise<import("../../shared/types").CodexAccountSnapshot>;
   logoutAccount: () => Promise<boolean>;
   readThread: (threadId: string, includeTurns?: boolean) => Promise<CodexThreadDetail | null>;
+  resolveThreadSummary: (threadId: string) => Promise<import("../../shared/types").CodexThreadSummary | null>;
   requestConversationSnapshot: (threadId: string) => Promise<CodexConversationSnapshot | null>;
   requestConversationResume: (threadId: string) => Promise<CodexConversationSnapshot | null>;
   serializeThreadDetail: (threadId: string) => CodexThreadDetail | null;
@@ -483,6 +486,93 @@ describe("codex-service readThread fallback", () => {
         expect(message.includes("permission denied")).toBeTrue();
         expect(includeTurnsCalls.length).toBe(1);
         expect(includeTurnsCalls[0]).toBeTrue();
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("resolves thread summaries from SQLite before app-server reads", async () => {
+    const ran = await withTempDatabase(async () => {
+      upsertCodexThread({
+        projectId: defaultProjectId,
+        threadId: "thr_cached_summary",
+        threadName: "Cached summary",
+        threadPreview: "Cached preview",
+        modelProvider: "openai",
+        statusType: "idle",
+        statusActiveFlags: [],
+      });
+
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      let requests = 0;
+      client.start = async () => undefined;
+      client.request = async () => {
+        requests += 1;
+        return {};
+      };
+
+      try {
+        const summary = await service.resolveThreadSummary("thr_cached_summary");
+        expect(summary?.threadName).toBe("Cached summary");
+        expect(requests).toBe(0);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("resolves missing thread summaries with thread/read includeTurns=false", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<{ thread?: unknown }>;
+      };
+      let requestMethod = "";
+      let requestParams: unknown = null;
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requestMethod = method;
+        requestParams = params;
+        return {
+          thread: {
+            id: "thr_remote_summary",
+            name: "Remote summary",
+            preview: "Remote preview",
+            modelProvider: "openai",
+            cwd: "/tmp/codex",
+            status: {
+              type: "active",
+              activeFlags: ["waitingOnUserInput"],
+            },
+            createdAt: 1,
+            updatedAt: 2,
+          },
+        };
+      };
+
+      try {
+        const summary = await service.resolveThreadSummary("thr_remote_summary");
+        const request = requestParams as { threadId?: string; includeTurns?: boolean };
+        const persisted = getCodexThread("thr_remote_summary");
+
+        expect(requestMethod).toBe("thread/read");
+        expect(request.threadId).toBe("thr_remote_summary");
+        expect(request.includeTurns).toBeFalse();
+        expect(summary?.threadName).toBe("Remote summary");
+        expect(summary?.statusType).toBe("active");
+        expect(summary?.statusActiveFlags.join(",")).toBe("waitingOnUserInput");
+        expect(persisted?.threadPreview).toBe("Remote preview");
       } finally {
         await service.shutdown();
       }

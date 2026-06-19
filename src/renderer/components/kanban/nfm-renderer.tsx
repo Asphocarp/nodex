@@ -23,8 +23,10 @@ import { FileLinkAnchor } from "../shared/file-link-anchor";
 import { parseNfm } from "@/lib/nfm/parser";
 import { resolveAssetSourceToHttpUrl } from "@/lib/assets";
 import { formatCodexModelLabel } from "@/lib/codex-thread-settings";
+import { formatThreadMentionShortUuid } from "@/lib/nfm/thread-mention-display";
 import { cn } from "@/lib/utils";
 import { streamdownCodePlugin } from "@/lib/streamdown";
+import { ThreadMentionInlineVisual } from "./thread-mention-inline-visual";
 
 interface NfmRendererProps {
   content: string;
@@ -475,6 +477,17 @@ function InlineItem({
     );
   }
 
+  if (item.type === "threadMention") {
+    const label = formatThreadMentionShortUuid(item.uuid);
+    return (
+      <ThreadMentionInlineVisual
+        className="max-w-[18rem] align-baseline"
+        title={item.uuid}
+        label={label}
+      />
+    );
+  }
+
   // text span
   const classes = styleClasses(item.styles, { includeCode: false });
   if (item.styles.code) {
@@ -543,6 +556,7 @@ function inlineText(items: NfmInlineContent[]): string {
       if (item.type === "linebreak") return " ";
       if (item.type === "attachment") return item.name;
       if (item.type === "agentConfig") return "";
+      if (item.type === "threadMention") return item.uuid;
       return item.text;
     })
     .join("")

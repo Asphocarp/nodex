@@ -740,6 +740,10 @@ export interface IpcApi {
     args: [projectId: string, opts?: { cardId?: string; includeArchived?: boolean }];
     result: CodexThreadSummary[];
   };
+  "codex:thread:summary:get": {
+    args: [threadId: string];
+    result: CodexThreadSummary | null;
+  };
   "codex:model:list": {
     args: [];
     result: CodexModelOption[];

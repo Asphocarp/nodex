@@ -99,12 +99,18 @@ export interface NfmAgentConfigInlineContent {
   rawAttributes?: string;
 }
 
+export interface NfmThreadMentionInlineContent {
+  type: "threadMention";
+  uuid: string;
+}
+
 export type NfmInlineContent =
   | NfmTextSpan
   | NfmLinkSpan
   | NfmLineBreak
   | NfmAttachmentInlineContent
-  | NfmAgentConfigInlineContent;
+  | NfmAgentConfigInlineContent
+  | NfmThreadMentionInlineContent;
 
 export type NfmBlockType =
   | "paragraph"

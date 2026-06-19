@@ -13,6 +13,7 @@ import { createCardToggleBlockSpec } from "./card-toggle-block";
 import { createCardRefBlockSpec } from "./card-ref-block";
 import { imageBlockSpec } from "./image-block";
 import { createThreadSectionBlockSpec } from "./thread-section-block";
+import { createThreadMentionInlineContentSpec } from "./thread-mention-chip";
 import { createToggleListInlineViewBlockSpec } from "./toggle-list-inline-view-block";
 
 export const toggleListSchema = BlockNoteSchema.create({
@@ -37,6 +38,7 @@ export const toggleListSchema = BlockNoteSchema.create({
     ...defaultInlineContentSpecs,
     agentConfig: createAgentConfigInlineContentSpec(),
     attachment: createAttachmentInlineContentSpec(),
+    threadMention: createThreadMentionInlineContentSpec(),
   },
   styleSpecs: defaultStyleSpecs,
 });

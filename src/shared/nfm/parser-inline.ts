@@ -56,6 +56,15 @@ export function parseInlineContent(input: string): NfmInlineContent[] {
         }
       }
 
+      if (input.startsWith("<mention-thread", i)) {
+        const threadMention = tryParseThreadMention();
+        if (threadMention) {
+          flushText();
+          items.push(threadMention);
+          continue;
+        }
+      }
+
       if (input.startsWith("<span ", i)) {
         const spanResult = tryParseSpan(styles);
         if (spanResult) {
@@ -247,6 +256,21 @@ export function parseInlineContent(input: string): NfmInlineContent[] {
       ...(attributes.reasoning ? { reasoning: attributes.reasoning } : {}),
       ...(unknownAttributes.length > 0 ? { unknownAttributes } : {}),
       ...(rawAttributes.trim().length > 0 ? { rawAttributes } : {}),
+    };
+  }
+
+  function tryParseThreadMention(): NfmInlineContent | null {
+    const match = input.slice(i).match(/^<mention-thread(?:\s+([^>]*))?\s*\/>/);
+    if (!match) return null;
+
+    const attrString = match[1] ?? "";
+    const uuid = getXmlAttr(attrString, "uuid")?.trim();
+    if (!uuid) return null;
+
+    i += match[0].length;
+    return {
+      type: "threadMention",
+      uuid,
     };
   }
 

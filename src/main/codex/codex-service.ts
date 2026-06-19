@@ -2878,6 +2878,21 @@ export class CodexService extends EventEmitter {
     return listCodexProjectThreads(projectId, opts);
   }
 
+  async resolveThreadSummary(threadId: string): Promise<CodexThreadSummary | null> {
+    const normalizedThreadId = threadId.trim();
+    if (!normalizedThreadId) return null;
+
+    const cached = getCodexThread(normalizedThreadId);
+    if (cached) return cached;
+
+    await this.ensureClientReady();
+    const result = await this.client.request<"thread/read", ThreadReadResponse>("thread/read", {
+      threadId: normalizedThreadId,
+      includeTurns: false,
+    });
+    return this.upsertLinkFromThread(result.thread) ?? getCodexThread(normalizedThreadId);
+  }
+
   async readMcpResource(params: McpResourceReadParams): Promise<McpResourceReadResponse> {
     await this.ensureClientReady();
     return this.client.request<"mcpServer/resource/read", McpResourceReadResponse>("mcpServer/resource/read", params);

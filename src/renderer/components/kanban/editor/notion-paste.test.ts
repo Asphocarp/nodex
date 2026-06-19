@@ -402,6 +402,7 @@ function inlineToText(content: NfmInlineContent[]): string {
       if (item.type === "linebreak") return "\n";
       if (item.type === "attachment") return item.name;
       if (item.type === "agentConfig") return "";
+      if (item.type === "threadMention") return item.uuid;
       return item.text;
     })
     .join("");
@@ -409,7 +410,12 @@ function inlineToText(content: NfmInlineContent[]): string {
 
 function findInlineSpan(content: NfmInlineContent[], text: string): StyledInline | undefined {
   return content.find((item): item is StyledInline => {
-    if (item.type === "linebreak" || item.type === "attachment" || item.type === "agentConfig") return false;
+    if (
+      item.type === "linebreak"
+      || item.type === "attachment"
+      || item.type === "agentConfig"
+      || item.type === "threadMention"
+    ) return false;
     return item.text === text;
   });
 }

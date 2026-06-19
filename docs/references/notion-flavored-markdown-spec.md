@@ -62,6 +62,9 @@ Users, pages, databases, data sources, agents, dates, and datetimes can be menti
 The URL must always be provided, and refer to an existing user, page, database, data source, agent, date, or datetime.
 The inner text (name/title) is optional. The UI always displays the resolved name.
 So an alternative self-closing format is also supported: <mention-user url="{{URL}}"/>
+Nodex extension for Codex thread references:
+<mention-thread uuid="{{CODEX_THREAD_ID}}" />
+The `uuid` attribute is the opaque Codex app-server thread/session id. It is required after trimming whitespace, is serialized as the only attribute, and is not regex-validated. Missing or empty `uuid` values remain plain text instead of creating structured mention content. In copy output and thread-section prompts, thread mentions serialize as `[Thread: {{CODEX_THREAD_ID}}]` and do not inject the referenced thread transcript.
 Custom emoji:
 :emoji_name:
 Colors:

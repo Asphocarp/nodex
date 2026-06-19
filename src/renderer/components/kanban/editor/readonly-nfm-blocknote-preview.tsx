@@ -17,6 +17,7 @@ import { parseNfm, nfmToBlockNote } from "@/lib/nfm";
 import { resolveAssetSourceToHttpUrl } from "@/lib/assets";
 import { resolveAgentConfigChip, type AgentConfigProps } from "./agent-config-chip";
 import { formatAttachmentBytes } from "./attachment-chip-format";
+import { resolveThreadMentionDisplay } from "@/lib/nfm/thread-mention-display";
 import { createCalloutBlock } from "./callout-block";
 import { createCardToggleBlockSpec } from "./card-toggle-block";
 import { editorCodeBlockOptions } from "./code-block-options";
@@ -26,6 +27,7 @@ import {
   resolveNfmLinkAction,
 } from "@/lib/nfm-link-actions";
 import { useTheme } from "@/lib/use-theme";
+import { ThreadMentionInlineVisual } from "../thread-mention-inline-visual";
 
 interface ReadonlyNfmBlockNotePreviewProps {
   content: string;
@@ -49,6 +51,10 @@ interface PreviewAttachmentProps {
   mimeType?: string;
   bytes?: number;
   origin?: string;
+}
+
+interface PreviewThreadMentionProps {
+  uuid: string;
 }
 
 interface InertEmbedPlaceholderProps {
@@ -230,6 +236,30 @@ const createReadonlyAgentConfigInlineContentSpec = () =>
     },
   );
 
+const createReadonlyThreadMentionInlineContentSpec = () =>
+  createReactInlineContentSpec(
+    {
+      type: "threadMention" as const,
+      propSchema: {
+        uuid: { default: "" },
+      },
+      content: "none" as const,
+    },
+    {
+      render: ({ inlineContent }) => {
+        const props = inlineContent.props as PreviewThreadMentionProps;
+        const mention = resolveThreadMentionDisplay({ uuid: props.uuid });
+        return (
+          <ThreadMentionInlineVisual
+            contentEditable={false}
+            title={props.uuid}
+            label={mention.label || "Thread"}
+          />
+        );
+      },
+    },
+  );
+
 export const readonlyNfmBlockNotePreviewSchema = BlockNoteSchema.create({
   blockSpecs: {
     paragraph: defaultBlockSpecs.paragraph,
@@ -252,6 +282,7 @@ export const readonlyNfmBlockNotePreviewSchema = BlockNoteSchema.create({
     ...defaultInlineContentSpecs,
     attachment: createReadonlyAttachmentInlineContentSpec(),
     agentConfig: createReadonlyAgentConfigInlineContentSpec(),
+    threadMention: createReadonlyThreadMentionInlineContentSpec(),
   },
   styleSpecs: defaultStyleSpecs,
 });

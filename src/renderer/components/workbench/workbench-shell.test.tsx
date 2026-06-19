@@ -362,6 +362,10 @@ mock.module("./workbench-terminal-panel", () => ({
 }));
 
 mock.module("@/features/local-conversation", () => ({
+  useDefaultCodexAppServerManager: () => ({
+    readProjectThreadSummaries: () => [],
+    loadThreads: async () => [],
+  }),
   ThreadSummaryPanelHeaderAction: (props: {
     mode: "hidden" | "pinned" | "popover";
     onPopoverOpenChange?: (open: boolean) => void;

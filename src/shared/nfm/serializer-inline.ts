@@ -40,6 +40,10 @@ function serializeItem(item: NfmInlineContent): string {
     return attrs.length > 0 ? `<agent-config ${attrs.join(" ")} />` : "<agent-config />";
   }
 
+  if (item.type === "threadMention") {
+    return `<mention-thread uuid="${escapeXmlAttr(item.uuid)}" />`;
+  }
+
   if (item.type === "link") {
     const inner = applyStyles(escapeNfm(item.text), item.styles);
     return `[${inner}](${item.href})`;

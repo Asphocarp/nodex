@@ -7,6 +7,7 @@ import {
   getNfmSlashMenuCustomItems,
   NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS,
   NfmSuggestionMenuSurface,
+  resolveThreadMentionSubtext,
   resolveNfmSuggestionHint,
   scrollElementIntoContainerView,
 } from "./nfm-slash-menu";
@@ -15,6 +16,7 @@ import {
   NFM_SUGGESTION_MENU_Z_INDEX,
 } from "./nfm-blocknote-floating-ui";
 import type { DefaultReactSuggestionItem } from "@blocknote/react";
+import type { CodexThreadSummary, Project } from "@/lib/types";
 
 function makeItems(): DefaultReactSuggestionItem[] {
   return [
@@ -76,7 +78,51 @@ function defineClientHeight(element: HTMLElement, value: number) {
   });
 }
 
+function createMentionThread(overrides: Partial<CodexThreadSummary> = {}): CodexThreadSummary {
+  return {
+    threadId: "019-thread",
+    projectId: "project-1",
+    cardId: "card-1",
+    source: null,
+    threadName: "Thread title",
+    threadPreview: "",
+    modelProvider: "openai",
+    cwd: "/tmp/project",
+    statusType: "idle",
+    statusActiveFlags: [],
+    archived: false,
+    createdAt: 1,
+    updatedAt: 2,
+    linkedAt: "2026-06-20T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function createMentionProject(): Project {
+  return {
+    id: "project-1",
+    name: "Alpha",
+    description: "",
+    sources: [],
+    primaryWorkspaceRoot: null,
+    pinned: false,
+    pinnedOrder: null,
+    created: new Date("2026-06-20T00:00:00.000Z"),
+    updated: new Date("2026-06-20T00:00:00.000Z"),
+  };
+}
+
 describe("NfmSlashMenu", () => {
+  test("thread mention subtext suppresses default idle labels but keeps actionable states", () => {
+    const project = createMentionProject();
+
+    expect(resolveThreadMentionSubtext(createMentionThread(), project)).toBe("Alpha / 019-thread");
+    expect(resolveThreadMentionSubtext(createMentionThread({
+      statusType: "active",
+      statusActiveFlags: ["waitingOnUserInput"],
+    }), project)).toBe("Alpha / Waiting / 019-thread");
+  });
+
   test("agent config item inserts a plan-mode chip", () => {
     let insertedContent: unknown[] | null = null;
     let insertedUpdateSelection: boolean | null = null;

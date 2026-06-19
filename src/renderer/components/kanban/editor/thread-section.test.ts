@@ -195,6 +195,36 @@ describe("thread-section helpers", () => {
     expect(serializeThreadSectionPrompt(promptBlocks)).toBe("before [Attachment: report.txt] after");
   });
 
+  test("serializes thread mentions as text without prompt mentions", () => {
+    const blocks = [
+      createBlock({ id: "section-1", type: "threadSection" }),
+      createBlock({
+        id: "body-1",
+        type: "paragraph",
+        content: [
+          { type: "text", text: "see ", styles: {} },
+          {
+            type: "threadMention",
+            props: {
+              uuid: "019-thread",
+            },
+          },
+          { type: "text", text: " before send", styles: {} },
+        ],
+      }),
+    ];
+
+    const section = resolveThreadSectionForBlock(blocks, "body-1");
+    const promptBlocks = section
+      ? deriveThreadSectionPromptBlocks(section)
+      : [];
+    const promptInput = buildThreadSectionPromptInput(promptBlocks);
+
+    expect(serializeThreadSectionPrompt(promptBlocks)).toBe("see [Thread: 019-thread] before send");
+    expect(promptInput.text).toBe("see [Thread: 019-thread] before send");
+    expect("mentions" in promptInput).toBeFalse();
+  });
+
   test("builds prompt input from image blocks and agent config chips", () => {
     const blocks = [
       createBlock({ id: "section-1", type: "threadSection" }),

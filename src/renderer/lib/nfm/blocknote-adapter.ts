@@ -253,6 +253,15 @@ function nfmInlineToBN(items: NfmInlineContent[]): BNInlineContent[] {
       };
     }
 
+    if (item.type === "threadMention") {
+      return {
+        type: "threadMention",
+        props: {
+          uuid: item.uuid,
+        },
+      };
+    }
+
     if (item.type === "link") {
       return {
         type: "link",
@@ -632,6 +641,14 @@ function bnInlineToNfm(content: BNInlineContent[] | undefined): NfmInlineContent
         ...(reasoning ? { reasoning } : {}),
         ...(unknownAttributes.length > 0 ? { unknownAttributes } : {}),
         ...(rawAttributes ? { rawAttributes } : {}),
+      });
+    } else if (item.type === "threadMention") {
+      const uuid = normalizeString(item.props?.uuid)?.trim();
+      if (!uuid) continue;
+
+      items.push({
+        type: "threadMention",
+        uuid,
       });
     } else if (item.type === "link") {
       // Link content is StyledText[]. Flatten to plain text + first style set.

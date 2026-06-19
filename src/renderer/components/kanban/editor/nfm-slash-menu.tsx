@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { filterSuggestionItems, insertOrUpdateBlockForSlashMenu } from "@blocknote/core/extensions";
 import {
   SuggestionMenuController,
@@ -18,13 +18,18 @@ import {
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { getDefaultToggleListInlineViewProps } from "@/lib/toggle-list/inline-view-props";
 import { useAllBoards } from "@/lib/use-all-boards";
+import type { CodexThreadSummary, Project } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { useProjects } from "@/lib/use-projects";
+import { useDefaultCodexAppServerManager } from "@/features/local-conversation";
 import {
   NFM_SUGGESTION_MENU_FLOATING_OPTIONS,
   NFM_SUGGESTION_MENU_PORTAL_ELEMENT,
   NFM_SUGGESTION_MENU_TOOLTIP_Z_INDEX,
 } from "./nfm-blocknote-floating-ui";
 import { createEmptyThreadSectionBlock } from "./thread-section";
+import { formatThreadMentionShortUuid } from "@/lib/nfm/thread-mention-display";
+import { CodexThreadIcon } from "@/components/shared/icons";
 
 interface NfmSlashMenuProps {
   projectId: string;
@@ -354,22 +359,84 @@ export function NfmSlashMenu({ projectId }: NfmSlashMenuProps) {
         {...NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS}
         suggestionMenuComponent={NfmSuggestionMenuSurface}
       />
-      <CardMentionMenu projectId={projectId} />
+      <MentionMenu projectId={projectId} />
     </>
   );
 }
 
 // ---------------------------------------------------------------------------
-// @ mention for card references
+// @ mention for cards and Codex threads
 // ---------------------------------------------------------------------------
 
-function CardMentionMenu({ projectId }: { projectId: string }) {
+function resolveThreadMentionTitle(thread: CodexThreadSummary): string {
+  const threadName = thread.threadName?.trim();
+  if (threadName) return threadName;
+
+  const firstPreviewLine = thread.threadPreview
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  return firstPreviewLine || formatThreadMentionShortUuid(thread.threadId);
+}
+
+export function resolveThreadMentionSubtext(thread: CodexThreadSummary, project: Project | null): string {
+  const projectLabel = project?.name?.trim() || project?.id || thread.projectId || "Unscoped";
+  const stateLabel = thread.archived
+    ? "Archived"
+    : thread.statusType === "systemError"
+      ? "Error"
+      : thread.statusActiveFlags.includes("waitingOnApproval")
+        ? "Needs approval"
+        : thread.statusActiveFlags.includes("waitingOnUserInput")
+        ? "Waiting"
+        : thread.statusType === "active"
+          ? "Running"
+          : "";
+  return [projectLabel, stateLabel, formatThreadMentionShortUuid(thread.threadId)]
+    .filter(Boolean)
+    .join(" / ");
+}
+
+function sortProjectsForMentions(projects: readonly Project[], currentProjectId: string): Project[] {
+  return [...projects].sort((a, b) => {
+    if (a.id === currentProjectId) return -1;
+    if (b.id === currentProjectId) return 1;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+function MentionMenu({ projectId }: { projectId: string }) {
   const editor = useBlockNoteEditor();
   const { boards } = useAllBoards();
+  const { projects } = useProjects();
+  const manager = useDefaultCodexAppServerManager();
+  const threadLoadPromisesRef = useRef<Map<string, Promise<CodexThreadSummary[]>>>(new Map());
+  const archivedThreadProjectsLoadedRef = useRef<Set<string>>(new Set());
+
+  const loadProjectThreads = useCallback((targetProjectId: string) => {
+    const cachedThreads = manager.readProjectThreadSummaries(targetProjectId);
+    if (archivedThreadProjectsLoadedRef.current.has(targetProjectId)) return Promise.resolve(cachedThreads);
+
+    const cacheKey = `${targetProjectId}:includeArchived`;
+    const existingPromise = threadLoadPromisesRef.current.get(cacheKey);
+    if (existingPromise) return existingPromise;
+
+    const loadPromise = manager.loadThreads(targetProjectId, { includeArchived: true })
+      .then((threads) => {
+        archivedThreadProjectsLoadedRef.current.add(targetProjectId);
+        return threads;
+      })
+      .finally(() => {
+        threadLoadPromisesRef.current.delete(cacheKey);
+      });
+    threadLoadPromisesRef.current.set(cacheKey, loadPromise);
+    return loadPromise;
+  }, [manager]);
 
   const getItems = useMemo(
     () => async (query: string) => {
-      const items: DefaultReactSuggestionItem[] = [];
+      const cardItems: DefaultReactSuggestionItem[] = [];
+      const threadItems: DefaultReactSuggestionItem[] = [];
 
       // Current project first, then others
       const sortedEntries = [...boards.entries()].sort(([a], [b]) => {
@@ -381,11 +448,11 @@ function CardMentionMenu({ projectId }: { projectId: string }) {
       for (const [projId, board] of sortedEntries) {
         for (const column of board.columns) {
           for (const card of column.cards) {
-            items.push({
+            cardItems.push({
               title: card.title || "Untitled",
               subtext: `${projId} / ${column.name}`,
               aliases: [],
-              group: projId,
+              group: `Cards / ${projId}`,
               badge: "@",
               icon: <Link2 size={16} />,
               onItemClick: () => {
@@ -399,9 +466,53 @@ function CardMentionMenu({ projectId }: { projectId: string }) {
         }
       }
 
-      return filterSuggestionItems(items, query);
+      const sortedProjects = sortProjectsForMentions(projects, projectId);
+      const projectThreadEntries = await Promise.all(
+        sortedProjects.map(async (project) => {
+          try {
+            return {
+              project,
+              threads: await loadProjectThreads(project.id),
+            };
+          } catch {
+            return {
+              project,
+              threads: manager.readProjectThreadSummaries(project.id),
+            };
+          }
+        }),
+      );
+
+      for (const { project, threads } of projectThreadEntries) {
+        const sortedThreads = [...threads].sort((a, b) => {
+          if (a.archived !== b.archived) return a.archived ? 1 : -1;
+          return b.updatedAt - a.updatedAt;
+        });
+
+        for (const thread of sortedThreads) {
+          threadItems.push({
+            title: resolveThreadMentionTitle(thread),
+            subtext: resolveThreadMentionSubtext(thread, project),
+            aliases: [thread.threadId, thread.threadName ?? "", thread.threadPreview],
+            group: project.id === projectId ? "Threads" : `Threads / ${project.name || project.id}`,
+            badge: "@thread",
+            icon: <CodexThreadIcon className="size-4" />,
+            onItemClick: () => {
+              insertInlineContent(editor, [
+                {
+                  type: "threadMention",
+                  props: { uuid: thread.threadId },
+                },
+                " ",
+              ]);
+            },
+          });
+        }
+      }
+
+      return filterSuggestionItems([...threadItems, ...cardItems], query);
     },
-    [boards, editor, projectId],
+    [boards, editor, loadProjectThreads, manager, projectId, projects],
   );
 
   return (

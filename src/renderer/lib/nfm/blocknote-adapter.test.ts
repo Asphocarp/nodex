@@ -404,6 +404,37 @@ describe("blocknote adapter", () => {
     expect(agentConfig?.props.reasoning).toBe("high");
   });
 
+  test("thread mention inline content round-trips between BlockNote and NFM", () => {
+    const threadMentionDoc = asDoc([
+      {
+        type: "paragraph",
+        props: {},
+        content: [
+          { type: "text", text: "See ", styles: {} },
+          {
+            type: "threadMention",
+            props: {
+              uuid: "019-thread",
+            },
+          },
+          { type: "text", text: " next", styles: {} },
+        ],
+        children: [],
+      },
+    ]);
+
+    const nfmBlocks = blockNoteToNfm(threadMentionDoc);
+    expect(nfmBlocks[0]?.type).toBe("paragraph");
+    if (nfmBlocks[0]?.type !== "paragraph") return;
+    expect(nfmBlocks[0].content[1]?.type).toBe("threadMention");
+    expect(serializeNfm(nfmBlocks)).toBe('See <mention-thread uuid="019-thread" /> next');
+
+    const reloaded = nfmToBlockNote(nfmBlocks);
+    const mention = Array.isArray(reloaded[0]?.content) ? reloaded[0]?.content[1] : undefined;
+    expect(mention?.type).toBe("threadMention");
+    expect(mention?.props.uuid).toBe("019-thread");
+  });
+
   test("empty agent config props serialize as omitted attributes", () => {
     const agentConfigDoc = asDoc([
       {

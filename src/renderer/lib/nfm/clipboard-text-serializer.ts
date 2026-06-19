@@ -227,6 +227,9 @@ function serializeInlinePlainText(items: NfmInlineContent[]): string {
         if (item.reasoning) attrs.push(`reasoning="${item.reasoning}"`);
         return attrs.length > 0 ? `<agent-config ${attrs.join(" ")} />` : "<agent-config />";
       }
+      if (item.type === "threadMention") {
+        return `[Thread: ${item.uuid}]`;
+      }
       if (item.type === "link") {
         const inner = applyStyleMarkers(item.text, item.styles);
         return `[${inner}](${item.href})`;

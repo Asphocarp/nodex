@@ -43,6 +43,11 @@ function collectInlineText(items: NfmInlineContent[], parts: string[]): void {
 
     if (item.type === "linebreak") {
       parts.push(" ");
+      continue;
+    }
+
+    if (item.type === "threadMention") {
+      parts.push(item.uuid);
     }
   }
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Info, MessageSquareText, Workflow } from "lucide-react";
+import { Info, Workflow } from "lucide-react";
+import { CodexThreadIcon } from "@/components/shared/icons";
 import { cn } from "@/lib/utils";
 import {
   Button,
@@ -80,7 +81,7 @@ export function ThreadSectionSendDialog({
         {/* Metadata — single flat card, internal divider */}
         <div className="overflow-hidden rounded-lg bg-token-foreground/4 ring-[0.5px] ring-token-foreground/9">
           <div className="flex items-center gap-2 px-3 py-2">
-            <MessageSquareText className="size-3.5 shrink-0 text-token-description-foreground" />
+            <CodexThreadIcon className="size-3.5 shrink-0 text-token-description-foreground" />
             <span className="text-xs font-medium uppercase tracking-[0.12em] text-token-description-foreground">Section</span>
             <span className="ml-auto truncate text-sm text-token-foreground">{state?.sectionTitle ?? "Untitled section"}</span>
           </div>

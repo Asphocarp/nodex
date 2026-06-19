@@ -82,6 +82,34 @@ describe("NFM code fences", () => {
     expect(serializeClipboardText(blocks)).toBe(nfm);
   });
 
+  test("thread mentions round-trip inline and copy as readable placeholders", () => {
+    const nfm = 'before <mention-thread uuid="019abc" /> and <mention-thread uuid="thread &amp; value" /> after';
+    const blocks = parseNfm(nfm);
+
+    expect(blocks[0]?.type).toBe("paragraph");
+    if (blocks[0]?.type !== "paragraph") return;
+
+    expect(blocks[0].content[1]?.type).toBe("threadMention");
+    if (blocks[0].content[1]?.type !== "threadMention") return;
+    expect(blocks[0].content[1].uuid).toBe("019abc");
+
+    expect(blocks[0].content[3]?.type).toBe("threadMention");
+    if (blocks[0].content[3]?.type !== "threadMention") return;
+    expect(blocks[0].content[3].uuid).toBe("thread & value");
+    expect(serializeNfm(blocks)).toBe(nfm);
+    expect(serializeClipboardText(blocks)).toBe("before [Thread: 019abc] and [Thread: thread & value] after");
+  });
+
+  test("missing or empty thread mention uuids remain plain text", () => {
+    const blocks = parseNfm('<mention-thread /> <mention-thread uuid="" />');
+
+    expect(blocks[0]?.type).toBe("paragraph");
+    if (blocks[0]?.type !== "paragraph") return;
+    expect(blocks[0].content.length).toBe(1);
+    expect(blocks[0].content[0]?.type).toBe("text");
+    expect(serializeNfm(blocks)).toBe("\\<mention-thread /\\> \\<mention-thread uuid=\"\" /\\>");
+  });
+
   test("ordered list markers round-trip exactly and plain-text copy preserves numbering", () => {
     const input = "1. first\n2. second\n3. third";
     const blocks = parseNfm(input);

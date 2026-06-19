@@ -140,6 +140,10 @@ import {
   type ThreadSectionLinkedThreadState,
   type ThreadSectionRuntimeValue,
 } from "./thread-section-runtime";
+import {
+  ThreadMentionRuntimeProvider,
+  type ThreadMentionRuntimeValue,
+} from "./thread-mention-chip";
 import { isBlockWithinOwnerTree } from "./use-projected-card-embed-sync";
 import type { CardStageDescriptionFlushHandle, CardStageLinkedThread } from "@/components/kanban/card-stage/types";
 import { invoke } from "@/lib/api";
@@ -492,10 +496,13 @@ export function NfmEditor({
   const [threadSectionThreadsByOwnerKey, setThreadSectionThreadsByOwnerKey] = useState<
     Record<string, Record<string, ThreadSectionLinkedThreadState>>
   >({});
+  const [threadMentionThreadsById, setThreadMentionThreadsById] = useState<Record<string, CodexThreadSummary>>({});
+  const [threadMentionResolvingIds, setThreadMentionResolvingIds] = useState<Set<string>>(() => new Set());
   const threadSectionLoadingOwnerKeysRef = useRef<Set<string>>(new Set());
   const threadSectionLoadingOwnerPromisesRef = useRef<
     Map<string, Promise<Record<string, ThreadSectionLinkedThreadState>>>
   >(new Map());
+  const threadMentionResolvePromisesRef = useRef<Map<string, Promise<CodexThreadSummary | null>>>(new Map());
   const searchInputRef = useRef<HTMLInputElement>(null);
   const suppressExternalDropRef = useRef(false);
   const suppressExternalContentSyncRef = useRef(false);
@@ -527,6 +534,26 @@ export function NfmEditor({
     ),
     [projectThreadSummaries, sourceCardContext?.cardId],
   );
+
+  const projectThreadSummaryMap = useMemo(
+    () => projectThreadSummaries.reduce<Record<string, CodexThreadSummary>>((acc, thread) => {
+      acc[thread.threadId] = thread;
+      return acc;
+    }, {}),
+    [projectThreadSummaries],
+  );
+
+  const threadMentionSummaryMap = useMemo(
+    () => ({
+      ...projectThreadSummaryMap,
+      ...threadMentionThreadsById,
+    }),
+    [projectThreadSummaryMap, threadMentionThreadsById],
+  );
+  const threadMentionSummaryMapRef = useRef(threadMentionSummaryMap);
+  useEffect(() => {
+    threadMentionSummaryMapRef.current = threadMentionSummaryMap;
+  }, [threadMentionSummaryMap]);
 
   const uploadFile = useCallback(
     async (file: File) => uploadImageAsset(file),
@@ -687,6 +714,61 @@ export function NfmEditor({
   const ensureThreadSectionOwnerThreadsLoaded = useCallback((ownerCardContext: ThreadSectionOwnerCardContext | null) => {
     void loadThreadSectionOwnerThreads(ownerCardContext);
   }, [loadThreadSectionOwnerThreads]);
+
+  const resolveThreadMention = useCallback(async (threadId: string): Promise<CodexThreadSummary | null> => {
+    const normalizedThreadId = threadId.trim();
+    if (!normalizedThreadId) return null;
+
+    const cached = threadMentionSummaryMapRef.current[normalizedThreadId];
+    if (cached) return cached;
+
+    const existingPromise = threadMentionResolvePromisesRef.current.get(normalizedThreadId);
+    if (existingPromise) return existingPromise;
+
+    setThreadMentionResolvingIds((current) => {
+      if (current.has(normalizedThreadId)) return current;
+      const next = new Set(current);
+      next.add(normalizedThreadId);
+      return next;
+    });
+
+    const resolvePromise = invoke("codex:thread:summary:get", normalizedThreadId)
+      .then((thread) => {
+        const summary = thread as CodexThreadSummary | null;
+        if (!summary) return null;
+
+        setThreadMentionThreadsById((current) => {
+          const existing = current[summary.threadId];
+          if (
+            existing
+            && existing.threadName === summary.threadName
+            && existing.threadPreview === summary.threadPreview
+            && existing.statusType === summary.statusType
+            && existing.archived === summary.archived
+            && existing.updatedAt === summary.updatedAt
+          ) {
+            return current;
+          }
+          return {
+            ...current,
+            [summary.threadId]: summary,
+          };
+        });
+        return summary;
+      })
+      .finally(() => {
+        threadMentionResolvePromisesRef.current.delete(normalizedThreadId);
+        setThreadMentionResolvingIds((current) => {
+          if (!current.has(normalizedThreadId)) return current;
+          const next = new Set(current);
+          next.delete(normalizedThreadId);
+          return next;
+        });
+      });
+
+    threadMentionResolvePromisesRef.current.set(normalizedThreadId, resolvePromise);
+    return resolvePromise;
+  }, []);
 
   const syncSearchStats = useCallback(() => {
     if (!editor) return;
@@ -2368,6 +2450,24 @@ export function NfmEditor({
     ],
   );
 
+  const openThreadMention = useCallback((threadId: string) => {
+    if (!onOpenCodexThread) return;
+    void onOpenCodexThread(threadId);
+  }, [onOpenCodexThread]);
+
+  const threadMentionRuntimeValue = useMemo<ThreadMentionRuntimeValue>(() => ({
+    threads: threadMentionSummaryMap,
+    resolvingIds: threadMentionResolvingIds,
+    resolveThread: resolveThreadMention,
+    ...(onOpenCodexThread ? { openThread: openThreadMention } : {}),
+  }), [
+    onOpenCodexThread,
+    openThreadMention,
+    resolveThreadMention,
+    threadMentionResolvingIds,
+    threadMentionSummaryMap,
+  ]);
+
   const activeMatchLabel =
     searchMatchCount === 0
       ? "0 of 0"
@@ -2487,45 +2587,47 @@ export function NfmEditor({
         </div>
       )}
       <ThreadSectionRuntimeProvider value={threadSectionRuntimeValue}>
-        <NfmEditorContextMenu editor={editor}>
-          <NfmTextActionMenuRuntimeProvider value={textActionMenuRuntimeValue}>
-            <NfmSideMenuRuntimeProvider value={sideMenuRuntimeValue}>
-              <BlockNoteView
-                editor={editor}
-                onChange={handleChange}
-                theme={themeMode}
-                formattingToolbar={false}
-                linkToolbar={false}
-                slashMenu={false}
-                sideMenu={false}
-                data-theming-css-variables-demo
-              >
-                <NfmSideMenuOpenProvider>
-                  <NfmSideMenuShortcutController />
-                  <SideMenuController
-                    sideMenu={customSideMenu}
-                    floatingUIOptions={sideMenuFloatingOptions}
-                  />
-                  <NfmFormattingToolbarController
-                    formattingToolbar={NfmFormattingToolbar}
-                  />
-                  <NfmLinkToolbarController
-                    linkToolbar={renderLinkToolbar}
-                    floatingUIOptions={{
-                      useTransitionStylesProps: {
-                        duration: 0,
-                      },
-                      useTransitionStatusProps: {
-                        duration: 0,
-                      },
-                    }}
-                  />
-                  <NfmSlashMenu projectId={projectId} />
-                </NfmSideMenuOpenProvider>
-              </BlockNoteView>
-            </NfmSideMenuRuntimeProvider>
-          </NfmTextActionMenuRuntimeProvider>
-        </NfmEditorContextMenu>
+        <ThreadMentionRuntimeProvider value={threadMentionRuntimeValue}>
+          <NfmEditorContextMenu editor={editor}>
+            <NfmTextActionMenuRuntimeProvider value={textActionMenuRuntimeValue}>
+              <NfmSideMenuRuntimeProvider value={sideMenuRuntimeValue}>
+                <BlockNoteView
+                  editor={editor}
+                  onChange={handleChange}
+                  theme={themeMode}
+                  formattingToolbar={false}
+                  linkToolbar={false}
+                  slashMenu={false}
+                  sideMenu={false}
+                  data-theming-css-variables-demo
+                >
+                  <NfmSideMenuOpenProvider>
+                    <NfmSideMenuShortcutController />
+                    <SideMenuController
+                      sideMenu={customSideMenu}
+                      floatingUIOptions={sideMenuFloatingOptions}
+                    />
+                    <NfmFormattingToolbarController
+                      formattingToolbar={NfmFormattingToolbar}
+                    />
+                    <NfmLinkToolbarController
+                      linkToolbar={renderLinkToolbar}
+                      floatingUIOptions={{
+                        useTransitionStylesProps: {
+                          duration: 0,
+                        },
+                        useTransitionStatusProps: {
+                          duration: 0,
+                        },
+                      }}
+                    />
+                    <NfmSlashMenu projectId={projectId} />
+                  </NfmSideMenuOpenProvider>
+                </BlockNoteView>
+              </NfmSideMenuRuntimeProvider>
+            </NfmTextActionMenuRuntimeProvider>
+          </NfmEditorContextMenu>
+        </ThreadMentionRuntimeProvider>
       </ThreadSectionRuntimeProvider>
       {activeChipEdit && (
         <ChipPropertyEditor
