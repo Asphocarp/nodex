@@ -20,7 +20,10 @@ The `Card in` row inside the side-menu `Turn into` submenu uses the same popover
   - `DB`
   - `Card`
 - `DB` rows represent projects and are disclosure rows only. Clicking a DB row expands or collapses its column/status children.
+- DB rows use the sidebar project folder icon when a project has no custom emoji icon.
 - DB column/status child rows are the selectable DB destinations.
+- DB column/status rows use the same status icons as kanban columns.
+- DB column/status icons are indented to the right of their parent DB icon so the tree preserves a clear visual parent-child relationship.
 - `Card` rows are selectable card destinations and show the owning DB and column as secondary metadata.
 - The source card is excluded from card results.
 - Loading shows only after a short delay. Empty results show `No results`. Loading or submit failures show `Something went wrong`.

@@ -1,5 +1,4 @@
 import {
-  Database,
   FileText,
   Search,
 } from "lucide-react";
@@ -15,10 +14,12 @@ import {
   type ReactNode,
 } from "react";
 import {
+  CodexFolderIcon,
   NfmSideMenuChevronRightIcon,
   SpinnerIcon,
 } from "@/components/shared/icons";
 import { normalizeProjectIcon } from "@/lib/project-icon";
+import { StatusIcon } from "@/lib/status-chip";
 import type { BoardSummary, Project } from "@/lib/types";
 import { useAllBoards } from "@/lib/use-all-boards";
 import { cn } from "@/lib/utils";
@@ -55,6 +56,17 @@ export interface NfmMoveToMenuSurfaceProps extends NfmMoveToMenuProps {
 
 const MOVE_TO_MENU_LOAD_DELAY_MS = 400;
 const MOVE_TO_MENU_ERROR = "Something went wrong";
+const MOVE_TO_ROW_BASE_PADDING_X = 6;
+const MOVE_TO_ROW_DISCLOSURE_SLOT_WIDTH = 20;
+const MOVE_TO_ROW_GAP = 6;
+const MOVE_TO_ROW_PROJECT_ICON_SLOT_WIDTH = 22;
+const MOVE_TO_ROW_COLUMN_ICON_SLOT_WIDTH = 18;
+const MOVE_TO_ROW_COLUMN_PADDING_LEFT =
+  MOVE_TO_ROW_BASE_PADDING_X
+  + MOVE_TO_ROW_DISCLOSURE_SLOT_WIDTH
+  + MOVE_TO_ROW_GAP
+  + MOVE_TO_ROW_PROJECT_ICON_SLOT_WIDTH
+  - MOVE_TO_ROW_COLUMN_ICON_SLOT_WIDTH;
 
 function getMoveToRowDomId(listboxId: string, index: number) {
   return `${listboxId}-option-${index}`;
@@ -84,21 +96,24 @@ function MoveToProjectIcon({
     );
   }
 
-  return <Database className={cn("size-4", className)} aria-hidden="true" />;
-}
-
-function MoveToColumnIcon() {
   return (
-    <span
-      aria-hidden="true"
-      className="size-2 rounded-full bg-token-foreground/35 ring-[3px] ring-token-foreground/5"
+    <CodexFolderIcon
+      className={cn("text-token-description-foreground", className)}
     />
   );
 }
 
 function MoveToRowIcon({ row }: { row: NfmMoveToRow }) {
   if (row.kind === "card") return <FileText className="size-4" aria-hidden="true" />;
-  if (row.kind === "db-column") return <MoveToColumnIcon />;
+  if (row.kind === "db-column") {
+    return (
+      <StatusIcon
+        statusId={row.columnId}
+        label={row.columnName}
+        className="size-4"
+      />
+    );
+  }
   return <MoveToProjectIcon projectIcon={row.projectIcon} />;
 }
 
@@ -172,7 +187,11 @@ function NfmMoveToResultRow({
         disabled ? "cursor-default opacity-55" : "cursor-interaction hover:bg-token-list-hover-background",
         focused && "bg-token-list-hover-background",
       )}
-      style={{ paddingLeft: row.kind === "db-column" ? 28 : 6 }}
+      style={{
+        paddingLeft: row.kind === "db-column"
+          ? MOVE_TO_ROW_COLUMN_PADDING_LEFT
+          : MOVE_TO_ROW_BASE_PADDING_X,
+      }}
       onPointerDown={keepEditorSelection}
       onPointerEnter={() => onFocusRowChange(row.id)}
       onClick={(event) => {
