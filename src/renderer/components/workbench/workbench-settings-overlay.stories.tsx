@@ -320,10 +320,14 @@ function SettingsRouteShellStory({
   initialPath,
   initialServiceTier = "standard",
   initialCommandKeybindingOverrides,
+  initialSettingsSearchQuery,
+  initialSettingsSearchHighlightIndex,
 }: {
   initialPath: string;
   initialServiceTier?: "standard" | "fast";
   initialCommandKeybindingOverrides?: CommandKeybindingOverrides;
+  initialSettingsSearchQuery?: string;
+  initialSettingsSearchHighlightIndex?: number;
 }) {
   const [path, setPath] = useState(initialPath);
   const [environmentSnapshots, setEnvironmentSnapshots] = useState<Record<string, WorktreeEnvironmentSettingsSnapshot>>({
@@ -417,6 +421,8 @@ function SettingsRouteShellStory({
       <SettingsRouteShell
         path={path}
         onPathChange={setPath}
+        initialSettingsSearchQuery={initialSettingsSearchQuery}
+        initialSettingsSearchHighlightIndex={initialSettingsSearchHighlightIndex}
         onBackToApp={() => {}}
         onRequestProjectPickerOpen={() => {}}
         projects={PROJECTS}
@@ -471,6 +477,47 @@ type Story = StoryObj<typeof meta>;
 
 export const General: Story = {
   render: () => <SettingsRouteShellStory initialPath={buildSettingsPath("general-settings")} />,
+};
+
+export const DefaultGroupedSidebar: Story = {
+  render: () => <SettingsRouteShellStory initialPath={buildSettingsPath("general-settings")} />,
+};
+
+export const SearchMultipleResults: Story = {
+  render: () => (
+    <SettingsRouteShellStory
+      initialPath={buildSettingsPath("general-settings")}
+      initialSettingsSearchQuery="settings"
+    />
+  ),
+};
+
+export const SearchNoResults: Story = {
+  render: () => (
+    <SettingsRouteShellStory
+      initialPath={buildSettingsPath("general-settings")}
+      initialSettingsSearchQuery="zzzzzz-unknown"
+    />
+  ),
+};
+
+export const SearchLongResultLabel: Story = {
+  render: () => (
+    <SettingsRouteShellStory
+      initialPath={buildSettingsPath("editor")}
+      initialSettingsSearchQuery="large paste description soft limit"
+    />
+  ),
+};
+
+export const SearchKeyboardHighlightedResult: Story = {
+  render: () => (
+    <SettingsRouteShellStory
+      initialPath={buildSettingsPath("general-settings")}
+      initialSettingsSearchQuery="settings"
+      initialSettingsSearchHighlightIndex={0}
+    />
+  ),
 };
 
 export const GeneralFastTier: Story = {

@@ -176,6 +176,8 @@
   - settings navigation is tab/section based, not a scrollspy over one long document
   - settings shell state is path/slug driven (`/settings/:section`) with redirect-to-default behavior for invalid section ids, and Settings should replace the workbench body instead of mounting as a modal dialog
   - the settings rail should stay a settings-specific adapter that reuses sidebar chrome/tokens without importing project/sidebar semantics such as project management, group actions, or resize handles
+  - settings search is renderer-local and section-index based: normalize searchable settings copy in `workbench-settings-search-catalog.ts`, keep dynamic terms hidden from visible result labels, and use the settings search/list-navigation helpers instead of command-palette ranking
+  - settings search rows should preserve the Codex row/input token contract (`h-token-button-composer`, `px-row-x`, `ps-8.5`, `data-list-navigation-item`, `bg-token-list-hover-background`)
   - settings sidebar vibrancy is owned by the same transparent Electron window material as the normal sidebar; individual settings sections should render only the `main-surface` content pane
   - when adjusting the rail, prefer the shared rail class family (`window-fx-sidebar-surface`, `px-row-x`, `py-row-y`, `icon-xs`, `icon-sm`, `bg-token-list-hover-background`) over local approximations
   - each settings section should render as its own page surface and own its own loading/empty/error state where needed

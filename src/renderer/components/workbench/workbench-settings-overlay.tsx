@@ -3,6 +3,7 @@ import {
   startTransition,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ComponentType,
@@ -1960,6 +1961,8 @@ export interface SettingsRouteShellProps {
   activeProjectId: string;
   initialLocalEnvironmentProjectId?: string | null;
   initialLocalEnvironmentConfigPath?: string | null;
+  initialSettingsSearchQuery?: string;
+  initialSettingsSearchHighlightIndex?: number;
   sidebarTopLevelSectionOrder: SidebarTopLevelSectionId[];
   sidebarTopLevelSections: SidebarTopLevelSectionsPrefs;
   onSidebarTopLevelSectionVisibleChange: (sectionId: SidebarTopLevelSectionId, visible: boolean) => void;
@@ -2610,6 +2613,8 @@ export function SettingsRouteShell({
   activeProjectId,
   initialLocalEnvironmentProjectId,
   initialLocalEnvironmentConfigPath,
+  initialSettingsSearchQuery,
+  initialSettingsSearchHighlightIndex,
   sidebarTopLevelSectionOrder,
   sidebarTopLevelSections,
   onSidebarTopLevelSectionVisibleChange,
@@ -2630,6 +2635,14 @@ export function SettingsRouteShell({
   const shellRef = useRef<HTMLDivElement>(null);
   const { activeSectionId, redirectPath, visibleSections } = resolveSettingsShellState(path);
   const activeSection = visibleSections.find((section) => section.id === activeSectionId) ?? null;
+  const settingsSearchContext = useMemo(() => {
+    const activeProject = projects.find((project) => project.id === activeProjectId) ?? null;
+
+    return {
+      activeProjectName: activeProject?.name ?? null,
+      projectNames: projects.map((project) => project.name),
+    };
+  }, [activeProjectId, projects]);
 
   useEffect(() => {
     if (!redirectPath) {
@@ -2676,6 +2689,9 @@ export function SettingsRouteShell({
         <SettingsSidebar
           activeSectionId={activeSectionId}
           sections={visibleSections}
+          searchContext={settingsSearchContext}
+          initialSearchQuery={initialSettingsSearchQuery}
+          initialHighlightedSearchIndex={initialSettingsSearchHighlightIndex}
           onBack={onBackToApp}
           onSelectSection={(sectionId) => {
             startTransition(() => {

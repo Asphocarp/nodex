@@ -2342,7 +2342,7 @@ describe("workbench session shell", () => {
     expect(routeShell !== null).toBeTrue();
     expect(screen.container.querySelector('[data-thread-stage="true"]')).toBe(null);
 
-    const settingsSidebar = screen.container.querySelector(".window-fx-sidebar-surface");
+    const settingsSidebar = screen.container.querySelector(".app-shell-left-panel");
     expect(settingsSidebar !== null).toBeTrue();
     expect(screen.container.querySelector('[data-testid="settings-route-shell"] .main-surface') !== null).toBeTrue();
 
