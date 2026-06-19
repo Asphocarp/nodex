@@ -68,12 +68,9 @@ describe("nfm text action menu model", () => {
       hasConvertDividerToThreadSection: true,
     });
 
-    expect(rows.length).toBe(4);
+    expect(rows.length).toBe(3);
     expect(rows[0]?.label).toBe("Send to chat");
-    expect(rows[1]?.mode).toBe("card");
-    expect(rows[1]?.label).toBe("Move to card");
-    expect(rows[2]?.mode).toBe("project");
-    expect(rows[2]?.label).toBe("Turn into cards");
-    expect(rows[3]?.label).toBe("Make thread section");
+    expect(rows[1]?.label).toBe("Move to");
+    expect(rows[2]?.label).toBe("Make thread section");
   });
 });

@@ -1,13 +1,85 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { fireEvent } from "@testing-library/react";
+import { fireEvent, waitFor } from "@testing-library/react";
 import { act } from "react";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
+import type { BoardSummary, CardSummary, Project } from "@/lib/types";
 import {
   TEXT_ACTION_RECENT_COLOR_STORAGE_KEY,
   writeTextActionRecentColors,
 } from "@/lib/text-action-color-recents";
 import { render, settleAsyncRender } from "@/test/dom";
+import { NfmMoveToMenuSurface } from "./nfm-move-to-menu";
+import type { NfmMoveToDestination } from "./nfm-move-to-menu-model";
 import { NfmTextActionMenuSurface, type NfmTextActionMenuSurfaceProps } from "./nfm-text-action-menu";
+
+const TEST_DATE = new Date("2026-01-01T00:00:00.000Z");
+
+function makeProject(id: string, name: string, icon?: string): Project {
+  return {
+    id,
+    name,
+    description: "",
+    icon,
+    sources: [],
+    primaryWorkspaceRoot: null,
+    pinned: false,
+    pinnedOrder: null,
+    created: TEST_DATE,
+    updated: TEST_DATE,
+  };
+}
+
+function makeCard(id: string, title: string, status: CardSummary["status"], order: number): CardSummary {
+  return {
+    id,
+    status,
+    archived: false,
+    title,
+    tags: [],
+    agentBlocked: false,
+    created: TEST_DATE,
+    order,
+    revision: 1,
+    descriptionPreview: "",
+    descriptionLength: 0,
+    hasDescription: false,
+  };
+}
+
+const MOVE_TO_PROJECTS = [
+  makeProject("default", "Default", "🔥"),
+  makeProject("renderer", "Renderer parity", "🧭"),
+];
+
+const MOVE_TO_BOARD_MAP = new Map<string, BoardSummary>([
+  [
+    "default",
+    {
+      columns: [
+        {
+          id: "draft",
+          name: "Draft",
+          cards: [
+            makeCard("source-card", "Source card", "draft", 0),
+            makeCard("target-card", "Target card", "draft", 1),
+          ],
+        },
+      ],
+    },
+  ],
+  [
+    "renderer",
+    {
+      columns: [
+        {
+          id: "backlog",
+          name: "Backlog",
+          cards: [makeCard("runtime", "Runtime polish", "backlog", 0)],
+        },
+      ],
+    },
+  ],
+]);
 
 function renderTextActionMenu(
   props?: Partial<NfmTextActionMenuSurfaceProps>,
@@ -19,6 +91,7 @@ function renderTextActionMenu(
     backgroundColors: [] as string[],
     clearFormat: 0,
     nodexRows: [] as string[],
+    moveDestinations: [] as NfmMoveToDestination[],
     convertDivider: 0,
   };
 
@@ -61,12 +134,13 @@ function renderTextActionMenu(
             enabled: true,
           },
           {
-            key: "append-blocks-to-card",
-            label: "Move to card",
+            key: "move-to",
+            label: "Move to",
             enabled: true,
-            mode: "card",
           },
         ]}
+        sourceProjectId="default"
+        sourceCardId="source-card"
         canConvertDividerToThreadSection={true}
         onSelectBlockType={(item) => {
           actions.blockTypes.push(item.key);
@@ -85,6 +159,9 @@ function renderTextActionMenu(
         }}
         onNodexRow={(row) => {
           actions.nodexRows.push(row.key);
+        }}
+        onMoveBlocksToDestination={(destination) => {
+          actions.moveDestinations.push(destination);
         }}
         onConvertDividerToThreadSection={() => {
           actions.convertDivider += 1;
@@ -165,6 +242,71 @@ describe("nfm text action menu surface", () => {
     expect(actions.nodexRows.join(",")).toBe("send-section-to-codex");
   });
 
+  test("opens the shared move-to popover and submits DB and Card destinations", async () => {
+    const { actions, view } = renderTextActionMenu({
+      renderMoveToMenu: (props) => (
+        <NfmMoveToMenuSurface
+          {...props}
+          projects={MOVE_TO_PROJECTS}
+          boardMap={MOVE_TO_BOARD_MAP}
+          loading={false}
+          loadError={null}
+        />
+      ),
+    });
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Move to" }));
+      await settleAsyncRender();
+    });
+
+    expect(Boolean(view.getByRole("combobox", { name: "Move blocks to" }))).toBeTrue();
+    expect(Boolean(view.getByText("DB"))).toBeTrue();
+    expect(Boolean(view.getByText("Card"))).toBeTrue();
+    expect(view.queryByText("Move to card") === null).toBeTrue();
+    expect(view.queryByText("Turn into cards") === null).toBeTrue();
+    expect(view.queryByText("Source card") === null).toBeTrue();
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("option", { name: "Renderer parity" }));
+      await settleAsyncRender();
+    });
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("option", { name: "Backlog Renderer parity" }));
+      await settleAsyncRender();
+    });
+
+    await waitFor(() => {
+      expect(actions.moveDestinations.length).toBe(1);
+    });
+    expect(actions.moveDestinations[0]?.kind).toBe("db-column");
+    expect(actions.moveDestinations[0]?.projectId).toBe("renderer");
+    expect(actions.moveDestinations[0]?.columnId).toBe("backlog");
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Move to" }));
+      await settleAsyncRender();
+    });
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("option", { name: "Target card Default / Draft" }));
+      await settleAsyncRender();
+    });
+
+    await waitFor(() => {
+      expect(actions.moveDestinations.length).toBe(2);
+    });
+    const cardDestination = actions.moveDestinations[1];
+    expect(cardDestination?.kind).toBe("card");
+    if (cardDestination?.kind !== "card") {
+      throw new Error("expected card destination");
+    }
+    expect(cardDestination.projectId).toBe("default");
+    expect(cardDestination.columnId).toBe("draft");
+    expect(cardDestination.cardId).toBe("target-card");
+  });
+
   test("shows hover tooltips for icon-only formatting buttons", async () => {
     const { view } = renderTextActionMenu();
 
@@ -196,10 +338,9 @@ describe("nfm text action menu surface", () => {
     const { view } = renderTextActionMenu({
       nodexRows: [
         {
-          key: "append-blocks-to-card",
+          key: "move-to",
           label: longLabel,
           enabled: true,
-          mode: "card",
         },
       ],
     });

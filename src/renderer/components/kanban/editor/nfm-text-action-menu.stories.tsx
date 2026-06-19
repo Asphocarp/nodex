@@ -1,8 +1,79 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { TextActionLinkIcon } from "@/components/shared/icons";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
+import type { BoardSummary, CardSummary, Project } from "@/lib/types";
 import { writeTextActionRecentColors } from "@/lib/text-action-color-recents";
+import { NfmMoveToMenuSurface } from "./nfm-move-to-menu";
 import { NfmTextActionMenuSurface, type NfmTextActionMenuSurfaceProps } from "./nfm-text-action-menu";
+
+const STORY_DATE = new Date("2026-01-01T00:00:00.000Z");
+
+function makeStoryProject(id: string, name: string, icon?: string): Project {
+  return {
+    id,
+    name,
+    description: "",
+    icon,
+    sources: [],
+    primaryWorkspaceRoot: null,
+    pinned: false,
+    pinnedOrder: null,
+    created: STORY_DATE,
+    updated: STORY_DATE,
+  };
+}
+
+function makeStoryCard(id: string, title: string, status: CardSummary["status"], order: number): CardSummary {
+  return {
+    id,
+    status,
+    archived: false,
+    title,
+    tags: [],
+    agentBlocked: false,
+    created: STORY_DATE,
+    order,
+    revision: 1,
+    descriptionPreview: "",
+    descriptionLength: 0,
+    hasDescription: false,
+  };
+}
+
+const STORY_MOVE_TO_PROJECTS = [
+  makeStoryProject("default", "Default", "🔥"),
+  makeStoryProject("renderer", "Renderer parity", "🧭"),
+];
+
+const STORY_MOVE_TO_BOARD_MAP = new Map<string, BoardSummary>([
+  [
+    "default",
+    {
+      columns: [
+        {
+          id: "draft",
+          name: "Draft",
+          cards: [
+            makeStoryCard("source-card", "Source card", "draft", 0),
+            makeStoryCard("target-card", "Target card", "draft", 1),
+          ],
+        },
+      ],
+    },
+  ],
+  [
+    "renderer",
+    {
+      columns: [
+        {
+          id: "backlog",
+          name: "Backlog",
+          cards: [makeStoryCard("runtime", "Runtime polish", "backlog", 0)],
+        },
+      ],
+    },
+  ],
+]);
 
 function TextActionMenuStorySurface(
   props: Partial<NfmTextActionMenuSurfaceProps>,
@@ -56,6 +127,8 @@ function TextActionMenuStorySurface(
             </button>
           )}
           nodexRows={[]}
+          sourceProjectId={null}
+          sourceCardId={null}
           canConvertDividerToThreadSection={false}
           onSelectBlockType={() => undefined}
           onToggleStyle={() => undefined}
@@ -63,6 +136,7 @@ function TextActionMenuStorySurface(
           onSetBackgroundColor={() => undefined}
           onClearFormat={() => undefined}
           onNodexRow={() => undefined}
+          onMoveBlocksToDestination={() => undefined}
           onConvertDividerToThreadSection={() => undefined}
           {...props}
         />
@@ -138,18 +212,22 @@ export const WithNodexActions: Story = {
         enabled: true,
       },
       {
-        key: "append-blocks-to-card",
-        label: "Move to card",
+        key: "move-to",
+        label: "Move to",
         enabled: true,
-        mode: "card",
-      },
-      {
-        key: "turn-blocks-into-cards",
-        label: "Turn into cards",
-        enabled: true,
-        mode: "project",
       },
     ],
+    sourceProjectId: "default",
+    sourceCardId: "source-card",
+    renderMoveToMenu: (props) => (
+      <NfmMoveToMenuSurface
+        {...props}
+        projects={STORY_MOVE_TO_PROJECTS}
+        boardMap={STORY_MOVE_TO_BOARD_MAP}
+        loading={false}
+        loadError={null}
+      />
+    ),
   },
 };
 

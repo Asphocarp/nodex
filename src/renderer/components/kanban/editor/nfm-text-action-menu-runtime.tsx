@@ -1,9 +1,14 @@
 import { createContext, useContext, type ReactNode } from "react";
-import type { SendBlocksMode } from "./nfm-drag-handle-menu";
+import type { NfmMoveToDestination } from "./nfm-move-to-menu-model";
 
 export interface NfmTextActionMenuRuntimeValue {
   canSendBlocks: boolean;
-  onSendBlocks?: (mode: SendBlocksMode, fallbackBlockId: string) => void;
+  sourceProjectId?: string | null;
+  sourceCardId?: string | null;
+  onMoveBlocksToDestination?: (
+    destination: NfmMoveToDestination,
+    fallbackBlockId: string,
+  ) => Promise<void> | void;
   onSendThreadSection?: (blockId: string) => boolean;
   onConvertDividerToThreadSection?: (blockId: string) => void;
 }

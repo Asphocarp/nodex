@@ -2407,14 +2407,17 @@ export function NfmEditor({
   const textActionMenuRuntimeValue = useMemo(
     () => ({
       canSendBlocks: sourceCardContext !== undefined,
-      onSendBlocks: openSendBlocksDialog,
+      sourceProjectId: sourceCardContext ? projectId : null,
+      sourceCardId: sourceCardContext?.cardId ?? null,
+      onMoveBlocksToDestination: moveBlocksToDestination,
       onSendThreadSection: handleSendThreadSectionByBlockId,
       onConvertDividerToThreadSection: handleConvertDividerToThreadSection,
     }),
     [
       handleConvertDividerToThreadSection,
       handleSendThreadSectionByBlockId,
-      openSendBlocksDialog,
+      moveBlocksToDestination,
+      projectId,
       sourceCardContext,
     ],
   );

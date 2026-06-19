@@ -49,6 +49,11 @@ import {
   NodexDropdownContent,
   NodexDropdownItem,
 } from "@/components/ui/dropdown";
+import {
+  NodexPopover,
+  NodexPopoverAnchor,
+  NodexPopoverContent,
+} from "@/components/ui/popover";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import {
   readTextActionRecentColors,
@@ -71,7 +76,8 @@ import {
   NfmCreateLinkButton,
   type NfmCreateLinkTriggerProps,
 } from "./nfm-link-toolbar";
-import type { SendBlocksMode } from "./nfm-drag-handle-menu";
+import { NfmMoveToMenu } from "./nfm-move-to-menu";
+import type { NfmMoveToDestination, NfmMoveToResultScope } from "./nfm-move-to-menu-model";
 import {
   isBlockLevelSelection,
   resolveNodexTextActionRows,
@@ -108,6 +114,16 @@ interface TextActionMenuSnapshot {
   canClearFormat: boolean;
 }
 
+interface TextActionMoveToMenuRenderProps {
+  sourceProjectId: string | null;
+  sourceCardId: string | null;
+  onAccept: (destination: NfmMoveToDestination) => Promise<void> | void;
+  onClose: () => void;
+  resultScope?: NfmMoveToResultScope;
+  ariaLabel?: string;
+  placeholder?: string;
+}
+
 interface TextActionBlockSnapshot {
   id?: unknown;
   type?: string;
@@ -142,6 +158,8 @@ export interface NfmTextActionMenuSurfaceProps {
   canClearFormat: boolean;
   linkControl?: ReactNode;
   nodexRows: TextActionNodexRow[];
+  sourceProjectId?: string | null;
+  sourceCardId?: string | null;
   canConvertDividerToThreadSection: boolean;
   onSelectBlockType: (item: TextActionBlockTypeItem) => void;
   onToggleStyle: (style: TextActionBasicStyle) => void;
@@ -149,7 +167,9 @@ export interface NfmTextActionMenuSurfaceProps {
   onSetBackgroundColor: (color: TextActionColorValue) => void;
   onClearFormat: () => void;
   onNodexRow: (row: TextActionNodexRow) => void;
+  onMoveBlocksToDestination?: (destination: NfmMoveToDestination) => Promise<void> | void;
   onConvertDividerToThreadSection: () => void;
+  renderMoveToMenu?: (props: TextActionMoveToMenuRenderProps) => ReactNode;
 }
 
 const TEXT_ACTION_BLOCK_TYPE_DEFINITIONS = [
@@ -905,9 +925,6 @@ function TextActionMoreMenu({
           Block actions
         </NodexDropdownItem>
         <NodexDropdownItem disabled>
-          Move to
-        </NodexDropdownItem>
-        <NodexDropdownItem disabled>
           Duplicate
         </NodexDropdownItem>
       </TextActionMenuContent>
@@ -915,15 +932,32 @@ function TextActionMoreMenu({
   );
 }
 
-function TextActionSkillRow({
-  label,
-  disabled = true,
-  onClick,
-}: {
+type TextActionSkillRowProps = Omit<
+  ComponentPropsWithoutRef<"div">,
+  "children" | "className" | "onClick" | "onMouseDown"
+> & {
   label: string;
   disabled?: boolean;
+  rightSlot?: ReactNode;
+  hasPopup?: "dialog" | "menu";
+  expanded?: boolean;
   onClick?: () => void;
-}) {
+};
+
+const TextActionSkillRow = forwardRef<HTMLDivElement, TextActionSkillRowProps>(function TextActionSkillRow({
+  label,
+  disabled = true,
+  rightSlot,
+  hasPopup,
+  expanded,
+  onClick,
+  onPointerEnter,
+  onPointerLeave,
+  onFocus,
+  onBlur,
+  onKeyDown,
+  ...props
+}, forwardedRef) {
   const labelRef = useRef<HTMLSpanElement>(null);
   const [tooltipOpen, setTooltipOpen] = useState(false);
   const [labelOverflowing, setLabelOverflowing] = useState(false);
@@ -940,9 +974,13 @@ function TextActionSkillRow({
 
   const row = (
     <div
+      {...props}
+      ref={forwardedRef}
       role="button"
-      tabIndex={0}
+      tabIndex={props.tabIndex ?? 0}
       aria-disabled={disabled || undefined}
+      aria-haspopup={hasPopup}
+      aria-expanded={hasPopup ? Boolean(expanded) : undefined}
       contentEditable={false}
       className={cn(
         "group flex h-7 select-none items-center justify-start gap-1.5 rounded-[6px] px-2 whitespace-nowrap outline-hidden",
@@ -950,22 +988,37 @@ function TextActionSkillRow({
           ? "cursor-default text-token-text-secondary opacity-55"
           : "cursor-interaction text-token-foreground hover:bg-token-list-hover-background focus:bg-token-list-hover-background",
       )}
-      onPointerEnter={openTooltipIfOverflowing}
-      onPointerLeave={closeTooltip}
-      onFocus={openTooltipIfOverflowing}
-      onBlur={closeTooltip}
+      onPointerEnter={(event) => {
+        onPointerEnter?.(event);
+        openTooltipIfOverflowing();
+      }}
+      onPointerLeave={(event) => {
+        onPointerLeave?.(event);
+        closeTooltip();
+      }}
+      onFocus={(event) => {
+        onFocus?.(event);
+        openTooltipIfOverflowing();
+      }}
+      onBlur={(event) => {
+        onBlur?.(event);
+        closeTooltip();
+      }}
       onMouseDown={keepEditorSelection}
-      onClick={() => {
+      onClick={(event) => {
+        event.stopPropagation();
         if (disabled) return;
         onClick?.();
       }}
       onKeyDown={(event) => {
+        onKeyDown?.(event);
+        if (event.defaultPrevented) return;
         if (disabled || !onClick) return;
         activateOnKeyboard(event, onClick);
       }}
     >
       <span ref={labelRef} className="min-w-0 flex-1 truncate">{label}</span>
-      {disabled ? (
+      {rightSlot ?? (disabled ? (
         <span
           role="button"
           tabIndex={-1}
@@ -975,7 +1028,7 @@ function TextActionSkillRow({
         >
           <TextActionPencilSmallIcon className="size-4 text-token-text-secondary" />
         </span>
-      ) : null}
+      ) : null)}
     </div>
   );
 
@@ -997,12 +1050,98 @@ function TextActionSkillRow({
       {row}
     </NodexTooltip>
   );
+});
+
+function TextActionMoveToRow({
+  row,
+  sourceProjectId,
+  sourceCardId,
+  onMoveBlocksToDestination,
+  renderMoveToMenu,
+}: {
+  row: TextActionNodexRow;
+  sourceProjectId: string | null;
+  sourceCardId: string | null;
+  onMoveBlocksToDestination?: (destination: NfmMoveToDestination) => Promise<void> | void;
+  renderMoveToMenu?: (props: TextActionMoveToMenuRenderProps) => ReactNode;
+}) {
+  const rowRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const enabled = row.enabled && Boolean(onMoveBlocksToDestination);
+
+  const closeAndRestoreFocus = () => {
+    setOpen(false);
+    requestAnimationFrame(() => {
+      rowRef.current?.focus();
+    });
+  };
+
+  const menuProps: TextActionMoveToMenuRenderProps = {
+    sourceProjectId,
+    sourceCardId,
+    onAccept: async (destination) => {
+      if (!onMoveBlocksToDestination) return;
+      await onMoveBlocksToDestination(destination);
+      setOpen(false);
+    },
+    onClose: closeAndRestoreFocus,
+  };
+
+  return (
+    <NodexPopover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen && !enabled) return;
+        setOpen(nextOpen);
+      }}
+    >
+      <NodexPopoverAnchor asChild>
+        <TextActionSkillRow
+          ref={rowRef}
+          label={row.label}
+          disabled={!enabled}
+          hasPopup="dialog"
+          expanded={open}
+          rightSlot={enabled ? (
+            <ChevronRightIcon className="size-4 shrink-0 text-token-text-secondary" />
+          ) : undefined}
+          onClick={() => setOpen(true)}
+        />
+      </NodexPopoverAnchor>
+      <NodexPopoverContent
+        side="right"
+        align="start"
+        sideOffset={6}
+        alignOffset={-4}
+        aria-label="Move to"
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        className="w-[330px] max-w-[calc(100vw-24px)] overflow-hidden p-0 text-[14px] leading-[1.2] shadow-xl-spread backdrop-blur-xl"
+        style={{ width: 330 }}
+      >
+        {renderMoveToMenu?.(menuProps) ?? (
+          <NfmMoveToMenu {...menuProps} />
+        )}
+      </NodexPopoverContent>
+    </NodexPopover>
+  );
 }
 
 function TextActionAiPane({
   nodexRows,
+  sourceProjectId,
+  sourceCardId,
   onNodexRow,
-}: Pick<NfmTextActionMenuSurfaceProps, "nodexRows" | "onNodexRow">) {
+  onMoveBlocksToDestination,
+  renderMoveToMenu,
+}: Pick<
+  NfmTextActionMenuSurfaceProps,
+  | "nodexRows"
+  | "sourceProjectId"
+  | "sourceCardId"
+  | "onNodexRow"
+  | "onMoveBlocksToDestination"
+  | "renderMoveToMenu"
+>) {
   return (
     <div className="relative">
       <div className="max-h-[134px] overflow-y-auto py-1">
@@ -1011,14 +1150,29 @@ function TextActionAiPane({
             <div className="flex h-7 items-center px-2 text-[12px] text-token-text-secondary">
               Actions
             </div>
-            {nodexRows.map((row) => (
-              <TextActionSkillRow
-                key={row.key}
-                label={row.label}
-                disabled={!row.enabled}
-                onClick={() => onNodexRow(row)}
-              />
-            ))}
+            {nodexRows.map((row) => {
+              if (row.key === "move-to") {
+                return (
+                  <TextActionMoveToRow
+                    key={row.key}
+                    row={row}
+                    sourceProjectId={sourceProjectId ?? null}
+                    sourceCardId={sourceCardId ?? null}
+                    onMoveBlocksToDestination={onMoveBlocksToDestination}
+                    renderMoveToMenu={renderMoveToMenu}
+                  />
+                );
+              }
+
+              return (
+                <TextActionSkillRow
+                  key={row.key}
+                  label={row.label}
+                  disabled={!row.enabled}
+                  onClick={() => onNodexRow(row)}
+                />
+              );
+            })}
           </>
         ) : null}
         <div className="flex h-7 items-center px-2 text-[12px] text-token-text-secondary">
@@ -1069,6 +1223,8 @@ export function NfmTextActionMenuSurface({
   canClearFormat,
   linkControl,
   nodexRows,
+  sourceProjectId = null,
+  sourceCardId = null,
   canConvertDividerToThreadSection,
   onSelectBlockType,
   onToggleStyle,
@@ -1076,7 +1232,9 @@ export function NfmTextActionMenuSurface({
   onSetBackgroundColor,
   onClearFormat,
   onNodexRow,
+  onMoveBlocksToDestination,
   onConvertDividerToThreadSection,
+  renderMoveToMenu,
 }: NfmTextActionMenuSurfaceProps) {
   return (
     <div className="pointer-events-none p-4" contentEditable={false}>
@@ -1189,7 +1347,14 @@ export function NfmTextActionMenuSurface({
         </div>
         <TextActionDivider compact />
 
-        <TextActionAiPane nodexRows={nodexRows} onNodexRow={onNodexRow} />
+        <TextActionAiPane
+          nodexRows={nodexRows}
+          sourceProjectId={sourceProjectId}
+          sourceCardId={sourceCardId}
+          onNodexRow={onNodexRow}
+          onMoveBlocksToDestination={onMoveBlocksToDestination}
+          renderMoveToMenu={renderMoveToMenu}
+        />
         <TextActionAiFooter />
       </div>
     </div>
@@ -1210,14 +1375,14 @@ export function NfmTextActionMenu({ fallback }: { fallback: ReactNode }) {
     () => resolveNodexTextActionRows({
       currentBlockId: snapshot.currentBlockId,
       currentBlockType: snapshot.currentBlockType,
-      canSendBlocks: runtime.canSendBlocks && Boolean(runtime.onSendBlocks),
+      canSendBlocks: runtime.canSendBlocks && Boolean(runtime.onMoveBlocksToDestination),
       hasSendThreadSection: Boolean(runtime.onSendThreadSection),
       hasConvertDividerToThreadSection: Boolean(runtime.onConvertDividerToThreadSection),
     }),
     [
       runtime.canSendBlocks,
       runtime.onConvertDividerToThreadSection,
-      runtime.onSendBlocks,
+      runtime.onMoveBlocksToDestination,
       runtime.onSendThreadSection,
       snapshot.currentBlockId,
       snapshot.currentBlockType,
@@ -1288,9 +1453,11 @@ export function NfmTextActionMenu({ fallback }: { fallback: ReactNode }) {
       return;
     }
 
-    if (row.mode) {
-      runtime.onSendBlocks?.(row.mode as SendBlocksMode, snapshot.currentBlockId);
-    }
+  };
+
+  const handleMoveBlocksToDestination = async (destination: NfmMoveToDestination) => {
+    if (!snapshot.currentBlockId) return;
+    await runtime.onMoveBlocksToDestination?.(destination, snapshot.currentBlockId);
   };
 
   const handleConvertDivider = () => {
@@ -1310,6 +1477,8 @@ export function NfmTextActionMenu({ fallback }: { fallback: ReactNode }) {
       canClearFormat={snapshot.canClearFormat}
       linkControl={<NfmCreateLinkButton renderTrigger={renderCreateLinkTrigger} />}
       nodexRows={nodexRows}
+      sourceProjectId={runtime.sourceProjectId ?? null}
+      sourceCardId={runtime.sourceCardId ?? null}
       canConvertDividerToThreadSection={
         snapshot.currentBlockType === "divider"
         && Boolean(runtime.onConvertDividerToThreadSection)
@@ -1320,6 +1489,7 @@ export function NfmTextActionMenu({ fallback }: { fallback: ReactNode }) {
       onSetBackgroundColor={setBackgroundColor}
       onClearFormat={clearFormat}
       onNodexRow={handleNodexRow}
+      onMoveBlocksToDestination={handleMoveBlocksToDestination}
       onConvertDividerToThreadSection={handleConvertDivider}
     />
   );

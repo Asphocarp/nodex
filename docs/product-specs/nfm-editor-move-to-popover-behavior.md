@@ -7,11 +7,14 @@ Last Updated: 2026-06-19
 
 The NFM side-menu `Move to` action opens a destination popover instead of a two-row submenu. The popover searches across DB destinations and card destinations in one surface while preserving move semantics for the selected NFM blocks.
 
+The expanded text-selection menu uses the same `Move to` destination popover in its Actions area. It replaces the older separate `Move to card` and `Turn into cards` text-selection actions with one destination picker.
+
 The `Card in` row inside the side-menu `Turn into` submenu uses the same popover interaction model, but it is scoped to DB destinations only. Its row label and page-in icon stay unchanged.
 
 ## UI
 
 - The popover is anchored to the `Move to` side-menu row and opens to the right.
+- In the text-selection menu, the popover is anchored to the `Move to` action row and opens to the right of the floating text action menu.
 - The search input is labeled `Move blocks to` and uses placeholder `Move blocks to…`.
 - Results render in this fixed order:
   - `DB`

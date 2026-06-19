@@ -1,4 +1,3 @@
-import type { SendBlocksMode } from "./nfm-drag-handle-menu";
 export {
   TEXT_ACTION_COLOR_VALUES,
   TEXT_ACTION_NOTION_COLOR_ORDER,
@@ -44,7 +43,6 @@ export interface TextActionNodexRow {
   key: string;
   label: string;
   enabled: boolean;
-  mode?: SendBlocksMode;
 }
 
 export function shouldUseTextActionMenu(input: TextActionMenuEligibilityInput): boolean {
@@ -81,16 +79,9 @@ export function resolveNodexTextActionRows(input: TextActionMenuRuntimeInput): T
 
   if (input.canSendBlocks) {
     rows.push({
-      key: "append-blocks-to-card",
-      label: "Move to card",
+      key: "move-to",
+      label: "Move to",
       enabled: true,
-      mode: "card",
-    });
-    rows.push({
-      key: "turn-blocks-into-cards",
-      label: "Turn into cards",
-      enabled: true,
-      mode: "project",
     });
   }
 
