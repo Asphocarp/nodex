@@ -1,15 +1,86 @@
 import { describe, expect, test } from "bun:test";
-import { fireEvent } from "@testing-library/react";
+import { fireEvent, waitFor } from "@testing-library/react";
 import { useMemo, useState } from "react";
 import { render } from "@/test/dom";
+import type { BoardSummary, CardSummary, Project } from "@/lib/types";
+import { NfmMoveToMenuSurface } from "./nfm-move-to-menu";
+import type { NfmMoveToDestination } from "./nfm-move-to-menu-model";
 import {
   buildNfmSideMenuSections,
   filterNfmSideMenuSections,
   flattenNfmSideMenuRows,
   type NfmSideMenuSubmenuKey,
-  type SendBlocksMode,
 } from "./nfm-side-menu-model";
 import { NfmSideMenuSurface } from "./nfm-side-menu";
+
+const TEST_DATE = new Date("2026-01-01T00:00:00.000Z");
+
+function makeProject(id: string, name: string, icon?: string): Project {
+  return {
+    id,
+    name,
+    description: "",
+    icon,
+    sources: [],
+    primaryWorkspaceRoot: null,
+    pinned: false,
+    pinnedOrder: null,
+    created: TEST_DATE,
+    updated: TEST_DATE,
+  };
+}
+
+function makeCard(id: string, title: string, status: CardSummary["status"], order: number): CardSummary {
+  return {
+    id,
+    status,
+    archived: false,
+    title,
+    tags: [],
+    agentBlocked: false,
+    created: TEST_DATE,
+    order,
+    revision: 1,
+    descriptionPreview: "",
+    descriptionLength: 0,
+    hasDescription: false,
+  };
+}
+
+const MOVE_TO_PROJECTS = [
+  makeProject("default", "Default", "🔥"),
+  makeProject("renderer", "Renderer parity", "🧭"),
+];
+
+const MOVE_TO_BOARD_MAP = new Map<string, BoardSummary>([
+  [
+    "default",
+    {
+      columns: [
+        {
+          id: "draft",
+          name: "Draft",
+          cards: [
+            makeCard("source-card", "Source card", "draft", 0),
+            makeCard("target-card", "Target card", "draft", 1),
+          ],
+        },
+      ],
+    },
+  ],
+  [
+    "renderer",
+    {
+      columns: [
+        {
+          id: "backlog",
+          name: "Backlog",
+          cards: [makeCard("runtime", "Runtime polish", "backlog", 0)],
+        },
+      ],
+    },
+  ],
+]);
 
 function renderSideMenuSurface({
   initialQuery = "",
@@ -59,6 +130,8 @@ function renderSideMenuSurface({
         canUseTextColor={true}
         canUseBackgroundColor={true}
         canSendBlocks={true}
+        sourceProjectId="default"
+        sourceCardId="source-card"
         textColor="default"
         backgroundColor="default"
         footerPrimary="Last edited locally"
@@ -90,7 +163,7 @@ function renderSideMenuSurface({
         }}
         onTurnInto={() => undefined}
         onColor={() => undefined}
-        onSendBlocks={() => undefined}
+        onMoveBlocksToDestination={() => undefined}
       />
     );
   };
@@ -100,9 +173,13 @@ function renderSideMenuSurface({
 }
 
 function StatefulSideMenuSurface({
-  onSendBlocks = () => undefined,
+  onMoveBlocksToDestination = () => undefined,
+  moveToLoading = false,
+  moveToError = null,
 }: {
-  onSendBlocks?: (mode: SendBlocksMode) => void;
+  onMoveBlocksToDestination?: (destination: NfmMoveToDestination) => Promise<void> | void;
+  moveToLoading?: boolean;
+  moveToError?: string | null;
 } = {}) {
   const [query, setQuery] = useState("");
   const [focusedIndex, setFocusedIndex] = useState(-1);
@@ -139,6 +216,8 @@ function StatefulSideMenuSurface({
       canUseTextColor={true}
       canUseBackgroundColor={true}
       canSendBlocks={true}
+      sourceProjectId="default"
+      sourceCardId="source-card"
       textColor="default"
       backgroundColor="default"
       footerPrimary="Last edited locally"
@@ -165,7 +244,16 @@ function StatefulSideMenuSurface({
       onSubmenuChange={setActiveSubmenu}
       onTurnInto={() => undefined}
       onColor={() => undefined}
-      onSendBlocks={onSendBlocks}
+      onMoveBlocksToDestination={onMoveBlocksToDestination}
+      renderMoveToMenu={(props) => (
+        <NfmMoveToMenuSurface
+          {...props}
+          projects={MOVE_TO_PROJECTS}
+          boardMap={MOVE_TO_BOARD_MAP}
+          loading={moveToLoading}
+          loadError={moveToError}
+        />
+      )}
     />
   );
 }
@@ -213,24 +301,73 @@ describe("nfm side menu surface", () => {
     expect(mainDialog.contains(submenuDialog)).toBeFalse();
   });
 
-  test("uses the Page in-style Card in row for moving blocks to the DB from Turn into", async () => {
+  test("opens a DB-only Card in picker from Turn into", async () => {
     const calls = {
-      sendModes: [] as SendBlocksMode[],
+      destinations: [] as NfmMoveToDestination[],
     };
-    const view = render(<StatefulSideMenuSurface onSendBlocks={(mode) => calls.sendModes.push(mode)} />);
+    const originalConsoleError = console.error;
+    const consoleErrors: string[] = [];
+    console.error = (...args: unknown[]) => {
+      consoleErrors.push(args.map(String).join(" "));
+    };
+    try {
+      const view = render(
+        <StatefulSideMenuSurface
+          onMoveBlocksToDestination={(destination) => {
+            calls.destinations.push(destination);
+          }}
+        />,
+      );
 
-    fireEvent.click(view.getByRole("option", { name: /Turn into/ }));
-    await view.findByRole("dialog", { name: "Turn into" });
-    fireEvent.click(view.getByRole("menuitem", { name: "Card in" }));
+      fireEvent.click(view.getByRole("option", { name: /Turn into/ }));
+      await view.findByRole("dialog", { name: "Turn into" });
+      fireEvent.pointerEnter(view.getByRole("menuitem", { name: "Card in" }));
 
-    expect(calls.sendModes[0]).toBe("project");
+      const cardInDialog = await view.findByRole("dialog", { name: "Card in" });
+      expect(cardInDialog.getAttribute("data-nfm-side-menu-submenu")).toBe("true");
+      expect(view.getByRole("combobox", { name: "Card in destination" })).not.toBeNull();
+      expect(view.getByPlaceholderText("Card in…")).not.toBeNull();
+      expect(view.getByText("DB")).not.toBeNull();
+      expect(view.queryByText("Card")).toBe(null);
+      expect(view.queryByText("Target card")).toBe(null);
+
+      const rendererDbRow = view
+        .getAllByRole("option", { name: /Renderer parity/ })
+        .find((row) => row.getAttribute("data-nfm-move-to-row-kind") === "db");
+      if (!rendererDbRow) throw new Error("Renderer DB row not found.");
+
+      fireEvent.click(rendererDbRow);
+      expect(calls.destinations.length).toBe(0);
+
+      const backlogColumnRow = view
+        .getAllByRole("option", { name: /Backlog/ })
+        .find((row) => row.getAttribute("data-nfm-move-to-row-kind") === "db-column");
+      if (!backlogColumnRow) throw new Error("Backlog column row not found.");
+
+      fireEvent.click(backlogColumnRow);
+
+      await waitFor(() => {
+        expect(calls.destinations[0]?.kind).toBe("db-column");
+        expect(calls.destinations[0]?.projectId).toBe("renderer");
+        expect(calls.destinations[0]?.columnId).toBe("backlog");
+      });
+      expect(consoleErrors.length).toBe(0);
+    } finally {
+      console.error = originalConsoleError;
+    }
   });
 
-  test("uses the reference Move to row for the real block move submenu", async () => {
+  test("opens the reference Move to popover with grouped DB and Card results", async () => {
     const calls = {
-      sendModes: [] as SendBlocksMode[],
+      destinations: [] as NfmMoveToDestination[],
     };
-    const view = render(<StatefulSideMenuSurface onSendBlocks={(mode) => calls.sendModes.push(mode)} />);
+    const view = render(
+      <StatefulSideMenuSurface
+        onMoveBlocksToDestination={(destination) => {
+          calls.destinations.push(destination);
+        }}
+      />,
+    );
     const mainDialog = view.getByRole("dialog", { name: "Block actions" });
 
     fireEvent.click(view.getByRole("option", { name: /Move to/ }));
@@ -238,9 +375,114 @@ describe("nfm side menu surface", () => {
     const submenuDialog = await view.findByRole("dialog", { name: "Move to" });
     expect(submenuDialog.getAttribute("data-nfm-side-menu-submenu")).toBe("true");
     expect(mainDialog.contains(submenuDialog)).toBeFalse();
+    expect(view.getByRole("combobox", { name: "Move blocks to" })).not.toBeNull();
+    expect(view.getByText("DB")).not.toBeNull();
+    expect(view.getByText("Card")).not.toBeNull();
+    expect(view.queryByText("Move to card")).toBe(null);
+    expect(view.queryByText("Move to DB")).toBe(null);
 
-    fireEvent.click(view.getByRole("menuitem", { name: "Move to card" }));
+    const rendererDbRow = view
+      .getAllByRole("option", { name: /Renderer parity/ })
+      .find((row) => row.getAttribute("data-nfm-move-to-row-kind") === "db");
+    if (!rendererDbRow) throw new Error("Renderer DB row not found.");
 
-    expect(calls.sendModes[0]).toBe("card");
+    fireEvent.click(rendererDbRow);
+    expect(calls.destinations.length).toBe(0);
+
+    const backlogColumnRow = view
+      .getAllByRole("option", { name: /Backlog/ })
+      .find((row) => row.getAttribute("data-nfm-move-to-row-kind") === "db-column");
+    if (!backlogColumnRow) throw new Error("Backlog column row not found.");
+
+    fireEvent.click(backlogColumnRow);
+
+    await waitFor(() => {
+      expect(calls.destinations[0]?.kind).toBe("db-column");
+      expect(calls.destinations[0]?.projectId).toBe("renderer");
+      expect(calls.destinations[0]?.columnId).toBe("backlog");
+    });
+  });
+
+  test("accepts card search results from the Move to popover", async () => {
+    const calls = {
+      destinations: [] as NfmMoveToDestination[],
+    };
+    const view = render(
+      <StatefulSideMenuSurface
+        onMoveBlocksToDestination={(destination) => {
+          calls.destinations.push(destination);
+        }}
+      />,
+    );
+
+    fireEvent.click(view.getByRole("option", { name: /Move to/ }));
+    await view.findByRole("dialog", { name: "Move to" });
+    fireEvent.change(view.getByRole("combobox", { name: "Move blocks to" }), {
+      target: { value: "targt car" },
+    });
+
+    const targetCard = await waitFor(() => view.getByRole("option", { name: /Target card/ }));
+    fireEvent.click(targetCard);
+
+    await waitFor(() => {
+      const destination = calls.destinations[0];
+      if (!destination || destination.kind !== "card") {
+        throw new Error("Card destination was not accepted.");
+      }
+      expect(destination.projectId).toBe("default");
+      expect(destination.columnId).toBe("draft");
+      expect(destination.cardId).toBe("target-card");
+    });
+  });
+
+  test("renders Move to loading, empty, and error states", async () => {
+    const loadingView = render(
+      <NfmMoveToMenuSurface
+        projects={MOVE_TO_PROJECTS}
+        boardMap={MOVE_TO_BOARD_MAP}
+        sourceProjectId="default"
+        sourceCardId="source-card"
+        loading={true}
+        loadError={null}
+        onAccept={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(loadingView.getByText("Loading…")).not.toBeNull();
+    }, { timeout: 650 });
+    loadingView.unmount();
+
+    const emptyView = render(
+      <NfmMoveToMenuSurface
+        projects={MOVE_TO_PROJECTS}
+        boardMap={MOVE_TO_BOARD_MAP}
+        sourceProjectId="default"
+        sourceCardId="source-card"
+        loading={false}
+        loadError={null}
+        initialQuery="zzzz"
+        onAccept={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+
+    expect(emptyView.getByText("No results")).not.toBeNull();
+    emptyView.unmount();
+
+    const errorView = render(
+      <NfmMoveToMenuSurface
+        projects={MOVE_TO_PROJECTS}
+        boardMap={MOVE_TO_BOARD_MAP}
+        sourceProjectId="default"
+        sourceCardId="source-card"
+        loading={false}
+        loadError="Something went wrong"
+        onAccept={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+    expect(errorView.getByText("Something went wrong")).not.toBeNull();
   });
 });

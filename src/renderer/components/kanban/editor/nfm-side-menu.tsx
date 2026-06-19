@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import {
   Fragment,
+  forwardRef,
   useCallback,
   useEffect,
   useId,
@@ -27,6 +28,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentPropsWithoutRef,
   type CSSProperties,
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
@@ -53,7 +55,6 @@ import {
   NfmSideMenuPageInIcon,
   NfmSideMenuPlayIcon,
   NfmSideMenuQuoteBlockIcon,
-  NfmSideMenuSendBlocksIcon,
   NfmSideMenuSuggestEditsIcon,
   NfmSideMenuTableHeaderIcon,
   NfmSideMenuTextBlockIcon,
@@ -66,6 +67,8 @@ import {
   NodexPopoverContent,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { NfmMoveToMenu } from "./nfm-move-to-menu";
+import type { NfmMoveToDestination, NfmMoveToResultScope } from "./nfm-move-to-menu-model";
 import {
   buildNfmSideMenuSections,
   filterNfmSideMenuSections,
@@ -78,7 +81,6 @@ import {
   type NfmSideMenuFlatRow,
   type NfmSideMenuSection,
   type NfmSideMenuSubmenuKey,
-  type SendBlocksMode,
 } from "./nfm-side-menu-model";
 import {
   computeNfmSideMenuPosition,
@@ -197,6 +199,8 @@ interface NfmSideMenuSurfaceProps {
   canUseTextColor: boolean;
   canUseBackgroundColor: boolean;
   canSendBlocks: boolean;
+  sourceProjectId: string | null;
+  sourceCardId: string | null;
   textColor: string;
   backgroundColor: string;
   footerPrimary: string;
@@ -210,7 +214,16 @@ interface NfmSideMenuSurfaceProps {
   onSubmenuChange: (submenu: NfmSideMenuSubmenuKey | null) => void;
   onTurnInto: (item: NfmSideMenuTurnIntoItem) => void;
   onColor: (kind: "text" | "background", color: NfmSideMenuColorValue) => void;
-  onSendBlocks: (mode: SendBlocksMode) => void;
+  onMoveBlocksToDestination: (destination: NfmMoveToDestination) => Promise<void> | void;
+  renderMoveToMenu?: (props: {
+    sourceProjectId: string | null;
+    sourceCardId: string | null;
+    onAccept: (destination: NfmMoveToDestination) => Promise<void> | void;
+    onClose: () => void;
+    resultScope?: NfmMoveToResultScope;
+    ariaLabel?: string;
+    placeholder?: string;
+  }) => ReactNode;
 }
 
 const SIDE_MENU_CLICK_TOLERANCE = 4;
@@ -594,6 +607,9 @@ function NfmSideMenuRow({
 
   if (row.kind !== "submenu" || !row.submenu || !submenuContent) return rowElement;
 
+  const submenuWidth = row.submenu === "move-to" ? 330 : 226;
+  const isMoveToSubmenu = row.submenu === "move-to";
+
   return (
     <NodexPopover
       open={activeSubmenu === row.submenu}
@@ -619,8 +635,13 @@ function NfmSideMenuRow({
         data-nfm-side-menu-submenu="true"
         onOpenAutoFocus={(event) => event.preventDefault()}
         onCloseAutoFocus={(event) => event.preventDefault()}
-        className="w-[226px] overflow-y-auto p-1 text-[14px] leading-[1.2] shadow-xl-spread backdrop-blur-xl"
-        style={{ width: 226 }}
+        className={cn(
+          "text-[14px] leading-[1.2] shadow-xl-spread backdrop-blur-xl",
+          isMoveToSubmenu
+            ? "w-[330px] max-w-[calc(100vw-24px)] overflow-hidden p-0"
+            : "w-[226px] overflow-y-auto p-1",
+        )}
+        style={{ width: submenuWidth }}
       >
         {submenuContent}
       </NodexPopoverContent>
@@ -703,34 +724,53 @@ function NfmSideMenuSectionView({
   );
 }
 
-function NfmSideMenuSubmenuRow({
-  children,
-  disabled = false,
-  selected = false,
-  onClick,
-  leftSlot,
-  rightSlot,
-}: {
+type NfmSideMenuSubmenuRowProps = Omit<
+  ComponentPropsWithoutRef<"div">,
+  "children" | "onClick" | "onPointerEnter"
+> & {
   children: ReactNode;
   disabled?: boolean;
   selected?: boolean;
   onClick?: () => void;
+  onPointerEnter?: () => void;
   leftSlot?: ReactNode;
   rightSlot?: ReactNode;
-}) {
+  ariaHaspopup?: "dialog";
+  ariaExpanded?: boolean;
+};
+
+const NfmSideMenuSubmenuRow = forwardRef<HTMLDivElement, NfmSideMenuSubmenuRowProps>(function NfmSideMenuSubmenuRow({
+  children,
+  disabled = false,
+  selected = false,
+  onClick,
+  onPointerEnter,
+  leftSlot,
+  rightSlot,
+  ariaHaspopup,
+  ariaExpanded,
+  className,
+  ...props
+}, forwardedRef) {
   return (
     <div
+      {...props}
+      ref={forwardedRef}
       role="menuitem"
       tabIndex={-1}
       aria-disabled={disabled || undefined}
       aria-current={selected ? "true" : undefined}
+      aria-haspopup={ariaHaspopup}
+      aria-expanded={ariaExpanded}
       className={cn(
         "flex h-7 select-none items-center gap-2 rounded-[7px] px-2 text-[14px] leading-7 outline-hidden",
         disabled
           ? "cursor-default text-token-text-secondary opacity-45"
           : "cursor-interaction text-token-foreground hover:bg-token-list-hover-background",
+        className,
       )}
       onPointerDown={keepEditorSelection}
+      onPointerEnter={onPointerEnter}
       onClick={(event) => {
         event.stopPropagation();
         if (disabled) return;
@@ -744,7 +784,7 @@ function NfmSideMenuSubmenuRow({
       {selected ? <CheckmarkIcon className="size-4 shrink-0" /> : rightSlot}
     </div>
   );
-}
+});
 
 function NfmSideMenuColorDot({
   color,
@@ -785,11 +825,14 @@ function NfmSideMenuSubmenu({
   canUseTextColor,
   canUseBackgroundColor,
   canSendBlocks,
+  sourceProjectId,
+  sourceCardId,
   textColor,
   backgroundColor,
   onTurnInto,
   onColor,
-  onSendBlocks,
+  onMoveBlocksToDestination,
+  renderMoveToMenu,
 }: Pick<
   NfmSideMenuSurfaceProps,
   | "turnIntoItems"
@@ -797,14 +840,35 @@ function NfmSideMenuSubmenu({
   | "canUseTextColor"
   | "canUseBackgroundColor"
   | "canSendBlocks"
+  | "sourceProjectId"
+  | "sourceCardId"
   | "textColor"
   | "backgroundColor"
   | "onTurnInto"
   | "onColor"
-  | "onSendBlocks"
+  | "onMoveBlocksToDestination"
+  | "renderMoveToMenu"
 > & {
   submenu: NfmSideMenuSubmenuKey;
 }) {
+  const cardInRowRef = useRef<HTMLDivElement>(null);
+  const [cardInOpen, setCardInOpen] = useState(false);
+  const closeCardInAndRestoreFocus = useCallback(() => {
+    setCardInOpen(false);
+    requestAnimationFrame(() => {
+      cardInRowRef.current?.focus();
+    });
+  }, []);
+  const cardInMenuProps = {
+    sourceProjectId,
+    sourceCardId,
+    onAccept: onMoveBlocksToDestination,
+    onClose: closeCardInAndRestoreFocus,
+    resultScope: "db-only" as const,
+    ariaLabel: "Card in destination",
+    placeholder: "Card in…",
+  };
+
   return (
     <>
       {submenu === "turn-into" ? (
@@ -815,19 +879,58 @@ function NfmSideMenuSubmenu({
               key={item.key}
               disabled={!item.enabled}
               leftSlot={getBlockTypeIcon(item)}
+              onPointerEnter={() => setCardInOpen(false)}
               onClick={() => onTurnInto(item)}
             >
               {item.label}
             </NfmSideMenuSubmenuRow>
           ))}
           <div className="mx-2 my-1 h-px bg-token-menu-border" />
-          <NfmSideMenuSubmenuRow
-            leftSlot={<NfmSideMenuPageInIcon />}
-            disabled={!canSendBlocks}
-            onClick={() => onSendBlocks("project")}
+          <NodexPopover
+            open={cardInOpen}
+            onOpenChange={(open) => {
+              if (open && canSendBlocks) {
+                setCardInOpen(true);
+                return;
+              }
+              setCardInOpen(false);
+            }}
           >
-            Card in
-          </NfmSideMenuSubmenuRow>
+            <NodexPopoverAnchor asChild>
+              <NfmSideMenuSubmenuRow
+                ref={cardInRowRef}
+                leftSlot={<NfmSideMenuPageInIcon />}
+                rightSlot={<NfmSideMenuChevronRightIcon className="text-token-description-foreground" />}
+                disabled={!canSendBlocks}
+                ariaHaspopup="dialog"
+                ariaExpanded={cardInOpen}
+                onPointerEnter={() => {
+                  if (canSendBlocks) setCardInOpen(true);
+                }}
+                onClick={() => {
+                  setCardInOpen(true);
+                }}
+              >
+                Card in
+              </NfmSideMenuSubmenuRow>
+            </NodexPopoverAnchor>
+            <NodexPopoverContent
+              side="right"
+              align="start"
+              sideOffset={6}
+              alignOffset={-4}
+              aria-label="Card in"
+              data-nfm-side-menu-submenu="true"
+              onOpenAutoFocus={(event) => event.preventDefault()}
+              onCloseAutoFocus={(event) => event.preventDefault()}
+              className="w-[330px] max-w-[calc(100vw-24px)] overflow-hidden p-0 text-[14px] leading-[1.2] shadow-xl-spread backdrop-blur-xl"
+              style={{ width: 330 }}
+            >
+              {renderMoveToMenu?.(cardInMenuProps) ?? (
+                <NfmMoveToMenu {...cardInMenuProps} />
+              )}
+            </NodexPopoverContent>
+          </NodexPopover>
         </div>
       ) : null}
       {submenu === "color" ? (
@@ -877,25 +980,6 @@ function NfmSideMenuSubmenu({
           ) : null}
         </div>
       ) : null}
-      {submenu === "move-to" ? (
-        <div role="menu" aria-label="Move to">
-          <div className="flex h-6 items-center px-2 text-[12px] text-token-description-foreground">Move to</div>
-          <NfmSideMenuSubmenuRow
-            leftSlot={<NfmSideMenuSendBlocksIcon />}
-            disabled={!canSendBlocks}
-            onClick={() => onSendBlocks("card")}
-          >
-            Move to card
-          </NfmSideMenuSubmenuRow>
-          <NfmSideMenuSubmenuRow
-            leftSlot={<NfmSideMenuSendBlocksIcon />}
-            disabled={!canSendBlocks}
-            onClick={() => onSendBlocks("project")}
-          >
-            Move to DB
-          </NfmSideMenuSubmenuRow>
-        </div>
-      ) : null}
     </>
   );
 }
@@ -913,6 +997,8 @@ export function NfmSideMenuSurface({
   canUseTextColor,
   canUseBackgroundColor,
   canSendBlocks,
+  sourceProjectId,
+  sourceCardId,
   textColor,
   backgroundColor,
   footerPrimary,
@@ -926,7 +1012,8 @@ export function NfmSideMenuSurface({
   onSubmenuChange,
   onTurnInto,
   onColor,
-  onSendBlocks,
+  onMoveBlocksToDestination,
+  renderMoveToMenu,
 }: NfmSideMenuSurfaceProps) {
   let rowIndex = 0;
   const flatRowsForSeparators = useMemo(() => flattenNfmSideMenuRows(sections), [sections]);
@@ -952,21 +1039,50 @@ export function NfmSideMenuSurface({
       onClose();
     }
   };
-  const renderSubmenu = (submenu: NfmSideMenuSubmenuKey) => (
-    <NfmSideMenuSubmenu
-      submenu={submenu}
-      turnIntoItems={turnIntoItems}
-      colorOptions={colorOptions}
-      canUseTextColor={canUseTextColor}
-      canUseBackgroundColor={canUseBackgroundColor}
-      canSendBlocks={canSendBlocks}
-      textColor={textColor}
-      backgroundColor={backgroundColor}
-      onTurnInto={onTurnInto}
-      onColor={onColor}
-      onSendBlocks={onSendBlocks}
-    />
-  );
+  const closeSubmenuAndRestoreFocus = () => {
+    onSubmenuChange(null);
+    requestAnimationFrame(() => {
+      document.getElementById(comboboxId)?.focus();
+    });
+  };
+  const renderSubmenu = (submenu: NfmSideMenuSubmenuKey) => {
+    if (submenu === "move-to") {
+      const moveToMenuProps = {
+        sourceProjectId,
+        sourceCardId,
+        onAccept: onMoveBlocksToDestination,
+        onClose: closeSubmenuAndRestoreFocus,
+      };
+
+      return renderMoveToMenu?.(moveToMenuProps) ?? (
+        <NfmMoveToMenu
+          sourceProjectId={sourceProjectId}
+          sourceCardId={sourceCardId}
+          onAccept={onMoveBlocksToDestination}
+          onClose={closeSubmenuAndRestoreFocus}
+        />
+      );
+    }
+
+    return (
+      <NfmSideMenuSubmenu
+        submenu={submenu}
+        turnIntoItems={turnIntoItems}
+        colorOptions={colorOptions}
+        canUseTextColor={canUseTextColor}
+        canUseBackgroundColor={canUseBackgroundColor}
+        canSendBlocks={canSendBlocks}
+        sourceProjectId={sourceProjectId}
+        sourceCardId={sourceCardId}
+        textColor={textColor}
+        backgroundColor={backgroundColor}
+        onTurnInto={onTurnInto}
+        onColor={onColor}
+        onMoveBlocksToDestination={onMoveBlocksToDestination}
+        renderMoveToMenu={renderMoveToMenu}
+      />
+    );
+  };
 
   return (
     <div
@@ -1329,6 +1445,8 @@ function NfmSideMenuPopup({
         canUseTextColor={colorSupport.text}
         canUseBackgroundColor={colorSupport.background}
         canSendBlocks={runtimeSnapshot.canSendBlocks}
+        sourceProjectId={runtimeSnapshot.sourceProjectId}
+        sourceCardId={runtimeSnapshot.sourceCardId}
         textColor={toStringProp(block.props, "textColor")}
         backgroundColor={toStringProp(block.props, "backgroundColor")}
         footerPrimary="Last edited locally"
@@ -1365,9 +1483,11 @@ function NfmSideMenuPopup({
           }
           close();
         }}
-        onSendBlocks={(mode) => {
-          if (!currentBlockId) return;
-          runtimeSnapshot.onSendBlocks(mode, currentBlockId);
+        onMoveBlocksToDestination={async (destination) => {
+          if (!currentBlockId) {
+            throw new Error("No block selected.");
+          }
+          await runtimeSnapshot.onMoveBlocksToDestination(destination, currentBlockId);
           close();
         }}
       />

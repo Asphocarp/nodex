@@ -11,22 +11,38 @@ import { useProjects } from "@/lib/use-projects";
  */
 export function useAllBoards() {
   const queryClient = useQueryClient();
-  const { projects, loading: projectsLoading } = useProjects();
+  const {
+    projects,
+    loading: projectsLoading,
+    error: projectsError,
+  } = useProjects();
   const projectIdsKey = projects.map((project) => project.id).join("\n");
 
   const boardsQuery = useQueries({
     queries: projects.map((project) => boardByProjectQueryOptions(project.id)),
     combine: (results) => {
       const boards = new Map<string, BoardSummary>();
+      let failedBoardCount = 0;
       results.forEach((result, index) => {
         const project = projects[index];
-        if (!project || !result.data) return;
-        boards.set(project.id, result.data);
+        if (!project) return;
+        if (result.data) {
+          boards.set(project.id, result.data);
+          return;
+        }
+        if (result.isError) failedBoardCount += 1;
       });
 
+      const loading = projectsLoading || results.some((result) => result.isPending);
+      const allBoardsFailed = projects.length > 0
+        && failedBoardCount === projects.length
+        && !loading;
+
       return {
+        projects,
         boards,
-        loading: projectsLoading || results.some((result) => result.isPending),
+        loading,
+        error: projectsError ?? (allBoardsFailed ? "Something went wrong" : null),
       };
     },
   });

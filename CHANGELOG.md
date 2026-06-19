@@ -56,6 +56,8 @@ All notable changes to this project will be documented in this file.
 - Codex thread metadata now supports card-owned, session-owned, project-only, and projectless threads without fake card ids.
 - Thread collapsed tool activity groups now has synthesized summaries and flat expanded row hierarchy instead of showing generic completed-action labels or nested exploration subgroups.
 - Command execution output now streams through the active thread renderer with smoother batched updates, canonical 20k truncation, reversed output scrolling, and explicit `Stopped` / `Success` / `Exit code` footer states.
+- NFM side-menu `Move to` now opens one grouped DB/Card destination popover with shared prefix/fuzzy search instead of separate `Move to DB` and `Move to card` submenu actions.
+- NFM side-menu `Turn into -> Card in` now opens the same destination popover scoped to DB results instead of the older send-blocks dialog.
 
 ### Removed
 - Removed the floating Manage Projects popover entry points.
@@ -66,6 +68,7 @@ All notable changes to this project will be documented in this file.
 - Removed the legacy full-board read API so renderer board views now use lightweight summaries plus on-demand card detail hydration.
 
 ### Fixed
+- Fixed the NFM side-menu `Card in` flyout so hovering the row opens the DB picker reliably.
 - Fixed card history retention so retained card versions stay previewable/restorable after pruning by preserving internal reconstruction checkpoints.
 - Fixed packaged production builds so backend logs are not written by default; diagnostics remain opt-in through `NODEX_LOG_FILE` or `NODEX_LOG_CONSOLE`.
 - Fixed Browser tabs so Electron page navigation is owned by the main-process webview lifecycle instead of competing renderer and main navigations, while the address bar, page actions, local-server cards, loaded page stage, and app tab strip now use the shipped compact panel contract, including a clickable no-drag address bar inside the draggable toolbar.

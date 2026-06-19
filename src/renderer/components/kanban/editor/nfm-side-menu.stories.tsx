@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useMemo, useState } from "react";
+import type { BoardSummary, CardSummary, Project } from "@/lib/types";
+import { NfmMoveToMenuSurface } from "./nfm-move-to-menu";
 import {
   buildNfmSideMenuSections,
   filterNfmSideMenuSections,
@@ -8,6 +10,88 @@ import {
   type NfmSideMenuSubmenuKey,
 } from "./nfm-side-menu-model";
 import { NfmSideMenuSurface } from "./nfm-side-menu";
+
+const STORY_DATE = new Date("2026-01-01T00:00:00.000Z");
+
+function makeProject(id: string, name: string, icon?: string): Project {
+  return {
+    id,
+    name,
+    description: "",
+    icon,
+    sources: [],
+    primaryWorkspaceRoot: null,
+    pinned: false,
+    pinnedOrder: null,
+    created: STORY_DATE,
+    updated: STORY_DATE,
+  };
+}
+
+function makeCard(id: string, title: string, status: CardSummary["status"], order: number): CardSummary {
+  return {
+    id,
+    status,
+    archived: false,
+    title,
+    tags: [],
+    agentBlocked: false,
+    created: STORY_DATE,
+    order,
+    revision: 1,
+    descriptionPreview: "",
+    descriptionLength: 0,
+    hasDescription: false,
+  };
+}
+
+const MOVE_TO_PROJECTS = [
+  makeProject("default", "Default", "🔥"),
+  makeProject("renderer-parity", "Renderer parity with an intentionally long project label", "🧭"),
+];
+
+const MOVE_TO_BOARD_MAP = new Map<string, BoardSummary>([
+  [
+    "default",
+    {
+      columns: [
+        {
+          id: "draft",
+          name: "Draft",
+          cards: [
+            makeCard("source-card", "Source card hidden from append targets", "draft", 0),
+            makeCard("nfm-dnd", "test-nfm-editor-dnd", "draft", 1),
+            makeCard("queue", "queue", "draft", 2),
+            makeCard("editor", "dig into editor", "draft", 3),
+          ],
+        },
+        {
+          id: "in_progress",
+          name: "In Progress",
+          cards: [
+            makeCard("rich-selection", "Rich selection send workflow", "in_progress", 0),
+            makeCard("card-stage", "Card Stage compact controls", "in_progress", 1),
+          ],
+        },
+      ],
+    },
+  ],
+  [
+    "renderer-parity",
+    {
+      columns: [
+        {
+          id: "backlog",
+          name: "Backlog with a long label",
+          cards: [
+            makeCard("projection", "Projection pipeline cleanup", "backlog", 0),
+            makeCard("request-lanes", "Request lanes and composer cards", "backlog", 1),
+          ],
+        },
+      ],
+    },
+  ],
+]);
 
 interface SideMenuStorySurfaceProps {
   initialQuery?: string;
@@ -18,6 +102,9 @@ interface SideMenuStorySurfaceProps {
   isTableBlock?: boolean;
   canUseTableHeaders?: boolean;
   narrow?: boolean;
+  moveToInitialQuery?: string;
+  moveToLoading?: boolean;
+  moveToError?: string | null;
 }
 
 function SideMenuStorySurface({
@@ -29,6 +116,9 @@ function SideMenuStorySurface({
   isTableBlock = false,
   canUseTableHeaders = false,
   narrow = false,
+  moveToInitialQuery = "",
+  moveToLoading = false,
+  moveToError = null,
 }: SideMenuStorySurfaceProps) {
   const [query, setQuery] = useState(initialQuery);
   const [focusedIndex, setFocusedIndex] = useState(query ? 0 : -1);
@@ -79,6 +169,8 @@ function SideMenuStorySurface({
           canUseTextColor={canUseColor}
           canUseBackgroundColor={canUseColor}
           canSendBlocks={canSendBlocks}
+          sourceProjectId="default"
+          sourceCardId="source-card"
           textColor="blue"
           backgroundColor="yellow"
           footerPrimary="Last edited locally"
@@ -99,7 +191,17 @@ function SideMenuStorySurface({
           onSubmenuChange={setActiveSubmenu}
           onTurnInto={() => undefined}
           onColor={() => undefined}
-          onSendBlocks={() => undefined}
+          onMoveBlocksToDestination={() => undefined}
+          renderMoveToMenu={(props) => (
+            <NfmMoveToMenuSurface
+              {...props}
+              projects={MOVE_TO_PROJECTS}
+              boardMap={MOVE_TO_BOARD_MAP}
+              loading={moveToLoading}
+              loadError={moveToError}
+              initialQuery={moveToInitialQuery}
+            />
+          )}
         />
       </div>
     </div>
@@ -144,6 +246,13 @@ export const TurnIntoSubmenu: Story = {
   },
 };
 
+export const CardInSubmenu: Story = {
+  args: {
+    initialSubmenu: "turn-into",
+    moveToInitialQuery: "renderer",
+  },
+};
+
 export const ColorSubmenu: Story = {
   args: {
     initialSubmenu: "color",
@@ -153,6 +262,41 @@ export const ColorSubmenu: Story = {
 export const MoveToSubmenu: Story = {
   args: {
     initialSubmenu: "move-to",
+  },
+};
+
+export const MoveToSubmenuSearch: Story = {
+  args: {
+    initialSubmenu: "move-to",
+    moveToInitialQuery: "renderer",
+  },
+};
+
+export const MoveToSubmenuFuzzySearch: Story = {
+  args: {
+    initialSubmenu: "move-to",
+    moveToInitialQuery: "projction pipline",
+  },
+};
+
+export const MoveToSubmenuLoading: Story = {
+  args: {
+    initialSubmenu: "move-to",
+    moveToLoading: true,
+  },
+};
+
+export const MoveToSubmenuNoResults: Story = {
+  args: {
+    initialSubmenu: "move-to",
+    moveToInitialQuery: "zzzz",
+  },
+};
+
+export const MoveToSubmenuError: Story = {
+  args: {
+    initialSubmenu: "move-to",
+    moveToError: "Something went wrong",
   },
 };
 

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   createCommandPaletteCardSearchIndex,
   hydrateCommandPaletteCardSearchIndex,
+  normalizeCommandPaletteSearchText,
   resetCommandPaletteCardSearchCacheForTests,
   type CommandPaletteCardSearchCacheSnapshot,
   type CommandPaletteCardSearchCacheStore,
@@ -92,6 +93,10 @@ function createMemoryCacheStore(): {
 }
 
 describe("command palette card search index", () => {
+  test("keeps command palette normalization as a shared search-text alias", () => {
+    expect(normalizeCommandPaletteSearchText("  Command   Palette  ")).toBe("command palette");
+  });
+
   test("matches fuzzy title queries", () => {
     resetCommandPaletteCardSearchCacheForTests();
     const index = createCommandPaletteCardSearchIndex([

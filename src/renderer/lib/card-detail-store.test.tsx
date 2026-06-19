@@ -111,6 +111,46 @@ describe("card detail store", () => {
     view.unmount();
   });
 
+  test("refetches cached detail when the requested revision is newer", async () => {
+    let calls = 0;
+    installWindowApi({
+      invoke: async (channel: string) => {
+        if (channel !== "card:get") {
+          throw new Error(`Unexpected channel: ${channel}`);
+        }
+        calls += 1;
+        return buildCard({
+          title: "Fresh title",
+          description: "Fresh body",
+          revision: 2,
+        });
+      },
+      on: () => () => {},
+    });
+
+    setCardDetail("project-1", buildCard({
+      title: "Cached title",
+      description: "Cached body",
+      revision: 1,
+    }));
+
+    function RevisionHarness() {
+      const detail = useCardDetail("project-1", "card-1", "in_progress", 2);
+      return <span data-testid="detail-title">{detail.card?.title ?? "empty"}</span>;
+    }
+
+    const view = render(<RevisionHarness />);
+    expect(view.getByTestId("detail-title").textContent).toBe("Cached title");
+
+    await waitFor(() => {
+      expect(view.getByTestId("detail-title").textContent).toBe("Fresh title");
+    });
+
+    expect(calls).toBe(1);
+    expect(getCardDetail("project-1", "card-1")?.revision).toBe(2);
+    view.unmount();
+  });
+
   test("does not retry continuously after a card detail miss", async () => {
     let calls = 0;
     installWindowApi({

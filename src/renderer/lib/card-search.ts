@@ -1,20 +1,16 @@
 import type { CardSummary } from "./types";
+import { normalizeSearchText } from "./search-text";
 
-function normalize(value: string): string {
-  return value.trim().toLowerCase();
-}
-
-export function tokenizeSearchQuery(query: string): string[] {
-  const normalized = normalize(query);
-  if (!normalized) return [];
-  return normalized.split(/\s+/).filter(Boolean);
-}
+export {
+  matchesSearchTokens,
+  tokenizeSearchQuery,
+} from "./search-text";
 
 export function buildCardSearchText(card: Pick<
   CardSummary,
   "id" | "title" | "descriptionPreview" | "tags" | "assignee" | "agentStatus"
 >): string {
-  return normalize([
+  return normalizeSearchText([
     card.id,
     card.title,
     card.descriptionPreview,
@@ -22,13 +18,4 @@ export function buildCardSearchText(card: Pick<
     card.assignee ?? "",
     card.agentStatus ?? "",
   ].join(" "));
-}
-
-export function matchesSearchTokens(
-  searchableText: string,
-  tokens: string[],
-): boolean {
-  if (tokens.length === 0) return true;
-  if (!searchableText) return false;
-  return tokens.every((token) => searchableText.includes(token));
 }

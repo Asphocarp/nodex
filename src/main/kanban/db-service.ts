@@ -1507,7 +1507,7 @@ export async function importBlockDropAsCards(
 
       mutation.values.push(sourceUpdate.cardId);
       database
-        .prepare(`UPDATE cards SET ${mutation.fields.join(", ")} WHERE id = ?`)
+        .prepare(`UPDATE cards SET ${mutation.fields.join(", ")}, revision = revision + 1 WHERE id = ?`)
         .run(...mutation.values);
 
       historyService.recordUpdate(

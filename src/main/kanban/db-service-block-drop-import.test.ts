@@ -89,6 +89,8 @@ describe("importBlockDropAsCards", () => {
       const targetAfter = await getCard(projectId, target.id, "in_progress");
       expect(sourceAfter?.description).toBe("Source after");
       expect(targetAfter?.description).toBe("Target after");
+      expect((sourceAfter?.revision ?? 0) > (source.revision ?? 0)).toBeTrue();
+      expect((targetAfter?.revision ?? 0) > (target.revision ?? 0)).toBeTrue();
 
       const groupedEntries = getRecentHistory(projectId, 20, 0)
         .filter((entry) => entry.groupId === "group-send-blocks");

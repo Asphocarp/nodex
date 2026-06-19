@@ -6991,6 +6991,7 @@ function CardStageSessionTab({
     tab.config.projectId,
     tab.config.cardId,
     cardSummary?.status,
+    cardSummary?.revision,
   );
   const card = detail.card;
   const availableTags = useMemo(() => {

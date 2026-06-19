@@ -1,4 +1,8 @@
 import MiniSearch, { type AsPlainObject, type Options, type SearchResult } from "minisearch";
+import {
+  normalizeSearchText,
+  resolveFuzzyThreshold,
+} from "./search-text";
 import type {
   CommandPaletteCard,
   CommandPaletteCardSearchBadge,
@@ -94,7 +98,7 @@ let commandPaletteCardSearchDbPromise: Promise<IDBDatabase> | null = null;
 let commandPaletteCardSearchRuntimeCache: CommandPaletteCardSearchRuntimeCache | null = null;
 
 export function normalizeCommandPaletteSearchText(value: string): string {
-  return value.trim().toLowerCase().replace(/\s+/g, " ");
+  return normalizeSearchText(value);
 }
 
 function normalizePreviewText(value: string): string {
@@ -192,12 +196,6 @@ function hasMatchingDocumentRefs(
 
   const rightById = new Map(right.map((ref) => [ref.id, ref.signature] as const));
   return left.every((ref) => rightById.get(ref.id) === ref.signature);
-}
-
-function resolveFuzzyThreshold(term: string): number {
-  if (term.length <= 3) return 0;
-  if (term.length <= 5) return 0.1;
-  return 0.2;
 }
 
 function buildPreviewRegex(terms: string[]): RegExp | null {

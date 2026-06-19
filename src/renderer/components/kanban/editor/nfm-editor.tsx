@@ -65,6 +65,7 @@ import {
   resolveTopLevelDraggedBlocks,
 } from "./block-drop-card-mapper";
 import { NfmSideMenu, NfmSideMenuShortcutController } from "./nfm-side-menu";
+import type { NfmMoveToDestination } from "./nfm-move-to-menu-model";
 import type { SendBlocksMode } from "./nfm-side-menu-model";
 import { NfmSideMenuRuntimeProvider } from "./nfm-side-menu-runtime";
 import { resolveSendBlockSelection } from "./send-block-selection";
@@ -261,10 +262,13 @@ interface InlineViewDropContext {
   settings: ReturnType<typeof parseToggleListInlineViewSettings>;
 }
 
-interface SendBlocksDialogState {
-  mode: SendBlocksMode;
+interface SendBlocksSelection {
   blockIds: string[];
   blocks: DragSessionBlock[];
+}
+
+interface SendBlocksDialogState extends SendBlocksSelection {
+  mode: SendBlocksMode;
 }
 
 interface PreparedThreadSectionSendDialogState extends ThreadSectionSendDialogState {
@@ -1770,20 +1774,33 @@ export function NfmEditor({
     restoreEditorFocus();
   }, [editor, restoreEditorFocus]);
 
-  const openSendBlocksDialog = useCallback(
-    (mode: SendBlocksMode, fallbackBlockId: string) => {
-      if (!sourceCardContext) return;
+  const resolveSendBlocksSelection = useCallback(
+    (fallbackBlockId: string): SendBlocksSelection | null => {
+      if (!sourceCardContext) return null;
 
       const container = containerRef.current;
-      if (!container) return;
+      if (!container) return null;
 
       const dropEditor = editor as unknown as EditorForExternalBlockDrop & EditorForInlineViewDrop;
       const selection = resolveSendBlockSelection(dropEditor, container, fallbackBlockId);
-      if (selection.blockIds.length === 0) return;
+      if (selection.blockIds.length === 0) return null;
 
       if (selection.blockIds.some((blockId) => blockHasProjectedAncestor(dropEditor, blockId))) {
-        return;
+        return null;
       }
+
+      return {
+        blockIds: selection.blockIds,
+        blocks: selection.blocks,
+      };
+    },
+    [editor, sourceCardContext],
+  );
+
+  const openSendBlocksDialog = useCallback(
+    (mode: SendBlocksMode, fallbackBlockId: string) => {
+      const selection = resolveSendBlocksSelection(fallbackBlockId);
+      if (!selection) return;
 
       setSendBlocksDialog({
         mode,
@@ -1791,20 +1808,23 @@ export function NfmEditor({
         blocks: selection.blocks,
       });
     },
-    [editor, sourceCardContext],
+    [resolveSendBlocksSelection],
   );
 
-  const handleAppendBlocksToCard = useCallback(
-    async ({
-      projectId: targetProjectId,
-      columnId: targetStatus,
-      cardId: targetCardId,
-    }: {
-      projectId: string;
-      columnId: string;
-      cardId: string;
-    }) => {
-      if (!sourceCardContext || !sendBlocksDialog) {
+  const appendSendBlockSelectionToCard = useCallback(
+    async (
+      selection: SendBlocksSelection,
+      {
+        projectId: targetProjectId,
+        columnId: targetStatus,
+        cardId: targetCardId,
+      }: {
+        projectId: string;
+        columnId: string;
+        cardId: string;
+      },
+    ) => {
+      if (!sourceCardContext) {
         throw new Error("No blocks selected.");
       }
       if (targetProjectId === projectId && targetCardId === sourceCardContext.cardId) {
@@ -1834,14 +1854,14 @@ export function NfmEditor({
       const sourceSnapshot = snapshotEditorDocument(dropEditor);
       const baselineSourceDescription = serializeEditorToNfm();
       const targetBlocks = parseNfm(targetCard.description ?? "");
-      const transferableBlocks = stripProjectedSubtrees(sendBlocksDialog.blocks) as DragSessionBlock[];
+      const transferableBlocks = stripProjectedSubtrees(selection.blocks) as DragSessionBlock[];
       const movedBlocks = blockNoteToNfm(transferableBlocks);
       const nextTargetDescription = serializeNfm([...targetBlocks, ...movedBlocks]);
 
       suppressExternalDropRef.current = true;
       try {
         runInEditorTransaction(dropEditor, () => {
-          dropEditor.removeBlocks(sendBlocksDialog.blockIds);
+          dropEditor.removeBlocks(selection.blockIds);
         });
 
         const nextSourceDescription = serializeEditorToNfm();
@@ -1874,6 +1894,14 @@ export function NfmEditor({
           },
         );
         lastEmittedRef.current = nextSourceDescription;
+        if (targetProjectId === projectId) {
+          await fetchCardDetails(projectId, [sourceCardContext.cardId, targetCardId]);
+        } else {
+          await Promise.all([
+            fetchCardDetails(projectId, [sourceCardContext.cardId]),
+            fetchCardDetails(targetProjectId, [targetCardId]),
+          ]);
+        }
       } catch (error) {
         restoreEditorDocument(dropEditor, sourceSnapshot);
         throw error;
@@ -1881,22 +1909,39 @@ export function NfmEditor({
         suppressExternalDropRef.current = false;
       }
     },
-    [cancelScheduledSerializedEmit, editor, projectId, sendBlocksDialog, serializeEditorToNfm, sourceCardContext],
+    [cancelScheduledSerializedEmit, editor, projectId, serializeEditorToNfm, sourceCardContext],
   );
 
-  const handleSendBlocksToProject = useCallback(
-    async ({
-      projectId: targetProjectId,
-      columnId: targetStatus,
-    }: {
+  const handleAppendBlocksToCard = useCallback(
+    async (target: {
       projectId: string;
       columnId: string;
+      cardId: string;
     }) => {
-      if (!sourceCardContext || !sendBlocksDialog) {
+      if (!sendBlocksDialog) {
+        throw new Error("No blocks selected.");
+      }
+      await appendSendBlockSelectionToCard(sendBlocksDialog, target);
+    },
+    [appendSendBlockSelectionToCard, sendBlocksDialog],
+  );
+
+  const sendBlockSelectionToProject = useCallback(
+    async (
+      selection: SendBlocksSelection,
+      {
+        projectId: targetProjectId,
+        columnId: targetStatus,
+      }: {
+        projectId: string;
+        columnId: string;
+      },
+    ) => {
+      if (!sourceCardContext) {
         throw new Error("No blocks selected.");
       }
 
-      const transferableBlocks = stripProjectedSubtrees(sendBlocksDialog.blocks) as DragSessionBlock[];
+      const transferableBlocks = stripProjectedSubtrees(selection.blocks) as DragSessionBlock[];
       const cards = mapDraggedBlocksToCardInputs(transferableBlocks);
       if (cards.length === 0) {
         throw new Error("Unable to build cards from the selected blocks.");
@@ -1910,7 +1955,7 @@ export function NfmEditor({
       suppressExternalDropRef.current = true;
       try {
         runInEditorTransaction(dropEditor, () => {
-          dropEditor.removeBlocks(sendBlocksDialog.blockIds);
+          dropEditor.removeBlocks(selection.blockIds);
         });
 
         const nextSourceDescription = serializeEditorToNfm();
@@ -1937,6 +1982,7 @@ export function NfmEditor({
           },
         );
         lastEmittedRef.current = nextSourceDescription;
+        await fetchCardDetails(projectId, [sourceCardContext.cardId]);
       } catch (error) {
         restoreEditorDocument(dropEditor, sourceSnapshot);
         throw error;
@@ -1944,7 +1990,43 @@ export function NfmEditor({
         suppressExternalDropRef.current = false;
       }
     },
-    [cancelScheduledSerializedEmit, editor, projectId, sendBlocksDialog, serializeEditorToNfm, sourceCardContext],
+    [cancelScheduledSerializedEmit, editor, projectId, serializeEditorToNfm, sourceCardContext],
+  );
+
+  const handleSendBlocksToProject = useCallback(
+    async (target: {
+      projectId: string;
+      columnId: string;
+    }) => {
+      if (!sendBlocksDialog) {
+        throw new Error("No blocks selected.");
+      }
+      await sendBlockSelectionToProject(sendBlocksDialog, target);
+    },
+    [sendBlockSelectionToProject, sendBlocksDialog],
+  );
+
+  const moveBlocksToDestination = useCallback(
+    async (destination: NfmMoveToDestination, fallbackBlockId: string) => {
+      const selection = resolveSendBlocksSelection(fallbackBlockId);
+      if (!selection) {
+        throw new Error("No blocks selected.");
+      }
+
+      if (destination.kind === "card") {
+        await appendSendBlockSelectionToCard(selection, destination);
+      } else {
+        await sendBlockSelectionToProject(selection, destination);
+      }
+
+      restoreEditorFocus();
+    },
+    [
+      appendSendBlockSelectionToCard,
+      resolveSendBlocksSelection,
+      restoreEditorFocus,
+      sendBlockSelectionToProject,
+    ],
   );
 
   const sourceCardId = sourceCardContext?.cardId;
@@ -2294,13 +2376,19 @@ export function NfmEditor({
   const sideMenuHandlersRef = useRef({
     canSendBlocks: sourceCardContext !== undefined,
     hasConvertDividerToThreadSection: true,
+    sourceProjectId: sourceCardContext ? projectId : null,
+    sourceCardId: sourceCardContext?.cardId ?? null,
     onSendBlocks: openSendBlocksDialog,
+    onMoveBlocksToDestination: moveBlocksToDestination,
     onConvertDividerToThreadSection: handleConvertDividerToThreadSection,
   });
   sideMenuHandlersRef.current = {
     canSendBlocks: sourceCardContext !== undefined,
     hasConvertDividerToThreadSection: true,
+    sourceProjectId: sourceCardContext ? projectId : null,
+    sourceCardId: sourceCardContext?.cardId ?? null,
     onSendBlocks: openSendBlocksDialog,
+    onMoveBlocksToDestination: moveBlocksToDestination,
     onConvertDividerToThreadSection: handleConvertDividerToThreadSection,
   };
 
