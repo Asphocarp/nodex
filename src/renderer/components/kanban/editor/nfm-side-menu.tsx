@@ -216,6 +216,10 @@ interface NfmSideMenuSurfaceProps {
 const SIDE_MENU_CLICK_TOLERANCE = 4;
 const SIDE_MENU_SHORTCUT_KEY = "/";
 const SIDE_MENU_SUBMENU_SELECTOR = "[data-nfm-side-menu-submenu='true']";
+const SIDE_MENU_MOTION_DURATION_MS = 200;
+const SIDE_MENU_MOTION_DELAY_MS = 30;
+const SIDE_MENU_EXIT_FALLBACK_MS = SIDE_MENU_MOTION_DURATION_MS + SIDE_MENU_MOTION_DELAY_MS + 50;
+const SIDE_MENU_CLOSED_SCALE = 0.97;
 const SIDE_MENU_COLOR_VALUES = [
   "default",
   "gray",
@@ -443,6 +447,10 @@ function getClosestElement(target: EventTarget | null): Element | null {
   if (target instanceof Element) return target;
   if (!(target instanceof Node)) return null;
   return target.parentElement;
+}
+
+function prefersReducedMotion() {
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 }
 
 function NfmAddBlockButton() {
@@ -1048,10 +1056,13 @@ function NfmSideMenuPopup({
   const listboxId = useId();
   const comboboxId = useId();
   const popupRef = useRef<HTMLDivElement>(null);
+  const closeTimerRef = useRef<number | null>(null);
+  const pendingCloseRef = useRef(false);
   const [query, setQuery] = useState("");
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const [activeSubmenu, setActiveSubmenu] = useState<NfmSideMenuSubmenuKey | null>(null);
   const [position, setPosition] = useState<NfmSideMenuPosition | null>(null);
+  const [visible, setVisible] = useState(false);
 
   const block = openState?.block;
   const currentBlockId = block ? getCurrentBlockId(block) : null;
@@ -1091,23 +1102,73 @@ function NfmSideMenuPopup({
     ? getOptionId(listboxId, focusedIndex)
     : undefined;
 
-  const close = useCallback(() => {
+  const clearCloseTimer = useCallback(() => {
+    if (closeTimerRef.current === null) return;
+    window.clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = null;
+  }, []);
+
+  const finalizeClose = useCallback(() => {
+    if (!pendingCloseRef.current) return;
+    pendingCloseRef.current = false;
+    clearCloseTimer();
     setQuery("");
     setFocusedIndex(-1);
     setActiveSubmenu(null);
-    releaseSideMenuFreeze?.();
+    setPosition(null);
     onClose();
+  }, [clearCloseTimer, onClose]);
+
+  const close = useCallback(() => {
+    if (!openState || pendingCloseRef.current) return;
+
+    pendingCloseRef.current = true;
+    setVisible(false);
+    setActiveSubmenu(null);
+    releaseSideMenuFreeze?.();
     requestAnimationFrame(() => {
-      openState?.returnFocusElement?.focus?.();
+      openState.returnFocusElement?.focus?.();
     });
-  }, [onClose, openState?.returnFocusElement, releaseSideMenuFreeze]);
+
+    clearCloseTimer();
+    closeTimerRef.current = window.setTimeout(
+      finalizeClose,
+      prefersReducedMotion() ? 0 : SIDE_MENU_EXIT_FALLBACK_MS,
+    );
+  }, [clearCloseTimer, finalizeClose, openState, releaseSideMenuFreeze]);
 
   useEffect(() => {
-    if (!openState) return;
+    if (!openState) {
+      setVisible(false);
+      return;
+    }
+
+    pendingCloseRef.current = false;
+    clearCloseTimer();
+    setQuery("");
+    setFocusedIndex(-1);
+    setActiveSubmenu(null);
+    setVisible(false);
+
+    const animationFrame = requestAnimationFrame(() => {
+      setVisible(true);
+    });
+
+    return () => {
+      cancelAnimationFrame(animationFrame);
+    };
+  }, [clearCloseTimer, openState]);
+
+  useEffect(() => () => {
+    clearCloseTimer();
+  }, [clearCloseTimer]);
+
+  useEffect(() => {
+    if (!openState || !visible) return;
     formattingToolbar.store.setState(false);
     showSelection(true, "nfmSideMenu");
     return () => showSelection(false, "nfmSideMenu");
-  }, [formattingToolbar.store, openState, showSelection]);
+  }, [formattingToolbar.store, openState, showSelection, visible]);
 
   const executeAction = useCallback((key: NfmSideMenuActionKey) => {
     if (!block || !currentBlockId || !openState) return;
@@ -1197,7 +1258,7 @@ function NfmSideMenuPopup({
   }, [openState]);
 
   useEffect(() => {
-    if (!openState) return;
+    if (!openState || !visible) return;
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
@@ -1219,14 +1280,14 @@ function NfmSideMenuPopup({
       document.removeEventListener("pointerdown", handlePointerDown, true);
       document.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [close, openState]);
+  }, [close, openState, visible]);
 
   useEffect(() => {
-    if (!openState) return;
+    if (!openState || !visible) return;
     requestAnimationFrame(() => {
       popupRef.current?.querySelector<HTMLInputElement>("input[role='combobox']")?.focus();
     });
-  }, [openState]);
+  }, [openState, visible]);
 
   if (!openState || !block || !position) return null;
 
@@ -1239,10 +1300,21 @@ function NfmSideMenuPopup({
         top: position.top,
         width: NFM_SIDE_MENU_WIDTH,
         maxHeight: position.maxHeight,
+        opacity: visible ? 1 : 0,
+        pointerEvents: visible ? "auto" : "none",
+        transform: `scale(${visible ? 1 : SIDE_MENU_CLOSED_SCALE})`,
+        transitionDelay: `${SIDE_MENU_MOTION_DELAY_MS}ms`,
         "--nfm-side-menu-origin": position.transformOrigin,
       } as CSSProperties}
       contentEditable={false}
       data-nfm-side-menu-popup="true"
+      data-state={visible ? "open" : "closed"}
+      onTransitionEnd={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.propertyName !== "opacity") return;
+        if (visible) return;
+        finalizeClose();
+      }}
     >
       <NfmSideMenuSurface
         sections={sections}
