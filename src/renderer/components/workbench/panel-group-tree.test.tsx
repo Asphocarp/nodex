@@ -93,12 +93,14 @@ describe("PanelGroupTree", () => {
           id: "main",
           tabIds: [] as string[],
           activeTabId: null,
+          mruTabIds: [] as string[],
         },
         second: {
           type: "leaf",
           id: "leaf:right",
           tabIds: [] as string[],
           activeTabId: null,
+          mruTabIds: [] as string[],
         },
       },
     };

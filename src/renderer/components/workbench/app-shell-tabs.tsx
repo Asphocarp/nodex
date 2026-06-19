@@ -109,6 +109,7 @@ interface AppShellTabsProps {
   controllerId?: string;
   onSelect: (tabId: string) => void;
   onCloseTab?: (tabId: string) => void;
+  onDirectCloseTab?: (tabId: string) => void;
   onPinTab?: (tabId: string) => void;
   onMoveTab?: (tabId: string, targetPanelId: string) => void;
   onSplitTab?: (tabId: string, side: AppShellTabSplitSide) => void;
@@ -160,6 +161,7 @@ export function AppShellTabs({
   controllerId = "cards",
   onSelect,
   onCloseTab,
+  onDirectCloseTab,
   onPinTab,
   onMoveTab,
   onSplitTab,
@@ -395,6 +397,10 @@ export function AppShellTabs({
   };
   const closeTabFromDirectInteraction = (tabId: string) => {
     enterTabCloseModeForDirectClose(tabId);
+    if (onDirectCloseTab) {
+      onDirectCloseTab(tabId);
+      return;
+    }
     onCloseTab?.(tabId);
   };
 

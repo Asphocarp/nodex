@@ -17,6 +17,7 @@ import {
   deleteProjectSessionTab,
   detachProjectSessionThread,
   getProjectSession,
+  activateProjectSessionPanelGroup,
   listProjectSessions,
   archiveProjectSession,
   moveProjectSessionTab,
@@ -863,6 +864,109 @@ describe("project session service", () => {
         JSON.stringify([review.id]),
       );
       expect(next?.panels.right.collapsed ?? true).toBeFalse();
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("deleting an active tab persists the preferred replacement tab", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({ projectId: projectId, title: "Delete replacement" });
+      const review = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: projectId,
+        panelId: "right",
+        kind: "review",
+        title: "Review",
+        config: { projectId: projectId },
+      });
+      const browser = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: projectId,
+        panelId: "right",
+        kind: "browser",
+        title: "Browser",
+        config: { projectId: projectId, title: "Browser", url: "https://example.com" },
+      });
+      const shell = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: projectId,
+        panelId: "right",
+        kind: "terminal",
+        title: "Shell",
+        config: { projectId: projectId, terminalSessionId: "term-delete-replacement" },
+      });
+      const before = getProjectSession(session.id);
+      const leafId = before ? getProjectSessionPanelActiveLeaf(before.panels.right.layout).id : "main";
+      expect(getProjectSessionPanelActiveLeaf(before!.panels.right.layout).activeTabId).toBe(shell.id);
+
+      const deleted = deleteProjectSessionTab({
+        tabId: shell.id,
+        preferredActiveLeafId: leafId,
+        preferredActiveTabId: browser.id,
+      });
+      const next = getProjectSession(session.id);
+
+      expect(deleted).toBeTrue();
+      const activeLeaf = getProjectSessionPanelActiveLeaf(next!.panels.right.layout);
+      expect(activeLeaf.activeTabId).toBe(browser.id);
+      expect(activeLeaf.mruTabIds[0]).toBe(browser.id);
+      expect(JSON.stringify(flattenProjectSessionPanelTabIds(next!.panels.right.layout))).toBe(
+        JSON.stringify([review.id, browser.id]),
+      );
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("activating panel tabs persists leaf tab MRU order", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({ projectId: projectId, title: "Panel MRU" });
+      const review = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: projectId,
+        panelId: "right",
+        kind: "review",
+        title: "Review",
+        config: { projectId: projectId },
+      });
+      const browser = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: projectId,
+        panelId: "right",
+        kind: "browser",
+        title: "Browser",
+        config: { projectId: projectId, title: "Browser", url: "https://example.com" },
+      });
+      const shell = createProjectSessionTab({
+        sessionId: session.id,
+        projectId: projectId,
+        panelId: "right",
+        kind: "terminal",
+        title: "Shell",
+        config: { projectId: projectId, terminalSessionId: "term-panel-mru" },
+      });
+      const before = getProjectSession(session.id);
+      const leafId = before ? getProjectSessionPanelActiveLeaf(before.panels.right.layout).id : "main";
+
+      activateProjectSessionPanelGroup({
+        sessionId: session.id,
+        panelId: "right",
+        leafId,
+        tabId: review.id,
+      });
+      const activated = activateProjectSessionPanelGroup({
+        sessionId: session.id,
+        panelId: "right",
+        leafId,
+        tabId: browser.id,
+      });
+      const activeLeaf = getProjectSessionPanelActiveLeaf(activated!.panels.right.layout);
+
+      expect(activeLeaf.activeTabId).toBe(browser.id);
+      expect(JSON.stringify(activeLeaf.mruTabIds.slice(0, 3))).toBe(
+        JSON.stringify([browser.id, review.id, shell.id]),
+      );
     });
 
     if (!ran) expect(true).toBeTrue();

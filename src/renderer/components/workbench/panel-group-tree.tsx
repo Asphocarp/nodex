@@ -57,6 +57,7 @@ interface PanelGroupTreeProps {
   headerEndInsetPx?: number;
   onSelectTab: (leafId: string, tabId: string) => void;
   onCloseTab: (leafId: string, tabId: string) => void;
+  onDirectCloseTab?: (leafId: string, tabId: string) => void;
   onPinTab?: (leafId: string, tabId: string) => void;
   onReorderTab: (leafId: string, tabId: string, targetIndex: number) => void;
   onMoveTab: (
@@ -86,6 +87,7 @@ export function PanelGroupTree({
   headerEndInsetPx,
   onSelectTab,
   onCloseTab,
+  onDirectCloseTab,
   onPinTab,
   onReorderTab,
   onMoveTab,
@@ -181,6 +183,7 @@ export function PanelGroupTree({
         afterListLeafId={afterListLeafId}
         onSelectTab={onSelectTab}
         onCloseTab={onCloseTab}
+        onDirectCloseTab={onDirectCloseTab}
         onPinTab={onPinTab}
         onReorderTab={onReorderTab}
         onMoveTab={onMoveTab}
@@ -318,6 +321,7 @@ function PanelGroupNode(props: {
   afterListLeafId: string | null;
   onSelectTab: (leafId: string, tabId: string) => void;
   onCloseTab: (leafId: string, tabId: string) => void;
+  onDirectCloseTab?: (leafId: string, tabId: string) => void;
   onPinTab?: (leafId: string, tabId: string) => void;
   onReorderTab: (leafId: string, tabId: string, targetIndex: number) => void;
   onMoveTab: (
@@ -399,6 +403,7 @@ function PanelGroupLeaf({
   afterListLeafId,
   onSelectTab,
   onCloseTab,
+  onDirectCloseTab,
   onPinTab,
   onMoveTab,
   onSplitGroup,
@@ -444,6 +449,7 @@ function PanelGroupLeaf({
           controllerId={`session-${sessionId}-${panelId}-${leaf.id}`}
           onSelect={(tabId) => onSelectTab(leaf.id, tabId)}
           onCloseTab={(tabId) => onCloseTab(leaf.id, tabId)}
+          onDirectCloseTab={onDirectCloseTab ? (tabId) => onDirectCloseTab(leaf.id, tabId) : undefined}
           onPinTab={onPinTab ? (tabId) => onPinTab(leaf.id, tabId) : undefined}
           onMoveTab={(tabId, targetPanelId) =>
             onMoveTab(tabId, targetPanelId === "bottom" ? "bottom" : "right", leaf.id)}

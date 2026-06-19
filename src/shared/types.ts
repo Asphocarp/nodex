@@ -485,6 +485,7 @@ export interface ProjectSessionSplitLeaf {
   id: string;
   tabIds: string[];
   activeTabId: string | null;
+  mruTabIds: string[];
 }
 
 export interface ProjectSessionSplitBranch {
@@ -643,6 +644,8 @@ export interface ProjectSessionTabUpdateInput {
 export interface ProjectSessionTabDeleteInput {
   tabId: string;
   preserveEmptyLeafIds?: string[];
+  preferredActiveLeafId?: string | null;
+  preferredActiveTabId?: string | null;
 }
 
 export interface ProjectSessionTabReorderInput {

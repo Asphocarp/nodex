@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ProjectSessionPanelLayout } from "./types";
 import {
+  activateProjectSessionPanelLeaf,
   flattenProjectSessionPanelTabIds,
   findNearestProjectSessionPanelLeafToRight,
   getProjectSessionPanelActiveLeaf,
@@ -30,6 +31,32 @@ describe("project session panel layout", () => {
     expect(JSON.stringify(normalized.mruLeafIds)).toBe(JSON.stringify(["main"]));
     expect(getProjectSessionPanelActiveLeaf(normalized).activeTabId).toBe("two");
     expect(JSON.stringify(flattenProjectSessionPanelTabIds(normalized))).toBe(JSON.stringify(["one", "two"]));
+  });
+
+  test("normalizes legacy leaves without tab MRU", () => {
+    const legacyLayout = {
+      version: 2,
+      root: { type: "leaf", id: "main", tabIds: ["one", "two"], activeTabId: "two" },
+      activeLeafId: "main",
+      mruLeafIds: ["main"],
+      maximizedLeafId: null,
+    } as unknown as ProjectSessionPanelLayout;
+
+    const normalized = normalizeProjectSessionPanelLayout(legacyLayout, ["one", "two"]);
+    const activeLeaf = getProjectSessionPanelActiveLeaf(normalized);
+
+    expect(activeLeaf.activeTabId).toBe("two");
+    expect(JSON.stringify(activeLeaf.mruTabIds)).toBe(JSON.stringify(["two", "one"]));
+  });
+
+  test("tracks most recently active tabs inside a leaf", () => {
+    const layout = makeProjectSessionPanelLayout(["one", "two", "three"], "one");
+    const activatedTwo = activateProjectSessionPanelLeaf(layout, "main", "two");
+    const activatedThree = activateProjectSessionPanelLeaf(activatedTwo, "main", "three");
+    const activeLeaf = getProjectSessionPanelActiveLeaf(activatedThree);
+
+    expect(activeLeaf.activeTabId).toBe("three");
+    expect(JSON.stringify(activeLeaf.mruTabIds)).toBe(JSON.stringify(["three", "two", "one"]));
   });
 
   test("splits a leaf and moves the selected tab into the new group", () => {
@@ -184,16 +211,16 @@ describe("project session panel layout", () => {
           id: "branch:left",
           direction: "vertical",
           ratio: 0.5,
-          first: { type: "leaf", id: "leaf:left-top", tabIds: ["one"], activeTabId: "one" },
-          second: { type: "leaf", id: "leaf:left-bottom", tabIds: ["two"], activeTabId: "two" },
+          first: { type: "leaf", id: "leaf:left-top", tabIds: ["one"], activeTabId: "one", mruTabIds: ["one"] },
+          second: { type: "leaf", id: "leaf:left-bottom", tabIds: ["two"], activeTabId: "two", mruTabIds: ["two"] },
         },
         second: {
           type: "split",
           id: "branch:right",
           direction: "vertical",
           ratio: 0.5,
-          first: { type: "leaf", id: "leaf:right-top", tabIds: ["three"], activeTabId: "three" },
-          second: { type: "leaf", id: "leaf:right-bottom", tabIds: ["four"], activeTabId: "four" },
+          first: { type: "leaf", id: "leaf:right-top", tabIds: ["three"], activeTabId: "three", mruTabIds: ["three"] },
+          second: { type: "leaf", id: "leaf:right-bottom", tabIds: ["four"], activeTabId: "four", mruTabIds: ["four"] },
         },
       },
     };
@@ -305,6 +332,28 @@ describe("project session panel layout", () => {
     expect(listProjectSessionPanelLeaves(pruned).length).toBe(1);
     expect(pruned.root.type).toBe("leaf");
     expect(JSON.stringify(flattenProjectSessionPanelTabIds(pruned))).toBe(JSON.stringify(["one"]));
+  });
+
+  test("uses a preferred active tab when removing the active tab", () => {
+    const layout = makeProjectSessionPanelLayout(["one", "two", "three"], "two");
+    const removed = removeProjectSessionPanelTab(layout, "two", {
+      preferredActiveLeafId: "main",
+      preferredActiveTabId: "three",
+    });
+
+    const activeLeaf = getProjectSessionPanelActiveLeaf(removed);
+    expect(activeLeaf.activeTabId).toBe("three");
+    expect(activeLeaf.mruTabIds[0]).toBe("three");
+  });
+
+  test("falls back when the preferred active tab is invalid after removal", () => {
+    const layout = makeProjectSessionPanelLayout(["one", "two", "three"], "two");
+    const removed = removeProjectSessionPanelTab(layout, "two", {
+      preferredActiveLeafId: "main",
+      preferredActiveTabId: "missing",
+    });
+
+    expect(getProjectSessionPanelActiveLeaf(removed).activeTabId).toBe("one");
   });
 
   test("keeps one fallback leaf when every leaf is empty", () => {

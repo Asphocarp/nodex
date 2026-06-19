@@ -877,9 +877,25 @@ app.delete("/api/project-session-tabs/:tabId", async (c) => {
   const preserveEmptyLeafIds = Array.isArray(rawPreserveEmptyLeafIds)
     ? rawPreserveEmptyLeafIds.filter((item: unknown): item is string => typeof item === "string")
     : undefined;
+  const preferredActiveLeafId = typeof body === "object" && body !== null && "preferredActiveLeafId" in body
+    ? typeof body.preferredActiveLeafId === "string"
+      ? body.preferredActiveLeafId
+      : body.preferredActiveLeafId === null
+        ? null
+        : undefined
+    : undefined;
+  const preferredActiveTabId = typeof body === "object" && body !== null && "preferredActiveTabId" in body
+    ? typeof body.preferredActiveTabId === "string"
+      ? body.preferredActiveTabId
+      : body.preferredActiveTabId === null
+        ? null
+        : undefined
+    : undefined;
   const success = projectSessionService.deleteProjectSessionTab({
     tabId: c.req.param("tabId"),
     preserveEmptyLeafIds,
+    preferredActiveLeafId,
+    preferredActiveTabId,
   });
   if (!success) return c.json({ error: "Not found" }, 404);
   return c.json({ success: true });

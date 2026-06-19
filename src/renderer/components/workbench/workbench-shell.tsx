@@ -123,6 +123,7 @@ import {
   useCodexAnimatedPanelState,
   type ThreadSummaryPanelLayoutMode,
 } from "@/lib/codex-panel-motion";
+import { resolvePanelTabCloseReplacement } from "@/lib/panel-tab-close-routing";
 import {
   findNearestProjectSessionPanelLeafToRight,
   findProjectSessionPanelLeaf,
@@ -733,6 +734,11 @@ interface PanelTabCycleScope {
   leafId: string;
 }
 
+type PanelGroupTabsByPanel = Record<PanelId, {
+  itemsByLeafId: Record<string, AppShellTabItem[]>;
+  activeTabIdsByLeafId: Record<string, string | null>;
+}>;
+
 const PANEL_FOCUS_AREA_SELECTOR = "[data-app-shell-focus-area=\"right-panel\"], [data-app-shell-focus-area=\"bottom-panel\"]";
 const PANEL_GROUP_LEAF_SELECTOR = "[data-panel-group-leaf-id]";
 
@@ -1040,6 +1046,21 @@ function getDefaultPanelIdForTabKind(kind: ProjectSessionTab["kind"]): PanelId {
 
 function makePanelPreviewKey(sessionId: string, panelId: PanelId, leafId?: string | null): string {
   return leafId ? `${sessionId}:${panelId}:${leafId}` : `${sessionId}:${panelId}`;
+}
+
+function makePanelLeafStateKey(sessionId: string, panelId: PanelId, leafId: string): string {
+  return `${sessionId}:${panelId}:${leafId}`;
+}
+
+function uniqueStringList(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    if (seen.has(value)) continue;
+    seen.add(value);
+    result.push(value);
+  }
+  return result;
 }
 
 function makeClientProjectSessionTabId(): string {
@@ -1441,6 +1462,11 @@ export function WorkbenchShell({
   const lastHandledCommandPaletteOpenTickRef = useRef(commandPaletteOpenTick);
   const currentShellNavigationSnapshotRef = useRef<WorkbenchShellNavigationSnapshot | null>(null);
   const focusedPanelGroupRef = useRef<PanelTabCycleScope | null>(null);
+  const panelGroupTabsRef = useRef<PanelGroupTabsByPanel>({
+    right: { itemsByLeafId: {}, activeTabIdsByLeafId: {} },
+    bottom: { itemsByLeafId: {}, activeTabIdsByLeafId: {} },
+  });
+  const panelTabMruByLeafRef = useRef<Record<string, string[]>>({});
   const applyingShellNavigationRef = useRef(false);
   const shellAtMediumWidthRef = useRef(false);
   const shellAtNarrowWidthRef = useRef(false);
@@ -2466,24 +2492,140 @@ export function WorkbenchShell({
     if (session) await refreshProjectSessions(session.projectId);
   }, [activeSession, getPanelVisibleLeafTabCount, refreshProjectSessions]);
 
-  const closeTab = useCallback(async (tabId: string, options: { preserveEmptyLeafIds?: string[] } = {}) => {
+  const resolvePanelTabCloseTarget = useCallback((
+    panelId: PanelId,
+    tabId: string,
+    leafId: string,
+  ): string | null => {
+    if (!activeSession) return null;
+    const panelTabs = panelGroupTabsRef.current[panelId];
+    const tabs = panelTabs.itemsByLeafId[leafId] ?? [];
+    const activeTabId = panelTabs.activeTabIdsByLeafId[leafId] ?? null;
+    return resolvePanelTabCloseReplacement({
+      tabs,
+      activeTabId,
+      closingTabId: tabId,
+      mruTabIds: panelTabMruByLeafRef.current[makePanelLeafStateKey(activeSession.id, panelId, leafId)] ?? [],
+    });
+  }, [activeSession]);
+
+  const activatePanelTabAfterClose = useCallback(async (
+    panelId: PanelId,
+    tabId: string | null,
+    leafId: string,
+  ) => {
+    if (!activeSession || !tabId) return;
+    const previewTab = getRenderablePanelPreviewTab(activeSession, panelId, leafId, previewTabsByPanel);
+    if (previewTab?.id === tabId) return;
+
+    if ((sideChatTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
+      clearPanelPreviewTab(activeSession.id, panelId, leafId);
+      setMcpAppActiveTabByPanel((current) => {
+        const keys = [
+          makeMcpAppPanelKey(activeSession.id, panelId, leafId),
+          makeMcpAppPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
+      setSideChatActiveTabByPanel((current) => ({
+        ...current,
+        [makeSideChatPanelKey(activeSession.id, panelId, leafId)]: tabId,
+      }));
+      return;
+    }
+
+    if ((mcpAppTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
+      clearPanelPreviewTab(activeSession.id, panelId, leafId);
+      setSideChatActiveTabByPanel((current) => {
+        const keys = [
+          makeSideChatPanelKey(activeSession.id, panelId, leafId),
+          makeSideChatPanelKey(activeSession.id, panelId),
+        ];
+        if (!keys.some((key) => key in current)) return current;
+        const next = { ...current };
+        for (const key of keys) delete next[key];
+        return next;
+      });
+      setMcpAppActiveTabByPanel((current) => ({
+        ...current,
+        [makeMcpAppPanelKey(activeSession.id, panelId, leafId)]: tabId,
+      }));
+      return;
+    }
+
+    if (!activeSession.tabs.some((tab) => tab.id === tabId && tab.panelId === panelId)) return;
+
+    setMcpAppActiveTabByPanel((current) => {
+      const keys = [
+        makeMcpAppPanelKey(activeSession.id, panelId, leafId),
+        makeMcpAppPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => key in current)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
+    setSideChatActiveTabByPanel((current) => {
+      const keys = [
+        makeSideChatPanelKey(activeSession.id, panelId, leafId),
+        makeSideChatPanelKey(activeSession.id, panelId),
+      ];
+      if (!keys.some((key) => key in current)) return current;
+      const next = { ...current };
+      for (const key of keys) delete next[key];
+      return next;
+    });
+    await setActivePanelTab(panelId, tabId, { leafId });
+  }, [
+    activeSession,
+    clearPanelPreviewTab,
+    mcpAppTabsBySession,
+    previewTabsByPanel,
+    setActivePanelTab,
+    sideChatTabsBySession,
+  ]);
+
+  const closeTab = useCallback(async (tabId: string, options: {
+    preserveEmptyLeafIds?: string[];
+    preferredActiveLeafId?: string | null;
+    preferredActiveTabId?: string | null;
+  } = {}) => {
     if (!activeSession) return;
+    const deleteInput = {
+      tabId,
+      ...(options.preserveEmptyLeafIds && options.preserveEmptyLeafIds.length > 0
+        ? { preserveEmptyLeafIds: options.preserveEmptyLeafIds }
+        : {}),
+      ...(options.preferredActiveLeafId !== undefined
+        ? { preferredActiveLeafId: options.preferredActiveLeafId }
+        : {}),
+      ...(options.preferredActiveTabId !== undefined
+        ? { preferredActiveTabId: options.preferredActiveTabId }
+        : {}),
+    };
+    const hasDeleteOptions = Object.keys(deleteInput).length > 1;
     await invoke(
       "project-session-tabs:delete",
-      options.preserveEmptyLeafIds && options.preserveEmptyLeafIds.length > 0
-        ? { tabId, preserveEmptyLeafIds: options.preserveEmptyLeafIds }
-        : tabId,
+      hasDeleteOptions ? deleteInput : tabId,
     );
     await refreshProjectSessions(activeSession.projectId);
   }, [activeSession, refreshProjectSessions]);
 
-  const closePreviewTab = useCallback(async (panelId: PanelId, leafId?: string) => {
+  const closePreviewTab = useCallback(async (
+    panelId: PanelId,
+    leafId?: string,
+    replacementTabId: string | null = null,
+  ) => {
     if (!activeSession) return;
     const targetLeafId = leafId ?? resolveSessionPanelActiveLeafId(activeSession, panelId);
     const previewTab = previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId, targetLeafId)]
       ?? previewTabsByPanel[makePanelPreviewKey(activeSession.id, panelId)]
       ?? null;
     clearPanelPreviewTab(activeSession.id, panelId, targetLeafId);
+    await activatePanelTabAfterClose(panelId, replacementTabId, targetLeafId);
     if (previewTab && getPanelVisibleLeafTabCount(panelId, targetLeafId, { excludingTabId: previewTab.id }) === 0) {
       await removeEmptyVisiblePanelLeaf(panelId, targetLeafId, { excludingTabId: previewTab.id });
     }
@@ -2491,6 +2633,7 @@ export function WorkbenchShell({
     await updateActivePanel(panelId, { collapsed: true });
   }, [
     activeSession,
+    activatePanelTabAfterClose,
     clearPanelPreviewTab,
     getPanelVisibleLeafTabCount,
     getPanelVisibleTabCount,
@@ -2499,10 +2642,15 @@ export function WorkbenchShell({
     updateActivePanel,
   ]);
 
-  const closeSideChatPanelTab = useCallback(async (panelId: PanelId, tabId: string) => {
+  const closeSideChatPanelTab = useCallback(async (
+    panelId: PanelId,
+    tabId: string,
+    replacementTabId: string | null = null,
+  ) => {
     if (!activeSession) return;
     const sideChatTab = (sideChatTabsBySession[activeSession.id] ?? []).find((tab) => tab.id === tabId);
     if (!sideChatTab) return;
+    const targetLeafId = sideChatTab.leafId ?? resolveSessionPanelActiveLeafId(activeSession, panelId);
 
     setSideChatTabsBySession((current) => {
       const tabs = current[activeSession.id] ?? [];
@@ -2528,7 +2676,7 @@ export function WorkbenchShell({
         console.warn("[side-chat:discard]", error);
       });
     }
-    const targetLeafId = sideChatTab.leafId ?? resolveSessionPanelActiveLeafId(activeSession, panelId);
+    await activatePanelTabAfterClose(panelId, replacementTabId, targetLeafId);
     if (getPanelVisibleLeafTabCount(panelId, targetLeafId, { excludingTabId: tabId }) === 0) {
       await removeEmptyVisiblePanelLeaf(panelId, targetLeafId, { excludingTabId: tabId });
     }
@@ -2536,6 +2684,7 @@ export function WorkbenchShell({
     await updateActivePanel(panelId, { collapsed: true });
   }, [
     activeSession,
+    activatePanelTabAfterClose,
     getPanelVisibleLeafTabCount,
     getPanelVisibleTabCount,
     removeEmptyVisiblePanelLeaf,
@@ -2544,10 +2693,15 @@ export function WorkbenchShell({
     workbenchCodexControl,
   ]);
 
-  const closeMcpAppPanelTab = useCallback(async (panelId: PanelId, tabId: string) => {
+  const closeMcpAppPanelTab = useCallback(async (
+    panelId: PanelId,
+    tabId: string,
+    replacementTabId: string | null = null,
+  ) => {
     if (!activeSession) return;
     const mcpAppTab = (mcpAppTabsBySession[activeSession.id] ?? []).find((tab) => tab.id === tabId);
     if (!mcpAppTab) return;
+    const targetLeafId = mcpAppTab.leafId ?? resolveSessionPanelActiveLeafId(activeSession, panelId);
 
     setMcpAppTabsBySession((current) => {
       const tabs = current[activeSession.id] ?? [];
@@ -2567,7 +2721,7 @@ export function WorkbenchShell({
       return next;
     });
 
-    const targetLeafId = mcpAppTab.leafId ?? resolveSessionPanelActiveLeafId(activeSession, panelId);
+    await activatePanelTabAfterClose(panelId, replacementTabId, targetLeafId);
     if (getPanelVisibleLeafTabCount(panelId, targetLeafId, { excludingTabId: tabId }) === 0) {
       await removeEmptyVisiblePanelLeaf(panelId, targetLeafId, { excludingTabId: tabId });
     }
@@ -2575,6 +2729,7 @@ export function WorkbenchShell({
     await updateActivePanel(panelId, { collapsed: true });
   }, [
     activeSession,
+    activatePanelTabAfterClose,
     getPanelVisibleLeafTabCount,
     getPanelVisibleTabCount,
     mcpAppTabsBySession,
@@ -2582,30 +2737,48 @@ export function WorkbenchShell({
     updateActivePanel,
   ]);
 
-  const closePanelTab = useCallback(async (panelId: PanelId, tabId: string, leafId?: string) => {
+  const closePanelTab = useCallback(async (
+    panelId: PanelId,
+    tabId: string,
+    leafId?: string,
+  ) => {
     if (!activeSession) return;
     const targetLeafId = leafId ?? resolveLeafIdForPanelTab(activeSession, panelId, tabId);
+    const replacementTabId = resolvePanelTabCloseTarget(panelId, tabId, targetLeafId);
     const previewTab = getRenderablePanelPreviewTab(activeSession, panelId, targetLeafId, previewTabsByPanel);
     if (previewTab?.id === tabId) {
-      await closePreviewTab(panelId, targetLeafId);
+      await closePreviewTab(panelId, targetLeafId, replacementTabId);
       return;
     }
     if ((sideChatTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
-      await closeSideChatPanelTab(panelId, tabId);
+      await closeSideChatPanelTab(panelId, tabId, replacementTabId);
       return;
     }
     if ((mcpAppTabsBySession[activeSession.id] ?? []).some((tab) => tab.id === tabId)) {
-      await closeMcpAppPanelTab(panelId, tabId);
+      await closeMcpAppPanelTab(panelId, tabId, replacementTabId);
       return;
     }
 
     const preserveEmptyLeafIds = getPreserveEmptyLeafIdsAfterDurableRemoval(panelId, targetLeafId, tabId);
-    await closeTab(tabId, { preserveEmptyLeafIds });
+    const durableReplacementTabId = replacementTabId && activeSession.tabs.some((tab) =>
+      tab.id === replacementTabId && tab.panelId === panelId
+    )
+      ? replacementTabId
+      : null;
+    await closeTab(tabId, {
+      preserveEmptyLeafIds,
+      preferredActiveLeafId: durableReplacementTabId ? targetLeafId : undefined,
+      preferredActiveTabId: durableReplacementTabId ?? undefined,
+    });
+    if (!durableReplacementTabId) {
+      await activatePanelTabAfterClose(panelId, replacementTabId, targetLeafId);
+    }
     if (preserveEmptyLeafIds.length > 0) {
       await updateActivePanel(panelId, { collapsed: false });
     }
   }, [
     activeSession,
+    activatePanelTabAfterClose,
     closePreviewTab,
     closeMcpAppPanelTab,
     closeSideChatPanelTab,
@@ -2613,6 +2786,7 @@ export function WorkbenchShell({
     getPreserveEmptyLeafIdsAfterDurableRemoval,
     mcpAppTabsBySession,
     previewTabsByPanel,
+    resolvePanelTabCloseTarget,
     sideChatTabsBySession,
     updateActivePanel,
   ]);
@@ -3999,17 +4173,11 @@ export function WorkbenchShell({
     sidePanelOpen,
   ]);
 
-  const panelGroupTabs = useMemo<Record<PanelId, {
-    itemsByLeafId: Record<string, AppShellTabItem[]>;
-    activeTabIdsByLeafId: Record<string, string | null>;
-  }>>(() => {
+  const panelGroupTabs = useMemo<PanelGroupTabsByPanel>(() => {
     const empty = {
       right: { itemsByLeafId: {}, activeTabIdsByLeafId: {} },
       bottom: { itemsByLeafId: {}, activeTabIdsByLeafId: {} },
-    } satisfies Record<PanelId, {
-      itemsByLeafId: Record<string, AppShellTabItem[]>;
-      activeTabIdsByLeafId: Record<string, string | null>;
-    }>;
+    } satisfies PanelGroupTabsByPanel;
     if (!activeSession) return empty;
     const makeItem = (tab: ProjectSessionRenderableTab): AppShellTabItem => {
       const chromeContext = resolveCardStageTabChromeContext(tab, activeSession, projects);
@@ -4206,6 +4374,45 @@ export function WorkbenchShell({
     toggleCardStageHistoryModal,
     previewTabsByPanel,
   ]);
+
+  panelGroupTabsRef.current = panelGroupTabs;
+
+  useEffect(() => {
+    if (!activeSession) return;
+    const activeSessionPrefix = `${activeSession.id}:`;
+    const currentKeys = new Set<string>();
+
+    for (const panelId of ["right", "bottom"] as const) {
+      const panelTabs = panelGroupTabs[panelId];
+      for (const [leafId, tabs] of Object.entries(panelTabs.itemsByLeafId)) {
+        const key = makePanelLeafStateKey(activeSession.id, panelId, leafId);
+        currentKeys.add(key);
+        const visibleTabIds = new Set(tabs.map((tab) => tab.id));
+        const activeTabId = panelTabs.activeTabIdsByLeafId[leafId] ?? null;
+        const durableLeaf = findProjectSessionPanelLeaf(activeSession.panels[panelId].layout, leafId);
+        const durableMru = durableLeaf?.mruTabIds ?? [];
+        const currentMru = panelTabMruByLeafRef.current[key] ?? [];
+        const prunedMru = uniqueStringList([...currentMru, ...durableMru])
+          .filter((tabId) => visibleTabIds.has(tabId));
+        const nextMru = activeTabId && visibleTabIds.has(activeTabId)
+          ? [activeTabId, ...prunedMru.filter((tabId) => tabId !== activeTabId)]
+          : prunedMru;
+
+        if (nextMru.length === 0) {
+          delete panelTabMruByLeafRef.current[key];
+          continue;
+        }
+
+        panelTabMruByLeafRef.current[key] = nextMru;
+      }
+    }
+
+    for (const key of Object.keys(panelTabMruByLeafRef.current)) {
+      if (!key.startsWith(activeSessionPrefix)) continue;
+      if (currentKeys.has(key)) continue;
+      delete panelTabMruByLeafRef.current[key];
+    }
+  }, [activeSession, panelGroupTabs]);
 
   const browserRetentionTabs = useMemo<ProjectSessionTab[]>(() => {
     if (!activeSession) return [];
@@ -5283,6 +5490,7 @@ export function WorkbenchShell({
                             )}
                             onSelectTab={(leafId, tabId) => void selectPanelTab("right", tabId, leafId)}
                             onCloseTab={(leafId, tabId) => void closePanelTab("right", tabId, leafId)}
+                            onDirectCloseTab={(leafId, tabId) => void closePanelTab("right", tabId, leafId)}
                             onPinTab={(leafId, tabId) => void pinPreviewTab("right", tabId, leafId)}
                             onReorderTab={(leafId, tabId, targetIndex) => void reorderTabs("right", tabId, targetIndex, leafId)}
                             onMoveTab={(tabId, targetPanelId, targetLeafId, targetIndex, splitTarget) =>
@@ -5367,6 +5575,7 @@ export function WorkbenchShell({
                           )}
                           onSelectTab={(leafId, tabId) => void selectPanelTab("bottom", tabId, leafId)}
                           onCloseTab={(leafId, tabId) => void closePanelTab("bottom", tabId, leafId)}
+                          onDirectCloseTab={(leafId, tabId) => void closePanelTab("bottom", tabId, leafId)}
                           onPinTab={(leafId, tabId) => void pinPreviewTab("bottom", tabId, leafId)}
                           onReorderTab={(leafId, tabId, targetIndex) => void reorderTabs("bottom", tabId, targetIndex, leafId)}
                           onMoveTab={(tabId, targetPanelId, targetLeafId, targetIndex, splitTarget) =>

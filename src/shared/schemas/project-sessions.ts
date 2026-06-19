@@ -98,6 +98,7 @@ const ProjectSessionSplitLeafSchema: z.ZodType<ProjectSessionPanelNode> = z.lazy
       id: z.string().min(1),
       tabIds: z.array(z.string()),
       activeTabId: z.string().nullable(),
+      mruTabIds: z.array(z.string()).default([]),
     }),
     z.object({
       type: z.literal("split"),
@@ -230,6 +231,8 @@ export function parseProjectSessionTabUpdateInput(kind: string, input: unknown):
 export const ProjectSessionTabDeleteInputSchema = z.object({
   tabId: z.string().min(1),
   preserveEmptyLeafIds: z.array(z.string().min(1)).optional(),
+  preferredActiveLeafId: z.string().min(1).nullable().optional(),
+  preferredActiveTabId: z.string().min(1).nullable().optional(),
 }) satisfies z.ZodType<ProjectSessionTabDeleteInput>;
 
 export const ProjectSessionTabReorderInputSchema = z.object({

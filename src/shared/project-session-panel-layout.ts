@@ -30,6 +30,11 @@ interface MovePanelTabInput {
   targetIndex?: number;
 }
 
+interface RemovePanelTabOptions {
+  preferredActiveLeafId?: string | null;
+  preferredActiveTabId?: string | null;
+}
+
 interface PruneEmptyPanelLeavesOptions {
   preserveLeafIds?: readonly string[];
   preferredActiveLeafId?: string | null;
@@ -59,12 +64,33 @@ function clampRatio(ratio: number): number {
   return Math.min(PROJECT_SESSION_PANEL_MAX_RATIO, Math.max(PROJECT_SESSION_PANEL_MIN_RATIO, ratio));
 }
 
-function makeLeaf(id: string, tabIds: string[], activeTabId: string | null): ProjectSessionSplitLeaf {
+function normalizeMruTabIds(
+  tabIds: readonly string[],
+  activeTabId: string | null,
+  mruTabIds: readonly string[] = [],
+): string[] {
+  const validTabIds = new Set(tabIds);
+  const activePrefix = activeTabId && validTabIds.has(activeTabId) ? [activeTabId] : [];
+  return uniqueStrings([...activePrefix, ...mruTabIds, ...tabIds])
+    .filter((tabId) => validTabIds.has(tabId));
+}
+
+function makeLeaf(
+  id: string,
+  tabIds: string[],
+  activeTabId: string | null,
+  mruTabIds: readonly string[] = [],
+): ProjectSessionSplitLeaf {
+  const uniqueTabIds = uniqueStrings(tabIds);
+  const resolvedActiveTabId = activeTabId && uniqueTabIds.includes(activeTabId)
+    ? activeTabId
+    : uniqueTabIds[0] ?? null;
   return {
     type: "leaf",
     id,
-    tabIds,
-    activeTabId: activeTabId && tabIds.includes(activeTabId) ? activeTabId : tabIds[0] ?? null,
+    tabIds: uniqueTabIds,
+    activeTabId: resolvedActiveTabId,
+    mruTabIds: normalizeMruTabIds(uniqueTabIds, resolvedActiveTabId, mruTabIds),
   };
 }
 
@@ -257,7 +283,7 @@ function normalizeNode(
       seenTabIds.add(tabId);
       tabIds.push(tabId);
     }
-    return makeLeaf(id, tabIds, node.activeTabId);
+    return makeLeaf(id, tabIds, node.activeTabId, node.mruTabIds ?? []);
   }
 
   return {
@@ -320,13 +346,14 @@ function normalizeV2Layout(
         options.preferredActiveTabId && unassignedTabIds.includes(options.preferredActiveTabId)
           ? options.preferredActiveTabId
           : leaf.activeTabId,
+        leaf.mruTabIds,
       )
     );
   }
 
   root = mapNode(root, (node) => {
     if (node.type !== "leaf") return node;
-    return makeLeaf(node.id, uniqueStrings(node.tabIds), node.activeTabId);
+    return makeLeaf(node.id, uniqueStrings(node.tabIds), node.activeTabId, node.mruTabIds);
   });
 
   const normalized: ProjectSessionPanelLayoutV2 = {
@@ -397,7 +424,7 @@ function activateNormalizedProjectSessionPanelLeaf(
     ? tabId
     : targetLeaf.activeTabId;
   const root = updateLeafTabs(normalized.root, targetLeaf.id, (leaf) =>
-    makeLeaf(leaf.id, leaf.tabIds, activeTabId)
+    makeLeaf(leaf.id, leaf.tabIds, activeTabId, activeTabId ? [activeTabId, ...leaf.mruTabIds] : leaf.mruTabIds)
   );
   const next = {
     ...normalized,
@@ -429,7 +456,7 @@ export function splitProjectSessionPanelLeaf(
   if (targetLeaf.tabIds.length <= 1) return normalized;
 
   const targetTabIds = targetLeaf.tabIds.filter((tabId) => tabId !== input.tabId);
-  const updatedTarget = makeLeaf(targetLeaf.id, targetTabIds, targetLeaf.activeTabId);
+  const updatedTarget = makeLeaf(targetLeaf.id, targetTabIds, targetLeaf.activeTabId, targetLeaf.mruTabIds);
   const newLeaf = makeLeaf(input.newLeafId, [input.tabId], input.tabId);
   const direction = input.side === "left" || input.side === "right" ? "horizontal" : "vertical";
   const newBranch: ProjectSessionSplitBranch = {
@@ -475,7 +502,7 @@ export function moveProjectSessionPanelTab(
   let root = mapNode(normalized.root, (node) => {
     if (node.type !== "leaf") return node;
     const nextIds = node.tabIds.filter((tabId) => tabId !== input.tabId);
-    return makeLeaf(node.id, nextIds, node.activeTabId);
+    return makeLeaf(node.id, nextIds, node.activeTabId, node.mruTabIds);
   });
 
   root = updateLeafTabs(root, targetLeaf.id, (leaf) => {
@@ -483,7 +510,7 @@ export function moveProjectSessionPanelTab(
     const targetIndex = Math.min(input.targetIndex ?? base.length, base.length);
     const nextIds = [...base];
     nextIds.splice(targetIndex, 0, input.tabId);
-    return makeLeaf(leaf.id, nextIds, input.tabId);
+    return makeLeaf(leaf.id, nextIds, input.tabId, [input.tabId, ...leaf.mruTabIds]);
   });
 
   return normalizeProjectSessionPanelLayout(
@@ -519,7 +546,7 @@ export function reorderProjectSessionPanelLeafTabs(
     {
       ...normalized,
       root: updateLeafTabs(normalized.root, leaf.id, (current) =>
-        makeLeaf(current.id, finalOrder, current.activeTabId)
+        makeLeaf(current.id, finalOrder, current.activeTabId, current.mruTabIds)
       ),
     },
     leaf.id,
@@ -530,15 +557,16 @@ export function reorderProjectSessionPanelLeafTabs(
 export function removeProjectSessionPanelTab(
   layout: ProjectSessionPanelLayout,
   tabId: string,
+  options: RemovePanelTabOptions = {},
 ): ProjectSessionPanelLayoutV2 {
   const allTabIds = flattenProjectSessionPanelTabIds(layout).filter((candidate) => candidate !== tabId);
-  const normalized = normalizeProjectSessionPanelLayout(layout, allTabIds);
+  const normalized = normalizeProjectSessionPanelLayout(layout, allTabIds, options);
   const root = mapNode(normalized.root, (node) => {
     if (node.type !== "leaf") return node;
     const tabIds = node.tabIds.filter((candidate) => candidate !== tabId);
-    return makeLeaf(node.id, tabIds, node.activeTabId);
+    return makeLeaf(node.id, tabIds, node.activeTabId, node.mruTabIds);
   });
-  return normalizeProjectSessionPanelLayout({ ...normalized, root }, allTabIds);
+  return normalizeProjectSessionPanelLayout({ ...normalized, root }, allTabIds, options);
 }
 
 function removeLeafFromNode(
@@ -705,6 +733,11 @@ export function mergeProjectSessionPanelLeaf(
       leaf.id,
       uniqueStrings([...leaf.tabIds, ...removed.removed!.tabIds]),
       removed.removed!.activeTabId ?? leaf.activeTabId,
+      uniqueStrings([
+        ...(removed.removed!.activeTabId ? [removed.removed!.activeTabId] : []),
+        ...removed.removed!.mruTabIds,
+        ...leaf.mruTabIds,
+      ]),
     )
   );
   return normalizeProjectSessionPanelLayout(

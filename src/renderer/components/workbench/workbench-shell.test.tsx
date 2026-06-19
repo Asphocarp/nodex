@@ -29,6 +29,7 @@ import type {
 } from "../../../shared/window-navigation";
 import {
   makeProjectSessionPanelLayout,
+  removeProjectSessionPanelTab,
   splitProjectSessionPanelLeaf,
 } from "../../../shared/project-session-panel-layout";
 
@@ -625,6 +626,9 @@ function updatePanelLeafActiveTab(
     return {
       ...node,
       activeTabId: tabId ?? node.activeTabId,
+      mruTabIds: tabId && node.tabIds.includes(tabId)
+        ? [tabId, ...node.mruTabIds.filter((id) => id !== tabId)]
+        : node.mruTabIds,
     };
   }
   return {
@@ -645,6 +649,7 @@ function appendTestPanelLeafTab(
       ...node,
       tabIds: [...node.tabIds.filter((id) => id !== tabId), tabId],
       activeTabId: tabId,
+      mruTabIds: [tabId, ...node.mruTabIds.filter((id) => id !== tabId)],
     };
   }
   return {
@@ -690,6 +695,14 @@ function getPanelTabById(container: HTMLElement, tabId: string): HTMLElement {
   return tab;
 }
 
+function getPanelTabChromeById(container: HTMLElement, tabId: string): HTMLElement {
+  const tabShell = Array.from(container.querySelectorAll<HTMLElement>("[data-panel-tab-id]"))
+    .find((element) => element.dataset.panelTabId === tabId);
+  const tabChrome = tabShell?.querySelector<HTMLElement>("[data-tab-id]") ?? null;
+  if (!tabChrome) throw new Error(`Expected panel tab chrome ${tabId}`);
+  return tabChrome;
+}
+
 function getProjectSessionPanelActivateCalls(): {
   sessionId?: string;
   panelId?: ProjectSessionTab["panelId"];
@@ -713,6 +726,21 @@ function getProjectSessionTabDeleteTabIds(): string[] {
     const input = call[1] as string | { tabId?: string };
     if (typeof input === "string") return [input];
     return input.tabId ? [input.tabId] : [];
+  });
+}
+
+function getProjectSessionTabDeleteInputs(): Array<string | {
+  tabId?: string;
+  preferredActiveLeafId?: string | null;
+  preferredActiveTabId?: string | null;
+}> {
+  return invokeCalls.flatMap((call) => {
+    if (call[0] !== "project-session-tabs:delete") return [];
+    return [call[1] as string | {
+      tabId?: string;
+      preferredActiveLeafId?: string | null;
+      preferredActiveTabId?: string | null;
+    }];
   });
 }
 
@@ -1271,22 +1299,43 @@ function renderWorkbench({
       return updatedTabs.find((tab) => tab.id === tabId) ?? null;
     }
     if (channel === "project-session-tabs:delete") {
-      const rawInput = args[0] as string | { tabId?: string };
+      const rawInput = args[0] as string | {
+        tabId?: string;
+        preferredActiveLeafId?: string | null;
+        preferredActiveTabId?: string | null;
+      };
       const tabId = typeof rawInput === "string" ? rawInput : rawInput.tabId ?? "";
       const session = Object.values(sessionState)
         .flat()
         .find((item) => item.tabs.some((tab) => tab.id === tabId));
       if (!session) return null;
 
+      const deletedTab = session.tabs.find((tab) => tab.id === tabId);
       const updatedTabs = session.tabs.filter((tab) => tab.id !== tabId);
-      const rightIds = updatedTabs.filter((tab) => tab.panelId === "right").map((tab) => tab.id);
-      const bottomIds = updatedTabs.filter((tab) => tab.panelId === "bottom").map((tab) => tab.id);
+      const preferredActiveLeafId = typeof rawInput === "string" ? undefined : rawInput.preferredActiveLeafId;
+      const preferredActiveTabId = typeof rawInput === "string" ? undefined : rawInput.preferredActiveTabId;
       sessionState = replaceSession(sessionState, {
         ...session,
         tabs: updatedTabs,
         panels: {
-          right: { ...session.panels.right, layout: makePanelLayout(rightIds, rightIds[0] ?? null) },
-          bottom: { ...session.panels.bottom, layout: makePanelLayout(bottomIds, bottomIds[0] ?? null) },
+          right: {
+            ...session.panels.right,
+            layout: deletedTab?.panelId === "right"
+              ? removeProjectSessionPanelTab(session.panels.right.layout, tabId, {
+                preferredActiveLeafId,
+                preferredActiveTabId,
+              })
+              : session.panels.right.layout,
+          },
+          bottom: {
+            ...session.panels.bottom,
+            layout: deletedTab?.panelId === "bottom"
+              ? removeProjectSessionPanelTab(session.panels.bottom.layout, tabId, {
+                preferredActiveLeafId,
+                preferredActiveTabId,
+              })
+              : session.panels.bottom.layout,
+          },
         },
       });
       return true;
@@ -4995,6 +5044,281 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     expect(JSON.stringify(getProjectSessionTabDeleteTabIds())).toBe(JSON.stringify([browserTab.id]));
+  });
+
+  test("Ctrl+W routes close focus to the same-leaf most recently active tab", async () => {
+    const firstTab = makeSessionTab({
+      id: "overview:alpha:first",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "db_view",
+      title: "First",
+      order: 0,
+      config: { projectId: "alpha", view: "kanban" },
+    });
+    const secondTab = makeSessionTab({
+      id: "overview:alpha:second",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "browser",
+      title: "Second",
+      order: 1,
+      config: { projectId: "alpha" },
+    });
+    const thirdTab = makeSessionTab({
+      id: "overview:alpha:third",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "review",
+      title: "Third",
+      order: 2,
+      config: { projectId: "alpha" },
+    });
+    const session = makeSession({
+      tabs: [firstTab, secondTab, thirdTab],
+      rightLayout: makePanelLayout([firstTab.id, secondTab.id, thirdTab.id], firstTab.id),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.mouseDown(getPanelTabById(screen.container, secondTab.id), { button: 0 });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+    await act(async () => {
+      fireEvent.mouseDown(getPanelTabById(screen.container, thirdTab.id), { button: 0 });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    invokeCalls = [];
+    await act(async () => {
+      fireEvent.keyDown(getPanelTabById(screen.container, thirdTab.id), {
+        key: "w",
+        code: "KeyW",
+        ctrlKey: true,
+      });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const deleteInput = getProjectSessionTabDeleteInputs()[0];
+    if (typeof deleteInput === "string" || !deleteInput) {
+      throw new Error("Expected structured tab delete input");
+    }
+    expect(deleteInput.tabId).toBe(thirdTab.id);
+    expect(deleteInput.preferredActiveLeafId).toBe("main");
+    expect(deleteInput.preferredActiveTabId).toBe(secondTab.id);
+    await waitFor(() => {
+      expect(getPanelTabById(screen.container, secondTab.id).getAttribute("aria-selected")).toBe("true");
+    });
+  });
+
+  test("Ctrl+W close routing stays inside the focused split leaf", async () => {
+    const firstTab = makeSessionTab({
+      id: "overview:alpha:first-split-close",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "db_view",
+      title: "First",
+      order: 0,
+      config: { projectId: "alpha", view: "kanban" },
+    });
+    const secondTab = makeSessionTab({
+      id: "overview:alpha:second-split-close",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "browser",
+      title: "Second",
+      order: 1,
+      config: { projectId: "alpha" },
+    });
+    const thirdTab = makeSessionTab({
+      id: "overview:alpha:third-split-close",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "review",
+      title: "Third",
+      order: 2,
+      config: { projectId: "alpha" },
+    });
+    const rightLayout = splitProjectSessionPanelLeaf(
+      makePanelLayout([firstTab.id, secondTab.id, thirdTab.id], firstTab.id),
+      {
+        leafId: "main",
+        side: "right",
+        tabId: thirdTab.id,
+        newLeafId: "leaf:review-close",
+        newBranchId: "branch:review-close",
+      },
+    );
+    const session = makeSession({
+      tabs: [firstTab, secondTab, thirdTab],
+      rightLayout,
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.mouseDown(getPanelTabById(screen.container, secondTab.id), { button: 0 });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    invokeCalls = [];
+    await act(async () => {
+      fireEvent.keyDown(getPanelTabById(screen.container, secondTab.id), {
+        key: "w",
+        code: "KeyW",
+        ctrlKey: true,
+      });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const deleteInput = getProjectSessionTabDeleteInputs()[0];
+    if (typeof deleteInput === "string" || !deleteInput) {
+      throw new Error("Expected structured tab delete input");
+    }
+    expect(deleteInput.tabId).toBe(secondTab.id);
+    expect(deleteInput.preferredActiveLeafId).toBe("main");
+    expect(deleteInput.preferredActiveTabId).toBe(firstTab.id);
+    await waitFor(() => {
+      expect(getPanelTabById(screen.container, firstTab.id).getAttribute("aria-selected")).toBe("true");
+    });
+  });
+
+  test("direct panel tab close routes focus to the same-leaf most recently active tab", async () => {
+    const firstTab = makeSessionTab({
+      id: "overview:alpha:first-direct",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "db_view",
+      title: "First",
+      order: 0,
+      config: { projectId: "alpha", view: "kanban" },
+    });
+    const secondTab = makeSessionTab({
+      id: "overview:alpha:second-direct",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "browser",
+      title: "Second",
+      order: 1,
+      config: { projectId: "alpha" },
+    });
+    const thirdTab = makeSessionTab({
+      id: "overview:alpha:third-direct",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "review",
+      title: "Third",
+      order: 2,
+      config: { projectId: "alpha" },
+    });
+    const session = makeSession({
+      tabs: [firstTab, secondTab, thirdTab],
+      rightLayout: makePanelLayout([firstTab.id, secondTab.id, thirdTab.id], firstTab.id),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.mouseDown(getPanelTabById(screen.container, secondTab.id), { button: 0 });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    invokeCalls = [];
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Close Second tab"));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const deleteInput = getProjectSessionTabDeleteInputs()[0];
+    if (typeof deleteInput === "string" || !deleteInput) {
+      throw new Error("Expected structured tab delete input");
+    }
+    expect(deleteInput.tabId).toBe(secondTab.id);
+    expect(deleteInput.preferredActiveLeafId).toBe("main");
+    expect(deleteInput.preferredActiveTabId).toBe(firstTab.id);
+    await waitFor(() => {
+      expect(getPanelTabById(screen.container, firstTab.id).getAttribute("aria-selected")).toBe("true");
+    });
+  });
+
+  test("middle-click panel tab close uses same-leaf MRU routing", async () => {
+    const firstTab = makeSessionTab({
+      id: "overview:alpha:first-middle",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "db_view",
+      title: "First",
+      order: 0,
+      config: { projectId: "alpha", view: "kanban" },
+    });
+    const secondTab = makeSessionTab({
+      id: "overview:alpha:second-middle",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "browser",
+      title: "Second",
+      order: 1,
+      config: { projectId: "alpha" },
+    });
+    const thirdTab = makeSessionTab({
+      id: "overview:alpha:third-middle",
+      sessionId: "overview:alpha",
+      projectId: "alpha",
+      kind: "review",
+      title: "Third",
+      order: 2,
+      config: { projectId: "alpha" },
+    });
+    const session = makeSession({
+      tabs: [firstTab, secondTab, thirdTab],
+      rightLayout: makePanelLayout([firstTab.id, secondTab.id, thirdTab.id], firstTab.id),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await act(async () => {
+      fireEvent.mouseDown(getPanelTabById(screen.container, secondTab.id), { button: 0 });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    invokeCalls = [];
+    await act(async () => {
+      fireEvent.mouseDown(getPanelTabChromeById(screen.container, secondTab.id), { button: 1 });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    const deleteInput = getProjectSessionTabDeleteInputs()[0];
+    if (typeof deleteInput === "string" || !deleteInput) {
+      throw new Error("Expected structured tab delete input");
+    }
+    expect(deleteInput.tabId).toBe(secondTab.id);
+    expect(deleteInput.preferredActiveLeafId).toBe("main");
+    expect(deleteInput.preferredActiveTabId).toBe(firstTab.id);
+    await waitFor(() => {
+      expect(getPanelTabById(screen.container, firstTab.id).getAttribute("aria-selected")).toBe("true");
+    });
   });
 
   test("Ctrl+W consumes but does not close a non-closable active panel tab", async () => {

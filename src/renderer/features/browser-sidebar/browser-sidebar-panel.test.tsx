@@ -257,7 +257,13 @@ const activeSession: ProjectSession = {
       collapsed: false,
       layout: {
         version: 2,
-        root: { type: "leaf", id: "right-root", tabIds: ["tab-browser"], activeTabId: "tab-browser" },
+        root: {
+          type: "leaf",
+          id: "right-root",
+          tabIds: ["tab-browser"],
+          activeTabId: "tab-browser",
+          mruTabIds: ["tab-browser"],
+        },
         activeLeafId: "right-root",
         mruLeafIds: ["right-root"],
       },
@@ -267,7 +273,7 @@ const activeSession: ProjectSession = {
       collapsed: true,
       layout: {
         version: 2,
-        root: { type: "leaf", id: "bottom-root", tabIds: [], activeTabId: null },
+        root: { type: "leaf", id: "bottom-root", tabIds: [], activeTabId: null, mruTabIds: [] },
         activeLeafId: "bottom-root",
         mruLeafIds: ["bottom-root"],
       },

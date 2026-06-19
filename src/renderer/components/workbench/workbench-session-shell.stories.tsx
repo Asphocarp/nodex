@@ -198,12 +198,20 @@ function makeSplitPanelLayout(tabIds: string[], activeTabId: string | null): Pro
         id: "leaf:main",
         tabIds: firstTabIds,
         activeTabId: activeTabId && firstTabIds.includes(activeTabId) ? activeTabId : firstTabIds[0] ?? null,
+        mruTabIds: [
+          ...(activeTabId && firstTabIds.includes(activeTabId) ? [activeTabId] : []),
+          ...firstTabIds,
+        ],
       },
       second: {
         type: "leaf",
         id: "leaf:browser",
         tabIds: secondTabIds,
         activeTabId: activeTabId && secondTabIds.includes(activeTabId) ? activeTabId : secondTabIds[0] ?? null,
+        mruTabIds: [
+          ...(activeTabId && secondTabIds.includes(activeTabId) ? [activeTabId] : []),
+          ...secondTabIds,
+        ],
       },
     },
   };

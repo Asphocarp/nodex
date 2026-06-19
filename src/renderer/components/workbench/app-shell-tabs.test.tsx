@@ -48,6 +48,7 @@ function renderAppShellTabs(props: {
   activeTabId?: string;
   onSelect?: (tabId: string) => void;
   onCloseTab?: (tabId: string) => void;
+  onDirectCloseTab?: (tabId: string) => void;
   onMoveTab?: ComponentProps<typeof AppShellTabs>["onMoveTab"];
   onSplitTab?: ComponentProps<typeof AppShellTabs>["onSplitTab"];
   panelTabDnd?: ComponentProps<typeof AppShellTabs>["panelTabDnd"];
@@ -66,6 +67,7 @@ function renderAppShellTabs(props: {
         activeTabId={props.activeTabId ?? "one"}
         onSelect={props.onSelect ?? (() => undefined)}
         onCloseTab={props.onCloseTab}
+        onDirectCloseTab={props.onDirectCloseTab}
         onMoveTab={props.onMoveTab}
         onSplitTab={props.onSplitTab}
         panelTabDnd={props.panelTabDnd}
@@ -385,10 +387,12 @@ describe("AppShellTabs", () => {
   test("close button suppresses selection on mouse down", () => {
     const selected: string[] = [];
     const closed: string[] = [];
+    const directClosed: string[] = [];
     const view = renderAppShellTabs({
       activeTabId: "one",
       onSelect: (tabId) => selected.push(tabId),
       onCloseTab: (tabId) => closed.push(tabId),
+      onDirectCloseTab: (tabId) => directClosed.push(tabId),
     });
 
     const closeButton = view.getByLabelText("Close Two tab");
@@ -400,22 +404,26 @@ describe("AppShellTabs", () => {
     fireEvent.mouseDown(closeButton, { button: 0 });
     fireEvent.click(closeButton);
 
-    expect(closed.join(",")).toBe("two");
+    expect(closed.length).toBe(0);
+    expect(directClosed.join(",")).toBe("two");
     expect(selected.length).toBe(0);
   });
 
   test("middle-click closes a closable tab", () => {
     const closed: string[] = [];
+    const directClosed: string[] = [];
     const view = renderAppShellTabs({
       activeTabId: "one",
       onCloseTab: (tabId) => closed.push(tabId),
+      onDirectCloseTab: (tabId) => directClosed.push(tabId),
     });
 
     const tabChrome = view.container.querySelector('[data-app-shell-tab-controller][data-tab-id="two"] [data-tab-id="two"]');
     if (!tabChrome) throw new Error("Expected tab chrome");
     fireEvent.mouseDown(tabChrome, { button: 1 });
 
-    expect(closed.join(",")).toBe("two");
+    expect(closed.length).toBe(0);
+    expect(directClosed.join(",")).toBe("two");
   });
 
   test("direct close locks following tab widths for rapid close mode", async () => {

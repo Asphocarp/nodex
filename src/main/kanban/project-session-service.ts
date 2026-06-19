@@ -945,10 +945,15 @@ export function deleteProjectSessionTab(input: string | ProjectSessionTabDeleteI
     const tabs = getTabsForSession(row.session_id);
     const panelTabIds = tabs.filter((tab) => tab.panelId === panelId).map((tab) => tab.id);
     const layout = cleanupPanelLayout(
-      removeProjectSessionPanelTab(session.panels[panelId].layout, tabId),
+      removeProjectSessionPanelTab(session.panels[panelId].layout, tabId, {
+        preferredActiveLeafId: parsed.preferredActiveLeafId,
+        preferredActiveTabId: parsed.preferredActiveTabId,
+      }),
       panelTabIds,
       {
         preserveEmptyLeafIds: parsed.preserveEmptyLeafIds,
+        preferredActiveLeafId: parsed.preferredActiveLeafId,
+        preferredActiveTabId: parsed.preferredActiveTabId,
       },
     );
     const panels: Record<PanelId, ProjectSessionPanelState> = {

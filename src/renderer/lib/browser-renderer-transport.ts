@@ -387,13 +387,25 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
     case "project-session-tabs:delete": {
       const [input] = args as [string | ProjectSessionTabDeleteInput];
       const tabId = typeof input === "string" ? input : input.tabId;
-      const preserveEmptyLeafIds = typeof input === "string" ? undefined : input.preserveEmptyLeafIds;
+      const deleteBody: Partial<ProjectSessionTabDeleteInput> = {};
+      if (typeof input !== "string") {
+        if (input.preserveEmptyLeafIds && input.preserveEmptyLeafIds.length > 0) {
+          deleteBody.preserveEmptyLeafIds = input.preserveEmptyLeafIds;
+        }
+        if (input.preferredActiveLeafId !== undefined) {
+          deleteBody.preferredActiveLeafId = input.preferredActiveLeafId;
+        }
+        if (input.preferredActiveTabId !== undefined) {
+          deleteBody.preferredActiveTabId = input.preferredActiveTabId;
+        }
+      }
+      const hasDeleteBody = Object.keys(deleteBody).length > 0;
       const res = await fetch(toApiUrl(`/api/project-session-tabs/${tabId}`), {
         method: "DELETE",
-        ...(preserveEmptyLeafIds && preserveEmptyLeafIds.length > 0
+        ...(hasDeleteBody
           ? {
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ preserveEmptyLeafIds }),
+              body: JSON.stringify(deleteBody),
             }
           : {}),
       });
