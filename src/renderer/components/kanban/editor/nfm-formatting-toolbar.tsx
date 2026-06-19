@@ -26,6 +26,16 @@ import { CopyImageButton } from "./copy-image-button";
 import { NfmCreateLinkButton } from "./nfm-link-toolbar";
 import { NfmTextActionMenu } from "./nfm-text-action-menu";
 
+const NFM_LEGACY_FORMATTING_TOOLBAR_OMITTED_KEYS = new Set([
+  "textAlignLeftButton",
+  "textAlignCenterButton",
+  "textAlignRightButton",
+]);
+
+export function shouldRenderNfmLegacyFormattingToolbarItem(key: string): boolean {
+  return !NFM_LEGACY_FORMATTING_TOOLBAR_OMITTED_KEYS.has(key);
+}
+
 function keepEditorSelection(event: MouseEvent | React.MouseEvent) {
   if ("button" in event && event.button !== 0) return;
   if ("preventDefault" in event) event.preventDefault();
@@ -541,7 +551,8 @@ export function NfmLegacyFormattingToolbar() {
 
   const toolbarItems = useMemo(() => {
     const items = getFormattingToolbarItems().map((item) =>
-      item.key === "createLinkButton" ? <NfmCreateLinkButton key="createLinkButton" /> : item);
+      item.key === "createLinkButton" ? <NfmCreateLinkButton key="createLinkButton" /> : item)
+      .filter((item) => shouldRenderNfmLegacyFormattingToolbarItem(item.key ?? ""));
     const copyImageButton = <CopyImageButton key="copyImageButton" />;
     const fileDownloadButtonIndex = items.findIndex((item) => item.key === "fileDownloadButton");
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FormattingToolbarController, type LinkToolbarProps, SideMenuController, useCreateBlockNote } from "@blocknote/react";
+import { type LinkToolbarProps, SideMenuController, useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
@@ -51,7 +51,7 @@ import {
   renderCardDropIndicator,
 } from "./card-drop-indicator";
 import { NfmFormattingToolbar } from "./nfm-formatting-toolbar";
-import { NFM_TEXT_ACTION_MENU_FLOATING_OPTIONS } from "./nfm-text-action-menu-floating";
+import { NfmFormattingToolbarController } from "./nfm-formatting-toolbar-controller";
 import { NfmLinkToolbar } from "./nfm-link-toolbar";
 import { NfmLinkToolbarController } from "./nfm-link-toolbar-controller";
 import { ImagePreviewDialog } from "./image-preview-dialog";
@@ -1032,9 +1032,8 @@ export function ToggleListCardEditor({
             sideMenu={NfmSideMenu}
             floatingUIOptions={sideMenuFloatingOptions}
           />
-          <FormattingToolbarController
+          <NfmFormattingToolbarController
             formattingToolbar={NfmFormattingToolbar}
-            floatingUIOptions={NFM_TEXT_ACTION_MENU_FLOATING_OPTIONS}
           />
           <NfmLinkToolbarController
             linkToolbar={renderLinkToolbar}

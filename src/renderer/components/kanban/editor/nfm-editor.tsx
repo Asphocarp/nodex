@@ -1,6 +1,5 @@
 import { useEffect, useRef, useMemo, useCallback, useState, type MutableRefObject } from "react";
 import {
-  FormattingToolbarController,
   SideMenuController,
   type LinkToolbarProps,
   useCreateBlockNote,
@@ -22,7 +21,7 @@ import {
   NOTION_MULTI_TEXT_MIME,
 } from "./notion-paste";
 import { NfmFormattingToolbar } from "./nfm-formatting-toolbar";
-import { NFM_TEXT_ACTION_MENU_FLOATING_OPTIONS } from "./nfm-text-action-menu-floating";
+import { NfmFormattingToolbarController } from "./nfm-formatting-toolbar-controller";
 import { NfmTextActionMenuRuntimeProvider } from "./nfm-text-action-menu-runtime";
 import { NfmLinkToolbar } from "./nfm-link-toolbar";
 import { NfmLinkToolbarController } from "./nfm-link-toolbar-controller";
@@ -2469,9 +2468,8 @@ export function NfmEditor({
                   sideMenu={customSideMenu}
                   floatingUIOptions={sideMenuFloatingOptions}
                 />
-                <FormattingToolbarController
+                <NfmFormattingToolbarController
                   formattingToolbar={NfmFormattingToolbar}
-                  floatingUIOptions={NFM_TEXT_ACTION_MENU_FLOATING_OPTIONS}
                 />
                 <NfmLinkToolbarController
                   linkToolbar={renderLinkToolbar}
