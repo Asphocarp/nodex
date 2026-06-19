@@ -305,7 +305,7 @@ export const NodexDropdownButtonTrigger = forwardRef<
       ref={ref}
       type={type}
       className={cn(
-        "inline-flex w-fit items-center justify-between gap-1 border border-transparent outline-hidden disabled:cursor-not-allowed disabled:opacity-40",
+        "inline-flex min-w-0 items-center justify-between gap-1 border border-transparent outline-hidden disabled:cursor-not-allowed disabled:opacity-40",
         chrome === "filled" ? "bg-token-foreground/5 hover:bg-token-foreground/10" : "bg-transparent hover:bg-token-foreground/5",
         "focus-visible:ring-token-focus focus-visible:ring-2",
         muted ? "text-token-description-foreground" : "text-token-foreground",

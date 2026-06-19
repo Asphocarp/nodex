@@ -8,8 +8,9 @@ import {
   useExtensionState,
 } from "@blocknote/react";
 import type { ReactNode } from "react";
+import type { SendBlocksMode } from "./nfm-side-menu-model";
 
-export type SendBlocksMode = "card" | "project";
+export type { SendBlocksMode } from "./nfm-side-menu-model";
 
 export interface NfmDragHandleMenuComponentProps {
   releaseSideMenuFreeze?: () => void;

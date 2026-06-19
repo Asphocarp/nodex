@@ -131,6 +131,25 @@ describe("nfm text action menu surface", () => {
     expect(nodexIndex >= 0 && skillsIndex >= 0 && nodexIndex < skillsIndex).toBeTrue();
   });
 
+  test("opens the block type menu and delegates Turn into selections", async () => {
+    const { actions, view } = renderTextActionMenu();
+
+    await act(async () => {
+      fireEvent.pointerDown(view.getByRole("button", { name: "Normal Text" }), {
+        button: 0,
+        ctrlKey: false,
+      });
+      await settleAsyncRender();
+    });
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("menuitem", { name: "Heading 1" }));
+      await settleAsyncRender();
+    });
+
+    expect(actions.blockTypes.join(",")).toBe("heading-1");
+  });
+
   test("invokes supported annotation and Nodex actions", async () => {
     const { actions, view } = renderTextActionMenu();
 

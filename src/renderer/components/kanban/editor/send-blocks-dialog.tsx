@@ -15,6 +15,7 @@ import {
   NodexDialogHeader as DialogHeader,
   NodexDialogTitle as DialogTitle,
 } from "@/components/ui/dialog";
+import { NodexButton } from "@/components/ui/button";
 import {
   NodexDropdownButtonTrigger,
   NodexDropdownChoiceMenu,
@@ -32,7 +33,7 @@ interface ProjectTarget {
   columnId: string;
 }
 
-interface SendBlocksDialogProps {
+export interface SendBlocksDialogProps {
   open: boolean;
   mode: SendBlocksMode;
   blockCount: number;
@@ -41,6 +42,14 @@ interface SendBlocksDialogProps {
   onOpenChange: (open: boolean) => void;
   onAppendToCard: (target: AppendTarget) => Promise<void>;
   onSendToProject: (target: ProjectTarget) => Promise<void>;
+}
+
+export interface SendBlocksDialogSurfaceProps extends SendBlocksDialogProps {
+  projects: Project[];
+  projectsLoading: boolean;
+  boardMap: Map<string, BoardSummary>;
+  boardsLoading: boolean;
+  loadError?: string | null;
 }
 
 interface CardListItem {
@@ -62,8 +71,8 @@ function filterCards(
   cards: CardListItem[],
   query: string,
 ): CardListItem[] {
-  if (!query.trim()) return cards.slice(0, 60);
-  const normalizedQuery = query.toLowerCase();
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return cards.slice(0, 60);
   return cards
     .filter((card) => {
       const haystack = `${card.title} ${card.columnName}`.toLowerCase();
@@ -74,6 +83,59 @@ function filterCards(
 
 export function SendBlocksDialog({
   open,
+  ...props
+}: SendBlocksDialogProps) {
+  const { projects, loading: projectsLoading, error: projectsError } = useProjects();
+  const [boardMap, setBoardMap] = useState<Map<string, BoardSummary>>(new Map());
+  const [boardsLoading, setBoardsLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    let cancelled = false;
+    const run = async () => {
+      setBoardsLoading(true);
+      setLoadError(null);
+      try {
+        const results = await Promise.all(
+          projects.map(async (project) => {
+            const board = (await invoke("board:summary:get", project.id)) as BoardSummary;
+            return [project.id, board] as const;
+          }),
+        );
+        if (cancelled) return;
+        setBoardMap(new Map(results));
+      } catch {
+        if (cancelled) return;
+        setLoadError("Unable to load projects and cards.");
+      } finally {
+        if (cancelled) return;
+        setBoardsLoading(false);
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, projects]);
+
+  return (
+    <SendBlocksDialogSurface
+      open={open}
+      {...props}
+      projects={projects}
+      projectsLoading={projectsLoading}
+      boardMap={boardMap}
+      boardsLoading={boardsLoading}
+      loadError={loadError ?? projectsError}
+    />
+  );
+}
+
+export function SendBlocksDialogSurface({
+  open,
   mode,
   blockCount,
   sourceProjectId,
@@ -81,12 +143,14 @@ export function SendBlocksDialog({
   onOpenChange,
   onAppendToCard,
   onSendToProject,
-}: SendBlocksDialogProps) {
-  const { projects, loading: projectsLoading } = useProjects();
-  const [boardMap, setBoardMap] = useState<Map<string, BoardSummary>>(new Map());
-  const [boardsLoading, setBoardsLoading] = useState(false);
+  projects,
+  projectsLoading,
+  boardMap,
+  boardsLoading,
+  loadError = null,
+}: SendBlocksDialogSurfaceProps) {
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
   const form = useForm({
     defaultValues: {
       targetProjectId: sourceProjectId,
@@ -96,7 +160,7 @@ export function SendBlocksDialog({
     },
     onSubmit: async ({ value }) => {
       if (submitting) return;
-      setError(null);
+      setSubmissionError(null);
 
       setSubmitting(true);
       try {
@@ -118,43 +182,13 @@ export function SendBlocksDialog({
 
         onOpenChange(false);
       } catch (submissionError) {
-        setError(resolveFormErrorMessage(submissionError) ?? "Unable to move blocks.");
+        setSubmissionError(resolveFormErrorMessage(submissionError) ?? "Unable to move blocks.");
       } finally {
         setSubmitting(false);
       }
     },
   });
   const formValues = useStore(form.store, (state) => state.values);
-
-  useEffect(() => {
-    if (!open) return;
-
-    let cancelled = false;
-    const run = async () => {
-      setBoardsLoading(true);
-      try {
-        const results = await Promise.all(
-          projects.map(async (project) => {
-            const board = (await invoke("board:summary:get", project.id)) as BoardSummary;
-            return [project.id, board] as const;
-          }),
-        );
-        if (cancelled) return;
-        setBoardMap(new Map(results));
-      } catch {
-        if (cancelled) return;
-        setError("Unable to load projects and cards.");
-      } finally {
-        if (cancelled) return;
-        setBoardsLoading(false);
-      }
-    };
-
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, projects]);
 
   useEffect(() => {
     if (!open) return;
@@ -165,7 +199,7 @@ export function SendBlocksDialog({
       cardQuery: "",
     });
     setSubmitting(false);
-    setError(null);
+    setSubmissionError(null);
   }, [form, mode, open, projects, sourceProjectId]);
 
   const selectedBoard = boardMap.get(formValues.targetProjectId);
@@ -214,25 +248,26 @@ export function SendBlocksDialog({
 
   const submitLabel = mode === "card" ? "Append blocks" : "Create cards";
 
-  const title = mode === "card" ? "Append blocks to card" : "Turn blocks into cards";
+  const title = mode === "card" ? "Move to card" : "Move to DB";
   const description = mode === "card"
     ? `Move ${blockCount} selected block${blockCount === 1 ? "" : "s"} into another card.`
     : `Create ${blockCount} card${blockCount === 1 ? "" : "s"} from the selected blocks.`;
+  const displayError = submissionError ?? loadError;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-140 gap-3">
-        <DialogHeader>
+      <DialogContent className="max-h-[min(34rem,calc(100vh-2rem))] w-[min(35rem,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-none">
+        <DialogHeader className="gap-1 px-5 pt-5 pr-12 pb-3">
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
         <form
           id="send-blocks-form"
-          className="space-y-3"
+          className="min-h-0 min-w-0 space-y-3 overflow-y-auto overscroll-contain px-5 pb-3"
           onSubmit={(event) => handleFormSubmit(event, form.handleSubmit)}
         >
-          <div className="space-y-1.5">
+          <div className="min-w-0 space-y-1.5">
             <p className="text-xs font-medium text-(--foreground-secondary)">
               Destination project
             </p>
@@ -252,8 +287,8 @@ export function SendBlocksDialog({
                 };
               })}
               triggerButton={(
-                <NodexDropdownButtonTrigger className="w-full">
-                  <span className="truncate text-sm">
+                <NodexDropdownButtonTrigger className="w-full max-w-full">
+                  <span className="min-w-0 truncate text-sm">
                     {targetProjectIcon
                       ? `${targetProjectIcon} ${targetProject?.name ?? formValues.targetProjectId}`
                       : targetProject?.name ?? formValues.targetProjectId}
@@ -264,22 +299,22 @@ export function SendBlocksDialog({
           </div>
 
           {mode === "card" ? (
-            <div className="space-y-1.5">
+            <div className="min-w-0 space-y-1.5">
               <p className="text-xs font-medium text-(--foreground-secondary)">
                 Destination card
               </p>
-              <div className="rounded-md border border-(--border) bg-(--card)">
-                <label className="flex items-center gap-2 border-b border-(--border) px-2.5 py-2">
-                  <Search className="size-3.5 text-(--foreground-tertiary)" />
+              <div className="min-w-0 overflow-hidden rounded-lg border-[0.5px] border-(--border) bg-token-main-surface-primary">
+                <label className="flex min-w-0 items-center gap-2 border-b-[0.5px] border-(--border) px-2.5 py-2">
+                  <Search className="size-3.5 shrink-0 text-(--foreground-tertiary)" />
                   <input
                     type="text"
                     value={formValues.cardQuery}
                     onChange={(event) => form.setFieldValue("cardQuery", event.target.value)}
                     placeholder="Find card by title or column..."
-                    className="h-5 w-full border-none bg-transparent text-sm text-(--foreground) outline-none placeholder:text-(--foreground-tertiary)"
+                    className="h-5 min-w-0 flex-1 border-none bg-transparent text-sm text-(--foreground) outline-none placeholder:text-(--foreground-tertiary)"
                   />
                 </label>
-                <div className="max-h-55 overflow-y-auto p-1.5">
+                <div className="max-h-[clamp(8rem,calc(100vh-22rem),18rem)] min-w-0 overflow-y-auto p-1.5">
                   {boardsLoading && (
                     <p className="px-2 py-3 text-center text-xs text-(--foreground-tertiary)">
                       Loading cards...
@@ -297,17 +332,18 @@ export function SendBlocksDialog({
                         key={`${card.columnId}:${card.cardId}`}
                         type="button"
                         className={cn(
-                          "w-full rounded-md border px-2.5 py-2 text-left transition-colors",
+                          "w-full min-w-0 rounded-lg border-[0.5px] px-2.5 py-2 text-left outline-hidden",
+                          "focus-visible:ring-token-focus focus-visible:ring-2",
                           selected
-                            ? "border-(--accent-blue) bg-[color-mix(in_srgb,var(--accent-blue)_14%,transparent)]"
-                            : "border-transparent hover:border-(--border) hover:bg-(--background-secondary)",
+                            ? "border-[color-mix(in_srgb,var(--accent-blue)_62%,transparent)] bg-[color-mix(in_srgb,var(--accent-blue)_11%,transparent)]"
+                            : "border-transparent hover:bg-token-list-hover-background",
                         )}
                         onClick={() => form.setFieldValue("targetCardId", card.cardId)}
                       >
-                        <p className="truncate text-sm font-medium text-(--foreground)">
+                        <p className="min-w-0 truncate text-sm font-medium text-(--foreground)">
                           {card.title}
                         </p>
-                        <p className="truncate text-xs text-(--foreground-tertiary)">
+                        <p className="min-w-0 truncate text-xs text-(--foreground-tertiary)">
                           {card.columnName}
                         </p>
                       </button>
@@ -317,7 +353,7 @@ export function SendBlocksDialog({
               </div>
             </div>
           ) : (
-            <div className="space-y-1.5">
+            <div className="min-w-0 space-y-1.5">
               <p className="text-xs font-medium text-(--foreground-secondary)">
                 Destination column
               </p>
@@ -327,8 +363,8 @@ export function SendBlocksDialog({
                   label: column.name,
                 }))}
                 triggerButton={(
-                  <NodexDropdownButtonTrigger className="w-full">
-                    <span className="truncate text-sm">
+                  <NodexDropdownButtonTrigger className="w-full max-w-full">
+                    <span className="min-w-0 truncate text-sm">
                       {selectedBoard?.columns.find((column) => column.id === formValues.targetStatus)?.name ?? "Select column"}
                     </span>
                   </NodexDropdownButtonTrigger>
@@ -340,35 +376,32 @@ export function SendBlocksDialog({
             </div>
           )}
 
-          {error && (
-            <p className="rounded-md border border-(--destructive)/40 bg-(--destructive)/10 px-2.5 py-2 text-xs text-(--destructive)">
-              {error}
+          {displayError && (
+            <p className="rounded-lg border-[0.5px] border-(--destructive)/40 bg-(--destructive)/10 px-2.5 py-2 text-xs text-(--destructive)">
+              {displayError}
             </p>
           )}
         </form>
 
-        <DialogFooter className="mt-1">
-          <button
+        <DialogFooter className="border-t-[0.5px] border-(--border) px-5 py-3 sm:flex-row">
+          <NodexButton
             type="button"
-            className="inline-flex h-8 items-center rounded-md border border-(--border) px-3 text-sm text-(--foreground-secondary) transition-colors hover:bg-(--background-secondary)"
+            variant="secondary"
+            size="sm"
             onClick={() => onOpenChange(false)}
             disabled={submitting}
           >
             Cancel
-          </button>
-          <button
+          </NodexButton>
+          <NodexButton
             type="submit"
             form="send-blocks-form"
-            className={cn(
-              "inline-flex h-8 items-center rounded-md px-3 text-sm text-white transition-filter",
-              "bg-(--accent-blue)",
-              "hover:brightness-110",
-              "disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:brightness-100",
-            )}
+            variant="primary"
+            size="sm"
             disabled={submitting || (mode === "card" ? !canSubmitAppend : !canSubmitProject)}
           >
             {submitting ? "Moving..." : submitLabel}
-          </button>
+          </NodexButton>
         </DialogFooter>
       </DialogContent>
     </Dialog>

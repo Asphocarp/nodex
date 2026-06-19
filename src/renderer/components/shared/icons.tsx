@@ -1187,6 +1187,224 @@ export function TextActionBlockColorIcon({ className }: IconProps) {
   );
 }
 
+export function NfmSideMenuDragHandleIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M6.25 4a1.25 1.25 0 1 0 2.5 0 1.25 1.25 0 0 0-2.5 0m5 0a1.25 1.25 0 1 0 2.5 0 1.25 1.25 0 0 0-2.5 0m1.25 7.25a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5M6.25 10a1.25 1.25 0 1 0 2.5 0 1.25 1.25 0 0 0-2.5 0m6.25 7.25a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5M6.25 16a1.25 1.25 0 1 0 2.5 0 1.25 1.25 0 0 0-2.5 0" />
+    </svg>
+  );
+}
+
+export function NfmSideMenuTurnIntoIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M6.475 3.125a.625.625 0 1 0 0 1.25h7.975c.65 0 1.175.526 1.175 1.175v6.057l-1.408-1.408a.625.625 0 1 0-.884.884l2.475 2.475a.625.625 0 0 0 .884 0l2.475-2.475a.625.625 0 0 0-.884-.884l-1.408 1.408V5.55a2.425 2.425 0 0 0-2.425-2.425zM3.308 6.442a.625.625 0 0 1 .884 0l2.475 2.475a.625.625 0 1 1-.884.884L4.375 8.393v6.057c0 .649.526 1.175 1.175 1.175h7.975a.625.625 0 0 1 0 1.25H5.55a2.425 2.425 0 0 1-2.425-2.425V8.393L1.717 9.801a.625.625 0 1 1-.884-.884z" />
+    </svg>
+  );
+}
+
+export function NfmSideMenuColorIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M5.606 2.669a1.55 1.55 0 0 0-1.55 1.55v.379l-.068-.004h-.694a.55.55 0 0 0 0 1.1h.694l.068-.004v.379c0 .856.694 1.55 1.55 1.55h8.788a1.55 1.55 0 0 0 1.55-1.55v-.375h.3c.207 0 .375.168.375.375v2.023a.375.375 0 0 1-.375.375h-5.319c-.815 0-1.475.66-1.475 1.475v.592a1.55 1.55 0 0 0-1.462 1.547v3.7c0 .856.694 1.55 1.55 1.55h.925a1.55 1.55 0 0 0 1.55-1.55v-3.7a1.55 1.55 0 0 0-1.463-1.547v-.592c0-.207.168-.375.375-.375h5.319c.814 0 1.475-.66 1.475-1.475V6.069c0-.815-.66-1.475-1.475-1.475h-.3v-.375a1.55 1.55 0 0 0-1.55-1.55zm-.3 1.55a.3.3 0 0 1 .3-.3h8.788a.3.3 0 0 1 .3.3v1.85a.3.3 0 0 1-.3.3H5.606a.3.3 0 0 1-.3-.3zm3.932 7.862a.3.3 0 0 1 .3-.3h.925a.3.3 0 0 1 .3.3v3.7a.3.3 0 0 1-.3.3h-.925a.3.3 0 0 1-.3-.3z" />
+    </svg>
+  );
+}
+
+export function NfmSideMenuCopyLinkIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M10.61 3.61a3.776 3.776 0 0 1 5.34 0l.367.368a3.776 3.776 0 0 1 0 5.34l-1.852 1.853a.625.625 0 1 1-.884-.884l1.853-1.853a2.526 2.526 0 0 0 0-3.572l-.368-.367a2.526 2.526 0 0 0-3.572 0L9.641 6.347a.625.625 0 1 1-.883-.883z" />
+      <path d="M12.98 6.949a.625.625 0 0 1 0 .884L7.53 13.28a.625.625 0 0 1-.884-.884l5.448-5.448a.625.625 0 0 1 .884 0" />
+      <path d="M6.348 8.757a.625.625 0 0 1 0 .884l-1.853 1.853a2.526 2.526 0 0 0 0 3.572l.367.367a2.525 2.525 0 0 0 3.572 0l1.853-1.852a.625.625 0 1 1 .884.883l-1.853 1.853a3.776 3.776 0 0 1-5.34 0l-.367-.367a3.776 3.776 0 0 1 0-5.34l1.853-1.853a.625.625 0 0 1 .884 0" />
+    </svg>
+  );
+}
+
+export function NfmSideMenuDuplicateIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M4.5 2.375A2.125 2.125 0 0 0 2.375 4.5V12c0 1.174.951 2.125 2.125 2.125h1.625v1.625c0 1.174.951 2.125 2.125 2.125h7.5a2.125 2.125 0 0 0 2.125-2.125v-7.5a2.125 2.125 0 0 0-2.125-2.125h-1.625V4.5A2.125 2.125 0 0 0 12 2.375zm8.375 3.75H8.25A2.125 2.125 0 0 0 6.125 8.25v4.625H4.5A.875.875 0 0 1 3.625 12V4.5c0-.483.392-.875.875-.875H12c.483 0 .875.392.875.875zm-5.5 2.125c0-.483.392-.875.875-.875h7.5c.483 0 .875.392.875.875v7.5a.875.875 0 0 1-.875.875h-7.5a.875.875 0 0 1-.875-.875z" />
+    </svg>
+  );
+}
+
+export function NfmSideMenuMoveToIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M12.408 4.792a.625.625 0 0 1 .884-.884l4.4 4.4a.625.625 0 0 1 0 .884l-4.4 4.4a.625.625 0 0 1-.884-.884l3.333-3.333H5.25a.875.875 0 0 0-.875.875v5a.625.625 0 1 1-1.25 0v-5c0-1.173.951-2.125 2.125-2.125h10.491z" />
+    </svg>
+  );
+}
+
+export function NfmSideMenuPlayIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M7.814 12.407c0 .295.323.479.58.33l4.165-2.407a.38.38 0 0 0 0-.66L8.394 7.263a.385.385 0 0 0-.58.33z" />
+      <path d="M4.5 4.125A2.125 2.125 0 0 0 2.375 6.25v7.5c0 1.174.951 2.125 2.125 2.125h11a2.125 2.125 0 0 0 2.125-2.125v-7.5A2.125 2.125 0 0 0 15.5 4.125zM3.625 6.25c0-.483.392-.875.875-.875h11c.483 0 .875.392.875.875v7.5a.875.875 0 0 1-.875.875h-11a.875.875 0 0 1-.875-.875z" />
+    </svg>
+  );
+}
+
+export function NfmSideMenuAiFaceIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M12.758 9.976a1.178 1.178 0 1 0 .377-2.326 1.178 1.178 0 0 0-.377 2.326M6.547 8.97a1.178 1.178 0 1 0 .377-2.327 1.178 1.178 0 0 0-.377 2.326" />
+      <path d="M10.573 5.554a3.917 3.917 0 0 1 6.743.035.625.625 0 1 1-1.08.63 2.667 2.667 0 0 0-4.591-.023l-5.398 9.015 4.192.68a.625.625 0 0 1-.2 1.233l-5.102-.827a.625.625 0 0 1-.436-.938zM4.36 3.517a3.92 3.92 0 0 1 5.572.356.625.625 0 1 1-.945.818 2.67 2.67 0 0 0-3.795-.243.625.625 0 1 1-.833-.931" />
+    </svg>
+  );
+}
+
+export function NfmSideMenuDeleteIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M8.806 8.505a.55.55 0 0 0-1.1 0v5.979a.55.55 0 1 0 1.1 0zm3.488 0a.55.55 0 0 0-1.1 0v5.979a.55.55 0 1 0 1.1 0z" />
+      <path d="M6.386 3.925v1.464H3.523a.625.625 0 1 0 0 1.25h.897l.393 8.646A2.425 2.425 0 0 0 7.236 17.6h5.528a2.425 2.425 0 0 0 2.422-2.315l.393-8.646h.898a.625.625 0 1 0 0-1.25h-2.863V3.925c0-.842-.683-1.525-1.525-1.525H7.91c-.842 0-1.524.683-1.524 1.525M7.91 3.65h4.18c.15 0 .274.123.274.275v1.464H7.636V3.925c0-.152.123-.275.274-.275m-.9 2.99h7.318l-.39 8.588a1.175 1.175 0 0 1-1.174 1.122H7.236a1.175 1.175 0 0 1-1.174-1.122l-.39-8.589z" />
+    </svg>
+  );
+}
+
+export function NfmSideMenuCommentIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M5.875 7.505c0-.345.28-.625.625-.625h7a.625.625 0 1 1 0 1.25h-7a.625.625 0 0 1-.625-.625m0 3c0-.345.28-.625.625-.625h5a.625.625 0 1 1 0 1.25h-5a.625.625 0 0 1-.625-.625" />
+      <path d="M17.625 5.255A2.125 2.125 0 0 0 15.5 3.13h-11a2.125 2.125 0 0 0-2.125 2.125v7.5c0 1.173.951 2.125 2.125 2.125h1.188v2.482a.625.625 0 0 0 1.006.496l3.87-2.978H15.5a2.125 2.125 0 0 0 2.125-2.125zM15.5 4.38c.483 0 .875.392.875.875v7.5a.875.875 0 0 1-.875.875h-5.148a.63.63 0 0 0-.38.13l-3.034 2.333v-1.838a.625.625 0 0 0-.625-.625H4.5a.875.875 0 0 1-.875-.875v-7.5c0-.483.392-.875.875-.875z" />
+    </svg>
+  );
+}
+
+export function NfmSideMenuSuggestEditsIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M12.728 4.015H4.5a.875.875 0 0 0-.875.875v7.5l.005.09a.875.875 0 0 0 .87.784h1.813a.625.625 0 0 1 .625.626v1.838l3.034-2.334a.63.63 0 0 1 .38-.13H15.5l.09-.004a.875.875 0 0 0 .78-.78l.005-.09V6.089l1.247-1.248.003.049v7.5l-.01.216a2.126 2.126 0 0 1-2.115 1.909h-4.935l-3.872 2.977a.625.625 0 0 1-1.005-.495v-2.482H4.5l-.217-.011a2.126 2.126 0 0 1-1.908-2.114v-7.5c0-1.174.951-2.125 2.125-2.125h9.48z" />
+      <path d="M17.294 1.223a.77.77 0 0 1 1.084 0 .77.77 0 0 1 0 1.083v.012l-7.986 7.987a.87.87 0 0 1-.387.232l-.916.283c-.18.065-.361-.116-.31-.31l.284-.915a1.1 1.1 0 0 1 .232-.387z" />
+    </svg>
+  );
+}
+
+export function NfmSideMenuChevronRightIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" className={cn("size-4 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M6.722 3.238a.625.625 0 1 0-.884.884L9.716 8l-3.878 3.878a.625.625 0 0 0 .884.884l4.32-4.32a.625.625 0 0 0 0-.884z" />
+    </svg>
+  );
+}
+
+export function NfmSideMenuTextBlockIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M4.875 4.825c0-.345.28-.625.625-.625h9c.345 0 .625.28.625.625v1.8a.625.625 0 1 1-1.25 0V5.45h-3.25v9.1h.725a.625.625 0 1 1 0 1.25h-2.7a.625.625 0 1 1 0-1.25h.725v-9.1h-3.25v1.175a.625.625 0 1 1-1.25 0z" />
+    </svg>
+  );
+}
+
+export function NfmSideMenuHeadingBlockIcon({
+  level,
+  className,
+}: IconProps & { level: 1 | 2 | 3 }) {
+  if (level === 1) {
+    return (
+      <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+        <path d="M4.1 4.825a.625.625 0 0 0-1.25 0v10.35a.625.625 0 0 0 1.25 0V10.4h6.4v4.775a.625.625 0 0 0 1.25 0V4.825a.625.625 0 1 0-1.25 0V9.15H4.1zM17.074 8.45a.6.6 0 0 1 .073.362q.003.03.003.063v6.3a.625.625 0 1 1-1.25 0V9.802l-1.55.846a.625.625 0 1 1-.6-1.098l2.476-1.35a.625.625 0 0 1 .848.25" />
+      </svg>
+    );
+  }
+
+  if (level === 2) {
+    return (
+      <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+        <path d="M3.65 4.825a.625.625 0 1 0-1.25 0v10.35a.625.625 0 0 0 1.25 0V10.4h6.4v4.775a.625.625 0 0 0 1.25 0V4.825a.625.625 0 1 0-1.25 0V9.15h-6.4zm10.104 5.164c.19-.457.722-.84 1.394-.84.89 0 1.48.627 1.48 1.238 0 .271-.104.53-.302.746l-3.837 3.585a.625.625 0 0 0 .427 1.082h4.5a.625.625 0 1 0 0-1.25H14.5l2.695-2.518.027-.028c.406-.43.657-.994.657-1.617 0-1.44-1.299-2.488-2.731-2.488-1.128 0-2.145.643-2.548 1.608a.625.625 0 0 0 1.154.482" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M2.877 4.2c.346 0 .625.28.625.625V9.15h6.4V4.825a.625.625 0 0 1 1.25 0v10.35a.625.625 0 0 1-1.25 0V10.4h-6.4v4.775a.625.625 0 0 1-1.25 0V4.825c0-.345.28-.625.625-.625M14.93 9.37c-.692 0-1.183.34-1.341.671a.625.625 0 1 1-1.128-.539c.416-.87 1.422-1.382 2.47-1.382.686 0 1.33.212 1.818.584.487.373.843.932.843 1.598 0 .629-.316 1.162-.76 1.533l.024.018c.515.389.892.972.892 1.669 0 .696-.377 1.28-.892 1.668s-1.198.61-1.926.61c-1.1 0-2.143-.514-2.599-1.389a.625.625 0 0 1 1.109-.578c.187.36.728.717 1.49.717.482 0 .895-.148 1.174-.358s.394-.453.394-.67-.116-.46-.394-.67c-.28-.21-.692-.358-1.174-.358h-.461a.625.625 0 0 1 0-1.25h.357a1 1 0 0 1 .104-.01c.437 0 .81-.135 1.06-.326s.351-.41.351-.605-.101-.415-.351-.606-.623-.327-1.06-.327" />
+    </svg>
+  );
+}
+
+export function NfmSideMenuBulletedListBlockIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M4.809 12.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5M16 13.375a.625.625 0 1 1 0 1.25H8.5a.625.625 0 0 1 0-1.25zM4.809 4.75a1.25 1.25 0 1 1 0 2.5 1.25 1.25 0 0 1 0-2.5M16 5.375a.625.625 0 1 1 0 1.25H8.5a.625.625 0 0 1 0-1.25z" />
+    </svg>
+  );
+}
+
+export function NfmSideMenuNumberedListBlockIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M5.088 3.026a.55.55 0 0 1 .27.474v4a.55.55 0 0 1-1.1 0V4.435l-.24.134a.55.55 0 1 1-.535-.962l1.059-.588a.55.55 0 0 1 .546.007M8.5 5.375a.625.625 0 1 0 0 1.25H16a.625.625 0 1 0 0-1.25zm0 8a.625.625 0 0 0 0 1.25H16a.625.625 0 1 0 0-1.25zM6 16.55H3.5a.55.55 0 0 1-.417-.908l1.923-2.24a.7.7 0 0 0 .166-.45.335.335 0 0 0-.266-.327l-.164-.035a.6.6 0 0 0-.245.004l-.03.007a.57.57 0 0 0-.426.44.55.55 0 1 1-1.08-.206 1.67 1.67 0 0 1 1.248-1.304l.029-.007c.24-.058.49-.061.732-.01l.164.035c.664.14 1.138.726 1.138 1.404 0 .427-.153.84-.432 1.165L4.697 15.45H6a.55.55 0 0 1 0 1.1" />
+    </svg>
+  );
+}
+
+export function NfmSideMenuCheckListBlockIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M6.184 10.804a1.1 1.1 0 0 1 1.1 1.1v2.8a1.1 1.1 0 0 1-1.1 1.1h-2.8a1.1 1.1 0 0 1-1.1-1.1v-2.8a1.1 1.1 0 0 1 1.1-1.1zm-2.65 3.75h2.5v-2.5h-2.5zm13.339-1.875a.625.625 0 0 1 0 1.25H9.748a.625.625 0 1 1 0-1.25zM6.748 3.394a.625.625 0 0 1 1.072.642l-2.85 4.75a.626.626 0 0 1-1.01.086l-1.9-2.217a.626.626 0 0 1 .948-.813l1.336 1.557zm10.125 2.634a.626.626 0 0 1 0 1.25H9.748a.625.625 0 1 1 0-1.25z" />
+    </svg>
+  );
+}
+
+export function NfmSideMenuToggleListBlockIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M2.7 7.519c0 .39.421.633.757.436L6.05 6.437a.506.506 0 0 0 0-.874L3.457 4.045a.503.503 0 0 0-.757.436zm5.8-2.144a.625.625 0 1 0 0 1.25H16a.625.625 0 1 0 0-1.25zm0 8a.625.625 0 1 0 0 1.25H16a.625.625 0 1 0 0-1.25zm-5.043 2.58a.503.503 0 0 1-.757-.436V12.48c0-.39.421-.633.757-.436l2.593 1.518a.506.506 0 0 1 0 .874z" />
+    </svg>
+  );
+}
+
+export function NfmSideMenuQuoteBlockIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M15.796 4.971a5.067 5.067 0 0 0-5.067 5.067v.635a4.433 4.433 0 0 0 4.433 4.433 3.164 3.164 0 1 0-3.11-3.75 3.2 3.2 0 0 1-.073-.683v-.635a3.817 3.817 0 0 1 3.817-3.817h.635a.625.625 0 1 0 0-1.25zm-9.054 0a5.067 5.067 0 0 0-5.067 5.068v.634a4.433 4.433 0 0 0 4.433 4.433 3.164 3.164 0 1 0-3.11-3.75 3.2 3.2 0 0 1-.073-.683v-.634A3.817 3.817 0 0 1 6.742 6.22h.635a.625.625 0 1 0 0-1.25z" />
+    </svg>
+  );
+}
+
+export function NfmSideMenuCodeBlockIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M11.971 3.1c.332.094.525.44.43.772l-3.6 12.6a.625.625 0 0 1-1.202-.343l3.6-12.6a.625.625 0 0 1 .772-.43M5.417 5.598a.626.626 0 0 1 .885.884L2.784 10l3.518 3.519a.625.625 0 0 1-.885.883l-3.96-3.96a.626.626 0 0 1 0-.884zm8.281 0a.626.626 0 0 1 .884 0l3.96 3.96a.626.626 0 0 1 0 .884l-3.96 3.96a.626.626 0 0 1-.884-.883L17.215 10l-3.517-3.518a.626.626 0 0 1 0-.884" />
+    </svg>
+  );
+}
+
+export function NfmSideMenuPageInIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="currentColor" aria-hidden="true">
+      <path d="M6.25 2.375A2.125 2.125 0 0 0 4.125 4.5v11c0 1.174.951 2.125 2.125 2.125h1.453c.04-.45.217-.89.533-1.25H6.25a.875.875 0 0 1-.875-.875v-11c0-.483.392-.875.875-.875h3.7V6.25A2.05 2.05 0 0 0 12 8.3h2.625v1.208h1.25V8.12c0-.563-.224-1.104-.622-1.502L11.63 2.997a2.13 2.13 0 0 0-1.502-.622zM14.066 7.2H12a.95.95 0 0 1-.95-.95V4.184z" />
+      <path d="M11.636 11.046h4.37c.361 0 .655.294.655.656v4.369a.656.656 0 1 1-1.311 0v-2.786l-4.998 4.997a.656.656 0 0 1-.927-.927l4.997-4.997h-2.786a.656.656 0 0 1 0-1.312" />
+    </svg>
+  );
+}
+
+export function NfmSideMenuSendBlocksIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="none" stroke="currentColor" strokeWidth="1.45" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4.25 5.25h7.5" />
+      <path d="M4.25 9.75h5.5" />
+      <path d="M4.25 14.25h4.25" />
+      <path d="M11.75 13.75h4" />
+      <path d="m14 11.5 2.25 2.25L14 16" />
+    </svg>
+  );
+}
+
+export function NfmSideMenuTableHeaderIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" className={cn("size-5 shrink-0", className)} fill="none" stroke="currentColor" strokeWidth="1.35" aria-hidden="true">
+      <rect x="3.5" y="4.25" width="13" height="11.5" rx="1.25" />
+      <path d="M3.5 8h13" />
+      <path d="M8 4.25v11.5" />
+      <path d="M3.5 8h13" strokeWidth="2" />
+    </svg>
+  );
+}
+
 export function PriorityIcon({ className }: IconProps) {
   return (
     <svg width="17" height="17" viewBox="0 0 17 17" fill="none" className={cn("shrink-0", className)} aria-hidden="true">

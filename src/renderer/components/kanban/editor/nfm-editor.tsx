@@ -65,8 +65,9 @@ import {
   mapDraggedBlocksToCardInputs,
   resolveTopLevelDraggedBlocks,
 } from "./block-drop-card-mapper";
-import { NfmDragHandleMenu, type NfmDragHandleMenuComponentProps, type SendBlocksMode } from "./nfm-drag-handle-menu";
-import { NfmSideMenu } from "./nfm-side-menu";
+import { NfmSideMenu, NfmSideMenuShortcutController } from "./nfm-side-menu";
+import type { SendBlocksMode } from "./nfm-side-menu-model";
+import { NfmSideMenuRuntimeProvider } from "./nfm-side-menu-runtime";
 import { resolveSendBlockSelection } from "./send-block-selection";
 import { PasteResourceDialog } from "./paste-resource-dialog";
 import {
@@ -2293,32 +2294,27 @@ export function NfmEditor({
   // the callback identity below never changes.
   const sideMenuHandlersRef = useRef({
     canSendBlocks: sourceCardContext !== undefined,
+    hasConvertDividerToThreadSection: true,
     onSendBlocks: openSendBlocksDialog,
     onConvertDividerToThreadSection: handleConvertDividerToThreadSection,
   });
   sideMenuHandlersRef.current = {
     canSendBlocks: sourceCardContext !== undefined,
+    hasConvertDividerToThreadSection: true,
     onSendBlocks: openSendBlocksDialog,
     onConvertDividerToThreadSection: handleConvertDividerToThreadSection,
   };
 
-  const renderDragHandleMenu = useCallback(
-    ({ releaseSideMenuFreeze }: NfmDragHandleMenuComponentProps) => (
-      <NfmDragHandleMenu
-        canSendBlocks={sideMenuHandlersRef.current.canSendBlocks}
-        onSendBlocks={(mode, fallbackBlockId) =>
-          sideMenuHandlersRef.current.onSendBlocks(mode, fallbackBlockId)}
-        onConvertDividerToThreadSection={(blockId) =>
-          sideMenuHandlersRef.current.onConvertDividerToThreadSection(blockId)}
-        releaseSideMenuFreeze={releaseSideMenuFreeze}
-      />
-    ),
+  const sideMenuRuntimeValue = useMemo(
+    () => ({
+      getSnapshot: () => sideMenuHandlersRef.current,
+    }),
     [],
   );
 
   const customSideMenu = useCallback(
-    () => <NfmSideMenu dragHandleMenu={renderDragHandleMenu} />,
-    [renderDragHandleMenu],
+    () => <NfmSideMenu />,
+    [],
   );
 
   const textActionMenuRuntimeValue = useMemo(
@@ -2457,37 +2453,40 @@ export function NfmEditor({
       <ThreadSectionRuntimeProvider value={threadSectionRuntimeValue}>
         <NfmEditorContextMenu editor={editor}>
           <NfmTextActionMenuRuntimeProvider value={textActionMenuRuntimeValue}>
-            <BlockNoteView
-              editor={editor}
-              onChange={handleChange}
-              theme={themeMode}
-              formattingToolbar={false}
-              linkToolbar={false}
-              slashMenu={false}
-              sideMenu={false}
-              data-theming-css-variables-demo
-            >
-              <SideMenuController
-                sideMenu={customSideMenu}
-                floatingUIOptions={sideMenuFloatingOptions}
-              />
-              <FormattingToolbarController
-                formattingToolbar={NfmFormattingToolbar}
-                floatingUIOptions={NFM_TEXT_ACTION_MENU_FLOATING_OPTIONS}
-              />
-              <NfmLinkToolbarController
-                linkToolbar={renderLinkToolbar}
-                floatingUIOptions={{
-                  useTransitionStylesProps: {
-                    duration: 0,
-                  },
-                  useTransitionStatusProps: {
-                    duration: 0,
-                  },
-                }}
-              />
-              <NfmSlashMenu projectId={projectId} />
-            </BlockNoteView>
+            <NfmSideMenuRuntimeProvider value={sideMenuRuntimeValue}>
+              <BlockNoteView
+                editor={editor}
+                onChange={handleChange}
+                theme={themeMode}
+                formattingToolbar={false}
+                linkToolbar={false}
+                slashMenu={false}
+                sideMenu={false}
+                data-theming-css-variables-demo
+              >
+                <NfmSideMenuShortcutController />
+                <SideMenuController
+                  sideMenu={customSideMenu}
+                  floatingUIOptions={sideMenuFloatingOptions}
+                />
+                <FormattingToolbarController
+                  formattingToolbar={NfmFormattingToolbar}
+                  floatingUIOptions={NFM_TEXT_ACTION_MENU_FLOATING_OPTIONS}
+                />
+                <NfmLinkToolbarController
+                  linkToolbar={renderLinkToolbar}
+                  floatingUIOptions={{
+                    useTransitionStylesProps: {
+                      duration: 0,
+                    },
+                    useTransitionStatusProps: {
+                      duration: 0,
+                    },
+                  }}
+                />
+                <NfmSlashMenu projectId={projectId} />
+              </BlockNoteView>
+            </NfmSideMenuRuntimeProvider>
           </NfmTextActionMenuRuntimeProvider>
         </NfmEditorContextMenu>
       </ThreadSectionRuntimeProvider>

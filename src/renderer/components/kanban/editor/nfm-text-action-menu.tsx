@@ -22,26 +22,27 @@ import {
 import {
   CheckmarkIcon,
   ChevronRightIcon,
+  NfmSideMenuBulletedListBlockIcon,
+  NfmSideMenuCheckListBlockIcon,
+  NfmSideMenuCodeBlockIcon,
+  NfmSideMenuHeadingBlockIcon,
+  NfmSideMenuNumberedListBlockIcon,
+  NfmSideMenuQuoteBlockIcon,
+  NfmSideMenuTextBlockIcon,
+  NfmSideMenuToggleListBlockIcon,
   TextActionBoldIcon,
-  TextActionBulletedListBlockIcon,
   TextActionClearFormatIcon,
-  TextActionCheckListBlockIcon,
   TextActionCodeIcon,
   TextActionCommentIcon,
   TextActionCommentPencilIcon,
   TextActionEllipsisIcon,
   TextActionEquationIcon,
-  TextActionHeadingBlockIcon,
   TextActionItalicIcon,
   TextActionLinkIcon,
-  TextActionNormalTextIcon,
-  TextActionNumberedListBlockIcon,
   TextActionPencilSmallIcon,
-  TextActionQuoteBlockIcon,
   TextActionReactionIcon,
   TextActionSlidersIcon,
   TextActionStrikeIcon,
-  TextActionToggleListBlockIcon,
   TextActionUnderlineIcon,
 } from "@/components/shared/icons";
 import {
@@ -466,22 +467,22 @@ function TextActionMenuContent({
 }
 
 function BlockTypeIcon({ item }: { item: TextActionBlockTypeItem | null }) {
-  if (!item) return <TextActionNormalTextIcon />;
+  if (!item) return <NfmSideMenuTextBlockIcon />;
 
-  if (item.key === "paragraph") return <TextActionNormalTextIcon />;
+  if (item.key === "paragraph") return <NfmSideMenuTextBlockIcon />;
   if (item.key === "heading-1" || item.key === "toggle-heading-1") {
-    return <TextActionHeadingBlockIcon level={1} />;
+    return <NfmSideMenuHeadingBlockIcon level={1} />;
   }
-  if (item.key === "heading-2") return <TextActionHeadingBlockIcon level={2} />;
-  if (item.key === "heading-3") return <TextActionHeadingBlockIcon level={3} />;
-  if (item.key === "quote") return <TextActionQuoteBlockIcon />;
-  if (item.key === "bullet-list") return <TextActionBulletedListBlockIcon />;
-  if (item.key === "numbered-list") return <TextActionNumberedListBlockIcon />;
-  if (item.key === "todo-list") return <TextActionCheckListBlockIcon />;
-  if (item.key === "toggle-list") return <TextActionToggleListBlockIcon />;
-  if (item.key === "code") return <TextActionCodeIcon />;
+  if (item.key === "heading-2") return <NfmSideMenuHeadingBlockIcon level={2} />;
+  if (item.key === "heading-3") return <NfmSideMenuHeadingBlockIcon level={3} />;
+  if (item.key === "quote") return <NfmSideMenuQuoteBlockIcon />;
+  if (item.key === "bullet-list") return <NfmSideMenuBulletedListBlockIcon />;
+  if (item.key === "numbered-list") return <NfmSideMenuNumberedListBlockIcon />;
+  if (item.key === "todo-list") return <NfmSideMenuCheckListBlockIcon />;
+  if (item.key === "toggle-list") return <NfmSideMenuToggleListBlockIcon />;
+  if (item.key === "code") return <NfmSideMenuCodeBlockIcon />;
 
-  return <TextActionNormalTextIcon />;
+  return <NfmSideMenuTextBlockIcon />;
 }
 
 function normalizeTextActionColor(color: string): TextActionColorValue {
