@@ -1,6 +1,5 @@
 import { getNodeById } from "@blocknote/core";
 import { MultipleNodeSelection } from "@blocknote/core/extensions";
-import { NodeSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 
 export interface SideMenuSelectionBlock {
@@ -90,7 +89,7 @@ export function createSideMenuSelectionIntent(
   };
 }
 
-function selectBlockWithNodeSelection(
+function selectBlockRange(
   editor: SideMenuSelectionEditor,
   block: SideMenuSelectionBlock,
 ): boolean {
@@ -101,12 +100,20 @@ function selectBlockWithNodeSelection(
   const posInfo = getNodeById(blockId, view.state.doc);
   if (!posInfo) return false;
 
-  view.dispatch(
-    view.state.tr.setSelection(
-      NodeSelection.create(view.state.doc, posInfo.posBeforeNode),
-    ),
-  );
-  return true;
+  try {
+    view.dispatch(
+      view.state.tr.setSelection(
+        MultipleNodeSelection.create(
+          view.state.doc,
+          posInfo.posBeforeNode,
+          posInfo.posBeforeNode + posInfo.node.nodeSize,
+        ),
+      ),
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function normalizeBlockRangeAroundSelectionIds(
@@ -131,7 +138,7 @@ function normalizeBlockRangeAroundSelectionIds(
   }
 }
 
-function selectBlocksWithNodeSelection(
+function selectBlocksWithBlockRangeSelection(
   editor: SideMenuSelectionEditor,
   blocks: SideMenuSelectionBlock[],
   fallbackBlock: SideMenuSelectionBlock,
@@ -149,7 +156,7 @@ function selectBlocksWithNodeSelection(
 
   if (blockPositions.length === 0) return false;
   if (blockPositions.length === 1) {
-    return selectBlockWithNodeSelection(editor, fallbackBlock);
+    return selectBlockRange(editor, fallbackBlock);
   }
 
   const firstPosition = blockPositions[0];
@@ -161,7 +168,7 @@ function selectBlocksWithNodeSelection(
   );
 
   if (!normalizedRange) {
-    return selectBlockWithNodeSelection(editor, fallbackBlock);
+    return selectBlockRange(editor, fallbackBlock);
   }
 
   try {
@@ -176,12 +183,12 @@ function selectBlocksWithNodeSelection(
     );
     return true;
   } catch {
-    return selectBlockWithNodeSelection(editor, fallbackBlock);
+    return selectBlockRange(editor, fallbackBlock);
   }
 }
 
 const DEFAULT_APPLY_ADAPTER: SideMenuSelectionApplyAdapter = {
-  selectBlocks: selectBlocksWithNodeSelection,
+  selectBlocks: selectBlocksWithBlockRangeSelection,
 };
 
 export function applySideMenuSelectionIntent(

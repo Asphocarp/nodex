@@ -26,6 +26,11 @@ import {
   type SideMenuBlockDragStartEvent,
   unsetDragImage,
 } from "./dragging.js";
+import {
+  createSideMenuDroppedBlockSelection,
+  getSideMenuDroppedBlockIdsFromSelection,
+  getSideMenuDroppedBlockIdsFromSlice,
+} from "./dropSelection.js";
 
 export type SideMenuState<
   BSchema extends BlockSchema,
@@ -146,10 +151,15 @@ export class SideMenuView<
 
   public isDragOrigin = false;
 
+  private draggedBlockIdsForDropSelection: string[] = [];
+
   constructor(
     private readonly editor: BlockNoteEditor<BSchema, I, S>,
     private readonly pmView: EditorView,
     emitUpdate: (state: SideMenuState<BSchema, I, S>) => void,
+    private readonly setPendingDroppedBlockIdsForSelection: (
+      blockIds: string[],
+    ) => void,
   ) {
     this.emitUpdate = () => {
       if (!this.state) {
@@ -191,6 +201,18 @@ export class SideMenuView<
       this.onKeyDown as EventListener,
       true,
     );
+  }
+
+  setDraggedBlockIdsForDropSelection(blockIds: string[]) {
+    this.draggedBlockIdsForDropSelection = Array.from(new Set(blockIds));
+  }
+
+  private getDraggedBlockIdsForDropSelection() {
+    return this.draggedBlockIdsForDropSelection.length > 0
+      ? this.draggedBlockIdsForDropSelection
+      : this.pmView.dragging
+        ? getSideMenuDroppedBlockIdsFromSlice(this.pmView.dragging.slice)
+        : [];
   }
 
   updateState = (state: SideMenuState<BSchema, I, S>) => {
@@ -295,6 +317,9 @@ export class SideMenuView<
     }
 
     if (this.pmView.dragging) {
+      this.setDraggedBlockIdsForDropSelection(
+        getSideMenuDroppedBlockIdsFromSlice(this.pmView.dragging.slice),
+      );
       // already dragging, so no-op
       return;
     }
@@ -311,6 +336,9 @@ export class SideMenuView<
       slice: new Slice(node.content, 0, 0),
       move: true,
     };
+    this.setDraggedBlockIdsForDropSelection(
+      getSideMenuDroppedBlockIdsFromSlice(this.pmView.dragging.slice),
+    );
   };
 
   /**
@@ -533,17 +561,29 @@ export class SideMenuView<
     }
     const { isDropPoint, isDropWithinEditorBounds, isDragOrigin } = context;
 
+    const droppedBlockIdsForSelection =
+      isDropPoint && this.pmView.dragging
+        ? this.getDraggedBlockIdsForDropSelection()
+        : [];
+    if (droppedBlockIdsForSelection.length > 0) {
+      this.setPendingDroppedBlockIdsForSelection(droppedBlockIdsForSelection);
+    }
+
     if (!isDropWithinEditorBounds && isDropPoint) {
       // Any time that the drop event is outside of the editor bounds (but still close to an editor instance)
       // We dispatch a synthetic event that is in the bounds of the editor instance, to have the correct drop point
       this.dispatchSyntheticEvent(event);
+      if (droppedBlockIdsForSelection.length > 0) {
+        return;
+      }
     }
 
     if (isDropPoint) {
       // The current instance is the drop point
 
       if (this.pmView.dragging) {
-        // Do not collapse selection when text content is being dragged
+        // Let PM's normal drop transaction run first, then restore the block
+        // selection to the dropped nodes when this is a side-menu block drag.
         return;
       }
       // Because the editor selection is unrelated to the dragged content, we
@@ -590,6 +630,8 @@ export class SideMenuView<
     // drag originated in automatically clears `view.dragging`. Therefore, we
     // have to manually clear it on all editors.
     this.pmView.dragging = null;
+    this.draggedBlockIdsForDropSelection = [];
+    this.setPendingDroppedBlockIdsForSelection([]);
   };
 
   onKeyDown = (_event: KeyboardEvent) => {
@@ -708,6 +750,7 @@ export class SideMenuView<
       this.onKeyDown as EventListener,
       true,
     );
+    this.setPendingDroppedBlockIdsForSelection([]);
   }
 }
 
@@ -715,9 +758,15 @@ export const sideMenuPluginKey = new PluginKey("SideMenuPlugin");
 
 export const SideMenuExtension = createExtension(({ editor }) => {
   let view: SideMenuView<any, any, any> | undefined;
+  let pendingDroppedBlockIdsForSelection: string[] = [];
+  let preserveFocusAfterDroppedBlockSelection = false;
+  let blockDragEndHandled = false;
   const store = createStore<SideMenuState<any, any, any> | undefined>(
     undefined,
   );
+  const setPendingDroppedBlockIdsForSelection = (blockIds: string[]) => {
+    pendingDroppedBlockIdsForSelection = Array.from(new Set(blockIds));
+  };
 
   return {
     key: "sideMenu",
@@ -725,12 +774,40 @@ export const SideMenuExtension = createExtension(({ editor }) => {
     prosemirrorPlugins: [
       new Plugin({
         key: sideMenuPluginKey,
+        appendTransaction(transactions, _oldState, newState) {
+          if (pendingDroppedBlockIdsForSelection.length === 0) {
+            return undefined;
+          }
+          if (!transactions.some((tr) => tr.getMeta("uiEvent") === "drop")) {
+            return undefined;
+          }
+
+          const selection = createSideMenuDroppedBlockSelection(
+            newState.doc,
+            pendingDroppedBlockIdsForSelection,
+          );
+          pendingDroppedBlockIdsForSelection = [];
+          if (!selection) {
+            return undefined;
+          }
+
+          preserveFocusAfterDroppedBlockSelection = true;
+          if (selection.eq(newState.selection)) {
+            return undefined;
+          }
+          return newState.tr.setSelection(selection);
+        },
         view: (editorView) => {
-          view = new SideMenuView(editor, editorView, (state) => {
-            // TODO: Without spreading the state, in some cases like toggling
-            // `show`, this doesn't trigger an update.
-            store.setState({ ...state });
-          });
+          view = new SideMenuView(
+            editor,
+            editorView,
+            (state) => {
+              // TODO: Without spreading the state, in some cases like toggling
+              // `show`, this doesn't trigger an update.
+              store.setState({ ...state });
+            },
+            setPendingDroppedBlockIdsForSelection,
+          );
           return view;
         },
       }),
@@ -743,10 +820,27 @@ export const SideMenuExtension = createExtension(({ editor }) => {
       event: SideMenuBlockDragStartEvent,
       block: Block<any, any, any>,
     ) {
+      blockDragEndHandled = false;
+      preserveFocusAfterDroppedBlockSelection = false;
       if (view) {
         view.isDragOrigin = true;
       }
-      dragStart(event, block, editor);
+      const dragStartResult = dragStart(event, block, editor);
+      if (view && dragStartResult) {
+        const selectionBlockIds = getSideMenuDroppedBlockIdsFromSelection(
+          editor.prosemirrorView.state.selection,
+        );
+        const draggedBlockIds = dragStartResult.blockIds.length > 0
+          ? dragStartResult.blockIds
+          : selectionBlockIds.length > 0
+            ? selectionBlockIds
+            : [block.id];
+        view.setDraggedBlockIdsForDropSelection(draggedBlockIds);
+        editor.prosemirrorView.dragging = {
+          slice: dragStartResult.slice,
+          move: true,
+        };
+      }
     },
 
     /**
@@ -758,7 +852,16 @@ export const SideMenuExtension = createExtension(({ editor }) => {
         view.isDragOrigin = false;
       }
 
-      editor.blur();
+      if (blockDragEndHandled) {
+        return;
+      }
+      blockDragEndHandled = true;
+
+      const shouldPreserveFocus = preserveFocusAfterDroppedBlockSelection;
+      preserveFocusAfterDroppedBlockSelection = false;
+      if (!shouldPreserveFocus) {
+        editor.blur();
+      }
     },
 
     /**

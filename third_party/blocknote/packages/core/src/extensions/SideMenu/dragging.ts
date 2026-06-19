@@ -1,4 +1,4 @@
-import { Node } from "prosemirror-model";
+import { Node, Slice } from "prosemirror-model";
 import { NodeSelection, Selection, TextSelection } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
 
@@ -14,6 +14,7 @@ import {
   InlineContentSchema,
   StyleSchema,
 } from "../../schema/index.js";
+import { getSideMenuDroppedBlockIdsFromSlice } from "./dropSelection.js";
 import { MultipleNodeSelection } from "./MultipleNodeSelection.js";
 
 let dragImageElement: Element | undefined;
@@ -24,6 +25,11 @@ export type SideMenuBlockDragStartEvent = {
   selectedBlockIds?: string[];
   selectionFrom?: number;
   selectionTo?: number;
+};
+
+export type SideMenuBlockDragStartResult = {
+  slice: Slice;
+  blockIds: string[];
 };
 
 export type SideMenuState<
@@ -275,7 +281,7 @@ export function dragStart<
   e: SideMenuBlockDragStartEvent,
   block: Block<BSchema, I, S>,
   editor: BlockNoteEditor<BSchema, I, S>,
-) {
+): SideMenuBlockDragStartResult | undefined {
   if (!e.dataTransfer) {
     return;
   }
@@ -348,5 +354,10 @@ export function dragStart<
     e.dataTransfer.setData("text/plain", plainText);
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setDragImage(dragImageElement!, 0, 0);
+
+    return {
+      slice: selectedSlice,
+      blockIds: getSideMenuDroppedBlockIdsFromSlice(selectedSlice),
+    };
   }
 }

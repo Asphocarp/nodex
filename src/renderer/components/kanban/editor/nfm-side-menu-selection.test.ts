@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { MultipleNodeSelection } from "@blocknote/core/extensions";
+import { Schema } from "@tiptap/pm/model";
+import { EditorState } from "@tiptap/pm/state";
 import {
   applySideMenuSelectionIntent,
   createSideMenuSelectionIntent,
@@ -8,6 +11,36 @@ import {
 
 function block(id: string, children?: SideMenuSelectionBlock[]): SideMenuSelectionBlock {
   return { id, ...(children ? { children } : {}) };
+}
+
+const pmSchema = new Schema({
+  nodes: {
+    doc: { content: "blockGroup" },
+    blockGroup: { content: "block*" },
+    block: {
+      attrs: { id: {} },
+      content: "text*",
+      group: "bnBlock block",
+      toDOM: (node) => ["div", { "data-id": node.attrs.id }, 0],
+      parseDOM: [{ tag: "div[data-id]" }],
+    },
+    text: { group: "inline" },
+  },
+  marks: {},
+});
+
+function pmBlock(id: string, text = id) {
+  return pmSchema.node("block", { id }, pmSchema.text(text));
+}
+
+function pmDoc() {
+  return pmSchema.node("doc", null, [
+    pmSchema.node("blockGroup", null, [
+      pmBlock("a"),
+      pmBlock("b"),
+      pmBlock("c"),
+    ]),
+  ]);
 }
 
 describe("nfm side menu selection helpers", () => {
@@ -86,6 +119,28 @@ describe("nfm side menu selection helpers", () => {
 
     expect(applied).toBeTrue();
     expect(calls.join(",")).toBe("a:b:c|b");
+  });
+
+  test("uses a block-range selection for a single clicked block", () => {
+    const state = EditorState.create({ schema: pmSchema, doc: pmDoc() });
+    let appliedSelection: unknown;
+
+    const applied = applySideMenuSelectionIntent({
+      getSelection: () => undefined,
+      prosemirrorView: {
+        state,
+        dispatch: (transaction) => {
+          appliedSelection = transaction.selection;
+        },
+      },
+    }, {
+      clickedBlock: block("b"),
+      blocks: [block("b")],
+      source: "clicked-block",
+    });
+
+    expect(applied).toBeTrue();
+    expect(appliedSelection instanceof MultipleNodeSelection).toBeTrue();
   });
 
   test("reports adapter failure without throwing", () => {
