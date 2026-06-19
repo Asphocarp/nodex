@@ -1011,6 +1011,76 @@ function renderWorkbench({
       const projectId = String(args[0]);
       return sessionState[projectId] ?? [];
     }
+    if (channel === "board:summary:get") {
+      const projectId = String(args[0] ?? "alpha");
+      if (projectId === "beta") {
+        return {
+          columns: [
+            {
+              id: "in_progress",
+              name: "In Progress",
+              cards: [
+                {
+                  id: "card-beta",
+                  projectId: "beta",
+                  status: "in_progress",
+                  title: "Beta Card",
+                  tags: [],
+                  archived: false,
+                  agentBlocked: false,
+                  created: new Date("2026-06-07T00:00:00.000Z"),
+                  order: 0,
+                  revision: 1,
+                  descriptionPreview: "",
+                  descriptionLength: 0,
+                  hasDescription: false,
+                },
+              ],
+            },
+          ],
+        };
+      }
+      return {
+        columns: [
+          {
+            id: "in_progress",
+            name: "In Progress",
+            cards: [
+              {
+                id: "card-1",
+                projectId: "alpha",
+                status: "in_progress",
+                title: "Card One",
+                tags: [],
+                archived: false,
+                agentBlocked: false,
+                created: new Date("2026-06-07T00:00:00.000Z"),
+                order: 0,
+                revision: 1,
+                descriptionPreview: "",
+                descriptionLength: 0,
+                hasDescription: false,
+              },
+              {
+                id: "card-2",
+                projectId: "alpha",
+                status: "in_progress",
+                title: "Card Two",
+                tags: [],
+                archived: false,
+                agentBlocked: false,
+                created: new Date("2026-06-07T00:00:00.000Z"),
+                order: 1,
+                revision: 1,
+                descriptionPreview: "",
+                descriptionLength: 0,
+                hasDescription: false,
+              },
+            ],
+          },
+        ],
+      };
+    }
     if (channel === "card:get") {
       const cardId = String(args[1] ?? "");
       if (cardId === "card-beta") {
@@ -4018,12 +4088,73 @@ describe("workbench session shell", () => {
     expect(menuText.indexOf("Review") < menuText.indexOf("Terminal")).toBeTrue();
     expect(menuText.indexOf("Side chat") < menuText.indexOf("DB View")).toBeTrue();
     expect(menuText.indexOf("DB View") < menuText.indexOf("Card Stage")).toBeTrue();
+  });
 
-    fireEvent.click(within(menu).getByText("DB View"));
+  test("empty right panel DB View action uses the panel destination picker", async () => {
+    const emptySession = makeSession({
+      id: "session:alpha:db-picker",
+      isOverview: false,
+      tabs: [],
+      rightLayout: makePanelLayout([], null),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [emptySession] },
+    });
     await settleAsyncRender();
+    await settleAsyncRender();
+
+    await pointerActivate(screen.getByRole("button", { name: /DB View/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Open DB view" }) !== null).toBeTrue();
+    });
+    expect(screen.getByRole("combobox", { name: "Open DB view" }) !== null).toBeTrue();
+    expect(screen.getByRole("option", { name: /Alpha/ }) !== null).toBeTrue();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("option", { name: /Alpha/ }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
     expect(invokeCalls.some((call) =>
       call[0] === "project-session-tabs:create"
       && JSON.stringify(call[1]).includes('"kind":"db_view"')
+    )).toBeTrue();
+  });
+
+  test("empty right panel Card Stage action uses the panel destination picker", async () => {
+    const emptySession = makeSession({
+      id: "session:alpha:card-picker",
+      isOverview: false,
+      tabs: [],
+      rightLayout: makePanelLayout([], null),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [emptySession] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await pointerActivate(screen.getByRole("button", { name: /Card Stage/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Open card stage" }) !== null).toBeTrue();
+    });
+    expect(screen.getByRole("combobox", { name: "Open card stage" }) !== null).toBeTrue();
+    expect(screen.getByText("Card") !== null).toBeTrue();
+
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: /Card One/ }) !== null).toBeTrue();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("option", { name: /Card One/ }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-session-tabs:create"
+      && JSON.stringify(call[1]).includes('"kind":"card_stage"')
+      && JSON.stringify(call[1]).includes('"cardId":"card-1"')
     )).toBeTrue();
   });
 

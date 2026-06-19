@@ -58,6 +58,7 @@ All notable changes to this project will be documented in this file.
 - Command execution output now streams through the active thread renderer with smoother batched updates, canonical 20k truncation, reversed output scrolling, and explicit `Stopped` / `Success` / `Exit code` footer states.
 - NFM side-menu `Move to` now opens one grouped DB/Card destination popover with shared prefix/fuzzy search instead of separate `Move to DB` and `Move to card` submenu actions.
 - NFM side-menu `Turn into -> Card in` now opens the same destination popover scoped to DB results instead of the older send-blocks dialog.
+- Right-panel DB View and Card Stage actions now use the same dense searchable picker chrome as NFM move-to, scoped to DB or card destinations.
 
 ### Removed
 - Removed the floating Manage Projects popover entry points.

@@ -25,6 +25,8 @@ import {
 } from "lucide-react";
 import type { AppShellTabItem } from "./app-shell-tabs";
 import { PanelGroupTree } from "./panel-group-tree";
+import { PanelDestinationPicker } from "./panel-destination-picker";
+import type { PanelDestination, PanelDestinationPickerScope } from "./panel-destination-picker-model";
 import {
   HeaderAction,
   HeaderActionProvider,
@@ -149,7 +151,6 @@ import {
 import { PROJECT_SESSION_SINGLETON_TAB_KINDS } from "@/lib/types";
 import type {
   Card,
-  CardSummary,
   CardRunInTarget,
   CardInput,
   CardUpdateMutationResult,
@@ -861,6 +862,12 @@ function isNodexPanelOptionAction(action: PanelNewTabAction): boolean {
   return isProjectSessionTabKind(action.kind) && NODEX_PANEL_OPTION_ACTION_KIND_SET.has(action.kind);
 }
 
+function isPanelDestinationAction(
+  action: PanelNewTabAction,
+): action is PanelNewTabAction & { kind: "db_view" | "card_stage" } {
+  return action.kind === "db_view" || action.kind === "card_stage";
+}
+
 function normalizeOptionalPath(value: string | null | undefined): string | undefined {
   const trimmedValue = value?.trim();
   if (!trimmedValue) return undefined;
@@ -1507,6 +1514,7 @@ export function WorkbenchShell({
     sessionId: activeSession ? `${activeSession.id}:right-panel-actions` : "right-panel-actions",
   });
   const [cardStageHistoryModal, setCardStageHistoryModal] = useState<CardStageHistoryModalContext | null>(null);
+  const [openPanelNewTabMenuKey, setOpenPanelNewTabMenuKey] = useState<string | null>(null);
   const rightPanel = activeSession?.panels.right ?? null;
   const bottomPanel = activeSession?.panels.bottom ?? null;
   const rightPanelTabs = activeSession?.tabs.filter((tab) => tab.panelId === "right") ?? [];
@@ -1751,16 +1759,6 @@ export function WorkbenchShell({
     if (!message) return;
     toast.danger(message);
   }, []);
-  const activeProjectCardOptions = useMemo(() => {
-    const cards: Array<{ card: CardSummary; columnName: string }> = [];
-    for (const column of activeProjectKanban.board?.columns ?? []) {
-      const columnName = KANBAN_STATUS_LABELS[column.id] ?? column.name;
-      for (const card of column.cards) {
-        cards.push({ card, columnName });
-      }
-    }
-    return cards;
-  }, [activeProjectKanban.board?.columns]);
   const isMacPlatform = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
   const availableRightPanelActions = useMemo(
     () => filterAvailablePanelActions(PANEL_NEW_TAB_ACTIONS, activeSession?.tabs ?? [], "right"),
@@ -3641,10 +3639,100 @@ export function WorkbenchShell({
     await createManualTab("terminal", "bottom");
   }, [activeSession, createManualTab, setActivePanelTab]);
 
-  const openCardStageFromPicker = useCallback(async (card: CardSummary) => {
+  const openDbViewFromPanelPicker = useCallback(async (
+    projectId: string,
+    panelId: PanelId,
+    leafId: string,
+  ) => {
     if (!activeSession) return;
-    await openCardTab(activeSession.projectId, card.id, card.title || card.id);
-  }, [activeSession, openCardTab]);
+
+    await invoke("project-session-tabs:create", {
+      sessionId: activeSession.id,
+      projectId: activeSession.projectId,
+      panelId,
+      targetLeafId: leafId,
+      kind: "db_view",
+      title: "DB View",
+      config: { projectId, view: "kanban" },
+    });
+    await ensureActivePanelOpenWithoutRefresh(panelId);
+    await refreshProjectSessions(activeSession.projectId);
+  }, [activeSession, ensureActivePanelOpenWithoutRefresh, refreshProjectSessions]);
+
+  const openCardStageFromPanelPicker = useCallback(async (
+    destination: Extract<PanelDestination, { kind: "card" }>,
+    panelId: PanelId,
+    leafId: string,
+  ) => {
+    if (!activeSession) {
+      openCardStage(destination.projectId, destination.cardId, destination.titleSnapshot);
+      return;
+    }
+
+    const existing = activeSession.tabs.find((tab) =>
+      tab.kind === "card_stage"
+      && tab.panelId === panelId
+      && "cardId" in tab.config
+      && tab.config.cardId === destination.cardId
+      && tab.config.projectId === destination.projectId,
+    );
+    if (existing) {
+      const existingLeafId = resolveLeafIdForPanelTab(activeSession, panelId, existing.id);
+      clearPanelPreviewTab(activeSession.id, panelId, existingLeafId);
+      await setActivePanelTab(panelId, existing.id, { leafId: existingLeafId, openPanel: true });
+      return;
+    }
+
+    const matchingPreviewTab = getRenderablePanelPreviewTab(activeSession, panelId, leafId, previewTabsByPanel);
+    if (
+      matchingPreviewTab?.kind === "card_stage"
+      && "cardId" in matchingPreviewTab.config
+      && matchingPreviewTab.config.cardId === destination.cardId
+      && matchingPreviewTab.config.projectId === destination.projectId
+    ) {
+      await pinPreviewTab(panelId, matchingPreviewTab.id, leafId);
+      return;
+    }
+
+    await invoke("project-session-tabs:create", {
+      sessionId: activeSession.id,
+      projectId: activeSession.projectId,
+      panelId,
+      targetLeafId: leafId,
+      kind: "card_stage",
+      title: destination.titleSnapshot || destination.cardId,
+      config: {
+        projectId: destination.projectId,
+        cardId: destination.cardId,
+        titleSnapshot: destination.titleSnapshot || destination.cardId,
+      },
+    });
+    await ensureActivePanelOpenWithoutRefresh(panelId);
+    await refreshProjectSessions(activeSession.projectId);
+  }, [
+    activeSession,
+    clearPanelPreviewTab,
+    ensureActivePanelOpenWithoutRefresh,
+    openCardStage,
+    pinPreviewTab,
+    previewTabsByPanel,
+    refreshProjectSessions,
+    setActivePanelTab,
+  ]);
+
+  const openPanelDestinationFromPicker = useCallback(async (
+    destination: PanelDestination,
+    panelId: PanelId,
+    leafId: string,
+  ) => {
+    await activatePanelGroup(panelId, leafId);
+    if (destination.kind === "db") {
+      await openDbViewFromPanelPicker(destination.projectId, panelId, leafId);
+      return;
+    }
+
+    await openCardStageFromPanelPicker(destination, panelId, leafId);
+  }, [activatePanelGroup, openCardStageFromPanelPicker, openDbViewFromPanelPicker]);
 
   const rememberFocusedPanelGroup = useCallback((panelId: PanelId, leafId: string) => {
     focusedPanelGroupRef.current = { panelId, leafId };
@@ -4900,8 +4988,13 @@ export function WorkbenchShell({
     if (!activeSession) return null;
     const actions = panelId === "right" ? availableRightPanelActions : availableBottomPanelActions;
     const title = panelId === "right" ? "Open side panel tab" : "Open bottom panel tab";
+    const menuKey = `${activeSession.id}:${panelId}:${leafId}:new-tab`;
     return (
       <NodexDropdownMenu
+        open={openPanelNewTabMenuKey === menuKey}
+        onOpenChange={(open) => {
+          setOpenPanelNewTabMenuKey(open ? menuKey : null);
+        }}
         align="start"
         sideOffset={6}
         contentWidth="menuWide"
@@ -4921,20 +5014,27 @@ export function WorkbenchShell({
           const showNodexSeparator = isNodexPanelOptionAction(action)
             && !isNodexPanelOptionAction(actions[index - 1] ?? action);
           const item = (() => {
-            if (action.kind === "card_stage") {
+            if (isPanelDestinationAction(action)) {
+              const scope: PanelDestinationPickerScope = action.kind === "db_view" ? "db-only" : "card-only";
+              const ariaLabel = action.kind === "db_view" ? "Open DB view" : "Open card stage";
+              const placeholder = action.kind === "db_view" ? "Open DB…" : "Open card…";
               return (
                 <NodexDropdownFlyoutSubmenuItem
                   label={action.label}
                   leftSlot={<Icon className="icon-sm" />}
-                  contentClassName="w-[336px]"
+                  contentClassName="w-[330px] max-w-[calc(100vw-24px)] overflow-hidden p-0"
                 >
-                  <RightPanelCardStagePicker
-                    cards={activeProjectCardOptions}
-                    onOpenCard={(card) => {
-                      void (async () => {
-                        await activatePanelGroup(panelId, leafId);
-                        await openCardStageFromPicker(card);
-                      })();
+                  <PanelDestinationPicker
+                    projects={projects}
+                    scope={scope}
+                    ariaLabel={ariaLabel}
+                    placeholder={placeholder}
+                    onClose={() => {
+                      setOpenPanelNewTabMenuKey(null);
+                    }}
+                    onAccept={async (destination) => {
+                      await openPanelDestinationFromPicker(destination, panelId, leafId);
+                      setOpenPanelNewTabMenuKey(null);
                     }}
                   />
                 </NodexDropdownFlyoutSubmenuItem>
@@ -5462,7 +5562,7 @@ export function WorkbenchShell({
                             renderEmptyLeaf={(leafId) => (
                               <EmptyRightPane
                                 actions={availableRightPanelActions}
-                                cards={activeProjectCardOptions}
+                                projects={projects}
                                 isMac={isMacPlatform}
                                 commandKeymapState={commandKeymapState}
                                 onAction={(kind) => {
@@ -5480,11 +5580,8 @@ export function WorkbenchShell({
                                     await createManualTab(kind, "right");
                                   })();
                                 }}
-                                onOpenCard={(card) => {
-                                  void (async () => {
-                                    await activatePanelGroup("right", leafId);
-                                    await openCardStageFromPicker(card);
-                                  })();
+                                onOpenDestination={async (destination) => {
+                                  await openPanelDestinationFromPicker(destination, "right", leafId);
                                 }}
                               />
                             )}
@@ -5547,7 +5644,7 @@ export function WorkbenchShell({
                           renderEmptyLeaf={(leafId) => (
                             <EmptyRightPane
                               actions={availableBottomPanelActions}
-                              cards={[]}
+                              projects={projects}
                               isMac={isMacPlatform}
                               commandKeymapState={commandKeymapState}
                               onAction={(kind) => {
@@ -5565,11 +5662,8 @@ export function WorkbenchShell({
                                   await createManualTab(kind, "bottom");
                                 })();
                               }}
-                              onOpenCard={(card) => {
-                                void (async () => {
-                                  await activatePanelGroup("bottom", leafId);
-                                  await openCardStageFromPicker(card);
-                                })();
+                              onOpenDestination={async (destination) => {
+                                await openPanelDestinationFromPicker(destination, "bottom", leafId);
                               }}
                             />
                           )}
@@ -6170,66 +6264,78 @@ const PanelActionCard = forwardRef<HTMLButtonElement, PanelActionCardProps>(
   },
 );
 
-function RightPanelCardStagePicker({
-  cards,
-  onOpenCard,
+function PanelDestinationActionMenu({
+  action,
+  projects,
+  isMac,
+  commandKeymapState,
+  onOpenDestination,
 }: {
-  cards: Array<{ card: CardSummary; columnName: string }>;
-  onOpenCard: (card: CardSummary) => void;
+  action: PanelNewTabAction & { kind: "db_view" | "card_stage" };
+  projects: readonly Project[];
+  isMac: boolean;
+  commandKeymapState?: CommandKeymapState | null;
+  onOpenDestination: (destination: PanelDestination) => Promise<void> | void;
 }) {
-  if (cards.length === 0) {
-    return (
-      <div className="w-[320px] px-3 py-2 text-sm text-token-description-foreground">
-        No cards in this project.
-      </div>
-    );
-  }
+  const [open, setOpen] = useState(false);
+  const scope: PanelDestinationPickerScope = action.kind === "db_view" ? "db-only" : "card-only";
+  const ariaLabel = action.kind === "db_view" ? "Open DB view" : "Open card stage";
+  const placeholder = action.kind === "db_view" ? "Open DB…" : "Open card…";
 
   return (
-    <div className="max-h-[320px] w-[320px] overflow-y-auto py-1">
-      {cards.map(({ card, columnName }) => (
-        <NodexDropdownItem
-          key={card.id}
-          leftSlot={<SquareKanban className="icon-sm" />}
-          subText={columnName}
-          onSelect={() => onOpenCard(card)}
-        >
-          {card.title || card.id}
-        </NodexDropdownItem>
-      ))}
-    </div>
+    <NodexDropdownMenu
+      open={open}
+      onOpenChange={setOpen}
+      align="center"
+      sideOffset={8}
+      contentClassName="w-[330px] max-w-[calc(100vw-24px)] overflow-hidden p-0"
+      triggerButton={<PanelActionCard action={action} isMac={isMac} commandKeymapState={commandKeymapState} />}
+    >
+      <PanelDestinationPicker
+        projects={projects}
+        scope={scope}
+        ariaLabel={ariaLabel}
+        placeholder={placeholder}
+        onClose={() => {
+          setOpen(false);
+        }}
+        onAccept={async (destination) => {
+          await onOpenDestination(destination);
+          setOpen(false);
+        }}
+      />
+    </NodexDropdownMenu>
   );
 }
 
 function EmptyRightPane({
   actions,
-  cards,
+  projects,
   isMac,
   commandKeymapState,
   onAction,
-  onOpenCard,
+  onOpenDestination,
 }: {
   actions: PanelNewTabAction[];
-  cards: Array<{ card: CardSummary; columnName: string }>;
+  projects: readonly Project[];
   isMac: boolean;
   commandKeymapState?: CommandKeymapState | null;
   onAction: (kind: PanelNewTabActionKind) => void;
-  onOpenCard: (card: CardSummary) => void;
+  onOpenDestination: (destination: PanelDestination) => Promise<void> | void;
 }) {
   const codexActions = actions.filter((action) => !isNodexPanelOptionAction(action));
   const nodexActions = actions.filter(isNodexPanelOptionAction);
   const renderAction = (action: PanelNewTabAction) => {
-    if (action.kind === "card_stage") {
+    if (isPanelDestinationAction(action)) {
       return (
-        <NodexDropdownMenu
+        <PanelDestinationActionMenu
           key={action.kind}
-          align="center"
-          sideOffset={8}
-          contentWidth="panelWide"
-          triggerButton={<PanelActionCard action={action} isMac={isMac} commandKeymapState={commandKeymapState} />}
-        >
-          <RightPanelCardStagePicker cards={cards} onOpenCard={onOpenCard} />
-        </NodexDropdownMenu>
+          action={action}
+          projects={projects}
+          isMac={isMac}
+          commandKeymapState={commandKeymapState}
+          onOpenDestination={onOpenDestination}
+        />
       );
     }
 

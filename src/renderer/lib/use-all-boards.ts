@@ -3,19 +3,18 @@ import { useEffect } from "react";
 import { subscribeBoardChanges } from "@/lib/api";
 import { boardByProjectQueryOptions } from "@/lib/query-options";
 import { queryKeys } from "@/lib/query-keys";
-import type { BoardSummary } from "@/lib/types";
+import type { BoardSummary, Project } from "@/lib/types";
 import { useProjects } from "@/lib/use-projects";
 
 /**
  * Fetches boards for every project. Used by card pickers and @ mention menus.
  */
-export function useAllBoards() {
+export function useBoardsForProjects(
+  projects: readonly Project[],
+  projectsLoading = false,
+  projectsError: string | null = null,
+) {
   const queryClient = useQueryClient();
-  const {
-    projects,
-    loading: projectsLoading,
-    error: projectsError,
-  } = useProjects();
   const projectIdsKey = projects.map((project) => project.id).join("\n");
 
   const boardsQuery = useQueries({
@@ -68,4 +67,17 @@ export function useAllBoards() {
   }, [projectIdsKey, queryClient]);
 
   return boardsQuery;
+}
+
+/**
+ * Fetches boards for every project. Used by card pickers and @ mention menus.
+ */
+export function useAllBoards() {
+  const {
+    projects,
+    loading: projectsLoading,
+    error: projectsError,
+  } = useProjects();
+
+  return useBoardsForProjects(projects, projectsLoading, projectsError);
 }

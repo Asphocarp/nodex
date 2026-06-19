@@ -1,0 +1,173 @@
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
+import type { BoardSummary, CardSummary, Project } from "@/lib/types";
+import type { PanelDestination } from "./panel-destination-picker-model";
+import { PanelDestinationPickerSurface } from "./panel-destination-picker";
+
+const STORY_DATE = new Date("2026-01-01T00:00:00.000Z");
+
+function makeProject(id: string, name: string, icon?: string): Project {
+  return {
+    id,
+    name,
+    description: "",
+    icon,
+    sources: [],
+    primaryWorkspaceRoot: null,
+    pinned: false,
+    pinnedOrder: null,
+    created: STORY_DATE,
+    updated: STORY_DATE,
+  };
+}
+
+function makeCard(id: string, title: string, status: CardSummary["status"], order: number): CardSummary {
+  return {
+    id,
+    status,
+    archived: false,
+    title,
+    tags: [],
+    agentBlocked: false,
+    created: STORY_DATE,
+    order,
+    revision: 1,
+    descriptionPreview: "",
+    descriptionLength: 0,
+    hasDescription: false,
+  };
+}
+
+const PROJECTS = [
+  makeProject("nodex", "Nodex", "🧭"),
+  makeProject("codex-readable", "Codex readable pack", "📦"),
+];
+
+const BOARD_MAP = new Map<string, BoardSummary>([
+  [
+    "nodex",
+    {
+      columns: [
+        {
+          id: "draft",
+          name: "Draft",
+          cards: [
+            makeCard("panel-picker", "Panel picker polish", "draft", 0),
+            makeCard("right-panel", "Right panel composer overlay", "draft", 1),
+          ],
+        },
+        {
+          id: "in_progress",
+          name: "In Progress",
+          cards: [
+            makeCard("card-stage", "Card Stage retained editor", "in_progress", 0),
+          ],
+        },
+      ],
+    },
+  ],
+  [
+    "codex-readable",
+    {
+      columns: [
+        {
+          id: "backlog",
+          name: "Backlog",
+          cards: [
+            makeCard("research", "Move-to picker research notes", "backlog", 0),
+          ],
+        },
+      ],
+    },
+  ],
+]);
+
+function PanelDestinationPickerStory({
+  loading = false,
+  loadError = null,
+  initialQuery = "",
+  scope = "all",
+}: {
+  loading?: boolean;
+  loadError?: string | null;
+  initialQuery?: string;
+  scope?: "all" | "db-only" | "card-only";
+}) {
+  const [accepted, setAccepted] = useState<PanelDestination | null>(null);
+
+  return (
+    <div className="flex min-h-screen items-start justify-center bg-token-main-surface-primary p-8 text-token-foreground">
+      <div className="overflow-hidden rounded-xl bg-token-dropdown-background/90 ring-[0.5px] ring-token-border shadow-xl-spread backdrop-blur-sm">
+        <PanelDestinationPickerSurface
+          projects={PROJECTS}
+          boardMap={loadError ? new Map() : BOARD_MAP}
+          loading={loading}
+          loadError={loadError}
+          initialQuery={initialQuery}
+          scope={scope}
+          onClose={() => undefined}
+          onAccept={(destination) => {
+            setAccepted(destination);
+          }}
+        />
+        {accepted ? (
+          <div className="border-t border-token-border px-3 py-2 text-xs text-token-description-foreground">
+            {accepted.kind === "db"
+              ? `DB: ${accepted.projectId}`
+              : `Card: ${accepted.projectId}/${accepted.cardId}`}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+const meta = {
+  title: "Workbench/Panel destination picker",
+  component: PanelDestinationPickerStory,
+  parameters: {
+    layout: "fullscreen",
+  },
+} satisfies Meta<typeof PanelDestinationPickerStory>;
+
+export default meta;
+
+type Story = StoryObj<typeof meta>;
+
+export const Default: Story = {};
+
+export const SearchResults: Story = {
+  args: {
+    initialQuery: "panel",
+  },
+};
+
+export const DbOnly: Story = {
+  args: {
+    scope: "db-only",
+  },
+};
+
+export const CardOnly: Story = {
+  args: {
+    scope: "card-only",
+  },
+};
+
+export const Loading: Story = {
+  args: {
+    loading: true,
+  },
+};
+
+export const Error: Story = {
+  args: {
+    loadError: "Something went wrong",
+  },
+};
+
+export const NoResults: Story = {
+  args: {
+    initialQuery: "zzzzzz",
+  },
+};
