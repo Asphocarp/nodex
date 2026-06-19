@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { MultipleNodeSelection } from "@blocknote/core/extensions";
-import { Schema } from "@tiptap/pm/model";
-import { EditorState } from "@tiptap/pm/state";
+import { Schema, type Node } from "@tiptap/pm/model";
+import { EditorState, NodeSelection, TextSelection } from "@tiptap/pm/state";
 import {
   applySideMenuSelectionIntent,
+  createSideMenuDragSelectionSnapshot,
   createSideMenuSelectionIntent,
   expandSideMenuSelectionBlocksWithChildren,
   type SideMenuSelectionBlock,
@@ -41,6 +42,26 @@ function pmDoc() {
       pmBlock("c"),
     ]),
   ]);
+}
+
+function blockPosition(doc: ReturnType<typeof pmDoc>, blockId: string) {
+  const matches: Array<{ node: Node; posBeforeNode: number }> = [];
+  doc.descendants((node, pos) => {
+    if (node.type.name !== "block" || node.attrs.id !== blockId) return true;
+    matches.push({ node, posBeforeNode: pos });
+    return false;
+  });
+  const result = matches[0];
+  if (!result) throw new Error(`Missing test block ${blockId}`);
+  return result;
+}
+
+function editorState(selection: EditorState["selection"]) {
+  return EditorState.create({
+    schema: pmSchema,
+    doc: selection.$anchor.doc,
+    selection,
+  });
 }
 
 describe("nfm side menu selection helpers", () => {
@@ -91,6 +112,70 @@ describe("nfm side menu selection helpers", () => {
 
     expect(intent.source).toBe("clicked-block");
     expect(intent.blocks.map((entry) => entry.id).join(",")).toBe("b");
+  });
+
+  test("snapshots a text selection as raw ProseMirror bounds", () => {
+    const doc = pmDoc();
+    const position = blockPosition(doc, "b");
+    const selectionFrom = position.posBeforeNode + 1;
+    const selectionTo = selectionFrom + 1;
+    const snapshot = createSideMenuDragSelectionSnapshot({
+      prosemirrorView: {
+        state: editorState(TextSelection.create(doc, selectionFrom, selectionTo)),
+        dispatch: () => {},
+      },
+    });
+
+    expect(snapshot?.selectionFrom).toBe(selectionFrom);
+    expect(snapshot?.selectionTo).toBe(selectionTo);
+    expect(snapshot?.selectedBlockIds === undefined).toBeTrue();
+  });
+
+  test("snapshots a multiple block selection as block ids", () => {
+    const doc = pmDoc();
+    const startPosition = blockPosition(doc, "b");
+    const endPosition = blockPosition(doc, "c");
+    const snapshot = createSideMenuDragSelectionSnapshot({
+      prosemirrorView: {
+        state: editorState(MultipleNodeSelection.create(
+          doc,
+          startPosition.posBeforeNode,
+          endPosition.posBeforeNode + endPosition.node.nodeSize,
+        )),
+        dispatch: () => {},
+      },
+    });
+
+    expect(snapshot?.selectedBlockIds?.join(",")).toBe("b,c");
+    expect(snapshot?.selectionFrom === undefined).toBeTrue();
+    expect(snapshot?.selectionTo === undefined).toBeTrue();
+  });
+
+  test("snapshots a node selection as one block id", () => {
+    const doc = pmDoc();
+    const position = blockPosition(doc, "b");
+    const snapshot = createSideMenuDragSelectionSnapshot({
+      prosemirrorView: {
+        state: editorState(NodeSelection.create(doc, position.posBeforeNode)),
+        dispatch: () => {},
+      },
+    });
+
+    expect(snapshot?.selectedBlockIds?.join(",")).toBe("b");
+  });
+
+  test("does not snapshot a collapsed text selection", () => {
+    const doc = pmDoc();
+    const position = blockPosition(doc, "b");
+    const cursor = position.posBeforeNode + 1;
+    const snapshot = createSideMenuDragSelectionSnapshot({
+      prosemirrorView: {
+        state: editorState(TextSelection.create(doc, cursor, cursor)),
+        dispatch: () => {},
+      },
+    });
+
+    expect(snapshot === null).toBeTrue();
   });
 
   test("deduplicates repeated descendants while expanding block children", () => {

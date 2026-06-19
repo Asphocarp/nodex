@@ -13,6 +13,12 @@ export interface SideMenuSelectionIntent {
   source: "active-selection" | "clicked-block";
 }
 
+export interface SideMenuDragSelectionSnapshot {
+  selectedBlockIds?: string[];
+  selectionFrom?: number;
+  selectionTo?: number;
+}
+
 export interface SideMenuSelectionEditor {
   getSelection?: () => { blocks?: SideMenuSelectionBlock[] } | undefined;
   prosemirrorView?: Pick<EditorView, "state" | "dispatch">;
@@ -34,6 +40,57 @@ function getSelectedBlocks(editor: SideMenuSelectionEditor): SideMenuSelectionBl
   const blocks = editor.getSelection?.()?.blocks;
   if (!blocks || blocks.length === 0) return [];
   return blocks.filter((block) => getSideMenuSelectionBlockId(block) !== null);
+}
+
+interface SelectionNodeLike {
+  attrs?: {
+    id?: unknown;
+  };
+}
+
+interface BlockSelectionLike {
+  node?: SelectionNodeLike;
+  nodes?: SelectionNodeLike[];
+}
+
+function getSelectionNodeBlockId(node: SelectionNodeLike | undefined): string | null {
+  const id = node?.attrs?.id;
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
+
+function getBlockSelectionIds(selection: EditorView["state"]["selection"]): string[] {
+  const blockSelection = selection as EditorView["state"]["selection"] & BlockSelectionLike;
+  if (Array.isArray(blockSelection.nodes)) {
+    return Array.from(new Set(
+      blockSelection.nodes
+        .map(getSelectionNodeBlockId)
+        .filter((id): id is string => id !== null),
+    ));
+  }
+
+  const nodeId = getSelectionNodeBlockId(blockSelection.node);
+  return nodeId ? [nodeId] : [];
+}
+
+export function createSideMenuDragSelectionSnapshot(
+  editor: SideMenuSelectionEditor,
+): SideMenuDragSelectionSnapshot | null {
+  const selection = editor.prosemirrorView?.state.selection;
+  if (!selection) return null;
+
+  const selectedBlockIds = getBlockSelectionIds(selection);
+  if (selectedBlockIds.length > 0) {
+    return { selectedBlockIds };
+  }
+
+  if (selection.empty || selection.from === selection.to) {
+    return null;
+  }
+
+  return {
+    selectionFrom: selection.from,
+    selectionTo: selection.to,
+  };
 }
 
 function addBlockWithChildren(

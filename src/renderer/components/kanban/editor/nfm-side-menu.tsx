@@ -89,7 +89,9 @@ import {
 import { useNfmSideMenuRuntime } from "./nfm-side-menu-runtime";
 import {
   applySideMenuSelectionIntent,
+  createSideMenuDragSelectionSnapshot,
   createSideMenuSelectionIntent,
+  type SideMenuDragSelectionSnapshot,
   type SideMenuSelectionEditor,
   type SideMenuSelectionIntent,
 } from "./nfm-side-menu-selection";
@@ -137,9 +139,17 @@ interface SideMenuButtonProps {
   onPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   onPointerMove?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   onPointerUp?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
-  onDragStart?: (event: { dataTransfer: DataTransfer | null; clientY: number }) => void;
+  onDragStart?: (event: SideMenuDragStartEvent) => void;
   onDragEnd?: () => void;
   draggable?: boolean;
+}
+
+interface SideMenuDragStartEvent {
+  dataTransfer: DataTransfer | null;
+  clientY: number;
+  selectedBlockIds?: string[];
+  selectionFrom?: number;
+  selectionTo?: number;
 }
 
 interface NfmSideMenuOpenState {
@@ -1381,6 +1391,7 @@ export function NfmSideMenu() {
   const triggerWrapperRef = useRef<HTMLSpanElement>(null);
   const pointerStartRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const selectionIntentRef = useRef<SideMenuSelectionIntent | null>(null);
+  const dragSelectionSnapshotRef = useRef<SideMenuDragSelectionSnapshot | null>(null);
   const dragStartedRef = useRef(false);
   const lastPointerActivationAtRef = useRef<number | null>(null);
   const [openState, setOpenState] = useState<NfmSideMenuOpenState | null>(null);
@@ -1462,6 +1473,7 @@ export function NfmSideMenu() {
             if (event.pointerType !== "mouse" || event.button !== 0) return;
             dragStartedRef.current = false;
             selectionIntentRef.current = createSideMenuSelectionIntent(runtimeEditor, block);
+            dragSelectionSnapshotRef.current = createSideMenuDragSelectionSnapshot(runtimeEditor);
             pointerStartRef.current = {
               x: event.clientX,
               y: event.clientY,
@@ -1481,10 +1493,16 @@ export function NfmSideMenu() {
             if (event.pointerType !== "mouse" || event.button !== 0) return;
             const start = pointerStartRef.current;
             pointerStartRef.current = null;
-            if (!start || start.moved || dragStartedRef.current) return;
+            if (!start || start.moved || dragStartedRef.current) {
+              if (!dragStartedRef.current) {
+                dragSelectionSnapshotRef.current = null;
+              }
+              return;
+            }
 
             const selectionIntent = selectionIntentRef.current;
             selectionIntentRef.current = null;
+            dragSelectionSnapshotRef.current = null;
             lastPointerActivationAtRef.current = performance.now();
             openFromHandle(event.currentTarget, selectionIntent);
           }}
@@ -1496,18 +1514,24 @@ export function NfmSideMenu() {
             }
 
             selectionIntentRef.current = null;
+            dragSelectionSnapshotRef.current = null;
             openFromHandle(
               triggerWrapperRef.current,
               createSideMenuSelectionIntent(runtimeEditor, block),
             );
           }}
-          onDragStart={(event: { dataTransfer: DataTransfer | null; clientY: number }) => {
+          onDragStart={(event: SideMenuDragStartEvent) => {
             dragStartedRef.current = true;
             selectionIntentRef.current = null;
-            sideMenu.blockDragStart(event, dragTargetBlock as never);
+            const dragEvent = {
+              ...event,
+              ...(dragSelectionSnapshotRef.current ?? {}),
+            };
+            sideMenu.blockDragStart(dragEvent, dragTargetBlock as never);
           }}
           onDragEnd={() => {
             dragStartedRef.current = false;
+            dragSelectionSnapshotRef.current = null;
             sideMenu.blockDragEnd();
           }}
           className="bn-button"

@@ -1,9 +1,10 @@
 import { Node, Slice } from "prosemirror-model";
-import { NodeSelection, Selection, TextSelection } from "prosemirror-state";
+import { NodeSelection, Selection } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
 
 import { createExternalHTMLExporter } from "../../api/exporters/html/externalHTMLExporter.js";
 import { cleanHTMLToMarkdown } from "../../api/exporters/markdown/markdownExporter.js";
+import { getBlockInfoWithManualOffset } from "../../api/getBlockInfoFromPos.js";
 import { fragmentToBlocks } from "../../api/nodeConversions/fragmentToBlocks.js";
 import { getNodeById } from "../../api/nodeUtil.js";
 import { Block } from "../../blocks/defaultBlocks.js";
@@ -30,6 +31,22 @@ export type SideMenuBlockDragStartEvent = {
 export type SideMenuBlockDragStartResult = {
   slice: Slice;
   blockIds: string[];
+};
+
+export type SideMenuBlockPositionRange = {
+  from: number;
+  to: number;
+};
+
+type SideMenuDragBlockRecord = {
+  id: string;
+  posBeforeNode: number;
+  posAfterNode: number;
+  parentDepth: number;
+  parentStart: number;
+  indexInParent: number;
+  contentStart?: number;
+  contentEnd?: number;
 };
 
 export type SideMenuState<
@@ -79,37 +96,125 @@ function blockPositionsFromSelection(selection: Selection, doc: Node) {
   return { from: beforeFirstBlockPos, to: afterLastBlockPos };
 }
 
-function blockPositionsFromSelectionRange(
-  event: SideMenuBlockDragStartEvent,
-  doc: Node,
-) {
-  if (
-    typeof event.selectionFrom !== "number" ||
-    typeof event.selectionTo !== "number" ||
-    event.selectionFrom === event.selectionTo
-  ) {
-    return undefined;
-  }
+function getBlockId(node: Node) {
+  const id = node.attrs.id;
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
 
+function getBlockRecordContentRange(node: Node, posBeforeNode: number) {
   try {
-    const selection = TextSelection.between(
-      doc.resolve(event.selectionFrom),
-      doc.resolve(event.selectionTo),
-    );
-    return blockPositionsFromSelection(selection, doc);
+    const blockInfo = getBlockInfoWithManualOffset(node, posBeforeNode);
+    if (!blockInfo.isBlockContainer) {
+      return undefined;
+    }
+
+    return {
+      contentStart: blockInfo.blockContent.beforePos + 1,
+      contentEnd: blockInfo.blockContent.afterPos - 1,
+    };
   } catch {
     return undefined;
   }
 }
 
-function normalizeBlockRangeAroundSelectionIds(
-  from: number,
-  to: number,
+function collectSideMenuDragBlockRecords(doc: Node) {
+  const records: SideMenuDragBlockRecord[] = [];
+
+  doc.descendants((node, pos) => {
+    if (!node.type.isInGroup("bnBlock")) {
+      return true;
+    }
+
+    const id = getBlockId(node);
+    if (!id) {
+      return true;
+    }
+
+    const resolvedPos = doc.resolve(pos);
+    records.push({
+      id,
+      posBeforeNode: pos,
+      posAfterNode: pos + node.nodeSize,
+      parentDepth: resolvedPos.depth,
+      parentStart: resolvedPos.start(resolvedPos.depth),
+      indexInParent: resolvedPos.index(resolvedPos.depth),
+      ...getBlockRecordContentRange(node, pos),
+    });
+
+    return true;
+  });
+
+  return records;
+}
+
+function recordIsInSelectionBounds(
+  record: SideMenuDragBlockRecord,
+  selectionFrom: number,
+  selectionTo: number,
+) {
+  if (
+    typeof record.contentStart !== "number" ||
+    typeof record.contentEnd !== "number"
+  ) {
+    return false;
+  }
+
+  const { contentStart, contentEnd } = record;
+  if (contentStart <= selectionFrom && selectionFrom <= contentEnd) {
+    return true;
+  }
+
+  if (selectionFrom < contentEnd && contentStart < selectionTo) {
+    return true;
+  }
+
+  return (
+    contentStart === contentEnd &&
+    selectionFrom < contentStart &&
+    contentStart < selectionTo
+  );
+}
+
+function blockPositionsFromCandidateIds(
+  records: SideMenuDragBlockRecord[],
+  candidateIds: Set<string>,
+  draggedBlockId: string,
+  doc: Node,
+): SideMenuBlockPositionRange | undefined {
+  const candidateRecords = records
+    .filter((record) => candidateIds.has(record.id))
+    .sort((a, b) => a.posBeforeNode - b.posBeforeNode);
+  const firstCandidateRecord = candidateRecords[0];
+  const lastCandidateRecord = candidateRecords[candidateRecords.length - 1];
+  if (!firstCandidateRecord || !lastCandidateRecord) {
+    return undefined;
+  }
+
+  const range = normalizeBlockRangeAroundBlockRecords(
+    firstCandidateRecord,
+    lastCandidateRecord,
+    doc,
+  );
+  if (!range) {
+    return undefined;
+  }
+
+  if (candidateIds.has(draggedBlockId)) {
+    return range;
+  }
+
+  const rangeBlockIds = getBlockIdsFromSelectionRange(doc, range);
+  return rangeBlockIds.has(draggedBlockId) ? range : undefined;
+}
+
+function normalizeBlockRangeAroundBlockRecords(
+  firstRecord: SideMenuDragBlockRecord,
+  lastRecord: SideMenuDragBlockRecord,
   doc: Node,
 ) {
   try {
-    const $from = doc.resolve(from);
-    const $to = doc.resolve(to);
+    const $from = doc.resolve(firstRecord.posBeforeNode);
+    const $to = doc.resolve(lastRecord.posAfterNode);
     const sharedDepth = $from.sharedDepth($to.pos);
     const normalizedFrom = $from.posAtIndex(
       $from.index(sharedDepth),
@@ -127,72 +232,138 @@ function normalizeBlockRangeAroundSelectionIds(
   }
 }
 
+function getBlockIdsFromSelectionRange(doc: Node, range: SideMenuBlockPositionRange) {
+  const blockIds = new Set<string>();
+
+  try {
+    for (const node of MultipleNodeSelection.create(doc, range.from, range.to)
+      .nodes) {
+      const blockId = getBlockId(node);
+      if (blockId) blockIds.add(blockId);
+    }
+  } catch {
+    return blockIds;
+  }
+
+  return blockIds;
+}
+
+function blockPositionsFromSelectionRange(
+  event: Pick<SideMenuBlockDragStartEvent, "selectionFrom" | "selectionTo">,
+  draggedBlockId: string,
+  doc: Node,
+) {
+  if (
+    typeof event.selectionFrom !== "number" ||
+    typeof event.selectionTo !== "number" ||
+    event.selectionFrom === event.selectionTo
+  ) {
+    return undefined;
+  }
+
+  const selectionFrom = Math.min(event.selectionFrom, event.selectionTo);
+  const selectionTo = Math.max(event.selectionFrom, event.selectionTo);
+  const records = collectSideMenuDragBlockRecords(doc);
+  const candidateIds = new Set(
+    records
+      .filter((record) =>
+        recordIsInSelectionBounds(record, selectionFrom, selectionTo),
+      )
+      .map((record) => record.id),
+  );
+
+  return blockPositionsFromCandidateIds(
+    records,
+    candidateIds,
+    draggedBlockId,
+    doc,
+  );
+}
+
 function blockPositionsFromSelectedBlockIds(
   selectedBlockIds: string[] | undefined,
   draggedBlockId: string,
   doc: Node,
 ) {
-  if (!selectedBlockIds || selectedBlockIds.length < 2) {
+  if (!selectedBlockIds || selectedBlockIds.length === 0) {
     return undefined;
   }
 
   const selectedBlockIdSet = new Set(selectedBlockIds);
-  if (selectedBlockIdSet.size < 2 || !selectedBlockIdSet.has(draggedBlockId)) {
+  if (!selectedBlockIdSet.has(draggedBlockId)) {
     return undefined;
   }
 
-  const selectedBlockPositions: Array<{ node: Node; posBeforeNode: number }> = [];
+  const records = collectSideMenuDragBlockRecords(doc);
+  const recordIds = new Set(records.map((record) => record.id));
   for (const selectedBlockId of selectedBlockIdSet) {
-    const posInfo = getNodeById(selectedBlockId, doc);
-    if (!posInfo) {
+    if (!recordIds.has(selectedBlockId)) {
       return undefined;
     }
-
-    selectedBlockPositions.push(posInfo);
   }
 
-  let firstSelectedBlock = selectedBlockPositions[0];
-  let lastSelectedBlock = selectedBlockPositions[0];
-  for (const selectedBlockPosition of selectedBlockPositions) {
-    if (selectedBlockPosition.posBeforeNode < firstSelectedBlock.posBeforeNode) {
-      firstSelectedBlock = selectedBlockPosition;
-    }
-    if (selectedBlockPosition.posBeforeNode > lastSelectedBlock.posBeforeNode) {
-      lastSelectedBlock = selectedBlockPosition;
-    }
-  }
-
-  return normalizeBlockRangeAroundSelectionIds(
-    firstSelectedBlock.posBeforeNode,
-    lastSelectedBlock.posBeforeNode + lastSelectedBlock.node.nodeSize,
+  return blockPositionsFromCandidateIds(
+    records,
+    selectedBlockIdSet,
+    draggedBlockId,
     doc,
+  );
+}
+
+function hasDragSelectionSnapshot(event: SideMenuBlockDragStartEvent) {
+  return (
+    (Array.isArray(event.selectedBlockIds) &&
+      event.selectedBlockIds.length > 0) ||
+    (typeof event.selectionFrom === "number" &&
+      typeof event.selectionTo === "number" &&
+      event.selectionFrom !== event.selectionTo)
+  );
+}
+
+export function getSideMenuDragBlockPositionsFromSnapshot(
+  options: Pick<
+    SideMenuBlockDragStartEvent,
+    "selectedBlockIds" | "selectionFrom" | "selectionTo"
+  > & {
+    draggedBlockId: string;
+    doc: Node;
+  },
+): SideMenuBlockPositionRange | undefined {
+  const rangeFromSelection = blockPositionsFromSelectionRange(
+    options,
+    options.draggedBlockId,
+    options.doc,
+  );
+  if (rangeFromSelection) {
+    return rangeFromSelection;
+  }
+
+  return blockPositionsFromSelectedBlockIds(
+    options.selectedBlockIds,
+    options.draggedBlockId,
+    options.doc,
   );
 }
 
 function blockPositionsFromDragStartEvent(
   event: SideMenuBlockDragStartEvent,
   draggedBlockId: string,
-  draggedBlockPos: number,
   doc: Node,
 ) {
-  if (!event.selectedBlockIds?.includes(draggedBlockId)) {
-    return undefined;
-  }
-
-  const rangeFromSelection = blockPositionsFromSelectionRange(event, doc);
-  if (
-    rangeFromSelection &&
-    rangeFromSelection.from <= draggedBlockPos &&
-    draggedBlockPos < rangeFromSelection.to
-  ) {
-    return rangeFromSelection;
-  }
-
-  return blockPositionsFromSelectedBlockIds(
-    event.selectedBlockIds,
+  return getSideMenuDragBlockPositionsFromSnapshot({
+    selectedBlockIds: event.selectedBlockIds,
+    selectionFrom: event.selectionFrom,
+    selectionTo: event.selectionTo,
     draggedBlockId,
     doc,
+  });
+}
+
+function setSingleBlockDragSelection(view: EditorView, pos: number) {
+  view.dispatch(
+    view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)),
   );
+  setDragImage(view, pos);
 }
 
 function setDragImage(view: EditorView, from: number, to = from) {
@@ -303,7 +474,6 @@ export function dragStart<
     const explicitBlockSelection = blockPositionsFromDragStartEvent(
       e,
       block.id,
-      pos,
       doc,
     );
 
@@ -314,6 +484,8 @@ export function dragStart<
         view.state.tr.setSelection(MultipleNodeSelection.create(doc, from, to)),
       );
       setDragImage(view, from, to);
+    } else if (hasDragSelectionSnapshot(e)) {
+      setSingleBlockDragSelection(view, pos);
     } else {
       const { from, to } = blockPositionsFromSelection(selection, doc);
 
@@ -328,10 +500,7 @@ export function dragStart<
         );
         setDragImage(view, from, to);
       } else {
-        view.dispatch(
-          view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)),
-        );
-        setDragImage(view, pos);
+        setSingleBlockDragSelection(view, pos);
       }
     }
 
