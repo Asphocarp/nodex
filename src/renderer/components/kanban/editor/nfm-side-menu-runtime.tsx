@@ -4,14 +4,12 @@ import {
   type ReactNode,
 } from "react";
 import type { NfmMoveToDestination } from "./nfm-move-to-menu-model";
-import type { SendBlocksMode } from "./nfm-side-menu-model";
 
 export interface NfmSideMenuRuntimeSnapshot {
   canSendBlocks: boolean;
   hasConvertDividerToThreadSection: boolean;
   sourceProjectId: string | null;
   sourceCardId: string | null;
-  onSendBlocks: (mode: SendBlocksMode, fallbackBlockId: string) => void;
   onMoveBlocksToDestination: (
     destination: NfmMoveToDestination,
     fallbackBlockId: string,
@@ -29,7 +27,6 @@ const DEFAULT_SIDE_MENU_RUNTIME: NfmSideMenuRuntimeValue = {
     hasConvertDividerToThreadSection: false,
     sourceProjectId: null,
     sourceCardId: null,
-    onSendBlocks: () => undefined,
     onMoveBlocksToDestination: () => undefined,
     onConvertDividerToThreadSection: () => undefined,
   }),

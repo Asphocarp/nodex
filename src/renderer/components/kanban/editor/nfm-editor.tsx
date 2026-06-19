@@ -66,7 +66,6 @@ import {
 } from "./block-drop-card-mapper";
 import { NfmSideMenu, NfmSideMenuShortcutController } from "./nfm-side-menu";
 import type { NfmMoveToDestination } from "./nfm-move-to-menu-model";
-import type { SendBlocksMode } from "./nfm-side-menu-model";
 import { NfmSideMenuRuntimeProvider } from "./nfm-side-menu-runtime";
 import { resolveSendBlockSelection } from "./send-block-selection";
 import { PasteResourceDialog } from "./paste-resource-dialog";
@@ -82,7 +81,6 @@ import {
   type PasteAttachmentInlineContent,
   type PasteResourceDialogState,
 } from "./paste-resource";
-import { SendBlocksDialog } from "./send-blocks-dialog";
 import { ThreadSectionSendDialog, type ThreadSectionSendDialogState } from "./thread-section-send-dialog";
 import {
   getSideMenuSelectionGuardFloatingOptions,
@@ -265,10 +263,6 @@ interface InlineViewDropContext {
 interface SendBlocksSelection {
   blockIds: string[];
   blocks: DragSessionBlock[];
-}
-
-interface SendBlocksDialogState extends SendBlocksSelection {
-  mode: SendBlocksMode;
 }
 
 interface PreparedThreadSectionSendDialogState extends ThreadSectionSendDialogState {
@@ -483,7 +477,6 @@ export function NfmEditor({
   const [searchMatchCount, setSearchMatchCount] = useState(0);
   const [searchActiveIndex, setSearchActiveIndex] = useState(-1);
   const [activeChipEdit, setActiveChipEdit] = useState<ActiveChipEdit | null>(null);
-  const [sendBlocksDialog, setSendBlocksDialog] = useState<SendBlocksDialogState | null>(null);
   const [pasteResourceDialog, setPasteResourceDialog] = useState<PasteResourceDialogState | null>(null);
   const [threadSectionSendDialog, setThreadSectionSendDialog] = useState<PreparedThreadSectionSendDialogState | null>(null);
   const [pasteResourcePending, setPasteResourcePending] = useState(false);
@@ -1762,10 +1755,6 @@ export function NfmEditor({
     setActiveChipEdit(null);
   }, []);
 
-  const closeSendBlocksDialog = useCallback(() => {
-    setSendBlocksDialog(null);
-  }, []);
-
   const handleConvertDividerToThreadSection = useCallback((blockId: string) => {
     const block = editor.getBlock(blockId);
     if (!block || block.type !== "divider") return;
@@ -1795,20 +1784,6 @@ export function NfmEditor({
       };
     },
     [editor, sourceCardContext],
-  );
-
-  const openSendBlocksDialog = useCallback(
-    (mode: SendBlocksMode, fallbackBlockId: string) => {
-      const selection = resolveSendBlocksSelection(fallbackBlockId);
-      if (!selection) return;
-
-      setSendBlocksDialog({
-        mode,
-        blockIds: selection.blockIds,
-        blocks: selection.blocks,
-      });
-    },
-    [resolveSendBlocksSelection],
   );
 
   const appendSendBlockSelectionToCard = useCallback(
@@ -1912,20 +1887,6 @@ export function NfmEditor({
     [cancelScheduledSerializedEmit, editor, projectId, serializeEditorToNfm, sourceCardContext],
   );
 
-  const handleAppendBlocksToCard = useCallback(
-    async (target: {
-      projectId: string;
-      columnId: string;
-      cardId: string;
-    }) => {
-      if (!sendBlocksDialog) {
-        throw new Error("No blocks selected.");
-      }
-      await appendSendBlockSelectionToCard(sendBlocksDialog, target);
-    },
-    [appendSendBlockSelectionToCard, sendBlocksDialog],
-  );
-
   const sendBlockSelectionToProject = useCallback(
     async (
       selection: SendBlocksSelection,
@@ -1991,19 +1952,6 @@ export function NfmEditor({
       }
     },
     [cancelScheduledSerializedEmit, editor, projectId, serializeEditorToNfm, sourceCardContext],
-  );
-
-  const handleSendBlocksToProject = useCallback(
-    async (target: {
-      projectId: string;
-      columnId: string;
-    }) => {
-      if (!sendBlocksDialog) {
-        throw new Error("No blocks selected.");
-      }
-      await sendBlockSelectionToProject(sendBlocksDialog, target);
-    },
-    [sendBlockSelectionToProject, sendBlocksDialog],
   );
 
   const moveBlocksToDestination = useCallback(
@@ -2378,7 +2326,6 @@ export function NfmEditor({
     hasConvertDividerToThreadSection: true,
     sourceProjectId: sourceCardContext ? projectId : null,
     sourceCardId: sourceCardContext?.cardId ?? null,
-    onSendBlocks: openSendBlocksDialog,
     onMoveBlocksToDestination: moveBlocksToDestination,
     onConvertDividerToThreadSection: handleConvertDividerToThreadSection,
   });
@@ -2387,7 +2334,6 @@ export function NfmEditor({
     hasConvertDividerToThreadSection: true,
     sourceProjectId: sourceCardContext ? projectId : null,
     sourceCardId: sourceCardContext?.cardId ?? null,
-    onSendBlocks: openSendBlocksDialog,
     onMoveBlocksToDestination: moveBlocksToDestination,
     onConvertDividerToThreadSection: handleConvertDividerToThreadSection,
   };
@@ -2589,20 +2535,6 @@ export function NfmEditor({
             handleChipSelect(propertyType, cardId, value, activeChipEdit.blockId);
           }}
           onClose={handleChipEditorClose}
-        />
-      )}
-      {sendBlocksDialog && sourceCardContext && (
-        <SendBlocksDialog
-          open={sendBlocksDialog !== null}
-          mode={sendBlocksDialog.mode}
-          blockCount={sendBlocksDialog.blockIds.length}
-          sourceProjectId={projectId}
-          sourceCardId={sourceCardContext.cardId}
-          onOpenChange={(nextOpen) => {
-            if (!nextOpen) closeSendBlocksDialog();
-          }}
-          onAppendToCard={handleAppendBlocksToCard}
-          onSendToProject={handleSendBlocksToProject}
         />
       )}
       {threadSectionSendDialog && (

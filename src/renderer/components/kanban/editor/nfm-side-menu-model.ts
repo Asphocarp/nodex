@@ -1,5 +1,3 @@
-export type SendBlocksMode = "card" | "project";
-
 export type NfmSideMenuActionKind = "action" | "submenu";
 export type NfmSideMenuVisualGroup =
   | "block-shape"
