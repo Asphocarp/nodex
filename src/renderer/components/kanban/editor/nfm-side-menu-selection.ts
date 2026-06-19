@@ -21,6 +21,7 @@ export interface SideMenuDragSelectionSnapshot {
 
 export interface SideMenuSelectionEditor {
   getSelection?: () => { blocks?: SideMenuSelectionBlock[] } | undefined;
+  getBlock?: (blockId: string) => SideMenuSelectionBlock | undefined;
   prosemirrorView?: Pick<EditorView, "state" | "dispatch">;
 }
 
@@ -34,12 +35,6 @@ interface SideMenuSelectionApplyAdapter {
 
 export function getSideMenuSelectionBlockId(block: SideMenuSelectionBlock | undefined): string | null {
   return typeof block?.id === "string" && block.id.length > 0 ? block.id : null;
-}
-
-function getSelectedBlocks(editor: SideMenuSelectionEditor): SideMenuSelectionBlock[] {
-  const blocks = editor.getSelection?.()?.blocks;
-  if (!blocks || blocks.length === 0) return [];
-  return blocks.filter((block) => getSideMenuSelectionBlockId(block) !== null);
 }
 
 interface SelectionNodeLike {
@@ -70,6 +65,56 @@ function getBlockSelectionIds(selection: EditorView["state"]["selection"]): stri
 
   const nodeId = getSelectionNodeBlockId(blockSelection.node);
   return nodeId ? [nodeId] : [];
+}
+
+function findSelectionBlockById(
+  blocks: SideMenuSelectionBlock[],
+  blockId: string,
+): SideMenuSelectionBlock | undefined {
+  for (const block of blocks) {
+    if (getSideMenuSelectionBlockId(block) === blockId) {
+      return block;
+    }
+
+    const childBlock = findSelectionBlockById(block.children ?? [], blockId);
+    if (childBlock) return childBlock;
+  }
+
+  return undefined;
+}
+
+function getBlocksFromSelectionIds(
+  editor: SideMenuSelectionEditor,
+  blockIds: string[],
+): SideMenuSelectionBlock[] {
+  const selectionBlocks = editor.getSelection?.()?.blocks ?? [];
+  const selectedBlocks: SideMenuSelectionBlock[] = [];
+  const seenBlockIds = new Set<string>();
+
+  for (const blockId of blockIds) {
+    if (seenBlockIds.has(blockId)) continue;
+
+    const block = findSelectionBlockById(selectionBlocks, blockId) ?? editor.getBlock?.(blockId);
+    if (!block || getSideMenuSelectionBlockId(block) !== blockId) continue;
+
+    seenBlockIds.add(blockId);
+    selectedBlocks.push(block);
+  }
+
+  return selectedBlocks;
+}
+
+function getSelectedBlocks(editor: SideMenuSelectionEditor): SideMenuSelectionBlock[] {
+  const blockSelectionIds = editor.prosemirrorView
+    ? getBlockSelectionIds(editor.prosemirrorView.state.selection)
+    : [];
+  if (blockSelectionIds.length > 0) {
+    return getBlocksFromSelectionIds(editor, blockSelectionIds);
+  }
+
+  const blocks = editor.getSelection?.()?.blocks;
+  if (!blocks || blocks.length === 0) return [];
+  return blocks.filter((block) => getSideMenuSelectionBlockId(block) !== null);
 }
 
 export function createSideMenuDragSelectionSnapshot(

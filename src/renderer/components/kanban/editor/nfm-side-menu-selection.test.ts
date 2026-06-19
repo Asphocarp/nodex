@@ -34,17 +34,17 @@ function pmBlock(id: string, text = id) {
   return pmSchema.node("block", { id }, pmSchema.text(text));
 }
 
-function pmDoc() {
+function pmDocWithIds(ids: string[]) {
   return pmSchema.node("doc", null, [
-    pmSchema.node("blockGroup", null, [
-      pmBlock("a"),
-      pmBlock("b"),
-      pmBlock("c"),
-    ]),
+    pmSchema.node("blockGroup", null, ids.map((id) => pmBlock(id))),
   ]);
 }
 
-function blockPosition(doc: ReturnType<typeof pmDoc>, blockId: string) {
+function pmDoc() {
+  return pmDocWithIds(["a", "b", "c"]);
+}
+
+function blockPosition(doc: Node, blockId: string) {
   const matches: Array<{ node: Node; posBeforeNode: number }> = [];
   doc.descendants((node, pos) => {
     if (node.type.name !== "block" || node.attrs.id !== blockId) return true;
@@ -112,6 +112,94 @@ describe("nfm side menu selection helpers", () => {
 
     expect(intent.source).toBe("clicked-block");
     expect(intent.blocks.map((entry) => entry.id).join(",")).toBe("b");
+  });
+
+  test("uses ProseMirror block selection ids before public selection blocks", () => {
+    const doc = pmDocWithIds(["a", "b", "c", "d"]);
+    const startPosition = blockPosition(doc, "b");
+    const endPosition = blockPosition(doc, "c");
+    const clickedBlock = block("b");
+    const intent = createSideMenuSelectionIntent({
+      getSelection: () => ({
+        blocks: [clickedBlock, block("c"), block("d")],
+      }),
+      prosemirrorView: {
+        state: editorState(MultipleNodeSelection.create(
+          doc,
+          startPosition.posBeforeNode,
+          endPosition.posBeforeNode + endPosition.node.nodeSize,
+        )),
+        dispatch: () => {},
+      },
+    }, clickedBlock);
+
+    expect(intent.source).toBe("active-selection");
+    expect(intent.blocks.map((entry) => entry.id).join(",")).toBe("b,c");
+  });
+
+  test("keeps repeated side-menu clicks from expanding a block selection", () => {
+    const doc = pmDocWithIds(["a", "b", "c", "d"]);
+    const startPosition = blockPosition(doc, "b");
+    const endPosition = blockPosition(doc, "c");
+    const clickedBlock = block("c");
+    const blockSelection = MultipleNodeSelection.create(
+      doc,
+      startPosition.posBeforeNode,
+      endPosition.posBeforeNode + endPosition.node.nodeSize,
+    );
+
+    const intent = createSideMenuSelectionIntent({
+      getSelection: () => ({
+        blocks: [block("b"), clickedBlock, block("d")],
+      }),
+      prosemirrorView: {
+        state: editorState(blockSelection),
+        dispatch: () => {},
+      },
+    }, clickedBlock);
+
+    expect(intent.source).toBe("active-selection");
+    expect(intent.blocks.map((entry) => entry.id).join(",")).toBe("b,c");
+  });
+
+  test("reads a node selection through getBlock when public selection is absent", () => {
+    const doc = pmDoc();
+    const position = blockPosition(doc, "b");
+    const clickedBlock = block("b");
+    const intent = createSideMenuSelectionIntent({
+      getSelection: () => undefined,
+      getBlock: (blockId) => (blockId === "b" ? clickedBlock : undefined),
+      prosemirrorView: {
+        state: editorState(NodeSelection.create(doc, position.posBeforeNode)),
+        dispatch: () => {},
+      },
+    }, clickedBlock);
+
+    expect(intent.source).toBe("active-selection");
+    expect(intent.blocks.map((entry) => entry.id).join(",")).toBe("b");
+  });
+
+  test("ignores stale public blocks when the clicked block is outside the PM block selection", () => {
+    const doc = pmDocWithIds(["a", "b", "c", "d"]);
+    const startPosition = blockPosition(doc, "b");
+    const endPosition = blockPosition(doc, "c");
+    const clickedBlock = block("d");
+    const intent = createSideMenuSelectionIntent({
+      getSelection: () => ({
+        blocks: [block("b"), block("c"), clickedBlock],
+      }),
+      prosemirrorView: {
+        state: editorState(MultipleNodeSelection.create(
+          doc,
+          startPosition.posBeforeNode,
+          endPosition.posBeforeNode + endPosition.node.nodeSize,
+        )),
+        dispatch: () => {},
+      },
+    }, clickedBlock);
+
+    expect(intent.source).toBe("clicked-block");
+    expect(intent.blocks.map((entry) => entry.id).join(",")).toBe("d");
   });
 
   test("snapshots a text selection as raw ProseMirror bounds", () => {

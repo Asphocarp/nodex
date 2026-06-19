@@ -108,7 +108,7 @@ interface SideMenuBlock {
 
 interface SideMenuEditorRuntime extends SideMenuSelectionEditor {
   isEditable?: boolean;
-  getBlock?: (blockId: string) => unknown;
+  getBlock?: (blockId: string) => SideMenuBlock | undefined;
   getParentBlock?: (blockId: string) => unknown;
   getSelection?: () => { blocks?: SideMenuBlock[] } | undefined;
   getTextCursorPosition?: () => { block?: SideMenuBlock };
