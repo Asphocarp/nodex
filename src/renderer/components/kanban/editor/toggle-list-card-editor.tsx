@@ -30,7 +30,7 @@ import { useProjects } from "@/lib/use-projects";
 import { createNfmEditorExtensions, createNfmPasteHandler, NFM_DISABLED_EXTENSIONS } from "./nfm-editor-extensions";
 import { NfmEditorContextMenu } from "./nfm-editor-context-menu";
 import { createNfmLinkExtension } from "./nfm-link-extension";
-import { NfmSideMenu, NfmSideMenuShortcutController } from "./nfm-side-menu";
+import { NfmSideMenu, NfmSideMenuOpenProvider, NfmSideMenuShortcutController } from "./nfm-side-menu";
 import {
   deferCollapsedToggleVerticalArrowToBrowser,
   type InlineArrowDirection,
@@ -1027,26 +1027,28 @@ export function ToggleListCardEditor({
           sideMenu={false}
           data-theming-css-variables-demo
         >
-          <NfmSideMenuShortcutController />
-          <SideMenuController
-            sideMenu={NfmSideMenu}
-            floatingUIOptions={sideMenuFloatingOptions}
-          />
-          <NfmFormattingToolbarController
-            formattingToolbar={NfmFormattingToolbar}
-          />
-          <NfmLinkToolbarController
-            linkToolbar={renderLinkToolbar}
-            floatingUIOptions={{
-              useTransitionStylesProps: {
-                duration: 0,
-              },
-              useTransitionStatusProps: {
-                duration: 0,
-              },
-            }}
-          />
-          <NfmSlashMenu projectId={projectId} />
+          <NfmSideMenuOpenProvider>
+            <NfmSideMenuShortcutController />
+            <SideMenuController
+              sideMenu={NfmSideMenu}
+              floatingUIOptions={sideMenuFloatingOptions}
+            />
+            <NfmFormattingToolbarController
+              formattingToolbar={NfmFormattingToolbar}
+            />
+            <NfmLinkToolbarController
+              linkToolbar={renderLinkToolbar}
+              floatingUIOptions={{
+                useTransitionStylesProps: {
+                  duration: 0,
+                },
+                useTransitionStatusProps: {
+                  duration: 0,
+                },
+              }}
+            />
+            <NfmSlashMenu projectId={projectId} />
+          </NfmSideMenuOpenProvider>
         </BlockNoteView>
       </NfmEditorContextMenu>
       {activeChipEdit && (

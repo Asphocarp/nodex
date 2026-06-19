@@ -64,7 +64,7 @@ import {
   mapDraggedBlocksToCardInputs,
   resolveTopLevelDraggedBlocks,
 } from "./block-drop-card-mapper";
-import { NfmSideMenu, NfmSideMenuShortcutController } from "./nfm-side-menu";
+import { NfmSideMenu, NfmSideMenuOpenProvider, NfmSideMenuShortcutController } from "./nfm-side-menu";
 import type { NfmMoveToDestination } from "./nfm-move-to-menu-model";
 import { NfmSideMenuRuntimeProvider } from "./nfm-side-menu-runtime";
 import { resolveSendBlockSelection } from "./send-block-selection";
@@ -2500,26 +2500,28 @@ export function NfmEditor({
                 sideMenu={false}
                 data-theming-css-variables-demo
               >
-                <NfmSideMenuShortcutController />
-                <SideMenuController
-                  sideMenu={customSideMenu}
-                  floatingUIOptions={sideMenuFloatingOptions}
-                />
-                <NfmFormattingToolbarController
-                  formattingToolbar={NfmFormattingToolbar}
-                />
-                <NfmLinkToolbarController
-                  linkToolbar={renderLinkToolbar}
-                  floatingUIOptions={{
-                    useTransitionStylesProps: {
-                      duration: 0,
-                    },
-                    useTransitionStatusProps: {
-                      duration: 0,
-                    },
-                  }}
-                />
-                <NfmSlashMenu projectId={projectId} />
+                <NfmSideMenuOpenProvider>
+                  <NfmSideMenuShortcutController />
+                  <SideMenuController
+                    sideMenu={customSideMenu}
+                    floatingUIOptions={sideMenuFloatingOptions}
+                  />
+                  <NfmFormattingToolbarController
+                    formattingToolbar={NfmFormattingToolbar}
+                  />
+                  <NfmLinkToolbarController
+                    linkToolbar={renderLinkToolbar}
+                    floatingUIOptions={{
+                      useTransitionStylesProps: {
+                        duration: 0,
+                      },
+                      useTransitionStatusProps: {
+                        duration: 0,
+                      },
+                    }}
+                  />
+                  <NfmSlashMenu projectId={projectId} />
+                </NfmSideMenuOpenProvider>
               </BlockNoteView>
             </NfmSideMenuRuntimeProvider>
           </NfmTextActionMenuRuntimeProvider>

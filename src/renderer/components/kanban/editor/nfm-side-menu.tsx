@@ -20,7 +20,9 @@ import {
 } from "lucide-react";
 import {
   Fragment,
+  createContext,
   forwardRef,
+  useContext,
   useCallback,
   useEffect,
   useId,
@@ -161,6 +163,25 @@ interface NfmSideMenuOpenState {
   selectionIntent: SideMenuSelectionIntent;
 }
 
+interface NfmSideMenuOpenBlockInput {
+  block: SideMenuBlock;
+  anchorRect: NfmSideMenuRect;
+  returnFocusElement: HTMLElement | null;
+  selectionIntent?: SideMenuSelectionIntent | null;
+  freezeSideMenu?: boolean;
+}
+
+interface NfmSideMenuOpenSelectionInput {
+  anchorRect?: NfmSideMenuRect | null;
+  returnFocusElement?: HTMLElement | null;
+}
+
+interface NfmSideMenuOpenController {
+  openForBlock: (input: NfmSideMenuOpenBlockInput) => boolean;
+  openForCurrentSelection: (input?: NfmSideMenuOpenSelectionInput) => boolean;
+  close: () => void;
+}
+
 interface NfmSideMenuColorOption {
   color: NfmSideMenuColorValue;
   label: string;
@@ -245,6 +266,16 @@ const SIDE_MENU_COLOR_VALUES = [
   "purple",
   "pink",
 ] as const satisfies readonly NfmSideMenuColorValue[];
+
+const DEFAULT_SIDE_MENU_OPEN_CONTROLLER: NfmSideMenuOpenController = {
+  openForBlock: () => false,
+  openForCurrentSelection: () => false,
+  close: () => undefined,
+};
+
+const NfmSideMenuOpenContext = createContext<NfmSideMenuOpenController>(
+  DEFAULT_SIDE_MENU_OPEN_CONTROLLER,
+);
 
 const SIDE_MENU_COLOR_LABELS = {
   default: "Default",
@@ -1506,7 +1537,7 @@ function resolveShortcutAnchorRect(
   const blockElement = blockId && root
     ? root.querySelector<HTMLElement>(`.bn-block[data-id="${cssEscape(blockId)}"]`)
     : null;
-  const rect = blockElement?.getBoundingClientRect() ?? root?.getBoundingClientRect();
+  const rect = blockElement?.getBoundingClientRect();
   if (!rect) return null;
 
   return {
@@ -1517,16 +1548,94 @@ function resolveShortcutAnchorRect(
   };
 }
 
-export function NfmSideMenuShortcutController() {
+export function useNfmSideMenuOpenController() {
+  return useContext(NfmSideMenuOpenContext);
+}
+
+export function NfmSideMenuOpenProvider({ children }: { children: ReactNode }) {
   const editor = useBlockNoteEditor() as unknown as SideMenuEditorRuntime;
+  const sideMenu = useExtension(SideMenuExtension);
   const [openState, setOpenState] = useState<NfmSideMenuOpenState | null>(null);
+  const freezeController = useMemo(
+    () => createSideMenuFreezeController(sideMenu),
+    [sideMenu],
+  );
 
   const close = useCallback(() => {
     setOpenState(null);
-    requestAnimationFrame(() => {
-      editor.focus?.();
+    freezeController.release();
+  }, [freezeController]);
+
+  const openForBlock = useCallback(({
+    block,
+    anchorRect,
+    returnFocusElement,
+    selectionIntent,
+    freezeSideMenu = false,
+  }: NfmSideMenuOpenBlockInput) => {
+    const resolvedSelectionIntent = selectionIntent
+      ?? createSideMenuSelectionIntent(editor, block);
+
+    applySideMenuSelectionIntent(editor, resolvedSelectionIntent);
+
+    if (freezeSideMenu) {
+      freezeController.handleMenuOpenChange(true);
+    } else {
+      freezeController.release();
+    }
+
+    setOpenState({
+      block,
+      anchorRect,
+      returnFocusElement,
+      selectionIntent: resolvedSelectionIntent,
     });
-  }, [editor]);
+    return true;
+  }, [editor, freezeController]);
+
+  const openForCurrentSelection = useCallback((input: NfmSideMenuOpenSelectionInput = {}) => {
+    const block = editor.getSelection?.()?.blocks?.[0]
+      ?? editor.getTextCursorPosition?.().block;
+    if (!block) return false;
+
+    const anchorRect = resolveShortcutAnchorRect(editor, block)
+      ?? input.anchorRect
+      ?? null;
+    if (!anchorRect) return false;
+
+    return openForBlock({
+      block,
+      anchorRect,
+      returnFocusElement: input.returnFocusElement ?? editor.prosemirrorView?.dom ?? null,
+    });
+  }, [editor, openForBlock]);
+
+  const value = useMemo<NfmSideMenuOpenController>(() => ({
+    openForBlock,
+    openForCurrentSelection,
+    close,
+  }), [close, openForBlock, openForCurrentSelection]);
+
+  useEffect(() => () => {
+    freezeController.release();
+  }, [freezeController]);
+
+  return (
+    <NfmSideMenuOpenContext.Provider value={value}>
+      {children}
+      <NfmSideMenuPopup
+        openState={openState}
+        editor={editor}
+        releaseSideMenuFreeze={freezeController.release}
+        onClose={close}
+      />
+    </NfmSideMenuOpenContext.Provider>
+  );
+}
+
+export function NfmSideMenuShortcutController() {
+  const editor = useBlockNoteEditor() as unknown as SideMenuEditorRuntime;
+  const sideMenuOpenController = useNfmSideMenuOpenController();
 
   useEffect(() => {
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -1539,35 +1648,21 @@ export function NfmSideMenuShortcutController() {
         return;
       }
 
-      const block = editor.getSelection?.()?.blocks?.[0] ?? editor.getTextCursorPosition?.().block;
-      if (!block) return;
-      const anchorRect = resolveShortcutAnchorRect(editor, block);
-      if (!anchorRect) return;
+      const opened = sideMenuOpenController.openForCurrentSelection({
+        returnFocusElement: editorRoot ?? null,
+      });
+      if (!opened) return;
 
       event.preventDefault();
-      const selectionIntent = createSideMenuSelectionIntent(editor, block);
-      applySideMenuSelectionIntent(editor, selectionIntent);
-      setOpenState({
-        block,
-        anchorRect,
-        returnFocusElement: editorRoot ?? null,
-        selectionIntent,
-      });
     };
 
     document.addEventListener("keydown", handleKeyDown, true);
     return () => {
       document.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [editor]);
+  }, [editor, sideMenuOpenController]);
 
-  return (
-    <NfmSideMenuPopup
-      openState={openState}
-      editor={editor}
-      onClose={close}
-    />
-  );
+  return null;
 }
 
 export function NfmSideMenu() {
@@ -1586,11 +1681,7 @@ export function NfmSideMenu() {
   const dragSelectionSnapshotRef = useRef<SideMenuDragSelectionSnapshot | null>(null);
   const dragStartedRef = useRef(false);
   const lastPointerActivationAtRef = useRef<number | null>(null);
-  const [openState, setOpenState] = useState<NfmSideMenuOpenState | null>(null);
-  const freezeController = useMemo(
-    () => createSideMenuFreezeController(sideMenu),
-    [sideMenu],
-  );
+  const sideMenuOpenController = useNfmSideMenuOpenController();
 
   const dragTargetBlock = useMemo(
     () => (block ? resolveCardRefOwnerDragBlock(runtimeEditor as Parameters<typeof resolveCardRefOwnerDragBlock>[0], block) : block),
@@ -1619,11 +1710,6 @@ export function NfmSideMenu() {
     return attrs;
   }, [block, runtimeEditor.schema.blockSpecs]);
 
-  const close = useCallback(() => {
-    setOpenState(null);
-    freezeController.release();
-  }, [freezeController]);
-
   const openFromHandle = useCallback((
     returnFocusElement: HTMLElement | null,
     selectionIntent?: SideMenuSelectionIntent | null,
@@ -1632,10 +1718,7 @@ export function NfmSideMenu() {
     const rect = triggerWrapperRef.current?.getBoundingClientRect();
     if (!rect) return;
 
-    const resolvedSelectionIntent = selectionIntent ?? createSideMenuSelectionIntent(runtimeEditor, block);
-    applySideMenuSelectionIntent(runtimeEditor, resolvedSelectionIntent);
-    freezeController.handleMenuOpenChange(true);
-    setOpenState({
+    sideMenuOpenController.openForBlock({
       block,
       anchorRect: {
         left: rect.left,
@@ -1644,13 +1727,10 @@ export function NfmSideMenu() {
         height: rect.height,
       },
       returnFocusElement,
-      selectionIntent: resolvedSelectionIntent,
+      selectionIntent,
+      freezeSideMenu: true,
     });
-  }, [block, freezeController, runtimeEditor]);
-
-  useEffect(() => () => {
-    freezeController.release();
-  }, [freezeController]);
+  }, [block, sideMenuOpenController]);
 
   if (!block || !dragTargetBlock) return null;
 
@@ -1730,12 +1810,6 @@ export function NfmSideMenu() {
           icon={<NfmSideMenuDragHandleIcon className="pointer-events-none" />}
         />
       </span>
-      <NfmSideMenuPopup
-        openState={openState}
-        editor={runtimeEditor}
-        releaseSideMenuFreeze={freezeController.release}
-        onClose={close}
-      />
     </Components.SideMenu.Root>
   );
 }

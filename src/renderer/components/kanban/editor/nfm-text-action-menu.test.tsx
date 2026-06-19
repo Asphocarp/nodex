@@ -90,9 +90,9 @@ function renderTextActionMenu(
     textColors: [] as string[],
     backgroundColors: [] as string[],
     clearFormat: 0,
+    blockActions: 0,
     nodexRows: [] as string[],
     moveDestinations: [] as NfmMoveToDestination[],
-    convertDivider: 0,
   };
 
   const view = render(
@@ -141,7 +141,6 @@ function renderTextActionMenu(
         ]}
         sourceProjectId="default"
         sourceCardId="source-card"
-        canConvertDividerToThreadSection={true}
         onSelectBlockType={(item) => {
           actions.blockTypes.push(item.key);
         }}
@@ -157,14 +156,14 @@ function renderTextActionMenu(
         onClearFormat={() => {
           actions.clearFormat += 1;
         }}
+        onOpenBlockActions={() => {
+          actions.blockActions += 1;
+        }}
         onNodexRow={(row) => {
           actions.nodexRows.push(row.key);
         }}
         onMoveBlocksToDestination={(destination) => {
           actions.moveDestinations.push(destination);
-        }}
-        onConvertDividerToThreadSection={() => {
-          actions.convertDivider += 1;
         }}
         {...props}
       />
@@ -240,6 +239,19 @@ describe("nfm text action menu surface", () => {
     expect(actions.styles.join(",")).toBe("bold");
     expect(actions.clearFormat).toBe(1);
     expect(actions.nodexRows.join(",")).toBe("send-section-to-codex");
+  });
+
+  test("hands More off to block actions without opening the legacy dropdown", async () => {
+    const { actions, view } = renderTextActionMenu();
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "More" }));
+      await settleAsyncRender();
+    });
+
+    expect(actions.blockActions).toBe(1);
+    expect(view.queryByRole("menuitem", { name: "Block actions" }) === null).toBeTrue();
+    expect(view.queryByRole("menuitem", { name: "Duplicate" }) === null).toBeTrue();
   });
 
   test("opens the shared move-to popover and submits DB and Card destinations", async () => {

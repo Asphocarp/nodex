@@ -2,9 +2,11 @@ import {
   editorHasBlockWithType,
   isTableCellSelection,
 } from "@blocknote/core";
+import { FormattingToolbarExtension } from "@blocknote/core/extensions";
 import {
   useBlockNoteEditor,
   useEditorState,
+  useExtension,
 } from "@blocknote/react";
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import {
@@ -78,6 +80,8 @@ import {
 } from "./nfm-link-toolbar";
 import { NfmMoveToMenu } from "./nfm-move-to-menu";
 import type { NfmMoveToDestination, NfmMoveToResultScope } from "./nfm-move-to-menu-model";
+import { useNfmSideMenuOpenController } from "./nfm-side-menu";
+import type { NfmSideMenuRect } from "./nfm-side-menu-position";
 import {
   isBlockLevelSelection,
   resolveNodexTextActionRows,
@@ -160,15 +164,14 @@ export interface NfmTextActionMenuSurfaceProps {
   nodexRows: TextActionNodexRow[];
   sourceProjectId?: string | null;
   sourceCardId?: string | null;
-  canConvertDividerToThreadSection: boolean;
   onSelectBlockType: (item: TextActionBlockTypeItem) => void;
   onToggleStyle: (style: TextActionBasicStyle) => void;
   onSetTextColor: (color: TextActionColorValue) => void;
   onSetBackgroundColor: (color: TextActionColorValue) => void;
   onClearFormat: () => void;
+  onOpenBlockActions: (fallbackAnchorRect?: NfmSideMenuRect) => void;
   onNodexRow: (row: TextActionNodexRow) => void;
   onMoveBlocksToDestination?: (destination: NfmMoveToDestination) => Promise<void> | void;
-  onConvertDividerToThreadSection: () => void;
   renderMoveToMenu?: (props: TextActionMoveToMenuRenderProps) => ReactNode;
 }
 
@@ -896,39 +899,37 @@ function renderCreateLinkTrigger(props: NfmCreateLinkTriggerProps) {
   );
 }
 
-function TextActionMoreMenu({
-  canConvertDividerToThreadSection,
-  onConvertDividerToThreadSection,
-}: Pick<
-  NfmTextActionMenuSurfaceProps,
-  "canConvertDividerToThreadSection" | "onConvertDividerToThreadSection"
->) {
+function rectToSideMenuRect(rect: DOMRect): NfmSideMenuRect {
+  return {
+    left: rect.left,
+    top: rect.top,
+    width: rect.width,
+    height: rect.height,
+  };
+}
+
+function TextActionMoreButton({
+  onOpenBlockActions,
+}: Pick<NfmTextActionMenuSurfaceProps, "onOpenBlockActions">) {
+  const buttonRef = useRef<HTMLDivElement>(null);
+
+  const openBlockActions = () => {
+    const rect = buttonRef.current?.getBoundingClientRect();
+    onOpenBlockActions(rect ? rectToSideMenuRect(rect) : undefined);
+  };
+
   return (
-    <DropdownMenuPrimitive.Root modal={false}>
-      <TextActionButtonTooltip label="More">
-        <DropdownMenuPrimitive.Trigger asChild>
-          <TextActionButton label="More" hasPopup="menu" className="notion-block-action-menu">
-            <TextActionEllipsisIcon />
-          </TextActionButton>
-        </DropdownMenuPrimitive.Trigger>
-      </TextActionButtonTooltip>
-      <TextActionMenuContent>
-        {canConvertDividerToThreadSection ? (
-          <NodexDropdownItem
-            onPointerDownCapture={keepEditorSelection}
-            onSelect={onConvertDividerToThreadSection}
-          >
-            Make thread section
-          </NodexDropdownItem>
-        ) : null}
-        <NodexDropdownItem disabled>
-          Block actions
-        </NodexDropdownItem>
-        <NodexDropdownItem disabled>
-          Duplicate
-        </NodexDropdownItem>
-      </TextActionMenuContent>
-    </DropdownMenuPrimitive.Root>
+    <TextActionButtonTooltip label="More">
+      <TextActionButton
+        ref={buttonRef}
+        label="More"
+        hasPopup="dialog"
+        className="notion-block-action-menu"
+        onActivate={openBlockActions}
+      >
+        <TextActionEllipsisIcon />
+      </TextActionButton>
+    </TextActionButtonTooltip>
   );
 }
 
@@ -1225,15 +1226,14 @@ export function NfmTextActionMenuSurface({
   nodexRows,
   sourceProjectId = null,
   sourceCardId = null,
-  canConvertDividerToThreadSection,
   onSelectBlockType,
   onToggleStyle,
   onSetTextColor,
   onSetBackgroundColor,
   onClearFormat,
+  onOpenBlockActions,
   onNodexRow,
   onMoveBlocksToDestination,
-  onConvertDividerToThreadSection,
   renderMoveToMenu,
 }: NfmTextActionMenuSurfaceProps) {
   return (
@@ -1325,10 +1325,7 @@ export function NfmTextActionMenuSurface({
             <TextActionDisabledButton label="Equation">
               <TextActionEquationIcon />
             </TextActionDisabledButton>
-            <TextActionMoreMenu
-              canConvertDividerToThreadSection={canConvertDividerToThreadSection}
-              onConvertDividerToThreadSection={onConvertDividerToThreadSection}
-            />
+            <TextActionMoreButton onOpenBlockActions={onOpenBlockActions} />
           </div>
         </div>
 
@@ -1363,7 +1360,11 @@ export function NfmTextActionMenuSurface({
 
 export function NfmTextActionMenu({ fallback }: { fallback: ReactNode }) {
   const editor = useBlockNoteEditor();
+  const formattingToolbar = useExtension(FormattingToolbarExtension, {
+    editor,
+  });
   const runtime = useNfmTextActionMenuRuntime();
+  const sideMenuOpenController = useNfmSideMenuOpenController();
   const snapshot = useEditorState({
     editor,
     selector: ({ editor }) => createTextActionMenuSnapshot(
@@ -1440,6 +1441,16 @@ export function NfmTextActionMenu({ fallback }: { fallback: ReactNode }) {
     );
   };
 
+  const openBlockActions = (fallbackAnchorRect?: NfmSideMenuRect) => {
+    const opened = sideMenuOpenController.openForCurrentSelection({
+      anchorRect: fallbackAnchorRect,
+      returnFocusElement: editor.prosemirrorView?.dom ?? null,
+    });
+    if (!opened) return;
+
+    formattingToolbar.store.setState(false);
+  };
+
   const handleNodexRow = (row: TextActionNodexRow) => {
     if (!snapshot.currentBlockId) return;
 
@@ -1460,11 +1471,6 @@ export function NfmTextActionMenu({ fallback }: { fallback: ReactNode }) {
     await runtime.onMoveBlocksToDestination?.(destination, snapshot.currentBlockId);
   };
 
-  const handleConvertDivider = () => {
-    if (!snapshot.currentBlockId) return;
-    runtime.onConvertDividerToThreadSection?.(snapshot.currentBlockId);
-  };
-
   return (
     <NfmTextActionMenuSurface
       currentBlockTypeLabel={snapshot.currentBlockTypeLabel}
@@ -1479,18 +1485,14 @@ export function NfmTextActionMenu({ fallback }: { fallback: ReactNode }) {
       nodexRows={nodexRows}
       sourceProjectId={runtime.sourceProjectId ?? null}
       sourceCardId={runtime.sourceCardId ?? null}
-      canConvertDividerToThreadSection={
-        snapshot.currentBlockType === "divider"
-        && Boolean(runtime.onConvertDividerToThreadSection)
-      }
       onSelectBlockType={selectBlockType}
       onToggleStyle={toggleStyle}
       onSetTextColor={setTextColor}
       onSetBackgroundColor={setBackgroundColor}
       onClearFormat={clearFormat}
+      onOpenBlockActions={openBlockActions}
       onNodexRow={handleNodexRow}
       onMoveBlocksToDestination={handleMoveBlocksToDestination}
-      onConvertDividerToThreadSection={handleConvertDivider}
     />
   );
 }

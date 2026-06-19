@@ -137,6 +137,29 @@ describe("nfm side menu selection helpers", () => {
     expect(intent.blocks.map((entry) => entry.id).join(",")).toBe("b,c");
   });
 
+  test("maps a text selection spanning blocks to the public selected block range", () => {
+    const doc = pmDocWithIds(["a", "b", "c", "d"]);
+    const startPosition = blockPosition(doc, "b");
+    const endPosition = blockPosition(doc, "c");
+    const clickedBlock = block("b");
+    const intent = createSideMenuSelectionIntent({
+      getSelection: () => ({
+        blocks: [clickedBlock, block("c")],
+      }),
+      prosemirrorView: {
+        state: editorState(TextSelection.create(
+          doc,
+          startPosition.posBeforeNode + 1,
+          endPosition.posBeforeNode + endPosition.node.nodeSize - 1,
+        )),
+        dispatch: () => {},
+      },
+    }, clickedBlock);
+
+    expect(intent.source).toBe("active-selection");
+    expect(intent.blocks.map((entry) => entry.id).join(",")).toBe("b,c");
+  });
+
   test("keeps repeated side-menu clicks from expanding a block selection", () => {
     const doc = pmDocWithIds(["a", "b", "c", "d"]);
     const startPosition = blockPosition(doc, "b");

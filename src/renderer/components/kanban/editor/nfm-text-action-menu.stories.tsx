@@ -1,10 +1,19 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useMemo, useState } from "react";
 import { TextActionLinkIcon } from "@/components/shared/icons";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import type { BoardSummary, CardSummary, Project } from "@/lib/types";
 import { writeTextActionRecentColors } from "@/lib/text-action-color-recents";
 import { NfmMoveToMenuSurface } from "./nfm-move-to-menu";
 import { NfmTextActionMenuSurface, type NfmTextActionMenuSurfaceProps } from "./nfm-text-action-menu";
+import { NfmSideMenuSurface } from "./nfm-side-menu";
+import {
+  buildNfmSideMenuSections,
+  filterNfmSideMenuSections,
+  flattenNfmSideMenuRows,
+  moveNfmSideMenuFocus,
+  type NfmSideMenuSubmenuKey,
+} from "./nfm-side-menu-model";
 
 const STORY_DATE = new Date("2026-01-01T00:00:00.000Z");
 
@@ -129,17 +138,148 @@ function TextActionMenuStorySurface(
           nodexRows={[]}
           sourceProjectId={null}
           sourceCardId={null}
-          canConvertDividerToThreadSection={false}
           onSelectBlockType={() => undefined}
           onToggleStyle={() => undefined}
           onSetTextColor={() => undefined}
           onSetBackgroundColor={() => undefined}
           onClearFormat={() => undefined}
+          onOpenBlockActions={() => undefined}
           onNodexRow={() => undefined}
           onMoveBlocksToDestination={() => undefined}
-          onConvertDividerToThreadSection={() => undefined}
           {...props}
         />
+      </div>
+    </NodexTooltipProvider>
+  );
+}
+
+function TextActionMoreHandoffStorySurface() {
+  const [showBlockActions, setShowBlockActions] = useState(false);
+  const [query, setQuery] = useState("");
+  const [focusedIndex, setFocusedIndex] = useState(-1);
+  const [activeSubmenu, setActiveSubmenu] = useState<NfmSideMenuSubmenuKey | null>(null);
+  const baseSections = useMemo(() => buildNfmSideMenuSections({
+    currentBlockId: "block-1",
+    currentBlockType: "paragraph",
+    isEditable: true,
+    canUseColor: true,
+    canSendBlocks: true,
+    hasConvertDividerToThreadSection: false,
+    isTableBlock: false,
+    canUseTableHeaders: false,
+  }), []);
+  const sections = useMemo(() => filterNfmSideMenuSections(baseSections, query), [baseSections, query]);
+  const flatRows = useMemo(() => flattenNfmSideMenuRows(sections), [sections]);
+
+  return (
+    <NodexTooltipProvider>
+      <div className="flex min-h-screen items-start justify-center bg-token-editor-background p-12 text-token-foreground">
+        {showBlockActions ? (
+          <NfmSideMenuSurface
+            sections={sections}
+            query={query}
+            focusedIndex={focusedIndex}
+            activeSubmenu={activeSubmenu}
+            listboxId="text-action-more-handoff-listbox"
+            comboboxId="text-action-more-handoff-combobox"
+            activeDescendantId={focusedIndex >= 0 ? `text-action-more-handoff-listbox-option-${focusedIndex}` : undefined}
+            turnIntoItems={[
+              { key: "paragraph", label: "Text", type: "paragraph", enabled: true },
+              { key: "heading-1", label: "Heading 1", type: "heading", props: { level: 1, isToggleable: false }, enabled: true },
+              { key: "bullet-list", label: "Bulleted list", type: "bulletListItem", enabled: true },
+            ]}
+            colorOptions={[
+              { color: "default", label: "Default" },
+              { color: "blue", label: "Blue" },
+              { color: "yellow", label: "Yellow" },
+            ]}
+            canUseTextColor={true}
+            canUseBackgroundColor={true}
+            canSendBlocks={true}
+            sourceProjectId="default"
+            sourceCardId="source-card"
+            textColor="default"
+            backgroundColor="default"
+            footerPrimary="Selected text spans two blocks"
+            footerSecondary="More opens block actions"
+            onQueryChange={(nextQuery) => {
+              setQuery(nextQuery);
+              setFocusedIndex(nextQuery ? 0 : -1);
+            }}
+            onFocusIndexChange={setFocusedIndex}
+            onMoveFocus={(direction) => {
+              setFocusedIndex((currentIndex) => moveNfmSideMenuFocus(currentIndex, direction, flatRows));
+            }}
+            onActivateFocused={() => undefined}
+            onClose={() => setShowBlockActions(false)}
+            onAction={(row) => {
+              if (row.submenu) setActiveSubmenu(row.submenu);
+            }}
+            onSubmenuChange={setActiveSubmenu}
+            onTurnInto={() => undefined}
+            onColor={() => undefined}
+            onMoveBlocksToDestination={() => undefined}
+            renderMoveToMenu={(props) => (
+              <NfmMoveToMenuSurface
+                {...props}
+                projects={STORY_MOVE_TO_PROJECTS}
+                boardMap={STORY_MOVE_TO_BOARD_MAP}
+                loading={false}
+                loadError={null}
+              />
+            )}
+          />
+        ) : (
+          <NfmTextActionMenuSurface
+            currentBlockTypeLabel="Normal Text"
+            blockTypeItems={[
+              {
+                key: "paragraph",
+                label: "Normal Text",
+                type: "paragraph",
+                isSelected: true,
+              },
+            ]}
+            activeStyles={{
+              bold: false,
+              italic: false,
+              underline: false,
+              strike: false,
+              code: false,
+            }}
+            textColor="default"
+            backgroundColor="default"
+            canUseTextColor={true}
+            canUseBackgroundColor={true}
+            canClearFormat={true}
+            linkControl={(
+              <button
+                type="button"
+                aria-label="Link"
+                className="flex h-7 w-8 items-center justify-center rounded-[6px] text-token-foreground hover:bg-token-list-hover-background"
+              >
+                <TextActionLinkIcon />
+              </button>
+            )}
+            nodexRows={[
+              {
+                key: "move-to",
+                label: "Move to",
+                enabled: true,
+              },
+            ]}
+            sourceProjectId="default"
+            sourceCardId="source-card"
+            onSelectBlockType={() => undefined}
+            onToggleStyle={() => undefined}
+            onSetTextColor={() => undefined}
+            onSetBackgroundColor={() => undefined}
+            onClearFormat={() => undefined}
+            onOpenBlockActions={() => setShowBlockActions(true)}
+            onNodexRow={() => undefined}
+            onMoveBlocksToDestination={() => undefined}
+          />
+        )}
       </div>
     </NodexTooltipProvider>
   );
@@ -234,7 +374,6 @@ export const WithNodexActions: Story = {
 export const DividerBlockActions: Story = {
   args: {
     currentBlockTypeLabel: "Divider",
-    canConvertDividerToThreadSection: true,
     nodexRows: [
       {
         key: "convert-divider-to-thread-section",
@@ -250,5 +389,16 @@ export const DisabledReferenceMocks: Story = {
     canUseTextColor: false,
     canUseBackgroundColor: false,
     canClearFormat: false,
+  },
+};
+
+export const MoreHandoffToBlockActions: Story = {
+  render: () => <TextActionMoreHandoffStorySurface />,
+  parameters: {
+    docs: {
+      description: {
+        story: "Click More to replace the text-selection toolbar with the block side-menu action surface scoped to the selected blocks.",
+      },
+    },
   },
 };
