@@ -73,6 +73,7 @@ import {
 } from "./nfm-link-toolbar";
 import type { SendBlocksMode } from "./nfm-drag-handle-menu";
 import {
+  isBlockLevelSelection,
   resolveNodexTextActionRows,
   shouldUseTextActionMenu,
   TEXT_ACTION_BASIC_STYLES,
@@ -305,6 +306,7 @@ function createTextActionMenuSnapshot(editor: TextActionSnapshotEditor): TextAct
     eligible: shouldUseTextActionMenu({
       isEditable: editor.isEditable,
       isTableCellSelection: isTableCellSelection(selection as Parameters<typeof isTableCellSelection>[0]),
+      isBlockSelection: isBlockLevelSelection(selection),
       hasInlineContent,
       selectionFrom: selection.from,
       selectionTo: selection.to,

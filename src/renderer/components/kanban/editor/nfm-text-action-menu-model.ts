@@ -26,6 +26,7 @@ export const TEXT_ACTION_REFERENCE_SKILLS = [
 export interface TextActionMenuEligibilityInput {
   isEditable: boolean;
   isTableCellSelection: boolean;
+  isBlockSelection?: boolean;
   hasInlineContent: boolean;
   selectionFrom: number;
   selectionTo: number;
@@ -49,8 +50,20 @@ export interface TextActionNodexRow {
 export function shouldUseTextActionMenu(input: TextActionMenuEligibilityInput): boolean {
   if (!input.isEditable) return false;
   if (input.isTableCellSelection) return false;
+  if (input.isBlockSelection) return false;
   if (!input.hasInlineContent) return false;
   return input.selectionFrom !== input.selectionTo;
+}
+
+export function isBlockLevelSelection(selection: unknown): boolean {
+  if (typeof selection !== "object" || selection === null) return false;
+
+  const maybeBlockSelection = selection as {
+    node?: unknown;
+    nodes?: unknown;
+  };
+
+  return maybeBlockSelection.node !== undefined || Array.isArray(maybeBlockSelection.nodes);
 }
 
 export function resolveNodexTextActionRows(input: TextActionMenuRuntimeInput): TextActionNodexRow[] {

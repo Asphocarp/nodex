@@ -14,6 +14,7 @@ export * from "./NodeSelectionKeyboard/NodeSelectionKeyboard.js";
 export * from "./Placeholder/Placeholder.js";
 export * from "./PreviousBlockType/PreviousBlockType.js";
 export * from "./ShowSelection/ShowSelection.js";
+export * from "./SideMenu/MultipleNodeSelection.js";
 export * from "./SideMenu/SideMenu.js";
 export * from "./SuggestionMenu/SuggestionMenu.js";
 export * from "./SuggestionMenu/getDefaultSlashMenuItems.js";

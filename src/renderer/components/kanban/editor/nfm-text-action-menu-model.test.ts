@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  isBlockLevelSelection,
   resolveNodexTextActionRows,
   shouldUseTextActionMenu,
 } from "./nfm-text-action-menu-model";
@@ -29,6 +30,21 @@ describe("nfm text action menu model", () => {
       selectionFrom: 3,
       selectionTo: 8,
     })).toBeFalse();
+
+    expect(shouldUseTextActionMenu({
+      isEditable: true,
+      isTableCellSelection: false,
+      isBlockSelection: true,
+      hasInlineContent: true,
+      selectionFrom: 3,
+      selectionTo: 8,
+    })).toBeFalse();
+  });
+
+  test("recognizes ProseMirror block-level selections", () => {
+    expect(isBlockLevelSelection({ node: { attrs: { id: "single" } } })).toBeTrue();
+    expect(isBlockLevelSelection({ nodes: [{ attrs: { id: "a" } }] })).toBeTrue();
+    expect(isBlockLevelSelection({ from: 1, to: 2 })).toBeFalse();
   });
 
   test("omits Nodex rows when no current block can anchor the action", () => {

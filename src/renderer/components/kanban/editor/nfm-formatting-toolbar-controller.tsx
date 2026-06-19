@@ -16,7 +16,11 @@ import {
   type FormattingToolbarProps,
 } from "@blocknote/react";
 import { useMemo, useRef, type FC } from "react";
-import { shouldUseTextActionMenu, type TextActionMenuEligibilityInput } from "./nfm-text-action-menu-model";
+import {
+  isBlockLevelSelection,
+  shouldUseTextActionMenu,
+  type TextActionMenuEligibilityInput,
+} from "./nfm-text-action-menu-model";
 import { NFM_TEXT_ACTION_MENU_FLOATING_OPTIONS } from "./nfm-text-action-menu-floating";
 
 type NfmFormattingToolbarFloatingMode = "text-action" | "legacy";
@@ -44,6 +48,7 @@ function resolveTextActionMenuEligibility(editor: {
   return {
     isEditable: editor.isEditable,
     isTableCellSelection: isTableCellSelection(selection as Parameters<typeof isTableCellSelection>[0]),
+    isBlockSelection: isBlockLevelSelection(selection),
     hasInlineContent: selectedBlocks.some((block) => block.content !== undefined),
     selectionFrom: selection.from,
     selectionTo: selection.to,

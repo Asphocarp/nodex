@@ -2,7 +2,12 @@ import {
   blockHasType,
   editorHasBlockWithType,
 } from "@blocknote/core";
-import { SideMenuExtension, SuggestionMenu } from "@blocknote/core/extensions";
+import {
+  FormattingToolbarExtension,
+  ShowSelectionExtension,
+  SideMenuExtension,
+  SuggestionMenu,
+} from "@blocknote/core/extensions";
 import {
   useBlockNoteEditor,
   useComponentsContext,
@@ -82,6 +87,12 @@ import {
   type NfmSideMenuRect,
 } from "./nfm-side-menu-position";
 import { useNfmSideMenuRuntime } from "./nfm-side-menu-runtime";
+import {
+  applySideMenuSelectionIntent,
+  createSideMenuSelectionIntent,
+  type SideMenuSelectionEditor,
+  type SideMenuSelectionIntent,
+} from "./nfm-side-menu-selection";
 import { createSideMenuFreezeController } from "./side-menu-freeze-controller";
 import { resolveCardRefOwnerDragBlock } from "./side-menu-drag-target";
 
@@ -93,7 +104,7 @@ interface SideMenuBlock {
   children?: SideMenuBlock[];
 }
 
-interface SideMenuEditorRuntime {
+interface SideMenuEditorRuntime extends SideMenuSelectionEditor {
   isEditable?: boolean;
   getBlock?: (blockId: string) => unknown;
   getParentBlock?: (blockId: string) => unknown;
@@ -109,7 +120,7 @@ interface SideMenuEditorRuntime {
       headers?: boolean;
     };
   };
-  prosemirrorView?: {
+  prosemirrorView?: SideMenuSelectionEditor["prosemirrorView"] & {
     dom?: HTMLElement;
     editable?: boolean;
   };
@@ -135,6 +146,7 @@ interface NfmSideMenuOpenState {
   block: SideMenuBlock;
   anchorRect: NfmSideMenuRect;
   returnFocusElement: HTMLElement | null;
+  selectionIntent: SideMenuSelectionIntent;
 }
 
 interface NfmSideMenuColorOption {
@@ -281,10 +293,31 @@ function propsToSchemaShape(props?: Record<string, boolean | number | string>) {
   ) as Record<string, "boolean" | "number" | "string">;
 }
 
-function getSelectedBlocks(editor: SideMenuEditorRuntime, fallbackBlock: SideMenuBlock) {
-  const selectedBlocks = editor.getSelection?.()?.blocks;
-  if (selectedBlocks && selectedBlocks.length > 0) return selectedBlocks;
-  return [fallbackBlock];
+function getSideMenuActionBlocks(openState: NfmSideMenuOpenState, fallbackBlock: SideMenuBlock) {
+  return openState.selectionIntent.blocks.length > 0
+    ? openState.selectionIntent.blocks as SideMenuBlock[]
+    : [fallbackBlock];
+}
+
+function getTopLevelSideMenuActionBlocks(blocks: SideMenuBlock[]) {
+  const selectedDescendantIds = new Set<string>();
+
+  const addDescendantIds = (children: SideMenuBlock[] | undefined) => {
+    for (const childBlock of children ?? []) {
+      const childBlockId = getCurrentBlockId(childBlock);
+      if (childBlockId) selectedDescendantIds.add(childBlockId);
+      addDescendantIds(childBlock.children);
+    }
+  };
+
+  for (const block of blocks) {
+    addDescendantIds(block.children);
+  }
+
+  return blocks.filter((block) => {
+    const blockId = getCurrentBlockId(block);
+    return !blockId || !selectedDescendantIds.has(blockId);
+  });
 }
 
 function cloneBlockForInsert(block: SideMenuBlock): Record<string, unknown> {
@@ -998,6 +1031,10 @@ function NfmSideMenuPopup({
   onClose: () => void;
 }) {
   const runtime = useNfmSideMenuRuntime();
+  const formattingToolbar = useExtension(FormattingToolbarExtension, {
+    editor: editor as never,
+  });
+  const { showSelection } = useExtension(ShowSelectionExtension);
   const listboxId = useId();
   const comboboxId = useId();
   const popupRef = useRef<HTMLDivElement>(null);
@@ -1055,21 +1092,29 @@ function NfmSideMenuPopup({
     });
   }, [onClose, openState?.returnFocusElement, releaseSideMenuFreeze]);
 
+  useEffect(() => {
+    if (!openState) return;
+    formattingToolbar.store.setState(false);
+    showSelection(true, "nfmSideMenu");
+    return () => showSelection(false, "nfmSideMenu");
+  }, [formattingToolbar.store, openState, showSelection]);
+
   const executeAction = useCallback((key: NfmSideMenuActionKey) => {
-    if (!block || !currentBlockId) return;
+    if (!block || !currentBlockId || !openState) return;
     if (!isEditable) return;
 
-    const selectedBlocks = getSelectedBlocks(editor, block);
+    const selectedBlocks = getSideMenuActionBlocks(openState, block);
+    const topLevelSelectedBlocks = getTopLevelSideMenuActionBlocks(selectedBlocks);
 
     if (key === "duplicate") {
-      const referenceBlock = selectedBlocks[selectedBlocks.length - 1] ?? block;
-      editor.insertBlocks?.(selectedBlocks.map(cloneBlockForInsert), referenceBlock, "after");
+      const referenceBlock = topLevelSelectedBlocks[topLevelSelectedBlocks.length - 1] ?? block;
+      editor.insertBlocks?.(topLevelSelectedBlocks.map(cloneBlockForInsert), referenceBlock, "after");
       close();
       return;
     }
 
     if (key === "delete") {
-      editor.removeBlocks?.(selectedBlocks);
+      editor.removeBlocks?.(topLevelSelectedBlocks);
       close();
       return;
     }
@@ -1095,7 +1140,7 @@ function NfmSideMenuPopup({
       });
       close();
     }
-  }, [block, close, currentBlockId, editor, isEditable, runtimeSnapshot]);
+  }, [block, close, currentBlockId, editor, isEditable, openState, runtimeSnapshot]);
 
   const activateRow = useCallback((row: NfmSideMenuAction) => {
     if (!row.enabled) return;
@@ -1217,7 +1262,7 @@ function NfmSideMenuPopup({
         onSubmenuChange={setActiveSubmenu}
         onTurnInto={(item) => {
           if (!item.enabled) return;
-          const selectedBlocks = getSelectedBlocks(editor, block);
+          const selectedBlocks = getSideMenuActionBlocks(openState, block);
           for (const selectedBlock of selectedBlocks) {
             editor.updateBlock?.(selectedBlock, {
               type: item.type,
@@ -1227,7 +1272,7 @@ function NfmSideMenuPopup({
           close();
         }}
         onColor={(kind, color) => {
-          const selectedBlocks = getSelectedBlocks(editor, block);
+          const selectedBlocks = getSideMenuActionBlocks(openState, block);
           const propName = kind === "text" ? "textColor" : "backgroundColor";
           const currentValue = normalizeColorValue(block.props?.[propName]);
           const nextValue = currentValue === color ? "default" : color;
@@ -1298,10 +1343,13 @@ export function NfmSideMenuShortcutController() {
       if (!anchorRect) return;
 
       event.preventDefault();
+      const selectionIntent = createSideMenuSelectionIntent(editor, block);
+      applySideMenuSelectionIntent(editor, selectionIntent);
       setOpenState({
         block,
         anchorRect,
         returnFocusElement: editorRoot ?? null,
+        selectionIntent,
       });
     };
 
@@ -1332,6 +1380,7 @@ export function NfmSideMenu() {
   const runtimeEditor = editor as unknown as SideMenuEditorRuntime;
   const triggerWrapperRef = useRef<HTMLSpanElement>(null);
   const pointerStartRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  const selectionIntentRef = useRef<SideMenuSelectionIntent | null>(null);
   const dragStartedRef = useRef(false);
   const lastPointerActivationAtRef = useRef<number | null>(null);
   const [openState, setOpenState] = useState<NfmSideMenuOpenState | null>(null);
@@ -1372,11 +1421,16 @@ export function NfmSideMenu() {
     freezeController.release();
   }, [freezeController]);
 
-  const openFromHandle = useCallback((returnFocusElement: HTMLElement | null) => {
+  const openFromHandle = useCallback((
+    returnFocusElement: HTMLElement | null,
+    selectionIntent?: SideMenuSelectionIntent | null,
+  ) => {
     if (!block) return;
     const rect = triggerWrapperRef.current?.getBoundingClientRect();
     if (!rect) return;
 
+    const resolvedSelectionIntent = selectionIntent ?? createSideMenuSelectionIntent(runtimeEditor, block);
+    applySideMenuSelectionIntent(runtimeEditor, resolvedSelectionIntent);
     freezeController.handleMenuOpenChange(true);
     setOpenState({
       block,
@@ -1387,8 +1441,9 @@ export function NfmSideMenu() {
         height: rect.height,
       },
       returnFocusElement,
+      selectionIntent: resolvedSelectionIntent,
     });
-  }, [block, freezeController]);
+  }, [block, freezeController, runtimeEditor]);
 
   useEffect(() => () => {
     freezeController.release();
@@ -1406,6 +1461,7 @@ export function NfmSideMenu() {
           onPointerDown={(event) => {
             if (event.pointerType !== "mouse" || event.button !== 0) return;
             dragStartedRef.current = false;
+            selectionIntentRef.current = createSideMenuSelectionIntent(runtimeEditor, block);
             pointerStartRef.current = {
               x: event.clientX,
               y: event.clientY,
@@ -1418,6 +1474,7 @@ export function NfmSideMenu() {
             const distance = Math.hypot(event.clientX - start.x, event.clientY - start.y);
             if (distance > SIDE_MENU_CLICK_TOLERANCE) {
               start.moved = true;
+              selectionIntentRef.current = null;
             }
           }}
           onPointerUp={(event) => {
@@ -1426,8 +1483,10 @@ export function NfmSideMenu() {
             pointerStartRef.current = null;
             if (!start || start.moved || dragStartedRef.current) return;
 
+            const selectionIntent = selectionIntentRef.current;
+            selectionIntentRef.current = null;
             lastPointerActivationAtRef.current = performance.now();
-            openFromHandle(event.currentTarget);
+            openFromHandle(event.currentTarget, selectionIntent);
           }}
           onClick={() => {
             const lastPointerActivationAt = lastPointerActivationAtRef.current;
@@ -1436,10 +1495,15 @@ export function NfmSideMenu() {
               return;
             }
 
-            openFromHandle(triggerWrapperRef.current);
+            selectionIntentRef.current = null;
+            openFromHandle(
+              triggerWrapperRef.current,
+              createSideMenuSelectionIntent(runtimeEditor, block),
+            );
           }}
           onDragStart={(event: { dataTransfer: DataTransfer | null; clientY: number }) => {
             dragStartedRef.current = true;
+            selectionIntentRef.current = null;
             sideMenu.blockDragStart(event, dragTargetBlock as never);
           }}
           onDragEnd={() => {

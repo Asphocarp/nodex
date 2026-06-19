@@ -30,6 +30,15 @@ describe("nfm formatting toolbar", () => {
       selectionFrom: 4,
       selectionTo: 4,
     })).toBe("legacy");
+
+    expect(resolveNfmFormattingToolbarFloatingMode({
+      isEditable: true,
+      isTableCellSelection: false,
+      isBlockSelection: true,
+      hasInlineContent: true,
+      selectionFrom: 1,
+      selectionTo: 4,
+    })).toBe("legacy");
   });
 
   test("keeps the text-action floating mode while a collapsed selection closes", () => {
