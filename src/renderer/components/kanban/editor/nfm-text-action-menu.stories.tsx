@@ -155,6 +155,7 @@ function TextActionMenuStorySurface(
 
 function TextActionMoreHandoffStorySurface() {
   const [showBlockActions, setShowBlockActions] = useState(false);
+  const [showFocusedBlockSelection, setShowFocusedBlockSelection] = useState(false);
   const [query, setQuery] = useState("");
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const [activeSubmenu, setActiveSubmenu] = useState<NfmSideMenuSubmenuKey | null>(null);
@@ -173,7 +174,25 @@ function TextActionMoreHandoffStorySurface() {
 
   return (
     <NodexTooltipProvider>
-      <div className="flex min-h-screen items-start justify-center bg-token-editor-background p-12 text-token-foreground">
+      <div className="relative flex min-h-screen items-start justify-center bg-token-editor-background p-12 text-token-foreground">
+        <div
+          aria-label="Selected block scope preview"
+          className="pointer-events-none absolute top-8 left-8 w-72 space-y-1 rounded-lg border-[0.5px] border-token-border bg-token-background/80 p-2 text-sm shadow-sm"
+        >
+          {["Selected paragraph block", "Selected follow-up block"].map((label) => (
+            <div
+              key={label}
+              className={[
+                "rounded-[6px] px-2 py-1.5",
+                showFocusedBlockSelection
+                  ? "bg-token-charts-blue/20 text-token-foreground ring-[0.5px] ring-token-charts-blue/40"
+                  : "bg-token-foreground/5 text-token-description-foreground",
+              ].join(" ")}
+            >
+              {label}
+            </div>
+          ))}
+        </div>
         {showBlockActions ? (
           <NfmSideMenuSurface
             sections={sections}
@@ -211,14 +230,23 @@ function TextActionMoreHandoffStorySurface() {
               setFocusedIndex((currentIndex) => moveNfmSideMenuFocus(currentIndex, direction, flatRows));
             }}
             onActivateFocused={() => undefined}
-            onClose={() => setShowBlockActions(false)}
+            onClose={() => {
+              setShowBlockActions(false);
+              setShowFocusedBlockSelection(true);
+            }}
             onAction={(row) => {
-              if (row.submenu) setActiveSubmenu(row.submenu);
+              if (row.submenu) {
+                setActiveSubmenu(row.submenu);
+                return;
+              }
+              setShowFocusedBlockSelection(false);
             }}
             onSubmenuChange={setActiveSubmenu}
-            onTurnInto={() => undefined}
-            onColor={() => undefined}
-            onMoveBlocksToDestination={() => undefined}
+            onTurnInto={() => setShowFocusedBlockSelection(false)}
+            onColor={() => setShowFocusedBlockSelection(false)}
+            onMoveBlocksToDestination={() => {
+              setShowFocusedBlockSelection(false);
+            }}
             renderMoveToMenu={(props) => (
               <NfmMoveToMenuSurface
                 {...props}
@@ -275,7 +303,10 @@ function TextActionMoreHandoffStorySurface() {
             onSetTextColor={() => undefined}
             onSetBackgroundColor={() => undefined}
             onClearFormat={() => undefined}
-            onOpenBlockActions={() => setShowBlockActions(true)}
+            onOpenBlockActions={() => {
+              setShowFocusedBlockSelection(false);
+              setShowBlockActions(true);
+            }}
             onNodexRow={() => undefined}
             onMoveBlocksToDestination={() => undefined}
           />
@@ -397,7 +428,7 @@ export const MoreHandoffToBlockActions: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Click More to replace the text-selection toolbar with the block side-menu action surface scoped to the selected blocks.",
+        story: "Click More to replace the text-selection toolbar with the block side-menu action surface; dismissing it returns focus to the editor with the selected block scope still active.",
       },
     },
   },

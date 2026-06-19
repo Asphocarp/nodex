@@ -11,7 +11,15 @@ import {
   flattenNfmSideMenuRows,
   type NfmSideMenuSubmenuKey,
 } from "./nfm-side-menu-model";
-import { NfmSideMenuSurface } from "./nfm-side-menu";
+import {
+  NfmSideMenuSurface,
+  resolveNfmSideMenuFormattingToolbarSuppressionRange,
+  resolveNfmSideMenuReturnFocusElement,
+  shouldConsumeNfmSideMenuOutsidePointerTarget,
+  shouldCloseNfmSideMenuForPointerTarget,
+  shouldKeepNfmSideMenuFormattingToolbarSuppression,
+  shouldReturnFocusAfterNfmSideMenuClose,
+} from "./nfm-side-menu";
 
 const TEST_DATE = new Date("2026-01-01T00:00:00.000Z");
 
@@ -259,6 +267,141 @@ function StatefulSideMenuSurface({
 }
 
 describe("nfm side menu surface", () => {
+  test("treats editor blank clicks as outside while preserving popup and trigger exemptions", () => {
+    const popupElement = document.createElement("div");
+    const popupChild = document.createElement("button");
+    popupElement.append(popupChild);
+
+    const triggerElement = document.createElement("button");
+    const triggerChild = document.createElement("span");
+    triggerElement.append(triggerChild);
+
+    const editorRoot = document.createElement("div");
+    const editorBlank = document.createElement("div");
+    editorRoot.append(editorBlank);
+
+    const submenuElement = document.createElement("div");
+    submenuElement.setAttribute("data-nfm-side-menu-submenu", "true");
+    const submenuChild = document.createElement("button");
+    submenuElement.append(submenuChild);
+    document.body.append(submenuElement);
+
+    try {
+      expect(shouldCloseNfmSideMenuForPointerTarget({
+        target: popupChild,
+        popupElement,
+        outsidePressIgnoreElement: triggerElement,
+      })).toBeFalse();
+      expect(shouldCloseNfmSideMenuForPointerTarget({
+        target: triggerChild,
+        popupElement,
+        outsidePressIgnoreElement: triggerElement,
+      })).toBeFalse();
+      expect(shouldCloseNfmSideMenuForPointerTarget({
+        target: submenuChild,
+        popupElement,
+        outsidePressIgnoreElement: triggerElement,
+      })).toBeFalse();
+      expect(shouldCloseNfmSideMenuForPointerTarget({
+        target: editorBlank,
+        popupElement,
+        outsidePressIgnoreElement: triggerElement,
+      })).toBeTrue();
+    } finally {
+      submenuElement.remove();
+    }
+  });
+
+  test("consumes same-editor outside pointer dismissals while returning focus to the editor", () => {
+    const returnFocusElement = document.createElement("div");
+    const editorRoot = document.createElement("div");
+    const editorBlank = document.createElement("div");
+    const outsideElement = document.createElement("button");
+    editorRoot.append(editorBlank);
+
+    expect(shouldReturnFocusAfterNfmSideMenuClose({
+      reason: "outside-pointer",
+      returnFocusElement,
+    })).toBeFalse();
+    expect(shouldReturnFocusAfterNfmSideMenuClose({
+      reason: "editor-outside-pointer",
+      returnFocusElement,
+    })).toBeTrue();
+    expect(shouldReturnFocusAfterNfmSideMenuClose({
+      reason: "escape",
+      returnFocusElement,
+    })).toBeTrue();
+    expect(shouldReturnFocusAfterNfmSideMenuClose({
+      reason: "action",
+      returnFocusElement,
+    })).toBeTrue();
+    expect(resolveNfmSideMenuReturnFocusElement({
+      reason: "editor-outside-pointer",
+      returnFocusElement,
+      editorRoot,
+    })).toBe(editorRoot);
+    expect(resolveNfmSideMenuReturnFocusElement({
+      reason: "escape",
+      returnFocusElement,
+      editorRoot,
+    })).toBe(returnFocusElement);
+    expect(shouldConsumeNfmSideMenuOutsidePointerTarget({
+      target: editorBlank,
+      editorRoot,
+    })).toBeTrue();
+    expect(shouldConsumeNfmSideMenuOutsidePointerTarget({
+      target: outsideElement,
+      editorRoot,
+    })).toBeFalse();
+    expect(shouldConsumeNfmSideMenuOutsidePointerTarget({
+      target: editorBlank,
+      editorRoot: null,
+    })).toBeFalse();
+  });
+
+  test("preserves dismissed toolbar suppression only for non-mutating close reasons", () => {
+    const selectionRange = { from: 4, to: 10 };
+    const editorOutsideSuppressionRange = resolveNfmSideMenuFormattingToolbarSuppressionRange({
+      reason: "editor-outside-pointer",
+      selectionRange,
+    });
+    const outsideSuppressionRange = resolveNfmSideMenuFormattingToolbarSuppressionRange({
+      reason: "outside-pointer",
+      selectionRange,
+    });
+    const escapeSuppressionRange = resolveNfmSideMenuFormattingToolbarSuppressionRange({
+      reason: "escape",
+      selectionRange,
+    });
+    const actionSuppressionRange = resolveNfmSideMenuFormattingToolbarSuppressionRange({
+      reason: "action",
+      selectionRange,
+    });
+
+    expect(editorOutsideSuppressionRange?.from).toBe(4);
+    expect(editorOutsideSuppressionRange?.to).toBe(10);
+    expect(outsideSuppressionRange?.from).toBe(4);
+    expect(outsideSuppressionRange?.to).toBe(10);
+    expect(escapeSuppressionRange?.from).toBe(4);
+    expect(escapeSuppressionRange?.to).toBe(10);
+    expect(actionSuppressionRange === null).toBeTrue();
+  });
+
+  test("keeps dismissed toolbar suppression only while the current selection range matches", () => {
+    expect(shouldKeepNfmSideMenuFormattingToolbarSuppression({
+      selectionRange: { from: 4, to: 10 },
+      suppressionRange: { from: 4, to: 10 },
+    })).toBeTrue();
+    expect(shouldKeepNfmSideMenuFormattingToolbarSuppression({
+      selectionRange: { from: 4, to: 11 },
+      suppressionRange: { from: 4, to: 10 },
+    })).toBeFalse();
+    expect(shouldKeepNfmSideMenuFormattingToolbarSuppression({
+      selectionRange: { from: 4, to: 10 },
+      suppressionRange: null,
+    })).toBeFalse();
+  });
+
   test("renders dialog, combobox, listbox, and disabled reference mocks", () => {
     const { calls, view } = renderSideMenuSurface();
 

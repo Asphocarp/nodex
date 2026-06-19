@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   resolveNfmFormattingToolbarEffectiveFloatingMode,
   resolveNfmFormattingToolbarFloatingMode,
+  shouldSuppressNfmFormattingToolbarForSelection,
 } from "./nfm-formatting-toolbar-controller";
 import { shouldRenderNfmLegacyFormattingToolbarItem } from "./nfm-formatting-toolbar";
 
@@ -53,6 +54,26 @@ describe("nfm formatting toolbar", () => {
       currentMode: "legacy",
       lastVisibleMode: "text-action",
     })).toBe("legacy");
+  });
+
+  test("suppresses only the dismissed side-menu selection range", () => {
+    expect(shouldSuppressNfmFormattingToolbarForSelection({
+      show: true,
+      selectionRange: { from: 4, to: 10 },
+      suppressionRange: { from: 4, to: 10 },
+    })).toBeTrue();
+
+    expect(shouldSuppressNfmFormattingToolbarForSelection({
+      show: true,
+      selectionRange: { from: 4, to: 11 },
+      suppressionRange: { from: 4, to: 10 },
+    })).toBeFalse();
+
+    expect(shouldSuppressNfmFormattingToolbarForSelection({
+      show: false,
+      selectionRange: { from: 4, to: 10 },
+      suppressionRange: { from: 4, to: 10 },
+    })).toBeFalse();
   });
 
   test("omits non-persisted text alignment buttons from the legacy image/file toolbar", () => {

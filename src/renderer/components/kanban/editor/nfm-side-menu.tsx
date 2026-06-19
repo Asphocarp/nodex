@@ -12,6 +12,7 @@ import {
   useBlockNoteEditor,
   useComponentsContext,
   useDictionary,
+  useEditorState,
   useExtension,
   useExtensionState,
 } from "@blocknote/react";
@@ -116,7 +117,7 @@ interface SideMenuEditorRuntime extends SideMenuSelectionEditor {
   getParentBlock?: (blockId: string) => unknown;
   getSelection?: () => { blocks?: SideMenuBlock[] } | undefined;
   getTextCursorPosition?: () => { block?: SideMenuBlock };
-  setTextCursorPosition?: (block: SideMenuBlock) => void;
+  setTextCursorPosition?: (block: SideMenuBlock | string, placement?: "start" | "end") => void;
   insertBlocks?: (blocks: unknown[], referenceBlock: unknown, placement: "before" | "after" | "nested") => unknown[];
   removeBlocks?: (blocks: unknown[]) => void;
   updateBlock?: (block: unknown, update: unknown) => void;
@@ -129,6 +130,7 @@ interface SideMenuEditorRuntime extends SideMenuSelectionEditor {
   prosemirrorView?: SideMenuSelectionEditor["prosemirrorView"] & {
     dom?: HTMLElement;
     editable?: boolean;
+    focus?: () => void;
   };
   schema: {
     blockSpecs: Record<string, { implementation: { meta?: { fileBlockAccept?: boolean } } }>;
@@ -160,13 +162,17 @@ interface NfmSideMenuOpenState {
   block: SideMenuBlock;
   anchorRect: NfmSideMenuRect;
   returnFocusElement: HTMLElement | null;
+  outsidePressIgnoreElement: HTMLElement | null;
   selectionIntent: SideMenuSelectionIntent;
 }
+
+export type NfmSideMenuCloseReason = "action" | "escape" | "editor-outside-pointer" | "outside-pointer";
 
 interface NfmSideMenuOpenBlockInput {
   block: SideMenuBlock;
   anchorRect: NfmSideMenuRect;
   returnFocusElement: HTMLElement | null;
+  outsidePressIgnoreElement?: HTMLElement | null;
   selectionIntent?: SideMenuSelectionIntent | null;
   freezeSideMenu?: boolean;
 }
@@ -174,12 +180,18 @@ interface NfmSideMenuOpenBlockInput {
 interface NfmSideMenuOpenSelectionInput {
   anchorRect?: NfmSideMenuRect | null;
   returnFocusElement?: HTMLElement | null;
+  outsidePressIgnoreElement?: HTMLElement | null;
 }
 
 interface NfmSideMenuOpenController {
   openForBlock: (input: NfmSideMenuOpenBlockInput) => boolean;
   openForCurrentSelection: (input?: NfmSideMenuOpenSelectionInput) => boolean;
-  close: () => void;
+  formattingToolbarSuppressionRange: NfmSideMenuSelectionRange | null;
+}
+
+export interface NfmSideMenuSelectionRange {
+  from: number;
+  to: number;
 }
 
 interface NfmSideMenuColorOption {
@@ -254,6 +266,7 @@ const SIDE_MENU_MOTION_DURATION_MS = 200;
 const SIDE_MENU_MOTION_DELAY_MS = 30;
 const SIDE_MENU_EXIT_FALLBACK_MS = SIDE_MENU_MOTION_DURATION_MS + SIDE_MENU_MOTION_DELAY_MS + 50;
 const SIDE_MENU_CLOSED_SCALE = 0.97;
+const NFM_SIDE_MENU_OPEN_SELECTION_KEY = "nfmSideMenu";
 const SIDE_MENU_COLOR_VALUES = [
   "default",
   "gray",
@@ -270,7 +283,7 @@ const SIDE_MENU_COLOR_VALUES = [
 const DEFAULT_SIDE_MENU_OPEN_CONTROLLER: NfmSideMenuOpenController = {
   openForBlock: () => false,
   openForCurrentSelection: () => false,
-  close: () => undefined,
+  formattingToolbarSuppressionRange: null,
 };
 
 const NfmSideMenuOpenContext = createContext<NfmSideMenuOpenController>(
@@ -355,6 +368,82 @@ function getSideMenuActionBlocks(openState: NfmSideMenuOpenState, fallbackBlock:
   return openState.selectionIntent.blocks.length > 0
     ? openState.selectionIntent.blocks as SideMenuBlock[]
     : [fallbackBlock];
+}
+
+export function shouldCloseNfmSideMenuForPointerTarget({
+  target,
+  popupElement,
+  outsidePressIgnoreElement,
+}: {
+  target: EventTarget | null;
+  popupElement: HTMLElement | null;
+  outsidePressIgnoreElement: HTMLElement | null;
+}) {
+  if (!(target instanceof Node)) return false;
+  if (getClosestElement(target)?.closest(SIDE_MENU_SUBMENU_SELECTOR)) return false;
+  if (popupElement?.contains(target)) return false;
+  if (outsidePressIgnoreElement?.contains(target)) return false;
+  return true;
+}
+
+export function shouldConsumeNfmSideMenuOutsidePointerTarget({
+  target,
+  editorRoot,
+}: {
+  target: EventTarget | null;
+  editorRoot: HTMLElement | null;
+}) {
+  if (!editorRoot || !(target instanceof Node)) return false;
+  return editorRoot.contains(target);
+}
+
+export function shouldReturnFocusAfterNfmSideMenuClose({
+  reason,
+  returnFocusElement,
+}: {
+  reason: NfmSideMenuCloseReason;
+  returnFocusElement: HTMLElement | null;
+}) {
+  if (!returnFocusElement) return false;
+  return reason !== "outside-pointer";
+}
+
+export function resolveNfmSideMenuReturnFocusElement({
+  reason,
+  returnFocusElement,
+  editorRoot,
+}: {
+  reason: NfmSideMenuCloseReason;
+  returnFocusElement: HTMLElement | null;
+  editorRoot: HTMLElement | null;
+}) {
+  if (reason === "editor-outside-pointer") return editorRoot;
+  return returnFocusElement;
+}
+
+export function resolveNfmSideMenuFormattingToolbarSuppressionRange({
+  reason,
+  selectionRange,
+}: {
+  reason: NfmSideMenuCloseReason;
+  selectionRange: NfmSideMenuSelectionRange | null;
+}) {
+  if (reason === "action") return null;
+  if (!selectionRange) return null;
+  if (selectionRange.from === selectionRange.to) return null;
+  return selectionRange;
+}
+
+export function shouldKeepNfmSideMenuFormattingToolbarSuppression({
+  selectionRange,
+  suppressionRange,
+}: {
+  selectionRange: NfmSideMenuSelectionRange;
+  suppressionRange: NfmSideMenuSelectionRange | null;
+}) {
+  return suppressionRange !== null
+    && selectionRange.from === suppressionRange.from
+    && selectionRange.to === suppressionRange.to;
 }
 
 function getTopLevelSideMenuActionBlocks(blocks: SideMenuBlock[]) {
@@ -491,6 +580,33 @@ function getClosestElement(target: EventTarget | null): Element | null {
   if (target instanceof Element) return target;
   if (!(target instanceof Node)) return null;
   return target.parentElement;
+}
+
+function focusNfmSideMenuReturnTarget(
+  editor: SideMenuEditorRuntime,
+  returnFocusElement: HTMLElement,
+) {
+  if (editor.prosemirrorView?.dom === returnFocusElement && editor.prosemirrorView.focus) {
+    editor.prosemirrorView.focus();
+    return;
+  }
+
+  try {
+    returnFocusElement.focus({ preventScroll: true });
+  } catch {
+    returnFocusElement.focus();
+  }
+}
+
+function getCurrentNfmSideMenuSelectionRange(
+  editor: SideMenuEditorRuntime,
+): NfmSideMenuSelectionRange | null {
+  const selection = editor.prosemirrorView?.state.selection;
+  if (!selection || selection.empty) return null;
+  return {
+    from: selection.from,
+    to: selection.to,
+  };
 }
 
 function prefersReducedMotion() {
@@ -1188,11 +1304,13 @@ function NfmSideMenuPopup({
   openState,
   editor,
   releaseSideMenuFreeze,
+  onCloseSelection,
   onClose,
 }: {
   openState: NfmSideMenuOpenState | null;
   editor: SideMenuEditorRuntime;
   releaseSideMenuFreeze?: () => void;
+  onCloseSelection: (reason: NfmSideMenuCloseReason) => void;
   onClose: () => void;
 }) {
   const runtime = useNfmSideMenuRuntime();
@@ -1266,23 +1384,45 @@ function NfmSideMenuPopup({
     onClose();
   }, [clearCloseTimer, onClose]);
 
-  const close = useCallback(() => {
+  const close = useCallback((reason: NfmSideMenuCloseReason = "action") => {
     if (!openState || pendingCloseRef.current) return;
 
+    formattingToolbar.store.setState(false);
+    onCloseSelection(reason);
     pendingCloseRef.current = true;
     setVisible(false);
     setActiveSubmenu(null);
     releaseSideMenuFreeze?.();
-    requestAnimationFrame(() => {
-      openState.returnFocusElement?.focus?.();
+    const returnFocusElement = resolveNfmSideMenuReturnFocusElement({
+      reason,
+      returnFocusElement: openState.returnFocusElement,
+      editorRoot: editor.prosemirrorView?.dom ?? null,
     });
+
+    if (shouldReturnFocusAfterNfmSideMenuClose({
+      reason,
+      returnFocusElement,
+    })) {
+      requestAnimationFrame(() => {
+        if (!returnFocusElement) return;
+        focusNfmSideMenuReturnTarget(editor, returnFocusElement);
+      });
+    }
 
     clearCloseTimer();
     closeTimerRef.current = window.setTimeout(
       finalizeClose,
       prefersReducedMotion() ? 0 : SIDE_MENU_EXIT_FALLBACK_MS,
     );
-  }, [clearCloseTimer, finalizeClose, openState, releaseSideMenuFreeze]);
+  }, [
+    clearCloseTimer,
+    editor,
+    finalizeClose,
+    formattingToolbar.store,
+    onCloseSelection,
+    openState,
+    releaseSideMenuFreeze,
+  ]);
 
   useEffect(() => {
     if (!openState) {
@@ -1313,8 +1453,8 @@ function NfmSideMenuPopup({
   useEffect(() => {
     if (!openState || !visible) return;
     formattingToolbar.store.setState(false);
-    showSelection(true, "nfmSideMenu");
-    return () => showSelection(false, "nfmSideMenu");
+    showSelection(true, NFM_SIDE_MENU_OPEN_SELECTION_KEY);
+    return () => showSelection(false, NFM_SIDE_MENU_OPEN_SELECTION_KEY);
   }, [formattingToolbar.store, openState, showSelection, visible]);
 
   const executeAction = useCallback((key: NfmSideMenuActionKey) => {
@@ -1327,19 +1467,19 @@ function NfmSideMenuPopup({
     if (key === "duplicate") {
       const referenceBlock = topLevelSelectedBlocks[topLevelSelectedBlocks.length - 1] ?? block;
       editor.insertBlocks?.(topLevelSelectedBlocks.map(cloneBlockForInsert), referenceBlock, "after");
-      close();
+      close("action");
       return;
     }
 
     if (key === "delete") {
       editor.removeBlocks?.(topLevelSelectedBlocks);
-      close();
+      close("action");
       return;
     }
 
     if (key === "convert-divider-to-thread-section") {
       runtimeSnapshot.onConvertDividerToThreadSection(currentBlockId);
-      close();
+      close("action");
       return;
     }
 
@@ -1356,7 +1496,7 @@ function NfmSideMenuPopup({
             : { headerCols: tableContent.headerCols ? undefined : 1 }),
         },
       });
-      close();
+      close("action");
     }
   }, [block, close, currentBlockId, editor, isEditable, openState, runtimeSnapshot]);
 
@@ -1408,17 +1548,31 @@ function NfmSideMenuPopup({
     if (!openState || !visible) return;
 
     const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (getClosestElement(target)?.closest(SIDE_MENU_SUBMENU_SELECTOR)) return;
-      if (popupRef.current?.contains(target)) return;
-      if (openState.returnFocusElement?.contains(target)) return;
-      close();
+      if (!shouldCloseNfmSideMenuForPointerTarget({
+        target: event.target,
+        popupElement: popupRef.current,
+        outsidePressIgnoreElement: openState.outsidePressIgnoreElement,
+      })) {
+        return;
+      }
+      const shouldConsumePointer = shouldConsumeNfmSideMenuOutsidePointerTarget({
+        target: event.target,
+        editorRoot: editor.prosemirrorView?.dom ?? null,
+      });
+
+      if (shouldConsumePointer) {
+        event.preventDefault();
+        event.stopPropagation();
+        close("editor-outside-pointer");
+        return;
+      }
+
+      close("outside-pointer");
     };
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      close();
+      close("escape");
     };
 
     document.addEventListener("pointerdown", handlePointerDown, true);
@@ -1488,7 +1642,7 @@ function NfmSideMenuPopup({
           setFocusedIndex((currentIndex) => moveNfmSideMenuFocus(currentIndex, direction, flatRows));
         }}
         onActivateFocused={activateFocusedRow}
-        onClose={close}
+        onClose={() => close("escape")}
         onAction={activateRow}
         onSubmenuChange={setActiveSubmenu}
         onTurnInto={(item) => {
@@ -1500,7 +1654,7 @@ function NfmSideMenuPopup({
               ...(item.props ? { props: item.props } : {}),
             });
           }
-          close();
+          close("action");
         }}
         onColor={(kind, color) => {
           const selectedBlocks = getSideMenuActionBlocks(openState, block);
@@ -1512,14 +1666,14 @@ function NfmSideMenuPopup({
               props: { [propName]: nextValue },
             });
           }
-          close();
+          close("action");
         }}
         onMoveBlocksToDestination={async (destination) => {
           if (!currentBlockId) {
             throw new Error("No block selected.");
           }
           await runtimeSnapshot.onMoveBlocksToDestination(destination, currentBlockId);
-          close();
+          close("action");
         }}
       />
     </div>,
@@ -1553,9 +1707,19 @@ export function useNfmSideMenuOpenController() {
 }
 
 export function NfmSideMenuOpenProvider({ children }: { children: ReactNode }) {
-  const editor = useBlockNoteEditor() as unknown as SideMenuEditorRuntime;
+  const blockNoteEditor = useBlockNoteEditor();
+  const editor = blockNoteEditor as unknown as SideMenuEditorRuntime;
   const sideMenu = useExtension(SideMenuExtension);
   const [openState, setOpenState] = useState<NfmSideMenuOpenState | null>(null);
+  const [formattingToolbarSuppressionRange, setFormattingToolbarSuppressionRange] =
+    useState<NfmSideMenuSelectionRange | null>(null);
+  const selectionRange = useEditorState({
+    editor: blockNoteEditor,
+    selector: ({ editor }) => ({
+      from: editor.prosemirrorState.selection.from,
+      to: editor.prosemirrorState.selection.to,
+    }),
+  });
   const freezeController = useMemo(
     () => createSideMenuFreezeController(sideMenu),
     [sideMenu],
@@ -1566,16 +1730,25 @@ export function NfmSideMenuOpenProvider({ children }: { children: ReactNode }) {
     freezeController.release();
   }, [freezeController]);
 
+  const captureFormattingToolbarSuppression = useCallback((reason: NfmSideMenuCloseReason) => {
+    setFormattingToolbarSuppressionRange(resolveNfmSideMenuFormattingToolbarSuppressionRange({
+      reason,
+      selectionRange: getCurrentNfmSideMenuSelectionRange(editor),
+    }));
+  }, [editor]);
+
   const openForBlock = useCallback(({
     block,
     anchorRect,
     returnFocusElement,
+    outsidePressIgnoreElement = null,
     selectionIntent,
     freezeSideMenu = false,
   }: NfmSideMenuOpenBlockInput) => {
     const resolvedSelectionIntent = selectionIntent
       ?? createSideMenuSelectionIntent(editor, block);
 
+    setFormattingToolbarSuppressionRange(null);
     applySideMenuSelectionIntent(editor, resolvedSelectionIntent);
 
     if (freezeSideMenu) {
@@ -1588,6 +1761,7 @@ export function NfmSideMenuOpenProvider({ children }: { children: ReactNode }) {
       block,
       anchorRect,
       returnFocusElement,
+      outsidePressIgnoreElement,
       selectionIntent: resolvedSelectionIntent,
     });
     return true;
@@ -1607,14 +1781,33 @@ export function NfmSideMenuOpenProvider({ children }: { children: ReactNode }) {
       block,
       anchorRect,
       returnFocusElement: input.returnFocusElement ?? editor.prosemirrorView?.dom ?? null,
+      outsidePressIgnoreElement: input.outsidePressIgnoreElement ?? null,
     });
   }, [editor, openForBlock]);
 
   const value = useMemo<NfmSideMenuOpenController>(() => ({
     openForBlock,
     openForCurrentSelection,
-    close,
-  }), [close, openForBlock, openForCurrentSelection]);
+    formattingToolbarSuppressionRange,
+  }), [
+    formattingToolbarSuppressionRange,
+    openForBlock,
+    openForCurrentSelection,
+  ]);
+
+  const shouldKeepSuppressionRange = shouldKeepNfmSideMenuFormattingToolbarSuppression({
+    selectionRange,
+    suppressionRange: formattingToolbarSuppressionRange,
+  });
+
+  useEffect(() => {
+    if (!formattingToolbarSuppressionRange) return;
+    if (shouldKeepSuppressionRange) return;
+    setFormattingToolbarSuppressionRange(null);
+  }, [
+    formattingToolbarSuppressionRange,
+    shouldKeepSuppressionRange,
+  ]);
 
   useEffect(() => () => {
     freezeController.release();
@@ -1627,6 +1820,7 @@ export function NfmSideMenuOpenProvider({ children }: { children: ReactNode }) {
         openState={openState}
         editor={editor}
         releaseSideMenuFreeze={freezeController.release}
+        onCloseSelection={captureFormattingToolbarSuppression}
         onClose={close}
       />
     </NfmSideMenuOpenContext.Provider>
@@ -1727,6 +1921,7 @@ export function NfmSideMenu() {
         height: rect.height,
       },
       returnFocusElement,
+      outsidePressIgnoreElement: triggerWrapperRef.current,
       selectionIntent,
       freezeSideMenu: true,
     });

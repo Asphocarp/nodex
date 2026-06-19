@@ -22,6 +22,7 @@ import {
   type TextActionMenuEligibilityInput,
 } from "./nfm-text-action-menu-model";
 import { NFM_TEXT_ACTION_MENU_FLOATING_OPTIONS } from "./nfm-text-action-menu-floating";
+import { useNfmSideMenuOpenController, type NfmSideMenuSelectionRange } from "./nfm-side-menu";
 
 type NfmFormattingToolbarFloatingMode = "text-action" | "legacy";
 
@@ -69,6 +70,17 @@ export function resolveNfmFormattingToolbarEffectiveFloatingMode(input: {
   return input.show ? input.currentMode : input.lastVisibleMode;
 }
 
+export function shouldSuppressNfmFormattingToolbarForSelection(input: {
+  show: boolean;
+  selectionRange: NfmSideMenuSelectionRange;
+  suppressionRange: NfmSideMenuSelectionRange | null;
+}) {
+  return input.show
+    && input.suppressionRange !== null
+    && input.selectionRange.from === input.suppressionRange.from
+    && input.selectionRange.to === input.suppressionRange.to;
+}
+
 export function NfmFormattingToolbarController(props: {
   formattingToolbar?: FC<FormattingToolbarProps>;
   floatingUIOptions?: FloatingUIOptions;
@@ -81,16 +93,14 @@ export function NfmFormattingToolbarController(props: {
   const show = useExtensionState(FormattingToolbarExtension, {
     editor,
   });
+  const sideMenuOpenController = useNfmSideMenuOpenController();
 
-  const position = useEditorState({
+  const selectionRange = useEditorState({
     editor,
-    selector: ({ editor }) =>
-      formattingToolbar.store.state
-        ? {
-            from: editor.prosemirrorState.selection.from,
-            to: editor.prosemirrorState.selection.to,
-          }
-        : undefined,
+    selector: ({ editor }) => ({
+      from: editor.prosemirrorState.selection.from,
+      to: editor.prosemirrorState.selection.to,
+    }),
   });
 
   const placement = useEditorState({
@@ -107,17 +117,24 @@ export function NfmFormattingToolbarController(props: {
     editor,
     selector: ({ editor }) => resolveNfmFormattingToolbarFloatingMode(resolveTextActionMenuEligibility(editor)),
   });
+  const suppressFormattingToolbar = shouldSuppressNfmFormattingToolbarForSelection({
+    show,
+    selectionRange,
+    suppressionRange: sideMenuOpenController.formattingToolbarSuppressionRange,
+  });
+  const effectiveShow = show && !suppressFormattingToolbar;
   const lastVisibleFloatingModeRef = useRef<NfmFormattingToolbarFloatingMode>(floatingMode);
 
-  if (show) {
+  if (effectiveShow) {
     lastVisibleFloatingModeRef.current = floatingMode;
   }
 
   const effectiveFloatingMode = resolveNfmFormattingToolbarEffectiveFloatingMode({
-    show,
+    show: effectiveShow,
     currentMode: floatingMode,
     lastVisibleMode: lastVisibleFloatingModeRef.current,
   });
+  const position = effectiveShow ? selectionRange : undefined;
   const textActionFloatingOptions = effectiveFloatingMode === "text-action"
     ? NFM_TEXT_ACTION_MENU_FLOATING_OPTIONS
     : undefined;
@@ -126,7 +143,7 @@ export function NfmFormattingToolbarController(props: {
     ...props.floatingUIOptions,
     ...textActionFloatingOptions,
     useFloatingOptions: {
-      open: show,
+      open: effectiveShow,
       onOpenChange: (open, _event, reason) => {
         formattingToolbar.store.setState(open);
 
@@ -155,10 +172,10 @@ export function NfmFormattingToolbarController(props: {
     },
   }), [
     editor,
+    effectiveShow,
     formattingToolbar.store,
     placement,
     props.floatingUIOptions,
-    show,
     textActionFloatingOptions,
   ]);
 
@@ -170,7 +187,7 @@ export function NfmFormattingToolbarController(props: {
       portalElement={props.portalElement}
       {...floatingUIOptions}
     >
-      {show ? <Component /> : null}
+      {effectiveShow ? <Component /> : null}
     </PositionPopover>
   );
 }
