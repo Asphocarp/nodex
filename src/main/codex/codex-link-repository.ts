@@ -23,6 +23,7 @@ interface DbCodexThread {
   status_type: string;
   status_active_flags_json: string;
   archived: number;
+  pinned: number;
   created_at: number;
   updated_at: number;
   linked_at: string;
@@ -32,6 +33,23 @@ interface DbCodexPinnedThread {
   thread_id: string;
   pinned_order: number;
 }
+
+const CODEX_THREAD_SUMMARY_COLUMNS = `
+  t.project_id,
+  t.thread_id,
+  t.parent_thread_id,
+  t.thread_name,
+  t.thread_preview,
+  t.model_provider,
+  t.cwd,
+  t.status_type,
+  t.status_active_flags_json,
+  t.archived,
+  CASE WHEN p.thread_id IS NULL THEN 0 ELSE 1 END AS pinned,
+  t.created_at,
+  t.updated_at,
+  t.linked_at
+`;
 
 export interface UpsertCodexThreadInput {
   projectId?: string | null;
@@ -44,6 +62,7 @@ export interface UpsertCodexThreadInput {
   statusType?: CodexThreadStatusType;
   statusActiveFlags?: CodexThreadActiveFlag[];
   archived?: boolean;
+  pinned?: boolean;
   createdAt?: number;
   updatedAt?: number;
   linkedAt?: string;
@@ -71,6 +90,7 @@ function rowToSummary(row: DbCodexThread): CodexThreadSummary {
     statusType: isStatusType(row.status_type) ? row.status_type : "notLoaded",
     statusActiveFlags: parseStatusActiveFlags(row.status_active_flags_json),
     archived: row.archived === 1,
+    pinned: row.pinned === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     linkedAt: row.linked_at,
@@ -131,6 +151,9 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
     linkedAt,
     hasProjectIdInput ? 1 : 0,
   );
+  if (Object.prototype.hasOwnProperty.call(input, "pinned")) {
+    setCodexThreadPinned(input.threadId, input.pinned === true);
+  }
 
   const record = getCodexThread(input.threadId);
   if (!record) {
@@ -140,9 +163,12 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
 }
 
 export function getCodexThread(threadId: string): CodexThreadSummary | null {
-  const row = getDb().prepare(
-    "SELECT * FROM codex_threads WHERE thread_id = ?"
-  ).get(threadId) as DbCodexThread | undefined;
+  const row = getDb().prepare(`
+    SELECT ${CODEX_THREAD_SUMMARY_COLUMNS}
+    FROM codex_threads t
+    LEFT JOIN codex_pinned_threads p ON p.thread_id = t.thread_id
+    WHERE t.thread_id = ?
+  `).get(threadId) as DbCodexThread | undefined;
   return row ? rowToSummary(row) : null;
 }
 
@@ -154,10 +180,12 @@ export function listCodexProjectThreads(
   const includeArchived = opts?.includeArchived === true;
 
   const rows = getDb().prepare(`
-    SELECT * FROM codex_threads
-    WHERE project_id = ?
-      AND (? = 1 OR archived = 0)
-    ORDER BY updated_at DESC
+    SELECT ${CODEX_THREAD_SUMMARY_COLUMNS}
+    FROM codex_threads t
+    LEFT JOIN codex_pinned_threads p ON p.thread_id = t.thread_id
+    WHERE t.project_id = ?
+      AND (? = 1 OR t.archived = 0)
+    ORDER BY t.updated_at DESC
   `).all(projectId, includeArchived ? 1 : 0) as DbCodexThread[];
 
   return rows.map(rowToSummary);
@@ -167,9 +195,11 @@ export function listCodexThreadLinks(opts?: { includeArchived?: boolean }): Code
   const includeArchived = opts?.includeArchived === true;
 
   const rows = getDb().prepare(`
-    SELECT * FROM codex_threads
-    WHERE (? = 1 OR archived = 0)
-    ORDER BY updated_at DESC
+    SELECT ${CODEX_THREAD_SUMMARY_COLUMNS}
+    FROM codex_threads t
+    LEFT JOIN codex_pinned_threads p ON p.thread_id = t.thread_id
+    WHERE (? = 1 OR t.archived = 0)
+    ORDER BY t.updated_at DESC
   `).all(includeArchived ? 1 : 0) as DbCodexThread[];
 
   return rows.map(rowToSummary);
@@ -239,6 +269,13 @@ export function updateCodexThreadArchived(threadId: string, archived: boolean): 
   ).run(archived ? 1 : 0, Date.now(), threadId);
 
   if (result.changes === 0) return null;
+  return getCodexThread(threadId);
+}
+
+export function updateCodexThreadPinned(threadId: string, pinned: boolean): CodexThreadSummary | null {
+  const existing = getCodexThread(threadId);
+  if (!existing) return null;
+  setCodexThreadPinned(threadId, pinned);
   return getCodexThread(threadId);
 }
 

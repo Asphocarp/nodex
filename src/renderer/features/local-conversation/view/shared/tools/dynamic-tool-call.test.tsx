@@ -1,10 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import { fireEvent } from "@testing-library/react";
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
 import { render, textContent } from "../../../../../test/dom";
 import { DynamicToolCall } from "./dynamic-tool-call";
 
-function buildDynamicEntry(): CodexTranscriptEntry {
+function buildDynamicEntry(overrides?: Partial<NonNullable<CodexTranscriptEntry["dynamicToolCall"]>>): CodexTranscriptEntry {
+  const dynamicToolCall: NonNullable<CodexTranscriptEntry["dynamicToolCall"]> = {
+    callId: "dynamic-1",
+    namespace: "codex_app",
+    tool: "read_thread",
+    arguments: { threadId: "thread-1" },
+    status: "completed",
+    contentItems: [{ type: "inputText", text: "{\"schemaVersion\":1}" }],
+    success: true,
+    durationMs: 12,
+    completed: true,
+    ...overrides,
+  };
+
   return {
     threadId: "thread-1",
     turnId: "turn-1",
@@ -16,38 +28,42 @@ function buildDynamicEntry(): CodexTranscriptEntry {
     status: "completed",
     toolCall: {
       subtype: "dynamic",
-      toolName: "read_thread",
-      server: "codex_app",
-      args: { threadId: "thread-1" },
-      result: [{ type: "inputText", text: "{\"schemaVersion\":1}" }],
+      toolName: dynamicToolCall.tool,
+      server: dynamicToolCall.namespace ?? undefined,
+      args: dynamicToolCall.arguments,
+      result: dynamicToolCall.contentItems ?? undefined,
     },
-    dynamicToolCall: {
-      callId: "dynamic-1",
-      namespace: "codex_app",
-      tool: "read_thread",
-      arguments: { threadId: "thread-1" },
-      status: "completed",
-      contentItems: [{ type: "inputText", text: "{\"schemaVersion\":1}" }],
-      success: true,
-      durationMs: 12,
-      completed: true,
-    },
+    dynamicToolCall,
     createdAt: 1,
     updatedAt: 1,
   };
 }
 
 describe("DynamicToolCall", () => {
-  test("renders Codex-style summary and expandable JSON output", () => {
-    const { getByRole, container } = render(<DynamicToolCall item={buildDynamicEntry()} />);
+  test("renders Codex app meta thread calls as compact rows", () => {
+    const { container } = render(<DynamicToolCall item={buildDynamicEntry()} />);
 
-    const button = getByRole("button");
-    expect(textContent(button).includes("Read")).toBeTrue();
-    expect(textContent(button).includes("thread")).toBeTrue();
+    expect(textContent(container)).toBe("Read thread");
+    expect(textContent(container).includes("schemaVersion")).toBeFalse();
+    expect(textContent(container).includes("Arguments")).toBeFalse();
+  });
 
-    fireEvent.click(button);
+  test("renders completed create_thread success as an open-chat card", () => {
+    const { getByRole, container } = render(
+      <DynamicToolCall
+        item={buildDynamicEntry({
+          tool: "create_thread",
+          arguments: {
+            prompt: "Continue in a background chat",
+            target: { type: "projectless" },
+          },
+          contentItems: [{ type: "inputText", text: "{\"threadId\":\"thread-created\"}" }],
+        })}
+      />,
+    );
 
-    expect(textContent(container).includes("schemaVersion")).toBeTrue();
-    expect(textContent(container).includes("Arguments")).toBeTrue();
+    expect(textContent(container).includes("Chat created")).toBeTrue();
+    expect(textContent(container).includes("Open chat")).toBeTrue();
+    expect(getByRole("button").getAttribute("aria-label")).toBe("Open chat");
   });
 });

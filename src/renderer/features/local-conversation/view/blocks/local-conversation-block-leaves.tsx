@@ -650,21 +650,21 @@ export function ThreadDynamicToolCallGroupBlock({
     <div className="flex min-w-0 flex-col">
       <button
         type="button"
-        className="group/summary inline-flex w-fit max-w-full cursor-interaction items-center gap-1.5 self-start text-left"
+        className="group/collapsed-tool-activity group/summary inline-flex w-fit max-w-full cursor-interaction items-center gap-1 self-start text-left"
         aria-expanded={isExpanded}
         onClick={() => {
           setIsExpanded((value) => !value);
         }}
       >
         <ToolActivityIcon descriptor={semanticToolIcon("plugin")} />
-        <span className="min-w-0 truncate text-token-description-foreground/90 group-hover/summary:text-token-foreground">
+        <span className="shrink overflow-hidden pr-1 text-token-conversation-summary-trailing [mask-image:linear-gradient(to_right,black_calc(100%_-_0.25rem),transparent)] [mask-repeat:no-repeat] group-hover/collapsed-tool-activity:text-token-foreground">
           {block.summary}
         </span>
         <span className="text-token-foreground/40">·</span>
         <span className="shrink-0 text-token-foreground/40">{repeatText}</span>
         <ChevronRightIcon
           className={cn(
-            "icon-2xs flex-shrink-0 text-token-input-placeholder-foreground opacity-0 transition-transform duration-300 group-hover/summary:opacity-100",
+            "inline-chevron icon-2xs flex-shrink-0 text-token-input-placeholder-foreground opacity-0 transition-transform duration-300 group-hover/collapsed-tool-activity:opacity-100",
             isExpanded && "rotate-90 opacity-100",
           )}
         />
@@ -678,7 +678,7 @@ export function ThreadDynamicToolCallGroupBlock({
         data-thread-find-skip={isExpanded ? undefined : true}
         style={{ pointerEvents: isExpanded ? "auto" : "none" }}
       >
-        <div className="-mx-2.5 mt-1 flex flex-col gap-1 text-token-conversation-body">
+        <div className="-mx-2.5 mt-1 max-h-[20rem] vertical-scroll-fade-mask [--edge-fade-distance:1.5rem] overflow-y-auto flex flex-col gap-1 text-token-conversation-body">
           {block.entries.map((entry) => (
             <ThreadToolSurfaceBlock
               key={entry.id}

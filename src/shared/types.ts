@@ -1284,6 +1284,7 @@ export interface CodexThreadSummary {
   statusType: CodexThreadStatusType;
   statusActiveFlags: CodexThreadActiveFlag[];
   archived: boolean;
+  pinned?: boolean;
   createdAt: number;
   updatedAt: number;
   linkedAt: string;

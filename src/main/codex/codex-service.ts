@@ -19,7 +19,6 @@ import type { CommandExecutionRequestApprovalParams } from "@nodex/codex-app-ser
 import type { CommandExecutionRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/CommandExecutionRequestApprovalResponse";
 import type { DynamicToolCallParams } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallParams";
 import type { DynamicToolCallResponse } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallResponse";
-import type { DynamicToolSpec } from "@nodex/codex-app-server-protocol/v2/DynamicToolSpec";
 import type { FeedbackUploadParams } from "@nodex/codex-app-server-protocol/v2/FeedbackUploadParams";
 import type { GetAccountRateLimitsResponse } from "@nodex/codex-app-server-protocol/v2/GetAccountRateLimitsResponse";
 import type { GetAccountResponse } from "@nodex/codex-app-server-protocol/v2/GetAccountResponse";
@@ -243,6 +242,18 @@ import {
 } from "./worktree-environment-service";
 import { getLogger } from "../logging/logger";
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
+import {
+  buildCodexAppDynamicToolFailure,
+  buildCodexAppDynamicToolSuccess,
+  buildCodexAppMetaThreadToolSpecs,
+  CODEX_APP_HANDOFF_MAX_WAIT_MS,
+  CODEX_APP_LOCAL_HOST_DISPLAY_NAME,
+  CODEX_APP_LOCAL_HOST_ID,
+  CODEX_APP_READ_THREAD_DEFAULT_MAX_OUTPUT_CHARS,
+  CODEX_APP_READ_THREAD_DEFAULT_TURN_LIMIT,
+  CODEX_APP_READ_THREAD_MAX_OUTPUT_CHARS,
+  CODEX_APP_READ_THREAD_MAX_TURN_LIMIT,
+} from "./codex-app-meta-thread-tools";
 import { CodexDictationService } from "./dictation-service";
 import { requestChatGptDesktop } from "./chatgpt-desktop-request";
 import { terminalManager } from "../terminal-manager";
@@ -270,19 +281,7 @@ const CODEX_SIDEBAR_THREAD_SOURCE_KINDS = [
 ] as const satisfies readonly ThreadSourceKind[];
 const require = createRequire(import.meta.url);
 
-const CODEX_DYNAMIC_TOOL_SPECS: DynamicToolSpec[] = [
-  {
-    type: "function",
-    name: "read_thread_terminal",
-    description:
-      "Read the app terminal session attached to the current thread, including cwd, shell, and the latest terminal buffer.",
-    inputSchema: {
-      type: "object",
-      properties: {},
-      additionalProperties: false,
-    },
-  },
-];
+const CODEX_DYNAMIC_TOOL_SPECS = buildCodexAppMetaThreadToolSpecs();
 
 interface ThreadRef {
   projectId: string | null;
@@ -441,6 +440,31 @@ interface PendingMcpServerElicitation {
   request: CodexMcpServerElicitationRequest;
   resolve: (value: McpServerElicitationRequestResponse) => void;
   reject: (reason?: unknown) => void;
+}
+
+type CodexAppHandoffStatusType = "running" | "success" | "warning" | "error";
+
+interface CodexAppHandoffStep {
+  id: string;
+  label: string;
+  status: CodexAppHandoffStatusType;
+  message: string | null;
+  updatedAt: number;
+}
+
+interface CodexAppHandoffOperation {
+  operationId: string;
+  revision: number;
+  status: CodexAppHandoffStatusType;
+  threadId: string;
+  sourceThreadId: string;
+  destinationHostId: string;
+  destinationHostDisplayName: string | null;
+  message: string | null;
+  steps: CodexAppHandoffStep[];
+  createdAt: number;
+  updatedAt: number;
+  completedAt: number | null;
 }
 
 interface ParsedThreadStatus {
@@ -1736,6 +1760,8 @@ export class CodexService extends EventEmitter {
   private readonly pendingApprovals = new Map<string, PendingApproval>();
   private readonly pendingUserInputs = new Map<string, PendingUserInput>();
   private readonly pendingMcpElicitations = new Map<string, PendingMcpServerElicitation>();
+  private readonly codexAppHandoffOperations = new Map<string, CodexAppHandoffOperation>();
+  private readonly codexAppHandoffWaiters = new Map<string, Set<() => void>>();
   private readonly conversationRecords = new Map<string, CodexConversationRecord>();
   private readonly lastBroadcastConversationById = new Map<string, CodexConversationSnapshot>();
   private readonly conversationVersionById = new Map<string, number>();
@@ -7617,10 +7643,7 @@ export class CodexService extends EventEmitter {
   }
 
   private buildDynamicToolSuccess(value: unknown): DynamicToolCallResponse {
-    return {
-      contentItems: [{ type: "inputText", text: JSON.stringify(value ?? null) }],
-      success: true,
-    };
+    return buildCodexAppDynamicToolSuccess(value);
   }
 
   private buildDynamicToolTextSuccess(text: string): DynamicToolCallResponse {
@@ -7631,10 +7654,7 @@ export class CodexService extends EventEmitter {
   }
 
   private buildDynamicToolFailure(message: string): DynamicToolCallResponse {
-    return {
-      contentItems: [{ type: "inputText", text: message }],
-      success: false,
-    };
+    return buildCodexAppDynamicToolFailure(message);
   }
 
   private clampDynamicInt(value: unknown, fallback: number, min: number, max: number): number {
@@ -7646,6 +7666,66 @@ export class CodexService extends EventEmitter {
     if (maxChars <= 0) return "";
     if (value.length <= maxChars) return value;
     return `${value.slice(0, Math.max(0, maxChars - 3))}...`;
+  }
+
+  private parseDynamicString(value: unknown): string | null {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  private parseDynamicReasoningEffort(value: unknown): CodexReasoningEffort | undefined {
+    if (value === "low" || value === "medium" || value === "high" || value === "xhigh") return value;
+    return undefined;
+  }
+
+  private async resolveDynamicThreadDetail(threadId: string): Promise<CodexThreadDetail> {
+    const normalizedThreadId = threadId.trim();
+    if (!normalizedThreadId) throw new Error("Thread id is required");
+
+    const loaded = this.serializeThreadDetail(normalizedThreadId);
+    if (loaded) return loaded;
+
+    const link = this.getThreadLinkSafely(normalizedThreadId);
+    if (!link) throw new Error(`No Codex thread found for threadId: ${normalizedThreadId}`);
+
+    const read = await this.readThread(normalizedThreadId, false);
+    if (read) return read;
+    const reloaded = this.serializeThreadDetail(normalizedThreadId);
+    if (reloaded) return reloaded;
+    throw new Error(`Thread '${normalizedThreadId}' was not found`);
+  }
+
+  private listDynamicThreadSummaries(): CodexThreadSummary[] {
+    const byId = new Map<string, CodexThreadSummary>();
+    for (const summary of listCodexThreadLinks({ includeArchived: true })) {
+      byId.set(summary.threadId, summary);
+    }
+    for (const threadId of this.conversationRecords.keys()) {
+      const detail = this.serializeThreadDetail(threadId);
+      if (!detail) continue;
+      byId.set(detail.threadId, {
+        threadId: detail.threadId,
+        projectId: detail.projectId,
+        source: detail.source,
+        ephemeral: detail.ephemeral,
+        threadName: detail.threadName,
+        threadPreview: detail.threadPreview,
+        modelProvider: detail.modelProvider,
+        cwd: detail.cwd,
+        approvalPolicy: detail.approvalPolicy,
+        approvalsReviewer: detail.approvalsReviewer,
+        sandbox: detail.sandbox,
+        statusType: detail.statusType,
+        statusActiveFlags: detail.statusActiveFlags,
+        archived: detail.archived,
+        pinned: detail.pinned,
+        createdAt: detail.createdAt,
+        updatedAt: detail.updatedAt,
+        linkedAt: detail.linkedAt,
+      });
+    }
+    return Array.from(byId.values()).sort((left, right) => right.updatedAt - left.updatedAt);
   }
 
   private serializeDynamicThreadItem(
@@ -7746,17 +7826,26 @@ export class CodexService extends EventEmitter {
     };
   }
 
-  private buildDynamicReadThreadResponse(args: Record<string, unknown>): Record<string, unknown> {
+  private async buildDynamicReadThreadResponse(args: Record<string, unknown>): Promise<Record<string, unknown>> {
     const threadId = typeof args.threadId === "string" ? args.threadId.trim() : "";
     if (!threadId) throw new Error("read_thread requires threadId");
 
-    const detail = this.serializeThreadDetail(threadId);
-    if (!detail) throw new Error(`Thread '${threadId}' was not found`);
+    const detail = await this.resolveDynamicThreadDetail(threadId);
 
     const cursor = typeof args.cursor === "string" && args.cursor.trim() ? args.cursor.trim() : null;
-    const turnLimit = this.clampDynamicInt(args.turnLimit, 5, 1, 10);
+    const turnLimit = this.clampDynamicInt(
+      args.turnLimit,
+      CODEX_APP_READ_THREAD_DEFAULT_TURN_LIMIT,
+      1,
+      CODEX_APP_READ_THREAD_MAX_TURN_LIMIT,
+    );
     const includeOutputs = args.includeOutputs === true;
-    const maxOutputCharsPerItem = this.clampDynamicInt(args.maxOutputCharsPerItem, 20_000, 0, 20_000);
+    const maxOutputCharsPerItem = this.clampDynamicInt(
+      args.maxOutputCharsPerItem,
+      CODEX_APP_READ_THREAD_DEFAULT_MAX_OUTPUT_CHARS,
+      0,
+      CODEX_APP_READ_THREAD_MAX_OUTPUT_CHARS,
+    );
     const cursorIndex = cursor === null
       ? detail.turns.length
       : detail.turns.findIndex((turn) => turn.turnId === cursor);
@@ -7777,6 +7866,7 @@ export class CodexService extends EventEmitter {
       schemaVersion: 1,
       thread: {
         id: detail.threadId,
+        hostId: CODEX_APP_LOCAL_HOST_ID,
         title: detail.threadName,
         preview: detail.threadPreview,
         status: {
@@ -7825,30 +7915,193 @@ export class CodexService extends EventEmitter {
     return lines.join("\n");
   }
 
+  private notifyCodexAppHandoffWaiters(operationId: string): void {
+    const waiters = this.codexAppHandoffWaiters.get(operationId);
+    if (!waiters) return;
+    this.codexAppHandoffWaiters.delete(operationId);
+    for (const resolve of waiters) resolve();
+  }
+
+  private recordCodexAppHandoffOperation(operation: CodexAppHandoffOperation): CodexAppHandoffOperation {
+    this.codexAppHandoffOperations.set(operation.operationId, operation);
+    this.notifyCodexAppHandoffWaiters(operation.operationId);
+    return operation;
+  }
+
+  private updateCodexAppHandoffOperation(
+    operationId: string,
+    update: Partial<Omit<CodexAppHandoffOperation, "operationId" | "createdAt">>,
+  ): CodexAppHandoffOperation | null {
+    const existing = this.codexAppHandoffOperations.get(operationId);
+    if (!existing) return null;
+    const next: CodexAppHandoffOperation = {
+      ...existing,
+      ...update,
+      operationId,
+      revision: existing.revision + 1,
+      createdAt: existing.createdAt,
+      updatedAt: Date.now(),
+    };
+    return this.recordCodexAppHandoffOperation(next);
+  }
+
+  private buildCodexAppHandoffStep(
+    id: string,
+    label: string,
+    status: CodexAppHandoffStatusType,
+    message: string | null,
+  ): CodexAppHandoffStep {
+    return {
+      id,
+      label,
+      status,
+      message,
+      updatedAt: Date.now(),
+    };
+  }
+
+  private serializeCodexAppHandoffOperation(operation: CodexAppHandoffOperation): Record<string, unknown> {
+    return {
+      operationId: operation.operationId,
+      revision: operation.revision,
+      status: operation.status,
+      threadId: operation.threadId,
+      sourceThreadId: operation.sourceThreadId,
+      destinationHostId: operation.destinationHostId,
+      destinationHostDisplayName: operation.destinationHostDisplayName,
+      message: operation.message,
+      steps: operation.steps,
+      createdAt: operation.createdAt,
+      updatedAt: operation.updatedAt,
+      completedAt: operation.completedAt,
+    };
+  }
+
+  private async waitForCodexAppHandoffRevision(
+    operationId: string,
+    afterRevision: number | null,
+    waitMs: number,
+  ): Promise<CodexAppHandoffOperation | null> {
+    const existing = this.codexAppHandoffOperations.get(operationId) ?? null;
+    if (!existing || waitMs <= 0 || afterRevision === null || existing.revision > afterRevision) {
+      return existing;
+    }
+    if (existing.status === "success" || existing.status === "warning" || existing.status === "error") {
+      return existing;
+    }
+
+    await new Promise<void>((resolve) => {
+      const waiters = this.codexAppHandoffWaiters.get(operationId) ?? new Set<() => void>();
+      const timeout = setTimeout(() => {
+        waiters.delete(resolveOnce);
+        if (waiters.size === 0) this.codexAppHandoffWaiters.delete(operationId);
+        resolve();
+      }, waitMs);
+      const resolveOnce = () => {
+        clearTimeout(timeout);
+        waiters.delete(resolveOnce);
+        if (waiters.size === 0) this.codexAppHandoffWaiters.delete(operationId);
+        resolve();
+      };
+      waiters.add(resolveOnce);
+      this.codexAppHandoffWaiters.set(operationId, waiters);
+    });
+
+    return this.codexAppHandoffOperations.get(operationId) ?? null;
+  }
+
+  private buildInitialCodexAppHandoffOperation(input: {
+    operationId: string;
+    threadId: string;
+  }): CodexAppHandoffOperation {
+    const now = Date.now();
+    return {
+      operationId: input.operationId,
+      revision: 0,
+      status: "running",
+      threadId: input.threadId,
+      sourceThreadId: input.threadId,
+      destinationHostId: CODEX_APP_LOCAL_HOST_ID,
+      destinationHostDisplayName: CODEX_APP_LOCAL_HOST_DISPLAY_NAME,
+      message: "Preparing thread handoff.",
+      steps: [
+        this.buildCodexAppHandoffStep("resolve-thread", "Resolve thread", "success", null),
+        this.buildCodexAppHandoffStep("handoff", "Move thread", "running", "Preparing thread handoff."),
+      ],
+      createdAt: now,
+      updatedAt: now,
+      completedAt: null,
+    };
+  }
+
+  private runCodexAppLocalHandoff(operationId: string, followUpPrompt: string | null): void {
+    void (async () => {
+      const operation = this.codexAppHandoffOperations.get(operationId);
+      if (!operation) return;
+      try {
+        const detail = await this.resolveDynamicThreadDetail(operation.threadId);
+        if (followUpPrompt) {
+          await this.startTurn(detail.threadId, followUpPrompt);
+        }
+        this.updateCodexAppHandoffOperation(operationId, {
+          status: "success",
+          message: "Thread handoff completed on the local host.",
+          steps: [
+            this.buildCodexAppHandoffStep("resolve-thread", "Resolve thread", "success", null),
+            this.buildCodexAppHandoffStep("handoff", "Move thread", "success", "Thread is available on the local host."),
+            ...(followUpPrompt
+              ? [this.buildCodexAppHandoffStep("follow-up", "Send follow-up", "success", null)]
+              : []),
+          ],
+          completedAt: Date.now(),
+        });
+      } catch (error) {
+        this.updateCodexAppHandoffOperation(operationId, {
+          status: "error",
+          message: error instanceof Error ? error.message : String(error),
+          steps: [
+            this.buildCodexAppHandoffStep("resolve-thread", "Resolve thread", "success", null),
+            this.buildCodexAppHandoffStep(
+              "handoff",
+              "Move thread",
+              "error",
+              error instanceof Error ? error.message : String(error),
+            ),
+          ],
+          completedAt: Date.now(),
+        });
+      }
+    })();
+  }
+
   private async handleDynamicToolCall(params: DynamicToolCallParams): Promise<DynamicToolCallResponse> {
     const args = asRecord(params.arguments) ?? {};
 
     try {
-      if (params.tool === "read_thread") {
-        return this.buildDynamicToolSuccess(this.buildDynamicReadThreadResponse(args));
-      }
-
       if (params.tool === "read_thread_terminal") {
         return this.buildDynamicToolTextSuccess(
           this.buildDynamicReadThreadTerminalResponse(params.threadId),
         );
       }
 
+      if (params.tool === "list_projects") {
+        if (Object.keys(args).length > 0) throw new Error("list_projects received invalid arguments.");
+        const projects = listProjects().map((project) => ({
+          projectId: project.id,
+          projectKind: "local",
+          label: project.name,
+          ...(project.primaryWorkspaceRoot ? { path: project.primaryWorkspaceRoot } : {}),
+          hostId: CODEX_APP_LOCAL_HOST_ID,
+          hostDisplayName: CODEX_APP_LOCAL_HOST_DISPLAY_NAME,
+        }));
+        return this.buildDynamicToolSuccess({ schemaVersion: 1, projects });
+      }
+
       if (params.tool === "list_threads") {
-        const sourceRef = this.parseThreadRef(params.threadId);
-        const limit = this.clampDynamicInt(args.limit, 20, 1, 50);
-        const query = typeof args.query === "string" ? args.query.trim().toLowerCase() : "";
-        const threads = sourceRef?.projectId
-          ? await this.listProjectThreads(sourceRef.projectId, { includeArchived: true })
-          : Array.from(this.conversationRecords.keys())
-              .map((threadId) => this.serializeThreadDetail(threadId))
-              .filter((thread): thread is CodexThreadDetail => thread !== null);
-        const filtered = threads
+        const limit = this.clampDynamicInt(args.limit, 10, 1, 50);
+        const rawQuery = typeof args.query === "string" ? args.query.trim() : "";
+        const query = rawQuery.toLowerCase();
+        const threads = this.listDynamicThreadSummaries()
           .filter((thread) => {
             if (!query) return true;
             return [
@@ -7860,47 +8113,60 @@ export class CodexService extends EventEmitter {
           })
           .slice(0, limit)
           .map((thread) => ({
-            threadId: thread.threadId,
-            title: thread.threadName,
+            id: thread.threadId,
+            hostId: CODEX_APP_LOCAL_HOST_ID,
+            title: thread.threadName?.trim() || thread.threadPreview.trim() || thread.threadId,
             preview: thread.threadPreview,
             status: thread.statusType,
             cwd: thread.cwd,
-            archived: thread.archived,
+            createdAt: thread.createdAt,
             updatedAt: thread.updatedAt,
           }));
-        return this.buildDynamicToolSuccess({ threads: filtered });
+        return this.buildDynamicToolSuccess({
+          schemaVersion: 1,
+          query: rawQuery.length > 0 ? rawQuery : null,
+          threads,
+        });
+      }
+
+      if (params.tool === "read_thread") {
+        return this.buildDynamicToolSuccess(await this.buildDynamicReadThreadResponse(args));
       }
 
       if (params.tool === "send_message_to_thread") {
-        const threadId = typeof args.threadId === "string" ? args.threadId.trim() : "";
-        const prompt = typeof args.prompt === "string" ? args.prompt.trim() : "";
+        const threadId = this.parseDynamicString(args.threadId) ?? "";
+        const prompt = this.parseDynamicString(args.prompt) ?? "";
         if (!threadId || !prompt) throw new Error("send_message_to_thread requires threadId and prompt");
-        const turn = await this.startTurn(threadId, prompt, {
-          model: typeof args.model === "string" ? args.model : undefined,
+        await this.resolveDynamicThreadDetail(threadId);
+        await this.startTurn(threadId, prompt, {
+          model: this.parseDynamicString(args.model) ?? undefined,
+          reasoningEffort: this.parseDynamicReasoningEffort(args.thinking),
         });
-        return this.buildDynamicToolSuccess({ threadId, turnId: turn?.turnId ?? null });
+        return this.buildDynamicToolSuccess({ threadId });
       }
 
       if (params.tool === "set_thread_title") {
-        const threadId = typeof args.threadId === "string" ? args.threadId.trim() : "";
-        const title = typeof args.title === "string" ? args.title.trim() : "";
+        const threadId = this.parseDynamicString(args.threadId) ?? "";
+        const title = this.parseDynamicString(args.title) ?? "";
         if (!threadId || !title) throw new Error("set_thread_title requires threadId and title");
+        await this.resolveDynamicThreadDetail(threadId);
         await this.setThreadName(threadId, title);
         return this.buildDynamicToolSuccess({ threadId, title });
       }
 
       if (params.tool === "set_thread_archived") {
-        const threadId = typeof args.threadId === "string" ? args.threadId.trim() : "";
+        const threadId = this.parseDynamicString(args.threadId) ?? params.threadId;
         if (!threadId || typeof args.archived !== "boolean") {
           throw new Error("set_thread_archived requires threadId and archived");
         }
+        await this.resolveDynamicThreadDetail(threadId);
         if (args.archived) await this.archiveThread(threadId);
         else await this.unarchiveThread(threadId);
         return this.buildDynamicToolSuccess({ threadId, archived: args.archived });
       }
 
       if (params.tool === "set_thread_pinned") {
-        const threadId = typeof args.threadId === "string" ? args.threadId.trim() : "";
+        const threadId = this.parseDynamicString(args.threadId) ?? "";
         if (!threadId || typeof args.pinned !== "boolean") {
           throw new Error("set_thread_pinned requires threadId and pinned");
         }
@@ -7909,11 +8175,15 @@ export class CodexService extends EventEmitter {
       }
 
       if (params.tool === "fork_thread") {
-        const sourceThreadId = typeof args.threadId === "string" && args.threadId.trim()
-          ? args.threadId.trim()
-          : params.threadId;
-        const sourceDetail = this.serializeThreadDetail(sourceThreadId) ?? await this.readThread(sourceThreadId, false);
-        if (!sourceDetail) throw new Error(`Thread '${sourceThreadId}' was not found`);
+        const sourceThreadId = this.parseDynamicString(args.threadId) ?? params.threadId;
+        const sourceDetail = await this.resolveDynamicThreadDetail(sourceThreadId);
+        const environment = asRecord(args.environment);
+        if (environment?.type === "worktree") {
+          return this.buildDynamicToolSuccess({ pendingWorktreeId: randomUUID() });
+        }
+        if (environment && environment.type !== "same-directory") {
+          throw new Error("fork_thread received invalid arguments.");
+        }
         const result = await this.client.request<"thread/fork", ThreadForkResponse>("thread/fork", {
           threadId: sourceThreadId,
           cwd: sourceDetail.cwd,
@@ -7926,24 +8196,77 @@ export class CodexService extends EventEmitter {
       }
 
       if (params.tool === "create_thread") {
-        const prompt = typeof args.prompt === "string" ? args.prompt.trim() : "";
-        if (!prompt) throw new Error("create_thread requires prompt");
+        const prompt = this.parseDynamicString(args.prompt) ?? "";
+        const target = asRecord(args.target);
+        if (!prompt || !target) throw new Error("create_thread requires prompt and target");
+        if (target.type === "project") {
+          const environment = asRecord(target.environment);
+          if (environment?.type === "worktree") {
+            return this.buildDynamicToolSuccess({ pendingWorktreeId: randomUUID() });
+          }
+          if (environment?.type !== "local") throw new Error("create_thread received invalid target environment.");
+        } else if (target.type !== "projectless") {
+          throw new Error("create_thread received invalid target.");
+        }
+
         const sourceDetail = this.serializeThreadDetail(params.threadId);
+        const projectId = target.type === "project" ? this.parseDynamicString(target.projectId) : null;
+        const projectContext = projectId ? this.maybeResolveProjectRuntimeContext(projectId) : null;
+        const cwd = projectContext?.primaryWorkspaceRoot ?? sourceDetail?.cwd ?? null;
         const result = await this.client.request<"thread/start", ThreadStartResponse>("thread/start", {
-          cwd: sourceDetail?.cwd ?? null,
-          model: typeof args.model === "string" ? args.model : null,
+          cwd,
+          model: this.parseDynamicString(args.model),
           config: buildCodexThreadConfigOverrides(),
           experimentalRawEvents: THREAD_START_EXPERIMENTAL_RAW_EVENTS,
           dynamicTools: CODEX_DYNAMIC_TOOL_SPECS,
         });
-        const { detail, summary } = this.materializeThreadDetailFromThreadPayload(result.thread, null, sourceDetail?.cwd ?? null);
+        const fallbackRef = projectId
+          ? { projectId, cardId: null, cwd }
+          : null;
+        const { detail, summary } = this.materializeThreadDetailFromThreadPayload(result.thread, fallbackRef, cwd);
         this.setConversationRecordDetail(detail);
         if (summary) this.emitEvent({ type: "threadSummary", thread: summary });
-        const turn = await this.startTurn(detail.threadId, prompt, {
-          model: typeof args.model === "string" ? args.model : undefined,
+        await this.startTurn(detail.threadId, prompt, {
+          model: this.parseDynamicString(args.model) ?? undefined,
+          reasoningEffort: this.parseDynamicReasoningEffort(args.thinking),
         });
         this.emitThreadStreamSnapshotFromRecord(detail.threadId);
-        return this.buildDynamicToolSuccess({ threadId: detail.threadId, turnId: turn?.turnId ?? null });
+        return this.buildDynamicToolSuccess({ threadId: detail.threadId });
+      }
+
+      if (params.tool === "handoff_thread") {
+        const threadId = this.parseDynamicString(args.threadId) ?? "";
+        if (!threadId) throw new Error("handoff_thread requires threadId");
+        if (threadId === params.threadId) {
+          throw new Error("A thread cannot hand itself off. Choose another thread.");
+        }
+        const destinationHostId = this.parseDynamicString(args.destinationHostId);
+        if (destinationHostId && destinationHostId !== CODEX_APP_LOCAL_HOST_ID) {
+          throw new Error(`Host ${destinationHostId} is not available for thread handoff.`);
+        }
+        await this.resolveDynamicThreadDetail(threadId);
+        const operationId = params.callId || randomUUID();
+        const existing = this.codexAppHandoffOperations.get(operationId);
+        if (existing) return this.buildDynamicToolSuccess(this.serializeCodexAppHandoffOperation(existing));
+        const operation = this.recordCodexAppHandoffOperation(
+          this.buildInitialCodexAppHandoffOperation({ operationId, threadId }),
+        );
+        this.runCodexAppLocalHandoff(operationId, this.parseDynamicString(args.followUpPrompt));
+        return this.buildDynamicToolSuccess(this.serializeCodexAppHandoffOperation(operation));
+      }
+
+      if (params.tool === "get_handoff_status") {
+        const operationId = this.parseDynamicString(args.operationId) ?? "";
+        if (!operationId) throw new Error("get_handoff_status requires operationId");
+        const afterRevision = typeof args.afterRevision === "number" && Number.isInteger(args.afterRevision) && args.afterRevision >= 0
+          ? args.afterRevision
+          : null;
+        const waitMs = this.clampDynamicInt(args.waitMs, 0, 0, CODEX_APP_HANDOFF_MAX_WAIT_MS);
+        const operation = await this.waitForCodexAppHandoffRevision(operationId, afterRevision, waitMs);
+        if (!operation) {
+          throw new Error(`No thread handoff operation found for operationId ${operationId}.`);
+        }
+        return this.buildDynamicToolSuccess(this.serializeCodexAppHandoffOperation(operation));
       }
 
       return this.buildDynamicToolFailure(`Unsupported dynamic tool: ${params.tool}`);

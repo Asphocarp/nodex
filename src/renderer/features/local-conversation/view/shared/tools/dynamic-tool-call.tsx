@@ -11,7 +11,10 @@ import { CodeBlock, JsonBlock, ToolErrorDetail } from "./tool-primitives";
 import { ToolActivityIcon, semanticToolIcon } from "./tool-call-icons";
 import {
   extractDynamicToolTextContent,
+  isCodexAppMetaThreadTool,
   isLikelyJsonText,
+  parseCodexAppCreateThreadResult,
+  resolveCodexAppMetaThreadToolLabel,
   resolveDynamicToolLabelFromName,
   resolveDynamicToolLeadingLabelFromName,
 } from "./dynamic-tool-call-utils";
@@ -55,6 +58,72 @@ function DynamicToolOutput({ call }: { call: CodexDynamicToolCallView }) {
   );
 }
 
+function openCodexAppCreatedThreadResult(result: ReturnType<typeof parseCodexAppCreateThreadResult>) {
+  if (!result) return;
+  if (typeof result.threadId === "string") {
+    window.location.hash = `#/threads/${encodeURIComponent(result.threadId)}`;
+    return;
+  }
+  window.location.hash = `#/worktrees/pending/${encodeURIComponent(result.pendingWorktreeId)}`;
+}
+
+function CodexAppCreatedThreadCard({ call }: { call: CodexDynamicToolCallView }) {
+  const result = parseCodexAppCreateThreadResult(call);
+  if (!result) return null;
+
+  const isPendingWorktree = "pendingWorktreeId" in result;
+  const ariaLabel = isPendingWorktree ? "Open worktree setup" : "Open chat";
+  const title = isPendingWorktree ? "Worktree chat queued" : "Chat created";
+  const action = isPendingWorktree ? "Open setup" : "Open chat";
+
+  return (
+    <div className="my-1">
+      <button
+        type="button"
+        aria-label={ariaLabel}
+        className="w-full cursor-interaction text-left hover:bg-token-list-hover-background/30 focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none focus-visible:ring-inset"
+        onClick={() => openCodexAppCreatedThreadResult(result)}
+      >
+        <div className="flex min-w-0 items-center gap-2 px-1.5 py-1">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-token-bg-secondary text-token-text-secondary">
+            <ToolActivityIcon descriptor={semanticToolIcon("plugin")} className="icon-sm" />
+          </span>
+          <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
+            <span className="min-w-0 truncate text-size-chat text-token-conversation-summary-leading">
+              {title}
+            </span>
+            <span className="shrink-0 text-size-chat text-token-conversation-summary-trailing">
+              {action}
+            </span>
+          </span>
+        </div>
+      </button>
+    </div>
+  );
+}
+
+function CodexAppMetaThreadToolCall({ call }: { call: CodexDynamicToolCallView }) {
+  if (call.tool === "create_thread" && call.completed && call.success === true) {
+    const card = <CodexAppCreatedThreadCard call={call} />;
+    if (card) return card;
+  }
+
+  const label = resolveCodexAppMetaThreadToolLabel(call);
+  if (!label) return null;
+
+  return (
+    <span className="text-size-chat min-w-0 items-center flex gap-2 my-1 text-token-conversation-summary-leading">
+      <ToolActivityIcon
+        descriptor={semanticToolIcon("plugin")}
+        className="icon-xs shrink-0 text-token-text-secondary"
+      />
+      <CodexShimmerText active={!call.completed} className="min-w-0 truncate">
+        {label}
+      </CodexShimmerText>
+    </span>
+  );
+}
+
 export function DynamicToolCall({ item }: ToolComponentProps) {
   const bodyId = useId();
   const call = item.dynamicToolCall ?? null;
@@ -62,6 +131,10 @@ export function DynamicToolCall({ item }: ToolComponentProps) {
   const { elementHeightPx, elementRef } = useMeasuredElementHeight();
 
   if (!call) return null;
+
+  if (isCodexAppMetaThreadTool(call)) {
+    return <CodexAppMetaThreadToolCall call={call} />;
+  }
 
   const label = resolveDynamicToolLabelFromName(call.tool);
   const leadingLabel = resolveDynamicToolLeadingLabelFromName(call.tool, call.completed);

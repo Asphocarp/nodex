@@ -1230,6 +1230,40 @@ function buildReadThreadDynamicStoryItem(): CodexTranscriptEntry {
   };
 }
 
+function buildCodexAppMetaDynamicStoryItem(input: {
+  id: string;
+  tool: string;
+  completed: boolean;
+  success?: boolean | null;
+  args?: unknown;
+  contentText?: string;
+}): CodexTranscriptEntry {
+  return {
+    ...buildReadThreadDynamicStoryItem(),
+    itemId: input.id,
+    entryId: input.id,
+    status: input.completed ? "completed" : "inProgress",
+    toolCall: {
+      subtype: "dynamic",
+      toolName: input.tool,
+      server: "codex_app",
+      args: input.args ?? {},
+      result: input.contentText ? [{ type: "inputText", text: input.contentText }] : undefined,
+    },
+    dynamicToolCall: {
+      callId: input.id,
+      namespace: "codex_app",
+      tool: input.tool,
+      arguments: input.args ?? {},
+      status: input.completed ? "completed" : "inProgress",
+      contentItems: input.contentText ? [{ type: "inputText", text: input.contentText }] : null,
+      success: input.success ?? (input.completed ? true : null),
+      durationMs: input.completed ? 18 : null,
+      completed: input.completed,
+    },
+  };
+}
+
 function buildPendingMcpStoryBlock(): ThreadPendingMcpToolCallsBlockModel {
   const entry = THREAD_TOOL_CALL_STORY_ITEMS.mcpInProgress;
   return {
@@ -1272,10 +1306,70 @@ export const DynamicToolCallReadThread: Story = {
   render: () => (
     <StorySurface
       title="Dynamic Tool Call Read Thread"
-      description="Codex app-server dynamic thread tools render as compact expandable rows with JSON output."
+      description="Codex app-server dynamic thread tools render as compact Codex rows."
     >
       <ConversationStorySurface>
         <DynamicToolCall item={buildReadThreadDynamicStoryItem()} />
+      </ConversationStorySurface>
+    </StorySurface>
+  ),
+};
+
+export const CodexAppMetaThreadTools: Story = {
+  render: () => (
+    <StorySurface
+      title="Codex App Meta Thread Tools"
+      description="Parity fixture for codex_app thread control rows and create-thread success cards."
+    >
+      <ConversationStorySurface>
+        <div className="flex flex-col gap-1">
+          <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
+            id: "create-active",
+            tool: "create_thread",
+            completed: false,
+            args: { prompt: "Background follow-up", target: { type: "projectless" } },
+          })} />
+          <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
+            id: "create-completed",
+            tool: "create_thread",
+            completed: true,
+            args: { prompt: "Background follow-up", target: { type: "projectless" } },
+            contentText: "{\"threadId\":\"thread-created\"}",
+          })} />
+          <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
+            id: "create-worktree",
+            tool: "create_thread",
+            completed: true,
+            args: {
+              prompt: "Worktree follow-up",
+              target: { type: "project", projectId: "project-1", environment: { type: "worktree" } },
+            },
+            contentText: "{\"pendingWorktreeId\":\"pending-worktree\"}",
+          })} />
+          <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
+            id: "fork-worktree",
+            tool: "fork_thread",
+            completed: false,
+            args: { environment: { type: "worktree" } },
+          })} />
+          <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
+            id: "list-threads",
+            tool: "list_threads",
+            completed: false,
+          })} />
+          <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
+            id: "read-thread",
+            tool: "read_thread",
+            completed: true,
+            args: { threadId: "thread-story" },
+          })} />
+          <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
+            id: "handoff-status",
+            tool: "get_handoff_status",
+            completed: true,
+            args: { operationId: "handoff-1" },
+          })} />
+        </div>
       </ConversationStorySurface>
     </StorySurface>
   ),

@@ -108,6 +108,14 @@
   color: var(--color-token-charts-red);
 }
 
+@utility text-token-conversation-summary-leading {
+  color: var(--color-token-text-primary);
+}
+
+@utility text-token-conversation-summary-trailing {
+  color: color-mix(in srgb, var(--color-token-text-primary) 40%, transparent);
+}
+
 .diff-stat-digit-column {
   display: inline-block;
   width: 1ch;

@@ -11,6 +11,7 @@ import {
   setCodexThreadPinned,
   updateCodexThreadArchived,
   updateCodexThreadName,
+  updateCodexThreadPinned,
   updateCodexThreadStatus,
   upsertCodexThread,
 } from "./codex-link-repository";
@@ -95,7 +96,7 @@ describe("codex-link-repository", () => {
     if (!ran) expect(true).toBeTrue();
   });
 
-  test("archives, renames, and status updates links", async () => {
+  test("archives, pins, renames, and status updates links", async () => {
     const ran = await withTempDatabase(async () => {
       upsertCodexThread({
         projectId: projectId,
@@ -111,6 +112,16 @@ describe("codex-link-repository", () => {
 
       const archived = updateCodexThreadArchived("thr_test_2", true);
       expect(archived?.archived).toBe(true);
+
+      const pinned = updateCodexThreadPinned("thr_test_2", true);
+      expect(pinned?.pinned).toBe(true);
+
+      const refreshed = upsertCodexThread({
+        projectId: projectId,
+        threadId: "thr_test_2",
+        threadName: "Refreshed thread",
+      });
+      expect(refreshed.pinned).toBe(true);
 
       const visible = listCodexProjectThreads(projectId, { includeArchived: false });
       expect(visible.length).toBe(0);
