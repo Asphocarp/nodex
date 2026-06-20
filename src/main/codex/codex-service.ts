@@ -4417,6 +4417,24 @@ export class CodexService extends EventEmitter {
     detail.transcript = transcript;
   }
 
+  private persistThreadDetailSummary(detail: CodexThreadDetail): void {
+    upsertCodexThread({
+      projectId: detail.projectId,
+      threadId: detail.threadId,
+      source: detail.source,
+      threadName: detail.threadName,
+      threadPreview: detail.threadPreview,
+      modelProvider: detail.modelProvider,
+      cwd: detail.cwd,
+      statusType: detail.statusType,
+      statusActiveFlags: detail.statusActiveFlags,
+      archived: detail.archived,
+      createdAt: detail.createdAt,
+      updatedAt: detail.updatedAt,
+      linkedAt: detail.linkedAt,
+    });
+  }
+
   private hasKnownThreadDetail(threadId: string): boolean {
     const detail = this.getMaybeConversationRecord(threadId)?.detail;
     if (!detail) return false;
@@ -4689,6 +4707,7 @@ export class CodexService extends EventEmitter {
     const existingRecord = this.getMaybeConversationRecord(threadId);
     return {
       ...link,
+      threadPreview: resolveThreadPreviewFromTranscript(transcript, link.threadPreview),
       approvalPolicy: existingRecord?.detail?.approvalPolicy ?? null,
       approvalsReviewer: existingRecord?.detail?.approvalsReviewer ?? null,
       sandbox: existingRecord?.detail?.sandbox ?? null,
@@ -5513,6 +5532,7 @@ export class CodexService extends EventEmitter {
 
     const reconciledDetail = this.reconcileDetailTranscriptToTerminalTurnStatus(liveDetail);
     this.setConversationRecordDetail(reconciledDetail);
+    this.persistThreadDetailSummary(reconciledDetail);
     return reconciledDetail;
   }
 
@@ -5545,6 +5565,7 @@ export class CodexService extends EventEmitter {
 
     const detail = this.reconcileDetailTranscriptToTerminalTurnStatus(liveDetail);
     this.setConversationRecordDetail(detail);
+    this.persistThreadDetailSummary(detail);
 
     record.isStreaming = true;
     record.streamRole = "owner";

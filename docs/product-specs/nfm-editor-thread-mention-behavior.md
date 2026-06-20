@@ -28,7 +28,7 @@ The mention references a Codex app-server thread/session id as an opaque string.
 - The inline surface follows a minimal Notion page-mention style: inherited body text color, a small thread icon, medium-weight underlined label, no filled pill background, and no inline status badge.
 - The display label resolves in this order:
   1. `threadName`
-  2. First non-empty line of `threadPreview`
+  2. First non-empty line of `threadPreview`; when transcript history is available, Nodex derives this preview from the thread's first user message.
   3. Shortened thread id
 - If the thread cannot be resolved, the mention displays `Missing thread` while preserving the original `uuid`.
 - Status text for archived, system-error, approval, waiting, active, idle, loading, and missing states is reserved for hover titles and popovers; it is not rendered inline in the editor body.

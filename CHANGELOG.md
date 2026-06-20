@@ -35,6 +35,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Card Stage history now opens as an app-shell version-history modal with post-change card snapshot previews rendered through the read-only NFM editor surface.
+- Codex thread previews now prefer the first user message from available transcript history, so thread mention fallback labels and thread pickers reflect the original request instead of the latest assistant response.
 - Project names are now display-only: renaming a project no longer changes its stable server-generated UUID.
 - Project row actions now own rename, icon, source-folder, Finder, and delete management directly from the sidebar.
 - Matched the Workbench Projects header and project folder fold animations to the shipped Codex sidebar motion.

@@ -166,13 +166,26 @@ export function resolveThreadPreviewFromTranscript(
   transcript: CodexTranscriptEntry[],
   fallback: string,
 ): string {
-  for (let index = transcript.length - 1; index >= 0; index -= 1) {
-    const candidate = transcript[index]?.markdownText?.trim();
+  for (const entry of transcript) {
+    const candidate = entry.markdownText?.trim();
+    if (!candidate || !isUserTranscriptEntry(entry)) continue;
+    return candidate;
+  }
+
+  const fallbackPreview = fallback.trim();
+  if (fallbackPreview) return fallbackPreview;
+
+  for (const entry of transcript) {
+    const candidate = entry.markdownText?.trim();
     if (!candidate) continue;
     return candidate;
   }
 
-  return fallback;
+  return "";
+}
+
+function isUserTranscriptEntry(entry: CodexTranscriptEntry): boolean {
+  return entry.role === "user" || entry.kind === "userMessage" || entry.semanticKind === "userMessage";
 }
 
 export function projectItemToLiveTranscriptEntry(

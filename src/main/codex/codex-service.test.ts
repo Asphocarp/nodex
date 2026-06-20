@@ -782,12 +782,16 @@ describe("codex-service session-backed transcript recovery", () => {
       try {
         const detail = await service.readThread("thr_replay_merge", true);
         const serialized = service.serializeThreadDetail("thr_replay_merge");
+        const persisted = getCodexThread("thr_replay_merge");
 
         expect(detail).not.toBeNull();
+        expect(detail?.threadPreview).toBe("who are you");
         expect(detail?.transcript.length).toBe(2);
         expect(detail?.transcript[0]?.markdownText).toBe("who are you");
         expect(detail?.transcript[1]?.markdownText).toBe("Codex, your coding agent in this repo.");
+        expect(serialized?.threadPreview).toBe("who are you");
         expect(serialized?.transcript.length).toBe(2);
+        expect(persisted?.threadPreview).toBe("who are you");
       } finally {
         await service.shutdown();
       }

@@ -160,7 +160,7 @@ describe("codex-session-store", () => {
       expect(detail?.transcript[1]?.toolCall?.result ? JSON.stringify(detail.transcript[1].toolCall?.result) : "").toBe(
         JSON.stringify({ ok: true }),
       );
-      expect(detail?.threadPreview).toBe("Done.");
+      expect(detail?.threadPreview).toBe("Implement it");
     });
   });
 
@@ -246,7 +246,7 @@ describe("codex-session-store", () => {
       expect(detail?.transcript[2]?.kind).toBe("toolCall");
       expect(detail?.transcript[3]?.kind).toBe("assistantMessage");
       expect(detail?.transcript[3]?.assistantPhase).toBe("final_answer");
-      expect(detail?.threadPreview).toBe("`bun test` passed.");
+      expect(detail?.threadPreview).toBe("run bun test");
     });
   });
 
@@ -354,7 +354,7 @@ describe("codex-session-store", () => {
       expect(detail?.transcript[3]?.turnId).toBe("turn_after_compaction");
       expect(detail?.transcript[3]?.markdownText).toBe("Continue with the implementation");
       expect(detail?.transcript[4]?.turnId).toBe("turn_after_compaction");
-      expect(detail?.threadPreview).toBe("Implementation resumed after compaction.");
+      expect(detail?.threadPreview).toBe("Summarize the repo");
     });
   });
 

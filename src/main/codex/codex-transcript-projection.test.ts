@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { finalizeTurnTranscriptState } from "./codex-transcript-projection";
+import {
+  finalizeTurnTranscriptState,
+  resolveThreadPreviewFromTranscript,
+} from "./codex-transcript-projection";
 import type { CodexTranscriptEntry } from "../../shared/types";
 
 function makeEntry(
@@ -69,5 +72,103 @@ describe("finalizeTurnTranscriptState", () => {
 
     const finalized = finalizeTurnTranscriptState(transcript, "turn_terminalize", "interrupted");
     expect(finalized[0]?.status).toBe("interrupted");
+  });
+});
+
+describe("resolveThreadPreviewFromTranscript", () => {
+  test("uses the first user message instead of a later assistant response", () => {
+    const preview = resolveThreadPreviewFromTranscript([
+      makeEntry({
+        itemId: "user_1",
+        type: "userMessage",
+        kind: "userMessage",
+        semanticKind: "userMessage",
+        role: "user",
+        markdownText: "Build the picker",
+      }),
+      makeEntry({
+        itemId: "assistant_1",
+        type: "agentMessage",
+        kind: "assistantMessage",
+        semanticKind: "assistantMessage",
+        role: "assistant",
+        markdownText: "Implemented the picker.",
+        sequence: 1,
+      }),
+    ], "Cached preview");
+
+    expect(preview).toBe("Build the picker");
+  });
+
+  test("keeps the first user message across later turns", () => {
+    const preview = resolveThreadPreviewFromTranscript([
+      makeEntry({
+        itemId: "assistant_intro",
+        type: "agentMessage",
+        kind: "assistantMessage",
+        semanticKind: "assistantMessage",
+        role: "assistant",
+        markdownText: "Ready.",
+      }),
+      makeEntry({
+        itemId: "user_1",
+        type: "userMessage",
+        kind: "userMessage",
+        semanticKind: "userMessage",
+        role: "user",
+        markdownText: "Investigate the preview bug",
+        sequence: 1,
+      }),
+      makeEntry({
+        itemId: "user_2",
+        type: "userMessage",
+        kind: "userMessage",
+        semanticKind: "userMessage",
+        role: "user",
+        markdownText: "Now fix it",
+        sequence: 2,
+      }),
+      makeEntry({
+        itemId: "assistant_2",
+        type: "agentMessage",
+        kind: "assistantMessage",
+        semanticKind: "assistantMessage",
+        role: "assistant",
+        markdownText: "Fixed.",
+        sequence: 3,
+      }),
+    ], "");
+
+    expect(preview).toBe("Investigate the preview bug");
+  });
+
+  test("falls back when transcript has no user message", () => {
+    const preview = resolveThreadPreviewFromTranscript([
+      makeEntry({
+        itemId: "assistant_1",
+        type: "agentMessage",
+        kind: "assistantMessage",
+        semanticKind: "assistantMessage",
+        role: "assistant",
+        markdownText: "Only assistant text",
+      }),
+    ], "Cached preview");
+
+    expect(preview).toBe("Cached preview");
+  });
+
+  test("uses the first available text when there is no user message or fallback", () => {
+    const preview = resolveThreadPreviewFromTranscript([
+      makeEntry({
+        itemId: "assistant_1",
+        type: "agentMessage",
+        kind: "assistantMessage",
+        semanticKind: "assistantMessage",
+        role: "assistant",
+        markdownText: "Only assistant text",
+      }),
+    ], "");
+
+    expect(preview).toBe("Only assistant text");
   });
 });
