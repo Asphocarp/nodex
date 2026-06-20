@@ -200,11 +200,16 @@ import {
 } from "../../shared/codex-conversation-patches";
 import { resolveCodexRuntime, type ResolvedCodexRuntime } from "./codex-runtime";
 import {
-  normalizeCodexGeneratedThreadTitle,
+  cleanCodexAutoTitlePrompt,
+  CODEX_THREAD_TITLE_PROMPT_MAX_CHARS,
   normalizeCodexManualThreadTitle,
 } from "../../shared/codex-thread-title";
 import {
   buildThreadTitleGenerationPrompt,
+  CODEX_THREAD_TITLE_CONFIG,
+  CODEX_THREAD_TITLE_MODEL,
+  CODEX_THREAD_TITLE_OUTPUT_SCHEMA,
+  CODEX_THREAD_TITLE_TIMEOUT_MS,
   parseGeneratedThreadTitleResponse,
 } from "./thread-title-generator";
 import {
@@ -297,6 +302,7 @@ interface StructuredThreadTitleClient {
   startThread: (params: Record<string, unknown>) => Promise<unknown>;
   startTurn: (params: Record<string, unknown>) => Promise<unknown>;
   interruptTurn: (params: { threadId: string; turnId: string }) => Promise<unknown>;
+  unsubscribeThread: (threadId: string) => Promise<unknown>;
   onNotification: (handler: (notification: { method: string; params: unknown }) => void) => () => void;
 }
 
@@ -314,6 +320,7 @@ interface GenerateThreadTitleAdapterInput {
     startThread: (params: Record<string, unknown>) => Promise<unknown>;
     startTurn: (params: Record<string, unknown>) => Promise<unknown>;
     interruptTurn: (params: { threadId: string; turnId: string }) => Promise<unknown>;
+    unsubscribeThread: (threadId: string) => Promise<unknown>;
     registerInternalNotificationHandler: (
       handler: (notification: { method: string; params: unknown }) => void,
     ) => () => void;
@@ -875,6 +882,74 @@ function createTextUserInput(text: string): TurnStartParams["input"][number] {
 }
 
 type CodexUserInputItem = TurnStartParams["input"][number];
+
+function parseThreadIdFromStartResult(startResult: unknown): string | null {
+  const resultRecord = asRecord(startResult);
+  if (!resultRecord) return null;
+  if (typeof resultRecord.threadId === "string") return resultRecord.threadId;
+  const thread = asRecord(resultRecord.thread);
+  if (typeof thread?.id === "string") return thread.id;
+  if (typeof resultRecord.id === "string") return resultRecord.id;
+  return null;
+}
+
+function parseTurnIdFromStartResult(startResult: unknown): string | null {
+  const resultRecord = asRecord(startResult);
+  if (!resultRecord) return null;
+  if (typeof resultRecord.turnId === "string") return resultRecord.turnId;
+  const turn = asRecord(resultRecord.turn);
+  if (typeof turn?.id === "string") return turn.id;
+  if (typeof resultRecord.id === "string") return resultRecord.id;
+  return null;
+}
+
+function parseEventThreadId(eventParams: Record<string, unknown> | null): string | null {
+  if (!eventParams) return null;
+  if (typeof eventParams.threadId === "string") return eventParams.threadId;
+  const thread = asRecord(eventParams.thread);
+  return typeof thread?.id === "string" ? thread.id : null;
+}
+
+function parseEventTurnId(eventParams: Record<string, unknown> | null): string | null {
+  if (!eventParams) return null;
+  if (typeof eventParams.turnId === "string") return eventParams.turnId;
+  const turn = asRecord(eventParams.turn);
+  return typeof turn?.id === "string" ? turn.id : null;
+}
+
+function buildAutoTitlePromptFromTextItems(inputItems: readonly CodexUserInputItem[]): string {
+  const rawPrompt = inputItems
+    .map((item) => {
+      const record = asRecord(item);
+      return record?.type === "text" && typeof record.text === "string" ? record.text : "";
+    })
+    .join("")
+    .trim();
+  if (!rawPrompt) return "";
+
+  const cleaned = cleanCodexAutoTitlePrompt(rawPrompt, rawPrompt.length).trim();
+  return cleaned.length > CODEX_THREAD_TITLE_PROMPT_MAX_CHARS
+    ? cleaned.slice(0, CODEX_THREAD_TITLE_PROMPT_MAX_CHARS)
+    : cleaned;
+}
+
+function buildInitialAutoTitlePromptItems(input: {
+  promptText: string;
+  promptInput?: CodexPromptInput;
+}): CodexUserInputItem[] {
+  const textItems = input.promptText.trim() ? [createTextUserInput(input.promptText.trim())] : [];
+  const pastedTextExcerpts = (input.promptInput?.textAttachments ?? [])
+    .map((attachment) => attachment.text.trim().slice(0, CODEX_THREAD_TITLE_PROMPT_MAX_CHARS))
+    .filter((text) => text.length > 0);
+  if (pastedTextExcerpts.length === 0) {
+    return textItems;
+  }
+
+  return [
+    ...textItems,
+    createTextUserInput(`\n\n${pastedTextExcerpts.join("\n\n")}`),
+  ];
+}
 
 function normalizeSteeringInputValue(value: unknown): unknown {
   if (Array.isArray(value)) {
@@ -4854,88 +4929,151 @@ export class CodexService extends EventEmitter {
     }
   }
 
-  private async runStructuredThreadTitle(input: RunStructuredThreadTitleInput): Promise<string | null> {
+  private hasThreadTitle(threadId: string): boolean {
+    const normalizedThreadId = threadId.trim();
+    if (!normalizedThreadId) return false;
+    return Boolean(
+      this.getMaybeConversationRecord(normalizedThreadId)?.detail?.threadName?.trim()
+      || this.getThreadLinkSafely(normalizedThreadId)?.threadName?.trim(),
+    );
+  }
+
+  private applyThreadNameLocal(threadId: string, name: string): void {
+    this.emitThreadTitleUpdated(threadId, name);
+    updateCodexThreadName(threadId, name);
+    const updated = this.getThreadLinkSafely(threadId);
+    if (updated) {
+      this.emitEvent({ type: "threadSummary", thread: updated });
+    }
+    this.syncBroadcastConversationSummary(threadId, { syncCapabilityFlags: true });
+    this.notifyLinkedProjectSessionsChanged(threadId);
+  }
+
+  private scheduleGeneratedThreadName(input: {
+    threadId: string;
+    prompt: string;
+    cwd: string | null;
+  }): void {
+    const titlePrompt = input.prompt.trim();
+    if (!titlePrompt) return;
+
+    void this.generateAndPersistThreadName(input.threadId, titlePrompt, input.cwd);
+  }
+
+  private async generateAndPersistThreadName(
+    threadId: string,
+    titlePrompt: string,
+    cwd: string | null,
+  ): Promise<void> {
+    if (this.hasThreadTitle(threadId)) return;
+
+    let title: string | null = null;
+    try {
+      title = await this.generateThreadTitleForPrompt(titlePrompt, cwd);
+    } catch (error) {
+      this.logger.warn("Failed to generate thread title", {
+        threadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+
+    const normalizedTitle = title?.trim() ?? "";
+    if (!normalizedTitle) return;
+    if (this.hasThreadTitle(threadId)) return;
+
+    this.applyThreadNameLocal(threadId, normalizedTitle);
+    try {
+      await this.client.request("thread/name/set", {
+        threadId,
+        name: normalizedTitle,
+      });
+    } catch (error) {
+      this.logger.warn("Failed to set generated thread title", {
+        threadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async waitForStructuredThreadTitleTurn(input: RunStructuredThreadTitleInput & {
+    threadId: string;
+  }): Promise<string | null> {
     return await new Promise<string | null>((resolve, reject) => {
       let isSettled = false;
-      let bufferedAssistantText = "";
-      let activeThreadId: string | null = null;
+      let bufferedAssistantText: string | null = null;
       let activeTurnId: string | null = null;
       let unsubscribe: (() => void) | null = null;
+      let timeout: ReturnType<typeof setTimeout> | null = null;
+      let observedTurnError: unknown = null;
+      let didInterrupt = false;
 
-      const complete = (title: string | null) => {
-        if (isSettled) return;
-        isSettled = true;
+      const cleanupSubscription = () => {
+        if (timeout) {
+          clearTimeout(timeout);
+          timeout = null;
+        }
         if (unsubscribe) {
           unsubscribe();
           unsubscribe = null;
         }
+      };
+
+      const interruptActiveTurn = () => {
+        if (!activeTurnId || didInterrupt) return;
+        didInterrupt = true;
+        void input.client.interruptTurn({
+          threadId: input.threadId,
+          turnId: activeTurnId,
+        }).catch(() => void 0);
+      };
+
+      const complete = (title: string | null) => {
+        if (isSettled) return;
+        isSettled = true;
+        cleanupSubscription();
         resolve(title);
       };
 
       const fail = (error: unknown) => {
         if (isSettled) return;
         isSettled = true;
-        if (unsubscribe) {
-          unsubscribe();
-          unsubscribe = null;
-        }
+        cleanupSubscription();
+        interruptActiveTurn();
         reject(error);
       };
 
-      const parseEventThreadId = (eventParams: Record<string, unknown> | null): string | null => {
-        if (!eventParams) return null;
-        if (typeof eventParams.threadId === "string") return eventParams.threadId;
-        const thread = asRecord(eventParams.thread);
-        if (typeof thread?.id === "string") return thread.id;
-        return null;
-      };
-
-      const parseEventTurnId = (eventParams: Record<string, unknown> | null): string | null => {
-        if (!eventParams) return null;
-        if (typeof eventParams.turnId === "string") return eventParams.turnId;
-        const turn = asRecord(eventParams.turn);
-        if (typeof turn?.id === "string") return turn.id;
-        return null;
-      };
-
-      const parseThreadIdFromStartResult = (startResult: unknown): string | null => {
-        const resultRecord = asRecord(startResult);
-        if (!resultRecord) return null;
-        if (typeof resultRecord.threadId === "string") return resultRecord.threadId;
-        const thread = asRecord(resultRecord.thread);
-        if (typeof thread?.id === "string") return thread.id;
-        if (typeof resultRecord.id === "string") return resultRecord.id;
-        return null;
-      };
-
-      const parseTurnIdFromStartResult = (startResult: unknown): string | null => {
-        const resultRecord = asRecord(startResult);
-        if (!resultRecord) return null;
-        if (typeof resultRecord.turnId === "string") return resultRecord.turnId;
-        const turn = asRecord(resultRecord.turn);
-        if (typeof turn?.id === "string") return turn.id;
-        if (typeof resultRecord.id === "string") return resultRecord.id;
-        return null;
-      };
-
-      const isEventForActiveThreadAndTurn = (eventParams: Record<string, unknown> | null): boolean => {
-        const eventThreadId = parseEventThreadId(eventParams);
-        if (!activeThreadId || !eventThreadId || eventThreadId !== activeThreadId) {
-          return false;
+      const buildStructuredTurnError = (status: string, error: unknown): Error => {
+        const errorRecord = asRecord(error);
+        const message = [
+          typeof errorRecord?.message === "string" ? errorRecord.message : null,
+          typeof errorRecord?.additionalDetails === "string" ? errorRecord.additionalDetails : null,
+        ].filter((text): text is string => Boolean(text && text.length > 0)).join(" ");
+        if (status === "failed") {
+          return new Error(message.length > 0 ? `Structured turn failed: ${message}` : "Structured turn failed.");
         }
-
-        const eventTurnId = parseEventTurnId(eventParams);
-        if (activeTurnId && (!eventTurnId || eventTurnId !== activeTurnId)) {
-          return false;
+        if (status === "interrupted") {
+          return new Error(
+            message.length > 0 ? `Structured turn was interrupted: ${message}` : "Structured turn was interrupted.",
+          );
         }
-
-        return true;
+        return new Error(
+          message.length > 0
+            ? `Structured turn ended with status ${status}: ${message}`
+            : `Structured turn ended with status ${status}.`,
+        );
       };
+
+      timeout = setTimeout(() => {
+        fail(new Error("Timed out waiting for structured result."));
+      }, CODEX_THREAD_TITLE_TIMEOUT_MS);
 
       unsubscribe = input.client.onNotification(({ method, params }) => {
         if (isSettled) return;
         if (
+          method !== "error" &&
           method !== "turn/started" &&
+          method !== "thread/tokenUsage/updated" &&
           method !== "item/agentMessage/delta" &&
           method !== "item/completed" &&
           method !== "turn/completed"
@@ -4944,27 +5082,49 @@ export class CodexService extends EventEmitter {
         }
 
         const eventParams = asRecord(params);
-        if (!isEventForActiveThreadAndTurn(eventParams)) return;
+        if (parseEventThreadId(eventParams) !== input.threadId) return;
+
+        if (method === "error") {
+          const eventTurnId = parseEventTurnId(eventParams);
+          if (eventTurnId && !activeTurnId) activeTurnId = eventTurnId;
+          if (activeTurnId && eventTurnId && eventTurnId !== activeTurnId) return;
+          observedTurnError = eventParams?.error ?? eventParams;
+          return;
+        }
 
         if (method === "turn/started") {
-          const eventThreadId = parseEventThreadId(eventParams);
           const eventTurnId = parseEventTurnId(eventParams);
-          if (!activeThreadId && eventThreadId) activeThreadId = eventThreadId;
           if (!activeTurnId && eventTurnId) activeTurnId = eventTurnId;
           return;
         }
 
+        if (method === "thread/tokenUsage/updated") {
+          return;
+        }
+
         if (method === "item/agentMessage/delta") {
+          const eventTurnId = parseEventTurnId(eventParams);
+          if (eventTurnId == null) {
+            if (activeTurnId != null) return;
+          } else if (activeTurnId != null && eventTurnId !== activeTurnId) {
+            return;
+          }
           const deltaText = typeof eventParams?.delta === "string"
             ? eventParams.delta
             : typeof asRecord(eventParams?.item)?.delta === "string"
               ? asRecord(eventParams?.item)?.delta as string
               : "";
-          if (deltaText) bufferedAssistantText += deltaText;
+          if (deltaText) bufferedAssistantText = `${bufferedAssistantText ?? ""}${deltaText}`;
           return;
         }
 
         if (method === "item/completed") {
+          const eventTurnId = parseEventTurnId(eventParams);
+          if (eventTurnId == null) {
+            if (activeTurnId != null) return;
+          } else if (activeTurnId != null && eventTurnId !== activeTurnId) {
+            return;
+          }
           const item = asRecord(eventParams?.item);
           const itemType = typeof item?.type === "string" ? item.type : "";
           if (itemType !== "agentMessage") return;
@@ -4977,13 +5137,14 @@ export class CodexService extends EventEmitter {
           return;
         }
 
-        const status = typeof eventParams?.status === "string"
-          ? eventParams.status
-          : typeof asRecord(eventParams?.turn)?.status === "string"
-            ? asRecord(eventParams?.turn)?.status as string
-            : "";
+        const turn = asRecord(eventParams?.turn);
+        if (!turn) return;
+        const turnId = typeof turn.id === "string" ? turn.id : null;
+        if (!turnId || (activeTurnId != null && turnId !== activeTurnId)) return;
+        activeTurnId = turnId;
+        const status = typeof turn.status === "string" ? turn.status : "";
         if (status !== "completed") {
-          fail(new Error("Structured turn did not complete."));
+          fail(buildStructuredTurnError(status || "unknown", turn.error ?? observedTurnError));
           return;
         }
         try {
@@ -4994,37 +5155,20 @@ export class CodexService extends EventEmitter {
       });
 
       void (async () => {
-        const startedThread = await input.client.startThread({
-          model: null,
-          modelProvider: null,
-          cwd: input.cwd,
-          approvalPolicy: "never",
-          sandbox: "read-only",
-          config: null,
-          baseInstructions: null,
-          developerInstructions: null,
-          personality: null,
-          ephemeral: true,
-          experimentalRawEvents: false,
-          dynamicTools: null,
-        });
-
-        activeThreadId = parseThreadIdFromStartResult(startedThread);
-        if (!activeThreadId) {
-          throw new Error("thread/start did not return a valid thread id");
-        }
-
         const startedTurn = await input.client.startTurn({
-          threadId: activeThreadId,
+          threadId: input.threadId,
+          clientUserMessageId: randomUUID(),
           input: [{ type: "text", text: input.prompt, text_elements: [] }],
           cwd: null,
           approvalPolicy: null,
-          sandboxPolicy: null,
+          permissions: ":read-only",
+          runtimeWorkspaceRoots: [],
           model: null,
           effort: null,
-          summary: "auto",
+          serviceTier: null,
+          summary: "none",
           personality: null,
-          outputSchema: null,
+          outputSchema: CODEX_THREAD_TITLE_OUTPUT_SCHEMA,
           collaborationMode: null,
         });
 
@@ -5032,10 +5176,45 @@ export class CodexService extends EventEmitter {
         if (!activeTurnId) {
           throw new Error("turn/start did not return a valid turn id");
         }
+        if (isSettled) {
+          interruptActiveTurn();
+          return;
+        }
       })().catch((error) => {
         fail(error);
       });
     });
+  }
+
+  private async runStructuredThreadTitle(input: RunStructuredThreadTitleInput): Promise<string | null> {
+    const startedThread = await input.client.startThread({
+      model: CODEX_THREAD_TITLE_MODEL,
+      modelProvider: null,
+      cwd: input.cwd,
+      approvalPolicy: "never",
+      permissions: ":read-only",
+      runtimeWorkspaceRoots: [],
+      config: CODEX_THREAD_TITLE_CONFIG,
+      personality: null,
+      ephemeral: true,
+      threadSource: "system",
+      experimentalRawEvents: false,
+      dynamicTools: null,
+      serviceTier: null,
+    });
+    const threadId = parseThreadIdFromStartResult(startedThread);
+    if (!threadId) {
+      throw new Error("thread/start did not return a valid thread id");
+    }
+
+    try {
+      return await this.waitForStructuredThreadTitleTurn({
+        ...input,
+        threadId,
+      });
+    } finally {
+      void input.client.unsubscribeThread(threadId).catch(() => void 0);
+    }
   }
 
   private async generateThreadTitleWithStructuredTurn(input: {
@@ -5065,6 +5244,7 @@ export class CodexService extends EventEmitter {
         startThread: (params) => input.appServerConnection.startThread(params),
         startTurn: (params) => input.appServerConnection.startTurn(params),
         interruptTurn: (params) => input.appServerConnection.interruptTurn(params),
+        unsubscribeThread: (threadId) => input.appServerConnection.unsubscribeThread(threadId),
         onNotification: (handler) => input.appServerConnection.registerInternalNotificationHandler(handler),
       },
     });
@@ -5078,6 +5258,10 @@ export class CodexService extends EventEmitter {
         startThread: (params) => this.client.request("thread/start", params as ThreadStartParams),
         startTurn: (params) => this.client.request("turn/start", params as TurnStartParams),
         interruptTurn: (params) => this.client.request("turn/interrupt", params),
+        unsubscribeThread: (threadId) =>
+          this.client.request<"thread/unsubscribe", ThreadUnsubscribeResponse>("thread/unsubscribe", {
+            threadId,
+          }),
         registerInternalNotificationHandler: (handler) => {
           this.client.on("notification", handler);
           return () => {
@@ -5220,6 +5404,18 @@ export class CodexService extends EventEmitter {
           this.emitEvent({ type: "threadSummary", thread: updatedThread });
         }
         this.notifyLinkedProjectSessionsChanged(link.threadId);
+      }
+
+      if (!explicitThreadName && input.skipAutoTitleGeneration !== true) {
+        const titlePrompt = buildAutoTitlePromptFromTextItems(buildInitialAutoTitlePromptItems({
+          promptText: prompt,
+          promptInput: input.promptInput,
+        }));
+        this.scheduleGeneratedThreadName({
+          threadId: link.threadId,
+          prompt: titlePrompt,
+          cwd: runLocation.cwd,
+        });
       }
 
       const collaborationMode = this.buildCollaborationModePayload({
@@ -5898,20 +6094,13 @@ export class CodexService extends EventEmitter {
       name: normalizedName,
     });
 
-    this.emitThreadTitleUpdated(threadId, normalizedName);
-    updateCodexThreadName(threadId, normalizedName);
-    const updated = this.getThreadLinkSafely(threadId);
-    if (updated) {
-      this.emitEvent({ type: "threadSummary", thread: updated });
-    }
-    this.syncBroadcastConversationSummary(threadId, { syncCapabilityFlags: true });
-    this.notifyLinkedProjectSessionsChanged(threadId);
+    this.applyThreadNameLocal(threadId, normalizedName);
     return true;
   }
 
   async setGeneratedThreadName(threadId: string, name: string): Promise<boolean> {
     await this.ensureClientReady();
-    const normalizedName = normalizeCodexGeneratedThreadTitle(name);
+    const normalizedName = name.trim();
     if (!normalizedName) {
       return false;
     }
@@ -5921,14 +6110,7 @@ export class CodexService extends EventEmitter {
       name: normalizedName,
     });
 
-    this.emitThreadTitleUpdated(threadId, normalizedName);
-    updateCodexThreadName(threadId, normalizedName);
-    const updated = this.getThreadLinkSafely(threadId);
-    if (updated) {
-      this.emitEvent({ type: "threadSummary", thread: updated });
-    }
-    this.syncBroadcastConversationSummary(threadId, { syncCapabilityFlags: true });
-    this.notifyLinkedProjectSessionsChanged(threadId);
+    this.applyThreadNameLocal(threadId, normalizedName);
     return true;
   }
 

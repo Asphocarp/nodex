@@ -164,7 +164,7 @@ All notable changes to this project will be documented in this file.
 - Fixed `Stop background terminals` so manually interrupted commands now disappear from the background-terminal lane immediately via turn-level interrupted-command tracking.
 - Fixed running-thread composer follow-ups so `Cmd+Enter` now keeps messages in the queued-follow-up lane instead of immediately collapsing them into `Steer`, queued follow-ups auto-send in FIFO order after the current turn finishes, and the send-button tooltip now shows the `Steer`/`Queue` shortcut rows.
 - Fixed `Context automatically compacted` transcript markers so live and replayed compaction rows now stay in the canonical turn item order instead of drifting to the bottom of the thread.
-- Fixed installed-build thread auto-naming with renderer-triggered `generate-thread-title`, persistent title cache/backfill, and explicit thread-title/error host-message sync instead of a repo-relative prompt-file dependency.
+- Fixed installed-build thread auto-naming with a main-owned structured title helper, direct `thread/name/set` persistence, and explicit thread-title sync instead of a repo-relative prompt-file dependency.
 - Fixed multi-file thread patch previews so each expanded file row no longer repeats the diff library's inner file header under the thread-owned filename and line-count header.
 - Fixed thread file-change rendering so patch rows now use a semantic file-change model, synthesizing structured inline diffs and semantic add/delete fallbacks instead of showing raw patch text.
 - Fixed the thread `Restoring thread` state so reopen/resume now uses a centered Nodex logo shimmer loader instead of a bordered spinner card.

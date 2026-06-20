@@ -20,8 +20,31 @@ export function cleanCodexAutoTitlePrompt(
 }
 
 export function normalizeCodexGeneratedThreadTitle(rawTitle: string | null | undefined): string | null {
-  const normalizedTitle = rawTitle?.trim() ?? "";
-  return normalizedTitle.length === 0 ? null : normalizedTitle;
+  let normalizedTitle = (
+    rawTitle
+      ?.replace(/\r\n/g, "\n")
+      .split("\n")
+      .find((line) => line.trim().length > 0)
+    ?? ""
+  ).trim();
+  if (normalizedTitle.length === 0) {
+    return null;
+  }
+
+  normalizedTitle = normalizedTitle
+    .replace(/^title[:\s]+/i, "")
+    .replace(/^[`"'\u201c\u201d\u2018\u2019]+|[`"'\u201c\u201d\u2018\u2019]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[.?!]+$/, "")
+    .trim();
+  if (normalizedTitle.length === 0) {
+    return null;
+  }
+
+  return normalizedTitle.length > 36
+    ? `${normalizedTitle.slice(0, 35).trimEnd()}…`
+    : normalizedTitle;
 }
 
 export function normalizeCodexManualThreadTitle(

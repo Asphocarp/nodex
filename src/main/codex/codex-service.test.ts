@@ -38,6 +38,11 @@ import {
 } from "./codex-link-repository";
 import { resetCodexSessionStoreCaches } from "./codex-session-store";
 import { CodexService } from "./codex-service";
+import {
+  CODEX_THREAD_TITLE_CONFIG,
+  CODEX_THREAD_TITLE_MODEL,
+  CODEX_THREAD_TITLE_OUTPUT_SCHEMA,
+} from "./thread-title-generator";
 
 interface TestableCodexService {
   on: (event: "hostMessage", listener: (message: import("../../shared/types").CodexHostMessage) => void) => unknown;
@@ -119,6 +124,7 @@ interface TestableCodexService {
     reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
     collaborationMode?: "default" | "plan";
     promptInput?: CodexPromptInput;
+    skipAutoTitleGeneration?: boolean;
     runInTarget?: "localProject" | "newWorktree" | "cloud";
     runInEnvironmentPath?: string | null;
     worktreeStartMode?: "autoBranch" | "detachedHead";
@@ -3945,6 +3951,7 @@ describe("codex-service startThreadForSession", () => {
           model: "gpt-5-codex",
           reasoningEffort: "medium",
           permissionMode: "auto",
+          skipAutoTitleGeneration: true,
         });
 
         const threadStartRequest = requests.find((request) => request.method === "thread/start");
@@ -3957,6 +3964,117 @@ describe("codex-service startThreadForSession", () => {
         expect(linked?.cwd).toBe("/tmp/codex");
         expect(detail.threadId).toBe("thr_session_start");
         expect(detail.projectId).toBe(defaultProjectId);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
+
+  test("auto-generates a session thread title from main after thread start and before first turn", async () => {
+    const ran = await withTempDatabase(async () => {
+      const session = createProjectSession({ projectId: defaultProjectId, noThreadFallbackTitle: "Session composer" });
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+        emit: (eventName: string, payload: unknown) => boolean;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === "config/read" || method === "configRequirements/read") {
+          throw new Error("use fallback permission state");
+        }
+        if (method === "thread/start") {
+          const isHelperThread = requests.filter((request) => request.method === "thread/start").length > 1;
+          return {
+            thread: {
+              id: isHelperThread ? "thr_title_helper" : "thr_session_auto_title",
+              modelProvider: "openai",
+              cwd: "/tmp/codex",
+              createdAt: 1_780_800_000_000,
+              updatedAt: 1_780_800_000_000,
+            },
+          };
+        }
+        if (method === "turn/start") {
+          const turnParams = params as { threadId?: string };
+          if (turnParams.threadId === "thr_title_helper") {
+            setTimeout(() => {
+              client.emit("notification", {
+                method: "turn/started",
+                params: { threadId: "thr_title_helper", turn: { id: "turn_title_helper" } },
+              });
+              client.emit("notification", {
+                method: "item/agentMessage/delta",
+                params: {
+                  threadId: "thr_title_helper",
+                  turnId: "turn_title_helper",
+                  delta: "{\"title\":\"Fix session auto-title\"}",
+                },
+              });
+              client.emit("notification", {
+                method: "turn/completed",
+                params: { threadId: "thr_title_helper", turn: { id: "turn_title_helper", status: "completed" } },
+              });
+            }, 0);
+            return { turn: { id: "turn_title_helper" } };
+          }
+          return {
+            turn: {
+              id: "turn_session_auto_title",
+              status: "in_progress",
+              transcript: [],
+            },
+          };
+        }
+        return {};
+      };
+
+      try {
+        await service.startThreadForSession({
+          projectId: defaultProjectId,
+          sessionId: session.id,
+          prompt: "ignored fallback",
+          promptInput: {
+            text: "Context\n## My request for Codex:\nBuild auto title",
+            textAttachments: [{ text: "Pasted requirements" }],
+            images: [{ source: "data:image/png;base64,AAA", caption: "screen.png" }],
+            mentions: [{ name: "README.md", path: "/tmp/codex/README.md" }],
+            skills: [{ name: "skill", path: "/tmp/codex/skill" }],
+          },
+        });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+
+        const helperThreadStartIndex = requests.findIndex((request) =>
+          request.method === "thread/start"
+          && (request.params as { ephemeral?: boolean }).ephemeral === true
+        );
+        const durableTurnStartIndex = requests.findIndex((request) =>
+          request.method === "turn/start"
+          && (request.params as { threadId?: string }).threadId === "thr_session_auto_title"
+        );
+        const helperTurnStart = requests.find((request) =>
+          request.method === "turn/start"
+          && (request.params as { threadId?: string }).threadId === "thr_title_helper"
+        );
+        const helperPrompt = ((helperTurnStart?.params as { input?: Array<{ text?: string }> } | undefined)
+          ?.input?.[0]?.text) ?? "";
+        const setName = requests.find((request) => request.method === "thread/name/set");
+
+        expect(helperThreadStartIndex >= 0).toBeTrue();
+        expect(durableTurnStartIndex >= 0).toBeTrue();
+        expect(helperThreadStartIndex < durableTurnStartIndex).toBeTrue();
+        expect(helperPrompt.includes("User prompt:\nBuild auto title\n\nPasted requirements")).toBeTrue();
+        expect(helperPrompt.includes("screen.png")).toBeFalse();
+        expect(helperPrompt.includes("README.md")).toBeFalse();
+        expect(helperPrompt.includes("/tmp/codex/skill")).toBeFalse();
+        expect((setName?.params as { threadId?: string; name?: string } | undefined)?.threadId).toBe("thr_session_auto_title");
+        expect((setName?.params as { name?: string } | undefined)?.name).toBe("Fix session auto-title");
       } finally {
         await service.shutdown();
       }
@@ -4221,6 +4339,7 @@ describe("codex-service startThreadForSession", () => {
           runInTarget: "newWorktree",
           worktreeStartMode: "detachedHead",
           worktreeBranchPrefix: "nodex/",
+          skipAutoTitleGeneration: true,
         });
 
         const threadStartCwd = (requests.find((request) => request.method === "thread/start")?.params as { cwd?: string } | undefined)?.cwd ?? "";
@@ -4298,6 +4417,7 @@ describe("codex-service startThreadForSession", () => {
             prompt: "Fail setup",
             runInTarget: "newWorktree",
             runInEnvironmentPath: ".codex/environments/environment.toml",
+            skipAutoTitleGeneration: true,
           });
         } catch (error) {
           message = error instanceof Error ? error.message : String(error);
@@ -4337,6 +4457,7 @@ describe("codex-service startThreadForSession", () => {
             sessionId: session.id,
             prompt: "Send to cloud",
             runInTarget: "cloud",
+            skipAutoTitleGeneration: true,
           });
         } catch (error) {
           message = error instanceof Error ? error.message : String(error);
@@ -4404,6 +4525,7 @@ describe("codex-service startThreadForSession", () => {
           permissionMode: "full-access",
           collaborationMode: "plan",
           serviceTier: "fast",
+          skipAutoTitleGeneration: true,
         });
 
         const threadStartRequest = requests.find((request) => request.method === "thread/start");
@@ -4456,6 +4578,7 @@ describe("codex-service startThreadForSession", () => {
             projectId: project.id,
             sessionId: session.id,
             prompt: "Start without workspace",
+            skipAutoTitleGeneration: true,
           });
         } catch (error) {
           message = error instanceof Error ? error.message : String(error);
@@ -4479,6 +4602,7 @@ describe("codex-service startThreadForSession", () => {
           startThread: (params: Record<string, unknown>) => Promise<unknown>;
           startTurn: (params: Record<string, unknown>) => Promise<unknown>;
           interruptTurn: (params: { threadId: string; turnId: string }) => Promise<unknown>;
+          unsubscribeThread: (threadId: string) => Promise<unknown>;
           onNotification: (handler: (notification: { method: string; params: unknown }) => void) => () => void;
         };
       }) => Promise<string | null>;
@@ -4486,6 +4610,7 @@ describe("codex-service startThreadForSession", () => {
     let notificationHandler: ((notification: { method: string; params: unknown }) => void) | null = null;
     let threadStartParams: Record<string, unknown> | null = null;
     let turnStartParams: Record<string, unknown> | null = null;
+    let unsubscribedThreadId: string | null = null;
 
     const mockClient = {
       startThread: async (params: Record<string, unknown>) => {
@@ -4497,24 +4622,28 @@ describe("codex-service startThreadForSession", () => {
         setTimeout(() => {
           notificationHandler?.({
             method: "turn/started",
-            params: { threadId: "thr_title_1", turnId: "turn_title_1" },
+            params: { threadId: "thr_title_1", turn: { id: "turn_title_1" } },
           });
           notificationHandler?.({
             method: "item/agentMessage/delta",
             params: {
               threadId: "thr_title_1",
               turnId: "turn_title_1",
-              delta: "Refactor inbox list layout",
+              delta: "{\"title\":\"Refactor inbox list layout\"}",
             },
           });
           notificationHandler?.({
             method: "turn/completed",
-            params: { threadId: "thr_title_1", turnId: "turn_title_1", status: "completed" },
+            params: { threadId: "thr_title_1", turn: { id: "turn_title_1", status: "completed" } },
           });
         }, 0);
         return { turn: { id: "turn_title_1" } };
       },
       interruptTurn: async () => ({}),
+      unsubscribeThread: async (threadId: string) => {
+        unsubscribedThreadId = threadId;
+        return {};
+      },
       onNotification: (handler: (notification: { method: string; params: unknown }) => void) => {
         notificationHandler = handler;
         return () => {
@@ -4531,26 +4660,48 @@ describe("codex-service startThreadForSession", () => {
       });
       expect(generated).toBe("Refactor inbox list layout");
       expect(JSON.stringify(threadStartParams)).toBe(JSON.stringify({
-        model: null,
+        model: CODEX_THREAD_TITLE_MODEL,
         modelProvider: null,
         cwd: "/tmp/codex",
         approvalPolicy: "never",
-        sandbox: "read-only",
-        config: null,
-        baseInstructions: null,
-        developerInstructions: null,
+        permissions: ":read-only",
+        runtimeWorkspaceRoots: [],
+        config: CODEX_THREAD_TITLE_CONFIG,
         personality: null,
         ephemeral: true,
+        threadSource: "system",
         experimentalRawEvents: false,
         dynamicTools: null,
+        serviceTier: null,
       }));
 
       const turnStartPayload = turnStartParams && typeof turnStartParams === "object"
-        ? turnStartParams as { input?: Array<{ text?: string }> }
+        ? turnStartParams as { clientUserMessageId?: unknown; input?: Array<{ text?: string }> }
         : {};
+      expect(typeof turnStartPayload.clientUserMessageId).toBe("string");
       const generatedPrompt = turnStartPayload.input?.[0]?.text ?? "";
-      expect(generatedPrompt).toBe("Refactor inbox list layout");
-      expect(JSON.stringify(turnStartParams).includes("\"outputSchema\":null")).toBeTrue();
+      expect(generatedPrompt.includes("User prompt:\nRefactor inbox list layout")).toBeTrue();
+      expect(JSON.stringify({
+        ...(turnStartParams ?? {}),
+        clientUserMessageId: "<uuid>",
+        input: [{ type: "text", text: "<title-prompt>", text_elements: [] }],
+      })).toBe(JSON.stringify({
+        threadId: "thr_title_1",
+        clientUserMessageId: "<uuid>",
+        input: [{ type: "text", text: "<title-prompt>", text_elements: [] }],
+        cwd: null,
+        approvalPolicy: null,
+        permissions: ":read-only",
+        runtimeWorkspaceRoots: [],
+        model: null,
+        effort: null,
+        serviceTier: null,
+        summary: "none",
+        personality: null,
+        outputSchema: CODEX_THREAD_TITLE_OUTPUT_SCHEMA,
+        collaborationMode: null,
+      }));
+      expect(unsubscribedThreadId).toBe("thr_title_1");
     } finally {
       await service.shutdown();
     }
@@ -4566,12 +4717,14 @@ describe("codex-service startThreadForSession", () => {
           startThread: (params: Record<string, unknown>) => Promise<unknown>;
           startTurn: (params: Record<string, unknown>) => Promise<unknown>;
           interruptTurn: (params: { threadId: string; turnId: string }) => Promise<unknown>;
+          unsubscribeThread: (threadId: string) => Promise<unknown>;
           onNotification: (handler: (notification: { method: string; params: unknown }) => void) => () => void;
         };
       }) => Promise<string | null>;
     };
     let notificationHandler: ((notification: { method: string; params: unknown }) => void) | null = null;
     let turnStartParams: Record<string, unknown> | null = null;
+    let unsubscribedThreadId: string | null = null;
     const longPrompt = "x".repeat(2_500);
 
     const mockClient = {
@@ -4602,18 +4755,22 @@ describe("codex-service startThreadForSession", () => {
               turnId: "turn_title_2",
               item: {
                 type: "agentMessage",
-                text: "  title: \"Fix flaky test timing issue.\"  ",
+                text: "{\"title\":\"title: \\\"Fix flaky.\\\"\"}",
               },
             },
           });
           notificationHandler?.({
             method: "turn/completed",
-            params: { threadId: "thr_title_2", turnId: "turn_title_2", status: "completed" },
+            params: { threadId: "thr_title_2", turn: { id: "turn_title_2", status: "completed" } },
           });
         }, 0);
         return { turn: { id: "turn_title_2" } };
       },
       interruptTurn: async () => ({}),
+      unsubscribeThread: async (threadId: string) => {
+        unsubscribedThreadId = threadId;
+        return {};
+      },
       onNotification: (handler: (notification: { method: string; params: unknown }) => void) => {
         notificationHandler = handler;
         return () => {
@@ -4628,13 +4785,15 @@ describe("codex-service startThreadForSession", () => {
         cwd: "/tmp/codex",
         client: mockClient,
       });
-      expect(generated).toBe("title: \"Fix flaky test timing issue.\"");
+      expect(generated).toBe("Fix flaky");
 
       const turnStartPayload = turnStartParams && typeof turnStartParams === "object"
         ? turnStartParams as { input?: Array<{ text?: string }> }
         : {};
       const generatedPrompt = turnStartPayload.input?.[0]?.text ?? "";
-      expect(generatedPrompt.length).toBe(2_000);
+      const userPrompt = generatedPrompt.split("User prompt:\n")[1] ?? "";
+      expect(userPrompt.length).toBe(2_000);
+      expect(unsubscribedThreadId).toBe("thr_title_2");
     } finally {
       await service.shutdown();
     }
@@ -4650,6 +4809,7 @@ describe("codex-service startThreadForSession", () => {
           startThread: (params: Record<string, unknown>) => Promise<unknown>;
           startTurn: (params: Record<string, unknown>) => Promise<unknown>;
           interruptTurn: (params: { threadId: string; turnId: string }) => Promise<unknown>;
+          unsubscribeThread: (threadId: string) => Promise<unknown>;
           onNotification: (handler: (notification: { method: string; params: unknown }) => void) => () => void;
         };
       }) => Promise<string | null>;
@@ -4662,28 +4822,29 @@ describe("codex-service startThreadForSession", () => {
         setTimeout(() => {
           notificationHandler?.({
             method: "turn/completed",
-            params: { threadId: "other_thread", turnId: "other_turn", status: "completed" },
+            params: { threadId: "other_thread", turn: { id: "other_turn", status: "completed" } },
           });
           notificationHandler?.({
             method: "turn/started",
-            params: { threadId: "thr_title_3", turnId: "turn_title_3" },
+            params: { threadId: "thr_title_3", turn: { id: "turn_title_3" } },
           });
           notificationHandler?.({
             method: "item/agentMessage/delta",
             params: {
               threadId: "thr_title_3",
               turnId: "turn_title_3",
-              delta: "Fix worktree startup race",
+              delta: "{\"title\":\"Fix worktree startup race\"}",
             },
           });
           notificationHandler?.({
             method: "turn/completed",
-            params: { threadId: "thr_title_3", turnId: "turn_title_3", status: "completed" },
+            params: { threadId: "thr_title_3", turn: { id: "turn_title_3", status: "completed" } },
           });
         }, 0);
         return { turn: { id: "turn_title_3" } };
       },
       interruptTurn: async () => ({}),
+      unsubscribeThread: async () => ({}),
       onNotification: (handler: (notification: { method: string; params: unknown }) => void) => {
         notificationHandler = handler;
         return () => {
@@ -4699,6 +4860,86 @@ describe("codex-service startThreadForSession", () => {
         client: mockClient,
       });
       expect(generated).toBe("Fix worktree startup race");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("interrupts and unsubscribes helper title turns when they fail", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      generateThreadTitleWithStructuredTurn: (input: {
+        prompt: string;
+        cwd: string | null;
+        client: {
+          startThread: (params: Record<string, unknown>) => Promise<unknown>;
+          startTurn: (params: Record<string, unknown>) => Promise<unknown>;
+          interruptTurn: (params: { threadId: string; turnId: string }) => Promise<unknown>;
+          unsubscribeThread: (threadId: string) => Promise<unknown>;
+          onNotification: (handler: (notification: { method: string; params: unknown }) => void) => () => void;
+        };
+      }) => Promise<string | null>;
+    };
+    let notificationHandler: ((notification: { method: string; params: unknown }) => void) | null = null;
+    let interruptParams: { threadId: string; turnId: string } | null = null;
+    let unsubscribedThreadId: string | null = null;
+
+    const mockClient = {
+      startThread: async () => ({ thread: { id: "thr_title_failed" } }),
+      startTurn: async () => {
+        setTimeout(() => {
+          notificationHandler?.({
+            method: "turn/started",
+            params: { threadId: "thr_title_failed", turn: { id: "turn_title_failed" } },
+          });
+          notificationHandler?.({
+            method: "turn/completed",
+            params: {
+              threadId: "thr_title_failed",
+              turn: {
+                id: "turn_title_failed",
+                status: "failed",
+                error: { message: "model unavailable" },
+              },
+            },
+          });
+        }, 0);
+        return { turn: { id: "turn_title_failed" } };
+      },
+      interruptTurn: async (params: { threadId: string; turnId: string }) => {
+        interruptParams = params;
+        return {};
+      },
+      unsubscribeThread: async (threadId: string) => {
+        unsubscribedThreadId = threadId;
+        return {};
+      },
+      onNotification: (handler: (notification: { method: string; params: unknown }) => void) => {
+        notificationHandler = handler;
+        return () => {
+          notificationHandler = null;
+        };
+      },
+    };
+
+    try {
+      let didReject = false;
+      try {
+        await serviceInternals.generateThreadTitleWithStructuredTurn({
+          prompt: "Fix title flow",
+          cwd: "/tmp/codex",
+          client: mockClient,
+        });
+      } catch {
+        didReject = true;
+      }
+
+      expect(didReject).toBeTrue();
+      expect(JSON.stringify(interruptParams)).toBe(JSON.stringify({
+        threadId: "thr_title_failed",
+        turnId: "turn_title_failed",
+      }));
+      expect(unsubscribedThreadId).toBe("thr_title_failed");
     } finally {
       await service.shutdown();
     }

@@ -16,8 +16,8 @@ let invokeRecords: Array<{ channel: string; args: unknown[] }> = [];
 let hostMessageListener: ((message: CodexHostMessage) => void) | null = null;
 let threadListByProject: Record<string, CodexThreadSummary[]> = {};
 let startThreadForSessionResult: unknown = null;
-let generatedThreadTitleResult: unknown = { title: null };
-let generatedThreadTitleError: Error | null = null;
+const generatedThreadTitleResult: unknown = { title: null };
+const generatedThreadTitleError: Error | null = null;
 
 interface NotificationTestManager {
   addTurnCompletedListener: (listener: (payload: {
@@ -236,19 +236,17 @@ function dispatchThreadSnapshot(message: CodexHostMessage): void {
 }
 
 describe("local-conversation-store", () => {
-  test("auto-generates and persists a thread title through the generated-title path", async () => {
+  test("leaves session-start auto-title generation to main", async () => {
     invokeCalls = [];
     invokeRecords = [];
     hostMessageListener = null;
     threadListByProject = {};
-    generatedThreadTitleError = null;
     startThreadForSessionResult = {
       ...buildConversation("thread-auto", "project-1"),
       threadName: null,
       threadPreview: "Fallback preview",
       cwd: "/tmp/project-1",
     };
-    generatedThreadTitleResult = { title: `  ${"x".repeat(72)}  ` };
     const {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
@@ -267,30 +265,25 @@ describe("local-conversation-store", () => {
     });
     await settleAsyncRender();
 
-    const generateCall = invokeRecords.find((record) => record.channel === "codex:thread:title:generate");
-    const generateInput = generateCall?.args[0] as { prompt?: string; cwd?: string | null } | undefined;
-    const persistCall = invokeRecords.find((record) => record.channel === "codex:thread:name:set-generated");
-    const manualPersistCall = invokeRecords.find((record) => record.channel === "codex:thread:name:set");
+    const startCall = invokeRecords.find((record) => record.channel === "codex:thread:start-for-session");
+    const startInput = startCall?.args[0] as { promptInput?: { text?: string; textAttachments?: Array<{ text?: string }> } } | undefined;
 
-    expect(generateInput?.prompt).toBe("Build title parity\n\nPasted requirements");
-    expect(generateInput?.cwd).toBe("/tmp/project-1");
-    expect(persistCall?.args[0]).toBe("thread-auto");
-    expect(persistCall?.args[1]).toBe("x".repeat(72));
-    expect(String(manualPersistCall)).toBe("undefined");
+    expect(startInput?.promptInput?.text).toBe("Context\n## My request for Codex:\nBuild title parity");
+    expect(startInput?.promptInput?.textAttachments?.[0]?.text).toBe("Pasted requirements");
+    expect(invokeRecords.some((record) => record.channel === "codex:thread:title:generate")).toBeFalse();
+    expect(invokeRecords.some((record) => record.channel === "codex:thread:name:set-generated")).toBeFalse();
   });
 
-  test("skips auto-title generation when requested", async () => {
+  test("forwards skipAutoTitleGeneration without renderer-side generation", async () => {
     invokeCalls = [];
     invokeRecords = [];
     hostMessageListener = null;
     threadListByProject = {};
-    generatedThreadTitleError = null;
     startThreadForSessionResult = {
       ...buildConversation("thread-skip", "project-1"),
       threadName: null,
       threadPreview: "",
     };
-    generatedThreadTitleResult = { title: "Generated title" };
     const {
       CodexAppServerManager,
       __resetLocalConversationStoreForTests,
@@ -306,81 +299,11 @@ describe("local-conversation-store", () => {
     });
     await settleAsyncRender();
 
+    const startCall = invokeRecords.find((record) => record.channel === "codex:thread:start-for-session");
+    const startInput = startCall?.args[0] as { skipAutoTitleGeneration?: boolean } | undefined;
+
+    expect(startInput?.skipAutoTitleGeneration).toBeTrue();
     expect(invokeRecords.some((record) => record.channel === "codex:thread:title:generate")).toBeFalse();
-  });
-
-  test("keeps a manual title when generation returns after rename", async () => {
-    invokeCalls = [];
-    invokeRecords = [];
-    hostMessageListener = null;
-    threadListByProject = {};
-    generatedThreadTitleError = null;
-    startThreadForSessionResult = {
-      ...buildConversation("thread-race", "project-1"),
-      threadName: null,
-      threadPreview: "",
-    };
-    let resolveGeneratedTitle!: (value: { title: string | null }) => void;
-    generatedThreadTitleResult = new Promise<{ title: string | null }>((resolve) => {
-      resolveGeneratedTitle = resolve;
-    });
-    const {
-      CodexAppServerManager,
-      __resetLocalConversationStoreForTests,
-    } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
-
-    const manager = new CodexAppServerManager("default");
-    await manager.startThreadForSession({
-      projectId: "project-1",
-      sessionId: "session-1",
-      prompt: "Build title parity",
-    });
-    await settleAsyncRender();
-    await manager.setThreadName("thread-race", "Manual title", "project-1");
-    resolveGeneratedTitle({ title: "Generated title" });
-    await settleAsyncRender();
-
-    expect(invokeRecords.some((record) => record.channel === "codex:thread:name:set-generated")).toBeFalse();
-    const manualCall = invokeRecords.find((record) => record.channel === "codex:thread:name:set");
-    expect(manualCall?.args[1]).toBe("Manual title");
-  });
-
-  test("does not surface a host error when auto-title generation fails", async () => {
-    invokeCalls = [];
-    invokeRecords = [];
-    hostMessageListener = null;
-    threadListByProject = {};
-    startThreadForSessionResult = {
-      ...buildConversation("thread-title-failure", "project-1"),
-      threadName: null,
-      threadPreview: "",
-    };
-    generatedThreadTitleResult = { title: null };
-    generatedThreadTitleError = new Error("boom");
-    const {
-      CodexAppServerManager,
-      __resetLocalConversationStoreForTests,
-    } = await import("./local-conversation-store");
-    __resetLocalConversationStoreForTests();
-
-    const manager = new CodexAppServerManager("default");
-    const originalWarn = console.warn;
-    console.warn = () => undefined;
-    try {
-      await manager.startThreadForSession({
-        projectId: "project-1",
-        sessionId: "session-1",
-        prompt: "Build title parity",
-      });
-      await settleAsyncRender();
-
-      expect(manager.readLastHostError()).toBe(null);
-      expect(invokeRecords.some((record) => record.channel === "codex:thread:name:set-generated")).toBeFalse();
-    } finally {
-      console.warn = originalWarn;
-      generatedThreadTitleError = null;
-    }
   });
 
   test("hydrates account and connection through the external store bootstrap", async () => {

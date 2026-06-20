@@ -22,13 +22,18 @@ describe("cleanCodexAutoTitlePrompt", () => {
 });
 
 describe("normalizeCodexGeneratedThreadTitle", () => {
-  test("only trims generated titles", () => {
+  test("normalizes generated titles like Codex Electron", () => {
     expect(normalizeCodexGeneratedThreadTitle("  x  ")).toBe("x");
-    expect(normalizeCodexGeneratedThreadTitle("  title: \"Fix flaky test.\"  ")).toBe("title: \"Fix flaky test.\"");
+    expect(normalizeCodexGeneratedThreadTitle("  title: \"Fix flaky test.\"  ")).toBe("Fix flaky test");
+    expect(normalizeCodexGeneratedThreadTitle("\n\n`Add new thread title!`\nignored")).toBe("Add new thread title");
   });
 
   test("returns null for empty generated titles", () => {
     expect(normalizeCodexGeneratedThreadTitle(" \n\t ")).toBe(null);
+  });
+
+  test("truncates generated titles to 36 characters", () => {
+    expect(normalizeCodexGeneratedThreadTitle("x".repeat(37))).toBe(`${"x".repeat(35)}…`);
   });
 });
 
