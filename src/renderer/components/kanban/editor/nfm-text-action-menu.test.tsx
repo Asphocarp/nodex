@@ -10,6 +10,9 @@ import {
 import { render, settleAsyncRender } from "@/test/dom";
 import { NfmMoveToMenuSurface } from "./nfm-move-to-menu";
 import type { NfmMoveToDestination } from "./nfm-move-to-menu-model";
+import { NFM_SEND_TO_THREAD_MODE_STORAGE_KEY } from "./nfm-send-to-thread-mode-settings";
+import { NfmSendToThreadMenuSurface, type NfmSendToThreadMenuSurfaceProps } from "./nfm-send-to-thread-menu";
+import type { NfmSendToThreadRequest } from "./nfm-send-to-thread-menu-model";
 import { NfmTextActionMenuSurface, type NfmTextActionMenuSurfaceProps } from "./nfm-text-action-menu";
 
 const TEST_DATE = new Date("2026-01-01T00:00:00.000Z");
@@ -81,6 +84,25 @@ const MOVE_TO_BOARD_MAP = new Map<string, BoardSummary>([
   ],
 ]);
 
+const SEND_TO_THREAD_THREADS = [
+  {
+    threadId: "thread-existing",
+    projectId: "default",
+    cardId: "source-card",
+    source: null,
+    threadName: "Existing implementation",
+    threadPreview: "Continue from selected notes",
+    modelProvider: "openai",
+    cwd: "/repo",
+    statusType: "idle",
+    statusActiveFlags: [],
+    archived: false,
+    createdAt: 1,
+    updatedAt: 2,
+    linkedAt: "2026-01-01T00:00:00.000Z",
+  },
+] satisfies NfmSendToThreadMenuSurfaceProps["threads"];
+
 function renderTextActionMenu(
   props?: Partial<NfmTextActionMenuSurfaceProps>,
 ) {
@@ -93,6 +115,7 @@ function renderTextActionMenu(
     blockActions: 0,
     nodexRows: [] as string[],
     moveDestinations: [] as NfmMoveToDestination[],
+    sendRequests: [] as NfmSendToThreadRequest[],
   };
 
   const view = render(
@@ -129,7 +152,7 @@ function renderTextActionMenu(
         linkControl={<button type="button" aria-label="Link">Link</button>}
         nodexRows={[
           {
-            key: "send-section-to-codex",
+            key: "send-to-thread",
             label: "Send to chat",
             enabled: true,
           },
@@ -165,6 +188,9 @@ function renderTextActionMenu(
         onMoveBlocksToDestination={(destination) => {
           actions.moveDestinations.push(destination);
         }}
+        onSendBlocksToThread={(request) => {
+          actions.sendRequests.push(request);
+        }}
         {...props}
       />
     </NodexTooltipProvider>,
@@ -176,6 +202,7 @@ function renderTextActionMenu(
 describe("nfm text action menu surface", () => {
   beforeEach(() => {
     localStorage.removeItem(TEXT_ACTION_RECENT_COLOR_STORAGE_KEY);
+    localStorage.removeItem(NFM_SEND_TO_THREAD_MODE_STORAGE_KEY);
   });
 
   async function openColorMenu(view: ReturnType<typeof renderTextActionMenu>["view"]) {
@@ -232,13 +259,108 @@ describe("nfm text action menu surface", () => {
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Bold" }));
       fireEvent.click(view.getByRole("button", { name: "Clear format" }));
-      fireEvent.click(view.getByRole("button", { name: "Send to chat" }));
       await settleAsyncRender();
     });
 
     expect(actions.styles.join(",")).toBe("bold");
     expect(actions.clearFormat).toBe(1);
-    expect(actions.nodexRows.join(",")).toBe("send-section-to-codex");
+    expect(actions.nodexRows.join(",")).toBe("");
+  });
+
+  test("opens the send-to-chat picker and submits thread and new-thread targets", async () => {
+    const { actions, view } = renderTextActionMenu({
+      renderSendToThreadMenu: (props) => (
+        <NfmSendToThreadMenuSurface
+          {...props}
+          threads={SEND_TO_THREAD_THREADS}
+        />
+      ),
+    });
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Send to chat" }));
+      await settleAsyncRender();
+    });
+
+    expect(Boolean(view.getByRole("dialog", { name: "Send to chat" }))).toBeTrue();
+    expect(Boolean(view.getByRole("combobox", { name: "Search threads" }))).toBeTrue();
+    expect(view.getByRole("button", { name: "Send" }).getAttribute("aria-pressed")).toBe("true");
+    expect(view.getByRole("button", { name: "Send & wrap" }).getAttribute("aria-pressed")).toBe("false");
+
+    await act(async () => {
+      fireEvent.pointerMove(view.getByRole("button", { name: "Send & wrap" }));
+      await settleAsyncRender();
+    });
+    expect(view.queryAllByText("Sends the blocks, then replaces them with a collapsed toggle linking to the thread.").length).toBe(0);
+
+    await act(async () => {
+      fireEvent.pointerMove(view.getByTestId("send-to-thread-wrap-mode-info"));
+      await settleAsyncRender();
+    });
+    expect(view.getAllByText("Sends the blocks, then replaces them with a collapsed toggle linking to the thread.").length > 0).toBeTrue();
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Send & wrap" }));
+      await settleAsyncRender();
+    });
+    expect(localStorage.getItem(NFM_SEND_TO_THREAD_MODE_STORAGE_KEY)).toBe("wrap-toggle");
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("option", { name: /Existing implementation/ }));
+      await settleAsyncRender();
+    });
+
+    await waitFor(() => {
+      expect(actions.sendRequests.length).toBe(1);
+    });
+    expect(actions.sendRequests[0]?.mode).toBe("wrap-toggle");
+    expect(actions.sendRequests[0]?.target.kind).toBe("thread");
+    if (actions.sendRequests[0]?.target.kind !== "thread") {
+      throw new Error("expected thread target");
+    }
+    expect(actions.sendRequests[0].target.threadId).toBe("thread-existing");
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Send to chat" }));
+      await settleAsyncRender();
+    });
+
+    expect(view.getByRole("button", { name: "Send & wrap" }).getAttribute("aria-pressed")).toBe("true");
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Send" }));
+      await settleAsyncRender();
+    });
+    expect(localStorage.getItem(NFM_SEND_TO_THREAD_MODE_STORAGE_KEY)).toBe("send");
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("option", { name: /New thread/ }));
+      await settleAsyncRender();
+    });
+
+    await waitFor(() => {
+      expect(actions.sendRequests.length).toBe(2);
+    });
+    expect(actions.sendRequests[1]?.mode).toBe("send");
+    expect(actions.sendRequests[1]?.target.kind).toBe("new-thread");
+  });
+
+  test("initializes the send-to-chat picker mode from persisted app preference", async () => {
+    localStorage.setItem(NFM_SEND_TO_THREAD_MODE_STORAGE_KEY, "wrap-toggle");
+
+    const view = render(
+      <NodexTooltipProvider>
+        <NfmSendToThreadMenuSurface
+          projectId="default"
+          threads={SEND_TO_THREAD_THREADS}
+          onAccept={() => undefined}
+          onClose={() => undefined}
+        />
+      </NodexTooltipProvider>,
+    );
+    await settleAsyncRender();
+
+    expect(view.getByRole("button", { name: "Send" }).getAttribute("aria-pressed")).toBe("false");
+    expect(view.getByRole("button", { name: "Send & wrap" }).getAttribute("aria-pressed")).toBe("true");
   });
 
   test("hands More off to block actions without opening the legacy dropdown", async () => {
@@ -319,6 +441,40 @@ describe("nfm text action menu surface", () => {
     expect(cardDestination.cardId).toBe("target-card");
   });
 
+  test("keeps only one Nodex action popover open", async () => {
+    const { view } = renderTextActionMenu({
+      renderSendToThreadMenu: (props) => (
+        <NfmSendToThreadMenuSurface
+          {...props}
+          threads={SEND_TO_THREAD_THREADS}
+        />
+      ),
+      renderMoveToMenu: (props) => (
+        <NfmMoveToMenuSurface
+          {...props}
+          projects={MOVE_TO_PROJECTS}
+          boardMap={MOVE_TO_BOARD_MAP}
+          loading={false}
+          loadError={null}
+        />
+      ),
+    });
+
+    await act(async () => {
+      fireEvent.pointerEnter(view.getByRole("button", { name: "Send to chat" }));
+      await settleAsyncRender();
+    });
+    expect(Boolean(view.getByRole("dialog", { name: "Send to chat" }))).toBeTrue();
+
+    await act(async () => {
+      fireEvent.pointerEnter(view.getByRole("button", { name: "Move to" }));
+      await settleAsyncRender();
+    });
+
+    expect(view.queryByRole("dialog", { name: "Send to chat" }) === null).toBeTrue();
+    expect(Boolean(view.getByRole("dialog", { name: "Move to" }))).toBeTrue();
+  });
+
   test("shows hover tooltips for icon-only formatting buttons", async () => {
     const { view } = renderTextActionMenu();
 
@@ -350,7 +506,7 @@ describe("nfm text action menu surface", () => {
     const { view } = renderTextActionMenu({
       nodexRows: [
         {
-          key: "move-to",
+          key: "convert-divider-to-thread-section",
           label: longLabel,
           enabled: true,
         },

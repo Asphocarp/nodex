@@ -52,7 +52,7 @@ describe("nfm text action menu model", () => {
       currentBlockId: null,
       currentBlockType: "paragraph",
       canSendBlocks: true,
-      hasSendThreadSection: true,
+      canSendToThread: true,
       hasConvertDividerToThreadSection: true,
     });
 
@@ -64,7 +64,7 @@ describe("nfm text action menu model", () => {
       currentBlockId: "block-1",
       currentBlockType: "divider",
       canSendBlocks: true,
-      hasSendThreadSection: true,
+      canSendToThread: true,
       hasConvertDividerToThreadSection: true,
     });
 

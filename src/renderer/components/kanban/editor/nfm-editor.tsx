@@ -66,6 +66,9 @@ import {
 } from "./block-drop-card-mapper";
 import { NfmSideMenu, NfmSideMenuOpenProvider, NfmSideMenuShortcutController } from "./nfm-side-menu";
 import type { NfmMoveToDestination } from "./nfm-move-to-menu-model";
+import { buildCodexPromptInputFromBlockNoteBlocks } from "./nfm-codex-prompt-input";
+import { createSendToThreadToggleBlock } from "./nfm-send-to-thread-block";
+import type { NfmSendToThreadRequest } from "./nfm-send-to-thread-menu-model";
 import { NfmSideMenuRuntimeProvider } from "./nfm-side-menu-runtime";
 import { resolveSendBlockSelection } from "./send-block-selection";
 import { PasteResourceDialog } from "./paste-resource-dialog";
@@ -173,7 +176,10 @@ import { useThreadSectionSendSettings } from "@/lib/use-thread-section-send-sett
 import { useTheme } from "@/lib/use-theme";
 import { usePasteResourceSettings } from "@/lib/use-paste-resource-settings";
 import { cn } from "@/lib/utils";
-import { useProjectThreadSummaries } from "@/features/local-conversation/local-conversation-store";
+import {
+  useCodexAppServerControl,
+  useProjectThreadSummaries,
+} from "@/features/local-conversation/local-conversation-store";
 
 interface ActiveChipEdit {
   propertyType: Exclude<MetaChipPropertyType, "tag">;
@@ -473,6 +479,7 @@ export function NfmEditor({
   const { spellcheck } = useSpellcheck();
   const { settings: pasteResourceSettings } = usePasteResourceSettings();
   const { settings: threadSectionSendSettings, updateSettings: updateThreadSectionSendSettings } = useThreadSectionSendSettings();
+  const codexControl = useCodexAppServerControl(projectId);
   const projectThreadSummaries = useProjectThreadSummaries(projectId);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -2059,6 +2066,88 @@ export function NfmEditor({
     ],
   );
 
+  const sendBlocksToThread = useCallback(
+    async (request: NfmSendToThreadRequest, fallbackBlockId: string) => {
+      if (!sourceCardContext) {
+        throw new Error("No blocks selected.");
+      }
+
+      const selection = resolveSendBlocksSelection(fallbackBlockId);
+      if (!selection) {
+        throw new Error("No blocks selected.");
+      }
+
+      const transferableBlocks = stripProjectedSubtrees(selection.blocks) as DragSessionBlock[];
+      const promptInput = buildCodexPromptInputFromBlockNoteBlocks(transferableBlocks, (nfmBlocks) => {
+        if (!containerRef.current) return;
+        applyToggleStatesFromDom(transferableBlocks, nfmBlocks, containerRef.current);
+      });
+      const hasImages = (promptInput.images?.length ?? 0) > 0;
+      if (promptInput.text.length === 0 && !hasImages) {
+        toast.info("Selected blocks are empty.", {
+          id: "nfm-send-to-thread",
+        });
+        return;
+      }
+
+      const threadId = request.target.kind === "thread"
+        ? request.target.threadId
+        : (await codexControl.startThreadForCard({
+            projectId,
+            cardId: sourceCardContext.cardId,
+            prompt: promptInput.text,
+            promptInput,
+          })).threadId;
+
+      if (request.target.kind === "thread") {
+        await codexControl.startTurn(threadId, promptInput.text, {
+          projectId,
+          promptInput,
+        });
+      }
+
+      if (request.mode === "wrap-toggle") {
+        const dropEditor = editor as unknown as EditorForExternalBlockDrop;
+        const sourceSnapshot = snapshotEditorDocument(dropEditor);
+        const toggleBlock = createSendToThreadToggleBlock({
+          threadId,
+          children: transferableBlocks,
+        });
+
+        const toggleStorageKey = `toggle-${toggleBlock.id}`;
+        localStorage.setItem(toggleStorageKey, "false");
+        toggleBlockIdsRef.current.push(toggleBlock.id);
+        try {
+          runInEditorTransaction(dropEditor, () => {
+            dropEditor.replaceBlocks(selection.blockIds, [toggleBlock]);
+          });
+          scheduleSerializedEmit();
+          flushSerializedEmit();
+        } catch (error) {
+          localStorage.removeItem(toggleStorageKey);
+          toggleBlockIdsRef.current = toggleBlockIdsRef.current.filter((blockId) => blockId !== toggleBlock.id);
+          restoreEditorDocument(dropEditor, sourceSnapshot);
+          throw error;
+        }
+      }
+
+      toast.success(request.target.kind === "thread" ? "Sent to chat" : "Sent to new chat", {
+        id: "nfm-send-to-thread",
+      });
+      restoreEditorFocus();
+    },
+    [
+      codexControl,
+      editor,
+      flushSerializedEmit,
+      projectId,
+      resolveSendBlocksSelection,
+      restoreEditorFocus,
+      scheduleSerializedEmit,
+      sourceCardContext,
+    ],
+  );
+
   const sourceCardId = sourceCardContext?.cardId;
   const sourceColumnId = sourceCardContext?.columnId;
   const externalDropAdapter = useMemo(() => {
@@ -2438,6 +2527,7 @@ export function NfmEditor({
       sourceProjectId: sourceCardContext ? projectId : null,
       sourceCardId: sourceCardContext?.cardId ?? null,
       onMoveBlocksToDestination: moveBlocksToDestination,
+      onSendBlocksToThread: sendBlocksToThread,
       onSendThreadSection: handleSendThreadSectionByBlockId,
       onConvertDividerToThreadSection: handleConvertDividerToThreadSection,
     }),
@@ -2446,6 +2536,7 @@ export function NfmEditor({
       handleSendThreadSectionByBlockId,
       moveBlocksToDestination,
       projectId,
+      sendBlocksToThread,
       sourceCardContext,
     ],
   );

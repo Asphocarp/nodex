@@ -2,9 +2,11 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useMemo, useState } from "react";
 import { TextActionLinkIcon } from "@/components/shared/icons";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
-import type { BoardSummary, CardSummary, Project } from "@/lib/types";
+import type { BoardSummary, CardSummary, CodexThreadSummary, Project } from "@/lib/types";
 import { writeTextActionRecentColors } from "@/lib/text-action-color-recents";
 import { NfmMoveToMenuSurface } from "./nfm-move-to-menu";
+import { writeNfmSendToThreadMode } from "./nfm-send-to-thread-mode-settings";
+import { NfmSendToThreadMenuSurface } from "./nfm-send-to-thread-menu";
 import { NfmTextActionMenuSurface, type NfmTextActionMenuSurfaceProps } from "./nfm-text-action-menu";
 import { NfmSideMenuSurface } from "./nfm-side-menu";
 import {
@@ -49,6 +51,29 @@ function makeStoryCard(id: string, title: string, status: CardSummary["status"],
   };
 }
 
+function makeStoryThread(input: Partial<CodexThreadSummary> & { threadId: string }): CodexThreadSummary {
+  return {
+    threadId: input.threadId,
+    projectId: input.projectId ?? "default",
+    cardId: input.cardId ?? "source-card",
+    source: null,
+    ephemeral: input.ephemeral ?? false,
+    threadName: input.threadName ?? null,
+    threadPreview: input.threadPreview ?? "",
+    modelProvider: input.modelProvider ?? "openai",
+    cwd: input.cwd ?? "/Users/asc/repo/nodex2",
+    approvalPolicy: input.approvalPolicy ?? null,
+    approvalsReviewer: input.approvalsReviewer ?? null,
+    sandbox: input.sandbox ?? null,
+    statusType: input.statusType ?? "idle",
+    statusActiveFlags: input.statusActiveFlags ?? [],
+    archived: input.archived ?? false,
+    createdAt: input.createdAt ?? STORY_DATE.getTime(),
+    updatedAt: input.updatedAt ?? STORY_DATE.getTime(),
+    linkedAt: input.linkedAt ?? STORY_DATE.toISOString(),
+  };
+}
+
 const STORY_MOVE_TO_PROJECTS = [
   makeStoryProject("default", "Default", "🔥"),
   makeStoryProject("renderer", "Renderer parity", "🧭"),
@@ -83,6 +108,28 @@ const STORY_MOVE_TO_BOARD_MAP = new Map<string, BoardSummary>([
     },
   ],
 ]);
+
+const STORY_SEND_TO_THREAD_THREADS = [
+  makeStoryThread({
+    threadId: "thread-implementation",
+    threadName: "Implementation pass",
+    threadPreview: "Wiring the selected NFM blocks into a Codex turn.",
+    updatedAt: STORY_DATE.getTime() + 3,
+  }),
+  makeStoryThread({
+    threadId: "thread-review",
+    threadName: "Review follow-up",
+    threadPreview: "Check the generated toggle and mention serialization.",
+    statusActiveFlags: ["waitingOnApproval"],
+    updatedAt: STORY_DATE.getTime() + 2,
+  }),
+  makeStoryThread({
+    threadId: "thread-empty-title",
+    threadName: null,
+    threadPreview: "Untitled thread preview fallback",
+    updatedAt: STORY_DATE.getTime() + 1,
+  }),
+];
 
 function TextActionMenuStorySurface(
   props: Partial<NfmTextActionMenuSurfaceProps>,
@@ -378,7 +425,7 @@ export const WithNodexActions: Story = {
   args: {
     nodexRows: [
       {
-        key: "send-section-to-codex",
+        key: "send-to-thread",
         label: "Send to chat",
         enabled: true,
       },
@@ -390,6 +437,13 @@ export const WithNodexActions: Story = {
     ],
     sourceProjectId: "default",
     sourceCardId: "source-card",
+    onSendBlocksToThread: () => undefined,
+    renderSendToThreadMenu: (props) => (
+      <NfmSendToThreadMenuSurface
+        {...props}
+        threads={STORY_SEND_TO_THREAD_THREADS}
+      />
+    ),
     renderMoveToMenu: (props) => (
       <NfmMoveToMenuSurface
         {...props}
@@ -399,6 +453,56 @@ export const WithNodexActions: Story = {
         loadError={null}
       />
     ),
+  },
+};
+
+export const SendToThreadPicker: Story = {
+  render: () => {
+    writeNfmSendToThreadMode("wrap-toggle");
+
+    return (
+      <NodexTooltipProvider>
+        <div className="flex min-h-screen items-start justify-center bg-token-editor-background p-12 text-token-foreground">
+          <NfmSendToThreadMenuSurface
+            projectId="default"
+            threads={STORY_SEND_TO_THREAD_THREADS}
+            initialQuery="implementation"
+            onAccept={() => undefined}
+            onClose={() => undefined}
+          />
+        </div>
+      </NodexTooltipProvider>
+    );
+  },
+  parameters: {
+    docs: {
+      description: {
+        story: "Direct send-to-chat picker coverage for thread search, the fixed New thread row, the persisted Send / Send & wrap selector, and the wrap info tooltip.",
+      },
+    },
+  },
+};
+
+export const SendToThreadPickerEmpty: Story = {
+  render: () => (
+    <NodexTooltipProvider>
+      <div className="flex min-h-screen items-start justify-center bg-token-editor-background p-12 text-token-foreground">
+        <NfmSendToThreadMenuSurface
+          projectId="default"
+          threads={[]}
+          initialQuery="no matches"
+          onAccept={() => undefined}
+          onClose={() => undefined}
+        />
+      </div>
+    </NodexTooltipProvider>
+  ),
+  parameters: {
+    docs: {
+      description: {
+        story: "Empty search state keeps New thread available while explaining that no existing threads matched.",
+      },
+    },
   },
 };
 

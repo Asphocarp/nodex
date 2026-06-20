@@ -35,7 +35,7 @@ export interface TextActionMenuRuntimeInput {
   currentBlockId: string | null;
   currentBlockType: string | null;
   canSendBlocks: boolean;
-  hasSendThreadSection: boolean;
+  canSendToThread: boolean;
   hasConvertDividerToThreadSection: boolean;
 }
 
@@ -69,9 +69,9 @@ export function resolveNodexTextActionRows(input: TextActionMenuRuntimeInput): T
 
   const rows: TextActionNodexRow[] = [];
 
-  if (input.hasSendThreadSection) {
+  if (input.canSendToThread) {
     rows.push({
-      key: "send-section-to-codex",
+      key: "send-to-thread",
       label: "Send to chat",
       enabled: true,
     });

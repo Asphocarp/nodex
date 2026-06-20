@@ -1,5 +1,6 @@
 import { createContext, useContext, type ReactNode } from "react";
 import type { NfmMoveToDestination } from "./nfm-move-to-menu-model";
+import type { NfmSendToThreadRequest } from "./nfm-send-to-thread-menu-model";
 
 export interface NfmTextActionMenuRuntimeValue {
   canSendBlocks: boolean;
@@ -7,6 +8,10 @@ export interface NfmTextActionMenuRuntimeValue {
   sourceCardId?: string | null;
   onMoveBlocksToDestination?: (
     destination: NfmMoveToDestination,
+    fallbackBlockId: string,
+  ) => Promise<void> | void;
+  onSendBlocksToThread?: (
+    request: NfmSendToThreadRequest,
     fallbackBlockId: string,
   ) => Promise<void> | void;
   onSendThreadSection?: (blockId: string) => boolean;

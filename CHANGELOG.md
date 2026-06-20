@@ -31,6 +31,7 @@ All notable changes to this project will be documented in this file.
 - Added a project selector in the empty session new-chat status row so a first prompt can target another project before the thread starts.
 - Added a `Start in` selector to empty session new-chat composers, including `Work locally` and managed `New worktree` starts with environment setup progress.
 - Added NFM thread mentions so card descriptions can reference and open Codex threads with `<mention-thread uuid="..." />`.
+- Added a real `Send to chat` picker to the NFM text-selection menu, including thread search, new-thread sending, and an app-level persisted `Send & wrap` mode with inline explanation.
 
 ### Changed
 - Card Stage history now opens as an app-shell version-history modal with post-change card snapshot previews rendered through the read-only NFM editor surface.

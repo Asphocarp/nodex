@@ -80,6 +80,8 @@ import {
 } from "./nfm-link-toolbar";
 import { NfmMoveToMenu } from "./nfm-move-to-menu";
 import type { NfmMoveToDestination, NfmMoveToResultScope } from "./nfm-move-to-menu-model";
+import { NfmSendToThreadMenu } from "./nfm-send-to-thread-menu";
+import type { NfmSendToThreadRequest } from "./nfm-send-to-thread-menu-model";
 import { useNfmSideMenuOpenController } from "./nfm-side-menu";
 import type { NfmSideMenuRect } from "./nfm-side-menu-position";
 import {
@@ -128,6 +130,12 @@ interface TextActionMoveToMenuRenderProps {
   placeholder?: string;
 }
 
+interface TextActionSendToThreadMenuRenderProps {
+  projectId: string | null;
+  onAccept: (request: NfmSendToThreadRequest) => Promise<void> | void;
+  onClose: () => void;
+}
+
 interface TextActionBlockSnapshot {
   id?: unknown;
   type?: string;
@@ -172,7 +180,9 @@ export interface NfmTextActionMenuSurfaceProps {
   onOpenBlockActions: (fallbackAnchorRect?: NfmSideMenuRect) => void;
   onNodexRow: (row: TextActionNodexRow) => void;
   onMoveBlocksToDestination?: (destination: NfmMoveToDestination) => Promise<void> | void;
+  onSendBlocksToThread?: (request: NfmSendToThreadRequest) => Promise<void> | void;
   renderMoveToMenu?: (props: TextActionMoveToMenuRenderProps) => ReactNode;
+  renderSendToThreadMenu?: (props: TextActionSendToThreadMenuRenderProps) => ReactNode;
 }
 
 const TEXT_ACTION_BLOCK_TYPE_DEFINITIONS = [
@@ -1059,19 +1069,22 @@ function TextActionMoveToRow({
   sourceCardId,
   onMoveBlocksToDestination,
   renderMoveToMenu,
+  open,
+  onOpenChange,
 }: {
   row: TextActionNodexRow;
   sourceProjectId: string | null;
   sourceCardId: string | null;
   onMoveBlocksToDestination?: (destination: NfmMoveToDestination) => Promise<void> | void;
   renderMoveToMenu?: (props: TextActionMoveToMenuRenderProps) => ReactNode;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
-  const [open, setOpen] = useState(false);
   const enabled = row.enabled && Boolean(onMoveBlocksToDestination);
 
   const closeAndRestoreFocus = () => {
-    setOpen(false);
+    onOpenChange(false);
     requestAnimationFrame(() => {
       rowRef.current?.focus();
     });
@@ -1083,7 +1096,7 @@ function TextActionMoveToRow({
     onAccept: async (destination) => {
       if (!onMoveBlocksToDestination) return;
       await onMoveBlocksToDestination(destination);
-      setOpen(false);
+      onOpenChange(false);
     },
     onClose: closeAndRestoreFocus,
   };
@@ -1093,7 +1106,7 @@ function TextActionMoveToRow({
       open={open}
       onOpenChange={(nextOpen) => {
         if (nextOpen && !enabled) return;
-        setOpen(nextOpen);
+        onOpenChange(nextOpen);
       }}
     >
       <NodexPopoverAnchor asChild>
@@ -1106,7 +1119,15 @@ function TextActionMoveToRow({
           rightSlot={enabled ? (
             <ChevronRightIcon className="size-4 shrink-0 text-token-text-secondary" />
           ) : undefined}
-          onClick={() => setOpen(true)}
+          onPointerEnter={() => {
+            if (enabled) onOpenChange(true);
+          }}
+          onFocus={() => {
+            if (enabled) onOpenChange(true);
+          }}
+          onClick={() => {
+            if (enabled) onOpenChange(true);
+          }}
         />
       </NodexPopoverAnchor>
       <NodexPopoverContent
@@ -1127,13 +1148,97 @@ function TextActionMoveToRow({
   );
 }
 
+function TextActionSendToThreadRow({
+  row,
+  projectId,
+  onSendBlocksToThread,
+  renderSendToThreadMenu,
+  open,
+  onOpenChange,
+}: {
+  row: TextActionNodexRow;
+  projectId: string | null;
+  onSendBlocksToThread?: (request: NfmSendToThreadRequest) => Promise<void> | void;
+  renderSendToThreadMenu?: (props: TextActionSendToThreadMenuRenderProps) => ReactNode;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const rowRef = useRef<HTMLDivElement>(null);
+  const enabled = row.enabled && Boolean(projectId) && Boolean(onSendBlocksToThread);
+
+  const closeAndRestoreFocus = () => {
+    onOpenChange(false);
+    requestAnimationFrame(() => {
+      rowRef.current?.focus();
+    });
+  };
+
+  const menuProps: TextActionSendToThreadMenuRenderProps = {
+    projectId,
+    onAccept: async (request) => {
+      if (!onSendBlocksToThread) return;
+      await onSendBlocksToThread(request);
+      onOpenChange(false);
+    },
+    onClose: closeAndRestoreFocus,
+  };
+
+  return (
+    <NodexPopover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen && !enabled) return;
+        onOpenChange(nextOpen);
+      }}
+    >
+      <NodexPopoverAnchor asChild>
+        <TextActionSkillRow
+          ref={rowRef}
+          label={row.label}
+          disabled={!enabled}
+          hasPopup="dialog"
+          expanded={open}
+          rightSlot={enabled ? (
+            <ChevronRightIcon className="size-4 shrink-0 text-token-text-secondary" />
+          ) : undefined}
+          onPointerEnter={() => {
+            if (enabled) onOpenChange(true);
+          }}
+          onFocus={() => {
+            if (enabled) onOpenChange(true);
+          }}
+          onClick={() => {
+            if (enabled) onOpenChange(true);
+          }}
+        />
+      </NodexPopoverAnchor>
+      <NodexPopoverContent
+        side="right"
+        align="start"
+        sideOffset={6}
+        alignOffset={-4}
+        aria-label="Send to chat"
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        className="w-[330px] max-w-[calc(100vw-24px)] overflow-hidden p-0 text-[14px] leading-[1.2] shadow-xl-spread backdrop-blur-xl"
+        style={{ width: 330 }}
+      >
+        {renderSendToThreadMenu?.(menuProps) ?? (
+          <NfmSendToThreadMenu {...menuProps} />
+        )}
+      </NodexPopoverContent>
+    </NodexPopover>
+  );
+}
+
 function TextActionAiPane({
   nodexRows,
   sourceProjectId,
   sourceCardId,
   onNodexRow,
   onMoveBlocksToDestination,
+  onSendBlocksToThread,
   renderMoveToMenu,
+  renderSendToThreadMenu,
 }: Pick<
   NfmTextActionMenuSurfaceProps,
   | "nodexRows"
@@ -1141,8 +1246,12 @@ function TextActionAiPane({
   | "sourceCardId"
   | "onNodexRow"
   | "onMoveBlocksToDestination"
+  | "onSendBlocksToThread"
   | "renderMoveToMenu"
+  | "renderSendToThreadMenu"
 >) {
+  const [activePopover, setActivePopover] = useState<"send-to-thread" | "move-to" | null>(null);
+
   return (
     <div className="relative">
       <div className="max-h-[134px] overflow-y-auto py-1">
@@ -1152,6 +1261,20 @@ function TextActionAiPane({
               Actions
             </div>
             {nodexRows.map((row) => {
+              if (row.key === "send-to-thread") {
+                return (
+                  <TextActionSendToThreadRow
+                    key={row.key}
+                    row={row}
+                    projectId={sourceProjectId ?? null}
+                    onSendBlocksToThread={onSendBlocksToThread}
+                    renderSendToThreadMenu={renderSendToThreadMenu}
+                    open={activePopover === "send-to-thread"}
+                    onOpenChange={(nextOpen) => setActivePopover(nextOpen ? "send-to-thread" : null)}
+                  />
+                );
+              }
+
               if (row.key === "move-to") {
                 return (
                   <TextActionMoveToRow
@@ -1161,6 +1284,8 @@ function TextActionAiPane({
                     sourceCardId={sourceCardId ?? null}
                     onMoveBlocksToDestination={onMoveBlocksToDestination}
                     renderMoveToMenu={renderMoveToMenu}
+                    open={activePopover === "move-to"}
+                    onOpenChange={(nextOpen) => setActivePopover(nextOpen ? "move-to" : null)}
                   />
                 );
               }
@@ -1234,7 +1359,9 @@ export function NfmTextActionMenuSurface({
   onOpenBlockActions,
   onNodexRow,
   onMoveBlocksToDestination,
+  onSendBlocksToThread,
   renderMoveToMenu,
+  renderSendToThreadMenu,
 }: NfmTextActionMenuSurfaceProps) {
   return (
     <div className="pointer-events-none p-4" contentEditable={false}>
@@ -1350,7 +1477,9 @@ export function NfmTextActionMenuSurface({
           sourceCardId={sourceCardId}
           onNodexRow={onNodexRow}
           onMoveBlocksToDestination={onMoveBlocksToDestination}
+          onSendBlocksToThread={onSendBlocksToThread}
           renderMoveToMenu={renderMoveToMenu}
+          renderSendToThreadMenu={renderSendToThreadMenu}
         />
         <TextActionAiFooter />
       </div>
@@ -1377,14 +1506,14 @@ export function NfmTextActionMenu({ fallback }: { fallback: ReactNode }) {
       currentBlockId: snapshot.currentBlockId,
       currentBlockType: snapshot.currentBlockType,
       canSendBlocks: runtime.canSendBlocks && Boolean(runtime.onMoveBlocksToDestination),
-      hasSendThreadSection: Boolean(runtime.onSendThreadSection),
+      canSendToThread: runtime.canSendBlocks && Boolean(runtime.onSendBlocksToThread),
       hasConvertDividerToThreadSection: Boolean(runtime.onConvertDividerToThreadSection),
     }),
     [
       runtime.canSendBlocks,
       runtime.onConvertDividerToThreadSection,
       runtime.onMoveBlocksToDestination,
-      runtime.onSendThreadSection,
+      runtime.onSendBlocksToThread,
       snapshot.currentBlockId,
       snapshot.currentBlockType,
     ],
@@ -1454,11 +1583,6 @@ export function NfmTextActionMenu({ fallback }: { fallback: ReactNode }) {
   const handleNodexRow = (row: TextActionNodexRow) => {
     if (!snapshot.currentBlockId) return;
 
-    if (row.key === "send-section-to-codex") {
-      runtime.onSendThreadSection?.(snapshot.currentBlockId);
-      return;
-    }
-
     if (row.key === "convert-divider-to-thread-section") {
       runtime.onConvertDividerToThreadSection?.(snapshot.currentBlockId);
       return;
@@ -1469,6 +1593,11 @@ export function NfmTextActionMenu({ fallback }: { fallback: ReactNode }) {
   const handleMoveBlocksToDestination = async (destination: NfmMoveToDestination) => {
     if (!snapshot.currentBlockId) return;
     await runtime.onMoveBlocksToDestination?.(destination, snapshot.currentBlockId);
+  };
+
+  const handleSendBlocksToThread = async (request: NfmSendToThreadRequest) => {
+    if (!snapshot.currentBlockId) return;
+    await runtime.onSendBlocksToThread?.(request, snapshot.currentBlockId);
   };
 
   return (
@@ -1493,6 +1622,7 @@ export function NfmTextActionMenu({ fallback }: { fallback: ReactNode }) {
       onOpenBlockActions={openBlockActions}
       onNodexRow={handleNodexRow}
       onMoveBlocksToDestination={handleMoveBlocksToDestination}
+      onSendBlocksToThread={handleSendBlocksToThread}
     />
   );
 }
