@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { invoke } from "@/lib/api";
 import { useThreadHeaderPortalTarget } from "@/lib/thread-header-portal";
 import type {
   CodexCollaborationModeKind,
@@ -12,7 +11,6 @@ import type {
   ThreadBodySurfaceModel,
   ThreadBodyUiStateOverrides,
   ThreadFooterModel,
-  ThreadOpenCardTarget,
   ThreadStageActions,
   ThreadStageHeaderModel,
   ThreadStageRouteInput,
@@ -47,7 +45,6 @@ import { LocalConversationStageScreen } from "./local-conversation-stage-screen"
 import { ThreadStageHeader } from "./local-conversation-stage-header";
 import { LocalConversationThreadBody } from "./local-conversation-thread-body";
 import { NewChatProjectSelector } from "./composer/new-chat-project-selector";
-import { resolveThreadCardStatus } from "./shared/thread-card-fetch";
 import {
   ThreadFloatingSummaryPanel,
 } from "./summary-panel";
@@ -61,7 +58,6 @@ type ConnectedThreadStageInput = Omit<
   | "account"
   | "composerIntent"
   | "primaryRequest"
-  | "activeThreadCardColumnId"
 >;
 
 function isKnownCollaborationMode(mode: string | null | undefined): mode is CodexCollaborationModeKind {
@@ -118,41 +114,6 @@ function resolveThreadTitle(input: ConnectedThreadStageInput, summary: ReturnTyp
   );
 }
 
-function resolveOpenCardTarget(input: ConnectedThreadStageInput, summary: ReturnType<typeof useConversationSummaryFields>, activeThreadCardColumnId: string | null): ThreadOpenCardTarget | null {
-  if (input.sideChatContext) {
-    return null;
-  }
-
-  if (summary.cardId) {
-    return {
-      cardId: summary.cardId,
-      title: summary.threadName?.trim() || summary.threadPreview || summary.cardId,
-      columnId: activeThreadCardColumnId,
-    };
-  }
-
-  if (input.activeThreadSummary?.cardId) {
-    return {
-      cardId: input.activeThreadSummary.cardId,
-      title:
-        input.activeThreadSummary.threadName?.trim()
-        || input.activeThreadSummary.threadPreview
-        || input.activeThreadSummary.cardId,
-      columnId: activeThreadCardColumnId,
-    };
-  }
-
-  if (input.isNewThreadTab && input.newThreadTarget?.cardId && input.newThreadTarget.cardTitle) {
-    return {
-      cardId: input.newThreadTarget.cardId,
-      title: input.newThreadTarget.cardTitle,
-      columnId: input.newThreadTarget.columnId ?? null,
-    };
-  }
-
-  return null;
-}
-
 function ConnectedThreadStageHeader({
   activeThreadId,
   input,
@@ -167,47 +128,18 @@ function ConnectedThreadStageHeader({
   const connection = useLocalConversationConnection();
   const account = useLocalConversationAccount();
   const summaryFields = useConversationSummaryFields(activeThreadId);
-  const [activeThreadCardColumnId, setActiveThreadCardColumnId] = useState<string | null>(null);
-
-  useEffect(() => {
-    const activeThreadCardId = summaryFields.cardId;
-    const activeThreadProjectId = summaryFields.projectId ?? input.projectId;
-    if (!activeThreadCardId || !activeThreadProjectId) {
-      setActiveThreadCardColumnId(null);
-      return;
-    }
-
-    let cancelled = false;
-    void invoke("card:get", activeThreadProjectId, activeThreadCardId)
-      .then((result) => {
-        if (cancelled) return;
-        setActiveThreadCardColumnId(resolveThreadCardStatus(result));
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setActiveThreadCardColumnId(null);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [input.projectId, summaryFields.cardId, summaryFields.projectId]);
 
   const model = useMemo<ThreadStageHeaderModel>(
     () => ({
       projectId: summaryFields.projectId ?? input.projectId,
       threadId: summaryFields.threadId ?? input.activeThreadSummary?.threadId ?? activeThreadId,
-      cardId: summaryFields.cardId ?? input.activeThreadSummary?.cardId ?? input.newThreadTarget?.cardId ?? null,
       title: resolveThreadTitle(input, summaryFields),
-      openCardTarget: resolveOpenCardTarget(input, summaryFields, activeThreadCardColumnId),
-      activeThreadCardColumnId,
       connection,
       account,
       showSideChatAction: Boolean(activeThreadId && !input.sideChatContext && actions.onOpenSideChat),
     }),
     [
       account,
-      activeThreadCardColumnId,
       activeThreadId,
       connection,
       input,
@@ -456,7 +388,6 @@ function ConnectedThreadStageFooter({
             ...(conversationSnapshot ?? {}),
             threadId: activeThreadId,
             projectId: input.projectId,
-            cardId: input.activeThreadSummary?.cardId ?? input.newThreadTarget?.cardId ?? "",
             source: conversationSnapshot?.source ?? null,
             threadName: input.activeThreadSummary?.threadName ?? null,
             threadPreview: input.activeThreadSummary?.threadPreview ?? "",

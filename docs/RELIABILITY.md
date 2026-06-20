@@ -14,7 +14,7 @@
 - Project deletion cascades card/history rows to prevent orphaned state.
 - Card descriptions remain materialized on `cards.description`, while historical description changes are stored in `description_revisions` / `description_blocks` and referenced from history rows via revision ids.
 - Card history compaction keeps retained visible history rows reconstructable with internal `card_history_snapshots` anchors. Pruning checkpoints the earliest retained row per affected card before deleting older rows, and description revision GC treats checkpoint revision ids as roots.
-- Codex thread metadata persists in `codex_threads` with nullable project/card ownership, while card ownership lives in `codex_thread_card_links` and session ownership lives in `project_session_threads`.
+- Codex thread metadata persists in `codex_threads` with nullable project ownership, while durable local thread ownership lives in `project_session_threads`.
 - Persisted Codex session files under `$CODEX_HOME` / `~/.codex` are the preferred recovery source for linked thread turns/items across tab switches and app restarts.
 - The main-process conversation manager now bootstraps canonical thread state directly from persisted Codex session files when needed; there is no separate app-owned transcript snapshot cache.
 - Active-thread runtime authority is conversation-centric inside the main process: each loaded thread keeps one canonical manager record with transcript/detail, `resumeState`, stream role, queued follow-ups, and pending steers, and renderer snapshots are always serialized from that record.

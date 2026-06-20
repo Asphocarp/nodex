@@ -213,7 +213,6 @@ describe("buildRendererItemStream", () => {
           requestId: "approval_1",
           kind: "command",
           projectId: "project_1",
-          cardId: "card_1",
           threadId: "thread_1",
           turnId: "turn_1",
           itemId: "item_approval",

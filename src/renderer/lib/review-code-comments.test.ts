@@ -10,7 +10,6 @@ function buildConversationWithComment(text: string): CodexConversationSnapshot {
   return {
     threadId: "thread-review",
     projectId: "project",
-    cardId: null,
     source: null,
     threadName: "Review",
     threadPreview: "",

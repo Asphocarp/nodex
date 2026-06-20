@@ -7,7 +7,6 @@ function buildStoryConversation(): CodexConversationSnapshot {
   return {
     threadId: "thr_story_review",
     projectId: "default",
-    cardId: "card-1",
     source: null,
     threadName: "Review thread",
     threadPreview: "Inspect the latest turn diff",

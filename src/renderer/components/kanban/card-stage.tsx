@@ -136,7 +136,7 @@ export function CardStage(props: CardStageProps) {
                   }}
                   linkedCodexThreads={props.linkedCodexThreads}
                   onOpenCodexThread={props.onOpenCodexThread}
-                  onStartThreadSection={props.onStartThreadSection}
+                  onStartNewSessionThreadFromEditor={props.onStartNewSessionThreadFromEditor}
                   onSendThreadSectionPrompt={props.onSendThreadSectionPrompt}
                   isActivePanelTab={props.isActivePanelTab ?? true}
                   placeholder="Add a description..."

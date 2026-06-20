@@ -24,10 +24,7 @@ interface BuildThreadBodyModelInput {
   newThreadTarget: {
     projectId: string;
     projectName: string;
-    cardId?: string;
-    cardTitle?: string;
-    columnId?: string;
-    sessionId?: string;
+    sessionId: string;
     threadTitle?: string;
     runInTarget?: "localProject" | "newWorktree" | "cloud";
   } | null;
@@ -89,7 +86,6 @@ function buildBodyConversation(input: BuildThreadBodyModelInput) {
   return {
     threadId: input.threadId,
     projectId: null,
-    cardId: null,
     source: null,
     threadName: null,
     threadPreview: "",
@@ -233,11 +229,9 @@ export function buildThreadBodyModel(input: ThreadBodyModelInput): ThreadBodyMod
           title: "Start a new thread",
           description: normalized.newThreadTarget
             ? normalized.isCloudNewThreadTarget
-              ? "Cloud run target is mock-only right now. Change the card Run in property to Local project or New worktree."
-              : normalized.newThreadTarget.sessionId
-                ? "Write the first prompt and send to create a new session thread."
-                : "Write the first prompt and send to create a new card-linked thread."
-            : "Select a card in the Cards stage, then press New in its Threads property.",
+              ? "Cloud run target is mock-only right now. Change the start target to Local project or New worktree."
+              : "Write the first prompt and send to create a new session thread."
+            : "Select a project session to start a new thread.",
         },
       };
     }

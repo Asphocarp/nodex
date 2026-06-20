@@ -6,7 +6,6 @@ function buildThreadDetail(overrides?: Partial<CodexThreadDetail>): CodexThreadD
   return {
     threadId: "thread_1",
     projectId: "project_1",
-    cardId: "card_1",
     source: null,
     threadName: "Thread",
     threadPreview: "Preview",
@@ -65,7 +64,6 @@ describe("buildCodexConversationSnapshot", () => {
       requestId: "approval_1",
       kind: "command",
       projectId: "project_1",
-      cardId: "card_1",
       threadId: "thread_1",
       turnId: "turn_1",
       itemId: "assistant_1",

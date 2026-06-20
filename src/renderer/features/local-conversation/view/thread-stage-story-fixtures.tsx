@@ -115,15 +115,14 @@ function initializeStorybookRendererDocument(): void {
 
 const STORY_PROJECT_ID = "storybook-local-conversation";
 const STORY_CARD_ID = "card-thread-storybook";
-const STORY_COLUMN_ID = "in-progress";
+const STORY_SESSION_ID = "session-thread-storybook";
 const STORY_WORKSPACE_PATH = "/workspace/nodex";
 const STORY_THREAD_ID = "thread_storybook";
 const STORY_NEW_THREAD_TARGET: NonNullable<ThreadStageRouteInput["newThreadTarget"]> = {
   projectId: STORY_PROJECT_ID,
   projectName: "Nodex",
-  cardId: STORY_CARD_ID,
-  cardTitle: "Add Storybook coverage for thread surfaces",
-  columnId: STORY_COLUMN_ID,
+  sessionId: STORY_SESSION_ID,
+  threadTitle: "Add Storybook coverage for thread surfaces",
   runInTarget: "newWorktree",
 };
 
@@ -333,7 +332,6 @@ export function buildStoryConversation(
   return {
     threadId: STORY_THREAD_ID,
     projectId: STORY_PROJECT_ID,
-    cardId: STORY_CARD_ID,
     source: overrides?.source ?? null,
     threadName: "Thread Storybook rollout",
     threadPreview: "Cover tool calls, request lanes, edit flow, and fork flow.",
@@ -590,7 +588,6 @@ function buildApprovalRequestConversation(): CodexConversationSnapshot {
         requestId: "approval_story_active",
         kind: "command",
         projectId: STORY_PROJECT_ID,
-        cardId: STORY_CARD_ID,
         threadId: STORY_THREAD_ID,
         turnId: "turn_story_streaming",
         itemId: "exec_story_streaming",
@@ -645,7 +642,6 @@ function buildUserInputRequestConversation(): CodexConversationSnapshot {
         type: "userInput",
         requestId: "user_input_story_active",
         projectId: STORY_PROJECT_ID,
-        cardId: STORY_CARD_ID,
         threadId: STORY_THREAD_ID,
         turnId: "turn_story_streaming",
         itemId: "reasoning_story_streaming",
@@ -663,7 +659,6 @@ function buildImplementPlanConversation(): CodexConversationSnapshot {
       type: "implementPlan",
       requestId: "implement-plan:turn_story_plan",
       projectId: STORY_PROJECT_ID,
-      cardId: STORY_CARD_ID,
       threadId: STORY_THREAD_ID,
       turnId: "turn_story_plan",
       itemId: "implement-plan:turn_story_plan",
@@ -747,7 +742,6 @@ function buildBackgroundConversation(): {
         requestId: "approval_story_active",
         kind: "command",
         projectId: STORY_PROJECT_ID,
-        cardId: STORY_CARD_ID,
         threadId: STORY_THREAD_ID,
         turnId: "turn_story_streaming",
         itemId: "exec_story_streaming",
@@ -829,7 +823,6 @@ function buildBackgroundConversation(): {
         requestId: "approval_story_background",
         kind: "command",
         projectId: STORY_PROJECT_ID,
-        cardId: STORY_CARD_ID,
         threadId: backgroundThreadId,
         turnId: "turn_story_background",
         itemId: "background_exec_story",
@@ -1785,7 +1778,6 @@ export const THREAD_REQUEST_CARD_STORY_DATA = {
     requestId: "approval_story_card",
     kind: "command" as const,
     projectId: STORY_PROJECT_ID,
-    cardId: STORY_CARD_ID,
     threadId: STORY_THREAD_ID,
     turnId: "turn_story_request",
     itemId: "item_story_request_approval",
@@ -1810,7 +1802,6 @@ export const THREAD_REQUEST_CARD_STORY_DATA = {
     type: "userInput" as const,
     requestId: "user_input_story_card",
     projectId: STORY_PROJECT_ID,
-    cardId: STORY_CARD_ID,
     threadId: STORY_THREAD_ID,
     turnId: "turn_story_request",
     itemId: "item_story_request_user_input",
@@ -1839,7 +1830,6 @@ export const THREAD_REQUEST_CARD_STORY_DATA = {
     type: "implementPlan" as const,
     requestId: "implement_plan_story_card",
     projectId: STORY_PROJECT_ID,
-    cardId: STORY_CARD_ID,
     threadId: STORY_THREAD_ID,
     turnId: "turn_story_request",
     itemId: "item_story_request_plan",
@@ -1854,7 +1844,6 @@ export const THREAD_REQUEST_CARD_STORY_DATA = {
     type: "mcpServerElicitation" as const,
     requestId: "mcp_story_card",
     projectId: STORY_PROJECT_ID,
-    cardId: STORY_CARD_ID,
     threadId: STORY_THREAD_ID,
     turnId: "turn_story_request",
     itemId: "item_story_request_mcp",
@@ -2151,39 +2140,6 @@ function resolveStoryThreadTitle(
   );
 }
 
-function resolveStoryOpenCardTarget(
-  runtime: ThreadStageStoryRuntimeState,
-): ThreadStageHeaderModel["openCardTarget"] {
-  if (runtime.conversation?.cardId) {
-    return {
-      cardId: runtime.conversation.cardId,
-      title: runtime.conversation.threadName?.trim() || runtime.conversation.threadPreview || runtime.conversation.cardId,
-      columnId: STORY_COLUMN_ID,
-    };
-  }
-
-  if (runtime.activeThreadSummary?.cardId) {
-    return {
-      cardId: runtime.activeThreadSummary.cardId,
-      title:
-        runtime.activeThreadSummary.threadName?.trim()
-        || runtime.activeThreadSummary.threadPreview
-        || runtime.activeThreadSummary.cardId,
-      columnId: STORY_COLUMN_ID,
-    };
-  }
-
-  if (runtime.isNewThreadTab && runtime.newThreadTarget?.cardId && runtime.newThreadTarget.cardTitle) {
-    return {
-      cardId: runtime.newThreadTarget.cardId,
-      title: runtime.newThreadTarget.cardTitle,
-      columnId: runtime.newThreadTarget.columnId ?? null,
-    };
-  }
-
-  return null;
-}
-
 export function buildThreadStageStorySurfaceModels(
   scenario: ThreadStageStoryScenario,
   controls: ThreadStageStoryControls,
@@ -2224,10 +2180,7 @@ export function buildThreadStageStorySurfaceModels(
   const headerModel: ThreadStageHeaderModel = {
     projectId: conversation?.projectId ?? runtime.activeThreadSummary?.projectId ?? STORY_PROJECT_ID,
     threadId: conversation?.threadId ?? runtime.activeThreadSummary?.threadId ?? activeThreadId,
-    cardId: conversation?.cardId ?? runtime.activeThreadSummary?.cardId ?? runtime.newThreadTarget?.cardId ?? null,
     title: resolveStoryThreadTitle(runtime),
-    openCardTarget: resolveStoryOpenCardTarget(runtime),
-    activeThreadCardColumnId: STORY_COLUMN_ID,
     connection: DEFAULT_CONNECTION,
     account: controls.authenticatedAccount ? DEFAULT_ACCOUNT_AUTHENTICATED : DEFAULT_ACCOUNT_SIGNED_OUT,
   };

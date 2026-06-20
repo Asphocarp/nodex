@@ -24,7 +24,6 @@ function buildActions(input: {
     onStartApiKeyLogin: async () => ({ type: "apiKey" }),
     onCancelLogin: noopAsync,
     onLogout: noopAsync,
-    onStartThreadForCard: noopAsync,
     onSendPrompt: noopAsync,
     onSteerPrompt: noopAsync,
     onInterruptTurn: noopAsync,
@@ -44,7 +43,6 @@ function buildActions(input: {
     onConsumeComposerIntent: () => undefined,
     onOpenThread: () => undefined,
     onCleanBackgroundTerminals: noopAsync,
-    onOpenCard: () => undefined,
     onNewThreadProjectChange: input.onSelect,
     onRequestNewChatProjectCreate: () => undefined,
   };

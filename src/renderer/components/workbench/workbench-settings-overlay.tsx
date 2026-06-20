@@ -64,7 +64,6 @@ import {
   MIN_TEXT_PROMPT_CHAR_THRESHOLD,
 } from "../../lib/paste-resource-settings";
 import { usePasteResourceSettings } from "../../lib/use-paste-resource-settings";
-import { useThreadSectionSendSettings } from "../../lib/use-thread-section-send-settings";
 import { useSansFontSize } from "../../lib/use-sans-font-size";
 import type { ComposerEnterBehavior } from "../../lib/composer-enter-behavior";
 import { useSpellcheck } from "../../lib/use-spellcheck";
@@ -962,17 +961,6 @@ function PasteResourceDescriptionSoftLimitSettingControl() {
   );
 }
 
-function ThreadSectionSendConfirmationSettingControl() {
-  const { settings, updateSettings } = useThreadSectionSendSettings();
-
-  return (
-    <TogglePill
-      value={settings.confirmBeforeSend}
-      onChange={(value) => updateSettings({ confirmBeforeSend: value })}
-    />
-  );
-}
-
 const THREAD_DETAIL_LEVEL_OPTIONS: Array<{
   value: CodexThreadDetailLevel;
   label: string;
@@ -1350,15 +1338,15 @@ function ManagedWorktreesSettingControl({ open }: { open: boolean }) {
         </div>
       ) : null}
 
-      {/* Card list */}
+      {/* Session list */}
       {count > 0 ? (
         <div className="flex max-h-64 flex-col overflow-auto">
           {records.map((record) => {
             const isDeleting = deletingId === record.threadId;
             const label =
-              record.projectName && record.cardTitle
-                ? `${record.projectName} / ${record.cardTitle}`
-                : record.projectName ?? record.cardTitle ?? record.cardId;
+              record.projectName && record.sessionTitle
+                ? `${record.projectName} / ${record.sessionTitle}`
+                : record.projectName ?? record.sessionTitle ?? record.sessionId;
             return (
               <div
                 key={record.threadId}
@@ -2357,12 +2345,6 @@ function EditorSettingsPage({
             onChange={onStripSmartPrefixFromTitleEnabledChange}
             disabled={!smartPrefixParsingEnabled}
           />
-        </SettingRow>
-        <SettingRow
-          label="Confirm thread section send"
-          description="Show a preview dialog before sending a notebook section, with an option to stop asking later."
-        >
-          <ThreadSectionSendConfirmationSettingControl />
         </SettingRow>
         <SettingRow
           label={`${isMacPlatform ? "Cmd" : "Ctrl"}+Enter to send long prompts`}

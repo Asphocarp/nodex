@@ -39,7 +39,6 @@ const PLAN_REQUEST: CodexPlanImplementationRequest = {
   type: "implementPlan",
   requestId: "implement-plan:turn_plan",
   projectId: "project_1",
-  cardId: "card_1",
   threadId: "thread_1",
   turnId: "turn_plan",
   itemId: "plan_item",
@@ -67,7 +66,6 @@ function createActions(log: string[]): ThreadStageActions {
     },
     onCancelLogin: async () => {},
     onLogout: async () => {},
-    onStartThreadForCard: async () => {},
     onSendPrompt: async (prompt, opts) => {
       log.push(`send:${prompt}:${opts?.collaborationMode ?? "none"}`);
     },
@@ -91,7 +89,6 @@ function createActions(log: string[]): ThreadStageActions {
     onConsumeComposerIntent: () => {},
     onOpenThread: () => {},
     onCleanBackgroundTerminals: async () => {},
-    onOpenCard: () => {},
   };
 }
 

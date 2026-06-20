@@ -42,9 +42,9 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `codex/codex-item-normalizer.ts`: maps heterogeneous app-server item payloads into internal `CodexItemView` intermediates used by the transcript projector and tool metadata parsing.
 - `codex/codex-transcript-projection.ts`: canonical transcript reducer/projection helpers that unify bootstrap, live updates, optimistic prompts, and terminal turn reconciliation into ordered `CodexTranscriptEntry[]`.
 - `shared/codex-thread-detail-reducer.ts`: shared canonical merge/reduce helpers for thread detail snapshots, transcript deltas, and optimistic-entry reconciliation used by both main and renderer.
-- `codex/codex-link-repository.ts`: persistence adapter for canonical Codex thread metadata (`codex_threads`) plus optional card-thread relations (`codex_thread_card_links`).
+- `codex/codex-link-repository.ts`: persistence adapter for canonical Codex thread metadata (`codex_threads`), with session ownership represented through `project_session_threads`.
 - `codex/codex-session-store.ts`: reads persisted Codex session artifacts from `$CODEX_HOME` / `~/.codex`, supports both legacy JSON and modern JSONL rollout layouts, and rebuilds visible transcript state for restart recovery/import from replay-safe events instead of raw bootstrap messages.
-- `codex/git-worktree-service.ts`: managed Git worktree creation for card thread starts (`autoBranch` or `detachedHead`) with base-ref resolution, thread-title-driven auto-branch naming (`<prefix><thread-slug>`), and path allocation under `${serverDir}/worktrees`.
+- `codex/git-worktree-service.ts`: managed Git worktree creation for session thread starts (`autoBranch` or `detachedHead`) with base-ref resolution, thread-title-driven auto-branch naming (`<prefix><thread-slug>`), and path allocation under `${serverDir}/worktrees`.
 - `codex/worktree-environment-service.ts`: lists and validates `.codex/environments/*.toml`, parses environment metadata (`name`, `[setup].script`), and enforces in-repo path boundaries.
 
 ### Preload Boundary (`src/preload`)
@@ -147,12 +147,12 @@ Workbench reopen flow:
 - Project-scoped data stays isolated (`project_id` on cards/history with cascading cleanup).
 - Renderer never accesses SQLite directly.
 - Custom editor behavior must preserve NFM round-trip fidelity.
-- Codex threads have optional ownership metadata: a thread can be card-owned, session-owned, project-only, or projectless. Card ownership is represented by `codex_thread_card_links`; session ownership is represented by `project_session_threads`.
-- Session-created threads must not create hidden cards, and session attachments do not create card links.
+- Codex threads are project/session-owned locally. Durable chat ownership is represented by `project_session_threads`; cards can mention or reference threads but do not own them.
+- Session-created threads must not create hidden cards or card-thread ownership links.
 - Project-session panel layouts must normalize to at least one leaf per right/bottom panel. Durable tab ids are uniquely owned by one leaf, unknown tab ids are removed, unassigned durable tabs are appended to the active leaf, non-final empty durable leaves are pruned unless the renderer is preserving them for visible preview/side-chat tabs, active leaf/tab ids resolve to valid fallbacks, split ratios are clamped, and the flat `project_session_tabs` panel order is derived from depth-first leaf order after every durable panel mutation.
 - Project-session panel tab drag-and-drop separates tab-row insertion from body split targets: tab-row drops render a non-layout-shifting insertion marker and commit leaf-scoped reorder/move operations, while body drops use a 10% edge threshold for split previews and center drops for group merge.
 - Side-chat threads are ephemeral manager/cache records only. They must not create durable Codex thread links, session thread links, project thread-list entries, project-session tab rows, archive records, or cold-start restore targets.
-- Codex thread creation is card-first and includes immediate first-turn submission for durable thread materialization.
+- Codex thread creation is session-first and includes immediate first-turn submission for durable thread materialization.
 - Codex thread/turn cwd must use the linked thread cwd when present (not only the project primary-source fallback).
 - Thread-title generation is renderer-triggered but host-owned: renderer may request generation, but only main owns generation prompt building, persistent title cache/backfill, and authoritative `threadTitleUpdated` rebroadcasts.
 - The active workbench conversation stage is now conversation-native: `features/local-conversation` consumes `CodexConversationSnapshot` turns/items directly, then derives an ordered per-turn item stream, semantic render buckets, blocked-turn state, search units, and collapse state in the renderer.

@@ -13,7 +13,6 @@ function makeLink(threadId: string): CodexThreadSummary {
   return {
     threadId,
     projectId: "codex",
-    cardId: "card-1",
     source: null,
     threadName: null,
     threadPreview: "",

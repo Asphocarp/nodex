@@ -6,7 +6,6 @@ function makeConversation(): CodexConversationSnapshot {
   return {
     threadId: "thr_context",
     projectId: "project-1",
-    cardId: "card-1",
     source: null,
     threadName: "Context thread",
     threadPreview: "",

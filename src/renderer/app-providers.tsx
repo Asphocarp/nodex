@@ -8,7 +8,6 @@ import { PasteResourceSettingsProvider } from "./lib/use-paste-resource-settings
 import { CardStageCollapsedPropertiesProvider } from "./lib/use-card-stage-collapsed-properties";
 import { SansFontSizeProvider } from "./lib/use-sans-font-size";
 import { SpellcheckProvider } from "./lib/use-spellcheck";
-import { ThreadSectionSendSettingsProvider } from "./lib/use-thread-section-send-settings";
 import { CodexServiceTierSettingsProvider } from "./lib/use-codex-service-tier-settings";
 import { CodexThreadSettingsProvider } from "./lib/use-codex-thread-settings";
 import { NodexQueryProvider } from "./lib/query-client";
@@ -63,15 +62,13 @@ export function AppProviders({ children }: AppProvidersProps) {
                   <SpellcheckProvider>
                     <CodexServiceTierSettingsProvider>
                       <CodexThreadSettingsProvider>
-                        <ThreadSectionSendSettingsProvider>
-                          <CardStageCollapsedPropertiesProvider>
-                            <CardPropertyPositionProvider>
-                              <NodexTooltipProvider>
-                                {children}
-                              </NodexTooltipProvider>
-                            </CardPropertyPositionProvider>
-                          </CardStageCollapsedPropertiesProvider>
-                        </ThreadSectionSendSettingsProvider>
+                        <CardStageCollapsedPropertiesProvider>
+                          <CardPropertyPositionProvider>
+                            <NodexTooltipProvider>
+                              {children}
+                            </NodexTooltipProvider>
+                          </CardPropertyPositionProvider>
+                        </CardStageCollapsedPropertiesProvider>
                       </CodexThreadSettingsProvider>
                     </CodexServiceTierSettingsProvider>
                   </SpellcheckProvider>

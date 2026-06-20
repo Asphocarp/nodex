@@ -157,7 +157,6 @@ describe("tool-call icon helpers", () => {
       type: "mcpServerElicitation",
       requestId: "req-1",
       projectId: null,
-      cardId: null,
       threadId: "thread-1",
       turnId: "turn-1",
       itemId: "item-1",

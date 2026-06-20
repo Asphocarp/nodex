@@ -55,7 +55,6 @@ function makeStoryThread(input: Partial<CodexThreadSummary> & { threadId: string
   return {
     threadId: input.threadId,
     projectId: input.projectId ?? "default",
-    cardId: input.cardId ?? "source-card",
     source: null,
     ephemeral: input.ephemeral ?? false,
     threadName: input.threadName ?? null,
@@ -477,7 +476,7 @@ export const SendToThreadPicker: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Direct send-to-chat picker coverage for thread search, the fixed New thread row, the persisted Send / Send & wrap selector, and the wrap info tooltip.",
+        story: "Direct send-to-chat picker coverage for thread search, the fixed New chat row, the persisted Send / Send & wrap selector, and the wrap info tooltip.",
       },
     },
   },
@@ -500,7 +499,7 @@ export const SendToThreadPickerEmpty: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Empty search state keeps New thread available while explaining that no existing threads matched.",
+        story: "Empty search state keeps New chat available while explaining that no existing threads matched.",
       },
     },
   },

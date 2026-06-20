@@ -41,7 +41,6 @@ function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActio
     onStartApiKeyLogin: async () => ({ type: "apiKey" }),
     onCancelLogin: async () => { },
     onLogout: async () => { },
-    onStartThreadForCard: async () => { },
     onSendPrompt: async () => { },
     onSteerPrompt: async () => { },
     onInterruptTurn: async () => { },
@@ -61,7 +60,6 @@ function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActio
     onConsumeComposerIntent: () => { },
     onOpenThread: () => { },
     onCleanBackgroundTerminals: async () => { },
-    onOpenCard: () => { },
     ...overrides,
   };
 }

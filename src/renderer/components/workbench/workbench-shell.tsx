@@ -3441,12 +3441,16 @@ export function WorkbenchShell({
     updateActivePanel,
   ]);
 
-  const ensureBlankSessionForProject = useCallback(async (projectId: string) => {
+  const ensureBlankSessionForProject = useCallback(async (
+    projectId: string,
+    options?: { select?: boolean },
+  ) => {
     const sessions = sessionsByProject[projectId] ?? await refreshProjectSessions(projectId);
     const reusableSession = sessions.find((candidate) => !candidate.thread && !candidate.isOverview) ?? null;
+    const shouldSelect = options?.select !== false;
 
     if (reusableSession) {
-      selectSession(reusableSession);
+      if (shouldSelect) selectSession(reusableSession);
       return reusableSession;
     }
 
@@ -3455,7 +3459,7 @@ export function WorkbenchShell({
       title: "New thread",
     })) as ProjectSession;
     await refreshProjectSessions(projectId);
-    selectSession(session);
+    if (shouldSelect) selectSession(session);
     return session;
   }, [refreshProjectSessions, selectSession, sessionsByProject]);
 
@@ -4431,7 +4435,6 @@ export function WorkbenchShell({
                 tab={tab}
                 activeSession={activeSession}
                 projects={projects}
-                onOpenCardTab={openCardTab}
                 onRefreshSessions={refreshProjectSessions}
                 onRecreateSideChat={() => void recreateSideChatPanelTab(tab.id)}
                 onOpenMcpAppSidePanel={openMcpAppSidePanel}
@@ -4467,6 +4470,7 @@ export function WorkbenchShell({
               onLeaveCardStageCard={onLeaveCardStageCard}
               onOpenCardTab={openCardTab}
               onOpenFileTab={openWorkspaceFileTab}
+              onEnsureBlankSessionForProject={ensureBlankSessionForProject}
               onRefreshSessions={refreshProjectSessions}
               onCloseTab={closeTab}
               onCreateTerminalTab={(panelId, leafId) => createManualTab("terminal", panelId, leafId)}
@@ -5609,10 +5613,6 @@ export function WorkbenchShell({
                         summaryBrowserRows={threadSummaryBrowserRows}
                         rightPanelComposerOverlayEnabled={rightPanelComposerOverlayEnabled}
                         rightPanelComposerOverlayTarget={rightPanelComposerOverlayTarget}
-                        onOpenCard={(cardId) => {
-                          if (!activeProject) return;
-                          void openCardTab(activeProject.id, cardId, cardId);
-                        }}
                         onOpenSideChat={(input) => openSideChat({ ...input, targetPanelId: "right" })}
                         onOpenMcpAppSidePanel={openMcpAppSidePanel}
                         onRequestRenameThread={() => {
@@ -6567,7 +6567,6 @@ function SessionThreadPage({
   accountActions,
   worktreeStartMode,
   worktreeBranchPrefix,
-  onOpenCard,
   searchOpenTick,
   summaryPanelMounted,
   summaryPanelOpen,
@@ -6595,7 +6594,6 @@ function SessionThreadPage({
   accountActions: ReturnType<typeof useCodexAccountActions>;
   worktreeStartMode: WorktreeStartMode;
   worktreeBranchPrefix: string;
-  onOpenCard: (cardId: string) => void;
   searchOpenTick: number;
   summaryPanelMounted: boolean;
   summaryPanelOpen: boolean;
@@ -6668,7 +6666,6 @@ function SessionThreadPage({
     activeThreadId: summary?.threadId ?? null,
     accountActions,
     codexControl,
-    onOpenCard,
     onEnsureBlankSessionForProject,
     onRefreshProjectSessions,
     onQueueingEnabledChange,
@@ -6699,7 +6696,6 @@ function SessionThreadPage({
   }), [
     codexControl,
     accountActions,
-    onOpenCard,
     onEnsureBlankSessionForProject,
     onRefreshProjectSessions,
     onQueueingEnabledChange,
@@ -6786,7 +6782,6 @@ function makeThreadSummary(thread: ProjectSessionThreadLink): CodexThreadSummary
   return {
     threadId: thread.threadId,
     projectId: thread.projectId,
-    cardId: null,
     source: thread.parentThreadId ? { parentThreadId: thread.parentThreadId } : null,
     threadName: thread.threadName ?? null,
     threadPreview: thread.threadPreview,
@@ -6817,7 +6812,6 @@ function SideChatSessionTab({
   tab,
   activeSession,
   projects,
-  onOpenCardTab,
   onRefreshSessions,
   onRecreateSideChat,
   onOpenMcpAppSidePanel,
@@ -6828,7 +6822,6 @@ function SideChatSessionTab({
   tab: SideChatPanelTab;
   activeSession: ProjectSession;
   projects: Project[];
-  onOpenCardTab: OpenCardTabHandler;
   onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
   onRecreateSideChat: () => void;
   onOpenMcpAppSidePanel: ThreadStageActions["onOpenMcpAppSidePanel"];
@@ -6855,9 +6848,6 @@ function SideChatSessionTab({
     activeThreadId: tab.threadId,
     accountActions,
     codexControl,
-    onOpenCard: (cardId) => {
-      void onOpenCardTab(tab.projectId, cardId, cardId);
-    },
     onEnsureBlankSessionForProject: async () => activeSession,
     onRefreshProjectSessions: onRefreshSessions,
     onQueueingEnabledChange,
@@ -6878,7 +6868,6 @@ function SideChatSessionTab({
     accountActions,
     activeSession,
     codexControl,
-    onOpenCardTab,
     onOpenMcpAppSidePanel,
     onOpenThread,
     onOpenTurnDiffReview,
@@ -6992,6 +6981,7 @@ function ProjectSessionTabPanel({
   onLeaveCardStageCard,
   onOpenCardTab,
   onOpenFileTab,
+  onEnsureBlankSessionForProject,
   onRefreshSessions,
   onCloseTab,
   onCreateTerminalTab,
@@ -7033,6 +7023,10 @@ function ProjectSessionTabPanel({
   onLeaveCardStageCard: (snapshot: CardStageSessionSnapshot) => void;
   onOpenCardTab: OpenCardTabHandler;
   onOpenFileTab: (input: { path: string; title: string; panelId: PanelId }) => Promise<void>;
+  onEnsureBlankSessionForProject: (
+    projectId: string,
+    options?: { select?: boolean },
+  ) => Promise<ProjectSession>;
   onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
   onCloseTab: (tabId: string) => Promise<void>;
   onCreateTerminalTab: (panelId: PanelId, leafId: string) => Promise<void> | void;
@@ -7096,6 +7090,8 @@ function ProjectSessionTabPanel({
           await invoke("project-session-panels:update", activeSession.id, "bottom", { collapsed: false });
           await onRefreshSessions(activeSession.projectId);
         }}
+        onEnsureBlankSessionForProject={onEnsureBlankSessionForProject}
+        onRefreshSessions={onRefreshSessions}
         historyPanelActive={Boolean(
           cardStageHistoryModal
           && cardStageHistoryModal.sessionId === activeSession.id
@@ -7400,6 +7396,8 @@ function CardStageSessionTab({
   onLeaveCard,
   onClose,
   onOpenTerminal,
+  onEnsureBlankSessionForProject,
+  onRefreshSessions,
   historyPanelActive,
   onToggleHistoryPanel,
   isActivePanelTab,
@@ -7413,12 +7411,18 @@ function CardStageSessionTab({
   onLeaveCard: (snapshot: CardStageSessionSnapshot) => void;
   onClose: () => void;
   onOpenTerminal: (card: Card) => Promise<void>;
+  onEnsureBlankSessionForProject: (
+    projectId: string,
+    options?: { select?: boolean },
+  ) => Promise<ProjectSession>;
+  onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
   historyPanelActive: boolean;
   onToggleHistoryPanel: (context: CardStageHistoryModalContext) => void;
   isActivePanelTab: boolean;
 }) {
   const kanban = useKanban({ projectId: tab.config.projectId, sessionId: tab.id });
   const refreshBoard = kanban.refresh;
+  const codexControl = useCodexAppServerControl(tab.config.projectId);
 
   useEffect(() => {
     void refreshBoard();
@@ -7441,6 +7445,28 @@ function CardStageSessionTab({
     }
     return [...tags].sort((left, right) => left.localeCompare(right));
   }, [kanban.board?.columns]);
+  const handleStartNewSessionThreadFromEditor = useCallback(async (input: {
+    projectId: string;
+    prompt: string;
+    promptInput?: CodexPromptInput;
+    threadName?: string;
+  }) => {
+    const targetSession = await onEnsureBlankSessionForProject(input.projectId, { select: false });
+    const detail = await codexControl.startThreadForSession({
+      projectId: input.projectId,
+      sessionId: targetSession.id,
+      prompt: input.prompt,
+      promptInput: input.promptInput,
+      threadName: input.threadName,
+      runInTarget: "localProject",
+    });
+    await onRefreshSessions(input.projectId);
+    await codexControl.loadThreads(input.projectId);
+    return {
+      threadId: detail.threadId,
+      sessionId: targetSession.id,
+    };
+  }, [codexControl, onEnsureBlankSessionForProject, onRefreshSessions]);
 
   if (!project) {
     return (
@@ -7533,6 +7559,10 @@ function CardStageSessionTab({
         historyPanelActive={historyPanelActive}
         isActivePanelTab={isActivePanelTab}
         linkedCodexThreads={[]}
+        onStartNewSessionThreadFromEditor={handleStartNewSessionThreadFromEditor}
+        onSendThreadSectionPrompt={async ({ projectId, threadId, prompt, promptInput }) => {
+          await codexControl.startTurn(threadId, prompt, { projectId, promptInput });
+        }}
       />
     </>
   );

@@ -65,12 +65,12 @@ export interface CardStageProps {
     projectId: string;
     configPath?: string | null;
   }) => void;
-  onStartThreadSection?: (input: {
+  onStartNewSessionThreadFromEditor?: (input: {
     projectId: string;
-    cardId: string;
     prompt: string;
     promptInput?: CodexPromptInput;
-  }) => Promise<{ threadId: string }>;
+    threadName?: string;
+  }) => Promise<{ threadId: string; sessionId?: string }>;
   onSendThreadSectionPrompt?: (input: {
     projectId: string;
     threadId: string;

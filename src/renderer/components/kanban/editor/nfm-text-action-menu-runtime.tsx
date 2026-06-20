@@ -14,7 +14,7 @@ export interface NfmTextActionMenuRuntimeValue {
     request: NfmSendToThreadRequest,
     fallbackBlockId: string,
   ) => Promise<void> | void;
-  onSendThreadSection?: (blockId: string) => boolean;
+  onSendThreadSection?: (blockId: string, anchor?: HTMLElement) => boolean;
   onConvertDividerToThreadSection?: (blockId: string) => void;
 }
 

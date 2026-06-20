@@ -87,7 +87,6 @@ const mockCodexControl = {
     const conversation = {
       threadId,
       projectId: "alpha",
-      cardId: null,
       source: {
         parentThreadId: "thread-alpha",
         sideConversation: true,
@@ -2576,7 +2575,7 @@ describe("workbench session shell", () => {
     expect(textContent(screen.container).includes("Thread:thread-alpha")).toBeTrue();
     expect(screen.container.querySelector('[data-thread-stage="true"]') !== null).toBeTrue();
     const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
-    expect(JSON.stringify(props?.activeThreadSummary).includes('"cardId":null')).toBeTrue();
+    expect(JSON.stringify(props?.activeThreadSummary).includes('"projectId":"alpha"')).toBeTrue();
   });
 
   test("uses the global app header as the only top title row", async () => {
@@ -5757,30 +5756,6 @@ describe("workbench session shell", () => {
       && JSON.stringify(call[3]) === JSON.stringify({ collapsed: false })
     )).toBeTrue();
     expect(screen.queryAllByRole("tablist").length > 0).toBeTrue();
-  });
-
-  test("opening a card from the thread page opens a collapsed right panel", async () => {
-    renderWorkbench({
-      sessionsByProject: { alpha: [makeAttachedSession({ rightCollapsed: true })] },
-    });
-    await settleAsyncRender();
-    await settleAsyncRender();
-
-    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
-    const actions = props?.actions as { onOpenCard?: (cardId: string) => void } | undefined;
-    await act(async () => {
-      actions?.onOpenCard?.("card-1");
-      await Promise.resolve();
-    });
-    await settleAsyncRender();
-
-    expect(invokeCalls.some((call) => call[0] === "project-session-tabs:create")).toBeTrue();
-    expect(invokeCalls.some((call) =>
-      call[0] === "project-session-panels:update"
-      && call[1] === "overview:alpha"
-      && call[2] === "right"
-      && JSON.stringify(call[3]) === JSON.stringify({ collapsed: false })
-    )).toBeTrue();
   });
 
   test("opens cards from the DB tab as renderer-local card-stage previews", async () => {

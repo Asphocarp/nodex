@@ -1133,7 +1133,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   registerHandle("codex:account:logout", () => codexService.logoutAccount());
 
-  registerHandle("codex:threads:list", (_, projectId: string, opts?: { cardId?: string; includeArchived?: boolean }) =>
+  registerHandle("codex:threads:list", (_, projectId: string, opts?: { includeArchived?: boolean }) =>
     codexService.listProjectThreads(projectId, opts)
   );
 
@@ -1147,28 +1147,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   registerHandle("codex:collaboration-mode:list", () =>
     codexService.listCollaborationModes()
-  );
-
-  registerHandle(
-    "codex:thread:start-for-card",
-    (
-      _,
-      input: {
-        projectId: string;
-        cardId: string;
-        prompt: string;
-        promptInput?: CodexPromptInput;
-        threadName?: string;
-        model?: string;
-        serviceTier?: null | "fast";
-        permissionMode?: "auto" | "guardian-approvals" | "full-access" | "custom";
-        reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
-        collaborationMode?: "default" | "plan";
-        worktreeStartMode?: "autoBranch" | "detachedHead";
-        worktreeBranchPrefix?: string;
-      },
-    ) =>
-      codexService.startThreadForCard(input),
   );
 
   registerHandle(

@@ -176,7 +176,6 @@ export function buildComposerShellModel(
     const activeRequest = normalized.primaryRequest ?? selectPrimaryConversationRequest({
       threadId: normalized.threadId,
       projectId: null,
-      cardId: null,
     source: null,
     threadName: null,
     threadPreview: "",

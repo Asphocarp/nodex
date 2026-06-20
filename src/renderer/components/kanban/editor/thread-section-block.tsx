@@ -21,9 +21,8 @@ export const createThreadSectionBlockSpec = createReactBlockSpec(
       const threadId = typeof block.props.threadId === "string" ? block.props.threadId.trim() : "";
       const thread = scope?.threads[threadId] ?? runtime.threads[threadId] ?? null;
       const pending = runtime.pendingBlockIds.has(block.id);
-      const canSendFromScope = scope ? scope.ownerCardContext !== null : true;
       const canOpenThread = Boolean(threadId && thread && !thread.archived && runtime.openThread);
-      const canSend = Boolean(runtime.send) && canSendFromScope;
+      const canSend = Boolean(runtime.send);
 
       useEffect(() => {
         runtime.ensureScopeLoaded?.(block.id);

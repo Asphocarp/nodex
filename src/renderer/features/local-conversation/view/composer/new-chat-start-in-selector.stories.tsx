@@ -28,7 +28,6 @@ function buildActions(onSelect: (target: NewChatStartInTarget) => void): ThreadS
     onStartApiKeyLogin: async () => ({ type: "apiKey" }),
     onCancelLogin: noopAsync,
     onLogout: noopAsync,
-    onStartThreadForCard: noopAsync,
     onSendPrompt: noopAsync,
     onSteerPrompt: noopAsync,
     onInterruptTurn: noopAsync,
@@ -48,7 +47,6 @@ function buildActions(onSelect: (target: NewChatStartInTarget) => void): ThreadS
     onConsumeComposerIntent: () => undefined,
     onOpenThread: () => undefined,
     onCleanBackgroundTerminals: noopAsync,
-    onOpenCard: () => undefined,
     onNewThreadStartInTargetChange: onSelect,
   };
 }

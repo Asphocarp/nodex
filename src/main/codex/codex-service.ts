@@ -108,7 +108,6 @@ import type {
   CodexThreadStartForSessionInput,
   CodexTurnStartOptions,
   CodexTurnStatus,
-  CodexThreadStartForCardInput,
   CodexTurnSummary,
   CodexUserAttachment,
   CodexUserInputRequest,
@@ -155,7 +154,6 @@ import { resolveAssetPath } from "../kanban/asset-service";
 import { getKanbanDir } from "../kanban/config";
 import {
   getCodexThread,
-  linkCodexThreadToCard,
   listCodexThreadLinks,
   listCodexProjectThreads,
   unlinkCodexThread,
@@ -241,7 +239,6 @@ const CODEX_DYNAMIC_TOOL_SPECS: DynamicToolSpec[] = [
 
 interface ThreadRef {
   projectId: string | null;
-  cardId: string | null;
   cwd: string | null;
 }
 
@@ -706,7 +703,6 @@ function sessionThreadLinkToSummary(link: ProjectSessionThreadLink): CodexThread
   return {
     threadId: link.threadId,
     projectId: link.projectId,
-    cardId: null,
     source: link.parentThreadId ? { parentThreadId: link.parentThreadId } : null,
     threadName: link.threadName ?? null,
     threadPreview: link.threadPreview,
@@ -1679,7 +1675,6 @@ export class CodexService extends EventEmitter {
     detail: CodexThreadDetail,
   ): void {
     draft.projectId = detail.projectId;
-    draft.cardId = detail.cardId;
     draft.threadName = detail.threadName;
     draft.threadPreview = detail.threadPreview;
     draft.modelProvider = detail.modelProvider;
@@ -1878,10 +1873,10 @@ export class CodexService extends EventEmitter {
         hostId: DEFAULT_CODEX_HOST_ID,
         object: {
           objectType: "threadStartProgress",
-          objectId: `${event.projectId}:${event.cardId}`,
+          objectId: `${event.projectId}:${event.sessionId}`,
           value: {
             projectId: event.projectId,
-            cardId: event.cardId,
+            sessionId: event.sessionId,
             phase: event.phase,
             message: event.message,
             stream: event.stream,
@@ -2058,7 +2053,6 @@ export class CodexService extends EventEmitter {
       : {
           threadId,
           projectId: null,
-          cardId: null,
           source: null,
           threadName: null,
           threadPreview: "",
@@ -2428,7 +2422,7 @@ export class CodexService extends EventEmitter {
 
   private emitThreadStartProgress(input: {
     projectId: string;
-    cardId: string | null;
+    sessionId: string | null;
     phase: CodexThreadStartProgressPhase;
     message: string;
     stream?: CodexThreadStartProgressStream;
@@ -2438,7 +2432,7 @@ export class CodexService extends EventEmitter {
     this.emitEvent({
       type: "threadStartProgress",
       projectId: input.projectId,
-      cardId: input.cardId,
+      sessionId: input.sessionId,
       phase: input.phase,
       message: input.message,
       stream: input.stream,
@@ -2873,7 +2867,7 @@ export class CodexService extends EventEmitter {
 
   async listProjectThreads(
     projectId: string,
-    opts?: { cardId?: string; includeArchived?: boolean },
+    opts?: { includeArchived?: boolean },
   ): Promise<CodexThreadSummary[]> {
     return listCodexProjectThreads(projectId, opts);
   }
@@ -2996,7 +2990,7 @@ export class CodexService extends EventEmitter {
     const recordsByPath = links.reduce<Map<string, ManagedWorktreeRecord>>((acc, link) => {
       const cwd = link.cwd?.trim();
       if (!cwd) return acc;
-      if (!link.projectId || !link.cardId) return acc;
+      if (!link.projectId) return acc;
 
       const resolvedPath = path.resolve(cwd);
       if (!isPathWithin(managedRoot, resolvedPath)) return acc;
@@ -3007,14 +3001,15 @@ export class CodexService extends EventEmitter {
       }
 
       const project = link.projectId ? dbService.getProject(link.projectId) : null;
-      const card = link.projectId && link.cardId ? dbService.getCardSync(link.projectId, link.cardId) : null;
+      const sessionLink = projectSessionService.getProjectSessionThreadLink(link.threadId);
+      const session = sessionLink?.sessionId ? projectSessionService.getProjectSession(sessionLink.sessionId) : null;
 
       acc.set(resolvedPath, {
         threadId: link.threadId,
         projectId: link.projectId,
         projectName: project?.name ?? null,
-        cardId: link.cardId,
-        cardTitle: card?.title ?? null,
+        sessionId: sessionLink?.sessionId ?? null,
+        sessionTitle: session?.title ?? null,
         threadName: link.threadName,
         path: resolvedPath,
         exists: existsSync(resolvedPath),
@@ -3250,7 +3245,6 @@ export class CodexService extends EventEmitter {
     if (!source) return null;
     return {
       projectId: source.projectId,
-      cardId: source.cardId,
       cwd: source.cwd,
     };
   }
@@ -3327,170 +3321,6 @@ export class CodexService extends EventEmitter {
     };
   }
 
-  private async resolveThreadRunLocation(input: {
-    projectId: string;
-    cardId: string;
-    threadTitle?: string | null;
-    worktreeStartMode?: WorktreeStartMode;
-    worktreeBranchPrefix?: string | null;
-    onProgress?: (update: ThreadStartProgressUpdate) => void;
-  }): Promise<ResolvedThreadRunLocation> {
-    const cardRecord = await dbService.getCard(input.projectId, input.cardId);
-    if (!cardRecord) {
-      throw new Error(`Card '${input.cardId}' not found in project '${input.projectId}'`);
-    }
-
-    const runInTarget = cardRecord.runInTarget ?? "localProject";
-
-    if (runInTarget === "cloud") {
-      throw new Error("Cloud run target is not available yet. Choose Local project or New worktree.");
-    }
-
-    if (runInTarget === "newWorktree") {
-      const projectContext = this.requirePrimaryWorkspaceRoot(input.projectId);
-      const workspacePath = projectContext.primaryWorkspaceRoot;
-      const managedRoot = path.resolve(getKanbanDir(), "worktrees");
-      const persistedWorktreePath = cardRecord.runInWorktreePath?.trim();
-      if (persistedWorktreePath) {
-        const resolvedPersistedPath = path.resolve(persistedWorktreePath);
-        if (isPathWithin(managedRoot, resolvedPersistedPath) && existsSync(resolvedPersistedPath)) {
-          return {
-            cwd: resolvedPersistedPath,
-            workspaceRoots: [resolvedPersistedPath, ...projectContext.workspaceRoots],
-            runInTarget,
-            createdManagedWorktree: false,
-          };
-        }
-      }
-
-      input.onProgress?.({
-        phase: "creatingWorktree",
-        message: WORKTREE_LOG_STATUS_MESSAGE,
-        clearOutput: true,
-      });
-      input.onProgress?.({
-        phase: "creatingWorktree",
-        message: WORKTREE_LOG_STATUS_MESSAGE,
-        stream: "info",
-        outputDelta: "[info] Starting worktree creation\n",
-      });
-
-      const createdWorktree = await createManagedWorktree({
-        repositoryPath: workspacePath,
-        serverDir: getKanbanDir(),
-        projectId: projectContext.canonicalProjectId,
-        cardId: input.cardId,
-        threadTitle: input.threadTitle?.trim() || cardRecord.title.trim() || cardRecord.id,
-        branchPrefix: input.worktreeBranchPrefix,
-        preferredBaseBranch: cardRecord.runInBaseBranch ?? null,
-        mode: input.worktreeStartMode ?? "detachedHead",
-        onLog: (output) => {
-          if (!output.data) return;
-          input.onProgress?.({
-            phase: "creatingWorktree",
-            message: WORKTREE_LOG_STATUS_MESSAGE,
-            stream: output.stream,
-            outputDelta: output.data,
-          });
-        },
-      });
-      const resolvedWorktreePath = path.resolve(createdWorktree.cwd);
-      input.onProgress?.({
-        phase: "creatingWorktree",
-        message: WORKTREE_LOG_STATUS_MESSAGE,
-        stream: "info",
-        outputDelta: `Worktree created at ${resolvedWorktreePath}\n`,
-      });
-
-      const selectedEnvironmentPath = cardRecord.runInEnvironmentPath?.trim() || null;
-      if (selectedEnvironmentPath) {
-        try {
-          const environmentDefinition = await readWorktreeEnvironmentDefinition({
-            workspacePath,
-            environmentPath: selectedEnvironmentPath,
-          });
-          if (environmentDefinition.setupScript) {
-            input.onProgress?.({
-              phase: "runningSetup",
-              message: WORKTREE_LOG_STATUS_MESSAGE,
-              stream: "info",
-              outputDelta: `Running setup script ${environmentDefinition.path}\n`,
-            });
-            await runWorktreeSetupScript({
-              script: environmentDefinition.setupScript,
-              cwd: resolvedWorktreePath,
-              onOutput: (output) => {
-                if (!output.data) return;
-                input.onProgress?.({
-                  phase: "runningSetup",
-                  message: WORKTREE_LOG_STATUS_MESSAGE,
-                  stream: output.stream,
-                  outputDelta: output.data,
-                });
-              },
-            });
-            input.onProgress?.({
-              phase: "runningSetup",
-              message: WORKTREE_LOG_STATUS_MESSAGE,
-              stream: "info",
-              outputDelta: "Setup script completed\n",
-            });
-          }
-        } catch (error) {
-          await removeManagedWorktree(resolvedWorktreePath).catch(() => undefined);
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          throw new Error(
-            `Failed to set up new worktree using environment '${selectedEnvironmentPath}': ${errorMessage}`,
-          );
-        }
-      }
-
-      const updated = await dbService.updateCard(
-        input.projectId,
-        cardRecord.status,
-        input.cardId,
-        { runInWorktreePath: resolvedWorktreePath },
-      );
-      if (updated.status !== "updated") {
-        await removeManagedWorktree(resolvedWorktreePath).catch(() => undefined);
-        throw new Error(`Card '${input.cardId}' no longer exists while persisting managed worktree path`);
-      }
-      return {
-        cwd: resolvedWorktreePath,
-        workspaceRoots: [resolvedWorktreePath, ...projectContext.workspaceRoots],
-        runInTarget,
-        createdManagedWorktree: true,
-      };
-    }
-
-    const localOverride = cardRecord.runInLocalPath?.trim();
-    if (!localOverride) {
-      const localContext = this.resolveLocalProjectThreadRoot(input.projectId);
-      return {
-        cwd: localContext.cwd,
-        workspaceRoots: localContext.workspaceRoots,
-        runInTarget: "localProject",
-        createdManagedWorktree: false,
-      };
-    }
-
-    const projectContext = this.requirePrimaryWorkspaceRoot(input.projectId);
-    const workspacePath = projectContext.primaryWorkspaceRoot;
-    const resolvedLocalPath = path.isAbsolute(localOverride)
-      ? localOverride
-      : path.resolve(workspacePath, localOverride);
-    if (!existsSync(resolvedLocalPath)) {
-      throw new Error(`Run-in local folder does not exist: ${resolvedLocalPath}`);
-    }
-
-    return {
-      cwd: resolvedLocalPath,
-      workspaceRoots: [resolvedLocalPath, ...projectContext.workspaceRoots],
-      runInTarget: "localProject",
-      createdManagedWorktree: false,
-    };
-  }
-
   private async resolveSessionThreadRunLocation(input: {
     projectId: string;
     sessionId: string;
@@ -3537,7 +3367,7 @@ export class CodexService extends EventEmitter {
       repositoryPath: workspacePath,
       serverDir: getKanbanDir(),
       projectId: projectContext.canonicalProjectId,
-      cardId: input.sessionId,
+      targetId: input.sessionId,
       threadTitle: input.threadTitle?.trim() || input.sessionTitle?.trim() || input.sessionId,
       branchPrefix: input.worktreeBranchPrefix,
       preferredBaseBranch: null,
@@ -3901,7 +3731,6 @@ export class CodexService extends EventEmitter {
       type: "implementPlan",
       requestId: buildPlanImplementationRequestId(turnId),
       projectId: detail?.projectId ?? null,
-      cardId: detail?.cardId ?? null,
       threadId,
       turnId,
       itemId,
@@ -4611,7 +4440,6 @@ export class CodexService extends EventEmitter {
     const reconciledDetail = this.reconcileDetailTranscriptToTerminalTurnStatus(sessionDetail);
     upsertCodexThread({
       projectId: link.projectId,
-      cardId: link.cardId,
       threadId,
       source: link.source,
       threadName: reconciledDetail.threadName ?? link.threadName,
@@ -4881,7 +4709,6 @@ export class CodexService extends EventEmitter {
     return {
       threadId: forkedThreadId,
       projectId: input.projectId,
-      cardId: null,
       source: {
         parentThreadId: input.parentThreadId,
         sideConversation: true,
@@ -4921,7 +4748,6 @@ export class CodexService extends EventEmitter {
       (existing
         ? {
             projectId: existing.projectId,
-            cardId: existing.cardId,
             cwd: existing.cwd,
           }
         : null);
@@ -4929,43 +4755,23 @@ export class CodexService extends EventEmitter {
     const parsedStatus = parseThreadStatus(candidate.status);
 
     const parentThreadId = parseThreadSourceParentThreadId(candidate.source);
-    const summary = ref?.projectId && ref.cardId
-      ? linkCodexThreadToCard({
-          projectId: ref.projectId,
-          cardId: ref.cardId,
-          threadId: candidate.id,
-          source: parentThreadId ? { parentThreadId } : null,
-          threadName: typeof candidate.name === "string" ? candidate.name : null,
-          threadPreview: typeof candidate.preview === "string" ? candidate.preview : "",
-          modelProvider: typeof candidate.modelProvider === "string" ? candidate.modelProvider : "",
-          cwd: typeof candidate.cwd === "string"
-            ? candidate.cwd
-            : (existing?.cwd ?? ref.cwd ?? (fallbackCwd?.trim() || null)),
-          statusType: parsedStatus.statusType,
-          statusActiveFlags: parsedStatus.statusActiveFlags,
-          archived: existing?.archived ?? false,
-          createdAt: normalizeTimestamp(candidate.createdAt),
-          updatedAt: normalizeTimestamp(candidate.updatedAt),
-          linkedAt: existing?.linkedAt,
-        })
-      : upsertCodexThread({
-          projectId: ref?.projectId ?? existing?.projectId ?? null,
-          cardId: ref?.cardId ?? existing?.cardId ?? null,
-          threadId: candidate.id,
-          source: parentThreadId ? { parentThreadId } : null,
-          threadName: typeof candidate.name === "string" ? candidate.name : null,
-          threadPreview: typeof candidate.preview === "string" ? candidate.preview : "",
-          modelProvider: typeof candidate.modelProvider === "string" ? candidate.modelProvider : "",
-          cwd: typeof candidate.cwd === "string"
-            ? candidate.cwd
-            : (existing?.cwd ?? ref?.cwd ?? (fallbackCwd?.trim() || null)),
-          statusType: parsedStatus.statusType,
-          statusActiveFlags: parsedStatus.statusActiveFlags,
-          archived: existing?.archived ?? false,
-          createdAt: normalizeTimestamp(candidate.createdAt),
-          updatedAt: normalizeTimestamp(candidate.updatedAt),
-          linkedAt: existing?.linkedAt,
-        });
+    const summary = upsertCodexThread({
+      projectId: ref?.projectId ?? existing?.projectId ?? null,
+      threadId: candidate.id,
+      source: parentThreadId ? { parentThreadId } : null,
+      threadName: typeof candidate.name === "string" ? candidate.name : null,
+      threadPreview: typeof candidate.preview === "string" ? candidate.preview : "",
+      modelProvider: typeof candidate.modelProvider === "string" ? candidate.modelProvider : "",
+      cwd: typeof candidate.cwd === "string"
+        ? candidate.cwd
+        : (existing?.cwd ?? ref?.cwd ?? (fallbackCwd?.trim() || null)),
+      statusType: parsedStatus.statusType,
+      statusActiveFlags: parsedStatus.statusActiveFlags,
+      archived: existing?.archived ?? false,
+      createdAt: normalizeTimestamp(candidate.createdAt),
+      updatedAt: normalizeTimestamp(candidate.updatedAt),
+      linkedAt: existing?.linkedAt,
+    });
 
     if (summary?.threadName?.trim()) {
       this.threadTitleState.setTitle(summary.threadId, summary.threadName);
@@ -5343,231 +5149,6 @@ export class CodexService extends EventEmitter {
     };
   }
 
-  async startThreadForCard(input: CodexThreadStartForCardInput): Promise<CodexThreadDetail> {
-    await this.ensureClientReady();
-
-    const preparedPrompt = await this.preparePromptForTurn(input.prompt, input.promptInput);
-    const prompt = preparedPrompt.promptText;
-    const effectiveModel = preparedPrompt.agentConfigOverrides.model ?? input.model;
-    const effectiveReasoningEffort = preparedPrompt.agentConfigOverrides.reasoningEffort ?? input.reasoningEffort;
-    const effectiveCollaborationMode = preparedPrompt.agentConfigOverrides.collaborationMode ?? input.collaborationMode;
-    const explicitThreadName = input.threadName?.trim() || null;
-    const startedAt = Date.now();
-    const resolvedPermissionState = await this.readPermissionState(input.projectId);
-    const permissionState = this.resolvePermissionStateForRequest(
-      resolvedPermissionState,
-      input.permissionMode,
-      [],
-    );
-    const permissionMode = permissionState.mode;
-
-    this.logger.info("Starting Codex thread for card", {
-      projectId: input.projectId,
-      cardId: input.cardId,
-      model: effectiveModel ?? null,
-      serviceTier: formatServiceTierForReporting(input.serviceTier),
-      permissionMode,
-      reasoningEffort: effectiveReasoningEffort ?? null,
-      collaborationMode: effectiveCollaborationMode ?? null,
-      worktreeStartMode: input.worktreeStartMode ?? null,
-      hasExplicitThreadName: Boolean(explicitThreadName),
-      promptLength: prompt.length,
-      promptPreview: previewText(prompt),
-    });
-
-    let hasThreadStartProgress = false;
-    try {
-      const runLocation = await this.resolveThreadRunLocation({
-        projectId: input.projectId,
-        cardId: input.cardId,
-        threadTitle: explicitThreadName,
-        worktreeStartMode: input.worktreeStartMode,
-        worktreeBranchPrefix: input.worktreeBranchPrefix,
-        onProgress: (update) => {
-          hasThreadStartProgress = true;
-          this.emitThreadStartProgress({
-            projectId: input.projectId,
-            cardId: input.cardId,
-            phase: update.phase,
-            message: update.message,
-            stream: update.stream,
-            outputDelta: update.outputDelta,
-            clearOutput: update.clearOutput,
-          });
-        },
-      });
-      const effectivePermissionState = this.resolvePermissionStateForRequest(
-        permissionState,
-        input.permissionMode,
-        runLocation.workspaceRoots,
-      );
-      const turnPermissionOverrides = buildTurnPermissionOverrides({
-        permissionState: effectivePermissionState,
-        workspaceRoots: runLocation.workspaceRoots,
-      });
-      const threadPermissionOverrides = buildThreadPermissionOverrides({
-        permissionState: effectivePermissionState,
-      });
-      this.logger.info("Resolved Codex thread run location", {
-        projectId: input.projectId,
-        cardId: input.cardId,
-        cwd: runLocation.cwd,
-        runInTarget: runLocation.runInTarget,
-        createdManagedWorktree: runLocation.createdManagedWorktree,
-      });
-
-      if (runLocation.createdManagedWorktree) {
-        this.emitThreadStartProgress({
-          projectId: input.projectId,
-          cardId: input.cardId,
-          phase: "startingThread",
-          message: "Starting thread in prepared worktree.",
-          stream: "info",
-          outputDelta: "[info] Starting thread\n",
-        });
-      }
-
-      const threadStartParams: ThreadStartParams = {
-        cwd: runLocation.cwd,
-        model: effectiveModel ?? null,
-        config: buildCodexThreadConfigOverrides(),
-        ...buildServiceTierParams(input.serviceTier),
-        experimentalRawEvents: THREAD_START_EXPERIMENTAL_RAW_EVENTS,
-        dynamicTools: CODEX_DYNAMIC_TOOL_SPECS,
-        ...threadPermissionOverrides,
-      };
-      const threadStart = await this.client.request<"thread/start", ThreadStartResponse>("thread/start", threadStartParams);
-
-      const link = this.upsertLinkFromThread(threadStart.thread, {
-        projectId: input.projectId,
-        cardId: input.cardId,
-        cwd: runLocation.cwd,
-      }, runLocation.cwd);
-
-      if (!link) {
-        throw new Error("Codex thread/start returned an invalid thread payload");
-      }
-      this.setThreadPermissionFields(link.threadId, {
-        approvalPolicy: threadStart.approvalPolicy,
-        approvalsReviewer: threadStart.approvalsReviewer,
-        sandbox: threadStart.sandbox,
-      });
-
-      this.logger.info("Created Codex thread", {
-        projectId: input.projectId,
-        cardId: input.cardId,
-        threadId: link.threadId,
-        cwd: runLocation.cwd,
-      });
-
-      if (explicitThreadName) {
-        await this.client.request("thread/name/set", {
-          threadId: link.threadId,
-          name: explicitThreadName,
-        });
-        const updatedThread = updateCodexThreadName(link.threadId, explicitThreadName);
-        this.emitThreadTitleUpdated(link.threadId, explicitThreadName);
-        if (updatedThread) {
-          this.emitEvent({ type: "threadSummary", thread: updatedThread });
-        }
-      }
-
-      const collaborationMode = this.buildCollaborationModePayload({
-        collaborationMode: effectiveCollaborationMode,
-        model: effectiveModel,
-        reasoningEffort: effectiveReasoningEffort,
-      });
-      if (effectiveCollaborationMode) {
-        this.setLatestCollaborationModeForThread(link.threadId, this.buildCollaborationModeState({
-          collaborationMode: effectiveCollaborationMode,
-          model: effectiveModel ?? null,
-          reasoningEffort: effectiveReasoningEffort ?? null,
-          fallback: this.getConversationRecord(link.threadId).latestCollaborationMode,
-        }));
-      }
-
-      const turnStartParams: TurnStartParams = {
-        threadId: link.threadId,
-        input: preparedPrompt.inputItems,
-        cwd: runLocation.cwd,
-        ...turnPermissionOverrides,
-        ...(effectiveModel ? { model: effectiveModel } : {}),
-        ...buildServiceTierParams(input.serviceTier),
-        ...(effectiveReasoningEffort ? { effort: effectiveReasoningEffort } : {}),
-        ...(collaborationMode ? { collaborationMode } : {}),
-      };
-      const turnStart = await this.client.request<"turn/start", TurnStartResponse>("turn/start", turnStartParams);
-      const startedTurn = this.asTurnSummary(link.threadId, turnStart.turn);
-      if (startedTurn) {
-        const observedTurn: CodexTurnSummary = {
-          ...startedTurn,
-          turnStartedAtMs: startedTurn.turnStartedAtMs ?? Date.now(),
-        };
-        this.mergeTurn(link.threadId, observedTurn);
-        const optimisticUserAttachments = buildCodexUserAttachmentsFromContent(
-          preparedPrompt.inputItems,
-          `optimistic:${observedTurn.turnId}`,
-        );
-        this.seedTurnWithOptimisticUserMessage(
-          link.threadId,
-          observedTurn.turnId,
-          prompt,
-          optimisticUserAttachments.length > 0 ? optimisticUserAttachments : undefined,
-        );
-        this.logger.info("Started first Codex turn", {
-          threadId: link.threadId,
-          turnId: observedTurn.turnId,
-          durationMs: Date.now() - startedAt,
-        });
-      }
-      this.markThreadAsActive(link.threadId);
-      this.emitThreadStreamSnapshotFromRecord(link.threadId);
-
-      const detail = this.serializeThreadDetail(link.threadId);
-      if (!detail) {
-        throw new Error("Thread was created but could not be loaded");
-      }
-
-      if (runLocation.createdManagedWorktree) {
-        this.emitThreadStartProgress({
-          projectId: input.projectId,
-          cardId: input.cardId,
-          phase: "ready",
-          message: "Worktree ready.",
-          stream: "info",
-          outputDelta: "[info] Worktree ready.\n",
-        });
-      }
-
-      this.logger.info("Codex thread for card is ready", {
-        threadId: link.threadId,
-        projectId: input.projectId,
-        cardId: input.cardId,
-        durationMs: Date.now() - startedAt,
-      });
-      return detail;
-    } catch (error) {
-      this.logger.error("Failed to start Codex thread for card", {
-        projectId: input.projectId,
-        cardId: input.cardId,
-        durationMs: Date.now() - startedAt,
-        error,
-      });
-      if (hasThreadStartProgress) {
-        const detail = error instanceof Error ? error.message : String(error);
-        this.emitThreadStartProgress({
-          projectId: input.projectId,
-          cardId: input.cardId,
-          phase: "failed",
-          message: "Worktree setup failed.",
-          stream: "stderr",
-          outputDelta: `[stderr] ${detail}\n`,
-        });
-      }
-      throw error;
-    }
-  }
-
   async startThreadForSession(input: CodexThreadStartForSessionInput): Promise<CodexThreadDetail> {
     await this.ensureClientReady();
 
@@ -5602,7 +5183,7 @@ export class CodexService extends EventEmitter {
           ? (update) => {
               this.emitThreadStartProgress({
                 projectId: input.projectId,
-                cardId: input.sessionId,
+                sessionId: input.sessionId,
                 ...update,
               });
             }
@@ -5749,7 +5330,7 @@ export class CodexService extends EventEmitter {
       if (hasThreadStartProgress) {
         this.emitThreadStartProgress({
           projectId: input.projectId,
-          cardId: input.sessionId,
+          sessionId: input.sessionId,
           phase: "ready",
           message: "Worktree ready.",
           stream: "info",
@@ -5768,7 +5349,7 @@ export class CodexService extends EventEmitter {
         const detail = error instanceof Error ? error.message : String(error);
         this.emitThreadStartProgress({
           projectId: input.projectId,
-          cardId: input.sessionId,
+          sessionId: input.sessionId,
           phase: "failed",
           message: "Worktree setup failed.",
           stream: "stderr",
@@ -6508,7 +6089,6 @@ export class CodexService extends EventEmitter {
     this.logger.info("Starting Codex turn", {
       threadId,
       projectId: threadRef?.projectId ?? null,
-      cardId: threadRef?.cardId ?? null,
       cwd: workspacePath,
       permissionMode,
       model: effectiveModel ?? null,
@@ -7419,7 +6999,6 @@ export class CodexService extends EventEmitter {
       requestId,
       kind,
       projectId: ref?.projectId ?? null,
-      cardId: ref?.cardId ?? null,
       threadId,
       turnId,
       itemId,
@@ -7466,7 +7045,6 @@ export class CodexService extends EventEmitter {
       requestId,
       kind,
       projectId: payload.projectId,
-      cardId: payload.cardId,
       threadId,
       turnId,
       itemId,
@@ -7648,7 +7226,6 @@ export class CodexService extends EventEmitter {
       type: "userInput",
       requestId,
       projectId: ref?.projectId ?? null,
-      cardId: ref?.cardId ?? null,
       threadId,
       turnId,
       itemId,
@@ -7659,7 +7236,6 @@ export class CodexService extends EventEmitter {
     this.logger.info("Received Codex user-input request", {
       requestId,
       projectId: payload.projectId,
-      cardId: payload.cardId,
       threadId,
       turnId,
       itemId,
@@ -7691,7 +7267,6 @@ export class CodexService extends EventEmitter {
       type: "mcpServerElicitation",
       requestId,
       projectId: ref?.projectId ?? null,
-      cardId: ref?.cardId ?? null,
       threadId,
       turnId: params.turnId ?? requestId,
       itemId: requestId,
@@ -7709,7 +7284,6 @@ export class CodexService extends EventEmitter {
     this.logger.info("Received Codex MCP elicitation request", {
       requestId,
       projectId: payload.projectId,
-      cardId: payload.cardId,
       threadId,
       turnId: payload.turnId,
       mode: params.mode,
@@ -8104,7 +7678,6 @@ export class CodexService extends EventEmitter {
         this.logger.info("Received Codex thread started notification", {
           threadId: summary.threadId,
           projectId: summary.projectId,
-          cardId: summary.cardId,
         });
         this.emitEvent({ type: "threadSummary", thread: summary });
         this.emitThreadStreamSnapshotFromRecord(summary.threadId);

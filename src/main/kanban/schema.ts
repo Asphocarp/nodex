@@ -14,7 +14,7 @@ import type { PanelId, ProjectSessionPanelLayout } from "../../shared/types";
 
 export const COLUMNS = CARD_STATUS_COLUMNS;
 
-export const CURRENT_SCHEMA_VERSION = 40;
+export const CURRENT_SCHEMA_VERSION = 41;
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES =
   "'db_view', 'card_stage', 'terminal', 'browser', 'review', 'files'";
 const PROJECT_SESSION_TAB_KIND_CHECK_VALUES_V34 =
@@ -54,17 +54,18 @@ export interface EnsureDatabaseOptions {
 
 export function getSchemaMigrationTargets(currentVersion: number): number[] | null {
   if (currentVersion === CURRENT_SCHEMA_VERSION) return [];
-  if (currentVersion === 26) return [31, 32, 33, 34, 35, 37, 38, 39, 40];
-  if (currentVersion === 30) return [31, 32, 33, 34, 35, 37, 38, 39, 40];
-  if (currentVersion === 31) return [32, 33, 34, 35, 37, 38, 39, 40];
-  if (currentVersion === 32) return [33, 34, 35, 37, 38, 39, 40];
-  if (currentVersion === 33) return [34, 35, 37, 38, 39, 40];
-  if (currentVersion === 34) return [35, 37, 38, 39, 40];
-  if (currentVersion === 35) return [37, 38, 39, 40];
-  if (currentVersion === 36) return [37, 38, 39, 40];
-  if (currentVersion === 37) return [38, 39, 40];
-  if (currentVersion === 38) return [39, 40];
-  if (currentVersion === 39) return [40];
+  if (currentVersion === 26) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41];
+  if (currentVersion === 30) return [31, 32, 33, 34, 35, 37, 38, 39, 40, 41];
+  if (currentVersion === 31) return [32, 33, 34, 35, 37, 38, 39, 40, 41];
+  if (currentVersion === 32) return [33, 34, 35, 37, 38, 39, 40, 41];
+  if (currentVersion === 33) return [34, 35, 37, 38, 39, 40, 41];
+  if (currentVersion === 34) return [35, 37, 38, 39, 40, 41];
+  if (currentVersion === 35) return [37, 38, 39, 40, 41];
+  if (currentVersion === 36) return [37, 38, 39, 40, 41];
+  if (currentVersion === 37) return [38, 39, 40, 41];
+  if (currentVersion === 38) return [39, 40, 41];
+  if (currentVersion === 39) return [40, 41];
+  if (currentVersion === 40) return [41];
   return null;
 }
 
@@ -176,7 +177,6 @@ function createLatestSchema(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS codex_threads (
       thread_id TEXT PRIMARY KEY,
       project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
-      card_id TEXT REFERENCES cards(id) ON DELETE SET NULL,
       parent_thread_id TEXT,
       thread_name TEXT,
       thread_preview TEXT NOT NULL DEFAULT '',
@@ -192,20 +192,6 @@ function createLatestSchema(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_codex_threads_project_updated
       ON codex_threads(project_id, updated_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_codex_threads_card_updated
-      ON codex_threads(card_id, updated_at DESC);
-
-    CREATE TABLE IF NOT EXISTS codex_thread_card_links (
-      thread_id TEXT PRIMARY KEY REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
-      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
-      linked_at TEXT NOT NULL
-    ) WITHOUT ROWID;
-
-    CREATE INDEX IF NOT EXISTS idx_codex_thread_card_links_project_card
-      ON codex_thread_card_links(project_id, card_id);
-    CREATE INDEX IF NOT EXISTS idx_codex_thread_card_links_project
-      ON codex_thread_card_links(project_id);
 
     CREATE TABLE IF NOT EXISTS project_sessions (
       id TEXT PRIMARY KEY,
@@ -467,6 +453,192 @@ function tableExists(db: Database.Database, tableName: string): boolean {
   `).get(tableName));
 }
 
+interface LegacyCardThreadOwnershipRow {
+  threadId: string;
+  projectId: string | null;
+  cardId: string | null;
+  linkedAt: string | null;
+  threadName: string | null;
+  threadPreview: string | null;
+  cardTitle: string | null;
+}
+
+function firstPreviewLine(value: string | null): string {
+  return value
+    ?.split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0) ?? "";
+}
+
+function resolveMigratedThreadSessionTitle(row: LegacyCardThreadOwnershipRow): string {
+  return row.threadName?.trim()
+    || firstPreviewLine(row.threadPreview)
+    || row.cardTitle?.trim()
+    || "Imported chat";
+}
+
+function readLegacyCardThreadOwnershipRows(db: Database.Database): LegacyCardThreadOwnershipRow[] {
+  const rows: LegacyCardThreadOwnershipRow[] = [];
+
+  if (
+    tableExists(db, "codex_thread_card_links")
+    && tableHasColumn(db, "codex_thread_card_links", "thread_id")
+    && tableHasColumn(db, "codex_thread_card_links", "card_id")
+  ) {
+    rows.push(...db.prepare(`
+      SELECT
+        l.thread_id AS threadId,
+        COALESCE(l.project_id, t.project_id, c.project_id) AS projectId,
+        l.card_id AS cardId,
+        COALESCE(l.linked_at, t.linked_at) AS linkedAt,
+        t.thread_name AS threadName,
+        t.thread_preview AS threadPreview,
+        c.title AS cardTitle
+      FROM codex_thread_card_links l
+      LEFT JOIN codex_threads t ON t.thread_id = l.thread_id
+      LEFT JOIN cards c ON c.id = l.card_id
+    `).all() as LegacyCardThreadOwnershipRow[]);
+  }
+
+  if (tableExists(db, "codex_threads") && tableHasColumn(db, "codex_threads", "card_id")) {
+    rows.push(...db.prepare(`
+      SELECT
+        t.thread_id AS threadId,
+        COALESCE(t.project_id, c.project_id) AS projectId,
+        t.card_id AS cardId,
+        t.linked_at AS linkedAt,
+        t.thread_name AS threadName,
+        t.thread_preview AS threadPreview,
+        c.title AS cardTitle
+      FROM codex_threads t
+      LEFT JOIN cards c ON c.id = t.card_id
+      WHERE t.card_id IS NOT NULL
+    `).all() as LegacyCardThreadOwnershipRow[]);
+  }
+
+  if (tableExists(db, "codex_card_threads")) {
+    rows.push(...db.prepare(`
+      SELECT
+        t.thread_id AS threadId,
+        COALESCE(t.project_id, c.project_id) AS projectId,
+        t.card_id AS cardId,
+        t.linked_at AS linkedAt,
+        t.thread_name AS threadName,
+        t.thread_preview AS threadPreview,
+        c.title AS cardTitle
+      FROM codex_card_threads t
+      LEFT JOIN cards c ON c.id = t.card_id
+    `).all() as LegacyCardThreadOwnershipRow[]);
+  }
+
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    if (!row.threadId || seen.has(row.threadId)) return false;
+    seen.add(row.threadId);
+    return true;
+  });
+}
+
+function migrateLegacyCardThreadOwnershipToSessions(db: Database.Database): void {
+  const rows = readLegacyCardThreadOwnershipRows(db);
+  if (rows.length === 0) return;
+
+  const projectExists = db.prepare("SELECT 1 FROM projects WHERE id = ?");
+  const threadExists = db.prepare("SELECT 1 FROM codex_threads WHERE thread_id = ?");
+  const existingThreadSession = db.prepare("SELECT session_id FROM project_session_threads WHERE thread_id = ?");
+  const maxOrder = db.prepare('SELECT MAX("order") AS maxOrder FROM project_sessions WHERE project_id = ?');
+  const insertSession = db.prepare(`
+    INSERT INTO project_sessions (
+      id, project_id, title, is_overview, "order", pinned, pinned_order, archived, archived_at, unread, left_pane_collapsed,
+      panel_state_json, created_at, updated_at
+    ) VALUES (?, ?, ?, 0, ?, 0, NULL, 0, NULL, 0, 0, ?, ?, ?)
+  `);
+  const insertLink = db.prepare(`
+    INSERT OR IGNORE INTO project_session_threads (session_id, thread_id, linked_at)
+    VALUES (?, ?, ?)
+  `);
+
+  const migrate = db.transaction(() => {
+    const nextOrderByProject = new Map<string, number>();
+    for (const row of rows) {
+      const projectId = row.projectId?.trim();
+      if (!projectId) continue;
+      if (!projectExists.get(projectId)) continue;
+      if (!threadExists.get(row.threadId)) continue;
+      if (existingThreadSession.get(row.threadId)) continue;
+
+      const sessionId = randomUUID();
+      const now = new Date().toISOString();
+      const linkedAt = row.linkedAt || now;
+      const order = nextOrderByProject.get(projectId)
+        ?? (((maxOrder.get(projectId) as { maxOrder: number | null } | undefined)?.maxOrder ?? -1) + 1);
+      nextOrderByProject.set(projectId, order + 1);
+      insertSession.run(
+        sessionId,
+        projectId,
+        resolveMigratedThreadSessionTitle(row),
+        order,
+        makePanelStateJson({
+          rightTabIds: [],
+          bottomTabIds: [],
+          overview: false,
+        }),
+        now,
+        now,
+      );
+      insertLink.run(sessionId, row.threadId, linkedAt);
+    }
+  });
+  migrate();
+}
+
+function rebuildCodexThreadsWithoutCardId(db: Database.Database): void {
+  if (!tableExists(db, "codex_threads") || !tableHasColumn(db, "codex_threads", "card_id")) {
+    if (tableExists(db, "codex_thread_card_links")) {
+      db.exec("DROP TABLE IF EXISTS codex_thread_card_links");
+    }
+    return;
+  }
+
+  db.exec(`
+    DROP TABLE IF EXISTS codex_thread_card_links;
+    DROP TABLE IF EXISTS codex_threads_next;
+
+    CREATE TABLE codex_threads_next (
+      thread_id TEXT PRIMARY KEY,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+      parent_thread_id TEXT,
+      thread_name TEXT,
+      thread_preview TEXT NOT NULL DEFAULT '',
+      model_provider TEXT NOT NULL DEFAULT '',
+      cwd TEXT,
+      status_type TEXT NOT NULL DEFAULT 'notLoaded',
+      status_active_flags_json TEXT NOT NULL DEFAULT '[]',
+      archived INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      linked_at TEXT NOT NULL
+    ) WITHOUT ROWID;
+
+    INSERT INTO codex_threads_next (
+      thread_id, project_id, parent_thread_id, thread_name, thread_preview,
+      model_provider, cwd, status_type, status_active_flags_json, archived,
+      created_at, updated_at, linked_at
+    )
+    SELECT
+      thread_id, project_id, parent_thread_id, thread_name, thread_preview,
+      model_provider, cwd, status_type, status_active_flags_json, archived,
+      created_at, updated_at, linked_at
+    FROM codex_threads;
+
+    DROP TABLE codex_threads;
+    ALTER TABLE codex_threads_next RENAME TO codex_threads;
+
+    CREATE INDEX IF NOT EXISTS idx_codex_threads_project_updated
+      ON codex_threads(project_id, updated_at DESC);
+  `);
+}
+
 function migrateMainSchema26To31(db: Database.Database): void {
   createLatestSchema(db);
 
@@ -477,22 +649,18 @@ function migrateMainSchema26To31(db: Database.Database): void {
 
     db.exec(`
       INSERT OR IGNORE INTO codex_threads (
-        thread_id, project_id, card_id, parent_thread_id, thread_name, thread_preview,
+        thread_id, project_id, parent_thread_id, thread_name, thread_preview,
         model_provider, cwd, status_type, status_active_flags_json, archived,
         created_at, updated_at, linked_at
       )
       SELECT
-        thread_id, project_id, card_id, parent_thread_id, thread_name, thread_preview,
+        thread_id, project_id, parent_thread_id, thread_name, thread_preview,
         model_provider, cwd, status_type, status_active_flags_json, archived,
         created_at, updated_at, linked_at
       FROM codex_card_threads;
-
-      INSERT OR REPLACE INTO codex_thread_card_links (thread_id, project_id, card_id, linked_at)
-      SELECT thread_id, project_id, card_id, linked_at
-      FROM codex_card_threads;
-
-      DROP TABLE codex_card_threads;
     `);
+    migrateLegacyCardThreadOwnershipToSessions(db);
+    db.exec("DROP TABLE codex_card_threads");
   }
 
   setUserVersion(db, 31);
@@ -1225,6 +1393,19 @@ function migrateSchema39To40(db: Database.Database): void {
   setUserVersion(db, 40);
 }
 
+function migrateSchema40To41(db: Database.Database): void {
+  db.pragma("foreign_keys = OFF");
+  try {
+    migrateLegacyCardThreadOwnershipToSessions(db);
+    rebuildCodexThreadsWithoutCardId(db);
+    db.exec("DROP TABLE IF EXISTS codex_card_threads");
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+
+  setUserVersion(db, 41);
+}
+
 function runMigrations(
   db: Database.Database,
   currentVersion: number,
@@ -1309,6 +1490,14 @@ function runMigrations(
       }
       migrateSchema39To40(db);
       fromVersion = 40;
+      continue;
+    }
+    if (target === 41) {
+      if (fromVersion !== 40) {
+        throw new Error(`Unsupported Nodex database migration target 41 from ${fromVersion}`);
+      }
+      migrateSchema40To41(db);
+      fromVersion = 41;
       continue;
     }
     throw new Error(`Unsupported Nodex database migration target ${target}`);

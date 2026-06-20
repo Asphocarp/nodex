@@ -31,17 +31,17 @@ function expectUuidProjectNamed(db: Database.Database, name: string): string {
 describe("schema initialization", () => {
   test("exposes only the supported in-app migration target", () => {
     expect(JSON.stringify(getSchemaMigrationTargets(CURRENT_SCHEMA_VERSION))).toBe("[]");
-    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[31,32,33,34,35,37,38,39,40]");
-    expect(JSON.stringify(getSchemaMigrationTargets(30))).toBe("[31,32,33,34,35,37,38,39,40]");
-    expect(JSON.stringify(getSchemaMigrationTargets(31))).toBe("[32,33,34,35,37,38,39,40]");
-    expect(JSON.stringify(getSchemaMigrationTargets(32))).toBe("[33,34,35,37,38,39,40]");
-    expect(JSON.stringify(getSchemaMigrationTargets(33))).toBe("[34,35,37,38,39,40]");
-    expect(JSON.stringify(getSchemaMigrationTargets(34))).toBe("[35,37,38,39,40]");
-    expect(JSON.stringify(getSchemaMigrationTargets(35))).toBe("[37,38,39,40]");
-    expect(JSON.stringify(getSchemaMigrationTargets(36))).toBe("[37,38,39,40]");
-    expect(JSON.stringify(getSchemaMigrationTargets(37))).toBe("[38,39,40]");
-    expect(JSON.stringify(getSchemaMigrationTargets(38))).toBe("[39,40]");
-    expect(JSON.stringify(getSchemaMigrationTargets(39))).toBe("[40]");
+    expect(JSON.stringify(getSchemaMigrationTargets(26))).toBe("[31,32,33,34,35,37,38,39,40,41]");
+    expect(JSON.stringify(getSchemaMigrationTargets(30))).toBe("[31,32,33,34,35,37,38,39,40,41]");
+    expect(JSON.stringify(getSchemaMigrationTargets(31))).toBe("[32,33,34,35,37,38,39,40,41]");
+    expect(JSON.stringify(getSchemaMigrationTargets(32))).toBe("[33,34,35,37,38,39,40,41]");
+    expect(JSON.stringify(getSchemaMigrationTargets(33))).toBe("[34,35,37,38,39,40,41]");
+    expect(JSON.stringify(getSchemaMigrationTargets(34))).toBe("[35,37,38,39,40,41]");
+    expect(JSON.stringify(getSchemaMigrationTargets(35))).toBe("[37,38,39,40,41]");
+    expect(JSON.stringify(getSchemaMigrationTargets(36))).toBe("[37,38,39,40,41]");
+    expect(JSON.stringify(getSchemaMigrationTargets(37))).toBe("[38,39,40,41]");
+    expect(JSON.stringify(getSchemaMigrationTargets(38))).toBe("[39,40,41]");
+    expect(JSON.stringify(getSchemaMigrationTargets(39))).toBe("[40,41]");
     expect(getSchemaMigrationTargets(29) === null).toBeTrue();
     expect(getSchemaMigrationTargets(20) === null).toBeTrue();
   });
@@ -100,7 +100,7 @@ describe("schema initialization", () => {
       expect(codexThreadColumnNames.includes("id")).toBeFalse();
       expect(codexThreadColumns.find((column) => column.name === "thread_id")?.pk).toBe(1);
       expect(codexThreadColumns.find((column) => column.name === "project_id")?.notnull).toBe(0);
-      expect(codexThreadColumns.find((column) => column.name === "card_id")?.notnull).toBe(0);
+      expect(codexThreadColumnNames.includes("card_id")).toBeFalse();
 
       const codexTableSql = db.prepare(`
         SELECT sql
@@ -135,8 +135,9 @@ describe("schema initialization", () => {
       expect(tableNames.includes("project_sessions")).toBeTrue();
       expect(tableNames.includes("project_session_tabs")).toBeTrue();
       expect(tableNames.includes("project_session_threads")).toBeTrue();
-      expect(tableNames.includes("codex_thread_card_links")).toBeTrue();
+      expect(tableNames.includes("codex_thread_card_links")).toBeFalse();
       expect(tableNames.includes("card_history_snapshots")).toBeTrue();
+      expect(tableColumnNames(db, "codex_threads").includes("card_id")).toBeFalse();
 
       const sessionColumnNames = tableColumnNames(db, "project_sessions");
       expect(sessionColumnNames.includes("panel_state_json")).toBeTrue();
@@ -1374,7 +1375,6 @@ describe("schema initialization", () => {
           "reminder_receipts",
           "reminder_snoozes",
           "codex_threads",
-          "codex_thread_card_links",
           "project_sessions",
           "project_session_tabs",
         ]) {
@@ -1653,28 +1653,44 @@ describe("schema initialization", () => {
       `).get();
       expect(legacyThreadTable === undefined).toBeTrue();
 
+      expect(tableColumnNames(migrated, "codex_threads").includes("card_id")).toBeFalse();
+
+      const cardLinkTable = migrated.prepare(`
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table' AND name = 'codex_thread_card_links'
+      `).get();
+      expect(cardLinkTable === undefined).toBeTrue();
+
       const thread = migrated.prepare(`
-        SELECT project_id, card_id, parent_thread_id, thread_name
+        SELECT project_id, parent_thread_id, thread_name
         FROM codex_threads
         WHERE thread_id = 'thread-1'
       `).get() as {
         project_id: string | null;
-        card_id: string | null;
         parent_thread_id: string | null;
         thread_name: string | null;
       } | undefined;
       expect(thread?.project_id).toBe(alphaProjectId);
-      expect(thread?.card_id).toBe("card-1");
       expect(thread?.parent_thread_id).toBe("thread-parent");
       expect(thread?.thread_name).toBe("Card thread");
 
-      const cardLink = migrated.prepare(`
-        SELECT project_id, card_id
-        FROM codex_thread_card_links
-        WHERE thread_id = 'thread-1'
-      `).get() as { project_id: string; card_id: string } | undefined;
-      expect(cardLink?.project_id).toBe(alphaProjectId);
-      expect(cardLink?.card_id).toBe("card-1");
+      const sessionLink = migrated.prepare(`
+        SELECT s.project_id, s.title, s.is_overview, pst.thread_id, pst.linked_at
+        FROM project_session_threads pst
+        JOIN project_sessions s ON s.id = pst.session_id
+        WHERE pst.thread_id = 'thread-1'
+      `).get() as {
+        project_id: string;
+        title: string;
+        is_overview: number;
+        thread_id: string;
+        linked_at: string;
+      } | undefined;
+      expect(sessionLink?.project_id).toBe(alphaProjectId);
+      expect(sessionLink?.title).toBe("Card thread");
+      expect(sessionLink?.is_overview).toBe(0);
+      expect(sessionLink?.linked_at).toBe("2026-01-01T00:00:00.000Z");
 
       const sessionColumnNames = tableColumnNames(migrated, "project_sessions");
       expect(sessionColumnNames.includes("panel_state_json")).toBeTrue();
@@ -1708,6 +1724,146 @@ describe("schema initialization", () => {
 
       const foreignKeyProblems = migrated.prepare("PRAGMA foreign_key_check").all();
       expect(JSON.stringify(foreignKeyProblems)).toBe("[]");
+      migrated.close();
+    } catch (error) {
+      if (isUnsupportedSqliteError(error)) {
+        initializationRan = false;
+      } else {
+        throw error;
+      }
+    } finally {
+      closeDatabase();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      delete process.env.KANBAN_DIR;
+    }
+
+    if (!initializationRan) {
+      expect(true).toBeTrue();
+    }
+  });
+
+  test("migrates legacy card thread links into project session thread ownership", async () => {
+    closeDatabase();
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-schema-link-migrate-"));
+    process.env.KANBAN_DIR = tempDir;
+
+    let initializationRan = true;
+    try {
+      const dbPath = getDatabasePath();
+      fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+      const db = new Database(dbPath);
+      db.exec(`
+        CREATE TABLE projects (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          icon TEXT NOT NULL DEFAULT '',
+          created TEXT NOT NULL,
+          updated TEXT NOT NULL
+        );
+        CREATE TABLE cards (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          status TEXT NOT NULL,
+          title TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          tags TEXT NOT NULL DEFAULT '[]',
+          created TEXT NOT NULL,
+          "order" INTEGER NOT NULL
+        );
+        CREATE TABLE codex_threads (
+          thread_id TEXT PRIMARY KEY,
+          project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+          card_id TEXT REFERENCES cards(id) ON DELETE SET NULL,
+          parent_thread_id TEXT,
+          thread_name TEXT,
+          thread_preview TEXT NOT NULL DEFAULT '',
+          model_provider TEXT NOT NULL DEFAULT '',
+          cwd TEXT,
+          status_type TEXT NOT NULL DEFAULT 'notLoaded',
+          status_active_flags_json TEXT NOT NULL DEFAULT '[]',
+          archived INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          linked_at TEXT NOT NULL
+        ) WITHOUT ROWID;
+        CREATE TABLE codex_thread_card_links (
+          thread_id TEXT PRIMARY KEY REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+          linked_at TEXT NOT NULL
+        ) WITHOUT ROWID;
+        CREATE TABLE project_sessions (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          title TEXT NOT NULL,
+          is_overview INTEGER NOT NULL DEFAULT 0,
+          "order" INTEGER NOT NULL,
+          pinned INTEGER NOT NULL DEFAULT 0,
+          pinned_order INTEGER,
+          archived INTEGER NOT NULL DEFAULT 0,
+          archived_at TEXT,
+          unread INTEGER NOT NULL DEFAULT 0,
+          left_pane_collapsed INTEGER NOT NULL DEFAULT 0,
+          panel_state_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE project_session_threads (
+          session_id TEXT PRIMARY KEY REFERENCES project_sessions(id) ON DELETE CASCADE,
+          thread_id TEXT NOT NULL REFERENCES codex_threads(thread_id) ON DELETE CASCADE,
+          linked_at TEXT NOT NULL
+        ) WITHOUT ROWID;
+
+        INSERT INTO projects (id, name, description, icon, created, updated)
+        VALUES ('alpha', 'Alpha', '', '', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+        INSERT INTO cards (id, project_id, status, title, description, tags, created, "order")
+        VALUES ('card-1', 'alpha', 'in_progress', 'Card title fallback', '', '[]', '2026-01-01T00:00:00.000Z', 0);
+        INSERT INTO codex_threads (
+          thread_id, project_id, card_id, parent_thread_id, thread_name, thread_preview,
+          model_provider, cwd, status_type, status_active_flags_json, archived,
+          created_at, updated_at, linked_at
+        ) VALUES (
+          'thread-1', 'alpha', 'card-1', NULL, 'Linked thread', 'preview',
+          'openai', '/tmp/alpha', 'idle', '[]', 0, 10, 20, '2026-01-02T00:00:00.000Z'
+        );
+        INSERT INTO codex_thread_card_links (thread_id, project_id, card_id, linked_at)
+        VALUES ('thread-1', 'alpha', 'card-1', '2026-01-03T00:00:00.000Z');
+        PRAGMA user_version = 40;
+      `);
+      db.close();
+
+      await initializeDatabase();
+
+      const migrated = new Database(dbPath, { readonly: true });
+      const version = migrated.prepare("PRAGMA user_version").get() as
+        | { user_version: number }
+        | undefined;
+      expect(version?.user_version).toBe(CURRENT_SCHEMA_VERSION);
+      expect(tableColumnNames(migrated, "codex_threads").includes("card_id")).toBeFalse();
+      const oldLinkTable = migrated.prepare(`
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table' AND name = 'codex_thread_card_links'
+      `).get();
+      expect(oldLinkTable === undefined).toBeTrue();
+
+      const sessionLink = migrated.prepare(`
+        SELECT s.project_id, s.title, s.is_overview, pst.thread_id, pst.linked_at
+        FROM project_session_threads pst
+        JOIN project_sessions s ON s.id = pst.session_id
+        WHERE pst.thread_id = 'thread-1'
+      `).get() as {
+        project_id: string;
+        title: string;
+        is_overview: number;
+        thread_id: string;
+        linked_at: string;
+      } | undefined;
+      expect(sessionLink?.project_id).toBe("alpha");
+      expect(sessionLink?.title).toBe("Linked thread");
+      expect(sessionLink?.is_overview).toBe(0);
+      expect(sessionLink?.linked_at).toBe("2026-01-03T00:00:00.000Z");
       migrated.close();
     } catch (error) {
       if (isUnsupportedSqliteError(error)) {

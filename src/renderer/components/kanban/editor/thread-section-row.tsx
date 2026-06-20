@@ -73,7 +73,7 @@ export interface ThreadSectionRowProps {
   canSend: boolean;
   onLabelChange: (label: string) => void;
   onOpenThread?: (threadId: string) => void;
-  onSend?: (blockId: string) => void;
+  onSend?: (blockId: string, anchor: HTMLElement) => void;
 }
 
 export function ThreadSectionRow({
@@ -186,7 +186,7 @@ export function ThreadSectionRow({
                 "hover:opacity-90 disabled:opacity-40",
               )}
               disabled={!canSend || pending || !onSend}
-              onClick={() => onSend?.(blockId)}
+              onClick={(event) => onSend?.(blockId, event.currentTarget)}
             >
               <SendHorizontal className="size-2.5" />
               Send

@@ -53,7 +53,6 @@ function buildThreadSummary(archived: boolean): CodexThreadSummary {
   return {
     threadId: archived ? "thread_archived" : "thread_active",
     projectId: "project_1",
-    cardId: null,
     source: null,
     threadName: archived ? "Archived" : "Active",
     threadPreview: "",
@@ -86,7 +85,6 @@ function buildActions(): ThreadStageActions {
     onStartApiKeyLogin: async () => ({ type: "apiKey" }),
     onCancelLogin: noopAsync,
     onLogout: noopAsync,
-    onStartThreadForCard: noopAsync,
     onSendPrompt: noopAsync,
     onSteerPrompt: noopAsync,
     onInterruptTurn: noopAsync,
@@ -106,7 +104,6 @@ function buildActions(): ThreadStageActions {
     onConsumeComposerIntent: () => {},
     onOpenThread: () => {},
     onCleanBackgroundTerminals: noopAsync,
-    onOpenCard: () => {},
     onNewThreadProjectChange: () => {},
   };
 }

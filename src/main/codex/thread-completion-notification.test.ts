@@ -6,7 +6,6 @@ function makeThread(overrides?: Partial<CodexThreadSummary>): CodexThreadSummary
   return {
     threadId: "thread-1",
     projectId: "default",
-    cardId: "card-1",
     source: overrides?.source ?? null,
     threadName: "Ship thread notifications",
     threadPreview: "Preview fallback",
@@ -36,7 +35,6 @@ function makeDetail(overrides?: Partial<CodexThreadDetail>): CodexThreadDetail {
   return {
     threadId: "thread-1",
     projectId: "default",
-    cardId: "card-1",
     source: overrides?.source ?? null,
     threadName: "Ship thread notifications",
     threadPreview: "Preview fallback",

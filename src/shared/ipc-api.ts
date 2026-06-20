@@ -39,7 +39,6 @@ import type {
   CodexSteerTurnInput,
   CodexSideChatStartInput,
   CodexSideChatStartResult,
-  CodexThreadStartForCardInput,
   CodexThreadStartForSessionInput,
   CodexThreadDetail,
   CodexThreadSummary,
@@ -737,7 +736,7 @@ export interface IpcApi {
   };
   "codex:account:logout": { args: []; result: boolean };
   "codex:threads:list": {
-    args: [projectId: string, opts?: { cardId?: string; includeArchived?: boolean }];
+    args: [projectId: string, opts?: { includeArchived?: boolean }];
     result: CodexThreadSummary[];
   };
   "codex:thread:summary:get": {
@@ -751,10 +750,6 @@ export interface IpcApi {
   "codex:collaboration-mode:list": {
     args: [];
     result: CodexCollaborationModePreset[];
-  };
-  "codex:thread:start-for-card": {
-    args: [CodexThreadStartForCardInput];
-    result: CodexThreadDetail;
   };
   "codex:thread:start-for-session": {
     args: [CodexThreadStartForSessionInput];

@@ -17,7 +17,6 @@ export interface ThreadActionControllerInput {
   projectId: string;
   selectedCollaborationMode: CodexCollaborationModeKind;
   setSelectedCollaborationMode: (mode: CodexCollaborationModeKind) => void;
-  onOpenCard: (cardId: string) => void;
   onOpenThread: (threadId: string) => void;
   onOpenTurnDiffReview: ThreadStageActions["onOpenTurnDiffReview"];
   onEnsureBlankSessionForProject: (projectId: string) => Promise<ProjectSession>;
@@ -66,13 +65,6 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
       void input.codexControl.setPermissionMode(input.projectId, mode);
     },
     onQueueingEnabledChange: input.onQueueingEnabledChange,
-    onStartThreadForCard: async (startInput) => {
-      await input.codexControl.startThreadForCard({
-        ...startInput,
-        collaborationMode: input.selectedCollaborationMode,
-      });
-      await input.onRefreshProjectSessions(startInput.projectId);
-    },
     onStartThreadForSession: async ({
       projectId,
       sessionId,
@@ -202,7 +194,6 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
     onCleanBackgroundTerminals: async (threadId) => {
       await input.codexControl.cleanBackgroundTerminals(threadId);
     },
-    onOpenCard: input.onOpenCard,
   } satisfies ThreadStageActions;
 
   return actions;

@@ -82,7 +82,6 @@ function createMentionThread(overrides: Partial<CodexThreadSummary> = {}): Codex
   return {
     threadId: "019-thread",
     projectId: "project-1",
-    cardId: "card-1",
     source: null,
     threadName: "Thread title",
     threadPreview: "",

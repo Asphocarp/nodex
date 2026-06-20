@@ -88,7 +88,6 @@ const SEND_TO_THREAD_THREADS = [
   {
     threadId: "thread-existing",
     projectId: "default",
-    cardId: "source-card",
     source: null,
     threadName: "Existing implementation",
     threadPreview: "Continue from selected notes",
@@ -333,7 +332,7 @@ describe("nfm text action menu surface", () => {
     expect(localStorage.getItem(NFM_SEND_TO_THREAD_MODE_STORAGE_KEY)).toBe("send");
 
     await act(async () => {
-      fireEvent.click(view.getByRole("option", { name: /New thread/ }));
+      fireEvent.click(view.getByRole("option", { name: /New chat/ }));
       await settleAsyncRender();
     });
 

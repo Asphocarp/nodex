@@ -396,12 +396,11 @@ export function ThreadStageDevStoryPage({
     onStartApiKeyLogin: async () => ({ type: "apiKey" }),
     onCancelLogin: async () => {},
     onLogout: async () => {},
-    onStartThreadForCard: async ({ prompt }) => {
+    onStartThreadForSession: async ({ prompt }) => {
       setRuntime((current) => {
         const threadId = "thread_story_started";
         const nextConversation = appendStreamingTurn(buildStoryConversation({
           threadId,
-          cardId: current.newThreadTarget?.cardId ?? "card-story-new-thread",
           projectId: current.newThreadTarget?.projectId ?? "project-story-new-thread",
           cwd: "/workspace/nodex",
           threadName: "Storybook new thread",
@@ -611,7 +610,6 @@ export function ThreadStageDevStoryPage({
     },
     onOpenThread: () => {},
     onCleanBackgroundTerminals: async () => {},
-    onOpenCard: () => {},
   }), [authenticatedAccount, scenario.autoAction, surfaceModels.footerModel.conversation?.threadId]);
 
   useEffect(() => {

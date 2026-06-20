@@ -242,7 +242,7 @@ export interface CreateManagedWorktreeInput {
   repositoryPath: string;
   serverDir: string;
   projectId: string;
-  cardId: string;
+  targetId: string;
   threadTitle?: string | null;
   branchPrefix?: string | null;
   preferredBaseBranch?: string | null;

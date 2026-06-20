@@ -196,17 +196,19 @@ Each section may optionally be bound to one Codex thread via the `thread` attrib
 ### First send
 
 If the section has no bound thread, clicking `Send` or pressing `Cmd/Ctrl+Enter` while inside that section:
-- starts a new card-linked thread
-- if the section lives inside a projected `cardToggle` row from `cardRef` or `toggleListInlineView`, the new thread is linked to that projected source card rather than the current host document card
+- opens the shared `Send to chat` thread picker
+- selecting `New chat` reuses or creates a blank session for the current project and starts a session-owned thread
+- selecting an existing thread sends the section prompt to that thread
 - uses the section prompt body as the initial prompt
-- writes the returned thread id into the section marker's `thread` attribute
+- writes the selected or returned thread id into the section marker's `thread` attribute after a successful send
 - keeps focus in the editor
 
 ### Later sends
 
 If the section already has a bound thread and that thread is available:
-- idle thread: start a new turn
-- active thread with an in-progress turn: steer that active turn
+- the shared picker opens with that thread available as the natural existing-thread destination
+- selecting that thread starts a new turn or steers the active turn using the same control-layer behavior as the thread composer
+- selecting another existing thread or `New chat` rebinds the marker after a successful send
 
 This mirrors the thread composer’s follow-up behavior instead of inventing a separate send model.
 
@@ -214,15 +216,11 @@ This mirrors the thread composer’s follow-up behavior instead of inventing a s
 
 If a section has a stored `thread` id but the linked thread is unavailable or archived:
 - the row renders as unavailable rather than pretending the section is unbound
-- sending from the section starts a fresh thread and rebinds the marker to the new thread id
-
-Rebinding to an arbitrary existing thread is out of scope for v1.
+- sending opens the picker so the user can choose an available existing thread or `New chat`
 
 ## Inline Status States
 
-The section row resolves live state by matching its stored `thread` id against the card’s linked Codex threads.
-
-For projected `cardToggle` rows rendered from `cardRef` or `toggleListInlineView`, that lookup is scoped to the projected source card, not the host document card.
+The section row resolves live state by matching its stored `thread` id against the current project's Codex thread summaries.
 
 Current states:
 - `Not sent`: no bound thread id
@@ -246,9 +244,7 @@ This is intentionally approximate v1 status chrome, not a durable execution-time
 In the Card Stage editor:
 - when the cursor is inside a `threadSection` region, `Cmd/Ctrl+Enter` prepares that section for send
 - this includes nested child regions, where a child `threadSection` sends its following siblings in the same parent block
-- by default, the editor opens a confirmation dialog with a plain-text preview before the send actually happens
-- the confirmation dialog includes a `Do not ask again` checkbox
-- the dialog preference is reversible in Settings -> Editor -> `Confirm thread section send`
+- the editor opens the same thread picker used by the row `Send` action
 - the shortcut is handled at the editor surface, not by the Threads stage composer
 - successful send does not move focus to the Threads stage
 
@@ -498,17 +494,12 @@ world
 
 The plain divider remains normal content inside the explicit thread section. It does not create a new prompt boundary.
 
-#### Example 8: Confirmation dialog preview and suppression
+#### Example 8: Thread picker send
 
-When the dialog opens for a section send:
-- it shows the plain-text content that will be sent
-- it indicates whether the send reuses an existing thread or starts a new one
-- it may note that a new `threadSection` will be inserted first
-
-If the user checks `Do not ask again` and confirms:
-- the send proceeds immediately
-- later sends skip the dialog
-- the user can re-enable the dialog in Settings -> Editor -> `Confirm thread section send`
+When the picker opens for a section send:
+- it shows current-project thread destinations and a fixed `New chat` row
+- selecting an existing thread sends the section prompt to that thread and writes that thread id to the marker
+- selecting `New chat` starts a session-owned thread and writes the new thread id to the marker
 
 ## Focus And Navigation
 

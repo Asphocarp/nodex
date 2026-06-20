@@ -60,7 +60,7 @@ Not every runtime payload becomes a transcript row. Only entries explicitly proj
 MCP and dynamic app-server tool calls are specialized `toolCall` rows with canonical renderer state: MCP rows preserve plugin ids, app resource URIs, result metadata, and normalized resource content; dynamic rows preserve namespace/tool/arguments/status/output content for tools such as `read_thread`.
 
 ## Prompt and Turn Behavior
-- Sending from `New thread` creates the thread and switches focus to the newly created thread tab.
+- Sending from a new-chat composer creates a session-owned thread; editor/card send-to-chat flows keep focus in the originating surface.
 - As soon as a turn starts, the transcript shows the submitted user prompt optimistically and keeps that bubble visible above the pending turn-body `Thinking` state until live response items arrive.
 - When the live user-message item later arrives, it is deduped instead of rendering twice.
 - Follow-up prompts steered into an already-running turn insert an optimistic `steeringUserMessage` transcript bubble labeled `Steering conversation`. When the matching authoritative backend `userMessage` arrives for the same target turn and equivalent input, that bubble becomes `Steered conversation` and the runtime appends a separate `steered` divider row, also labeled `Steered conversation`.

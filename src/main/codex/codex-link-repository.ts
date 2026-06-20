@@ -14,7 +14,6 @@ import { requireProjectId } from "../kanban/project-service";
 
 interface DbCodexThread {
   project_id: string | null;
-  card_id: string | null;
   thread_id: string;
   parent_thread_id: string | null;
   thread_name: string | null;
@@ -31,7 +30,6 @@ interface DbCodexThread {
 
 export interface UpsertCodexThreadInput {
   projectId?: string | null;
-  cardId?: string | null;
   threadId: string;
   source?: CodexConversationSource | null;
   threadName?: string | null;
@@ -46,11 +44,6 @@ export interface UpsertCodexThreadInput {
   linkedAt?: string;
 }
 
-export interface LinkCodexThreadToCardInput extends UpsertCodexThreadInput {
-  projectId: string;
-  cardId: string;
-}
-
 function isStatusType(value: string): value is CodexThreadStatusType {
   return CodexThreadStatusTypeSchema.safeParse(value).success;
 }
@@ -63,7 +56,6 @@ function rowToSummary(row: DbCodexThread): CodexThreadSummary {
   return {
     threadId: row.thread_id,
     projectId: row.project_id,
-    cardId: row.card_id,
     source: row.parent_thread_id
       ? { parentThreadId: row.parent_thread_id }
       : null,
@@ -91,7 +83,6 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
   database.prepare(`
     INSERT INTO codex_threads (
       project_id,
-      card_id,
       thread_id,
       thread_name,
       parent_thread_id,
@@ -105,10 +96,9 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
       updated_at,
       linked_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(thread_id) DO UPDATE SET
       project_id = COALESCE(excluded.project_id, codex_threads.project_id),
-      card_id = COALESCE(excluded.card_id, codex_threads.card_id),
       thread_name = COALESCE(excluded.thread_name, codex_threads.thread_name),
       parent_thread_id = COALESCE(excluded.parent_thread_id, codex_threads.parent_thread_id),
       thread_preview = excluded.thread_preview,
@@ -121,7 +111,6 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
       linked_at = COALESCE(codex_threads.linked_at, excluded.linked_at)
   `).run(
     projectId,
-    input.cardId ?? null,
     input.threadId,
     input.threadName ?? null,
     input.source?.parentThreadId ?? null,
@@ -143,21 +132,6 @@ export function upsertCodexThread(input: UpsertCodexThreadInput): CodexThreadSum
   return record;
 }
 
-export function linkCodexThreadToCard(input: LinkCodexThreadToCardInput): CodexThreadSummary {
-  const projectId = requireProjectId(input.projectId);
-  const summary = upsertCodexThread({ ...input, projectId });
-  const linkedAt = input.linkedAt || summary.linkedAt || new Date().toISOString();
-  getDb().prepare(`
-    INSERT INTO codex_thread_card_links (thread_id, project_id, card_id, linked_at)
-    VALUES (?, ?, ?, ?)
-    ON CONFLICT(thread_id) DO UPDATE SET
-      project_id = excluded.project_id,
-      card_id = excluded.card_id,
-      linked_at = excluded.linked_at
-  `).run(input.threadId, projectId, input.cardId, linkedAt);
-  return getCodexThread(input.threadId) ?? summary;
-}
-
 export function getCodexThread(threadId: string): CodexThreadSummary | null {
   const row = getDb().prepare(
     "SELECT * FROM codex_threads WHERE thread_id = ?"
@@ -167,38 +141,10 @@ export function getCodexThread(threadId: string): CodexThreadSummary | null {
 
 export function listCodexProjectThreads(
   projectId: string,
-  opts?: { cardId?: string; includeArchived?: boolean },
+  opts?: { includeArchived?: boolean },
 ): CodexThreadSummary[] {
   projectId = requireProjectId(projectId);
   const includeArchived = opts?.includeArchived === true;
-  const byCard = opts?.cardId;
-
-  if (byCard) {
-    const rows = getDb().prepare(`
-      SELECT
-        t.thread_id,
-        t.project_id,
-        COALESCE(t.card_id, l.card_id) AS card_id,
-        t.parent_thread_id,
-        t.thread_name,
-        t.thread_preview,
-        t.model_provider,
-        t.cwd,
-        t.status_type,
-        t.status_active_flags_json,
-        t.archived,
-        t.created_at,
-        t.updated_at,
-        t.linked_at
-      FROM codex_thread_card_links l
-      JOIN codex_threads t ON t.thread_id = l.thread_id
-      WHERE l.project_id = ?
-        AND l.card_id = ?
-        AND (? = 1 OR t.archived = 0)
-      ORDER BY t.updated_at DESC
-    `).all(projectId, byCard, includeArchived ? 1 : 0) as DbCodexThread[];
-    return rows.map(rowToSummary);
-  }
 
   const rows = getDb().prepare(`
     SELECT * FROM codex_threads
@@ -260,6 +206,3 @@ export function unlinkCodexThread(threadId: string): boolean {
 
   return result.changes > 0;
 }
-
-export const getCodexCardThreadLink = getCodexThread;
-export const upsertCodexCardThreadLink = linkCodexThreadToCard;

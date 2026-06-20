@@ -45,7 +45,6 @@ import type {
   CodexServiceTier,
   CodexSharedObject,
   CodexThreadSettings,
-  CodexThreadStartForCardInput,
   CodexThreadStartForSessionInput,
   CodexThreadSummary,
   CodexTurnStartOptions,
@@ -120,7 +119,6 @@ const DEFAULT_PERMISSION_STATE: CodexPermissionState = {
 const EMPTY_CONVERSATION_SUMMARY_FIELDS = {
   threadId: null,
   projectId: null,
-  cardId: null,
   threadName: null,
   threadPreview: "",
   modelProvider: null,
@@ -180,7 +178,7 @@ type UserInputRequestListener = (payload: {
 
 interface CodexThreadStartProgressState {
   projectId: string | null;
-  cardId: string | null;
+  sessionId: string | null;
   phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
   message: string;
   outputText: string;
@@ -367,7 +365,6 @@ function areThreadSummariesStructurallyEqual(
   return (
     left.threadId === right.threadId
     && left.projectId === right.projectId
-    && left.cardId === right.cardId
     && left.source?.parentThreadId === right.source?.parentThreadId
     && left.source?.sideConversation === right.source?.sideConversation
     && left.source?.sideConversationParentNavigationPath === right.source?.sideConversationParentNavigationPath
@@ -435,8 +432,8 @@ function cleanupListenerSet<T>(
   }
 }
 
-function getThreadStartProgressTargetKey(projectId: string | null, cardId: string | null): string {
-  return `${projectId ?? "projectless"}:${cardId ?? "cardless"}`;
+function getThreadStartProgressTargetKey(projectId: string | null, sessionId: string | null): string {
+  return `${projectId ?? "projectless"}:${sessionId ?? "sessionless"}`;
 }
 
 function applyTerminalOutputDelta(input: {
@@ -510,7 +507,6 @@ interface ConversationAnyProjection {
 interface ConversationMetaProjection {
   id: string;
   projectId: string | null;
-  cardId: string | null;
   archived: boolean;
   createdAtMs: number;
   updatedAtMs: number;
@@ -524,7 +520,6 @@ interface ConversationMetaProjection {
 interface ConversationSummaryFields {
   threadId: string | null;
   projectId: string | null;
-  cardId: string | null;
   threadName: string | null;
   threadPreview: string;
   modelProvider: string | null;
@@ -557,7 +552,6 @@ function buildConversationMetaProjection(conversation: CodexConversationSnapshot
   return {
     id: conversation.threadId,
     projectId: conversation.projectId,
-    cardId: conversation.cardId,
     archived: conversation.archived,
     createdAtMs: conversation.createdAt,
     updatedAtMs: conversation.updatedAt,
@@ -596,7 +590,6 @@ function areConversationMetaProjectionsEqual(
   return (
     left.id === right.id
     && left.projectId === right.projectId
-    && left.cardId === right.cardId
     && left.archived === right.archived
     && left.createdAtMs === right.createdAtMs
     && left.updatedAtMs === right.updatedAtMs
@@ -615,7 +608,6 @@ function areConversationSummaryFieldsEqual(
   return (
     left.threadId === right.threadId
     && left.projectId === right.projectId
-    && left.cardId === right.cardId
     && left.threadName === right.threadName
     && left.threadPreview === right.threadPreview
     && left.modelProvider === right.modelProvider
@@ -885,8 +877,8 @@ export class CodexAppServerManager {
     return resolveProjectPermissionState(this.permissionStateByProject, projectId);
   }
 
-  readThreadStartProgress(projectId: string, cardId: string): CodexThreadStartProgressState | null {
-    return this.threadStartProgressByTarget.get(getThreadStartProgressTargetKey(projectId, cardId)) ?? null;
+  readThreadStartProgress(projectId: string, sessionId: string): CodexThreadStartProgressState | null {
+    return this.threadStartProgressByTarget.get(getThreadStartProgressTargetKey(projectId, sessionId)) ?? null;
   }
 
   readLastHostError(): CodexHostErrorState | null {
@@ -1009,7 +1001,7 @@ export class CodexAppServerManager {
 
   async loadThreads(
     projectId: string,
-    opts?: { cardId?: string; includeArchived?: boolean },
+    opts?: { includeArchived?: boolean },
   ): Promise<CodexThreadSummary[]> {
     if (!opts && this.threadSummaryLoadsInFlightByProject.has(projectId)) {
       return this.threadSummaryLoadsInFlightByProject.get(projectId)!;
@@ -1031,7 +1023,7 @@ export class CodexAppServerManager {
 
   private async loadThreadsFromHost(
     projectId: string,
-    opts?: { cardId?: string; includeArchived?: boolean },
+    opts?: { includeArchived?: boolean },
   ): Promise<CodexThreadSummary[]> {
     const threads = (await invoke("codex:threads:list", projectId, opts)) as CodexThreadSummary[];
     this.hydrateThreadSummaries(projectId, threads);
@@ -1069,29 +1061,6 @@ export class CodexAppServerManager {
       this.streamRoles.set(threadId, "owner");
     }
     return conversation;
-  }
-
-  async startThreadForCard(input: CodexThreadStartForCardInput & {
-    collaborationMode?: CodexCollaborationModeKind;
-    model?: string;
-    reasoningEffort?: CodexThreadSettings["reasoningEffort"];
-  }): Promise<CodexThreadDetail> {
-    await this.loadPermissionState(input.projectId);
-    const detail = (await invoke("codex:thread:start-for-card", {
-      ...input,
-      permissionMode: this.readPermissionMode(input.projectId),
-    })) as CodexThreadDetail;
-
-    if (!detail.threadName?.trim()) {
-      void this.generateAndPersistThreadTitle({
-        threadId: detail.threadId,
-        projectId: input.projectId,
-        prompt: input.prompt,
-        cwd: detail.cwd,
-      });
-    }
-
-    return detail;
   }
 
   async startThreadForSession(input: CodexThreadStartForSessionInput & {
@@ -1771,7 +1740,7 @@ export class CodexAppServerManager {
   }
 
   private applyThreadStartProgress(event: Extract<CodexSharedObject, { objectType: "threadStartProgress" }>["value"]): void {
-    const targetKey = getThreadStartProgressTargetKey(event.projectId, event.cardId);
+    const targetKey = getThreadStartProgressTargetKey(event.projectId, event.sessionId);
     const previous = this.threadStartProgressByTarget.get(targetKey);
     const previousText = event.clearOutput ? "" : previous?.outputText ?? "";
     const previousCarriageReturnPending = event.clearOutput
@@ -1790,7 +1759,7 @@ export class CodexAppServerManager {
 
     const nextState: CodexThreadStartProgressState = {
       projectId: event.projectId,
-      cardId: event.cardId,
+      sessionId: event.sessionId,
       phase: event.phase,
       message: event.message,
       outputText: mergedOutput.outputText,
@@ -2616,7 +2585,7 @@ function areThreadStartProgressStatesEqual(
 
   return (
     left.projectId === right.projectId
-    && left.cardId === right.cardId
+    && left.sessionId === right.sessionId
     && left.phase === right.phase
     && left.message === right.message
     && left.outputText === right.outputText
@@ -2694,7 +2663,6 @@ export function useConversationSummaryFields(
       return {
         threadId: conversation.threadId,
         projectId: conversation.projectId,
-        cardId: conversation.cardId,
         threadName: conversation.threadName,
         threadPreview: conversation.threadPreview,
         modelProvider: conversation.modelProvider,
@@ -2968,22 +2936,22 @@ export function useCodexLastHostError(): CodexHostErrorState | null {
 
 export function useCodexThreadStartProgress(
   projectId: string | null,
-  cardId: string | null,
+  sessionId: string | null,
 ): Omit<CodexThreadStartProgressState, "outputCarriageReturnPending"> | null {
   return useManagerControlSelection(
     (manager) => {
-      if (!projectId || !cardId) {
+      if (!projectId || !sessionId) {
         return null;
       }
 
-      const progress = manager.readThreadStartProgress(projectId, cardId);
+      const progress = manager.readThreadStartProgress(projectId, sessionId);
       if (!progress) {
         return null;
       }
 
       return {
         projectId: progress.projectId,
-        cardId: progress.cardId,
+        sessionId: progress.sessionId,
         phase: progress.phase,
         message: progress.message,
         outputText: progress.outputText,
@@ -3015,7 +2983,7 @@ export function useCodexAppServerControl(activeProjectId: string) {
   );
 
   const loadThreads = useCallback(
-    async (projectId: string, opts?: { cardId?: string; includeArchived?: boolean }) => manager.loadThreads(projectId, opts),
+    async (projectId: string, opts?: { includeArchived?: boolean }) => manager.loadThreads(projectId, opts),
     [manager],
   );
   const loadModels = useCallback(async () => manager.loadAvailableModels(), [manager]);
@@ -3024,27 +2992,6 @@ export function useCodexAppServerControl(activeProjectId: string) {
     async (threadId: string) => manager.requestThreadStreamSnapshot(threadId),
     [manager],
   );
-
-  const startThreadForCard = useCallback(async (
-    input: CodexThreadStartForCardInput & {
-      collaborationMode?: CodexCollaborationModeKind;
-      worktreeStartMode?: "autoBranch" | "detachedHead";
-      worktreeBranchPrefix?: string;
-    },
-  ) => {
-    const resolvedSettings = resolveCodexThreadSettings(storedThreadSettings, availableModels);
-    const effectiveServiceTier = resolveCodexRequestServiceTier(input, serviceTierSettings.serviceTier);
-    await manager.loadPermissionState(input.projectId);
-    const detail = await manager.startThreadForCard({
-      ...input,
-      permissionMode: manager.readPermissionMode(input.projectId),
-      model: input.model ?? resolvedSettings.model,
-      reasoningEffort: resolvedSettings.reasoningEffort,
-      ...buildCodexServiceTierRequestOverride(effectiveServiceTier),
-    });
-    await manager.loadThreads(input.projectId);
-    return detail;
-  }, [availableModels, manager, serviceTierSettings.serviceTier, storedThreadSettings]);
 
   const startThreadForSession = useCallback(async (
     input: CodexThreadStartForSessionInput & {
@@ -3266,7 +3213,6 @@ export function useCodexAppServerControl(activeProjectId: string) {
     loadModels,
     listCollaborationModes,
     requestThreadStreamSnapshot,
-    startThreadForCard,
     startThreadForSession,
     startSideChat,
     discardSideChat,

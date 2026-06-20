@@ -1370,12 +1370,6 @@ export async function moveCardToProject(
         .prepare(`UPDATE ${tableName} SET project_id = ? WHERE project_id = ? AND card_id = ?`)
         .run(input.targetProjectId, input.sourceProjectId, input.cardId);
     });
-    database
-      .prepare("UPDATE codex_thread_card_links SET project_id = ? WHERE project_id = ? AND card_id = ?")
-      .run(input.targetProjectId, input.sourceProjectId, input.cardId);
-    database
-      .prepare("UPDATE codex_threads SET project_id = ? WHERE project_id = ? AND card_id = ?")
-      .run(input.targetProjectId, input.sourceProjectId, input.cardId);
 
     return {
       cardId: input.cardId,

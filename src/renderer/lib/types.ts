@@ -92,7 +92,6 @@ export type {
   CodexServiceTier,
   CodexThreadDetailLevel,
   CodexThreadSettings,
-  CodexThreadStartForCardInput,
   CodexThreadStartForSessionInput,
   CodexSideChatStartInput,
   CodexSideChatStartResult,

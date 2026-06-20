@@ -56,7 +56,7 @@ All notable changes to this project will be documented in this file.
 - Collapsed sidebar titlebar chrome now uses a measured left header rail, compact `New chat` button, and thread title alignment after the macOS traffic-light safe area.
 - Moved authenticated Codex quota visibility from the floating thread summary panel into a double-ring indicator in the sidebar footer, with the existing account details available on hover.
 - Project session thread pages without an attached thread now show the session new-chat composer and start a session-owned Codex thread from the first prompt instead of showing an attach-thread empty state.
-- Codex thread metadata now supports card-owned, session-owned, project-only, and projectless threads without fake card ids.
+- Codex threads are now session-owned locally; legacy card-linked threads are migrated into project sessions instead of retaining card ownership.
 - Thread collapsed tool activity groups now has synthesized summaries and flat expanded row hierarchy instead of showing generic completed-action labels or nested exploration subgroups.
 - Command execution output now streams through the active thread renderer with smoother batched updates, canonical 20k truncation, reversed output scrolling, and explicit `Stopped` / `Success` / `Exit code` footer states.
 - NFM side-menu `Move to` now opens one grouped DB/Card destination popover with shared prefix/fuzzy search instead of separate `Move to DB` and `Move to card` submenu actions.

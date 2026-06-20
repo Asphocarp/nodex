@@ -254,7 +254,6 @@ export function LocalConversationThreadBodyOwner({
         ? {
             threadId,
             projectId: null,
-            cardId: null,
             source: null,
             threadName: null,
             threadPreview: "",

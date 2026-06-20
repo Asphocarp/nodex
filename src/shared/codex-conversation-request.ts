@@ -294,7 +294,6 @@ function buildPlanImplementationRequest(
     type: "implementPlan",
     requestId: request?.requestId ?? buildPlanImplementationRequestId(selected.turnId),
     projectId: request?.projectId ?? conversation.projectId,
-    cardId: request?.cardId ?? conversation.cardId,
     threadId: conversation.threadId,
     turnId: selected.turnId,
     itemId: selected.item.itemId,

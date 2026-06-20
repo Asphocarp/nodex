@@ -27,7 +27,7 @@ Detailed Auto-review preset, config, and approval-lifecycle rules are specified 
 - Preview tabs: Files and Browser can open as renderer-local previews in either right or bottom panel. Kanban DB-view card clicks open `card_stage` as a right-panel renderer-local preview. Each panel leaf has at most one italic preview; opening another preview in that leaf replaces it. Preview tabs are not written to SQLite until the user interacts with the preview body, chooses `Pin tab`, or double-clicks the preview tab label, at which point the normal `project_session_tabs` create flow persists the tab and activates it. Card Stage previews keep a durable-compatible client tab id and retained wrapper identity so pinning promotes the same React tab body instead of remounting the editor. Card Stage close/delete controls are preview-safe and close/delete without first pinning the preview.
 - Side chat tabs: Side chat is a renderer-local action/tab family, not a durable `project_session_tabs` kind. Side chat actions create renderer-local loading tabs (`sidechat-loading:<parentThreadId>:<index>`) in the requested panel, then replace them with closable ready tabs (`sidechat:<threadId>`) after the main process starts an ephemeral fork. Side chat titles are `Side chat`, then `Side chat 2`, `Side chat 3`, and so on for the session. They can move between the right and bottom panels in renderer memory, but they are never persisted, pinned, archived, listed as normal project threads, or restored after app restart. Older saved durable Side chat launcher rows are pruned during schema migration because they no longer represent the live feature.
 - Ready side-chat tabs render the local conversation body and composer without the normal thread-stage title header; the side-chat tab itself is the only top title row.
-- Session-thread links are optional and separate from card-owned Codex thread links. Attaching a thread to a session does not create or rewrite a `codex_thread_card_links` card relation.
+- Session-thread links are the durable local ownership path for Codex threads. Cards may open as session tabs or mention threads, but they do not own Codex threads.
 
 ## Storage Ownership
 - SQLite owns shared project session data:
@@ -36,7 +36,7 @@ Detailed Auto-review preset, config, and approval-lifecycle rules are specified 
   - `project_session_threads`: optional session-to-thread attachments; canonical thread metadata lives in `codex_threads`.
 - Window-local shell state owns active project, active session, settings route visibility, and transient focus history. App-window Back/Forward history is owned by `WorkbenchShell`, because that component owns active project/session selection plus right/bottom panel layout application.
 - Renderer-local side chat state owns temporary tab identity, loading/ready/expired status, and panel placement. The backing app-server thread stays in the main-process conversation cache only while live and is discarded when the tab closes.
-- Existing projects are migrated by creating missing Overview sessions. Existing cards, project data, history, and legacy `codex_card_threads` rows are migrated into `codex_threads` plus `codex_thread_card_links`.
+- Existing projects are migrated by creating missing Overview sessions. Existing cards, project data, history, and legacy card thread rows are migrated into `codex_threads` plus `project_session_threads`.
 - Old stage-rail/window layout snapshots are best-effort inputs for active project/session defaults only; they are not authoritative shared session data.
 
 ## Navigation

@@ -117,7 +117,6 @@ interface DbProjectSessionThread {
   thread_id: string;
   session_project_id: string;
   project_id: string | null;
-  card_id: string | null;
   parent_thread_id: string | null;
   thread_name: string | null;
   thread_preview: string;
@@ -302,7 +301,6 @@ function buildSession(row: DbProjectSession): ProjectSession {
         ps.project_id AS session_project_id,
         t.thread_id,
         t.project_id,
-        t.card_id,
         t.parent_thread_id,
         t.thread_name,
         t.thread_preview,
@@ -437,7 +435,6 @@ export function getProjectSessionThreadLink(threadId: string): ProjectSessionThr
         ps.project_id AS session_project_id,
         t.thread_id,
         t.project_id,
-        t.card_id,
         t.parent_thread_id,
         t.thread_name,
         t.thread_preview,
@@ -1237,7 +1234,6 @@ export function upsertProjectSessionThreadLink(input: ProjectSessionThreadLinkIn
   const existing = getCodexThread(parsed.threadId);
   upsertCodexThread({
     projectId,
-    cardId: existing?.cardId ?? null,
     threadId: parsed.threadId,
     source: parsed.parentThreadId
       ? { parentThreadId: parsed.parentThreadId }

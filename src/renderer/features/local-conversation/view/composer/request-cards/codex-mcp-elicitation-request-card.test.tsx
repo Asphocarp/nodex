@@ -8,7 +8,6 @@ const mcpRequest: CodexMcpServerElicitationRequest = {
   type: "mcpServerElicitation",
   requestId: "mcp_1",
   projectId: "project_1",
-  cardId: "card_1",
   threadId: "thread_1",
   turnId: "turn_1",
   itemId: "item_1",

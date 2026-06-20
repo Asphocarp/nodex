@@ -107,7 +107,6 @@ function buildThreadSummary(threadId: string, projectId: string): CodexThreadSum
   return {
     threadId,
     projectId,
-    cardId: `card-${threadId}`,
     source: null,
     threadName: threadId,
     threadPreview: threadId,
@@ -612,7 +611,7 @@ describe("local-conversation-store", () => {
 
     function Probe() {
       const permissionMode = useCodexPermissionMode("project-1");
-      const progress = useCodexThreadStartProgress("project-1", "card-1");
+      const progress = useCodexThreadStartProgress("project-1", "session-1");
       return createElement(
         "div",
         null,
@@ -630,10 +629,10 @@ describe("local-conversation-store", () => {
         hostId: "default",
         object: {
           objectType: "threadStartProgress",
-          objectId: "project-1:card-1",
+          objectId: "project-1:session-1",
           value: {
             projectId: "project-1",
-            cardId: "card-1",
+            sessionId: "session-1",
             phase: "runningSetup",
             message: "Running setup",
             outputDelta: "hello",
@@ -931,7 +930,6 @@ describe("local-conversation-store", () => {
           requestId: "approval-bootstrap",
           kind: "command",
           projectId: "project-1",
-          cardId: "card-thread-1",
           threadId: "thread-1",
           turnId: "turn-1",
           itemId: "item-approval-bootstrap",
@@ -941,7 +939,6 @@ describe("local-conversation-store", () => {
           type: "userInput",
           requestId: "question-bootstrap",
           projectId: "project-1",
-          cardId: "card-thread-1",
           threadId: "thread-1",
           turnId: "turn-1",
           itemId: "item-question-bootstrap",
@@ -1033,7 +1030,6 @@ describe("local-conversation-store", () => {
           requestId: "approval-live",
           kind: "file",
           projectId: "project-1",
-          cardId: "card-thread-1",
           threadId: "thread-1",
           turnId: "turn-2",
           itemId: "item-approval-live",
@@ -1044,7 +1040,6 @@ describe("local-conversation-store", () => {
           type: "userInput",
           requestId: "question-live",
           projectId: "project-1",
-          cardId: "card-thread-1",
           threadId: "thread-1",
           turnId: "turn-2",
           itemId: "item-question-live",

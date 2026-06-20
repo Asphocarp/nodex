@@ -9,7 +9,6 @@ import { ReadonlyNfmBlockNotePreview } from "./readonly-nfm-blocknote-preview";
 const BASE_THREAD: CodexThreadSummary = {
   threadId: "019b5b4d-7f31-7b20-8c0d-c52c55ea2e42",
   projectId: "project-1",
-  cardId: "card-1",
   source: null,
   threadName: "Investigate NFM parser behavior",
   threadPreview: "Trace the inline parser and serializer paths.",

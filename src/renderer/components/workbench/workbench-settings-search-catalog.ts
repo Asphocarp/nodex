@@ -323,10 +323,6 @@ const SETTINGS_SEARCH_PANELS = {
             "Remove matched shorthand from imported card titles after parsing.",
           ),
           entry(
-            "Confirm thread section send",
-            "Show a preview dialog before sending a notebook section, with an option to stop asking later.",
-          ),
-          entry(
             "Cmd+Enter to send long prompts",
             "Single-line prompts still send on Enter. Multiline prompts switch to the modifier chord when this is enabled.",
             ["Ctrl+Enter to send long prompts", "modifier chord"],

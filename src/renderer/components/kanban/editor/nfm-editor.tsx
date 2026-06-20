@@ -27,6 +27,11 @@ import { NfmLinkToolbar } from "./nfm-link-toolbar";
 import { NfmLinkToolbarController } from "./nfm-link-toolbar-controller";
 import { ChipPropertyEditor } from "./chip-property-editor";
 import { toast } from "@/components/ui/toast";
+import {
+  NodexPopover,
+  NodexPopoverAnchor,
+  NodexPopoverContent,
+} from "@/components/ui/popover";
 import { useEditorDragBehaviors } from "./use-editor-drag-behaviors";
 import { createNfmSerializedChangeEmitter } from "./nfm-serialized-change-emitter";
 import { shouldReplaceNfmExternalContent } from "./nfm-external-content-sync";
@@ -69,6 +74,7 @@ import type { NfmMoveToDestination } from "./nfm-move-to-menu-model";
 import { buildCodexPromptInputFromBlockNoteBlocks } from "./nfm-codex-prompt-input";
 import { createSendToThreadToggleBlock } from "./nfm-send-to-thread-block";
 import type { NfmSendToThreadRequest } from "./nfm-send-to-thread-menu-model";
+import { NfmSendToThreadMenuSurface } from "./nfm-send-to-thread-menu";
 import { NfmSideMenuRuntimeProvider } from "./nfm-side-menu-runtime";
 import { resolveSendBlockSelection } from "./send-block-selection";
 import { PasteResourceDialog } from "./paste-resource-dialog";
@@ -84,7 +90,6 @@ import {
   type PasteAttachmentInlineContent,
   type PasteResourceDialogState,
 } from "./paste-resource";
-import { ThreadSectionSendDialog, type ThreadSectionSendDialogState } from "./thread-section-send-dialog";
 import {
   getSideMenuSelectionGuardFloatingOptions,
   useSideMenuSelectionGuard,
@@ -123,7 +128,6 @@ import {
 import {
   isProjectedCardToggleBlock,
   isProjectionMutationActive,
-  resolveProjectedCardOwnerContext,
   splitEmbedChildren,
   stripProjectedSubtrees,
 } from "./projection-card-toggle";
@@ -172,7 +176,6 @@ import {
   uploadResourceAsset,
 } from "@/lib/assets";
 import { useSpellcheck } from "@/lib/use-spellcheck";
-import { useThreadSectionSendSettings } from "@/lib/use-thread-section-send-settings";
 import { useTheme } from "@/lib/use-theme";
 import { usePasteResourceSettings } from "@/lib/use-paste-resource-settings";
 import { cn } from "@/lib/utils";
@@ -202,12 +205,12 @@ interface NfmEditorProps {
   };
   linkedCodexThreads?: CardStageLinkedThread[];
   onOpenCodexThread?: (threadId: string) => Promise<void>;
-  onStartThreadSection?: (input: {
+  onStartNewSessionThreadFromEditor?: (input: {
     projectId: string;
-    cardId: string;
     prompt: string;
     promptInput?: CodexPromptInput;
-  }) => Promise<{ threadId: string }>;
+    threadName?: string;
+  }) => Promise<{ threadId: string; sessionId?: string }>;
   onSendThreadSectionPrompt?: (input: {
     projectId: string;
     threadId: string;
@@ -275,22 +278,23 @@ interface SendBlocksSelection {
   blocks: DragSessionBlock[];
 }
 
-interface PreparedThreadSectionSendDialogState extends ThreadSectionSendDialogState {
+interface PreparedThreadSectionSendRequest {
+  sectionTitle: string;
+  plainTextPreview: string;
+  threadLabel: string;
+  sendActionLabel: string;
+  autoCreateSection: boolean;
   prompt: string;
   promptInput: CodexPromptInput;
   markerBlockId: string | null;
   threadId: string;
   canReuseThread: boolean;
   createMarkerBeforeBlockId: string | null;
-  ownerCardContext: {
-    projectId: string;
-    cardId: string;
-  } | null;
 }
 
-interface ThreadSectionOwnerCardContext {
-  projectId: string;
-  cardId: string;
+interface ThreadSectionPickerState {
+  request: PreparedThreadSectionSendRequest;
+  anchorRect: DOMRect;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -469,7 +473,7 @@ export function NfmEditor({
   sourceCardContext,
   linkedCodexThreads = [],
   onOpenCodexThread,
-  onStartThreadSection,
+  onStartNewSessionThreadFromEditor,
   onSendThreadSectionPrompt,
   isActivePanelTab = true,
   placeholder = "Add a description...",
@@ -478,7 +482,6 @@ export function NfmEditor({
   const { resolved: themeMode } = useTheme();
   const { spellcheck } = useSpellcheck();
   const { settings: pasteResourceSettings } = usePasteResourceSettings();
-  const { settings: threadSectionSendSettings, updateSettings: updateThreadSectionSendSettings } = useThreadSectionSendSettings();
   const codexControl = useCodexAppServerControl(projectId);
   const projectThreadSummaries = useProjectThreadSummaries(projectId);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -489,7 +492,7 @@ export function NfmEditor({
   const [searchActiveIndex, setSearchActiveIndex] = useState(-1);
   const [activeChipEdit, setActiveChipEdit] = useState<ActiveChipEdit | null>(null);
   const [pasteResourceDialog, setPasteResourceDialog] = useState<PasteResourceDialogState | null>(null);
-  const [threadSectionSendDialog, setThreadSectionSendDialog] = useState<PreparedThreadSectionSendDialogState | null>(null);
+  const [threadSectionPicker, setThreadSectionPicker] = useState<ThreadSectionPickerState | null>(null);
   const [pasteResourcePending, setPasteResourcePending] = useState(false);
   const [pasteResourceError, setPasteResourceError] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<{ source: string; alt: string } | null>(null);
@@ -500,15 +503,8 @@ export function NfmEditor({
     />
   ), [projectWorkspacePath]);
   const [threadSectionPendingBlockIds, setThreadSectionPendingBlockIds] = useState<Set<string>>(() => new Set());
-  const [threadSectionThreadsByOwnerKey, setThreadSectionThreadsByOwnerKey] = useState<
-    Record<string, Record<string, ThreadSectionLinkedThreadState>>
-  >({});
   const [threadMentionThreadsById, setThreadMentionThreadsById] = useState<Record<string, CodexThreadSummary>>({});
   const [threadMentionResolvingIds, setThreadMentionResolvingIds] = useState<Set<string>>(() => new Set());
-  const threadSectionLoadingOwnerKeysRef = useRef<Set<string>>(new Set());
-  const threadSectionLoadingOwnerPromisesRef = useRef<
-    Map<string, Promise<Record<string, ThreadSectionLinkedThreadState>>>
-  >(new Map());
   const threadMentionResolvePromisesRef = useRef<Map<string, Promise<CodexThreadSummary | null>>>(new Map());
   const searchInputRef = useRef<HTMLInputElement>(null);
   const suppressExternalDropRef = useRef(false);
@@ -528,18 +524,12 @@ export function NfmEditor({
 
   const threadSectionThreadMap = useMemo(
     () => buildThreadSectionThreadMap(
-      linkedCodexThreads.map(toThreadSectionLinkedThreadState),
+      [
+        ...linkedCodexThreads.map(toThreadSectionLinkedThreadState),
+        ...projectThreadSummaries.map(toThreadSectionLinkedThreadStateFromSummary),
+      ],
     ),
-    [linkedCodexThreads],
-  );
-
-  const hostThreadSummaryMap = useMemo(
-    () => buildThreadSectionThreadMap(
-      projectThreadSummaries
-        .filter((thread) => thread.cardId === sourceCardContext?.cardId)
-        .map(toThreadSectionLinkedThreadStateFromSummary),
-    ),
-    [projectThreadSummaries, sourceCardContext?.cardId],
+    [linkedCodexThreads, projectThreadSummaries],
   );
 
   const projectThreadSummaryMap = useMemo(
@@ -620,107 +610,6 @@ export function NfmEditor({
     },
     [projectId],
   );
-
-  const resolveThreadSectionOwnerCardContext = useCallback((
-    blockId: string,
-  ): ThreadSectionOwnerCardContext | null => {
-    if (!editor) {
-      return sourceCardContext
-        ? { projectId, cardId: sourceCardContext.cardId }
-        : null;
-    }
-
-    const projectedOwner = resolveProjectedCardOwnerContext(editor, blockId);
-    if (projectedOwner) {
-      return projectedOwner;
-    }
-
-    if (!sourceCardContext) return null;
-    return {
-      projectId,
-      cardId: sourceCardContext.cardId,
-    };
-  }, [editor, projectId, sourceCardContext]);
-
-  const resolveThreadMapForOwner = useCallback((
-    ownerCardContext: ThreadSectionOwnerCardContext | null,
-  ): Record<string, ThreadSectionLinkedThreadState> => {
-    if (!ownerCardContext) return {};
-    if (
-      sourceCardContext
-      && ownerCardContext.projectId === projectId
-      && ownerCardContext.cardId === sourceCardContext.cardId
-    ) {
-      return Object.keys(threadSectionThreadMap).length > 0
-        ? threadSectionThreadMap
-        : hostThreadSummaryMap;
-    }
-
-    const ownerKey = `${ownerCardContext.projectId}:${ownerCardContext.cardId}`;
-    return threadSectionThreadsByOwnerKey[ownerKey] ?? {};
-  }, [
-    hostThreadSummaryMap,
-    projectId,
-    sourceCardContext,
-    threadSectionThreadMap,
-    threadSectionThreadsByOwnerKey,
-  ]);
-
-  const loadThreadSectionOwnerThreads = useCallback(async (
-    ownerCardContext: ThreadSectionOwnerCardContext | null,
-  ): Promise<Record<string, ThreadSectionLinkedThreadState>> => {
-    if (!ownerCardContext) return {};
-    if (
-      sourceCardContext
-      && ownerCardContext.projectId === projectId
-      && ownerCardContext.cardId === sourceCardContext.cardId
-    ) {
-      return Object.keys(threadSectionThreadMap).length > 0
-        ? threadSectionThreadMap
-        : hostThreadSummaryMap;
-    }
-
-    const ownerKey = `${ownerCardContext.projectId}:${ownerCardContext.cardId}`;
-    const cached = threadSectionThreadsByOwnerKey[ownerKey];
-    if (cached) return cached;
-
-    const existingPromise = threadSectionLoadingOwnerPromisesRef.current.get(ownerKey);
-    if (existingPromise) {
-      return existingPromise;
-    }
-
-    threadSectionLoadingOwnerKeysRef.current.add(ownerKey);
-    const loadingPromise = invoke("codex:threads:list", ownerCardContext.projectId, {
-      cardId: ownerCardContext.cardId,
-      includeArchived: true,
-    })
-      .then((threads) => {
-        const nextMap = buildThreadSectionThreadMap(
-          (threads as CodexThreadSummary[]).map(toThreadSectionLinkedThreadStateFromSummary),
-        );
-        setThreadSectionThreadsByOwnerKey((current) => ({
-          ...current,
-          [ownerKey]: nextMap,
-        }));
-        return nextMap;
-      })
-      .finally(() => {
-        threadSectionLoadingOwnerKeysRef.current.delete(ownerKey);
-        threadSectionLoadingOwnerPromisesRef.current.delete(ownerKey);
-      });
-    threadSectionLoadingOwnerPromisesRef.current.set(ownerKey, loadingPromise);
-    return loadingPromise;
-  }, [
-    hostThreadSummaryMap,
-    projectId,
-    sourceCardContext,
-    threadSectionThreadMap,
-    threadSectionThreadsByOwnerKey,
-  ]);
-
-  const ensureThreadSectionOwnerThreadsLoaded = useCallback((ownerCardContext: ThreadSectionOwnerCardContext | null) => {
-    void loadThreadSectionOwnerThreads(ownerCardContext);
-  }, [loadThreadSectionOwnerThreads]);
 
   const resolveThreadMention = useCallback(async (threadId: string): Promise<CodexThreadSummary | null> => {
     const normalizedThreadId = threadId.trim();
@@ -946,15 +835,6 @@ export function NfmEditor({
     const strippedDocument = stripProjectedSubtrees(editor.document) as ThreadSectionBlockLike[];
     const sendPlan = resolveThreadSectionSendPlan(strippedDocument, blockId);
     if (!sendPlan) return null;
-    const ownerCardContext = resolveThreadSectionOwnerCardContext(blockId);
-    let ownerThreads = resolveThreadMapForOwner(ownerCardContext);
-    if (
-      ownerCardContext
-      && sendPlan.section.threadId.length > 0
-      && !ownerThreads[sendPlan.section.threadId]
-    ) {
-      ownerThreads = await loadThreadSectionOwnerThreads(ownerCardContext);
-    }
 
     const promptBlocks = deriveThreadSectionPromptBlocks(sendPlan.section);
     const promptInput = buildThreadSectionPromptInput(promptBlocks, (nfmBlocks) => {
@@ -963,7 +843,7 @@ export function NfmEditor({
     });
     const plainTextPreview = promptInput.text;
     const existingThread = sendPlan.section.threadId.length > 0
-      ? ownerThreads[sendPlan.section.threadId]
+      ? threadSectionThreadMap[sendPlan.section.threadId]
       : undefined;
     const canReuseThread = Boolean(existingThread && !existingThread.archived);
     const sectionTitle = sendPlan.section.label || sendPlan.section.fallbackTitle;
@@ -992,17 +872,14 @@ export function NfmEditor({
       threadId: sendPlan.section.threadId,
       canReuseThread,
       createMarkerBeforeBlockId: sendPlan.createMarkerBeforeBlockId,
-      ownerCardContext,
     };
   }, [
     editor,
-    loadThreadSectionOwnerThreads,
-    resolveThreadMapForOwner,
-    resolveThreadSectionOwnerCardContext,
+    threadSectionThreadMap,
   ]);
 
-  const closeThreadSectionSendDialog = useCallback(() => {
-    setThreadSectionSendDialog(null);
+  const closeThreadSectionPicker = useCallback(() => {
+    setThreadSectionPicker(null);
   }, []);
 
   const withPendingThreadSection = useCallback(async (
@@ -1032,9 +909,20 @@ export function NfmEditor({
   }, [onOpenCodexThread]);
 
   const performThreadSectionSend = useCallback(async (
-    request: PreparedThreadSectionSendDialogState,
+    request: PreparedThreadSectionSendRequest,
+    sendRequest: NfmSendToThreadRequest,
   ) => {
-    if (!editor || !sourceCardContext || !onStartThreadSection || !onSendThreadSectionPrompt) {
+    if (!editor) {
+      return false;
+    }
+    if (sendRequest.target.kind === "thread" && !onSendThreadSectionPrompt) {
+      toast.danger("Thread sending is not available.", { id: "nfm-thread-section" });
+      restoreEditorFocus();
+      return false;
+    }
+    if (sendRequest.target.kind === "new-thread" && !onStartNewSessionThreadFromEditor) {
+      toast.danger("New chat creation is not available.", { id: "nfm-thread-section" });
+      restoreEditorFocus();
       return false;
     }
 
@@ -1056,30 +944,35 @@ export function NfmEditor({
       return false;
     }
 
+    const sendExistingThreadPrompt = onSendThreadSectionPrompt;
+    const startNewSessionThread = onStartNewSessionThreadFromEditor;
+
     try {
       await withPendingThreadSection(markerBlockId, async () => {
-        if (request.canReuseThread && request.threadId.length > 0) {
-          await onSendThreadSectionPrompt({
-            projectId: request.ownerCardContext?.projectId ?? projectId,
-            threadId: request.threadId,
+        const threadId = sendRequest.target.kind === "thread"
+          ? sendRequest.target.threadId
+          : (await startNewSessionThread!({
+              projectId,
+              prompt: request.prompt,
+              promptInput: request.promptInput,
+              threadName: request.sectionTitle,
+            })).threadId;
+
+        if (sendRequest.target.kind === "thread") {
+          await sendExistingThreadPrompt!({
+            projectId,
+            threadId,
             prompt: request.prompt,
             promptInput: request.promptInput,
           });
-          return;
         }
 
-        const started = await onStartThreadSection({
-          projectId: request.ownerCardContext?.projectId ?? projectId,
-          cardId: request.ownerCardContext?.cardId ?? sourceCardContext.cardId,
-          prompt: request.prompt,
-          promptInput: request.promptInput,
-        });
         const markerBlock = editor.getBlock(markerBlockId);
         if (!markerBlock) return;
         editor.updateBlock(markerBlock, {
           props: {
             ...(markerBlock.props ?? {}),
-            threadId: started.threadId,
+            threadId,
           },
         });
       });
@@ -1094,40 +987,31 @@ export function NfmEditor({
     }
   }, [
     editor,
+    onStartNewSessionThreadFromEditor,
     onSendThreadSectionPrompt,
-    onStartThreadSection,
     projectId,
     restoreEditorFocus,
-    sourceCardContext,
     withPendingThreadSection,
   ]);
 
-  const handleConfirmThreadSectionSend = useCallback(async (
-    input: { doNotAskAgain: boolean },
-  ) => {
-    if (!threadSectionSendDialog) return;
+  const handleAcceptThreadSectionPicker = useCallback(async (sendRequest: NfmSendToThreadRequest) => {
+    if (!threadSectionPicker) return;
+    const request = threadSectionPicker.request;
+    closeThreadSectionPicker();
+    await performThreadSectionSend(request, sendRequest);
+  }, [closeThreadSectionPicker, performThreadSectionSend, threadSectionPicker]);
 
-    const request = threadSectionSendDialog;
-    closeThreadSectionSendDialog();
+  const handleSendThreadSectionByBlockId = useCallback((blockId: string, anchor?: HTMLElement) => {
+    if (!editor || !onSendThreadSectionPrompt) return false;
 
-    if (input.doNotAskAgain) {
-      updateThreadSectionSendSettings({ confirmBeforeSend: false });
-    }
-
-    void performThreadSectionSend(request);
-  }, [
-    closeThreadSectionSendDialog,
-    performThreadSectionSend,
-    threadSectionSendDialog,
-    updateThreadSectionSendSettings,
-  ]);
-
-  const handleSendThreadSectionByBlockId = useCallback((blockId: string) => {
-    if (!editor || !sourceCardContext || !onStartThreadSection || !onSendThreadSectionPrompt) return false;
+    const cssEscape = globalThis.CSS?.escape ?? ((value: string) => value.replace(/["\\]/g, "\\$&"));
+    const anchorElement =
+      anchor
+      ?? editor.prosemirrorView?.dom.querySelector<HTMLElement>(`.bn-block[data-id="${cssEscape(blockId)}"]`)
+      ?? editor.prosemirrorView?.dom;
+    if (!anchorElement) return false;
 
     void (async () => {
-      ensureThreadSectionOwnerThreadsLoaded(resolveThreadSectionOwnerCardContext(blockId));
-
       const sendRequest = await prepareThreadSectionSend(blockId);
       if (!sendRequest) {
         toast.danger("Could not resolve content to send.", {
@@ -1143,26 +1027,17 @@ export function NfmEditor({
         return;
       }
 
-      if (threadSectionSendSettings.confirmBeforeSend) {
-        setThreadSectionSendDialog(sendRequest);
-        return;
-      }
-
-      await performThreadSectionSend(sendRequest);
+      setThreadSectionPicker({
+        request: sendRequest,
+        anchorRect: anchorElement.getBoundingClientRect(),
+      });
     })();
 
     return true;
   }, [
     editor,
     onSendThreadSectionPrompt,
-    onStartThreadSection,
-    performThreadSectionSend,
-    projectId,
     prepareThreadSectionSend,
-    sourceCardContext,
-    threadSectionSendSettings.confirmBeforeSend,
-    ensureThreadSectionOwnerThreadsLoaded,
-    resolveThreadSectionOwnerCardContext,
   ]);
 
   const threadSectionRuntimeValue = useMemo<ThreadSectionRuntimeValue>(() => ({
@@ -1170,22 +1045,12 @@ export function NfmEditor({
     pendingBlockIds: threadSectionPendingBlockIds,
     openThread: handleOpenThreadSectionThread,
     send: handleSendThreadSectionByBlockId,
-    resolveScope: (blockId) => {
-      const ownerCardContext = resolveThreadSectionOwnerCardContext(blockId);
-      return {
-        ownerCardContext,
-        threads: resolveThreadMapForOwner(ownerCardContext),
-      };
-    },
-    ensureScopeLoaded: (blockId) => {
-      ensureThreadSectionOwnerThreadsLoaded(resolveThreadSectionOwnerCardContext(blockId));
-    },
+    resolveScope: () => ({
+      threads: threadSectionThreadMap,
+    }),
   }), [
-    ensureThreadSectionOwnerThreadsLoaded,
     handleOpenThreadSectionThread,
     handleSendThreadSectionByBlockId,
-    resolveThreadMapForOwner,
-    resolveThreadSectionOwnerCardContext,
     threadSectionPendingBlockIds,
     threadSectionThreadMap,
   ]);
@@ -2092,12 +1957,16 @@ export function NfmEditor({
 
       const threadId = request.target.kind === "thread"
         ? request.target.threadId
-        : (await codexControl.startThreadForCard({
-            projectId,
-            cardId: sourceCardContext.cardId,
-            prompt: promptInput.text,
-            promptInput,
-          })).threadId;
+        : (await (async () => {
+            if (!onStartNewSessionThreadFromEditor) {
+              throw new Error("New chat creation is not available.");
+            }
+            return onStartNewSessionThreadFromEditor({
+              projectId,
+              prompt: promptInput.text,
+              promptInput,
+            });
+          })()).threadId;
 
       if (request.target.kind === "thread") {
         await codexControl.startTurn(threadId, promptInput.text, {
@@ -2140,6 +2009,7 @@ export function NfmEditor({
       codexControl,
       editor,
       flushSerializedEmit,
+      onStartNewSessionThreadFromEditor,
       projectId,
       resolveSendBlocksSelection,
       restoreEditorFocus,
@@ -2677,6 +2547,44 @@ export function NfmEditor({
           </div>
         </div>
       )}
+      {threadSectionPicker ? (
+        <NodexPopover
+          open
+          onOpenChange={(open) => {
+            if (!open) closeThreadSectionPicker();
+          }}
+        >
+          <NodexPopoverAnchor asChild>
+            <span
+              aria-hidden="true"
+              className="pointer-events-none fixed"
+              style={{
+                left: threadSectionPicker.anchorRect.left,
+                top: threadSectionPicker.anchorRect.top,
+                width: threadSectionPicker.anchorRect.width,
+                height: threadSectionPicker.anchorRect.height,
+              }}
+            />
+          </NodexPopoverAnchor>
+          <NodexPopoverContent
+            side="right"
+            align="center"
+            sideOffset={6}
+            aria-label="Send thread section to chat"
+            onCloseAutoFocus={(event) => event.preventDefault()}
+            className="w-[330px] max-w-[calc(100vw-24px)] overflow-hidden p-0 text-[14px] leading-[1.2] shadow-xl-spread backdrop-blur-xl"
+            style={{ width: 330 }}
+          >
+            <NfmSendToThreadMenuSurface
+              projectId={projectId}
+              threads={projectThreadSummaries}
+              onAccept={handleAcceptThreadSectionPicker}
+              onClose={closeThreadSectionPicker}
+              showModeSelector={false}
+            />
+          </NodexPopoverContent>
+        </NodexPopover>
+      ) : null}
       <ThreadSectionRuntimeProvider value={threadSectionRuntimeValue}>
         <ThreadMentionRuntimeProvider value={threadMentionRuntimeValue}>
           <NfmEditorContextMenu editor={editor}>
@@ -2730,21 +2638,6 @@ export function NfmEditor({
             handleChipSelect(propertyType, cardId, value, activeChipEdit.blockId);
           }}
           onClose={handleChipEditorClose}
-        />
-      )}
-      {threadSectionSendDialog && (
-        <ThreadSectionSendDialog
-          open={threadSectionSendDialog !== null}
-          state={threadSectionSendDialog}
-          onOpenChange={(nextOpen) => {
-            if (!nextOpen) {
-              closeThreadSectionSendDialog();
-              restoreEditorFocus();
-            }
-          }}
-          onConfirm={(input) => {
-            void handleConfirmThreadSectionSend(input);
-          }}
         />
       )}
       {pasteResourceDialog && (

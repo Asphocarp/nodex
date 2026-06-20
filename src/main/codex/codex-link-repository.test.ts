@@ -2,15 +2,14 @@ import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { closeDatabase, createCard, createProject, initializeDatabase, updateProject } from "../kanban/db-service";
+import { closeDatabase, createProject, initializeDatabase, updateProject } from "../kanban/db-service";
 import {
-  getCodexCardThreadLink,
+  getCodexThread,
   listCodexProjectThreads,
   updateCodexThreadArchived,
   updateCodexThreadName,
   updateCodexThreadStatus,
   upsertCodexThread,
-  upsertCodexCardThreadLink,
 } from "./codex-link-repository";
 
 function isUnsupportedSqliteError(error: unknown): boolean {
@@ -51,11 +50,8 @@ async function withTempDatabase(run: () => Promise<void>): Promise<boolean> {
 describe("codex-link-repository", () => {
   test("upserts and queries thread links", async () => {
     const ran = await withTempDatabase(async () => {
-      const card = await createCard(projectId, "in_progress", { title: "Implement Codex integration" });
-
-      const first = upsertCodexCardThreadLink({
+      const first = upsertCodexThread({
         projectId: projectId,
-        cardId: card.id,
         threadId: "thr_test_1",
         source: { parentThreadId: "thr_parent" },
         threadName: "Thread One",
@@ -70,9 +66,8 @@ describe("codex-link-repository", () => {
       expect(first.archived).toBe(false);
       expect(first.source?.parentThreadId).toBe("thr_parent");
 
-      const second = upsertCodexCardThreadLink({
+      const second = upsertCodexThread({
         projectId: projectId,
-        cardId: card.id,
         threadId: "thr_test_1",
         threadName: "Thread One Updated",
         threadPreview: "Updated preview",
@@ -91,10 +86,7 @@ describe("codex-link-repository", () => {
       expect(byProject.length).toBe(1);
       expect(byProject[0]?.threadId).toBe("thr_test_1");
 
-      const byCard = listCodexProjectThreads(projectId, { cardId: card.id });
-      expect(byCard.length).toBe(1);
-      expect(byCard[0]?.cardId).toBe(card.id);
-      expect(byCard[0]?.source?.parentThreadId).toBe("thr_parent");
+      expect(byProject[0]?.source?.parentThreadId).toBe("thr_parent");
     });
 
     if (!ran) expect(true).toBeTrue();
@@ -102,11 +94,8 @@ describe("codex-link-repository", () => {
 
   test("archives, renames, and status updates links", async () => {
     const ran = await withTempDatabase(async () => {
-      const card = await createCard(projectId, "in_progress", { title: "Review links" });
-
-      upsertCodexCardThreadLink({
+      upsertCodexThread({
         projectId: projectId,
-        cardId: card.id,
         threadId: "thr_test_2",
       });
 
@@ -142,24 +131,21 @@ describe("codex-link-repository", () => {
       });
       const projectless = upsertCodexThread({
         projectId: null,
-        cardId: null,
         threadId: "thr_projectless",
         threadName: "Projectless thread",
         statusType: "idle",
       });
 
       expect(projectOnly.projectId).toBe(projectId);
-      expect(projectOnly.cardId ?? null).toBe(null);
       expect(projectless.projectId ?? null).toBe(null);
-      expect(projectless.cardId ?? null).toBe(null);
 
       const byProject = listCodexProjectThreads(projectId);
       expect(byProject.length).toBe(1);
       expect(byProject[0]?.threadId).toBe("thr_project_only");
 
       const allThreads = JSON.stringify([
-        getCodexCardThreadLink("thr_project_only")?.threadId,
-        getCodexCardThreadLink("thr_projectless")?.threadId,
+        getCodexThread("thr_project_only")?.threadId,
+        getCodexThread("thr_projectless")?.threadId,
       ]);
       expect(allThreads).toBe(JSON.stringify(["thr_project_only", "thr_projectless"]));
     });
@@ -169,11 +155,8 @@ describe("codex-link-repository", () => {
 
   test("project update keeps linked thread rows", async () => {
     const ran = await withTempDatabase(async () => {
-      const card = await createCard(projectId, "in_progress", { title: "Rename project" });
-
-      upsertCodexCardThreadLink({
+      upsertCodexThread({
         projectId: projectId,
-        cardId: card.id,
         threadId: "thr_test_rename",
       });
 
@@ -184,7 +167,7 @@ describe("codex-link-repository", () => {
       expect(updated?.id).toBe(projectId);
       expect(updated?.primaryWorkspaceRoot).toBe("/tmp/codex-renamed");
 
-      const link = getCodexCardThreadLink("thr_test_rename");
+      const link = getCodexThread("thr_test_rename");
       expect(link?.projectId).toBe(projectId);
     });
 

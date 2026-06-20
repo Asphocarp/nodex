@@ -10,7 +10,6 @@ function makeThread(input: Partial<CodexThreadSummary> & { threadId: string }): 
   return {
     threadId: input.threadId,
     projectId: input.projectId ?? "project-1",
-    cardId: input.cardId ?? "card-1",
     source: null,
     threadName: input.threadName ?? null,
     threadPreview: input.threadPreview ?? "",

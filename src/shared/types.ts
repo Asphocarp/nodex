@@ -871,8 +871,8 @@ export interface ManagedWorktreeRecord {
   threadId: string;
   projectId: string;
   projectName: string | null;
-  cardId: string;
-  cardTitle: string | null;
+  sessionId: string | null;
+  sessionTitle: string | null;
   threadName: string | null;
   path: string;
   exists: boolean;
@@ -1160,7 +1160,6 @@ export interface CodexDictationStateSnapshot {
 export interface CodexThreadSummary {
   threadId: string;
   projectId: string | null;
-  cardId: string | null;
   source: CodexConversationSource | null;
   ephemeral?: boolean;
   threadName: string | null;
@@ -1232,21 +1231,6 @@ export interface CodexThreadSettings {
   model?: string;
   reasoningEffort?: CodexReasoningEffort;
   detailLevel?: CodexThreadDetailLevel;
-}
-
-export interface CodexThreadStartForCardInput {
-  projectId: string;
-  cardId: string;
-  prompt: string;
-  promptInput?: CodexPromptInput;
-  threadName?: string;
-  model?: string;
-  serviceTier?: CodexServiceTier;
-  permissionMode?: CodexPermissionMode;
-  reasoningEffort?: CodexReasoningEffort;
-  collaborationMode?: CodexCollaborationModeKind;
-  worktreeStartMode?: WorktreeStartMode;
-  worktreeBranchPrefix?: string;
 }
 
 export interface CodexThreadStartForSessionInput {
@@ -1772,7 +1756,6 @@ export interface CodexApprovalRequest {
   requestId: string;
   kind: CodexApprovalKind;
   projectId: string | null;
-  cardId: string | null;
   threadId: string;
   turnId: string;
   itemId: string;
@@ -1811,7 +1794,6 @@ export interface CodexUserInputRequest {
   type: "userInput";
   requestId: string;
   projectId: string | null;
-  cardId: string | null;
   threadId: string;
   turnId: string;
   itemId: string;
@@ -1823,7 +1805,6 @@ export interface CodexPlanImplementationServerRequest {
   type: "implementPlan";
   requestId: string;
   projectId: string | null;
-  cardId: string | null;
   threadId: string;
   turnId: string;
   itemId: string;
@@ -1843,7 +1824,6 @@ export interface CodexMcpServerElicitationRequest {
   type: "mcpServerElicitation";
   requestId: string;
   projectId: string | null;
-  cardId: string | null;
   threadId: string;
   turnId: string;
   itemId: string;
@@ -2111,7 +2091,7 @@ export type CodexEvent =
   | {
       type: "threadStartProgress";
       projectId: string | null;
-      cardId: string | null;
+      sessionId: string | null;
       phase: CodexThreadStartProgressPhase;
       message: string;
       stream?: CodexThreadStartProgressStream;
@@ -2152,7 +2132,7 @@ export type CodexSharedObject =
       objectId: string;
       value: {
         projectId: string | null;
-        cardId: string | null;
+        sessionId: string | null;
         phase: CodexThreadStartProgressPhase;
         message: string;
         stream?: CodexThreadStartProgressStream;

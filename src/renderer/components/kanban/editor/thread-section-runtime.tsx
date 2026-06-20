@@ -14,13 +14,7 @@ export interface ThreadSectionLinkedThreadState {
   updatedAt: number;
 }
 
-export interface ThreadSectionOwnerCardContext {
-  projectId: string;
-  cardId: string;
-}
-
 export interface ThreadSectionResolvedScope {
-  ownerCardContext: ThreadSectionOwnerCardContext | null;
   threads: Record<string, ThreadSectionLinkedThreadState>;
 }
 
@@ -28,7 +22,7 @@ export interface ThreadSectionRuntimeValue {
   threads: Record<string, ThreadSectionLinkedThreadState>;
   pendingBlockIds: Set<string>;
   openThread?: (threadId: string) => void;
-  send?: (blockId: string) => void;
+  send?: (blockId: string, anchor: HTMLElement) => void;
   resolveScope?: (blockId: string) => ThreadSectionResolvedScope;
   ensureScopeLoaded?: (blockId: string) => void;
 }

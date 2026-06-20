@@ -70,10 +70,7 @@ export interface ThreadStageRouteInput {
   newThreadTarget: {
     projectId: string;
     projectName: string;
-    cardId?: string;
-    cardTitle?: string;
-    columnId?: string;
-    sessionId?: string;
+    sessionId: string;
     threadTitle?: string;
     runInTarget?: CardRunInTarget;
     runInEnvironmentPath?: string | null;
@@ -82,7 +79,6 @@ export interface ThreadStageRouteInput {
   } | null;
   newThreadProjectSelector?: NewChatProjectSelectorModel | null;
   newThreadStartInSelector?: NewChatStartInSelectorModel | null;
-  activeThreadCardColumnId: string | null;
   threadStartProgress: {
     phase: "creatingWorktree" | "runningSetup" | "startingThread" | "ready" | "failed";
     message: string;
@@ -128,7 +124,6 @@ export interface ThreadStageActions {
   onStartApiKeyLogin: (apiKey: string) => Promise<{ type: "apiKey" } | { type: "chatgpt"; loginId: string; authUrl: string }>;
   onCancelLogin: (loginId: string) => Promise<void>;
   onLogout: () => Promise<void>;
-  onStartThreadForCard: (input: { projectId: string; cardId: string; prompt: string; promptInput?: CodexPromptInput }) => Promise<void>;
   onStartThreadForSession?: (input: {
     projectId: string;
     sessionId: string;
@@ -184,7 +179,6 @@ export interface ThreadStageActions {
   onConsumeComposerIntent: (threadId: string, focusNonce: number) => void;
   onOpenThread: (threadId: string) => void;
   onCleanBackgroundTerminals: (threadId: string) => Promise<void>;
-  onOpenCard: (cardId: string) => void;
 }
 
 export interface ThreadMcpWidgetCspModel {
@@ -236,12 +230,6 @@ export interface ThreadAssistantActionsBlockModel {
   type: "assistantActions";
   entry: CodexConversationItem;
   actions: ThreadAssistantMessageActionsModel;
-}
-
-export interface ThreadOpenCardTarget {
-  cardId: string;
-  title: string;
-  columnId: string | null;
 }
 
 export interface ThreadThinkingPlaceholderBlockModel {
@@ -568,10 +556,7 @@ export interface ThreadComposerShellModel {
 export interface ThreadStageHeaderModel {
   projectId: string;
   threadId: string | null;
-  cardId: string | null;
   title: string;
-  openCardTarget: ThreadOpenCardTarget | null;
-  activeThreadCardColumnId: string | null;
   connection: CodexConnectionState;
   account: CodexAccountSnapshot | null;
   showSideChatAction?: boolean;

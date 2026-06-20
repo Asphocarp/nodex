@@ -16,7 +16,7 @@ export interface NfmSendToThreadRequest {
 export interface NfmSendToThreadNewRow {
   kind: "new-thread";
   id: "new-thread";
-  label: "New thread";
+  label: "New chat";
   meta: string;
   target: NfmSendToThreadTarget;
 }
@@ -105,8 +105,8 @@ export function buildNfmSendToThreadRows({
     {
       kind: "new-thread",
       id: "new-thread",
-      label: "New thread",
-      meta: "Current card",
+      label: "New chat",
+      meta: "This project",
       target: { kind: "new-thread" },
     },
     ...threadRows,

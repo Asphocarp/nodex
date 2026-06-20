@@ -119,7 +119,6 @@ function buildConversation(): CodexConversationSnapshot {
   return {
     threadId: "thr_review",
     projectId: "codex",
-    cardId: "card-1",
     source: null,
     threadName: "Review",
     threadPreview: "Patch preview",

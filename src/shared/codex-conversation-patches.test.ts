@@ -11,7 +11,6 @@ function buildConversation(
   return {
     threadId: "thread-1",
     projectId: "project-1",
-    cardId: "card-1",
     source: overrides?.source ?? null,
     threadName: "Thread",
     threadPreview: "Preview",
@@ -67,7 +66,7 @@ describe("codex-conversation-patches", () => {
     const previous = buildConversation();
     const replacement = buildConversation({
       threadId: "thread-2",
-      cardId: "card-2",
+      projectId: "project-2",
     });
 
     const replayed = applyCodexConversationStateUpdates(previous, [{
@@ -77,7 +76,7 @@ describe("codex-conversation-patches", () => {
     }]);
 
     expect(replayed.threadId).toBe("thread-2");
-    expect(replayed.cardId).toBe("card-2");
+    expect(replayed.projectId).toBe("project-2");
   });
 
   test("applies array append patches that use the dash path segment", () => {

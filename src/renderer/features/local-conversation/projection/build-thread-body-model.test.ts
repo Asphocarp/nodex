@@ -22,7 +22,6 @@ function buildConversation(
   return {
     threadId: "thread_1",
     projectId: "project_1",
-    cardId: "card_1",
     source: overrides?.source ?? null,
     threadName: "Thread",
     threadPreview: "Preview",

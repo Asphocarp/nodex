@@ -42,7 +42,6 @@ function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActio
     onStartApiKeyLogin: async () => ({ type: "apiKey" }),
     onCancelLogin: noopAsync,
     onLogout: noopAsync,
-    onStartThreadForCard: noopAsync,
     onSendPrompt: noopAsync,
     onSteerPrompt: noopAsync,
     onInterruptTurn: noopAsync,
@@ -62,7 +61,6 @@ function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActio
     onConsumeComposerIntent: () => undefined,
     onOpenThread: () => undefined,
     onCleanBackgroundTerminals: noopAsync,
-    onOpenCard: () => undefined,
     onNewThreadStartInTargetChange: () => undefined,
     ...overrides,
   };

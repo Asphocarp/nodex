@@ -37,10 +37,7 @@ function buildModel(overrides?: Partial<ThreadStageHeaderModel>): ThreadStageHea
   return {
     projectId: "project_1",
     threadId: "thread_1",
-    cardId: "card_1",
     title: "Thread title",
-    openCardTarget: null,
-    activeThreadCardColumnId: null,
     connection: { status: "connected", retries: 0 },
     account: null,
     ...overrides,
@@ -64,7 +61,6 @@ function buildActions(): ThreadStageActions {
     onStartApiKeyLogin: async () => ({ type: "apiKey" }),
     onCancelLogin: async () => { },
     onLogout: async () => { },
-    onStartThreadForCard: async () => { },
     onSendPrompt: async () => { },
     onSteerPrompt: async () => { },
     onInterruptTurn: async () => { },
@@ -84,7 +80,6 @@ function buildActions(): ThreadStageActions {
     onConsumeComposerIntent: () => { },
     onOpenThread: () => { },
     onCleanBackgroundTerminals: async () => { },
-    onOpenCard: () => { },
   };
 }
 

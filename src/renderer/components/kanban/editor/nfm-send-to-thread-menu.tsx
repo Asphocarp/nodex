@@ -32,6 +32,7 @@ interface NfmSendToThreadMenuProps {
   projectId: string | null;
   onAccept: (request: NfmSendToThreadRequest) => Promise<void> | void;
   onClose: () => void;
+  showModeSelector?: boolean;
 }
 
 export interface NfmSendToThreadMenuSurfaceProps extends NfmSendToThreadMenuProps {
@@ -183,6 +184,7 @@ export function NfmSendToThreadMenu({
   projectId,
   onAccept,
   onClose,
+  showModeSelector = true,
 }: NfmSendToThreadMenuProps) {
   const threads = useProjectThreadSummaries(projectId ?? "");
 
@@ -192,6 +194,7 @@ export function NfmSendToThreadMenu({
       threads={threads}
       onAccept={onAccept}
       onClose={onClose}
+      showModeSelector={showModeSelector}
     />
   );
 }
@@ -202,6 +205,7 @@ export function NfmSendToThreadMenuSurface({
   initialQuery = "",
   onAccept,
   onClose,
+  showModeSelector = true,
 }: NfmSendToThreadMenuSurfaceProps) {
   const listboxId = useId();
   const comboboxId = useId();
@@ -247,14 +251,14 @@ export function NfmSendToThreadMenuSurface({
     try {
       await onAccept({
         target: row.target,
-        mode,
+        mode: showModeSelector ? mode : "send",
       });
       setAcceptingRowId(null);
     } catch {
       setAcceptError(SEND_TO_THREAD_ERROR);
       setAcceptingRowId(null);
     }
-  }, [mode, onAccept]);
+  }, [mode, onAccept, showModeSelector]);
 
   const activateRow = useCallback((row: NfmSendToThreadRow | undefined) => {
     if (!row || disabled) return;
@@ -322,11 +326,13 @@ export function NfmSendToThreadMenuSurface({
           onKeyDown={handleInputKeyDown}
         />
       </div>
-      <SendToThreadModeSelector
-        mode={mode}
-        disabled={disabled}
-        onModeChange={handleModeChange}
-      />
+      {showModeSelector ? (
+        <SendToThreadModeSelector
+          mode={mode}
+          disabled={disabled}
+          onModeChange={handleModeChange}
+        />
+      ) : null}
       <div className="notion-scroller vertical h-[340px] min-h-0 overflow-y-auto pb-3">
         <div id={listboxId} role="listbox" aria-labelledby={comboboxId}>
           <div className="pb-1">
@@ -357,7 +363,7 @@ export function NfmSendToThreadMenuSurface({
           {projectId && visibleThreadCount === 0 ? (
             <SendToThreadStatusRow>
               <Check className="mr-2 size-3.5 text-token-description-foreground" />
-              New thread is available
+              New chat is available
             </SendToThreadStatusRow>
           ) : null}
           {acceptError ? (

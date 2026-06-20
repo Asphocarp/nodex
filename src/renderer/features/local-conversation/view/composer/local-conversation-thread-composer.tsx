@@ -269,7 +269,7 @@ function canStartNewThreadTarget(model: ThreadFooterModel): boolean {
     model.isNewThreadTab &&
     model.newThreadTarget !== null &&
     !model.isCloudNewThreadTarget &&
-    (model.newThreadTarget.cardId || model.newThreadTarget.sessionId),
+    Boolean(model.newThreadTarget.sessionId),
   );
 }
 
@@ -842,15 +842,8 @@ export function ThreadComposer({ model, actions, errorMessage, onErrorMessage }:
             worktreeStartMode: target.worktreeStartMode,
             worktreeBranchPrefix: target.worktreeBranchPrefix,
           });
-        } else if (target.cardId) {
-          await actions.onStartThreadForCard({
-            projectId: target.projectId,
-            cardId: target.cardId,
-            prompt: nextPrompt,
-            promptInput,
-          });
         } else {
-          onErrorMessage("Select a card or session before starting a new thread.");
+          onErrorMessage("Select a session before starting a new thread.");
           return;
         }
       } else if (model.isThreadRunning) {
