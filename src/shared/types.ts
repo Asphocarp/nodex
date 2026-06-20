@@ -364,6 +364,82 @@ export interface ProjectSessionTerminalTabConfig {
   terminalSessionId: string;
 }
 
+export type TerminalBackendKind = "local" | "remote";
+
+export interface TerminalSize {
+  cols: number;
+  rows: number;
+}
+
+export interface TerminalCreateRequest {
+  sessionId: string;
+  conversationId?: string | null;
+  projectSessionId?: string | null;
+  projectId?: string | null;
+  cwd?: string | null;
+  size: TerminalSize;
+  backendKind?: TerminalBackendKind;
+  title?: string | null;
+}
+
+export interface TerminalAttachRequest {
+  sessionId: string;
+  conversationId?: string | null;
+  projectSessionId?: string | null;
+  cwd?: string | null;
+  size: TerminalSize;
+}
+
+export interface TerminalRunActionRequest {
+  sessionId: string;
+  conversationId?: string | null;
+  projectSessionId?: string | null;
+  cwd?: string | null;
+  command: string;
+  title?: string | null;
+  size?: TerminalSize | null;
+}
+
+export interface TerminalSessionSnapshot {
+  sessionId: string;
+  conversationId: string | null;
+  projectSessionId: string | null;
+  cwd: string | null;
+  shell: string | null;
+  title: string | null;
+  backendKind: TerminalBackendKind;
+  buffer: string;
+  truncated: boolean;
+  exited: boolean;
+  exitCode: number | null;
+}
+
+export interface TerminalDataEvent {
+  sessionId: string;
+  data: string;
+}
+
+export interface TerminalInitLogEvent {
+  sessionId: string;
+  data: string;
+  snapshot: TerminalSessionSnapshot;
+}
+
+export interface TerminalAttachedEvent {
+  sessionId: string;
+  snapshot: TerminalSessionSnapshot;
+}
+
+export interface TerminalErrorEvent {
+  sessionId: string;
+  message: string;
+}
+
+export interface TerminalExitEvent {
+  sessionId: string;
+  exitCode: number | null;
+}
+
 export interface ProjectSessionProjectScopedTabConfig {
   projectId: string;
 }

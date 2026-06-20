@@ -43,6 +43,7 @@ All notable changes to this project will be documented in this file.
 - Window restore and new-window layout seeding are now owned only by window sessions instead of named workspaces.
 - macOS window titles now use `Nodex` instead of a workspace name.
 - Terminal tabs are now session-owned panel tabs with session terminal ids that start from the attached thread cwd before falling back to the project primary source; cards can request a terminal but no longer own terminal tabs or PTY identity.
+- Card Stage local run-folder selection now uses the shared workspace directory picker instead of the legacy PTY picker channel.
 - Refined the project/session sidebar chrome, moved project folder selection into each project row actions menu, and added Search, Plugins, and Automations rows for a denser shell layout.
 - Refined project session panel groups so empty non-final groups close automatically, each group's new-tab button sits directly after its tabs, and right-panel expand/restore plus bottom-panel close controls sit at the far-right edge of the whole panel.
 - Refined the project session shell side-panel control placement, adjacent header-slot spacing, remembered full-width mode, and button styling: the global header now owns `Toggle side panel`, tab creation lives in each panel group header, right-panel expand/restore lives in the panel-global header rail, and the unused attach/detach thread toolbar button is removed.
@@ -66,6 +67,7 @@ All notable changes to this project will be documented in this file.
 - Removed the legacy Full rail stage layout mode, its General settings controls, and the adjacent-panel peek setting.
 - Removed profile-local named workspaces, the workspace switcher/footer dots, and workspace create/rename/delete controls.
 - Removed the old workspace terminal drawer state and right-pane mirror columns; Terminal tabs and panel state now live only in project sessions.
+- Removed the deprecated `pty:*` IPC compatibility shim; integrated terminals now use only the `terminal-*` protocol.
 - Removed the legacy full-board read API so renderer board views now use lightweight summaries plus on-demand card detail hydration.
 
 ### Fixed

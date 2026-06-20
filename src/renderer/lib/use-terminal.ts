@@ -1,103 +1,275 @@
-import { useEffect, useRef, useState, useCallback } from "react";
-import { FitAddon, Terminal, init as initGhosttyWeb } from "ghostty-web";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { ClipboardAddon } from "@xterm/addon-clipboard";
+import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import { Terminal, type IDisposable, type ITheme } from "@xterm/xterm";
+import {
+  isTerminalRuntimeAvailable,
+  terminalSessionStore,
+  type TerminalStoreEvent,
+} from "./terminal-session-store";
+import {
+  ensureTerminalTypographyLoaded,
+  resolveTerminalTypography,
+  sameTerminalTypography,
+  type TerminalTypography,
+} from "./terminal-typography";
+import type { TerminalSize } from "../../shared/types";
 
-const isElectron = typeof window !== "undefined" && !!window.api;
-let ghosttyInitPromise: Promise<void> | null = null;
+type XtermWithPrivateCore = Terminal & {
+  _core?: {
+    _mouseService?: {
+      getCoords?: (...args: unknown[]) => unknown;
+      getMouseReportCoords?: (...args: unknown[]) => unknown;
+    };
+    _selectionService?: {
+      _getMouseEventScrollAmount?: (...args: unknown[]) => unknown;
+      _screenElement?: HTMLElement;
+    };
+  };
+};
 
-function ensureGhosttyInitialized(): Promise<void> {
-  if (ghosttyInitPromise) {
-    return ghosttyInitPromise;
-  }
-
-  ghosttyInitPromise = initGhosttyWeb().catch((error: unknown) => {
-    ghosttyInitPromise = null;
-    throw error;
-  });
-  return ghosttyInitPromise;
+interface TerminalCssVars {
+  background: string;
+  foreground: string;
 }
 
-function getTerminalTheme() {
-  const isDark = document.documentElement.classList.contains("dark");
-  return isDark
-    ? {
-        background: "#181818",
-        foreground: "#f0efed",
-        cursor: "#f0efed",
-        cursorAccent: "#181818",
-        selectionBackground: "rgba(94, 159, 232, 0.35)",
-        black: "#181818",
-        red: "#ff6b6b",
-        green: "#46a171",
-        yellow: "#e5a942",
-        blue: "#5e9fe8",
-        magenta: "#b577d6",
-        cyan: "#56b6c2",
-        white: "#f0efed",
-        brightBlack: "#555555",
-        brightRed: "#ff8787",
-        brightGreen: "#5fd7a3",
-        brightYellow: "#ffd75f",
-        brightBlue: "#87afff",
-        brightMagenta: "#d7afff",
-        brightCyan: "#87d7ff",
-        brightWhite: "#ffffff",
-      }
-    : {
-        background: "#ffffff",
-        foreground: "#2c2c2b",
-        cursor: "#2c2c2b",
-        cursorAccent: "#ffffff",
-        selectionBackground: "rgba(35, 131, 226, 0.2)",
-        black: "#2c2c2b",
-        red: "#ce1800",
-        green: "#2d8e58",
-        yellow: "#b38600",
-        blue: "#2383e2",
-        magenta: "#9333ea",
-        cyan: "#0891b2",
-        white: "#f0efed",
-        brightBlack: "#7d7a75",
-        brightRed: "#ef4444",
-        brightGreen: "#46a171",
-        brightYellow: "#d4a017",
-        brightBlue: "#5e9fe8",
-        brightMagenta: "#b577d6",
-        brightCyan: "#56b6c2",
-        brightWhite: "#ffffff",
+function readCssVar(styles: CSSStyleDeclaration, name: string, fallback: string): string {
+  const value = styles.getPropertyValue(name).trim();
+  return value.length > 0 ? value : fallback;
+}
+
+function readTerminalTheme(element: HTMLElement): ITheme & TerminalCssVars {
+  const styles = getComputedStyle(element);
+  const background = readCssVar(styles, "--vscode-terminal-background", "transparent");
+  const foreground = readCssVar(styles, "--vscode-terminal-foreground", "#f0efed");
+
+  return {
+    background,
+    foreground,
+    cursor: readCssVar(styles, "--vscode-terminalCursor-foreground", foreground),
+    selectionBackground: readCssVar(
+      styles,
+      "--vscode-terminal-selectionBackground",
+      "rgba(94, 159, 232, 0.35)",
+    ),
+    selectionInactiveBackground: readCssVar(
+      styles,
+      "--vscode-terminal-inactiveSelectionBackground",
+      "rgba(94, 159, 232, 0.2)",
+    ),
+    black: readCssVar(styles, "--vscode-terminal-ansiBlack", "#181818"),
+    red: readCssVar(styles, "--vscode-terminal-ansiRed", "#ff6b6b"),
+    green: readCssVar(styles, "--vscode-terminal-ansiGreen", "#46a171"),
+    yellow: readCssVar(styles, "--vscode-terminal-ansiYellow", "#e5a942"),
+    blue: readCssVar(styles, "--vscode-terminal-ansiBlue", "#5e9fe8"),
+    magenta: readCssVar(styles, "--vscode-terminal-ansiMagenta", "#b577d6"),
+    cyan: readCssVar(styles, "--vscode-terminal-ansiCyan", "#56b6c2"),
+    white: readCssVar(styles, "--vscode-terminal-ansiWhite", "#f0efed"),
+    brightBlack: readCssVar(styles, "--vscode-terminal-ansiBrightBlack", "#555555"),
+    brightRed: readCssVar(styles, "--vscode-terminal-ansiBrightRed", "#ff8787"),
+    brightGreen: readCssVar(styles, "--vscode-terminal-ansiBrightGreen", "#5fd7a3"),
+    brightYellow: readCssVar(styles, "--vscode-terminal-ansiBrightYellow", "#ffd75f"),
+    brightBlue: readCssVar(styles, "--vscode-terminal-ansiBrightBlue", "#87afff"),
+    brightMagenta: readCssVar(styles, "--vscode-terminal-ansiBrightMagenta", "#d7afff"),
+    brightCyan: readCssVar(styles, "--vscode-terminal-ansiBrightCyan", "#87d7ff"),
+    brightWhite: readCssVar(styles, "--vscode-terminal-ansiBrightWhite", "#ffffff"),
+  };
+}
+
+function normalizeLineEndingsForXterm(input: string): string {
+  return input.replace(/\r?\n/gu, "\r\n");
+}
+
+function getWindowZoom(): number {
+  if (typeof window === "undefined") return 1;
+
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue("--codex-window-zoom")
+    .trim();
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
+function scaleMouseEventCoordinates(
+  event: unknown,
+  rect: DOMRect,
+  zoom: number,
+): unknown {
+  if (zoom === 1 || !(event instanceof MouseEvent)) return event;
+  return {
+    ...event,
+    clientX: rect.left + (event.clientX - rect.left) / zoom,
+    clientY: rect.top + (event.clientY - rect.top) / zoom,
+  };
+}
+
+function patchXtermWindowZoomMouseCoordinates(term: Terminal): () => void {
+  const core = (term as XtermWithPrivateCore)._core;
+  const mouseService = core?._mouseService;
+  if (!mouseService?.getCoords || !mouseService.getMouseReportCoords) return () => {};
+
+  const originalGetCoords = mouseService.getCoords;
+  const originalGetMouseReportCoords = mouseService.getMouseReportCoords;
+  const selectionService = core?._selectionService;
+  const originalGetMouseEventScrollAmount = selectionService?._getMouseEventScrollAmount;
+  const screenElement = selectionService?._screenElement;
+
+  const scaledEvent = (event: unknown, element: unknown): unknown => {
+    if (!(element instanceof HTMLElement)) return event;
+    return scaleMouseEventCoordinates(event, element.getBoundingClientRect(), getWindowZoom());
+  };
+
+  mouseService.getCoords = function patchedGetCoords(
+    this: unknown,
+    event: unknown,
+    element: unknown,
+    ...args: unknown[]
+  ) {
+    return originalGetCoords.call(this, scaledEvent(event, element), element, ...args);
+  };
+  mouseService.getMouseReportCoords = function patchedGetMouseReportCoords(
+    this: unknown,
+    event: unknown,
+    element: unknown,
+  ) {
+    return originalGetMouseReportCoords.call(this, scaledEvent(event, element), element);
+  };
+
+  if (selectionService && originalGetMouseEventScrollAmount && screenElement) {
+    selectionService._getMouseEventScrollAmount =
+      function patchedGetMouseEventScrollAmount(this: unknown, event: unknown) {
+        return originalGetMouseEventScrollAmount.call(
+          this,
+          scaledEvent(event, screenElement),
+        );
       };
-}
-
-// ── Module-level terminal cache ─────────────────────────────────────
-// Terminal instances survive component unmount/remount so that
-// scrollback content is preserved across card switches (DOM reparenting).
-
-interface CachedTerminal {
-  term: Terminal;
-  fit: FitAddon;
-  cwd: string | undefined;
-  exited: boolean;
-  exitCode: number | null;
-}
-
-const terminalCache = new Map<string, CachedTerminal>();
-
-function applyTerminalTheme(term: Terminal): void {
-  const theme = getTerminalTheme();
-  if (term.renderer) {
-    term.renderer.setTheme(theme);
-    return;
   }
-  term.options.theme = theme;
+
+  return () => {
+    mouseService.getCoords = originalGetCoords;
+    mouseService.getMouseReportCoords = originalGetMouseReportCoords;
+    if (selectionService && originalGetMouseEventScrollAmount) {
+      selectionService._getMouseEventScrollAmount = originalGetMouseEventScrollAmount;
+    }
+  };
+}
+
+async function writeClipboardText(text: string): Promise<void> {
+  if (!navigator.clipboard?.writeText) return;
+  await navigator.clipboard.writeText(text);
+}
+
+async function readClipboardText(): Promise<string | null> {
+  if (!navigator.clipboard?.readText) return null;
+  try {
+    return await navigator.clipboard.readText();
+  } catch {
+    return null;
+  }
+}
+
+function isMacPlatform(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /mac/i.test(navigator.platform);
+}
+
+function installCodexKeyHandler(
+  term: Terminal,
+  terminalId: string,
+  onNewTerminalTab: (() => void) | undefined,
+): void {
+  term.attachCustomKeyEventHandler((event) => {
+    if (event.type !== "keydown") return true;
+
+    const isMac = isMacPlatform();
+    const key = event.key.toLowerCase();
+    const primaryModifier = isMac ? event.metaKey : event.ctrlKey;
+
+    if (primaryModifier && key === "t" && !event.shiftKey && !event.altKey) {
+      onNewTerminalTab?.();
+      event.preventDefault();
+      return false;
+    }
+
+    const selectedText = term.getSelection();
+    if (selectedText && primaryModifier && key === "c" && !event.altKey) {
+      void writeClipboardText(selectedText);
+      event.preventDefault();
+      return false;
+    }
+
+    const shouldPaste =
+      (primaryModifier && key === "v" && (!isMac || event.shiftKey)) ||
+      (event.shiftKey && event.key === "Insert");
+    if (shouldPaste) {
+      void readClipboardText().then((text) => {
+        if (text) terminalSessionStore.write(terminalId, text);
+      });
+      event.preventDefault();
+      return false;
+    }
+
+    if (isMac && event.metaKey && !event.ctrlKey && !event.altKey) {
+      if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+        terminalSessionStore.write(terminalId, "\x01");
+        event.preventDefault();
+        return false;
+      }
+      if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+        terminalSessionStore.write(terminalId, "\x05");
+        event.preventDefault();
+        return false;
+      }
+      if (event.key === "Backspace") {
+        terminalSessionStore.write(terminalId, "\x15");
+        event.preventDefault();
+        return false;
+      }
+      if (event.key === "Delete") {
+        terminalSessionStore.write(terminalId, "\x0b");
+        event.preventDefault();
+        return false;
+      }
+    }
+
+    if (event.key === "Enter") {
+      window.dispatchEvent(new CustomEvent("nodex:terminal-enter", {
+        detail: { terminalId },
+      }));
+    }
+
+    return true;
+  });
+}
+
+function fitAndResize(
+  terminalId: string,
+  term: Terminal,
+  fit: FitAddon,
+): TerminalSize | null {
+  try {
+    fit.fit();
+    const size = { cols: term.cols, rows: term.rows };
+    terminalSessionStore.resize(terminalId, size);
+    return size;
+  } catch {
+    return null;
+  }
 }
 
 export interface UseTerminalOptions {
   terminalId: string;
   visible: boolean;
-  cwd?: string;
+  cwd?: string | null;
+  conversationId?: string | null;
+  projectSessionId?: string | null;
+  projectId?: string | null;
+  onNewTerminalTab?: () => void;
 }
 
 export interface UseTerminalReturn {
-  containerRef: React.RefObject<HTMLDivElement | null>;
+  containerRef: RefObject<HTMLDivElement | null>;
   isConnected: boolean;
   isExited: boolean;
   exitCode: number | null;
@@ -110,258 +282,251 @@ export function useTerminal({
   terminalId,
   visible,
   cwd,
+  conversationId,
+  projectSessionId,
+  projectId,
+  onNewTerminalTab,
 }: UseTerminalOptions): UseTerminalReturn {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  // Keep xterm mounted across WorkbenchShell rerenders; tab callbacks often change identity.
+  const onNewTerminalTabRef = useRef(onNewTerminalTab);
   const [isConnected, setIsConnected] = useState(false);
   const [isExited, setIsExited] = useState(false);
   const [exitCode, setExitCode] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  onNewTerminalTabRef.current = onNewTerminalTab;
 
-  // Track latest terminal id/cwd for reconnect.
-  const terminalIdRef = useRef(terminalId);
-  const cwdRef = useRef(cwd);
-  terminalIdRef.current = terminalId;
-  cwdRef.current = cwd;
+  const latestOptionsRef = useRef({
+    terminalId,
+    cwd,
+    conversationId,
+    projectSessionId,
+    projectId,
+  });
+  latestOptionsRef.current = {
+    terminalId,
+    cwd,
+    conversationId,
+    projectSessionId,
+    projectId,
+  };
 
   const reconnect = useCallback(() => {
-    if (!isElectron || !termRef.current) return;
+    const term = termRef.current;
+    const fit = fitRef.current;
+    if (!term || !fit || !isTerminalRuntimeAvailable()) return;
+
+    term.clear();
+    setError(null);
     setIsExited(false);
     setExitCode(null);
-    setError(null);
-    termRef.current.clear();
-    const c = terminalCache.get(terminalIdRef.current);
-    if (c) { c.exited = false; c.exitCode = null; }
-    window.api!
-      .invoke("pty:spawn", terminalIdRef.current, {
-        cols: termRef.current.cols,
-        rows: termRef.current.rows,
-        cwd: cwdRef.current,
-      })
-      .then((result: unknown) => {
-        const r = result as { success: boolean; error?: string };
-        if (r.success) {
-          setIsConnected(true);
-        } else {
-          setError(r.error ?? "Failed to spawn terminal");
-          termRef.current?.write(`\r\n\x1b[31mError: ${r.error ?? "Failed to spawn terminal"}\x1b[0m\r\n`);
-        }
-      })
-      .catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : "IPC error";
-        setError(msg);
-        termRef.current?.write(`\r\n\x1b[31mError: ${msg}\x1b[0m\r\n`);
-      });
-  }, []);
+    const size = fitAndResize(terminalId, term, fit) ?? {
+      cols: term.cols,
+      rows: term.rows,
+    };
+    void terminalSessionStore.createOrAttach({
+      sessionId: terminalId,
+      conversationId: latestOptionsRef.current.conversationId,
+      projectSessionId: latestOptionsRef.current.projectSessionId,
+      projectId: latestOptionsRef.current.projectId,
+      cwd: latestOptionsRef.current.cwd,
+      size,
+    });
+  }, [terminalId]);
 
   useEffect(() => {
-    if (!visible || !isElectron || !containerRef.current) return;
+    if (!visible || !containerRef.current || !isTerminalRuntimeAvailable()) return;
 
     const container = containerRef.current;
+    const theme = readTerminalTheme(container);
+    const initialTypography = resolveTerminalTypography(container);
+    const term = new Terminal({
+      allowTransparency: true,
+      allowProposedApi: true,
+      cursorBlink: true,
+      cursorStyle: "bar",
+      fontFamily: initialTypography.fontFamily,
+      fontSize: initialTypography.fontSize,
+      letterSpacing: 0,
+      lineHeight: 1.2,
+      scrollback: 2_000,
+      theme,
+    });
+    const fit = new FitAddon();
+    const disposables: IDisposable[] = [];
     let disposed = false;
-    let teardown: (() => void) | null = null;
+    let resizeRaf = 0;
+    let initRaf = 0;
+    let typographyGeneration = 0;
 
-    // Reset React state — will be restored from cache if needed
-    setIsExited(false);
-    setExitCode(null);
-    setError(null);
-    setIsConnected(false);
+    termRef.current = term;
+    fitRef.current = fit;
 
-    void (async () => {
-      try {
-        await ensureGhosttyInitialized();
-        if (disposed) return;
+    term.loadAddon(new ClipboardAddon());
+    term.loadAddon(fit);
+    term.loadAddon(new WebLinksAddon());
+    term.open(container);
+    installCodexKeyHandler(term, terminalId, () => {
+      onNewTerminalTabRef.current?.();
+    });
+    const restoreMouseCoordinates = patchXtermWindowZoomMouseCoordinates(term);
+    const writeDisplayData = (data: string) => {
+      const displayData = normalizeLineEndingsForXterm(data);
+      if (!displayData) return;
 
-        // Check cache for an existing Terminal instance
-        let cached = terminalCache.get(terminalId);
-        let isNew = false;
-        let restoredExited = false;
+      term.write(displayData);
+    };
+    const replayDisplayLog = (data: string) => {
+      term.reset();
+      writeDisplayData(data);
+    };
 
-        if (cached && cached.cwd === cwd) {
-          // Reparent cached terminal into current container (preserves scrollback)
-          if (cached.term.element) {
-            container.appendChild(cached.term.element);
-          }
-          // Restore exit state from cache — skip auto-spawn below
-          if (cached.exited) {
-            setIsExited(true);
-            setExitCode(cached.exitCode);
-            restoredExited = true;
-          }
-        } else {
-          // Evict stale cache (cwd changed or missing)
-          if (cached) {
-            cached.term.dispose();
-            terminalCache.delete(terminalId);
-          }
+    const handleStoreEvent = (event: TerminalStoreEvent) => {
+      if (disposed || event.sessionId !== terminalId) return;
 
-          isNew = true;
-          const term = new Terminal({
-            fontFamily:
-              'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Symbols Nerd Font Mono", monospace',
-            fontSize: 14,
-            scrollback: 2000,
-            cursorBlink: true,
-            cursorStyle: 'bar',
-            theme: getTerminalTheme(),
-          });
-
-          const fit = new FitAddon();
-          term.loadAddon(fit);
-          term.open(container);
-
-          cached = { term, fit, cwd, exited: false, exitCode: null };
-          terminalCache.set(terminalId, cached);
-        }
-
-        const { term, fit } = cached;
-        termRef.current = term;
-        fitRef.current = fit;
-
-        // Sync theme in case it changed while detached
-        applyTerminalTheme(term);
-
-        // Wire terminal input → PTY
-        const inputDisposable = term.onData((data) => {
-          window.api!.invoke("pty:write", terminalId, data);
-        });
-
-        // Wire PTY output → terminal
-        const unsubData = window.api!.on(
-          "pty:data",
-          (...args: unknown[]) => {
-            const payload = args[0] as { sessionId: string; data: string };
-            if (payload.sessionId === terminalId) {
-              term.write(payload.data);
-            }
-          },
-        );
-
-        const unsubExit = window.api!.on(
-          "pty:exit",
-          (...args: unknown[]) => {
-            const payload = args[0] as { sessionId: string; exitCode: number };
-            if (payload.sessionId !== terminalId) return;
-            setIsExited(true);
-            setExitCode(payload.exitCode);
-            setIsConnected(false);
-            // Persist in cache for cross-mount state
-            const c = terminalCache.get(terminalId);
-            if (!c) return;
-            c.exited = true;
-            c.exitCode = payload.exitCode;
-          },
-        );
-
-        // ResizeObserver for responsive fit
-        let resizeRaf = 0;
-        const observer = new ResizeObserver(() => {
-          cancelAnimationFrame(resizeRaf);
-          resizeRaf = requestAnimationFrame(() => {
-            if (!fitRef.current || !termRef.current) return;
-            fitRef.current.fit();
-            window.api!.invoke(
-              "pty:resize",
-              terminalId,
-              termRef.current.cols,
-              termRef.current.rows,
-            );
-          });
-        });
-        observer.observe(container);
-
-        // Defer fit + spawn/reconnect to next frame so container has layout.
-        // Skip spawn if we restored an already-exited session from cache —
-        // user must explicitly click "Restart" to spawn a new PTY.
-        const initRaf = requestAnimationFrame(() => {
-          if (disposed) return;
-          fit.fit();
-
-          if (restoredExited) return;
-
-          const cols = term.cols;
-          const rows = term.rows;
-          console.log(`[terminal] ${isNew ? "init" : "reconnect"} terminalId=${terminalId} cols=${cols} rows=${rows} cwd=${cwd ?? "(default)"}`);
-
-          window.api!
-            .invoke("pty:spawn", terminalId, { cols, rows, cwd })
-            .then((result: unknown) => {
-              if (disposed) return;
-              const r = result as { success: boolean; error?: string };
-              if (r.success) {
-                setIsConnected(true);
-              } else {
-                console.error("[terminal] spawn failed:", r.error);
-                setError(r.error ?? "Failed to spawn terminal");
-                term.write(`\r\n\x1b[31mError: ${r.error ?? "Failed to spawn terminal"}\x1b[0m\r\n`);
-              }
-            })
-            .catch((err: unknown) => {
-              if (disposed) return;
-              const msg = err instanceof Error ? err.message : "IPC error";
-              console.error("[terminal] spawn IPC error:", msg);
-              setError(msg);
-              term.write(`\r\n\x1b[31mError: ${msg}\x1b[0m\r\n`);
-            });
-        });
-
-        teardown = () => {
-          cancelAnimationFrame(initRaf);
-          cancelAnimationFrame(resizeRaf);
-          observer.disconnect();
-          inputDisposable.dispose();
-          unsubData();
-          unsubExit();
-          // Detach from DOM but do NOT dispose — buffer preserved for reparenting.
-          // PTY stays alive in the background.
-          term.element?.remove();
-          termRef.current = null;
-          fitRef.current = null;
-          setIsConnected(false);
-        };
-
-        if (!disposed) return;
-        teardown();
-        teardown = null;
-      } catch (err: unknown) {
-        if (disposed) return;
-        const msg = err instanceof Error ? err.message : "Failed to initialize terminal";
-        console.error("[terminal] init error:", msg);
-        setError(msg);
+      if (event.type === "data") {
+        writeDisplayData(event.data);
+        return;
       }
-    })();
+
+      if (event.type === "init-log") {
+        replayDisplayLog(event.data);
+        setIsExited(event.snapshot.exited);
+        setExitCode(event.snapshot.exitCode);
+        return;
+      }
+
+      if (event.type === "attached") {
+        setIsConnected(true);
+        setIsExited(event.snapshot.exited);
+        setExitCode(event.snapshot.exitCode);
+        setError(null);
+        return;
+      }
+
+      if (event.type === "error") {
+        setError(event.message);
+        term.write(`\r\n\x1b[31mError: ${event.message}\x1b[0m\r\n`);
+        return;
+      }
+
+      setIsConnected(false);
+      setIsExited(true);
+      setExitCode(event.exitCode);
+    };
+
+    const unsubscribe = terminalSessionStore.subscribe(terminalId, handleStoreEvent);
+    disposables.push(term.onData((data) => {
+      terminalSessionStore.write(terminalId, data);
+    }));
+
+    const observer = new ResizeObserver(() => {
+      window.cancelAnimationFrame(resizeRaf);
+      resizeRaf = window.requestAnimationFrame(() => {
+        if (disposed) return;
+        fitAndResize(terminalId, term, fit);
+      });
+    });
+    observer.observe(container);
+
+    const applyTypography = (nextTypography: TerminalTypography) => {
+      const generation = ++typographyGeneration;
+      void ensureTerminalTypographyLoaded(nextTypography).then(() => {
+        if (disposed || generation !== typographyGeneration) return;
+
+        term.options.fontFamily = nextTypography.fontFamily;
+        term.options.fontSize = nextTypography.fontSize;
+        window.cancelAnimationFrame(resizeRaf);
+        resizeRaf = window.requestAnimationFrame(() => {
+          if (disposed) return;
+          fitAndResize(terminalId, term, fit);
+        });
+      });
+    };
+    applyTypography(initialTypography);
+
+    initRaf = window.requestAnimationFrame(() => {
+      if (disposed) return;
+
+      const size = fitAndResize(terminalId, term, fit) ?? {
+        cols: term.cols,
+        rows: term.rows,
+      };
+      void terminalSessionStore.createOrAttach({
+        sessionId: terminalId,
+        conversationId,
+        projectSessionId,
+        projectId,
+        cwd,
+        size,
+      }).catch((reason: unknown) => {
+        if (disposed) return;
+        const message = reason instanceof Error ? reason.message : "Failed to attach terminal.";
+        setError(message);
+      });
+    });
+
+    const themeObserver = new MutationObserver(() => {
+      if (disposed) return;
+      term.options.theme = readTerminalTheme(container);
+      const nextTypography = resolveTerminalTypography(container);
+      const currentTypography = {
+        fontFamily: term.options.fontFamily ?? "",
+        fontSize: term.options.fontSize ?? 0,
+      };
+      if (!sameTerminalTypography(currentTypography, nextTypography)) {
+        applyTypography(nextTypography);
+      }
+    });
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "style", "data-codex-window-type"],
+    });
+    themeObserver.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["class", "style"],
+    });
 
     return () => {
       disposed = true;
-      if (!teardown) return;
-      teardown();
-      teardown = null;
-    };
-  }, [terminalId, visible, cwd]);
-
-  // Sync theme when dark mode changes
-  useEffect(() => {
-    if (!visible) return;
-
-    const observer = new MutationObserver(() => {
-      if (termRef.current) {
-        applyTerminalTheme(termRef.current);
+      window.cancelAnimationFrame(resizeRaf);
+      window.cancelAnimationFrame(initRaf);
+      observer.disconnect();
+      themeObserver.disconnect();
+      unsubscribe();
+      restoreMouseCoordinates();
+      for (const disposable of disposables) {
+        disposable.dispose();
       }
-    });
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["class"],
-    });
-    return () => observer.disconnect();
-  }, [visible]);
+      term.dispose();
+      termRef.current = null;
+      fitRef.current = null;
+      setIsConnected(false);
+    };
+  }, [
+    conversationId,
+    cwd,
+    projectId,
+    projectSessionId,
+    terminalId,
+    visible,
+  ]);
+
+  useEffect(() => {
+    const snapshot = terminalSessionStore.getSnapshot(terminalId);
+    setIsExited(snapshot.exited);
+    setExitCode(snapshot.exitCode);
+    setError(terminalSessionStore.getError(terminalId));
+  }, [terminalId]);
 
   return {
     containerRef,
     isConnected,
     isExited,
     exitCode,
-    isUnavailable: !isElectron,
+    isUnavailable: !isTerminalRuntimeAvailable(),
     error,
     reconnect,
   };

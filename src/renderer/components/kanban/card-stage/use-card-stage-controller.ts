@@ -1126,7 +1126,9 @@ export function useCardStageController(props: CardStageProps): UseCardStageContr
   }, [runInBaseBranch, refreshRunInBranchState, saveProperty]);
 
   const handlePickRunInLocalPath = useCallback(async () => {
-    const selected = (await invoke("pty:pick-cwd")) as string | null;
+    const selected = (await invoke("workspace:pick-directory", {
+      title: "Choose local run folder",
+    })) as string | null;
     if (!selected) return;
     setRunInLocalPath(selected);
     saveProperty({ runInLocalPath: selected });

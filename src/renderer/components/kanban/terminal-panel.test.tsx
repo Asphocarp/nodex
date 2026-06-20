@@ -21,12 +21,12 @@ describe("TerminalPanel", () => {
   test("renders the terminal surface without the redundant session header row", async () => {
     const { TerminalPanel } = await import("./terminal-panel");
     const { queryByText, getByText } = render(
-      <TerminalPanel
-        terminalId="terminal-test"
-        panelHeight={240}
-      />,
+      <TerminalPanel terminalId="terminal-test" />,
     );
 
+    const terminalRoot = document.querySelector("[data-codex-terminal='true']");
+    expect(terminalRoot instanceof HTMLElement).toBeTrue();
+    expect(terminalRoot?.getAttribute("data-codex-xterm")).toBe("true");
     expect(queryByText("Session Terminal")).toBe(null);
     expect(getByText("Terminal requires the Electron desktop app").textContent)
       .toBe("Terminal requires the Electron desktop app");
@@ -38,7 +38,9 @@ describe("TerminalPanel", () => {
       <TerminalPanel
         terminalId="terminal-test"
         cwd="  /Users/asc/repo/nodex  "
-        panelHeight={240}
+        conversationId="thread-1"
+        projectSessionId="session-1"
+        projectId="project-1"
       />,
     );
 
@@ -46,6 +48,9 @@ describe("TerminalPanel", () => {
       terminalId: "terminal-test",
       visible: true,
       cwd: "/Users/asc/repo/nodex",
+      conversationId: "thread-1",
+      projectSessionId: "session-1",
+      projectId: "project-1",
     }));
   });
 
@@ -55,13 +60,13 @@ describe("TerminalPanel", () => {
       <TerminalPanel
         terminalId="terminal-test"
         cwd="   "
-        panelHeight={240}
       />,
     );
 
     expect(JSON.stringify(useTerminalCalls[0])).toBe(JSON.stringify({
       terminalId: "terminal-test",
       visible: true,
+      cwd: null,
     }));
   });
 });

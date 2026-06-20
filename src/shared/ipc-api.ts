@@ -109,6 +109,16 @@ import type {
   RestoreBackupInput,
   RestoreBackupResult,
   TelemetrySettings,
+  TerminalAttachRequest,
+  TerminalAttachedEvent,
+  TerminalCreateRequest,
+  TerminalDataEvent,
+  TerminalErrorEvent,
+  TerminalExitEvent,
+  TerminalInitLogEvent,
+  TerminalRunActionRequest,
+  TerminalSessionSnapshot,
+  TerminalSize,
   ThreadNotificationSettings,
   DesktopNotificationPayload,
   UpdateDiagnosticsSettingsInput,
@@ -363,6 +373,11 @@ export interface GitBranchInput {
   branch: string;
 }
 
+export interface WorkspacePickDirectoryInput {
+  title?: string;
+  createDirectory?: boolean;
+}
+
 export interface IpcApi {
   "projects:list": { args: []; result: Project[] };
   "projects:get": { args: [projectId: string]; result: Project | null };
@@ -381,6 +396,7 @@ export interface IpcApi {
     result: Project[];
   };
   "projects:pick-source-root": { args: []; result: string | null };
+  "workspace:pick-directory": { args: [input?: WorkspacePickDirectoryInput]; result: string | null };
   "projects:delete": { args: [projectId: string]; result: boolean };
   "project-sessions:list": { args: [projectId: string, options?: ProjectSessionListOptions]; result: ProjectSession[] };
   "project-sessions:create": { args: [input: ProjectSessionCreateInput]; result: ProjectSession };
@@ -699,14 +715,13 @@ export interface IpcApi {
   "git:init": { args: [cwd: string]; result: GitReviewSnapshot };
 
   // Terminal
-  "pty:spawn": {
-    args: [sessionId: string, opts: { cols: number; rows: number; cwd?: string }];
-    result: { success: boolean; error?: string };
-  };
-  "pty:write": { args: [sessionId: string, data: string]; result: void };
-  "pty:resize": { args: [sessionId: string, cols: number, rows: number]; result: void };
-  "pty:kill": { args: [sessionId: string]; result: void };
-  "pty:pick-cwd": { args: []; result: string | null };
+  "terminal-create": { args: [input: TerminalCreateRequest]; result: void };
+  "terminal-attach": { args: [input: TerminalAttachRequest]; result: void };
+  "terminal-write": { args: [sessionId: string, data: string]; result: void };
+  "terminal-run-action": { args: [input: TerminalRunActionRequest]; result: void };
+  "terminal-resize": { args: [sessionId: string, size: TerminalSize]; result: void };
+  "terminal-close": { args: [sessionId: string]; result: void };
+  "thread-terminal-snapshot": { args: [threadId: string]; result: TerminalSessionSnapshot | null };
 
   // Codex
   "codex:connection:status": { args: []; result: CodexConnectionState };
@@ -906,8 +921,11 @@ export interface IpcEvents {
   "projects-changed": ProjectsChangeEvent;
   "project-sessions-changed": ProjectSessionsChangeEvent;
   "reminder:open": { projectId: string; cardId: string; occurrenceStart: string };
-  "pty:data": { sessionId: string; data: string };
-  "pty:exit": { sessionId: string; exitCode: number };
+  "terminal-data": TerminalDataEvent;
+  "terminal-init-log": TerminalInitLogEvent;
+  "terminal-attached": TerminalAttachedEvent;
+  "terminal-error": TerminalErrorEvent;
+  "terminal-exit": TerminalExitEvent;
   "codex:event": CodexEvent;
   "codex:host-message": CodexHostMessage;
   "browser-sidebar-state": BrowserSidebarStateSnapshot;

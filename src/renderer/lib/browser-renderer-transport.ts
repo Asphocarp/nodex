@@ -1447,7 +1447,7 @@ async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
         customDescription: "Uses the permission policy defined in your local Codex config.",
       };
     }
-    case "pty:pick-cwd": {
+    case "workspace:pick-directory": {
       return null;
     }
     case "worktrees:delete": {

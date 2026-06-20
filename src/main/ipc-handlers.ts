@@ -7,7 +7,7 @@ import * as dbService from "./kanban/db-service";
 import * as projectSessionService from "./kanban/project-session-service";
 import * as backupService from "./kanban/backup-service";
 import * as canvasService from "./kanban/canvas-service";
-import * as ptyManager from "./pty-manager";
+import { terminalManager } from "./terminal-manager";
 import {
   getAppUpdateSettings,
   getBackupSettings,
@@ -44,7 +44,7 @@ import { renameProjectSessionChat } from "./project-session-rename-service";
 import { captureMainException } from "./observability/sentry-main";
 import { getLogger } from "./logging/logger";
 import type { WorkbenchLayoutSnapshot } from "../shared/workbench-layout";
-import type { IpcApi } from "../shared/ipc-api";
+import type { IpcApi, IpcEvents } from "../shared/ipc-api";
 import type {
   WindowSessionBootstrap,
   WindowSessionBounds,
@@ -128,6 +128,27 @@ function registerHandle<Channel extends keyof IpcApi>(
       throw error;
     }
   });
+}
+
+async function showDirectoryPicker(
+  event: IpcMainInvokeEvent,
+  options: OpenDialogOptions,
+): Promise<string | null> {
+  const window = BrowserWindow.fromWebContents(event.sender);
+  const result = window
+    ? await dialog.showOpenDialog(window, options)
+    : await dialog.showOpenDialog(options);
+  if (result.canceled || result.filePaths.length === 0) return null;
+  return result.filePaths[0] ?? null;
+}
+
+function sendIpcEvent<Channel extends keyof IpcEvents>(
+  sender: Electron.WebContents,
+  channel: Channel,
+  payload: IpcEvents[Channel],
+): void {
+  if (sender.isDestroyed()) return;
+  sender.send(channel, payload);
 }
 
 function buildNativeContextMenuTemplate(
@@ -321,15 +342,19 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   );
 
   registerHandle("projects:pick-source-root", async (event) => {
-    const window = BrowserWindow.fromWebContents(event.sender);
-    const dialogOptions: OpenDialogOptions = {
+    return showDirectoryPicker(event, {
       title: "Choose source folder",
       properties: ["openDirectory", "createDirectory"],
-    };
-    const result = window
-      ? await dialog.showOpenDialog(window, dialogOptions)
-      : await dialog.showOpenDialog(dialogOptions);
-    return result.canceled ? null : result.filePaths[0] ?? null;
+    });
+  });
+
+  registerHandle("workspace:pick-directory", async (event, input) => {
+    return showDirectoryPicker(event, {
+      title: typeof input?.title === "string" ? input.title : "Choose folder",
+      properties: input?.createDirectory === true
+        ? ["openDirectory", "createDirectory"]
+        : ["openDirectory"],
+    });
   });
 
   registerHandle("projects:delete", (_, projectId: string) =>
@@ -1047,39 +1072,51 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   );
 
   // Terminal
-  registerHandle(
-    "pty:spawn",
-    (event, sessionId: string, opts: { cols: number; rows: number; cwd?: string }) => {
-      const sender = event.sender;
-      return ptyManager.spawn(
-        sessionId,
-        opts,
-        (data) => {
-          browserSidebarService.observePtyData(sessionId, data);
-          if (!sender.isDestroyed()) sender.send("pty:data", { sessionId, data });
-        },
-        (exitCode) => { if (!sender.isDestroyed()) sender.send("pty:exit", { sessionId, exitCode }); },
-      );
-    },
+  registerHandle("terminal-create", (event, input) => {
+    const sender = event.sender;
+    terminalManager.create(sender, input, (channel, payload) => {
+      sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
+    });
+  });
+
+  registerHandle("terminal-attach", (event, input) => {
+    const sender = event.sender;
+    terminalManager.attach(sender, input, (channel, payload) => {
+      sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
+    });
+  });
+
+  registerHandle("terminal-write", (event, sessionId: string, data: string) => {
+    const sender = event.sender;
+    terminalManager.write(sender, sessionId, data, (channel, payload) => {
+      sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
+    });
+  });
+
+  registerHandle("terminal-run-action", async (event, input) => {
+    const sender = event.sender;
+    await terminalManager.runAction(sender, input, (channel, payload) => {
+      sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
+    });
+  });
+
+  registerHandle("terminal-resize", (event, sessionId: string, size) => {
+    const sender = event.sender;
+    terminalManager.resize(sender, sessionId, size, (channel, payload) => {
+      sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
+    });
+  });
+
+  registerHandle("terminal-close", (event, sessionId: string) => {
+    const sender = event.sender;
+    terminalManager.close(sender, sessionId, (channel, payload) => {
+      sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
+    });
+  });
+
+  registerHandle("thread-terminal-snapshot", (_, threadId: string) =>
+    terminalManager.getThreadSnapshot(threadId)
   );
-
-  registerHandle("pty:write", (_, sessionId: string, data: string) => {
-    ptyManager.write(sessionId, data);
-  });
-
-  registerHandle("pty:resize", (_, sessionId: string, cols: number, rows: number) => {
-    ptyManager.resize(sessionId, cols, rows);
-  });
-
-  registerHandle("pty:kill", (_, sessionId: string) => {
-    ptyManager.kill(sessionId);
-  });
-
-  registerHandle("pty:pick-cwd", async () => {
-    const result = await dialog.showOpenDialog({ properties: ["openDirectory"] });
-    if (result.canceled || result.filePaths.length === 0) return null;
-    return result.filePaths[0];
-  });
 
   // Codex
   registerHandle("codex:connection:status", () => codexService.getConnectionState());

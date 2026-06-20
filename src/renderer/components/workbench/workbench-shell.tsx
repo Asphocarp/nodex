@@ -41,6 +41,10 @@ import { MainViewHost } from "./main-view-host";
 import { CardStage } from "./workbench-card-stage";
 import { HistoryPanel } from "./workbench-history-panel";
 import { TerminalPanel } from "./workbench-terminal-panel";
+import {
+  terminalSessionStore,
+  useTerminalSessionStoreVersion,
+} from "@/lib/terminal-session-store";
 import { BrowserSidebarHiddenWebviewHosts } from "@/features/browser-sidebar/browser-sidebar-hidden-webview-hosts";
 import { BrowserSidebarPanel } from "@/features/browser-sidebar/browser-sidebar-panel";
 import {
@@ -743,6 +747,12 @@ type PanelGroupTabsByPanel = Record<PanelId, {
 const PANEL_FOCUS_AREA_SELECTOR = "[data-app-shell-focus-area=\"right-panel\"], [data-app-shell-focus-area=\"bottom-panel\"]";
 const PANEL_GROUP_LEAF_SELECTOR = "[data-panel-group-leaf-id]";
 
+function isCodexTerminalShortcutTarget(target: EventTarget | null): boolean {
+  const element = target as ShortcutTargetLike | null;
+  if (!element?.closest) return false;
+  return Boolean(element.closest("[data-codex-terminal]"));
+}
+
 function isWorkbenchNewChatShortcutTargetEditable(target: EventTarget | null): boolean {
   const element = target as ShortcutTargetLike | null;
   if (!element) return false;
@@ -1076,6 +1086,14 @@ function makeClientProjectSessionTabId(): string {
   return `tab:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 12)}`;
 }
 
+function makeTerminalSessionId(sessionId: string): string {
+  return `session:${sessionId}:terminal:${Date.now()}`;
+}
+
+function makeClientTerminalTabId(terminalSessionId: string): string {
+  return `terminal:${terminalSessionId}`;
+}
+
 function hasDurablePanelTabInLeaf(
   session: ProjectSession,
   panelId: PanelId,
@@ -1186,7 +1204,7 @@ function makeProjectSessionTabDraft(
       title: "Terminal",
       config: {
         projectId: session.projectId,
-        terminalSessionId: `session:${session.id}:terminal:${Date.now()}`,
+        terminalSessionId: makeTerminalSessionId(session.id),
       },
     };
   }
@@ -1288,6 +1306,13 @@ function resolveSessionPanelActiveLeafId(session: ProjectSession, panelId: Panel
 function resolveLeafIdForPanelTab(session: ProjectSession, panelId: PanelId, tabId: string): string {
   return findProjectSessionPanelLeafForTab(session.panels[panelId].layout, tabId)?.id
     ?? resolveSessionPanelActiveLeafId(session, panelId);
+}
+
+function resolveTerminalTabIndex(session: ProjectSession, tab: ProjectSessionTab): number {
+  const index = session.tabs
+    .filter((candidate) => candidate.kind === "terminal")
+    .findIndex((candidate) => candidate.id === tab.id);
+  return index >= 0 ? index + 1 : 1;
 }
 
 function resolveCardTabTargetLeafId(session: ProjectSession, sourceTabId: string | undefined): string | undefined {
@@ -1423,6 +1448,7 @@ export function WorkbenchShell({
   const [, setHeaderRightRailWidth] = useState(RIGHT_PANEL_HEADER_FALLBACK_RAIL_WIDTH_PX);
   const [threadHeaderPortalElement, setThreadHeaderPortalElement] = useState<HTMLDivElement | null>(null);
   const [rightPanelComposerOverlayTarget, setRightPanelComposerOverlayTarget] = useState<HTMLElement | null>(null);
+  const terminalSessionVersion = useTerminalSessionStoreVersion();
   const [threadSummaryPanelPinnedOpen, setThreadSummaryPanelPinnedOpen] = useState(readThreadSummaryPanelPinnedOpen);
   const [threadSummaryPanelPopoverOpen, setThreadSummaryPanelPopoverOpen] = useState(false);
   const [localSidebarCollapsed, setLocalSidebarCollapsed] = useState(false);
@@ -2592,6 +2618,10 @@ export function WorkbenchShell({
     preferredActiveTabId?: string | null;
   } = {}) => {
     if (!activeSession) return;
+    const closingTab = activeSession.tabs.find((tab) => tab.id === tabId) ?? null;
+    if (closingTab?.kind === "terminal" && "terminalSessionId" in closingTab.config) {
+      terminalSessionStore.close(closingTab.config.terminalSessionId);
+    }
     const deleteInput = {
       tabId,
       ...(options.preserveEmptyLeafIds && options.preserveEmptyLeafIds.length > 0
@@ -2611,6 +2641,25 @@ export function WorkbenchShell({
     );
     await refreshProjectSessions(activeSession.projectId);
   }, [activeSession, refreshProjectSessions]);
+
+  const closeExitedTerminalTab = useEffectEvent(async (terminalSessionId: string) => {
+    if (!activeSession) return;
+    const tab = activeSession.tabs.find((candidate) =>
+      candidate.kind === "terminal"
+      && "terminalSessionId" in candidate.config
+      && candidate.config.terminalSessionId === terminalSessionId
+    );
+    if (!tab) return;
+
+    await closeTab(tab.id);
+  });
+
+  useEffect(() => {
+    terminalSessionStore.ensureEventSubscriptions();
+    return terminalSessionStore.subscribeExit((event) => {
+      void closeExitedTerminalTab(event.sessionId);
+    });
+  }, []);
 
   const closePreviewTab = useCallback(async (
     panelId: PanelId,
@@ -3523,18 +3572,28 @@ export function WorkbenchShell({
     toggleSessionPin,
   ]);
 
-  const createManualTab = useCallback(async (kind: ProjectSessionTab["kind"], targetPanelId?: PanelId) => {
+  const createManualTab = useCallback(async (
+    kind: ProjectSessionTab["kind"],
+    targetPanelId?: PanelId,
+    targetLeafId?: string,
+  ) => {
     if (!activeSession) return;
     const panelId = targetPanelId ?? getDefaultPanelIdForTabKind(kind);
     const draft = makeProjectSessionTabDraft(activeSession, kind);
     if (!draft) return;
 
-    await invoke("project-session-tabs:create", {
+    const createInput: ProjectSessionTabCreateInput = {
       sessionId: activeSession.id,
       projectId: activeSession.projectId,
       panelId,
+      ...(targetLeafId ? { targetLeafId } : {}),
+      ...(draft.kind === "terminal" && "terminalSessionId" in draft.config
+        ? { clientTabId: makeClientTerminalTabId(draft.config.terminalSessionId) }
+        : {}),
       ...draft,
-    });
+    };
+
+    await invoke("project-session-tabs:create", createInput);
     await ensureActivePanelOpenWithoutRefresh(panelId);
     await refreshProjectSessions(activeSession.projectId);
   }, [activeSession, ensureActivePanelOpenWithoutRefresh, refreshProjectSessions]);
@@ -3629,15 +3688,55 @@ export function WorkbenchShell({
 
   const focusOrCreateSessionTerminalTab = useCallback(async () => {
     if (!activeSession) return;
-    const existing =
-      activeSession.tabs.find((tab) => tab.kind === "terminal" && tab.panelId === "bottom")
-      ?? activeSession.tabs.find((tab) => tab.kind === "terminal");
-    if (existing) {
-      await setActivePanelTab(existing.panelId, existing.id, { openPanel: true });
+    const focusedScope = typeof document === "undefined"
+      ? null
+      : resolveFocusedPanelTabCycleScope(document.activeElement);
+    const targetScope = focusedScope ?? focusedPanelGroupRef.current;
+    const targetPanelId = targetScope?.panelId ?? "bottom";
+    const targetLeafId = targetScope?.leafId ?? resolveSessionPanelActiveLeafId(activeSession, targetPanelId);
+    const targetPanelOpen = targetPanelId === "right" ? sidePanelOpen : bottomPanelOpen;
+    const targetLeaf = findProjectSessionPanelLeaf(activeSession.panels[targetPanelId].layout, targetLeafId);
+    const activeTabId = targetLeaf?.activeTabId ?? resolveSessionPanelActiveTabId(activeSession, targetPanelId);
+    const activeTab = activeTabId
+      ? activeSession.tabs.find((tab) => tab.id === activeTabId) ?? null
+      : null;
+
+    if (targetPanelOpen && activeTab?.kind === "terminal") {
+      await setActivePanelCollapsed(targetPanelId, true);
       return;
     }
-    await createManualTab("terminal", "bottom");
-  }, [activeSession, createManualTab, setActivePanelTab]);
+
+    const terminalInTargetLeaf = activeSession.tabs.find((tab) =>
+      tab.kind === "terminal"
+      && tab.panelId === targetPanelId
+      && resolveLeafIdForPanelTab(activeSession, targetPanelId, tab.id) === targetLeafId
+    );
+    const terminalInTargetPanel = activeSession.tabs.find((tab) =>
+      tab.kind === "terminal" && tab.panelId === targetPanelId
+    );
+    const existing =
+      terminalInTargetLeaf
+      ?? terminalInTargetPanel
+      ?? activeSession.tabs.find((tab) => tab.kind === "terminal" && tab.panelId === "bottom")
+      ?? activeSession.tabs.find((tab) => tab.kind === "terminal");
+
+    if (existing) {
+      await setActivePanelTab(existing.panelId, existing.id, {
+        openPanel: true,
+        leafId: resolveLeafIdForPanelTab(activeSession, existing.panelId, existing.id),
+      });
+      return;
+    }
+
+    await createManualTab("terminal", targetPanelId, targetLeafId);
+  }, [
+    activeSession,
+    bottomPanelOpen,
+    createManualTab,
+    setActivePanelCollapsed,
+    setActivePanelTab,
+    sidePanelOpen,
+  ]);
 
   const openDbViewFromPanelPicker = useCallback(async (
     projectId: string,
@@ -3801,6 +3900,7 @@ export function WorkbenchShell({
 
   const handleRightPanelShortcut = useEffectEvent((event: KeyboardEvent): boolean => {
     if (!activeSession) return false;
+    if (isCodexTerminalShortcutTarget(event.target)) return false;
 
     const cycleDirection = resolvePanelTabCycleDirection(event, isMacPlatform);
     if (cycleDirection) {
@@ -4272,13 +4372,23 @@ export function WorkbenchShell({
       const keepMounted = !isSideChatPanelTab(tab)
         && !isMcpAppPanelTab(tab)
         && tab.kind === "card_stage";
+      const title = !isSideChatPanelTab(tab)
+        && !isMcpAppPanelTab(tab)
+        && tab.kind === "terminal"
+        && "terminalSessionId" in tab.config
+        ? terminalSessionStore.resolveTitle(
+            tab.config.terminalSessionId,
+            tab.title,
+            resolveTerminalTabIndex(activeSession, tab),
+          )
+        : tab.title;
 
       return {
         id: tab.id,
         domTabId: !isSideChatPanelTab(tab) && !isMcpAppPanelTab(tab) && tab.kind === "files" && "path" in tab.config
           ? getWorkspaceFileDomTabId("hostId" in tab.config ? tab.config.hostId : "local", tab.config.path)
           : undefined,
-        title: tab.title,
+        title,
         ...chromeContext,
         icon: isSideChatPanelTab(tab)
           ? CodexSidePanelSideChatIcon
@@ -4359,6 +4469,7 @@ export function WorkbenchShell({
               onOpenFileTab={openWorkspaceFileTab}
               onRefreshSessions={refreshProjectSessions}
               onCloseTab={closeTab}
+              onCreateTerminalTab={(panelId, leafId) => createManualTab("terminal", panelId, leafId)}
               cardStageHistoryModal={cardStageHistoryModal}
               onToggleCardStageHistoryModal={toggleCardStageHistoryModal}
               selectedTurnDiffReviewTarget={selectedTurnDiffReviewTarget}
@@ -4434,6 +4545,7 @@ export function WorkbenchShell({
     cardStageSessionSnapshotRef,
     closeTab,
     createBrowserTabToRight,
+    createManualTab,
     mcpAppActiveTabByPanel,
     mcpAppTabsBySession,
     onLeaveCardStageCard,
@@ -4459,6 +4571,7 @@ export function WorkbenchShell({
     sideChatActiveTabByPanel,
     sideChatTabsBySession,
     selectedTurnDiffReviewTarget,
+    terminalSessionVersion,
     toggleCardStageHistoryModal,
     previewTabsByPanel,
   ]);
@@ -6881,6 +6994,7 @@ function ProjectSessionTabPanel({
   onOpenFileTab,
   onRefreshSessions,
   onCloseTab,
+  onCreateTerminalTab,
   cardStageHistoryModal,
   onToggleCardStageHistoryModal,
   selectedTurnDiffReviewTarget,
@@ -6921,6 +7035,7 @@ function ProjectSessionTabPanel({
   onOpenFileTab: (input: { path: string; title: string; panelId: PanelId }) => Promise<void>;
   onRefreshSessions: (projectId: string) => Promise<ProjectSession[]>;
   onCloseTab: (tabId: string) => Promise<void>;
+  onCreateTerminalTab: (panelId: PanelId, leafId: string) => Promise<void> | void;
   cardStageHistoryModal: CardStageHistoryModalContext | null;
   onToggleCardStageHistoryModal: (context: CardStageHistoryModalContext) => void;
   selectedTurnDiffReviewTarget: CodexTurnDiffReviewTarget | null;
@@ -6965,15 +7080,17 @@ function ProjectSessionTabPanel({
         onLeaveCard={onLeaveCardStageCard}
         onClose={() => void onCloseTab(tab.id)}
         onOpenTerminal={async () => {
+          const terminalSessionId = makeTerminalSessionId(activeSession.id);
           await invoke("project-session-tabs:create", {
             sessionId: activeSession.id,
             projectId: activeSession.projectId,
             panelId: "bottom",
+            clientTabId: makeClientTerminalTabId(terminalSessionId),
             kind: "terminal",
             title: "Terminal",
             config: {
               projectId: cardTab.config.projectId,
-              terminalSessionId: `session:${activeSession.id}:terminal:${Date.now()}`,
+              terminalSessionId,
             },
           });
           await invoke("project-session-panels:update", activeSession.id, "bottom", { collapsed: false });
@@ -6994,12 +7111,18 @@ function ProjectSessionTabPanel({
 
   if (tab.kind === "terminal" && "terminalSessionId" in tab.config) {
     const cwd = resolveSessionTerminalCwd(activeSession, tab, projects);
+    const leafId = resolveLeafIdForPanelTab(activeSession, tab.panelId, tab.id);
     return (
       <div className="h-full min-h-0 bg-token-main-surface-primary">
         <TerminalPanel
           terminalId={tab.config.terminalSessionId}
           cwd={cwd}
-          panelHeight={Number.MAX_SAFE_INTEGER}
+          conversationId={activeSession.thread?.threadId ?? activeSession.id}
+          projectSessionId={activeSession.id}
+          projectId={tab.config.projectId}
+          onNewTerminalTab={() => {
+            void onCreateTerminalTab(tab.panelId, leafId);
+          }}
         />
       </div>
     );

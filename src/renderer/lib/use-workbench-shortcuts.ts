@@ -39,6 +39,7 @@ export interface WorkbenchShortcutActions {
 
 const EDITOR_SURFACE_SELECTOR = ".nfm-editor, .bn-editor, .bn-container";
 const COMPOSER_SURFACE_SELECTOR = "[data-composer-prompt-frame]";
+const TERMINAL_SURFACE_SELECTOR = "[data-codex-terminal]";
 
 interface ShortcutTargetLike {
   tagName?: string;
@@ -66,6 +67,12 @@ function isComposerSurfaceTarget(target: EventTarget | null): boolean {
   const element = target as ShortcutTargetLike | null;
   if (!element?.closest) return false;
   return Boolean(element.closest(COMPOSER_SURFACE_SELECTOR));
+}
+
+function isTerminalSurfaceTarget(target: EventTarget | null): boolean {
+  const element = target as ShortcutTargetLike | null;
+  if (!element?.closest) return false;
+  return Boolean(element.closest(TERMINAL_SURFACE_SELECTOR));
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -97,6 +104,8 @@ export function handleWorkbenchShortcut(
   const targetIsEditorSurface = isEditorSurfaceTarget(e.target);
   const targetIsComposerSurface = isComposerSurfaceTarget(e.target);
   const commandState = actions.commandKeymapState ?? fallbackCommandKeymapState(isMac);
+
+  if (isTerminalSurfaceTarget(e.target)) return false;
 
   if (matchesCommandShortcut(e, actions, "newWindow", isMac)) {
     actions.onRequestNewWindow?.();

@@ -52,7 +52,7 @@ export function isComposerDictationShortcutTargetBlocked(target: EventTarget | n
     return false;
   }
 
-  return Boolean(target.closest("[data-codex-terminal], .nodex-terminal"));
+  return Boolean(target.closest("[data-codex-terminal]"));
 }
 
 export function formatComposerDictationDuration(durationMs: number): string {

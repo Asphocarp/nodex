@@ -33,6 +33,15 @@ function makeComposerTarget(): EventTarget {
   } as unknown as EventTarget;
 }
 
+function makeTerminalTarget(): EventTarget {
+  return {
+    tagName: "DIV",
+    isContentEditable: false,
+    closest: (selector: string) =>
+      selector.includes("[data-codex-terminal]") ? ({} as Element) : null,
+  } as unknown as EventTarget;
+}
+
 function makeActions(overrides: Partial<WorkbenchShortcutActions> = {}): WorkbenchShortcutActions {
   return {
     spaces: [{ projectId: "a" }, { projectId: "b" }, { projectId: "c" }],
@@ -143,6 +152,31 @@ describe("handleWorkbenchShortcut", () => {
 
     expect(handled).toBeTrue();
     expect(source).toBe("keyboard_shortcut");
+  });
+
+  test("terminal focus leaves app-level shortcuts unhandled", () => {
+    let opened = false;
+    const actions = makeActions({
+      onRequestCommandPalette: () => {
+        opened = true;
+      },
+    });
+
+    const handled = handleWorkbenchShortcut(
+      {
+        key: "k",
+        ctrlKey: false,
+        metaKey: true,
+        shiftKey: false,
+        altKey: false,
+        target: makeTerminalTarget(),
+      },
+      actions,
+      true,
+    );
+
+    expect(handled).toBeFalse();
+    expect(opened).toBeFalse();
   });
 
   test("Cmd+5 does not map to a stage index", () => {

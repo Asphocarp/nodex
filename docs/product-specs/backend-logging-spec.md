@@ -11,7 +11,7 @@ The backend logger exists to make local debugging fast and reliable, especially 
 - approval and `request_user_input` stalls
 - worktree setup failures
 - HTTP request failures
-- PTY lifecycle issues
+- integrated terminal lifecycle issues
 - reminder and backup scheduler failures
 - main-process startup and shutdown problems
 
@@ -265,15 +265,15 @@ Codex-specific logging policy:
 - log `promptLength` plus a bounded `promptPreview`
 - prefer IDs, counts, status flags, cwd, and duration fields
 
-### PTY
+### Integrated Terminal
 
-[src/main/pty-manager.ts](src/main/pty-manager.ts) logs:
+[src/main/terminal-manager.ts](src/main/terminal-manager.ts) logs:
 
-- spawn
-- reconnect
-- exit
-- kill
-- spawn failure
+- create/attach failures
+- local backend spawn and exit
+- restart actions
+- owner guard failures
+- close and shutdown cleanup
 
 ### Backup
 

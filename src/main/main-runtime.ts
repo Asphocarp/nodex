@@ -29,7 +29,7 @@ import {
 } from "./kanban/backup-service";
 import { getAssetsPathPrefix } from "./kanban/asset-service";
 import { runReminderTick, snoozeReminder, startReminderScheduler } from "./kanban/reminder-service";
-import * as ptyManager from "./pty-manager";
+import { terminalManager } from "./terminal-manager";
 import {
   getAppUpdateSettings,
   getBackupSettings,
@@ -581,6 +581,7 @@ function createWindow(
       preload: join(__dirname, "../preload/index.js"),
       sandbox: false,
       webviewTag: true,
+      backgroundThrottling: false,
       additionalArguments: [
         `--nodex-server-url=${serverUrl}`,
         `--nodex-asset-path-prefix=${encodeURIComponent(getAssetsPathPrefix())}`,
@@ -903,7 +904,7 @@ function shutdownMainRuntime(): void {
   appQuitRequested = true;
   retainRestorableWindowSessions();
   logger.info("Nodex before-quit");
-  ptyManager.killAll();
+  terminalManager.killAll();
   void codexService.shutdown();
   void shutdownMainSentry();
   void shutdownBackendLogger();

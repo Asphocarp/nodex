@@ -19,6 +19,7 @@ import type { CommandExecutionRequestApprovalParams } from "@nodex/codex-app-ser
 import type { CommandExecutionRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/CommandExecutionRequestApprovalResponse";
 import type { DynamicToolCallParams } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallParams";
 import type { DynamicToolCallResponse } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallResponse";
+import type { DynamicToolSpec } from "@nodex/codex-app-server-protocol/v2/DynamicToolSpec";
 import type { FeedbackUploadParams } from "@nodex/codex-app-server-protocol/v2/FeedbackUploadParams";
 import type { GetAccountRateLimitsResponse } from "@nodex/codex-app-server-protocol/v2/GetAccountRateLimitsResponse";
 import type { GetAccountResponse } from "@nodex/codex-app-server-protocol/v2/GetAccountResponse";
@@ -220,9 +221,23 @@ import { getLogger } from "../logging/logger";
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
 import { CodexDictationService } from "./dictation-service";
 import { requestChatGptDesktop } from "./chatgpt-desktop-request";
+import { terminalManager } from "../terminal-manager";
 
 const codexLogger = getLogger({ subsystem: "codex", component: "service" });
 const require = createRequire(import.meta.url);
+
+const CODEX_DYNAMIC_TOOL_SPECS: DynamicToolSpec[] = [
+  {
+    name: "read_thread_terminal",
+    description:
+      "Read the app terminal session attached to the current thread, including cwd, shell, and the latest terminal buffer.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+  },
+];
 
 interface ThreadRef {
   projectId: string | null;
@@ -5403,6 +5418,7 @@ export class CodexService extends EventEmitter {
         config: buildCodexThreadConfigOverrides(),
         ...buildServiceTierParams(input.serviceTier),
         experimentalRawEvents: THREAD_START_EXPERIMENTAL_RAW_EVENTS,
+        dynamicTools: CODEX_DYNAMIC_TOOL_SPECS,
         ...threadPermissionOverrides,
       };
       const threadStart = await this.client.request<"thread/start", ThreadStartResponse>("thread/start", threadStartParams);
@@ -5613,6 +5629,7 @@ export class CodexService extends EventEmitter {
         config: buildCodexThreadConfigOverrides(),
         ...buildServiceTierParams(input.serviceTier),
         experimentalRawEvents: THREAD_START_EXPERIMENTAL_RAW_EVENTS,
+        dynamicTools: CODEX_DYNAMIC_TOOL_SPECS,
         ...threadPermissionOverrides,
       };
       const threadStart = await this.client.request<"thread/start", ThreadStartResponse>("thread/start", threadStartParams);
@@ -6999,6 +7016,13 @@ export class CodexService extends EventEmitter {
     };
   }
 
+  private buildDynamicToolTextSuccess(text: string): DynamicToolCallResponse {
+    return {
+      contentItems: [{ type: "inputText", text }],
+      success: true,
+    };
+  }
+
   private buildDynamicToolFailure(message: string): DynamicToolCallResponse {
     return {
       contentItems: [{ type: "inputText", text: message }],
@@ -7177,12 +7201,35 @@ export class CodexService extends EventEmitter {
     };
   }
 
+  private buildDynamicReadThreadTerminalResponse(threadId: string): string {
+    const snapshot = terminalManager.getThreadSnapshot(threadId);
+    if (!snapshot) {
+      return "No app terminal session is attached to this thread yet.";
+    }
+
+    const lines = [
+      `cwd: ${snapshot.cwd ?? "(unknown)"}`,
+      `shell: ${snapshot.shell ?? "(unknown)"}`,
+    ];
+    if (snapshot.truncated) {
+      lines.push(`[showing latest ${snapshot.buffer.length.toLocaleString()} characters]`);
+    }
+    lines.push("```terminal", snapshot.buffer, "```");
+    return lines.join("\n");
+  }
+
   private async handleDynamicToolCall(params: DynamicToolCallParams): Promise<DynamicToolCallResponse> {
     const args = asRecord(params.arguments) ?? {};
 
     try {
       if (params.tool === "read_thread") {
         return this.buildDynamicToolSuccess(this.buildDynamicReadThreadResponse(args));
+      }
+
+      if (params.tool === "read_thread_terminal") {
+        return this.buildDynamicToolTextSuccess(
+          this.buildDynamicReadThreadTerminalResponse(params.threadId),
+        );
       }
 
       if (params.tool === "list_threads") {
@@ -7279,6 +7326,7 @@ export class CodexService extends EventEmitter {
           model: typeof args.model === "string" ? args.model : null,
           config: buildCodexThreadConfigOverrides(),
           experimentalRawEvents: THREAD_START_EXPERIMENTAL_RAW_EVENTS,
+          dynamicTools: CODEX_DYNAMIC_TOOL_SPECS,
         });
         const { detail, summary } = this.materializeThreadDetailFromThreadPayload(result.thread, null, sourceDetail?.cwd ?? null);
         this.setConversationRecordDetail(detail);

@@ -1,9 +1,10 @@
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { Fragment, createElement, createRef, useEffect, useState, type ComponentProps } from "react";
 import { createPortal } from "react-dom";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import type { Project, ProjectSession, ProjectSessionPanelNode, ProjectSessionTab } from "@/lib/types";
 import { resetCardDetailStoreForTests } from "@/lib/card-detail-store";
+import { terminalSessionStore } from "@/lib/terminal-session-store";
 import {
   APP_SHELL_FLOATING_LEFT_PANEL_LAYER_CLASS,
   APP_SHELL_GLOBAL_HEADER_LAYER_CLASS,
@@ -53,6 +54,8 @@ const CODEX_EXPAND_PANEL_ICON_PREFIX = "M16.0299 3.0293";
 const CODEX_RESTORE_PANEL_ICON_PREFIX = "M4.33496 11";
 const CODEX_NEW_CHAT_ICON_PREFIX = "M2.6687 11.333";
 const CODEX_TITLEBAR_NEW_CHAT_ICON_PREFIX = "M6.33325 1.88379";
+
+type TerminalEventListenerMap = Record<string, (payload: unknown) => void>;
 
 const mockCodexControl = {
   availableModels: [
@@ -1460,7 +1463,7 @@ function renderWorkbench({
     if (channel === "worktrees:environments:list") {
       return [];
     }
-    if (channel === "pty:pick-cwd") {
+    if (channel === "workspace:pick-directory") {
       return "/repo/selected";
     }
     if (channel === "shell:open-file-link") {
@@ -1598,7 +1601,22 @@ function renderWorkbench({
   };
 }
 
+function installTerminalEventApiMock(): TerminalEventListenerMap {
+  const listeners: TerminalEventListenerMap = {};
+  window.api = {
+    invoke: async () => undefined,
+    on: (event: string, callback: (...args: unknown[]) => void) => {
+      listeners[event] = (payload: unknown) => callback(payload);
+      return () => {
+        delete listeners[event];
+      };
+    },
+  } as typeof window.api;
+  return listeners;
+}
+
 beforeEach(() => {
+  terminalSessionStore.disposeEventSubscriptions();
   resetCardDetailStoreForTests();
   document.body.removeAttribute("style");
   invokeCalls = [];
@@ -1630,6 +1648,10 @@ beforeEach(() => {
   delete (globalThis as { __mockCardStageUnmounts?: number }).__mockCardStageUnmounts;
   delete (globalThis as { __mockCardStageMountsByCardId?: Record<string, number> }).__mockCardStageMountsByCardId;
   delete (globalThis as { __mockCardStageUnmountsByCardId?: Record<string, number> }).__mockCardStageUnmountsByCardId;
+});
+
+afterEach(() => {
+  terminalSessionStore.disposeEventSubscriptions();
 });
 
 async function openBottomPanel(screen: ReturnType<typeof renderWorkbench>): Promise<void> {
@@ -3897,6 +3919,29 @@ describe("workbench session shell", () => {
       && JSON.stringify(call[3]) === JSON.stringify({ collapsed: true })
     )).toBeTrue();
     expect(screen.queryByRole("separator", { name: "Resize bottom panel" })).toBe(null);
+  });
+
+  test("terminal backend exit closes the owning terminal tab", async () => {
+    const terminalEventListeners = installTerminalEventApiMock();
+    const terminalSession = makeBottomPanelTerminalSession();
+    renderWorkbench({
+      sessionsByProject: { alpha: [terminalSession] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    expect(typeof terminalEventListeners["terminal-exit"]).toBe("function");
+
+    await act(async () => {
+      terminalEventListeners["terminal-exit"]?.({
+        sessionId: "terminal",
+        exitCode: 0,
+      });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(JSON.stringify(getProjectSessionTabDeleteTabIds())).toBe(JSON.stringify(["terminal-tab"]));
   });
 
   test("overview regular-width override survives hiding and showing the side panel", async () => {
@@ -6545,7 +6590,7 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     await act(async () => {
-      fireEvent.mouseDown(screen.getByRole("tab", { name: "Terminal" }), { button: 0 });
+      fireEvent.mouseDown(screen.getByRole("tab", { name: "Terminal 1" }), { button: 0 });
       await Promise.resolve();
     });
 

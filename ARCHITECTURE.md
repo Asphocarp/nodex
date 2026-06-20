@@ -34,7 +34,7 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `kanban/card-input-validation.ts`: shared write validation used by all mutation paths.
 - `logging/logger.ts`: structured backend logger with child scopes, sensitive-field redaction, bounded payload serialization, and profile-scoped JSONL file persistence under `${KANBAN_DIR}/logs` for dev/unpackaged runs or explicitly enabled packaged diagnostics.
 - `window-session-state.ts`: profile-scoped persisted Electron window-session catalog with per-window layout snapshots, restore-policy selection support, focus recency, and saved window bounds.
-- `pty-manager.ts`: PTY process lifecycle management for session terminal ids (spawn, write, resize, kill).
+- `terminal-manager.ts`: integrated terminal owner for session terminal ids, including typed `terminal-*` IPC, xterm attach snapshots, owner checks, 16k buffer retention, node-pty local backend lifecycle, restart actions, and `read_thread_terminal` snapshot lookup.
 - `codex/codex-app-server-client.ts`: global JSON-RPC client for `codex app-server` stdio lifecycle, handshake, request correlation, reconnect/backoff, and wire-level typing against the committed `@nodex/codex-app-server-protocol` workspace package.
 - `codex/codex-service.ts`: domain facade for account/auth, thread/turn actions, ephemeral side-chat forks, approval + request-user-input handling, packaged-vs-dev Codex runtime resolution, canonical per-thread conversation-manager state, and main-process transcript/snapshot projection + `codex:event` / host-message emission.
 - `codex/thread-title-generator.ts`: packaged-safe shared helper for `generate-thread-title` RPC prompt building and structured title parsing; it never reads repo-relative prompt assets.
@@ -77,7 +77,7 @@ Nodex is a local-first kanban platform for coordinating coding-agent work. The E
 - `lib/window-sessions.ts`: renderer helpers for bootstrapping the assigned window session and saving workbench layout snapshots through IPC.
 - `lib/dock-layout.ts`: dock split-tree helpers for the current persisted shell layout model.
 - `lib/use-workbench-shortcuts.ts`: app-wide stage-first keyboard shortcut mapping.
-- `lib/use-terminal.ts`: ghostty-web terminal lifecycle hook with cached instances, fit/resize handling, IPC wiring, and theme sync.
+- `lib/terminal-session-store.ts` and `lib/use-terminal.ts`: xterm terminal state and lifecycle. The store owns renderer session snapshots, active metadata, pending writes, resize dedupe, 16k buffer truncation, and `terminal-*` IPC fanout; the hook mounts `@xterm/xterm` with Clipboard/Fit/WebLinks add-ons, CSS-variable theme extraction, Codex terminal key handling, window-zoom mouse coordinate patching, and ResizeObserver-driven fit.
 - `lib/use-codex-account-actions.ts`: auth/account command wrappers (`read`, login start/cancel, logout). For the active thread renderer, auth state flows from the local-conversation app-server manager substrate, not from this action layer.
 - `lib/codex-collaboration-mode-settings.ts`: global fallback collaboration mode persistence for no-thread/new-thread surfaces. Active thread collaboration mode is owned by the local-conversation manager record, not by shell-local storage.
 - `lib/nfm/*`: renderer wrappers over the shared NFM core plus the BlockNote adapter and clipboard/read-only helpers.
@@ -186,7 +186,7 @@ Workbench reopen flow:
 
 ### Observability and Debugging
 - History records capture create/update/move/delete deltas.
-- Backend services can emit structured logs (JSON lines) with child-scoped context for HTTP, PTY, backup/reminder, and Codex runtime flows.
+- Backend services can emit structured logs (JSON lines) with child-scoped context for HTTP, integrated terminal, backup/reminder, and Codex runtime flows.
 - Backend logs persist under `${KANBAN_DIR}/logs` for dev/unpackaged runs or explicitly enabled packaged diagnostics, with bounded serialization and sensitive-field redaction for debugging without dumping raw secrets.
 - Renderer telemetry can emit opt-in Statsig product events through a central helper. Statsig loads only when enabled, uses anonymous Stable ID identity, flushes on app close, and keeps web analytics behind a separate filtered AutoCapture opt-in.
 - Detailed logging reference: `docs/product-specs/backend-logging-spec.md`.
