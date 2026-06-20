@@ -7071,6 +7071,12 @@ function ProjectSessionTabPanel({
         persistRef={cardStagePersistRef}
         sessionSnapshotRef={cardStageSessionSnapshotRef}
         sessionId={activeSession.id}
+        sessionThread={activeSession.thread ? makeThreadSummary(activeSession.thread) : null}
+        canStartThreadInSession={
+          !activeSession.isOverview
+          && !activeSession.thread
+          && activeSession.projectId === cardTab.config.projectId
+        }
         onLeaveCard={onLeaveCardStageCard}
         onClose={() => void onCloseTab(tab.id)}
         onOpenTerminal={async () => {
@@ -7393,6 +7399,8 @@ function CardStageSessionTab({
   persistRef,
   sessionSnapshotRef,
   sessionId,
+  sessionThread,
+  canStartThreadInSession,
   onLeaveCard,
   onClose,
   onOpenTerminal,
@@ -7408,6 +7416,8 @@ function CardStageSessionTab({
   persistRef?: React.MutableRefObject<(() => Promise<void>) | null>;
   sessionSnapshotRef?: React.MutableRefObject<CardStageSessionSnapshot | null>;
   sessionId: string;
+  sessionThread: CodexThreadSummary | null;
+  canStartThreadInSession: boolean;
   onLeaveCard: (snapshot: CardStageSessionSnapshot) => void;
   onClose: () => void;
   onOpenTerminal: (card: Card) => Promise<void>;
@@ -7447,14 +7457,16 @@ function CardStageSessionTab({
   }, [kanban.board?.columns]);
   const handleStartNewSessionThreadFromEditor = useCallback(async (input: {
     projectId: string;
+    targetSessionId?: string;
     prompt: string;
     promptInput?: CodexPromptInput;
     threadName?: string;
   }) => {
-    const targetSession = await onEnsureBlankSessionForProject(input.projectId, { select: false });
+    const targetSessionId = input.targetSessionId?.trim()
+      || (await onEnsureBlankSessionForProject(input.projectId, { select: false })).id;
     const detail = await codexControl.startThreadForSession({
       projectId: input.projectId,
-      sessionId: targetSession.id,
+      sessionId: targetSessionId,
       prompt: input.prompt,
       promptInput: input.promptInput,
       threadName: input.threadName,
@@ -7465,7 +7477,7 @@ function CardStageSessionTab({
     await codexControl.loadThreads(input.projectId);
     return {
       threadId: detail.threadId,
-      sessionId: targetSession.id,
+      sessionId: targetSessionId,
     };
   }, [codexControl, onEnsureBlankSessionForProject, onRefreshSessions]);
 
@@ -7520,6 +7532,7 @@ function CardStageSessionTab({
         columnId={columnId}
         columnName={columnName}
         projectId={tab.config.projectId}
+        projectName={project.name}
         projectWorkspacePath={projectWorkspaceRootOrNull(project)}
         availableTags={availableTags}
         closeRef={closeRef as React.MutableRefObject<(() => Promise<void>) | null>}
@@ -7559,6 +7572,9 @@ function CardStageSessionTab({
         })}
         historyPanelActive={historyPanelActive}
         isActivePanelTab={isActivePanelTab}
+        sessionId={sessionId}
+        sessionThread={sessionThread}
+        canStartThreadInSession={canStartThreadInSession}
         linkedCodexThreads={[]}
         onStartNewSessionThreadFromEditor={handleStartNewSessionThreadFromEditor}
         onSendThreadSectionPrompt={async ({ projectId, threadId, prompt, promptInput }) => {

@@ -53,7 +53,10 @@ describe("card stage", () => {
           columnId="in_progress"
           columnName="In progress"
           projectId="default"
+          projectName="Default"
           availableTags={[]}
+          sessionId="session-current"
+          canStartThreadInSession
           onUpdate={async () => ({ status: "updated", card: {} as never })}
           onPatch={() => undefined}
           onDelete={async () => undefined}
@@ -67,8 +70,16 @@ describe("card stage", () => {
     const scrollContainer = container.querySelector(`[data-testid="${CARD_STAGE_SCROLL_CONTAINER_TEST_ID}"]`) as HTMLElement | null;
     expect(scrollContainer).not.toBeNull();
     expect(scrollContainer?.style.getPropertyValue("overflow-anchor")).toBe("none");
-    const editorProps = lastNfmEditorProps as { flushHandleRef?: unknown } | null;
+    const editorProps = lastNfmEditorProps as {
+      flushHandleRef?: unknown;
+      projectName?: unknown;
+      sessionId?: unknown;
+      canStartThreadInSession?: unknown;
+    } | null;
     expect(typeof editorProps?.flushHandleRef).toBe("object");
+    expect(editorProps?.projectName).toBe("Default");
+    expect(editorProps?.sessionId).toBe("session-current");
+    expect(editorProps?.canStartThreadInSession).toBe(true);
   });
 
   test("renders read-only raw content when raw mode is enabled", async () => {

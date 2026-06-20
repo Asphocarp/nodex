@@ -125,6 +125,7 @@ export function CardStage(props: CardStageProps) {
                 <NfmEditor
                   key={`${props.projectId}:${controller.card.id}`}
                   projectId={props.projectId}
+                  projectName={props.projectName}
                   projectWorkspacePath={props.projectWorkspacePath}
                   content={controller.description}
                   onChange={controller.handleDescriptionChange}
@@ -134,6 +135,9 @@ export function CardStage(props: CardStageProps) {
                     cardId: controller.card.id,
                     columnId: controller.currentColumnId,
                   }}
+                  sessionId={props.sessionId}
+                  sessionThread={props.sessionThread}
+                  canStartThreadInSession={props.canStartThreadInSession}
                   linkedCodexThreads={props.linkedCodexThreads}
                   onOpenCodexThread={props.onOpenCodexThread}
                   onStartNewSessionThreadFromEditor={props.onStartNewSessionThreadFromEditor}

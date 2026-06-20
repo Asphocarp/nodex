@@ -74,12 +74,14 @@ const mockCodexControl = {
   reasoningEffortOptions: [{ reasoningEffort: "medium", description: "Balanced" }],
   permissionMode: "auto",
   loadModels: async () => undefined,
+  loadThreads: async () => undefined,
   listCollaborationModes: async () => [{ name: "Plan", mode: "plan", model: null }],
   setThreadModel: () => undefined,
   setThreadReasoningEffort: () => undefined,
   setPermissionMode: async () => undefined,
   startThreadForSession: async (input: unknown) => {
     startThreadForSessionCalls.push(input);
+    return { threadId: "thread-started" };
   },
   startSideChat: async (input: unknown) => {
     startSideChatCalls.push(input);
@@ -6083,6 +6085,72 @@ describe("workbench session shell", () => {
     expect(cardStageProps?.projectId).toBe("beta");
     expect(card?.id).toBe("card-beta");
     expect(card?.projectId).toBe("beta");
+  });
+
+  test("card-stage editor can start a new thread in the current blank session", async () => {
+    const session = makeBlankSession({
+      id: "session:alpha:card-empty",
+      tabs: [
+        {
+          id: "card-tab",
+          sessionId: "session:alpha:card-empty",
+          projectId: "alpha",
+          kind: "card_stage",
+          title: "Card One",
+          panelId: "right",
+          config: { projectId: "alpha", cardId: "card-1", titleSnapshot: "Card One" },
+        },
+      ],
+      panels: makePanels({
+        rightTabIds: ["card-tab"],
+        rightActiveTabId: "card-tab",
+      }),
+    });
+
+    renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const cardStageProps = (globalThis as { __lastCardStageProps?: Record<string, unknown> }).__lastCardStageProps;
+    expect(cardStageProps?.sessionId).toBe("session:alpha:card-empty");
+    expect(cardStageProps?.canStartThreadInSession).toBe(true);
+    const startThread = cardStageProps?.onStartNewSessionThreadFromEditor as ((input: {
+      projectId: string;
+      targetSessionId?: string;
+      prompt: string;
+    }) => Promise<{ threadId: string; sessionId?: string }>) | undefined;
+    if (!startThread) {
+      throw new Error("missing card-stage start-thread callback");
+    }
+
+    let result: { threadId: string; sessionId?: string } | null = null;
+    await act(async () => {
+      result = await startThread({
+        projectId: "alpha",
+        targetSessionId: "session:alpha:card-empty",
+        prompt: "Send selected blocks",
+      });
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(JSON.stringify(result)).toBe(JSON.stringify({
+      threadId: "thread-started",
+      sessionId: "session:alpha:card-empty",
+    }));
+    expect(startThreadForSessionCalls.length).toBe(1);
+    expect(JSON.stringify(startThreadForSessionCalls[0])).toBe(JSON.stringify({
+      projectId: "alpha",
+      sessionId: "session:alpha:card-empty",
+      prompt: "Send selected blocks",
+      promptInput: undefined,
+      threadName: undefined,
+      skipAutoTitleGeneration: false,
+      runInTarget: "localProject",
+    }));
+    expect(invokeCalls.some((call) => call[0] === "project-sessions:create")).toBeFalse();
   });
 
   test("labels cross-project card-stage tabs with their target project", async () => {

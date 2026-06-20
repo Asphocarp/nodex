@@ -436,6 +436,14 @@ export const WithNodexActions: Story = {
     ],
     sourceProjectId: "default",
     sourceCardId: "source-card",
+    sendToThreadProjectNameById: { default: "Default" },
+    sendToThreadPreferredTarget: STORY_SEND_TO_THREAD_THREADS[0]
+      ? {
+          kind: "thread",
+          thread: STORY_SEND_TO_THREAD_THREADS[0],
+          meta: "This session",
+        }
+      : null,
     onSendBlocksToThread: () => undefined,
     renderSendToThreadMenu: (props) => (
       <NfmSendToThreadMenuSurface
@@ -465,6 +473,14 @@ export const SendToThreadPicker: Story = {
           <NfmSendToThreadMenuSurface
             projectId="default"
             threads={STORY_SEND_TO_THREAD_THREADS}
+            projectNameById={{ default: "Default" }}
+            preferredTarget={STORY_SEND_TO_THREAD_THREADS[0]
+              ? {
+                  kind: "thread",
+                  thread: STORY_SEND_TO_THREAD_THREADS[0],
+                  meta: "This session",
+                }
+              : null}
             initialQuery="implementation"
             onAccept={() => undefined}
             onClose={() => undefined}
@@ -476,7 +492,66 @@ export const SendToThreadPicker: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Direct send-to-chat picker coverage for thread search, the fixed New chat row, the persisted Send / Send & wrap selector, and the wrap info tooltip.",
+        story: "Direct send-to-chat picker coverage for thread search, the selected-block current session hint, the bottom New chat action, the persisted Send / Send & wrap selector, and the wrap info tooltip.",
+      },
+    },
+  },
+};
+
+export const SendToThreadPickerEmptySession: Story = {
+  render: () => (
+    <NodexTooltipProvider>
+      <div className="flex min-h-screen items-start justify-center bg-token-editor-background p-12 text-token-foreground">
+        <NfmSendToThreadMenuSurface
+          projectId="default"
+          threads={STORY_SEND_TO_THREAD_THREADS}
+          projectNameById={{ default: "Default" }}
+          preferredTarget={{
+            kind: "new-thread",
+            sessionId: "session-current",
+            meta: "This session",
+          }}
+          onAccept={() => undefined}
+          onClose={() => undefined}
+        />
+      </div>
+    </NodexTooltipProvider>
+  ),
+  parameters: {
+    docs: {
+      description: {
+        story: "Selected-block send picker coverage for an empty current session: New chat is the first row with This session meta and the project-level footer action is not duplicated.",
+      },
+    },
+  },
+};
+
+export const SendToThreadPickerThreadSection: Story = {
+  render: () => (
+    <NodexTooltipProvider>
+      <div className="flex min-h-screen items-start justify-center bg-token-editor-background p-12 text-token-foreground">
+        <NfmSendToThreadMenuSurface
+          projectId="default"
+          threads={STORY_SEND_TO_THREAD_THREADS}
+          projectNameById={{ default: "Default" }}
+          preferredTarget={STORY_SEND_TO_THREAD_THREADS[1]
+            ? {
+                kind: "thread",
+                thread: STORY_SEND_TO_THREAD_THREADS[1],
+                meta: "Current section",
+              }
+            : null}
+          showModeSelector={false}
+          onAccept={() => undefined}
+          onClose={() => undefined}
+        />
+      </div>
+    </NodexTooltipProvider>
+  ),
+  parameters: {
+    docs: {
+      description: {
+        story: "Thread-section send picker coverage where the bound section chat is the preferred first row and New chat remains fixed at the bottom.",
       },
     },
   },
@@ -499,7 +574,7 @@ export const SendToThreadPickerEmpty: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Empty search state keeps New chat available while explaining that no existing threads matched.",
+        story: "Empty search state keeps the bottom New chat action available while explaining that no existing threads matched.",
       },
     },
   },

@@ -1,4 +1,4 @@
-import { Check, Info, Plus, Search } from "lucide-react";
+import { Info, Plus, Search } from "lucide-react";
 import {
   useCallback,
   useDeferredValue,
@@ -24,12 +24,15 @@ import {
   moveNfmSendToThreadFocusedRowId,
   resolveNfmSendToThreadFocusedRowId,
   type NfmSendToThreadMode,
+  type NfmSendToThreadPreferredTarget,
   type NfmSendToThreadRequest,
   type NfmSendToThreadRow,
 } from "./nfm-send-to-thread-menu-model";
 
 interface NfmSendToThreadMenuProps {
   projectId: string | null;
+  projectNameById?: Readonly<Record<string, string>>;
+  preferredTarget?: NfmSendToThreadPreferredTarget | null;
   onAccept: (request: NfmSendToThreadRequest) => Promise<void> | void;
   onClose: () => void;
   showModeSelector?: boolean;
@@ -182,6 +185,8 @@ function SendToThreadRow({
 
 export function NfmSendToThreadMenu({
   projectId,
+  projectNameById,
+  preferredTarget = null,
   onAccept,
   onClose,
   showModeSelector = true,
@@ -192,6 +197,8 @@ export function NfmSendToThreadMenu({
     <NfmSendToThreadMenuSurface
       projectId={projectId}
       threads={threads}
+      projectNameById={projectNameById}
+      preferredTarget={preferredTarget}
       onAccept={onAccept}
       onClose={onClose}
       showModeSelector={showModeSelector}
@@ -202,6 +209,8 @@ export function NfmSendToThreadMenu({
 export function NfmSendToThreadMenuSurface({
   projectId,
   threads,
+  projectNameById,
+  preferredTarget = null,
   initialQuery = "",
   onAccept,
   onClose,
@@ -222,10 +231,21 @@ export function NfmSendToThreadMenuSurface({
   }, [initialQuery]);
 
   const rows = useMemo(
-    () => projectId
-      ? buildNfmSendToThreadRows({ threads, query: deferredQuery })
-      : [],
-    [deferredQuery, projectId, threads],
+    () => {
+      if (!projectId) return [];
+      const projectPreferredTarget = preferredTarget?.kind === "thread"
+        ? preferredTarget.thread.projectId === projectId
+          ? preferredTarget
+          : null
+        : preferredTarget;
+      return buildNfmSendToThreadRows({
+        threads,
+        query: deferredQuery,
+        preferredTarget: projectPreferredTarget,
+        projectNameById,
+      });
+    },
+    [deferredQuery, preferredTarget, projectId, projectNameById, threads],
   );
   const resolvedFocusedRowId = resolveNfmSendToThreadFocusedRowId(
     focusedRowId,
@@ -239,7 +259,10 @@ export function NfmSendToThreadMenuSurface({
     ? getSendToThreadRowDomId(listboxId, focusedIndex)
     : undefined;
   const disabled = Boolean(acceptingRowId) || !projectId;
-  const visibleThreadCount = rows.filter((row) => row.kind === "thread").length;
+  const rowEntries = rows.map((row, index) => ({ row, index }));
+  const mainRowEntries = rowEntries.filter(({ row }) => row.kind !== "new-thread" || !row.isFooterAction);
+  const footerRowEntry = rowEntries.find(({ row }) => row.kind === "new-thread" && row.isFooterAction);
+  const visibleMainRowCount = mainRowEntries.length;
 
   const handleModeChange = useCallback((nextMode: NfmSendToThreadMode) => {
     setMode(writeNfmSendToThreadMode(nextMode));
@@ -333,14 +356,14 @@ export function NfmSendToThreadMenuSurface({
           onModeChange={handleModeChange}
         />
       ) : null}
-      <div className="notion-scroller vertical h-[340px] min-h-0 overflow-y-auto pb-3">
-        <div id={listboxId} role="listbox" aria-labelledby={comboboxId}>
+      <div id={listboxId} role="listbox" aria-labelledby={comboboxId} className="flex h-[340px] min-h-0 flex-col">
+        <div className="notion-scroller vertical min-h-0 flex-1 overflow-y-auto pb-1">
           <div className="pb-1">
             <div className="flex h-7 items-end px-[14px] pb-1 pt-3 text-[12px] leading-4 font-medium text-token-description-foreground">
               <span className="min-w-0 flex-1 truncate">Destination</span>
             </div>
             <div className="flex flex-col gap-px px-1">
-              {rows.map((row, index) => (
+              {mainRowEntries.map(({ row, index }) => (
                 <SendToThreadRow
                   key={row.id}
                   row={row}
@@ -360,16 +383,30 @@ export function NfmSendToThreadMenuSurface({
           {!projectId ? (
             <SendToThreadStatusRow>No project selected</SendToThreadStatusRow>
           ) : null}
-          {projectId && visibleThreadCount === 0 ? (
-            <SendToThreadStatusRow>
-              <Check className="mr-2 size-3.5 text-token-description-foreground" />
-              New chat is available
-            </SendToThreadStatusRow>
+          {projectId && visibleMainRowCount === 0 ? (
+            <SendToThreadStatusRow>{deferredQuery.trim() ? "No matching chats" : "No chats yet"}</SendToThreadStatusRow>
           ) : null}
           {acceptError ? (
             <SendToThreadStatusRow>{acceptError}</SendToThreadStatusRow>
           ) : null}
         </div>
+        {projectId && footerRowEntry ? (
+          <div className="shrink-0 px-1 pb-1 pt-1">
+            <div className="mb-1 h-px w-full bg-token-menu-border" />
+            <SendToThreadRow
+              row={footerRowEntry.row}
+              index={footerRowEntry.index}
+              listboxId={listboxId}
+              focused={focusedIndex === footerRowEntry.index}
+              disabled={disabled}
+              accepting={acceptingRowId === footerRowEntry.row.id}
+              onAccept={(acceptedRow) => {
+                void acceptRow(acceptedRow);
+              }}
+              onFocusRowChange={setFocusedRowId}
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   );

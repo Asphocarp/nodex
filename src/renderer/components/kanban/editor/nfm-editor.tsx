@@ -73,7 +73,10 @@ import { NfmSideMenu, NfmSideMenuOpenProvider, NfmSideMenuShortcutController } f
 import type { NfmMoveToDestination } from "./nfm-move-to-menu-model";
 import { buildCodexPromptInputFromBlockNoteBlocks } from "./nfm-codex-prompt-input";
 import { createSendToThreadToggleBlock } from "./nfm-send-to-thread-block";
-import type { NfmSendToThreadRequest } from "./nfm-send-to-thread-menu-model";
+import type {
+  NfmSendToThreadPreferredTarget,
+  NfmSendToThreadRequest,
+} from "./nfm-send-to-thread-menu-model";
 import { NfmSendToThreadMenuSurface } from "./nfm-send-to-thread-menu";
 import { NfmSideMenuRuntimeProvider } from "./nfm-side-menu-runtime";
 import { resolveSendBlockSelection } from "./send-block-selection";
@@ -194,6 +197,7 @@ interface ActiveChipEdit {
 
 interface NfmEditorProps {
   projectId: string;
+  projectName?: string | null;
   projectWorkspacePath?: string | null;
   content: string;
   onChange: (nfm: string) => void;
@@ -203,10 +207,14 @@ interface NfmEditorProps {
     cardId: string;
     columnId: string;
   };
+  sessionId?: string | null;
+  sessionThread?: CodexThreadSummary | null;
+  canStartThreadInSession?: boolean;
   linkedCodexThreads?: CardStageLinkedThread[];
   onOpenCodexThread?: (threadId: string) => Promise<void>;
   onStartNewSessionThreadFromEditor?: (input: {
     projectId: string;
+    targetSessionId?: string;
     prompt: string;
     promptInput?: CodexPromptInput;
     threadName?: string;
@@ -295,6 +303,35 @@ interface PreparedThreadSectionSendRequest {
 interface ThreadSectionPickerState {
   request: PreparedThreadSectionSendRequest;
   anchorRect: DOMRect;
+  preferredTarget: NfmSendToThreadPreferredTarget | null;
+}
+
+function isAvailableNfmSendToThreadPreferredTargetThread(
+  thread: CodexThreadSummary | null | undefined,
+): thread is CodexThreadSummary {
+  return Boolean(thread && !thread.archived && thread.ephemeral !== true);
+}
+
+function createNfmSendToThreadPreferredTargetFromThread(
+  thread: CodexThreadSummary | null | undefined,
+  meta: string,
+): NfmSendToThreadPreferredTarget | null {
+  if (!isAvailableNfmSendToThreadPreferredTargetThread(thread)) return null;
+  return { kind: "thread", thread, meta };
+}
+
+function createNfmSendToThreadPreferredSessionTarget(
+  sessionId: string | null | undefined,
+  canStartThreadInSession: boolean,
+): NfmSendToThreadPreferredTarget | null {
+  if (!canStartThreadInSession) return null;
+  const normalizedSessionId = sessionId?.trim();
+  if (!normalizedSessionId) return null;
+  return {
+    kind: "new-thread",
+    sessionId: normalizedSessionId,
+    meta: "This session",
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -465,12 +502,16 @@ function isBoardSummary(value: unknown): value is BoardSummary {
 
 export function NfmEditor({
   projectId,
+  projectName = null,
   projectWorkspacePath,
   content,
   onChange,
   onBlur,
   flushHandleRef,
   sourceCardContext,
+  sessionId = null,
+  sessionThread = null,
+  canStartThreadInSession = false,
   linkedCodexThreads = [],
   onOpenCodexThread,
   onStartNewSessionThreadFromEditor,
@@ -538,6 +579,18 @@ export function NfmEditor({
       return acc;
     }, {}),
     [projectThreadSummaries],
+  );
+
+  const sessionSendToThreadPreferredTarget = useMemo(
+    () => createNfmSendToThreadPreferredTargetFromThread(sessionThread, "This session")
+      ?? createNfmSendToThreadPreferredSessionTarget(sessionId, canStartThreadInSession),
+    [canStartThreadInSession, sessionId, sessionThread],
+  );
+  const sendToThreadProjectNameById = useMemo(
+    () => ({
+      [projectId]: projectName?.trim() || projectId,
+    }),
+    [projectId, projectName],
   );
 
   const threadMentionSummaryMap = useMemo(
@@ -882,6 +935,17 @@ export function NfmEditor({
     setThreadSectionPicker(null);
   }, []);
 
+  const resolveThreadSectionPreferredThread = useCallback((
+    request: PreparedThreadSectionSendRequest,
+  ): NfmSendToThreadPreferredTarget | null => {
+    const sectionThread = request.threadId.length > 0
+      ? projectThreadSummaryMap[request.threadId]
+        ?? (sessionThread?.threadId === request.threadId ? sessionThread : undefined)
+      : undefined;
+    return createNfmSendToThreadPreferredTargetFromThread(sectionThread, "Current section")
+      ?? sessionSendToThreadPreferredTarget;
+  }, [projectThreadSummaryMap, sessionThread, sessionSendToThreadPreferredTarget]);
+
   const withPendingThreadSection = useCallback(async (
     blockId: string,
     action: () => Promise<void>,
@@ -952,11 +1016,12 @@ export function NfmEditor({
         const threadId = sendRequest.target.kind === "thread"
           ? sendRequest.target.threadId
           : (await startNewSessionThread!({
-              projectId,
-              prompt: request.prompt,
-              promptInput: request.promptInput,
-              threadName: request.sectionTitle,
-            })).threadId;
+            projectId,
+            targetSessionId: sendRequest.target.sessionId,
+            prompt: request.prompt,
+            promptInput: request.promptInput,
+            threadName: request.sectionTitle,
+          })).threadId;
 
         if (sendRequest.target.kind === "thread") {
           await sendExistingThreadPrompt!({
@@ -1030,6 +1095,7 @@ export function NfmEditor({
       setThreadSectionPicker({
         request: sendRequest,
         anchorRect: anchorElement.getBoundingClientRect(),
+        preferredTarget: resolveThreadSectionPreferredThread(sendRequest),
       });
     })();
 
@@ -1038,6 +1104,7 @@ export function NfmEditor({
     editor,
     onSendThreadSectionPrompt,
     prepareThreadSectionSend,
+    resolveThreadSectionPreferredThread,
   ]);
 
   const threadSectionRuntimeValue = useMemo<ThreadSectionRuntimeValue>(() => ({
@@ -1955,18 +2022,20 @@ export function NfmEditor({
         return;
       }
 
-      const threadId = request.target.kind === "thread"
-        ? request.target.threadId
-        : (await (async () => {
-            if (!onStartNewSessionThreadFromEditor) {
-              throw new Error("New chat creation is not available.");
-            }
-            return onStartNewSessionThreadFromEditor({
-              projectId,
-              prompt: promptInput.text,
-              promptInput,
-            });
-          })()).threadId;
+      let threadId: string;
+      if (request.target.kind === "thread") {
+        threadId = request.target.threadId;
+      } else {
+        if (!onStartNewSessionThreadFromEditor) {
+          throw new Error("New chat creation is not available.");
+        }
+        threadId = (await onStartNewSessionThreadFromEditor({
+          projectId,
+          targetSessionId: request.target.sessionId,
+          prompt: promptInput.text,
+          promptInput,
+        })).threadId;
+      }
 
       if (request.target.kind === "thread") {
         await codexControl.startTurn(threadId, promptInput.text, {
@@ -2396,6 +2465,8 @@ export function NfmEditor({
       canSendBlocks: sourceCardContext !== undefined,
       sourceProjectId: sourceCardContext ? projectId : null,
       sourceCardId: sourceCardContext?.cardId ?? null,
+      sendToThreadProjectNameById,
+      sendToThreadPreferredTarget: sessionSendToThreadPreferredTarget,
       onMoveBlocksToDestination: moveBlocksToDestination,
       onSendBlocksToThread: sendBlocksToThread,
       onSendThreadSection: handleSendThreadSectionByBlockId,
@@ -2406,7 +2477,9 @@ export function NfmEditor({
       handleSendThreadSectionByBlockId,
       moveBlocksToDestination,
       projectId,
+      sendToThreadProjectNameById,
       sendBlocksToThread,
+      sessionSendToThreadPreferredTarget,
       sourceCardContext,
     ],
   );
@@ -2578,6 +2651,8 @@ export function NfmEditor({
             <NfmSendToThreadMenuSurface
               projectId={projectId}
               threads={projectThreadSummaries}
+              projectNameById={sendToThreadProjectNameById}
+              preferredTarget={threadSectionPicker.preferredTarget}
               onAccept={handleAcceptThreadSectionPicker}
               onClose={closeThreadSectionPicker}
               showModeSelector={false}

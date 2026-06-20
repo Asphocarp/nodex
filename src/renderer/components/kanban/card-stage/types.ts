@@ -39,6 +39,7 @@ export interface CardStageProps {
   columnId: string;
   columnName: string;
   projectId: string;
+  projectName?: string | null;
   projectWorkspacePath?: string | null;
   availableTags: string[];
   onUpdate: (
@@ -58,6 +59,9 @@ export interface CardStageProps {
   onColumnIdChange?: (columnId: string) => void;
   onOpenTerminalPanel?: () => void;
   onToggleHistoryPanel?: () => void;
+  sessionId?: string | null;
+  sessionThread?: CodexThreadSummary | null;
+  canStartThreadInSession?: boolean;
   linkedCodexThreads?: CardStageLinkedThread[];
   onOpenCodexThread?: (threadId: string) => Promise<void>;
   onOpenNewCodexThread?: () => void;
@@ -67,6 +71,7 @@ export interface CardStageProps {
   }) => void;
   onStartNewSessionThreadFromEditor?: (input: {
     projectId: string;
+    targetSessionId?: string;
     prompt: string;
     promptInput?: CodexPromptInput;
     threadName?: string;

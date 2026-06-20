@@ -163,6 +163,7 @@ function renderTextActionMenu(
         ]}
         sourceProjectId="default"
         sourceCardId="source-card"
+        sendToThreadProjectNameById={{ default: "Default" }}
         onSelectBlockType={(item) => {
           actions.blockTypes.push(item.key);
         }}
@@ -267,7 +268,17 @@ describe("nfm text action menu surface", () => {
   });
 
   test("opens the send-to-chat picker and submits thread and new-thread targets", async () => {
+    const existingThread = SEND_TO_THREAD_THREADS[0];
+    if (!existingThread) {
+      throw new Error("missing send-to-thread fixture");
+    }
+
     const { actions, view } = renderTextActionMenu({
+      sendToThreadPreferredTarget: {
+        kind: "thread",
+        thread: existingThread,
+        meta: "This session",
+      },
       renderSendToThreadMenu: (props) => (
         <NfmSendToThreadMenuSurface
           {...props}
@@ -285,6 +296,10 @@ describe("nfm text action menu surface", () => {
     expect(Boolean(view.getByRole("combobox", { name: "Search threads" }))).toBeTrue();
     expect(view.getByRole("button", { name: "Send" }).getAttribute("aria-pressed")).toBe("true");
     expect(view.getByRole("button", { name: "Send & wrap" }).getAttribute("aria-pressed")).toBe("false");
+    const initialOptions = view.getAllByRole("option");
+    expect(initialOptions[0]?.textContent?.includes("Existing implementation") ?? false).toBeTrue();
+    expect(initialOptions[0]?.textContent?.includes("This session") ?? false).toBeTrue();
+    expect(initialOptions[initialOptions.length - 1]?.textContent?.includes("New chat") ?? false).toBeTrue();
 
     await act(async () => {
       fireEvent.pointerMove(view.getByRole("button", { name: "Send & wrap" }));
@@ -341,6 +356,205 @@ describe("nfm text action menu surface", () => {
     });
     expect(actions.sendRequests[1]?.mode).toBe("send");
     expect(actions.sendRequests[1]?.target.kind).toBe("new-thread");
+  });
+
+  test("selected-block picker displays the current session hint and keeps New chat at the bottom", async () => {
+    const existingThread = SEND_TO_THREAD_THREADS[0];
+    if (!existingThread) {
+      throw new Error("missing send-to-thread fixture");
+    }
+
+    const view = render(
+      <NodexTooltipProvider>
+        <NfmSendToThreadMenuSurface
+          projectId="default"
+          threads={[
+            {
+              ...existingThread,
+              updatedAt: 1,
+            },
+            {
+              ...existingThread,
+              threadId: "thread-newer",
+              threadName: "Recently updated",
+              updatedAt: 5,
+            },
+          ]}
+          projectNameById={{ default: "Default" }}
+          preferredTarget={{
+            kind: "thread",
+            thread: {
+              ...existingThread,
+              updatedAt: 1,
+            },
+            meta: "This session",
+          }}
+          onAccept={() => undefined}
+          onClose={() => undefined}
+        />
+      </NodexTooltipProvider>,
+    );
+    await settleAsyncRender();
+
+    const options = view.getAllByRole("option");
+    expect(options.length).toBe(3);
+    expect(options[0]?.textContent?.includes("Existing implementation") ?? false).toBeTrue();
+    expect(options[0]?.textContent?.includes("This session") ?? false).toBeTrue();
+    expect(options[1]?.textContent?.includes("Recently updated") ?? false).toBeTrue();
+    expect(options[1]?.textContent?.includes("Default") ?? false).toBeTrue();
+    expect(options[2]?.textContent?.includes("New chat") ?? false).toBeTrue();
+  });
+
+  test("selected-block picker displays current session new chat first when the session has no thread", async () => {
+    const existingThread = SEND_TO_THREAD_THREADS[0];
+    if (!existingThread) {
+      throw new Error("missing send-to-thread fixture");
+    }
+    const acceptedRequests: string[] = [];
+
+    const view = render(
+      <NodexTooltipProvider>
+        <NfmSendToThreadMenuSurface
+          projectId="default"
+          threads={[
+            {
+              ...existingThread,
+              threadId: "thread-newer",
+              threadName: "Recently updated",
+              updatedAt: 5,
+            },
+          ]}
+          projectNameById={{ default: "Default" }}
+          preferredTarget={{
+            kind: "new-thread",
+            sessionId: "session-current",
+            meta: "This session",
+          }}
+          onAccept={(request) => {
+            acceptedRequests.push(JSON.stringify(request.target));
+          }}
+          onClose={() => undefined}
+        />
+      </NodexTooltipProvider>,
+    );
+    await settleAsyncRender();
+
+    const options = view.getAllByRole("option");
+    expect(options.length).toBe(2);
+    expect(options[0]?.textContent?.includes("New chat") ?? false).toBeTrue();
+    expect(options[0]?.textContent?.includes("This session") ?? false).toBeTrue();
+    expect(options[1]?.textContent?.includes("Recently updated") ?? false).toBeTrue();
+
+    await act(async () => {
+      fireEvent.click(options[0] as HTMLElement);
+      await settleAsyncRender();
+    });
+    expect(acceptedRequests.join(",")).toBe('{"kind":"new-thread","sessionId":"session-current"}');
+  });
+
+  test("thread-section picker displays the bound section hint before the session thread", async () => {
+    const existingThread = SEND_TO_THREAD_THREADS[0];
+    if (!existingThread) {
+      throw new Error("missing send-to-thread fixture");
+    }
+
+    const sectionThread = {
+      ...existingThread,
+      threadId: "thread-section",
+      threadName: "Section follow-up",
+      updatedAt: 1,
+    };
+    const sessionThread = {
+      ...existingThread,
+      threadId: "thread-session",
+      threadName: "Session chat",
+      updatedAt: 10,
+    };
+
+    const view = render(
+      <NodexTooltipProvider>
+        <NfmSendToThreadMenuSurface
+          projectId="default"
+          threads={[sessionThread, sectionThread]}
+          projectNameById={{ default: "Default" }}
+          preferredTarget={{
+            kind: "thread",
+            thread: sectionThread,
+            meta: "Current section",
+          }}
+          showModeSelector={false}
+          onAccept={() => undefined}
+          onClose={() => undefined}
+        />
+      </NodexTooltipProvider>,
+    );
+    await settleAsyncRender();
+
+    const options = view.getAllByRole("option");
+    expect(options.length).toBe(3);
+    expect(options[0]?.textContent?.includes("Section follow-up") ?? false).toBeTrue();
+    expect(options[0]?.textContent?.includes("Current section") ?? false).toBeTrue();
+    expect(options[1]?.textContent?.includes("Session chat") ?? false).toBeTrue();
+    expect(options[2]?.textContent?.includes("New chat") ?? false).toBeTrue();
+  });
+
+  test("thread-section picker can fall back to the current session new chat target", async () => {
+    const existingThread = SEND_TO_THREAD_THREADS[0];
+    if (!existingThread) {
+      throw new Error("missing send-to-thread fixture");
+    }
+
+    const view = render(
+      <NodexTooltipProvider>
+        <NfmSendToThreadMenuSurface
+          projectId="default"
+          threads={[
+            {
+              ...existingThread,
+              threadId: "thread-session-other",
+              threadName: "Other session",
+              updatedAt: 10,
+            },
+          ]}
+          projectNameById={{ default: "Default" }}
+          preferredTarget={{
+            kind: "new-thread",
+            sessionId: "session-current",
+            meta: "This session",
+          }}
+          showModeSelector={false}
+          onAccept={() => undefined}
+          onClose={() => undefined}
+        />
+      </NodexTooltipProvider>,
+    );
+    await settleAsyncRender();
+
+    const options = view.getAllByRole("option");
+    expect(options.length).toBe(2);
+    expect(options[0]?.textContent?.includes("New chat") ?? false).toBeTrue();
+    expect(options[0]?.textContent?.includes("This session") ?? false).toBeTrue();
+    expect(options[1]?.textContent?.includes("Other session") ?? false).toBeTrue();
+  });
+
+  test("keeps New chat available at the bottom for empty search results", async () => {
+    const view = render(
+      <NodexTooltipProvider>
+        <NfmSendToThreadMenuSurface
+          projectId="default"
+          threads={SEND_TO_THREAD_THREADS}
+          initialQuery="nothing matches"
+          onAccept={() => undefined}
+          onClose={() => undefined}
+        />
+      </NodexTooltipProvider>,
+    );
+    await settleAsyncRender();
+
+    expect(Boolean(view.getByText("No matching chats"))).toBeTrue();
+    const options = view.getAllByRole("option");
+    expect(options.length).toBe(1);
+    expect(options[0]?.textContent?.includes("New chat") ?? false).toBeTrue();
   });
 
   test("initializes the send-to-chat picker mode from persisted app preference", async () => {

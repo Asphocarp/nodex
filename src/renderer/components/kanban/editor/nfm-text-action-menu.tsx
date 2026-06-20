@@ -81,7 +81,10 @@ import {
 import { NfmMoveToMenu } from "./nfm-move-to-menu";
 import type { NfmMoveToDestination, NfmMoveToResultScope } from "./nfm-move-to-menu-model";
 import { NfmSendToThreadMenu } from "./nfm-send-to-thread-menu";
-import type { NfmSendToThreadRequest } from "./nfm-send-to-thread-menu-model";
+import type {
+  NfmSendToThreadPreferredTarget,
+  NfmSendToThreadRequest,
+} from "./nfm-send-to-thread-menu-model";
 import { useNfmSideMenuOpenController } from "./nfm-side-menu";
 import type { NfmSideMenuRect } from "./nfm-side-menu-position";
 import {
@@ -132,6 +135,8 @@ interface TextActionMoveToMenuRenderProps {
 
 interface TextActionSendToThreadMenuRenderProps {
   projectId: string | null;
+  projectNameById?: Readonly<Record<string, string>>;
+  preferredTarget?: NfmSendToThreadPreferredTarget | null;
   onAccept: (request: NfmSendToThreadRequest) => Promise<void> | void;
   onClose: () => void;
 }
@@ -172,6 +177,8 @@ export interface NfmTextActionMenuSurfaceProps {
   nodexRows: TextActionNodexRow[];
   sourceProjectId?: string | null;
   sourceCardId?: string | null;
+  sendToThreadProjectNameById?: Readonly<Record<string, string>>;
+  sendToThreadPreferredTarget?: NfmSendToThreadPreferredTarget | null;
   onSelectBlockType: (item: TextActionBlockTypeItem) => void;
   onToggleStyle: (style: TextActionBasicStyle) => void;
   onSetTextColor: (color: TextActionColorValue) => void;
@@ -1151,6 +1158,8 @@ function TextActionMoveToRow({
 function TextActionSendToThreadRow({
   row,
   projectId,
+  projectNameById,
+  preferredTarget,
   onSendBlocksToThread,
   renderSendToThreadMenu,
   open,
@@ -1158,6 +1167,8 @@ function TextActionSendToThreadRow({
 }: {
   row: TextActionNodexRow;
   projectId: string | null;
+  projectNameById?: Readonly<Record<string, string>>;
+  preferredTarget?: NfmSendToThreadPreferredTarget | null;
   onSendBlocksToThread?: (request: NfmSendToThreadRequest) => Promise<void> | void;
   renderSendToThreadMenu?: (props: TextActionSendToThreadMenuRenderProps) => ReactNode;
   open: boolean;
@@ -1175,6 +1186,8 @@ function TextActionSendToThreadRow({
 
   const menuProps: TextActionSendToThreadMenuRenderProps = {
     projectId,
+    projectNameById,
+    preferredTarget,
     onAccept: async (request) => {
       if (!onSendBlocksToThread) return;
       await onSendBlocksToThread(request);
@@ -1234,6 +1247,8 @@ function TextActionAiPane({
   nodexRows,
   sourceProjectId,
   sourceCardId,
+  sendToThreadProjectNameById,
+  sendToThreadPreferredTarget,
   onNodexRow,
   onMoveBlocksToDestination,
   onSendBlocksToThread,
@@ -1244,6 +1259,8 @@ function TextActionAiPane({
   | "nodexRows"
   | "sourceProjectId"
   | "sourceCardId"
+  | "sendToThreadProjectNameById"
+  | "sendToThreadPreferredTarget"
   | "onNodexRow"
   | "onMoveBlocksToDestination"
   | "onSendBlocksToThread"
@@ -1267,6 +1284,8 @@ function TextActionAiPane({
                     key={row.key}
                     row={row}
                     projectId={sourceProjectId ?? null}
+                    projectNameById={sendToThreadProjectNameById}
+                    preferredTarget={sendToThreadPreferredTarget ?? null}
                     onSendBlocksToThread={onSendBlocksToThread}
                     renderSendToThreadMenu={renderSendToThreadMenu}
                     open={activePopover === "send-to-thread"}
@@ -1351,6 +1370,8 @@ export function NfmTextActionMenuSurface({
   nodexRows,
   sourceProjectId = null,
   sourceCardId = null,
+  sendToThreadProjectNameById,
+  sendToThreadPreferredTarget = null,
   onSelectBlockType,
   onToggleStyle,
   onSetTextColor,
@@ -1475,6 +1496,8 @@ export function NfmTextActionMenuSurface({
           nodexRows={nodexRows}
           sourceProjectId={sourceProjectId}
           sourceCardId={sourceCardId}
+          sendToThreadProjectNameById={sendToThreadProjectNameById}
+          sendToThreadPreferredTarget={sendToThreadPreferredTarget}
           onNodexRow={onNodexRow}
           onMoveBlocksToDestination={onMoveBlocksToDestination}
           onSendBlocksToThread={onSendBlocksToThread}
@@ -1614,6 +1637,8 @@ export function NfmTextActionMenu({ fallback }: { fallback: ReactNode }) {
       nodexRows={nodexRows}
       sourceProjectId={runtime.sourceProjectId ?? null}
       sourceCardId={runtime.sourceCardId ?? null}
+      sendToThreadProjectNameById={runtime.sendToThreadProjectNameById}
+      sendToThreadPreferredTarget={runtime.sendToThreadPreferredTarget ?? null}
       onSelectBlockType={selectBlockType}
       onToggleStyle={toggleStyle}
       onSetTextColor={setTextColor}
