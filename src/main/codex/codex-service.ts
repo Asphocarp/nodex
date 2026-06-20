@@ -198,15 +198,13 @@ import {
   convertImmerPatchesToCodexConversationStateUpdates,
 } from "../../shared/codex-conversation-patches";
 import { resolveCodexRuntime, type ResolvedCodexRuntime } from "./codex-runtime";
-import { CodexThreadTitleStateStore } from "./thread-title-state";
-import { normalizeCodexManualThreadTitle } from "../../shared/codex-thread-title";
+import {
+  normalizeCodexGeneratedThreadTitle,
+  normalizeCodexManualThreadTitle,
+} from "../../shared/codex-thread-title";
 import {
   buildThreadTitleGenerationPrompt,
   parseGeneratedThreadTitleResponse,
-  THREAD_TITLE_MODEL,
-  THREAD_TITLE_REASONING_EFFORT,
-  THREAD_TITLE_SCHEMA,
-  THREAD_TITLE_TIMEOUT_MS,
 } from "./thread-title-generator";
 import {
   listWorktreeEnvironmentOptions,
@@ -304,11 +302,6 @@ interface StructuredThreadTitleClient {
 interface RunStructuredThreadTitleInput {
   prompt: string;
   cwd: string | null;
-  model: string;
-  effort: CodexReasoningEffort | null;
-  schema: Record<string, unknown>;
-  config: Record<string, unknown> | null;
-  timeoutMs?: number;
   client: StructuredThreadTitleClient;
   parse: (raw: string | null | undefined) => string | null;
 }
@@ -1485,7 +1478,6 @@ export class CodexService extends EventEmitter {
   private readonly outputDeltaQueue = new OutputDeltaQueue((updates) => {
     this.applyOutputDeltas(updates);
   });
-  private readonly threadTitleState = new CodexThreadTitleStateStore(getKanbanDir());
   private readonly dictationService = new CodexDictationService({
     readConfig: async () => await this.readConfigForDictation(),
     readAuthStatus: async (input) => await this.readAuthStatusForDictation(input),
@@ -1502,7 +1494,6 @@ export class CodexService extends EventEmitter {
   private accountSnapshot: CodexAccountSnapshot = emptyAccountSnapshot();
   private syntheticItemIdCounter = 0;
   private lastConnectionStatus: CodexConnectionState["status"] = "disconnected";
-  private threadTitleBackfillPromise: Promise<void> | null = null;
   private rateLimitsPollHandle: ReturnType<typeof setInterval> | null = null;
   private rateLimitsPollInFlight = false;
 
@@ -1530,9 +1521,6 @@ export class CodexService extends EventEmitter {
       this.lastConnectionStatus = connection.status;
       this.emitEvent({ type: "connection", connection });
       this.syncRateLimitsPolling();
-      if (connection.status === "connected") {
-        void this.backfillPendingThreadTitles();
-      }
       if (connection.status === "connected" && connection.retries > 0 && !wasConnected) {
         this.markConversationsNeedResumeAfterReconnect();
       }
@@ -2752,7 +2740,6 @@ export class CodexService extends EventEmitter {
 
   private async ensureClientReady(): Promise<void> {
     await this.client.start();
-    await this.backfillPendingThreadTitles();
   }
 
   async readAccountSnapshot(): Promise<CodexAccountSnapshot> {
@@ -3217,11 +3204,16 @@ export class CodexService extends EventEmitter {
       }
       : splitPromptTextAndAgentConfigLines(prompt);
     const promptText = parsedPrompt.text.trim();
+    const textAttachmentItems = (promptInput?.textAttachments ?? [])
+      .map((attachment) => attachment.text.trim())
+      .filter((text) => text.length > 0)
+      .map((text) => createTextUserInput(text));
     const imageItems = (promptInput?.images ?? []).map((image) => this.resolvePromptImageInput(image.source));
     const mentionItems = (promptInput?.mentions ?? []).map((mention) => this.resolvePromptMentionInput(mention));
     const skillItems = (promptInput?.skills ?? []).map((skill) => this.resolvePromptSkillInput(skill));
     const inputItems: CodexUserInputItem[] = [
       ...(promptText ? [createTextUserInput(promptText)] : []),
+      ...textAttachmentItems,
       ...imageItems,
       ...mentionItems,
       ...skillItems,
@@ -4792,10 +4784,6 @@ export class CodexService extends EventEmitter {
       linkedAt: existing?.linkedAt,
     });
 
-    if (summary?.threadName?.trim()) {
-      this.threadTitleState.setTitle(summary.threadId, summary.threadName);
-    }
-
     return summary;
   }
 
@@ -4830,10 +4818,6 @@ export class CodexService extends EventEmitter {
     });
 
     const summary = sessionThreadLinkToSummary(link);
-    if (summary.threadName?.trim()) {
-      this.threadTitleState.setTitle(summary.threadId, summary.threadName);
-    }
-
     return summary;
   }
 
@@ -4848,7 +4832,6 @@ export class CodexService extends EventEmitter {
       return;
     }
 
-    this.threadTitleState.setTitle(normalizedThreadId, normalizedTitle);
     this.emitHostMessage({
       type: "threadTitleUpdated",
       hostId: DEFAULT_CODEX_HOST_ID,
@@ -4857,52 +4840,10 @@ export class CodexService extends EventEmitter {
     });
   }
 
-  private async backfillPendingThreadTitles(): Promise<void> {
-    if (this.threadTitleBackfillPromise) {
-      return this.threadTitleBackfillPromise;
-    }
-
-    this.threadTitleBackfillPromise = (async () => {
-      const pendingBackfill = this.threadTitleState.readPendingBackfill();
-      if (pendingBackfill.order.length === 0) {
-        return;
-      }
-
-      const completedThreadIds: string[] = [];
-      for (const threadId of pendingBackfill.order) {
-        const title = pendingBackfill.titles[threadId];
-        if (!title) {
-          continue;
-        }
-
-        try {
-          await this.client.request("thread/name/set", {
-            threadId,
-            name: title,
-          });
-          completedThreadIds.push(threadId);
-        } catch (error) {
-          this.logger.warn("Could not backfill cached thread title", {
-            threadId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
-
-      this.threadTitleState.clearPendingBackfill(completedThreadIds);
-    })().finally(() => {
-      this.threadTitleBackfillPromise = null;
-    });
-
-    return this.threadTitleBackfillPromise;
-  }
-
   private async runStructuredThreadTitle(input: RunStructuredThreadTitleInput): Promise<string | null> {
-    const timeoutMs = input.timeoutMs ?? THREAD_TITLE_TIMEOUT_MS;
     return await new Promise<string | null>((resolve, reject) => {
       let isSettled = false;
       let bufferedAssistantText = "";
-      let timeoutHandle: NodeJS.Timeout | null = null;
       let activeThreadId: string | null = null;
       let activeTurnId: string | null = null;
       let unsubscribe: (() => void) | null = null;
@@ -4910,10 +4851,6 @@ export class CodexService extends EventEmitter {
       const complete = (title: string | null) => {
         if (isSettled) return;
         isSettled = true;
-        if (timeoutHandle) {
-          clearTimeout(timeoutHandle);
-          timeoutHandle = null;
-        }
         if (unsubscribe) {
           unsubscribe();
           unsubscribe = null;
@@ -4924,10 +4861,6 @@ export class CodexService extends EventEmitter {
       const fail = (error: unknown) => {
         if (isSettled) return;
         isSettled = true;
-        if (timeoutHandle) {
-          clearTimeout(timeoutHandle);
-          timeoutHandle = null;
-        }
         if (unsubscribe) {
           unsubscribe();
           unsubscribe = null;
@@ -5046,25 +4979,14 @@ export class CodexService extends EventEmitter {
         }
       });
 
-      timeoutHandle = setTimeout(() => {
-        if (activeThreadId && activeTurnId) {
-          void input.client.interruptTurn({ threadId: activeThreadId, turnId: activeTurnId }).catch(() => undefined);
-        }
-        fail(new Error("Timed out while generating thread title"));
-      }, timeoutMs);
-
       void (async () => {
-        const threadConfig = input.effort === null
-          ? (input.config ?? null)
-          : { ...(input.config ?? {}), model_reasoning_effort: input.effort };
-
         const startedThread = await input.client.startThread({
-          model: input.model,
+          model: null,
           modelProvider: null,
           cwd: input.cwd,
           approvalPolicy: "never",
           sandbox: "read-only",
-          config: threadConfig,
+          config: null,
           baseInstructions: null,
           developerInstructions: null,
           personality: null,
@@ -5088,7 +5010,7 @@ export class CodexService extends EventEmitter {
           effort: null,
           summary: "auto",
           personality: null,
-          outputSchema: input.schema,
+          outputSchema: null,
           collaborationMode: null,
         });
 
@@ -5116,11 +5038,6 @@ export class CodexService extends EventEmitter {
     return await this.runStructuredThreadTitle({
       prompt: titlePrompt,
       cwd: input.cwd,
-      model: THREAD_TITLE_MODEL,
-      effort: THREAD_TITLE_REASONING_EFFORT,
-      schema: THREAD_TITLE_SCHEMA,
-      config: { web_search: "disabled" },
-      timeoutMs: THREAD_TITLE_TIMEOUT_MS,
       client: input.client,
       parse: parseGeneratedThreadTitleResponse,
     });
@@ -5161,11 +5078,16 @@ export class CodexService extends EventEmitter {
     prompt: string;
     cwd: string | null;
   }): Promise<{ title: string | null }> {
-    await this.ensureClientReady();
-    const title = await this.generateThreadTitleForPrompt(input.prompt, input.cwd);
-    return {
-      title,
-    };
+    try {
+      await this.ensureClientReady();
+      const title = await this.generateThreadTitleForPrompt(input.prompt, input.cwd);
+      return { title };
+    } catch (error) {
+      this.logger.warn("Failed to generate thread title", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { title: null };
+    }
   }
 
   async startThreadForSession(input: CodexThreadStartForSessionInput): Promise<CodexThreadDetail> {
@@ -5184,7 +5106,9 @@ export class CodexService extends EventEmitter {
     const effectiveModel = preparedPrompt.agentConfigOverrides.model ?? input.model;
     const effectiveReasoningEffort = preparedPrompt.agentConfigOverrides.reasoningEffort ?? input.reasoningEffort;
     const effectiveCollaborationMode = preparedPrompt.agentConfigOverrides.collaborationMode ?? input.collaborationMode;
-    const explicitThreadName = input.threadName?.trim() || null;
+    const explicitThreadName = input.threadName
+      ? normalizeCodexManualThreadTitle(input.threadName)
+      : null;
     const startedAt = Date.now();
     const hasThreadStartProgress = input.runInTarget === "newWorktree";
 
@@ -5890,6 +5814,7 @@ export class CodexService extends EventEmitter {
       : undefined;
     const hasInitialPrompt = Boolean(
       input.prompt?.trim()
+      || promptInput?.textAttachments?.some((attachment) => attachment.text.trim().length > 0)
       || promptInput?.images?.length
       || promptInput?.mentions?.length
       || promptInput?.skills?.length,
@@ -5949,6 +5874,28 @@ export class CodexService extends EventEmitter {
   async setThreadName(threadId: string, name: string): Promise<boolean> {
     await this.ensureClientReady();
     const normalizedName = normalizeCodexManualThreadTitle(name);
+    if (!normalizedName) {
+      return false;
+    }
+
+    await this.client.request("thread/name/set", {
+      threadId,
+      name: normalizedName,
+    });
+
+    this.emitThreadTitleUpdated(threadId, normalizedName);
+    updateCodexThreadName(threadId, normalizedName);
+    const updated = this.getThreadLinkSafely(threadId);
+    if (updated) {
+      this.emitEvent({ type: "threadSummary", thread: updated });
+    }
+    this.syncBroadcastConversationSummary(threadId, { syncCapabilityFlags: true });
+    return true;
+  }
+
+  async setGeneratedThreadName(threadId: string, name: string): Promise<boolean> {
+    await this.ensureClientReady();
+    const normalizedName = normalizeCodexGeneratedThreadTitle(name);
     if (!normalizedName) {
       return false;
     }

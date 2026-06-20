@@ -409,8 +409,8 @@ When working with coding agents like Claude Code, there's no streamlined way to:
 #### 12. Codex Threads (Electron-only in this phase)
 - New chats are created for project sessions and linked through `project_session_threads`; cards can mention threads or send selected content to them, but cards do not own threads.
 - Thread creation requires the first user prompt and immediately starts the first turn.
-- New threads auto-generate a concise title from the first user prompt through the main-process `generate-thread-title` host capability (`gpt-5.1-codex-mini`, reasoning effort `low`) unless an explicit thread name is provided.
-- Auto-generated and manually renamed thread titles are cached in the host, replayed back to app-server after startup/reconnect, and rebroadcast to renderer through explicit `threadTitleUpdated` host messages so installed and dev builds share the same behavior.
+- New threads auto-generate a concise title from the first user prompt through the main-process `generate-thread-title` host capability unless an explicit thread name or `skipAutoTitleGeneration` is provided.
+- Auto-generated titles are only trimmed before optimistic display and `thread/name/set`; manual rename still trims/folds whitespace and truncates to 60 characters. Auto-title generation and persistence failures are log-only and do not surface as user-visible host errors.
 - Empty project sessions show the new-chat composer for the first prompt; Card Stage does not create card-owned thread tabs.
 - `Work locally` uses the selected project's primary source when available, otherwise a generated per-thread local workspace.
 - `New worktree` run target creates a managed Git worktree under `${serverDir}/worktrees/<rand4>/<project-id>` and links thread cwd to that worktree.

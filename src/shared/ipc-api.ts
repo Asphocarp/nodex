@@ -787,6 +787,10 @@ export interface IpcApi {
     args: [threadId: string, name: string];
     result: boolean;
   };
+  "codex:thread:name:set-generated": {
+    args: [threadId: string, name: string];
+    result: boolean;
+  };
   "codex:thread:title:generate": {
     args: [input: { hostId: string; prompt: string; cwd: string | null }];
     result: { title: string | null };

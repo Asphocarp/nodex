@@ -419,7 +419,7 @@ mock.module("@/features/local-conversation", () => ({
                 { className: "pointer-events-none w-full min-w-0 flex-1" },
                 createElement(
                   "div",
-                  { "data-testid": "thread-stage-title", className: "max-w-[320px] min-w-0 truncate text-token-foreground" },
+                  { "data-testid": "thread-stage-title", className: "max-w-[320px] min-w-0 truncate text-token-foreground select-none" },
                   threadTitle,
                 ),
               ),

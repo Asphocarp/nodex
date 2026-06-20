@@ -7458,6 +7458,7 @@ function CardStageSessionTab({
       prompt: input.prompt,
       promptInput: input.promptInput,
       threadName: input.threadName,
+      skipAutoTitleGeneration: Boolean(input.threadName?.trim()),
       runInTarget: "localProject",
     });
     await onRefreshSessions(input.projectId);

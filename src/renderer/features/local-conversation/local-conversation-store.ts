@@ -35,6 +35,7 @@ import type {
   CodexPendingSteer,
   CodexPermissionMode,
   CodexPermissionState,
+  CodexPromptInput,
   CodexQueuedFollowUp,
   CodexSideChatStartInput,
   CodexSideChatStartResult,
@@ -52,8 +53,9 @@ import type {
 import { applyCodexConversationStateUpdates } from "../../../shared/codex-conversation-patches";
 import { DEFAULT_CODEX_HOST_ID } from "../../../shared/codex-host";
 import {
+  cleanCodexAutoTitlePrompt,
+  normalizeCodexGeneratedThreadTitle,
   normalizeCodexManualThreadTitle,
-  sanitizeCodexThreadTitlePrompt,
 } from "../../../shared/codex-thread-title";
 import {
   resolveCodexReasoningEffortOptions,
@@ -142,6 +144,17 @@ const DEFAULT_COLLABORATION_MODE_STATE: CodexCollaborationModeState = {
     developer_instructions: null,
   },
 };
+
+function buildAutoTitlePrompt(input: { prompt: string; promptInput?: CodexPromptInput }): string {
+  const baseText = input.promptInput?.text ?? input.prompt;
+  const pastedText = (input.promptInput?.textAttachments ?? [])
+    .map((attachment) => attachment.text)
+    .filter((text) => text.trim().length > 0);
+  const rawPrompt = pastedText.length === 0
+    ? baseText
+    : `${baseText}\n\n${pastedText.join("\n\n")}`;
+  return cleanCodexAutoTitlePrompt(rawPrompt);
+}
 
 const DEFAULT_CODEX_DICTATION_STATE: CodexDictationStateSnapshot = {
   isEnabled: false,
@@ -1074,11 +1087,12 @@ export class CodexAppServerManager {
       permissionMode: this.readPermissionMode(input.projectId),
     })) as CodexThreadDetail;
 
-    if (!detail.threadName?.trim()) {
+    if (!input.skipAutoTitleGeneration && !detail.threadName?.trim()) {
       void this.generateAndPersistThreadTitle({
         threadId: detail.threadId,
         projectId: input.projectId,
         prompt: input.prompt,
+        promptInput: input.promptInput,
         cwd: detail.cwd,
       });
     }
@@ -1838,18 +1852,31 @@ export class CodexAppServerManager {
     this.notifyAnyConversationCallbacks({ forceMeta: true });
   }
 
+  private hasThreadTitle(threadId: string): boolean {
+    const normalizedThreadId = threadId.trim();
+    if (!normalizedThreadId) {
+      return false;
+    }
+
+    return Boolean(
+      this.threadTitlesById.get(normalizedThreadId)?.trim()
+      || this.threadSummariesById.get(normalizedThreadId)?.threadName?.trim()
+      || this.conversationsById.get(normalizedThreadId)?.threadName?.trim(),
+    );
+  }
+
   private async generateAndPersistThreadTitle(input: {
     threadId: string;
     projectId: string | null;
     prompt: string;
+    promptInput?: CodexPromptInput;
     cwd: string | null;
   }): Promise<void> {
-    const existingSummary = this.threadSummariesById.get(input.threadId);
-    if (existingSummary?.threadName?.trim()) {
+    if (this.hasThreadTitle(input.threadId)) {
       return;
     }
 
-    const normalizedPrompt = sanitizeCodexThreadTitlePrompt(input.prompt);
+    const normalizedPrompt = buildAutoTitlePrompt(input);
     if (!normalizedPrompt) {
       return;
     }
@@ -1861,19 +1888,28 @@ export class CodexAppServerManager {
         cwd: input.cwd,
       })) as { title: string | null };
 
-      const title = result.title?.trim() ?? "";
+      const title = normalizeCodexGeneratedThreadTitle(result.title);
       if (!title) {
         return;
       }
 
+      if (this.hasThreadTitle(input.threadId)) {
+        return;
+      }
+
       this.applyThreadTitleUpdate(input.threadId, title);
-      await this.setThreadName(input.threadId, title, input.projectId);
+      try {
+        await invoke("codex:thread:name:set-generated", input.threadId, title);
+      } catch (error) {
+        console.warn("[codex-auto-title]", "Failed to set thread title", {
+          threadId: input.threadId,
+          error,
+        });
+      }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.handleHostError({
-        hostId: this.hostId,
-        message: "Could not generate thread title",
-        detail: message,
+      console.warn("[codex-auto-title]", "Failed to generate thread title", {
+        threadId: input.threadId,
+        error,
       });
     }
   }

@@ -70,13 +70,13 @@ describe("local conversation host bridge", () => {
     hostMessageListener?.({
       type: "error",
       hostId: "default",
-      message: "Could not generate thread title",
+      message: "Host request failed",
       detail: "boom",
     });
 
     expect(JSON.stringify(received)).toBe(JSON.stringify([
       {
-        message: "Could not generate thread title",
+        message: "Host request failed",
         detail: "boom",
       },
     ]));

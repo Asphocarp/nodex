@@ -1239,6 +1239,7 @@ export interface CodexThreadStartForSessionInput {
   prompt: string;
   promptInput?: CodexPromptInput;
   threadName?: string;
+  skipAutoTitleGeneration?: boolean;
   model?: string;
   serviceTier?: CodexServiceTier;
   permissionMode?: CodexPermissionMode;
@@ -1293,6 +1294,10 @@ export interface CodexPromptSkillInput {
   path: string;
 }
 
+export interface CodexPromptTextAttachmentInput {
+  text: string;
+}
+
 export interface CodexPromptAgentConfigInput {
   mode?: string;
   model?: string;
@@ -1302,6 +1307,7 @@ export interface CodexPromptAgentConfigInput {
 
 export interface CodexPromptInput {
   text: string;
+  textAttachments?: CodexPromptTextAttachmentInput[];
   images?: CodexPromptImageInput[];
   mentions?: CodexPromptMentionInput[];
   skills?: CodexPromptSkillInput[];

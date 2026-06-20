@@ -1159,6 +1159,7 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         prompt: string;
         promptInput?: CodexPromptInput;
         threadName?: string;
+        skipAutoTitleGeneration?: boolean;
         model?: string;
         serviceTier?: null | "fast";
         permissionMode?: "auto" | "guardian-approvals" | "full-access" | "custom";
@@ -1231,6 +1232,10 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   registerHandle("codex:thread:name:set", (_, threadId: string, name: string) =>
     codexService.setThreadName(threadId, name)
+  );
+
+  registerHandle("codex:thread:name:set-generated", (_, threadId: string, name: string) =>
+    codexService.setGeneratedThreadName(threadId, name)
   );
 
   registerHandle(

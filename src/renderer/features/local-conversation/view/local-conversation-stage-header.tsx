@@ -67,7 +67,7 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
       >
         <div
           data-testid="thread-stage-title"
-          className="max-w-[320px] min-w-0 truncate text-token-foreground"
+          className="max-w-[320px] min-w-0 truncate text-token-foreground select-none"
         >
           {model.title}
         </div>

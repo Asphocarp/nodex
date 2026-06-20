@@ -125,6 +125,7 @@ interface TestableCodexService {
     worktreeBranchPrefix?: string;
   }) => Promise<CodexThreadDetail>;
   setThreadName: (threadId: string, name: string) => Promise<boolean>;
+  setGeneratedThreadName: (threadId: string, name: string) => Promise<boolean>;
   listCollaborationModes: () => Promise<CodexCollaborationModePreset[]>;
   interruptTurn: (threadId: string, turnId?: string) => Promise<boolean>;
   cleanBackgroundTerminals: (threadId: string) => Promise<boolean>;
@@ -3863,6 +3864,37 @@ describe("codex-service setThreadName", () => {
 
     if (!ran) expect(true).toBeTrue();
   });
+
+  test("sends generated names without manual length sanitization", async () => {
+    const ran = await withTempDatabase(async () => {
+      const service = createService();
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      let requestedName = "";
+      const generatedName = "x".repeat(72);
+
+      client.start = async () => undefined;
+      client.request = async (method: string, params: unknown) => {
+        if (method === "thread/name/set") {
+          requestedName = (params as { name?: string }).name ?? "";
+        }
+        return {};
+      };
+
+      try {
+        const renamed = await service.setGeneratedThreadName("thread-1", `  ${generatedName}  `);
+
+        expect(renamed).toBeTrue();
+        expect(requestedName).toBe(generatedName);
+      } finally {
+        await service.shutdown();
+      }
+    });
+
+    if (!ran) expect(true).toBeTrue();
+  });
 });
 
 describe("codex-service startThreadForSession", () => {
@@ -4472,7 +4504,7 @@ describe("codex-service startThreadForSession", () => {
             params: {
               threadId: "thr_title_1",
               turnId: "turn_title_1",
-              delta: "{\"title\":\"Refactor inbox list layout\"}",
+              delta: "Refactor inbox list layout",
             },
           });
           notificationHandler?.({
@@ -4499,15 +4531,12 @@ describe("codex-service startThreadForSession", () => {
       });
       expect(generated).toBe("Refactor inbox list layout");
       expect(JSON.stringify(threadStartParams)).toBe(JSON.stringify({
-        model: "gpt-5.1-codex-mini",
+        model: null,
         modelProvider: null,
         cwd: "/tmp/codex",
         approvalPolicy: "never",
         sandbox: "read-only",
-        config: {
-          web_search: "disabled",
-          model_reasoning_effort: "low",
-        },
+        config: null,
         baseInstructions: null,
         developerInstructions: null,
         personality: null,
@@ -4520,13 +4549,14 @@ describe("codex-service startThreadForSession", () => {
         ? turnStartParams as { input?: Array<{ text?: string }> }
         : {};
       const generatedPrompt = turnStartPayload.input?.[0]?.text ?? "";
-      expect(generatedPrompt.includes("User request:\nRefactor inbox list layout")).toBeTrue();
+      expect(generatedPrompt).toBe("Refactor inbox list layout");
+      expect(JSON.stringify(turnStartParams).includes("\"outputSchema\":null")).toBeTrue();
     } finally {
       await service.shutdown();
     }
   });
 
-  test("normalizes title text and truncates input prompt before sending", async () => {
+  test("trims generated title text and truncates input prompt before sending", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       generateThreadTitleWithStructuredTurn: (input: {
@@ -4562,7 +4592,7 @@ describe("codex-service startThreadForSession", () => {
             params: {
               threadId: "thr_title_2",
               turnId: "turn_title_2",
-              delta: "{\"title\":\"This should be replaced\"}",
+              delta: "This should be replaced",
             },
           });
           notificationHandler?.({
@@ -4572,7 +4602,7 @@ describe("codex-service startThreadForSession", () => {
               turnId: "turn_title_2",
               item: {
                 type: "agentMessage",
-                text: "title: \"Fix flaky test timing issue.\"",
+                text: "  title: \"Fix flaky test timing issue.\"  ",
               },
             },
           });
@@ -4598,16 +4628,13 @@ describe("codex-service startThreadForSession", () => {
         cwd: "/tmp/codex",
         client: mockClient,
       });
-      expect(generated).toBe("Fix flaky test timing issue");
+      expect(generated).toBe("title: \"Fix flaky test timing issue.\"");
 
       const turnStartPayload = turnStartParams && typeof turnStartParams === "object"
         ? turnStartParams as { input?: Array<{ text?: string }> }
         : {};
       const generatedPrompt = turnStartPayload.input?.[0]?.text ?? "";
-      const promptPrefix = "User request:\n";
-      expect(generatedPrompt.includes(promptPrefix)).toBeTrue();
-      const promptBody = generatedPrompt.split(promptPrefix)[1] ?? "";
-      expect(promptBody.length).toBe(2_000);
+      expect(generatedPrompt.length).toBe(2_000);
     } finally {
       await service.shutdown();
     }
@@ -4646,7 +4673,7 @@ describe("codex-service startThreadForSession", () => {
             params: {
               threadId: "thr_title_3",
               turnId: "turn_title_3",
-              delta: "{\"title\":\"Fix worktree startup race\"}",
+              delta: "Fix worktree startup race",
             },
           });
           notificationHandler?.({
@@ -4672,6 +4699,30 @@ describe("codex-service startThreadForSession", () => {
         client: mockClient,
       });
       expect(generated).toBe("Fix worktree startup race");
+    } finally {
+      await service.shutdown();
+    }
+  });
+
+  test("returns null when title generation fails", async () => {
+    const service = createService();
+    const serviceInternals = service as unknown as {
+      generateThreadTitle: (input: { prompt: string; cwd: string | null }) => Promise<{ title: string | null }>;
+    };
+    const client = Reflect.get(service as object, "client") as {
+      start: () => Promise<void>;
+    };
+    client.start = async () => {
+      throw new Error("boom");
+    };
+
+    try {
+      const result = await serviceInternals.generateThreadTitle({
+        prompt: "Fix the title flow",
+        cwd: null,
+      });
+
+      expect(JSON.stringify(result)).toBe(JSON.stringify({ title: null }));
     } finally {
       await service.shutdown();
     }

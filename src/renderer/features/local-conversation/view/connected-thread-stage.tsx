@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useThreadHeaderPortalTarget } from "@/lib/thread-header-portal";
+import { resolveCodexElectronDisplayThreadTitle } from "../../../../shared/codex-thread-title";
 import type {
   CodexCollaborationModeKind,
   CodexCollaborationModeState,
@@ -104,14 +105,11 @@ function resolveThreadTitle(input: ConnectedThreadStageInput, summary: ReturnTyp
     return input.sideChatContext.tabTitle;
   }
 
-  return (
-    summary.threadName ||
-    summary.threadPreview ||
-    input.activeThreadSummary?.threadName ||
-    input.activeThreadSummary?.threadPreview ||
-    input.newThreadTarget?.threadTitle ||
-    (input.isNewThreadTab ? "New thread" : "No thread")
-  );
+  return resolveCodexElectronDisplayThreadTitle({
+    threadName: summary.threadName || input.activeThreadSummary?.threadName,
+    threadPreview: summary.threadPreview || input.activeThreadSummary?.threadPreview || input.newThreadTarget?.threadTitle,
+    fallback: input.isNewThreadTab ? "New thread" : "No thread",
+  });
 }
 
 function ConnectedThreadStageHeader({
