@@ -1,18 +1,6 @@
 import { useDeferredValue, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
-  ArrowLeft,
-  ArrowRight,
-  CalendarDays,
-  FileText,
-  FolderSearch2,
-  LayoutGrid,
   ListFilter,
-  PanelBottom,
-  PenLine,
-  Search,
-  Settings2,
-  SquareKanban,
-  Table2,
 } from "lucide-react";
 import { CodexSidebarVisibleIcon } from "@/components/shared/icons";
 import {
@@ -23,20 +11,30 @@ import {
   matchesCommandPaletteCardFilters,
   normalizeCommandPaletteCardFilters,
   readCommandPaletteCardFilters,
+  type CommandMenuMode,
   type CommandPaletteCard,
   type CommandPaletteCardFilters,
+  type CommandPaletteCommandGroup,
   type CommandPaletteCommand,
+  type CommandPaletteThread,
   writeCommandPaletteCardFilters,
 } from "../../lib/command-palette";
 import type { CommandPaletteCardSearchIndex } from "../../lib/command-palette-card-search";
+import {
+  buildCommandPaletteQueryHighlightPreview,
+  type CommandPaletteHighlightSegment,
+} from "../../lib/command-palette-highlight";
+import type { CommandPaletteThreadSearchIndex } from "../../lib/command-palette-thread-search";
 import { invoke } from "../../lib/api";
-import type { CardSearchResult } from "../../lib/types";
+import type { CardSearchResult, CommandPaletteThreadContentSearchResult } from "../../lib/types";
 import { cn } from "../../lib/utils";
 import { CardIcon } from "./card-icon";
+import { CommandMenuReferenceIcon } from "./command-menu-reference-icons";
 import {
   CommandPaletteCardFilterPopover,
   CommandPaletteCardFiltersSummaryRow,
 } from "./command-palette-filters";
+import { ThreadsIcon } from "./threads-icon";
 import { NodexIconButton } from "@/components/ui/button";
 import {
   NAVIGATE_BACK_COMMAND_ID,
@@ -44,107 +42,179 @@ import {
   RENAME_THREAD_COMMAND_ID,
   TOGGLE_SIDEBAR_COMMAND_ID,
 } from "../../../shared/window-navigation";
-import { ThreadsIcon } from "./threads-icon";
-import { ToggleListIcon } from "./toggle-list-icon";
+import { OPEN_DB_VIEW_TAB_COMMAND_ID } from "@/lib/command-palette-commands";
 
-type PaletteItem = CommandPaletteCommand | CommandPaletteCard;
+type PaletteItem = CommandPaletteCommand | CommandPaletteCard | CommandPaletteThread;
+type PaletteSectionModel = { title: string; items: PaletteItem[] };
 
 interface CommandPaletteSurfaceProps {
   open: boolean;
   openTriggerTick: number;
+  mode: CommandMenuMode;
   initialQuery?: string;
   commands: CommandPaletteCommand[];
   cards: CommandPaletteCard[];
+  threads?: CommandPaletteThread[];
   cardSearchIndex?: CommandPaletteCardSearchIndex | null;
+  threadSearchIndex?: CommandPaletteThreadSearchIndex | null;
   loading: boolean;
+  cardsLoading: boolean;
+  chatsLoading: boolean;
+  onChangeMode: (mode: CommandMenuMode) => void;
   onRequestClose: () => void;
   onExecute: (item: PaletteItem) => void;
 }
 
-function getCommandGlyph(id: string) {
-  if (id === "open-project-picker") return FolderSearch2;
-  if (id === NAVIGATE_BACK_COMMAND_ID) return ArrowLeft;
-  if (id === NAVIGATE_FORWARD_COMMAND_ID) return ArrowRight;
-  if (id === TOGGLE_SIDEBAR_COMMAND_ID) return CodexSidebarVisibleIcon;
-  if (id === RENAME_THREAD_COMMAND_ID) return PenLine;
-  if (id === "search-current-project") return Search;
-  if (id === "toggle-terminal") return PanelBottom;
-  if (id === "open-settings") return Settings2;
-  if (id === "view-kanban") return SquareKanban;
-  if (id === "view-list") return Table2;
-  if (id === "view-toggle-list") return ToggleListIcon;
-  if (id === "view-canvas") return LayoutGrid;
-  if (id === "view-calendar") return CalendarDays;
-  if (id === "focus-views-stage") return LayoutGrid;
-  if (id === "focus-cards-stage") return CardIcon;
-  if (id === "focus-threads-stage") return ThreadsIcon;
-  return FileText;
+const COMMAND_GROUP_ORDER: CommandPaletteCommandGroup[] = [
+  "Suggested",
+  "Chat",
+  "Navigation",
+  "Panels",
+  "Project",
+  "Configure",
+  "Skills",
+  "App",
+];
+
+function getPaletteItemDomId(listId: string, index: number): string {
+  return `${listId}-item-${index}`;
 }
 
-function escapePreviewRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function isPaletteItemDisabled(item: PaletteItem | undefined): boolean {
+  return item?.kind === "command" && item.disabled === true;
+}
+
+function getModePlaceholder(mode: CommandMenuMode): string {
+  if (mode === "chats") return "Search chats";
+  if (mode === "cards") return "Search cards";
+  if (mode === "files") return "Search files";
+  return "Type command";
+}
+
+function getEmptyMessage(mode: CommandMenuMode, query: string, loading: boolean): string {
+  if (loading) {
+    if (mode === "chats") return "Loading chats...";
+    if (mode === "cards") return "Loading cards...";
+    if (mode === "files") return "Loading files...";
+    return "Loading commands...";
+  }
+
+  if (mode === "chats") return query.length > 0 ? "No matching chats." : "No chats.";
+  if (mode === "cards") return query.length > 0 ? "No matching cards." : "No cards.";
+  if (mode === "files") return "File search is not available in Nodex yet.";
+  return "No matching commands.";
+}
+
+function resolveSelectableIndex(
+  items: readonly PaletteItem[],
+  preferredIndex: number,
+  direction: -1 | 1,
+): number {
+  if (items.length === 0) return -1;
+
+  const startIndex = ((preferredIndex % items.length) + items.length) % items.length;
+  for (let step = 0; step < items.length; step += 1) {
+    const nextIndex = (startIndex + direction * step + items.length) % items.length;
+    if (!isPaletteItemDisabled(items[nextIndex])) {
+      return nextIndex;
+    }
+  }
+
+  return -1;
+}
+
+function getCommandGlyph(id: string) {
+  if (id === NAVIGATE_BACK_COMMAND_ID) return (props: { className?: string }) => (
+    <CommandMenuReferenceIcon name="search" {...props} />
+  );
+  if (id === NAVIGATE_FORWARD_COMMAND_ID) return (props: { className?: string }) => (
+    <CommandMenuReferenceIcon name="search" {...props} />
+  );
+  if (id === "newThread" || id === "newThreadInProject" || id === "quickChat") return (props: { className?: string }) => (
+    <CommandMenuReferenceIcon name="compose" {...props} />
+  );
+  if (id === TOGGLE_SIDEBAR_COMMAND_ID) return CodexSidebarVisibleIcon;
+  if (id === RENAME_THREAD_COMMAND_ID) return (props: { className?: string }) => (
+    <CommandMenuReferenceIcon name="compose" {...props} />
+  );
+  if (id === "archiveThread") return (props: { className?: string }) => (
+    <CommandMenuReferenceIcon name="archive" {...props} />
+  );
+  if (id === "toggleThreadPin") return (props: { className?: string }) => (
+    <CommandMenuReferenceIcon name="pin" {...props} />
+  );
+  if (id === "openThreadInNewWindow") return (props: { className?: string }) => (
+    <CommandMenuReferenceIcon name="search" {...props} />
+  );
+  if (id === "toggleFileTreePanel" || id === "openFolder" || id === "searchFiles") return (props: { className?: string }) => (
+    <CommandMenuReferenceIcon name="folder" {...props} />
+  );
+  if (id === "openBrowserTab" || id === "toggleBrowserPanel" || id === "focusBrowserAddressBar") return (props: { className?: string }) => (
+    <CommandMenuReferenceIcon name="globe" {...props} />
+  );
+  if (id === "toggleTerminal" || id === "installPrimaryRuntime") return (props: { className?: string }) => (
+    <CommandMenuReferenceIcon name="terminal" {...props} />
+  );
+  if (id === "searchChats" || id === "searchCards" || id === "findInThread") return (props: { className?: string }) => (
+    <CommandMenuReferenceIcon name="search" {...props} />
+  );
+  if (id === OPEN_DB_VIEW_TAB_COMMAND_ID || id === "openCardStage") return CardIcon;
+  if (id === "openSideChat") return CardIcon;
+  if (id === "settings" || id === "showKeyboardShortcuts" || id.endsWith("Settings")) return (props: { className?: string }) => (
+    <CommandMenuReferenceIcon name="settings" {...props} />
+  );
+  if (id === "openAvatarOverlay" || id === "tuckAwayPetOverlay" || id === "personalitySettings") return (props: { className?: string }) => (
+    <CommandMenuReferenceIcon name="avatar" {...props} />
+  );
+  return (props: { className?: string }) => <CommandMenuReferenceIcon name="search" {...props} />;
 }
 
 function buildServerDescriptionSearchPreview(
   excerpt: string,
   query: string,
 ): CommandPaletteCard["searchPreview"] {
-  const normalizedExcerpt = excerpt.replace(/\s+/g, " ").trim();
-  if (!normalizedExcerpt) {
-    return null;
-  }
+  return buildCommandPaletteQueryHighlightPreview(excerpt, query);
+}
 
-  const terms = Array.from(new Set(
-    query
-      .trim()
-      .split(/\s+/)
-      .filter((term) => term.length > 0)
-      .sort((left, right) => right.length - left.length),
-  ));
-  if (terms.length === 0) {
-    return {
-      excerpt: normalizedExcerpt,
-      segments: [{ text: normalizedExcerpt, highlight: false }],
-    };
-  }
-
-  const regex = new RegExp(`(${terms.map(escapePreviewRegExp).join("|")})`, "gi");
-  const segments: NonNullable<CommandPaletteCard["searchPreview"]>["segments"] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null = null;
-
-  while ((match = regex.exec(normalizedExcerpt)) !== null) {
-    if (match.index > lastIndex) {
-      segments.push({ text: normalizedExcerpt.slice(lastIndex, match.index), highlight: false });
-    }
-    segments.push({ text: match[0], highlight: true });
-    lastIndex = match.index + match[0].length;
-  }
-
-  if (lastIndex < normalizedExcerpt.length) {
-    segments.push({ text: normalizedExcerpt.slice(lastIndex), highlight: false });
-  }
+function buildThreadContentSearchPreview(
+  excerpt: string,
+  query: string,
+): CommandPaletteThread["searchPreview"] {
+  const preview = buildCommandPaletteQueryHighlightPreview(excerpt, query);
+  if (!preview) return null;
 
   return {
-    excerpt: normalizedExcerpt,
-    segments: segments.length > 0 ? segments : [{ text: normalizedExcerpt, highlight: false }],
+    ...preview,
+    source: "content",
   };
 }
 
 function CommandRow({
   item,
   selected,
+  showSubtitle,
 }: {
   item: CommandPaletteCommand;
   selected: boolean;
+  showSubtitle: boolean;
 }) {
   const Glyph = getCommandGlyph(item.id);
+  const subtitle = item.mockReason ?? item.subtitle;
 
   return (
-    <div className="flex w-full items-center gap-2">
-      <Glyph className={cn("size-4 shrink-0 text-token-description-foreground", selected && "text-token-foreground")} />
-      <div className="min-w-0 flex-1">
+    <div className={cn("flex w-full gap-2", showSubtitle ? "items-start" : "items-center")}>
+      <Glyph className={cn(
+        "size-4 shrink-0 text-token-description-foreground",
+        selected && "text-token-foreground",
+        showSubtitle && "mt-0.5",
+      )} />
+      <div className="min-w-0 flex-1 leading-tight">
         <div className="truncate text-token-foreground">{item.title}</div>
+        {showSubtitle ? (
+          <div className="mt-0.5 truncate text-xs text-token-description-foreground">
+            {subtitle}
+          </div>
+        ) : null}
       </div>
       {item.shortcut ? (
         <kbd className="shrink-0 rounded-sm bg-token-foreground/5 px-1.5 py-0.5 text-[11px] font-sans font-medium leading-none tracking-wide text-token-description-foreground">
@@ -153,6 +223,38 @@ function CommandRow({
       ) : null}
     </div>
   );
+}
+
+function formatThreadDate(timestamp: number): string {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+    return "";
+  }
+
+  const ms = timestamp > 10_000_000_000 ? timestamp : timestamp * 1000;
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+  }).format(new Date(ms));
+}
+
+function getCwdLabel(cwd: string | null): string {
+  if (!cwd) return "";
+  const parts = cwd.split(/[\\/]/).filter(Boolean);
+  return parts.at(-1) ?? cwd;
+}
+
+function renderSegments(
+  segments: Array<CommandPaletteHighlightSegment>,
+  keyPrefix: string,
+) {
+  return segments.map((segment, index) => (
+    <span
+      key={`${keyPrefix}:${index}`}
+      className={segment.highlight ? "rounded-[3px] bg-token-foreground/8 px-0.5 text-token-foreground" : undefined}
+    >
+      {segment.text}
+    </span>
+  ));
 }
 
 function CardRow({
@@ -166,17 +268,6 @@ function CardRow({
 }) {
   const hasPreview = Boolean(item.searchPreview);
   const decorations = item.searchDecorations;
-  const renderSegments = (
-    segments: Array<{ text: string; highlight: boolean }>,
-    keyPrefix: string,
-  ) => segments.map((segment, index) => (
-    <span
-      key={`${keyPrefix}:${index}`}
-      className={segment.highlight ? "rounded-[3px] bg-token-foreground/8 px-0.5 text-token-foreground" : undefined}
-    >
-      {segment.text}
-    </span>
-  ));
   return (
     <div className={cn("flex w-full gap-2", hasPreview ? "items-start" : "items-center")}>
       <div className={cn(
@@ -232,9 +323,61 @@ function CardRow({
   );
 }
 
+function ThreadRow({
+  item,
+  selected,
+}: {
+  item: CommandPaletteThread;
+  selected: boolean;
+}) {
+  const hasPreview = Boolean(item.searchPreview);
+  const decorations = item.searchDecorations;
+  const cwdLabel = getCwdLabel(item.cwd);
+  const updatedLabel = formatThreadDate(item.updatedAt);
+
+  return (
+    <div className={cn("flex w-full gap-2", hasPreview ? "items-start" : "items-center")}>
+      <div className={cn(
+        "flex size-6 shrink-0 items-center justify-center rounded-lg bg-token-foreground/5 text-token-description-foreground",
+        selected && "bg-token-foreground/10 text-token-foreground",
+        hasPreview && "mt-0.5",
+      )}>
+        <ThreadsIcon className="size-3.5" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-token-foreground">
+          {decorations?.titleSegments
+            ? renderSegments(decorations.titleSegments, `${item.id}:title`)
+            : item.title || "New chat"}
+        </div>
+        <div className="truncate text-xs text-token-description-foreground">
+          {decorations?.projectNameSegments
+            ? renderSegments(decorations.projectNameSegments, `${item.id}:project`)
+            : item.projectName}
+          {cwdLabel ? (
+            <>
+              {" / "}
+              {decorations?.cwdSegments
+                ? renderSegments(decorations.cwdSegments, `${item.id}:cwd`)
+                : cwdLabel}
+            </>
+          ) : null}
+          {updatedLabel ? ` / ${updatedLabel}` : ""}
+        </div>
+        {item.searchPreview ? (
+          <div className="mt-1 line-clamp-2 text-xs/relaxed wrap-break-word text-token-description-foreground/90">
+            {renderSegments(item.searchPreview.segments, `${item.id}:preview`)}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function PaletteSection({
   title,
   items,
+  listId,
   selectedIndex,
   startIndex,
   onSelectIndex,
@@ -243,6 +386,7 @@ function PaletteSection({
 }: {
   title: string;
   items: PaletteItem[];
+  listId: string;
   selectedIndex: number;
   startIndex: number;
   onSelectIndex: (index: number) => void;
@@ -262,27 +406,34 @@ function PaletteSection({
           const selected = index === selectedIndex;
           return (
             <button
+              id={getPaletteItemDomId(listId, index)}
               key={item.id}
               type="button"
+              role="option"
               cmdk-item=""
               data-palette-index={index}
               data-selected={selected}
               aria-selected={selected}
+              aria-disabled={item.kind === "command" && item.disabled ? "true" : undefined}
               onMouseMove={() => onSelectIndex(index)}
               onClick={() => onExecute(item)}
               disabled={item.kind === "command" && item.disabled}
               className={cn(
                 "flex min-h-[calc(var(--spacing)*6)] w-full cursor-interaction rounded-lg px-[var(--padding-row-x)] py-[var(--padding-row-y)] text-left text-sm text-token-foreground opacity-75 outline-none",
-                item.kind === "card" && item.searchPreview && "py-[calc(var(--padding-row-y)+2px)]",
+                (item.kind === "card" || item.kind === "thread") && item.searchPreview && "py-[calc(var(--padding-row-y)+2px)]",
                 item.kind === "command" && item.disabled
                   ? "cursor-not-allowed opacity-40 hover:bg-transparent hover:opacity-40"
                   : selected ? "bg-token-list-hover-background opacity-100" : "hover:bg-token-list-hover-background hover:opacity-100",
               )}
             >
               {item.kind === "command" ? (
-                <CommandRow item={item} selected={selected} />
+                <CommandRow item={item} selected={selected} showSubtitle={showSubtitle} />
               ) : (
-                <CardRow item={item} selected={selected} showSubtitle={showSubtitle} />
+                item.kind === "card" ? (
+                  <CardRow item={item} selected={selected} showSubtitle={showSubtitle} />
+                ) : (
+                  <ThreadRow item={item} selected={selected} />
+                )
               )}
             </button>
           );
@@ -295,11 +446,17 @@ function PaletteSection({
 export function CommandPaletteSurface({
   open,
   openTriggerTick,
+  mode,
   initialQuery,
   commands,
   cards,
+  threads = [],
   cardSearchIndex,
+  threadSearchIndex,
   loading,
+  cardsLoading,
+  chatsLoading,
+  onChangeMode,
   onRequestClose,
   onExecute,
 }: CommandPaletteSurfaceProps) {
@@ -308,10 +465,12 @@ export function CommandPaletteSurface({
   const listId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
+  const previousModeRef = useRef<CommandMenuMode>(mode);
   const [query, setQuery] = useState("");
   const [cardFilters, setCardFilters] = useState<CommandPaletteCardFilters>(() => readCommandPaletteCardFilters());
   const [filterOpen, setFilterOpen] = useState(false);
   const [descriptionSearchResults, setDescriptionSearchResults] = useState<CardSearchResult[]>([]);
+  const [threadContentSearchResults, setThreadContentSearchResults] = useState<CommandPaletteThreadContentSearchResult[]>([]);
   const deferredQuery = useDeferredValue(query);
   const availableTags = useMemo(
     () => Array.from(new Set(cards.flatMap((item) => item.card.tags))).sort((left, right) => left.localeCompare(right)),
@@ -356,18 +515,29 @@ export function CommandPaletteSurface({
     () => new Map(cards.map((item) => [`${item.projectId}:${item.card.id}`, item] as const)),
     [cards],
   );
+  const threadById = useMemo(
+    () => new Map(threads.map((item) => [item.threadId, item] as const)),
+    [threads],
+  );
+  const projectIdsForThreadSearch = useMemo(
+    () => Array.from(new Set(threads.map((item) => item.projectId))),
+    [threads],
+  );
   const results = useMemo(
     () => filterCommandPaletteItems({
       query: deferredQuery,
+      mode,
       commands,
       cards,
+      threads,
       cardFilters: normalizedCardFilters,
       cardSearchIndex,
+      threadSearchIndex,
     }),
-    [cardSearchIndex, cards, commands, deferredQuery, normalizedCardFilters],
+    [cardSearchIndex, cards, commands, deferredQuery, mode, normalizedCardFilters, threadSearchIndex, threads],
   );
   const descriptionSearchCards = useMemo(() => {
-    if (results.commandMode || results.query.length === 0) {
+    if (mode !== "cards" || results.query.length === 0) {
       return [];
     }
 
@@ -382,9 +552,9 @@ export function CommandPaletteSurface({
         searchPreview: buildServerDescriptionSearchPreview(result.excerpt, results.query) ?? item.searchPreview,
       }];
     });
-  }, [cardByProjectAndId, descriptionSearchResults, normalizedCardFilters, results.commandMode, results.query]);
+  }, [cardByProjectAndId, descriptionSearchResults, mode, normalizedCardFilters, results.query]);
   const visibleCards = useMemo(() => {
-    if (results.commandMode || results.query.length === 0 || descriptionSearchCards.length === 0) {
+    if (mode !== "cards" || results.query.length === 0 || descriptionSearchCards.length === 0) {
       return results.cards;
     }
 
@@ -408,13 +578,75 @@ export function CommandPaletteSurface({
     });
 
     return merged.slice(0, 24);
-  }, [descriptionSearchCards, results.cards, results.commandMode, results.query]);
+  }, [descriptionSearchCards, mode, results.cards, results.query]);
+  const contentSearchThreads = useMemo(() => {
+    if (mode !== "chats" || results.query.length === 0) {
+      return [];
+    }
+
+    return threadContentSearchResults.flatMap((result) => {
+      const item = threadById.get(result.threadId);
+      if (!item) return [];
+      const searchPreview = buildThreadContentSearchPreview(result.snippet, results.query);
+      if (!searchPreview) return [];
+      return [{
+        ...item,
+        searchPreview,
+      }];
+    });
+  }, [mode, results.query, threadById, threadContentSearchResults]);
+  const visibleThreads = useMemo(() => {
+    if (mode !== "chats" || results.query.length === 0 || contentSearchThreads.length === 0) {
+      return results.threads;
+    }
+
+    const contentMatchesById = new Map(contentSearchThreads.map((item) => [item.id, item] as const));
+    const merged = results.threads.map((item) => {
+      const contentMatch = contentMatchesById.get(item.id);
+      if (!contentMatch?.searchPreview || item.searchPreview) {
+        return item;
+      }
+
+      return {
+        ...item,
+        searchPreview: contentMatch.searchPreview,
+      };
+    });
+    const seenIds = new Set(merged.map((item) => item.id));
+    contentSearchThreads.forEach((item) => {
+      if (seenIds.has(item.id)) return;
+      seenIds.add(item.id);
+      merged.push(item);
+    });
+
+    return merged.slice(0, 8);
+  }, [contentSearchThreads, mode, results.query, results.threads]);
+  const sections = useMemo<PaletteSectionModel[]>(() => {
+    if (mode === "root") {
+      return COMMAND_GROUP_ORDER
+        .map((title) => ({
+          title,
+          items: results.commands.filter((item) => item.group === title),
+        }))
+        .filter((section) => section.items.length > 0);
+    }
+
+    if (mode === "chats") {
+      return [{ title: "Chats", items: visibleThreads }];
+    }
+
+    if (mode === "cards") {
+      return [{ title: "Cards", items: visibleCards }];
+    }
+
+    return [];
+  }, [mode, results.commands, visibleCards, visibleThreads]);
   const flatItems = useMemo(
-    () => [...results.commands, ...visibleCards],
-    [results.commands, visibleCards],
+    () => sections.flatMap((section) => section.items),
+    [sections],
   );
   const filterActive = hasActiveCommandPaletteCardFilters(normalizedCardFilters);
-  const showSubtitle = results.query.length > 0;
+  const showSubtitle = results.query.length > 0 || mode !== "root";
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   useEffect(() => {
@@ -445,16 +677,30 @@ export function CommandPaletteSurface({
   }, [initialQuery, open, openTriggerTick]);
 
   useEffect(() => {
+    if (!open) {
+      previousModeRef.current = mode;
+      return;
+    }
+
+    if (previousModeRef.current === mode) return;
+    previousModeRef.current = mode;
+    setQuery(initialQuery ?? "");
+    setSelectedIndex(0);
+    setFilterOpen(false);
+  }, [initialQuery, mode, open]);
+
+  useEffect(() => {
     if (open) return;
     setQuery("");
     setSelectedIndex(0);
     setDescriptionSearchResults((current) => current.length === 0 ? current : []);
+    setThreadContentSearchResults((current) => current.length === 0 ? current : []);
   }, [open]);
 
   useEffect(() => {
     const rawQuery = deferredQuery.trimStart();
     const queryText = rawQuery.trim();
-    if (!open || rawQuery.startsWith(">") || queryText.length === 0 || projectIdsForSearch.length === 0) {
+    if (mode !== "cards" || !open || queryText.length === 0 || projectIdsForSearch.length === 0) {
       setDescriptionSearchResults((current) => current.length === 0 ? current : []);
       return;
     }
@@ -480,17 +726,48 @@ export function CommandPaletteSurface({
     return () => {
       cancelled = true;
     };
-  }, [deferredQuery, open, projectIdsForSearch]);
+  }, [deferredQuery, mode, open, projectIdsForSearch]);
+
+  useEffect(() => {
+    const rawQuery = deferredQuery.trimStart();
+    const queryText = rawQuery.trim();
+    if (mode !== "chats" || !open || queryText.length < 2 || projectIdsForThreadSearch.length === 0) {
+      setThreadContentSearchResults((current) => current.length === 0 ? current : []);
+      return;
+    }
+
+    let cancelled = false;
+    void invoke("codex:threads:palette:search-content", {
+      projectIds: projectIdsForThreadSearch,
+      query: queryText,
+      limit: 60,
+    })
+      .then((nextResults) => {
+        if (cancelled) return;
+        const safeResults = Array.isArray(nextResults) ? nextResults : [];
+        setThreadContentSearchResults((current) => (
+          current.length === 0 && safeResults.length === 0 ? current : safeResults
+        ));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setThreadContentSearchResults((current) => current.length === 0 ? current : []);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [deferredQuery, mode, open, projectIdsForThreadSearch]);
 
   useEffect(() => {
     if (!open) return;
     setSelectedIndex(0);
-  }, [open, results.commandMode, results.query]);
+  }, [mode, open, results.query]);
 
   useEffect(() => {
-    if (!results.commandMode) return;
+    if (mode === "cards") return;
     setFilterOpen(false);
-  }, [results.commandMode]);
+  }, [mode]);
 
   useEffect(() => {
     if (areCommandPaletteCardFiltersEqual(cardFilters, normalizedCardFilters)) {
@@ -515,9 +792,11 @@ export function CommandPaletteSurface({
       return;
     }
 
-    if (selectedIndex >= 0 && selectedIndex < flatItems.length) return;
-    setSelectedIndex(0);
-  }, [flatItems.length, selectedIndex]);
+    const preferredIndex = selectedIndex < 0 ? 0 : selectedIndex;
+    const nextIndex = resolveSelectableIndex(flatItems, preferredIndex, 1);
+    if (selectedIndex === nextIndex) return;
+    setSelectedIndex(nextIndex);
+  }, [flatItems, selectedIndex]);
 
   useEffect(() => {
     if (selectedIndex < 0) return;
@@ -525,7 +804,38 @@ export function CommandPaletteSurface({
     next?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
 
+  useEffect(() => {
+    const list = scrollViewportRef.current;
+    if (!list || typeof ResizeObserver === "undefined") return;
+
+    const updateHeight = () => {
+      list.style.setProperty("--cmdk-list-height", `${list.scrollHeight.toFixed(1)}px`);
+    };
+    updateHeight();
+
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(list);
+    Array.from(list.children).forEach((child) => observer.observe(child));
+    return () => observer.disconnect();
+  }, [sections]);
+
   const handleExecute = (item: PaletteItem) => {
+    if (isPaletteItemDisabled(item)) return;
+    if (item.kind === "command" && item.id === "searchChats") {
+      onChangeMode("chats");
+      return;
+    }
+
+    if (item.kind === "command" && item.id === "searchCards") {
+      onChangeMode("cards");
+      return;
+    }
+
+    if (item.kind === "command" && item.id === "searchFiles") {
+      onChangeMode("files");
+      return;
+    }
+
     onRequestClose();
     onExecute(item);
   };
@@ -533,22 +843,21 @@ export function CommandPaletteSurface({
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     const moveSelection = (direction: -1 | 1) => {
       if (flatItems.length === 0) return;
-      for (let step = 1; step <= flatItems.length; step += 1) {
-        const nextIndex = (selectedIndex + direction * step + flatItems.length) % flatItems.length;
-        const nextItem = flatItems[nextIndex];
-        if (nextItem?.kind === "command" && nextItem.disabled) continue;
-        setSelectedIndex(nextIndex);
-        return;
-      }
+      const currentIndex = selectedIndex < 0
+        ? direction > 0 ? -1 : 0
+        : selectedIndex;
+      const nextIndex = resolveSelectableIndex(flatItems, currentIndex + direction, direction);
+      if (nextIndex < 0) return;
+      setSelectedIndex(nextIndex);
     };
 
-    if (event.key === "ArrowDown") {
+    if (event.key === "ArrowDown" || (event.ctrlKey && (event.key === "j" || event.key === "n"))) {
       event.preventDefault();
       moveSelection(1);
       return;
     }
 
-    if (event.key === "ArrowUp") {
+    if (event.key === "ArrowUp" || (event.ctrlKey && (event.key === "k" || event.key === "p"))) {
       event.preventDefault();
       moveSelection(-1);
       return;
@@ -557,19 +866,20 @@ export function CommandPaletteSurface({
     if (event.key === "Home") {
       event.preventDefault();
       if (flatItems.length === 0) return;
-      setSelectedIndex(0);
+      setSelectedIndex(resolveSelectableIndex(flatItems, 0, 1));
       return;
     }
 
     if (event.key === "End") {
       event.preventDefault();
       if (flatItems.length === 0) return;
-      setSelectedIndex(flatItems.length - 1);
+      setSelectedIndex(resolveSelectableIndex(flatItems, flatItems.length - 1, -1));
       return;
     }
 
     if (event.key === "Enter") {
       if (selectedIndex < 0 || selectedIndex >= flatItems.length) return;
+      if (isPaletteItemDisabled(flatItems[selectedIndex])) return;
       event.preventDefault();
       handleExecute(flatItems[selectedIndex] as PaletteItem);
       return;
@@ -579,13 +889,16 @@ export function CommandPaletteSurface({
     event.preventDefault();
     setQuery("");
   };
+  const activeDescendantId = selectedIndex >= 0 && selectedIndex < flatItems.length
+    ? getPaletteItemDomId(listId, selectedIndex)
+    : undefined;
 
   return (
     <div
       cmdk-root=""
       data-cmdk-root
       title="Command menu"
-      className="flex min-w-full select-none flex-col gap-1.25 overflow-hidden rounded-3xl border border-token-border bg-token-dropdown-background px-1.25 py-[calc(var(--spacing)*1.15)] text-sm text-token-foreground shadow-[0_28px_90px_rgba(15,23,42,0.34),0_10px_28px_rgba(15,23,42,0.2)]"
+      className="flex min-w-full select-none flex-col gap-1.25 overflow-hidden rounded-2xl border border-transparent bg-token-dropdown-background px-1.25 py-[calc(var(--spacing)*1.15)] text-sm text-token-foreground shadow-2xl"
     >
       <label
         cmdk-label=""
@@ -616,38 +929,40 @@ export function CommandPaletteSurface({
           role="combobox"
           aria-expanded="true"
           aria-controls={listId}
+          aria-activedescendant={activeDescendantId}
           aria-labelledby={labelId}
           id={inputId}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Search cards or type > for commands"
+          placeholder={getModePlaceholder(mode)}
           aria-label="Command palette search"
           className="w-full border-none bg-transparent px-[calc(var(--spacing)*0.55)] py-[calc(var(--spacing)*1.75)] text-base text-token-foreground outline-none placeholder:text-token-description-foreground"
         />
 
-        <CommandPaletteCardFilterPopover
-          open={filterOpen}
-          onOpenChange={setFilterOpen}
-          filters={cardFilters}
-          availableTags={availableTags}
-          availableAssignees={availableAssignees}
-          availableProjects={availableProjects}
-          disabled={results.commandMode}
-          onChange={(update) => setCardFilters((prev) => update(cloneCommandPaletteCardFilters(prev)))}
-        >
-          <NodexIconButton
-            icon={ListFilter}
-            size="sm"
-            active={filterActive}
-            ariaLabel="Filter cards"
-            title="Filter cards"
-            disabled={results.commandMode}
-          />
-        </CommandPaletteCardFilterPopover>
+        {mode === "cards" ? (
+          <CommandPaletteCardFilterPopover
+            open={filterOpen}
+            onOpenChange={setFilterOpen}
+            filters={cardFilters}
+            availableTags={availableTags}
+            availableAssignees={availableAssignees}
+            availableProjects={availableProjects}
+            disabled={false}
+            onChange={(update) => setCardFilters((prev) => update(cloneCommandPaletteCardFilters(prev)))}
+          >
+            <NodexIconButton
+              icon={ListFilter}
+              size="sm"
+              active={filterActive}
+              ariaLabel="Filter cards"
+              title="Filter cards"
+            />
+          </CommandPaletteCardFilterPopover>
+        ) : null}
       </div>
 
-      {!results.commandMode && filterActive ? (
+      {mode === "cards" && filterActive ? (
         <div className="px-[calc(var(--spacing)*2.75)] pb-[calc(var(--spacing)*0.5)]">
           <CommandPaletteCardFiltersSummaryRow
             filters={cardFilters}
@@ -664,29 +979,29 @@ export function CommandPaletteSurface({
         tabIndex={-1}
         aria-label="Suggestions"
         id={listId}
-        className="scrollbar-token flex max-h-[min(420px,75vh)] flex-col gap-[var(--spacing)] overflow-y-auto overscroll-contain"
+        className="scrollbar-token flex max-h-[min(440px,var(--cmdk-list-height,440px),75vh)] flex-col gap-[var(--spacing)] overflow-y-auto overscroll-contain transition-[max-height] duration-100"
       >
-        <PaletteSection
-          title={results.commandMode ? "Commands" : "Quick actions"}
-          items={results.commands}
-          selectedIndex={selectedIndex}
-          startIndex={0}
-          onSelectIndex={setSelectedIndex}
-          onExecute={handleExecute}
-          showSubtitle={showSubtitle}
-        />
-        <PaletteSection
-          title="Cards"
-          items={visibleCards}
-          selectedIndex={selectedIndex}
-          startIndex={results.commands.length}
-          onSelectIndex={setSelectedIndex}
-          onExecute={handleExecute}
-          showSubtitle={showSubtitle}
-        />
+        {sections.map((section) => {
+          const startIndex = sections
+            .slice(0, sections.indexOf(section))
+            .reduce((sum, candidate) => sum + candidate.items.length, 0);
+          return (
+            <PaletteSection
+              key={section.title}
+              title={section.title}
+              items={section.items}
+              listId={listId}
+              selectedIndex={selectedIndex}
+              startIndex={startIndex}
+              onSelectIndex={setSelectedIndex}
+              onExecute={handleExecute}
+              showSubtitle={showSubtitle}
+            />
+          );
+        })}
         {flatItems.length === 0 ? (
           <div data-cmdk-empty className="flex min-h-[calc(var(--spacing)*8)] items-center justify-center px-[calc(var(--spacing)*2.5)] py-[calc(var(--spacing)*1.5)] text-center text-sm text-token-description-foreground">
-            {loading ? "Loading cards..." : "No matching commands or cards."}
+            {getEmptyMessage(mode, results.query, mode === "chats" ? chatsLoading : mode === "cards" ? cardsLoading : loading)}
           </div>
         ) : null}
       </div>

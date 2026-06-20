@@ -18,6 +18,13 @@ import {
 import { render, settleAsyncRender, textContent } from "../../test/dom";
 import { TestQueryProvider } from "../../test/query";
 import { useThreadHeaderPortalTarget } from "@/lib/thread-header-portal";
+import {
+  buildCommandPaletteCommands,
+  executeCommandPaletteShellCommand,
+  isCommandPaletteShellCommandId,
+  type CommandPaletteShellCommandContext,
+  type CommandPaletteShellCommandHandlers,
+} from "@/lib/command-palette-commands";
 import { normalizeCodexManualThreadTitle } from "../../../shared/codex-thread-title";
 import type {
   WorkbenchNavigationCommandRequest,
@@ -571,17 +578,54 @@ mock.module("@/lib/use-kanban", () => ({
   },
 }));
 
+type MockCommandPaletteProps = {
+  open: boolean;
+  initialMode?: string;
+  initialQuery?: string;
+  commandContext: Omit<CommandPaletteShellCommandContext, "isMac">;
+  commandHandlers: CommandPaletteShellCommandHandlers;
+  onOpenChange: (open: boolean) => void;
+};
+
 mock.module("./workbench-shell-deps", () => ({
-  CommandPalette: (props: { open: boolean; initialQuery?: string; onOpenChange: (open: boolean) => void }) => {
+  CommandPalette: (props: MockCommandPaletteProps) => {
     if (!props.open) return null;
+    const rawQuery = props.initialQuery ?? "";
+    const commandMode = props.initialMode === "root";
+    const commandQuery = commandMode ? rawQuery.trim().toLowerCase() : "";
+    const commands = commandMode
+      ? buildCommandPaletteCommands({ ...props.commandContext, isMac: true })
+        .filter((command) => {
+          if (commandQuery.length === 0) return true;
+          const haystack = [
+            command.title,
+            command.subtitle,
+            ...command.keywords,
+          ].join(" ").toLowerCase();
+          return haystack.includes(commandQuery);
+        })
+        .slice(0, 100)
+      : [];
+
     return createElement(
       "div",
       null,
       createElement("input", {
         "aria-label": "Command palette search",
         readOnly: true,
-        value: props.initialQuery ?? "",
+        value: props.initialMode ?? "root",
       }),
+      ...commands.map((command) => createElement("button", {
+        key: command.id,
+        type: "button",
+        disabled: command.disabled,
+        onClick: () => {
+          if (command.disabled) return;
+          if (!isCommandPaletteShellCommandId(command.id)) return;
+          executeCommandPaletteShellCommand(command.id, props.commandHandlers);
+          props.onOpenChange(false);
+        },
+      }, command.title)),
       createElement("button", {
         type: "button",
         onClick: () => props.onOpenChange(false),
@@ -1511,7 +1555,7 @@ function renderWorkbench({
     direction: WorkbenchPanelTabCycleDirection,
   ) => void = () => undefined;
   let requestPanelTabClose: () => void = () => undefined;
-  let openCommandPalette: (initialQuery?: string) => void = () => undefined;
+  let openCommandPalette: (mode?: "root" | "chats" | "cards" | "files", initialQuery?: string) => void = () => undefined;
 
   function WorkbenchShellTestHarness() {
     const [dbProjectId, setDbProjectId] = useState(projects[0]?.id ?? "alpha");
@@ -1524,6 +1568,7 @@ function renderWorkbench({
       useState<WorkbenchPanelTabCloseCommandRequest | null>(panelTabCloseRequest);
     const [commandPaletteRequest, setCommandPaletteRequest] = useState({
       tick: 0,
+      mode: "root" as "root" | "chats" | "cards" | "files",
       initialQuery: "",
     });
     requestWorkbenchNavigation = (direction, source = direction === "back" ? "sidebar_back" : "sidebar_forward") => {
@@ -1546,9 +1591,10 @@ function renderWorkbench({
         source: "menu",
       }));
     };
-    openCommandPalette = (initialQuery = "") => {
+    openCommandPalette = (mode = "root", initialQuery = "") => {
       setCommandPaletteRequest((current) => ({
         tick: current.tick + 1,
+        mode,
         initialQuery,
       }));
     };
@@ -1585,6 +1631,7 @@ function renderWorkbench({
         onRequestProjectPickerOpen={() => undefined}
         threadSearchOpenTick={0}
         commandPaletteOpenTick={commandPaletteRequest.tick}
+        commandPaletteInitialMode={commandPaletteRequest.mode}
         commandPaletteInitialQuery={commandPaletteRequest.initialQuery}
         setSidebarCollapsed={(collapsed) => {
           setSidebarState((current) => ({ ...current, collapsed }));
@@ -1612,8 +1659,8 @@ function renderWorkbench({
     ...result,
     setDbProjectCalls,
     navigationStateChanges,
-    openCommandPalette: (initialQuery?: string) => {
-      openCommandPalette(initialQuery);
+    openCommandPalette: (mode?: "root" | "chats" | "cards" | "files", initialQuery?: string) => {
+      openCommandPalette(mode, initialQuery);
     },
     requestWorkbenchNavigation: (
       direction: WorkbenchNavigationDirection,
@@ -1688,6 +1735,25 @@ async function openBottomPanel(screen: ReturnType<typeof renderWorkbench>): Prom
     fireEvent.click(screen.getByRole("button", { name: "Toggle bottom panel" }));
     await Promise.resolve();
   });
+  await settleAsyncRender();
+}
+
+async function executeCommandPaletteCommand(
+  screen: ReturnType<typeof renderWorkbench>,
+  query: string,
+  label: string,
+): Promise<void> {
+  await act(async () => {
+    screen.openCommandPalette("root", query);
+    await Promise.resolve();
+  });
+  await settleAsyncRender();
+
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: label }));
+    await Promise.resolve();
+  });
+  await settleAsyncRender();
   await settleAsyncRender();
 }
 
@@ -1871,19 +1937,19 @@ describe("workbench session shell", () => {
     expect(sidebarText.indexOf("Plugins") < sidebarText.indexOf("Automations")).toBeTrue();
   });
 
-  test("sidebar Search opens the command palette in default search mode", async () => {
+  test("sidebar Search opens the command palette in cards mode", async () => {
     const screen = renderWorkbench();
     await settleAsyncRender();
     await settleAsyncRender();
 
     await act(async () => {
-      screen.openCommandPalette(">");
+      screen.openCommandPalette("cards");
       await Promise.resolve();
     });
     await settleAsyncRender();
 
     const commandModeInput = screen.getByLabelText("Command palette search") as HTMLInputElement;
-    expect(commandModeInput.value).toBe(">");
+    expect(commandModeInput.value).toBe("cards");
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Close palette" }));
@@ -1897,7 +1963,7 @@ describe("workbench session shell", () => {
     }
 
     const searchButton = within(sidebar).getByRole("button", { name: "Search" });
-    expect(textContent(searchButton).includes("⌘K") || textContent(searchButton).includes("Ctrl+K")).toBeTrue();
+    expect(textContent(searchButton).includes("⌘P") || textContent(searchButton).includes("Ctrl+P")).toBeTrue();
 
     await act(async () => {
       fireEvent.click(searchButton);
@@ -1906,7 +1972,7 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     const defaultSearchInput = screen.getByLabelText("Command palette search") as HTMLInputElement;
-    expect(defaultSearchInput.value).toBe("");
+    expect(defaultSearchInput.value).toBe("cards");
   });
 
   test("sidebar pin button toggles a session without selecting it", async () => {
@@ -4443,13 +4509,69 @@ describe("workbench session shell", () => {
     await settleAsyncRender();
 
     await act(async () => {
-      screen.openCommandPalette(">");
+      screen.openCommandPalette("root");
       await Promise.resolve();
     });
     await settleAsyncRender();
 
     const input = screen.getByLabelText("Command palette search") as HTMLInputElement;
-    expect(input.value).toBe(">");
+    expect(input.value).toBe("root");
+  });
+
+  test("command palette shell commands open Files Browser Review Terminal and DB View tabs", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [makeAttachedSession({ id: "session:alpha:commands", isOverview: false })],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await executeCommandPaletteCommand(screen, "files", "Toggle file tree");
+    expect(screen.getByRole("tab", { name: "Files" }) !== null).toBeTrue();
+
+    await executeCommandPaletteCommand(screen, "browser", "Open browser tab");
+    expect(screen.getByRole("tab", { name: "Browser" }) !== null).toBeTrue();
+
+    invokeCalls = [];
+    await executeCommandPaletteCommand(screen, "review", "Open review tab");
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-session-tabs:create"
+      && JSON.stringify(call[1]).includes('"kind":"review"')
+      && JSON.stringify(call[1]).includes('"panelId":"right"')
+    )).toBeTrue();
+
+    invokeCalls = [];
+    await executeCommandPaletteCommand(screen, "terminal", "Open terminal");
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-session-tabs:create"
+      && JSON.stringify(call[1]).includes('"kind":"terminal"')
+      && JSON.stringify(call[1]).includes('"panelId":"bottom"')
+    )).toBeTrue();
+
+    invokeCalls = [];
+    await executeCommandPaletteCommand(screen, "db", "Open DB View tab");
+    expect(invokeCalls.some((call) =>
+      call[0] === "project-session-tabs:create"
+      && JSON.stringify(call[1]).includes('"kind":"db_view"')
+      && JSON.stringify(call[1]).includes('"panelId":"right"')
+    )).toBeTrue();
+  });
+
+  test("command palette opens keyboard shortcuts settings", async () => {
+    const screen = renderWorkbench({
+      sessionsByProject: {
+        alpha: [makeAttachedSession({ id: "session:alpha:keyboard", isOverview: false })],
+      },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    await executeCommandPaletteCommand(screen, "keyboard", "Keyboard shortcuts");
+
+    const routeShell = screen.container.querySelector('[data-testid="settings-route-shell"]');
+    expect(routeShell !== null).toBeTrue();
+    expect(textContent(screen.container).includes("Keyboard shortcuts")).toBeTrue();
   });
 
   test("Files shortcut uses Ctrl+Shift+E and leaves Ctrl+P for the command palette", async () => {

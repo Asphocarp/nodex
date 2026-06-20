@@ -36,6 +36,8 @@ import type { McpResourceReadResponse } from "@nodex/codex-app-server-protocol/v
 import type { McpServerStatus } from "@nodex/codex-app-server-protocol/v2/McpServerStatus";
 import type { ModelListResponse } from "@nodex/codex-app-server-protocol/v2/ModelListResponse";
 import type { ThreadReadResponse } from "@nodex/codex-app-server-protocol/v2/ThreadReadResponse";
+import type { ThreadSearchResponse } from "@nodex/codex-app-server-protocol/v2/ThreadSearchResponse";
+import type { ThreadSourceKind } from "@nodex/codex-app-server-protocol/v2/ThreadSourceKind";
 import type { ThreadForkParams } from "@nodex/codex-app-server-protocol/v2/ThreadForkParams";
 import type { ThreadForkResponse } from "@nodex/codex-app-server-protocol/v2/ThreadForkResponse";
 import type { ThreadInjectItemsResponse } from "@nodex/codex-app-server-protocol/v2/ThreadInjectItemsResponse";
@@ -59,6 +61,10 @@ import type { ToolRequestUserInputParams } from "@nodex/codex-app-server-protoco
 import type { ToolRequestUserInputResponse } from "@nodex/codex-app-server-protocol/v2/ToolRequestUserInputResponse";
 import type {
   CardRunInTarget,
+  CommandPaletteThreadContentSearchInput,
+  CommandPaletteThreadContentSearchResult,
+  CommandPaletteThreadListInput,
+  CommandPaletteThreadSummary,
   CodexAccountIdentity,
   CodexAccountSnapshot,
   CodexApprovalDecision,
@@ -226,6 +232,19 @@ import { requestChatGptDesktop } from "./chatgpt-desktop-request";
 import { terminalManager } from "../terminal-manager";
 
 const codexLogger = getLogger({ subsystem: "codex", component: "service" });
+const COMMAND_PALETTE_THREAD_CONTENT_SEARCH_MAX_LIMIT = 60;
+const COMMAND_PALETTE_THREAD_SOURCE_KINDS: ThreadSourceKind[] = [
+  "cli",
+  "vscode",
+  "exec",
+  "appServer",
+  "subAgent",
+  "subAgentReview",
+  "subAgentCompact",
+  "subAgentThreadSpawn",
+  "subAgentOther",
+  "unknown",
+];
 const require = createRequire(import.meta.url);
 
 const CODEX_DYNAMIC_TOOL_SPECS: DynamicToolSpec[] = [
@@ -2933,6 +2952,90 @@ export class CodexService extends EventEmitter {
     opts?: { includeArchived?: boolean },
   ): Promise<CodexThreadSummary[]> {
     return listCodexProjectThreads(projectId, opts);
+  }
+
+  listCommandPaletteThreads(input: CommandPaletteThreadListInput): CommandPaletteThreadSummary[] {
+    const projectIds = Array.from(new Set(input.projectIds.map((projectId) => projectId.trim()).filter(Boolean)));
+    if (projectIds.length === 0) return [];
+
+    const threads: CommandPaletteThreadSummary[] = [];
+    for (const projectId of projectIds) {
+      const project = dbService.getProject(projectId);
+      if (!project) continue;
+
+      const sessions = projectSessionService.listProjectSessions(projectId, { includeArchived: false });
+      for (const session of sessions) {
+        if (session.isOverview || session.archived || !session.thread || session.thread.archived) {
+          continue;
+        }
+
+        const parsedStatus = parseThreadStatus(session.thread.statusType);
+        threads.push({
+          threadId: session.thread.threadId,
+          sessionId: session.id,
+          projectId,
+          projectName: project.name,
+          title: session.displayTitle,
+          preview: session.thread.threadPreview,
+          cwd: session.thread.cwd ?? null,
+          statusType: parsedStatus.statusType,
+          statusActiveFlags: parseThreadActiveFlags(session.thread.statusActiveFlags),
+          createdAt: session.thread.createdAt,
+          updatedAt: session.thread.updatedAt,
+          linkedAt: session.thread.linkedAt,
+        });
+      }
+    }
+
+    return threads.sort((left, right) => {
+      if (right.updatedAt !== left.updatedAt) return right.updatedAt - left.updatedAt;
+      return left.title.localeCompare(right.title);
+    });
+  }
+
+  async searchCommandPaletteThreadContent(
+    input: CommandPaletteThreadContentSearchInput,
+  ): Promise<CommandPaletteThreadContentSearchResult[]> {
+    const query = input.query.trim();
+    if (query.length === 0) return [];
+
+    const eligibleThreadIds = new Set(
+      this.listCommandPaletteThreads({ projectIds: input.projectIds }).map((thread) => thread.threadId),
+    );
+    if (eligibleThreadIds.size === 0) return [];
+
+    const limit = Math.max(
+      1,
+      Math.min(
+        COMMAND_PALETTE_THREAD_CONTENT_SEARCH_MAX_LIMIT,
+        Math.trunc(input.limit ?? COMMAND_PALETTE_THREAD_CONTENT_SEARCH_MAX_LIMIT),
+      ),
+    );
+
+    try {
+      await this.ensureClientReady();
+      const result = await this.client.request<"thread/search", ThreadSearchResponse>("thread/search", {
+        searchTerm: query,
+        limit,
+        sortKey: "updated_at",
+        sortDirection: "desc",
+        archived: false,
+        sourceKinds: COMMAND_PALETTE_THREAD_SOURCE_KINDS,
+      });
+
+      return result.data.flatMap((hit, index): CommandPaletteThreadContentSearchResult[] => {
+        if (!eligibleThreadIds.has(hit.thread.id)) return [];
+        const snippet = hit.snippet.replace(/\s+/g, " ").trim();
+        if (!snippet) return [];
+        return [{
+          threadId: hit.thread.id,
+          snippet,
+          score: limit - index,
+        }];
+      });
+    } catch {
+      return [];
+    }
   }
 
   async resolveThreadSummary(threadId: string): Promise<CodexThreadSummary | null> {

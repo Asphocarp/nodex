@@ -4,6 +4,10 @@ import {
   normalizeCommandPaletteSearchText,
   type CommandPaletteCardSearchIndex,
 } from "./command-palette-card-search";
+import {
+  createCommandPaletteThreadSearchIndex,
+  type CommandPaletteThreadSearchIndex,
+} from "./command-palette-thread-search";
 import { CARD_STATUS_LABELS, CARD_STATUS_ORDER } from "../../shared/card-status";
 import {
   TOGGLE_LIST_EMPTY_PRIORITY_LABEL,
@@ -19,11 +23,30 @@ export interface CommandPaletteCommand {
   title: string;
   subtitle: string;
   keywords: string[];
+  group: CommandPaletteCommandGroup;
   shortcut?: string;
   active?: boolean;
   disabled?: boolean;
+  mockReason?: string;
   priority: number;
 }
+
+export type CommandMenuMode = "root" | "chats" | "cards" | "files";
+
+export interface CommandMenuOpenRequest {
+  mode: CommandMenuMode;
+  query?: string;
+}
+
+export type CommandPaletteCommandGroup =
+  | "Suggested"
+  | "Chat"
+  | "Navigation"
+  | "Panels"
+  | "Project"
+  | "Configure"
+  | "Skills"
+  | "App";
 
 export interface CommandPaletteCard {
   kind: "card";
@@ -64,11 +87,44 @@ export interface CommandPaletteCardSearchDecorations {
   badges: CommandPaletteCardSearchBadge[];
 }
 
+export interface CommandPaletteThreadSearchPreview {
+  excerpt: string;
+  segments: CommandPaletteCardSearchPreviewSegment[];
+  source: "metadata" | "content";
+}
+
+export interface CommandPaletteThreadSearchDecorations {
+  titleSegments?: CommandPaletteCardSearchPreviewSegment[] | null;
+  projectNameSegments?: CommandPaletteCardSearchPreviewSegment[] | null;
+  cwdSegments?: CommandPaletteCardSearchPreviewSegment[] | null;
+}
+
+export interface CommandPaletteThread {
+  kind: "thread";
+  id: string;
+  threadId: string;
+  sessionId: string;
+  projectId: string;
+  projectName: string;
+  title: string;
+  preview: string;
+  cwd: string | null;
+  statusType: string;
+  statusActiveFlags: string[];
+  createdAt: number;
+  updatedAt: number;
+  linkedAt: string;
+  inActiveProject: boolean;
+  searchPreview?: CommandPaletteThreadSearchPreview | null;
+  searchDecorations?: CommandPaletteThreadSearchDecorations | null;
+}
+
 export interface CommandPaletteResults {
-  commandMode: boolean;
+  mode: CommandMenuMode;
   query: string;
   commands: CommandPaletteCommand[];
   cards: CommandPaletteCard[];
+  threads: CommandPaletteThread[];
 }
 
 interface ScoredCommand {
@@ -78,6 +134,11 @@ interface ScoredCommand {
 
 interface ScoredCard {
   item: CommandPaletteCard;
+  score: number;
+}
+
+interface ScoredThread {
+  item: CommandPaletteThread;
   score: number;
 }
 
@@ -91,8 +152,8 @@ export interface CommandPaletteCardFilters {
   projectIds: string[];
 }
 
-const DEFAULT_COMMAND_LIMIT = 8;
 const DEFAULT_CARD_LIMIT = 12;
+const DEFAULT_THREAD_LIMIT = 8;
 const COMMAND_PALETTE_CARD_FILTERS_STORAGE_KEY = "nodex-command-palette-card-filters-v1";
 const TAG_FILTER_MODES = new Set<ToggleListTagFilterMode>(["any", "all", "none"]);
 
@@ -442,36 +503,89 @@ function compareScoredCards(left: ScoredCard, right: ScoredCard): number {
   return compareDefaultCards(left.item, right.item);
 }
 
+function compareDefaultThreads(left: CommandPaletteThread, right: CommandPaletteThread): number {
+  if (left.inActiveProject !== right.inActiveProject) {
+    return left.inActiveProject ? -1 : 1;
+  }
+
+  if (right.updatedAt !== left.updatedAt) {
+    return right.updatedAt - left.updatedAt;
+  }
+
+  return left.title.localeCompare(right.title);
+}
+
+function compareScoredThreads(left: ScoredThread, right: ScoredThread): number {
+  if (right.score !== left.score) return right.score - left.score;
+  return compareDefaultThreads(left.item, right.item);
+}
+
 export function filterCommandPaletteItems(input: {
   query: string;
+  mode: CommandMenuMode;
   commands: CommandPaletteCommand[];
   cards: CommandPaletteCard[];
+  threads?: CommandPaletteThread[];
   cardFilters?: CommandPaletteCardFilters | null;
   cardSearchIndex?: CommandPaletteCardSearchIndex | null;
+  threadSearchIndex?: CommandPaletteThreadSearchIndex | null;
   commandLimit?: number;
   cardLimit?: number;
+  threadLimit?: number;
 }): CommandPaletteResults {
-  const rawQuery = input.query.trimStart();
-  const commandMode = rawQuery.startsWith(">");
-  const query = normalizeCommandPaletteSearchText(commandMode ? rawQuery.slice(1) : rawQuery);
+  const query = normalizeCommandPaletteSearchText(input.query.trimStart());
   const tokens = tokenizeSearchQuery(query);
   const cardFilters = input.cardFilters ?? getDefaultCommandPaletteCardFilters();
 
-  const commands = commandMode
-    ? input.commands
-        .map((item) => rankCommand(item, query, tokens))
-        .filter((item): item is ScoredCommand => item !== null)
-        .sort(compareScoredCommands)
-        .slice(0, input.commandLimit ?? DEFAULT_COMMAND_LIMIT)
-        .map(({ item }) => item)
-    : [];
+  if (input.mode === "root") {
+    const commands = input.commands
+      .map((item) => rankCommand(item, query, tokens))
+      .filter((item): item is ScoredCommand => item !== null)
+      .sort(compareScoredCommands)
+      .slice(0, input.commandLimit ?? 100)
+      .map(({ item }) => item);
 
-  if (commandMode) {
     return {
-      commandMode,
+      mode: input.mode,
       query,
       commands,
       cards: [],
+      threads: [],
+    };
+  }
+
+  if (input.mode === "chats") {
+    const threadItems = input.threads ?? [];
+    const threads = query
+      ? (
+          input.threadSearchIndex === undefined
+            ? createCommandPaletteThreadSearchIndex(threadItems).search(query)
+            : input.threadSearchIndex?.search(query) ?? []
+        )
+          .sort(compareScoredThreads)
+          .slice(0, input.threadLimit ?? DEFAULT_THREAD_LIMIT)
+          .map(({ item }) => item)
+      : threadItems
+          .slice()
+          .sort(compareDefaultThreads)
+          .slice(0, input.threadLimit ?? DEFAULT_THREAD_LIMIT);
+
+    return {
+      mode: input.mode,
+      query,
+      commands: [],
+      cards: [],
+      threads,
+    };
+  }
+
+  if (input.mode === "files") {
+    return {
+      mode: input.mode,
+      query,
+      commands: [],
+      cards: [],
+      threads: [],
     };
   }
 
@@ -492,9 +606,10 @@ export function filterCommandPaletteItems(input: {
         .slice(0, input.cardLimit ?? DEFAULT_CARD_LIMIT);
 
   return {
-    commandMode,
+    mode: input.mode,
     query,
-    commands,
+    commands: [],
     cards,
+    threads: [],
   };
 }

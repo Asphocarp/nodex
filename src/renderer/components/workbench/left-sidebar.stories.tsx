@@ -18,7 +18,7 @@ import {
   CodexSidebarSection,
   CodexSidebarTopAction,
   CodexThreadRow,
-  resolveCodexCommandPaletteShortcutLabel,
+  resolveCodexCardSearchShortcutLabel,
 } from "./codex-sidebar";
 import {
   replaceVisibleOrder,
@@ -319,7 +319,7 @@ function SidebarNewChatControlsHarness() {
           <CodexSidebarTopAction
             label="Search"
             icon={<SearchIcon className="icon-xs" />}
-            shortcutLabel={resolveCodexCommandPaletteShortcutLabel()}
+            shortcutLabel={resolveCodexCardSearchShortcutLabel()}
             onClick={() => {}}
           />
           <div className="mt-3 px-(--sidebar-shell-padding-x)">

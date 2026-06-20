@@ -3,6 +3,12 @@ import {
   normalizeSearchText,
   resolveFuzzyThreshold,
 } from "./search-text";
+import {
+  buildCommandPaletteHighlightedSegments,
+  buildCommandPaletteHighlightRegex,
+  buildCommandPaletteHighlightSegments,
+  normalizeCommandPalettePreviewText,
+} from "./command-palette-highlight";
 import type {
   CommandPaletteCard,
   CommandPaletteCardSearchBadge,
@@ -101,14 +107,6 @@ export function normalizeCommandPaletteSearchText(value: string): string {
   return normalizeSearchText(value);
 }
 
-function normalizePreviewText(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function buildSearchDocument(item: CommandPaletteCard): CommandPaletteCardSearchDocument {
   return {
     id: item.id,
@@ -198,59 +196,6 @@ function hasMatchingDocumentRefs(
   return left.every((ref) => rightById.get(ref.id) === ref.signature);
 }
 
-function buildPreviewRegex(terms: string[]): RegExp | null {
-  const normalizedTerms = Array.from(new Set(
-    terms
-      .map((term) => term.trim())
-      .filter(Boolean)
-      .sort((left, right) => right.length - left.length),
-  ));
-
-  if (normalizedTerms.length === 0) {
-    return null;
-  }
-
-  return new RegExp(`(${normalizedTerms.map(escapeRegExp).join("|")})`, "gi");
-}
-
-function buildPreviewSegments(
-  excerpt: string,
-  regex: RegExp | null,
-): CommandPaletteCardSearchPreviewSegment[] {
-  if (!regex) {
-    return [{ text: excerpt, highlight: false }];
-  }
-
-  const segments: CommandPaletteCardSearchPreviewSegment[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null = null;
-  regex.lastIndex = 0;
-
-  while ((match = regex.exec(excerpt)) !== null) {
-    if (match.index > lastIndex) {
-      segments.push({
-        text: excerpt.slice(lastIndex, match.index),
-        highlight: false,
-      });
-    }
-
-    segments.push({
-      text: match[0],
-      highlight: true,
-    });
-    lastIndex = match.index + match[0].length;
-  }
-
-  if (lastIndex < excerpt.length) {
-    segments.push({
-      text: excerpt.slice(lastIndex),
-      highlight: false,
-    });
-  }
-
-  return segments.length > 0 ? segments : [{ text: excerpt, highlight: false }];
-}
-
 function collectMatchedTermsForField(result: SearchResult, field: keyof CommandPaletteCardSearchDocument): string[] {
   return result.terms.filter((term) => result.match[term]?.includes(field));
 }
@@ -259,22 +204,7 @@ function buildHighlightedSegments(
   text: string,
   terms: string[],
 ): CommandPaletteCardSearchPreviewSegment[] | null {
-  const normalizedText = normalizePreviewText(text);
-  if (!normalizedText) {
-    return null;
-  }
-
-  const regex = buildPreviewRegex(terms);
-  if (!regex) {
-    return null;
-  }
-
-  regex.lastIndex = 0;
-  if (!regex.test(normalizedText)) {
-    return null;
-  }
-
-  return buildPreviewSegments(normalizedText, buildPreviewRegex(terms));
+  return buildCommandPaletteHighlightedSegments(text, terms);
 }
 
 function buildBadge(
@@ -350,7 +280,7 @@ function buildDescriptionPreview(
   item: CommandPaletteCard,
   result: SearchResult,
 ): CommandPaletteCardSearchPreview | null {
-  const description = normalizePreviewText(item.card.descriptionPreview);
+  const description = normalizeCommandPalettePreviewText(item.card.descriptionPreview);
   if (!description) {
     return null;
   }
@@ -359,7 +289,7 @@ function buildDescriptionPreview(
   const previewTerms = descriptionTerms.length > 0
     ? descriptionTerms
     : result.terms;
-  const regex = buildPreviewRegex(previewTerms);
+  const regex = buildCommandPaletteHighlightRegex(previewTerms);
   if (!regex) {
     return null;
   }
@@ -376,7 +306,7 @@ function buildDescriptionPreview(
 
   return {
     excerpt,
-    segments: buildPreviewSegments(excerpt, buildPreviewRegex(previewTerms)),
+    segments: buildCommandPaletteHighlightSegments(excerpt, buildCommandPaletteHighlightRegex(previewTerms)),
   };
 }
 

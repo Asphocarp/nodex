@@ -17,6 +17,7 @@ import {
 import { useCardStageState } from "@/lib/use-card-stage";
 import { useWorkbenchShortcuts } from "@/lib/use-workbench-shortcuts";
 import { useCommandKeymapState } from "@/lib/use-command-keymap-state";
+import type { CommandMenuMode, CommandMenuOpenRequest } from "@/lib/command-palette";
 import { invoke } from "@/lib/api";
 import { registerAppCloseFlushHandler } from "@/lib/app-close-flush";
 import {
@@ -169,6 +170,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
   const [diffSearchOpenTick, setDiffSearchOpenTick] = useState(0);
   const [commandPaletteOpenTick, setCommandPaletteOpenTick] = useState(0);
   const [commandPaletteInitialQuery, setCommandPaletteInitialQuery] = useState("");
+  const [commandPaletteInitialMode, setCommandPaletteInitialMode] = useState<CommandMenuMode>("root");
   const [sidebarToggleRequest, setSidebarToggleRequest] = useState<{
     tick: number;
     source: WorkbenchSidebarToggleCommandSource;
@@ -182,6 +184,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
   const [threadRenameRequest, setThreadRenameRequest] =
     useState<WorkbenchThreadRenameCommandRequest | null>(null);
   const [settingsToggleTick, setSettingsToggleTick] = useState(0);
+  const [keyboardShortcutsSettingsOpenTick, setKeyboardShortcutsSettingsOpenTick] = useState(0);
   const [activeProjectSessionId, setActiveProjectSessionId] = useState<string | null>(
     initialWindowSessionBootstrap.session.layout.activeProjectSessionId ?? null,
   );
@@ -1010,6 +1013,10 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     setSettingsToggleTick((tick) => tick + 1);
   }, []);
 
+  const handleOpenKeyboardShortcutsSettings = useCallback(() => {
+    setKeyboardShortcutsSettingsOpenTick((tick) => tick + 1);
+  }, []);
+
   const handleRequestNewWindow = useCallback(async () => {
     if (layoutSaveTimerRef.current !== null) {
       window.clearTimeout(layoutSaveTimerRef.current);
@@ -1038,8 +1045,9 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     });
   }, [flushWindowSessionLayout]);
 
-  const handleOpenCommandPalette = useCallback((initialQuery = "") => {
-    setCommandPaletteInitialQuery(initialQuery);
+  const handleOpenCommandPalette = useCallback((request?: CommandMenuOpenRequest) => {
+    setCommandPaletteInitialMode(request?.mode ?? "root");
+    setCommandPaletteInitialQuery(request?.query ?? "");
     setCommandPaletteOpenTick((tick) => tick + 1);
   }, []);
   const commandKeymapQuery = useCommandKeymapState();
@@ -1061,6 +1069,7 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
     onRequestThreadSearch: handleOpenThreadSearch,
     onRequestDiffSearch: handleOpenDiffSearch,
     onRequestSettingsToggle: handleToggleSettings,
+    onRequestKeyboardShortcuts: handleOpenKeyboardShortcutsSettings,
     navigateBack: (source) => {
       requestWorkbenchNavigation("back", source);
     },
@@ -1121,7 +1130,6 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       recentCardSessions={recentCardSessions}
       activeRecentSessionId={activeRecentSessionId}
       sidebar={sidebar}
-      focusedStage={focusedStage}
       stageNavDirection={stageNavDirection}
       cardsTabs={cardsTabs}
       activeCardsTabId={activeCardsTabId}
@@ -1173,8 +1181,10 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       threadSearchOpenTick={threadSearchOpenTick}
       diffSearchOpenTick={diffSearchOpenTick}
       commandPaletteOpenTick={commandPaletteOpenTick}
+      commandPaletteInitialMode={commandPaletteInitialMode}
       commandPaletteInitialQuery={commandPaletteInitialQuery}
       settingsToggleTick={settingsToggleTick}
+      keyboardShortcutsSettingsOpenTick={keyboardShortcutsSettingsOpenTick}
       sidebarToggleRequestTick={sidebarToggleRequest.tick}
       sidebarToggleRequestSource={sidebarToggleRequest.source}
       onCreateProject={handleCreateProject}
@@ -1183,15 +1193,10 @@ function WorkbenchApp({ initialWindowSessionBootstrap }: { initialWindowSessionB
       onReorderProjects={handleReorderProjects}
       onSetProjectPinned={handleSetProjectPinned}
       onSetPinnedProjectOrder={handleSetPinnedProjectOrder}
-      navigateToStage={navigateToStage}
-      navigateToDbView={navigateToDbView}
       navigateToRecentSession={navigateToRecentSession}
       navigateToCardsTab={navigateToCardsTab}
       navigateToThreadTab={navigateToThreadTab}
       navigateToFilesTab={navigateToFilesTab}
-      onRequestNewWindow={() => {
-        void handleRequestNewWindow();
-      }}
       commandKeymapState={commandKeymapQuery.data}
       />
     </LocalConversationProvider>

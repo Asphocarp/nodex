@@ -7,9 +7,11 @@ import {
   summarizeCommandPaletteCardFilters,
   type CommandPaletteCard,
   type CommandPaletteCommand,
+  type CommandPaletteThread,
   writeCommandPaletteCardFilters,
 } from "./command-palette";
 import { createCommandPaletteCardSearchIndex } from "./command-palette-card-search";
+import { createCommandPaletteThreadSearchIndex } from "./command-palette-thread-search";
 import type { CardSummary } from "./types";
 
 function makeCard(overrides: Partial<CardSummary> = {}): CardSummary {
@@ -50,6 +52,7 @@ function makeCommand(overrides: Partial<CommandPaletteCommand> = {}): CommandPal
   return {
     kind: "command",
     id: overrides.id ?? "open-settings",
+    group: overrides.group ?? "Configure",
     title: overrides.title ?? "Open settings",
     subtitle: overrides.subtitle ?? "App preferences",
     keywords: overrides.keywords ?? ["settings", "preferences"],
@@ -73,6 +76,26 @@ function makePaletteCard(overrides: Partial<CommandPaletteCard> = {}): CommandPa
     inActiveProject: overrides.inActiveProject ?? true,
     recentIndex: overrides.recentIndex ?? null,
     boardIndex: overrides.boardIndex ?? 0,
+  };
+}
+
+function makePaletteThread(overrides: Partial<CommandPaletteThread> = {}): CommandPaletteThread {
+  return {
+    kind: "thread",
+    id: overrides.id ?? "thread:thr-1",
+    threadId: overrides.threadId ?? "thr-1",
+    sessionId: overrides.sessionId ?? "session-1",
+    projectId: overrides.projectId ?? "default",
+    projectName: overrides.projectName ?? "Default",
+    title: overrides.title ?? "Command palette thread search",
+    preview: overrides.preview ?? "Add thread search to the launcher.",
+    cwd: overrides.cwd ?? "/tmp/default",
+    statusType: overrides.statusType ?? "notLoaded",
+    statusActiveFlags: overrides.statusActiveFlags ?? [],
+    createdAt: overrides.createdAt ?? 1_781_990_400,
+    updatedAt: overrides.updatedAt ?? 1_781_990_400,
+    linkedAt: overrides.linkedAt ?? "2026-06-20T00:00:00.000Z",
+    inActiveProject: overrides.inActiveProject ?? true,
   };
 }
 
@@ -122,6 +145,7 @@ describe("filterCommandPaletteItems", () => {
 
     const result = filterCommandPaletteItems({
       query: "command pal",
+      mode: "cards",
       commands: [],
       cards: [otherProjectCard, currentProjectCard],
       cardSearchIndex: createCommandPaletteCardSearchIndex([otherProjectCard, currentProjectCard]),
@@ -130,20 +154,23 @@ describe("filterCommandPaletteItems", () => {
     expect(result.cards[0]?.card.id).toBe("card-a");
   });
 
-  test("supports command-only mode with a > prefix", () => {
+  test("supports command-only root mode without a > prefix", () => {
     const result = filterCommandPaletteItems({
-      query: "> sett",
+      query: "sett",
+      mode: "root",
       commands: [
         makeCommand(),
         makeCommand({ id: "search", title: "Search tasks", subtitle: "Current project", keywords: ["find"] }),
       ],
       cards: [makePaletteCard()],
+      threads: [makePaletteThread()],
     });
 
-    expect(result.commandMode).toBeTrue();
+    expect(result.mode).toBe("root");
     expect(result.commands.length).toBe(1);
     expect(result.commands[0]?.id).toBe("open-settings");
     expect(result.cards.length).toBe(0);
+    expect(result.threads.length).toBe(0);
   });
 
   test("boosts recent cards when the query is otherwise tied", () => {
@@ -160,6 +187,7 @@ describe("filterCommandPaletteItems", () => {
 
     const result = filterCommandPaletteItems({
       query: "search flow",
+      mode: "cards",
       commands: [],
       cards: [staleCard, recentCard],
       cardSearchIndex: createCommandPaletteCardSearchIndex([staleCard, recentCard]),
@@ -179,6 +207,7 @@ describe("filterCommandPaletteItems", () => {
 
     const result = filterCommandPaletteItems({
       query: "search indexer",
+      mode: "cards",
       commands: [],
       cards: [descriptionCard],
       cardSearchIndex: createCommandPaletteCardSearchIndex([descriptionCard]),
@@ -191,6 +220,7 @@ describe("filterCommandPaletteItems", () => {
   test("returns useful defaults for an empty query", () => {
     const result = filterCommandPaletteItems({
       query: "",
+      mode: "cards",
       commands: [
         makeCommand({ id: "terminal", title: "Toggle terminal", priority: 300 }),
         makeCommand({ id: "board", title: "Switch to board", priority: 200 }),
@@ -199,10 +229,44 @@ describe("filterCommandPaletteItems", () => {
         makePaletteCard({ card: makeCard({ id: "alpha", title: "Alpha" }), boardIndex: 3 }),
         makePaletteCard({ card: makeCard({ id: "beta", title: "Beta" }), boardIndex: 0 }),
       ],
+      threads: [
+        makePaletteThread({ threadId: "older", id: "thread:older", updatedAt: 100 }),
+        makePaletteThread({ threadId: "newer", id: "thread:newer", updatedAt: 200 }),
+      ],
     });
 
-    expect(result.commands.length).toBe(0);
     expect(result.cards[0]?.card.id).toBe("beta");
+    expect(result.commands.length).toBe(0);
+    expect(result.threads.length).toBe(0);
+  });
+
+  test("returns chat metadata matches in chats mode", () => {
+    const targetThread = makePaletteThread({
+      threadId: "thr-search",
+      id: "thread:thr-search",
+      title: "Search thread transcripts",
+      preview: "Find historical thread content.",
+    });
+    const otherThread = makePaletteThread({
+      threadId: "thr-other",
+      id: "thread:thr-other",
+      title: "Terminal polish",
+      preview: "Adjust panel layout.",
+    });
+
+    const result = filterCommandPaletteItems({
+      query: "thread transcript",
+      mode: "chats",
+      commands: [],
+      cards: [],
+      threads: [otherThread, targetThread],
+      threadSearchIndex: createCommandPaletteThreadSearchIndex([otherThread, targetThread]),
+    });
+
+    expect(result.cards.length).toBe(0);
+    expect(result.threads.length).toBe(1);
+    expect(result.threads[0]?.threadId).toBe("thr-search");
+    expect(result.threads[0]?.searchDecorations?.titleSegments?.some((segment) => segment.highlight)).toBeTrue();
   });
 
   test("filters cards by explicit tag and status filters", () => {
@@ -236,6 +300,7 @@ describe("filterCommandPaletteItems", () => {
 
     const result = filterCommandPaletteItems({
       query: "",
+      mode: "cards",
       commands: [],
       cards: [backlogSearchCard, doneOtherTagCard, doneSearchCard],
       cardFilters: {
@@ -288,6 +353,7 @@ describe("filterCommandPaletteItems", () => {
 
     const result = filterCommandPaletteItems({
       query: "queue",
+      mode: "cards",
       commands: [],
       cards: [wrongProjectCard, wrongAssigneeCard, targetCard],
       cardFilters: {
@@ -345,9 +411,10 @@ describe("filterCommandPaletteItems", () => {
     });
   });
 
-  test("does not search commands without the > prefix", () => {
+  test("root mode searches commands directly", () => {
     const result = filterCommandPaletteItems({
       query: "go",
+      mode: "root",
       commands: [
         makeCommand({ id: "navigateBack", title: "Back", keywords: ["back"], disabled: true, priority: 500 }),
         makeCommand({ id: "navigateForward", title: "Forward", keywords: ["forward"], disabled: false, priority: 490 }),
@@ -355,13 +422,14 @@ describe("filterCommandPaletteItems", () => {
       cards: [],
     });
 
-    expect(result.commandMode).toBeFalse();
+    expect(result.mode).toBe("root");
     expect(result.commands.length).toBe(0);
   });
 
-  test("preserves disabled back and forward commands in > command mode", () => {
+  test("preserves disabled back and forward commands in root mode", () => {
     const result = filterCommandPaletteItems({
-      query: ">",
+      query: "",
+      mode: "root",
       commands: [
         makeCommand({ id: "navigateBack", title: "Back", keywords: ["back"], disabled: true, priority: 500 }),
         makeCommand({ id: "navigateForward", title: "Forward", keywords: ["forward"], disabled: false, priority: 490 }),

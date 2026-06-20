@@ -1133,6 +1133,14 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     codexService.listProjectThreads(projectId, opts)
   );
 
+  registerHandle("codex:threads:palette:list", (_, input) =>
+    codexService.listCommandPaletteThreads(input)
+  );
+
+  registerHandle("codex:threads:palette:search-content", (_, input) =>
+    codexService.searchCommandPaletteThreadContent(input)
+  );
+
   registerHandle("codex:thread:summary:get", (_, threadId: string) =>
     codexService.resolveThreadSummary(threadId)
   );

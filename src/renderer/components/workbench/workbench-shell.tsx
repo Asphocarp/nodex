@@ -193,7 +193,7 @@ import {
   type DbViewPrefs,
   type SupportedDbView,
 } from "@/lib/db-view-prefs";
-import type { RecentCardSession, SpaceRef, StageId, WorkbenchView } from "@/lib/use-workbench-state";
+import type { RecentCardSession, SpaceRef, WorkbenchView } from "@/lib/use-workbench-state";
 import type { CardStageSessionSnapshot } from "@/components/kanban/card-stage/types";
 import { buildSessionDeepLink } from "@/lib/card-deeplink";
 import { writeTextToClipboard } from "@/lib/clipboard";
@@ -255,7 +255,7 @@ import {
   CodexSidebarSection,
   CodexSidebarTopAction,
   CodexThreadRow,
-  resolveCodexCommandPaletteShortcutLabel,
+  resolveCodexCardSearchShortcutLabel,
   resolveCodexNewChatShortcutLabel,
 } from "./codex-sidebar";
 import { RenameChatDialog } from "./rename-chat-dialog";
@@ -286,6 +286,11 @@ import {
   matchesKeyboardEventToCommand,
   type CommandKeymapState,
 } from "../../../shared/command-keybindings";
+import type { CommandMenuMode } from "@/lib/command-palette";
+import type {
+  CommandPaletteShellCommandContext,
+  CommandPaletteShellCommandHandlers,
+} from "@/lib/command-palette-commands";
 import {
   navigateBackInWorkbenchShellHistory,
   navigateForwardInWorkbenchShellHistory,
@@ -621,7 +626,6 @@ interface WorkbenchShellProps {
   threadsProjectId?: unknown;
   recentCardSessions?: RecentCardSession[];
   activeRecentSessionId?: unknown;
-  focusedStage?: StageId;
   stageNavDirection?: unknown;
   cardsTabs?: unknown;
   activeCardsTabId?: unknown;
@@ -641,11 +645,13 @@ interface WorkbenchShellProps {
   reorderRecentCardSessions?: unknown;
   closeCardStage?: unknown;
   projectPickerOpenTick?: number;
-  taskSearchOpenTick?: unknown;
+  taskSearchOpenTick?: number;
   diffSearchOpenTick?: unknown;
   commandPaletteOpenTick?: number;
+  commandPaletteInitialMode?: CommandMenuMode;
   commandPaletteInitialQuery?: string;
   settingsToggleTick?: unknown;
+  keyboardShortcutsSettingsOpenTick?: unknown;
   sidebarToggleRequestTick?: number;
   sidebarToggleRequestSource?: WorkbenchSidebarToggleCommandSource;
   navigationCommandRequest?: WorkbenchNavigationCommandRequest | null;
@@ -653,13 +659,10 @@ interface WorkbenchShellProps {
   panelTabCloseRequest?: WorkbenchPanelTabCloseCommandRequest | null;
   threadRenameRequest?: WorkbenchThreadRenameCommandRequest | null;
   onNavigationStateChange?: (state: WorkbenchNavigationCommandState) => void;
-  navigateToStage?: (projectId: string, stageId: StageId) => void;
-  navigateToDbView?: (projectId: string, view: WorkbenchView) => void;
   navigateToRecentSession?: unknown;
   navigateToCardsTab?: unknown;
   navigateToThreadTab?: unknown;
   navigateToFilesTab?: unknown;
-  onRequestNewWindow?: () => void;
   commandKeymapState?: CommandKeymapState | null;
 }
 
@@ -1374,7 +1377,6 @@ export function WorkbenchShell({
   dbViewPrefsByProject,
   spaces = [],
   recentCardSessions = [],
-  focusedStage = "db",
   sidebar,
   cardStageCloseRef,
   cardStagePersistRef,
@@ -1396,13 +1398,16 @@ export function WorkbenchShell({
   onSetPinnedProjectOrder,
   onRequestProjectPickerOpen,
   projectPickerOpenTick = 0,
+  taskSearchOpenTick = 0,
   threadSearchOpenTick,
   commandPaletteOpenTick = 0,
+  commandPaletteInitialMode = "root",
   commandPaletteInitialQuery = "",
   setSidebarCollapsed,
   setSidebarWidth,
   setSidebarTopLevelSectionVisible,
   settingsToggleTick,
+  keyboardShortcutsSettingsOpenTick,
   sidebarToggleRequestTick = 0,
   sidebarToggleRequestSource = "keyboard_shortcut",
   navigationCommandRequest = null,
@@ -1410,10 +1415,7 @@ export function WorkbenchShell({
   panelTabCloseRequest = null,
   threadRenameRequest = null,
   onNavigationStateChange,
-  onRequestNewWindow,
   commandKeymapState,
-  navigateToStage,
-  navigateToDbView,
 }: WorkbenchShellProps) {
   const fallbackProjectId = projects[0]?.id ?? "default";
   const [activeProjectId, setActiveProjectId] = useState(dbProjectId || fallbackProjectId);
@@ -1456,6 +1458,7 @@ export function WorkbenchShell({
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [commandPaletteOpenRequest, setCommandPaletteOpenRequest] = useState({
     tick: 0,
+    mode: "root" as CommandMenuMode,
     initialQuery: "",
   });
   const [floatingSidebarVisible, setFloatingSidebarVisible] = useState(false);
@@ -1465,7 +1468,6 @@ export function WorkbenchShell({
   const [sidebarClickInFlight, setSidebarClickInFlight] = useState(false);
   const [sidebarAnimateLayout, setSidebarAnimateLayout] = useState(true);
   const [floatingSidebarFocusActive, setFloatingSidebarFocusActive] = useState(false);
-  const [sidebarTaskSearchOpenTick, setSidebarTaskSearchOpenTick] = useState(0);
   const [pinnedProjectsSectionCollapsed, setPinnedProjectsSectionCollapsed] = useState(false);
   const [projectsSectionCollapsed, setProjectsSectionCollapsed] = useState(false);
   const [sidebarDragWidth, setSidebarDragWidth] = useState<number | null>(null);
@@ -1507,6 +1509,7 @@ export function WorkbenchShell({
   const persistedSidebarWidth = sidebar?.width ?? localSidebarWidth;
   const sidebarWidth = sidebarDragWidth ?? persistedSidebarWidth;
   const lastHandledSettingsToggleTickRef = useRef(settingsToggleTick);
+  const lastHandledKeyboardShortcutsSettingsOpenTickRef = useRef(keyboardShortcutsSettingsOpenTick);
   const [settingsPath, setSettingsPath] = useState<string | null>(null);
   const [threadQueueFollowUpsEnabled, setThreadQueueFollowUpsEnabled] = useState(readThreadQueueFollowUpsEnabled);
   const [composerEnterBehavior, setComposerEnterBehavior] = useState<ComposerEnterBehavior>(readComposerEnterBehavior);
@@ -1762,10 +1765,11 @@ export function WorkbenchShell({
     lastHandledCommandPaletteOpenTickRef.current = commandPaletteOpenTick;
     setCommandPaletteOpenRequest((current) => ({
       tick: current.tick + 1,
+      mode: commandPaletteInitialMode,
       initialQuery: commandPaletteInitialQuery,
     }));
     setCommandPaletteOpen(true);
-  }, [commandPaletteInitialQuery, commandPaletteOpenTick]);
+  }, [commandPaletteInitialMode, commandPaletteInitialQuery, commandPaletteOpenTick]);
 
   useEffect(() => {
     writeWorkbenchShellNavigationHistoryState(shellNavigationHistory);
@@ -1841,6 +1845,10 @@ export function WorkbenchShell({
     setSettingsPath(buildSettingsPath("general-settings"));
   }, []);
 
+  const openKeyboardShortcutsSettings = useCallback(() => {
+    setSettingsPath(buildSettingsPath("keyboard-shortcuts"));
+  }, []);
+
   const openLocalEnvironmentsSettings = useCallback(() => {
     setSettingsPath(buildSettingsPath("local-environments"));
   }, []);
@@ -1861,6 +1869,19 @@ export function WorkbenchShell({
     lastHandledSettingsToggleTickRef.current = settingsToggleTick;
     setSettingsPath((current) => current ? null : buildSettingsPath("general-settings"));
   }, [settingsToggleTick]);
+
+  useEffect(() => {
+    if (
+      typeof keyboardShortcutsSettingsOpenTick !== "number"
+      || keyboardShortcutsSettingsOpenTick <= 0
+      || keyboardShortcutsSettingsOpenTick === lastHandledKeyboardShortcutsSettingsOpenTickRef.current
+    ) {
+      return;
+    }
+
+    lastHandledKeyboardShortcutsSettingsOpenTickRef.current = keyboardShortcutsSettingsOpenTick;
+    setSettingsPath(buildSettingsPath("keyboard-shortcuts"));
+  }, [keyboardShortcutsSettingsOpenTick]);
 
   useEffect(() => {
     void activeProjectKanban.refresh();
@@ -3471,15 +3492,10 @@ export function WorkbenchShell({
     await refreshProjectSessions(projectId);
   }, [ensureBlankSessionForProject, refreshProjectSessions]);
 
-  const openSidebarTaskSearch = useCallback(() => {
-    setSidebarTaskSearchOpenTick((current) => current + 1);
-    if (!activeSession?.panels.right.collapsed) return;
-    void updateActivePanel("right", { collapsed: false });
-  }, [activeSession?.panels.right.collapsed, updateActivePanel]);
-
   const openSidebarCommandPalette = useCallback(() => {
     setCommandPaletteOpenRequest((current) => ({
       tick: current.tick + 1,
+      mode: "cards",
       initialQuery: "",
     }));
     setCommandPaletteOpen(true);
@@ -4463,7 +4479,7 @@ export function WorkbenchShell({
               cardStagePersistRef={cardStagePersistRef}
               cardStageSessionSnapshotRef={cardStageSessionSnapshotRef}
               pendingReminderOpen={pendingReminderOpen}
-              taskSearchOpenTick={sidebarTaskSearchOpenTick}
+              taskSearchOpenTick={taskSearchOpenTick}
               setSearchQuery={setSearchQuery}
               setDbViewPrefs={setDbViewPrefs}
               onReminderHandled={onReminderHandled}
@@ -4567,7 +4583,7 @@ export function WorkbenchShell({
     refreshProjectSessions,
     reloadBrowserTab,
     rightPanelMotion.animatedSize,
-    sidebarTaskSearchOpenTick,
+    taskSearchOpenTick,
     dbViewPrefsByProject,
     searchByProject,
     setDbViewPrefs,
@@ -5307,51 +5323,92 @@ export function WorkbenchShell({
     />
   );
   const commandPaletteProjectId = activeProject?.id ?? activeProjectId;
-  const canRenameActiveSession = Boolean(activeSession && !activeSession.isOverview);
+  const commandPaletteCommandContext: Omit<CommandPaletteShellCommandContext, "isMac"> = {
+    canGoBack: shellCanNavigateBack,
+    canGoForward: shellCanNavigateForward,
+    canStartNewChat: Boolean(activeProjectId),
+    hasActiveSession: Boolean(activeSession),
+    activeSessionIsOverview: activeSession?.isOverview ?? false,
+    activeSessionPinned: activeSession?.pinned ?? false,
+    hasAttachedThread: Boolean(activeSession?.thread),
+    canOpenSessionInNewWindow: Boolean(onOpenProjectSessionInNewWindow),
+    commandKeymapState,
+  };
+  const commandPaletteCommandHandlers: CommandPaletteShellCommandHandlers = {
+    navigateBack: () => {
+      void executeShellNavigation("back");
+    },
+    navigateForward: () => {
+      void executeShellNavigation("forward");
+    },
+    newThread: () => {
+      void startNewChatInProject(activeProjectId);
+    },
+    newThreadInProject: () => {
+      void startNewChatInProject(activeProjectId);
+    },
+    renameThread: () => {
+      if (!activeSession || activeSession.isOverview) return;
+      openRenameSessionDialog(activeSession);
+    },
+    archiveThread: () => {
+      if (!activeSession || activeSession.isOverview) return;
+      void archiveSession(activeSession);
+    },
+    toggleThreadPin: () => {
+      if (!activeSession || activeSession.isOverview) return;
+      void toggleSessionPin(activeSession);
+    },
+    openThreadInNewWindow: () => {
+      if (!activeSession || activeSession.isOverview) return;
+      void onOpenProjectSessionInNewWindow?.(activeSession);
+    },
+    toggleSidebar: () => {
+      toggleSidebarCollapsed();
+    },
+    toggleSidePanel: () => {
+      toggleActiveSidePanel();
+    },
+    toggleBottomPanel: () => {
+      toggleActiveBottomPanel();
+    },
+    toggleFileTreePanel: () => {
+      void openPreviewTab("files", "right");
+    },
+    openBrowserTab: () => {
+      void openPreviewTab("browser", "right");
+    },
+    openReviewTab: () => {
+      void createManualTab("review", "right");
+    },
+    toggleTerminal: () => {
+      void focusOrCreateSessionTerminalTab();
+    },
+    openDbViewTab: () => {
+      void createManualTab("db_view", "right");
+    },
+    openSideChat: () => {
+      void openSideChat({ targetPanelId: "right" });
+    },
+    settings: openSettings,
+    showKeyboardShortcuts: openKeyboardShortcutsSettings,
+  };
   const commandPalette = (
     <CommandPalette
       open={commandPaletteOpen}
       openTriggerTick={commandPaletteOpenRequest.tick}
+      initialMode={commandPaletteOpenRequest.mode}
       initialQuery={commandPaletteOpenRequest.initialQuery}
       projects={projects}
       activeProjectId={commandPaletteProjectId}
-      activeView={activeView}
-      focusedStage={focusedStage}
       recentCardSessions={recentCardSessions}
+      commandContext={commandPaletteCommandContext}
+      commandHandlers={commandPaletteCommandHandlers}
       onOpenChange={setCommandPaletteOpen}
       onOpenCard={(projectId, cardId, titleSnapshot) => {
         void openCardTab(projectId, cardId, titleSnapshot);
       }}
-      onFocusStage={(stageId) => {
-        navigateToStage?.(commandPaletteProjectId, stageId);
-      }}
-      onSetView={(view) => {
-        navigateToDbView?.(commandPaletteProjectId, view);
-      }}
-      onOpenProjectPicker={onRequestProjectPickerOpen}
-      onOpenTaskSearch={openSidebarTaskSearch}
-      onToggleTerminal={() => {
-        void focusOrCreateSessionTerminalTab();
-      }}
-      onToggleSidebar={() => {
-        toggleSidebarCollapsed();
-      }}
-      onRenameThread={() => {
-        if (!activeSession || activeSession.isOverview) return;
-        openRenameSessionDialog(activeSession);
-      }}
-      onOpenSettings={openSettings}
-      canGoBack={shellCanNavigateBack}
-      canGoForward={shellCanNavigateForward}
-      canRenameThread={canRenameActiveSession}
-      onGoBack={() => {
-        void executeShellNavigation("back");
-      }}
-      onGoForward={() => {
-        void executeShellNavigation("forward");
-      }}
-      onRequestNewWindow={onRequestNewWindow}
-      commandKeymapState={commandKeymapState}
+      onOpenThread={openAttachedThreadSession}
     />
   );
 
@@ -6258,7 +6315,7 @@ function ProjectSessionSidebar({
             <CodexSidebarTopAction
               label="Search"
               icon={<SearchIcon className="icon-xs" />}
-              shortcutLabel={resolveCodexCommandPaletteShortcutLabel()}
+              shortcutLabel={resolveCodexCardSearchShortcutLabel()}
               onClick={onOpenCommandPalette}
             />
             <CodexSidebarTopAction

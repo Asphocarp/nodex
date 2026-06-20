@@ -209,6 +209,37 @@ export interface CardSearchResult {
   excerpt: string;
 }
 
+export interface CommandPaletteThreadSummary {
+  threadId: string;
+  sessionId: string;
+  projectId: string;
+  projectName: string;
+  title: string;
+  preview: string;
+  cwd: string | null;
+  statusType: CodexThreadStatusType;
+  statusActiveFlags: CodexThreadActiveFlag[];
+  createdAt: number;
+  updatedAt: number;
+  linkedAt: string;
+}
+
+export interface CommandPaletteThreadListInput {
+  projectIds: string[];
+}
+
+export interface CommandPaletteThreadContentSearchInput {
+  projectIds: string[];
+  query: string;
+  limit?: number;
+}
+
+export interface CommandPaletteThreadContentSearchResult {
+  threadId: string;
+  snippet: string;
+  score: number;
+}
+
 export type CardCreatePlacement = "top" | "bottom";
 
 export interface MoveCardInput {

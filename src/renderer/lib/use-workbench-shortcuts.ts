@@ -7,13 +7,12 @@ import type {
 } from "../../shared/window-navigation";
 import {
   createCommandKeymapState,
-  keyboardEventToAccelerator,
   matchesKeyboardEventToCommand,
   matchesMouseEventToCommand,
-  normalizeAccelerator,
   type CommandKeymapState,
   type KeyboardShortcutEventLike,
 } from "../../shared/command-keybindings";
+import type { CommandMenuOpenRequest } from "./command-palette";
 
 export interface WorkbenchShortcutActions {
   spaces: { projectId: string }[];
@@ -24,12 +23,13 @@ export interface WorkbenchShortcutActions {
   switchToStageIndex: (projectId: string, index: number) => void;
   switchToProjectIndex: (index: number) => void;
   onRequestNewWindow?: () => void;
-  onRequestCommandPalette?: (initialQuery?: string) => void;
+  onRequestCommandPalette?: (request?: CommandMenuOpenRequest) => void;
   onRequestProjectPicker?: () => void;
   onRequestTaskSearch?: (projectId: string) => void;
   onRequestThreadSearch?: (projectId: string) => void;
   onRequestDiffSearch?: (projectId: string) => void;
   onRequestSettingsToggle?: () => void;
+  onRequestKeyboardShortcuts?: () => void;
   navigateBack?: (source: WorkbenchNavigationCommandSource) => void;
   navigateForward?: (source: WorkbenchNavigationCommandSource) => void;
   onToggleSidebar?: (source: WorkbenchSidebarToggleCommandSource) => void;
@@ -103,8 +103,6 @@ export function handleWorkbenchShortcut(
   const targetIsEditable = isEditableTarget(e.target);
   const targetIsEditorSurface = isEditorSurfaceTarget(e.target);
   const targetIsComposerSurface = isComposerSurfaceTarget(e.target);
-  const commandState = actions.commandKeymapState ?? fallbackCommandKeymapState(isMac);
-
   if (isTerminalSurfaceTarget(e.target)) return false;
 
   if (matchesCommandShortcut(e, actions, "newWindow", isMac)) {
@@ -113,13 +111,17 @@ export function handleWorkbenchShortcut(
   }
 
   if (matchesCommandShortcut(e, actions, "openCommandMenu", isMac)) {
-    const accelerator = keyboardEventToAccelerator(e, commandState.platform);
-    actions.onRequestCommandPalette?.(normalizeAccelerator(accelerator) === "CmdOrCtrl+Shift+P" ? ">" : undefined);
+    actions.onRequestCommandPalette?.({ mode: "root" });
     return true;
   }
 
-  if (matchesCommandShortcut(e, actions, "searchFiles", isMac)) {
-    actions.onRequestCommandPalette?.();
+  if (matchesCommandShortcut(e, actions, "searchChats", isMac)) {
+    actions.onRequestCommandPalette?.({ mode: "chats" });
+    return true;
+  }
+
+  if (matchesCommandShortcut(e, actions, "searchCards", isMac)) {
+    actions.onRequestCommandPalette?.({ mode: "cards" });
     return true;
   }
 
@@ -147,6 +149,11 @@ export function handleWorkbenchShortcut(
 
   if (matchesCommandShortcut(e, actions, "settings", isMac) && actions.onRequestSettingsToggle) {
     actions.onRequestSettingsToggle();
+    return true;
+  }
+
+  if (matchesCommandShortcut(e, actions, "showKeyboardShortcuts", isMac) && actions.onRequestKeyboardShortcuts) {
+    actions.onRequestKeyboardShortcuts();
     return true;
   }
 

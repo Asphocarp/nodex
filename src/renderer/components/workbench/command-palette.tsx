@@ -1,74 +1,50 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   NodexDialog as Dialog,
   NodexDialogContent as DialogContent,
   NodexDialogTitle as DialogTitle,
 } from "@/components/ui/dialog";
-import type { CommandPaletteCard, CommandPaletteCommand } from "@/lib/command-palette";
+import type {
+  CommandMenuMode,
+  CommandPaletteCard,
+  CommandPaletteCommand,
+  CommandPaletteThread,
+} from "@/lib/command-palette";
+import { invoke } from "@/lib/api";
 import { getKanbanProjectStore } from "@/lib/kanban-store";
 import { normalizeProjectIcon } from "@/lib/project-icon";
-import type { Project } from "@/lib/types";
+import type { CommandPaletteThreadSummary, Project } from "@/lib/types";
 import { useCommandPaletteCardSearchIndex } from "@/lib/use-command-palette-card-search-index";
-import type { RecentCardSession, StageId, WorkbenchView } from "@/lib/use-workbench-state";
+import { useCommandPaletteThreadSearchIndex } from "@/lib/use-command-palette-thread-search-index";
+import type { RecentCardSession } from "@/lib/use-workbench-state";
 import {
-  NAVIGATE_BACK_COMMAND_ID,
-  NAVIGATE_FORWARD_COMMAND_ID,
-  RENAME_THREAD_COMMAND_ID,
-  TOGGLE_SIDEBAR_COMMAND_ID,
-  type WorkbenchNavigationCommandSource,
-  type WorkbenchSidebarToggleCommandSource,
-  type WorkbenchThreadRenameCommandSource,
-} from "../../../shared/window-navigation";
+  buildCommandPaletteCommands,
+  executeCommandPaletteShellCommand,
+  isCommandPaletteShellCommandId,
+  type CommandPaletteShellCommandContext,
+  type CommandPaletteShellCommandHandlers,
+} from "@/lib/command-palette-commands";
 import { CommandPaletteSurface } from "./command-palette-surface";
-import {
-  createCommandKeymapState,
-  formatCommandShortcutLabel,
-  type CommandKeymapState,
-} from "../../../shared/command-keybindings";
 
 interface CommandPaletteProps {
   open: boolean;
   openTriggerTick: number;
+  initialMode?: CommandMenuMode;
   initialQuery?: string;
   projects: Project[];
   activeProjectId: string;
-  activeView: WorkbenchView;
-  focusedStage: StageId;
   recentCardSessions: RecentCardSession[];
+  commandContext: Omit<CommandPaletteShellCommandContext, "isMac">;
+  commandHandlers: CommandPaletteShellCommandHandlers;
   onOpenChange: (open: boolean) => void;
   onOpenCard: (projectId: string, cardId: string, titleSnapshot?: string) => void;
-  onFocusStage: (stageId: StageId) => void;
-  onSetView: (view: WorkbenchView) => void;
-  onOpenProjectPicker: () => void;
-  onOpenTaskSearch: () => void;
-  onToggleTerminal: () => void;
-  onToggleSidebar?: (source: WorkbenchSidebarToggleCommandSource) => void;
-  onRenameThread?: (source: WorkbenchThreadRenameCommandSource) => void;
-  onOpenSettings: () => void;
-  canGoBack: boolean;
-  canGoForward: boolean;
-  canRenameThread: boolean;
-  onGoBack: (source: WorkbenchNavigationCommandSource) => void;
-  onGoForward: (source: WorkbenchNavigationCommandSource) => void;
-  onRequestNewWindow?: () => void;
-  commandKeymapState?: CommandKeymapState | null;
+  onOpenThread: (threadId: string) => void;
 }
 
-type PaletteItem = CommandPaletteCommand | CommandPaletteCard;
+type PaletteItem = CommandPaletteCommand | CommandPaletteCard | CommandPaletteThread;
 
 function isMacPlatform(): boolean {
   return typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
-}
-
-function createShortcutLabel(label: string, isMac: boolean): string {
-  if (isMac) {
-    return label
-      .replace("Cmd", "⌘")
-      .replace("Shift", "⇧")
-      .replace("Ctrl", "⌃");
-  }
-
-  return label.replace("Cmd", "Ctrl");
 }
 
 function useCommandPaletteCards(
@@ -135,259 +111,110 @@ function useCommandPaletteCards(
   }, [activeProjectId, recentIndexByKey, stores, version]);
 }
 
-export function buildCommands(input: {
-  activeProjectName: string;
-  activeView: WorkbenchView;
-  focusedStage: StageId;
-  canGoBack: boolean;
-  canGoForward: boolean;
-  canRenameThread: boolean;
-  canOpenNewWindow: boolean;
-  isMac: boolean;
-  commandKeymapState?: CommandKeymapState | null;
-}): CommandPaletteCommand[] {
-  const {
-    activeProjectName,
-    activeView,
-    focusedStage,
-    canGoBack,
-    canGoForward,
-    canRenameThread,
-    canOpenNewWindow,
-    isMac,
-    commandKeymapState,
-  } = input;
-  const shortcutState = commandKeymapState ?? createCommandKeymapState({}, isMac ? "macOS" : "windows");
-  const shortcutLabel = (commandId: string, fallback: string): string =>
-    formatCommandShortcutLabel(shortcutState, commandId, fallback) ?? createShortcutLabel(fallback, isMac);
-  const commands: CommandPaletteCommand[] = [
-    {
-      kind: "command",
-      id: NAVIGATE_BACK_COMMAND_ID,
-      title: "Back",
-      subtitle: "Return to the previous workbench context",
-      keywords: ["back", "previous", "history", "navigation"],
-      shortcut: shortcutLabel("navigateBack", "Cmd+["),
-      disabled: !canGoBack,
-      priority: 500,
-    },
-    {
-      kind: "command",
-      id: NAVIGATE_FORWARD_COMMAND_ID,
-      title: "Forward",
-      subtitle: "Move to the next workbench context",
-      keywords: ["forward", "next", "history", "navigation"],
-      shortcut: shortcutLabel("navigateForward", "Cmd+]"),
-      disabled: !canGoForward,
-      priority: 490,
-    },
-    {
-      kind: "command",
-      id: "open-project-picker",
-      title: "Open project picker",
-      subtitle: "Switch the active datasource project or edit projects",
-      keywords: ["project", "space", "switch"],
-      priority: 480,
-    },
-    {
-      kind: "command",
-      id: "search-current-project",
-      title: "Search current project",
-      subtitle: `Open task search for ${activeProjectName}`,
-      keywords: ["search", "find", "tasks"],
-      shortcut: shortcutLabel("findInThread", "Cmd+F"),
-      priority: 470,
-    },
-    {
-      kind: "command",
-      id: "toggle-terminal",
-      title: "Toggle terminal",
-      subtitle: "Open or close the bottom terminal panel",
-      keywords: ["terminal", "panel", "shell"],
-      shortcut: shortcutLabel("toggleBottomPanel", "Cmd+J"),
-      priority: 460,
-    },
-    {
-      kind: "command",
-      id: TOGGLE_SIDEBAR_COMMAND_ID,
-      title: "Toggle sidebar",
-      subtitle: "Show or hide the project sidebar",
-      keywords: ["sidebar", "panel", "shell"],
-      shortcut: shortcutLabel("toggleSidebar", "Cmd+B"),
-      priority: 455,
-    },
-    {
-      kind: "command",
-      id: RENAME_THREAD_COMMAND_ID,
-      title: "Rename chat",
-      subtitle: "Rename the active chat",
-      keywords: ["rename", "chat", "thread", "title"],
-      shortcut: shortcutLabel("renameThread", "Cmd+Alt+R"),
-      disabled: !canRenameThread,
-      priority: 452,
-    },
-    {
-      kind: "command",
-      id: "open-settings",
-      title: "Open settings",
-      subtitle: "Adjust app, editor, and worktree preferences",
-      keywords: ["settings", "preferences", "config"],
-      shortcut: shortcutLabel("settings", "Cmd+,"),
-      priority: 450,
-    },
-    {
-      kind: "command",
-      id: "view-kanban",
-      title: "Switch to board view",
-      subtitle: `Show ${activeProjectName} in Kanban`,
-      keywords: ["board", "kanban", "view"],
-      active: activeView === "kanban",
-      priority: 330,
-    },
-    {
-      kind: "command",
-      id: "view-list",
-      title: "Switch to list view",
-      subtitle: `Show ${activeProjectName} as a list`,
-      keywords: ["list", "view"],
-      active: activeView === "list",
-      priority: 320,
-    },
-    {
-      kind: "command",
-      id: "view-toggle-list",
-      title: "Switch to toggle list",
-      subtitle: `Show ${activeProjectName} in the notebook list`,
-      keywords: ["toggle", "notebook", "list", "view"],
-      active: activeView === "toggle-list",
-      priority: 310,
-    },
-    {
-      kind: "command",
-      id: "view-canvas",
-      title: "Switch to canvas view",
-      subtitle: `Show ${activeProjectName} on the canvas`,
-      keywords: ["canvas", "view", "brainstorm"],
-      active: activeView === "canvas",
-      priority: 300,
-    },
-    {
-      kind: "command",
-      id: "view-calendar",
-      title: "Switch to calendar view",
-      subtitle: `Show ${activeProjectName} on the calendar`,
-      keywords: ["calendar", "schedule", "view"],
-      active: activeView === "calendar",
-      priority: 290,
-    },
-    {
-      kind: "command",
-      id: "focus-views-stage",
-      title: "Focus Views stage",
-      subtitle: "Move focus to the project views rail",
-      keywords: ["views", "stage", "focus"],
-      shortcut: createShortcutLabel("Cmd+1", isMac),
-      active: focusedStage === "db",
-      priority: 250,
-    },
-    {
-      kind: "command",
-      id: "focus-cards-stage",
-      title: "Focus Cards stage",
-      subtitle: "Move focus to the card stage",
-      keywords: ["cards", "stage", "focus"],
-      shortcut: createShortcutLabel("Cmd+2", isMac),
-      active: focusedStage === "cards",
-      priority: 240,
-    },
-    {
-      kind: "command",
-      id: "focus-threads-stage",
-      title: "Focus Threads stage",
-      subtitle: "Move focus to the thread stage",
-      keywords: ["threads", "stage", "focus"],
-      shortcut: createShortcutLabel("Cmd+3", isMac),
-      active: focusedStage === "threads",
-      priority: 230,
-    },
-    {
-      kind: "command",
-      id: "focus-diff-stage",
-      title: "Focus Diff stage",
-      subtitle: "Move focus to the review panel",
-      keywords: ["diff", "files", "stage", "focus"],
-      shortcut: createShortcutLabel("Cmd+4", isMac),
-      active: focusedStage === "files",
-      priority: 220,
-    },
-  ];
+function buildThreadItem(
+  summary: CommandPaletteThreadSummary,
+  activeProjectId: string,
+): CommandPaletteThread {
+  return {
+    kind: "thread",
+    id: `thread:${summary.threadId}`,
+    threadId: summary.threadId,
+    sessionId: summary.sessionId,
+    projectId: summary.projectId,
+    projectName: summary.projectName,
+    title: summary.title,
+    preview: summary.preview,
+    cwd: summary.cwd,
+    statusType: summary.statusType,
+    statusActiveFlags: summary.statusActiveFlags,
+    createdAt: summary.createdAt,
+    updatedAt: summary.updatedAt,
+    linkedAt: summary.linkedAt,
+    inActiveProject: summary.projectId === activeProjectId,
+  };
+}
 
-  if (!canOpenNewWindow) {
-    return commands;
-  }
+function useCommandPaletteThreads(
+  open: boolean,
+  openTriggerTick: number,
+  projects: Project[],
+  activeProjectId: string,
+): { threads: CommandPaletteThread[]; loading: boolean } {
+  const projectIds = useMemo(() => projects.map((project) => project.id), [projects]);
+  const projectIdsKey = useMemo(() => projectIds.join("\u0001"), [projectIds]);
+  const [state, setState] = useState<{ threads: CommandPaletteThread[]; loading: boolean }>({
+    threads: [],
+    loading: false,
+  });
 
-  return [
-    {
-      kind: "command",
-      id: "new-window",
-      title: "Open new window",
-      subtitle: "Create another Nodex window",
-      keywords: ["window", "new"],
-      shortcut: shortcutLabel("newWindow", "Cmd+Shift+N"),
-      priority: 440,
-    },
-    ...commands,
-  ];
+  useEffect(() => {
+    if (!open || projectIds.length === 0) {
+      setState((current) => current.threads.length === 0 && !current.loading
+        ? current
+        : { threads: [], loading: false });
+      return;
+    }
+
+    let cancelled = false;
+    setState((current) => ({ threads: current.threads, loading: true }));
+
+    void invoke("codex:threads:palette:list", { projectIds })
+      .then((summaries) => {
+        if (cancelled) return;
+        setState({
+          threads: summaries.map((summary) => buildThreadItem(summary, activeProjectId)),
+          loading: false,
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setState({ threads: [], loading: false });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProjectId, open, openTriggerTick, projectIds, projectIdsKey]);
+
+  return state;
 }
 
 export function CommandPalette({
   open,
   openTriggerTick,
+  initialMode = "root",
   initialQuery,
   projects,
   activeProjectId,
-  activeView,
-  focusedStage,
   recentCardSessions,
+  commandContext,
+  commandHandlers,
   onOpenChange,
   onOpenCard,
-  onFocusStage,
-  onSetView,
-  onOpenProjectPicker,
-  onOpenTaskSearch,
-  onToggleTerminal,
-  onToggleSidebar,
-  onRenameThread,
-  onOpenSettings,
-  canGoBack,
-  canGoForward,
-  canRenameThread,
-  onGoBack,
-  onGoForward,
-  onRequestNewWindow,
-  commandKeymapState,
+  onOpenThread,
 }: CommandPaletteProps) {
   const isMac = isMacPlatform();
   const { cards, loading } = useCommandPaletteCards(open, projects, activeProjectId, recentCardSessions);
+  const { threads, loading: threadsLoading } = useCommandPaletteThreads(open, openTriggerTick, projects, activeProjectId);
+  const [mode, setMode] = useState<CommandMenuMode>(initialMode);
   const cardSearchIndex = useCommandPaletteCardSearchIndex(cards);
-  const activeProjectName = useMemo(
-    () => projects.find((project) => project.id === activeProjectId)?.name ?? activeProjectId,
-    [activeProjectId, projects],
-  );
+  const threadSearchIndex = useCommandPaletteThreadSearchIndex(threads);
   const commands = useMemo(
-    () => buildCommands({
-      activeProjectName,
-      activeView,
-      focusedStage,
-      canGoBack,
-      canGoForward,
-      canRenameThread,
-      canOpenNewWindow: Boolean(onRequestNewWindow),
+    () => buildCommandPaletteCommands({
+      ...commandContext,
       isMac,
-      commandKeymapState,
     }),
-    [activeProjectName, activeView, canGoBack, canGoForward, canRenameThread, commandKeymapState, focusedStage, isMac, onRequestNewWindow],
+    [commandContext, isMac],
   );
+
+  useEffect(() => {
+    if (!open) return;
+    setMode(initialMode);
+  }, [initialMode, open, openTriggerTick]);
+
+  const handleChangeMode = useCallback((nextMode: CommandMenuMode) => {
+    setMode(nextMode);
+  }, []);
 
   const handleExecute = (item: PaletteItem) => {
     if (item.kind === "card") {
@@ -395,79 +222,32 @@ export function CommandPalette({
       return;
     }
 
+    if (item.kind === "thread") {
+      onOpenThread(item.threadId);
+      return;
+    }
+
+    if (item.id === "searchChats") {
+      setMode("chats");
+      return;
+    }
+
+    if (item.id === "searchCards") {
+      setMode("cards");
+      return;
+    }
+
+    if (item.id === "searchFiles") {
+      setMode("files");
+      return;
+    }
+
     if (item.disabled) {
       return;
     }
 
-    if (item.id === NAVIGATE_BACK_COMMAND_ID) {
-      onGoBack("command_palette");
-      return;
-    }
-    if (item.id === NAVIGATE_FORWARD_COMMAND_ID) {
-      onGoForward("command_palette");
-      return;
-    }
-    if (item.id === "open-project-picker") {
-      onOpenProjectPicker();
-      return;
-    }
-    if (item.id === "search-current-project") {
-      onOpenTaskSearch();
-      return;
-    }
-    if (item.id === "toggle-terminal") {
-      onToggleTerminal();
-      return;
-    }
-    if (item.id === TOGGLE_SIDEBAR_COMMAND_ID) {
-      onToggleSidebar?.("command_palette");
-      return;
-    }
-    if (item.id === RENAME_THREAD_COMMAND_ID) {
-      onRenameThread?.("command_palette");
-      return;
-    }
-    if (item.id === "open-settings") {
-      onOpenSettings();
-      return;
-    }
-    if (item.id === "new-window") {
-      onRequestNewWindow?.();
-      return;
-    }
-    if (item.id === "view-kanban") {
-      onSetView("kanban");
-      return;
-    }
-    if (item.id === "view-list") {
-      onSetView("list");
-      return;
-    }
-    if (item.id === "view-toggle-list") {
-      onSetView("toggle-list");
-      return;
-    }
-    if (item.id === "view-canvas") {
-      onSetView("canvas");
-      return;
-    }
-    if (item.id === "view-calendar") {
-      onSetView("calendar");
-      return;
-    }
-    if (item.id === "focus-views-stage") {
-      onFocusStage("db");
-      return;
-    }
-    if (item.id === "focus-cards-stage") {
-      onFocusStage("cards");
-      return;
-    }
-    if (item.id === "focus-threads-stage") {
-      onFocusStage("threads");
-      return;
-    }
-    onFocusStage("files");
+    if (!isCommandPaletteShellCommandId(item.id)) return;
+    executeCommandPaletteShellCommand(item.id, commandHandlers);
   };
 
   return (
@@ -476,17 +256,23 @@ export function CommandPalette({
         showCloseButton={false}
         overlayClassName="bg-transparent"
         onOpenAutoFocus={(event) => event.preventDefault()}
-        className="max-w-2xl border-none bg-transparent p-0 shadow-none"
+        className="command-menu-dialog global-command-menu-dialog w-[min(520px,92vw)] max-w-none border-none bg-transparent p-0 shadow-none"
       >
         <DialogTitle className="sr-only">Command palette</DialogTitle>
         <CommandPaletteSurface
           open={open}
           openTriggerTick={openTriggerTick}
+          mode={mode}
           initialQuery={initialQuery}
           commands={commands}
           cards={cards}
+          threads={threads}
           cardSearchIndex={cardSearchIndex}
-          loading={loading}
+          threadSearchIndex={threadSearchIndex}
+          loading={loading || threadsLoading}
+          cardsLoading={loading}
+          chatsLoading={threadsLoading}
+          onChangeMode={handleChangeMode}
           onRequestClose={() => onOpenChange(false)}
           onExecute={handleExecute}
         />

@@ -70,6 +70,10 @@ import type {
   CardsDetailsInput,
   CardSearchInput,
   CardSearchResult,
+  CommandPaletteThreadContentSearchInput,
+  CommandPaletteThreadContentSearchResult,
+  CommandPaletteThreadListInput,
+  CommandPaletteThreadSummary,
   CreateBackupInput,
   MoveCardInput,
   MoveCardToProjectInput,
@@ -738,6 +742,14 @@ export interface IpcApi {
   "codex:threads:list": {
     args: [projectId: string, opts?: { includeArchived?: boolean }];
     result: CodexThreadSummary[];
+  };
+  "codex:threads:palette:list": {
+    args: [input: CommandPaletteThreadListInput];
+    result: CommandPaletteThreadSummary[];
+  };
+  "codex:threads:palette:search-content": {
+    args: [input: CommandPaletteThreadContentSearchInput];
+    result: CommandPaletteThreadContentSearchResult[];
   };
   "codex:thread:summary:get": {
     args: [threadId: string];

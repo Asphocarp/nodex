@@ -2,45 +2,69 @@
 
 ## Intent
 The command palette is the global launcher for fast workbench navigation.
-It is optimized for card retrieval first and command execution second:
+It is split into explicit entry modes so command recall, chat search, and card retrieval do not compete in one result list:
 
-- default mode searches cards across all projects
-- command mode is explicit and entered with a leading `>`
+- root mode searches command/action rows only
+- chats mode searches workspace chats across session-backed projects
+- cards mode searches workspace cards and owns the card filter controls
+- files mode keeps the reference command-menu shell visible, but file search is a disabled mock until Nodex has a real file-search backend
 - result ranking favors fast recall over exhaustive inspection
 - matching context is visible directly in the result row through inline highlights and short previews
 
 The palette is a transient overlay and does not become part of durable navigation history.
 
 ## Launch and Scope
-- `Cmd/Ctrl+K` opens the command palette from anywhere in the app, including editable surfaces.
-- `Cmd/Ctrl+P` is an alias for the same palette.
-- `Cmd/Ctrl+Shift+P` opens the same palette with `>` prefilled so it starts in command mode, matching the VS Code mental model.
-- The sidebar `Search` row opens the same command palette in default card-search mode and shows the `Cmd/Ctrl+K` shortcut.
+- `Cmd/Ctrl+K` opens the command palette from anywhere in the app in root command mode, including editable surfaces.
+- `Cmd/Ctrl+Shift+P` opens the same root command mode.
+- `Cmd/Ctrl+G` opens chats mode.
+- `Cmd/Ctrl+P` opens cards mode.
+- The sidebar `Search` row opens cards mode and shows the `Cmd/Ctrl+P` shortcut.
+- A leading `>` is plain query text and no longer switches modes.
 - The palette reads cards from every loaded project store, not just the active project.
+- The palette reads chat results only from current-workspace, session-backed, non-archived chats that can be opened directly.
 - The palette closes after executing a result.
 - Closing the palette clears the query and resets the selection index.
 - The palette overlays the workbench without dimming the background content.
 
 ## Modes
 
-### Card Mode
-Card mode is the default.
+### Root Command Mode
+Root command mode is opened by `Cmd/Ctrl+K` and `Cmd/Ctrl+Shift+P`.
 
-- Any query that does not start with `>` searches cards only.
-- Commands are hidden entirely in card mode.
-- Empty query shows default card suggestions rather than commands.
-- Card mode keeps a trailing `Filter` button on the search-input row.
+- Root mode shows command/action rows only.
+- Chats, cards, and files are represented as explicit command rows such as `Search chats`, `Search cards`, and `Search files`.
+- Executing `Search chats` switches to chats mode. Executing `Search cards` switches to cards mode. `Search files` remains disabled until real file search exists.
+- Cards and chats are hidden entirely in root mode.
+- Disabled commands remain visible so users can understand available affordances, but they are skipped by keyboard selection and cannot be executed.
+- Commands use customized command-keymap shortcut labels where a matching command id exists.
+- Commands are grouped as Suggested, Chat, Navigation, Panels, Project, Configure, Skills, and App.
+- Unsupported Codex-parity commands remain visible as disabled mock rows; supported Nodex-only actions appear in the closest matching group.
+
+### Chats Mode
+Chats mode is opened by `Cmd/Ctrl+G` or the root-mode `Search chats` row.
+
+- Chats mode shows chat rows only.
+- Commands and cards are hidden entirely in chats mode.
+- Empty query shows recent and pinned workspace chats when available.
+- User-facing row text uses `chat`; internal data structures may still use `thread`.
+- Chat metadata search is local. Chat content snippets come only from the bounded backend search path described below.
+
+### Cards Mode
+Cards mode is opened by `Cmd/Ctrl+P`, the sidebar `Search` row, or the root-mode `Search cards` row.
+
+- Cards mode shows card rows only.
+- Commands and chats are hidden entirely in cards mode.
+- Empty query shows default card suggestions.
+- Cards mode keeps a trailing `Filter` button on the search-input row.
 - Clicking `Filter` opens a transient popover with property filters for status, priority, tags, assignee, and project.
-- When any palette filters are active, the palette shows a compact summary row directly under the input, using the same compact pill language as the View-stage toolbar.
+- When any palette filters are active, the palette shows a compact summary row directly under the input, using the same compact pill language as the DB view toolbar.
 - Palette card filters persist across palette reopen and app reload, but the free-text query still clears on close.
 
-### Command Mode
-Command mode is entered with a leading `>`.
+### Files Mode
+Files mode is a reference-shell placeholder.
 
-- The `>` prefix is stripped before matching.
-- Only commands are shown in this mode.
-- Cards are hidden entirely in command mode.
-- Disabled commands remain visible so the user can understand the available affordance, but they cannot be executed.
+- Files mode keeps the command-menu layout, input, loading, empty, and disabled-row states available for parity work.
+- Until Nodex has real workspace file search, file search does not claim `Cmd/Ctrl+P` and does not execute backend actions.
 
 ## Card Search Model
 
@@ -138,8 +162,62 @@ If the query matched description text, the result renders a contextual preview b
 
 If a result matched only non-description fields, no description preview is shown.
 
+## Chat Search Model
+
+Chat search indexes only workspace-owned chat metadata in the renderer and treats content search as an opportunistic backend supplement.
+
+### Indexed fields
+Chat metadata search indexes:
+
+- title
+- preview
+- project name
+- cwd
+- chat id
+
+Only session-backed, non-archived project chats are included. Projectless chats, unattached Codex threads, side chats, archived chats, and helper/subagent threads that are not attached to a project session are excluded.
+
+### Ranking
+Chat metadata search uses an in-memory MiniSearch index. It is intentionally not persisted in IndexedDB because chat metadata is small and already fetched on palette open.
+
+Field boosts are:
+
+- title: `8`
+- preview: `4`
+- project name: `3`
+- cwd: `2`
+- chat id: `1`
+
+Query semantics match card metadata search:
+
+- multiple terms combine with `AND`
+- prefix matching is enabled for terms with length `>= 2`
+- fuzzy matching uses the shared term-length-sensitive thresholds
+
+For empty queries, chat results sort by active-project preference, then `updatedAt` descending, then title.
+For non-empty queries, metadata relevance sorts first, then the same active-project and recency tiebreaks.
+
+### Content search
+For queries with at least `2` characters, the renderer also requests bounded chat content search through the Codex app-server-backed `thread/search` path:
+
+- the request limit is capped at `60`
+- returned app-server hits are intersected with the current workspace session-backed chat ids before they can render
+- app-server errors or runtimes without experimental `thread/search` support fail closed and leave metadata search working
+- content-only hits can appear in the `Chats` section after metadata hits
+
+### Chat Result Presentation
+Each chat result renders:
+
+- chat icon
+- chat title
+- project, cwd basename, and updated date metadata
+- optional preview/snippet row
+
+Metadata matches can highlight fuzzy-matched title, project, cwd, and preview spans using MiniSearch match terms.
+Content snippets only highlight literal query tokens because app-server snippets do not return match offsets.
+
 ## Command Search Model
-- Commands are matched only in command mode.
+- Commands are matched only in root mode.
 - Command ranking remains lightweight and heuristic rather than MiniSearch-based.
 - Ranking considers title, subtitle, keyword text, explicit command priority, and active-state bonus.
 - Result limits remain separate from card limits.
@@ -152,8 +230,10 @@ If a result matched only non-description fields, no description preview is shown
 - When the query is empty, standard dialog close behavior applies.
 
 ## Result Limits
-- command mode shows up to `8` commands
-- card mode shows up to `12` cards
+- root mode shows up to `100` command rows so grouped parity commands and disabled mock rows remain discoverable
+- chats mode shows up to `12` chat rows
+- cards mode shows up to `12` card rows
+- files mode shows only its mock/empty state until real file search exists
 
 ## Execution Semantics
 
@@ -161,7 +241,7 @@ If a result matched only non-description fields, no description preview is shown
 Executing a card result:
 
 - closes the palette
-- opens that card in the Card stage
+- opens that card in a durable Card Stage panel tab
 - preserves the current DB-project selection if the card belongs to another project
 
 ### Command results
@@ -170,16 +250,21 @@ Executing a command result:
 - closes the palette
 - runs the associated shell/workbench action
 
+### Chat Results
+Executing a chat result:
+
+- closes the palette
+- opens the attached project session for that chat
+- shows the existing unattached-chat toast only if the result is stale and its session link disappeared after search
+
 Supported actions currently include:
 
 - go back / go forward
-- open project picker
-- open task search
-- toggle terminal
-- open settings
-- open new window
-- switch DB view
-- focus a stage
+- new chat, rename chat, archive chat, pin/unpin chat, and open chat in a new window
+- toggle sidebar, side panel, and bottom panel
+- open Files, Browser, Review, Terminal, and DB View panel tabs
+- open side chat for an attached active chat
+- open settings and keyboard shortcut settings
 
 ## Non-Goals
 - full query DSL in card mode
@@ -187,6 +272,7 @@ Supported actions currently include:
 - inline search qualifiers or advanced query syntax
 - persistent search history
 - multi-snippet previews per card
+- multi-snippet previews per chat
 - syntax-colored rich-text previews
 
 The palette is intentionally biased toward immediate navigation rather than becoming a full search product. Filtering should feel like a lightweight extension of the existing workbench toolbar language, not a separate advanced-search feature.

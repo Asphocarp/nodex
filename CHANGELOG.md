@@ -26,6 +26,7 @@ All notable changes to this project will be documented in this file.
 - Added ephemeral panel previews for Files and Browser tabs in either right or bottom panel; they replace the prior preview in the same panel and persist only after the user interacts with or pins the preview.
 - Added a public changelog page at `nodex.jyu.app/changelog`, generated from the project changelog file.
 - Added chat rename entry points for active project sessions, including title double-click, thread/header actions, command palette, macOS menu, and `Cmd/Ctrl+Alt+R`.
+- Added workspace chat search to the command palette, including fuzzy chat metadata matches, bounded content snippets, and direct navigation to attached sessions.
 - Added a project session shell with expandable project folders, a sidebar `New chat` entry, project-row new-chat actions, durable sessions, a session thread page, session-owned panel tabs, browsers, and separate optional session-thread attachments.
 - Added SQLite-backed project session, project session tab, and session-thread link storage with default Overview sessions seeded for every project.
 - Added a project selector in the empty session new-chat status row so a first prompt can target another project before the thread starts.
@@ -34,6 +35,8 @@ All notable changes to this project will be documented in this file.
 - Added a real `Send to chat` picker to the NFM text-selection menu, including thread search with project-labeled chat rows, current-session `New chat` targeting for empty sessions, project-level new-chat sending, and an app-level persisted `Send & wrap` mode with inline explanation.
 
 ### Changed
+- Updated command palette root mode to use current chat, panel, tab, and settings actions instead of legacy stage and view-switch commands.
+- Split the command palette into command, chat, card, and file-shell modes: `Cmd/Ctrl+K` and `Cmd/Ctrl+Shift+P` search commands, `Cmd/Ctrl+G` searches chats, `Cmd/Ctrl+P` searches cards with filters, and disabled parity rows keep unsupported command affordances visible.
 - Card Stage history now opens as an app-shell version-history modal with post-change card snapshot previews rendered through the read-only NFM editor surface.
 - Codex thread previews now prefer the first user message from available transcript history, so thread mention fallback labels and thread pickers reflect the original request instead of the latest assistant response.
 - Project names are now display-only: renaming a project no longer changes its stable server-generated UUID.

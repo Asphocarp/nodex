@@ -913,3 +913,7 @@ export function resolveCodexNewChatShortcutLabel() {
 export function resolveCodexCommandPaletteShortcutLabel() {
   return isMacPlatform() ? "⌘K" : "Ctrl+K";
 }
+
+export function resolveCodexCardSearchShortcutLabel() {
+  return isMacPlatform() ? "⌘P" : "Ctrl+P";
+}

@@ -56,6 +56,7 @@ function makeActions(overrides: Partial<WorkbenchShortcutActions> = {}): Workben
     onRequestTaskSearch: () => {},
     onRequestThreadSearch: () => {},
     onRequestSettingsToggle: () => {},
+    onRequestKeyboardShortcuts: () => {},
     ...overrides,
   };
 }
@@ -292,11 +293,11 @@ describe("handleWorkbenchShortcut", () => {
     expect(called).toBeTrue();
   });
 
-  test("Cmd+P also opens the command palette", () => {
-    let called = false;
+  test("Cmd+P opens cards search", () => {
+    let mode = "";
     const actions = makeActions({
-      onRequestCommandPalette: () => {
-        called = true;
+      onRequestCommandPalette: (request) => {
+        mode = request?.mode ?? "";
       },
     });
 
@@ -314,14 +315,16 @@ describe("handleWorkbenchShortcut", () => {
     );
 
     expect(handled).toBeTrue();
-    expect(called).toBeTrue();
+    expect(mode).toBe("cards");
   });
 
-  test("Cmd+P opens the command palette inside editable targets", () => {
+  test("Cmd+P opens cards search inside editable targets", () => {
     let calls = 0;
+    let mode = "";
     const actions = makeActions({
-      onRequestCommandPalette: () => {
+      onRequestCommandPalette: (request) => {
         calls += 1;
+        mode = request?.mode ?? "";
       },
     });
 
@@ -340,9 +343,35 @@ describe("handleWorkbenchShortcut", () => {
       );
 
       expect(handled).toBeTrue();
+      expect(mode).toBe("cards");
     }
 
     expect(calls).toBe(3);
+  });
+
+  test("Cmd+G opens chats search", () => {
+    let mode = "";
+    const actions = makeActions({
+      onRequestCommandPalette: (request) => {
+        mode = request?.mode ?? "";
+      },
+    });
+
+    const handled = handleWorkbenchShortcut(
+      {
+        key: "g",
+        ctrlKey: false,
+        metaKey: true,
+        shiftKey: false,
+        altKey: false,
+        target: null,
+      },
+      actions,
+      true,
+    );
+
+    expect(handled).toBeTrue();
+    expect(mode).toBe("chats");
   });
 
   test("Cmd+B toggles the sidebar from non-editable shell focus", () => {
@@ -607,6 +636,57 @@ describe("handleWorkbenchShortcut", () => {
     expect(opened).toBeTrue();
   });
 
+  test("Cmd+Shift+slash opens keyboard shortcuts settings globally", () => {
+    let called = false;
+    const actions = makeActions({
+      onRequestKeyboardShortcuts: () => {
+        called = true;
+      },
+    });
+
+    const handled = handleWorkbenchShortcut(
+      {
+        key: "/",
+        ctrlKey: false,
+        metaKey: true,
+        shiftKey: true,
+        altKey: false,
+        target: makeInputTarget(),
+      },
+      actions,
+      true,
+    );
+
+    expect(handled).toBeTrue();
+    expect(called).toBeTrue();
+  });
+
+  test("custom command keymap shortcut opens keyboard shortcuts settings", () => {
+    let opened = false;
+    const actions = makeActions({
+      onRequestKeyboardShortcuts: () => {
+        opened = true;
+      },
+      commandKeymapState: createCommandKeymapState({ showKeyboardShortcuts: ["CmdOrCtrl+Alt+/"] }, "macOS"),
+    });
+
+    const handled = handleWorkbenchShortcut(
+      {
+        key: "/",
+        ctrlKey: false,
+        metaKey: true,
+        shiftKey: false,
+        altKey: true,
+        target: null,
+      },
+      actions,
+      true,
+    );
+
+    expect(handled).toBeTrue();
+    expect(opened).toBeTrue();
+  });
+
   test("Cmd+H shifts the sliding window left", () => {
     let direction: -1 | 1 | null = null;
     const actions = makeActions({ shiftSlidingWindow: (_, next) => (direction = next) });
@@ -670,9 +750,9 @@ describe("handleWorkbenchShortcut", () => {
     expect(selectedProjectIndex).toBe(1);
   });
 
-  test("Cmd+Shift+P opens command search with a > seed", () => {
-    let query: string | undefined;
-    const actions = makeActions({ onRequestCommandPalette: (initialQuery) => (query = initialQuery) });
+  test("Cmd+Shift+P opens root command search", () => {
+    let mode = "";
+    const actions = makeActions({ onRequestCommandPalette: (request) => (mode = request?.mode ?? "") });
 
     const handled = handleWorkbenchShortcut(
       {
@@ -688,7 +768,7 @@ describe("handleWorkbenchShortcut", () => {
     );
 
     expect(handled).toBeTrue();
-    expect(query).toBe(">");
+    expect(mode).toBe("root");
   });
 
   test("Cmd+F opens task search for active project", () => {
@@ -787,10 +867,10 @@ describe("handleWorkbenchShortcut", () => {
     expect(direction).toBe(1);
   });
 
-  test("Cmd+Shift+P opens command search inside NFM editor target", () => {
-    let query: string | undefined;
+  test("Cmd+Shift+P opens root command search inside NFM editor target", () => {
+    let mode = "";
     const target = makeNfmEditorTarget();
-    const actions = makeActions({ onRequestCommandPalette: (initialQuery) => (query = initialQuery) });
+    const actions = makeActions({ onRequestCommandPalette: (request) => (mode = request?.mode ?? "") });
 
     const handled = handleWorkbenchShortcut(
       {
@@ -806,16 +886,16 @@ describe("handleWorkbenchShortcut", () => {
     );
 
     expect(handled).toBeTrue();
-    expect(query).toBe(">");
+    expect(mode).toBe("root");
   });
 
-  test("Cmd+Shift+P opens command search inside plain inputs and composer targets", () => {
+  test("Cmd+Shift+P opens root command search inside plain inputs and composer targets", () => {
     let calls = 0;
-    let lastQuery: string | undefined;
+    let lastMode = "";
     const actions = makeActions({
-      onRequestCommandPalette: (initialQuery) => {
+      onRequestCommandPalette: (request) => {
         calls += 1;
-        lastQuery = initialQuery;
+        lastMode = request?.mode ?? "";
       },
     });
 
@@ -834,7 +914,7 @@ describe("handleWorkbenchShortcut", () => {
       );
 
       expect(handled).toBeTrue();
-      expect(lastQuery).toBe(">");
+      expect(lastMode).toBe("root");
     }
 
     expect(calls).toBe(2);

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   applyCommandKeybindingUpdate,
+  CODEX_COMMAND_REGISTRY,
   createCommandKeymapState,
   findCommandKeybindingConflict,
   formatAcceleratorLabel,
@@ -97,5 +98,17 @@ describe("command keybindings", () => {
       threw = true;
     }
     expect(threw).toBeTrue();
+  });
+
+  test("uses current command palette labels and hides unavailable shell commands", () => {
+    const byId = new Map(CODEX_COMMAND_REGISTRY.map((entry) => [entry.id, entry]));
+
+    expect(byId.get("searchCards")?.title).toBe("Search cards");
+    expect(byId.get("searchFiles")?.title).toBe("Search files");
+    expect(byId.get("openCommandMenu")?.title).toBe("Open command palette");
+    expect(byId.get("toggleTerminal")?.title).toBe("Open terminal tab");
+    expect(byId.get("searchChats")?.available).toBeTrue();
+    expect(byId.get("searchFiles")?.available).toBeFalse();
+    expect(byId.get("toggleBrowserPanel")?.available).toBeFalse();
   });
 });

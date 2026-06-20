@@ -1,11 +1,22 @@
 import { describe, expect, mock, test } from "bun:test";
 import { createElement } from "react";
 import { fireEvent } from "@testing-library/react";
-import type { CommandPaletteCard, CommandPaletteCommand } from "@/lib/command-palette";
+import type {
+  CommandPaletteCard,
+  CommandPaletteCommand,
+  CommandPaletteThread,
+} from "@/lib/command-palette";
 import { getDefaultCommandPaletteCardFilters } from "@/lib/command-palette";
+import {
+  buildCommandPaletteCommands,
+  OPEN_DB_VIEW_TAB_COMMAND_ID,
+  type CommandPaletteShellCommandContext,
+} from "@/lib/command-palette-commands";
 import type { CardSummary } from "@/lib/types";
 import { createCommandPaletteCardSearchIndex } from "../../lib/command-palette-card-search";
+import { createCommandPaletteThreadSearchIndex } from "../../lib/command-palette-thread-search";
 import { render, settleAsyncRender, textContent } from "../../test/dom";
+import { createCommandKeymapState } from "../../../shared/command-keybindings";
 import {
   RENAME_THREAD_COMMAND_ID,
   TOGGLE_SIDEBAR_COMMAND_ID,
@@ -23,23 +34,74 @@ mock.module("./toggle-list-icon", () => ({
   ToggleListIcon: ({ className }: { className?: string }) => createElement("span", { className }, "L"),
 }));
 
-describe("buildCommands", () => {
+function makeCommandContext(
+  overrides: Partial<CommandPaletteShellCommandContext> = {},
+): CommandPaletteShellCommandContext {
+  return {
+    canGoBack: true,
+    canGoForward: true,
+    canStartNewChat: true,
+    hasActiveSession: true,
+    activeSessionIsOverview: false,
+    activeSessionPinned: false,
+    hasAttachedThread: true,
+    canOpenSessionInNewWindow: true,
+    isMac: true,
+    ...overrides,
+  };
+}
+
+describe("buildCommandPaletteCommands", () => {
   test("includes the Codex toggleSidebar command with Cmd+B shortcut", async () => {
-    const { buildCommands } = await import("./command-palette");
-    const commands = buildCommands({
-      activeProjectName: "Alpha",
-      activeView: "kanban",
-      focusedStage: "db",
-      canGoBack: false,
-      canGoForward: false,
-      canRenameThread: true,
-      canOpenNewWindow: false,
-      isMac: true,
-    });
+    const commands = buildCommandPaletteCommands(makeCommandContext());
     const sidebarCommand = commands.find((command) => command.id === TOGGLE_SIDEBAR_COMMAND_ID);
 
     expect(sidebarCommand?.title).toBe("Toggle sidebar");
     expect(sidebarCommand?.shortcut).toBe("⌘B");
+  });
+
+  test("omits legacy stage and DB view-switch commands", () => {
+    const commands = buildCommandPaletteCommands(makeCommandContext());
+    const ids = commands.map((command) => command.id).join(",");
+
+    expect(ids.includes("focus-views-stage")).toBeFalse();
+    expect(ids.includes("focus-cards-stage")).toBeFalse();
+    expect(ids.includes("focus-threads-stage")).toBeFalse();
+    expect(ids.includes("focus-diff-stage")).toBeFalse();
+    expect(ids.includes("view-kanban")).toBeFalse();
+    expect(ids.includes("view-list")).toBeFalse();
+    expect(ids.includes("view-toggle-list")).toBeFalse();
+    expect(ids.includes("view-canvas")).toBeFalse();
+    expect(ids.includes("view-calendar")).toBeFalse();
+    expect(ids.includes("open-project-picker")).toBeFalse();
+    expect(ids.includes("search-current-project")).toBeFalse();
+  });
+
+  test("uses custom command-keymap labels for shell commands", () => {
+    const commands = buildCommandPaletteCommands(makeCommandContext({
+      commandKeymapState: createCommandKeymapState({
+        toggleSidebar: ["CmdOrCtrl+Alt+B"],
+      }, "macOS"),
+    }));
+    const sidebarCommand = commands.find((command) => command.id === TOGGLE_SIDEBAR_COMMAND_ID);
+
+    expect(sidebarCommand?.shortcut).toBe("⌘⌥B");
+  });
+
+  test("disables unavailable session and side-chat commands", () => {
+    const overviewCommands = buildCommandPaletteCommands(makeCommandContext({
+      activeSessionIsOverview: true,
+      hasAttachedThread: false,
+    }));
+    const renameCommand = overviewCommands.find((command) => command.id === RENAME_THREAD_COMMAND_ID);
+    const archiveCommand = overviewCommands.find((command) => command.id === "archiveThread");
+    const sideChatCommand = overviewCommands.find((command) => command.id === "openSideChat");
+    const dbViewCommand = overviewCommands.find((command) => command.id === OPEN_DB_VIEW_TAB_COMMAND_ID);
+
+    expect(renameCommand?.disabled).toBeTrue();
+    expect(archiveCommand?.disabled).toBeTrue();
+    expect(sideChatCommand?.disabled).toBeTrue();
+    expect(dbViewCommand?.disabled).toBeFalse();
   });
 });
 
@@ -93,6 +155,44 @@ function makePaletteCard(overrides: Partial<CommandPaletteCard> = {}): CommandPa
   };
 }
 
+function makePaletteThread(overrides: Partial<CommandPaletteThread> = {}): CommandPaletteThread {
+  return {
+    kind: "thread",
+    id: overrides.id ?? "thread:thr-palette",
+    threadId: overrides.threadId ?? "thr-palette",
+    sessionId: overrides.sessionId ?? "session-palette",
+    projectId: overrides.projectId ?? "default",
+    projectName: overrides.projectName ?? "Default",
+    title: overrides.title ?? "Thread transcript search",
+    preview: overrides.preview ?? "Search previous assistant messages from the command palette.",
+    cwd: overrides.cwd ?? "/tmp/default",
+    statusType: overrides.statusType ?? "notLoaded",
+    statusActiveFlags: overrides.statusActiveFlags ?? [],
+    createdAt: overrides.createdAt ?? 1_781_990_400,
+    updatedAt: overrides.updatedAt ?? 1_781_990_400,
+    linkedAt: overrides.linkedAt ?? "2026-06-20T00:00:00.000Z",
+    inActiveProject: overrides.inActiveProject ?? true,
+    searchPreview: overrides.searchPreview,
+    searchDecorations: overrides.searchDecorations,
+  };
+}
+
+function makePaletteCommand(overrides: Partial<CommandPaletteCommand> = {}): CommandPaletteCommand {
+  return {
+    kind: "command",
+    id: overrides.id ?? "settings",
+    group: overrides.group ?? "Configure",
+    title: overrides.title ?? "Settings",
+    subtitle: overrides.subtitle ?? "Open settings",
+    keywords: overrides.keywords ?? ["settings"],
+    shortcut: overrides.shortcut,
+    active: overrides.active,
+    disabled: overrides.disabled,
+    mockReason: overrides.mockReason,
+    priority: overrides.priority ?? 100,
+  };
+}
+
 describe("CommandPaletteSurface", () => {
   test("opens the top fuzzy description match when the selected result is activated", async () => {
     const { CommandPaletteSurface } = await import("./command-palette-surface");
@@ -111,15 +211,19 @@ describe("CommandPaletteSurface", () => {
       <CommandPaletteSurface
         open
         openTriggerTick={1}
+        mode="cards"
         initialQuery="search indexer"
         commands={[]}
         cards={cards}
         cardSearchIndex={createCommandPaletteCardSearchIndex(cards)}
         loading={false}
+        cardsLoading={false}
+        chatsLoading={false}
+        onChangeMode={() => undefined}
         onRequestClose={() => {
           closeCalls.push(1);
         }}
-        onExecute={(item: CommandPaletteCard | CommandPaletteCommand) => {
+        onExecute={(item: CommandPaletteCard | CommandPaletteCommand | CommandPaletteThread) => {
           if (item.kind !== "card") {
             return;
           }
@@ -140,22 +244,21 @@ describe("CommandPaletteSurface", () => {
     expect(executedItems[0]?.card.id).toBe("card-1");
   });
 
-  test("seeds command mode when an initial > query is provided", async () => {
+  test("root mode searches commands without the legacy > prefix", async () => {
     const { CommandPaletteSurface } = await import("./command-palette-surface");
     const { container, getByLabelText } = render(
       <CommandPaletteSurface
         open
         openTriggerTick={2}
-        initialQuery=">"
+        mode="root"
+        initialQuery="settings"
         commands={[
-          {
-            kind: "command",
-            id: "open-settings",
-            title: "Open settings",
+          makePaletteCommand({
+            id: "settings",
+            title: "Settings",
             subtitle: "App preferences",
             keywords: ["settings", "preferences"],
-            priority: 100,
-          },
+          }),
         ]}
         cards={[
           makePaletteCard({
@@ -168,6 +271,9 @@ describe("CommandPaletteSurface", () => {
         ]}
         cardSearchIndex={createCommandPaletteCardSearchIndex([])}
         loading={false}
+        cardsLoading={false}
+        chatsLoading={false}
+        onChangeMode={() => undefined}
         onRequestClose={() => undefined}
         onExecute={() => undefined}
       />,
@@ -177,10 +283,175 @@ describe("CommandPaletteSurface", () => {
 
     const input = getByLabelText("Command palette search") as HTMLInputElement;
     const resultButtons = Array.from(container.querySelectorAll('button[cmdk-item]'));
-    expect(input.value).toBe(">");
-    expect(container.querySelectorAll("kbd").length).toBe(0);
+    expect(input.value).toBe("settings");
     expect(resultButtons.length).toBe(1);
     expect(textContent(container).includes("Misc task")).toBeFalse();
+    expect(textContent(container).includes("Settings")).toBeTrue();
+  });
+
+  test("renders and executes chat results from chats mode", async () => {
+    const { CommandPaletteSurface } = await import("./command-palette-surface");
+    const executedItems: CommandPaletteThread[] = [];
+    const closeCalls: number[] = [];
+    const threads = [
+      makePaletteThread({
+        threadId: "thr-thread-search",
+        id: "thread:thr-thread-search",
+        title: "Thread transcript search",
+        preview: "Search previous assistant messages from the command palette.",
+      }),
+    ];
+    const { container } = render(
+      <CommandPaletteSurface
+        open
+        openTriggerTick={5}
+        mode="chats"
+        initialQuery="thread transcript"
+        commands={[]}
+        cards={[]}
+        threads={threads}
+        cardSearchIndex={createCommandPaletteCardSearchIndex([])}
+        threadSearchIndex={createCommandPaletteThreadSearchIndex(threads)}
+        loading={false}
+        cardsLoading={false}
+        chatsLoading={false}
+        onChangeMode={() => undefined}
+        onRequestClose={() => {
+          closeCalls.push(1);
+        }}
+        onExecute={(item: CommandPaletteCard | CommandPaletteCommand | CommandPaletteThread) => {
+          if (item.kind === "thread") executedItems.push(item);
+        }}
+      />,
+    );
+
+    await settleAsyncRender();
+
+    const topResult = container.querySelector('button[cmdk-item][data-selected="true"]');
+    expect(textContent(container).includes("Chats")).toBeTrue();
+    expect(textContent(container).includes("Thread transcript search")).toBeTrue();
+    expect(topResult).not.toBeNull();
+    fireEvent.click(topResult as HTMLElement);
+
+    expect(closeCalls.length).toBe(1);
+    expect(executedItems.length).toBe(1);
+    expect(executedItems[0]?.threadId).toBe("thr-thread-search");
+  });
+
+  test("cards mode does not render chat results", async () => {
+    const { CommandPaletteSurface } = await import("./command-palette-surface");
+    const cards = [
+      makePaletteCard({
+        card: makeCard({
+          id: "card-thread-search",
+          title: "Thread transcript card",
+          descriptionPreview: "Card notes about thread transcript search.",
+        }),
+      }),
+    ];
+    const threads = [
+      makePaletteThread({
+        threadId: "thr-thread-search",
+        id: "thread:thr-thread-search",
+        title: "Thread transcript session",
+        preview: "Search previous assistant messages from the command palette.",
+      }),
+    ];
+    const { container } = render(
+      <CommandPaletteSurface
+        open
+        openTriggerTick={6}
+        mode="cards"
+        initialQuery="thread transcript"
+        commands={[]}
+        cards={cards}
+        threads={threads}
+        cardSearchIndex={createCommandPaletteCardSearchIndex(cards)}
+        threadSearchIndex={createCommandPaletteThreadSearchIndex(threads)}
+        loading={false}
+        cardsLoading={false}
+        chatsLoading={false}
+        onChangeMode={() => undefined}
+        onRequestClose={() => undefined}
+        onExecute={() => undefined}
+      />,
+    );
+
+    await settleAsyncRender();
+
+    const resultButtons = Array.from(container.querySelectorAll('button[cmdk-item]'));
+    expect(resultButtons.length).toBe(1);
+    expect(textContent(container).includes("Thread transcript session")).toBeFalse();
+    expect(textContent(container).includes("Thread transcript card")).toBeTrue();
+  });
+
+  test("skips disabled commands and updates aria-activedescendant during keyboard navigation", async () => {
+    const { CommandPaletteSurface } = await import("./command-palette-surface");
+    const executedItems: CommandPaletteCommand[] = [];
+    const { container, getByLabelText } = render(
+      <CommandPaletteSurface
+        open
+        openTriggerTick={4}
+        mode="root"
+        initialQuery=""
+        commands={[
+          makePaletteCommand({
+            id: "disabled-command",
+            title: "Disabled command",
+            subtitle: "Cannot run",
+            keywords: ["disabled"],
+            disabled: true,
+            priority: 300,
+          }),
+          makePaletteCommand({
+            id: "forward-command",
+            title: "Forward command",
+            subtitle: "Can run",
+            keywords: ["forward"],
+            priority: 200,
+          }),
+          makePaletteCommand({
+            id: "settings",
+            title: "Settings",
+            subtitle: "Can run",
+            keywords: ["settings"],
+            priority: 100,
+          }),
+        ]}
+        cards={[]}
+        cardSearchIndex={createCommandPaletteCardSearchIndex([])}
+        loading={false}
+        cardsLoading={false}
+        chatsLoading={false}
+        onChangeMode={() => undefined}
+        onRequestClose={() => undefined}
+        onExecute={(item: CommandPaletteCard | CommandPaletteCommand | CommandPaletteThread) => {
+          if (item.kind === "command") executedItems.push(item);
+        }}
+      />,
+    );
+
+    await settleAsyncRender();
+
+    const input = getByLabelText("Command palette search") as HTMLInputElement;
+    const firstActiveId = input.getAttribute("aria-activedescendant");
+    const firstActive = firstActiveId ? container.querySelector(`[id="${firstActiveId}"]`) : null;
+
+    expect(firstActiveId !== null).toBeTrue();
+    expect(firstActive?.textContent?.includes("Forward command")).toBeTrue();
+
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    await settleAsyncRender();
+
+    const nextActiveId = input.getAttribute("aria-activedescendant");
+    const nextActive = nextActiveId ? container.querySelector(`[id="${nextActiveId}"]`) : null;
+
+    expect(nextActiveId !== firstActiveId).toBeTrue();
+    expect(nextActive?.textContent?.includes("Settings")).toBeTrue();
+
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(executedItems.length).toBe(1);
+    expect(executedItems[0]?.id).toBe("settings");
   });
 
   test("renders the filter button on the search-input row", async () => {
@@ -212,11 +483,15 @@ describe("CommandPaletteSurface", () => {
       <CommandPaletteSurface
         open
         openTriggerTick={3}
+        mode="cards"
         initialQuery="queue"
         commands={[]}
         cards={cards}
         cardSearchIndex={createCommandPaletteCardSearchIndex(cards)}
         loading={false}
+        cardsLoading={false}
+        chatsLoading={false}
+        onChangeMode={() => undefined}
         onRequestClose={() => undefined}
         onExecute={() => undefined}
       />,
@@ -252,22 +527,16 @@ describe("CommandPaletteSurface", () => {
   });
 });
 
-describe("buildCommands", () => {
+describe("buildCommandPaletteCommands navigation", () => {
   test("builds Codex navigation commands with exact ids, labels, shortcuts, and disabled states", async () => {
-    const { buildCommands } = await import("./command-palette");
-    const commands = buildCommands({
-      activeProjectName: "Alpha",
-      activeView: "kanban",
-      focusedStage: "db",
+    const commands = buildCommandPaletteCommands(makeCommandContext({
       canGoBack: false,
       canGoForward: true,
-      canRenameThread: true,
-      canOpenNewWindow: false,
       isMac: true,
-    });
+    }));
 
-    const backCommand = commands[0];
-    const forwardCommand = commands[1];
+    const backCommand = commands.find((command) => command.id === "navigateBack");
+    const forwardCommand = commands.find((command) => command.id === "navigateForward");
 
     expect(backCommand?.id).toBe("navigateBack");
     expect(backCommand?.title).toBe("Back");
@@ -280,44 +549,28 @@ describe("buildCommands", () => {
   });
 
   test("builds non-mac navigation shortcut labels", async () => {
-    const { buildCommands } = await import("./command-palette");
-    const commands = buildCommands({
-      activeProjectName: "Alpha",
-      activeView: "kanban",
-      focusedStage: "db",
+    const commands = buildCommandPaletteCommands(makeCommandContext({
       canGoBack: true,
       canGoForward: true,
-      canRenameThread: true,
-      canOpenNewWindow: false,
       isMac: false,
-    });
+    }));
 
-    expect(commands[0]?.shortcut).toBe("Ctrl+[");
-    expect(commands[1]?.shortcut).toBe("Ctrl+]");
+    expect(commands.find((command) => command.id === "navigateBack")?.shortcut).toBe("Ctrl+[");
+    expect(commands.find((command) => command.id === "navigateForward")?.shortcut).toBe("Ctrl+]");
   });
 
   test("builds the Codex renameThread command with shortcut and disabled state", async () => {
-    const { buildCommands } = await import("./command-palette");
-    const enabledCommands = buildCommands({
-      activeProjectName: "Alpha",
-      activeView: "kanban",
-      focusedStage: "threads",
+    const enabledCommands = buildCommandPaletteCommands(makeCommandContext({
       canGoBack: true,
       canGoForward: true,
-      canRenameThread: true,
-      canOpenNewWindow: false,
       isMac: true,
-    });
-    const disabledCommands = buildCommands({
-      activeProjectName: "Alpha",
-      activeView: "kanban",
-      focusedStage: "threads",
+    }));
+    const disabledCommands = buildCommandPaletteCommands(makeCommandContext({
       canGoBack: true,
       canGoForward: true,
-      canRenameThread: false,
-      canOpenNewWindow: false,
+      activeSessionIsOverview: true,
       isMac: false,
-    });
+    }));
     const enabled = enabledCommands.find((command) => command.id === RENAME_THREAD_COMMAND_ID);
     const disabled = disabledCommands.find((command) => command.id === RENAME_THREAD_COMMAND_ID);
 

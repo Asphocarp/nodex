@@ -18,9 +18,10 @@ The editable settings tab covers Nodex-supported command ids only. Editor-native
 | `Shift+Wheel` | Native horizontal scrolling | Calendar view still claims this gesture for day navigation where applicable |
 | `⌘/Ctrl+1`–`4` | Legacy stage jump | Retained by the shortcut hook while project/session/tab shortcuts are rebuilt |
 | `⌘/Ctrl+Alt+1`–`9` | Jump to project by index | First 9 projects in shell/sidebar order (disabled while focus is in NFM editor because `⌘/Ctrl+Alt+1`–`4` are editor heading shortcuts) |
-| `⌘/Ctrl+Shift+P` | Search commands | Opens the global palette with `>` already seeded, so it starts in command mode; works from editable surfaces too |
-| `⌘/Ctrl+K` | Open command palette | Global launcher for cards; type `>` to switch into command search; works from editable surfaces too |
-| `⌘/Ctrl+P` | Search files / command palette | Editable command-keymap command; currently opens the global launcher in Nodex |
+| `⌘/Ctrl+Shift+P` | Search commands | Opens the global command palette in root command mode; works from editable surfaces too |
+| `⌘/Ctrl+K` | Search commands | Opens the global command palette in root command mode; works from editable surfaces too |
+| `⌘/Ctrl+G` | Search chats | Opens the global palette in chat-search mode |
+| `⌘/Ctrl+P` | Search cards | Opens the global palette in card-search mode, including the card filter controls |
 | `⌘/Ctrl+[` | Back | Restores the previous shell-owned project/session/panel context; works from editable surfaces too |
 | `⌘/Ctrl+]` | Forward | Restores the next shell-owned project/session/panel context; works from editable surfaces too |
 | `⌘/Ctrl+Shift+A` | Archive chat | Archives the active non-Overview project session |
@@ -35,7 +36,7 @@ The editable settings tab covers Nodex-supported command ids only. Editor-native
 | `⌘/Ctrl+,` | Toggle settings route | Opens/closes the full-window settings route shell |
 | `⌘/Ctrl+Shift+N` | Open new app window | Electron desktop only (`window:new` IPC); ignored in browser runtime |
 | `⌘/Ctrl+Shift+W` | Close app window | Electron desktop only; kept distinct from `⌘/Ctrl+W` close-panel-tab |
-| `⌘/Ctrl+F` | Open search for the focused stage | In Threads, opens `Find in thread`; in Diffs, opens `Find in review`; otherwise opens the Views-stage floating task search. Thread and review search can open even when focus is inside their stage content |
+| `⌘/Ctrl+F` | Find in active thread, review, or DB surface | In Threads, opens `Find in thread`; in Reviews, opens `Find in review`; otherwise opens the active DB surface task search. Thread and review search can open even when focus is inside their content |
 | `⌘/Ctrl+L` | Focus browser address bar | Focuses and selects the active Browser tab address field when one is mounted |
 
 ## Project Session Panels
@@ -125,7 +126,7 @@ Panel action shortcuts are ignored from editable targets and dialog surfaces. Fo
 
 The editable command registry and accelerator helpers live in `src/shared/command-keybindings.ts`. Renderer query/mutation state uses `codex-command-keymap-state`, `set-codex-command-keybinding`, and `reset-codex-command-keybindings`; main-process persistence writes user overrides to `~/.nodex/config.toml`.
 
-Workbench navigation keyboard and mouse shortcuts are classified in `src/renderer/lib/use-workbench-shortcuts.ts`, then routed into the shell-owned Back/Forward executor in `src/renderer/components/workbench/workbench-shell.tsx`. Project-session panel shortcuts, including focused right/bottom panel tab cycling and close-tab, are owned by `WorkbenchShell` because they depend on the active session, focused panel leaf, renderer-local tab MRU, and tab registry. Desktop menu accelerators for focused panel tab commands enter that same shell-owned path through command requests, so the shortcut still works when Chromium does not deliver a useful panel-leaf key target. The remaining stage-focused shortcuts are legacy compatibility outside the editable command registry.
+Workbench navigation keyboard and mouse shortcuts are classified in `src/renderer/lib/use-workbench-shortcuts.ts`, then routed into the shell-owned Back/Forward executor in `src/renderer/components/workbench/workbench-shell.tsx`. Project-session panel shortcuts, including focused right/bottom panel tab cycling and close-tab, are owned by `WorkbenchShell` because they depend on the active session, focused panel leaf, renderer-local tab MRU, and tab registry. Desktop menu accelerators for focused panel tab commands enter that same shell-owned path through command requests, so the shortcut still works when Chromium does not deliver a useful panel-leaf key target. Legacy stage-focused shortcuts remain compatibility-only and should stay outside the command palette root mode while the shortcut model is rebuilt around sessions, panels, and tabs.
 Undo/redo shortcuts are in `src/renderer/lib/use-keyboard-shortcuts.ts`.
 Editor shortcuts are in `src/renderer/components/kanban/editor/nfm-editor-extensions.ts` and `nfm-editor.tsx`.
 Terminal panel shortcut routing is in `src/renderer/lib/use-workbench-shortcuts.ts`.
